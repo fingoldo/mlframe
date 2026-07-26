@@ -28,6 +28,7 @@ from typing import Any, Sequence
 import numpy as np
 
 from .._cv_aggregation import compute_pareto_frontier, select_from_pareto
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -108,11 +109,14 @@ def generate_pareto_artifact(
                         out_path, means, stds, pareto_idx, best_iter, alt_picks, title=title, monitor_metric_name=monitor_metric_name, direction=direction
                     )
                 else:
-                    logger.warning("Unknown Pareto plot backend %r; skipping", backend)
+                    log_throttle(logger, "slice_pareto_unknown_backend", logging.WARNING, "Unknown Pareto plot backend %r; skipping", backend)
                     continue
                 saved_paths[backend] = out_path
             except Exception as exc:
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "slice_pareto_plot_failed",
+                    logging.WARNING,
                     "slice-stable Pareto plot %s/%s failed for target=%s model=%s: %s",
                     backend, fmt, target_name, model_name, exc,
                 )

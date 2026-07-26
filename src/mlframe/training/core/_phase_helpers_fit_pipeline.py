@@ -40,6 +40,7 @@ from ..pipeline import (
     apply_preprocessing_extensions, fit_and_transform_pipeline,
 )
 from ._phase_helpers_fit_split import FitPipelineResult
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.core._phase_helpers_fit_split")
 
@@ -650,7 +651,10 @@ def _phase_fit_pipeline(
                     if _pd_df.shape[0] != _pl_df.shape[0]:
                         # Row counts must match; otherwise the join could mis-align silently.
                         if verbose:
-                            logger.warning(
+                            log_throttle(
+                                logger,
+                                "polars_pre_extension_row_mismatch",
+                                logging.WARNING,
                                 "polars-pre %s frame row mismatch for extension columns "
                                 "(pd=%d, pl=%d); skipping back-merge for this split.",
                                 _label, _pd_df.shape[0], _pl_df.shape[0],
@@ -672,7 +676,10 @@ def _phase_fit_pipeline(
                             test_df_polars_pre = _merged
                     except Exception as _exc:
                         if verbose:
-                            logger.warning(
+                            log_throttle(
+                                logger,
+                                "polars_pre_extension_backmerge_failed",
+                                logging.WARNING,
                                 "Failed to back-merge extension columns into polars-pre %s frame: %s",
                                 _label, _exc,
                             )

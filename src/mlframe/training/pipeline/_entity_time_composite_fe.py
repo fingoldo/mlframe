@@ -21,6 +21,7 @@ import polars as pl
 
 from mlframe.feature_engineering.recency_aggregation import per_group_recency_weighted_agg
 from mlframe.feature_engineering.state_duration import time_since_state_change
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +125,7 @@ def apply_entity_time_composite_fe(
                 for out_name, out_vals in result.items():
                     new_cols[f"{col}__{out_name}"] = out_vals
             except Exception:
-                logger.warning("apply_entity_time_composite_fe: state_duration step failed for column %r; skipping.", col, exc_info=True)
+                log_throttle(logger, "entity_time_fe_state_duration_failed", logging.ERROR, "apply_entity_time_composite_fe: state_duration step failed for column %r; skipping.", col, exc_info=True)
 
         for col in recency_cols:
             vals = _to_numpy_column(df, col)
@@ -140,7 +141,7 @@ def apply_entity_time_composite_fe(
                 )
                 new_cols[f"{col}__recency_{agg}"] = recency_vals
             except Exception:
-                logger.warning("apply_entity_time_composite_fe: recency_aggregation step failed for column %r; skipping.", col, exc_info=True)
+                log_throttle(logger, "entity_time_fe_recency_aggregation_failed", logging.ERROR, "apply_entity_time_composite_fe: recency_aggregation step failed for column %r; skipping.", col, exc_info=True)
 
         out[split_name] = _attach_new_columns(df, new_cols)
         if verbose and new_cols.shape[1] > 0:

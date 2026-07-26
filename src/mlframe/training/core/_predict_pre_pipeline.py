@@ -18,6 +18,7 @@ import polars as pl
 
 from ..cb import _predict_with_fallback
 from ..utils import get_pandas_view_of_polars_df
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.core.predict")
 
@@ -431,7 +432,10 @@ def _apply_pre_pipeline_with_passthrough(
                     else:
                         _stashed_passthrough[_pc] = _src_for_stash[_pc].reset_index(drop=True)
                 except (KeyError, AttributeError, ValueError, TypeError) as _stash_err:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                    logger.warning(
+                    log_throttle(
+                        logger,
+                        "predict_passthrough_stash_failed",
+                        logging.WARNING,
                         "predict_from_models: %s passthrough col %r failed to stash "
                         "(%s: %s); downstream model will receive a frame missing this "
                         "column. Predictions on rows whose pre-fit pipeline depended on "
@@ -455,7 +459,10 @@ def _apply_pre_pipeline_with_passthrough(
                         _vals_aligned = _vals_aligned.reset_index(drop=True)
                     input_for_model[_pc] = _vals_aligned
                 except (KeyError, ValueError, TypeError) as _reattach_err:
-                    logger.warning(
+                    log_throttle(
+                        logger,
+                        "predict_passthrough_reattach_failed",
+                        logging.WARNING,
                         "predict_from_models: %s passthrough col %r stashed but "
                         "failed to re-attach after pre_pipeline.transform "
                         "(%s: %s); model will see a frame missing this column.",

@@ -16,6 +16,7 @@ import pandas as pd
 import polars as pl
 
 from mlframe.feature_engineering.cross_sectional_neighbors import compute_cross_sectional_neighbor_features
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +91,10 @@ def apply_cross_sectional_composite_fe(
             continue
         split_k = min(effective_k, n_snapshots - 1)
         if split_k < effective_k:
-            logger.warning(
+            log_throttle(
+                logger,
+                "cross_sectional_fe_forced_k",
+                logging.WARNING,
                 "apply_cross_sectional_composite_fe[%s]: only %d distinct snapshot(s) (< effective_k=%d + 1 "
                 "derived from train); forcing k=%d for this split.",
                 split_name, n_snapshots, effective_k, split_k,
@@ -105,7 +109,7 @@ def apply_cross_sectional_composite_fe(
             if verbose:
                 logger.info("apply_cross_sectional_composite_fe[%s]: added %d column(s)", split_name, new_cols.shape[1])
         except Exception:
-            logger.warning("apply_cross_sectional_composite_fe: step failed for split %r; skipping.", split_name, exc_info=True)
+            log_throttle(logger, "cross_sectional_fe_step_failed", logging.ERROR, "apply_cross_sectional_composite_fe: step failed for split %r; skipping.", split_name, exc_info=True)
             out[split_name] = df
 
     return out["train"], out["val"], out["test"]

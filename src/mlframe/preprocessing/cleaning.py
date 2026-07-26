@@ -46,6 +46,7 @@ from mlframe.preprocessing.cleaning_helpers import map_elementwise_dedup
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 from mlframe.config import THOUSANDS_SEPARATOR
+from mlframe.utils.log_throttle import log_throttle
 
 # *****************************************************************************************************************************************************
 # INITS
@@ -729,8 +730,12 @@ def analyse_and_clean_features(
                                     # Wave 63 (2026-05-20): collision-detection warning verified
                                     # in production logs; keep as honest WARN, drop the "remove
                                     # once checked" TODO.
-                                    logger.warning(
-                                        "Key %s of feature %s already in features_transforms with value %s!", next_var, col, features_transforms[col][next_var]
+                                    log_throttle(
+                                        logger,
+                                        "cleaning_features_transforms_key_collision",
+                                        logging.WARNING,
+                                        "Key %s of feature %s already in features_transforms with value %s!",
+                                        next_var, col, features_transforms[col][next_var],
                                     )
                                 repl_instructions[next_var] = default_na_val
 
@@ -793,7 +798,7 @@ def analyse_and_clean_features(
                 else:
                     if real_val is None:
                         if verbose:
-                            logger.warning("Non-null value not found in a 2-valued feature %s: %s.", col, col_unique_values)
+                            log_throttle(logger, "cleaning_no_nonnull_in_2valued_feature", logging.WARNING, "Non-null value not found in a 2-valued feature %s: %s.", col, col_unique_values)
                         constant_features.add(col)
             if nunique == 1:
                 # 7. Vars having only one unique value, after all, are constant and must be dropped.

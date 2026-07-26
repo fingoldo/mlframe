@@ -17,6 +17,7 @@ from ...composite.post_shim import PrePipelinePredictShim
 from ..utils import _build_full_column_from_splits
 from .._phase_composite_post_lag_predict import _LagPredictDeployableModel
 from ._post_xt_ensemble_mtr import _build_mtr_per_column_ensemble
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.core._phase_composite_post")
 
@@ -296,7 +297,10 @@ def _build_cross_target_ensemble_for_target(
                     _diff = _pred - _y_train_for_rmse.astype(np.float64)
                     _rmses.append(float(np.sqrt(np.mean(_diff * _diff))))
                 except Exception as _rmse_err:  # noqa: PERF203 -- best-effort per-iteration fault isolation is intentional, not a hoisting candidate
-                    logger.warning(
+                    log_throttle(
+                        logger,
+                        "xt_ensemble_component_score_failed",
+                        logging.WARNING,
                         "[CompositeCrossTargetEnsemble] could not score "
                         "component '%s' on train: %s. Dropping it from "
                         "ensemble weighting (zero weight, not median).",
@@ -1143,7 +1147,10 @@ def _build_cross_target_ensemble_for_target(
                         **_common_split,
                     )
                 except Exception as _split_err:
-                    logger.warning(
+                    log_throttle(
+                        logger,
+                        "xt_ensemble_report_model_perf_failed",
+                        logging.WARNING,
                         "[CompositeCrossTargetEnsemble] target='%s' "
                         "split='%s' report_model_perf failed: %s. "
                         "Continuing without ensemble chart for this split.",

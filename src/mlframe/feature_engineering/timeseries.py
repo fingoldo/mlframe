@@ -28,6 +28,7 @@ from numba import njit
 
 from mlframe.feature_engineering.categorical import get_countaggs_names
 from mlframe.feature_engineering.numerical import get_numaggs_names
+from mlframe.utils.log_throttle import log_throttle
 from pyutilz.parallel import applyfunc_parallel
 from pyutilz.pythonlib import get_human_readable_set_size
 from pyutilz.system import tqdmu
@@ -473,7 +474,7 @@ def compute_splitting_stats(
         try:
             col_idx = numaggs_names.index(col)
         except ValueError:
-            logger.warning("compute_splitting_stats: could not find col=%s in numagg fields", col)
+            log_throttle(logger, "compute_splitting_stats_col_not_found", logging.WARNING, "compute_splitting_stats: could not find col=%s in numagg fields", col)
             continue
 
         # numaggs[col] is a fractional position; map to a row index and CLAMP into [0, len-1].
@@ -682,7 +683,10 @@ def create_and_process_windows(
                 else:
                     windows_l, accumulated_amount = find_next_cumsum_left_index(window_var_values=window_var_values, amount=window_size, right_index=windows_r)
             if window_var and accumulated_amount > 0 and accumulated_amount * 2 < window_size:
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "insufficient_data_for_window",
+                    logging.WARNING,
                     "Insufficient data for window %s of size %s: real size=%s (< %.0f%% threshold)",
                     window_var,
                     window_size,

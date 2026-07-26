@@ -20,6 +20,7 @@ from .utils import (
     _drop_cols_df,
     _validate_input_columns_against_metadata,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.core.predict")
 
@@ -558,7 +559,7 @@ def predict_from_models(
                     # Wave 41 (2026-05-20): twin path at line 995 already uses exc_info=True;
                     # this site was the asymmetric one - lost the traceback for downstream
                     # ensemble-member triage. Mirror the twin.
-                    logger.exception("Error predicting with model %s", model_name)
+                    log_throttle(logger, "predict_error_with_model", logging.ERROR, "Error predicting with model %s", model_name, exc_info=True)
                     _predict_errors.append((model_name, f"{type(e).__name__}: {e}"))
                     continue
 
@@ -603,7 +604,7 @@ def predict_from_models(
                         from ..quantile_postproc import fix_quantile_crossing
                         _combined = fix_quantile_crossing(_combined, _q_alphas, mode="sort")
                     except Exception as _qe:  # best-effort: keeps the unfixed (possibly crossing) quantile probs
-                        logger.warning("predict_from_models: fix_quantile_crossing failed: %s", _qe)
+                        log_throttle(logger, "predict_fix_quantile_crossing_failed", logging.WARNING, "predict_from_models: fix_quantile_crossing failed: %s", _qe)
             results["per_target_probabilities"][_key] = _combined
             _ens_thr = get_decision_threshold(metadata, f"{_tt}|{_tname}", DEFAULT_PROBABILITY_THRESHOLD)
             if _combined.ndim == 2:

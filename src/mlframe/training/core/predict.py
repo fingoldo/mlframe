@@ -21,6 +21,7 @@ from ..utils import get_pandas_view_of_polars_df
 from .utils import (
     _validate_trusted_path,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -342,7 +343,10 @@ def _coerce_cat_dtype_for_lgb_xgb(input_for_model, *, model, cat_features, enum_
                     _pl_cast_exprs.append(pl.col(_cf).cast(pl.Enum(list(_dom)), strict=False))
                 else:
                     # Legacy bundle without persisted enum_domains: fall back to pl.Categorical with a one-time WARN. Categorical participates in the process-wide string cache that grows monotonically; subsequent inference calls accumulate stale categories. Re-train + re-save the bundle to populate enum_domains.
-                    logger.warning(
+                    log_throttle(
+                        logger,
+                        "predict_xgb_polars_categorical_fallback",
+                        logging.WARNING,
                         "predict_from_models: XGB polars cat-cast for %r falling back to pl.Categorical (no enum_domains in bundle). Widens global string cache; re-train+save to persist enum domain.",
                         _cf,
                     )
@@ -612,7 +616,10 @@ def _run_batched(
                 merged[_key] = np.concatenate(_parts, axis=0)
             except ValueError as _ce:
                 _total_rows = sum(len(p) for p in _parts)
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "run_batched_concatenate_failed",
+                    logging.WARNING,
                     "_run_batched: np.concatenate(%r) failed across %d batches (%s); result TRUNCATED to "
                     "batch 0's %d rows (of %d total input rows). Shapes: %s.",
                     _key, len(_parts), _ce, len(_parts[0]), _total_rows, [np.shape(p) for p in _parts],

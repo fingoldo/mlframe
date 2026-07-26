@@ -18,6 +18,8 @@ from typing import Any, Dict, List, NamedTuple, Optional
 
 import polars as pl
 
+from mlframe.utils.log_throttle import log_throttle
+
 
 class PolarsCategoricalFixesResult(NamedTuple):
     """Return shape for ``apply_polars_categorical_fixes`` (H-CORE-20).
@@ -68,7 +70,10 @@ def _cast_utf8_cats_to_categorical(
             else:
                 # Last-resort fallback when caller did not thread an enum domain in (e.g. legacy
                 # caller of _cast_utf8_cats_to_categorical without precomputed_category_union).
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "polars_fixes_categorical_fallback",
+                    logging.WARNING,
                     "Falling back to pl.Categorical cast for column %r -- widens polars global string cache (pl.disable_string_cache() is a no-op in polars 1.x). Supply precomputed_category_union or enable align_polars_categorical_dicts to use pl.Enum.",
                     c,
                 )
@@ -272,7 +277,10 @@ def apply_polars_categorical_fixes(
                     _test_cast_exprs.append((col, pl.col(col).cast(enum_dt, strict=False)))
                 aligned_cols.append((col, len(union_sorted)))
             except Exception as _e:
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "polars_fixes_align_category_dict_failed",
+                    logging.WARNING,
                     "  Failed to align category dict for %s: %s. " "XGB/CB may crash on val-DMatrix if val has unseen categories.",
                     col,
                     _e,

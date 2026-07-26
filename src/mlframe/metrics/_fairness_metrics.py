@@ -30,6 +30,7 @@ import pandas as pd
 
 from pyutilz.pythonlib import sort_dict_by_value
 from mlframe.core.stats import get_tukey_fences_multiplier_for_quantile
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +128,7 @@ def create_fairness_subgroups(
         if len(cats_to_use) > 1:
             subgroups[feature_name] = dict(bins=feature_vals, bins_names=cats_to_use)
         else:
-            logger.warning("Feature %s can't particiate in subgrouping: it has only one bin.", feature_name)
+            log_throttle(logger, "subgroup_feature_single_bin", logging.WARNING, "Feature %s can't particiate in subgrouping: it has only one bin.", feature_name)
 
     return subgroups
 
@@ -208,7 +209,10 @@ def create_fairness_subgroups_indices(
         # length lookup is intrinsically ambiguous: keep the train partition's slot intact and warn,
         # rather than silently overwriting it with a different split's (potentially different) rows.
         if npoints in res and res[npoints] is not fairness_subgroups_indices:
-            logger.warning(
+            log_throttle(
+                logger,
+                "fairness_subgroups_length_collision",
+                logging.WARNING,
                 "Fairness subgroups: split '%s' has the same size (%d) as an earlier split; the "
                 "length-keyed lookup is ambiguous for boosters that distinguish splits only by row "
                 "count. Use the split-name keys ('train'/'val'/'test') for an unambiguous partition.",

@@ -33,6 +33,8 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 _LOW = "low"
@@ -146,7 +148,7 @@ class GatedRegressionMixture(BaseEstimator, RegressorMixin):
         for branch, regressor in ((_LOW, self.low_regressor), (_HIGH, self.high_regressor)):
             mask = route == branch
             if not mask.any():
-                logger.warning("GatedRegressionMixture: branch %s has no routed rows at fit time.", branch)
+                log_throttle(logger, "gated_regression_mixture_branch_no_routed_rows", logging.WARNING, "GatedRegressionMixture: branch %s has no routed rows at fit time.", branch)
                 continue
             X_branch = X.iloc[np.flatnonzero(mask)] if hasattr(X, "iloc") else np.asarray(X)[mask]
             if self.use_gate_feature:
@@ -201,7 +203,10 @@ class GatedRegressionMixture(BaseEstimator, RegressorMixin):
                         f"GatedRegressionMixture.predict: neither branch has a fitted model; cannot predict "
                         f"for {int(mask.sum())} row(s) routed to branch {branch!r}."
                     )
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "gated_regression_mixture_branch_no_fitted_model",
+                    logging.WARNING,
                     "GatedRegressionMixture: branch %s has no fitted model (zero rows routed to it at fit "
                     "time); falling back to branch %s for %d predict-time row(s).",
                     branch, other, int(mask.sum()),

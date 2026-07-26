@@ -25,6 +25,7 @@ import polars as pl
 from typing import Dict, Optional
 
 from ..configs import PreprocessingExtensionsConfig
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.pipeline")
 
@@ -285,7 +286,10 @@ def _apply_pysr_fe(
                     except (TypeError, ValueError):
                         # polars (no inplace=) or unusual frame -- best-effort drop.
                         pass
-            logger.warning(
+            log_throttle(
+                logger,
+                "pysr_equation_skipped",
+                logging.WARNING,
                 "PySR equation idx=%s skipped (col=%s): %s: %s. Train/val/test "
                 "rolled back to keep splits schema-consistent.",
                 idx, col_name, type(_eq_err).__name__, _eq_err,
@@ -799,7 +803,10 @@ def apply_preprocessing_extensions(
             _eff_interaction = True
             _bytes = _proj_bytes(_eff_degree, _eff_interaction)
         while _bytes > _byte_cap and _eff_degree > 1:
-            logger.warning(
+            log_throttle(
+                logger,
+                "pipeline_extensions_polynomial_degree_decrement",
+                logging.WARNING,
                 "apply_preprocessing_extensions: polynomial output still "
                 "%.2f MiB > cap %.2f MiB at degree=%d, interaction_only=%s; "
                 "decrementing degree -> %d.",

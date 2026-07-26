@@ -48,6 +48,7 @@ from pyutilz.system import tqdmu
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
 from mlframe.calibration.policy import _stratified_inner_folds
+from mlframe.utils.log_throttle import log_throttle
 
 # Heavy optional deps (netcal/pycalib pull torch transitively → DLL-load can fail
 # on Windows boxes with mismatched CUDA toolkits). Imported lazily inside
@@ -544,7 +545,10 @@ def compare_postcalibrators(
         if calibrator_name in _seen_names:
             _seen_names[calibrator_name] += 1
             _disambiguated_name = f"{calibrator_name}#{_seen_names[calibrator_name]}"
-            logger.warning(
+            log_throttle(
+                logger,
+                "compare_postcalibrators_name_collision",
+                logging.WARNING,
                 "compare_postcalibrators: calibrator name %r collides with a previously-seen entry; "
                 "renaming this one to %r to avoid silently overwriting its result. Give it a distinguishing "
                 "name/param_str in get_postcalibrators/named_calibrator to fix at the source.",
@@ -613,7 +617,10 @@ def compare_postcalibrators(
             # Elapsed time up to the point of failure -- a calibrator that hangs/is unusually slow
             # before crashing otherwise leaves no partial timing signal to diagnose which one (P2-1).
             _elapsed = timer() - _calibrator_start
-            logger.warning(
+            log_throttle(
+                logger,
+                "compare_postcalibrators_calibrator_failed",
+                logging.ERROR,
                 "compare_postcalibrators: calibrator %s failed to fit/predict after %.3fs and is skipped: %r",
                 calibrator_name,
                 _elapsed,
