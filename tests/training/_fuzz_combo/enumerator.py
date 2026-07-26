@@ -611,6 +611,15 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         row_wise_extreme_columns_enabled_cfg=axes.get("row_wise_extreme_columns_enabled_cfg", True),
         inject_point_mass_cfg=axes.get("inject_point_mass_cfg", False),
         mlframe_models_explicit_cfg=axes.get("mlframe_models_explicit_cfg", True),
+        mrmr_fe_random_fourier_enable_cfg=axes.get("mrmr_fe_random_fourier_enable_cfg", False),
+        mrmr_fe_sir_direction_enable_cfg=axes.get("mrmr_fe_sir_direction_enable_cfg", False),
+        mrmr_fe_lof_enable_cfg=axes.get("mrmr_fe_lof_enable_cfg", False),
+        mrmr_fe_mahalanobis_density_enable_cfg=axes.get("mrmr_fe_mahalanobis_density_enable_cfg", False),
+        mrmr_fe_ordinal_pattern_enable_cfg=axes.get("mrmr_fe_ordinal_pattern_enable_cfg", False),
+        mrmr_fe_conditional_quantile_rank_enable_cfg=axes.get("mrmr_fe_conditional_quantile_rank_enable_cfg", False),
+        mrmr_fe_budget_learning_cfg=axes.get("mrmr_fe_budget_learning_cfg", "auto"),
+        shap_proxied_prescreen_ranking_cfg=axes.get("shap_proxied_prescreen_ranking_cfg", "mean_abs_phi"),
+        composite_gate_kind_cfg=axes.get("composite_gate_kind_cfg", "nnls"),
     )
 
 

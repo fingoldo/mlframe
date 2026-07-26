@@ -813,7 +813,7 @@ def _run_discretize_sweep() -> list:
     (cupy), fastest EQUIVALENT per band. quantile method, no min/max (the cuda path
     computes its own percentiles). Inputs host-resident -> no residency axis. The
     cupy + cpu percentile binning use the same algorithm, so the int8 bins match."""
-    from pyutilz.core.pythonlib import is_cuda_available
+    from .._gpu_policy import cuda_available_for_run
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     def _cpu(arr):
@@ -824,7 +824,7 @@ def _run_discretize_sweep() -> list:
         )
 
     variants = {"cpu": _cpu}
-    if is_cuda_available():
+    if cuda_available_for_run():
         def _cuda(arr):
             """GPU-path timing: the cupy percentile-binning discretize kernel, for crossover comparison against ``_cpu``."""
             return discretize_2d_array_cuda(arr=arr, n_bins=10, method="quantile", dtype=np.int8)
@@ -889,8 +889,8 @@ def discretize_2d_array(
         and _DISCRETIZE_SPEC.choose(n_cells=int(arr.size)) == "cuda"
     ):
         try:
-            from pyutilz.core.pythonlib import is_cuda_available
-            if is_cuda_available():
+            from .._gpu_policy import cuda_available_for_run
+            if cuda_available_for_run():
                 # VRAM guard: ``discretize_2d_array_cuda`` H2D-uploads the WHOLE ``arr``
                 # unconditionally (``d_arr = cp.asarray(arr)``), then ``cp.percentile`` needs a
                 # comparably-sized internal sort/partition scratch buffer on top - at production scale
@@ -997,8 +997,8 @@ def discretize_2d_array_cuda(
         raise RuntimeError("cupy not installed; discretize_2d_array_cuda unavailable") from exc
 
     try:
-        from pyutilz.core.pythonlib import is_cuda_available
-        if not is_cuda_available():
+        from .._gpu_policy import cuda_available_for_run
+        if not cuda_available_for_run():
             raise RuntimeError("CUDA not available on this host")
     except ImportError:
         pass  # fall through; cupy import succeeded so CUDA is likely there

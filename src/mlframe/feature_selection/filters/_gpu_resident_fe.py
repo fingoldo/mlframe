@@ -139,7 +139,15 @@ def fe_gpu_resident_enabled() -> bool:
 def _cuda_present() -> bool:
     """Best-effort CUDA-availability probe for the resident-codes default. Mirrors
     ``batch_mi_noise_gate_gpu._CUDA_AVAIL`` (pyutilz ``is_cuda_available`` -> numba.cuda fallback) without
-    importing the GPU twin at module-import time. Any failure -> False (CPU path, never a regression)."""
+    importing the GPU twin at module-import time. Any failure -> False (CPU path, never a regression).
+
+    The global opt-out is checked first because neither backing probe covers it: numba honours
+    ``CUDA_VISIBLE_DEVICES=""`` but nothing below knows about ``MLFRAME_DISABLE_GPU=1``, so a run that
+    declared no GPU would still engage the whole resident-operand family through this one predicate."""
+    from ._gpu_policy import gpu_globally_disabled
+
+    if gpu_globally_disabled():
+        return False
     try:
         from pyutilz.core.pythonlib import is_cuda_available
         return bool(is_cuda_available())

@@ -39,6 +39,13 @@ def permnull_use_resident(n: int, ncand: int, nperm: int) -> bool:
     no-cupy / lookup failure (caller stays on the exact host njit kernel). Each axis snaps to the nearest
     swept bucket. STRICT GPU mode (``MLFRAME_FE_GPU_STRICT=1``, diagnostic, default OFF) forces the resident
     path: the two paths differ only in FP reduction order (~1e-15) -> selection-equivalent."""
+    # The global GPU opt-out outranks both the tuning cache and STRICT mode: a measured "resident is faster"
+    # verdict says nothing about a run that asked for no GPU at all. Checked live rather than through the
+    # memoised _cuda_usable() probe, which freezes whatever the environment said at its first call.
+    from ._gpu_policy import gpu_globally_disabled
+
+    if gpu_globally_disabled():
+        return False
     try:
         from ._fe_gpu_strict import fe_gpu_strict_enabled
         if fe_gpu_strict_enabled(n=int(n), p=int(ncand)):

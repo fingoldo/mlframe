@@ -980,12 +980,12 @@ def _run_fe_gpu_pairs_mi_sweep() -> list:
     H2D), so the timing is realistic; the GPU variant is bit-identical (verified) so equivalence holds at
     a tight tol. Skips silently (-> []) when CUDA is unavailable."""
     try:
-        from pyutilz.core.pythonlib import is_cuda_available
-        if not is_cuda_available():
+        from ._gpu_policy import cuda_available_for_run
+        if not cuda_available_for_run():
             return []
     except Exception as e:
         import logging
-        logging.getLogger(__name__).debug("_run_fe_gpu_pairs_mi_sweep: is_cuda_available() check failed, skipping the sweep: %s", e)
+        logging.getLogger(__name__).debug("_run_fe_gpu_pairs_mi_sweep: cuda_available_for_run() check failed, skipping the sweep: %s", e)
         return []
     from pyutilz.dev.benchmarking import sweep_backend_grid
     from .discretization import discretize_2d_quantile_batch
@@ -1118,12 +1118,12 @@ def _run_fe_gpu_binning_sweep() -> list:
     (GPU) vs ``discretize_2d_quantile_batch`` (CPU njit). The GPU variant is bit-identical (verified maxdiff
     0) so equivalence holds at a tight tol. Skips silently (-> []) when CUDA is unavailable."""
     try:
-        from pyutilz.core.pythonlib import is_cuda_available
-        if not is_cuda_available():
+        from ._gpu_policy import cuda_available_for_run
+        if not cuda_available_for_run():
             return []
     except Exception as e:
         import logging
-        logging.getLogger(__name__).debug("_run_fe_gpu_binning_sweep: is_cuda_available() check failed, skipping the sweep: %s", e)
+        logging.getLogger(__name__).debug("_run_fe_gpu_binning_sweep: cuda_available_for_run() check failed, skipping the sweep: %s", e)
         return []
     from pyutilz.dev.benchmarking import sweep_backend_grid
     from .discretization import discretize_2d_quantile_batch

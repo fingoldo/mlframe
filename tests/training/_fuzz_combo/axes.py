@@ -1952,4 +1952,23 @@ AXES: dict[str, tuple[Any, ...]] = {
     # requested (that needs an explicit list to append onto).
     "inject_point_mass_cfg": (False, True),
     "mlframe_models_explicit_cfg": (True, False),
+    # 2026-07-25 audit -- 6 unfuzzed MRMR fe_*_enable toggles (same family/pattern as the earlier
+    # 34-toggle sweep), defaults source-verified at HEAD against MRMR.__init__. All gate on
+    # use_mrmr_fs=True; canon-collapse to False outside their gate (combo.py's canonical_key).
+    "mrmr_fe_random_fourier_enable_cfg": (False, True),
+    "mrmr_fe_sir_direction_enable_cfg": (False, True),
+    "mrmr_fe_lof_enable_cfg": (False, True),
+    "mrmr_fe_mahalanobis_density_enable_cfg": (False, True),
+    "mrmr_fe_ordinal_pattern_enable_cfg": (False, True),
+    "mrmr_fe_conditional_quantile_rank_enable_cfg": (False, True),
+    # gt_07 fe_budget_learning (MRMR.__init__): opt-in-once-then-remembered per-dataset-fingerprint
+    # FE budget cache. "auto" (default) probes the cache and no-ops if nothing cached; True forces
+    # learning; False disables -- the "auto" cold-vs-warm-cache probe is a real code branch worth
+    # fuzzing on its own, not collapsible to a boolean.
+    "mrmr_fe_budget_learning_cfg": (False, True, "auto"),
+    # gt_03 phase-1 Banzhaf prescreen ranking (ShapProxiedFS); sibling of the already-fuzzed
+    # shap_proxied_proxy_mode_cfg/refine_mode_cfg axes.
+    "shap_proxied_prescreen_ranking_cfg": ("mean_abs_phi", "banzhaf"),
+    # gt_05 Shapley model-weighting/pruning gate kind for composite target discovery.
+    "composite_gate_kind_cfg": ("nnls", "shapley"),
 }

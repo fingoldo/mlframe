@@ -112,6 +112,13 @@ def shufflegen_use_gpu(n: int, nperm: int) -> bool:
     uses the host gen). ``MLFRAME_FDR_SHUFFLEGEN=gpu`` forces it for an A/B."""
     import os as _os
 
+    # The global GPU opt-out outranks the tuning cache, STRICT mode, and even the explicit
+    # MLFRAME_FDR_SHUFFLEGEN=gpu force - matching the convention the other GPU entry points follow, where a
+    # run that declared "no GPU" wins over any narrower request to use one.
+    from ._gpu_policy import gpu_globally_disabled
+
+    if gpu_globally_disabled():
+        return False
     _force = _os.environ.get("MLFRAME_FDR_SHUFFLEGEN", "")
     if _force == "gpu":
         return True

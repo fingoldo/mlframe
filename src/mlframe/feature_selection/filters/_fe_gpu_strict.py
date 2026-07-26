@@ -173,8 +173,8 @@ def _cuda_usable() -> bool:
             _CUDA_USABLE_CACHE = False
         else:
             try:
-                from pyutilz.core.pythonlib import is_cuda_available
-                _CUDA_USABLE_CACHE = bool(is_cuda_available())
+                from ._gpu_policy import cuda_available_for_run
+                _CUDA_USABLE_CACHE = bool(cuda_available_for_run())
             except Exception:
                 try:
                     from numba import cuda as _c
