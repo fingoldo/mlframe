@@ -225,3 +225,27 @@ def test_categorical_dtype_cat_predict_routes_unseen_without_setitem_error():
     X_new["c"] = pd.Categorical(np.full(n, 999))  # an all-UNSEEN level -> every cell routes to the reserved unknown code
     preds2 = np.asarray(reg.predict(X_new))
     assert preds2.shape == (n,) and np.all(np.isfinite(preds2))
+
+
+def test_predict_time_object_dtype_on_fit_time_numeric_column_is_coerced_not_raised():
+    """Regression (bug-hunt batch 25, MLP + mrmr + polars_nullable + ocsvm): a column that is fully NUMERIC at fit
+    time (never named in ``cat_features``, so ``_factorize_cats_fit`` never embeds it) can arrive with a stray
+    categorical null-fill sentinel string (the ``"__MISSING__"`` convention, e.g. from a split-dependent fill) at
+    predict time only. ``_apply_cat_codes`` previously only replayed the columns it KNEW about from fit and left
+    everything else untouched, so this column stayed object dtype all the way to ``torch.from_numpy``, raising
+    "can't convert np.ndarray of type numpy.object_". Coercing it back to numeric (sentinel -> NaN) recovers the
+    intended numeric semantics instead of crashing."""
+    rng = np.random.default_rng(7)
+    n = 60
+    X = pd.DataFrame({"num_0": rng.normal(size=n).astype(np.float32), "num_1": rng.normal(size=n).astype(np.float32)})
+    y = rng.normal(size=n).astype(np.float32)
+    reg = PytorchLightningRegressor(**_common(torch.float32, torch.nn.MSELoss()))
+    reg.fit(X, y)  # no cat_features -- "num_0" never enters _cat_cols_, stays a plain numeric network input
+    assert reg._cat_cardinalities_ is None
+
+    X_drifted = X.copy()
+    X_drifted["num_0"] = X_drifted["num_0"].astype(object)
+    X_drifted.loc[X_drifted.index[0], "num_0"] = "__MISSING__"  # split-dependent sentinel fill landing on a numeric column
+    preds = np.asarray(reg.predict(X_drifted))  # must not raise; the coercion (not the network) is what's under test here
+    assert preds.shape == (n,)
+    assert np.all(np.isfinite(preds[1:]))  # every row untouched by the sentinel still predicts finite

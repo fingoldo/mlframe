@@ -196,7 +196,11 @@ def _make_mega_mrmr(**overrides):
     kwargs = dict(
         verbose=0,
         interactions_max_order=1,
-        fe_max_steps=0,
+        # An all-on config needs an FE budget. fe_max_steps=0 is the unconditional "no feature engineering
+        # at all" contract and outranks every flag _all_on_kwargs() switches on, so the mega fixture was
+        # fitting raw-only: provenance reported zero engineered origins and the downstream AUC assertions
+        # were measuring a pipeline that had engineered nothing.
+        fe_max_steps=1,
         dcd_enable=False,
         cluster_aggregate_enable=False,
         build_friend_graph=False,

@@ -432,11 +432,11 @@ def test_default_on_drops_redundant_keeps_genuine():
     ``prevalence_ratio`` path keeps. Default-on win, principled redundancy filter."""
     X, y = _make_mrmr_fixture()
 
-    fs_cmi = MRMR(verbose=0, n_jobs=1, random_state=0)  # default acceptance == conditional_mi
+    fs_cmi = MRMR(verbose=0, n_jobs=1, random_state=0, fe_max_steps=2)  # default acceptance == conditional_mi
     fs_cmi.fit(X, y)
     eng_cmi = _engineered(fs_cmi)
 
-    fs_ratio = MRMR(verbose=0, n_jobs=1, random_state=0, fe_acceptance="prevalence_ratio")
+    fs_ratio = MRMR(verbose=0, n_jobs=1, random_state=0, fe_max_steps=2, fe_acceptance="prevalence_ratio")
     fs_ratio.fit(X, y)
     eng_ratio = _engineered(fs_ratio)
 
@@ -531,7 +531,7 @@ def test_user_f2_e2e_recovers_genuine_drops_noise_and_cross_signal(n):
     """
     X, y = _make_user_f2(n=n)
 
-    fs = MRMR(verbose=0, n_jobs=1, random_state=0)  # default == conditional_mi (S5)
+    fs = MRMR(verbose=0, n_jobs=1, random_state=0, fe_max_steps=2)  # default == conditional_mi (S5)
     fs.fit(X, y)
     support = list(fs.get_feature_names_out())
 
