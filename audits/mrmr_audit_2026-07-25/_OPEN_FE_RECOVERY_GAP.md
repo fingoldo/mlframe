@@ -78,3 +78,57 @@ selector (only survivors are, via `_engineered_recipes_`).
 selected cross-mix is less informative than the pure (c,d) form it absorbed). Whether that is the same root
 cause is untested - it was measured against the redundancy stage, which the experiments above exonerate for
 the gate-vs-elementary case, so the two may be independent.
+
+---
+
+# Open finding: `mi_direct_gpu(return_null_mean=True)` reads D2H once per permutation
+
+Status: **OPEN, located, not fixed.** The fix is a kernel-shape change with a real design trade, so it needs
+the wide benchmark that is being run elsewhere.
+
+## Symptom
+
+`test_cmi_lru_and_null_mean_residency_fixes.py::TestMiDirectGpuNullMeanBatchedReadback::test_return_null_mean_d2h_ops_do_not_scale_with_npermutations`
+
+```
+D2H op count grew with npermutations (8->64): 33 -> 64; expected roughly constant under the batched-readback fix
+```
+
+Not environmental: the fixture is `(n, 2) int32`, so VRAM plays no part (unlike the pair-search residency
+tests in the same suite, which are correctly VRAM-gated).
+
+## Location
+
+`feature_selection/filters/gpu.py`, inside the permutation loop:
+
+```python
+for _i in range(npermutations):
+    ...                                   # shuffle y, joint hist, MI -> totals (device)
+    mi = totals.get()[0]                  # <- one D2H per permutation
+    _null_sum += float(mi)
+    if mi >= original_mi:
+        nfailed += 1
+        if nfailed >= max_failed:
+            original_mi = 0.0
+            break
+```
+
+## Why it is not a one-line fix
+
+The read is load-bearing: `mi` drives the early-stop (`nfailed >= max_failed`), which is a genuine
+optimisation, not decoration. Accumulating `_null_sum` and `nfailed` on device and reading once at the end
+removes every intermediate D2H but also removes the early stop, and batching the check every K iterations
+still leaves D2H scaling as `nperm/K` - the test's tolerance is `+3` ops, so any Python-level loop that must
+observe `mi` to decide whether to break will fail it.
+
+Satisfying both means moving the permutation loop itself into the kernel, with the early-stop condition
+evaluated on device. That is the shape the test's name ("batched-readback fix") implies was intended; the
+CPU twin's contract is mirrored here only in the returned values, not in the traffic profile.
+
+## Suggested next actions
+
+1. Decide the contract deliberately: is the early stop worth more than the D2H traffic at realistic
+   `npermutations`? Measure both on the real fit, not in isolation.
+2. If traffic wins, fuse the permutation loop into one kernel launch with a device-side `nfailed` and an
+   in-kernel bail; if the early stop wins, re-frame the test to assert what the path actually guarantees.
+3. Either way the current state is wrong: the test asserts a contract the code does not implement.

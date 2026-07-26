@@ -325,6 +325,26 @@ def pair_search_audit():
     residency regression -- so skip rather than false-fail (the path is byte-audited green in a quiet process;
     verified in isolation). A genuine wiring regression instead shows the path running with a BROKEN invariant
     (take-miss / host re-upload / per-pair operand H2D), which the assertions below still catch hard."""
+    # The product declines device residency when free VRAM is short, and that decline is CORRECT: the codes
+    # matrix this audit wants resident is ~445 MiB on its own. Asking the same question the product asks
+    # means a contended card is reported as an environment condition instead of a residency regression -
+    # the stash==0 guard below cannot see this case, because the producer stashes once and only the LATER,
+    # larger allocation is refused, leaving a genuine-looking take-miss plus a bulk D2H.
+    try:
+        from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+        if not fe_gpu_has_vram_cushion(0):
+            import cupy as _cp
+
+            _free_b, _total_b = _cp.cuda.runtime.memGetInfo()
+            pytest.skip(
+                f"GPU VRAM cushion unavailable ({_free_b / 2**20:.0f} MiB free of {_total_b / 2**20:.0f} MiB): the "
+                "product correctly declines device residency here, so the resident path cannot be audited. "
+                "Free the card (other CUDA processes) and re-run."
+            )
+    except ImportError:
+        pass  # no cushion helper: fall through to the audit and let the counters speak
+
     names, cnt, rep, n = _run_pair_search_audit()
     print("\nPAIR-SEARCH residency: " + rep.summary() + f"  counters={cnt}  names={names}")
     if cnt["stash"] == 0:
