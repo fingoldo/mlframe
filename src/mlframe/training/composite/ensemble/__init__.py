@@ -35,6 +35,7 @@ from ._oof_split import (
     _carve_inner_eval_split,
     _slice_rows,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 
 def _unwrap_shim(model: Any) -> tuple[Any, Any]:
@@ -378,7 +379,8 @@ def _compute_oof_with_external_holdout(
             holdout_cols.append(preds)
             surviving_names.append(name)
         except Exception as exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-            logger.warning(
+            log_throttle(
+                logger, "ensemble_external_holdout_oof_refit_failed", logging.WARNING,
                 "[CompositeCrossTargetEnsemble] external-holdout OOF " "refit failed for component '%s': %s. Excluded from " "ensemble weights.",
                 name,
                 exc,
@@ -591,7 +593,8 @@ def compute_oof_holdout_predictions(
                                     if _gf.shape[0] == valid.shape[0]:
                                         _group_fold_valid = _gf[valid]
                                 else:
-                                    logger.warning(
+                                    log_throttle(
+                                        logger, "ensemble_group_ids_length_mismatch_composite", logging.WARNING,
                                         "[ensemble] group_ids length %d != n_train %d; group-aware carve skipped for this split.",
                                         _g_arr.shape[0], n_train,
                                     )
@@ -629,7 +632,8 @@ def compute_oof_holdout_predictions(
                                 if _g_arr.shape[0] == n_train:
                                     _group_for_fold = _g_arr[fold_train_idx]
                                 else:
-                                    logger.warning(
+                                    log_throttle(
+                                        logger, "ensemble_group_ids_length_mismatch_plain", logging.WARNING,
                                         "[ensemble] group_ids length %d != n_train %d; group-aware carve skipped for this split.",
                                         _g_arr.shape[0], n_train,
                                     )
@@ -651,7 +655,8 @@ def compute_oof_holdout_predictions(
                         raise ValueError("non-finite holdout predictions")
                     fold_cols[name] = preds
                 except Exception as exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                    logger.warning(
+                    log_throttle(
+                        logger, "ensemble_kfold_oof_refit_failed", logging.WARNING,
                         "[CompositeCrossTargetEnsemble] kfold OOF refit failed "
                         "for component '%s' (kfold=%d): %s. Excluded.",
                         name, int(kfold), exc,
@@ -880,7 +885,8 @@ def compute_oof_holdout_predictions(
             holdout_cols.append(preds)
             surviving_names.append(name)
         except Exception as exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-            logger.warning(
+            log_throttle(
+                logger, "ensemble_oof_refit_failed", logging.WARNING,
                 "[CompositeCrossTargetEnsemble] OOF refit failed for component "
                 "'%s': %s. Excluded from ensemble weights.", name, exc,
             )
