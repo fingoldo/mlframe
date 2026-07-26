@@ -47,6 +47,7 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
 from .hermite_fe import basis_route_by_moments, _POLY_BASES
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
@@ -144,7 +145,8 @@ def generate_triplet_cross_basis_features(
         if col_i == col_j or col_i == col_k or col_j == col_k:
             continue
         if col_i not in X.columns or col_j not in X.columns or col_k not in X.columns:
-            logger.warning(
+            log_throttle(
+                logger, "triplet_missing_column", logging.WARNING,
                 "generate_triplet_cross_basis_features: missing column in (%r,%r,%r); skipping",
                 col_i, col_j, col_k,
             )
@@ -172,7 +174,8 @@ def generate_triplet_cross_basis_features(
         basis_j = basis_route_by_moments(x_j) if basis == "auto" else basis
         basis_k = basis_route_by_moments(x_k) if basis == "auto" else basis
         if basis_i not in _POLY_BASES or basis_j not in _POLY_BASES or basis_k not in _POLY_BASES:
-            logger.warning(
+            log_throttle(
+                logger, "triplet_unknown_basis", logging.WARNING,
                 "generate_triplet_cross_basis_features: unknown basis %r/%r/%r "
                 "for triplet (%r,%r,%r); skipping",
                 basis_i, basis_j, basis_k, col_i, col_j, col_k,
@@ -208,7 +211,8 @@ def generate_triplet_cross_basis_features(
                             )
                             out_cols[name] = np.nan_to_num(h_a * h_b * h_c, nan=0.0, posinf=0.0, neginf=0.0)
                         except Exception as exc:
-                            logger.warning(
+                            log_throttle(
+                                logger, "triplet_basis_eval_raised", logging.WARNING,
                                 "generate_triplet_cross_basis_features: basis=%r/%r/%r "
                                 "deg=%d/%d/%d on triplet (%r,%r,%r) raised %r; skipping",
                                 basis_i, basis_j, basis_k,
@@ -611,13 +615,15 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
                 suffix = name.split("__", 1)[1]
                 parts = suffix.split("_")
             except (ValueError, IndexError):
-                logger.warning(
+                log_throttle(
+                    logger, "triplet_recipe_cannot_parse_suffix", logging.WARNING,
                     "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse " "suffix in %r; skipping recipe.",
                     name,
                 )
                 continue
             if len(parts) != 3:
-                logger.warning(
+                log_throttle(
+                    logger, "triplet_recipe_bad_parts_count", logging.WARNING,
                     "hybrid_orth_mi_triplet_fe_with_recipes: expected 3 deg " "parts in %r; skipping recipe.",
                     name,
                 )
@@ -626,7 +632,8 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
             basis_b, deg_b = _parse_code_deg(parts[1])
             basis_c, deg_c = _parse_code_deg(parts[2])
             if basis_a is None or basis_b is None or basis_c is None:
-                logger.warning(
+                log_throttle(
+                    logger, "triplet_recipe_cannot_parse_code_deg", logging.WARNING,
                     "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse " "code/deg from %r; skipping recipe.",
                     name,
                 )
@@ -671,7 +678,8 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
             suffix = name.split("__", 1)[1] if "__" in name else ""
             chosen_basis, chosen_degree = _parse_code_deg(suffix)
             if chosen_basis is None or chosen_degree is None:
-                logger.warning(
+                log_throttle(
+                    logger, "triplet_recipe_cannot_parse_basis_degree", logging.WARNING,
                     "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse basis/" "degree from %r; skipping recipe.",
                     name,
                 )
@@ -690,7 +698,8 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
                 preprocess_params=_pp_u,
             ))
         else:
-            logger.warning(
+            log_throttle(
+                logger, "triplet_recipe_unexpected_leg_count", logging.WARNING,
                 "hybrid_orth_mi_triplet_fe_with_recipes: unexpected leg count "
                 "in %r (legs=%r); skipping recipe.", name, legs,
             )

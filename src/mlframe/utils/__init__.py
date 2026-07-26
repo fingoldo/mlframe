@@ -5,6 +5,7 @@ Submodules:
     experiments  - experiment-tracking helpers.
     text         - text preprocessing utilities.
     misc         - small generic helpers (get_pipeline_last_element, ...).
+    log_throttle - per-call-site log throttling for hot loops.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from mlframe.utils.eda import *
 from mlframe.utils.experiments import *
 from mlframe.utils.text import *
 from mlframe.utils.misc import *
+from mlframe.utils.log_throttle import log_throttle
 
 # 2026-06-01: promote the param-oracle public surface so cross-package
 # consumers (``feature_selection.filters._meta_fe_recommender``,
