@@ -360,7 +360,12 @@ def _build_operand_table(
                         # before reaching FE), calling them inside the error-log formatter itself raises - masking the real transformation error and aborting MRMR
                         # entirely. Compute numeric-only diagnostics conditionally.
                         if np.issubdtype(vals.dtype, np.floating):
-                            _diag = f", isnan={np.isnan(vals).sum()}, " f"isinf={np.isinf(vals).sum()}, nanmin={np.nanmin(vals)}"
+                            # An ALL-NaN column reaches here legitimately (it is meant to be skipped silently), and
+                            # ``np.nanmin`` on it emits "All-NaN slice encountered" - the diagnostic would leak a
+                            # warning out of a handler whose whole job is to stay quiet. Report the emptiness instead.
+                            _n_nan = int(np.isnan(vals).sum())
+                            _nanmin = "all-NaN" if _n_nan == vals.size else np.nanmin(vals)
+                            _diag = f", isnan={_n_nan}, " f"isinf={np.isinf(vals).sum()}, nanmin={_nanmin}"
                         else:
                             _diag = f", dtype={vals.dtype} (numeric diagnostics skipped)"
                         logger.error("Error when performing %s on array %s, var=%s: %s%s", tr_name, vals[:5], cols[var], e, _diag)

@@ -88,7 +88,13 @@ def _mrmr_kw(**overrides):
     base = dict(
         verbose=0,
         interactions_max_order=1,
-        fe_max_steps=0,
+        # This helper used fe_max_steps=0 to mean "don't run the polynom_pair step". That is no longer what the
+        # knob means: fe_max_steps=0 is now the unconditional "no feature engineering at all" contract, which
+        # also suppresses the univariate-basis and hybrid-orth stages these tests exist to measure - every
+        # assertion below would then reduce to "the support is raw-only". Pair suppression is expressed by the
+        # knobs that actually name it (fe_smart_polynom_iters=0 / fe_hybrid_orth_pair_enable=False), which the
+        # callers already pass; this only restores the minimum budget the stage under test needs to run.
+        fe_max_steps=1,
         dcd_enable=False,
         cluster_aggregate_enable=False,
         build_friend_graph=False,
