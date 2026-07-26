@@ -29,6 +29,7 @@ from typing import Any, Callable, Iterable, Mapping, Optional, Sequence
 import numpy as np
 
 from mlframe.evaluation.bootstrap import _ci_from_samples, _jackknife_metric
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -562,7 +563,7 @@ def _heldout_ece_inner_cv(
         try:
             cal = np.clip(np.asarray(apply_fn(oof_p_pos[held]), dtype=np.float64).ravel(), 0.0, 1.0)
         except Exception as exc:
-            logger.warning("pick_best_calibrator: inner-CV %s predict failed: %s", name, exc)
+            log_throttle(logger, "calib_policy_inner_cv_predict_failed", logging.WARNING, "pick_best_calibrator: inner-CV %s predict failed: %s", name, exc)
             continue
         v = _ece_score(oof_y[held], cal, n_bins=n_bins)
         if np.isfinite(v):
@@ -793,12 +794,12 @@ def pick_best_calibrator(
             cal_oof = np.asarray(apply_fn(oof_p_pos), dtype=np.float64).ravel()
             cal_oof = np.clip(cal_oof, 0.0, 1.0)
         except Exception as exc:
-            logger.warning("pick_best_calibrator: %s.predict on OOF failed: %s", name, exc)
+            log_throttle(logger, "calib_policy_oof_predict_failed", logging.WARNING, "pick_best_calibrator: %s.predict on OOF failed: %s", name, exc)
             continue
         try:
             ci = _bootstrap_ece_with_indices(oof_y_arr, cal_oof, idx_matrix, metric_fn, alpha, n_bins=n_bins)
         except Exception as exc:
-            logger.warning("pick_best_calibrator: bootstrap on %s failed: %s", name, exc)
+            log_throttle(logger, "calib_policy_bootstrap_failed", logging.WARNING, "pick_best_calibrator: bootstrap on %s failed: %s", name, exc)
             continue
         # ``rank_ece`` drives selection: held-out (honest) for inner_cv, same-OOF (legacy) otherwise.
         rank_ece = float(ci["point"])
