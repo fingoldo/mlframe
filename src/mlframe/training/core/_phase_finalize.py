@@ -21,6 +21,7 @@ from ._phase_finalize_calibration import (
     _stamp_composite_estimator_recommendation,
 )
 from ._setup_helpers import _finalize_and_save_metadata
+from mlframe.utils.log_throttle import log_throttle
 
 if TYPE_CHECKING:
     from ._training_context import TrainingContext
@@ -108,7 +109,7 @@ def _persist_ct_ensemble_entries(ctx: "TrainingContext") -> None:
             try:
                 os.makedirs(_target_dir, exist_ok=True)
             except OSError as _exc:
-                logger.warning("[_CT_ENSEMBLE persist] mkdir %s failed: %s", _target_dir, _exc)
+                log_throttle(logger, "finalize_ct_ensemble_mkdir_failed", logging.WARNING, "[_CT_ENSEMBLE persist] mkdir %s failed: %s", _target_dir, _exc)
                 continue
             for _i, _entry in enumerate(_entries):
                 _fname = f"CT_ENSEMBLE_{_i}.dump" if len(_entries) > 1 else "CT_ENSEMBLE.dump"
@@ -133,7 +134,8 @@ def _persist_ct_ensemble_entries(ctx: "TrainingContext") -> None:
                     save_mlframe_model(_entry, _fpath, verbose=0, lean=True)
                     _n_saved += 1
                 except Exception as _exc:
-                    logger.warning(
+                    log_throttle(
+                        logger, "finalize_ct_ensemble_save_failed", logging.WARNING,
                         "[_CT_ENSEMBLE persist] save failed for %s/%s: %s. Predict-from-disk for this target will fall back to component models without the ensemble combiner.",
                         _tt,
                         _tname,
@@ -259,7 +261,7 @@ def _stamp_ensemble_composition(ctx: "TrainingContext") -> None:
             try:
                 _exp = _ensemble.export_metadata()
             except Exception as _exp_err:
-                logger.warning("[ensemble_composition] export_metadata failed for %s/%s: %s", _tt_str, _tname, _exp_err)
+                log_throttle(logger, "finalize_ensemble_composition_export_failed", logging.WARNING, "[ensemble_composition] export_metadata failed for %s/%s: %s", _tt_str, _tname, _exp_err)
                 continue
             _strategy = _exp.get("strategy")
             _names = _exp.get("component_names") or []
@@ -397,7 +399,7 @@ def _render_model_comparison_leaderboards(ctx: "TrainingContext") -> None:
                 ):
                     _n += 1
             except Exception as _mc_err:
-                logger.warning("[model_comparison] render failed for %s/%s: %s", _tt, _tname, _mc_err)
+                log_throttle(logger, "finalize_model_comparison_render_failed", logging.WARNING, "[model_comparison] render failed for %s/%s: %s", _tt, _tname, _mc_err)
     if _n and getattr(ctx, "verbose", 0):
         logger.info("[model_comparison] rendered %d per-target leaderboard(s).", _n)
 
@@ -452,7 +454,7 @@ def _render_split_comparison_panels(ctx: "TrainingContext") -> None:
                     ):
                         _n += 1
                 except Exception as _sc_err:
-                    logger.warning("[split_comparison] render failed for %s/%s/%s: %s", _tt, _tname, _mn, _sc_err)
+                    log_throttle(logger, "finalize_split_comparison_render_failed", logging.WARNING, "[split_comparison] render failed for %s/%s/%s: %s", _tt, _tname, _mn, _sc_err)
     if _n and getattr(ctx, "verbose", 0):
         logger.info("[split_comparison] rendered %d per-model overfit panel(s).", _n)
 
@@ -513,7 +515,7 @@ def _render_prediction_stability_panels(ctx: "TrainingContext") -> None:
                     ):
                         _n += 1
                 except Exception as _ps_err:
-                    logger.warning("[prediction_stability] render failed for %s/%s/%s: %s", _tt, _tname, _mn, _ps_err)
+                    log_throttle(logger, "finalize_prediction_stability_render_failed", logging.WARNING, "[prediction_stability] render failed for %s/%s/%s: %s", _tt, _tname, _mn, _ps_err)
     if _n and getattr(ctx, "verbose", 0):
         logger.info("[prediction_stability] rendered %d ensemble member-disagreement panel(s).", _n)
 
