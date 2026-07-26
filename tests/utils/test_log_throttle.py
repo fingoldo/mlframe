@@ -30,3 +30,16 @@ def test_log_throttle_keys_are_independent(caplog):
     messages = [r.message for r in caplog.records]
     assert sum(1 for m in messages if m == "from a") == 5
     assert sum(1 for m in messages if m == "from b") == 5
+
+
+def test_log_throttle_exc_info_true_keeps_traceback(caplog):
+    """exc_info=True (the logger.exception replacement case) attaches the active traceback."""
+    logger = logging.getLogger("mlframe.test_log_throttle")
+    key = f"test_key_exc_{id(object())}"
+    with caplog.at_level(logging.ERROR, logger=logger.name):
+        try:
+            raise ValueError("boom")
+        except ValueError as exc:
+            log_throttle(logger, key, logging.ERROR, "failed: %s", exc, exc_info=True)
+    assert caplog.records[0].exc_info is not None
+    assert "ValueError: boom" in caplog.text
