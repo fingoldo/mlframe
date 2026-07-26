@@ -19,6 +19,7 @@ import numpy as np
 # reference but Python resolves it from function-local scope.
 from ..composite import CompositeTargetEstimator, get_transform, _extract_base_matrix
 from .._format import format_metric as _fmt, strip_shim_suffix as _strip
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -309,7 +310,8 @@ def _run_composite_target_wrapping(
             # y_train for wrapping is the ORIGINAL y (not T) at the train rows the wrapper saw at fit time.
             _y_full = target_by_type.get(_tt_w, {}).get(_orig_tname)
             if _y_full is None:
-                logger.warning(
+                log_throttle(
+                    logger, "composite_wrap_missing_original_target", logging.WARNING,
                     "[CompositeTargetEstimator] missing original target '%s' "
                     "in target_by_type for composite='%s'; skipping wrap. "
                     "Predictions will remain in T-scale.",
@@ -319,7 +321,8 @@ def _run_composite_target_wrapping(
             try:
                 _y_train_for_wrap = np.asarray(_y_full)[filtered_train_idx]
             except Exception as _y_err:
-                logger.warning(
+                log_throttle(
+                    logger, "composite_wrap_cannot_align_y_train", logging.WARNING,
                     "[CompositeTargetEstimator] cannot align y_train for '%s': %s. " "Skipping wrap.",
                     _composite_name,
                     _y_err,
@@ -357,7 +360,8 @@ def _run_composite_target_wrapping(
                         y_train=_y_train_for_wrap,
                     )
                 except Exception as _wrap_err:
-                    logger.warning(
+                    log_throttle(
+                        logger, "composite_wrap_failed", logging.WARNING,
                         "[CompositeTargetEstimator] wrap failed for '%s' (entry %d): %s. "
                         "Predictions will remain in T-scale.",
                         _composite_name, _i, _wrap_err,
@@ -436,7 +440,8 @@ def _run_composite_target_wrapping(
                                     rmse_y=_rmse_c, mae_y=_mae_c, r2_y=_r2_c,
                                 )
                             except Exception as _chart_err:
-                                logger.warning(
+                                log_throttle(
+                                    logger, "composite_wrap_yscale_chart_emit_failed_skip_predict", logging.WARNING,
                                     "[CompositeTargetEstimator] y-scale chart " "emit failed for composite='%s' (non-fatal): %s",
                                     _composite_name,
                                     _chart_err,
@@ -548,7 +553,8 @@ def _run_composite_target_wrapping(
                                     rmse_y=_rmse_wrapped, mae_y=_mae_wrapped, r2_y=_r2,
                                 )
                             except Exception as _chart_err:
-                                logger.warning(
+                                log_throttle(
+                                    logger, "composite_wrap_yscale_chart_emit_failed", logging.WARNING,
                                     "[CompositeTargetEstimator] y-scale chart " "emit failed for composite='%s' (non-fatal): %s",
                                     _composite_name,
                                     _chart_err,
@@ -608,7 +614,8 @@ def _run_composite_target_wrapping(
                                         _rel = _max_dev / _y_scale
                                         # ``_WATCHDOG_RELATIVE_THRESHOLD`` (module-level) carries the rationale; tune there.
                                         if _rel > _WATCHDOG_RELATIVE_THRESHOLD:
-                                            logger.warning(
+                                            log_throttle(
+                                                logger, "composite_wrap_watchdog_universal_divergence", logging.WARNING,
                                                 "[CompositeTargetEstimator.watchdog.universal] "
                                                 "composite='%s' split='%s' transform=%s inner=%s: "
                                                 "wrapper.predict diverges from "
@@ -668,7 +675,8 @@ def _run_composite_target_wrapping(
                                                 )
                                             _y_resid_sample = _y_pred[_ft_idx] - _y_split[_ft_idx]
                                             _t_resid_sample = _dt[_ft_idx]
-                                            logger.warning(
+                                            log_throttle(
+                                                logger, "composite_wrap_watchdog_additive_divergence", logging.WARNING,
                                                 "[CompositeTargetEstimator.watchdog] "
                                                 "composite='%s' split='%s' inner=%s: "
                                                 "y-MAE=%.4f diverges from T-MAE=%.4f "
