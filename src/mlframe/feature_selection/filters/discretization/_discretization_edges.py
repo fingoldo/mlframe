@@ -48,8 +48,12 @@ def _knuth_best_M(a_sorted: np.ndarray, a_min: float, a_max: float, M_max: int) 
     BIT-IDENTICAL to the prior ``for M: np.histogram(a, linspace(a_min, a_max, M+1)) ->
     _knuth_log_posterior`` scan, but runs entirely in compiled code on the pre-sorted column:
     uniform-bin counts are obtained by integer differencing of ``np.searchsorted`` positions
-    (``side='right'`` reproduces ``np.histogram``'s half-open ``[e_j, e_{j+1})`` bins with the final
-    bin closed at ``a_max``), and the lgamma log-posterior is accumulated inline - no per-M
+    (``side='left'`` reproduces ``np.histogram``'s half-open ``[e_j, e_{j+1})`` bins with the final
+    bin closed at ``a_max``: it counts values STRICTLY BELOW the edge, so a value sitting exactly on an
+    interior edge opens the upper bin. ``side='right'`` counts ``<= edge`` instead, which is the closed-left
+    convention ``(e_j, e_{j+1}]`` and silently moves every tie at an edge down one bin - invisible on
+    continuous data, where no value lands on an edge, and wrong on integer/tie-heavy columns, where a whole
+    value class does), and the lgamma log-posterior is accumulated inline - no per-M
     ``np.histogram`` dispatch and no ``counts.astype(int64)`` copy. ~6-47x over the object-mode loop
     (n=2k..50k) at zero numeric change to ``best_M``; bench discretization/_benchmarks/bench_knuth_posterior_fused.py.
     """
@@ -84,7 +88,7 @@ def _knuth_best_M(a_sorted: np.ndarray, a_min: float, a_max: float, M_max: int) 
             if j == M - 1:
                 hi = n
             else:
-                hi = np.searchsorted(a_sorted, a_min + (j + 1) * width, side="right")
+                hi = np.searchsorted(a_sorted, a_min + (j + 1) * width, side="left")
             s += math.lgamma((hi - prev) + 0.5)
             prev = hi
         if s > best_logp:

@@ -21,12 +21,25 @@ from mlframe.feature_selection.filters.discretization._discretization_edges impo
 
 
 def _best_M_reference(a: np.ndarray, m_max_cap: int) -> int:
-    """The exact prior object-mode search, kept here as the identity oracle."""
+    """The exact prior object-mode search, kept here as the identity oracle.
+
+    The search RANGE carries the kernel's distinct-value ceiling, because that ceiling is a documented
+    pre-filter on the range rather than a change to the posterior itself. Knuth's criterion assumes
+    continuous data: on a tie-heavy column every bin past the number of distinct values is empty and adds
+    only a constant lgamma(0.5), which ``n*log(M)`` keeps outweighing, so the raw scan never turns around
+    and runs away to M_max (measured: logp 24.8 at M=5 climbing to 994.7 at M=64 on a 7-value column).
+    Leaving the ceiling out here would make this oracle assert the runaway is correct. What the identity
+    claim is actually about - that the fused lgamma accumulation reproduces
+    ``np.histogram`` + ``_knuth_log_posterior`` for every M in range - is unaffected and still fully tested.
+    """
     a = np.asarray(a, dtype=np.float64).ravel()
     a = a[np.isfinite(a)]
     n = a.size
     a_min, a_max = float(a.min()), float(a.max())
     M_max = int(min(max(4, int(np.sqrt(n) * 4)), int(m_max_cap)))
+    n_distinct = int(np.unique(a).size)
+    if n_distinct >= 2:
+        M_max = min(M_max, n_distinct)
     best_M, best_logp = 2, -1e300
     for M in range(2, M_max + 1):
         edges = np.linspace(a_min, a_max, M + 1)
@@ -62,6 +75,27 @@ def test_knuth_best_M_bit_identical_to_reference(n, cap):
         fused = _knuth_best_M(np.sort(a), a_min, a_max, M_max)
         ref = _best_M_reference(col, cap)
         assert fused == ref, f"best_M mismatch col={name} n={n} cap={cap}: fused={fused} ref={ref}"
+
+
+@pytest.mark.parametrize("n_distinct", [3, 7, 12])
+def test_knuth_best_M_never_exceeds_the_distinct_value_count(n_distinct):
+    """A tie-heavy column must not run away to M_max - bins past the distinct-value count are all empty.
+
+    Pinned separately from the identity test because the oracle there carries the same ceiling: if the
+    kernel silently dropped it, both sides would run away together and the identity test would still pass.
+    Here the bound is asserted against the data, so dropping the ceiling fails outright. The runaway is not
+    cosmetic - M_max bins on a 7-value column feeds the MI plug-in a contingency table that is almost all
+    empty cells, which is exactly the regime where its finite-sample bias is worst.
+    """
+    rng = np.random.default_rng(4242 + n_distinct)
+    n = 4000
+    a = rng.integers(0, n_distinct, n).astype(np.float64)
+    a_sorted = np.sort(a)
+    M_max = int(min(max(4, int(np.sqrt(n) * 4)), 500))
+    assert M_max > n_distinct, "test is vacuous unless the raw ceiling is above the distinct-value count"
+
+    fused = _knuth_best_M(a_sorted, float(a.min()), float(a.max()), M_max)
+    assert 2 <= fused <= n_distinct, f"n_distinct={n_distinct}: best_M={fused} exceeds the distinct-value ceiling (M_max={M_max})"
 
 
 def test_knuth_bin_edges_identical_uniform_and_quantile():
