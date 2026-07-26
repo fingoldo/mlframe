@@ -198,8 +198,16 @@ def compute_unsupervised_drops(
                     if n_valid <= 1:
                         var_val = 0.0
                     else:
-                        sum_valid = float(finite_sp.sum()) + n_fill_valid * fill_value
-                        sumsq_valid = float(np.square(finite_sp).sum()) + n_fill_valid * (fill_value**2)
+                        # The fill term is added only when there ARE valid fill cells. n_fill_valid is
+                        # already 0 for a NaN fill, but 0 * nan is nan, not 0, so keeping the term in the
+                        # expression poisons the whole variance and the column is then dropped by the
+                        # is-nan branch below - defeating this entire sparse-aware path, which exists to
+                        # stop NaN-filled TF-IDF columns being screened out.
+                        sum_valid = float(finite_sp.sum())
+                        sumsq_valid = float(np.square(finite_sp).sum())
+                        if n_fill_valid:
+                            sum_valid += n_fill_valid * fill_value
+                            sumsq_valid += n_fill_valid * (fill_value**2)
                         mean_valid = sum_valid / n_valid
                         var_val = sumsq_valid / n_valid - mean_valid**2
                 else:

@@ -123,6 +123,12 @@ def _make_mrmr(**overrides):
         fe_ntop_features=25,
     )
     kwargs.update(overrides)
+    # fe_max_steps=0 is the unconditional "no feature engineering at all" contract, so it switches off the
+    # very mechanism an override just asked for - every per-mechanism test then measures the same raw-only
+    # fit and reports an identical lift. Give an explicit opt-in the minimum budget its stage needs; a
+    # caller that overrides fe_max_steps itself still wins.
+    if "fe_max_steps" not in overrides and any(k.startswith("fe_") and k.endswith("_enable") and v for k, v in overrides.items()):
+        kwargs["fe_max_steps"] = 1
     return MRMR(**kwargs)
 
 

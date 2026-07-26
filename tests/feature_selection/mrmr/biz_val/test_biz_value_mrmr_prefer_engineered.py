@@ -58,7 +58,11 @@ def _mrmr_hybrid_kw():
     return dict(
         verbose=0,
         interactions_max_order=1,
-        fe_max_steps=0,
+        # The hybrid-orth stage under test needs an FE budget: fe_max_steps=0 is the unconditional
+        # "no feature engineering at all" contract and would switch off the very family this preset enables,
+        # leaving nothing but the raw column for the tie-break assertions to look at. The pair leg is
+        # suppressed by fe_hybrid_orth_pair_enable=False below, which is what the 0 was standing in for.
+        fe_max_steps=1,
         dcd_enable=False,
         cluster_aggregate_enable=False,
         build_friend_graph=False,
