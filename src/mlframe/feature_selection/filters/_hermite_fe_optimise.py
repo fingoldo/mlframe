@@ -13,6 +13,8 @@ import logging
 import numpy as np
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")
 
 
@@ -435,7 +437,10 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
             # Was a bare except with zero logging, silently
             # truncating the CMA generation loop early on any cma-library fault - a real cma regression
             # (e.g. after a package upgrade) would silently degrade hermite pair-FE recall with no trace.
-            logger.warning("_run_cma_search_batch: es.ask() raised (%s: %s); stopping CMA early with the best solution found so far.", type(exc).__name__, exc)
+            log_throttle(
+                logger, "hermite_cma_search_batch_ask_failed", logging.WARNING,
+                "_run_cma_search_batch: es.ask() raised (%s: %s); stopping CMA early with the best solution found so far.", type(exc).__name__, exc,
+            )
             break
         solutions_arr = np.asarray(solutions, dtype=np.float64)
         # Truncate batch if we'd exceed the budget mid-generation.
@@ -480,7 +485,10 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
             es.tell(solutions, cma_scores)
         except Exception as exc:
             # See the matching es.ask fix above.
-            logger.warning("_run_cma_search_batch: es.tell() raised (%s: %s); stopping CMA early with the best solution found so far.", type(exc).__name__, exc)
+            log_throttle(
+                logger, "hermite_cma_search_batch_tell_failed", logging.WARNING,
+                "_run_cma_search_batch: es.tell() raised (%s: %s); stopping CMA early with the best solution found so far.", type(exc).__name__, exc,
+            )
             break
         if early_stop_no_improve_gens and early_stop_no_improve_gens > 0:
             if best_score > _last_gen_best_score:
@@ -739,7 +747,10 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
                 solutions = es.ask()
         except Exception as exc:
             # See _run_cma_search_batch's matching fix above.
-            logger.warning("_run_cma_search: es.ask() raised (%s: %s); stopping CMA early with the best solution found so far.", type(exc).__name__, exc)
+            log_throttle(
+                logger, "hermite_cma_search_ask_failed", logging.WARNING,
+                "_run_cma_search: es.ask() raised (%s: %s); stopping CMA early with the best solution found so far.", type(exc).__name__, exc,
+            )
             break
         scores = []
         for sol in solutions:
@@ -936,7 +947,7 @@ def optimise_pair_multimode(
                 eval_kwargs=eval_kwargs, track_history=True,
             )
         except Exception as e:
-            logger.warning("CMA-ES failed in multimode degree %d: %s", degree, e)
+            log_throttle(logger, "hermite_cma_multimode_degree_failed", logging.WARNING, "CMA-ES failed in multimode degree %d: %s", degree, e)
             continue
         if r is None:
             continue
