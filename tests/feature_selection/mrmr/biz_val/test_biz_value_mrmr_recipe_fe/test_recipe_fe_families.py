@@ -511,7 +511,11 @@ class TestDefaultDisabledByteIdentical:
             fe_rare_category_enable=True,
             fe_rare_category_cols=("merchant",),
             fe_rare_category_top_k=4,
-            fe_max_steps=0,
+            # This preset used fe_max_steps=0 to isolate the family under test from the general-FE
+            # competitors. That is no longer what the knob means: 0 is the unconditional "no feature
+            # engineering at all" contract and switches off the family being measured too, leaving the
+            # roster empty. Isolation is already expressed by the explicit fe_*_enable=False flags below.
+            fe_max_steps=1,
             fe_univariate_basis_enable=False,
             fe_univariate_fourier_enable=False,
         )
@@ -589,12 +593,25 @@ class TestDefaultDisabledByteIdentical:
             fe_rankgauss_enable=True,
             fe_rankgauss_cols=("x1",),
             fe_rankgauss_top_k=4,
-            fe_max_steps=0,
+            # This preset used fe_max_steps=0 to isolate the family under test from the general-FE
+            # competitors. That is no longer what the knob means: 0 is the unconditional "no feature
+            # engineering at all" contract and switches off the family being measured too, leaving the
+            # roster empty. Isolation is already expressed by the explicit fe_*_enable=False flags below.
+            fe_max_steps=1,
             fe_univariate_basis_enable=False,
             fe_univariate_fourier_enable=False,
         )
         m.fit(X, pd.Series(y, name="y"))
-        assert len(list(getattr(m, "rankgauss_features_", []) or [])) >= 1
+        # ``rankgauss_features_`` is a SURVIVOR roster: it lists only rankgauss columns that made the support
+        # standing alone. The family needs an FE budget to run at all, and that same budget is what enables the
+        # general pair search, which here folds the rankgauss column into a composite
+        # (``add(z2, rankgauss__x1)``) that outranks it standalone - so the roster is empty while the mechanism
+        # demonstrably produced the winning feature. There is no budget setting that runs this family without
+        # also running the pair step, so the assertion tracks the real contract: the mechanism's output reaches
+        # the support, on its own or as an operand of what beat it.
+        support = list(m.get_feature_names_out())
+        roster = list(getattr(m, "rankgauss_features_", []) or [])
+        assert roster or any("rankgauss__" in str(c) for c in support), f"no rankgauss contribution in the support; got {support}"
 
 
 class TestPickleClone:
