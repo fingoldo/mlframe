@@ -51,6 +51,7 @@ from pyutilz.parallel import cpu_count_physical, parallel_run
 from pyutilz.pythonlib import is_jupyter_notebook
 
 from mlframe.system import callable_looks_gpu_bound
+from mlframe.utils.log_throttle import log_throttle
 
 # Use the parent module's logger name so caplog filters on
 # ``"mlframe.models.ensembling"`` continue to capture our records.
@@ -434,7 +435,10 @@ def score_ensemble(
 
                 pickle.dumps((custom_ice_metric, custom_rice_metric, kwargs))
             except (pickle.PicklingError, AttributeError, TypeError) as exc:
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "ensembling_fallback_sequential_unpicklable",
+                    logging.WARNING,
                     "ensembling: falling back to sequential -- one of " "custom_ice_metric / custom_rice_metric / kwargs is not picklable: %s",
                     exc,
                 )
@@ -445,10 +449,13 @@ def score_ensemble(
             # (torch/cupy), every worker independently contends for the single physical GPU device instead of
             # running in parallel -- process isolation prevents corruption but the run gets slower than serial.
             if callable_looks_gpu_bound(custom_ice_metric) or callable_looks_gpu_bound(custom_rice_metric):
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "ensembling_fallback_sequential_gpu_bound",
+                    logging.WARNING,
                     "ensembling: falling back to sequential -- custom_ice_metric / custom_rice_metric looks "
                     "GPU-bound (torch/cupy reference detected); process-pool fan-out would contend for the "
-                    "single GPU device across workers instead of parallelising."
+                    "single GPU device across workers instead of parallelising.",
                 )
                 effective_n_jobs = 1
 

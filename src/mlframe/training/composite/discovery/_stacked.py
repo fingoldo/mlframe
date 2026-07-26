@@ -11,6 +11,7 @@ from typing import Any, Sequence
 import numpy as np
 
 from .screening import _extract_column_array
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +170,10 @@ def fit_stacked(
             )
             oof_cols[f"{_OOF_FEATURE_PREFIX}{spec.name}"] = preds
         except Exception as _oof_err:
-            logger.warning(
+            log_throttle(
+                logger,
+                "discovery_stacked_oof_failed",
+                logging.WARNING,
                 "[CompositeTargetDiscovery.stacked] OOF for spec=%s failed: %s",
                 spec.name, _oof_err,
             )
@@ -345,7 +349,10 @@ def fit_stacked_on_residual(
             if np.all(np.isfinite(_oof)):
                 oof_preds_per_spec.append(_oof)
         except Exception as _oof_err:
-            logger.warning(
+            log_throttle(
+                logger,
+                "discovery_stacked_on_residual_oof_failed",
+                logging.WARNING,
                 "[CompositeTargetDiscovery.stacked_on_residual] OOF for " "spec=%s failed: %s",
                 spec.name,
                 _oof_err,

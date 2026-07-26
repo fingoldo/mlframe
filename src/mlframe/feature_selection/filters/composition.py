@@ -11,6 +11,8 @@ import logging
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -133,7 +135,7 @@ def compose_pair_fe(
                 # Was `if verbose: logger.debug(...)`, so a
                 # genuinely-broken pair silently vanished with zero trace under the default (non-verbose)
                 # config. Always log at warning level (not opt-in), with the traceback only under verbose.
-                logger.warning("compose_pair_fe: pair (%d,%d) FE failed: %s", i, j, e, exc_info=verbose)
+                log_throttle(logger, "compose_pair_fe_failed", logging.WARNING, "compose_pair_fe: pair (%d,%d) FE failed: %s", i, j, e, exc_info=verbose)
                 continue
             if res is None:
                 continue
@@ -234,7 +236,10 @@ def validate_pair_fe_cv(
             # zero logging, silently corrupting the honest OOS-uplift statistic whenever a fold genuinely
             # broke (vs. the expected non-convergence `res is None` return) - indistinguishable from a
             # clean "no signal in this fold" result. Always log so a systematically-failing fold is visible.
-            logger.warning(
+            log_throttle(
+                logger,
+                "validate_pair_fe_cv_fold_failed",
+                logging.WARNING,
                 "validate_pair_fe_cv: fold %d optimise_hermite_pair raised %s: %s", fold_idx, type(_fold_exc).__name__, _fold_exc,
             )
             res = None

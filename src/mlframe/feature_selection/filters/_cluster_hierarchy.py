@@ -37,6 +37,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -321,7 +323,10 @@ def build_cluster_hierarchy(
         try:
             scores = pair_su_batch(cal_state, index_pairs)
         except Exception as exc:
-            logger.warning(
+            log_throttle(
+                logger,
+                "cluster_hierarchy_batched_pair_su_failed",
+                logging.WARNING,
                 "build_cluster_hierarchy: batched pair-SU dispatch failed at "
                 "level %d (%r); falling back to per-pair scoring.", level, exc,
             )
@@ -333,13 +338,15 @@ def build_cluster_hierarchy(
                 except Exception as exc:
                     s = 0.0
                     n_failed_pairs += 1
-                    if n_failed_pairs == 1:
-                        logger.warning(
-                            "build_cluster_hierarchy: per-pair SU failed (e.g. "
-                            "(%s,%s): %r); affected pairs default to SU=0 "
-                            "(treated as non-redundant). Further failures "
-                            "suppressed for this build.", a_name, b_name, exc,
-                        )
+                    log_throttle(
+                        logger,
+                        "cluster_hierarchy_per_pair_su_failed",
+                        logging.WARNING,
+                        "build_cluster_hierarchy: per-pair SU failed (e.g. "
+                        "(%s,%s): %r); affected pairs default to SU=0 "
+                        "(treated as non-redundant). Further failures "
+                        "suppressed for this build.", a_name, b_name, exc,
+                    )
                 pair_sus[(a_name, b_name)] = float(s) if np.isfinite(s) else 0.0
         else:
             for (a_name, b_name), s in zip(name_pairs, scores):
