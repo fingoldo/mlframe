@@ -21,6 +21,7 @@ except ImportError:
 
 from .._ram_helpers import maybe_clean_ram_and_gpu
 from ..utils import log_ram_usage
+from mlframe.utils.log_throttle import log_throttle
 
 if TYPE_CHECKING:
     from ..configs import (  # noqa: F401
@@ -177,7 +178,8 @@ def _apply_outlier_detection_global(
                     _flat_post = _arr_post.flatten() if _arr_post.ndim > 1 else _arr_post
                     if len(np.unique(_flat_pre)) >= 2 and len(np.unique(_flat_post)) < 2:
                         _od_destroys_classes = True
-                        logger.error(
+                        log_throttle(
+                            logger, "outliers_od_destroys_classes_train", logging.ERROR,
                             "Outlier detection would eliminate the entire minority "
                             "class from train target '%s' (pre-OD unique=%d, post-OD "
                             "unique=%d). Typical cause: a feature highly correlated "
@@ -190,7 +192,7 @@ def _apply_outlier_detection_global(
                         )
                         break
                 except (IndexError, KeyError, ValueError, TypeError, AttributeError) as _exc:
-                    logger.warning("Class-balance pre-check failed for target %s: %s", _tn, _exc)
+                    log_throttle(logger, "outliers_classbalance_precheck_train_failed", logging.WARNING, "Class-balance pre-check failed for target %s: %s", _tn, _exc)
         if not _od_destroys_classes:
             logger.info("Outlier rejection: %d train samples -> %d kept.", len(train_df), train_kept)
             filtered_train_df = _filter_df_by_mask(train_df, train_od_idx)
@@ -244,7 +246,8 @@ def _apply_outlier_detection_global(
                     _flat_pre = _arr_pre.flatten() if _arr_pre.ndim > 1 else _arr_pre
                     _flat_post = _arr_post.flatten() if _arr_post.ndim > 1 else _arr_post
                     if len(np.unique(_flat_pre)) >= 2 and len(np.unique(_flat_post)) < 2:
-                        logger.error(
+                        log_throttle(
+                            logger, "outliers_od_destroys_classes_val", logging.ERROR,
                             "Outlier detection would eliminate the entire minority "
                             "class from VAL target '%s' (pre-OD unique=%d, post-OD "
                             "unique=%d). Skipping OD filter for val; original "
@@ -258,7 +261,7 @@ def _apply_outlier_detection_global(
                         val_od_idx = np.ones(len(val_df), dtype=bool)
                         break
                 except (IndexError, KeyError, ValueError, TypeError, AttributeError) as _exc:
-                    logger.warning("Class-balance pre-check on val failed for target %s: %s", _tn, _exc)
+                    log_throttle(logger, "outliers_classbalance_precheck_val_failed", logging.WARNING, "Class-balance pre-check on val failed for target %s: %s", _tn, _exc)
         # Symmetric of the train-side min_keep guard: a near-empty (or 0-row) val after OD is a real
         # upstream config problem (too-aggressive contamination / train-val distribution drift). Raise
         # rather than silently returning the unfiltered (outlier-contaminated) val: an unfiltered val
