@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ._training_context import TrainingContext
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,7 +43,7 @@ def _auto_calibrate_on_calib_slice(ctx: "TrainingContext") -> None:
                     if calibrate_namespace_model(_entry, target_type=_ttype):
                         _n += 1
                 except Exception as _cal_err:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                    logger.warning("[calib] auto-calibration failed for %s/%s: %s", _ttype, _tname, _cal_err)
+                    log_throttle(logger, "finalize_calib_auto_calibration_failed", logging.WARNING, "[calib] auto-calibration failed for %s/%s: %s", _ttype, _tname, _cal_err)
     if _n and getattr(ctx, "verbose", 0):
         logger.info("[calib] auto-calibrated %d per-target model(s) on the disjoint calib slice.", _n)
 
@@ -88,7 +90,7 @@ def _isotonic_overfit_risk_check(ctx: "TrainingContext") -> None:
                 try:
                     _rep = isotonic_overfit_risk(_pos, _ct, **_kwargs)
                 except Exception as _iso_err:
-                    logger.warning("[isotonic_risk] check failed for %s/%s: %s", _ttype, _tname, _iso_err)
+                    log_throttle(logger, "finalize_calib_isotonic_risk_check_failed", logging.WARNING, "[isotonic_risk] check failed for %s/%s: %s", _ttype, _tname, _iso_err)
                     continue
                 _rep = {k: v for k, v in _rep.items() if k not in ("isotonic_fit", "platt_fit", "predict")}  # drop non-serializable fitted objects
                 _mn = str(getattr(_e, "model_name", None) or f"model_{_i}")
@@ -142,7 +144,7 @@ def _optimize_decision_threshold_on_calib_slice(ctx: "TrainingContext") -> None:
                 try:
                     _rep = optimize_decision_threshold(_ct, _pos, _metric_fn, **_kwargs)
                 except Exception as _thr_err:
-                    logger.warning("[threshold_optimizer] fit failed for %s/%s: %s", _ttype, _tname, _thr_err)
+                    log_throttle(logger, "finalize_calib_threshold_optimizer_fit_failed", logging.WARNING, "[threshold_optimizer] fit failed for %s/%s: %s", _ttype, _tname, _thr_err)
                     continue
                 _rep = {k: v for k, v in _rep.items() if k not in ("thresholds", "scores")}  # drop the full per-candidate sweep; keep the compact summary
                 _mn = str(getattr(_e, "model_name", None) or f"model_{_i}")
@@ -210,7 +212,7 @@ def _apply_confidence_shrinkage_to_regression(ctx: "TrainingContext") -> None:
         try:
             confidences[_key] = compute_oof_confidence(_oof_preds, _train_target, segment_ids=_segment_ids)
         except Exception as _conf_err:
-            logger.warning("[confidence_shrinkage] OOF confidence failed for %s: %s", _key, _conf_err)
+            log_throttle(logger, "finalize_calib_confidence_shrinkage_failed", logging.WARNING, "[confidence_shrinkage] OOF confidence failed for %s: %s", _key, _conf_err)
             continue
         preds[_key] = _test_preds
 
@@ -310,7 +312,7 @@ def _recalibrate_regression_on_calib_slice(ctx: "TrainingContext") -> None:
                 try:
                     _e.model = RecalibratedRegressor(model, g)
                 except Exception as _wrap_err:
-                    logger.warning("[regression_recal] wrap failed for %s/%s: %s", _ttype, _tname, _wrap_err)
+                    log_throttle(logger, "finalize_calib_regression_recal_wrap_failed", logging.WARNING, "[regression_recal] wrap failed for %s/%s: %s", _ttype, _tname, _wrap_err)
                     continue
                 # Re-stamp cached preds to the SHIPPED (recalibrated) values so conformal + any later reader agree.
                 for _attr in ("test_preds", "val_preds", "train_preds", "oof_preds", "calib_preds"):
@@ -429,7 +431,7 @@ def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
                             structure=structure,
                         )
                     except Exception as _cls_err:
-                        logger.warning("[conformal] classification sets failed for %s/%s: %s", _ttype, _tname, _cls_err)
+                        log_throttle(logger, "finalize_calib_conformal_classification_failed", logging.WARNING, "[conformal] classification sets failed for %s/%s: %s", _ttype, _tname, _cls_err)
                         continue
                     _mn = str(getattr(_e, "model_name", None) or f"model_{_i}")
                     out[f"{_ttype}/{_tname}/{_mn}"] = _rep
@@ -458,7 +460,7 @@ def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
                         **kwargs,
                     )
                 except Exception as _cf_err:
-                    logger.warning("[conformal] report failed for %s/%s: %s", _ttype, _tname, _cf_err)
+                    log_throttle(logger, "finalize_calib_conformal_report_failed", logging.WARNING, "[conformal] report failed for %s/%s: %s", _ttype, _tname, _cf_err)
                     continue
                 rep.pop("intervals", None)  # drop per-row arrays; keep the compact per-alpha coverage summary
                 _mn = str(getattr(_e, "model_name", None) or f"model_{_i}")
