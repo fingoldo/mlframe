@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import logging
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -134,18 +136,18 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: Optional[str] = None,
                 if nfailed > 5:
                     # Wave 41 (2026-05-20): preserve traceback before final-give-up return;
                     # caller sees only (None, False) otherwise.
-                    logger.exception("mlflow.start_run failed after %d retries", nfailed)
+                    log_throttle(logger, "mlflow_start_run_failed_after_retries", logging.ERROR, "mlflow.start_run failed after %d retries", nfailed, exc_info=True)
                     return None, False
                 scrubbed = _strip_userinfo(e)
                 if "already active" in str(e):
                     active = mlflow.active_run()
                     if active is not None:
-                        logger.warning("%s active run_id=%s", scrubbed, active.info.run_id)
+                        log_throttle(logger, "mlflow_run_already_active", logging.WARNING, "%s active run_id=%s", scrubbed, active.info.run_id)
                         mlflow.end_run()
                     else:
-                        logger.warning(scrubbed)
+                        log_throttle(logger, "mlflow_run_already_active_no_handle", logging.WARNING, scrubbed)
                 else:
-                    logger.error(scrubbed)
+                    log_throttle(logger, "mlflow_start_run_error", logging.ERROR, scrubbed)
                     raise
             else:
                 mlflow.end_run()

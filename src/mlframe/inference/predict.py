@@ -28,6 +28,7 @@ from mlframe.utils.safe_pickle import (
     _sha256_of_file as _safe_pickle_sha256_of_file,
     verify_sidecar as _safe_pickle_verify_sidecar,
 )
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.training.io import safe_joblib_load
 
 # Allow-listed extensions for joblib model deserialization. Anything outside
@@ -103,7 +104,7 @@ def _load_features_file(features_file: str):
     for candidate in json_candidates:
         if isfile(candidate):
             if not _verify_sidecar(candidate):
-                logger.error("sha256 mismatch for features JSON sidecar %s; refusing to load", candidate)
+                log_throttle(logger, "predict_features_json_sidecar_sha256_mismatch", logging.ERROR, "sha256 mismatch for features JSON sidecar %s; refusing to load", candidate)
                 return None
             try:
                 import orjson
@@ -115,7 +116,7 @@ def _load_features_file(features_file: str):
                     data = json.load(f)
             if isinstance(data, list):
                 return [str(c) for c in data]
-            logger.warning("JSON features file %s did not contain a list", candidate)
+            log_throttle(logger, "predict_features_json_not_a_list", logging.WARNING, "JSON features file %s did not contain a list", candidate)
             return None
 
     if not _verify_sidecar(features_file):
@@ -216,7 +217,7 @@ def read_trained_models(
         if not isfile(model_file):
             continue
         if not _verify_sidecar(model_file):
-            logger.error("sha256 mismatch for model %s; skipping", model_file)
+            log_throttle(logger, "predict_model_sha256_mismatch", logging.ERROR, "sha256 mismatch for model %s; skipping", model_file)
             continue
         # Validate the .meta.json sidecar before unpickling so library-version drift gets a WARN log instead of
         # producing a cryptic AttributeError deep inside predict(). Non-fatal: legacy bundles (no sidecar) keep
@@ -235,7 +236,7 @@ def read_trained_models(
             # dill bundles, so infer/ models get the RCE-surface restriction, not just the integrity gate.
             model = safe_joblib_load(model_file)
         except Exception as e:
-            logger.warning("Could not read model file %s of featureset %s: %s", model_file, featureset, e)
+            log_throttle(logger, "predict_model_read_failed", logging.WARNING, "Could not read model file %s of featureset %s: %s", model_file, featureset, e)
             continue
 
         if not _check_model_feature_order(model, features, f"featureset {featureset}, file {model_file}"):

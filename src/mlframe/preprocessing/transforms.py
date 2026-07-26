@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import logging
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -129,7 +131,10 @@ def prepare_df_for_catboost(
                             _enum_dom = [*_enum_dom, na_filler]
                         cat_exprs.append(pl.col(var).cast(pl.String).fill_null(na_filler).cast(pl.Enum(_enum_dom)))
                     else:
-                        logger.warning("prepare_df_for_catboost: bare pl.Categorical re-cast for null-fill on %r (widens global string cache). Prefer pl.Enum upstream.", var)
+                        log_throttle(
+                            logger, "catboost_prep_bare_categorical_recast", logging.WARNING,
+                            "prepare_df_for_catboost: bare pl.Categorical re-cast for null-fill on %r (widens global string cache). Prefer pl.Enum upstream.", var,
+                        )
                         cat_exprs.append(pl.col(var).cast(pl.String).fill_null(na_filler).cast(pl.Categorical))
                 if var not in cat_features:
                     if verbose:
@@ -141,10 +146,13 @@ def prepare_df_for_catboost(
                     expr = expr.fill_null(na_filler)
                 if ensure_categorical:
                     try:
-                        logger.warning("prepare_df_for_catboost: bare pl.Categorical cast for %r (widens global string cache). Prefer pl.Enum upstream.", var)
+                        log_throttle(
+                            logger, "catboost_prep_bare_categorical_cast", logging.WARNING,
+                            "prepare_df_for_catboost: bare pl.Categorical cast for %r (widens global string cache). Prefer pl.Enum upstream.", var,
+                        )
                         expr = expr.cast(pl.Categorical)
                     except Exception:
-                        logger.warning("Could not convert column %s to categorical.", var)
+                        log_throttle(logger, "catboost_prep_polars_categorical_convert_failed", logging.WARNING, "Could not convert column %s to categorical.", var)
                         if skipped_columns is not None:
                             skipped_columns.append(var)
                         expr = None
@@ -200,7 +208,7 @@ def prepare_df_for_catboost(
                         try:
                             df[var] = df[var].astype("category")
                         except Exception:
-                            logger.warning("Could not convert column %s to categorical.", var)
+                            log_throttle(logger, "catboost_prep_pandas_categorical_convert_failed", logging.WARNING, "Could not convert column %s to categorical.", var)
                             if skipped_columns is not None:
                                 skipped_columns.append(var)
                 elif pd.api.types.is_extension_array_dtype(df[var].dtype):
@@ -228,7 +236,8 @@ def prepare_df_for_catboost(
                         # here leaves the nullable extension dtype intact, then
                         # CatBoost crashes downstream on pd.NA -- the exact
                         # corruption this code targets to PREVENT.
-                        logger.warning(
+                        log_throttle(
+                            logger, "catboost_prep_extension_dtype_convert_failed", logging.WARNING,
                             "Could not convert extension-dtype column %s "
                             "(dtype=%s, target=%s) for CatBoost: %s. "
                             "Column still carries pd.NA which CatBoost cannot "

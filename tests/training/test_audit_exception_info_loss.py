@@ -148,9 +148,9 @@ def test_recurrent_checkpoint_load_preserves_traceback() -> None:
 
 
 def test_mlflow_start_run_final_giveup_logs_traceback() -> None:
-    """Mlflow start run final giveup logs traceback."""
+    """Mlflow start run final giveup logs traceback (via log_throttle's exc_info passthrough)."""
     src = _read("integrations/mlflow.py")
-    assert 'logger.exception("mlflow.start_run failed after %d retries", nfailed)' in src
+    assert '"mlflow.start_run failed after %d retries", nfailed, exc_info=True' in src
 
 
 def test_automl_import_uses_logger_exception() -> None:
