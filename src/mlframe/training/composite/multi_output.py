@@ -60,6 +60,7 @@ import numpy as np
 from sklearn.base import BaseEstimator, MultiOutputMixin, RegressorMixin, clone
 
 from .estimator import CompositeTargetEstimator
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -300,7 +301,10 @@ class CompositeMultiOutputEstimator(MultiOutputMixin, RegressorMixin, BaseEstima
             except Exception as err:
                 if not self.skip_failed_columns:
                     raise
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "composite_multi_output_column_fit_failed",
+                    logging.WARNING,
                     "CompositeMultiOutputEstimator: column %d fit failed (%r); "
                     "predicting it as the constant fallback %.6g.",
                     k, err, fallback,

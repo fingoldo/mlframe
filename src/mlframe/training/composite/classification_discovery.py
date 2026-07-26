@@ -51,6 +51,7 @@ from sklearn.metrics import log_loss
 from sklearn.model_selection import StratifiedKFold, train_test_split
 
 from .classification import CompositeClassificationEstimator
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -298,7 +299,7 @@ class CompositeClassificationDiscovery:
         survivors = [r for r in stage1 if not r["suspected_leak"] and r["margin_gain"] > self.min_margin_gain]
         for r in stage1:
             if r["suspected_leak"]:
-                logger.warning("classification discovery: column %r rejected as suspected label leak (univariate log-loss %.2g)", r["column"], r["univariate_logloss"])
+                log_throttle(logger, "classification_discovery_suspected_leak", logging.WARNING, "classification discovery: column %r rejected as suspected label leak (univariate log-loss %.2g)", r["column"], r["univariate_logloss"])
 
         candidates: list[dict[str, Any]] = []
         for r in survivors[: self.top_k]:

@@ -70,11 +70,9 @@ from mlframe.training.feature_handling.text_detection import (
     detect_text_columns,
 )
 
-logger = logging.getLogger(__name__)
+from mlframe.utils.log_throttle import log_throttle
 
-# (method, group_columns) tuples already warned about via the group_columns-is-a-no-op WARNING below --
-# process-lifetime dedup so a suite iterating many targets/models doesn't spam the log once per call.
-_GROUP_COLUMNS_WARN_SEEN: set = set()
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     import pandas as pd  # noqa: F401
@@ -305,14 +303,16 @@ def feature_handling_apply(
             # loop or by LeakageSafeEncoder -- warn (once per column-tuple) so a caller relying on it
             # notices they're silently getting ordinary global-fold encoding instead of per-group stats.
             _gc_key = (cat_spec.method, tuple(cat_spec.group_columns))
-            if _gc_key not in _GROUP_COLUMNS_WARN_SEEN:
-                _GROUP_COLUMNS_WARN_SEEN.add(_gc_key)
-                logger.warning(
-                    "CatHandlerSpec(method=%r).group_columns=%r is set but group-aware encoding is not "
-                    "yet implemented; falling back to ordinary global-fold encoding (group_columns is "
-                    "silently ignored).",
-                    cat_spec.method, cat_spec.group_columns,
-                )
+            log_throttle(
+                logger,
+                f"feature_handling_apply_group_columns_noop:{_gc_key}",
+                logging.WARNING,
+                "CatHandlerSpec(method=%r).group_columns=%r is set but group-aware encoding is not "
+                "yet implemented; falling back to ordinary global-fold encoding (group_columns is "
+                "silently ignored).",
+                cat_spec.method, cat_spec.group_columns,
+                max_count=1,
+            )
         target_cols = cat_spec.apply_to_columns or cat_cols
         for col in target_cols:
             if cat_spec.method.startswith("target_") or cat_spec.method == "woe":

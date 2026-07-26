@@ -12,6 +12,8 @@ from typing import Any
 import pandas as pd
 import polars as pl
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 _DRIFT_SKIP_CARD = 100_000
@@ -133,7 +135,10 @@ def _log_cardinality_and_drift_snapshot(
                                 "          b) widen the training window (temporal split) so "
                                 "val_only categories are observed at fit time."
                             )
-                        logger.warning(
+                        log_throttle(
+                            logger,
+                            "phase_drift_snapshot_category_drift_suspect",
+                            logging.WARNING,
                             "  Category drift suspect: %s -- val has %s categories "
                             "(%s of train card %s) that train never saw. "
                             "XGB/CB may crash when constructing val DMatrix with ref=train.\n"

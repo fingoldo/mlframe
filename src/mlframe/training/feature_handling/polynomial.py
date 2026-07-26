@@ -22,6 +22,8 @@ from typing import Any, List, Optional
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -119,7 +121,10 @@ class PolynomialFeatureExpander:
                 eff_interaction = True
                 projected = _project(eff_degree, eff_interaction)
             while projected > cap and eff_degree > 1:
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "feature_handling_polynomial_degree_decrement",
+                    logging.WARNING,
                     "[fhc] polynomial auto-tune: projected=%d > cap=%d at degree=%d, interaction_only=%s; "
                     "decrementing degree -> %d.",
                     projected, cap, eff_degree, eff_interaction, eff_degree - 1,

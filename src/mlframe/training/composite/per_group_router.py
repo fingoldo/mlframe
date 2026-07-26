@@ -24,6 +24,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 from .estimator import CompositeTargetEstimator, _extract_groups
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +126,10 @@ class PerGroupCompositeRouter(BaseEstimator, RegressorMixin):
             try:
                 est.fit(X_group, y_arr[mask])
             except Exception as exc:  # -- a per-group submodel failing to fit falls back to global, never aborts fit()
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "per_group_router_submodel_fit_failed",
+                    logging.WARNING,
                     "[PerGroupCompositeRouter] group=%r submodel fit failed (%s); routing to the global fallback.",
                     group_val, exc,
                 )

@@ -23,6 +23,7 @@ import pandas as pd
 import polars as pl
 
 from .ensemble.feature_stacking import composite_oof_predictions
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,10 @@ def _oof_multi_target_predictions(
                 fold_preds = fold_preds.reshape(-1, 1)
             out[val_idx] = fold_preds
         except Exception as fold_err:
-            logger.warning(
+            log_throttle(
+                logger,
+                "oof_multi_target_predictions_fold_failed",
+                logging.WARNING,
                 "[_oof_multi_target_predictions] fold failed (val rows %d-%d): %s. NaN-filled.",
                 int(val_idx.min()), int(val_idx.max()), fold_err,
             )

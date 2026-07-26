@@ -31,6 +31,7 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 from ...feature_selection.varying_size_top_k_subsets import _cluster_anchors
 from .ensemble.feature_stacking import composite_oof_predictions
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -220,7 +221,7 @@ class GroupedBlockStacker(BaseEstimator, RegressorMixin):
                 full_model.fit(X_group_valid, y_arr[valid_mask], **full_fit_kwargs)
                 self.submodels_[group_name] = full_model
             else:
-                logger.warning("GroupedBlockStacker: group '%s' has only %d valid rows (<max(2,n_splits)); skipped.", group_name, int(valid_mask.sum()))
+                log_throttle(logger, "grouped_block_stacker_group_too_few_valid_rows", logging.WARNING, "GroupedBlockStacker: group '%s' has only %d valid rows (<max(2,n_splits)); skipped.", group_name, int(valid_mask.sum()))
                 self.submodels_[group_name] = None
 
             finite_oof = oof_col[np.isfinite(oof_col)]

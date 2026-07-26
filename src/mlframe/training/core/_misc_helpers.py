@@ -13,6 +13,7 @@ import pandas as pd
 import polars as pl
 
 from ..utils import filter_existing, compute_model_input_fingerprint, _dtype_family
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -456,7 +457,10 @@ def _validate_input_columns_against_metadata(
                     lines.extend(s.strip() for s in soft_width_changes)
                 if soft_family_changes:
                     lines.extend(s.strip() for s in soft_family_changes)
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "misc_helpers_input_schema_drift",
+                    logging.WARNING,
                     "Input-schema drift for %s (pipeline-internal casts on "
                     "numeric-role columns and/or width-only changes). "
                     "Accepting; trained pipeline is responsible for "

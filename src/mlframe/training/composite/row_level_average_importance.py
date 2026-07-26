@@ -24,6 +24,8 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -94,7 +96,7 @@ def compute_row_level_feature_importance_oof(
             sums += extract_model_importance(model, feature_names)
             n_folds_used += 1
         except AttributeError as exc:
-            logger.warning("compute_row_level_feature_importance_oof: skipping a fold, %s", exc)
+            log_throttle(logger, "row_level_importance_oof_fold_skipped", logging.WARNING, "compute_row_level_feature_importance_oof: skipping a fold, %s", exc)
     if n_folds_used == 0:
         raise AttributeError(
             "compute_row_level_feature_importance_oof: the row-level model exposes neither 'feature_importances_' "

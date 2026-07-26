@@ -17,6 +17,8 @@ import logging
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
 
 
@@ -141,7 +143,10 @@ def _choose_ensemble_flavour(ensembles_dict: dict) -> str | None:
             _scored.sort(key=lambda kv: (-kv[1], kv[0]))
         # The module-top comment promises a "one-time WARN at first use" of the test.* fallback because using the honest test split for model selection biases every subsequent test-set metric optimistic. Surface that WARN so production runs reaching this branch are visible in the suite log.
         if _split == "test":
-            logger.warning(
+            log_throttle(
+                logger,
+                "ensemble_chooser_test_split_fallback",
+                logging.WARNING,
                 "[_choose_ensemble_flavour] resolved winner %r via test.%s (oof.* and val.* "
                 "metrics absent). Using test for selection converts it into a model-selection "
                 "surface and biases downstream test-set metrics; stamp OOF on every candidate "
