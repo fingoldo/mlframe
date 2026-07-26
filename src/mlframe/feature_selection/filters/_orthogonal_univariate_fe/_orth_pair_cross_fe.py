@@ -18,6 +18,7 @@ import pandas as pd
 
 from ..hermite_fe import _POLY_BASES, basis_route_by_moments
 from ._orth_mi_backends import _mi_classif_batch, mi_classif_batch_chunked
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +152,10 @@ def generate_pair_cross_basis_features(
         if col_i == col_j:
             continue
         if col_i not in X.columns or col_j not in X.columns:
-            logger.warning("generate_pair_cross_basis_features: missing column %r or %r; skipping", col_i, col_j)
+            log_throttle(
+                logger, "pair_cross_missing_column", logging.WARNING,
+                "generate_pair_cross_basis_features: missing column %r or %r; skipping", col_i, col_j,
+            )
             continue
         if not (pd.api.types.is_numeric_dtype(X[col_i]) and pd.api.types.is_numeric_dtype(X[col_j])):
             continue
@@ -174,7 +178,8 @@ def generate_pair_cross_basis_features(
         basis_i = basis_route_by_moments(x_i) if basis == "auto" else basis
         basis_j = basis_route_by_moments(x_j) if basis == "auto" else basis
         if basis_i not in _POLY_BASES or basis_j not in _POLY_BASES:
-            logger.warning(
+            log_throttle(
+                logger, "pair_cross_unknown_basis", logging.WARNING,
                 "generate_pair_cross_basis_features: unknown basis %r/%r for pair (%r,%r); skipping",
                 basis_i, basis_j, col_i, col_j,
             )
@@ -199,7 +204,8 @@ def generate_pair_cross_basis_features(
                         name = _pair_eng_col_name(col_i, col_j, basis_i, basis_j, deg_a, deg_b)
                         out_cols[name] = np.nan_to_num(h_a * h_b, nan=0.0, posinf=0.0, neginf=0.0)
                     except Exception as exc:
-                        logger.warning(
+                        log_throttle(
+                            logger, "pair_cross_basis_eval_raised", logging.WARNING,
                             "generate_pair_cross_basis_features: basis=%r/%r deg=%d/%d on pair (%r,%r) raised %r; skipping",
                             basis_i, basis_j, deg_a, deg_b, col_i, col_j, exc,
                         )
@@ -566,7 +572,8 @@ def hybrid_orth_mi_pair_fe_with_recipes(
             try:
                 left, right = suffix.split("_", 1)
             except ValueError:
-                logger.warning(
+                log_throttle(
+                    logger, "pair_cross_recipe_cannot_parse_suffix", logging.WARNING,
                     "hybrid_orth_mi_pair_fe_with_recipes: cannot parse pair "
                     "suffix %r in %r; skipping recipe.", suffix, name,
                 )
@@ -582,7 +589,8 @@ def hybrid_orth_mi_pair_fe_with_recipes(
             basis_a, deg_a = _parse_code_deg(left)
             basis_b, deg_b = _parse_code_deg(right)
             if basis_a is None or basis_b is None:
-                logger.warning(
+                log_throttle(
+                    logger, "pair_cross_recipe_cannot_parse_code_deg", logging.WARNING,
                     "hybrid_orth_mi_pair_fe_with_recipes: cannot parse code/deg " "from %r; skipping recipe.",
                     name,
                 )
@@ -638,7 +646,8 @@ def hybrid_orth_mi_pair_fe_with_recipes(
                         chosen_degree = int(rest)
                         break
             if chosen_basis is None or chosen_degree is None:
-                logger.warning(
+                log_throttle(
+                    logger, "pair_cross_recipe_cannot_parse_basis_degree", logging.WARNING,
                     "hybrid_orth_mi_pair_fe_with_recipes: cannot parse basis/" "degree from %r; skipping recipe.",
                     name,
                 )
