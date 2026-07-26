@@ -74,6 +74,7 @@ from ._orth_auto_scorer_fe import (
     _score_tail_dep,
     _score_xi,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -664,7 +665,10 @@ def hybrid_orth_mi_ensemble_fe_with_recipes(
                     chosen_degree = int(rest)
                     break
         if chosen_basis is None or chosen_degree is None:
-            logger.warning(
+            log_throttle(
+                logger,
+                "orth_scorer_auto_fe_cannot_parse_basis_degree",
+                logging.WARNING,
                 "hybrid_orth_mi_ensemble_fe_with_recipes: cannot parse " "basis/degree from column name %r; skipping recipe build.",
                 name,
             )

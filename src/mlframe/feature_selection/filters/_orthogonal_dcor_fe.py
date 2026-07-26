@@ -68,6 +68,7 @@ import numpy as np
 import pandas as pd
 
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -459,7 +460,10 @@ def hybrid_orth_mi_dcor_fe_with_recipes(
                     chosen_degree = int(rest)
                     break
         if chosen_basis is None or chosen_degree is None:
-            logger.warning(
+            log_throttle(
+                logger,
+                "orth_dcor_fe_cannot_parse_basis_degree",
+                logging.WARNING,
                 "hybrid_orth_mi_dcor_fe_with_recipes: cannot parse " "basis/degree from column name %r; skipping recipe build.",
                 name,
             )
