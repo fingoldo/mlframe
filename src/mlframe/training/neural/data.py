@@ -49,6 +49,19 @@ def _estimate_bytes(obj) -> int:
     return 0
 
 
+def _try_astype_float32(series: pd.Series) -> tuple[pd.Series, bool]:
+    """Attempt a single column's ``astype("float32")``; return ``(converted_or_original, ok)``.
+
+    Factored out of the per-column retry loop so the try/except isn't nested inside the loop body
+    (PERF203) -- a per-column loop is unavoidable here since a whole-frame astype fails on ANY single
+    non-convertible column.
+    """
+    try:
+        return series.astype("float32"), True
+    except (ValueError, TypeError):
+        return series, False
+
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # TorchDataset
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -438,8 +451,26 @@ class TorchDataModule(LightningDataModule):
                 try:
                     setattr(self, feature_name, features.astype("float32"))
                 except (ValueError, TypeError):
-                    # Not convertible, keep original dtype
-                    pass
+                    # A whole-frame astype fails if ANY single column is non-numeric-convertible; falling back to
+                    # "keep original dtype" then leaves EVERY column (including the convertible ones) at the
+                    # original dtype, which crashes torch.from_numpy downstream on the frame's object dtype. Retry
+                    # per-column so only the genuinely bad column(s) are logged and left as-is; a caller upstream
+                    # (e.g. the neural estimator's cat-code replay) is expected to have already numericised any
+                    # column it knows about -- a survivor here is a real, unexpected schema drift worth logging.
+                    if hasattr(features, "columns"):
+                        bad_cols = []
+                        converted = {}
+                        for col in features.columns:
+                            converted[col], ok = _try_astype_float32(features[col])
+                            if not ok:
+                                bad_cols.append(col)
+                        if bad_cols:
+                            logger.warning(
+                                "TorchDataModule: %s has non-numeric-convertible column(s) %s after cat-code replay; " "leaving them unconverted (will fail if fed to the network as-is).",
+                                feature_name,
+                                bad_cols,
+                            )
+                        setattr(self, feature_name, features.assign(**converted)[list(features.columns)])
 
     def teardown(self, stage: Optional[str] = None):
         """Clean up resources (temp files, etc.)."""

@@ -59,8 +59,10 @@ class _PredictMixin:
             X = _emb_text_enc.transform(X)
 
         # Replay the fit-time categorical factorization (map values -> codes, unseen -> reserved unknown code, reorder cats leading) so the
-        # predict X matches the layout the network's CategoricalEmbedding was trained on. No-op when the model trained without cat_features.
-        if getattr(self, "_cat_code_maps_", None):
+        # predict X matches the layout the network's CategoricalEmbedding was trained on, AND coerce any column that was numeric at fit
+        # (never embedded) but arrives non-numeric at predict (e.g. a split-dependent categorical-fill sentinel landing on it) back to
+        # numeric. Always called: it's a no-op when X is already fully numeric and had no fit-time cat columns.
+        if hasattr(X, "columns"):
             X = self._apply_cat_codes(X)
 
         # Lazy import: the package __init__ imports this mixin at class-definition

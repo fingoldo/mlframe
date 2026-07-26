@@ -116,23 +116,34 @@ class _FitPrepMixin:
         No-op when no cat factorization was fitted. Returns a new column-ordered frame (selection view, not a deep copy).
         """
         code_maps = getattr(self, "_cat_code_maps_", None)
-        if not code_maps:
-            return X
         if not hasattr(X, "columns"):
             return X
-        if self._cat_cols_ is None or self._cat_cardinalities_ is None:
-            return X
         encoded_cols: dict = {}
-        for col, card in zip(self._cat_cols_, self._cat_cardinalities_):
-            if col not in X.columns:
+        _cat_cols = getattr(self, "_cat_cols_", None) or []
+        _cat_cardinalities = getattr(self, "_cat_cardinalities_", None)
+        if code_maps and _cat_cardinalities is not None:
+            for col, card in zip(_cat_cols, _cat_cardinalities):
+                if col not in X.columns:
+                    continue
+                mapping = code_maps[col]
+                # ``.astype(object)`` BEFORE ``.map``: Series.map on a pandas CATEGORICAL column returns a Categorical (it maps the categories and keeps
+                # the dtype), so the ``.fillna(card)`` unknown-code fill below would try to add ``card`` as a NEW category and raise "Cannot setitem on a
+                # Categorical with a new category". Mapping the plain object values yields a numeric/object Series whose NaN fill (values unseen at fit)
+                # lands as the reserved unknown code, never a new category.
+                mapped = X[col].astype(object).map(mapping)
+                encoded_cols[col] = mapped.fillna(float(card)).astype(np.float32)
+        # A column outside the fit-time cat set was numeric (not embedded) when the network was built, so it must
+        # arrive numeric here too. If a null-fill sentinel (e.g. the "__MISSING__" categorical-fill convention) or
+        # any other non-numeric value slipped into it at predict time -- a split-dependent fill applied to a column
+        # that had no nulls at fit -- coercing it back to numeric (sentinel -> NaN) recovers the intended numeric
+        # semantics instead of crashing deep inside torch.from_numpy on an object-dtype array.
+        for col in X.columns:
+            if col in _cat_cols or col in encoded_cols:
                 continue
-            mapping = code_maps[col]
-            # ``.astype(object)`` BEFORE ``.map``: Series.map on a pandas CATEGORICAL column returns a Categorical (it maps the categories and keeps
-            # the dtype), so the ``.fillna(card)`` unknown-code fill below would try to add ``card`` as a NEW category and raise "Cannot setitem on a
-            # Categorical with a new category". Mapping the plain object values yields a numeric/object Series whose NaN fill (values unseen at fit)
-            # lands as the reserved unknown code, never a new category.
-            mapped = X[col].astype(object).map(mapping)
-            encoded_cols[col] = mapped.fillna(float(card)).astype(np.float32)
-        other_cols = [c for c in X.columns if c not in self._cat_cols_]
-        ordered = [c for c in self._cat_cols_ if c in X.columns] + other_cols
+            if not pd.api.types.is_numeric_dtype(X[col]):
+                encoded_cols[col] = pd.to_numeric(X[col], errors="coerce")
+        if not encoded_cols:
+            return X
+        other_cols = [c for c in X.columns if c not in _cat_cols]
+        ordered = [c for c in _cat_cols if c in X.columns] + other_cols
         return X.assign(**encoded_cols)[ordered]

@@ -71,6 +71,7 @@ from ._orthogonal_univariate_fe import (
     hybrid_orth_mi_fe,
     cached_raw_mi_baseline,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -200,7 +201,8 @@ def generate_adaptive_arity_cross_basis(
             x = np.where(finite_mask, x, fill)
         chosen = basis_route_by_moments(x) if basis == "auto" else basis
         if chosen not in _POLY_BASES:
-            logger.warning(
+            log_throttle(
+                logger, "adaptive_arity_unknown_basis", logging.WARNING,
                 "generate_adaptive_arity_cross_basis: unknown basis %r for "
                 "column %r; skipping", chosen, col,
             )
@@ -704,7 +706,8 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
         if arity == 1:
             chosen_basis, chosen_degree = _parse_code_deg(parts[0]) if parts else (None, None)
             if chosen_basis is None or chosen_degree is None:
-                logger.warning(
+                log_throttle(
+                    logger, "adaptive_arity_recipe_cannot_parse_univariate_suffix", logging.WARNING,
                     "hybrid_orth_mi_adaptive_arity_fe_with_recipes: cannot parse " "univariate suffix in %r; skipping recipe.",
                     name,
                 )
@@ -727,7 +730,8 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
             ))
         elif arity == 2:
             if len(parts) != 2:
-                logger.warning(
+                log_throttle(
+                    logger, "adaptive_arity_recipe_bad_parts_count_pair", logging.WARNING,
                     "hybrid_orth_mi_adaptive_arity_fe_with_recipes: expected 2 " "deg parts in %r; skipping recipe.",
                     name,
                 )
@@ -794,7 +798,8 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
                 preprocess_params_l=_freeze_leg_pp(legs[3], basis_d, deg_d),
             ))
         else:
-            logger.warning(
+            log_throttle(
+                logger, "adaptive_arity_recipe_unexpected_arity", logging.WARNING,
                 "hybrid_orth_mi_adaptive_arity_fe_with_recipes: unexpected arity "
                 "%d in %r; skipping recipe.", arity, name,
             )

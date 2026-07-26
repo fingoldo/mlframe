@@ -58,6 +58,7 @@ from ._orthogonal_univariate_fe import (
     cached_raw_mi_baseline,
     cached_dense_finite_corr_matrix,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -291,13 +292,15 @@ def generate_diff_basis_features(
                 raise ValueError(f"generate_diff_basis_features: every entry in ``pairs`` " f"must be a 2-tuple; got {pair!r}.")
             a, b = pair
             if a not in X.columns or b not in X.columns:
-                logger.warning(
+                log_throttle(
+                    logger, "diff_basis_pair_missing_column", logging.WARNING,
                     "generate_diff_basis_features: pair (%r, %r) skipped; "
                     "column missing from X.", a, b,
                 )
                 continue
             if not (pd.api.types.is_numeric_dtype(X[a]) and pd.api.types.is_numeric_dtype(X[b])):
-                logger.warning(
+                log_throttle(
+                    logger, "diff_basis_pair_non_numeric_dtype", logging.WARNING,
                     "generate_diff_basis_features: pair (%r, %r) skipped; "
                     "non-numeric dtype.", a, b,
                 )
@@ -369,7 +372,8 @@ def generate_diff_basis_features(
                 # ``x_a - x_b`` and re-evaluating the basis a second time purely to recover them.
                 vals, basis_params_d = _evaluate_basis_column(diff, basis, int(d), return_params=True)
             except Exception as exc:
-                logger.warning(
+                log_throttle(
+                    logger, "diff_basis_eval_raised", logging.WARNING,
                     "generate_diff_basis_features: basis=%r degree=%d on "
                     "pair (%r, %r) raised %r; skipping cell.",
                     basis, d, col_a, col_b, exc,
@@ -574,7 +578,8 @@ def hybrid_orth_mi_diff_basis_fe_with_recipes(
     for name in appended:
         row = name_to_row.get(name)
         if row is None:
-            logger.warning(
+            log_throttle(
+                logger, "diff_basis_recipe_appended_col_missing_from_scores", logging.WARNING,
                 "hybrid_orth_mi_diff_basis_fe_with_recipes: appended column " "%r missing from scores; skipping recipe.",
                 name,
             )

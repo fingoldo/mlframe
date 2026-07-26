@@ -16,6 +16,8 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -253,7 +255,8 @@ def generate_extra_basis_features(
                         "lo": float(lo), "hi": float(hi),
                     }
             except Exception as exc:
-                logger.warning(
+                log_throttle(
+                    logger, "extra_basis_spline_raised", logging.WARNING,
                     "generate_extra_basis_features: spline on col=%r raised " "%r; skipping spline for that column.",
                     col,
                     exc,
@@ -386,7 +389,8 @@ def generate_extra_basis_features(
                                         "power": 1, "adaptive": True,
                                     }
             except Exception as exc:
-                logger.warning(
+                log_throttle(
+                    logger, "extra_basis_fourier_raised", logging.WARNING,
                     "generate_extra_basis_features: fourier on col=%r raised " "%r; skipping fourier for that column.",
                     col,
                     exc,
@@ -423,7 +427,8 @@ def generate_extra_basis_features(
                                 "lo": float(_w_lo), "span": float(_w_span),
                             }
             except Exception as exc:
-                logger.warning(
+                log_throttle(
+                    logger, "extra_basis_wavelet_raised", logging.WARNING,
                     "generate_extra_basis_features: wavelet on col=%r raised " "%r; skipping wavelet for that column.",
                     col,
                     exc,
@@ -610,7 +615,7 @@ def hybrid_orth_extra_basis_fe_with_recipes(
             try:
                 _full_cols[r.name] = np.asarray(apply_recipe(r, X))
             except Exception:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-                logger.warning("extra-basis subsample replay failed for %r; dropping.", r.name)
+                log_throttle(logger, "extra_basis_subsample_replay_failed", logging.WARNING, "extra-basis subsample replay failed for %r; dropping.", r.name)
         X_aug = pd.concat([X, pd.DataFrame(_full_cols, index=X.index)], axis=1) if _full_cols else X.copy()
     else:
         X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()

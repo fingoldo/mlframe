@@ -69,6 +69,7 @@ from ._phase_train_one_target_cache_helpers import (
     compute_cached_model_input_fingerprint,
     compute_model_pipeline_cache_key,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
 
@@ -309,7 +310,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 )
 
             if _model_entry not in models_params:
-                logger.warning("mlframe model %s not known, skipping...", mlframe_model_name)
+                log_throttle(logger, "train_one_target_model_not_known", logging.WARNING, "mlframe model %s not known, skipping...", mlframe_model_name)
                 continue
 
             # Cross-target dataset reuse: restore the prior target's _DATASET_REUSE_CACHE_ATTRS
@@ -379,7 +380,8 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     # strategies trips `imputer.transform` on a feature-names
                     # mismatch (the exact bug the docstring 4 lines above
                     # describes).
-                    logger.warning(
+                    log_throttle(
+                        logger, "train_one_target_clone_base_pipeline_failed", logging.WARNING,
                         "  sklearn.clone failed for base_pipeline (%s); reusing "
                         "original reference. If %s is a stateful selector with "
                         "no per-call reset, downstream `pre_pipeline.fit` may "
@@ -647,7 +649,8 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                             # don't accept all params via set_params; fall
                             # back to direct attribute assignment which
                             # CatBoost does honour at fit-time.
-                            logger.warning(
+                            log_throttle(
+                                logger, "train_one_target_mtr_set_params_failed", logging.WARNING,
                                 "MTR set_params(%s) on %s failed (%s); " "falling back to setattr.",
                                 _mtr_obj_kwargs,
                                 mlframe_model_name,
@@ -768,13 +771,15 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     # native SIGSEGV that kills the process won't be caught either.
                     if not behavior_config.continue_on_model_failure:
                         raise
-                    logger.exception(
+                    log_throttle(
+                        logger, "train_one_target_process_model_failed", logging.ERROR,
                         "  process_model(%s, w=%s) FAILED after %s -- %s: %s. continue_on_model_failure=True -> skipping and moving on.",
                         mlframe_model_name,
                         weight_name,
                         _elapsed_str(t0_model),
                         type(model_err).__name__,
                         model_err,
+                        exc_info=True,
                     )
                     metadata.setdefault("failed_models", []).append(
                         {
