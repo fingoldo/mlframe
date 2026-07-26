@@ -34,6 +34,7 @@ from ..configs import TargetTypes
 from ..utils import log_phase
 from ..trainer import _configure_recurrent_params
 from ._misc_helpers import _compute_neural_max_time
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +208,8 @@ def _validate_member_shape_uniformity(members: list, *, target_name: str) -> boo
                 continue
             sizes.append(int(np.asarray(arr).shape[0]))
         if len(set(sizes)) > 1:
-            logger.warning(
+            log_throttle(
+                logger, "recurrent_member_shape_nonuniform", logging.WARNING,
                 "Recurrent ensemble integration: split %s has non-uniform member row counts for target %s (sizes=%s); "
                 "skipping rerun to avoid a broken blend.",
                 attr, target_name, sizes,
@@ -292,7 +294,8 @@ def _apply_recurrent_to_ensemble(
                 continue
             _got = int(np.asarray(_arr).shape[0])
             if _got != _expected:
-                logger.warning(
+                log_throttle(
+                    logger, "recurrent_row_count_drift", logging.WARNING,
                     "apply_recurrent_to_ensemble: target=%s split=%s row-count drift: member %r has "
                     "%d rows but sliced target has %d. Refusing to blend (recurrent member rows likely "
                     "belong to a different row set than the booster). Returning prior ensemble.",
@@ -468,7 +471,7 @@ def train_recurrent_models(
     for recurrent_model_name in tqdmu_lazy_start(recurrent_models, desc="recurrent model"):
         model_name_lower = recurrent_model_name.lower()
         if model_name_lower not in recurrent_params:
-            logger.warning("Recurrent model %s not configured, skipping...", recurrent_model_name)
+            log_throttle(logger, "recurrent_model_not_configured", logging.WARNING, "Recurrent model %s not configured, skipping...", recurrent_model_name)
             continue
 
         recurrent_model = recurrent_params[model_name_lower]["model"]
@@ -577,7 +580,8 @@ def train_recurrent_models(
                         # additive; without them the fit still runs (unencoded cats route through the strategy CatBoostEncoder path / unweighted).
                         _dropped_any = False
                         if "cat_features" in _te_msg and "cat_features" in _fit_kwargs:
-                            logger.warning(
+                            log_throttle(
+                                logger, "recurrent_wrapper_no_cat_features", logging.WARNING,
                                 "Recurrent wrapper %s did not accept cat_features (%s); falling back to a fit without learnable cat "
                                 "embeddings. Categorical columns must be encoded upstream. Upgrade the wrapper for native cat embeddings.",
                                 type(model_clone).__name__, _fit_te,
@@ -585,7 +589,8 @@ def train_recurrent_models(
                             _fit_kwargs.pop("cat_features", None)
                             _dropped_any = True
                         if "sample_weight" in _te_msg and "sample_weight" in _fit_kwargs:
-                            logger.warning(
+                            log_throttle(
+                                logger, "recurrent_wrapper_no_sample_weight", logging.WARNING,
                                 "Recurrent wrapper %s did not accept sample_weight (%s); "
                                 "falling back to unweighted fit. Ensemble blend may be biased on "
                                 "weighted suites. Upgrade the wrapper or remove weighting.",
@@ -598,7 +603,11 @@ def train_recurrent_models(
                         else:
                             raise
                 except Exception:
-                    logger.exception("Failed to train %s for %s", recurrent_model_name, cur_target_name)
+                    log_throttle(
+                        logger, "recurrent_train_failed", logging.ERROR,
+                        "Failed to train %s for %s", recurrent_model_name, cur_target_name,
+                        exc_info=True,
+                    )
                     continue
 
                 if ctx is None:
@@ -641,7 +650,10 @@ def train_recurrent_models(
 
                 if val_preds_arr is None and test_preds_arr is None and train_preds is None:
                     # All splits failed prediction - graceful skip, keep moving (per continue_on_model_failure semantics).
-                    logger.warning("Recurrent %s for %s: all splits failed prediction; skipping ensemble integration.", recurrent_model_name, cur_target_name)
+                    log_throttle(
+                        logger, "recurrent_all_splits_failed_prediction", logging.WARNING,
+                        "Recurrent %s for %s: all splits failed prediction; skipping ensemble integration.", recurrent_model_name, cur_target_name,
+                    )
                     models[target_type][cur_target_name].append(model_clone)
                     continue
 
