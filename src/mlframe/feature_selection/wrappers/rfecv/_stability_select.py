@@ -21,6 +21,7 @@ from .._helpers import (
     get_feature_importances,
     select_appropriate_feature_importances,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
@@ -181,7 +182,10 @@ def _fit_stability_selection(self, X, y, signature):
                 est_clone.fit(X_sub, y_sub, **_fit_kwargs)
             except Exception as exc:
                 if self.verbose:
-                    logger.warning(
+                    log_throttle(
+                        logger,
+                        "stability_selection_estimator_fit_failed",
+                        logging.WARNING,
                         "stability_selection: bootstrap %d, %s.fit failed: %s. "
                         "Skipping this estimator for this bootstrap.",
                         b, type(est_clone).__name__, exc,
@@ -200,7 +204,10 @@ def _fit_stability_selection(self, X, y, signature):
                 )
             except Exception as exc:
                 if self.verbose:
-                    logger.warning(
+                    log_throttle(
+                        logger,
+                        "stability_selection_get_feature_importances_failed",
+                        logging.WARNING,
                         "stability_selection: bootstrap %d, get_feature_importances failed: %s.",
                         b, exc,
                     )

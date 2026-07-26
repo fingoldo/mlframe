@@ -47,6 +47,7 @@ from mlframe.utils.safe_pickle import (
     safe_dump as _safe_pickle_dump,
     safe_load as _safe_pickle_load,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -291,7 +292,7 @@ class SuiteArtefactCache:
                 sidecar_size = 0
             except OSError as exc:
                 # Surface this -- a permission / lock failure here is the canonical source of the "total_bytes reports under cap but on-disk footprint is larger" symptom.
-                logger.warning("SuiteArtefactCache: failed to drop sidecar %s during eviction: %s", sidecar, exc)
+                log_throttle(logger, "suite_artefact_cache_sidecar_drop_failed", logging.WARNING, "SuiteArtefactCache: failed to drop sidecar %s during eviction: %s", sidecar, exc)
                 sidecar_size = 0
             self._lru.pop(key, None)
             total -= pkl_size + sidecar_size

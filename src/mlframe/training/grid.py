@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Dict, Iterable, Tuple, Union
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -66,7 +68,7 @@ def run_grid(
         try:
             results[label] = suite_fn(**merged)
         except Exception as exc:  # -- we deliberately keep going
-            logger.exception("[run_grid] variant %s raised %s", label, type(exc).__name__)
+            log_throttle(logger, "run_grid_variant_failed", logging.ERROR, "[run_grid] variant %s raised %s", label, type(exc).__name__, exc_info=True)
             if stop_on_error:
                 raise
             results[label] = {"error": repr(exc)}

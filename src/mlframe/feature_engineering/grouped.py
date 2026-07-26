@@ -78,6 +78,8 @@ except ImportError:
         return wrap
 
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -328,15 +330,16 @@ def per_group_apply(
             # downstream behavior" pattern, so we escalate below instead.
             n_groups_failed += 1
             last_err = err
-            if n_groups_failed <= 5:
-                # A wide panel can have thousands of groups; an fn bug that fails on many of them
-                # would otherwise flood the log one line per group. Cap the per-group detail and
-                # let the systematic-failure check below (or a future summary) carry the rest.
-                logger.warning(
-                    "per_group_apply: fn raised on group of size %d: %s; filling with %s.%s",
-                    int(e - s), err, fill_value,
-                    " (further per-group warnings suppressed)" if n_groups_failed == 5 else "",
-                )
+            # A wide panel can have thousands of groups; an fn bug that fails on many of them
+            # would otherwise flood the log one line per group. log_throttle caps the per-group
+            # detail and lets the systematic-failure check below (or a future summary) carry the rest.
+            log_throttle(
+                logger,
+                "per_group_apply_fn_raised",
+                logging.WARNING,
+                "per_group_apply: fn raised on group of size %d: %s; filling with %s",
+                int(e - s), err, fill_value,
+            )
             continue
         if res is None:
             continue

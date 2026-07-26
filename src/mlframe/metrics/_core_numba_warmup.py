@@ -14,6 +14,8 @@ import os as _os
 import numba
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -74,7 +76,10 @@ def _assert_numba_nogil_active() -> bool:
             fndesc = getattr(compile_result, "fndesc", None)
             if fndesc is not None and hasattr(fndesc, "release_gil"):
                 if not fndesc.release_gil:
-                    logger.warning(
+                    log_throttle(
+                        logger,
+                        "numba_nogil_gil_retained",
+                        logging.WARNING,
                         "numba JIT: nogil=True requested but kernel retained GIL "
                         "(%s, sig=%s). ThreadPoolExecutor parallelism "
                         "over metrics will silently degrade to sequential.",

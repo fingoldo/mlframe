@@ -26,6 +26,8 @@ try:
 except ImportError:
     pl = None  # type: ignore[assignment]
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -785,7 +787,10 @@ def get_pandas_view_of_polars_df(
             pandas_df[name] = pd.to_datetime(pandas_df[name], errors="coerce")
             _new_nat = int(pandas_df[name].isna().sum()) - _pre_na
             if _new_nat > 0:
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "training_utils_temporal_col_coerced_nat",
+                    logging.WARNING,
                     "get_pandas_view_of_polars_df: restoring temporal column %r coerced %d "
                     "additional cell(s) to NaT (unparseable timestamps silently dropped).",
                     name, _new_nat,

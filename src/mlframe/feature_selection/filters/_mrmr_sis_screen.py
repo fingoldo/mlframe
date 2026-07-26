@@ -49,6 +49,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -290,12 +292,12 @@ def sis_screen(
         try:
             mi[j0:j1] = _mi_classif_batch(block, y_mi, nbins=nbins)
         except Exception as exc:  # never let one block kill the whole screen
-            logger.warning("sis_screen: MI block [%d:%d] failed (%s); scored 0", j0, j1, exc)
+            log_throttle(logger, "sis_screen_mi_block_failed", logging.WARNING, "sis_screen: MI block [%d:%d] failed (%s); scored 0", j0, j1, exc)
         # second-moment interaction propensity (reuse the sibling kernel as-is)
         try:
             prop[j0:j1] = second_moment_propensity(block, y_arr)
         except Exception as exc:
-            logger.warning("sis_screen: propensity block [%d:%d] failed (%s); scored 0", j0, j1, exc)
+            log_throttle(logger, "sis_screen_propensity_block_failed", logging.WARNING, "sis_screen: propensity block [%d:%d] failed (%s); scored 0", j0, j1, exc)
         del block
 
     fused = fuse_scores(mi, prop)

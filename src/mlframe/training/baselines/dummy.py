@@ -96,6 +96,8 @@ if _NUMBA_AVAILABLE:
         _numba_bootstrap_logloss_binary_samples,
     )
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -684,7 +686,10 @@ def _compute_multi_output_regression(
                 # "mean normalized RMSE" aggregator silently averaged NaN with real
                 # values. Operator reads the cross-output number without knowing one
                 # of the K outputs was faked.
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "dummy_baselines_multi_output_lookup_failed",
+                    logging.WARNING,
                     "dummy_baselines multi_output: lookup failed for output=%d "
                     "strongest=%r metric=%r (%s: %s); NaN substituted in per-output "
                     "aggregation -- cross-output summary will average NaN with real values.",

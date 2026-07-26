@@ -49,6 +49,7 @@ from .._fe_usability_signal import (  # shared leaf detectors (numpy-only, no cy
     pair_is_tail_concentrated_rankaware,
     tail_concentration_form_override,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -470,7 +471,7 @@ def _score_one_pair(
                                 # The transform raised AFTER (or instead of) writing column ``i``; the buffer slot may
                                 # still hold a prior column's data. Overwrite with NaN so the failed column is never
                                 # scored against stale/garbage values, and skip recording it as a candidate.
-                                logger.exception("Error when performing %s", bin_func)
+                                log_throttle(logger, "pairs_score_transform_final_failed", logging.ERROR, "Error when performing %s", bin_func, exc_info=True)
                                 final_transformed_vals[:, i] = np.nan
                             else:
                                 # DEFER the NaN/inf scrub to ONE vectorised pass over the packed
@@ -655,7 +656,7 @@ def _score_one_pair(
                     except Exception:
                         # Failed transform: the buffer slot may still hold a prior column's data. Null it so it is
                         # never scored, and skip the scoring ``else`` (no candidate recorded for this bin_func).
-                        logger.exception("Error when performing %s", bin_func)
+                        log_throttle(logger, "pairs_score_transform_recompute_failed", logging.ERROR, "Error when performing %s", bin_func, exc_info=True)
                         if final_transformed_vals is not None:
                             final_transformed_vals[:, i] = np.nan
                     else:

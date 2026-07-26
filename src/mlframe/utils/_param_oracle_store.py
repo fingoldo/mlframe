@@ -13,6 +13,8 @@ from typing import Any, Sequence
 
 import orjson
 
+from .log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 1
@@ -132,7 +134,10 @@ class _ParquetStore:
                 try:
                     obj = orjson.loads(r.get("objective_json") or "{}")
                 except Exception as e:
-                    logger.warning(
+                    log_throttle(
+                        logger,
+                        "param_oracle_corrupt_objective_json",
+                        logging.WARNING,
                         "param_oracle: corrupt objective_json on row (fn_name=%s, host=%s, param_combo_json=%s): %s",
                         r.get("fn_name"), r.get("host"), r.get("param_combo_json"), e,
                     )

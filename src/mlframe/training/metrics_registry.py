@@ -101,6 +101,9 @@ def iter_extra_metrics(target_type: TargetTypes, y_true, probs_NK, preds_NK) -> 
     masquerading as "metric not applicable".
     """
     import logging
+
+    from mlframe.utils.log_throttle import log_throttle
+
     logger = logging.getLogger(__name__)
 
     for name, spec in _REGISTRY.get(target_type, {}).items():
@@ -120,7 +123,10 @@ def iter_extra_metrics(target_type: TargetTypes, y_true, probs_NK, preds_NK) -> 
                 _n = len(y_true) if y_true is not None else 0
             except TypeError:
                 _n = -1  # un-sized iterator etc.
-            logger.warning(
+            log_throttle(
+                logger,
+                "metrics_registry_metric_failed",
+                logging.WARNING,
                 "metric %r failed on target_type=%s n=%d: %s: %s; omitted from report",
                 name, target_type, _n, type(e).__name__, e,
             )

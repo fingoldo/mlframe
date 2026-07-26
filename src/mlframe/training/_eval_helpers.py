@@ -32,6 +32,7 @@ from pyutilz.system import ensure_dir_exists
 
 
 from ._data_helpers import _prepare_df_for_model
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,10 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
             # equality may misreport -- log a WARNING (not a silent debug) so
             # the gap is visible. Any other exception now propagates instead of
             # masking a genuine bug.
-            logger.warning(
+            log_throttle(
+                logger,
+                "eval_helpers_dtype_access_failed",
+                logging.WARNING,
                 "_eval_helpers: dtype access failed for col=%r (%s: %s); col "
                 "will NOT be added to cat-alignment list, so train/val/test "
                 "category alignment may be incomplete for it.",

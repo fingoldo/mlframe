@@ -27,6 +27,8 @@ if TYPE_CHECKING:
 
     from .configs import TargetTypes
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -463,7 +465,7 @@ def calibrate_namespace_model(entry: Any, *, target_type: "TargetTypes | None" =
                 except (AttributeError, TypeError):  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                     pass
         except Exception as _stamp_err:
-            logger.warning("calibrate_namespace_model: %s-probs stamp failed: %s", _split, _stamp_err)
+            log_throttle(logger, "calibrate_namespace_model_probs_stamp_failed", logging.WARNING, "calibrate_namespace_model: %s-probs stamp failed: %s", _split, _stamp_err)
 
     try:
         entry.model = wrapped

@@ -27,6 +27,8 @@ from typing import Any, Callable, Dict, Mapping, Optional
 import numpy as np
 from scipy import stats
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 # iter417: bind math.isfinite for the per-iter scalar check in
@@ -550,7 +552,10 @@ def bootstrap_metrics(
             continue
         s = samples[name][:v_n]
         if failures[name] > n_bootstrap // 4:
-            logger.warning(
+            log_throttle(
+                logger,
+                "bootstrap_metrics_resamples_failed",
+                logging.WARNING,
                 "bootstrap_metrics[%s]: %d/%d resamples failed (first: %s); CI over %d surviving samples may be biased.",
                 name, failures[name], n_bootstrap, first_err[name], v_n,
             )

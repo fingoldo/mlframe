@@ -28,6 +28,8 @@ import pandas as pd, polars as pl, numpy as np
 
 from sklearn.pipeline import Pipeline
 
+from mlframe.utils.log_throttle import log_throttle
+
 import pyutilz.polarslib as pllib
 
 ########################################################################################################################################################################################################################################
@@ -238,7 +240,10 @@ def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = True, nans_fil
             # Don't let a single weird column abort the whole pre-fit check --
             # log and move on. The column will simply not be sanitised.
             if verbose:
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "ensure_no_infinity_pd_isinf_check_failed",
+                    logging.WARNING,
                     "ensure_no_infinity_pd: skipped %r (dtype=%s) -- "
                     "isinf check failed: %s",
                     col, dt, exc,

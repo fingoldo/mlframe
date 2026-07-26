@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from mlframe.reporting.spec import FigureSpec
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -371,7 +373,7 @@ def show_classifier_calibration(
             # Expected data-shape / empty-interval failures from binning: log and abort this call, returning None.
             # Narrowed from a bare ``except Exception`` so genuinely unexpected errors (bugs, KeyboardInterrupt,
             # programming errors) propagate instead of being silently swallowed into a None return.
-            logger.exception("estimate_calibration_quality_binned failed for slice [%d:%d]", lo, r)
+            log_throttle(logger, "calibration_quality_binned_failed", logging.ERROR, "estimate_calibration_quality_binned failed for slice [%d:%d]", lo, r, exc_info=True)
             return None
         all_performances.append(performances)
 
