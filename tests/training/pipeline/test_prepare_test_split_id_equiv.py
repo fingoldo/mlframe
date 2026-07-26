@@ -252,3 +252,38 @@ def test_lgb_reuse_shim_reports_on_full_frame_after_fs_no_feature_mismatch(tmp_p
     # the raw 7-col frame reached here and LightGBM raised the feature mismatch.
     probs = model.predict_proba(out_test_df)
     assert probs.shape[0] == 60
+
+
+def test_expanding_step_with_no_selector_is_not_double_transformed():
+    """Regression: a pipeline step that WIDENS its output (e.g. NeuralEmbeddingTextEncoder expanding an
+    embedding column into several numeric columns) and sets n_features_in_ (sklearn's own convention,
+    unlike the pre-fix behavior) lets ``_test_df_is_raw_pipeline_input``'s no-selector fallback correctly
+    recognize an already-transformed, WIDER-than-fit-input test_df and skip re-transforming it. Pre-fix,
+    a step that never set n_features_in_ made the fallback return True unconditionally (both operands of
+    the width comparison were None), so an already-transformed test_df got fed through the pipeline a
+    second time and crashed with a pandas shape mismatch inside the step's own ndarray reconstruction
+    (caught live via a fuzz combo: mrmr=False, an embedding column, MLP's second weight-schema round)."""
+    from sklearn.pipeline import Pipeline
+    from mlframe.training.pipeline._pipeline_helpers import _test_df_is_raw_pipeline_input
+    from mlframe.training.neural.feature_prep import NeuralEmbeddingTextEncoder
+
+    n, d = 40, 3
+    rng = np.random.default_rng(1)
+    X = pd.DataFrame(
+        {
+            "num_0": rng.normal(size=n).astype(np.float32),
+            "emb_0": [rng.normal(size=d).astype(np.float32) for _ in range(n)],
+        }
+    )
+    enc = NeuralEmbeddingTextEncoder(embedding_features=["emb_0"])
+    pipeline = Pipeline([("encode", enc)]).fit(X)
+    assert getattr(enc, "n_features_in_", None) == 2, "fit() must set n_features_in_ (sklearn convention)"
+
+    raw_test_df = X.copy()
+    assert _test_df_is_raw_pipeline_input(pipeline, raw_test_df, None, False) is True, "a genuinely raw frame must still be transformed"
+
+    already_transformed = pipeline.transform(raw_test_df)
+    assert already_transformed.shape[1] > raw_test_df.shape[1], "the encoder must widen the frame (embedding expansion)"
+    assert (
+        _test_df_is_raw_pipeline_input(pipeline, already_transformed, None, False) is False
+    ), "an already-transformed, WIDER test_df must not be re-transformed"

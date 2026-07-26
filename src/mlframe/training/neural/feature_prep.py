@@ -99,6 +99,18 @@ class NeuralEmbeddingTextEncoder(BaseEstimator, TransformerMixin):
         """Learn each pre-computed embedding column's width and, for raw text columns, resolve the pretrained provider's fixed embedding dimension (no actual training; the provider is frozen)."""
         X = _as_pandas(X)
         self.feature_names_in_ = list(X.columns)
+        # sklearn's own transformers set n_features_in_ automatically (via _validate_data); this custom
+        # BaseEstimator never does, so anything that falls back to checking n_features_in_ across pipeline
+        # steps (mlframe.training.pipeline._pipeline_helpers._test_df_is_raw_pipeline_input, when no
+        # feature-selector step is present to supply its own output-width discriminator) finds it None on
+        # every step and defaults to "assume raw, re-transform" UNCONDITIONALLY -- so an already-transformed
+        # test_df (this step's own WIDER post-expansion output, reused via the weight-schema-invariant
+        # pipeline cache) gets fed back through the whole pipeline a second time, and this step's OWN
+        # feature_names_in_-based ndarray reconstruction then rejects it: "Shape of passed values is (N,
+        # wider), indices imply (N, feature_names_in_ width)" (caught live via a fuzz combo: mrmr=False, an
+        # embedding column present, MLP's second weight-schema round). Setting n_features_in_ here (mirroring
+        # sklearn's own convention) lets that heuristic correctly recognize a re-fed already-transformed frame.
+        self.n_features_in_ = len(self.feature_names_in_)
         cols = set(X.columns)
         self.embedding_dims_: dict = {}
         for c in self.embedding_features:
