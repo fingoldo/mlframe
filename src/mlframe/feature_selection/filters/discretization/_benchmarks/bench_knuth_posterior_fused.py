@@ -78,8 +78,9 @@ def _knuth_best_M_fused(a_sorted, a_min, a_max, M_max):
                 hi = n  # last bin closed at a_max: all remaining points
             else:
                 edge = a_min + (j + 1) * width
-                # number of points <= edge (side='right')
-                hi = np.searchsorted(a_sorted, edge, side="right")
+                # points STRICTLY BELOW the edge: matches np.histogram's half-open [e_j, e_j+1) bin,
+                # so a value sitting exactly on an interior edge opens the upper bin rather than closing the lower one
+                hi = np.searchsorted(a_sorted, edge, side="left")
             c = hi - prev
             prev = hi
             counts[j] = c

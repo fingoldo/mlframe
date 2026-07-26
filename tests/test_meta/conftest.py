@@ -27,6 +27,7 @@ _REFRESH_FLAGS = [
     "--refresh-fe-noop-copy-baseline",
     "--refresh-logger-baseline",
     "--refresh-mojibake-baseline",
+    "--refresh-module-env-mutation-baseline",
     "--refresh-mutable-defaults-baseline",
     "--refresh-orth-fe-recipes-no-freeze-baseline",
     "--refresh-resource-handle-baseline",
