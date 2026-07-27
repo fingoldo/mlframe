@@ -66,7 +66,10 @@ dependencies = [
     # pyutilz.system -> pyutilz.text.strings -> pandas.compat.pyarrow -> pyarrow import chain; a
     # plain `python -c "import pyarrow"` does NOT crash, only the pytest-loader path does).
     # Confirmed via an isolated venv A/B: 24.0.0 crashes reproducibly (3/3), 25.0.0 is stable (3/3).
-    "pyarrow>=25.0.0",
+    # The crash is specific to the cp314 wheel, so the floor is irrelevant to 3.9 -- which cannot reach
+    # 25.0.0 anyway (pyarrow requires >=3.10 from 22.0.0 on) and is capped at 21.0.0.
+    "pyarrow>=25.0.0; python_version >= '3.10'",
+    "pyarrow>=14.0.0; python_version < '3.10'",
     "joblib>=1.2",
     "tqdm>=4.65",
     "pydantic>=2.0",
@@ -78,7 +81,10 @@ dependencies = [
     "matplotlib>=3.7",
     # Not imported directly; floors matplotlib's own transitive pillow resolution above the
     # patched version for CVE-2026-25990/40192/42309/42310/42311 (PYSEC-2026-165).
-    "pillow>=12.2.0",
+    # Pillow dropped Python 3.9 at 12.0, so no patched release exists there: 3.9 stays on 11.3.0 with
+    # those CVEs OPEN. Unconditionally requiring 12.2.0 would instead make mlframe uninstallable on 3.9.
+    "pillow>=12.2.0; python_version >= '3.10'",
+    "pillow>=11.3.0; python_version < '3.10'",
     # The four below are imported UNCONDITIONALLY at module load time across
     # src/mlframe/{feature_engineering/numerical,feature_selection/filters/*}
     # and would otherwise raise ImportError on `import mlframe`. Audited via
@@ -224,7 +230,9 @@ feature_engineering = [
     "optbinning>=0.21",  # 0.20.x calls sklearn check_array(force_all_finite=...), removed in sklearn 1.6+; 0.21 uses ensure_all_finite
     "cma>=3.2",
     "optuna>=3.0",
-    "holidays>=0.100",  # country/locale-aware holiday calendars (holiday_calendar_features).
+    # country/locale-aware holiday calendars (holiday_calendar_features); 0.100 requires Python >=3.10.
+    "holidays>=0.100; python_version >= '3.10'",
+    "holidays>=0.83; python_version < '3.10'",
     "rapidfuzz>=3.0",  # C++ edit-distance backend for fuzzy_entity_group_features(fuzzy_key_matching=True).
 ]
 
@@ -267,9 +275,13 @@ mlflow = [
     # Not imported directly; float mlflow's own transitive pins above patched versions:
     # aiohttp (PYSEC-2026-237 + CVE-2026-54273/74/76/77/78/79/80), cryptography (GHSA-537c-gmf6-5ccf),
     # starlette, pulled via mlflow-skinny (PYSEC-2026-248/249).
-    "aiohttp>=3.14.1",
+    # Both patched releases require Python >=3.10, so on 3.9 these float only as far as 3.13.5 /
+    # 0.49.3 and the advisories above stay OPEN there -- same tradeoff as pillow in [project.dependencies].
+    "aiohttp>=3.14.1; python_version >= '3.10'",
+    "aiohttp>=3.13.5; python_version < '3.10'",
     "cryptography>=48.0.1,<49",  # mlflow itself caps cryptography<49
-    "starlette>=1.3.1",
+    "starlette>=1.3.1; python_version >= '3.10'",
+    "starlette>=0.49.3; python_version < '3.10'",
 ]
 
 # Database and storage backends.
@@ -312,7 +324,10 @@ stats = [
 # numba.cuda (>=CUDA 11.2), so nothing here requires CUDA 12 -- the constraint is purely wheel availability.
 # CUDA-11 / non-NVIDIA users stay on CPU (these extras are opt-in).
 gpu = [
-    "cupy-cuda12x[ctk]>=14.0,<15.0",
+    # cupy 14 requires Python >=3.10 and is the first release carrying the [ctk] extra, so 3.9 falls back
+    # to the 13.x line WITHOUT bundled CUDA libs and leans on nvidia-cuda-nvcc-cu12 / a system toolkit.
+    "cupy-cuda12x[ctk]>=14.0,<15.0; python_version >= '3.10'",
+    "cupy-cuda12x>=13.0,<14.0; python_version < '3.10'",
     "nvidia-cuda-nvcc-cu12>=12.9",
     "gpu-info>=0.1",
 ]
@@ -341,7 +356,8 @@ transformer_ann = [
 # bundled CUDA libs) so `mlframe[gpu,transformer_gpu]` resolves without a
 # conflicting intersection and both paths runtime-compile against the same libs.
 transformer_gpu = [
-    "cupy-cuda12x[ctk]>=14.0,<15.0",
+    "cupy-cuda12x[ctk]>=14.0,<15.0; python_version >= '3.10'",
+    "cupy-cuda12x>=13.0,<14.0; python_version < '3.10'",
 ]
 # CUDA-11 variant (Python <=3.12 only -- no cuda11x wheel for cupy 14 / Python 3.13+).
 transformer_gpu_cuda11 = [
