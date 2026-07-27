@@ -254,3 +254,38 @@ The two legs may share a cause with the sibling-transform story or may not - the
 selected, so its lower lift is about the VALUE of the column, not about losing selection. Bisecting the
 downstream lift on this fixture across the intervening commits would name the change directly; that is
 cheap to run and was not attempted here.
+
+---
+
+# The tail-subsume knob that is exposed is not the one that decides
+
+Status: **test fixed; a product gap is noted below and left open deliberately.**
+
+`test_raw_tail_subsume_survivor_gate.py` carried a sensor that lowered `fe_raw_tail_subsume_min_corr` to
+0.6 and asserted raw `b` was then dropped, to prove the shipped 0.85 gate is load-bearing. It cannot prove
+that. Instrumenting the leg on its own fixture gives:
+
+| quantity | value |
+|---|---|
+| raw `b` linear \|corr(y)\| | 0.7564 |
+| raw `b` RANK association | 0.8834 |
+| subsuming survivor \|corr(y)\| | 0.7889 |
+
+The drop requires all three of `survivor >= min_corr`, `raw_linear < survivor`, and
+`raw_rank <= 0.7 * raw_linear`. The first two hold at either gate setting; the third is
+`0.8834 <= 0.5295`, false by a wide margin. `b`'s rank association is HIGHER than its linear one - the
+opposite of the tail-concentration signature - so it carries genuine monotone signal and is correctly kept.
+The survivor-strength gate never gets to decide, which is why varying it changed nothing and the sensor
+failed for a reason unrelated to its name. It now asserts the real guard instead: a rank-healthy raw column
+survives at both settings.
+
+## The gap
+
+`tail_subsume_rank_frac` - the 0.7 that actually decides this case - is **not a constructor parameter**.
+Only `fe_raw_tail_subsume_min_corr` is plumbed through to `MRMR.__init__`. So the knob a caller can reach is
+the one that does not decide, and the deciding constant is reachable only by editing the function default.
+Exposing it would also make a genuine sensor possible: at `rank_frac >= 1.17` the condition on this fixture
+flips and the leg fires, which is the demonstration the old sensor was reaching for.
+
+Not done here because adding a public ctor parameter is an API change with its own review, and the test no
+longer depends on it.

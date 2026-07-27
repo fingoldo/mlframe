@@ -60,11 +60,28 @@ def test_weak_proxy_survivor_keeps_tail_concentrated_raw_b():
 
 
 @pytest.mark.slow
-def test_pre_fix_gate_drops_raw_b_regression_sensor():
-    """Pre-fix gate 0.6 DID drop ``b`` (the confirmed regression). Pins that the sensor above catches the
-    bug: if a future change makes the tail leg fire regardless of the gate, this flips and fails first."""
-    kept = _fit_kept_raws(gate=0.6)
-    assert "b" not in kept, (
-        "pre-fix 0.6 gate no longer drops 'b'; the tail-subsume leg must fire at 0.6 on this case for the "
-        f"0.85 gate to be the load-bearing fix (kept_raws={sorted(kept)})"
-    )
+def test_leg_declines_because_b_is_not_rank_collapsed_not_because_of_the_gate():
+    """The 0.85 survivor-strength gate is NOT what keeps ``b``: the rank-collapse condition declines first.
+
+    This replaces a sensor that varied ``fe_raw_tail_subsume_min_corr`` down to 0.6 and asserted ``b`` was
+    then dropped, on the theory that the gate is the load-bearing part of the fix. Instrumenting the leg on
+    this fixture shows it cannot be: the three quantities it compares are
+
+        raw |corr(y)|        0.7564
+        raw RANK assoc       0.8834
+        survivor |corr(y)|   0.7889
+
+    and the drop needs ``rank <= 0.7 * linear``, i.e. ``0.8834 <= 0.5295``, which is false by a wide margin.
+    ``b``'s rank association is HIGHER than its linear one - the opposite of tail concentration - so it
+    carries genuine monotone signal and is correctly kept. The survivor-strength gate never gets to decide,
+    at 0.85 or at 0.6, so varying it proved nothing and the sensor failed for a reason unrelated to its name.
+
+    What this asserts instead is the real guard: a raw column whose rank association is intact must survive,
+    whatever the survivor-strength gate is set to. A future change that made the leg fire on a rank-healthy
+    column - the actual regression risk - fails here at both settings.
+    """
+    for gate in (0.6, 0.85):
+        kept = _fit_kept_raws(gate=gate)
+        assert (
+            "b" in kept
+        ), f"raw 'b' dropped at survivor-strength gate {gate}; its rank association (0.8834) is stronger than its linear |corr| (0.7564), so the tail-subsume leg must not claim it. kept_raws={sorted(kept)}"
