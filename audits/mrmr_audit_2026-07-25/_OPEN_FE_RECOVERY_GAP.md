@@ -289,3 +289,42 @@ flips and the leg fires, which is the demonstration the old sensor was reaching 
 
 Not done here because adding a public ctor parameter is an API change with its own review, and the test no
 longer depends on it.
+
+---
+
+# f32/f64 selection parity vs a deliberately f32 criterion dtype
+
+Status: **OPEN, contradiction identified. Needs a decision, not a patch.**
+
+`test_fe_float32_replay_parity.py::test_all_modern_fe_mechanisms_f32_parity` fails on one mechanism cell:
+
+```
+rankgauss: f32 selection diverged from f64; diff=['max(log(x1),sin(x5))']
+```
+
+The divergence is one extra feature, not a different answer: f32 selects everything f64 selects, plus
+`max(log(x1),sin(x5))`. Nothing is lost, one borderline candidate is gained.
+
+The candidate does not appear in the f64 rejection ledger at all, so no recorded gate turned it down - at
+f64 it is simply never produced. What the ledger does show is the scale the decisions run at:
+
+| candidate | gate | observed | threshold | margin |
+|---|---|---|---|---|
+| add(exp(x4),sin(x5)) | cmi_redundancy | 0.016288 | 0.016336 | **-0.000048** |
+| x1__absz_by__x0 | marginal_uplift_floor | 0.022546 | 0.022916 | -0.000370 |
+
+Margins of 5e-5 on MI values of ~1.6e-2 are exactly where float32's relative error decides the outcome.
+
+## Why this is not a one-line fix
+
+The obvious repair - compute the gate statistics in float64 whatever the working dtype is - collides with a
+deliberate design choice already in the codebase: `_crit_np_dtype()` returns f32 under
+`MLFRAME_CRIT_DTYPE_RELAXED`, which is the DEFAULT. The criteria are meant to be computed in single
+precision. So the test asserts bit-stable selection across the DATA dtype while the design accepts f32 in
+the CRITERION, and on a borderline candidate those two cannot both hold.
+
+Either the parity contract is narrower than it claims (selection may gain a borderline candidate, and the
+test should assert f64's selection is a SUBSET of f32's, which is what is observed), or the criterion dtype
+should be pinned to f64 and `MLFRAME_CRIT_DTYPE_RELAXED` retired. The second is a selection-altering change
+across every gate and needs the wide multi-seed benchmark before it lands - which is the same bar this
+audit has applied throughout.
