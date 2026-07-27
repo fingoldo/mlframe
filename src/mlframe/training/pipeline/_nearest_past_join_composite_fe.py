@@ -18,6 +18,7 @@ import pandas as pd
 import polars as pl
 
 from mlframe.feature_engineering.nearest_past_join import nearest_past_join
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +98,7 @@ def apply_nearest_past_join_composite_fe(
             if verbose:
                 logger.info("apply_nearest_past_join_composite_fe[%s]: joined, %d cols now", split_name, joined.shape[1])
         except Exception:
-            logger.warning("apply_nearest_past_join_composite_fe: join failed for split %r; skipping.", split_name, exc_info=True)
+            log_throttle(logger, "nearest_past_join_fe_join_failed", logging.ERROR, "apply_nearest_past_join_composite_fe: join failed for split %r; skipping.", split_name, exc_info=True)
             out[split_name] = df
 
     return out["train"], out["val"], out["test"]

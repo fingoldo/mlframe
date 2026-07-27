@@ -15,6 +15,8 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -898,7 +900,10 @@ def train_mlframe_ranker_suite(
                 from ..io import _write_save_meta_sidecar as _wsms
                 _wsms(artefact_path, durable=False)
             except Exception as _meta_e:
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "ranker_suite_meta_sidecar_write_failed",
+                    logging.WARNING,
                     "ranker_suite: failed to write .meta.json sidecar for "
                     "%s: %s. Booster artefact saved; load-time version "
                     "validation will fall through to back-compat path.",

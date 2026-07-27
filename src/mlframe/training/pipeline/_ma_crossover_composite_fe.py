@@ -17,6 +17,7 @@ import pandas as pd
 import polars as pl
 
 from mlframe.feature_engineering.ma_crossover import ma_crossover_features
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +135,7 @@ def apply_ma_crossover_composite_fe(
             if verbose:
                 logger.info("apply_ma_crossover_composite_fe[%s]: added %d column(s)", split_name, new_cols.shape[1])
         except Exception:
-            logger.warning("apply_ma_crossover_composite_fe: step failed for split %r; skipping.", split_name, exc_info=True)
+            log_throttle(logger, "ma_crossover_fe_step_failed", logging.ERROR, "apply_ma_crossover_composite_fe: step failed for split %r; skipping.", split_name, exc_info=True)
             out[split_name] = df
 
     return out["train"], out["val"], out["test"]

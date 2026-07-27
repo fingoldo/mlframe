@@ -14,6 +14,8 @@ from abc import ABC, abstractmethod
 from typing import Optional, List, Any, FrozenSet, TYPE_CHECKING
 from sklearn.pipeline import Pipeline
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -619,7 +621,10 @@ class ModelPipelineStrategy(ABC):
             try:
                 _cloned = _sk_clone(_shared_obj)
             except Exception as _clone_exc:
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "strategies_base_build_pipeline_clone_failed",
+                    logging.WARNING,
                     "%s.build_pipeline: sklearn.clone failed for %s (%s); reusing the shared instance -- "
                     "if it is stateful, a LATER model's fit will silently corrupt this pipeline's fitted state.",
                     type(self).__name__, _shared_name, _clone_exc,

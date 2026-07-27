@@ -23,6 +23,7 @@ import pandas as pd
 import polars as pl
 
 from mlframe.feature_engineering.event_proximity_decay import event_proximity_decay_features
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,7 @@ def apply_event_proximity_decay_composite_fe(
             if verbose:
                 logger.info("apply_event_proximity_decay_composite_fe[%s]: added %d column(s)", split_name, result.shape[1])
         except Exception:
-            logger.warning("apply_event_proximity_decay_composite_fe: step failed for split %r; skipping.", split_name, exc_info=True)
+            log_throttle(logger, "event_proximity_decay_fe_step_failed", logging.ERROR, "apply_event_proximity_decay_composite_fe: step failed for split %r; skipping.", split_name, exc_info=True)
             out[split_name] = df
 
     return out["train"], out["val"], out["test"]

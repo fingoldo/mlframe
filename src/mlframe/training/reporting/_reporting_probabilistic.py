@@ -63,6 +63,7 @@ if TYPE_CHECKING:
 # from one place. classification_report itself is still accessed through the module below so callers can swap
 # the fallback at runtime.
 from . import _reporting as _reporting_mod
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(_reporting_mod.__name__)
 
@@ -624,7 +625,10 @@ def report_probabilistic_model_perf(
                 except (ValueError, TypeError) as _hl_err:
                     logger.debug("Tier 2 calibration extras skipped: %s", _hl_err)
             except (ValueError, TypeError, FloatingPointError, ZeroDivisionError) as _ext_err:
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "reporting_probabilistic_extended_metrics_failed",
+                    logging.WARNING,
                     "extended classification metrics failed for class %s: %s. " "Continuing with the historical metric set only.",
                     str_class_name,
                     _ext_err,

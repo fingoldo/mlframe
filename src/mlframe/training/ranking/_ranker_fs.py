@@ -25,6 +25,8 @@ import numba
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -431,5 +433,5 @@ def _run_wrapper_selectors(X_df, y_arr, groups, fsc, rfecv_models, target_type, 
             if cols:
                 selected.update(c for c in cols if c in set(X_df.columns))
         except Exception as exc:
-            logger.warning("LTR selector %s failed (%s: %s); skipping it.", type(pp).__name__, type(exc).__name__, exc)
+            log_throttle(logger, "ranker_fs_ltr_selector_failed", logging.WARNING, "LTR selector %s failed (%s: %s); skipping it.", type(pp).__name__, type(exc).__name__, exc)
     return ran

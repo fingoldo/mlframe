@@ -19,6 +19,8 @@ import os
 from timeit import default_timer as timer
 import subprocess  # nosec B404 - module used safely in this file, see call sites below (no untrusted input reaches it)
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 # Thread-count env vars must be set BEFORE Julia/PySR boots; we defer the set until the first
@@ -337,7 +339,10 @@ def prepare_dfs_for_catboost_joint(
             except Exception:
                 _first = None
             if _first is not None and (hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))):
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "pipeline_catboost_joint_embedding_like_column",
+                    logging.WARNING,
                     "prepare_dfs_for_catboost_joint: column '%s' looks like an "
                     "embedding/list column (first cell type=%s); skipping joint-"
                     "Categorical cast. If this is intentional, route it via "

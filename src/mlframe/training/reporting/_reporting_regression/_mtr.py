@@ -12,6 +12,8 @@ from typing import Any
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,7 +80,10 @@ def render_mtr_report(
                 _yp_k = preds_arr[:, _k_idx].astype(np.float64).ravel()
                 _mask_k = np.isfinite(_yt_k) & np.isfinite(_yp_k)
                 if int(_mask_k.sum()) < 5:
-                    logger.warning(
+                    log_throttle(
+                        logger,
+                        "mtr_per_target_chart_too_few_finite_pairs",
+                        logging.WARNING,
                         "MTR per-target chart: target %d has <5 finite " "(true, pred) pairs; skipping chart for this column.",
                         _k_idx,
                     )

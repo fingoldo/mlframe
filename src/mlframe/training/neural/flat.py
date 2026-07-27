@@ -18,6 +18,8 @@ from typing import Callable, Optional, cast
 import torch
 import torch.nn as nn
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -518,11 +520,14 @@ def generate_mlp(
             # a true Lipschitz bound) — fall back to plain Linear with a
             # WARN if the user combined both.
             if spectral_norm:
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "flat_mlp_residual_spectral_norm_approximate",
+                    logging.WARNING,
                     "use_residual=True + spectral_norm=True: spectral norm "
                     "is applied to the BODY Linear only, NOT to the skip "
                     "projection; the global Lipschitz bound is therefore "
-                    "approximate. For an exact bound use one or the other."
+                    "approximate. For an exact bound use one or the other.",
                 )
             _block = _ResidualLinearBlock(
                 in_dim=prev_layer_neurons,

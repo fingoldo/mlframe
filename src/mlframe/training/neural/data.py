@@ -20,6 +20,7 @@ from lightning import LightningDataModule
 from torch.utils.data import DataLoader, Dataset
 
 from .base import to_tensor_any
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -465,7 +466,10 @@ class TorchDataModule(LightningDataModule):
                             if not ok:
                                 bad_cols.append(col)
                         if bad_cols:
-                            logger.warning(
+                            log_throttle(
+                                logger,
+                                "torch_data_module_nonconvertible_columns",
+                                logging.WARNING,
                                 "TorchDataModule: %s has non-numeric-convertible column(s) %s after cat-code replay; " "leaving them unconverted (will fail if fed to the network as-is).",
                                 feature_name,
                                 bad_cols,

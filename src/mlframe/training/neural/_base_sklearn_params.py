@@ -13,6 +13,8 @@ import logging
 from copy import deepcopy
 from typing import Any, Dict
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -48,5 +50,5 @@ def set_params(self, **params: Any):
         elif hasattr(self, key):
             setattr(self, key, value)
         else:
-            logger.warning("Parameter %s not found in %s", key, self.__class__.__name__)
+            log_throttle(logger, "base_sklearn_set_params_unknown_param", logging.WARNING, "Parameter %s not found in %s", key, self.__class__.__name__)
     return self
