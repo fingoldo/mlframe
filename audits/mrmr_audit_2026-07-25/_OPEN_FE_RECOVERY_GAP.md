@@ -165,3 +165,52 @@ search folded the rankgauss column into a composite.
 The `kfold-te-regression` (1/4 seeds) and `rankgauss-multiclass` (median lift 0.0192 against a 0.03 floor)
 legs of the same parametrisation are the same question and are NOT yet measured this way - the fix there is
 either the same re-frame or a re-derived floor, and it needs the multi-seed benchmark, not a single run.
+
+---
+
+# Third instance of the same shape: the escalation never sees the pair that needs it
+
+Status: **OPEN, localised.** Same neighbourhood as the first finding above, and probably the same root.
+
+`test_fe_auto_escalation.py::test_biz_val_escalation_recovers_inner_frequency_pair_and_replays` fails with
+`recipes=[]`. The fixture is `y = sin(3.7*x0)*x1` - an inner frequency the library unaries cannot express,
+which is exactly what the demodulated adaptive-Fourier escalation exists to recover.
+
+## The proposer is not the problem
+
+Called directly on the (x0, x1) columns it returns **2 proposals**, and does so regardless of what it is
+fed:
+
+| target passed | proposals |
+|---|---|
+| raw y | 2 |
+| rank-transformed y (what the fit actually uses) | 2 |
+| z-scored y | 2 |
+| `max_freqs` swept 1, 2, 3, 4, 6 | 2 each |
+
+`_propose_poly` returns None on the same pair, which is expected - a degree-4 polynomial cannot track ~3.5
+cycles, and that is the documented reason the Fourier leg exists.
+
+## What actually happens
+
+`fe_escalation_info_` after a default fit reports `proposed: 0`, `rejected: {}` - nothing was proposed, so
+nothing could be rejected - against 8 eligible pairs:
+
+```
+('x1','x2') ('x1','x3') ('x1','x5') ('x1','x4') ('x0','x4') ('x0','x3') ('x0','x2') ('x0','x5')
+```
+
+Every pair is x0 or x1 crossed with a noise column. **(x0, x1) - the only pair carrying signal - is absent
+from the eligible set entirely.** The escalation is never offered the pair it was built for, so a working
+proposer produces nothing. The final support is the raw `['x1', 'x0']` with no engineered column at all.
+
+Not caused by the fe_max_steps default change: `esc=[]` at both `fe_max_steps=1` and `fe_max_steps=2`.
+
+## Why this is filed with the first finding
+
+Both are "the right pair never reaches candidate generation", measured from opposite ends: there the (c,d)
+operator search emitted nothing competitive for a weak-marginal pair, here (x0, x1) does not even enter the
+eligible list. `x1` alone has essentially no marginal signal in the first fixture and the same is true of
+the pure-interaction fixture here. The suggested first step is unchanged and would answer both: expose the
+per-pair proposed-and-rejected candidates with their scores, so the stage that drops the pair is visible
+from a fitted object instead of being inferred.

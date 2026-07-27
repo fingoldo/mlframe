@@ -252,7 +252,10 @@ def _end_to_end_fit():
     fs = MRMR(
         verbose=0,
         n_workers=1,
-        fe_max_steps=0,
+        # The families below are switched on to be observed being killed by the unified floor. A zero budget
+        # is the unconditional no-FE contract and outranks them, so no family ran and no gate fired at all -
+        # the assertion then reports the sink wiring as broken when nothing was ever wired through it.
+        fe_max_steps=1,
         fe_local_mi_gate=True,
         fe_local_mi_gate_top_k=50,
         fe_pairwise_ratio_enable=True,

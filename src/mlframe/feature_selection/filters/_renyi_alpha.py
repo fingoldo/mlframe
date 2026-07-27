@@ -105,6 +105,13 @@ def _renyi_entropy_from_gram(K: np.ndarray, alpha: float = _DEFAULT_ALPHA) -> fl
             "_renyi_entropy_from_gram: alpha=1.0 is the mathematical singularity of the Renyi entropy "
             "(division by 1-alpha); use a value close to but not equal to 1 (module default: 1.01)."
         )
+    # A NaN/Inf anywhere in the input propagates through the squared-distance computation into the Gram
+    # matrix, and LAPACK then fails to converge and raises the opaque 'Eigenvalues did not converge'
+    # from deep inside the estimator. The caller's real need is to DETECT the poisoned column, so report
+    # it the way every other non-finite result is reported - as a non-finite MI - rather than as a crash
+    # in a linear-algebra routine the caller never invoked.
+    if not np.isfinite(K).all():
+        return float("nan")
     tr = float(np.trace(K))
     if tr <= 0.0:
         return 0.0
@@ -146,7 +153,12 @@ def renyi_alpha_mi(
     Sx = _renyi_entropy_from_gram(Kx, alpha)
     Sy = _renyi_entropy_from_gram(Ky, alpha)
     Sxy = _renyi_entropy_from_gram(_hadamard_gram(Kx, Ky), alpha)
-    return max(0.0, Sx + Sy - Sxy)
+    # max() must not be the thing that decides a poisoned input is fine: max(0.0, nan) returns 0.0, because
+    # every comparison against NaN is False. The clamp exists to absorb the estimator's small negative noise,
+    # so keep it for finite values and let a non-finite estimate through unchanged - that is the only signal a
+    # caller has that the column carried NaN/Inf.
+    _mi = Sx + Sy - Sxy
+    return float(_mi) if not np.isfinite(_mi) else max(0.0, _mi)
 
 
 def renyi_alpha_cmi(
@@ -183,7 +195,12 @@ def renyi_alpha_cmi(
     Syz = _renyi_entropy_from_gram(Kyz, alpha)
     Sz = _renyi_entropy_from_gram(Kz, alpha)
     Sxyz = _renyi_entropy_from_gram(Kxyz, alpha)
-    return max(0.0, Sxz + Syz - Sz - Sxyz)
+    # max() must not be the thing that decides a poisoned input is fine: max(0.0, nan) returns 0.0, because
+    # every comparison against NaN is False. The clamp exists to absorb the estimator's small negative noise,
+    # so keep it for finite values and let a non-finite estimate through unchanged - that is the only signal a
+    # caller has that the column carried NaN/Inf.
+    _cmi = Sxz + Syz - Sz - Sxyz
+    return float(_cmi) if not np.isfinite(_cmi) else max(0.0, _cmi)
 
 
 __all__ = ["renyi_alpha_mi", "renyi_alpha_cmi"]

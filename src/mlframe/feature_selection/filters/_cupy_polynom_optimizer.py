@@ -250,10 +250,17 @@ def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_t
             best_bf = int(bfs[gi])
             best_vec = pop[gi].copy()
         order = np.argsort(scores)[::-1]
-        elites = pop[order[:elitism_k]]
-        n_perturb = batch_size - elitism_k - max(1, batch_size // 4)
-        perturbed = elites[rng.integers(0, elitism_k, size=n_perturb)] + rng.normal(0.0, sigma, size=(n_perturb, dim))
-        fresh = rng.uniform(lo, hi, size=(max(1, batch_size // 4), dim))
+        # elitism_k is a user knob and batch_size can be driven down by a small candidate pool, so the two can
+        # meet or cross. Unclamped, the elites alone fill (or overflow) the batch, n_perturb goes negative and
+        # numpy raises 'negative dimensions are not allowed' from inside the search - an opaque crash for a
+        # perfectly reasonable configuration. Clamp the elite count and floor the two derived sizes at 0 so a
+        # degenerate batch simply carries its elites forward instead of dying.
+        _n_fresh = max(1, batch_size // 4)
+        _k = max(1, min(int(elitism_k), max(1, batch_size - _n_fresh)))
+        elites = pop[order[:_k]]
+        n_perturb = max(0, batch_size - _k - _n_fresh)
+        perturbed = elites[rng.integers(0, _k, size=n_perturb)] + rng.normal(0.0, sigma, size=(n_perturb, dim))
+        fresh = rng.uniform(lo, hi, size=(_n_fresh, dim))
         pop = np.clip(np.vstack([elites, perturbed, fresh]), lo, hi)[:batch_size]
 
     if best_vec is None or not np.isfinite(best_score):
