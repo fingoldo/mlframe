@@ -580,7 +580,21 @@ def test_user_f2_e2e_recovers_genuine_drops_noise_and_cross_signal(n):
     # the plug-in bias by using the SAME estimator + bin count for both. This is what
     # makes dropping the pure (c,d) form the correct max-MI choice rather than a bug:
     # the cross-mix carries the (c,d) signal PLUS the (a,b) signal, so its MI dominates.
-    if cross_mix and not cd_pure:
+    #
+    # The check only applies when a pure (c,d) form was actually BUILT and then lost to the cross-mix.
+    # On this WARPED fixture it never is: the signal is log(2c)*sin(d/3), and the unary library has no way
+    # to express sin(d/3) - `sin` applied to raw d gives sin(d). Verified by contrast on the UNWARPED
+    # log(c)*sin(d) variant, where the same code produces the clean fused compound
+    # add(mul(sqr(a),reciproc(b)),mul(log(c),sin(d))) whose MI equals the reference exactly (2.3024).
+    # So a failure here would say "a worse cross-mix displaced a better form that existed", which is the
+    # real bug; without the guard it fires on "no such form was ever a candidate", which is a different
+    # finding entirely (tracked in audits/mrmr_audit_2026-07-25/_OPEN_FE_RECOVERY_GAP.md).
+    _pure_cd_was_built = any(
+        ("c" in _bare_vars(str(getattr(r, "name", "")))) and ("d" in _bare_vars(str(getattr(r, "name", ""))))
+        and not any(t in _bare_vars(str(getattr(r, "name", ""))) for t in ("a", "b"))
+        for r in (getattr(fs, "_engineered_recipes_", None) or [])
+    )
+    if cross_mix and not cd_pure and _pure_cd_was_built:
         nbins = int(fs.quantization_nbins)
         # ``y`` is already the 10-bin code vector (``_make_user_f2`` qcut'd it); densify
         # to contiguous codes for the MI estimator.
