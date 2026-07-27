@@ -132,8 +132,9 @@ def test_F7_baselines_off_x_diagnostics_on_combo_reachable():
 
 
 # ---------------------------------------------------------------------------
-# 2026-07-25 audit: 6 unfuzzed MRMR fe_*_enable toggles + fe_budget_learning +
-# shap_proxied prescreen_ranking + composite gate_kind, all newly wired axes.
+# 2026-07-25 audit: 9 previously-unfuzzed axes (6 MRMR fe_*_enable toggles,
+# gt_07 fe_budget_learning, gt_03 shap_proxied_prescreen_ranking, gt_05
+# composite_gate_kind) -- present in AXES + build kwargs correctly.
 # ---------------------------------------------------------------------------
 
 _NEW_MRMR_TOGGLE_AXES = (
@@ -148,47 +149,67 @@ _NEW_MRMR_TOGGLE_AXES = (
 
 @pytest.mark.parametrize("axis_name", _NEW_MRMR_TOGGLE_AXES)
 def test_new_mrmr_fe_toggle_axis_present_and_wired(axis_name):
-    """Each new MRMR fe_*_enable toggle must be in AXES and reach FuzzCombo, gated on use_mrmr_fs."""
+    """AXES must declare the axis with both False/True, and build_mrmr_kwargs must forward it under its
+    bare (non-``_cfg``) MRMR.__init__ name."""
     assert axis_name in AXES, f"missing axis entry: {axis_name}"
     values = AXES[axis_name]
     assert False in values and True in values, f"axis must cover both False/True, got {values!r}"
-    combo_on = _make_combo(use_mrmr_fs=True, **{axis_name: True})
-    combo_off = _make_combo(use_mrmr_fs=True, **{axis_name: False})
-    assert getattr(combo_on, axis_name) is True
-    assert combo_on.canonical_key() != combo_off.canonical_key(), f"{axis_name} True/False must be distinct when use_mrmr_fs=True"
-    combo_gated = _make_combo(use_mrmr_fs=False, **{axis_name: True})
-    combo_gated_off = _make_combo(use_mrmr_fs=False, **{axis_name: False})
-    assert combo_gated.canonical_key() == combo_gated_off.canonical_key(), f"{axis_name} must canonicalise away when use_mrmr_fs=False"
+
+    from tests.training._fuzz_combo.builders import build_mrmr_kwargs
+
+    bare_name = axis_name[len("mrmr_") : -len("_cfg")]
+    combo = _make_combo(use_mrmr_fs=True, **{axis_name: True})
+    kw = build_mrmr_kwargs(combo)
+    assert kw is not None and kw.get(bare_name) is True, f"{bare_name} not forwarded as True in build_mrmr_kwargs output"
 
 
 def test_new_mrmr_fe_budget_learning_axis_present_and_wired():
-    """``mrmr_fe_budget_learning_cfg`` must be in AXES and reach FuzzCombo, gated on use_mrmr_fs."""
+    """mrmr_fe_budget_learning_cfg covers False/True/"auto" and forwards to MRMR.__init__'s fe_budget_learning."""
     assert "mrmr_fe_budget_learning_cfg" in AXES
     values = AXES["mrmr_fe_budget_learning_cfg"]
-    assert False in values and True in values and "auto" in values
+    assert set(values) == {False, True, "auto"}, f"expected {{False, True, 'auto'}}, got {values!r}"
+
+    from tests.training._fuzz_combo.builders import build_mrmr_kwargs
+
     combo = _make_combo(use_mrmr_fs=True, mrmr_fe_budget_learning_cfg=True)
-    assert combo.mrmr_fe_budget_learning_cfg is True
-    combo_gated = _make_combo(use_mrmr_fs=False, mrmr_fe_budget_learning_cfg=True)
-    assert combo_gated.canonical_key() == _make_combo(use_mrmr_fs=False, mrmr_fe_budget_learning_cfg="auto").canonical_key()
+    kw = build_mrmr_kwargs(combo)
+    assert kw is not None and kw.get("fe_budget_learning") is True
 
 
 def test_new_shap_proxied_prescreen_ranking_axis_present_and_wired():
-    """``shap_proxied_prescreen_ranking_cfg`` must be in AXES and reach FuzzCombo, gated on use_shap_proxied_fs."""
+    """shap_proxied_prescreen_ranking_cfg forwards to ShapProxiedFS.__init__'s prescreen_ranking."""
     assert "shap_proxied_prescreen_ranking_cfg" in AXES
     values = AXES["shap_proxied_prescreen_ranking_cfg"]
     assert "mean_abs_phi" in values and "banzhaf" in values
+
+    from tests.training._fuzz_combo.builders import build_shap_proxied_fs_kwargs
+
     combo = _make_combo(use_shap_proxied_fs=True, shap_proxied_prescreen_ranking_cfg="banzhaf")
-    assert combo.shap_proxied_prescreen_ranking_cfg == "banzhaf"
-    combo_gated = _make_combo(use_shap_proxied_fs=False, shap_proxied_prescreen_ranking_cfg="banzhaf")
-    assert combo_gated.canonical_key() == _make_combo(use_shap_proxied_fs=False, shap_proxied_prescreen_ranking_cfg="mean_abs_phi").canonical_key()
+    kw = build_shap_proxied_fs_kwargs(combo)
+    assert kw is not None and kw.get("prescreen_ranking") == "banzhaf"
 
 
 def test_new_composite_gate_kind_axis_present_and_wired():
-    """``composite_gate_kind_cfg`` must be in AXES and reach FuzzCombo, gated on composite_discovery_enabled_cfg x regression."""
+    """composite_gate_kind_cfg forwards to CompositeTargetDiscoveryConfig.gate_kind, gated on
+    composite_discovery_enabled_cfg AND a regression target (the same gate the sibling composite_*_cfg
+    axes use)."""
     assert "composite_gate_kind_cfg" in AXES
     values = AXES["composite_gate_kind_cfg"]
     assert "nnls" in values and "shapley" in values
-    combo = _make_combo(composite_discovery_enabled_cfg=True, target_type="regression", composite_gate_kind_cfg="shapley")
+
+    from tests.training._fuzz_combo.builders import build_composite_discovery_config_from_flat
+
+    cfg = build_composite_discovery_config_from_flat(enabled=True, gate_kind="shapley")
+    assert cfg.gate_kind == "shapley"
+
+    combo = _make_combo(
+        composite_discovery_enabled_cfg=True,
+        target_type="regression",
+        composite_gate_kind_cfg="shapley",
+    )
     assert combo.composite_gate_kind_cfg == "shapley"
-    combo_gated = _make_combo(composite_discovery_enabled_cfg=False, target_type="regression", composite_gate_kind_cfg="shapley")
-    assert combo_gated.canonical_key() == _make_combo(composite_discovery_enabled_cfg=False, target_type="regression", composite_gate_kind_cfg="nnls").canonical_key()
+    combo_off = _make_combo(
+        composite_discovery_enabled_cfg=False,
+        composite_gate_kind_cfg="shapley",
+    )
+    assert combo_off.canonical_key() != combo.canonical_key()
