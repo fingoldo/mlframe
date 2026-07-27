@@ -319,7 +319,7 @@ gpu = [
 gpu-cuda12 = ["mlframe[gpu]"]
 gpu-cuda11 = [
     "cupy-cuda11x>=12.0,<14.0",
-    "nvidia-cuda-nvcc-cu11>=11.8",
+    "nvidia-cuda-nvcc-cu11>=11.8.89",
     "gpu-info>=0.1",
 ]
 
