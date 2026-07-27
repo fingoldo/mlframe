@@ -23,6 +23,8 @@ except Exception:  # pragma: no cover
     pl = None  # type: ignore
     _HAS_POLARS = False
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -554,7 +556,10 @@ class CompositeCrossTargetEnsemble:
                 # a separate ``.astype()`` round-trip.
                 pred = np.asarray(model.predict(X), dtype=np.float64).reshape(-1)
             except Exception as exc:
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "cross_target_ensemble_component_predict_failed",
+                    logging.WARNING,
                     "[CompositeCrossTargetEnsemble] component '%s' predict failed: " "%s. Excluding from this batch's ensemble (re-normalising).",
                     name,
                     exc,

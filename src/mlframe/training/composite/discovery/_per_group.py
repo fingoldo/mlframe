@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 from ..estimator import _extract_groups
 from ..spec import CompositeSpec
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,10 @@ def run_per_group_discovery(
                 val_y=val_y,
             )
         except Exception as exc:
-            logger.warning(
+            log_throttle(
+                logger,
+                "discovery_per_group_fit_failed",
+                logging.WARNING,
                 "[CompositeTargetDiscovery.per_group] discovery failed for group=%r (%d rows): %s. "
                 "Falling back to the global spec set for this group.",
                 group_val, n_rows, exc,

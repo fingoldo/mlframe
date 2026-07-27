@@ -8,6 +8,8 @@ from typing import Any, Callable
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 # Byte-size threshold above which a full pandas-frame copy is flagged as an
@@ -205,7 +207,10 @@ def composite_oof_predictions(
             fold_preds = np.asarray(w.predict(X_val), dtype=np.float64).reshape(-1)
             out[val_idx] = fold_preds
         except Exception as fold_err:
-            logger.warning(
+            log_throttle(
+                logger,
+                "composite_oof_predictions_fold_failed",
+                logging.WARNING,
                 "[composite_oof_predictions] fold failed (val rows %d-%d): %s. NaN-filled.",
                 int(val_idx.min()), int(val_idx.max()), fold_err,
             )

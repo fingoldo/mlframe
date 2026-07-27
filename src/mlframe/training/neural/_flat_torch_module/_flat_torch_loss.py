@@ -9,6 +9,7 @@ import torch
 import torch.nn.functional as F
 
 from ..base import to_numpy_safe
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.neural.flat")
 
@@ -244,4 +245,4 @@ class _LossMixin(_LossBase):
                     sync_dist=True,
                 )
             except Exception:  # best-effort: this metric is simply not logged for this step
-                logger.exception("Failed to compute metric %s_%s", prefix, metric.name)
+                log_throttle(logger, "flat_torch_loss_metric_compute_failed", logging.ERROR, "Failed to compute metric %s_%s", prefix, metric.name, exc_info=True)

@@ -26,6 +26,7 @@ from .screening import (
     _tiny_cv_rmse_y_scale_multiseed,
 )
 from ..transforms import get_transform
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -805,7 +806,10 @@ def _tiny_model_rerank(
                     )
                     _n_paired = int(_both_finite.sum()) if _both_finite is not None else 0
                     if _both_finite is not None and _n_paired < _min_seeds_wilcoxon:
-                        logger.warning(
+                        log_throttle(
+                            logger,
+                            "tiny_rerank_wilcoxon_gate_skipped",
+                            logging.WARNING,
                             "[CompositeTargetDiscovery] Wilcoxon gate skipped: "
                             "jointly-finite paired seeds=%d < %d, the minimum for "
                             "a one-sided test to reach p<=gate_alpha=%.3g "

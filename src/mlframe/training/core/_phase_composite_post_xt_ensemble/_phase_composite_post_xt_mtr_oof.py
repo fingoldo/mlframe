@@ -23,6 +23,8 @@ from typing import Any
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger("mlframe.training.core._phase_composite_post")
 
 
@@ -141,7 +143,10 @@ def compute_mtr_oof_nnls_weights(
                 excluded[ci] = f"non-finite OOF cells ({n_bad}/{oof[ci].size})"
         survivors = [ci for ci in range(n_comp) if ci not in excluded]
         for ci in sorted(excluded):
-            logger.warning(
+            log_throttle(
+                logger,
+                "xt_mtr_oof_component_excluded",
+                logging.WARNING,
                 "[MTR CT_ENSEMBLE] honest-OOF excluding component %d (%s); weighting the remaining "
                 "%d/%d component(s) with the benched ~9%% NNLS surface (excluded component gets weight 0).",
                 ci, excluded[ci], len(survivors), n_comp,

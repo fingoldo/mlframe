@@ -41,6 +41,7 @@ import timeit
 import numpy as np
 
 from .base import _per_member_mae_std_njit, _HAS_NUMBA_PER_MEMBER, _PER_MEMBER_KERNEL_NAME
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.models.ensembling")
 
@@ -142,8 +143,13 @@ def _measure_per_member_crossover(ndim: int, grid: list, repeats: int, rng) -> t
         t_np = timeit.timeit(_call_ref, number=repeats) / repeats
         t_nb = timeit.timeit(_call_nb, number=repeats) / repeats
         if not equivalent:
-            logger.warning("per_member sweep ndim=%d e=%d K=%d: numba DIVERGES from numpy "
-                           "(maxdiff=%.2e > tol) -> forcing numpy regardless of speed", ndim, e, _SWEEP_K, diff)
+            log_throttle(
+                logger,
+                "per_member_sweep_numba_diverges",
+                logging.WARNING,
+                "per_member sweep ndim=%d e=%d K=%d: numba DIVERGES from numpy "
+                "(maxdiff=%.2e > tol) -> forcing numpy regardless of speed", ndim, e, _SWEEP_K, diff,
+            )
             winner = "numpy"
         else:
             winner = "numba" if t_nb < t_np else "numpy"

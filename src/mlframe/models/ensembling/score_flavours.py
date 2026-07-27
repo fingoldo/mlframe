@@ -12,6 +12,8 @@ from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger("mlframe.models.ensembling")
 
 
@@ -65,7 +67,10 @@ def apply_diversity_drop(
             _would_drop_msg = f" auto-drop active (floor={_drop_floor:.3f}) -- one of {_pair['m1']}/{_pair['m2']} will be dropped"
         else:
             _would_drop_msg = " (would auto-drop one member if auto_drop_diversity_above set <= corr)"
-        logger.warning(
+        log_throttle(
+            logger,
+            "score_flavours_high_correlation_pair",
+            logging.WARNING,
             "[ensemble] high-correlation member pair (split=%s): %s vs %s -- Pearson corr=%.4f > threshold=%.4f.%s",
             _div_split_used,
             _pair["m1"],

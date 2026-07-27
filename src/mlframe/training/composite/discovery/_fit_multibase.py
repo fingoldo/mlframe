@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 from ..spec import CompositeSpec
 from ..transforms import _linear_residual_multi_fit, compose_target_name
 from .forward_stepwise import forward_stepwise_multi_base
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +138,10 @@ def apply_multi_base_forward_stepwise(
                 cv_persist_fold_scores=_cv_persist,
             )
         except Exception as _multi_err:
-            logger.warning(
+            log_throttle(
+                logger,
+                "discovery_multibase_forward_stepwise_failed",
+                logging.WARNING,
                 "[CompositeTargetDiscovery] multi-base forward-stepwise failed on spec=%s: %s. Keeping single-base spec.",
                 _spec.name,
                 _multi_err,

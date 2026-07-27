@@ -66,6 +66,8 @@ from typing import Any, Callable, Dict, List, Sequence
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -355,7 +357,10 @@ def stability_select_specs(
             discovery = discovery_factory()
             discovery.fit(df, target, list(feature_cols), sub_idx)
         except Exception as exc:  # -- one bad replicate must not abort the screen
-            logger.warning(
+            log_throttle(
+                logger,
+                "discovery_stability_replicate_failed",
+                logging.WARNING,
                 "[stability_select_specs] replicate %d/%d failed: %s",
                 i + 1, n_replicates, exc,
             )

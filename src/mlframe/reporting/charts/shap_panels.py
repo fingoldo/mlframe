@@ -44,6 +44,7 @@ except ImportError:  # plt-using paths are guarded; matplotlib-less envs skip pl
 
 from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels  # noqa: F401  (pack_panels re-exported for grid composers / parity with pdp_ice)
 from mlframe.reporting.charts._sampling import subsample_preserving_extremes
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -404,7 +405,7 @@ def _save_figure(fig: Any, base: str, plot_outputs: Optional[str]) -> List[str]:
             fig.savefig(path, bbox_inches="tight")
             written.append(path)
         except Exception as save_err:
-            logger.warning("SHAP panel savefig failed for %s: %s", path, save_err)
+            log_throttle(logger, "shap_panel_savefig_failed", logging.WARNING, "SHAP panel savefig failed for %s: %s", path, save_err)
     return written
 
 

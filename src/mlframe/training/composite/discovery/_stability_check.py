@@ -17,6 +17,8 @@ from ..spec import CompositeSpec
 if TYPE_CHECKING:
     from . import CompositeTargetDiscovery
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -153,7 +155,10 @@ def fit_with_stability_check(
             try:
                 self.fit(df, target_col, feature_cols, _run_train_idx, val_idx, test_idx)
             except Exception as _exc:
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "discovery_stability_check_bootstrap_run_failed",
+                    logging.WARNING,
                     "[CompositeTargetDiscovery.stability] bootstrap run %d failed: %s",
                     i, _exc,
                 )
