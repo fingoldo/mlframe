@@ -334,7 +334,7 @@ gpu = [
 gpu-cuda12 = ["mlframe[gpu]"]
 gpu-cuda11 = [
     "cupy-cuda11x>=12.0,<14.0",
-    "nvidia-cuda-nvcc-cu11>=11.8",
+    "nvidia-cuda-nvcc-cu11>=11.8.89",
     "gpu-info>=0.1",
 ]
 
@@ -402,8 +402,8 @@ dev = [
     "coverage>=7.2",
     "hypothesis>=6.80",
     "freezegun>=1.2",             # frozen-time fixtures in tests/perf and tests/training calibration suites
-    "ruff==0.15.20",               # pinned exact, matching .pre-commit-config.yaml's ruff-pre-commit rev AND
-                                    # CI's `uvx ruff==0.15.20` (ruff-blocking.yml) -- an open range here is
+    "ruff==0.15.22",               # pinned exact, matching .pre-commit-config.yaml's ruff-pre-commit rev AND
+                                    # CI's `uvx ruff==0.15.22` (ruff-blocking.yml) -- an open range here is
                                     # exactly how the prior v0.8.6 pre-commit-vs-CI drift went unnoticed (2026-07-18).
     # black==26.5.1 requires Python >=3.10 (found 2026-07-20: an unconditional pin here made
     # `pip install -e ".[all,dev]"` fail outright on CI's py3.9 matrix leg with "No solution found" --
