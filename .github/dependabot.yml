@@ -10,6 +10,11 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+    # Ungrouped, this ecosystem opened one branch + PR per action, each triggering its own CI run.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
     cooldown:
       default-days: 7
 
@@ -31,5 +36,11 @@ updates:
       prefix: "deps"
     labels:
       - "dependencies"
+    # Minor/patch bumps share one PR; majors stay separate since they need individual review.
+    groups:
+      python-dependencies:
+        update-types:
+          - minor
+          - patch
     cooldown:
       default-days: 7
