@@ -53,7 +53,7 @@ _counts = _counts.with_columns(pl.col("n").cum_sum().alias("cum"))
 _keep = _counts.filter(pl.col("cum") <= TARGET_ROWS)["well_id"].to_list() or [_counts["well_id"][0]]
 df = _lf.filter(pl.col("well_id").is_in(_keep)).with_columns(pl.col(pl.Float64).cast(pl.Float32)).collect()
 
-_drop = ["TVT_input", "ANCC", "ASTNL", "ASTNU", "BUDA", "EGFDL", "EGFDU", "well_id"]
+_drop = ["TVT_input", "ANCC", "ASTNL", "ASTNU", "BUDA", "EGFDL", "EGFDU", "well_id"]  # codespell:ignore buda
 y = df["TVT"].to_pandas()
 X = df.drop([c for c in _drop + ["TVT"] if c in df.columns]).to_pandas()
 print(f"[mrmr-only] mode={MODE} X={X.shape} strict_env={os.environ['MLFRAME_FE_GPU_STRICT']}")

@@ -4,7 +4,10 @@
 #
 # The root pyproject.toml's [tool.ruff] keeps `exclude = ["tests", ...]` and stays scoped to
 # src/; run this config as its own gate via `ruff check tests/`.
-extend = "../../py-ci-shared/configs/ruff-tests.toml"
+#
+# ruff expands environment variables in `extend`, so PY_CI_SHARED_DIR may point at any py-ci-shared
+# checkout rather than a sibling directory -- same form the root pyproject.toml's [tool.ruff] uses.
+extend = "$PY_CI_SHARED_DIR/configs/ruff-tests.toml"
 target-version = "py39"
 
 [lint.mccabe]
