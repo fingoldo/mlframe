@@ -18,10 +18,13 @@ state / RNG are byte-for-byte identical to the pre-carve in-function blocks.
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 from numpy.polynomial.hermite import hermval
 
 from ._pairs_gates import _GATE_MED_UNARY, _PREWARP_UNARY, _gate_med_apply
+from mlframe.utils.log_throttle import log_throttle
 
 
 def _fit_prewarp_and_gate_med(
@@ -368,7 +371,12 @@ def _build_operand_table(
                             _diag = f", isnan={_n_nan}, " f"isinf={np.isinf(vals).sum()}, nanmin={_nanmin}"
                         else:
                             _diag = f", dtype={vals.dtype} (numeric diagnostics skipped)"
-                        logger.error("Error when performing %s on array %s, var=%s: %s%s", tr_name, vals[:5], cols[var], e, _diag)
+                        log_throttle(
+                            logger,
+                            "pairs_setup_unary_transform_error",
+                            logging.ERROR,
+                            "Error when performing %s on array %s, var=%s: %s%s", tr_name, vals[:5], cols[var], e, _diag,
+                        )
                     else:
                         vars_transformations[key] = i
                         if _operand_col_specs is not None:

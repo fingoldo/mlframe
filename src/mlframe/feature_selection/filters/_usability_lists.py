@@ -33,6 +33,8 @@ from typing import Any
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -60,7 +62,10 @@ def _raw_numeric_frame(X: Any, feature_names: list[str]):
             continue
         _n_coerced = int((~np.isfinite(v)).sum())
         if _n_coerced:
-            logger.warning(
+            log_throttle(
+                logger,
+                "usability_lists_raw_column_coerced",
+                logging.WARNING,
                 "usability: raw column %r had %d/%d non-finite/unparseable value(s) coerced to 0.0.",
                 name, _n_coerced, v.size,
             )

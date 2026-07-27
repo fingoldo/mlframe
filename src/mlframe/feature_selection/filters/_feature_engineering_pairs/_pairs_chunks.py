@@ -23,6 +23,8 @@ from ..feature_engineering import _FE_BUFFER_RAM_BUDGET_RATIO  # noqa: F401 - re
 # re-export the authoritative constant so the package ``__init__`` surface (and any historical import)
 # still resolves a single source of truth.
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 # CROSS-PAIR (CHUNK) BATCHING. The per-pair 3-phase batch (materialise
@@ -301,7 +303,7 @@ def _compute_one_fe_chunk(
                         except Exception:
                             # Failed transform: the buffer slot may still hold a prior column's data. Null it so it is
                             # never scored, and skip recording it as a candidate (``col`` is not advanced here).
-                            logger.exception("Error when performing %s", bin_func)
+                            log_throttle(logger, "pairs_chunks_transform_failed", logging.ERROR, "Error when performing %s", bin_func, exc_info=True)
                             chunk_buffer[:, col] = np.nan
                             continue
                         # NaN/inf scrub DEFERRED to one vectorised pass over chunk_buffer[:, :col]

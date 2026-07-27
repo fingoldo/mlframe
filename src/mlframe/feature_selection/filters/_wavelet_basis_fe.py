@@ -82,6 +82,8 @@ import pandas as pd
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -726,7 +728,10 @@ def generate_wavelet_features(
                 return_arrays=True,
             )
         except Exception as exc:
-            logger.warning(
+            log_throttle(
+                logger,
+                "wavelet_basis_fe_scale_select_failed",
+                logging.WARNING,
                 "generate_wavelet_features: scale-select on col=%r raised %r; "
                 "skipping wavelet for that column.", col, exc,
             )

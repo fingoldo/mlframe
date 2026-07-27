@@ -61,6 +61,8 @@ import os
 import sys
 from typing import Any, Callable, Optional
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 # The committed defaults file lives next to the runtime consumer
@@ -243,7 +245,7 @@ def generate_defaults(
             n = tune_fn(spec, force=force, skip_existing=not force)
             logger.info("gen_default_tuning: %s tuned -> %d region(s) on this host", kernel_name, n)
         except Exception as e:
-            logger.warning("gen_default_tuning: sweep for %s failed (%s); skipping kernel", kernel_name, e)
+            log_throttle(logger, "gen_default_tuning_sweep_failed", logging.WARNING, "gen_default_tuning: sweep for %s failed (%s); skipping kernel", kernel_name, e)
 
         # Read back the measured per-host regions (None if the sweep produced
         # nothing -- e.g. a GPU spec on a CPU-only host where cupy is absent).

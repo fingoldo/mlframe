@@ -65,6 +65,7 @@ from .._helpers import (
     suppress_irritating_3rdparty_warnings,
 )
 from ._configs import FIConfig, RobustnessConfig, SearchConfig
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -483,7 +484,10 @@ class RFECV(BaseEstimator, TransformerMixin):
             for _gname, _gmembers in feature_groups.items():
                 if not _gmembers:
                     if verbose:
-                        logger.warning(
+                        log_throttle(
+                            logger,
+                            "rfecv_feature_group_empty",
+                            logging.WARNING,
                             "RFECV: feature_groups[%r] is empty; this group " "will have no effect on selection.",
                             _gname,
                         )

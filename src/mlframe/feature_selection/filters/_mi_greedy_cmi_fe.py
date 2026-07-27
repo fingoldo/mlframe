@@ -70,6 +70,8 @@ except ImportError:  # pragma: no cover - numba is a hard dep in practice
             return fn
         return deco
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 # GPU quantile-bin crossover (2026-06-28, synchronized micro-bench of _quantile_bin_gpu incl. code D2H, GTX
@@ -1870,7 +1872,10 @@ def greedy_cmi_fe_construct_with_recipes(
                 name=name, transform=tname, src_names=(col,),
             ))
         else:
-            logger.warning(
+            log_throttle(
+                logger,
+                "mi_greedy_cmi_fe_cannot_parse_column",
+                logging.WARNING,
                 "greedy_cmi_fe_construct_with_recipes: cannot parse " "engineered column %r back to (transform, source); skipping " "recipe.",
                 name,
             )

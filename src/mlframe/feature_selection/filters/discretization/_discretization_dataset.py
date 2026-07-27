@@ -17,6 +17,8 @@ from typing import Any, Callable, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 _xxh3_128: Optional[Callable] = None
@@ -477,7 +479,10 @@ def categorize_dataset(
             assert max_cats is not None  # global_max > 0 implies new_vals.size > 0
             for _candidate in (np.int16, np.int32, np.int64):
                 if global_max <= np.iinfo(_candidate).max:
-                    logger.warning(
+                    log_throttle(
+                        logger,
+                        "discretization_dataset_dtype_auto_promoted",
+                        logging.WARNING,
                         "categorize_dataset: %d category code(s) exceeded dtype %s; auto-promoting to %s to avoid silent wraparound.",
                         int((max_cats > np.iinfo(dtype).max).sum()),
                         dtype,

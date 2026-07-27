@@ -13,6 +13,7 @@ import numpy as np
 if TYPE_CHECKING:
     from .hermite_fe import HermiteResult
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")
 
@@ -666,7 +667,7 @@ def optimise_hermite_pair(
                         eval_kwargs=eval_kwargs,
                     )
             except Exception as e:
-                logger.warning("%s failed at degree %d (%s); " "falling back to Optuna", optimizer, degree, e)
+                log_throttle(logger, "hermite_fe_optimizer_failed_falling_back_optuna", logging.WARNING, "%s failed at degree %d (%s); " "falling back to Optuna", optimizer, degree, e)
                 cma_result = None
             if cma_result is None:
                 continue

@@ -17,6 +17,8 @@ import logging
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 # Recipe kinds whose ``src_names`` reference raw input columns only and never a chained engineered intermediate. For these, a source absent
@@ -624,7 +626,10 @@ def _append_engineered(self, base_out, X, recipes):
                             f"input columns only, so the recipe set does not match the input frame "
                             f"(corrupted/stale recipe, or wrong X)."
                         )
-                    logger.warning(
+                    log_throttle(
+                        logger,
+                        "mrmr_validate_transform_unresolved_engineered_source",
+                        logging.WARNING,
                         "MRMR.transform: recipe %r (kind=%s) references unresolved engineered "
                         "source(s) %s; emitting a neutral zero column (feature effectively dropped from replay).",
                         r.name, r.kind, _missing,

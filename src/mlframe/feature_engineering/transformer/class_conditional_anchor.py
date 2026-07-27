@@ -37,6 +37,7 @@ import numpy as np
 import polars as pl
 
 from ._utils import require_seed, validate_numeric_input
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +197,7 @@ def compute_class_conditional_anchor_attention(
         pos_mask = y_tr > 0.5
         neg_mask = ~pos_mask
         if int(pos_mask.sum()) < 2 or int(neg_mask.sum()) < 2:
-            logger.warning("class_conditional_anchor: fold %d has too few rows per class; skipping anchors fill", fold_idx)
+            log_throttle(logger, "class_conditional_anchor_fold_too_few_rows", logging.WARNING, "class_conditional_anchor: fold %d has too few rows per class; skipping anchors fill", fold_idx)
             continue
         anchors_pos = _fit_kmeans(X_tr_s[pos_mask], n_anchors=n_anch_pos, seed=int(seed) + fold_idx)
         anchors_neg = _fit_kmeans(X_tr_s[neg_mask], n_anchors=n_anch_neg, seed=int(seed) + fold_idx + 1)

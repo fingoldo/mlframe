@@ -24,6 +24,8 @@ from typing import Union
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 # Estimators that natively handle NaN but may not advertise the sklearn ``allow_nan`` input tag reliably
@@ -139,7 +141,7 @@ def apply_nan_in_X_policy(self, X: Union[pd.DataFrame, np.ndarray]):
         for c in indicator_cols:
             if c not in X.columns:
                 if verbose:
-                    logger.warning("RFECV nan_indicator_cols: %r not in X; skipping indicator.", c)
+                    log_throttle(logger, "rfecv_nan_policy_indicator_col_missing", logging.WARNING, "RFECV nan_indicator_cols: %r not in X; skipping indicator.", c)
                 continue
             indicator_masks[c] = X[c].isna().to_numpy().astype(np.int8)
 

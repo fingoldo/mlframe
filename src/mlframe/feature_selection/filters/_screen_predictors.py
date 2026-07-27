@@ -32,6 +32,8 @@ from ._numba_warmup import warmup_typed_dict
 if TYPE_CHECKING:
     from ._dynamic_cluster_discovery import DCDState
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 # Pre-compile the typed.Dict(unicode->float64) machinery that screen_predictors'
@@ -719,7 +721,7 @@ def screen_predictors(
                 if run_out_of_time:
                     break
                 if stop_file and exists(stop_file):
-                    logger.warning("Stop file %s detected, quitting.", stop_file)
+                    log_throttle(logger, "screen_predictors_stop_file_detected", logging.WARNING, "Stop file %s detected, quitting.", stop_file)
                     break
 
                 # The full single-predictor confirmation cycle (score all candidates, then permutation-confirm in

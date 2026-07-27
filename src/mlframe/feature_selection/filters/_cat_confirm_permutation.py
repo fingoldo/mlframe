@@ -26,6 +26,7 @@ from numba import njit, prange
 
 from .cat_fe_state import CatFEConfig
 from .info_theory import compute_mi_from_classes, merge_vars, weighted_class_freqs
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -903,7 +904,10 @@ def _confirm_pairs_via_permutation(
                         base_seed=int(j) * 1000003 + 7,
                     )
                 except Exception as _gpu_exc:
-                    logger.warning(
+                    log_throttle(
+                        logger,
+                        "cat_confirm_permutation_gpu_kernel_failed",
+                        logging.WARNING,
                         "cat-FE: GPU permutation kernel failed (%s); " "falling back to CPU numba.",
                         _gpu_exc,
                     )

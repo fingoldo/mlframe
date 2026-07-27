@@ -34,6 +34,8 @@ from typing import Callable, Iterable, Iterator, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -676,7 +678,10 @@ def greedy_mi_fe_construct_with_recipes(
                 name=name, transform=tname, src_names=(col,),
             ))
         else:
-            logger.warning(
+            log_throttle(
+                logger,
+                "mi_greedy_fe_cannot_parse_column",
+                logging.WARNING,
                 "greedy_mi_fe_construct_with_recipes: cannot parse engineered " "column %r back to (transform, source); skipping recipe.",
                 name,
             )

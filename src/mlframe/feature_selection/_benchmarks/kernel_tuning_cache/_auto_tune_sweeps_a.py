@@ -18,6 +18,8 @@ from typing import Callable, Optional, cast
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 # Module-level sentinels for _run_sweep_polyeval's lazy globals()-based import below (real
@@ -442,7 +444,7 @@ def _run_sweep_polyeval(n_iters: int = 5) -> list[dict]:
             if _CUDA_AVAILABLE and _polyeval_cuda_fn is not None:
                 _polyeval_cuda_fn(_basis, _warm_x, coef)
         except Exception as exc:
-            logger.warning("polyeval warmup failed (basis=%s): %s", _basis, exc)
+            log_throttle(logger, "auto_tune_sweeps_a_polyeval_warmup_failed", logging.WARNING, "polyeval warmup failed (basis=%s): %s", _basis, exc)
 
     regions: list[dict] = []
     for basis in bases:

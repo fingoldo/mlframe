@@ -28,6 +28,8 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -642,7 +644,7 @@ def calculate_relevance_table(
                 else:
                     pv = _chi2_independence_p(ser.to_numpy(), y_arr)
         except Exception as exc:
-            logger.warning("univariate_ht: feature %r raised %s; assigning p=1.0", col, exc)
+            log_throttle(logger, "univariate_ht_feature_raised", logging.WARNING, "univariate_ht: feature %r raised %s; assigning p=1.0", col, exc)
             pv = 1.0
         p_values.append(float(pv))
 

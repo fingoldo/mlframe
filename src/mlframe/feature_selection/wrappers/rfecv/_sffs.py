@@ -15,6 +15,7 @@ from sklearn.model_selection import (
     GroupShuffleSplit,  # noqa: F401
     StratifiedShuffleSplit,  # noqa: F401
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,10 @@ def _sffs_swap_pass(
             )
         except Exception as _exc:
             if verbose:
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "rfecv_sffs_swap_evaluation_failed",
+                    logging.WARNING,
                     "SFFS swap %s -> %s evaluation failed (%s); skipping pair.",
                     out_f, in_f, _exc,
                 )

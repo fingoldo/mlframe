@@ -26,6 +26,7 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 from sklearn.metrics import make_scorer
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -6411,7 +6412,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _screen_shared_idx = _get_shared_fe_subsample_idx(self, np.asarray(data[:, int(target_indices[0])]), len(data))
         except Exception as _sub_exc:
             # Full-n fallback is safe but ~33x slower at n~1M -> log so it is never a silent mystery.
-            logger.warning("mrmr: shared FE subsample resolution failed; screening at FULL n: %r", _sub_exc, exc_info=True)
+            log_throttle(logger, "mrmr_fit_shared_fe_subsample_failed", logging.WARNING, "mrmr: shared FE subsample resolution failed; screening at FULL n: %r", _sub_exc, exc_info=True)
             _screen_shared_idx = None
         (
             selected_vars,

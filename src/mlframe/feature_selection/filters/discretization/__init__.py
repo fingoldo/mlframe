@@ -202,6 +202,7 @@ from ._discretization_edges import (
     get_binning_edges,
     histogram,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -407,7 +408,10 @@ def categorize_1d_array(
     if out_max > np.iinfo(dtype).max:
         for _candidate in (np.int16, np.int32, np.int64):
             if out_max <= np.iinfo(_candidate).max:
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "discretization_categorize_1d_dtype_auto_promoted",
+                    logging.WARNING,
                     "categorize_1d_array: max code %d exceeds dtype %s; auto-promoting to %s to avoid silent wraparound.",
                     out_max, dtype, _candidate,
                 )

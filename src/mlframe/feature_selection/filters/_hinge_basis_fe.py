@@ -62,6 +62,8 @@ import pandas as pd
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -444,7 +446,10 @@ def _detect_hinge_breakpoints_for_columns(
                 x, y_arr, max_breakpoints=max_breakpoints, min_heldout_r2_uplift=min_heldout_r2_uplift,
             )
         except Exception as exc:
-            logger.warning(
+            log_throttle(
+                logger,
+                "hinge_basis_fe_breakpoint_detect_failed",
+                logging.WARNING,
                 "generate_hinge_features: breakpoint detect on col=%r raised %r; skipping hinge for that column.",
                 col, exc,
             )

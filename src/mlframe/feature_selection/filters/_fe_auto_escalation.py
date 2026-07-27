@@ -62,6 +62,8 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 __all__ = ["run_fe_auto_escalation", "find_underdelivering_pairs"]
@@ -865,7 +867,10 @@ def run_fe_auto_escalation(
                 c["values"] = np.asarray(apply_recipe(c["recipe"], _X_full), dtype=np.float64)
                 _rebuilt.append(c)
             except Exception:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "fe_auto_escalation_replay_failed",
+                    logging.WARNING,
                     "MRMR FE auto-escalation: full-n replay failed for %r; dropping.",
                     c.get("name"),
                 )

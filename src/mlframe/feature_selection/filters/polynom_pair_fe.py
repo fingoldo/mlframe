@@ -36,6 +36,7 @@ from ._joblib_safe import POLYNOM_LOKY_IDLE_WORKER_TIMEOUT, disable_cuda_in_work
 from .discretization import discretize_array
 from .engineered_recipes import build_hermite_pair_recipe
 from .hermite_fe import optimise_hermite_pair, precompute_hermite_pair_basis
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -597,7 +598,10 @@ def run_polynom_pair_fe(
                 )
         except Exception as _inj_err:
             if verbose:
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "polynom_pair_fe_injection_failed",
+                    logging.WARNING,
                     "Polynomial-pair FE injection failed for pair=%s: %s. " "Standard FE block below still runs.",
                     raw_vars_pair,
                     _inj_err,

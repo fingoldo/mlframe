@@ -25,6 +25,8 @@ import math
 import numpy as np
 from numba import njit
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 # Dense (K_x, K_y, K_z) histogram cap - see cmi_permutation_stop's inline comment.
@@ -113,7 +115,10 @@ def cmi_permutation_stop(x_cand: np.ndarray, y: np.ndarray,
                 # insignificant (its conditional dependence is masked by collided states) and trigger a
                 # premature stop - warn so the caller can raise nbins / reduce |selected| rather than
                 # silently trust a coarse test.
-                logger.warning(
+                log_throttle(
+                    logger,
+                    "cmi_perm_stop_cardinality_truncated",
+                    logging.WARNING,
                     "CMI permutation-stop: conditioning cardinality K_z exceeded %d after %d/%d "
                     "selected features; truncating z_comp via modulo -- distinct conditioning states "
                     "may collide and mask relevance (risk of premature stop).",

@@ -12,6 +12,7 @@ import logging
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
@@ -52,7 +53,7 @@ def fit_multioutput(self, X, y, groups, sample_weight, fit_params, strategy: str
             sub.fit(X, y_col, groups=groups, sample_weight=sample_weight, **(fit_params or {}))
         except Exception as exc:
             skipped_columns[label] = f"{type(exc).__name__}: {exc}"
-            logger.warning("RFECV multioutput[%s]: sub-fit failed (%s); skipping this output column.", label, exc)
+            log_throttle(logger, "rfecv_multioutput_subfit_failed", logging.WARNING, "RFECV multioutput[%s]: sub-fit failed (%s); skipping this output column.", label, exc)
             continue
         per_column_selected[label] = list(sub.get_feature_names_out())
         if self.verbose:

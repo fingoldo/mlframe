@@ -59,6 +59,8 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
+
 try:
     from numba import njit
 except ImportError:  # pragma: no cover - numba is a hard dep in practice
@@ -407,7 +409,10 @@ def hybrid_numeric_decompose_fe_with_recipes(
     for name in appended:
         parsed = _parse_engineered_name(name)
         if parsed is None:
-            logger.warning(
+            log_throttle(
+                logger,
+                "numeric_decompose_fe_cannot_parse_column",
+                logging.WARNING,
                 "hybrid_numeric_decompose_fe_with_recipes: cannot parse " "kind/param from column name %r; skipping recipe build.",
                 name,
             )

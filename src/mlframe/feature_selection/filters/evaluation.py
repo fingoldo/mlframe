@@ -35,6 +35,7 @@ from .info_theory import (
 from .permutation import mi_direct
 from .info_theory._state_and_dispatch import get_group_mi
 from .info_theory._group_mi import group_relevance_mi
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -816,7 +817,7 @@ def evaluate_candidate(
                 if k_z > 1_000_000:
                     # Same overflow guard as cmi_permutation_stop: coarsen via modulo rather than let
                     # distinct conditioning states silently collide without any signal to the caller.
-                    logger.warning("CPT test: conditioning cardinality K_z exceeded 1_000_000; truncating z_comp via modulo.")
+                    log_throttle(logger, "evaluation_cpt_test_cardinality_truncated", logging.WARNING, "CPT test: conditioning cardinality K_z exceeded 1_000_000; truncating z_comp via modulo.")
                     z_comp = z_comp % 1_000_000
                     k_z = 1_000_000
                     break
