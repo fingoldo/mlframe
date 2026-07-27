@@ -257,7 +257,7 @@ def hybrid_random_fourier_fe(
     else:
         num_cols = [c for c in num_cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if len(num_cols) < 1:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     if y is not None:
         from ._extra_fe_families import _top_mi_num_cols  # lazy: break parent<->sibling cycle
@@ -266,11 +266,11 @@ def hybrid_random_fourier_fe(
     else:
         num_cols = list(num_cols)[: int(max_cols_for_block)]
     if len(num_cols) < 1:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     enc_df, payload = generate_random_fourier_features_block(X, num_cols, m=m, bandwidth=bandwidth, random_state=random_state)
     if enc_df.empty or not payload:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     winners = list(enc_df.columns)
     if mi_gate and y is not None:
@@ -281,7 +281,7 @@ def hybrid_random_fourier_fe(
     else:
         winners = winners[: int(top_k)]
     if not winners:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     X_aug = pd.concat([X, enc_df[winners]], axis=1)
     recipes = [

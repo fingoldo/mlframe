@@ -1203,6 +1203,7 @@ def ensure_fe_gpu_binning_tuning(force: bool = False) -> list | None:
 def grand_fused_pair_mi(
     a, b, y_codes, classes_y_safe, freqs_y, *,
     nbins: int = 20, npermutations: int = 25, min_nonzero_confidence: float = 0.0, use_su: bool = False,
+    random_seed: int = 0,
 ):
     """GRAND FUSION: GPU fused-generate candidates -> RESIDENT GPU discretize -> the EXISTING bit-identical
     GPU noise-gate (``batch_mi_noise_gate_gpu``). Returns the SAME noise-gated fe_mi[K] the production
@@ -1293,7 +1294,7 @@ def grand_fused_pair_mi(
                 _placeholder = np.empty(disc_dev.shape, dtype=disc_dev.dtype)
                 out = batch_mi_with_noise_gate_cuda_resident(
                     disc_2d=_placeholder, factors_nbins=fnb, classes_y=y_i64, classes_y_safe=csafe, freqs_y=fy,
-                    npermutations=int(npermutations), base_seed=np.uint64(0),
+                    npermutations=int(npermutations), base_seed=np.uint64(random_seed),
                     min_nonzero_confidence=float(min_nonzero_confidence), use_su=False,
                     dtype=np.int32, d_disc_resident=disc_dev,
                 )
@@ -1316,7 +1317,7 @@ def grand_fused_pair_mi(
             for _fb in ("cupy", "cuda"):
                 out = dispatch_batch_mi_with_noise_gate_gpu(
                     disc_2d=disc_host, factors_nbins=fnb, classes_y=y_i64, classes_y_safe=csafe, freqs_y=fy,
-                    npermutations=int(npermutations), base_seed=np.uint64(0),
+                    npermutations=int(npermutations), base_seed=np.uint64(random_seed),
                     min_nonzero_confidence=float(min_nonzero_confidence), use_su=bool(use_su),
                     dtype=np.int32, force_backend=_fb,
                 )
@@ -1328,7 +1329,7 @@ def grand_fused_pair_mi(
             disc_host = _ensure_disc_host(_disc_host_cache, disc_dev)
             fe_mi = _cpu_gate(
                 disc_2d=disc_host, factors_nbins=fnb, classes_y=y_i64, classes_y_safe=csafe, freqs_y=fy,
-                npermutations=int(npermutations), base_seed=np.uint64(0),
+                npermutations=int(npermutations), base_seed=np.uint64(random_seed),
                 min_nonzero_confidence=float(min_nonzero_confidence), use_su=bool(use_su),
                 # Widen rather than hardcode int16: a nbins > 32767 column would otherwise trip the kernel's
                 # capacity clamp (or, before it existed, wrap silently into a negative bucket).

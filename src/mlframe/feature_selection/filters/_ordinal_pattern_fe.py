@@ -299,7 +299,7 @@ def hybrid_ordinal_pattern_te_fe(
     else:
         num_cols = [c for c in num_cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if len(num_cols) < int(k):
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     if y is not None:
         from ._extra_fe_families import _top_mi_num_cols  # lazy: break parent<->sibling cycle
@@ -308,12 +308,12 @@ def hybrid_ordinal_pattern_te_fe(
     else:
         num_cols = list(num_cols)[: int(max_cols_for_tuples)]
     if len(num_cols) < int(k):
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     col_tuples = list(combinations(num_cols, int(k)))
     enc_df, raw_recipes = generate_ordinal_pattern_te_features(X, col_tuples, y, n_folds=n_folds, smoothing=smoothing, random_state=random_state)
     if enc_df.empty:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     winners = list(enc_df.columns)
     if mi_gate and y is not None:
@@ -324,7 +324,7 @@ def hybrid_ordinal_pattern_te_fe(
     else:
         winners = winners[: int(top_k)]
     if not winners:
-        return X.copy(), [], [], pd.DataFrame()
+        return X, [], [], pd.DataFrame()
 
     X_aug = pd.concat([X, enc_df[winners]], axis=1)
     recipes = [

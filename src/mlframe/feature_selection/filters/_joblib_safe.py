@@ -29,9 +29,11 @@ task (sub-millisecond) regardless of platform.
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import threading
 import time
+from collections import OrderedDict
 from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
@@ -216,9 +218,39 @@ def run_in_big_stack_thread(
 # passed to workers by FILENAME (no dump at all), so: dump each fit-constant array ONCE per process
 # (content-keyed), hand back the read-only memmap view, and let every subsequent Parallel call ship it
 # for free. Keyed by (shape, dtype, sampled content hash) - cheap, and a genuinely different array
-# (next fit) gets its own entry. Files live in joblib's own temp folder convention and are freed on
-# process exit (best-effort unlink; Windows may defer until handles close).
-_FIT_MEMMAP_CACHE: dict = {}
+# (next fit) gets its own entry.
+#
+# The cache is BOUNDED and evicts LRU, unlinking the evicted entry's backing file. Unbounded, it grew one
+# ~200-400MB temp file per distinct-content array for the life of the process and never deleted any of
+# them: 277 orphaned ``mlframe_fitconst_*.mmap`` files totalling 13GB were found on this dev machine.
+# Eviction unlink is best-effort - on Windows the file cannot be removed while a worker still holds the
+# handle, and the OS reclaims it once the last one closes.
+#
+# The lock covers the whole get-or-dump-or-insert sequence. Without it two threads (this codebase runs
+# joblib with backend="threading" on several paths) that hash the SAME array both miss, both pay the full
+# dump, and the loser's file is dropped from the dict without ever being unlinked - a leak on top of the
+# wasted I/O.
+_FIT_MEMMAP_CACHE_MAX_ENTRIES = 8
+_FIT_MEMMAP_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()  # content key -> (read-only memmap, backing path)
+_FIT_MEMMAP_LOCK = threading.Lock()
+
+
+def _release_fit_constant_entry(view, path: str) -> None:
+    """Close an evicted memmap view and unlink its backing file; never raises.
+
+    Closing first matters on Windows: an open mapping blocks the unlink outright, so a live handle would
+    otherwise turn every eviction back into the leak this cache exists to stop.
+    """
+    try:
+        mm = getattr(view, "_mmap", None)
+        if mm is not None:
+            mm.close()
+    except Exception as e:  # nosec B110 - teardown of a buffer nobody reads any more
+        logger.debug("fit_constant_memmap: closing evicted view failed: %s", e)
+    try:
+        os.unlink(path)
+    except OSError as e:
+        logger.debug("fit_constant_memmap: could not unlink %s yet (handle still open?): %s", path, e)
 
 
 def _fit_constant_key(arr) -> tuple:
@@ -254,9 +286,15 @@ def fit_constant_memmap(arr: "Any") -> "Any":
         if isinstance(arr, _np.memmap):
             return arr
         key = _fit_constant_key(arr)
-        cached = _FIT_MEMMAP_CACHE.get(key)
-        if cached is not None:
-            return cached
+        with _FIT_MEMMAP_LOCK:
+            cached = _FIT_MEMMAP_CACHE.get(key)
+            if cached is not None:
+                _FIT_MEMMAP_CACHE.move_to_end(key)
+                return cached[0]
+
+        # The dump is slow and touches no shared state, so it runs OUTSIDE the lock. The race that opens -
+        # two threads dumping the same content - is settled on re-entry below, where the loser unlinks its
+        # own file instead of dropping it from the dict and orphaning it.
         import os
         import tempfile
 
@@ -267,7 +305,17 @@ def fit_constant_memmap(arr: "Any") -> "Any":
         mm[...] = a
         mm.flush()
         ro = _np.memmap(path, dtype=a.dtype, mode="r", shape=a.shape)
-        _FIT_MEMMAP_CACHE[key] = ro
+
+        with _FIT_MEMMAP_LOCK:
+            winner = _FIT_MEMMAP_CACHE.get(key)
+            if winner is not None:
+                _FIT_MEMMAP_CACHE.move_to_end(key)
+                _release_fit_constant_entry(ro, path)
+                return winner[0]
+            _FIT_MEMMAP_CACHE[key] = (ro, path)
+            while len(_FIT_MEMMAP_CACHE) > _FIT_MEMMAP_CACHE_MAX_ENTRIES:
+                _, (_old_view, _old_path) = _FIT_MEMMAP_CACHE.popitem(last=False)
+                _release_fit_constant_entry(_old_view, _old_path)
         return ro
     except Exception as e:
         logger.debug("fit_constant_memmap: memmap dump/cache failed, returning the original array (dump-dedup lost, correctness unaffected): %s", e)

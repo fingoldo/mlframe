@@ -457,6 +457,11 @@ def evaluate_candidate(
             # Empirically this gives ~30% baseline reject rate on
             # all-noise and >90% pass rate on signal/synergy.
             _bnp = max(2, int(baseline_npermutations))
+            # The relevance null must MOVE with random_seed. Left at mi_direct's default the baseline drew the
+            # identical permutation for every seed, so a caller varying random_seed to probe selection stability
+            # got a null that never changed - the one component that was supposed to vary. Derived per candidate
+            # so two candidates in the same fit do not share a draw, mirroring the CMI component's own seed.
+            _baseline_seed = hash((int(random_seed or 0), int(cand_idx))) & 0xFFFFFFFF
             if use_gpu:
                 # Wrapped in try/except: this call previously had NO exception handling, unlike
                 # every sibling GPU dispatch point in this codebase (_cmi_cuda.py's circuit breaker, mi_direct's
@@ -498,6 +503,7 @@ def evaluate_candidate(
                         npermutations=_bnp,
                         dtype=dtype,
                         return_null_mean=True,
+                        base_seed=_baseline_seed,
                     )
                 # SAME significance-gated relevance debiasing as the CPU branch below (audit5-P1). Without it the
                 # GPU path returned RAW plug-in MI, inflating high-cardinality / heavy-tailed / monotone-datetime
@@ -523,6 +529,7 @@ def evaluate_candidate(
                     npermutations=_bnp,
                     dtype=dtype,
                     return_null_mean=True,
+                    base_seed=_baseline_seed,
                 )
                 # Gate the subtraction on permutation SIGNIFICANCE. The null mean alone cannot distinguish a WEAK GENUINE signal (whose coarse-binning null is a large fraction of
                 # its observed MI) from SPURIOUS NOISE (whose null is high because it IS noise) - subtracting the full null would over-correct the weak signal below the
