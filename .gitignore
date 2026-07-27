@@ -218,3 +218,7 @@ audit/**/*_commitmsg.txt
 /research/
 /legacy/
 /audit_disposition.md
+
+# numba on-disk JIT caches (hundreds of MB of build artifacts)
+.numba-cache/
+.numba_cache/
