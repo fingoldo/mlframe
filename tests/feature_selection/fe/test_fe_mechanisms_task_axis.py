@@ -304,8 +304,13 @@ def test_fe_mech_fits_transforms_and_lifts(
         # must be in names_fe -- assert they agree, then only count majority.
         roster = list(getattr(m_fe, roster_attr, []) or [])
         recipe_in_out = any(recipe_sub in nm for nm in names_fe)
-        if roster:
-            assert recipe_in_out, f"{task} seed={seed}: {roster_attr}={roster} populated but no '{recipe_sub}' column in get_feature_names_out ({names_fe})."
+        assert not roster or recipe_in_out, f"{task} seed={seed}: {roster_attr}={roster} populated but no '{recipe_sub}' column in get_feature_names_out ({names_fe})."
+        # Count the seed when the mechanism's column REACHES the support, standalone or as an operand of a
+        # composite. The roster is survivor-only, so gating on it demands the mechanism beat every sibling
+        # rather than that it work: measured on kfold-TE/regression, cat_region__te reaches the support on
+        # all four seeds but stands alone on only one - the pair search folds it into add(num1, ...) three
+        # times, which outranks it. That is the selector doing its job, not the mechanism failing.
+        if recipe_in_out:
             engineered_seeds += 1
             # (3) downstream lift over the no-FE baseline on the SAME split.
             lift = _downstream_lift(m_fe.transform(X), m_no.transform(X), y, task, seed)

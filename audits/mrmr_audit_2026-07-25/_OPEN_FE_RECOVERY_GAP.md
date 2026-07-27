@@ -214,3 +214,43 @@ eligible list. `x1` alone has essentially no marginal signal in the first fixtur
 the pure-interaction fixture here. The suggested first step is unchanged and would answer both: expose the
 per-pair proposed-and-rejected candidates with their scores, so the stage that drops the pair is visible
 from a fitted object instead of being inferred.
+
+---
+
+# Measured regression: the rankgauss mechanism's downstream contribution has fallen since calibration
+
+Status: **OPEN, measured. Do NOT relax the floor** - the floor is correct and the mechanism regressed.
+
+`test_fe_mechanisms_task_axis.py` fails on both rankgauss legs. The obvious move is to lower the lift
+floor, and the file's own calibration header is what rules that out. It records the medians the floors were
+derived from on 2026-06-10, "floors 60-85% below per CLAUDE.md":
+
+| mechanism | reg R2 lift median (calibrated) | mc acc lift median (calibrated) |
+|---|---|---|
+| rankgauss | 0.225 | 0.073 |
+
+Measured today on the same fixture and the same `_downstream_lift`, over 14 seeds instead of the test's 4:
+
+```
+seeds 0..13, multiclass: median 0.0269  mean 0.0274  min 0.0128  max 0.0462  p25 0.0199
+                         2 of 14 seeds: mechanism absent from the support entirely
+                         only 42% of seeds clear the 0.03 floor
+```
+
+So the 0.03 floor sits ~59% below the 0.073 it was derived from - exactly the documented margin - while the
+mechanism now delivers 0.0269. The contribution has fallen ~2.7x. Lowering the floor to make the suite green
+would erase the only signal that this happened.
+
+The regression axis is worse: the calibrated median was 0.225, and today the rankgauss column does not reach
+the support at all. `add(cbrt(x1), z2)` wins instead, and it deserves to - Ridge R^2 under 4-fold CV puts
+cbrt ahead on three seeds of four (see the section above). That is a legitimate sibling win and explains the
+regression leg on its own. It does NOT explain the multiclass leg, where the mechanism IS selected on 12 of
+14 seeds and still only lifts 0.0269.
+
+## What to look at
+
+Something between 2026-06-10 and now changed either what rankgauss produces or what the downstream sees.
+The two legs may share a cause with the sibling-transform story or may not - the multiclass leg's column is
+selected, so its lower lift is about the VALUE of the column, not about losing selection. Bisecting the
+downstream lift on this fixture across the intervening commits would name the change directly; that is
+cheap to run and was not attempted here.
