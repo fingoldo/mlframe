@@ -618,6 +618,7 @@ def score_prospective_pairs(
                         _record_fe_rejection(
                             self, gate="order2_maxt_floor",
                             candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
+                            operand_names="(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
                             observed=_pair_mi_floor_cmp, threshold=_pair_maxt_floor,
                             reason=("xor_zero_marginal_below_maxt" if pair_mi > 0 else "xor_zero_pair_mi"),
                             step=int(num_fs_steps),
@@ -767,6 +768,7 @@ def score_prospective_pairs(
                         _record_fe_rejection(
                             self, gate="marginal_pair_mi_prescreen",
                             candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
+                            operand_names="(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
                             observed=pair_mi, threshold=ind_elems_mi_sum * _prev_thresh,
                             reason=("synergy_prevalence" if _is_synergy_pair else "prevalence_ratio"),
                             step=int(num_fs_steps),
@@ -796,6 +798,7 @@ def score_prospective_pairs(
                         _record_fe_rejection(
                             self, gate="order2_maxt_floor",
                             candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
+                            operand_names="(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
                             observed=_pair_mi_floor_cmp, threshold=_pair_maxt_floor,
                             reason="below_maxt_floor", step=int(num_fs_steps),
                         )

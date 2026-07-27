@@ -1258,6 +1258,27 @@ def check_prospective_fe_pairs(
         )
         if _pair_res_entry is not None:
             res[raw_vars_pair] = _pair_res_entry
+        elif best_config is None:
+            # A pair that produced NO candidate at all leaves no trace otherwise: the rejection ledger only
+            # records candidates that were built and then failed a gate, so a pair whose operator search
+            # emits nothing is invisible in the fitted object and can only be found by instrumenting the
+            # search by hand. That is the exact shape behind the open FE-recovery findings in this audit -
+            # the (c,d) and (x0,x1) pairs each carry the signal, are eligible, and never appear anywhere.
+            try:
+                _barren = {
+                    "gate": "pair_candidate_generation",
+                    "candidate": f"({cols[raw_vars_pair[0]]},{cols[raw_vars_pair[1]]})",
+                    "operands": tuple(cols[i] for i in raw_vars_pair),
+                    "operator": "",
+                    "observed": float(pair_mi) if pair_mi is not None else float("nan"),
+                    "threshold": float("nan"),
+                    "reason": "no candidate produced for this pair",
+                }
+                _rejection_records.append(_barren)
+                if rejection_ledger_out is not None:
+                    rejection_ledger_out.append(_barren)
+            except Exception as e:  # nosec B110 - instrumentation must never break the FE search
+                logger.debug("barren-pair ledger record failed: %s", e)
 
         # Live progress: surface the best engineered feature found so far in this sweep
         # (its MI with y) plus the pair just evaluated, on the "pair" bar. ``best_mi`` /

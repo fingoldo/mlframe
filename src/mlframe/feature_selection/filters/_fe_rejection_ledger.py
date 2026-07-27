@@ -91,6 +91,7 @@ _LEDGER_COLUMNS: tuple[str, ...] = (
     "margin",
     "reason",
     "step",
+    "operand_names",
 )
 
 
@@ -121,6 +122,7 @@ def record_fe_rejection(
     gate: str,
     candidate: Any,
     operands: Any = None,
+    operand_names: str = "",
     operator: Any = None,
     observed: Any = float("nan"),
     threshold: Any = float("nan"),
@@ -188,6 +190,7 @@ def record_fe_rejection(
                 "margin": mrg,
                 "reason": str(reason),
                 "step": int(step),
+                "operand_names": str(operand_names or ""),
             }
         )
     except Exception as exc:  # pragma: no cover - instrumentation must never break the fit
@@ -209,7 +212,47 @@ def compute_fe_rejection_ledger(mrmr_self: Any) -> pd.DataFrame:
     except Exception as exc:
         logger.warning("MRMR fe_rejection_ledger_ build failed (%s); returning empty.", exc)
         return empty
+    _resolve_index_columns(mrmr_self, df)
     return df
+
+
+def _resolve_index_columns(mrmr_self: Any, df: pd.DataFrame) -> None:
+    """Add readable ``operand_names`` beside the raw positional ``operands``, in place.
+
+    The pair-level gates record positions into the FE working matrix, not names, so a row reads
+    ``(2, 3)`` and the reader has to reconstruct the column order to learn it means ``(c, d)``. Worse, a
+    position at or beyond the raw column count is an ENGINEERED column appended to the pool, which is
+    indistinguishable from a raw one by looking at the number. Both cost real debugging time, so resolve
+    what can be resolved and leave the rest visibly marked rather than silently ambiguous.
+    """
+    try:
+        names = list(getattr(mrmr_self, "feature_names_in_", None) or [])
+        if not names or "operands" not in df.columns:
+            return
+
+        def _name(v: Any) -> str:
+            """One operand: a raw name, an engineered marker, or the value unchanged if it is not a position."""
+            if isinstance(v, str):
+                return v
+            try:
+                i = int(v)
+            except (TypeError, ValueError):
+                return str(v)
+            return names[i] if 0 <= i < len(names) else f"<engineered#{i}>"
+
+        def _row(ops: Any) -> str:
+            """The whole operand tuple, rendered."""
+            if ops is None:
+                return ""
+            if isinstance(ops, (list, tuple)):
+                return "(" + ", ".join(_name(o) for o in ops) + ")" if len(ops) else ""
+            return _name(ops)
+
+        _resolved = [_row(o) for o in df["operands"]]
+        if any(_resolved):
+            df["operand_names"] = _resolved
+    except Exception as exc:  # nosec B110 - a readability aid must never break the ledger
+        logger.debug("fe_rejection_ledger_: operand-name resolution failed: %s", exc)
 
 
 def populate_fe_rejection_ledger(mrmr_self: Any) -> None:
@@ -219,7 +262,9 @@ def populate_fe_rejection_ledger(mrmr_self: Any) -> None:
     budget and the fallback schema is centralised. Never raises.
     """
     try:
-        mrmr_self.fe_rejection_ledger_ = compute_fe_rejection_ledger(mrmr_self)
+        _led = compute_fe_rejection_ledger(mrmr_self)
+        _resolve_index_columns(mrmr_self, _led)
+        mrmr_self.fe_rejection_ledger_ = _led
     except Exception as exc:
         logger.warning(
             "MRMR.fit: fe_rejection_ledger_ population failed (%s: %s); " "get_fe_rejection_report() will surface the empty-DataFrame message.",
