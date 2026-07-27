@@ -73,7 +73,11 @@ N = 1300
 # screening slot, leaving kfold_te_features_ empty. max_runtime keeps each fit bounded.
 _ISOLATE = dict(
     max_runtime_mins=0.6,
-    fe_max_steps=0,
+    # This preset isolates the mechanism under test from every OTHER FE family, which is what the explicit
+    # fe_*_enable=False flags below do. It must not also zero the budget: fe_max_steps=0 is the unconditional
+    # "no feature engineering at all" contract and outranks the mechanism kwargs merged in at the call site,
+    # so the fit was raw-only and every mechanism reported 0/4 seeds engineering anything.
+    fe_max_steps=1,
     fe_univariate_basis_enable=False,
     fe_univariate_fourier_enable=False,
     fe_hinge_enable=False,

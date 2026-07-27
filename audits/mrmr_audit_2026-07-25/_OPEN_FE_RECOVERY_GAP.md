@@ -132,3 +132,36 @@ CPU twin's contract is mirrored here only in the returned values, not in the tra
 2. If traffic wins, fuse the permutation loop into one kernel launch with a device-side `nfailed` and an
    in-kernel bail; if the early stop wins, re-frame the test to assert what the path actually guarantees.
 3. Either way the current state is wrong: the test asserts a contract the code does not implement.
+
+---
+
+# Resolved by measurement: rankgauss "fails" on the regression axis because a better sibling wins
+
+Status: **NOT a product defect.** Recorded so the next reader does not re-open it.
+
+`test_fe_mechanisms_task_axis.py::test_fe_mech_fits_transforms_and_lifts[rankgauss-regression]` reports
+`0/4 seeds produced a surviving 'rankgauss' column`. The family is not broken: calling
+`hybrid_rankgauss_fe` directly on the same fixture returns `appended=['rankgauss__x1']` on every seed. The
+column is produced and then loses selection to `add(cbrt(x1), z2)` - the general pair search finds the cube
+root of the SAME heavy-tailed column and fuses it with z2.
+
+Losing is the correct outcome. Ridge R^2 under 4-fold CV on the fixture:
+
+| seed | raw | + cbrt | + rankgauss |
+|---|---|---|---|
+| 0 | 0.6217 | **0.9270** | 0.9182 |
+| 1 | 0.6051 | **0.9250** | 0.9175 |
+| 2 | 0.7559 | 0.9293 | **0.9350** |
+| 3 | 0.5716 | **0.9306** | 0.9161 |
+
+`cbrt` wins on three seeds of four and both transforms lift the raw baseline enormously (0.57-0.76 ->
+~0.93). The selector is picking the better variance-stabilising transform of the same column.
+
+What is stale is the assertion, not the mechanism. `rankgauss_features_` is a SURVIVOR roster, so requiring
+it to be populated on a majority of seeds demands that this specific mechanism beat every sibling rather
+than that it work. The same shape was re-framed in `test_recipe_fe_families.py` earlier, where the pair
+search folded the rankgauss column into a composite.
+
+The `kfold-te-regression` (1/4 seeds) and `rankgauss-multiclass` (median lift 0.0192 against a 0.03 floor)
+legs of the same parametrisation are the same question and are NOT yet measured this way - the fix there is
+either the same re-frame or a re-derived floor, and it needs the multi-seed benchmark, not a single run.
