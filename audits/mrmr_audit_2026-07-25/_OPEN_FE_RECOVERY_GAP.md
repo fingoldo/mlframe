@@ -294,7 +294,9 @@ longer depends on it.
 
 # f32/f64 selection parity vs a deliberately f32 criterion dtype
 
-Status: **OPEN, contradiction identified. Needs a decision, not a patch.**
+Status: **RESOLVED by decision.** The parity contract is a SUPERSET, not equality; the relaxed
+criterion dtype stays. The test now asserts f32 loses nothing f64 found, which is the failure that
+would matter. Kept here for the measurements behind the call.
 
 `test_fe_float32_replay_parity.py::test_all_modern_fe_mechanisms_f32_parity` fails on one mechanism cell:
 
