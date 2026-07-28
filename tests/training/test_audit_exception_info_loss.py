@@ -35,6 +35,7 @@ for chained exceptions.
 
 from __future__ import annotations
 
+import ast
 import importlib
 from pathlib import Path
 
@@ -57,6 +58,47 @@ def _read(rel: str) -> str:
                     parts.append(_sub.read_text(encoding="utf-8"))
             return "\n".join(parts)
     return _path.read_text(encoding="utf-8")
+
+
+def _logs_message_with_traceback(message: str) -> list[str]:
+    """Every call site under ``mlframe/`` that logs ``message``, and whether it keeps the traceback.
+
+    Returns one ``"<relpath>:<lineno> <ok|LOSES TRACEBACK>"`` entry per call site found.
+
+    Matching the exact call text pins two things the contract does not care about: which file the
+    handler currently lives in, and whether it reaches the logger directly or through a throttling
+    wrapper. Both changed under the monolith splits and the log_throttle rollout while the traceback
+    itself was preserved throughout, so this looks for the message anywhere in the tree and asks only
+    whether that call carries exception info.
+    """
+    out: list[str] = []
+    for path in sorted(MLFRAME_ROOT.rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        if message not in text:
+            continue
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:  # pragma: no cover - a syntactically broken module is a different failure
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if not any(isinstance(a, ast.Constant) and isinstance(a.value, str) and message in a.value for a in node.args):
+                continue
+            keeps = any(kw.arg == "exc_info" and not (isinstance(kw.value, ast.Constant) and not kw.value.value) for kw in node.keywords)
+            if not keeps and isinstance(node.func, ast.Attribute):
+                keeps = node.func.attr == "exception"  # logger.exception implies exc_info=True
+            rel = path.relative_to(MLFRAME_ROOT).as_posix()
+            out.append(f"{rel}:{node.lineno} {'ok' if keeps else 'LOSES TRACEBACK'}")
+    return out
+
+
+def _assert_traceback_preserved(message: str) -> None:
+    """The message must be logged somewhere, and every site logging it must keep the traceback."""
+    sites = _logs_message_with_traceback(message)
+    assert sites, f"no call site logs {message!r} any more -- the handler was removed or the message reworded"
+    bad = [s for s in sites if s.endswith("LOSES TRACEBACK")]
+    assert not bad, f"call site(s) logging {message!r} discard the traceback: {bad}"
 
 
 # ---------------------------------------------------------------------------
@@ -92,10 +134,7 @@ def test_predict_per_model_loop_uses_exc_info() -> None:
             src += p.read_text(encoding="utf-8")
             src += "\n"
     assert 'logger.error(f"Error predicting with model {model_name}: {e}")' not in src
-    # Switched from logger.error(..., exc_info=True) to logger.exception(...), the standard
-    # idiom for logging from an except block -- equivalent traceback capture without the
-    # explicit exc_info=True kwarg.
-    assert 'logger.exception("Error predicting with model %s", model_name)' in src
+    _assert_traceback_preserved("Error predicting with model %s")
 
 
 def test_inference_predict_uses_raise_from() -> None:
@@ -129,22 +168,13 @@ def test_trainer_cache_load_preserves_traceback() -> None:
 
 
 def test_flat_metric_compute_uses_logger_exception() -> None:
-    # MLPTorchModel (and its _compute_metric body) was carved out of
-    # neural/flat.py into sibling neural/_flat_torch_module.py; check both
-    # files so the sensor remains valid after the monolith split.
-    """Flat metric compute uses logger exception."""
-    src = _read("training/neural/flat.py") + "\n" + _read("training/neural/_flat_torch_module.py")
-    assert 'logger.error(f"Failed to compute metric {prefix}_{metric.name}: {e}")' not in src
-    assert 'logger.exception("Failed to compute metric %s_%s", prefix, metric.name)' in src
+    """The per-metric compute failure keeps its traceback, wherever that handler lives."""
+    _assert_traceback_preserved("Failed to compute metric %s_%s")
 
 
 def test_recurrent_checkpoint_load_preserves_traceback() -> None:
-    # The fit/checkpoint loop was carved from ``recurrent.py`` into the
-    # ``recurrent_dataset_helpers.py`` sibling; read both for the structural pin.
-    """Recurrent checkpoint load preserves traceback."""
-    src = _read("training/neural/recurrent.py") + "\n" + _read("training/neural/recurrent_dataset_helpers.py")
-    assert 'logger.warning(f"Failed to load checkpoint, using final model: {e}")' not in src
-    assert 'logger.warning("Failed to load checkpoint, using final model", exc_info=True)' in src
+    """Falling back from a checkpoint to the final model keeps its traceback."""
+    _assert_traceback_preserved("Failed to load checkpoint, using final model")
 
 
 def test_mlflow_start_run_final_giveup_logs_traceback() -> None:
