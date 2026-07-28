@@ -64,12 +64,14 @@ def test_extract_column_array_documents_read_only_contract() -> None:
 
 def test_coerce_y_to_float64_documents_read_only_contract() -> None:
     """target_encoders._coerce_y_to_float64 must document its zero-copy contract."""
-    src = _read("training/feature_handling/target_encoders.py")
-    # Locate the helper and the contract paragraph.
-    helper_idx = src.find("def _coerce_y_to_float64")
-    assert helper_idx != -1, "Helper _coerce_y_to_float64 must exist."
-    # Read 40 lines after the def signature.
-    snippet = src[helper_idx : helper_idx + 1500]
+    # Resolved through the import rather than a fixed path: the helper was carved out of
+    # target_encoders.py into a sibling and is re-exported, so the module that defines it is
+    # whatever the symbol currently resolves to.
+    import inspect
+
+    from mlframe.training.feature_handling.target_encoders import _coerce_y_to_float64
+
+    snippet = inspect.getsource(_coerce_y_to_float64)
     assert (
         "read-only" in snippet.lower()
     ), "training/feature_handling/target_encoders.py: _coerce_y_to_float64 returns a zero-copy view when y is already float64; docstring must warn callers."

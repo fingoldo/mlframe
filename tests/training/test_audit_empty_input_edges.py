@@ -179,10 +179,17 @@ def test_conformal_locally_adaptive_guards_tiny_train() -> None:
 
 
 def test_target_encoders_compute_prior_guards_empty_y() -> None:
-    """Target encoders compute prior guards empty y."""
-    src = _read("training/feature_handling/target_encoders.py")
-    # The fix prints a warning and returns 0.0 on empty y.
-    helper_idx = src.find("def _compute_prior")
-    assert helper_idx != -1
-    snippet = src[helper_idx : helper_idx + 800]
-    assert "if len(y) == 0:" in snippet, "target_encoders.py: _compute_prior must guard empty y."
+    """An empty ``y`` yields a 0.0 no-evidence prior instead of NaN or IndexError.
+
+    Exercised rather than grepped: np.mean/np.median of an empty array return NaN with a
+    RuntimeWarning, and the weighted branch indexes into ``y`` and would raise IndexError, so calling
+    it is both a stronger check and immune to the helper moving between modules.
+    """
+    import numpy as np
+
+    from mlframe.training.feature_handling.target_encoders import _compute_prior
+
+    empty = np.array([], dtype=np.float64)
+    for prior_kind in ("mean", "median"):
+        assert _compute_prior(empty, prior_kind) == 0.0
+        assert _compute_prior(empty, prior_kind, sample_weight=empty) == 0.0

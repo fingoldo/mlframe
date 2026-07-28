@@ -210,13 +210,10 @@ def test_w9e_f4_chooser_importable_at_module_load():
         _choose_ensemble_flavour,
     )
 
-    # Import path 2: back-compat re-export from the parent module.
-    from mlframe.training.core._phase_train_one_target import (
-        _choose_ensemble_flavour as _via_parent,
-    )
-
-    # Same identity -- the re-export is a direct alias, not a wrapping function.
-    assert _via_parent is _choose_ensemble_flavour
+    # The chooser no longer has a caller in _phase_train_one_target, so the back-compat alias there
+    # was dropped along with the last use. It is a private symbol, so its home module is the contract;
+    # what must hold is that importing it does not drag in the heavy ensembling stack at module load.
+    assert callable(_choose_ensemble_flavour)
     # The ensembling sibling must NOT lazy-import inside its function body any more; confirm
     # the chooser is bound at the module level of ``_phase_train_one_target_ensembling``.
     from mlframe.training.core import _phase_train_one_target_ensembling as _ens_sib

@@ -54,6 +54,16 @@ from pathlib import Path
 MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 
+def _src_has(text: str) -> bool:
+    """Whether any module under ``mlframe/`` contains ``text``.
+
+    Design rationale migrates between modules on every carve, and the per-file lists in ``_read``
+    below have had to be extended after each one. A sensor that only asks whether the rationale is
+    still written down somewhere does not care where it currently lives.
+    """
+    return any(text in path.read_text(encoding="utf-8", errors="ignore") for path in MLFRAME_ROOT.rglob("*.py"))
+
+
 def _read(rel: str) -> str:
     """Read a source file under src/mlframe.
 
@@ -149,13 +159,15 @@ def test_phase_recurrent_todo_replaced_with_closure_note() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_per_cluster_composite_marked_rejected() -> None:
-    """Per cluster composite marked rejected."""
-    src = _read("training/composite/discovery/__init__.py")
-    # The "TODO(per-cluster composite, follow-up):" marker is gone.
-    assert "TODO(per-cluster composite, follow-up)" not in src
-    # Replaced with an explicit REJECTED design-decision marker.
-    assert "Per-cluster composite (REJECTED" in src
+def test_per_cluster_composite_decision_is_recorded() -> None:
+    """The per-cluster composite question carries a decision, not an open TODO.
+
+    It was closed as REJECTED and has since been REOPENED and implemented in ``discovery/_per_group.py``,
+    so pinning the rejection would now pin a reversed decision. What must hold either way is that the
+    marker is a recorded decision rather than a deferral.
+    """
+    assert not _src_has("TODO(per-cluster composite, follow-up)")
+    assert _src_has("Per-cluster composite (REJECTED") or _src_has("Per-cluster composite (REOPENED")
 
 
 # ---------------------------------------------------------------------------
@@ -168,12 +180,10 @@ def test_cat_interactions_multiclass_docstring_documents_design() -> None:
     # was moved to the ``_cat_target_encoding_and_weighted.py`` sibling when
     # ``cat_interactions.py`` was split below 1k LOC.
     """Cat interactions multiclass docstring documents design."""
-    src = _read("feature_selection/filters/cat_interactions.py") + _read("feature_selection/filters/_cat_target_encoding_and_weighted.py")
-    # The TODO marker is gone.
-    assert "TODO multi-class" not in src
-    # Replaced with explicit design rationale.
-    assert "Multi-class target encoding strategy (wave 68 closure" in src
-    assert "one-vs-rest binary derived columns" in src
+    # The wave-marker prefix the rationale originally carried is gone: this repo keeps audit markers
+    # out of comments. What matters is that the strategy itself is still written down.
+    assert not _src_has("TODO multi-class")
+    assert _src_has("one-vs-rest binary derived columns")
 
 
 # ---------------------------------------------------------------------------
@@ -186,8 +196,7 @@ def test_timeseries_past_side_sanity_check_landed() -> None:
     src = _read("feature_engineering/timeseries.py")
     # The "deferred to a follow-up" marker is gone.
     assert "deferred to a follow-up" not in src
-    # The past-side check is now present.
-    assert "Wave 69 (2026-05-20): past-side window-count sanity check" in src
+    # The check itself is what matters; the wave marker that once introduced it is not.
     assert "past_nwindows_expected" in src and "not past_windows_features" in src
 
 
@@ -222,7 +231,7 @@ def test_hermite_fe_separate_eval_documented_as_implemented() -> None:
             src += "\n"
     # TODO marker is gone.
     assert "TODO: separate eval for x_a and x_b" not in src
-    assert "Wave 69 (2026-05-20): separate eval for x_a and x_b already implemented" in src
+    assert _src_has("separate eval for x_a")
 
 
 def test_plotly_legend_implemented_not_skipped() -> None:

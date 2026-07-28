@@ -85,7 +85,8 @@ def test_ranker_suite_artefact_basenames_slugify_model_name() -> None:
 
 def test_calibration_post_final_models_dir_slugifies_all_components() -> None:
     """Calibration post final models dir slugifies all components."""
-    src = _read("calibration/post.py")
+    # post.py became a facade: the directory assembly moved into _post_train_calibrators.py.
+    src = _read("calibration/post.py") + "\n" + _read("calibration/_post_train_calibrators.py")
     # Forbid the raw 4-arg join.
     assert "join(models_dir, target_name, featureset_name, task_type, model_name)" not in src
     # Require slugify on each component. Switched from a local ``_slugify`` helper to
