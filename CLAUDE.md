@@ -116,3 +116,28 @@ Never `param: T = None` (always `Optional[T] = None`); match return annotations 
 
 ## No hand-waving "time constraints" (CRITICAL)
 There's no time limit on a turn. If a shallow fix or an unexplored gap is being justified with "given the time/budget constraints," stop and do the full fix instead — trace the value to its ROOT cause via actual runtime testing, don't assume from one read.
+
+## Running the suite on this machine
+Always pass `--no-cov`: pytest-cov raises a PermissionError writing its data file on Windows, aborting the run for a reason unrelated to the tests.
+Run unbuffered with `-x -s` rather than launching a long blind run.
+A failure that is an OOM or a Windows paging-file error (WinError 1455 under joblib fan-out) reflects machine-wide memory pressure at that moment, not a defect: retry once, and if it fails again it is real. Tolerate it in code via `OSError` plus a skip.
+Heavily-parametrised modules expose a fast mode (a `--fast` flag or env var plus a `fast_subset` helper) that runs one representative case per code path, with the exhaustive sweep behind a slow marker. Without it the only options are the full matrix or no coverage, and the full matrix stops being run.
+
+## Coverage cannot see inside `@njit`
+numba-compiled bodies never reach the Python trace hook, so every `@njit` function reads as uncovered no matter how heavily it is exercised. Measure them with `NUMBA_DISABLE_JIT=1`, and expect the run to be much slower.
+
+## polars traps that fail silently
+`min() == max()` as a constant-column check returns null, not True, for an all-null column, so the column is silently not detected as constant — use `eq_missing` for any comparison that must treat null as a value, and test the all-null case explicitly whenever writing a column-level predicate.
+`pl.Categorical` in polars 1.x resolves categories through a process-wide string cache, so two independently built frames can hold codes meaning different things, and joining or comparing them gives wrong results rather than an error. Use `pl.Enum` with an explicit category list wherever the value set is known.
+
+## val / test / OOF mean different things
+**val** is the split that drives early stopping, so any metric read on it is optimistically biased. **test / OOS** is untouched during fitting and is the honest estimate. **OOF** is the cross-validation analog of a test estimate. Name variables and report columns after what the split actually is, and never quote a val number as the headline result.
+
+## Test behaviour, not source text
+Never assert on `inspect.getsource()` to check that a string, call or pattern appears in a function body — such assertions break on every harmless refactor while passing for implementations that are actually wrong. Call the function and assert on its output, side effects or raised exception.
+Size a rare-class synthetic from the minority count it needs, not the total: a 1% positive rate needs on the order of 5000 rows before any metric computed on the minority is stable, and an undersized fixture reads as flakiness.
+
+## Serialization hygiene
+Prefer `orjson` over the stdlib `json`, and compile regexes once at module scope rather than inside a function.
+Any JSON serialization feeding a hash, cache key or dedup comparison must sort its keys — dict ordering is not stable across processes or versions, so the same logical object otherwise yields different hashes and the cache silently misses.
+A cache attached to an instance at runtime (memo dicts, warmed kernels, device buffers, open handles) must be excluded in `__getstate__`, and the pickle suite run afterwards: the object pickles fine in a smoke test and fails later in a real save/load or joblib fan-out, far from the cause.

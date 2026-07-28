@@ -577,7 +577,7 @@ skips = ["B101"]
 # short substring codespell matched inside a longer identifier/comment fragment
 # (strat/ser/clen/fo/anc/mis/numer/sav/bu/ans/ot/qest/OLL), or a hyphenated spelling
 # choice that is not a typo (re-use/re-used/re-using/re-uses).
-ignore-words-list = "nd,hist,te,ith,ba,thi,fpr,tre,strat,ser,clen,fo,anc,mis,als,mis,mape,lama,aci,coo,oll,ot,qest,ttest,disjointness,unparseable,numer,sav,bu,ans,re-use,re-used,re-using,re-uses,compilability,accreting,lightening,addres,categor"
+ignore-words-list = "nd,hist,te,ith,ba,thi,fpr,tre,strat,ser,clen,fo,anc,mis,als,mis,mape,lama,aci,coo,oll,ot,qest,ttest,disjointness,unparseable,canonicalizations,numer,sav,bu,ans,re-use,re-used,re-using,re-uses,compilability,accreting,lightening,addres,categor"
 # Migration to per-line `# codespell:ignore <word>` (2026-07-18 architecture review suggestion)
 # evaluated for the short/collision-prone entries (nd/te/fo/ba/ot/bu et al.) and NOT done: a
 # spot-check (temporarily dropping them from this list and re-running codespell) showed hundreds
