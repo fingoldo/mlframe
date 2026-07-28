@@ -99,7 +99,7 @@ jobs:
       # collection from blowing up on ModuleNotFoundError) in a SINGLE `uv pip install`. Extracted 2026-07-18
       # to py-ci-shared's install-pyutilz composite action -- this exact clone+uv-install pair was
       # duplicated near-verbatim across 6 workflows in this repo.
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@51c30d35a66149085eaa430e3a269c0540e0519f  # v1.3.1
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@ac5f2fb6af0919e769445f671698d1e43dca8b09  # v1.3.2
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
@@ -160,13 +160,13 @@ jobs:
   # be redundant, not safer.
   ruff-blocking:
     name: Ruff (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@51c30d35a66149085eaa430e3a269c0540e0519f  # v1.3.1
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@ac5f2fb6af0919e769445f671698d1e43dca8b09  # v1.3.2
     with:
       ignore: "C901"
 
   lint-blocking:
     name: lint + security (blocking, triaged clean)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@51c30d35a66149085eaa430e3a269c0540e0519f  # v1.3.1
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@ac5f2fb6af0919e769445f671698d1e43dca8b09  # v1.3.2
     with:
       source-path: src/mlframe
       codespell-paths: src/mlframe
@@ -184,7 +184,7 @@ jobs:
 
   lint-advisory:
     name: lint (advisory)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@51c30d35a66149085eaa430e3a269c0540e0519f  # v1.3.1
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@ac5f2fb6af0919e769445f671698d1e43dca8b09  # v1.3.2
     with:
       source-path: src/mlframe
       run-import-linter: true
@@ -199,20 +199,20 @@ jobs:
   # reusable workflows (py-ci-shared v1.1.0+) point them at tests/ instead of the whole repo.
   tests-ruff-blocking:
     name: Ruff tests/ (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@51c30d35a66149085eaa430e3a269c0540e0519f  # v1.3.1
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@ac5f2fb6af0919e769445f671698d1e43dca8b09  # v1.3.2
     with:
       check-path: tests
       ignore: "C901"
 
   tests-black-filtered:
     name: Black tests/ (filtered, blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@51c30d35a66149085eaa430e3a269c0540e0519f  # v1.3.1
+    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@ac5f2fb6af0919e769445f671698d1e43dca8b09  # v1.3.2
     with:
       check-path: tests
 
   tests-lint-blocking:
     name: lint + security tests/ (blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@51c30d35a66149085eaa430e3a269c0540e0519f  # v1.3.1
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@ac5f2fb6af0919e769445f671698d1e43dca8b09  # v1.3.2
     with:
       source-path: tests
       codespell-paths: tests

@@ -846,6 +846,7 @@ Every environment variable read anywhere in `src/mlframe/` via `os.environ.get(.
 | `MLFRAME_FOURIER_DETECT_MAX_N` | `str(_DEFAULT_MAX_N)` | [src/mlframe/feature_selection/filters/_fourier_detect_cap.py](src/mlframe/feature_selection/filters/_fourier_detect_cap.py#L36) |
 | `MLFRAME_FP_CACHE_MAX` | — | [src/mlframe/training/feature_handling/fingerprint.py](src/mlframe/training/feature_handling/fingerprint.py#L62) |
 | `MLFRAME_FRAC_DIFF_INV_BACKEND` | `''` | [src/mlframe/training/composite/transforms/nonlinear.py](src/mlframe/training/composite/transforms/nonlinear.py#L625) |
+| `MLFRAME_FRIEND_GRAPH_GPU_ENTROPY_RESIDENT` | `'0'` | [src/mlframe/feature_selection/filters/friend_graph_gpu.py](src/mlframe/feature_selection/filters/friend_graph_gpu.py#L112) |
 | `MLFRAME_GATE_BUILD_NJIT_MIN_N` | `'20000'` | [src/mlframe/feature_selection/filters/_conditional_gate_fe.py](src/mlframe/feature_selection/filters/_conditional_gate_fe.py#L139) |
 | `MLFRAME_GROUPED_COUNT_VECTORIZE_MAX_AVG` | `'64'` | [src/mlframe/feature_engineering/grouped.py](src/mlframe/feature_engineering/grouped.py#L61) |
 | `MLFRAME_HINGE_BATCH_MIN_K` | `''` | [src/mlframe/feature_selection/filters/_hinge_basis_fe.py](src/mlframe/feature_selection/filters/_hinge_basis_fe.py#L396) |
@@ -876,6 +877,7 @@ Every environment variable read anywhere in `src/mlframe/` via `os.environ.get(.
 | `MLFRAME_MRMR_ADDONE_PVALUE` | `'1'` | [src/mlframe/feature_selection/filters/permutation.py](src/mlframe/feature_selection/filters/permutation.py#L152) |
 | `MLFRAME_MRMR_BATCH_PAIR_MI` | `'1'` | [src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairmi.py](src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairmi.py#L159) |
 | `MLFRAME_MRMR_COMPACT_CODES` | `'1'` | [src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_core.py](src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_core.py#L5554) |
+| `MLFRAME_MRMR_EVAL_POOL` | `'0'` | [src/mlframe/feature_selection/filters/_confirm_predictor.py](src/mlframe/feature_selection/filters/_confirm_predictor.py#L65) |
 | `MLFRAME_MRMR_FALLBACK_REDUNDANCY_FRAC` | `'0.5'` | [src/mlframe/feature_selection/filters/_mrmr_fit_impl/_finalise.py](src/mlframe/feature_selection/filters/_mrmr_fit_impl/_finalise.py#L164) |
 | `MLFRAME_MRMR_FIT_CACHE_MAX_MB` | `'1024'` | [src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_core.py](src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_core.py#L9381) |
 | `MLFRAME_MRMR_GPU_CMI` | `'1'` | [src/mlframe/feature_selection/filters/_evaluation_driver.py](src/mlframe/feature_selection/filters/_evaluation_driver.py#L51) |

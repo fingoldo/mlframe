@@ -90,11 +90,12 @@ def test_f3_shortlist_adapter_suite_no_module_level_skip_on_import():
                     "it does. Flip this to a hard assertion once that workflow run succeeds.", strict=False)
 def test_f4_test_durations_file_is_populated():
     """F4: .test_durations must eventually hold real per-test timing data, not stay the seeded {}."""
-    import json
     from pathlib import Path
 
+    import orjson
+
     repo_root = Path(__file__).resolve().parents[2]
-    durations = json.loads((repo_root / ".test_durations").read_text(encoding="utf-8"))
+    durations = orjson.loads((repo_root / ".test_durations").read_bytes())
     assert len(durations) > 0, ".test_durations is still the empty seed {} -- the scheduled refresh job has not completed"
 
 

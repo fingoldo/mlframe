@@ -199,10 +199,9 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
             _fp = copy.copy(self.fit_params) if self.fit_params else {}
             return fit_multioutput(self, X, y, groups, sample_weight, _fp, _mo_strategy)
 
-    # TODO A: auto-tune. Compute a DataFingerprint
-    # then push the rule-based suggestion into self.<flat-knob> for every
-    # flat kwarg the caller didn't explicitly override. Stored decision lives
-    # in self.auto_tune_decision_ for inspection.
+    # A knob counts as "not overridden by the caller" when it still equals the corresponding config
+    # baseline default, which is an approximation: a caller who explicitly passes the default value
+    # is indistinguishable from one who left it alone, and gets the auto-tuned value instead.
     if getattr(self, "auto_tune", False) and not getattr(self, "_auto_tune_applied_", False):
         try:
             from .._auto_tune import DataFingerprint, suggest_configs, explain_suggestion
