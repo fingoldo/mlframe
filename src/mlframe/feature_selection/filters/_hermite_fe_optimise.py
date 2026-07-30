@@ -193,25 +193,25 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
     """Batched eval over ``P`` coefficient candidates simultaneously.
 
     Args:
-      coefs_a: ndarray (P, ca_size) - candidate coefficients for the a-side.
-      coefs_b: ndarray (P, cb_size) - candidate coefficients for the b-side.
-      z_a: the a-side transformed operand array shared across all candidates.
-      z_b: the b-side transformed operand array shared across all candidates.
-      eval_func: closure evaluating one (coef_a, coef_b) candidate's polynomial basis.
-      bf_callables: the binary-function candidates scored against each polynomial pair.
-      bf_names: names paired 1:1 with ``bf_callables``, for the returned best-bf index.
-      y: the target array (binned when ``discrete_target``, else continuous).
-      y_njit: numba-friendly cast of ``y`` for the batched MI kernels.
-      mi_estimator: MI backend selector forwarded to the batched MI kernels.
-      plugin_n_bins: bin count for the plug-in MI estimator.
-      n_neighbors: neighbor count for a KSG-style MI estimator, when selected.
-      discrete_target: whether ``y`` is already discrete class codes vs continuous.
-      l2_penalty: L2 regularisation weight applied to each candidate's coefficients.
-      l2_penalty_saturation: saturation point for the L2 penalty; ``None`` uses the module default.
-      direction_only: whether to L2-normalise each candidate pair before scoring (direction, not magnitude).
-      eval_func_b: optional distinct eval closure for the b-side when it differs from ``eval_func``.
-      B_a: optional precomputed basis matrix for the a-side, reused across candidates.
-      B_b: optional precomputed basis matrix for the b-side, reused across candidates.
+        coefs_a: ndarray (P, ca_size) - candidate coefficients for the a-side.
+        coefs_b: ndarray (P, cb_size) - candidate coefficients for the b-side.
+        z_a: the a-side transformed operand array shared across all candidates.
+        z_b: the b-side transformed operand array shared across all candidates.
+        eval_func: closure evaluating one (coef_a, coef_b) candidate's polynomial basis.
+        bf_callables: the binary-function candidates scored against each polynomial pair.
+        bf_names: names paired 1:1 with ``bf_callables``, for the returned best-bf index.
+        y: the target array (binned when ``discrete_target``, else continuous).
+        y_njit: numba-friendly cast of ``y`` for the batched MI kernels.
+        mi_estimator: MI backend selector forwarded to the batched MI kernels.
+        plugin_n_bins: bin count for the plug-in MI estimator.
+        n_neighbors: neighbor count for a KSG-style MI estimator, when selected.
+        discrete_target: whether ``y`` is already discrete class codes vs continuous.
+        l2_penalty: L2 regularisation weight applied to each candidate's coefficients.
+        l2_penalty_saturation: saturation point for the L2 penalty; ``None`` uses the module default.
+        direction_only: whether to L2-normalise each candidate pair before scoring (direction, not magnitude).
+        eval_func_b: optional distinct eval closure for the b-side when it differs from ``eval_func``.
+        B_a: optional precomputed basis matrix for the a-side, reused across candidates.
+        B_b: optional precomputed basis matrix for the b-side, reused across candidates.
 
     Returns:
       (best_scores, best_raws, best_idxs) each ndarray (P,) - per-candidate

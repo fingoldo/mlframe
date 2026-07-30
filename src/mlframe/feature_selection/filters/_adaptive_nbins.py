@@ -332,8 +332,9 @@ def edges_fayyad_irani(
         fast_mode: ``False`` DEFAULT (2026-07-19 user decision, accuracy over speed) -
             significance-gated validated splitting; ``True`` - classic in-sample MDL
             threshold + depth cap, 20-80x cheaper. See ``mdlp_bin_edges`` docstring.
-        alpha, n_permutations, bonferroni, validated_seed: forwarded to
-            ``mdlp_bin_edges``'s validated-splitting path (ignored when ``fast_mode=True``).
+        alpha: forwarded to ``mdlp_bin_edges``'s validated-splitting significance test (ignored when ``fast_mode=True``).
+        bonferroni: forwarded to ``mdlp_bin_edges``'s validated-splitting path (ignored when ``fast_mode=True``).
+        validated_seed: forwarded to ``mdlp_bin_edges``'s validated-splitting path (ignored when ``fast_mode=True``).
     """
     full_edges = mdlp_bin_edges(
         np.asarray(x), np.asarray(y), max_depth=max_depth, min_split_size=min_split_size, backend=backend, scaled_min_split=scaled_min_split,

@@ -618,6 +618,18 @@ class PrebinCache:
         self.stores = 0
         self.skipped_oversize = 0
 
+    def __getstate__(self):
+        """Excludes the unpicklable ``threading.RLock``; ``__setstate__`` rebuilds it fresh."""
+        state = self.__dict__.copy()
+        del state["_lock"]
+        return state
+
+    def __setstate__(self, state):
+        import threading
+
+        self.__dict__.update(state)
+        self._lock = threading.RLock()
+
     @property
     def max_bytes(self) -> int:
         """Effective per-entry byte ceiling: the constructor override if given, else the env-configurable process default."""

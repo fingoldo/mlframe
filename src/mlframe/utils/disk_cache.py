@@ -281,6 +281,19 @@ class DiskCache:
         self._key_locks: dict = {}
         self._key_locks_guard = threading.Lock()
 
+    def __getstate__(self):
+        """Excludes the unpicklable ``threading.Lock`` objects (``_key_locks`` holds per-key
+        locks too); ``__setstate__`` rebuilds both fresh."""
+        state = self.__dict__.copy()
+        del state["_key_locks"]
+        del state["_key_locks_guard"]
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._key_locks = {}
+        self._key_locks_guard = threading.Lock()
+
     def _get_key_lock(self, key: str) -> threading.Lock:
         """Return the lock for ``key``, creating it on first use."""
         with self._key_locks_guard:

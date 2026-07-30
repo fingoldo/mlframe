@@ -212,6 +212,18 @@ class HonestLossCache:
         with self._lock:
             self._store[key] = value
 
+    def __getstate__(self):
+        """Excludes the unpicklable ``threading.Lock``; ``__setstate__`` rebuilds it fresh."""
+        return {"_store": self._store, "hits": self.hits, "misses": self.misses}
+
+    def __setstate__(self, state):
+        import threading
+
+        self._store = state["_store"]
+        self.hits = state["hits"]
+        self.misses = state["misses"]
+        self._lock = threading.Lock()
+
 
 _N_ESTIMATORS_PARAMS = ("n_estimators", "iterations", "num_boost_round", "num_iterations")
 

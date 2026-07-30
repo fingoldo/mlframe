@@ -195,6 +195,16 @@ class SuiteArtefactCache:
         self._lru: "OrderedDict[str, float]" = OrderedDict()
         self._lru_initialised: bool = False
 
+    def __getstate__(self):
+        """Excludes the unpicklable ``threading.Lock``; ``__setstate__`` rebuilds it fresh."""
+        state = self.__dict__.copy()
+        del state["_lock"]
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._lock = threading.Lock()
+
     # ----- internal helpers ----------------------------------------------------
 
     def _path(self, key: str) -> str:

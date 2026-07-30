@@ -115,6 +115,16 @@ class LocalDiskBackend:
         self._lru_mem_lock = threading.Lock()
         self._lru_cross_proc_lock_path = os.path.join(self._locks_dir, ".lru.lock")
 
+    def __getstate__(self):
+        """Excludes the unpicklable ``threading.Lock``; ``__setstate__`` rebuilds it fresh."""
+        state = self.__dict__.copy()
+        del state["_lru_mem_lock"]
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._lru_mem_lock = threading.Lock()
+
     # ---- path helpers ------------------------------------------------
 
     def _value_path(self, key: str) -> str:

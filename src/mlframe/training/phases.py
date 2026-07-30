@@ -83,6 +83,16 @@ class _PhaseRegistry:
             self._counts.clear()
             self._ram_deltas_gb.clear()
 
+    def __getstate__(self):
+        """Excludes the unpicklable ``threading.Lock``; ``__setstate__`` rebuilds it fresh."""
+        return {"_totals": self._totals, "_counts": self._counts, "_ram_deltas_gb": self._ram_deltas_gb}
+
+    def __setstate__(self, state):
+        self._totals = state["_totals"]
+        self._counts = state["_counts"]
+        self._ram_deltas_gb = state["_ram_deltas_gb"]
+        self._lock = threading.Lock()
+
 
 _registry = _PhaseRegistry()
 

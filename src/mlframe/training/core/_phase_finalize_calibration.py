@@ -167,10 +167,10 @@ def _apply_confidence_shrinkage_to_regression(ctx: "TrainingContext") -> None:
 
     from ...calibration.confidence_shrinkage import apply_confidence_shrinkage, compute_oof_confidence
 
-    _cfg = getattr(ctx, "regression_calibration_config", None)
-    if _cfg is None:
-        _root = getattr(ctx, "configs", None)
-        _cfg = getattr(_root, "regression_calibration_config", None) if _root is not None else None
+    # ``ctx.configs`` was a dead fallback: TrainingContext has always exposed its configs as flat
+    # ``*_config`` fields (see _training_context.py), never a nested "configs" bag -- the getattr
+    # always returned None and the fallback branch never ran.
+    _cfg = ctx.regression_calibration_config
     if _cfg is None or not bool(getattr(_cfg, "apply_confidence_shrinkage", False)):
         return
     _kwargs = dict(getattr(_cfg, "confidence_shrinkage_kwargs", None) or {})

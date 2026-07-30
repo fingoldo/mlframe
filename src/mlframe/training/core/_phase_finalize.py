@@ -659,10 +659,10 @@ def finalize_suite(ctx: TrainingContext) -> dict:
         logger.warning("[prediction_stability] panel pass failed: %s", _ps_err)
 
     # Honest-estimator diagnostics aggregator: stamps bootstrap CI per metric, categorical PSI drift, calibration plot, and the provenance disposition table into metadata so the persisted blob carries the four artefacts. Gated by ReportingConfig.honest_estimator_diagnostics (default True). Failures must not block the save.
-    _reporting_cfg = getattr(ctx, "reporting_config", None)
-    if _reporting_cfg is None:
-        _configs_root = getattr(ctx, "configs", None)
-        _reporting_cfg = getattr(_configs_root, "reporting_config", None) if _configs_root is not None else None
+    # ``ctx.configs`` was a dead fallback: TrainingContext has always exposed its configs as flat
+    # ``*_config`` fields (see _training_context.py), never a nested "configs" bag -- the getattr
+    # always returned None and the fallback branch never ran.
+    _reporting_cfg = ctx.reporting_config
     _hd_on = True if _reporting_cfg is None else bool(getattr(_reporting_cfg, "honest_estimator_diagnostics", True))
     if _hd_on:
         try:

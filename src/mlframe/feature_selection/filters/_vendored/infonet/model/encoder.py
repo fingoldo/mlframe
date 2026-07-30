@@ -56,7 +56,7 @@ class Encoder(nn.Module):
         """
         Args:
             x: (B, M, C)
-            mask: (B, M)
+            attention_mask: (B, M)
         """
 
         b, *_ = x.shape
