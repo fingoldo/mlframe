@@ -313,13 +313,22 @@ def test_f6_cascade_select_stability_docstring_matches_real_default():
 
 
 def test_f10_io_plot_uses_explicit_copy():
-    """F10: io plot uses explicit copy."""
-    import inspect
+    """F10: BorutaShap.plot's internal `data["index"] = data.index` mutation (right after slicing
+    `self.history_x.iloc[1:]`) must not leak back into `self.history_x` -- it would without the
+    explicit `.copy()`, since `.iloc[1:]` can return a view."""
+    from mlframe.feature_selection.boruta_shap import BorutaShap
 
-    from mlframe.feature_selection.boruta_shap import _io_plot
+    bs = BorutaShap(verbose=False)
+    bs.history_x = pd.DataFrame({"f0": [0.1, 0.2, 0.3], "f1": [0.4, 0.5, 0.6]})
+    bs.rejected = []
+    bs.tentative = []
+    bs.accepted = ["f0", "f1"]
 
-    src = inspect.getsource(_io_plot)
-    assert "self.history_x.iloc[1:].copy()" in src
+    history_x_before = bs.history_x.copy(deep=True)
+    bs.plot(display=False)
+
+    pd.testing.assert_frame_equal(bs.history_x, history_x_before)
+    assert "index" not in bs.history_x.columns
 
 
 # ----------------------------------------------------------------------
