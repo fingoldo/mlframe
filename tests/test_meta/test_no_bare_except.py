@@ -103,10 +103,14 @@ def _references_verbose(node: ast.AST) -> bool:
 
 
 def _is_log_call(node: ast.AST) -> bool:
-    """True if ``node`` is (or contains) a call to a ``logger.*``/``logging.*``/``warnings.warn`` function."""
+    """True if ``node`` is (or contains) a call to a ``logger.*``/``logging.*``/``warnings.warn``
+    function, or to ``mlframe.utils.log_throttle.log_throttle`` (a plain function, not a
+    logger-attribute call, that unconditionally logs its message subject to a per-key rate limit)."""
     if not isinstance(node, ast.Call):
         return False
     func = node.func
+    if isinstance(func, ast.Name) and func.id == "log_throttle":
+        return True
     if isinstance(func, ast.Attribute):
         base = func.value
         if isinstance(base, ast.Name) and base.id in ("logger", "logging", "warnings", "log"):
