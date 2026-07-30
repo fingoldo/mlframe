@@ -38,32 +38,56 @@ def test_composite_survival_has_scikit_survival_returns_bool():
 
 
 def test_core_predict_is_post_hoc_calibrated_model_logs_on_failure(caplog):
-    """`_is_post_hoc_calibrated_model` must log when type introspection raises."""
+    """`_is_post_hoc_calibrated_model` must log when type introspection raises. Forced via a
+    metaclass whose `__name__` raises -- a pathological `__class__` override, exactly the
+    scenario the except guards against."""
     from mlframe.training.core.predict import _is_post_hoc_calibrated_model
 
-    class _BadType:
-        """A metaclass-free stub whose `type()` access is fine but stands in for an odd object."""
+    class _RaisingNameMeta(type):
+        """Metaclass whose instances' class raises on `.__name__` access."""
 
-    # `type(model_obj).__name__` cannot itself fail for a normal object; the except guards a
-    # pathological `__class__` override, so this is pinned via source presence instead.
-    import inspect
-    import mlframe.training.core.predict as predict_mod
+        def __getattribute__(cls, item):
+            """Always raises ``RuntimeError('boom')`` on `.__name__` access."""
+            if item == "__name__":
+                raise RuntimeError("boom")
+            return type.__getattribute__(cls, item)
 
-    src = inspect.getsource(predict_mod)
-    assert "_is_post_hoc_calibrated_model: type introspection failed" in src
-    assert "logger.debug" in src
-    assert _is_post_hoc_calibrated_model(_BadType()) is False
+    class _BadType(metaclass=_RaisingNameMeta):
+        """A stub whose type's __name__ property raises."""
+
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.core.predict"):
+        out = _is_post_hoc_calibrated_model(_BadType())
+    assert out is False
+    assert any("_is_post_hoc_calibrated_model: type introspection failed" in rec.message for rec in caplog.records)
 
 
-def test_achievable_ceiling_model_factory_logs_on_lgb_unavailable():
-    """The tiny probe-model factory must log and fall back to linear when lgb build fails --
-    pinned via source presence since it's a nested closure inside a larger discovery function."""
-    import inspect
+def test_achievable_ceiling_model_factory_logs_on_lgb_unavailable(caplog, monkeypatch):
+    """The tiny probe-model factory (a closure inside measure_achievable_ceiling) must log and
+    fall back to linear when the lgb build fails. Forced by monkeypatching _build_tiny_model to
+    raise only for kind='lgb', driven through a real measure_achievable_ceiling call."""
+    import numpy as np
+    import pandas as pd
+
     import mlframe.training.core._achievable_ceiling as ac
 
-    src = inspect.getsource(ac)
-    assert "lgb probe model unavailable, falling back to linear" in src
-    assert "logger.debug" in src
+    def _fake_build_tiny_model(kind, **kwargs):
+        """Raise for the lgb probe, delegate to the real builder for the linear fallback."""
+        if kind == "lgb":
+            raise RuntimeError("boom")
+        return real_build_tiny_model(kind, **kwargs)
+
+    real_build_tiny_model = ac._build_tiny_model
+    monkeypatch.setattr(ac, "_build_tiny_model", _fake_build_tiny_model)
+
+    rng = np.random.default_rng(0)
+    n = 400
+    df = pd.DataFrame({"f0": rng.normal(size=n), "f1": rng.normal(size=n)})
+    y = df["f0"].to_numpy() + rng.normal(scale=0.1, size=n)
+
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.core._achievable_ceiling"):
+        verdict = ac.measure_achievable_ceiling(df=df, target_col="y", feature_cols=["f0", "f1"], y_train=y)
+    assert verdict["decision"] in ("proceed", "skip")
+    assert any("lgb probe model unavailable, falling back to linear" in rec.message for rec in caplog.records)
 
 
 def test_ar_skip_recompute_lag1_ar_logs_on_failure(caplog):
@@ -97,25 +121,58 @@ def test_phase_helpers_cat_heavy_size_logs_on_failure(caplog):
 
 
 def test_phase_train_one_target_mlp_helpers_column_drop_logs_on_failure(caplog):
-    """The MLP-helpers column-drop utility must log when `.drop()` raises -- pinned via source
-    presence since it's a module-private helper reused across several nested call sites."""
-    import inspect
-    import mlframe.training.core._phase_train_one_target_mlp_helpers as mlph
+    """The MLP-helpers column-drop utility must log when `.drop()` raises."""
+    from mlframe.training.core._phase_train_one_target_mlp_helpers import _drop_columns_for_mlp
 
-    src = inspect.getsource(mlph)
-    assert "column-drop failed, returning frame unmodified" in src
-    assert "logger.debug" in src
+    class _RaisingDropFrame:
+        """A pandas-like frame stub whose `.columns` reports real columns but `.drop()` raises."""
+
+        columns = ["a", "b"]
+
+        def drop(self, columns):
+            """Always raises ``RuntimeError('boom')`` on call."""
+            raise RuntimeError("boom")
+
+    frame = _RaisingDropFrame()
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.core._phase_train_one_target"):
+        out = _drop_columns_for_mlp(frame, ["a"])
+    assert out is frame
+    assert any("column-drop failed, returning frame unmodified" in rec.message for rec in caplog.records)
 
 
 def test_phase_train_one_target_model_setup_arr_logs_on_failure(caplog):
-    """The plot-target coercion helper must log on failure -- pinned via source presence since
-    it's a nested closure inside a larger diagnostics-charting function."""
-    import inspect
-    import mlframe.training.core._phase_train_one_target_model_setup as ms
+    """The plot-target coercion closure (`_arr`, inside `_render_per_target_diagnostics`) must
+    log on failure. Forced through a real call: a target value whose `.to_numpy()` raises for
+    all 3 splits leaves `y_by_split` empty, so the (heavy, chart-rendering) rest of the function
+    is skipped -- exercising just the coercion closure without needing real chart output."""
+    from types import SimpleNamespace
 
-    src = inspect.getsource(ms)
-    assert "plot-target coercion failed" in src
-    assert "logger.debug" in src
+    from mlframe.training.core._phase_train_one_target_model_setup import _render_per_target_diagnostics
+
+    class _RaisingTarget:
+        """A target stand-in whose ``.to_numpy()`` always raises."""
+
+        def to_numpy(self):
+            """Always raises ``TypeError('boom')`` to force the except branch."""
+            raise TypeError("boom")
+
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.core._phase_train_one_target"):
+        _render_per_target_diagnostics(
+            target_type="regression",
+            plot_file="ignored",
+            save_charts=True,
+            reporting_config=SimpleNamespace(plot_outputs=True),
+            current_train_target=_RaisingTarget(),
+            current_val_target=None,
+            current_test_target=None,
+            train_df=None,
+            test_df=None,
+            timestamps=None,
+            test_idx=None,
+            metadata={},
+            cur_target_name="t",
+        )
+    assert any("plot-target coercion failed" in rec.message for rec in caplog.records)
 
 
 def test_phase_train_one_target_polars_fastpath_ram_budget_logs_on_failure(caplog, monkeypatch):
@@ -180,15 +237,23 @@ def test_learning_curve_supports_warm_start_logs_on_get_params_failure(caplog):
     assert any("get_params() failed" in rec.message for rec in caplog.records)
 
 
-def test_feature_handling_cache_eviction_logs_on_disk_probe_failure(caplog):
-    """The disk-cache eviction pass must log when the free-space probe fails -- pinned via
-    source presence since it's a bound method on a stateful cache class."""
-    import inspect
+def test_feature_handling_cache_eviction_logs_on_disk_probe_failure(caplog, monkeypatch):
+    """The disk-cache eviction pass must log when the free-space probe (``shutil.disk_usage``)
+    fails."""
+    from types import SimpleNamespace
+
     import mlframe.training.feature_handling.cache as cache_mod
 
-    src = inspect.getsource(cache_mod)
-    assert "disk-cache eviction: free-space probe failed" in src
-    assert "logger.debug" in src
+    def _raising_disk_usage(path):
+        """Always raises ``OSError('boom')`` to force the except branch."""
+        raise OSError("boom")
+
+    monkeypatch.setattr(cache_mod.shutil, "disk_usage", _raising_disk_usage)
+
+    cache = cache_mod.FeatureCache(SimpleNamespace(disk_evict_when_free_below_gb=1.0))
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.feature_handling.cache"):
+        cache._maybe_evict_disk()
+    assert any("disk-cache eviction: free-space probe failed" in rec.message for rec in caplog.records)
 
 
 def test_feature_handling_registry_log_unhandled_logs_on_probe_failure(caplog):
