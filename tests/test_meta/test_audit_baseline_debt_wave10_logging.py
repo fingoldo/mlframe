@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 
 def test_propagate_gpu_ktc_use_resident_logs_on_lookup_failure(caplog):
     """`propagate_use_resident` must log and return False when the KTC lookup raises."""
@@ -74,15 +76,30 @@ def test_inference_ktc_dispatch_get_cache_logs_on_import_failure(caplog):
     assert any("import failed" in rec.message for rec in caplog.records)
 
 
-def test_signal_load_stdlib_signal_logs_on_exec_failure_via_source():
-    """`_load_stdlib_signal`'s exec_module except must log on failure -- pinned via source
-    presence since forcing a real exec_module failure requires corrupting the stdlib file."""
-    import inspect
+def test_signal_load_stdlib_signal_logs_on_exec_failure(monkeypatch, caplog):
+    """`_load_stdlib_signal`'s exec_module except must log on failure. Forced by monkeypatching
+    the spec's loader to a stub whose ``exec_module`` raises, instead of the real stdlib load."""
     import mlframe.signal as sig
 
-    src = inspect.getsource(sig)
-    assert "_load_stdlib_signal: exec_module failed" in src
-    assert "_logger.debug" in src
+    real_spec_from_file_location = sig._ilu.spec_from_file_location
+
+    def _fake_spec_from_file_location(*args, **kwargs):
+        """Return a real spec, but with exec_module patched on the real loader to always raise --
+        keeping create_module/other loader protocol methods intact, unlike a from-scratch stub."""
+        spec = real_spec_from_file_location(*args, **kwargs)
+
+        def _raising_exec_module(mod):
+            """Always raises ``RuntimeError('boom')`` to force the except branch."""
+            raise RuntimeError("boom")
+
+        spec.loader.exec_module = _raising_exec_module
+        return spec
+
+    monkeypatch.setattr(sig._ilu, "spec_from_file_location", _fake_spec_from_file_location)
+    with caplog.at_level(logging.DEBUG, logger="mlframe.signal"):
+        out = sig._load_stdlib_signal()
+    assert out is None
+    assert any("_load_stdlib_signal: exec_module failed" in rec.message for rec in caplog.records)
 
 
 def test_honest_diagnostics_is_binary_classif_logs_on_failure(caplog):
@@ -122,34 +139,75 @@ def test_phases_try_get_rss_gb_returns_float():
 
 def test_eval_helpers_model_name_suffix_logs_on_target_coercion_failure(caplog):
     """The per-split model-name suffix helper must log when target coercion fails."""
-    import inspect
-    import mlframe.training._eval_helpers as eh
+    from mlframe.training._eval_helpers import _append_split_rate_suffix
 
-    src = inspect.getsource(eh)
-    assert "model-name suffix: target coercion failed" in src
-    assert "logger.debug" in src
+    class _RaisingTarget:
+        """A target stand-in whose ``__array__`` always raises, forcing ``np.asarray`` to fail."""
+
+        def __array__(self, dtype=None):
+            """Always raises ``TypeError('boom')`` to force the except branch."""
+            raise TypeError("boom")
+
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training._eval_helpers"):
+        out = _append_split_rate_suffix("BTTR=80%", split_name="val", target=_RaisingTarget())
+    assert out == "BTTR=80%"
+    assert any("model-name suffix: target coercion failed" in rec.message for rec in caplog.records)
 
 
 def test_feature_importances_integrated_gradients_logs_on_coercion_failure(caplog):
-    """The Integrated Gradients helper must log when X coercion fails -- pinned via source
-    presence since it requires torch + captum to invoke directly."""
-    import inspect
-    import mlframe.training._feature_importances as fi
+    """The Integrated Gradients helper must log and return None when X coercion fails, before
+    ``net`` is ever touched -- so a bad X can be probed with net=None, torch/captum permitting."""
+    pytest.importorskip("torch")
+    pytest.importorskip("captum")
+    from mlframe.training._feature_importances import _captum_integrated_gradients_importance
 
-    src = inspect.getsource(fi)
-    assert "Integrated Gradients: X coercion failed" in src
-    assert "logger.debug" in src
+    class _RaisingX:
+        """An X stand-in whose ``__array__`` always raises, forcing ``np.asarray`` to fail."""
+
+        def __array__(self, dtype=None):
+            """Always raises ``TypeError('boom')`` to force the except branch."""
+            raise TypeError("boom")
+
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training._feature_importances"):
+        out = _captum_integrated_gradients_importance(None, _RaisingX())
+    assert out is None
+    assert any("Integrated Gradients: X coercion failed" in rec.message for rec in caplog.records)
 
 
-def test_io_save_looks_like_training_bloat_logs_on_introspection_failure(caplog):
-    """`_looks_like_training_bloat`'s introspection except must log on failure -- pinned via
-    source presence since the helper is a nested closure inside a larger dispatch function."""
-    import inspect
-    import mlframe.training._io_save as iosave
+def test_io_save_looks_like_training_bloat_logs_on_introspection_failure(caplog, tmp_path):
+    """`_looks_like_training_bloat`'s introspection except must log on failure. It's a closure
+    nested inside `save_mlframe_model`, reached by actually saving a payload that embeds an
+    object whose type's own `.__name__` raises (a custom metaclass overriding `__name__` as a
+    raising property), forcing the try/except inside the bloat-detection walk."""
+    from types import SimpleNamespace
 
-    src = inspect.getsource(iosave)
-    assert "_looks_like_training_bloat: type introspection failed" in src
-    assert "logger.debug" in src
+    from mlframe.training._io_save import save_mlframe_model
+
+    import sys
+
+    class _RaisingNameMeta(type):
+        """Metaclass whose instances' class raises on `.__name__` access ONLY when the caller is
+        ``_looks_like_training_bloat`` -- ``save_mlframe_model`` also runs a pympler.asizeof
+        size-precheck before the bloat walk, which independently probes ``__name__`` on every
+        reachable object; a global one-shot counter fires there instead of in the walk we're
+        actually targeting, so gate on the immediate caller's frame instead."""
+
+        def __getattribute__(cls, item):
+            """Raise ``RuntimeError('boom')`` when accessed from ``_looks_like_training_bloat``."""
+            if item == "__name__" and sys._getframe(1).f_code.co_name == "_looks_like_training_bloat":
+                raise RuntimeError("boom")
+            return type.__getattribute__(cls, item)
+
+    class _Weird(metaclass=_RaisingNameMeta):
+        """A plain object whose type's __name__ property raises once."""
+
+    payload = SimpleNamespace(attr=_Weird())
+    out_file = str(tmp_path / "model.pkl.zst")
+
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.io"):
+        ok = save_mlframe_model(payload, out_file, verbose=0)
+    assert ok is True
+    assert any("_looks_like_training_bloat: type introspection failed" in rec.message for rec in caplog.records)
 
 
 def test_training_loop_in_interactive_notebook_logs_on_probe_failure(caplog):
@@ -164,12 +222,24 @@ def test_training_loop_in_interactive_notebook_logs_on_probe_failure(caplog):
 
 def test_uncertainty_eval_column_extraction_logs_on_failure(caplog):
     """The TTA uncertainty eval's frame-column extractor must log when coercion fails."""
-    import mlframe.training._uncertainty_eval as uncertainty_eval_mod
-    import inspect
+    from mlframe.training._uncertainty_eval import _narrow_numeric_frame
 
-    src = inspect.getsource(uncertainty_eval_mod)
-    assert "TTA uncertainty eval: column extraction/coercion failed" in src
-    assert "logger.debug" in src
+    class _RaisingColumns:
+        """A `.columns` stand-in whose `__contains__` always raises."""
+
+        def __contains__(self, item):
+            """Always raises ``TypeError('boom')`` to force the except branch."""
+            raise TypeError("boom")
+
+    class _BadFrame:
+        """A pandas-like frame stub whose `.columns` membership check raises."""
+
+        columns = _RaisingColumns()
+
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training._uncertainty_eval"):
+        out = _narrow_numeric_frame(_BadFrame(), ["a", "b"])
+    assert out is None
+    assert any("TTA uncertainty eval: column extraction/coercion failed" in rec.message for rec in caplog.records)
 
 
 def test_utils_misc_restore_caller_frame_columns_logs_on_failure(caplog):
