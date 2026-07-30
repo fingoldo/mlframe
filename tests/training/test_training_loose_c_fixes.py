@@ -2,7 +2,7 @@
 
 F1/F2 and PR2 (LGB/XGB shim module-level Dataset cache + multi-eval-set val cache + the
 clone-cache-hit parity test) were already fixed/tested before this pass began --
-see tests/training/test_audit_2026_07_21_lgb_shim_fixes.py and
+see tests/training/test_lgb_shim_fixes.py and
 tests/training/test_lgb_dataset_reuse_shim.py. One test per remaining finding (F3-F18)
 plus PR1 (cv_stability_check loss-type coverage) and PR3 (sklearn.clone regression for
 PartialFitESWrapper's external val set). PR6 is covered by a saved benchmark script

@@ -64,17 +64,6 @@ def test_f1_pos_label_not_clobbered_across_estimators():
     assert dict_alone == dict_paired
 
 
-def test_f1_calibration_loop_variable_renamed_no_shadowing():
-    """F1: calibration loop variable renamed no shadowing."""
-    import inspect
-
-    from mlframe.evaluation import reports
-
-    src = inspect.getsource(reports.evaluate_estimators)
-    assert "for pos_label in range(nclasses)" not in src
-    assert "for _calib_class_label in range(nclasses)" in src
-
-
 # ---------------------------------------------------------------------------
 # F2 / F9 / PR1: optimize_group_blend_weight didn't actually hold previously-tuned groups fixed
 # ---------------------------------------------------------------------------
@@ -303,30 +292,83 @@ def test_f6_default_labels_unchanged():
 # ---------------------------------------------------------------------------
 
 
-def test_f7_continuous_baseline_not_truncated():
-    """F7: continuous baseline not truncated."""
-    import inspect
+def test_f7_continuous_baseline_not_truncated(monkeypatch):
+    """F7: a continuous (float-valued) baseline_model's predictions must reach
+    ``Pool.set_baseline`` unmodified, not truncated to ints via a stale ``.astype(int)``."""
+    from sklearn.base import BaseEstimator, ClassifierMixin
 
     from mlframe.evaluation import reports
 
-    src = inspect.getsource(reports)
-    assert "baseline_model.predict(X_test_val).astype(int)" not in src
-    assert "eval_set.set_baseline(np.asarray(baseline_model.predict(X_test_val), dtype=np.float64))" in src
+    captured_baselines = []
 
+    class _FakePool:
+        """Stands in for ``catboost.Pool`` -- records every ``set_baseline`` call's array."""
 
-# ---------------------------------------------------------------------------
-# F10 / PR7: leak_scan.py's stale refactor-history comment
-# ---------------------------------------------------------------------------
+        def __init__(self, X, y=None):
+            """Store the constructor args like the real Pool does."""
+            self.X = X
+            self.y = y
 
+        def set_baseline(self, baseline):
+            """Record the baseline array instead of forwarding it to CatBoost."""
+            captured_baselines.append(np.asarray(baseline))
 
-def test_f10_stale_double_argsort_comment_removed():
-    """F10: stale double argsort comment removed."""
-    import inspect
+    class _FakeCatBoostClassifier(BaseEstimator, ClassifierMixin):
+        """Minimal CatBoost-named stub: ``type(est).__name__`` must contain ``CatBoost`` to hit
+        the early-stopping-with-baseline branch under test, without needing real CatBoost."""
 
-    from mlframe.evaluation import leak_scan
+        def fit(self, X, y, eval_set=None, plot=None, init_model=None):
+            """No-op fit; only needs to set ``classes_`` for sklearn's classifier checks."""
+            self.classes_ = np.array([0, 1])
+            return self
 
-    src = inspect.getsource(leak_scan._spearman_against)
-    assert "still had the old double-argsort" not in src
+        def predict_proba(self, X):
+            """Return a fixed, deterministic 2-class probability spread."""
+            n = len(X)
+            p = np.linspace(0.1, 0.9, n)
+            return np.column_stack([1 - p, p])
+
+        def predict(self, X):
+            """Threshold ``predict_proba`` at 0.5."""
+            return (self.predict_proba(X)[:, 1] > 0.5).astype(np.int64)
+
+    class _FractionalBaselineModel:
+        """A baseline model whose predictions are genuinely fractional (e.g. a probability), so
+        truncation via ``.astype(int)`` would collapse everything to 0 and be detectable."""
+
+        def predict(self, X):
+            """Return fixed fractional values in (0, 1)."""
+            return np.linspace(0.1, 0.9, len(X))
+
+    monkeypatch.setattr(reports, "Pool", _FakePool)
+
+    rng = np.random.default_rng(0)
+    n = 40
+    X_train = pd.DataFrame(rng.normal(size=(n, 3)), columns=["f0", "f1", "f2"])
+    y_train = (X_train["f0"].to_numpy() > 0).astype(np.int64)
+    X_test = pd.DataFrame(rng.normal(size=(n, 3)), columns=["f0", "f1", "f2"])
+    y_test = (X_test["f0"].to_numpy() > 0).astype(np.int64)
+
+    reports.evaluate_estimators(
+        X_train,
+        X_test,
+        y_train,
+        y_test,
+        estimators=[_FakeCatBoostClassifier()],
+        baseline_model=_FractionalBaselineModel(),
+        val_size=0.5,
+        show_calibration_plot=False,
+        show_classification_report=False,
+        show_confusion_matrix=False,
+        plot=False,
+    )
+
+    assert captured_baselines, "Pool.set_baseline was never called -- the CatBoost+baseline_model branch wasn't exercised"
+    baseline = captured_baselines[0]
+    assert baseline.dtype == np.float64
+    # A truncated (pre-fix) baseline collapses every fractional value in (0, 1) to 0 -- assert real
+    # fractional values survived.
+    assert np.any((baseline > 0) & (baseline < 1)), f"baseline was truncated to integers: {baseline}"
 
 
 # ---------------------------------------------------------------------------

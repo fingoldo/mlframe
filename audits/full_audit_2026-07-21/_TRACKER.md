@@ -39,7 +39,7 @@ Disposition: **CLOSED** = every finding fixed+regression-tested (or explicitly a
 documented reason -- never silently dropped), cluster's home test suite re-verified green, changes
 pushed to `origin/master`. All 39 reports are CLOSED as of this fix-wave. Per-finding detail (what was
 fixed, how, and any deferred items with their reasons) lives in each cluster's own consolidated
-`tests/**/test_audit_2026_07_21_<cluster>_fixes.py` file and in project memory
+`tests/**/test_<cluster>_fixes.py` file and in project memory
 (`project_mlframe_full_audit_2026_07_21`), not duplicated here to avoid a second, driftable copy of the
 same information.
 
@@ -112,7 +112,7 @@ inline, each with a documented reason (in the cluster's own test-file docstring 
 ## Post-closure verification pass (read-only agent, after all 39 CLOSED)
 
 A dedicated read-only agent cross-checked every finding ID across all 39 reports against the
-corresponding `tests/**/test_audit_2026_07_21_*_fixes.py` file, spot-checking test quality on 5
+corresponding `tests/**/test_*_fixes.py` file, spot-checking test quality on 5
 clusters. Verdict: substantially true but not literally complete. It surfaced 12 genuine gaps --
 2 findings with no fix at all despite the report being marked CLOSED, 9 findings fixed in source but
 never pinned by a regression test, 1 minor docs/validation nit untouched. All 12 have since been
