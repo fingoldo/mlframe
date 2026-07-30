@@ -9102,8 +9102,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             if _eb_added and verbose:
                 logger.info("MRMR emit_both operand re-attach: added %d signal raw operand(s) of selected engineered features: %s", len(_eb_added), _eb_added)
         except Exception as _eb_exc:
-            if verbose:
-                logger.info("MRMR emit_both operand re-attach skipped (%s: %s).", type(_eb_exc).__name__, _eb_exc)
+            logger.debug("MRMR emit_both operand re-attach skipped (%s: %s).", type(_eb_exc).__name__, _eb_exc)
 
     # C2 ADDITIVE-FUSION FINAL RAW STRIP. Raw operands the FE additive-fusion
     # proposer verified the fused ``add(...)`` compound fully captures (``_fused_subsumed_raws_``,
@@ -9160,8 +9159,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         self.support_nonlinear_ = getattr(self, "support_", None)
         self.support_linear_ = None
         self.support_universal_ = None
-        if verbose:
-            logger.info("Usability-aware multi-list post-pass skipped (%s: %s).", type(_usability_exc).__name__, _usability_exc)
+        logger.debug("Usability-aware multi-list post-pass skipped (%s: %s).", type(_usability_exc).__name__, _usability_exc)
 
     # SELECTION-STABILITY REPLAY STATE (backlog W3, 2026-06-11). Store a compact slice of the
     # already-discretised screening matrix ``data`` + the target codes + the per-column selection
@@ -9177,8 +9175,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         )
     except Exception as _stab_exc:  # never let the diagnostic accessor break a fit
         self._stability_replay_state_ = None
-        if verbose:
-            logger.info("Stability replay-state capture skipped (%s: %s).", type(_stab_exc).__name__, _stab_exc)
+        logger.debug("Stability replay-state capture skipped (%s: %s).", type(_stab_exc).__name__, _stab_exc)
 
     # ROSTER RECONCILIATION: the per-stage engineered rosters (``hybrid_orth_features_``, ``_adaptive_fourier_features_``, the Layer-33/34/37/38/87+ family lists) are
     # populated as each FE stage APPENDS its columns, but the MRMR screen / accuracy gate / dedup then drop a subset before support is finalised. ``self._engineered_features_`` is the
@@ -9381,8 +9378,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             _kept_extra.append((_r_recipe, _r_name))
                         _retain_extra = _kept_extra
                 except Exception as _subsume_exc:
-                    if verbose:
-                        logger.info("MRMR retention engineered-subsumption guard skipped (%s: %s).", type(_subsume_exc).__name__, _subsume_exc)
+                    logger.debug("MRMR retention engineered-subsumption guard skipped (%s: %s).", type(_subsume_exc).__name__, _subsume_exc)
             for _r_recipe, _r_name in _retain_extra:
                 self._engineered_recipes_.append(_r_recipe)
                 self._engineered_features_.append(_r_name)
@@ -9394,8 +9390,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     [n for _, n in _retain_extra],
                 )
         except Exception as _retain_exc:  # never let the optional retention break a fit
-            if verbose:
-                logger.info("MRMR usability-aware pure-form retention skipped (%s: %s).", type(_retain_exc).__name__, _retain_exc)
+            logger.debug("MRMR usability-aware pure-form retention skipped (%s: %s).", type(_retain_exc).__name__, _retain_exc)
 
         # USABILITY-AWARE RAW RETENTION. The companion to the pure-form retention above for the
         # case where the genuinely useful structure is a RAW the MI greedy under-ranked, not a pair form.
@@ -9565,8 +9560,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             "MI greedy under-ranked: %s", len(_added_idx), _raw_extra,
                         )
         except Exception as _raw_retain_exc:  # never let the optional retention break a fit
-            if verbose:
-                logger.info("MRMR usability-aware raw retention skipped (%s: %s).", type(_raw_retain_exc).__name__, _raw_retain_exc)
+            logger.debug("MRMR usability-aware raw retention skipped (%s: %s).", type(_raw_retain_exc).__name__, _raw_retain_exc)
 
     # POST-RETENTION RAW-REDUNDANCY DROP (BUG1, 2026-06-19). The main raw-vs-engineered
     # redundancy sweep (above, ~line 7915) runs on the screen-stage ``selected_vars`` BEFORE
@@ -10080,11 +10074,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         len(_group_dropped_final), sorted(_group_dropped_final),
                     )
         except Exception as _group_final_exc:
-            if verbose:
-                logger.warning(
-                    "MRMR group-aware FE demotion (final choke point) failed (%s: %s); keeping the naive-MI selection.",
-                    type(_group_final_exc).__name__, _group_final_exc,
-                )
+            logger.debug(
+                "MRMR group-aware FE demotion (final choke point) failed (%s: %s); keeping the naive-MI selection.",
+                type(_group_final_exc).__name__, _group_final_exc,
+            )
 
     # Final re-alignment: the group-aware demotion just above is the LAST n_features_ mutation, and it does
     # not touch mrmr_gains_. Re-run the trim/pad here so the len(mrmr_gains_) == n_features_ contract holds

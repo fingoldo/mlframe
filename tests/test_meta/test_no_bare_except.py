@@ -104,8 +104,10 @@ def _references_verbose(node: ast.AST) -> bool:
 
 def _is_log_call(node: ast.AST) -> bool:
     """True if ``node`` is (or contains) a call to a ``logger.*``/``logging.*``/``warnings.warn``
-    function, or to ``mlframe.utils.log_throttle.log_throttle`` (a plain function, not a
-    logger-attribute call, that unconditionally logs its message subject to a per-key rate limit)."""
+    function, to ``mlframe.utils.log_throttle.log_throttle`` (a plain function, not a
+    logger-attribute call, that unconditionally logs its message subject to a per-key rate limit),
+    or to a chained ``logging.getLogger(...).<level>(...)`` call (a fresh logger acquired inline
+    rather than through a module-level ``logger`` name)."""
     if not isinstance(node, ast.Call):
         return False
     func = node.func
@@ -113,9 +115,12 @@ def _is_log_call(node: ast.AST) -> bool:
         return True
     if isinstance(func, ast.Attribute):
         base = func.value
-        if isinstance(base, ast.Name) and base.id in ("logger", "logging", "warnings", "log"):
+        if isinstance(base, ast.Name) and base.id in ("logger", "logger_", "logging", "warnings", "log"):
             return True
         if isinstance(base, ast.Attribute) and base.attr in ("logger",):
+            return True
+        # Chained call: `logging.getLogger(...).debug(...)` / `_logging.getLogger(__name__).warning(...)`.
+        if isinstance(base, ast.Call) and isinstance(base.func, ast.Attribute) and base.func.attr == "getLogger":
             return True
     return False
 
@@ -133,15 +138,25 @@ def _handler_has_unconditional_log(handler: ast.ExceptHandler) -> bool:
                 return True
             if isinstance(s, ast.If):
                 if _references_verbose(s.test):
-                    continue  # log calls inside here are gated -- don't count them as unconditional
+                    # The `if verbose:` arm is gated, but an `else:` arm that ALSO logs means every
+                    # path -- verbose or not -- logs something (e.g. `if verbose: logger.warning(...)
+                    # else: logger.debug(...)`), so the handler is not silent at verbose=0.
+                    if _stmt_has_unconditional_log(s.orelse):
+                        return True
+                    continue
                 if _stmt_has_unconditional_log(s.body) or _stmt_has_unconditional_log(s.orelse):
                     return True
             # Other compound statements (Try/For/While) -- recurse into their bodies unconditionally
             # (a log call inside a nested Try/For within the handler still counts as unconditional
-            # unless it's itself behind a verbose check).
+            # unless it's itself behind a verbose check). A nested Try's own except handlers are
+            # also part of the outer handler's effective body (its log calls still run
+            # unconditionally when the nested try fails) -- not just the try body.
             elif isinstance(s, (ast.Try,)):
                 if _stmt_has_unconditional_log(s.body):
                     return True
+                for h in s.handlers:
+                    if _stmt_has_unconditional_log(h.body):
+                        return True
             elif hasattr(s, "body") and isinstance(getattr(s, "body", None), list):
                 if _stmt_has_unconditional_log(s.body):
                     return True

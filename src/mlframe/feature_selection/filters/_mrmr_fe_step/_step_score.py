@@ -1169,11 +1169,10 @@ def materialise_and_finalise_fe_candidates(
                     self._fe_stability_vote_dropped_ = _vote_dropped
                 _vote_dropped.update(str(_fn) for _fn in _failed_eng)
         except Exception as _vote_exc:
-            if verbose:
-                logger.warning(
-                    "MRMR cross-fold stability vote failed (%s: %s); keeping the un-voted FE support.",
-                    type(_vote_exc).__name__, _vote_exc,
-                )
+            logger.debug(
+                "MRMR cross-fold stability vote failed (%s: %s); keeping the un-voted FE support.",
+                type(_vote_exc).__name__, _vote_exc,
+            )
 
     # GROUP-AWARE FE DEMOTION: NOT done here. An early attempt at this check (dropping a zero-within-
     # group-MI engineered survivor right after the plain pair-search, before "usability-aware retention"

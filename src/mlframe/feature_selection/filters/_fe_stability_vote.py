@@ -313,11 +313,10 @@ def confirm_recipes_cross_fold(
                 # A recipe that cannot replay on a fold is not penalised here -
                 # transform()-time replay safety is a separate concern. Skip the
                 # fold; if every fold fails to replay the recipe is left admitted.
-                if verbose:
-                    logger.info(
-                        "Stability vote: recipe '%s' failed to replay on a fold (%s: %s); skipping fold.",
-                        eng_name, type(exc).__name__, exc,
-                    )
+                logger.debug(
+                    "Stability vote: recipe '%s' failed to replay on a fold (%s: %s); skipping fold.",
+                    eng_name, type(exc).__name__, exc,
+                )
                 continue
             if eng_fold.shape[0] != idx.shape[0]:
                 continue

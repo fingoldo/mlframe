@@ -357,7 +357,8 @@ def _step_is_fitted(step) -> bool:
         return True
     except NotFittedError:
         return False
-    except Exception:
+    except Exception as exc:
+        logger.debug("_step_is_fitted: attribute-scoped check_is_fitted failed (%s); retrying unscoped.", exc)
         try:
             check_is_fitted(step)
             return True

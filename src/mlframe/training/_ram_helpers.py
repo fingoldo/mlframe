@@ -64,7 +64,8 @@ def maybe_clean_ram_adaptive() -> None:
     global _MAYBE_CLEAN_BASELINE_MB
     try:
         rss_mb = psutil.Process().memory_info().rss / 1024**2
-    except Exception:
+    except Exception as exc:
+        logger.debug("maybe_clean_ram: RSS probe failed (%s); cleaning unconditionally.", exc)
         clean_ram()
         return
     with _MAYBE_CLEAN_LOCK:

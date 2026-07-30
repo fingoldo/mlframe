@@ -986,12 +986,11 @@ def check_prospective_fe_pairs(
                 # is dropped-on-uncertainty); it can still be admitted by the joint/prewarp gates, which
                 # do not use this marginal. The whole-pair both-operand-fail case was already
                 # fail-closed via the ``_max_operand_marginal > 0.0`` guard.
-                if verbose:
-                    logger.warning(
-                        "MRMR FE: operand %s marginal-MI computation failed (%s); failing the "
-                        "marginal-uplift gate CLOSED (+inf) so it cannot loosen admission.",
-                        _var, type(_mm_exc).__name__,
-                    )
+                logger.debug(
+                    "MRMR FE: operand %s marginal-MI computation failed (%s); failing the marginal-uplift gate CLOSED (+inf) so it cannot loosen admission.",
+                    _var,
+                    type(_mm_exc).__name__,
+                )
                 _mi_val = float("inf")
         _operand_marginal_mi_cache[_var] = _mi_val
         return _mi_val

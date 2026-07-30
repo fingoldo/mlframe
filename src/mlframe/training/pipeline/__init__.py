@@ -526,6 +526,7 @@ def _select_scalable_numeric_columns(
                     continue
         except Exception as exc:
             skipped_reasons[col_name] = f"check-failed:{type(exc).__name__}"
+            logger.debug("  Scaler '%s': column %r check failed (%s): %s", method, col_name, type(exc).__name__, exc)
             continue
         scalable.append(col_name)
     if skipped_reasons and verbose:
@@ -777,11 +778,10 @@ def create_polarsds_pipeline(
         # schema dtype detection failure, ...) fall back to the legacy
         # whole-frame cast so we never silently emit raw int to consumers that
         # historically expected float.
-        if verbose:
-            logger.warning(
-                "Narrow-int-aware int_to_float gating failed (%s); falling back to legacy int_to_float(f32=True).",
-                _exc,
-            )
+        logger.debug(
+            "Narrow-int-aware int_to_float gating failed (%s); falling back to legacy int_to_float(f32=True).",
+            _exc,
+        )
         bp = bp.int_to_float(f32=True)
 
     # Materialize the pipeline
