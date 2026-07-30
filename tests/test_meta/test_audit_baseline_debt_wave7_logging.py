@@ -66,16 +66,30 @@ def test_param_oracle_rss_mb_logs_on_failure(caplog):
     assert any("RSS probe unavailable" in rec.message for rec in caplog.records)
 
 
-def test_composite_cache_int_digest_logs_on_failure():
-    """The int/bool column min/max digest except (a nested closure inside `data_signature`, not
-    independently callable) must log on failure -- pinned via source presence."""
-    import inspect
+def test_composite_cache_int_digest_logs_on_failure(caplog, monkeypatch):
+    """The int/bool column min/max digest except (`_col_stats`, a closure inside
+    `data_signature`) must log on failure. Driven through a real `data_signature` call on a
+    small int-column frame, with `np.min` monkeypatched (on the cache module's own `np`) to
+    raise only for integer dtypes."""
+    import pandas as pd
 
     import mlframe.training.composite.cache as cache_mod
 
-    src = inspect.getsource(cache_mod.data_signature)
-    assert "int/bool column min/max digest failed" in src
-    assert "logger.debug" in src
+    real_min = cache_mod.np.min
+
+    def _raising_min(arr, *args, **kwargs):
+        """Raise for integer/bool arrays only, delegating everything else to the real np.min."""
+        if getattr(getattr(arr, "dtype", None), "kind", "") in ("i", "u", "b"):
+            raise RuntimeError("boom")
+        return real_min(arr, *args, **kwargs)
+
+    monkeypatch.setattr(cache_mod.np, "min", _raising_min)
+
+    df = pd.DataFrame({"f0": [1, 2, 3, 4, 5]})
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite.cache"):
+        sig = cache_mod.data_signature(df, target_col="y", feature_cols=["f0"])
+    assert isinstance(sig, str) and len(sig) == 32
+    assert any("cache: int/bool column min/max digest failed" in rec.message for rec in caplog.records)
 
 
 def test_neural_data_byte_size_estimation_logs_on_failure(caplog):

@@ -96,14 +96,24 @@ def test_muon_triton_kernel_get_ktc_logs_on_import_failure(caplog):
 
 
 def test_pipeline_helpers_selector_feature_names_logs_on_get_support_failure(caplog):
-    """The selector-feature-name resolver must log when `get_support()` raises -- pinned via
-    source presence since the helper is a nested closure inside a larger dispatch function."""
-    import inspect
-    import mlframe.training.pipeline._pipeline_helpers as ph
+    """`_selector_output_columns` (a plain module function, not actually a closure despite the
+    old docstring's claim) must log when `get_support()` raises."""
+    from mlframe.training.pipeline._pipeline_helpers import _selector_output_columns
 
-    src = inspect.getsource(ph)
-    assert "selector.get_support() failed" in src
-    assert "logger.debug" in src
+    class _RaisingSelector:
+        """A selector stub with `feature_names_in_` set, no `support_`, and a raising `get_support`."""
+
+        feature_names_in_ = ["a", "b"]
+        support_ = None
+
+        def get_support(self):
+            """Always raises ``RuntimeError('boom')`` on call."""
+            raise RuntimeError("boom")
+
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.pipeline._pipeline_helpers"):
+        out = _selector_output_columns(_RaisingSelector())
+    assert out is None
+    assert any("selector.get_support() failed" in rec.message for rec in caplog.records)
 
 
 def test_reporting_frame_to_text_logs_on_rendering_failure(caplog):

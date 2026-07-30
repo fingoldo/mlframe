@@ -112,15 +112,34 @@ def test_gpu_probe_xgb_support_logs_on_probe_failure(caplog):
     assert any("build_info probe failed" in rec.message for rec in caplog.records)
 
 
-def test_model_factories_infer_callsite_returns_marker_on_failure(caplog):
-    """`_infer_callsite` degrades to "?" (logged) if the stack walk raises -- pinned via source presence
-    since the closure isn't independently callable outside `_lgb_shim`/`_xgb_shim`."""
-    import inspect
+def test_model_factories_infer_callsite_returns_marker_on_failure(caplog, monkeypatch):
+    """`_infer_callsite` (a closure inside the patched Dataset.__init__) must log and degrade to
+    "?" if the stack walk raises. Driven through a real lightgbm.Dataset construction, with the
+    patches installed via the public `apply_third_party_patches_once` and `sys._getframe`
+    monkeypatched (`_patch_dataset_constructors_with_logging` imports `sys` locally, so patch the
+    real global `sys` module)."""
+    import sys
+    import numpy as np
+    import lightgbm as lgb
+
     import mlframe.training._model_factories as mf
 
-    src = inspect.getsource(mf)
-    assert "_infer_callsite: stack walk failed" in src
-    assert "logger.debug" in src
+    mf.apply_third_party_patches_once()
+
+    real_getframe = sys._getframe
+
+    def _raising_getframe(depth):
+        """Raise only when called from `_infer_callsite` itself -- a blanket sys._getframe
+        monkeypatch would also break pytest's own frame introspection."""
+        if real_getframe(1).f_code.co_name == "_infer_callsite":
+            raise ValueError("call stack is not deep enough")
+        return real_getframe(depth)
+
+    monkeypatch.setattr(sys, "_getframe", _raising_getframe)
+
+    with caplog.at_level(logging.DEBUG):
+        lgb.Dataset(np.zeros((5, 2)), label=np.zeros(5), free_raw_data=False)
+    assert any("_infer_callsite: stack walk failed" in rec.getMessage() for rec in caplog.records)
 
 
 def test_predict_guards_recover_feature_names_logs_on_failure(caplog):
