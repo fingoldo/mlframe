@@ -24,14 +24,36 @@ def test_screening_is_numeric_column_logs_on_failure(caplog):
 
 
 def test_auto_chain_transform_gain_logs_on_failure(caplog):
-    """The per-transform gain estimator must log when fit/forward raises -- pinned via source
-    presence since it's a module-private helper reused across several nested call sites."""
-    import inspect
-    import mlframe.training.composite.discovery._auto_chain as ac
+    """The per-transform gain estimator must log when fit/forward raises."""
+    import numpy as np
 
-    src = inspect.getsource(ac)
-    assert "transform gain estimate: fit/forward failed" in src
-    assert "logger.debug" in src
+    from mlframe.training.composite.discovery._auto_chain import _mi_gain_of
+
+    class _RaisingTransform:
+        """A Transform duck-type stand-in whose `fit` always raises."""
+
+        name = "raising_transform"
+
+        def domain_check(self, y, base):
+            """Accept every row."""
+            return np.ones_like(y, dtype=bool)
+
+        def fit(self, y, base):
+            """Always raises ``RuntimeError('boom')`` on call."""
+            raise RuntimeError("boom")
+
+        def forward(self, y, base, params):
+            """Unreachable: fit always raises first."""
+            raise AssertionError("forward should never be called")
+
+    y = np.linspace(0.1, 10.0, 20)
+    base = np.linspace(0.1, 10.0, 20)
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite.discovery._auto_chain"):
+        out = _mi_gain_of(
+            _RaisingTransform(), y=y, base=base, x_matrix=base.reshape(-1, 1), mi_y=0.0, mi_estimator="ncmi", mi_nbins=10, mi_n_neighbors=5, random_state=0
+        )
+    assert np.isnan(out)
+    assert any("transform gain estimate: fit/forward failed" in rec.message for rec in caplog.records)
 
 
 def test_filter_leak_corr_sizing_logs_on_psutil_failure(caplog):
@@ -87,38 +109,62 @@ def test_discovery_ktc_dispatch_get_cache_logs_on_import_failure(caplog):
     assert any("import failed" in rec.message for rec in caplog.records)
 
 
-def test_tiny_rerank_ram_log_logs_on_memory_probe_failure(caplog):
-    """The tiny-rerank RAM checkpoint logger must log on a memory-probe failure -- pinned via
-    source presence since `._fit._process_mem_mb` is imported lazily inside the function body."""
-    import inspect
-    import mlframe.training.composite.discovery._tiny_rerank as tr
+def test_tiny_rerank_ram_log_logs_on_memory_probe_failure(caplog, monkeypatch):
+    """The tiny-rerank RAM checkpoint logger must log on a memory-probe failure. `._fit`'s
+    `_process_mem_mb` is imported lazily inside the function body, so patch it on that module."""
+    import mlframe.training.composite.discovery._fit as fit_mod
+    from mlframe.training.composite.discovery._tiny_rerank import _tiny_rerank_ram_checkpoint
 
-    src = inspect.getsource(tr)
-    assert "tiny_rerank RAM log: memory probe failed" in src
-    assert "logger.debug" in src
+    def _raise():
+        """Always raises ``RuntimeError('boom')`` to force the except branch."""
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(fit_mod, "_process_mem_mb", _raise)
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite.discovery._tiny_rerank"):
+        _tiny_rerank_ram_checkpoint("test-checkpoint")
+    assert any("tiny_rerank RAM log: memory probe failed" in rec.message for rec in caplog.records)
 
 
 def test_transforms_extended_smoothing_spline_logs_on_fit_failure(caplog):
-    """The smoothing-spline forward transform must log and fall back to y_mean on a fit failure --
-    pinned via source presence since it needs registered fit params to invoke directly."""
-    import inspect
-    import mlframe.training.composite.transforms.extended as ext
+    """The smoothing-spline forward transform must log and fall back to y_mean on a fit failure.
+    ``UnivariateSpline`` requires a strictly increasing x -- constant (non-increasing) knots_b
+    with >=4 points reaches the try block but fails construction."""
+    import numpy as np
 
-    src = inspect.getsource(ext)
-    assert "smoothing spline forward: fit/eval failed" in src
-    assert "logger.debug" in src
+    from mlframe.training.composite.transforms.extended import _smoothing_spline_g
+
+    params = {"knots_b": np.array([1.0, 1.0, 1.0, 1.0]), "knots_y": np.array([2.0, 3.0, 4.0, 5.0]), "s": 0.0, "y_mean": 7.5}
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite_transforms_extended"):
+        out = _smoothing_spline_g(np.array([1.0, 2.0, 3.0]), params)
+    np.testing.assert_array_equal(out, np.full(3, 7.5))
+    assert any("smoothing spline forward: fit/eval failed" in rec.message for rec in caplog.records)
 
 
-def test_grouped_extra_per_group_fit_logs_on_failure():
+def test_grouped_extra_per_group_fit_logs_on_failure(caplog):
     """`_grouped_np_fit`'s per-group fit must log and fall back to global on a per-group fit
-    failure -- pinned via source presence since triggering a genuine per-group `fit_fn` failure
-    needs a pathological per-group slice that's awkward to construct through the public API."""
-    import inspect
-    import mlframe.training.composite.transforms._grouped_extra as ge
+    failure. `fit_fn` is caller-supplied, so a stub that succeeds on the first (global) call and
+    raises on every later (per-group) call exercises the except directly."""
+    import numpy as np
 
-    src = inspect.getsource(ge)
-    assert "per-group fit failed" in src
-    assert "logger.debug" in src
+    from mlframe.training.composite.transforms._grouped_extra import _grouped_np_fit
+
+    calls = {"n": 0}
+
+    def _fit_fn(y, base):
+        """Succeed on the global call (1st), raise on every per-group call (2nd+)."""
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise RuntimeError("boom")
+        return {"level": float(np.mean(y))}
+
+    y = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    base = np.zeros(6)
+    groups = np.array(["a", "a", "a", "b", "b", "b"])
+
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite.transforms._grouped_extra"):
+        out = _grouped_np_fit(y, base, groups, _fit_fn, level_keys=("level",), min_group_size=1, global_median_key="level")
+    assert out["per_group"] == {}, "F REGRESSION: a raising fit_fn must not leave a partial per-group entry"
+    assert any("grouped-transform per-group fit failed" in rec.message for rec in caplog.records)
 
 
 def test_pdp_ice_text_feature_indices_logs_on_failure(caplog):
@@ -164,15 +210,24 @@ def test_per_member_tuning_code_version_returns_str_or_none():
     assert out is None or isinstance(out, str)
 
 
-def test_ensembling_leaderboard_build_logs_on_failure(caplog):
-    """The ensemble-leaderboard builder must log on failure -- pinned via source presence since
-    it's a nested closure inside a larger comparison-table function."""
-    import inspect
-    import mlframe.models.ensembling as ensembling_mod
+def test_ensembling_leaderboard_build_logs_on_failure(caplog, monkeypatch):
+    """`_build_votenrank_leaderboard_from_results` (a plain module function, not actually a
+    closure despite the old docstring's claim) must log on failure. `Leaderboard` is imported
+    lazily inside the try -- monkeypatch it on mlframe.votenrank to raise."""
+    import mlframe.votenrank
+    from mlframe.models.ensembling import _build_votenrank_leaderboard_from_results
 
-    src = inspect.getsource(ensembling_mod)
-    assert "ensemble leaderboard build failed" in src
-    assert "logger.debug" in src
+    def _raising_leaderboard(*args, **kwargs):
+        """Always raises ``RuntimeError('boom')`` on construction."""
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(mlframe.votenrank, "Leaderboard", _raising_leaderboard)
+
+    res = {"mean": {"metrics": {"test": {"rmse": 1.0}}}}
+    with caplog.at_level(logging.DEBUG, logger="mlframe.models.ensembling"):
+        out = _build_votenrank_leaderboard_from_results(res, is_regression=True)
+    assert out is None
+    assert any("ensemble leaderboard build failed" in rec.message for rec in caplog.records)
 
 
 def test_wrappers_helpers_thread_pinning_logs_on_get_params_failure(caplog):
@@ -212,11 +267,18 @@ def test_wrappers_helpers_importance_fold_is_all_finite_logs_on_failure(caplog):
 
 
 def test_rfecv_fit_init_param_signature_logs_on_failure(caplog):
-    """The RFECV param-signature helper must log and fall back to a unique sentinel on failure --
-    pinned via source presence since it's bound as a method on the RFECV estimator class."""
-    import inspect
-    import mlframe.feature_selection.wrappers.rfecv._fit_init as fit_init
+    """The RFECV param-signature helper must log and fall back to a unique sentinel on failure."""
+    from mlframe.feature_selection.wrappers.rfecv._fit_init import _current_params_signature
 
-    src = inspect.getsource(fit_init)
-    assert "RFECV param-signature computation failed" in src
-    assert "logger.debug" in src
+    class _RaisingSelf:
+        """An RFECV-like stub whose `get_params` always raises."""
+
+        def get_params(self, deep=True):
+            """Always raises ``RuntimeError('boom')`` on call."""
+            raise RuntimeError("boom")
+
+    with caplog.at_level(logging.DEBUG, logger="mlframe.feature_selection.wrappers.rfecv"):
+        sig1 = _current_params_signature(_RaisingSelf())
+        sig2 = _current_params_signature(_RaisingSelf())
+    assert sig1 != sig2, "F REGRESSION: the fallback sentinel must be per-call unique (identity), never a stored signature match"
+    assert any("RFECV param-signature computation failed" in rec.message for rec in caplog.records)
