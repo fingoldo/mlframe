@@ -1971,4 +1971,6 @@ AXES: dict[str, tuple[Any, ...]] = {
     "shap_proxied_prescreen_ranking_cfg": ("mean_abs_phi", "banzhaf"),
     # gt_05 Shapley model-weighting/pruning gate kind for composite target discovery.
     "composite_gate_kind_cfg": ("nnls", "shapley"),
+    # dfe6b4edd wired fe_additive_fusion_enable into MRMR.__init__ (was a silent no-op getattr).
+    "mrmr_fe_additive_fusion_enable_cfg": (True, False),
 }

@@ -831,6 +831,9 @@ class FuzzCombo:
     shap_proxied_prescreen_ranking_cfg: str = "mean_abs_phi"
     # gt_05 Shapley model-weighting/pruning gate kind (_composite_target_discovery_config.py:500).
     composite_gate_kind_cfg: str = "nnls"
+    # dfe6b4edd wired fe_additive_fusion_enable into MRMR.__init__ (was a silent no-op getattr).
+    # Dispatched from _mrmr_fe_step/_step_score.py into _fe_additive_fusion.py; default True.
+    mrmr_fe_additive_fusion_enable_cfg: bool = True
 
     # DEFAULT allowlist mirrors DEFAULTS_CHANGELOG.md's documented
     # ``mlframe_models`` default (["cb","lgb","xgb","mlp","linear"]).
@@ -2232,6 +2235,7 @@ class FuzzCombo:
             # gt_05 composite gate_kind: only matters once composite target discovery is active on a
             # regression target (same gate as the other composite_*_cfg axes above).
             (self.composite_gate_kind_cfg if (self.composite_discovery_enabled_cfg and self.target_type == "regression") else "nnls"),
+            self.mrmr_fe_additive_fusion_enable_cfg if self.use_mrmr_fs else True,
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
