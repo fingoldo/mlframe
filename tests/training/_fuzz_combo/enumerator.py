@@ -620,6 +620,7 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         mrmr_fe_budget_learning_cfg=axes.get("mrmr_fe_budget_learning_cfg", "auto"),
         shap_proxied_prescreen_ranking_cfg=axes.get("shap_proxied_prescreen_ranking_cfg", "mean_abs_phi"),
         composite_gate_kind_cfg=axes.get("composite_gate_kind_cfg", "nnls"),
+        mrmr_fe_additive_fusion_enable_cfg=axes.get("mrmr_fe_additive_fusion_enable_cfg", True),
     )
 
 

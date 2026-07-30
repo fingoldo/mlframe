@@ -189,6 +189,20 @@ def test_new_shap_proxied_prescreen_ranking_axis_present_and_wired():
     assert kw is not None and kw.get("prescreen_ranking") == "banzhaf"
 
 
+def test_new_mrmr_fe_additive_fusion_enable_axis_present_and_wired():
+    """``mrmr_fe_additive_fusion_enable_cfg`` (dfe6b4edd) must be in AXES and reach FuzzCombo, gated on use_mrmr_fs."""
+    assert "mrmr_fe_additive_fusion_enable_cfg" in AXES
+    values = AXES["mrmr_fe_additive_fusion_enable_cfg"]
+    assert True in values and False in values
+    combo_off = _make_combo(use_mrmr_fs=True, mrmr_fe_additive_fusion_enable_cfg=False)
+    combo_on = _make_combo(use_mrmr_fs=True, mrmr_fe_additive_fusion_enable_cfg=True)
+    assert combo_off.mrmr_fe_additive_fusion_enable_cfg is False
+    assert combo_off.canonical_key() != combo_on.canonical_key(), "True/False must be distinct when use_mrmr_fs=True"
+    combo_gated = _make_combo(use_mrmr_fs=False, mrmr_fe_additive_fusion_enable_cfg=False)
+    combo_gated_default = _make_combo(use_mrmr_fs=False, mrmr_fe_additive_fusion_enable_cfg=True)
+    assert combo_gated.canonical_key() == combo_gated_default.canonical_key(), "must canonicalise away when use_mrmr_fs=False"
+
+
 def test_new_composite_gate_kind_axis_present_and_wired():
     """composite_gate_kind_cfg forwards to CompositeTargetDiscoveryConfig.gate_kind, gated on
     composite_discovery_enabled_cfg AND a regression target (the same gate the sibling composite_*_cfg

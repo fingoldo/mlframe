@@ -271,6 +271,8 @@ def build_mrmr_kwargs_from_flat(
     fe_ordinal_pattern_enable: bool = False,
     fe_conditional_quantile_rank_enable: bool = False,
     fe_budget_learning: "bool | str" = "auto",
+    # dfe6b4edd wired fe_additive_fusion_enable into MRMR.__init__ (was a silent no-op getattr).
+    fe_additive_fusion_enable: bool = True,
 ) -> Optional[Dict[str, Any]]:
     """Build the mrmr_kwargs dict passed to FeatureSelectionConfig.
     Returns None when use_mrmr_fs=False so the FS step is a no-op.
@@ -467,6 +469,7 @@ def build_mrmr_kwargs_from_flat(
         "fe_ordinal_pattern_enable": fe_ordinal_pattern_enable,
         "fe_conditional_quantile_rank_enable": fe_conditional_quantile_rank_enable,
         "fe_budget_learning": fe_budget_learning,
+        "fe_additive_fusion_enable": fe_additive_fusion_enable,
     }
     # 2026-05-30 audit-pass-7 #3/#4: per_feature_edges.kwargs threaded via
     # MRMR.nbins_strategy_kwargs. Build the dict only when one of these
@@ -696,6 +699,7 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         fe_ordinal_pattern_enable=combo.mrmr_fe_ordinal_pattern_enable_cfg,
         fe_conditional_quantile_rank_enable=combo.mrmr_fe_conditional_quantile_rank_enable_cfg,
         fe_budget_learning=combo.mrmr_fe_budget_learning_cfg,
+        fe_additive_fusion_enable=combo.mrmr_fe_additive_fusion_enable_cfg,
     )
 
 
