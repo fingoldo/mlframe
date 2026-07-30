@@ -430,7 +430,7 @@ def analyze_feature_distribution(
                 # for classification"). Pearson correlation against unordered integer class codes
                 # (the pre-fix behavior) is not a meaningful signal for 3+ classes.
                 if n_classes <= _LEAKAGE_MAX_CLASSES_FOR_AUC:
-                    from sklearn.metrics import roc_auc_score
+                    from mlframe.metrics.core import fast_roc_auc
 
                     classes = np.unique(y_arr[y_notna])
                     for c in candidate_numeric:
@@ -446,7 +446,7 @@ def analyze_feature_distribution(
                             if y_bin.min() == y_bin.max():
                                 continue  # class absent (or omnipresent) in the finite subset -- AUC undefined
                             try:
-                                auc = roc_auc_score(y_bin, col_finite)
+                                auc = fast_roc_auc(y_bin, col_finite)
                             except ValueError:
                                 continue
                             auc = max(auc, 1.0 - auc)  # direction-agnostic: AUC and 1-AUC reflect the same separability

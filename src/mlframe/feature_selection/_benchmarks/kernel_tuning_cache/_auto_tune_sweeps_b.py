@@ -317,7 +317,7 @@ def _run_sweep_unary_elementwise(n_iters: int = 5) -> list[dict]:
         try:
             fn(_w)
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed in _auto_tune_sweeps_b.py:319: %s", e)
+            logger.debug("suppressed: %s", e)
             pass
 
     crossover_per_op: dict[str, int] = {}

@@ -530,7 +530,7 @@ def _phase_fit_pipeline(
             if _reg_targets:
                 _first_name = next(iter(_reg_targets))
                 _vals = _reg_targets[_first_name]
-                # Audit D P2-5 (2026-05-18): polars/pandas в†’ numpy is NEEDED here; PySR's
+                # The polars/pandas -> numpy conversion here is NEEDED; PySR's
                 # ``PySRRegressor.fit(X, y)`` consumes a numpy array, and the ndim / [:, 0]
                 # downstream operations also assume numpy semantics. Conversion cannot be
                 # pushed further.

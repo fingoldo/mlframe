@@ -36,18 +36,28 @@ def test_f1_calibration_post_defers_training_evaluation_import():
 
 
 def test_f1_calibration_post_defers_ensembling_import():
-    """F1 calibration post defers ensembling import."""
-    import mlframe.calibration.post as post
+    """F1 calibration post defers ensembling import.
 
-    src = inspect.getsource(post)
-    module_header = src.split("class _CalibTestOverlapError")[0]
-    assert "from mlframe.models.ensembling import ensemble_probabilistic_predictions" not in module_header
+    ``train_postcalibrators`` (the only caller of ``ensemble_probabilistic_predictions``) was carved out
+    of ``post.py`` into ``_post_train_calibrators.py`` (X_EFFICIENCY_ARCHITECTURE-1 fix, to clear the
+    1000-LOC gate); the deferred import moved with it, so the invariant is now checked on that module.
+    """
+    import mlframe.calibration._post_train_calibrators as post_train_calibrators
+
+    src = inspect.getsource(post_train_calibrators)
+    assert "from mlframe.models.ensembling import ensemble_probabilistic_predictions" not in src.split("def ")[0]
     assert "from mlframe.models.ensembling import ensemble_probabilistic_predictions" in src
 
 
 def test_f1_calibration_post_still_importable_standalone():
     """F1 calibration post still importable standalone."""
-    importlib.reload(importlib.import_module("mlframe.calibration.post"))
+    post = importlib.import_module("mlframe.calibration.post")
+    snapshot = dict(post.__dict__)
+    try:
+        importlib.reload(post)
+    finally:
+        post.__dict__.clear()
+        post.__dict__.update(snapshot)
 
 
 # ---------------------------------------------------------------------------

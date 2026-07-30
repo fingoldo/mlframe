@@ -370,9 +370,10 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
         y_j = _jitter_if_discrete(y, rng_y_jitter)
         yr = rankdata(y_j) / n
         if _y_key is not None:
-            if len(_INFONET_Y_PREP_CACHE) > 8:
-                _INFONET_Y_PREP_CACHE.pop(next(iter(_INFONET_Y_PREP_CACHE)))
-            _INFONET_Y_PREP_CACHE[_y_key] = yr
+            with _NEURAL_MI_CACHE_LOCK:
+                if len(_INFONET_Y_PREP_CACHE) > 8:
+                    _INFONET_Y_PREP_CACHE.pop(next(iter(_INFONET_Y_PREP_CACHE)))
+                _INFONET_Y_PREP_CACHE[_y_key] = yr
 
     # See the matching fix in _get_infonet_model above -
     # scope the sys.path injection to just this import (already cached in sys.modules after the first
@@ -561,9 +562,10 @@ def _classify_y_kind(y: np.ndarray) -> str:
     else:
         _res = "continuous"
     if _key is not None:
-        if len(_Y_KIND_CACHE) > 8:
-            _Y_KIND_CACHE.pop(next(iter(_Y_KIND_CACHE)))
-        _Y_KIND_CACHE[_key] = _res
+        with _NEURAL_MI_CACHE_LOCK:
+            if len(_Y_KIND_CACHE) > 8:
+                _Y_KIND_CACHE.pop(next(iter(_Y_KIND_CACHE)))
+            _Y_KIND_CACHE[_key] = _res
     return _res
 
 

@@ -211,7 +211,7 @@ def _maybe_get_or_build_cb_pool(
         # each iteration; an id() collision there would silently keep a stale
         # label on the reused Pool while training proceeds against fresh data).
         # Always mutate weight -- ``set_weight`` has no target-type restriction.
-        from mlframe.training.pipeline._pipeline_cache import _full_target_content_hash
+        from mlframe.training.pipeline import _full_target_content_hash
         last_target_sig = getattr(cached, "_mlframe_last_target_sig", None)
         try:
             _target_sig = _full_target_content_hash(train_target)
@@ -308,7 +308,7 @@ def _maybe_get_or_build_cb_pool(
         logger.warning("[cb-pool-reuse] Pool construction failed (%s: %s); falling back to rebuild-every-fit sklearn path.", type(exc).__name__, exc)
         return None
 
-    from mlframe.training.pipeline._pipeline_cache import _full_target_content_hash
+    from mlframe.training.pipeline import _full_target_content_hash
     pool._mlframe_last_target_sig = _full_target_content_hash(train_target)
     # Cache feature lists on the Pool so callers (notably the dynamic CB
     # ``text_processing`` injection in ``_train_model_with_fallback``)

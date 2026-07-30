@@ -243,13 +243,13 @@ def run_scenario(scenario: _datasets.Scenario, runs: int, profile: bool, seed_ba
             return {"skipped": "no cupy installed"}
 
     # Warmup pass (numba compile prewarm).
-    logger.info(f"[{scenario.name}] warmup pass...")
+    logger.info("[%s] warmup pass...", scenario.name)
     _run_one(scenario, seed_base, profile=False)
     gc.collect()
 
     per_run: list[dict[str, Any]] = []
     for i in range(runs):
-        logger.info(f"[{scenario.name}] run {i + 1}/{runs}...")
+        logger.info("[%s] run %d/%d...", scenario.name, i + 1, runs)
         per_run.append(_run_one(scenario, seed_base, profile=profile and i == 0))
         gc.collect()
 
@@ -334,7 +334,7 @@ def main() -> int:
         encoding="utf-8",
     )
     _write_manifest(args.tag, git_sha)
-    logger.info(f"wrote {out_path}")
+    logger.info("wrote %s", out_path)
     return 0
 
 

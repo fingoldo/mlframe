@@ -698,7 +698,7 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
             # address for a new allocation of matching size (same id-reuse bug class already
             # fixed for the cache KEY above); an id() collision here would silently keep a
             # stale val label on the reused Pool. See _full_target_content_hash's docstring.
-            from mlframe.training.pipeline._pipeline_cache import _full_target_content_hash
+            from mlframe.training.pipeline import _full_target_content_hash
             last_target_sig = getattr(cached, "_mlframe_last_target_sig", None)
             try:
                 _target_sig = _full_target_content_hash(val_target)
@@ -752,7 +752,7 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
             rewritten.append(entry)
             continue
 
-        from mlframe.training.pipeline._pipeline_cache import _full_target_content_hash
+        from mlframe.training.pipeline import _full_target_content_hash
         val_pool._mlframe_last_target_sig = _full_target_content_hash(val_target)
         # Stash a content-fingerprint on the Pool so the predict-side
         # lookup in ``_predict_with_fallback`` can do a cols + shape +
