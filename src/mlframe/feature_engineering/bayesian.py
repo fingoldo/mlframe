@@ -147,50 +147,6 @@ if _NUMBA_AVAILABLE:
             out_expected_rl[t] = ex
             out_max_rl[t] = float(mx_idx)
 
-    @_numba.njit(cache=True, fastmath=_FASTMATH)
-    def _oblr_inner(y_arr, X_arr, prior_precision, noise_sigma, out_pred_mean, out_pred_var, out_log_marg):
-        """Recursive Bayesian linear regression (NIG-conjugate) forward pass over one contiguous segment.
-
-        Maintains a Gaussian posterior ``N(mu, Sigma)`` over the regression coefficients, initialised from an
-        isotropic prior ``Sigma_0 = I / prior_precision``. At each step: predicts ``y_t`` from ``x_t @ mu`` with
-        variance ``x_t @ Sigma @ x_t + noise_var`` (one-step-ahead predictive), then -- if ``y_t`` is finite -- applies
-        a Kalman-gain-style rank-1 update (``Sx = Sigma @ x_t``, gain ``K = Sx / pred_var``, ``mu += K * innovation``,
-        ``Sigma -= outer(K, Sx)``), equivalent to the recursive least-squares / conjugate-Bayes update for fixed noise
-        variance. NaN ``y_t`` skips the update (predict-only). Writes per-row predictive mean, predictive variance,
-        and incremental log-marginal-likelihood (log-evidence contribution of that row) into the output arrays.
-        """
-        n, k = X_arr.shape
-        mu = np.zeros(k, dtype=np.float64)
-        Sigma = np.eye(k, dtype=np.float64) / prior_precision
-        noise_var = noise_sigma * noise_sigma
-        Sx = np.empty(k, dtype=np.float64)
-        for t in range(n):
-            # Sx = Sigma @ x_t
-            for i in range(k):
-                s = 0.0
-                for j in range(k):
-                    s += Sigma[i, j] * X_arr[t, j]
-                Sx[i] = s
-            pred_mean = 0.0
-            xSx = 0.0
-            for i in range(k):
-                pred_mean += X_arr[t, i] * mu[i]
-                xSx += X_arr[t, i] * Sx[i]
-            pred_var = xSx + noise_var
-            out_pred_mean[t] = pred_mean
-            out_pred_var[t] = pred_var
-            y_t = y_arr[t]
-            if np.isfinite(y_t):
-                out_log_marg[t] = -0.5 * (math.log(2.0 * math.pi * pred_var) + (y_t - pred_mean) * (y_t - pred_mean) / pred_var)
-                innovation = y_t - pred_mean
-                inv_pv = 1.0 / pred_var
-                for i in range(k):
-                    Ki = Sx[i] * inv_pv
-                    mu[i] += Ki * innovation
-                    # Sigma -= outer(K, Sx)
-                    for j in range(k):
-                        Sigma[i, j] -= Ki * Sx[j]
-
     # --- group drivers ----------------------------------------------------
     # The per-segment recursion (_bocpd_inner / _oblr_inner) is inherently
     # sequential, but groups (e.g. wells / panels) are independent, so the
@@ -226,33 +182,6 @@ if _NUMBA_AVAILABLE:
             s = starts[g]
             e = ends[g]
             _bocpd_inner(obs_sorted[s:e], hazard, mu0, kappa0, alpha0, beta0, out_p[s:e], out_ex[s:e], out_max[s:e], max_run_length)
-
-    @_numba.njit(cache=True)
-    def _oblr_groups_serial(y_sorted, X_sorted, starts, ends, prior_precision, noise_sigma, out_pm, out_pv, out_lm):
-        """Serial group driver for ``_oblr_inner``: runs each group's segment through the OBLR recursion one at a time.
-
-        Mirrors ``_bocpd_groups_serial``: group-contiguous inputs/outputs sliced by ``starts``/``ends``, each group
-        re-initialised from the same isotropic prior (``prior_precision``) so no posterior state bleeds across group
-        boundaries. Used for small group counts / total work, where ``prange`` spawn overhead would not pay off.
-        """
-        for g in range(starts.size):
-            s = starts[g]
-            e = ends[g]
-            _oblr_inner(y_sorted[s:e], X_sorted[s:e], prior_precision, noise_sigma, out_pm[s:e], out_pv[s:e], out_lm[s:e])
-
-    @_numba.njit(parallel=True, cache=True)
-    def _oblr_groups_parallel(y_sorted, X_sorted, starts, ends, prior_precision, noise_sigma, out_pm, out_pv, out_lm):
-        """Parallel group driver for ``_oblr_inner``: ``numba.prange`` over independent groups, each group serial internally.
-
-        Same parallelisation strategy as ``_bocpd_groups_parallel`` -- groups are independent regression problems, so
-        the recursive (sequential-in-time) OBLR update runs within each ``prange`` iteration while iterations
-        themselves scale across cores, each writing a disjoint output slice. Selected over the serial driver by
-        ``dispatch_recursion_backend`` once group count / total work is large enough to amortise thread-spawn cost.
-        """
-        for g in _numba.prange(starts.size):
-            s = starts[g]
-            e = ends[g]
-            _oblr_inner(y_sorted[s:e], X_sorted[s:e], prior_precision, noise_sigma, out_pm[s:e], out_pv[s:e], out_lm[s:e])
 
     # 1-D Kalman-filter scalar recurrence. fastmath=False keeps the exact op
     # order, so the (T,5) output is bit-identical to the Python reference (the

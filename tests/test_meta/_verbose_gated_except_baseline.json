@@ -26,6 +26,7 @@
   "evaluation/bootstrap.py:301",
   "evaluation/bootstrap.py:405",
   "evaluation/bootstrap.py:411",
+  "feature_engineering/_bayesian_oblr.py:23",
   "feature_engineering/_benchmarks/bench_curated_fe_holdout_value.py:117",
   "feature_engineering/_benchmarks/bench_rff_matmul.py:121",
   "feature_engineering/_recursion_autotune.py:47",

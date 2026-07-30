@@ -3,6 +3,11 @@
 repo's enforced hard 1000-LOC CI gate (that file was 1049 lines). Behaviour preserved bit-for-bit; the
 parent re-exports both classes so existing ``from mlframe.training.neural.recurrent import
 RecurrentClassifierWrapper`` callers keep working unchanged.
+
+``_RecurrentWrapperBase`` (the two classes' shared base) lives in ``_recurrent_wrapper_base.py`` --
+carved out AGAIN once adding the two subclasses here pushed this file itself past the same 1000-LOC
+ceiling (1049 lines). Re-imported below so this module's own re-export of ``_RecurrentWrapperBase``
+(for ``recurrent_dataset_helpers.py``'s facade) keeps working unchanged.
 """
 
 from __future__ import annotations
@@ -19,7 +24,13 @@ from sklearn.base import ClassifierMixin, RegressorMixin
 
 from ._recurrent_config import RecurrentConfig
 from ._recurrent_torch_model import RecurrentTorchModel
-from .recurrent_dataset_helpers import _DEFAULT_SEQ_INPUT_SIZE, _RecurrentWrapperBase
+from ._recurrent_wrapper_base import (  # noqa: F401 -- re-exported; recurrent_dataset_helpers.py's facade imports these from this module
+    _DEFAULT_SEQ_INPUT_SIZE,
+    _MONITOR_MIN_KEYS,
+    _MONITOR_MAX_KEYS,
+    _monitor_mode,
+    _RecurrentWrapperBase,
+)
 
 logger = logging.getLogger("mlframe.training.neural.recurrent_dataset_helpers")  # matches the pre-carve logger name; preserves log-filter/caplog compatibility for existing callers/tests
 

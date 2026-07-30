@@ -410,7 +410,7 @@
   "default_via_or::training/neural/_flat_torch_module/__init__.py:134",
   "default_via_or::training/neural/base/_base_fit.py:490",
   "default_via_or::training/neural/flat.py:750",
-  "default_via_or::training/neural/recurrent_dataset_helpers.py:382",
+  "default_via_or::training/neural/_recurrent_wrapper_base.py:367",
   "default_via_or::training/pipeline/__init__.py:614",
   "default_via_or::training/pipeline/__init__.py:793",
   "default_via_or::training/pipeline/__init__.py:793",

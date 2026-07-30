@@ -20,7 +20,7 @@ import numpy as np
 from mlframe.feature_selection.filters.supervised_binning import mdlp_bin_edges
 from mlframe.feature_selection.filters._adaptive_nbins import _edges_from_quantiles
 
-from .bench_mdlp_validated_split_suite import SCENARIOS, _oos_mse, _split
+from ._mdlp_bench_shared import SCENARIOS, _oos_mse, _split
 
 
 @dataclass

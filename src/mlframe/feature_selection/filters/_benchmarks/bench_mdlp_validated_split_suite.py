@@ -46,103 +46,22 @@ import pandas as pd
 from mlframe.feature_selection.filters.supervised_binning import mdlp_bin_edges
 from mlframe.feature_selection.filters._mdlp_validated_split import mdlp_bin_edges_oos_validated, mdlp_bin_edges_validated
 from mlframe.feature_selection.filters._adaptive_nbins import _edges_from_quantiles
+from ._mdlp_bench_shared import (  # noqa: F401 -- re-exported; external callers (bench_mdlp_prefilter_hybrid.py, tests) import the scen_* generators from this module's own path
+    SCENARIOS,
+    _oos_mse,
+    _split,
+    scen_cauchy_x,
+    scen_extreme_scale,
+    scen_interaction_only,
+    scen_lognormal_x,
+    scen_multimodal_target,
+    scen_non_monotonic_sine,
+    scen_pure_noise,
+    scen_step_k_breakpoints,
+    scen_with_nan,
+)
 
 logger = logging.getLogger(__name__)
-
-# -----------------------------------------------------------------------------
-# Scenario generators. Each returns (x, y) as float64 1-D arrays, n rows.
-# -----------------------------------------------------------------------------
-
-
-def scen_pure_noise(n: int, seed: int = 0):
-    rng = np.random.default_rng(seed)
-    return rng.standard_normal(n), rng.standard_normal(n) * 1000.0
-
-
-def scen_step_k_breakpoints(n: int, k: int, seed: int = 0):
-    """Step function with exactly ``k`` true breakpoints in [-5, 5], noise sigma=2."""
-    rng = np.random.default_rng(seed)
-    x = rng.uniform(-5, 5, n)
-    cuts = np.linspace(-5, 5, k + 2)[1:-1]
-    levels = rng.uniform(5, 40, k + 1)
-    y = np.select([x < c for c in cuts] + [np.ones_like(x, dtype=bool)], [levels[i] for i in range(k)] + [levels[-1]])
-    y = y + rng.standard_normal(n) * 2.0
-    return x, y
-
-
-def scen_non_monotonic_sine(n: int, seed: int = 0):
-    rng = np.random.default_rng(seed)
-    x = rng.uniform(-10, 10, n)
-    y = 20.0 * np.sin(x) + rng.standard_normal(n) * 3.0
-    return x, y
-
-
-def scen_multimodal_target(n: int, seed: int = 0):
-    """y bimodal REGARDLESS of x (x carries no signal) -- a distractor multimodal target."""
-    rng = np.random.default_rng(seed)
-    x = rng.standard_normal(n)
-    mode = rng.integers(0, 2, n)
-    y = np.where(mode == 0, rng.normal(-50, 5, n), rng.normal(50, 5, n))
-    return x, y
-
-
-def scen_interaction_only(n: int, seed: int = 0):
-    """x1 alone carries ZERO marginal signal -- y depends on x1*x2 (XOR-family synergy). A valid
-    per-column MDLP criterion should treat x1 like pure noise (only the JOINT with x2 predicts y,
-    which is out of scope for a single-column binner)."""
-    rng = np.random.default_rng(seed)
-    x1 = rng.standard_normal(n)
-    x2 = rng.choice([-1.0, 1.0], n)
-    y = x1 * x2 * 10.0 + rng.standard_normal(n) * 1.0
-    return x1, y  # only x1 passed to the binner -- x2 is the hidden confounder
-
-
-def scen_lognormal_x(n: int, seed: int = 0):
-    rng = np.random.default_rng(seed)
-    x = rng.lognormal(0, 1.5, n)
-    y = np.where(x < 2.0, 10.0, 30.0) + rng.standard_normal(n) * 2.0
-    return x, y
-
-
-def scen_cauchy_x(n: int, seed: int = 0):
-    rng = np.random.default_rng(seed)
-    x = rng.standard_cauchy(n)
-    y = np.where(x < 0.0, 10.0, 30.0) + rng.standard_normal(n) * 2.0
-    return x, y
-
-
-def scen_extreme_scale(n: int, seed: int = 0):
-    """x spans 1e-3 to 1e6 -- numeric-stability probe."""
-    rng = np.random.default_rng(seed)
-    x = rng.uniform(1e-3, 1e6, n)
-    y = np.where(x < 3e5, 10.0, 30.0) + rng.standard_normal(n) * 2.0
-    return x, y
-
-
-def scen_with_nan(n: int, nan_frac: float, seed: int = 0):
-    x, y = scen_step_k_breakpoints(n, k=2, seed=seed)
-    rng = np.random.default_rng(seed + 1)
-    mask = rng.random(n) < nan_frac
-    x = x.copy()
-    x[mask] = np.nan
-    return x, y
-
-
-SCENARIOS = {
-    "pure_noise": lambda n, seed: scen_pure_noise(n, seed),
-    "step_2bp": lambda n, seed: scen_step_k_breakpoints(n, 2, seed),
-    "step_5bp": lambda n, seed: scen_step_k_breakpoints(n, 5, seed),
-    "step_10bp": lambda n, seed: scen_step_k_breakpoints(n, 10, seed),
-    "non_monotonic_sine": lambda n, seed: scen_non_monotonic_sine(n, seed),
-    "multimodal_target": lambda n, seed: scen_multimodal_target(n, seed),
-    "interaction_only": lambda n, seed: scen_interaction_only(n, seed),
-    "lognormal_x": lambda n, seed: scen_lognormal_x(n, seed),
-    "cauchy_x": lambda n, seed: scen_cauchy_x(n, seed),
-    "extreme_scale_x": lambda n, seed: scen_extreme_scale(n, seed),
-    "nan_1pct": lambda n, seed: scen_with_nan(n, 0.01, seed),
-    "nan_10pct": lambda n, seed: scen_with_nan(n, 0.10, seed),
-    "nan_30pct": lambda n, seed: scen_with_nan(n, 0.30, seed),
-}
 
 
 @dataclass
@@ -154,32 +73,6 @@ class Result:
     bins: int
     rmse: float
     note: str = ""
-
-
-def _oos_mse(x_train, y_train, x_test, y_test, edges):
-    inner = edges[1:-1] if edges.size >= 2 else edges
-    inner = inner[np.isfinite(inner)]
-    codes_train = np.searchsorted(inner, x_train, side="right")
-    codes_test = np.searchsorted(inner, x_test, side="right")
-    n_bins = int(inner.size) + 1
-    means = np.full(n_bins, float(np.mean(y_train)) if y_train.size else 0.0)
-    for b in range(n_bins):
-        m = codes_train == b
-        if m.any():
-            means[b] = float(np.mean(y_train[m]))
-    pred = means[np.clip(codes_test, 0, n_bins - 1)]
-    valid = np.isfinite(pred) & np.isfinite(y_test)
-    if not valid.any():
-        return float("nan"), n_bins
-    return float(np.mean((pred[valid] - y_test[valid]) ** 2)), n_bins
-
-
-def _split(x, y, seed=0, test_frac=0.25):
-    n = x.shape[0]
-    rng = np.random.default_rng(seed)
-    idx = rng.permutation(n)
-    n_test = max(1, int(n * test_frac))
-    return idx[n_test:], idx[:n_test]
 
 
 def run_one(scenario: str, n: int, method: str, seed: int = 0) -> Result:
@@ -901,16 +794,21 @@ def print_hparam_report(results: list) -> None:
         )
 
 
-# X_EFFICIENCY_ARCHITECTURE-1 fix: the duplicate-row/outlier robustness sweep
-# was carved out into bench_mdlp_robustness.py to clear the repo's enforced hard 1000-LOC CI gate (this
-# file was 1006 lines). Re-exported here so the __main__ block below keeps working unchanged.
-from .bench_mdlp_robustness import (  # noqa: E402,F401
+# X_EFFICIENCY_ARCHITECTURE-1 fix: the duplicate-row/outlier robustness sweep was carved out into
+# bench_mdlp_robustness.py to clear the repo's enforced hard 1000-LOC CI gate (this file was 1006
+# lines). Re-exported here so the __main__ block below (and external callers, e.g. tests) keep
+# working unchanged. Safe as a top-level import (unlike before the SCENARIOS/_oos_mse/_split move
+# above into _mdlp_bench_shared.py): bench_mdlp_robustness.py no longer imports anything from
+# THIS module, so this is a one-way dependency, not a cycle (test_no_import_cycles).
+from .bench_mdlp_robustness import (  # noqa: F401
     DUP_RATES, OUTLIER_KINDS, RobustnessResult,
     _inject_duplicates, _inject_outliers,
     print_robustness_report, run_robustness_fast, run_robustness_full, run_robustness_one,
 )
 
-if __name__ == "__main__":
+
+def _main() -> None:
+    """Script entry point for ``python -m ...bench_mdlp_validated_split_suite --full``."""
     if "--full" in sys.argv:
         print_report(run_full_sweep())
         print_mrmr_gt_report(run_mrmr_full_sweep())
@@ -921,3 +819,7 @@ if __name__ == "__main__":
         print_mrmr_gt_report(run_mrmr_fast_subset())
         print_hparam_report(run_hparam_sweep_fast())
         print_robustness_report(run_robustness_fast())
+
+
+if __name__ == "__main__":
+    _main()
