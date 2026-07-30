@@ -473,6 +473,9 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # test (legacy behaviour). Default 5.0 (ON), tuned on diabetes: at 5
         # rows/cell the plug-in CMI bias dominates the estimate.
         fe_confirm_undersample_rows_per_cell: float = 5.0,  # [ACCURACY-CAVEAT] 0.0 (legacy strict) under-selects small-n; see _param_accuracy_warnings.ACCURACY_SUBOPTIMAL
+        # RAM-bounded chunk size for the auto-prevalence-debias pair sweep (keeps peak memory
+        # O(chunk_size) instead of materializing every candidate pair at once).
+        fe_auto_prevalence_debias_chunk_size: int = 50_000,
         # stopping conditions
         # min_relevance_gain: absolute MI floor. In ``min_relevance_gain_mode='absolute'`` the screening stops when marginal gain < this value verbatim; in the default ``'relative_to_entropy'`` mode this value is IGNORED and the effective absolute floor is ``min_relevance_gain_frac * H(y)``. The absolute mode is dataset-blind - 0.0001 is enormous on a low-entropy target (99/1 binary, H(y) ~= 0.056) and tiny on a high-entropy one (uniform 10-class, H(y) ~= 2.30), so the default switched to the relative formulation.
         min_relevance_gain: float = 0.0001,
@@ -1355,6 +1358,11 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # Numeric values keep the legacy fixed-tau behaviour bit-identical.
         dcd_tau_cluster=0.7,
         dcd_distance: str = "su",
+        # Cross-cluster hierarchy (post-fit ``cluster_hierarchy_`` accessor): merge two DCD clusters
+        # into one "super" node when their inter-cluster tau exceeds this threshold, up to
+        # ``dcd_hierarchy_max_levels`` merge passes.
+        dcd_super_tau: float = 0.5,
+        dcd_hierarchy_max_levels: int = 3,
         # knobs for the auto-tau calibration sweep.
         # ``dcd_tau_calibration_n_pairs`` is the number of random feature pairs
         # sampled for the bimodality histogram; ``dcd_tau_calibration_seed``
@@ -1672,6 +1680,20 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # joint MI clears 1.5x the marginal sum - tightening against finite-sample-bias noise a fixed
         # 1.5 on the RAW MI admits. An explicit float (incl. the 1.5 default) is honoured verbatim.
         fe_synergy_min_prevalence: "float | str" = 1.5,
+        # MIN-ROWS guard: a 2-D joint-MI estimate is finite-sample-bias-dominated at tiny n, admitting
+        # pure-noise pairs (see _mrmr_fe_step_helpers.py's synergy gate). Below this row count the
+        # synergy pass is skipped entirely rather than trusted.
+        fe_synergy_min_rows: int = 300,
+        # ADDITIVE FUSION (see _fe_additive_fusion.py / _fe_additive_fusion_gpu_resident.py,
+        # dispatched from _mrmr_fe_step/_step_score.py): merges near-collinear engineered
+        # operands whose OLS residual floor sits within ``fe_additive_fusion_floor_margin``
+        # of each other into a single fused feature, capped at ``fe_additive_fusion_max``
+        # fusions per candidate set; ``fe_additive_fusion_ols_r_margin_sd`` sets the
+        # sample-size-scaled OLS-r tolerance (divided by sqrt(n_rows)) for the merge decision.
+        fe_additive_fusion_enable: bool = True,
+        fe_additive_fusion_floor_margin: float = 1.0,
+        fe_additive_fusion_max: int = 4,
+        fe_additive_fusion_ols_r_margin_sd: float = 2.0,
         # DATA-DRIVEN PAIR PREVALENCE: the hardcoded ``fe_*_min_prevalence``
         # ratio bars over the MM-debiased joint MI under-admit ASYMMETRIC interactions
         # whose one operand has a strong marginal (the joint's analytic bias subtraction
