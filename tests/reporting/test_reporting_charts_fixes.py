@@ -7,7 +7,6 @@ from F6) need no dedicated test.
 
 from __future__ import annotations
 
-import inspect
 
 import numpy as np
 import pytest
@@ -235,14 +234,6 @@ def test_f7_shap_save_figure_is_a_single_shared_function():
 
     assert shap_interactions._save_figure is shap_panels._save_figure
     assert shap_per_instance._save_figure is shap_panels._save_figure
-
-
-def test_f7_no_duplicate_save_figure_definitions_remain():
-    """F7 no duplicate save figure definitions remain."""
-    from mlframe.reporting.charts import shap_interactions, shap_per_instance
-
-    assert "def _save_figure" not in inspect.getsource(shap_interactions)
-    assert "def _save" not in inspect.getsource(shap_per_instance).replace("def _save_figure", "")
 
 
 # ---------------------------------------------------------------------------

@@ -95,18 +95,6 @@ def test_f2_valid_model_names_still_construct():
 # ---------------------------------------------------------------------------
 
 
-def test_f4_nan_fallback_uses_weighted_mean_when_weights_supplied():
-    """F4 nan fallback uses weighted mean when weights supplied."""
-    from mlframe.models.ensembling.base import combine_probs
-
-    # Source-level check of the fallback contract itself; the end-to-end trigger for the fallback
-    # actually firing is covered separately below by test_f4_combine_probs_geo_flavour_nan_fallback_is_weighted.
-    import inspect
-
-    src = inspect.getsource(combine_probs)
-    assert "np.average(stacked, axis=0, weights=weights_arr) if weights_arr is not None else np.mean(stacked, axis=0)" in src
-
-
 def test_f4_combine_probs_geo_flavour_nan_fallback_is_weighted():
     """A genuine end-to-end trigger: 'qube' cubes each member's prediction (``p**3``) before averaging;
     a huge-but-finite member value (e.g. 1e200) makes the CUBE overflow to inf while the raw stacked
@@ -165,14 +153,24 @@ def test_f5_default_call_matches_explicit_mean_flavour():
 
 
 def test_f7_negative_full_score_still_computes_a_ratio():
-    """F7 negative full score still computes a ratio."""
-    import inspect
+    """F7: additive_signal_ratio must be a real (finite) ratio when the full model's CV score is
+    negative -- only an EXACT zero should force nan. A ``metric_fn`` that ignores its inputs and
+    always returns a fixed negative value makes ``full_score`` deterministically negative without
+    needing a real underperforming model fit."""
+    from sklearn.model_selection import KFold
 
-    from mlframe.models import additive_interaction_diagnostic as mod
+    from mlframe.models.additive_interaction_diagnostic import additive_interaction_diagnostic
 
-    src = inspect.getsource(mod)
-    assert "if full_score != 0 else" in src
-    assert "if full_score > 0 else" not in src
+    rng = np.random.default_rng(0)
+    n = 200
+    X = rng.normal(size=(n, 3))
+    y = X[:, 0] + rng.normal(scale=0.1, size=n)
+    splits = list(KFold(2).split(X))
+
+    result = additive_interaction_diagnostic(X, y, splits, metric_fn=lambda y_true, y_pred: -0.5, objective="regression")
+
+    assert result["full_model_cv_score"] == -0.5
+    assert np.isfinite(result["additive_signal_ratio"]), "F7 REGRESSION: a negative-but-nonzero full_score must not force the ratio to nan"
 
 
 # ---------------------------------------------------------------------------
@@ -190,13 +188,36 @@ def test_f8_ensembling_methods_default_is_not_the_shared_list_object():
     assert sig.parameters["ensembling_methods"].default is None, "F8 REGRESSION: the default must be None, not the shared module-level list object"
 
 
-def test_f8_mutating_caller_list_does_not_leak_into_next_call():
-    """Simulates the exact foot-gun the finding warns about: even if a future edit mutated the
-    resolved list in place, a fresh None-default call must not see stale state from the previous one."""
-    import inspect
+def test_f8_mutating_caller_list_does_not_leak_into_next_call(monkeypatch):
+    """Simulates the exact foot-gun the finding warns about: score_ensemble must resolve
+    ``ensembling_methods=None`` into a FRESH list each call, never a live reference to the shared
+    module-level ``SIMPLE_ENSEMBLING_METHODS`` -- otherwise a later in-place mutation of the resolved
+    list (e.g. a filter step dropping an entry) would corrupt every subsequent default-arg call too."""
 
-    from mlframe.models.ensembling.score import score_ensemble
+    class _StopEarly(Exception):
+        """Raised by the stubbed validator to short-circuit score_ensemble right after it resolves
+        ensembling_methods, before the (expensive, irrelevant-to-this-test) real scoring body runs."""
 
-    src = inspect.getsource(score_ensemble)
-    assert "if ensembling_methods is None:" in src
-    assert "ensembling_methods = list(SIMPLE_ENSEMBLING_METHODS)" in src
+    import mlframe.models.ensembling.score as score_mod
+    from mlframe.models.ensembling.score import SIMPLE_ENSEMBLING_METHODS, score_ensemble
+
+    captured: list = []
+
+    def _fake_validate(*args, **kwargs):
+        """Capture the resolved ensembling_methods list, then abort the call."""
+        captured.append(kwargs["ensembling_methods"])
+        raise _StopEarly
+
+    monkeypatch.setattr(score_mod, "_validate_score_ensemble_inputs", _fake_validate)
+
+    with pytest.raises(_StopEarly):
+        score_ensemble(models_and_predictions=[], ensemble_name="e")
+
+    assert len(captured) == 1
+    resolved = captured[0]
+    assert resolved == list(SIMPLE_ENSEMBLING_METHODS)
+    assert resolved is not SIMPLE_ENSEMBLING_METHODS, "F8 REGRESSION: ensembling_methods=None resolved to a live reference, not a fresh copy"
+
+    # Mutate the resolved list as a downstream filter step legitimately would -- must not affect the source.
+    resolved.pop()
+    assert list(SIMPLE_ENSEMBLING_METHODS) != resolved
