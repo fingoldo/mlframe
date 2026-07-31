@@ -17,7 +17,7 @@ module does not attempt to reconcile (last-applied-wins: config after flats).
 """
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -285,7 +285,7 @@ def invalidate_stale_mrmr_configs(self) -> None:
             self.hybrid_orth_config = None
 
 
-def mrmr_set_params(self, **params):
+def mrmr_set_params(self, **params: Any) -> Any:
     """``MRMR.set_params`` override: bound directly onto the class in ``mrmr/__init__.py``
     (not defined on a mixin) because ``BaseEstimator`` - which already defines ``set_params`` - sits
     BEFORE the config mixins in ``MRMR``'s MRO, so a mixin-level override would never be reached. Calling

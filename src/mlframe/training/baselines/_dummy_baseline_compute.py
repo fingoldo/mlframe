@@ -379,7 +379,7 @@ def _safe_metric(metric_fn: Callable, y_true: np.ndarray, y_pred: np.ndarray, **
 # ---------------------------------------------------------------------
 
 
-def compute_dummy_baselines(*args, **kwargs):
+def compute_dummy_baselines(*args: Any, **kwargs: Any) -> Any:
     """Delegates to the canonical implementation in ``dummy.py``.
 
     Wave 92 (2026-05-21) split this facade out from the monolith; this module's own docstring claimed the

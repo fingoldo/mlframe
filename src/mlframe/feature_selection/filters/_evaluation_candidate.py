@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import logging
 from timeit import default_timer as timer
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from ._dynamic_cluster_discovery import DCDState
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +37,7 @@ def should_skip_candidate(
     selected_interactions_vars: list,
     only_unknown_interactions: bool = True,
     engineered_lineage: dict | None = None,
-    dcd_state=None,
+    dcd_state: "DCDState | None" = None,
 ) -> tuple:
     """Decide if current candidate for predictors should be skipped (already accepted, failed, or computed).
 
@@ -102,7 +105,7 @@ def handle_best_candidate(
     max_runtime_mins: float | None = None,
     start_time: float | None = None,
     min_relevance_gain: float | None = None,
-):
+) -> tuple:
     """Update the running best-candidate/best-gain tracker for the current MRMR search iteration, logging progress when verbose, and signal whether the ``max_runtime_mins`` budget has been exceeded (early-stop check). Returns ``(best_gain, best_candidate, run_out_of_time)``."""
     # Save best known candidate, to enable early stopping.
     run_out_of_time = False

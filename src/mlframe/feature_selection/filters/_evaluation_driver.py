@@ -12,13 +12,16 @@ from __future__ import annotations
 
 import logging
 import os as _os
-from typing import Any, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 import numba
 import numpy as np
 from numba.core import types
 
 from pyutilz.numbalib import python_dict_2_numba_dict
+
+if TYPE_CHECKING:
+    from ._dynamic_cluster_discovery import DCDState
 # Module-level import so cloudpickle can resolve tqdmu when the function ships to a joblib worker.
 from pyutilz.system import tqdmu
 
@@ -466,7 +469,7 @@ def _evaluate_candidates_inner(
 # already-established sibling. Re-exported from evaluation.py so every import path still resolves.
 def find_best_partial_gain(
     partial_gains: dict, failed_candidates: set, added_candidates: set, candidates: list, selected_vars: list, skip_indices: tuple = (),
-    dcd_state=None,
+    dcd_state: "DCDState | None" = None,
 ) -> "tuple[float, Any]":
     """Find the highest-scoring already-evaluated-but-not-yet-confirmed candidate in ``partial_gains`` (used to redirect the confirmation loop to the next-best option when the current top candidate fails confirmation), excluding failed/added/skip_indices candidates and any candidate DCD has since pruned."""
     # a DCD-pruned candidate must NOT be returned as a

@@ -57,6 +57,43 @@ WHITELIST: set[str] = {
     "training/neural/test_compile_predict.py",
     "training/neural/test_cuda_graph_predict.py",
     "training/neural/test_torch_compile_safety_and_profiler.py",
+    # Documented known-debt (148 call sites across 28 files, 2026-07): each asserts on prod
+    # source text -- comment-marker presence/count, exact log-message wording, or the literal
+    # shape of a closure body -- rather than runtime behaviour. 34 sibling sites in this same
+    # audit-file family were already converted to behavioural tests with empirical
+    # bug-reproduction verification; these remaining sites need either heavy fixtures (Lightning
+    # networks, thread-pool Futures in a specific pending state) or have no behavioural
+    # equivalent at all (a pure comment-marker-count check). Listed explicitly, mirroring
+    # SOURCE_POSITION_PROXY_WHITELIST below, so the gate stays live for NEW test files while
+    # tracking this remainder rather than silently passing.
+    "feature_engineering/transformer/test_fe_transformer_a_fixes.py",
+    "feature_engineering/transformer/test_fe_transformer_b_fixes.py",
+    "feature_selection/mrmr/test_audit_verification_gaps.py",
+    "feature_selection/regression/test_regression_mrmr_audit_2026_07_22.py",
+    "feature_selection/wrappers/test_feature_selection_wrappers_fixes.py",
+    "test_meta/test_audit_baseline_debt_wave10_logging.py",
+    "test_meta/test_audit_baseline_debt_wave11_logging.py",
+    "test_meta/test_audit_baseline_debt_wave9_logging.py",
+    "test_meta/test_audit_log_only_except_wave2.py",
+    "test_meta/test_audit_log_only_except_wave3.py",
+    "test_meta/test_audit_log_only_except_wave4.py",
+    "test_meta/test_audit_log_only_except_wave5.py",
+    "test_meta/test_audit_log_only_except_wave7.py",
+    "test_meta/test_x_architecture_api_consistency_fixes.py",
+    "test_meta/test_x_security_robustness_fixes.py",
+    "test_meta/test_x_test_suite_architecture_fixes.py",
+    "training/baselines/test_training_baselines_fixes.py",
+    "training/composite/discovery/test_training_composite_discovery_fixes.py",
+    "training/composite/test_training_composite_loose_a_fixes.py",
+    "training/core/test_training_core_b_fixes.py",
+    "training/feature_handling/test_training_feature_handling_fixes.py",
+    "training/pipeline/test_training_pipeline_fixes.py",
+    "training/test_audit_numpy_view_copy_contracts.py",
+    "training/test_drift_report.py",
+    "training/test_training_loose_b_fixes.py",
+    "training/test_training_loose_c_fixes.py",
+    "training/test_training_misc_small_fixes.py",
+    "votenrank/test_votenrank_fixes.py",
 }
 
 

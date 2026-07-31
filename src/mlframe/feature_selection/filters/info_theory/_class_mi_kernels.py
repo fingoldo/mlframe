@@ -176,7 +176,7 @@ def compute_mi_from_classes_weighted(
     classes_x: np.ndarray,
     classes_y: np.ndarray,
     weights: np.ndarray,
-    dtype=np.int32,
+    dtype: type = np.int32,
 ) -> float:
     """Weighted mutual information from two pre-computed class arrays + per-row sample weights.
 

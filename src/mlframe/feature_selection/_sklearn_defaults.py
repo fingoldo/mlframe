@@ -9,7 +9,12 @@ from __future__ import annotations
 
 import warnings
 
+from typing import TYPE_CHECKING
+
 import numpy as np
+
+if TYPE_CHECKING:
+    from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
 
 def is_classification_target(y: np.ndarray, n: int | None = None) -> bool:
@@ -38,7 +43,7 @@ def is_classification_target(y: np.ndarray, n: int | None = None) -> bool:
     return False
 
 
-def default_tree_estimator(y: np.ndarray, n: int | None = None, random_state: int = 0, n_estimators: int = 120):
+def default_tree_estimator(y: np.ndarray, n: int | None = None, random_state: int = 0, n_estimators: int = 120) -> "RandomForestClassifier | RandomForestRegressor":
     """Task-appropriate RandomForest default: classifier for low-cardinality integer/label y, else regressor."""
     from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
