@@ -146,6 +146,25 @@ n=50/500/5000) and 1345x faster in isolation at n=1.6M (69.2s -> 0.051s). Full `
 ## Coverage cannot see inside `@njit`
 numba-compiled bodies never reach the Python trace hook, so every `@njit` function reads as uncovered no matter how heavily it is exercised. Measure them with `NUMBA_DISABLE_JIT=1`, and expect the run to be much slower.
 
+## PERF cycle REJECT (2026-07-31): c0003 2M-row profile, GPU-resident FE candidate MI already saturated
+2M-row cProfile on combo `c0003_5a0bbd4e` (HGB, multilabel, polars_nullable, 15 cats) surfaced two more
+mlframe-internal candidates besides the ECE jackknife win above:
+`plugin_mi_classif_batch_dispatch` (275.7s tottime / 871 calls) and `cupy._core.core.array` /
+`concatenate_method` (368s / 162s tottime across ~10-12k calls) inside the GPU-resident FE-candidate MI
+path (`_resident_candidate_mi.py`, `_pairwise_modular_fe.py::_residue_grid_mi`, `_orth_mi_backends.py`).
+Both investigated and REJECTED as fresh wins this cycle:
+- `plugin_mi_classif_batch_dispatch`'s huge tottime is a KNOWN cProfile mis-attribution already documented
+  in its own docstring (bench-rejected 2026-07-06): numba's compiled njit body has no Python frame, so its
+  compute time rolls into this plain-Python dispatcher's tottime. Not actionable.
+- The cupy H2D/concatenate volume lives entirely inside the kernel-tuning-cache-gated GPU-resident
+  candidate-MI subsystem (`_resident_candidate_mi.py` / MANDATE-2), which already carries extensive
+  per-host-measured crossover gating and multiple documented bench-rejected attempts (e.g. the
+  2026-06-26 host-stacking rejection in `_build_best_existing_op_candidates_gpu`'s docstring). The dev
+  host's GPU (GTX 1050 Ti, 4GB) is explicitly called out there as weak/contended; further tuning needs a
+  fresh per-host KTC re-measurement + isolated bench, not a code-reading-only guess, and risks destabilizing
+  an already-validated selection-equivalence contract. Deferred to a cycle with bandwidth for a full
+  bench + A/B rather than forced under this cycle's time budget.
+
 ## polars traps that fail silently
 `min() == max()` as a constant-column check returns null, not True, for an all-null column, so the column is silently not detected as constant — use `eq_missing` for any comparison that must treat null as a value, and test the all-null case explicitly whenever writing a column-level predicate.
 `pl.Categorical` in polars 1.x resolves categories through a process-wide string cache, so two independently built frames can hold codes meaning different things, and joining or comparing them gives wrong results rather than an error. Use `pl.Enum` with an explicit category list wherever the value set is known.
