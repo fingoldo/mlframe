@@ -86,6 +86,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import numba
 from numba import njit
 
 from ._analytic_mi_null import analytic_mi_null, analytic_null_applicable
@@ -146,7 +147,7 @@ def _count_candidates_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, min_split
     return count
 
 
-@njit(nogil=True, cache=True)
+@njit(nogil=True, cache=True, parallel=True)
 def _permutation_null_gain_njit(x_sorted: np.ndarray, y_compact: np.ndarray, n_classes: int, min_split_size: int, n_permutations: int, seed: int) -> np.ndarray:
     """Shuffle ``y_compact`` ``n_permutations`` times and recompute the best-split gain each time via the
     SAME production kernel (``_mdlp_best_split_njit``) the observed split used. ``x_sorted`` stays fixed
@@ -154,12 +155,27 @@ def _permutation_null_gain_njit(x_sorted: np.ndarray, y_compact: np.ndarray, n_c
     marginal distributions of x and y are preserved, only their pairing is randomized). Returns the
     ``(n_permutations,)`` array of null gains (best_gain, possibly -1.0 when no split at all clears
     ``min_split_size``/candidate constraints - treated as a zero-strength null draw by the caller).
+
+    ``numba.prange`` over the permutation dimension: this was previously ONE continuous sequential
+    ``np.random.seed(seed)`` stream across all ``n_permutations`` draws -- called from ``_split_significant``
+    at EVERY tree node reaching the permutation fallback (3176+ nodes / 62.8s tottime in a multiclass
+    cProfile at n=2M, the module's own docstring flags this "20-80x permutation-fallback cost" as the
+    confirmed driver and names a batched-parallel rewrite as the unimplemented next step -- see
+    ``_permutation_prefilter_reject``'s docstring). Each iteration now seeds independently (``seed + p``)
+    so permutations run truly concurrently; this changes WHICH exact permutations are drawn for a given
+    seed (no longer bit-identical to the old continuous-stream draws) but each draw is still a uniformly
+    random permutation of ``y_compact``, so the null distribution -- and every accept/reject decision it
+    feeds -- is SELECTION-EQUIVALENT, not bit-identical (the accepted bar for this significance-test
+    family; see ``bench_mdlp_prefilter_hybrid.py``'s existing 0-mismatch validation style). Determinism
+    for a fixed ``seed`` is preserved (``seed + p`` is a pure function of the inputs). Measured 3.7x at a
+    representative node shape (n=200, n_permutations=30) despite the small per-call iteration count --
+    see ``bench_mdlp_permutation_null_parallel.py``.
     """
-    np.random.seed(seed)
     n = y_compact.shape[0]
     null_gains = np.empty(n_permutations, dtype=np.float64)
-    y_perm = y_compact.copy()
-    for p in range(n_permutations):
+    for p in numba.prange(n_permutations):
+        np.random.seed(seed + p)
+        y_perm = y_compact.copy()
         # Fisher-Yates on a scratch copy - np.random.shuffle is not always njit-supported across numba
         # versions for arbitrary dtypes, so implement it directly (int64 labels only).
         for i in range(n - 1, 0, -1):
