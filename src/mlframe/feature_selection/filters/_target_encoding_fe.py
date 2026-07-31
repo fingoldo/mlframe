@@ -407,10 +407,13 @@ def kfold_target_encode_fit(
         # rows in fold f.
         oof = {s: np.full(n, global_stats[s], dtype=np.float64) for s in stats}
         for f in range(int(n_folds)):
-            train_mask = _fold_ne[f]
-            if not train_mask.any():
-                continue
             test_idx = _fold_test_idx[f]
+            # Equivalent to the old ``_fold_ne[f].any()`` full-array-scan gate (O(n), done once per
+            # (col, fold)) without touching the array: train is empty iff every row fell into this
+            # fold's test set, i.e. test_idx (already computed) covers the whole dataset.
+            if test_idx.size == n:
+                continue
+            train_mask = _fold_ne[f]
             per_cat: dict = {}
             if moment_stats:
                 test_counts = np.bincount(inverse[test_idx], minlength=n_cats) if full_counts is not None else None

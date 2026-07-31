@@ -135,6 +135,21 @@ This machine's global editable-install `.pth` (`__editable__.mlframe-*.pth`) poi
 A hot recursion/function often has more than one independent call site reaching the same underlying logic (e.g. two separate public entry points that both duplicate a "sort + dedupe + recurse" sequence instead of one delegating to the other). Optimizing the first one you profile and calling it done leaves the others silently un-sped-up — a fresh cProfile run later can still show the OLD implementation as the #1 hotspot by tottime even though a validated faster replacement already exists in the same file. Before declaring a hotspot "already optimized, move to the next", `grep` every call site of the slow function/recursion by name across `src/`, not just the one the current profile happened to point at.
 **Why documented:** the MDLP BFS rewrite (`_mdlp_recurse_validated` → `_mdlp_recurse_validated_bfs`) shipped 2026-07-31 and was wired into `mdlp_bin_edges_validated()` (`_mdlp_validated_split.py`) — but `mdlp_bin_edges()` (`supervised_binning.py`), a SEPARATE, independent call site that duplicates the same sort/dedupe/recurse sequence and is the entry point MRMR/FE code actually calls, still called the old DFS function directly. A fresh 2M-row cProfile on a *different* combo caught it: 21.3s tottime / 1212 calls on `_mdlp_recurse_validated`, i.e. the just-shipped optimization was real but unused in production. Fixed by wiring the same already-validated BFS function into the second call site — no new algorithm, purely a missed grep.
 
+## FIXED BUG (2026-07-31, root-caused): `test_support_indices_within_feature_names_in_and_transform_runs` was a broken TEST FIXTURE, not an MRMR bug
+`TestNeverEmptyRescueSupportIndexSpace::test_support_indices_within_feature_names_in_and_transform_runs`
+(`tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_fe_encodings/test_kfold_target_encoding.py`)
+failed with `transform()` emitting `['cat_region']` instead of `['cat_region__te']`. Root cause (confirmed
+live via `verbose=True` fit logging, not guessed): the test called `_make_mrmr(fe_ntop_features=3)` believing
+`fe_ntop_features` alone turns TE on ("TE ON by default" in the old docstring) — it does not.
+`make_fast_mrmr`'s base preset is `fe_max_steps=0` with every FE family off; TE requires the explicit
+`fe_kfold_te_enable=True, fe_kfold_te_cols=(...)` kwargs (as the sibling `TestOOFNoLeak`-style tests in the
+same file already do). With TE never enabled, `cat_region__te` was never engineered at all (0 recipes; the
+"MRMR+ selected 1 out of 3 features: cat_region" log line before the fix confirms selection was raw-only) —
+nothing in the never-empty raw-representative re-attach path (`_fit_impl_core.py` ~line 8685,
+`min_features_fallback`) was ever exercised or defective. Fix: added the missing `fe_kfold_te_enable=True,
+fe_kfold_te_cols=("cat_region",)` kwargs to the test's `_make_mrmr` call. All 39 tests in
+`tests/feature_selection/fe/target_encoding/` + this file now pass (was 38 passed / 1 failed).
+
 ## Coverage cannot see inside `@njit`
 numba-compiled bodies never reach the Python trace hook, so every `@njit` function reads as uncovered no matter how heavily it is exercised. Measure them with `NUMBA_DISABLE_JIT=1`, and expect the run to be much slower.
 

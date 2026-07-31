@@ -486,7 +486,11 @@ class TestNeverEmptyRescueSupportIndexSpace:
     def test_support_indices_within_feature_names_in_and_transform_runs(self):
         """support_ indices stay in feature_names_in_ space (never cols-space) so transform never IndexErrors."""
         X, y = _build_cat_signal(seed=1, n=2000)
-        m = _make_mrmr(fe_ntop_features=3)  # TE ON by default -> cat_region__te becomes the only confirmed feature, support_ rescues the cat_region operand.
+        # ``make_fast_mrmr``'s base preset is FE-off (fe_max_steps=0, no cat-FE): ``fe_ntop_features``
+        # alone does NOT turn TE on (confirmed live: with only that kwarg, ``cat_region__te`` is never
+        # engineered at all -- 0 recipes, MI-prevalence-gated selection is raw-only). TE must be enabled
+        # explicitly, matching the sibling tests in this file (e.g. TestOOFNoLeak).
+        m = _make_mrmr(fe_ntop_features=3, fe_kfold_te_enable=True, fe_kfold_te_cols=("cat_region",))
         m.fit(X, y)
         n_in = len(m.feature_names_in_)
         support = np.asarray(m.support_)
