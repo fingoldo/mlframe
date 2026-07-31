@@ -182,3 +182,109 @@ def test_redundancy_gate_drops_binagg_redundant_with_engineered_source_on_linear
 
     off_appended = list(getattr(make_fast_mrmr(fe_max_steps=1, fe_binned_numeric_agg_redundancy_gate=False).fit(X, y), "hybrid_orth_features_", []) or [])
     assert any(str(c).startswith("binagg_") for c in off_appended), "with the redundancy gate OFF the Tier-1 MI floor admits the redundant binagg column(s)"
+
+
+def test_global_stats_all_matches_global_stat():
+    # _global_stats_all replaced _global_stat's four separate scipy-based full-array passes (mean, std, and
+    # TWO scipy skew/kurtosis calls) with ONE O(n) njit raw-moment pass -- profiled at 8.5s cumtime / 188
+    # calls, the dominant cost of fit_binned_numeric_agg on a 2M-row cProfile run. scipy's defaults
+    # (skew(bias=True), kurtosis(fisher=True, bias=True)) are the same population moment-ratio estimators
+    # _derive_cell_stats already computes, so this pins that the fused path matches the old per-stat path
+    # (selection-equivalence tolerance, not bit-identical -- different summation order) across random data,
+    # NaN-bearing columns, near-constant columns, and tiny-n edge cases (the skew n<=2 / kurt n<=3 guards).
+    """Global stats all matches global stat."""
+    from mlframe.feature_selection.filters._binned_numeric_agg_fe import _global_stat, _global_stats_all
+
+    rng = np.random.default_rng(0)
+    stats = ["mean", "std", "skew", "kurt"]
+    worst = 0.0
+    for _ in range(500):
+        n = int(rng.integers(1, 200))
+        v = rng.standard_normal(n)
+        if rng.random() < 0.1:
+            v[rng.integers(0, n, size=max(1, n // 5))] = np.nan
+        if rng.random() < 0.05:
+            v[:] = rng.standard_normal()  # constant column
+        old = {s: _global_stat(v, s) for s in stats}
+        new = _global_stats_all(v, stats)
+        for s in stats:
+            worst = max(worst, abs(old[s] - new[s]))
+    assert worst < 1e-9, f"_global_stats_all diverges {worst:.3e} from _global_stat"
+
+
+def test_fit_binned_numeric_agg_matches_pre_fusion_reference():
+    # Pin for the 2026-07-31 fold-gate + global-stats fusion: fit_binned_numeric_agg must produce the SAME
+    # OOF features and recipes as the pre-fix implementation (a wasted full-array (fold_ids != f) & finite
+    # gate, and four separate _global_stat calls per acol instead of one _global_stats_all call).
+    """Fit binned numeric agg matches pre fusion reference."""
+    from mlframe.feature_selection.filters._binned_numeric_agg_fe import (
+        _derive_cell_stats,
+        _global_stat,
+        _raw_moments,
+    )
+
+    def _old_reference(X, y, *, group_num_cols, agg_num_cols, stats=("mean", "std", "skew", "kurt"), nbins_base=10, n_folds=5, random_state=0):
+        """Pre-fix fit_binned_numeric_agg: wasted full-array fold gate + per-stat _global_stat calls."""
+        n = len(X)
+        rng_ = np.random.default_rng(int(random_state))
+        fold_ids = np.empty(n, dtype=np.int64)
+        fold_ids[rng_.permutation(n)] = np.arange(n) % int(n_folds)
+        feat_cols = {}
+        _av_cache = {}
+        _globals_cache = {}
+        _fold_ne = [fold_ids != f for f in range(int(n_folds))]
+        _fold_test = [np.where(fold_ids == f)[0] for f in range(int(n_folds))]
+        for gcol in group_num_cols:
+            gvals = np.asarray(X[gcol].to_numpy(), dtype=np.float64)
+            nbins, kept_stats = resolve_nbins_and_stats(n, stats, nbins_base, k=1)
+            edges = np.unique(np.quantile(gvals, np.linspace(0.0, 1.0, nbins + 1)[1:-1]))
+            codes = np.searchsorted(edges, gvals, side="right")
+            n_cells = int(codes.max()) + 1
+            _ct_by_fold = [codes[_ft] for _ft in _fold_test]
+            for acol in agg_num_cols:
+                if acol == gcol:
+                    continue
+                _avc = _av_cache.get(acol)
+                if _avc is None:
+                    av = np.asarray(X[acol].to_numpy(), dtype=np.float64)
+                    finite = np.isfinite(av)
+                    _av_cache[acol] = (av, finite)
+                else:
+                    av, finite = _avc
+                _gk = (acol, tuple(kept_stats))
+                globals_ = _globals_cache.get(_gk)
+                if globals_ is None:
+                    globals_ = {s: _global_stat(av[finite], s) for s in kept_stats}
+                    _globals_cache[_gk] = globals_
+                full_cnt, full_s1, full_s2, full_s3, full_s4 = _raw_moments(codes[finite], av[finite], n_cells)
+                oof = {s: np.full(n, globals_[s], dtype=np.float64) for s in kept_stats}
+                for f in range(int(n_folds)):
+                    tr = _fold_ne[f] & finite
+                    if not tr.any():
+                        continue
+                    test = _fold_test[f]
+                    ct = _ct_by_fold[f]
+                    test_fin = test[finite[test]]
+                    t_cnt, t_s1, t_s2, t_s3, t_s4 = _raw_moments(codes[test_fin], av[test_fin], n_cells)
+                    per = _derive_cell_stats(full_cnt - t_cnt, full_s1 - t_s1, full_s2 - t_s2, full_s3 - t_s3, full_s4 - t_s4, kept_stats)
+                    for s in kept_stats:
+                        vals = per[s][ct]
+                        oof[s][test] = np.where(np.isfinite(vals), vals, globals_[s])
+                for s in kept_stats:
+                    feat_cols[engineered_name_binned_agg(acol, gcol, s)] = oof[s]
+        return pd.DataFrame(feat_cols, index=X.index)
+
+    rng = np.random.default_rng(3)
+    n = 4000
+    X = pd.DataFrame({f"g{i}": rng.uniform(0, 1, n) for i in range(3)} | {f"a{i}": rng.standard_normal(n) for i in range(3)})
+    y = rng.standard_normal(n)
+    group_cols = [f"g{i}" for i in range(3)]
+    agg_cols = [f"a{i}" for i in range(3)]
+
+    ref = _old_reference(X, y, group_num_cols=group_cols, agg_num_cols=agg_cols)
+    feat_df, _recipes = fit_binned_numeric_agg(X, y, group_num_cols=group_cols, agg_num_cols=agg_cols)
+
+    assert set(ref.columns) == set(feat_df.columns)
+    for c in ref.columns:
+        worst = float(np.max(np.abs(ref[c].to_numpy() - feat_df[c].to_numpy())))
+        assert worst < 1e-9, f"{c}: diverges {worst:.3e} from the pre-fusion reference"

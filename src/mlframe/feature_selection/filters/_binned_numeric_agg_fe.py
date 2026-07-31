@@ -167,6 +167,44 @@ def _global_stat(v: np.ndarray, stat: str) -> float:
     return 0.0
 
 
+def _global_stats_all(v: np.ndarray, stats: Sequence[str]) -> dict:
+    """All requested global (whole-column) stats in ONE O(n) njit raw-moment pass instead of ``_global_stat``'s
+    separate per-stat full-array traversals (mean, std, and TWO scipy skew/kurtosis passes -- profiled at
+    8.5s cumtime / 188 calls on a 2M-row multiclass cProfile run, the dominant cost of ``fit_binned_numeric_agg``).
+
+    scipy's defaults here (``skew(bias=True)``, ``kurtosis(fisher=True, bias=True)``) ARE the population
+    moment-ratio estimators ``m3/m2**1.5`` and ``m4/m2**2 - 3`` -- exactly what ``_derive_cell_stats`` already
+    computes for per-cell stats, so treating the whole column as ONE cell and reusing that same njit kernel +
+    derivation is not a new formula, just a faster path to the identical one. Same edge-case guards as
+    ``_global_stat`` (std<=1e-12 -> 0.0 for skew/kurt; skew needs n>2, kurt needs n>3)."""
+    vf = v[np.isfinite(v)]
+    n = vf.shape[0]
+    if n == 0:
+        return {s: 0.0 for s in stats}
+    out: dict = {}
+    if "mean" in stats:
+        out["mean"] = float(np.mean(vf))
+    sd = float(np.std(vf)) if ("std" in stats or "skew" in stats or "kurt" in stats) else 0.0
+    if "std" in stats:
+        out["std"] = sd
+    hi = [s for s in stats if s in ("skew", "kurt")]
+    if hi:
+        for s in hi:
+            out[s] = 0.0
+        if sd > 1e-12:
+            codes0 = np.zeros(n, dtype=np.int64)
+            cnt, s1, s2, s3, s4 = _raw_moments(codes0, vf, 1)
+            per = _derive_cell_stats(cnt, s1, s2, s3, s4, hi)
+            for s in hi:
+                if s == "skew" and n <= 2:
+                    continue
+                if s == "kurt" and n <= 3:
+                    continue
+                val = float(per[s][0])
+                out[s] = val if np.isfinite(val) else 0.0
+    return out
+
+
 def fit_binned_numeric_agg(
     X: pd.DataFrame, y: np.ndarray, *,
     group_num_cols: Sequence[str], agg_num_cols: Sequence[str],
@@ -196,9 +234,8 @@ def fit_binned_numeric_agg(
     _av_cache: dict[str, tuple] = {}
     _globals_cache: dict[tuple, dict] = {}
     # Fold membership depends ONLY on ``f`` (not on gcol/acol), yet the per-(gcol, acol) OOF loop below
-    # recomputed ``fold_ids != f`` (an O(n) bool) and ``np.where(fold_ids == f)`` every pair*fold. Precompute
-    # them ONCE per call (bit-identical - same masks/indices, just hoisted out of the pair loops).
-    _fold_ne = None if recipe_only else [fold_ids != f for f in range(int(n_folds))]
+    # recomputed ``np.where(fold_ids == f)`` every pair*fold. Precompute it ONCE per call (bit-identical -
+    # same indices, just hoisted out of the pair loops).
     _fold_test = None if recipe_only else [np.where(fold_ids == f)[0] for f in range(int(n_folds))]
     for gcol in group_num_cols:
         gvals = np.asarray(X[gcol].to_numpy(), dtype=np.float64)
@@ -221,13 +258,14 @@ def fit_binned_numeric_agg(
             if _avc is None:
                 av = np.asarray(X[acol].to_numpy(), dtype=np.float64)
                 finite = np.isfinite(av)
-                _av_cache[acol] = (av, finite)
+                finite_count = int(np.count_nonzero(finite))
+                _av_cache[acol] = (av, finite, finite_count)
             else:
-                av, finite = _avc
+                av, finite, finite_count = _avc
             _gk = (acol, tuple(kept_stats))
             globals_ = _globals_cache.get(_gk)
             if globals_ is None:
-                globals_ = {s: _global_stat(av[finite], s) for s in kept_stats}
+                globals_ = _global_stats_all(av[finite], kept_stats)
                 _globals_cache[_gk] = globals_
             # Full-data raw moments, needed anyway for the ``full``/``lut`` recipe lookup below. cnt/s1..s4 are
             # additive partition sums over the finite rows, so a fold's TRAIN-only moments equal full - test
@@ -241,15 +279,19 @@ def fit_binned_numeric_agg(
                 # device from those recipes, then builds the OOF for the FEW survivors - so the OOF of the
                 # dropped candidates is never computed. The ``full`` per-cell lookup + globals (the recipe
                 # fields) are cheap 1-pass njit and are always built.
-                assert _fold_ne is not None and _fold_test is not None and _ct_by_fold is not None  # populated whenever recipe_only is False
+                assert _fold_test is not None and _ct_by_fold is not None  # populated whenever recipe_only is False
                 oof = {s: np.full(n, globals_[s], dtype=np.float64) for s in kept_stats}
                 for f in range(int(n_folds)):
-                    tr = _fold_ne[f] & finite
-                    if not tr.any():
-                        continue
                     test = _fold_test[f]
                     ct = _ct_by_fold[f]
                     test_fin = test[finite[test]]
+                    # Equivalent to the old ``(fold_ids != f) & finite`` full-array-AND + ``.any()`` gate
+                    # (an O(n) scan done once per (gcol, acol, fold), G*A*n_folds times total) without
+                    # materialising it: train has zero finite rows iff ALL finite rows fell into this
+                    # fold's test set, i.e. ``test_fin`` (already computed, O(n/n_folds)) covers every
+                    # finite row.
+                    if test_fin.size == finite_count:
+                        continue
                     t_cnt, t_s1, t_s2, t_s3, t_s4 = _raw_moments(codes[test_fin], av[test_fin], n_cells)
                     per = _derive_cell_stats(full_cnt - t_cnt, full_s1 - t_s1, full_s2 - t_s2, full_s3 - t_s3, full_s4 - t_s4, kept_stats)
                     for s in kept_stats:
