@@ -287,7 +287,7 @@ mlflow = [
 # Database and storage backends.
 db = [
     "sqlalchemy>=2.0",
-    "psycopg2-binary>=2.9",
+    "psycopg2-binary>=2.9.12",
     "pymongo>=4.5",
     "duckdb>=0.9",
     "zstandard>=0.21",
