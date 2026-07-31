@@ -432,11 +432,14 @@ def test_f10_mlp_ranker_restores_global_torch_rng_state():
 
 def test_f11_prediction_cache_is_lru_bounded(monkeypatch):
     """F11: prediction cache is lru bounded."""
-    import mlframe.training.neural.recurrent_dataset_helpers as rdh
+    import mlframe.training.neural._recurrent_wrapper_base as rwb
     from mlframe.training.neural._recurrent_config import InputMode, RecurrentConfig, RNNType
     from mlframe.training.neural.recurrent import RecurrentRegressorWrapper
 
-    monkeypatch.setattr(rdh, "_PREDICTION_CACHE_MAX", 3)
+    # _PREDICTION_CACHE_MAX lives in _recurrent_wrapper_base.py (carved out of
+    # recurrent_dataset_helpers.py) -- the predict-loop code that reads it resolves the name
+    # against ITS OWN module globals, so patching any re-exporting module's copy is a no-op.
+    monkeypatch.setattr(rwb, "_PREDICTION_CACHE_MAX", 3)
 
     rng = np.random.default_rng(0)
     n = 40

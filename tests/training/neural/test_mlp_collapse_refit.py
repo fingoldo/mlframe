@@ -104,9 +104,15 @@ class TestCollapseDetection:
         assert stub.network_params["output_activation"] == "tanh_train_range"
         # All 3 ladder rungs attempted; each calls fit() once.
         assert len(stub.fit_history) == 3
-        # Final state restored to original snapshot (last attempted rung
-        # not persisted when the ladder exhausts).
-        assert stub.network_params.get("use_batchnorm", False) is False
+        # 2026-07-22 audit fix: network_params is NOT restored to the pre-collapse snapshot when the
+        # ladder exhausts -- it stays on the last-attempted rung (bump_dropout, which also carries
+        # use_batchnorm=True/nlayers=1 forward), because the live `network` was actually fit under
+        # that config. Restoring network_params while keeping the last-fit network would desync the
+        # two, so a later sklearn.clone()/get_params() reader would silently rebuild from the WRONG,
+        # never-actually-fit config instead of the one the live weights match.
+        assert stub.network_params.get("use_batchnorm", False) is True
+        assert stub.network_params.get("nlayers") == 1
+        assert stub.network_params.get("dropout_prob") == 0.15
 
     def test_healthy_predictions_no_refit(self):
         """pred_std / y_std >= 0.1 -> no collapse, helper is a no-op."""
