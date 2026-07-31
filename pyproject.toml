@@ -611,6 +611,12 @@ exclude = [
     "(.*[\\/])?tests[\\/].*", "(.*[\\/])?scripts[\\/].*", "(.*[\\/])?legacy[\\/].*",
     "(.*[\\/])?benchmarks[\\/].*", "(.*[\\/])?_benchmarks[\\/].*", "(.*[\\/])?profiling[\\/].*",
     "(.*[\\/])?\\.venv[\\/].*", "(.*[\\/])?build[\\/].*", "(.*[\\/])?dist[\\/].*", "(.*[\\/])?\\.claude[\\/].*",
+    # CI's deptry-install-command (see this repo's ci.yml lint-blocking job) `git clone`s pyutilz
+    # into a sibling ./pyutilz directory (it's not yet on PyPI) so it can install-from-local-path
+    # -- without this exclude, deptry's cwd scan picks up pyutilz's OWN source tree as if it were
+    # part of mlframe and reports hundreds of spurious DEP001/DEP003 findings against pyutilz's
+    # own (already-declared, in pyutilz's own pyproject.toml) optional dependencies.
+    "^pyutilz[\\/].*",
 ]
 
 # ---------------------------------------------------------------------------
@@ -689,7 +695,7 @@ DEP002 = [
     "catboost", "xgboost", "lightgbm", "torch", "cupy", "shap", "optuna",
     "tqdm", "portalocker", "sentencepiece", "flaml", "altair", "hvplot", "vegafusion", "vl-convert-python", "ipywidgets",
     "sqlalchemy", "psycopg2-binary", "pymongo", "duckdb", "hdbscan",
-    "nvidia-cuda-nvcc-cu12", "gpu-info", "cupy-cuda11x", "nvidia-cuda-nvcc-cu11",
+    "nvidia-cuda-nvcc-cu12", "gpu-info", "cupy-cuda11x", "cupy-cuda12x", "nvidia-cuda-nvcc-cu11",
     "mkdocs-material", "mkdocs-jupyter",
     "pytest", "pytest-cov", "pytest-xdist", "pytest-timeout", "pytest-benchmark", "pytest-order",
     "pytest-randomly", "pytest-instafail", "pytest-progress", "pytest-split", "pytest-rerunfailures", "coverage", "freezegun",
