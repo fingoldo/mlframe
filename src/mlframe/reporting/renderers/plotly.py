@@ -566,18 +566,19 @@ class PlotlyRenderer:
         # huge grid where the per-annotation O(cells) plotly layout copy stalls and the text is unreadable soup anyway.
         rng = _finite_range(p.matrix)
         if p.cell_text is not None and rng is not None and p.matrix.size <= _HEATMAP_CELL_TEXT_MAX:
-            from mlframe.reporting.colors import auto_text_color
+            from mlframe.reporting.colors import auto_text_colors_batch
             mat = p.matrix
             vmin, vmax = rng
+            # One vectorized colormap sample for the whole grid instead of one matplotlib call per cell
+            # (bit-identical to the per-cell auto_text_color -- verified in bench_auto_text_colors_batch.py).
+            text_colors = auto_text_colors_batch(np.where(np.isfinite(mat), mat, vmin), cmap_name, vmin=vmin, vmax=vmax)
             for i in range(mat.shape[0]):
                 for j in range(mat.shape[1]):
-                    cell = float(mat[i, j])
-                    text_color = auto_text_color(cell if np.isfinite(cell) else vmin, cmap_name, vmin=vmin, vmax=vmax)
                     fig.add_annotation(
                         text=format(p.cell_text[i, j], p.text_format),
                         x=p.col_labels[j], y=p.row_labels[i],
                         showarrow=False,
-                        font=dict(color=text_color, size=10),
+                        font=dict(color=text_colors[i, j], size=10),
                         row=row, col=col,
                     )
         # Iso-value contour overlays at named matrix levels (PSI 0.10 / 0.25 triage lines). Drawn as a line-only

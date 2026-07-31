@@ -21,6 +21,8 @@ from __future__ import annotations
 import logging
 from typing import Optional, Tuple
 
+import numpy as np
+
 logger = logging.getLogger(__name__)
 
 CALIBRATION = "RdYlBu"
@@ -134,6 +136,34 @@ def auto_text_color(value: float, colormap: str, vmin: float = 0.0, vmax: float 
     except Exception as exc:
         logger.debug("auto_text_color: colormap lookup for %r failed, falling back to 'black': %s", colormap, exc)
         return "black"
+
+
+def auto_text_colors_batch(values: np.ndarray, colormap: str, vmin: float = 0.0, vmax: float = 1.0) -> np.ndarray:
+    """Vectorized twin of :func:`auto_text_color` for a whole matrix at once.
+
+    A per-cell heatmap render (confusion matrix, PSI drift grid, ...) previously called
+    ``auto_text_color`` once per cell, paying matplotlib's colormap-sampling call overhead ``rows*cols``
+    times even though every cell shares the same colormap. Sampling the colormap ONCE on the full
+    normalised value array reuses matplotlib's own vectorized ``cm(array)`` path. Bit-identical to calling
+    ``auto_text_color`` per element (same normalise / clip / Rec. 601 luminance formula), NaN cells must be
+    pre-substituted by the caller (mirroring ``auto_text_color``'s own ``cell if np.isfinite(cell) else
+    vmin`` call-site convention) since this function does not special-case them.
+    """
+    arr = np.asarray(values, dtype=np.float64)
+    try:
+        import matplotlib
+        cm = matplotlib.colormaps[colormap]
+        if vmax > vmin:
+            t = (arr - vmin) / (vmax - vmin)
+        else:
+            t = np.full_like(arr, 0.5)
+        t = np.clip(t, 0.0, 1.0)
+        rgba = np.asarray(cm(t))
+        luminance = 0.299 * rgba[..., 0] + 0.587 * rgba[..., 1] + 0.114 * rgba[..., 2]
+        return np.where(luminance > 0.5, "black", "white")
+    except Exception as exc:
+        logger.debug("auto_text_colors_batch: colormap lookup for %r failed, falling back to 'black': %s", colormap, exc)
+        return np.full(arr.shape, "black", dtype=object)
 
 
 __all__ = [

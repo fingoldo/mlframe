@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from mlframe.reporting.colors import LINE_PALETTE, line_color
+import numpy as np
+
+from mlframe.reporting.colors import LINE_PALETTE, auto_text_color, auto_text_colors_batch, line_color
 
 _TAB10 = (
     "#1f77b4",
@@ -36,6 +38,28 @@ def test_line_color_does_not_collide_until_palette_exhausted():
     assert len(set(colors)) == len(LINE_PALETTE)
     # 11th class differs from the 1st (the exact defect a tab10-only palette had).
     assert line_color(10) != line_color(0)
+
+
+def test_auto_text_colors_batch_matches_per_cell_auto_text_color():
+    """Regression: ``auto_text_colors_batch`` (one vectorized colormap sample for a whole grid) must be
+    bit-identical to calling ``auto_text_color`` once per cell -- the invariant the plotly heatmap renderer's
+    per-cell-annotation loop now relies on after switching from a per-cell to a batched call."""
+    rng = np.random.default_rng(0)
+    for colormap in ("viridis", "RdYlBu", "RdBu_r"):
+        mat = rng.uniform(-2, 2, size=(20, 15))
+        vmin, vmax = -1.5, 1.5
+        filled = np.where(np.isfinite(mat), mat, vmin)
+        scalar = np.array([[auto_text_color(filled[i, j], colormap, vmin=vmin, vmax=vmax) for j in range(mat.shape[1])] for i in range(mat.shape[0])])
+        batch = auto_text_colors_batch(filled, colormap, vmin=vmin, vmax=vmax)
+        assert np.array_equal(scalar, batch), f"batched vs per-cell mismatch for colormap={colormap!r}"
+
+
+def test_auto_text_colors_batch_unknown_colormap_falls_back_to_black():
+    """Mirrors ``auto_text_color``'s fallback: an unresolvable colormap name returns 'black' for every cell,
+    never raising into the caller's render loop."""
+    mat = np.array([[0.1, 0.9], [0.5, 0.3]])
+    out = auto_text_colors_batch(mat, "not_a_real_colormap_xyz", vmin=0.0, vmax=1.0)
+    assert (out == "black").all()
 
 
 def test_line_color_cycles_after_palette():
