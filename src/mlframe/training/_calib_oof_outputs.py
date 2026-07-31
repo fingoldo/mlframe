@@ -18,8 +18,33 @@ from .pipeline import _prepare_test_split
 from ._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns
 from .cb import _predict_with_fallback
 from ._eval_helpers import run_confidence_analysis
+from .core._predict_pre_pipeline import _apply_row_wise_extensions
 
 logger = logging.getLogger("mlframe.training.trainer")
+
+
+def _align_to_model_feature_names(df: Any, model: object) -> Any:
+    """Reindex ``df`` to ``model.feature_names_in_`` when that attribute exists and disagrees with ``df``'s own columns.
+
+    A fit-time frame with a fully-NaN row-wise-extreme column (fewer eligible raw columns than the
+    configured ``k``, e.g. 2 numeric columns under the default ``k=3``) can end up with a NARROWER
+    real feature set than ``_apply_row_wise_extensions``'s replay produces -- XGBoost/CatBoost/LGB
+    all silently drop or never register an all-missing column internally even though the fit-time
+    DataFrame still carried it, so ``feature_names_in_`` (or the DataFrame's own column count) is the
+    only reliable predict-time source of truth for what the model actually expects. Reindexing to the
+    intersection (extra replay columns dropped, order matched) is safe: replay only ever risks adding
+    columns fit never used, never omitting one fit did use.
+    """
+    _expected = getattr(model, "feature_names_in_", None)
+    if _expected is None or not hasattr(df, "columns"):
+        return df
+    _expected_list = list(_expected)
+    if list(df.columns) == _expected_list:
+        return df
+    _missing = [c for c in _expected_list if c not in df.columns]
+    if _missing:
+        logger.debug("_align_to_model_feature_names: %d expected column(s) absent from the predict frame (%s); reindex will NaN-fill them.", len(_missing), _missing[:5])
+    return df.reindex(columns=_expected_list)
 
 
 def maybe_run_confidence_analysis(
@@ -82,6 +107,7 @@ def compute_calib_and_oof_outputs(
     fit_params: dict,
     model_type_name: str,
     model_name: str,
+    row_wise_extensions_config: Optional[dict] = None,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], Any, Any, Any]:
     """Run the fitted model's calib-slice predict (proba for classification, point for regression) and mirror OOF preds/probs/target.
 
@@ -90,6 +116,13 @@ def compute_calib_and_oof_outputs(
     prediction on the calib slice (``None`` for classification or when no calib frame exists) -- the
     leakage-free residual source for split-conformal in finalize. The OOF outputs mirror whatever was
     stamped on ``model`` during training.
+
+    ``row_wise_extensions_config``: the ``metadata["row_wise_extensions_config"]`` dict stamped by
+    ``apply_preprocessing_extensions`` at fit time (``None`` when neither row-wise extension was
+    enabled). ``calib_df`` is a disjoint slice carved separately from train/val/test and never passed
+    through that fit-time call, so its row_summary_*/row_extreme_* columns must be replayed here the
+    same way real predict() does, or a model fit with those columns raises a feature-shape mismatch
+    against the raw calib_df.
     """
     # Disjoint-calib predict (TrainingSplitConfig.calib_size > 0): run the fitted base model's predict_proba on the calib
     # slice and stamp (calib_probs, calib_target) so finalize's _auto_calibrate_on_calib_slice fits the post-hoc isotonic
@@ -115,6 +148,14 @@ def compute_calib_and_oof_outputs(
                 selector_passthrough_cols=(list(fit_params.get("text_features") or []) + list(fit_params.get("embedding_features") or [])) or None,
             )
             _calib_df_prep = _sanitize_frame_columns(_calib_df_prep)
+            # Row-wise extension columns (row_summary_*/row_extreme_*) are stateless per-row functions
+            # applied to train/val/test together in apply_preprocessing_extensions, but calib_df is a
+            # disjoint slice carved separately and never passed through that call -- replay them here
+            # exactly as real predict() does (see _predict_main_from_models.py), or a model fit with
+            # these columns raises "Feature shape mismatch" on the raw calib_df.
+            if _calib_df_prep is not None:
+                _calib_df_prep = _apply_row_wise_extensions(_calib_df_prep, row_wise_extensions_config)
+                _calib_df_prep = _align_to_model_feature_names(_calib_df_prep, model)
             if _calib_df_prep is not None and _calib_target_prep is not None and len(_calib_df_prep) > 0:
                 from ._classif_helpers import _canonical_predict_proba_shape
                 from ._data_helpers import _prepare_df_for_model
@@ -146,6 +187,9 @@ def compute_calib_and_oof_outputs(
                 selector_passthrough_cols=(list(fit_params.get("text_features") or []) + list(fit_params.get("embedding_features") or [])) or None,
             )
             _calib_df_prep = _sanitize_frame_columns(_calib_df_prep)
+            if _calib_df_prep is not None:
+                _calib_df_prep = _apply_row_wise_extensions(_calib_df_prep, row_wise_extensions_config)
+                _calib_df_prep = _align_to_model_feature_names(_calib_df_prep, model)
             if _calib_df_prep is not None and _calib_target_prep is not None and len(_calib_df_prep) > 0:
                 from ._data_helpers import _prepare_df_for_model
 

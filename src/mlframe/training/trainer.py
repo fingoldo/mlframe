@@ -383,6 +383,7 @@ def _build_configs_from_params(
     callback_params=None,
     model_category=None,
     slice_stable_es=None,
+    row_wise_extensions_config=None,
     # Metrics params
     nbins=10,
     custom_ice_metric=None,
@@ -495,6 +496,7 @@ def _build_configs_from_params(
         callback_params=callback_params,
         model_category=model_category,
         slice_stable_es=slice_stable_es,
+        row_wise_extensions_config=row_wise_extensions_config,
     )
 
     metrics_config = MetricsConfig(

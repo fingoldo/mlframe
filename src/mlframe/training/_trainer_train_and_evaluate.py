@@ -986,6 +986,7 @@ def train_and_evaluate_model(
         fit_params=fit_params,
         model_type_name=model_type_name,
         model_name=model_name,
+        row_wise_extensions_config=control.row_wise_extensions_config,
     )
 
     return (

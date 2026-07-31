@@ -604,6 +604,10 @@ def _setup_per_target_mlframe_models(
         common_params["calib_df"] = _calib_df
         common_params["calib_target"] = current_calib_target
         common_params["calib_idx"] = _calib_idx
+        # calib_df is disjoint from train/val/test and never passes through apply_preprocessing_extensions,
+        # so its row_summary_*/row_extreme_* columns must be replayed by the trainer's calib-slice predict
+        # path (compute_calib_and_oof_outputs) -- thread the fit-time config through the same way.
+        common_params["row_wise_extensions_config"] = metadata.get("row_wise_extensions_config")
 
     # Full-length row timestamps reach DataConfig.timestamps so the per-split reporter can slice them and render the
     # residual-vs-time / metric-over-time temporal-drift panels under the same FTE-timestamp gate as the target audit.

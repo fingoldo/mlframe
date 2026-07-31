@@ -394,6 +394,14 @@ class TrainingControlConfig(BaseConfig):
     # ``TrainingConfig.slice_stable_es``; not commonly set by hand.
     slice_stable_es: Optional[SliceStableESConfig] = None
 
+    # Row-wise extension replay config (row_summary_*/row_extreme_* columns), mirrored from
+    # ``metadata["row_wise_extensions_config"]`` stamped by ``apply_preprocessing_extensions`` at fit
+    # time. Built and propagated by the suite layer; needed so the disjoint calib-slice predict path
+    # (``compute_calib_and_oof_outputs``, which never sees train/val/test's own row-wise-extended
+    # frames) can recompute the same columns on the raw calib_df before predicting. Not commonly set
+    # by hand.
+    row_wise_extensions_config: Optional[Dict[str, Any]] = None
+
 
 class MetricsConfig(BaseConfig):
     """Metrics and evaluation configuration for train_and_evaluate_model.
