@@ -106,3 +106,72 @@ _FE_HOIST_HEADROOM_OVERHEAD
 _FE_MIN_FREE_RAM_GB
 _FE_PEAK_OVERHEAD_FACTOR
 _FE_VMEM_CACHE
+
+# --- feature_selection/filters/mrmr/_mrmr_class.py: MRMR __init__ binds every constructor
+# keyword onto self via a bulk ``for k, v in defaults.items(): setattr(self, k, v)`` loop
+# (sklearn-BaseEstimator convention) instead of one literal ``self.x = x`` per field, so
+# vulture cannot see any of these ~80 fe_*_enable FE-family toggle params are actually used.
+# (2026-07-31 vulture sweep) ---
+fe_binned_numeric_agg_enable
+fe_cat_num_interaction_enable
+fe_cat_pair_enable
+fe_cat_triple_enable
+fe_composite_group_agg_enable
+fe_conditional_dispersion_enable
+fe_conditional_gate_enable
+fe_conditional_quantile_rank_enable
+fe_conditional_residual_enable
+fe_count_encoding_enable
+fe_discrete_structural_operators_enable
+fe_frequency_encoding_enable
+fe_group_distance_enable
+fe_grouped_agg_enable
+fe_grouped_delta_enable
+fe_grouped_quantile_enable
+fe_hinge_enable
+fe_hybrid_orth_adaptive_arity_enable
+fe_hybrid_orth_adaptive_degree_enable
+fe_hybrid_orth_auto_scorer_enable
+fe_hybrid_orth_bootstrap_enable
+fe_hybrid_orth_cluster_basis_enable
+fe_hybrid_orth_cmim_enable
+fe_hybrid_orth_conditional_routing_enable
+fe_hybrid_orth_copula_enable
+fe_hybrid_orth_dcor_enable
+fe_hybrid_orth_diff_basis_enable
+fe_hybrid_orth_enable
+fe_hybrid_orth_ensemble_enable
+fe_hybrid_orth_hsic_enable
+fe_hybrid_orth_jmim_enable
+fe_hybrid_orth_ksg_enable
+fe_hybrid_orth_meta_enable
+fe_hybrid_orth_quadruplet_enable
+fe_hybrid_orth_tc_enable
+fe_hybrid_orth_three_gate_enable
+fe_hybrid_orth_triplet_enable
+fe_integer_lattice_enable
+fe_kfold_te_enable
+fe_lagged_diff_enable
+fe_lof_enable
+fe_mahalanobis_density_enable
+fe_mi_greedy_cmi_enable
+fe_mi_greedy_enable
+fe_modular_enable
+fe_numeric_decompose_enable
+fe_ordinal_pattern_enable
+fe_pairwise_log_ratio_enable
+fe_pairwise_modular_enable
+fe_pairwise_ratio_enable
+fe_random_fourier_enable
+fe_rankgauss_enable
+fe_rare_category_enable
+fe_row_argmax_enable
+fe_sir_direction_enable
+fe_univariate_basis_enable
+fe_univariate_fourier_enable
+fe_wavelet_enable
+
+# --- other confirmed false positives / documented no-ops (2026-07-31 vulture sweep) ---
+TunerSpec  # pyutilz.performance.kernel_tuning.registry -- used only inside a quoted "TunerSpec | None" type annotation; vulture cannot see string-annotation references
+num_averaged  # training/neural/_recurrent_wrapper_base.py _ema_avg_fn -- required positional slot in StochasticWeightAveraging.avg_fn's (averaged_param, model_param, num_averaged) callback contract, unused by the constant-decay EMA formula
+seed_workers_pool  # feature_selection/filters/_screen_predictors.py -- already documented at its own call sites (line ~572, ~610) as "accepted-but-unused for this purpose"; the described pool-reuse optimization was never wired up
