@@ -225,3 +225,44 @@ def test_outlier_robustness_fast_subset_runs_and_returns_finite_results():
     for r in results:
         assert math.isfinite(r.rmse), r
         assert r.bins >= 1
+
+
+def test_bfs_recursion_matches_dfs_recursion_selection():
+    """Pin for the 2026-07-31 DFS->BFS wiring of mdlp_bin_edges_validated: the level-order
+    batched-permutation recursion (_mdlp_recurse_validated_bfs, now the production call site)
+    must find the same splits (as a set, since output is sorted regardless of traversal order)
+    as the original per-node DFS recursion it replaced, across both pure-noise and real-signal
+    scenarios -- selection-equivalence, not bit-identity, is the bar (see CLAUDE.md)."""
+    from mlframe.feature_selection.filters._mdlp_validated_split import _mdlp_recurse_validated, _mdlp_recurse_validated_bfs
+
+    min_split_size, max_depth, alpha, n_permutations, bonferroni = 20, 6, 0.05, 100, True
+
+    def _run_dfs(x, y, seed):
+        """Run the original DFS recursion and return sorted splits."""
+        splits: list = []
+        _mdlp_recurse_validated(x, y, splits, 0, min_split_size, max_depth, alpha, n_permutations, seed, bonferroni, tree_wide_alpha=None)
+        splits.sort()
+        return splits
+
+    def _run_bfs(x, y, seed):
+        """Run the BFS level-batched recursion and return sorted splits."""
+        splits = _mdlp_recurse_validated_bfs(x, y, min_split_size, max_depth, alpha, n_permutations, seed, bonferroni, None)
+        splits.sort()
+        return splits
+
+    mismatches = []
+    for seed in range(20):
+        rng = np.random.default_rng(seed)
+        x = np.sort(rng.uniform(0, 1, 200))
+        y = rng.integers(0, 3, 200)  # pure noise: x and y independent
+        if _run_dfs(x, y, seed) != _run_bfs(x, y, seed):
+            mismatches.append(("noise", seed))
+    for seed in range(10):
+        rng = np.random.default_rng(1000 + seed)
+        x = np.sort(rng.uniform(0, 1, 200))
+        seg = np.minimum((x * 4).astype(np.int64), 3)
+        y = np.where(rng.random(200) < 0.1, rng.integers(0, 2, 200), seg % 2)  # real signal, light noise
+        if _run_dfs(x, y, 1000 + seed) != _run_bfs(x, y, 1000 + seed):
+            mismatches.append(("signal", seed))
+
+    assert not mismatches, f"DFS/BFS split mismatch on scenarios: {mismatches}"

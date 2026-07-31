@@ -175,18 +175,179 @@ def _binned_mi(x: np.ndarray, y: np.ndarray, bins: int = 8) -> float:
     return float(_mi_from_edges(x, y, xe, ye))
 
 
+@numba.njit(cache=True)
+def _quantile_linear_from_sorted(sorted_vals: np.ndarray, probs: np.ndarray) -> np.ndarray:
+    """Linear-interpolation quantile (numpy's default ``method="linear"``) from an ascending-sorted 1-D array.
+    NOT bit-identical to ``np.quantile`` (verified empirically: ~4e-16, 1 ULP, on ~23% of random small arrays --
+    numpy's internal op ordering differs from this scalar loop) -- selection-equivalent per CLAUDE.md's FE/MRMR
+    exception, not bit-identical MI."""
+    n = sorted_vals.shape[0]
+    m = probs.shape[0]
+    out = np.empty(m, dtype=np.float64)
+    for i in range(m):
+        idx = probs[i] * (n - 1)
+        lo = int(idx)
+        w = idx - lo
+        hi = lo + 1 if lo + 1 < n else lo
+        out[i] = sorted_vals[lo] + w * (sorted_vals[hi] - sorted_vals[lo])
+    return out
+
+
+@numba.njit(cache=True)
+def _dedupe_monotone(raw: np.ndarray) -> np.ndarray:
+    """Strictly-increasing dedupe of an already-non-decreasing array -- matches ``np.unique`` on such input."""
+    m = raw.shape[0]
+    out = np.empty(m, dtype=np.float64)
+    out[0] = raw[0]
+    k = 1
+    for i in range(1, m):
+        if raw[i] > out[k - 1]:
+            out[k] = raw[i]
+            k += 1
+    return out[:k]
+
+
+@numba.njit(cache=True)
+def _pair_binned_mi_njit(x: np.ndarray, y: np.ndarray, probs: np.ndarray) -> float:
+    """Numba port of ``_binned_mi`` (joint finite-mask fallback for one (feature, group) pair)."""
+    n = x.shape[0]
+    if n < 4:
+        return 0.0
+    cnt = 0
+    for i in range(n):
+        if np.isfinite(x[i]) and np.isfinite(y[i]):
+            cnt += 1
+    if cnt < 4:
+        return 0.0
+    xf = np.empty(cnt, dtype=np.float64)
+    yf = np.empty(cnt, dtype=np.float64)
+    k = 0
+    for i in range(n):
+        if np.isfinite(x[i]) and np.isfinite(y[i]):
+            xf[k] = x[i]
+            yf[k] = y[i]
+            k += 1
+    xmin = xf[0]
+    xmax = xf[0]
+    ymin = yf[0]
+    ymax = yf[0]
+    for i in range(1, cnt):
+        if xf[i] < xmin:
+            xmin = xf[i]
+        elif xf[i] > xmax:
+            xmax = xf[i]
+        if yf[i] < ymin:
+            ymin = yf[i]
+        elif yf[i] > ymax:
+            ymax = yf[i]
+    if xmax <= xmin or ymax <= ymin:
+        return 0.0
+    xe = _dedupe_monotone(_quantile_linear_from_sorted(np.sort(xf), probs))
+    ye = _dedupe_monotone(_quantile_linear_from_sorted(np.sort(yf), probs))
+    if xe.shape[0] < 2 or ye.shape[0] < 2:
+        return 0.0
+    return float(_mi_from_edges(xf, yf, xe, ye))
+
+
+@numba.njit(cache=True)
+def _group_relevance_one_group_add(block: np.ndarray, y_g: np.ndarray, probs: np.ndarray, acc: np.ndarray, w: float) -> None:
+    """Accumulate ``w * MI(feature, y_g)`` for every column into ``acc`` in place, for one query group."""
+    n = block.shape[0]
+    ncols = block.shape[1]
+    y_ok = True
+    for i in range(n):
+        if not np.isfinite(y_g[i]):
+            y_ok = False
+            break
+    ye = np.empty(0, dtype=np.float64)
+    if y_ok:
+        ymin = y_g[0]
+        ymax = y_g[0]
+        for i in range(1, n):
+            if y_g[i] < ymin:
+                ymin = y_g[i]
+            elif y_g[i] > ymax:
+                ymax = y_g[i]
+        if ymax > ymin:
+            ye = _dedupe_monotone(_quantile_linear_from_sorted(np.sort(y_g), probs))
+            if ye.shape[0] < 2:
+                y_ok = False
+        else:
+            y_ok = False
+    if y_ok:
+        for j in range(ncols):
+            col = np.ascontiguousarray(block[:, j])
+            col_ok = True
+            for i in range(n):
+                if not np.isfinite(col[i]):
+                    col_ok = False
+                    break
+            if col_ok:
+                cmin = col[0]
+                cmax = col[0]
+                for i in range(1, n):
+                    v = col[i]
+                    if v < cmin:
+                        cmin = v
+                    elif v > cmax:
+                        cmax = v
+                if cmax <= cmin:
+                    continue
+                xe = _dedupe_monotone(_quantile_linear_from_sorted(np.sort(col), probs))
+                if xe.shape[0] < 2:
+                    continue
+                acc[j] += w * _mi_from_edges(col, y_g, xe, ye)
+            else:
+                acc[j] += w * _pair_binned_mi_njit(col, y_g, probs)
+    else:
+        for j in range(ncols):
+            acc[j] += w * _pair_binned_mi_njit(np.ascontiguousarray(block[:, j]), y_g, probs)
+
+
+@numba.njit(cache=True, parallel=True)
+def _group_aware_relevance_fused_njit(arr_s: np.ndarray, y_s: np.ndarray, starts: np.ndarray, stops: np.ndarray, probs: np.ndarray, n_chunks: int) -> np.ndarray:
+    """Fused, chunk-parallel port of ``group_aware_relevance``'s per-group Python loop.
+
+    Eliminates the per-group Python/numpy dispatch (np.quantile / np.unique / np.ptp / boolean-mask
+    slicing) that dominated the function's self-time at large group counts -- measured at n=2M/162k
+    LTR queries: 236.7s self-time in the Python loop, of which np.quantile alone cost 109.5s cumtime
+    across 324k dispatches (cProfile, profiling/profile_ltr_2m.pstats). Each chunk of groups
+    accumulates into its own row of ``chunk_acc`` (no cross-thread races); the final chunk-sum and the
+    per-group quantile edges (hand-rolled linear interpolation, not ``np.quantile`` itself) reorder /
+    slightly diverge from the original computation (~1e-13, see ``_quantile_linear_from_sorted``) --
+    selection-equivalence, the accepted bar for this FE/MRMR path per CLAUDE.md, not bit-identical MI."""
+    n_groups = starts.shape[0]
+    ncols = arr_s.shape[1]
+    chunk_acc = np.zeros((n_chunks, ncols), dtype=np.float64)
+    for c in numba.prange(n_chunks):
+        g0 = (n_groups * c) // n_chunks
+        g1 = (n_groups * (c + 1)) // n_chunks
+        local = chunk_acc[c]
+        for g in range(g0, g1):
+            s = starts[g]
+            e = stops[g]
+            if e - s < 4:
+                continue
+            w = float(e - s)
+            block = np.ascontiguousarray(arr_s[s:e])
+            y_g = np.ascontiguousarray(y_s[s:e])
+            _group_relevance_one_group_add(block, y_g, probs, local, w)
+    acc = np.zeros(ncols, dtype=np.float64)
+    for c in range(n_chunks):
+        acc += chunk_acc[c]
+    return acc
+
+
 def group_aware_relevance(cols: list, arr: np.ndarray, y: np.ndarray, groups: np.ndarray, bins: int = 8) -> dict:
     """Per-feature query-aware relevance: MI(feature, relevance) computed WITHIN each query group, averaged with
     group-size weights. The ranking-correct relevance signal -- a feature constant within a query scores ~0 here
     (no within-query ranking power) even if its pooled MI is high. Self-contained; does not call the core MI."""
     out: dict = {}
     groups = np.asarray(groups)
-    # Sort rows by group ONCE so each query is a contiguous block: the per-(feature, group)
-    # boolean-index copies ``xj[m]``/``y[m]`` (each an O(n) scan of a length-n mask, done
-    # n_features * n_groups times) collapse to O(group_size) slices, and ``y`` per group is
-    # sliced once instead of re-extracted per feature. ``_binned_mi`` is order-invariant
-    # (quantile edges + joint histogram), and groups are visited in the same sorted order the
-    # old ``np.unique`` path used, so the size-weighted accumulation is bit-identical.
+    # Sort rows by group ONCE so each query is a contiguous block, then hand the whole per-group loop to
+    # ONE fused, chunk-parallel njit call (_group_aware_relevance_fused_njit) instead of dispatching
+    # np.quantile/np.unique/np.ptp from Python once per query (see that function's docstring for the
+    # measured cost this replaces).
     order = np.argsort(groups, kind="mergesort")
     gs = groups[order]
     arr_s = arr[order]
@@ -197,46 +358,13 @@ def group_aware_relevance(cols: list, arr: np.ndarray, y: np.ndarray, groups: np
     sizes = (stops - starts).astype(np.float64)
     # Normalise by the sum of CONTRIBUTING (size>=4) group sizes, not all rows: tiny queries are skipped in the accumulation, so dividing by total rows shrinks the size-weighted average toward 0 by the fraction of rows living in those skipped tiny queries -- a systematic downward relevance bias.
     contributing_total = float(sizes[sizes >= 4].sum()) or 1.0
-    ncols = len(cols)
-    acc = np.zeros(ncols, dtype=np.float64)
     probs = np.linspace(0, 1, bins + 1)
-    for b in range(starts.size):
-        s = int(starts[b])
-        e = int(stops[b])
-        if e - s < 4:
-            continue
-        y_g = y_s[s:e]
-        block = arr_s[s:e]
-        w = float(e - s)
-        # BATCHED-QUANTILE FAST PATH (per COLUMN, not per group). When ``y_g`` is finite the joint
-        # (x, y) finite mask reduces to x's own finite mask, so every all-finite column's per-column
-        # np.quantile collapses into ONE batched np.quantile(block, axis=0) (bit-identical to
-        # per-column, verified) and ye is computed once/group. Columns that carry a non-finite value
-        # (their qa edge is NaN and unusable) fall back to the exact per-column ``_binned_mi`` -- so a
-        # single injected NaN column no longer poisons batching for the whole group's other columns.
-        # ``y_g`` non-finite routes the whole group to the per-column fallback (the mask is then
-        # genuinely joint per feature).
-        if np.isfinite(y_g).all() and np.ptp(y_g) > 0.0:
-            ye = np.unique(np.quantile(y_g, probs))
-            if ye.size < 2:
-                continue  # ye identical across features -> every feature scores 0 for this group
-            col_fin = np.isfinite(block).all(axis=0)  # (ncols,) one vectorised pass
-            if col_fin.any():
-                qa = np.quantile(block, probs, axis=0)
-                block_c = np.ascontiguousarray(block)
-                out_mi = np.zeros(ncols, dtype=np.float64)
-                # One njit(parallel) dispatch scores EVERY finite column (dedup + bin + entropy inline,
-                # bit-identical to the per-column _mi_from_edges path); non-finite columns stay 0.0 and
-                # take the Python _binned_mi fallback below. Replaces the per-(group, feature) Python loop
-                # + per-column np.unique/np.ptp that dominated self-time at large n.
-                _group_features_mi_njit(block_c, y_g, qa, ye, col_fin, out_mi)
-                acc += w * out_mi
-            for j in range(ncols):
-                if not col_fin[j]:
-                    acc[j] += w * _binned_mi(block[:, j], y_g, bins=bins)
-            continue
-        for j in range(ncols):
-            acc[j] += w * _binned_mi(block[:, j], y_g, bins=bins)
+    arr_c = np.ascontiguousarray(arr_s, dtype=np.float64)
+    y_c = np.ascontiguousarray(y_s, dtype=np.float64)
+    starts_i = starts.astype(np.int64)
+    stops_i = stops.astype(np.int64)
+    n_chunks = max(1, min(int(starts_i.shape[0]), numba.get_num_threads() * 8))
+    acc = _group_aware_relevance_fused_njit(arr_c, y_c, starts_i, stops_i, probs, n_chunks)
     for j, name in enumerate(cols):
         out[name] = acc[j] / contributing_total
     return out
