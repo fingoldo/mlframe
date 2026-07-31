@@ -216,5 +216,73 @@ def test_perf_sentinel_fused_beats_prior_resampler():
     assert speedup >= 1.3, f"fused resampler not faster: {speedup:.2f}x (old={old * 1e3:.1f}ms new={new * 1e3:.1f}ms)"
 
 
+def test_batch_parallel_bit_identical_to_serial_per_resample_loop():
+    """``bootstrap_auc_distribution_parallel`` (one prange-parallel njit call over the whole bootstrap
+    distribution) must produce byte-for-byte the same AUC samples as calling
+    ``make_bootstrap_auc_resampler``'s resampler once per resample with the identical RNG draw sequence."""
+    from mlframe.metrics._core_auc_brier import bootstrap_auc_distribution_parallel
+
+    n = 20_000
+    n_bootstrap = 64
+    rng = np.random.default_rng(11)
+    y_score = rng.random(n)
+    y_true = (rng.random(n) < 0.3).astype(np.int64)
+
+    resampler = make_bootstrap_auc_resampler(y_true, y_score)
+    serial_rng = np.random.default_rng(42)
+    serial = np.empty(n_bootstrap, dtype=np.float64)
+    for i in range(n_bootstrap):
+        idx = serial_rng.integers(0, n, size=n, dtype=np.int64)
+        serial[i] = resampler(idx)
+
+    parallel = bootstrap_auc_distribution_parallel(y_true, y_score, n_bootstrap=n_bootstrap, random_state=42, chunk_size=16)
+    assert parallel is not None
+    assert np.array_equal(serial, parallel), "batched-parallel resampler diverged from the serial per-resample loop"
+
+
+def test_batch_parallel_returns_none_on_tied_base_scores():
+    """The tie-free gate must reject tied base scores (mirrors make_bootstrap_auc_resampler's own gate) --
+    callers fall back to the grouped/exact path rather than silently getting a wrong (tie-unaware) AUC."""
+    from mlframe.metrics._core_auc_brier import bootstrap_auc_distribution_parallel
+
+    rng = np.random.default_rng(3)
+    n = 2000
+    y_score = np.round(rng.random(n) * 9) / 9.0  # low-cardinality -> ties
+    y_true = (rng.random(n) < 0.3).astype(np.int64)
+    assert bootstrap_auc_distribution_parallel(y_true, y_score, n_bootstrap=8, random_state=0) is None
+
+
+def test_batch_parallel_faster_than_serial_loop():
+    """Perf sentinel: the prange-parallel batch kernel must beat the serial per-resample loop by a wide
+    margin on this multi-core box. Measured 4.1x-4.2x@500k-2M/1000-200 resamples; assert >=1.5x to catch
+    a regression without flaking on a loaded CI runner."""
+    from mlframe.metrics._core_auc_brier import bootstrap_auc_distribution_parallel
+
+    n = 100_000
+    n_bootstrap = 300
+    rng = np.random.default_rng(5)
+    y_score = rng.random(n)
+    y_true = (rng.random(n) < 0.3).astype(np.int64)
+
+    resampler = make_bootstrap_auc_resampler(y_true, y_score)
+    warm_idx = rng.integers(0, n, size=n, dtype=np.int64)
+    resampler(warm_idx)
+    bootstrap_auc_distribution_parallel(y_true, y_score, n_bootstrap=4, random_state=1, chunk_size=4)
+
+    serial_rng = np.random.default_rng(7)
+    t0 = time.perf_counter()
+    for _ in range(n_bootstrap):
+        idx = serial_rng.integers(0, n, size=n, dtype=np.int64)
+        resampler(idx)
+    t_serial = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    bootstrap_auc_distribution_parallel(y_true, y_score, n_bootstrap=n_bootstrap, random_state=7, chunk_size=100)
+    t_parallel = time.perf_counter() - t0
+
+    speedup = t_serial / t_parallel
+    assert speedup >= 1.5, f"batch-parallel resampler not faster: {speedup:.2f}x (serial={t_serial * 1e3:.1f}ms parallel={t_parallel * 1e3:.1f}ms)"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
