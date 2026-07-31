@@ -90,6 +90,10 @@ def main():
                         "Set to 2 / 3 to enable multi-step FE -- each step "
                         "appends discovered features and refits. Only applied "
                         "when the combo has use_mrmr_fs=True.")
+    p.add_argument("--save-charts", action="store_true",
+                   help="Enable diagnostic-chart rendering (OutputConfig.save_charts=True). "
+                        "Default False (7x speedup, measures training not chart-render cost); "
+                        "pass this to profile reporting/charts hotspots specifically.")
     args = p.parse_args()
 
     print("Pre-warming numba JIT cache...", flush=True)
@@ -140,7 +144,7 @@ def main():
                 # 2026-05-12 Wave 31: save_charts=False gives a 7x speedup on
             # multiclass combos by skipping wasted chart rendering to a
             # temp dir. Profiler measures training cost, not chart-render cost.
-            output_config=OutputConfig(data_dir=tmpdir, models_dir="models", save_charts=False),
+            output_config=OutputConfig(data_dir=tmpdir, models_dir="models", save_charts=args.save_charts),
                 use_mlframe_ensembles=combo.use_ensembles,
                 # 2026-05-11: thread combo.use_mrmr_fs through. Previously
                 # the script reported `mrmr=True` in the header but never
