@@ -17,6 +17,27 @@ from mlframe.feature_selection.filters._fe_pure_form_retention_gpu_resident impo
 )
 
 
+def _need_cuda() -> bool:
+    """Whether a usable CUDA device is present this process."""
+    try:
+        from pyutilz.core.pythonlib import is_cuda_available
+
+        return is_cuda_available()
+    except Exception:
+        return False
+
+
+# xdist_group("gpu"): two workers each opening their own CUDA context against one physical
+# device race for driver-level resources -- observed as adds_nonlinear_value_batch_gpu_resident's
+# internal try/except falling through to its documented `None` (genuine device fault) path under
+# concurrent multi-worker load, failing the "expected a real (non-fallback) GPU verdict" assertions
+# below even though a real, working GPU is present (not reproducible standalone or on a small
+# re-run slice -- needs actual cross-worker contention). Also skip outright when no CUDA device is
+# usable at all (cupy importable != a working device), matching every other GPU test in this repo,
+# instead of asserting non-None against a fallback that's legitimate in that environment.
+pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
+
+
 def _host_basis(xcol: np.ndarray) -> np.ndarray:
     """The exact 6-function additive single-operand basis (standardized x, x^2, x^3, signed-sqrt,
     signed-log1p, reciprocal-magnitude), matching both the CPU sklearn path and the GPU kernel."""
