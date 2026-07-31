@@ -452,19 +452,33 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         # so no LR-restart phase) when WeightAveraging is unavailable in
         # the installed Lightning (<2.5).
         if getattr(self._cfg, "use_ema", False):
-            from torch.optim.swa_utils import get_ema_avg_fn
             _ema_decay = getattr(self._cfg, "ema_decay", 0.999)
-            try:
-                from lightning.pytorch.callbacks import WeightAveraging
+            # Looked up via getattr rather than a direct import: both names are new-ish
+            # additions (torch>=2.1's get_ema_avg_fn, Lightning>=2.5's WeightAveraging) that
+            # are absent from the exact torch/lightning versions this project pins, so a
+            # direct `from ... import ...` would raise ImportError there -- getattr degrades
+            # to the SWA-as-EMA fallback below instead.
+            import lightning.pytorch.callbacks as _lightning_callbacks
+            import torch.optim.swa_utils as _swa_utils
 
-                callbacks.append(WeightAveraging(avg_fn=get_ema_avg_fn(decay=_ema_decay)))
-            except ImportError:
-                from lightning.pytorch.callbacks import StochasticWeightAveraging
+            _get_ema_avg_fn = getattr(_swa_utils, "get_ema_avg_fn", None)
+            _WeightAveraging = getattr(_lightning_callbacks, "WeightAveraging", None)
+            if _get_ema_avg_fn is not None and _WeightAveraging is not None:
+                callbacks.append(_WeightAveraging(avg_fn=_get_ema_avg_fn(decay=_ema_decay)))
+            else:
+                # Older torch (<2.1, no get_ema_avg_fn) or older Lightning (<2.5, no
+                # WeightAveraging): fall back to a manual per-step EMA avg_fn so the
+                # feature still works, just via StochasticWeightAveraging's hook instead
+                # of the dedicated callback.
+                def _ema_avg_fn(averaged_param: Any, model_param: Any, num_averaged: Any) -> Any:
+                    """StochasticWeightAveraging's avg_fn hook, repurposed as a constant-decay EMA."""
+                    return _ema_decay * averaged_param + (1.0 - _ema_decay) * model_param
+
                 callbacks.append(
-                    StochasticWeightAveraging(
+                    _lightning_callbacks.StochasticWeightAveraging(
                         swa_lrs=self._cfg.learning_rate,
                         swa_epoch_start=0.5,
-                        avg_fn=get_ema_avg_fn(decay=_ema_decay),
+                        avg_fn=_ema_avg_fn,
                     )
                 )
 
