@@ -1,0 +1,61 @@
+name: Dependabot auto-merge
+
+# Enables Dependabot PRs (github-actions + pip ecosystems, see dependabot.yml) to merge themselves
+# once this repo's own CI is green, without a human clicking merge for every routine bump. Gated to
+# minor/patch bumps only (parsed from the PR title's "from X.Y.Z to A.B.C" pair) -- a major-version
+# bump always needs a human, since it can carry breaking API changes dependabot itself can't assess.
+#
+# Uses GitHub's native auto-merge (`gh pr merge --auto`), which queues the merge and only actually
+# merges once every check already running on the PR succeeds -- this repo has no branch-protection
+# required-checks rule (deliberately, to keep direct-push-to-master unblocked for maintainer work),
+# so auto-merge itself is what gates on CI here, not a protection rule.
+#
+# Deliberately `pull_request` (not `pull_request_target`): every branch dependabot.yml opens lives
+# in THIS repo, never a fork, so a same-repo `pull_request` trigger already gets a GITHUB_TOKEN with
+# the write permissions requested below -- no need for pull_request_target's fork-secrets-exposure
+# risk, which this workflow would otherwise carry for zero benefit (it never checks out PR code).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Decide whether this is a minor/patch bump
+        id: semver
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          echo "title: $PR_TITLE"
+          # Matches "... from 1.2.3 to 1.5.0" (or "1.2.3 to 1.2.4") anywhere in the title;
+          # captures the major component of each side.
+          if [[ "$PR_TITLE" =~ from[[:space:]]v?([0-9]+)\.[0-9]+\.[0-9]+.*[[:space:]]to[[:space:]]v?([0-9]+)\.[0-9]+\.[0-9]+ ]]; then
+            old_major="${BASH_REMATCH[1]}"
+            new_major="${BASH_REMATCH[2]}"
+            if [[ "$old_major" == "$new_major" ]]; then
+              echo "minor/patch bump (major $old_major unchanged) -- eligible for auto-merge"
+              echo "eligible=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "major bump ($old_major -> $new_major) -- needs manual review, skipping auto-merge"
+              echo "eligible=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "could not parse an X.Y.Z -> A.B.C version pair from the title -- needs manual review, skipping auto-merge"
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Enable auto-merge
+        if: steps.semver.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR_URL"
