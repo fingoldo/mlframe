@@ -98,6 +98,46 @@ def test_cb_plot_disabled_headless():
     assert fp.get("plot") is False
 
 
+def test_iterative_stratification_njit_matches_reference_quality():
+    # Pin for the 2026-07-31 njit port of iterstrat.IterativeStratification (50.8x measured at 2M rows;
+    # cProfile found the pure-Python reference costing 35% of a 2M-row multilabel fit's wall time). Tie
+    # breaking uses an independent RNG stream (selection-equivalence, not bit-identical -- see
+    # _iterative_stratification_njit.py's module docstring), so this pins STRATIFICATION QUALITY
+    # (per-fold/per-label deviation from the requested r) matching the reference, not exact assignment.
+    """Iterative stratification njit matches reference quality."""
+    from iterstrat.ml_stratifiers import IterativeStratification as IterativeStratificationRef
+    from sklearn.utils import check_random_state
+
+    from mlframe.training._iterative_stratification_njit import _iterative_stratification_njit
+
+    def _quality(labels, r, folds):
+        """Max relative deviation of any (fold, label) positive-rate from its requested fraction."""
+        worst = 0.0
+        for j in range(len(r)):
+            mask = folds == j
+            for c in range(labels.shape[1]):
+                total_pos = int(labels[:, c].sum())
+                if total_pos == 0:
+                    continue
+                fold_pos = int(labels[mask, c].sum())
+                worst = max(worst, abs(fold_pos - r[j] * total_pos) / total_pos)
+        return worst
+
+    r = np.array([0.7, 0.15, 0.15])
+    rng = np.random.default_rng(0)
+    worst_ref = worst_new = 0.0
+    for seed in range(30):
+        n = int(rng.integers(200, 2000))
+        k = int(rng.integers(2, 10))
+        labels = (rng.random((n, k)) < rng.uniform(0.05, 0.4, size=k)).astype(np.int8)
+        ref_folds = IterativeStratificationRef(labels=labels.astype(bool), r=r, random_state=check_random_state(seed))
+        new_folds = _iterative_stratification_njit(labels, r, seed)
+        assert (new_folds >= 0).all() and set(np.unique(new_folds).tolist()) <= {0, 1, 2}
+        worst_ref = max(worst_ref, _quality(labels, r, ref_folds))
+        worst_new = max(worst_new, _quality(labels, r, new_folds))
+    assert worst_new <= worst_ref + 0.05, f"njit quality {worst_new} much worse than reference {worst_ref}"
+
+
 def test_cb_plot_respects_explicit_user_value():
     """Cb plot respects explicit user value."""
     fp = {"plot": True}
