@@ -336,3 +336,30 @@ def test_bootstrap_metric_per_row_resample_fastpath_matches_generic():
         assert gen["point"] == fast["point"]
         assert np.isclose(gen["lo"], fast["lo"], rtol=1e-9, atol=0.0)
         assert np.isclose(gen["hi"], fast["hi"], rtol=1e-9, atol=0.0)
+
+
+def test_bootstrap_metric_per_row_fastpath_batching_is_bit_identical_to_manual_per_iteration():
+    """The per-row-fast-path's vectorized-CHUNK batching (numpy's Generator draws the same bit-stream
+    whether pulled as n_bootstrap separate size=n calls or one size=(chunk, n) call) must be
+    bit-identical to computing the same formula (gather precomputed per-row values via idx, .mean(),
+    reduce) one resample at a time -- the invariant the batching change relies on."""
+    import numpy as np
+    from mlframe.evaluation.bootstrap import bootstrap_metric
+
+    n = 5_000
+    n_bootstrap = 300
+    seed = 11
+    rng = np.random.default_rng(1)
+    y = rng.standard_normal(n)
+    p = y + rng.standard_normal(n) * 0.3
+    _rmse_pr = lambda yy, pp: (np.asarray(yy, dtype=np.float64) - np.asarray(pp, dtype=np.float64)) ** 2
+
+    fast = bootstrap_metric(y, p, lambda yy, pp: 0.0, n_bootstrap=n_bootstrap, random_state=seed, jackknife_per_row=(_rmse_pr, False, np.sqrt))
+
+    manual_rng = np.random.default_rng(seed)
+    per_row = _rmse_pr(y, p)
+    manual = np.empty(n_bootstrap, dtype=np.float64)
+    for i in range(n_bootstrap):
+        idx = manual_rng.integers(0, n, size=n, dtype=np.int64)
+        manual[i] = float(np.sqrt(per_row[idx].mean()))
+    assert np.array_equal(np.sort(fast["samples"]), np.sort(manual))
