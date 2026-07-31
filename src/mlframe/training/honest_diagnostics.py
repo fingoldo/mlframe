@@ -217,16 +217,38 @@ def _bootstrap_block(
             _metric_fns_idx = None
             if _make_auc_resampler is not None:
                 _metric_fns_idx = {"roc_auc": _make_auc_resampler(y_true_f64, p_pos_f64)}
-            try:
-                cis = bootstrap_metrics(
-                    y_true_f64, p_pos_f64, metric_fns,
-                    n_bootstrap=1000, alpha=0.05, stratify=y_true, random_state=rng_seed,
-                    metric_fns_idx=_metric_fns_idx,
-                    per_row_fns=_per_row_fns,
-                    jackknife_fns=_jackknife_fns,
-                )
-            except Exception as exc:
-                cis = {name: {"error": f"{type(exc).__name__}: {exc}"} for name in metric_fns}
+            cis = None
+            # Fused fast path: this bundle is ALWAYS exactly {roc_auc, brier, log_loss, ece} sharing one
+            # resample (the only shape this module ever builds). bootstrap_auc_brier_ll_ece_batch fuses
+            # all four metrics' per-resample computation into ONE numba.njit(parallel=True) call instead
+            # of bootstrap_metrics's per-resample Python-dispatch loop -- 2.9x-3.4x measured (see
+            # bench_bootstrap_fused_binary_bundle.py), bit-identical modulo ~1e-14 FP-reorder (the fused
+            # kernel calls the sequential brier/log_loss reduction; bootstrap_metrics's size-adaptive
+            # dispatcher picks the parallel-reduction variant at n>=100k -- same FP-reorder class the
+            # project already accepts elsewhere). Falls back to bootstrap_metrics on tied base scores
+            # (the fused path's tie-free AUC gate) or if this exact 4-metric bundle isn't present
+            # (e.g. the ECE import failed above).
+            if {"brier", "log_loss", "ece"} <= set(metric_fns) and _metric_fns_idx is not None:
+                from mlframe.evaluation._bootstrap_fused_binary_bundle import bootstrap_auc_brier_ll_ece_batch
+
+                try:
+                    cis = bootstrap_auc_brier_ll_ece_batch(
+                        y_true_f64, p_pos_f64, n_bootstrap=1000, alpha=0.05, stratify=y_true, random_state=rng_seed,
+                    )
+                except Exception as exc:
+                    logger.debug("honest_diagnostics: fused bootstrap bundle failed, falling back to bootstrap_metrics: %r", exc, exc_info=True)
+                    cis = None
+            if cis is None:
+                try:
+                    cis = bootstrap_metrics(
+                        y_true_f64, p_pos_f64, metric_fns,
+                        n_bootstrap=1000, alpha=0.05, stratify=y_true, random_state=rng_seed,
+                        metric_fns_idx=_metric_fns_idx,
+                        per_row_fns=_per_row_fns,
+                        jackknife_fns=_jackknife_fns,
+                    )
+                except Exception as exc:
+                    cis = {name: {"error": f"{type(exc).__name__}: {exc}"} for name in metric_fns}
             for name, ci in cis.items():
                 if "error" in ci:
                     out[name] = {"status": "skipped", "reason": ci["error"]}
