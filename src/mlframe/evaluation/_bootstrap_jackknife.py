@@ -107,18 +107,25 @@ def _jackknife_metric(
         sel = np.arange(n)
     else:
         sel = np.linspace(0, n - 1, max_n).astype(np.int64)
-    keep_mask = np.ones(n, dtype=bool)
     out = np.empty(sel.shape[0], dtype=np.float64)
     w = 0
+    # Two-slice concatenation instead of a full-``n`` boolean mask + fancy-index gather: masking pays an
+    # O(n) predicate build, an O(n) nonzero scan (numpy's boolean-index gather resolves the mask to
+    # positions first), and an O(n-1) gather -- three passes over the row range EVERY LOO iteration.
+    # ``concatenate([:i], [i+1:])`` is a single O(n-1) memcpy, no predicate/nonzero pass, and preserves
+    # the identical row order (everything before i, then everything after i -- exactly what the mask
+    # produced), so the metric sees bit-identical inputs. At n=2M / max_n=2000 the mask path re-scans the
+    # full 2M-row range on every one of 2000 iterations (~4e9 element touches from the scan alone); this
+    # drops to one memcpy pass per iteration.
     for i in sel:
-        keep_mask[i] = False
+        idx = int(i)
+        y_true_loo = np.concatenate((y_true[:idx], y_true[idx + 1 :]))
+        y_pred_loo = np.concatenate((y_pred[:idx], y_pred[idx + 1 :]))
         try:
-            v = float(metric_fn(y_true[keep_mask], y_pred[keep_mask]))
+            v = float(metric_fn(y_true_loo, y_pred_loo))
         except Exception as exc:
-            logger.debug("jackknife LOO metric failed at i=%d: %r", i, exc, exc_info=True)
-            keep_mask[i] = True
+            logger.debug("jackknife LOO metric failed at i=%d: %r", idx, exc, exc_info=True)
             continue
-        keep_mask[i] = True
         if not _isfinite(v):
             continue
         out[w] = v
