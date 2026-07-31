@@ -277,6 +277,193 @@ def _split_significant(
     return (gain > threshold_gain), p_value, "permutation"
 
 
+@njit(nogil=True, cache=True, parallel=True)
+def _mdlp_permutation_batch_njit(
+    x_padded: np.ndarray,
+    y_padded: np.ndarray,
+    node_sizes: np.ndarray,
+    node_gains: np.ndarray,
+    n_classes_arr: np.ndarray,
+    min_split_size: int,
+    n_permutations: int,
+    base_seeds: np.ndarray,
+    alpha: float,
+) -> np.ndarray:
+    """Batched twin of ``_split_significant``'s permutation branch, across ALL nodes at one BFS level
+    that need it (``analytic_null_applicable`` was False for each). ``x_padded``/``y_padded`` are
+    ``(n_nodes, max_n)`` -- row ``i``'s real data is ``[:node_sizes[i]]``, the rest is padding (never
+    read: every inner loop is bounded by ``node_sizes[i]``). ``numba.prange`` over nodes AND (nested,
+    via each node's own already-``prange``-batched call... no -- see below) over permutations.
+
+    Does NOT run ``_permutation_prefilter_reject`` (that check calls ``analytic_mi_null``, which uses
+    ``scipy.stats.chi2`` and is not njit-compatible) -- safe to skip: its own docstring proves it "can
+    only ever turn a permutation-branch REJECT into an early reject (never an accept)", i.e. it never
+    changes an accept/reject DECISION, only skips compute for nodes that would reject anyway. Dropping
+    it here costs a FEW extra permutation draws on already-doomed nodes, never a different verdict.
+
+    Returns ``(n_nodes,)`` boolean accept flags. Each node's permutations seed independently
+    (``base_seeds[i] + p``), matching :func:`_permutation_null_gain_njit`'s per-permutation seeding
+    (selection-equivalent, not bit-identical to the old continuous-stream draws -- see that function's
+    docstring for the accepted-tolerance rationale, identical here).
+    """
+    n_nodes = x_padded.shape[0]
+    accept = np.zeros(n_nodes, dtype=np.bool_)
+    for node in numba.prange(n_nodes):
+        ni = node_sizes[node]
+        x_i = x_padded[node, :ni]
+        y_i = y_padded[node, :ni]
+        nc = n_classes_arr[node]
+        gain = node_gains[node]
+        base_seed = base_seeds[node]
+        null_gains = np.empty(n_permutations, dtype=np.float64)
+        for p in range(n_permutations):
+            np.random.seed(base_seed + p)
+            y_perm = y_i.copy()
+            for i in range(ni - 1, 0, -1):
+                j = int(np.random.randint(0, i + 1))
+                tmp = y_perm[i]
+                y_perm[i] = y_perm[j]
+                y_perm[j] = tmp
+            _, g, _, _, _ = _mdlp_best_split_njit(x_i, y_perm, nc, min_split_size)
+            null_gains[p] = g if g > 0.0 else 0.0
+        null_gains.sort()
+        q_idx = min(math.ceil((1.0 - alpha) * n_permutations) - 1, n_permutations - 1)
+        q_idx = max(0, q_idx)
+        threshold_gain = null_gains[q_idx]
+        accept[node] = gain > threshold_gain
+    return accept
+
+
+def _mdlp_recurse_validated_bfs(
+    x: np.ndarray,
+    y: np.ndarray,
+    min_split_size: int,
+    max_depth: int,
+    alpha: float,
+    n_permutations: int,
+    seed: int,
+    bonferroni: bool,
+    tree_wide_alpha: "float | None",
+) -> list:
+    """Level-order (BFS) twin of :func:`_mdlp_recurse_validated`: batches every level's
+    permutation-fallback significance tests into ONE ``_mdlp_permutation_batch_njit`` call instead of
+    one Python-level ``_split_significant`` dispatch per node.
+
+    ``_mdlp_recurse_validated`` (DFS) was the #1 mlframe hotspot by tottime in a multiclass 2M-row
+    cProfile even after ``_permutation_null_gain_njit`` was itself parallelised
+    (per-node permutations across cores) -- 28.6s tottime / 3614 calls, because the recursion still
+    dispatches one Python-level significance test PER NODE (3169 calls to ``_split_significant``
+    alone), each paying its own GIL-bound njit-call overhead even though the underlying kernel is
+    nogil. Nodes at the SAME recursion depth are mutually independent once their parent's split is
+    known (the tree only branches downward), so batching across a whole LEVEL removes that per-node
+    Python round-trip for the permutation branch -- the branch that actually dominates the cost.
+
+    Returns the SAME ``splits`` list :func:`_mdlp_recurse_validated` would produce, as a SET (order is
+    irrelevant: ``mdlp_bin_edges_validated`` sorts the final edges either way), not necessarily in the
+    same insertion order -- callers must not depend on ``splits``' order (none do; verified against
+    every call site)."""
+    splits: list = []
+    # frontier: list of (x_node, y_node, depth, counts_parent_or_None, node_seed_base)
+    frontier = [(x, y, 0, None, seed)]
+    while frontier:
+        next_frontier: list = []
+        # Pass 1: best-split search + analytic-path resolution for every node at this level (cheap,
+        # O(1) or O(n) njit calls -- NOT the cost driver, stays a Python loop over nodes).
+        pending_permutation: list = []  # (x_i, y_i, n_classes, gain, seed_i, left_x, left_y, right_x, right_y, best_split, depth)
+        for x_node, y_node, depth, counts_parent, node_seed in frontier:
+            n = len(x_node)
+            if n < 2 * min_split_size or depth >= max_depth:
+                continue
+            if counts_parent is None:
+                present = np.unique(y_node)
+            else:
+                present = np.flatnonzero(counts_parent)
+            n_classes_full = present.size
+            if n_classes_full <= 1:
+                continue
+            if present[0] != 0 or present[-1] != n_classes_full - 1:
+                y_compact = np.searchsorted(present, y_node).astype(np.int64)
+            else:
+                y_compact = y_node
+            best_idx, best_gain, _h_full, _n_l, _n_r = _mdlp_best_split_njit(x_node, y_compact, int(n_classes_full), min_split_size)
+            if best_idx < 0 or best_gain <= 0.0:
+                continue
+            best_split = 0.5 * (x_node[best_idx] + x_node[best_idx + 1])
+            if tree_wide_alpha is not None:
+                _alpha = tree_wide_alpha
+            else:
+                _alpha = alpha / (2.0**depth) if bonferroni else alpha
+            n_candidates = _count_candidates_njit(x_node, y_compact, min_split_size)
+            _node_seed = node_seed + depth * 7919 + int(best_idx)
+
+            # Captured as default-arg values (NOT closure-by-reference) since ``_accept_node`` may be
+            # invoked much later (Pass 2, after this ``for`` loop has moved on to -- or finished --
+            # later iterations); Python closures over a loop variable are late-binding, so without
+            # this every deferred node would silently build its children from the LAST iteration's
+            # values instead of its own.
+            def _accept_node(
+                x_node=x_node,
+                y_compact=y_compact,
+                best_split=best_split,
+                depth=depth,
+                best_idx=best_idx,
+                n_classes_full=n_classes_full,
+                next_frontier=next_frontier,
+            ):
+                """Build the two child nodes and record the accepted split (shared by both the analytic and batched-permutation accept paths)."""
+                left_mask_idx = best_idx + 1
+                y_left = y_compact[:left_mask_idx]
+                y_right = y_compact[left_mask_idx:]
+                counts_left_dense = np.bincount(y_left, minlength=int(n_classes_full)).astype(np.int64)
+                counts_right_dense = np.bincount(y_right, minlength=int(n_classes_full)).astype(np.int64)
+                splits.append(float(best_split))
+                next_frontier.append((x_node[:left_mask_idx], y_compact[:left_mask_idx], depth + 1, counts_left_dense, seed))
+                next_frontier.append((x_node[left_mask_idx:], y_compact[left_mask_idx:], depth + 1, counts_right_dense, seed))
+
+            if analytic_null_applicable(n, 2, n_classes_full):
+                _, p_value_raw = analytic_mi_null(float(best_gain), int(n), 2, int(n_classes_full))
+                p_value = min(1.0, p_value_raw * max(1, int(n_candidates)))
+                if p_value < _alpha:
+                    _accept_node()
+                continue
+            # Deferred to the batched permutation pass below.
+            pending_permutation.append((x_node, y_compact, n_classes_full, best_gain, _node_seed, _accept_node, _alpha))
+
+        # Pass 2: ONE batched njit call for every node this level deferred to the permutation branch.
+        if pending_permutation:
+            max_n = max(len(p[0]) for p in pending_permutation)
+            n_nodes = len(pending_permutation)
+            x_padded = np.zeros((n_nodes, max_n), dtype=np.float64)
+            y_padded = np.zeros((n_nodes, max_n), dtype=np.int64)
+            node_sizes = np.empty(n_nodes, dtype=np.int64)
+            node_gains = np.empty(n_nodes, dtype=np.float64)
+            n_classes_arr = np.empty(n_nodes, dtype=np.int64)
+            base_seeds = np.empty(n_nodes, dtype=np.int64)
+            # Bonferroni alpha can differ per node (depth-decay) but is uniform within one BFS level
+            # (every pending node here shares the same `depth`), so a single scalar alpha per batch call
+            # is correct; assert the invariant defensively rather than silently averaging wrong alphas.
+            _alphas = {p[6] for p in pending_permutation}
+            assert len(_alphas) == 1, "BFS level batch: nodes at the same depth must share the same alpha"
+            _batch_alpha = next(iter(_alphas))
+            for i, (_x_i, _y_i, _nc_i, gain_i, seed_i, _accept_fn, _a) in enumerate(pending_permutation):
+                ni = len(_x_i)
+                x_padded[i, :ni] = _x_i
+                y_padded[i, :ni] = _y_i
+                node_sizes[i] = ni
+                node_gains[i] = gain_i
+                n_classes_arr[i] = _nc_i
+                base_seeds[i] = seed_i
+            accepts = _mdlp_permutation_batch_njit(
+                x_padded, y_padded, node_sizes, node_gains, n_classes_arr, min_split_size, n_permutations, base_seeds, _batch_alpha,
+            )
+            for i, (_x_i, _y_i, _nc_i, _gain_i, _seed_i, _accept_fn, _a) in enumerate(pending_permutation):
+                if accepts[i]:
+                    _accept_fn()
+
+        frontier = next_frontier
+    return splits
+
+
 def _mdlp_recurse_validated(
     x: np.ndarray,
     y: np.ndarray,
@@ -426,11 +613,9 @@ def mdlp_bin_edges_validated(
     sorter = np.argsort(x)
     x_sorted = np.ascontiguousarray(x[sorter].astype(np.float64))
     y_sorted = np.ascontiguousarray(y_i[sorter])
-    splits: list = []
     tree_wide_alpha = float(alpha) / max(1, x_sorted.size // int(min_split_size)) if tree_wide_bonferroni else None
-    _mdlp_recurse_validated(
-        x_sorted, y_sorted, splits, 0, int(min_split_size), int(max_depth), float(alpha), int(n_permutations), int(seed), bool(bonferroni),
-        tree_wide_alpha=tree_wide_alpha,
+    splits = _mdlp_recurse_validated_bfs(
+        x_sorted, y_sorted, int(min_split_size), int(max_depth), float(alpha), int(n_permutations), int(seed), bool(bonferroni), tree_wide_alpha,
     )
     splits.sort()
     edges = np.concatenate([[-np.inf], np.asarray(splits, dtype=np.float64), [np.inf]])
