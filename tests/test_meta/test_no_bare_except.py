@@ -1,21 +1,9 @@
-"""H3 — meta-test that no production code uses ``except:`` (bare) or
-``except BaseException:``.
+"""H3 (partial) — meta-test that no ``except Exception:`` handler swallows the exception silently
+or logs only behind a ``verbose`` gate.
 
-Bare ``except:`` swallows EVERYTHING — ``KeyboardInterrupt`` (so the
-user can't Ctrl-C), ``SystemExit`` (forks misbehave), and
-``MemoryError`` (debugger gets confused). It also masks bugs in the
-try-block by catching them as if they were expected. The narrow form
-``except Exception:`` is the safe equivalent in nearly every case.
-
-Catches:
-  - ``except:``                     → must be ``except Exception:`` (or specific)
-  - ``except BaseException:``       → same (or KeyboardInterrupt / SystemExit individually if intended)
-
-Skips ``except Exception:`` and any narrower exception type — those
-are intentional.
-
-Snapshot-style; first run captures any existing offenders. Future
-commits adding new bare excepts fail.
+The bare-``except:``/``except BaseException:`` half of this check (formerly
+``test_no_new_bare_except_clauses``) now runs via the shared ``pyutilz.dev.code_audit``
+``bare_except`` scanner in ``test_code_audit_baseline.py`` instead of a local copy.
 """
 
 from __future__ import annotations
@@ -32,56 +20,8 @@ import mlframe
 from tests.test_meta._shared_ast_cache import parsed_ast
 
 MLFRAME_DIR = Path(mlframe.__file__).resolve().parent
-_BASELINE_PATH = Path(__file__).resolve().parent / "_bare_except_baseline.json"
 
 _EXEMPT_PATH_FRAGMENTS = ("__pycache__", "tests", "legacy", "profiling", "explore")
-
-
-def _refresh_requested() -> bool:
-    """True if ``--refresh-bare-except-baseline`` was passed on the pytest command line."""
-    return "--refresh-bare-except-baseline" in sys.argv
-
-
-def _is_bare_except(handler: ast.ExceptHandler) -> bool:
-    """``handler.type`` is None for bare ``except:``; or a Name
-    ``BaseException`` for the equivalent dangerous form.
-
-    EXCEPTION: ``except BaseException as e: ... raise`` (re-raise) is
-    legitimate — phase-tracking context managers, request-scope cleanup,
-    and similar patterns that audit EVERY exit path. We detect a bare
-    re-raise inside the handler and allow that case.
-    """
-    if handler.type is None:
-        # Bare ``except:`` — never legitimate; swallows everything
-        # including KeyboardInterrupt before the (possible) re-raise.
-        return True
-    if isinstance(handler.type, ast.Name) and handler.type.id == "BaseException":
-        for sub in ast.walk(handler):
-            if isinstance(sub, ast.Raise) and sub.exc is None:
-                return False  # bare ``raise`` → re-raises, legitimate
-        return True
-    return False
-
-
-def _build_offending_set() -> set[str]:
-    """``{relpath:lineno}`` for every bare/BaseException ``except`` clause under ``src/mlframe``."""
-    out: set[str] = set()
-    for py in MLFRAME_DIR.rglob("*.py"):
-        if any(frag in py.parts for frag in _EXEMPT_PATH_FRAGMENTS):
-            continue
-        if py.name.endswith(".py.old"):
-            continue
-        tree = parsed_ast(py)
-        if tree is None:
-            continue
-        rel = py.relative_to(MLFRAME_DIR).as_posix()
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Try):
-                continue
-            for handler in node.handlers:
-                if _is_bare_except(handler):
-                    out.add(f"{rel}:{handler.lineno}")
-    return out
 
 
 _VERBOSE_GATED_BASELINE_PATH = Path(__file__).resolve().parent / "_verbose_gated_except_baseline.json"
@@ -169,7 +109,7 @@ def _handler_is_effectively_silent(handler: ast.ExceptHandler) -> bool:
     """True if a broad ``except Exception:`` handler swallows the exception with no unconditional log
     (either the body is empty/pass/continue-only, or its only log call is gated behind a verbose check)."""
     if handler.type is None:
-        return False  # bare except is handled by test_no_new_bare_except_clauses, not this check
+        return False  # bare except is handled by the shared bare_except scanner, not this check
     if not (isinstance(handler.type, ast.Name) and handler.type.id == "Exception"):
         return False  # narrower exception types are intentional, not this finding's scope
     # A handler that re-raises is never silent.
@@ -236,34 +176,4 @@ def test_no_new_verbose_gated_or_silent_except_exception():
             f"{len(new)} new ``except Exception:`` handler(s) that swallow silently or log only "
             f"behind a ``verbose`` gate. Log unconditionally (even at ``logger.debug`` level) or "
             f"re-raise:\n  " + "\n  ".join(new[:30]) + (f"\n  ... and {len(new) - 30} more" if len(new) > 30 else "")
-        )
-
-
-def test_no_new_bare_except_clauses():
-    """No new bare/BaseException ``except`` clause beyond the frozen baseline."""
-    current = _build_offending_set()
-
-    if _refresh_requested() or not _BASELINE_PATH.exists():
-        _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
-        pytest.skip(f"bare-except baseline refreshed at {_BASELINE_PATH.name} ({len(current)} bare clauses)")
-
-    baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
-    new = sorted(current - baseline)
-    fixed = sorted(baseline - current)
-
-    if fixed:
-        sys.stderr.write(
-            f"\n[test_no_new_bare_except_clauses] {len(fixed)} site(s) "
-            f"DRAINED:\n  "
-            + "\n  ".join(fixed[:15])
-            + (f"\n  ... and {len(fixed) - 15} more" if len(fixed) > 15 else "")
-            + "\n  Refresh: pytest ... --refresh-bare-except-baseline\n"
-        )
-
-    if new:
-        pytest.fail(
-            f"{len(new)} new bare ``except:`` (or ``except BaseException:``) "
-            f"clause(s). Replace with ``except Exception:`` or a narrower "
-            f"specific exception type — bare-except swallows "
-            f"KeyboardInterrupt/SystemExit and masks real bugs:\n  " + "\n  ".join(new[:30]) + (f"\n  ... and {len(new) - 30} more" if len(new) > 30 else "")
         )

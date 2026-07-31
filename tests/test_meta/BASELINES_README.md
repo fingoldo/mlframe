@@ -22,10 +22,11 @@ Run from the repository root. The script re-runs each meta-test in
 ## Files
 
 - `_annotation_baseline.json` - public-symbol annotation gaps allow-list
-- `_bare_except_baseline.json` - bare `except:` locations allow-list
-- `_console_unicode_baseline.json` - non-ASCII print/log call sites
+- `_verbose_gated_except_baseline.json` - silent/verbose-gated `except Exception:` allow-list
+  (bare `except:`, non-ASCII print/log sites, mojibake, unclosed-resource sites, and un-attributed
+  TODO markers moved to the shared `pyutilz.dev.code_audit` registry -- see
+  `_code_audit_baseline.json` and `test_code_audit_baseline.py`)
 - `_debt_baseline.json` - per-test deferred-debt budgets
 - `_docstring_baseline.json` - missing-docstring allow-list
 - `_logger_lazy_baseline.json` - non-lazy logger format strings
 - `_mutable_defaults_baseline.json` - mutable default-argument sites
-- `_resource_handle_baseline.json` - unclosed-resource sites

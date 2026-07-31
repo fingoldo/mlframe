@@ -36,10 +36,11 @@ _BASELINE_PATH = Path(__file__).resolve().parent / "_code_audit_baseline.json"
 _EXCLUDE_DIRS = frozenset({"legacy", "benchmarks", "profiling", "_benchmarks"})
 
 
-def test_no_new_code_audit_findings():
+def test_no_new_code_audit_findings(request):
     """Fail only on NEW pyutilz.dev.code_audit findings vs the committed baseline."""
     assert_no_new_code_audit_findings(
         root=MLFRAME_DIR,
         baseline_path=_BASELINE_PATH,
         exclude_dirs=_EXCLUDE_DIRS,
+        request=request,
     )
