@@ -47,6 +47,7 @@ _isfinite = math.isfinite
 from ._bootstrap_jackknife import (  # noqa: F401
     _ci_from_samples,
     _jackknife_auc,
+    _jackknife_ece,
     _jackknife_mean_metric,
     _jackknife_metric,
     _jackknife_metric_idx,
@@ -165,92 +166,67 @@ def bootstrap_metric(
     valid = 0
     failures = 0
     first_err: Optional[str] = None
-    if _pr_resample is not None and stratify is None:
-        # Vectorized batch path for the unstratified per-row-fast metric (RMSE / Brier / log-loss's
-        # per-row decomposition): numpy's Generator draws the SAME bit-stream whether pulled as
-        # ``n_bootstrap`` separate ``size=n`` calls or one ``size=(chunk, n)`` call (verified -- the
-        # Generator API is stream-based and shape-order-invariant, unlike the legacy RandomState), so
-        # batching a CHUNK of resamples' index draws into one call and doing the gather+mean+reduce as
-        # one vectorized numpy op instead of ``chunk`` separate Python-level iterations is bit-identical.
-        # NOT extended to the stratified branch: its per-class interleaved draws can't batch this way
-        # without changing the RNG order (see the rejected-attempt note on that branch above). Chunk
-        # size is memory-bounded (~200MB per idx/gather array) so this stays safe at large n (e.g. a
-        # 2M-row honest_diagnostics multiclass regression-fallback RMSE bootstrap).
-        _prv, _red = _pr_resample
-        _chunk = max(1, min(200, int(200_000_000 // max(1, n * 8))))
-        for _lo in range(0, n_bootstrap, _chunk):
-            _hi = min(_lo + _chunk, n_bootstrap)
-            _cs = _hi - _lo
-            _idx_chunk = rng.integers(0, n, size=(_cs, n), dtype=np.int64)
-            _means = _prv[_idx_chunk].mean(axis=1)
-            _vals = np.asarray(_red(_means) if _red is not None else _means, dtype=np.float64)
-            _finite = np.isfinite(_vals)
-            _k = int(np.count_nonzero(_finite))
-            samples[valid : valid + _k] = _vals[_finite]
-            valid += _k
-            failures += _cs - _k
-    else:
-        for _ in range(n_bootstrap):
-            if stratify is None:
-                # iter464: dtype=np.int64 explicit (same 1.16x shape-validation
-                # shortcut as the stratified path, iter451). The unstratified
-                # path is the regression-bootstrap default (RMSE etc); this
-                # fires n_bootstrap times per metric.
-                idx = rng.integers(0, n, size=n, dtype=np.int64)
-            else:
-                # Per-class resample preserves the original class frequencies.
-                # iter312 (2026-05-26): use rng.integers + index instead of
-                # rng.choice(replace=True). c0091/c0141 profile showed the
-                # listcomp at ~180us per call x 24000 calls = ~4.3s wall.
-                # rng.integers(0, len(grp), size=len(grp)) + grp[idx] runs
-                # 1.72x faster on n_class=10k (0.153ms -> 0.089ms) -- same
-                # statistical semantics (uniform with-replacement resample),
-                # rng.choice just has extra options-dispatch overhead.
-                # bench-attempt-rejected (2026-05-27, iter417): @njit kernel
-                # with per-element np.random.randint inner loop ran 0.31x
-                # (570us -> 1820us / call at n=100k, 2 classes). Numpy's
-                # vectorised rng.integers(0, sz, size=sz) outperforms numba's
-                # per-element randint by ~6x. Don't re-try a numba per-class
-                # rewrite -- the only viable path is batching all classes'
-                # randoms across all bootstrap iters via ONE big rng.integers
-                # call, which conflicts with the bit-identical reproducibility
-                # contract for the unstratified path's RNG draw order.
-                # iter451 (2026-05-27): pass dtype=np.int64 explicitly. Saves
-                # 16% on the rng.integers call (n=99000 x 1000 iter: 400ms
-                # -> 345ms) -- numpy skips a small piece of shape-inference
-                # dispatch when the output dtype is already specified. Same
-                # int64 dtype the index buffer holds (np.int64 from cumsum
-                # above), so no downstream cast either.
-                for _c in range(_class_sizes.shape[0]):
-                    _sz = int(_class_sizes[_c])
-                    _rand = rng.integers(0, _sz, size=_sz, dtype=np.int64)
-                    _idx_buf[_class_offsets[_c] : _class_offsets[_c + 1]] = _groups_list[_c][_rand]
-                idx = _idx_buf  # type: ignore[assignment]  # numpy stubs mis-infer rng.integers(..., size=n) as scalar-returning above; idx is always an ndarray at runtime
-            # bench-attempt-rejected (2026-05-27, iter392): replacing
-            # ``y_true[idx], y_pred[idx]`` with pre-allocated buffers via
-            # ``np.take(y_true, idx, out=y_buf)`` ran 0.88x SLOWER on n=100k
-            # float64 (1226us -> 1398us / pair). Fancy indexing's internal
-            # copy is already at the C-level memcpy floor; np.take adds an
-            # extra dispatch with no compensating allocation saving. Leave
-            # the idiomatic form -- next agent should not re-try this.
-            if _pr_resample is not None:
-                _prv, _red = _pr_resample
-                _mean = float(_prv[idx].mean())
-                v = float(_red(_mean)) if _red is not None else _mean
-            else:
-                try:
-                    v = float(metric_fn(y_true[idx], y_pred[idx]))
-                except Exception as exc:
-                    failures += 1
-                    if first_err is None:
-                        first_err = f"{type(exc).__name__}: {exc}"
-                    logger.debug("bootstrap resample failed: %r", exc, exc_info=True)
-                    continue
-            if not _isfinite(v):
+    for _ in range(n_bootstrap):
+        if stratify is None:
+            # iter464: dtype=np.int64 explicit (same 1.16x shape-validation
+            # shortcut as the stratified path, iter451). The unstratified
+            # path is the regression-bootstrap default (RMSE etc); this
+            # fires n_bootstrap times per metric.
+            idx = rng.integers(0, n, size=n, dtype=np.int64)
+        else:
+            # Per-class resample preserves the original class frequencies.
+            # iter312 (2026-05-26): use rng.integers + index instead of
+            # rng.choice(replace=True). c0091/c0141 profile showed the
+            # listcomp at ~180us per call x 24000 calls = ~4.3s wall.
+            # rng.integers(0, len(grp), size=len(grp)) + grp[idx] runs
+            # 1.72x faster on n_class=10k (0.153ms -> 0.089ms) -- same
+            # statistical semantics (uniform with-replacement resample),
+            # rng.choice just has extra options-dispatch overhead.
+            # bench-attempt-rejected (2026-05-27, iter417): @njit kernel
+            # with per-element np.random.randint inner loop ran 0.31x
+            # (570us -> 1820us / call at n=100k, 2 classes). Numpy's
+            # vectorised rng.integers(0, sz, size=sz) outperforms numba's
+            # per-element randint by ~6x. Don't re-try a numba per-class
+            # rewrite -- the only viable path is batching all classes'
+            # randoms across all bootstrap iters via ONE big rng.integers
+            # call, which conflicts with the bit-identical reproducibility
+            # contract for the unstratified path's RNG draw order.
+            # iter451 (2026-05-27): pass dtype=np.int64 explicitly. Saves
+            # 16% on the rng.integers call (n=99000 x 1000 iter: 400ms
+            # -> 345ms) -- numpy skips a small piece of shape-inference
+            # dispatch when the output dtype is already specified. Same
+            # int64 dtype the index buffer holds (np.int64 from cumsum
+            # above), so no downstream cast either.
+            for _c in range(_class_sizes.shape[0]):
+                _sz = int(_class_sizes[_c])
+                _rand = rng.integers(0, _sz, size=_sz, dtype=np.int64)
+                _idx_buf[_class_offsets[_c] : _class_offsets[_c + 1]] = _groups_list[_c][_rand]
+            idx = _idx_buf  # type: ignore[assignment]  # numpy stubs mis-infer rng.integers(..., size=n) as scalar-returning above; idx is always an ndarray at runtime
+        # bench-attempt-rejected (2026-05-27, iter392): replacing
+        # ``y_true[idx], y_pred[idx]`` with pre-allocated buffers via
+        # ``np.take(y_true, idx, out=y_buf)`` ran 0.88x SLOWER on n=100k
+        # float64 (1226us -> 1398us / pair). Fancy indexing's internal
+        # copy is already at the C-level memcpy floor; np.take adds an
+        # extra dispatch with no compensating allocation saving. Leave
+        # the idiomatic form -- next agent should not re-try this.
+        if _pr_resample is not None:
+            _prv, _red = _pr_resample
+            _mean = float(_prv[idx].mean())
+            v = float(_red(_mean)) if _red is not None else _mean
+        else:
+            try:
+                v = float(metric_fn(y_true[idx], y_pred[idx]))
+            except Exception as exc:
                 failures += 1
+                if first_err is None:
+                    first_err = f"{type(exc).__name__}: {exc}"
+                logger.debug("bootstrap resample failed: %r", exc, exc_info=True)
                 continue
-            samples[valid] = v
-            valid += 1
+        if not _isfinite(v):
+            failures += 1
+            continue
+        samples[valid] = v
+        valid += 1
 
     if valid == 0:
         raise ValueError(f"bootstrap_metric: all {n_bootstrap} resamples failed (first error: {first_err}). " "CI cannot be computed.")

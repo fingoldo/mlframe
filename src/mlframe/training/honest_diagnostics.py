@@ -178,6 +178,15 @@ def _bootstrap_block(
             # Mann-Whitney placement values (bit-identical to re-running fast_roc_auc on n-1 rows; 159x at n=300k).
             from mlframe.evaluation.bootstrap import _jackknife_auc as _jk_auc
             _jackknife_fns = {"roc_auc": lambda yy, ss: _jk_auc(yy, ss)}
+            # ECE's BCa jackknife has the same class of O(n) algebraic closed form as roc_auc's above (a sum
+            # decomposable through per-bin aggregation rather than per-row mean) -- was left on the generic
+            # O(max_n * n) gather path; see _jackknife_ece's docstring for the derivation and the profile that
+            # caught it (15.3s/6 calls on a 2M-row combo).
+            try:
+                from mlframe.evaluation.bootstrap import _jackknife_ece as _jk_ece
+                _jackknife_fns["ece"] = lambda yy, pp: _jk_ece(yy, pp)
+            except ImportError as exc:
+                logger.debug("honest_diagnostics: _jackknife_ece import failed (%r); ece BCa uses the generic jackknife.", exc)
             # roc_auc via the INDEX-aware resampler: pre-argsort the base score
             # vector ONCE, then build each of the 1000 resamples' descending order
             # in O(n) (counting-gather over base ranks) instead of a fresh

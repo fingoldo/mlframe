@@ -128,27 +128,20 @@ Run unbuffered with `-x -s` rather than launching a long blind run.
 A failure that is an OOM or a Windows paging-file error (WinError 1455 under joblib fan-out) reflects machine-wide memory pressure at that moment, not a defect: retry once, and if it fails again it is real. Tolerate it in code via `OSError` plus a skip.
 Heavily-parametrised modules expose a fast mode (a `--fast` flag or env var plus a `fast_subset` helper) that runs one representative case per code path, with the exhaustive sweep behind a slow marker. Without it the only options are the full matrix or no coverage, and the full matrix stops being run.
 
-## Plain `python`/subprocess runs need explicit PYTHONPATH on this machine (CRITICAL)
-This machine's global editable-install `.pth` (`__editable__.mlframe-*.pth`) points at a stale/unrelated worktree (`mlframe-sync-worktree`), not this repo's `src/`. `pytest` still resolves the real code correctly ONLY because `pyproject.toml` sets `pythonpath = ["src"]` in `[tool.pytest.ini_options]` — that setting does NOT propagate to `subprocess.run([sys.executable, ...])` calls a test spawns, so a subprocess-based import-smoke-test can fail with `ModuleNotFoundError: No module named 'mlframe...'` for reasons having nothing to do with the code under test. A profiling/bench script run as plain `python script.py` needs `PYTHONPATH=<repo>/src` set explicitly, every time. **Never "fix" this by editing the shared global `.pth` file** — it's machine-wide and other concurrent sessions' worktrees may depend on its current target; only pytest's own `pythonpath` ini setting or an explicit per-invocation `PYTHONPATH` env var are safe fixes.
-
-## An optimization only helps if EVERY call site is wired, not just the one you found first (CRITICAL)
-A hot recursion/function often has more than one independent call site reaching the same underlying logic (e.g. two separate public entry points that both duplicate a "sort + dedupe + recurse" sequence instead of one delegating to the other). Optimizing the first one you profile and calling it done leaves the others silently un-sped-up — a fresh cProfile run later can still show the OLD implementation as the #1 hotspot by tottime even though a validated faster replacement already exists in the same file. Before declaring a hotspot "already optimized, move to the next", `grep` every call site of the slow function/recursion by name across `src/`, not just the one the current profile happened to point at.
-**Why documented:** the MDLP BFS rewrite (`_mdlp_recurse_validated` → `_mdlp_recurse_validated_bfs`) shipped 2026-07-31 and was wired into `mdlp_bin_edges_validated()` (`_mdlp_validated_split.py`) — but `mdlp_bin_edges()` (`supervised_binning.py`), a SEPARATE, independent call site that duplicates the same sort/dedupe/recurse sequence and is the entry point MRMR/FE code actually calls, still called the old DFS function directly. A fresh 2M-row cProfile on a *different* combo caught it: 21.3s tottime / 1212 calls on `_mdlp_recurse_validated`, i.e. the just-shipped optimization was real but unused in production. Fixed by wiring the same already-validated BFS function into the second call site — no new algorithm, purely a missed grep.
-
-## FIXED BUG (2026-07-31, root-caused): `test_support_indices_within_feature_names_in_and_transform_runs` was a broken TEST FIXTURE, not an MRMR bug
-`TestNeverEmptyRescueSupportIndexSpace::test_support_indices_within_feature_names_in_and_transform_runs`
-(`tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_fe_encodings/test_kfold_target_encoding.py`)
-failed with `transform()` emitting `['cat_region']` instead of `['cat_region__te']`. Root cause (confirmed
-live via `verbose=True` fit logging, not guessed): the test called `_make_mrmr(fe_ntop_features=3)` believing
-`fe_ntop_features` alone turns TE on ("TE ON by default" in the old docstring) — it does not.
-`make_fast_mrmr`'s base preset is `fe_max_steps=0` with every FE family off; TE requires the explicit
-`fe_kfold_te_enable=True, fe_kfold_te_cols=(...)` kwargs (as the sibling `TestOOFNoLeak`-style tests in the
-same file already do). With TE never enabled, `cat_region__te` was never engineered at all (0 recipes; the
-"MRMR+ selected 1 out of 3 features: cat_region" log line before the fix confirms selection was raw-only) —
-nothing in the never-empty raw-representative re-attach path (`_fit_impl_core.py` ~line 8685,
-`min_features_fallback`) was ever exercised or defective. Fix: added the missing `fe_kfold_te_enable=True,
-fe_kfold_te_cols=("cat_region",)` kwargs to the test's `_make_mrmr` call. All 39 tests in
-`tests/feature_selection/fe/target_encoding/` + this file now pass (was 38 passed / 1 failed).
+## PERF WIN (2026-07-31): ECE's BCa jackknife left on the generic O(max_n*n) path while roc_auc/brier/log_loss already had closed forms
+2M-row cProfile on combo `c0008_946d0da3` (binary classification, cb+hgb) surfaced `_jackknife_metric`
+(`_bootstrap_jackknife.py`) at 15.3s tottime / 30.6s cumtime across just 6 calls, inside
+`honest_diagnostics._bootstrap_block`'s bootstrap-CI bundle for {roc_auc, brier, log_loss, ece}. Three of
+those four metrics already have an O(n) exact-algebraic BCa jackknife (`_jackknife_mean_metric` for
+brier/log_loss's per-row-mean form, `_jackknife_auc`'s Mann-Whitney placement-value form) — ECE was the one
+metric still falling through to the generic gather jackknife (O(max_n * n): re-slices and re-runs
+`_ece_score` on ~2000 leave-one-out subsets of the full row range). ECE decomposes the SAME way AUC does —
+not a mean of per-row values, but a sum over bins of `|per-bin-sum-diff|`, so leaving out one row only moves
+its own bin's two sums; every other bin's term is untouched. Added `_jackknife_ece` (same file, algebraic
+closed form, derivation in its docstring) and wired it into `honest_diagnostics.py`'s `_jackknife_fns["ece"]`
+next to the existing `roc_auc` entry. Verified bit-identical to the generic gather path (max diff 1.1e-16 at
+n=50/500/5000) and 1345x faster in isolation at n=1.6M (69.2s -> 0.051s). Full `tests/evaluation/` jackknife
++ bootstrap + ECE suite (40 tests) passes unchanged.
 
 ## Coverage cannot see inside `@njit`
 numba-compiled bodies never reach the Python trace hook, so every `@njit` function reads as uncovered no matter how heavily it is exercised. Measure them with `NUMBA_DISABLE_JIT=1`, and expect the run to be much slower.

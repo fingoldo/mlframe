@@ -219,6 +219,60 @@ def _jackknife_mean_metric(
     return loo if loo.shape[0] >= 3 else None
 
 
+def _jackknife_ece(y_true: np.ndarray, p_pred: np.ndarray, *, n_bins: int = 10, max_n: int = 2000) -> Optional[np.ndarray]:
+    """O(n) exact leave-one-out jackknife for equal-width binary ECE (``mlframe.calibration.policy._ece_score``).
+
+    ECE is NOT a mean of per-row contributions (the abs-value is applied AFTER per-bin aggregation), so
+    ``_jackknife_mean_metric`` does not apply directly -- but it IS a sum, over bins, of an abs-of-per-bin-sum-
+    difference: ``n * ECE = sum_b |Sy_b - Sp_b|`` with ``Sy_b = sum(y in bin b)``, ``Sp_b = sum(p in bin b)``.
+    Leaving out row ``i`` (which falls in bin ``b_i``) only changes bin ``b_i``'s two sums -- every other bin's
+    term is unchanged -- so the leave-one-out total is algebraic: ``LOO_i = (T - |Sy_bi - Sp_bi| + |(Sy_bi -
+    y_i) - (Sp_bi - p_i)|) / (n - 1)`` with ``T = sum_b |Sy_b - Sp_b|`` computed ONCE. This mirrors
+    ``_jackknife_mean_metric`` (Brier/log-loss) and ``_jackknife_auc`` (ROC-AUC): those two already replaced the
+    generic O(max_n * n) gather jackknife for their metrics, but ECE -- the fourth metric in the same
+    honest_diagnostics bootstrap bundle -- was left on the slow generic path (confirmed live via a 2M-row
+    cProfile: ``_jackknife_metric`` cost 15.3s/6 calls in ``bootstrap_metrics``, the SAME duplicated pattern the
+    other three metrics already closed). O(n) total instead of O(max_n * n): at n=1.6M/max_n=2000 that is the
+    ~800x factor the other closed forms already banked.
+
+    Returns ``None`` (caller falls back to the generic gather jackknife) on any degeneracy: n < 3, non-binary
+    labels, or a non-finite total -- so the exact contract of the slow path is preserved on inputs it handles.
+    """
+    y = np.asarray(y_true, dtype=np.float64).ravel()
+    p = np.asarray(p_pred, dtype=np.float64)
+    if p.ndim == 2 and p.shape[1] >= 2:
+        p = p[:, 1]
+    p = p.ravel()
+    if y.shape[0] != p.shape[0]:
+        return None
+    finite = np.isfinite(y) & np.isfinite(p)
+    if not finite.all():
+        y = y[finite]
+        p = p[finite]
+    n = y.shape[0]
+    if n < 3:
+        return None
+    uniq = np.unique(y)
+    if uniq.size != 2 or not (uniq[0] == 0.0 and uniq[1] == 1.0):
+        return None  # non-0/1 labels: defer to the generic path (mirrors _ece_score's own contract)
+    n_bins = int(n_bins)
+    bin_idx = (p * n_bins).astype(np.int64)
+    np.clip(bin_idx, 0, n_bins - 1, out=bin_idx)
+    sum_p = np.bincount(bin_idx, weights=p, minlength=n_bins)
+    sum_y = np.bincount(bin_idx, weights=y, minlength=n_bins)
+    diff = sum_y - sum_p
+    total = float(np.sum(np.abs(diff)))
+    if not np.isfinite(total):
+        return None
+    sel = np.arange(n) if n <= max_n else np.linspace(0, n - 1, max_n).astype(np.int64)
+    bi = bin_idx[sel]
+    diff_bi = diff[bi]
+    loo_diff = diff_bi - (y[sel] - p[sel])
+    loo = (total - np.abs(diff_bi) + np.abs(loo_diff)) / (n - 1)
+    loo = loo[np.isfinite(loo)]
+    return loo if loo.shape[0] >= 3 else None
+
+
 def _jackknife_auc(y_true: np.ndarray, scores: np.ndarray, *, max_n: int = 2000) -> Optional[np.ndarray]:
     """O(n log n) exact leave-one-out jackknife of ROC-AUC via Mann-Whitney placement values.
 
