@@ -227,16 +227,21 @@ def mdlp_bin_edges(
         # ``_entropy_from_counts_njit`` from HERE at ITS top level; by the time this function
         # runs, this module has finished loading, so the import is safe - doing it at this
         # module's own top level would not be).
-        from ._mdlp_validated_split import _dedupe_xy, _mdlp_recurse_validated
+        from ._mdlp_validated_split import _dedupe_xy, _mdlp_recurse_validated_bfs
 
         # Exact-duplicate (x, y) rows must be collapsed BEFORE the significance-gated recursion -
         # see ``_dedupe_xy``'s docstring for the measured over-splitting artifact this prevents
         # (duplicated rows sit x-adjacent with an identical y, which a permutation null built by
         # shuffling y never reproduces, so the observed gain spuriously clears the test).
         x_dedup, y_dedup = _dedupe_xy(x_sorted, y_sorted)
-        _mdlp_recurse_validated(
-            x_dedup, y_dedup, splits, 0, int(min_split_size), int(max_depth),
-            float(alpha), int(n_permutations), int(validated_seed), bool(bonferroni),
+        # Level-order (BFS) recursion, batching every tree level's permutation-null significance
+        # tests into one chunk-parallel njit call instead of one Python dispatch per node -- this
+        # call site was found still on the pre-2026-07-31 DFS recursion via a fresh 2M-row cProfile
+        # (21.3s tottime / 1212 calls) despite the BFS rewrite already shipping for the OTHER MDLP
+        # entry point (``mdlp_bin_edges_validated``) -- an unwired-elsewhere primitive, now fixed.
+        splits = _mdlp_recurse_validated_bfs(
+            x_dedup, y_dedup, int(min_split_size), int(max_depth),
+            float(alpha), int(n_permutations), int(validated_seed), bool(bonferroni), None,
         )
     splits.sort()
     edges = np.concatenate([[-np.inf], np.asarray(splits, dtype=np.float64), [np.inf]])
