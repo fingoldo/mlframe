@@ -117,7 +117,9 @@ def dataset_diagnostics(
     if not isinstance(Xc_df, pd.DataFrame):
         Xc_df = pd.DataFrame(np.asarray(Xc_df, dtype=np.float64))
     with np.errstate(invalid="ignore", divide="ignore"):
-        C = Xc_df.astype(np.float64).corr(method="pearson", min_periods=1).to_numpy()
+        # copy=True: pandas Copy-on-Write mode returns a read-only view from .to_numpy() otherwise,
+        # and np.fill_diagonal below mutates in place.
+        C = Xc_df.astype(np.float64).corr(method="pearson", min_periods=1).to_numpy(copy=True)
     if C.size:
         np.fill_diagonal(C, 0.0)
     max_abs_corr = float(np.nanmax(np.abs(C))) if C.size and np.isfinite(C).any() else 0.0

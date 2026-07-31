@@ -474,6 +474,19 @@ def pytest_collection_modifyitems(config, items):
             if "no_xdist" in item.keywords:
                 item.add_marker(skip_xdist)
 
+    # Pin every GPU test to the SAME xdist worker via xdist_group. Two workers each
+    # opening their own CUDA context against one physical device race for driver-level
+    # resources (context creation, VRAM allocation) -- observed as flaky "CUDA not
+    # available on this host" / dispatch silently falling through to the CPU njit
+    # backend even with a real, working GPU, reproducible only under -n>1 and NOT in a
+    # standalone or small-slice re-run (the failure needs cross-worker contention, which
+    # a 1-2 test re-run can't recreate). Grouping serializes GPU work across workers
+    # without disabling xdist parallelism for the rest of the suite.
+    _gpu_group = pytest.mark.xdist_group(name="gpu")
+    for item in items:
+        if "gpu" in item.keywords or "feature_selection/gpu/" in item.nodeid.replace("\\", "/"):
+            item.add_marker(_gpu_group)
+
     if not is_fast_mode():
         return
     skip_slow = pytest.mark.skip(reason="skipped in --fast mode")

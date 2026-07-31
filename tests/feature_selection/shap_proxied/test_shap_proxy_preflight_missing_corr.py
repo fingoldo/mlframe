@@ -35,3 +35,18 @@ def test_highly_correlated_but_missing_pair_detected_as_redundant():
 
     d = dataset_diagnostics(X, y, classification=True)
     assert d["max_abs_corr"] >= 0.9, f"highly-correlated-but-missing pair not detected as redundant: max_abs_corr={d['max_abs_corr']:.3f}"
+
+
+def test_dataset_diagnostics_survives_copy_on_write_readonly_to_numpy():
+    """Under pandas Copy-on-Write, ``.corr().to_numpy()`` can return a read-only array; the
+    ``np.fill_diagonal`` call inside ``dataset_diagnostics`` must not crash with
+    ``ValueError: underlying array is read-only`` (real bug, reproduced on a CoW-enabled pandas
+    install; silent on a non-CoW default)."""
+    rng = np.random.default_rng(1)
+    n = 200
+    X = pd.DataFrame({"a": rng.normal(size=n), "b": rng.normal(size=n), "c": rng.normal(size=n)})
+    y = rng.integers(0, 2, size=n)
+
+    with pd.option_context("mode.copy_on_write", True):
+        d = dataset_diagnostics(X, y, classification=True)
+    assert "max_abs_corr" in d
