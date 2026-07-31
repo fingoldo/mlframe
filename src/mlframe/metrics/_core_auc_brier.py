@@ -224,7 +224,7 @@ def _resample_desc_order_counting(resample_rank: np.ndarray, n: int) -> np.ndarr
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def _fused_resample_auc(idx: np.ndarray, base_rank: np.ndarray, y_by_rank: np.ndarray, n: int) -> float:
+def _fused_resample_auc(idx: np.ndarray, base_rank: np.ndarray, y_by_rank: np.ndarray, n: int, counts: np.ndarray, ones: np.ndarray) -> float:
     """Single-pass resample ROC AUC: bin counts+positives per ascending base rank,
     then walk ranks descending accumulating tps/fps. Fuses base_rank gather +
     desc-order build + duplicate y/score gather + the AUC walk into ONE njit pass
@@ -232,9 +232,16 @@ def _fused_resample_auc(idx: np.ndarray, base_rank: np.ndarray, y_by_rank: np.nd
     the same AUC as ``fast_numba_auc_nonw`` fed the counting desc-order; bit-
     identical to ``fast_roc_auc_unstable(y[idx], score[idx])`` on tie-free base
     scores (each rank is unique, so the descending-rank walk matches the desc
-    score walk). Caller GATES this on all-distinct base scores."""
-    counts = np.zeros(n, dtype=np.int64)
-    ones = np.zeros(n, dtype=np.int64)
+    score walk). Caller GATES this on all-distinct base scores.
+
+    ``counts``/``ones`` are CALLER-OWNED ``n``-length int64 scratch buffers, reset
+    to 0 here rather than reallocated. The bootstrap resampler calls this ~1000x
+    per bootstrap; ``np.zeros(n, ...)`` fresh per call paid a full malloc+zero of
+    an ``n``-length int64 array EVERY call (2M-row cProfile: this was the #1
+    mlframe hotspot by tottime, 7.884s/1001 calls -- allocate-once + reset-in-place
+    turns 1001 mallocs into 1, with the same in-kernel zero-fill cost either way)."""
+    counts[:] = 0
+    ones[:] = 0
     m = idx.shape[0]
     for k in range(m):
         r = base_rank[idx[k]]
@@ -263,7 +270,7 @@ def _fused_resample_auc(idx: np.ndarray, base_rank: np.ndarray, y_by_rank: np.nd
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def _fused_resample_auc_grouped(idx: np.ndarray, group_of_base: np.ndarray, y_base: np.ndarray, ngroups: int) -> float:
+def _fused_resample_auc_grouped(idx: np.ndarray, group_of_base: np.ndarray, y_base: np.ndarray, ngroups: int, counts: np.ndarray, ones: np.ndarray) -> float:
     """Tie-aware single-pass resample ROC AUC over DISTINCT-score groups.
 
     Generalises ``_fused_resample_auc`` to tied base scores: instead of binning by
@@ -281,9 +288,11 @@ def _fused_resample_auc_grouped(idx: np.ndarray, group_of_base: np.ndarray, y_ba
     accumulation matches the reference exactly for labels in {0,1} and n < 2**53.
 
     ``y_base[i]`` is the {0,1} label of base index ``i`` (gathered once by the caller).
-    O(m + ngroups) per resample -- no per-resample argsort."""
-    counts = np.zeros(ngroups, dtype=np.int64)
-    ones = np.zeros(ngroups, dtype=np.int64)
+    O(m + ngroups) per resample -- no per-resample argsort. ``counts``/``ones`` are
+    CALLER-OWNED ``ngroups``-length int64 scratch buffers (reset to 0 here, not
+    reallocated) -- see :func:`_fused_resample_auc`'s docstring for the rationale."""
+    counts[:] = 0
+    ones[:] = 0
     m = idx.shape[0]
     for k in range(m):
         bi = idx[k]
@@ -370,10 +379,12 @@ def make_bootstrap_auc_resampler(y_true: np.ndarray, y_score: np.ndarray):
             group_of_base = np.empty(n, dtype=np.int64)
             group_of_base[asc_order] = group_by_rank
             y_base = np.ascontiguousarray(y_int.astype(np.int64))
+            _grouped_counts = np.zeros(ngroups, dtype=np.int64)
+            _grouped_ones = np.zeros(ngroups, dtype=np.int64)
 
             def _resampler_grouped(idx: np.ndarray) -> float:
                 """Fast bootstrap AUC resampler for tied scores: groups by distinct score value so ties are counted correctly without re-sorting the resampled indices."""
-                return float(_fused_resample_auc_grouped(idx, group_of_base, y_base, ngroups))
+                return float(_fused_resample_auc_grouped(idx, group_of_base, y_base, ngroups, _grouped_counts, _grouped_ones))
             return _resampler_grouped
 
         def _resampler_exact(idx: np.ndarray) -> float:
@@ -386,10 +397,13 @@ def make_bootstrap_auc_resampler(y_true: np.ndarray, y_score: np.ndarray):
     base_rank[asc_order] = np.arange(n, dtype=np.int64)
     # y_by_rank[r] = label of the base element at ascending rank r (gather once)
     y_by_rank = np.ascontiguousarray(y_true[asc_order].astype(np.int64))
+    # Scratch buffers allocated ONCE and reset in-kernel per call (see _fused_resample_auc's docstring).
+    _fast_counts = np.zeros(n, dtype=np.int64)
+    _fast_ones = np.zeros(n, dtype=np.int64)
 
     def _resampler_fast(idx: np.ndarray) -> float:
         """Fast bootstrap AUC resampler for the no-ties case: reuses the pre-computed base ranking so each resample avoids a fresh full sort."""
-        return float(_fused_resample_auc(idx, base_rank, y_by_rank, n))
+        return float(_fused_resample_auc(idx, base_rank, y_by_rank, n, _fast_counts, _fast_ones))
 
     return _resampler_fast
 

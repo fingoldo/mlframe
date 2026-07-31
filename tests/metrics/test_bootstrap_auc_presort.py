@@ -125,9 +125,11 @@ def test_fused_kernel_bit_identical_to_exact_on_tie_free():
     base_rank = np.empty(n, dtype=np.int64)
     base_rank[asc] = np.arange(n, dtype=np.int64)
     y_by_rank = np.ascontiguousarray(y_true[asc].astype(np.int64))
+    counts = np.zeros(n, dtype=np.int64)
+    ones = np.zeros(n, dtype=np.int64)
     for _ in range(40):
         idx = rng.integers(0, n, size=n, dtype=np.int64)
-        got = float(_fused_resample_auc(idx, base_rank, y_by_rank, n))
+        got = float(_fused_resample_auc(idx, base_rank, y_by_rank, n, counts, ones))
         ref = _ref(y_true, y_score, idx)
         assert got == ref, f"fused kernel not bit-identical: {got!r} vs {ref!r}"
 
