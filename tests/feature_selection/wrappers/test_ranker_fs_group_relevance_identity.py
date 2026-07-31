@@ -1,9 +1,15 @@
 """Regression: ``group_aware_relevance`` was restructured to sort rows by group once
-(contiguous per-query blocks) instead of per-(feature, group) boolean-mask indexing.
-The result must be BIT-IDENTICAL to the old mask-based reference (``_binned_mi`` is
-order-invariant and stable-sort keeps within-group order), and a feature that is
-constant within every query must still score ~0 (the whole point of query-aware
-relevance).
+(contiguous per-query blocks) instead of per-(feature, group) boolean-mask indexing, and
+later (2026-07-31) to run the whole per-group loop as one fused, chunk-parallel njit call
+(``_group_aware_relevance_fused_njit``) with a hand-rolled quantile instead of
+``np.quantile`` -- removes the per-group Python/numpy dispatch that dominated the
+function's self-time at large query counts (measured: 236.7s self-time / 109.5s of it in
+np.quantile alone, at n=2M/162k LTR queries). The hand-rolled quantile is NOT bit-identical
+to ``np.quantile`` (verified empirically: ~4e-16, 1 ULP, on ~23% of random small arrays),
+so the result vs the old mask-based reference (``_binned_mi``, still ``np.quantile``-based)
+is compared to a tight numerical tolerance, not ``==`` -- selection-equivalence is the
+accepted bar for this FE/MRMR path per CLAUDE.md, not bit-identical MI. A feature that is
+constant within every query must still score ~0 (the whole point of query-aware relevance).
 """
 
 from __future__ import annotations
@@ -66,8 +72,8 @@ def _old_reference(cols, arr, y, groups, bins=8):
     return out
 
 
-def test_group_aware_relevance_bit_identical_to_mask_reference():
-    """Group aware relevance bit identical to mask reference."""
+def test_group_aware_relevance_matches_mask_reference():
+    """Group aware relevance matches mask reference within the FE/MRMR selection-equivalence tolerance."""
     rng = np.random.default_rng(7)
     n, nf, avg_g = 6000, 12, 25
     ngroups = n // avg_g
@@ -80,14 +86,13 @@ def test_group_aware_relevance_bit_identical_to_mask_reference():
     ref = _old_reference(cols, arr, y, groups)
     assert set(got) == set(ref)
     for c in cols:
-        assert got[c] == ref[c], f"{c}: {got[c]!r} != {ref[c]!r} (not bit-identical)"
+        assert abs(got[c] - ref[c]) < 1e-9, f"{c}: {got[c]!r} vs {ref[c]!r} (exceeds selection-equivalence tolerance)"
 
 
-def test_group_aware_relevance_bit_identical_with_non_finite_fallback():
-    # Non-finite values in some (feature, group) cells force the exact per-pair fallback
-    # (the all-finite batched-quantile fast path cannot handle the JOINT per-(x, y) finite
-    # mask). The whole-function result must still be bit-identical to the mask reference.
-    """Group aware relevance bit identical with non finite fallback."""
+def test_group_aware_relevance_matches_mask_reference_with_non_finite_fallback():
+    # Non-finite values in some (feature, group) cells force the per-pair fallback (the all-finite
+    # batched-quantile fast path cannot handle the JOINT per-(x, y) finite mask).
+    """Group aware relevance matches mask reference with non finite fallback."""
     rng = np.random.default_rng(11)
     n, nf, avg_g = 6000, 10, 25
     ngroups = n // avg_g
@@ -103,7 +108,7 @@ def test_group_aware_relevance_bit_identical_with_non_finite_fallback():
     got = group_aware_relevance(cols, arr, y, groups)
     ref = _old_reference(cols, arr, y, groups)
     for c in cols:
-        assert got[c] == ref[c], f"{c}: {got[c]!r} != {ref[c]!r} (fallback not bit-identical)"
+        assert abs(got[c] - ref[c]) < 1e-9, f"{c}: {got[c]!r} vs {ref[c]!r} (exceeds selection-equivalence tolerance)"
 
 
 def test_constant_within_group_feature_scores_low():
