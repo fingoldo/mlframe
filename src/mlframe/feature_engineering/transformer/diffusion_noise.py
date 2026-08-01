@@ -39,7 +39,7 @@ from typing import Any, Literal, Optional, Tuple
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input
+from ._utils import require_seed, validate_numeric_input, kth_nearest_dists
 
 logger = logging.getLogger(__name__)
 
@@ -58,22 +58,6 @@ def _diffusion_synthesize(X_pos: np.ndarray, n_virtuals_per_pos: int, noise_scal
     base = np.repeat(X_pos, n_virtuals_per_pos, axis=0)
     noise = rng.standard_normal((n_synthetic, d)).astype(np.float32) * noise_scale * sigma_per_feature[None, :]
     return np.asarray((base + noise).astype(np.float32))
-
-
-def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
-    """Distance from each query row to its 1/3/5/10-th nearest neighbour in ``X_subset``; returns 1e6 sentinel columns when ``X_subset`` is empty and clamps ``k`` to the subset size otherwise."""
-    from sklearn.neighbors import NearestNeighbors
-    n_sub = X_subset.shape[0]
-    if n_sub == 0:
-        return np.full((X_query.shape[0], len(_K_SCALES)), 1e6, dtype=np.float32)
-    k_request = min(k_max, n_sub)
-    nn = NearestNeighbors(n_neighbors=k_request, algorithm="auto", n_jobs=-1).fit(X_subset)
-    dists, _ids = nn.kneighbors(X_query)
-    out = np.zeros((X_query.shape[0], len(_K_SCALES)), dtype=np.float32)
-    for col_idx, k in enumerate(_K_SCALES):
-        eff_k = min(k, k_request)
-        out[:, col_idx] = dists[:, eff_k - 1]
-    return out
 
 
 def compute_diffusion_noise_features(
@@ -134,13 +118,13 @@ def compute_diffusion_noise_features(
             return np.tile(block, (1, len(noise_scales))).astype(np.float32)
         # Learn per-feature std from positives.
         sigma_per_feature = Xt_pos.std(axis=0).astype(np.float32) + 1e-6
-        neg_d = _kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES))
+        neg_d = kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES), _K_SCALES)
         # For each noise scale, generate virtuals and compute distances.
         all_feats = []
         for scale_idx, ns in enumerate(noise_scales):
             X_virtual = _diffusion_synthesize(Xt_pos, n_virtuals_per_pos=n_virtuals_per_pos, noise_scale=ns, sigma_per_feature=sigma_per_feature, seed=fold_seed + scale_idx * 7)
             X_virtual_full = np.concatenate([Xt_pos, X_virtual], axis=0)
-            pos_d = _kth_nearest_dists(X_virtual_full, Xq_s, max(_K_SCALES))
+            pos_d = kth_nearest_dists(X_virtual_full, Xq_s, max(_K_SCALES), _K_SCALES)
             log_gap = np.log(np.maximum(neg_d, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
             all_feats.append(pos_d)
             all_feats.append(log_gap)

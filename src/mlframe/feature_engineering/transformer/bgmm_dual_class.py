@@ -31,7 +31,7 @@ from typing import Any, Literal, Optional, Tuple
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input
+from ._utils import require_seed, validate_numeric_input, kth_nearest_dists
 
 logger = logging.getLogger(__name__)
 
@@ -62,22 +62,6 @@ def _fit_bgmm_and_sample(X_class: np.ndarray, n_synthetic: int, n_components: in
             rng = np.random.default_rng(seed)
             samples = X_class[rng.integers(0, n_rows, size=n_synthetic)]
     return np.asarray(samples.astype(np.float32))
-
-
-def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
-    """Distance from each query row to its 1/3/5/10-th nearest neighbour in ``X_subset``; returns 1e6 sentinel columns when ``X_subset`` is empty and clamps ``k`` to the subset size otherwise."""
-    from sklearn.neighbors import NearestNeighbors
-    n_sub = X_subset.shape[0]
-    if n_sub == 0:
-        return np.full((X_query.shape[0], len(_K_SCALES)), 1e6, dtype=np.float32)
-    k_request = min(k_max, n_sub)
-    nn = NearestNeighbors(n_neighbors=k_request, algorithm="auto", n_jobs=-1).fit(X_subset)
-    dists, _ids = nn.kneighbors(X_query)
-    out = np.zeros((X_query.shape[0], len(_K_SCALES)), dtype=np.float32)
-    for col_idx, k in enumerate(_K_SCALES):
-        eff_k = min(k, k_request)
-        out[:, col_idx] = dists[:, eff_k - 1]
-    return out
 
 
 def compute_bgmm_dual_class_features(
@@ -140,9 +124,9 @@ def compute_bgmm_dual_class_features(
         # Combined virtual + real per class.
         X_virtual_pos = np.concatenate([Xt_pos, X_synth_pos], axis=0)
         X_virtual_neg = np.concatenate([Xt_neg, X_synth_neg], axis=0)
-        pos_d = _kth_nearest_dists(X_virtual_pos, Xq_s, max(_K_SCALES))  # (n_q, 4)
-        neg_d_virtual = _kth_nearest_dists(X_virtual_neg, Xq_s, max(_K_SCALES))  # (n_q, 4)
-        neg_d_real = _kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES))  # (n_q, 4)
+        pos_d = kth_nearest_dists(X_virtual_pos, Xq_s, max(_K_SCALES), _K_SCALES)  # (n_q, 4)
+        neg_d_virtual = kth_nearest_dists(X_virtual_neg, Xq_s, max(_K_SCALES), _K_SCALES)  # (n_q, 4)
+        neg_d_real = kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES), _K_SCALES)  # (n_q, 4)
         log_gap_realneg = np.log(np.maximum(neg_d_real, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
         log_gap_virtneg = np.log(np.maximum(neg_d_virtual, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
         # Mixed-side ratio: how much the BGMM augmentation shifts the neg-side distance (real-neg vs virtual-neg). Distinct from log_gap_*, which both contrast a neg distance against the SAME pos_d; this contrasts the two neg distances against each other, so it isolates the synthetic-augmentation effect on the negative manifold.

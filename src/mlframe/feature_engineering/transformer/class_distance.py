@@ -40,32 +40,11 @@ import numpy as np
 import polars as pl
 
 from ._intel_patch import try_patch_sklearn
-from ._knn_helper import knn_search
-from ._utils import require_seed, validate_numeric_input
+from ._utils import require_seed, validate_numeric_input, kth_nearest_dists
 
 logger = logging.getLogger(__name__)
 
 _K_SCALES = (1, 3, 5, 10)
-
-
-def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
-    """Return per-query distances to the 1st, 3rd, 5th, 10th nearest rows of X_subset (or fewer if X_subset too small).
-
-    Shape: (n_query, len(_K_SCALES)). Missing scales (when X_subset smaller than scale) filled with the max-available-k distance.
-
-    Uses ``_knn_helper.knn_search`` which auto-dispatches to hnswlib at N>=50000 (10-50x speedup
-    on Windows when hnswlib is installed) and falls back to sklearn NearestNeighbors otherwise.
-    """
-    n_sub = X_subset.shape[0]
-    if n_sub == 0:
-        return np.full((X_query.shape[0], len(_K_SCALES)), 1e6, dtype=np.float32)
-    dists, _ids = knn_search(X_subset, X_query, k=k_max)
-    n_returned = dists.shape[1]
-    out = np.zeros((X_query.shape[0], len(_K_SCALES)), dtype=np.float32)
-    for col_idx, k in enumerate(_K_SCALES):
-        eff_k = min(k, n_returned)
-        out[:, col_idx] = dists[:, eff_k - 1]
-    return out
 
 
 def _compute_features(
@@ -80,8 +59,8 @@ def _compute_features(
     log_gap: (n_q, |_K_SCALES|) — log(d_neg / d_pos) per k-scale.
     """
     k_max = max(_K_SCALES)
-    pos_d = _kth_nearest_dists(X_train_subset_pos, X_query, k_max)
-    neg_d = _kth_nearest_dists(X_train_subset_neg, X_query, k_max)
+    pos_d = kth_nearest_dists(X_train_subset_pos, X_query, k_max, _K_SCALES)
+    neg_d = kth_nearest_dists(X_train_subset_neg, X_query, k_max, _K_SCALES)
     # log-gap with small epsilon to avoid log(0).
     log_gap = np.log(np.maximum(neg_d, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
     return pos_d, neg_d, log_gap.astype(np.float32)

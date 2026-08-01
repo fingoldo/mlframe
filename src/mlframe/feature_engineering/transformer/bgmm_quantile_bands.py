@@ -31,8 +31,7 @@ import numpy as np
 import polars as pl
 
 from ._intel_patch import try_patch_sklearn
-from ._knn_helper import knn_search
-from ._utils import require_seed, validate_numeric_input
+from ._utils import require_seed, validate_numeric_input, kth_nearest_dists
 
 logger = logging.getLogger(__name__)
 
@@ -64,23 +63,6 @@ def _fit_bgmm_and_sample(X_class: np.ndarray, n_synthetic: int, n_components: in
             rng = np.random.default_rng(seed)
             samples = X_class[rng.integers(0, n_rows, size=n_synthetic)]
     return np.asarray(samples.astype(np.float32))
-
-
-def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
-    """Wrapper over _knn_helper.knn_search returning distances at _K_SCALES columns.
-
-    Uses hnswlib at N>=50000 (10-50x speedup), sklearn NearestNeighbors otherwise.
-    """
-    n_sub = X_subset.shape[0]
-    if n_sub == 0:
-        return np.full((X_query.shape[0], len(_K_SCALES)), 1e6, dtype=np.float32)
-    dists, _ids = knn_search(X_subset, X_query, k=k_max)
-    n_returned = dists.shape[1]
-    out = np.zeros((X_query.shape[0], len(_K_SCALES)), dtype=np.float32)
-    for col_idx, k in enumerate(_K_SCALES):
-        eff_k = min(k, n_returned)
-        out[:, col_idx] = dists[:, eff_k - 1]
-    return out
 
 
 def _split_into_bands(X: np.ndarray, y: np.ndarray, n_bands: int, task: str) -> list[np.ndarray]:
@@ -158,7 +140,7 @@ def compute_bgmm_quantile_bands_features(
             n_synth = max(50, int(X_band.shape[0] * oversample))
             X_synth = _fit_bgmm_and_sample(X_band, n_synthetic=n_synth, n_components=k_eff, seed=fold_seed + b_idx * 7, max_iter=max_iter)
             X_virtual = np.concatenate([X_band, X_synth], axis=0)
-            dist_b = _kth_nearest_dists(X_virtual, Xq_s, max(_K_SCALES))
+            dist_b = kth_nearest_dists(X_virtual, Xq_s, max(_K_SCALES), _K_SCALES)
             all_dists.append(dist_b)
         return np.concatenate(all_dists, axis=1).astype(np.float32)
 

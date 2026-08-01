@@ -34,7 +34,7 @@ from typing import Any, Literal, Optional, Tuple
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input
+from ._utils import require_seed, validate_numeric_input, kth_nearest_dists
 
 logger = logging.getLogger(__name__)
 
@@ -102,27 +102,6 @@ def _filter_boundary_virtuals(X_train: np.ndarray, y_train: np.ndarray, virtuals
     return np.asarray(filtered)
 
 
-def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
-    """Distances from each query row to its 1st/3rd/5th/10th (``_K_SCALES``) nearest neighbor in ``X_subset``.
-
-    Returns an ``(n_query, len(_K_SCALES))`` matrix. If ``X_subset`` is empty, returns a large sentinel
-    distance (1e6) for every scale so downstream log-gap arithmetic stays finite. When ``X_subset`` has
-    fewer rows than a requested ``k``, falls back to the farthest available neighbor for that scale.
-    """
-    from sklearn.neighbors import NearestNeighbors
-    n_sub = X_subset.shape[0]
-    if n_sub == 0:
-        return np.full((X_query.shape[0], len(_K_SCALES)), 1e6, dtype=np.float32)
-    k_request = min(k_max, n_sub)
-    nn = NearestNeighbors(n_neighbors=k_request, algorithm="auto", n_jobs=-1).fit(X_subset)
-    dists, _ids = nn.kneighbors(X_query)
-    out = np.zeros((X_query.shape[0], len(_K_SCALES)), dtype=np.float32)
-    for col_idx, k in enumerate(_K_SCALES):
-        eff_k = min(k, k_request)
-        out[:, col_idx] = dists[:, eff_k - 1]
-    return out
-
-
 def compute_active_virtual_features(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -184,8 +163,8 @@ def compute_active_virtual_features(
         boundary_virtuals = _filter_boundary_virtuals(Xt_s, y_t, raw_virtuals, task=task, seed=fold_seed, margin_threshold=margin_threshold)
         # Combine real positives + boundary virtuals.
         X_virtual_pos = np.concatenate([Xt_pos, boundary_virtuals], axis=0)
-        pos_d = _kth_nearest_dists(X_virtual_pos, Xq_s, max(_K_SCALES))
-        neg_d = _kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES))
+        pos_d = kth_nearest_dists(X_virtual_pos, Xq_s, max(_K_SCALES), _K_SCALES)
+        neg_d = kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES), _K_SCALES)
         log_gap = np.log(np.maximum(neg_d, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
         return np.asarray(np.concatenate([pos_d, log_gap], axis=1).astype(np.float32))
 

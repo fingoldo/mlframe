@@ -34,7 +34,7 @@ from typing import Any, Literal, Optional, Tuple
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input
+from ._utils import require_seed, validate_numeric_input, kth_nearest_dists
 
 logger = logging.getLogger(__name__)
 
@@ -90,22 +90,6 @@ def _cluster_smote_synthesize(X_pos: np.ndarray, n_clusters: int, n_synthetic_to
     if not pieces:
         return _smote_within_cluster(X_pos, n_synthetic_total, k_neighbors, seed)
     return np.asarray(np.concatenate(pieces, axis=0).astype(np.float32))
-
-
-def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
-    """For each query row, distance to its k-th nearest neighbor in ``X_subset`` at each scale in ``_K_SCALES`` (clamped to the available subset size); returns a large sentinel distance (1e6) when ``X_subset`` is empty."""
-    from sklearn.neighbors import NearestNeighbors
-    n_sub = X_subset.shape[0]
-    if n_sub == 0:
-        return np.full((X_query.shape[0], len(_K_SCALES)), 1e6, dtype=np.float32)
-    k_request = min(k_max, n_sub)
-    nn = NearestNeighbors(n_neighbors=k_request, algorithm="auto", n_jobs=-1).fit(X_subset)
-    dists, _ids = nn.kneighbors(X_query)
-    out = np.zeros((X_query.shape[0], len(_K_SCALES)), dtype=np.float32)
-    for col_idx, k in enumerate(_K_SCALES):
-        eff_k = min(k, k_request)
-        out[:, col_idx] = dists[:, eff_k - 1]
-    return out
 
 
 def compute_cluster_smote_features(
@@ -168,8 +152,8 @@ def compute_cluster_smote_features(
         n_clusters_eff = max(2, min(n_clusters, Xt_pos.shape[0] // 4))
         X_synth_pos = _cluster_smote_synthesize(Xt_pos, n_clusters=n_clusters_eff, n_synthetic_total=n_synthetic, k_neighbors=k_smote, seed=fold_seed)
         X_virtual_pos = np.concatenate([Xt_pos, X_synth_pos], axis=0)
-        pos_d = _kth_nearest_dists(X_virtual_pos, Xq_s, max(_K_SCALES))
-        neg_d = _kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES))
+        pos_d = kth_nearest_dists(X_virtual_pos, Xq_s, max(_K_SCALES), _K_SCALES)
+        neg_d = kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES), _K_SCALES)
         log_gap = np.log(np.maximum(neg_d, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
         return np.asarray(np.concatenate([pos_d, log_gap], axis=1).astype(np.float32))
 

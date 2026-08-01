@@ -28,7 +28,7 @@ from typing import Any, Literal, Optional, Tuple
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input
+from ._utils import require_seed, validate_numeric_input, kth_nearest_dists
 
 logger = logging.getLogger(__name__)
 
@@ -60,26 +60,6 @@ def _fit_bgmm_and_sample(X_minority: np.ndarray, n_synthetic: int, n_components:
             rng = np.random.default_rng(seed)
             samples = X_minority[rng.integers(0, n_min, size=n_synthetic)]
     return np.asarray(samples.astype(np.float32))
-
-
-def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
-    """Compute, for each row of ``X_query``, the distance to its k-th nearest neighbor in ``X_subset`` for every k in ``_K_SCALES``.
-
-    Falls back to a large constant (1e6) when ``X_subset`` is empty (e.g. no negatives/positives after slicing), and clips
-    the effective k to the available subset size when ``X_subset`` has fewer than ``k_max`` rows so small folds don't error.
-    """
-    from sklearn.neighbors import NearestNeighbors
-    n_sub = X_subset.shape[0]
-    if n_sub == 0:
-        return np.full((X_query.shape[0], len(_K_SCALES)), 1e6, dtype=np.float32)
-    k_request = min(k_max, n_sub)
-    nn = NearestNeighbors(n_neighbors=k_request, algorithm="auto", n_jobs=-1).fit(X_subset)
-    dists, _ids = nn.kneighbors(X_query)
-    out = np.zeros((X_query.shape[0], len(_K_SCALES)), dtype=np.float32)
-    for col_idx, k in enumerate(_K_SCALES):
-        eff_k = min(k, k_request)
-        out[:, col_idx] = dists[:, eff_k - 1]
-    return out
 
 
 def compute_bgmm_multiscale_features(
@@ -135,14 +115,14 @@ def compute_bgmm_multiscale_features(
         Xt_pos, Xt_neg = _slice(Xt_s, y_t)
         if Xt_pos.shape[0] < 2 or Xt_neg.shape[0] < 2:
             return np.zeros((Xq_s.shape[0], 2 * len(_K_SCALES) * len(component_counts)), dtype=np.float32)
-        neg_d = _kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES))
+        neg_d = kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES), _K_SCALES)
         n_synthetic = max(50, int(Xt_pos.shape[0] * n_synthetic_multiplier))
         all_feats = []
         for scale_idx, n_comp in enumerate(component_counts):
             k_mix = max(2, min(n_comp, Xt_pos.shape[0] // 3))
             X_synth = _fit_bgmm_and_sample(Xt_pos, n_synthetic=n_synthetic, n_components=k_mix, seed=fold_seed + scale_idx * 7)
             X_virtual_pos = np.concatenate([Xt_pos, X_synth], axis=0)
-            pos_d = _kth_nearest_dists(X_virtual_pos, Xq_s, max(_K_SCALES))
+            pos_d = kth_nearest_dists(X_virtual_pos, Xq_s, max(_K_SCALES), _K_SCALES)
             log_gap = np.log(np.maximum(neg_d, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
             all_feats.append(pos_d)
             all_feats.append(log_gap)

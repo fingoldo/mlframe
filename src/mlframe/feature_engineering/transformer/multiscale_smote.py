@@ -30,7 +30,7 @@ from typing import Any, Literal, Optional, Tuple
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input
+from ._utils import require_seed, validate_numeric_input, kth_nearest_dists
 
 logger = logging.getLogger(__name__)
 
@@ -59,22 +59,6 @@ def _smote_with_k(X_minority: np.ndarray, n_synthetic: int, k_neighbors: int, se
         alpha = rng.random()
         out[i] = X_minority[src_idx] + alpha * (X_minority[nbr_idx] - X_minority[src_idx])
     return out.astype(np.float32)
-
-
-def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
-    """Distance from each query row to its 1/3/5/10-th nearest neighbour in ``X_subset``; returns 1e6 sentinel columns when ``X_subset`` is empty and clamps ``k`` to the subset size otherwise."""
-    from sklearn.neighbors import NearestNeighbors
-    n_sub = X_subset.shape[0]
-    if n_sub == 0:
-        return np.full((X_query.shape[0], len(_K_SCALES)), 1e6, dtype=np.float32)
-    k_request = min(k_max, n_sub)
-    nn = NearestNeighbors(n_neighbors=k_request, algorithm="auto", n_jobs=-1).fit(X_subset)
-    dists, _ids = nn.kneighbors(X_query)
-    out = np.zeros((X_query.shape[0], len(_K_SCALES)), dtype=np.float32)
-    for col_idx, k in enumerate(_K_SCALES):
-        eff_k = min(k, k_request)
-        out[:, col_idx] = dists[:, eff_k - 1]
-    return out
 
 
 def compute_multiscale_smote_features(
@@ -126,13 +110,13 @@ def compute_multiscale_smote_features(
         Xt_pos, Xt_neg = _slice(Xt_s, y_t)
         if Xt_pos.shape[0] < 2 or Xt_neg.shape[0] < 2:
             return np.zeros((Xq_s.shape[0], 2 * len(_K_SCALES) * len(smote_k_scales)), dtype=np.float32)
-        neg_d = _kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES))
+        neg_d = kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES), _K_SCALES)
         n_synthetic = max(50, int(Xt_pos.shape[0] * oversample))
         all_feats = []
         for scale_idx, k_smote in enumerate(smote_k_scales):
             X_synth = _smote_with_k(Xt_pos, n_synthetic=n_synthetic, k_neighbors=k_smote, seed=fold_seed + scale_idx * 13)
             X_virtual_pos = np.concatenate([Xt_pos, X_synth], axis=0)
-            pos_d = _kth_nearest_dists(X_virtual_pos, Xq_s, max(_K_SCALES))
+            pos_d = kth_nearest_dists(X_virtual_pos, Xq_s, max(_K_SCALES), _K_SCALES)
             log_gap = np.log(np.maximum(neg_d, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
             all_feats.append(pos_d)
             all_feats.append(log_gap)

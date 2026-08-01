@@ -33,7 +33,7 @@ from typing import Any, Literal, Optional, Tuple
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input
+from ._utils import require_seed, validate_numeric_input, kth_nearest_dists
 
 logger = logging.getLogger(__name__)
 
@@ -97,22 +97,6 @@ def _smote_synthesize_from(X_minority: np.ndarray, n_synthetic: int, k_neighbors
         alpha[i] = rng.random()
     x_src = X_minority[src]
     return np.asarray((x_src + alpha[:, None] * (X_minority[nbr] - x_src)).astype(np.float32))
-
-
-def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
-    """Distance from each query row to its k-th nearest neighbor in ``X_subset``, for every ``k`` in ``_K_SCALES``; ``1e6`` sentinel columns when ``X_subset`` is empty."""
-    from sklearn.neighbors import NearestNeighbors
-    n_sub = X_subset.shape[0]
-    if n_sub == 0:
-        return np.full((X_query.shape[0], len(_K_SCALES)), 1e6, dtype=np.float32)
-    k_request = min(k_max, n_sub)
-    nn = NearestNeighbors(n_neighbors=k_request, algorithm="auto", n_jobs=-1).fit(X_subset)
-    dists, _ids = nn.kneighbors(X_query)
-    out = np.zeros((X_query.shape[0], len(_K_SCALES)), dtype=np.float32)
-    for col_idx, k in enumerate(_K_SCALES):
-        eff_k = min(k, k_request)
-        out[:, col_idx] = dists[:, eff_k - 1]
-    return out
 
 
 def compute_borderline_smote_features(
@@ -179,8 +163,8 @@ def compute_borderline_smote_features(
         n_synthetic = max(2 * X_border.shape[0], int(X_border.shape[0] * oversample))
         X_synth = _smote_synthesize_from(X_border, n_synthetic=n_synthetic, k_neighbors=k_smote, seed=fold_seed)
         X_virtual_pos = np.concatenate([X_border, X_synth], axis=0)
-        pos_d = _kth_nearest_dists(X_virtual_pos, Xq_s, max(_K_SCALES))
-        neg_d = _kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES))
+        pos_d = kth_nearest_dists(X_virtual_pos, Xq_s, max(_K_SCALES), _K_SCALES)
+        neg_d = kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES), _K_SCALES)
         log_gap = np.log(np.maximum(neg_d, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
         return np.asarray(np.concatenate([pos_d, log_gap], axis=1).astype(np.float32))
 

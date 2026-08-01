@@ -275,6 +275,32 @@ def _median_pairwise_chunked(X_sub: np.ndarray, chunk: int) -> float:
     return float(np.median(nonzero))
 
 
+def kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int, k_scales: tuple) -> np.ndarray:
+    """Distances from each query row to its k-th (per ``k_scales``, e.g. 1st/3rd/5th/10th) nearest
+    neighbor in ``X_subset``.
+
+    Returns an ``(n_query, len(k_scales))`` matrix. If ``X_subset`` is empty, returns a large sentinel
+    distance (1e6) for every scale so downstream log-gap arithmetic stays finite. When ``X_subset`` has
+    fewer rows than a requested ``k``, falls back to the farthest available neighbor for that scale.
+
+    Shared across the transformer/ SMOTE-virtual family (active_virtual, adasyn_smote, bgmm_*,
+    borderline_smote, ...) -- was independently duplicated in each module; consolidated here so a fix
+    to the k-th-neighbor logic can't silently drift out of sync across copies.
+    """
+    from sklearn.neighbors import NearestNeighbors
+    n_sub = X_subset.shape[0]
+    if n_sub == 0:
+        return np.full((X_query.shape[0], len(k_scales)), 1e6, dtype=np.float32)
+    k_request = min(k_max, n_sub)
+    nn = NearestNeighbors(n_neighbors=k_request, algorithm="auto", n_jobs=-1).fit(X_subset)
+    dists, _ids = nn.kneighbors(X_query)
+    out = np.zeros((X_query.shape[0], len(k_scales)), dtype=np.float32)
+    for col_idx, k in enumerate(k_scales):
+        eff_k = min(k, k_request)
+        out[:, col_idx] = dists[:, eff_k - 1]
+    return out
+
+
 def require_seed(seed: object) -> int:
     """Validate that ``seed`` is a literal Python int and not ``None`` or derived-from-data.
 
