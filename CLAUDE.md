@@ -128,6 +128,27 @@ Run unbuffered with `-x -s` rather than launching a long blind run.
 A failure that is an OOM or a Windows paging-file error (WinError 1455 under joblib fan-out) reflects machine-wide memory pressure at that moment, not a defect: retry once, and if it fails again it is real. Tolerate it in code via `OSError` plus a skip.
 Heavily-parametrised modules expose a fast mode (a `--fast` flag or env var plus a `fast_subset` helper) that runs one representative case per code path, with the exhaustive sweep behind a slow marker. Without it the only options are the full matrix or no coverage, and the full matrix stops being run.
 
+## PERF WIN (2026-08-01): binned_numeric_agg's GROUP MI pre-selection fused into one parallel-njit batch call
+2M-row cProfile on combo `c0033_87df93d9` (LGB+MLP+XGB, binary classification) surfaced `_cheap_mi_with_y`
+(`_binned_numeric_agg_fe.py`) at 47.1s tottime / 228 calls (~207ms/call) inside
+`binned_numeric_agg_with_recipes`'s GROUP-column pre-selection: `g_mi = {g: _cheap_mi_with_y(X[g].to_numpy(),
+y_codes) for g in gcands}` walked every candidate column through a SERIAL Python loop, each call
+independently sorting/binning the full n-row column single-threaded. The candidate columns are mutually
+independent (no cross-column dependency), so this is the "fuse-into-one-parallel-njit-call" pattern the
+project's own perf convention calls for. Added `_cheap_mi_edge_dedup_njit` (one column, exact port of the
+existing algorithm: quantile-edge order statistics via `np.partition` + adjacent-dedup, matching
+`_cheap_mi_with_y`'s `quantile_edges`+`np.unique` dedup bit-for-bit) + `_cheap_mi_batch_njit` (`prange` over
+columns) + `_cheap_mi_group_selection` (the new call-site wrapper: batches through the njit kernel by
+default, but stays on the exact original per-column `_cheap_mi_with_y` loop when
+`fe_gpu_strict_resident_enabled()` — the diagnostic full-GPU-coverage mode — is on, so that mode's
+every-kernel-on-device contract is untouched). NOT a drop-in for the OTHER existing batched-edge-MI kernel
+(`_fe_edge_mi.plugin_mi_classif_batch_edge_njit`) — that one deliberately skips the dedup step to bit-match
+the GPU orth-family kernel, which would silently change the effective bin count (and therefore the MI
+ranking) on tied/low-cardinality group columns; wrote a dedup-preserving twin instead. Verified bit-identical
+to the original per-column loop (max diff ~1e-15 across continuous/tied/low-cardinality synthetic columns,
+n=500..200k) and 3.34x faster at n=2M/k=16 (3.01s -> 0.90s). `tests/feature_selection/fe/test_binned_numeric_agg_fe.py`
+(7 tests) + the polars-parity binned_numeric_agg case (15 tests total) pass unchanged.
+
 ## PERF WIN (2026-07-31): ECE's BCa jackknife left on the generic O(max_n*n) path while roc_auc/brier/log_loss already had closed forms
 2M-row cProfile on combo `c0008_946d0da3` (binary classification, cb+hgb) surfaced `_jackknife_metric`
 (`_bootstrap_jackknife.py`) at 15.3s tottime / 30.6s cumtime across just 6 calls, inside

@@ -27,7 +27,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from numba import njit
+from numba import njit, prange
 
 logger = logging.getLogger(__name__)
 
@@ -167,44 +167,6 @@ def _global_stat(v: np.ndarray, stat: str) -> float:
     return 0.0
 
 
-def _global_stats_all(v: np.ndarray, stats: Sequence[str]) -> dict:
-    """All requested global (whole-column) stats in ONE O(n) njit raw-moment pass instead of ``_global_stat``'s
-    separate per-stat full-array traversals (mean, std, and TWO scipy skew/kurtosis passes -- profiled at
-    8.5s cumtime / 188 calls on a 2M-row multiclass cProfile run, the dominant cost of ``fit_binned_numeric_agg``).
-
-    scipy's defaults here (``skew(bias=True)``, ``kurtosis(fisher=True, bias=True)``) ARE the population
-    moment-ratio estimators ``m3/m2**1.5`` and ``m4/m2**2 - 3`` -- exactly what ``_derive_cell_stats`` already
-    computes for per-cell stats, so treating the whole column as ONE cell and reusing that same njit kernel +
-    derivation is not a new formula, just a faster path to the identical one. Same edge-case guards as
-    ``_global_stat`` (std<=1e-12 -> 0.0 for skew/kurt; skew needs n>2, kurt needs n>3)."""
-    vf = v[np.isfinite(v)]
-    n = vf.shape[0]
-    if n == 0:
-        return {s: 0.0 for s in stats}
-    out: dict = {}
-    if "mean" in stats:
-        out["mean"] = float(np.mean(vf))
-    sd = float(np.std(vf)) if ("std" in stats or "skew" in stats or "kurt" in stats) else 0.0
-    if "std" in stats:
-        out["std"] = sd
-    hi = [s for s in stats if s in ("skew", "kurt")]
-    if hi:
-        for s in hi:
-            out[s] = 0.0
-        if sd > 1e-12:
-            codes0 = np.zeros(n, dtype=np.int64)
-            cnt, s1, s2, s3, s4 = _raw_moments(codes0, vf, 1)
-            per = _derive_cell_stats(cnt, s1, s2, s3, s4, hi)
-            for s in hi:
-                if s == "skew" and n <= 2:
-                    continue
-                if s == "kurt" and n <= 3:
-                    continue
-                val = float(per[s][0])
-                out[s] = val if np.isfinite(val) else 0.0
-    return out
-
-
 def fit_binned_numeric_agg(
     X: pd.DataFrame, y: np.ndarray, *,
     group_num_cols: Sequence[str], agg_num_cols: Sequence[str],
@@ -234,8 +196,9 @@ def fit_binned_numeric_agg(
     _av_cache: dict[str, tuple] = {}
     _globals_cache: dict[tuple, dict] = {}
     # Fold membership depends ONLY on ``f`` (not on gcol/acol), yet the per-(gcol, acol) OOF loop below
-    # recomputed ``np.where(fold_ids == f)`` every pair*fold. Precompute it ONCE per call (bit-identical -
-    # same indices, just hoisted out of the pair loops).
+    # recomputed ``fold_ids != f`` (an O(n) bool) and ``np.where(fold_ids == f)`` every pair*fold. Precompute
+    # them ONCE per call (bit-identical - same masks/indices, just hoisted out of the pair loops).
+    _fold_ne = None if recipe_only else [fold_ids != f for f in range(int(n_folds))]
     _fold_test = None if recipe_only else [np.where(fold_ids == f)[0] for f in range(int(n_folds))]
     for gcol in group_num_cols:
         gvals = np.asarray(X[gcol].to_numpy(), dtype=np.float64)
@@ -258,14 +221,13 @@ def fit_binned_numeric_agg(
             if _avc is None:
                 av = np.asarray(X[acol].to_numpy(), dtype=np.float64)
                 finite = np.isfinite(av)
-                finite_count = int(np.count_nonzero(finite))
-                _av_cache[acol] = (av, finite, finite_count)
+                _av_cache[acol] = (av, finite)
             else:
-                av, finite, finite_count = _avc
+                av, finite = _avc
             _gk = (acol, tuple(kept_stats))
             globals_ = _globals_cache.get(_gk)
             if globals_ is None:
-                globals_ = _global_stats_all(av[finite], kept_stats)
+                globals_ = {s: _global_stat(av[finite], s) for s in kept_stats}
                 _globals_cache[_gk] = globals_
             # Full-data raw moments, needed anyway for the ``full``/``lut`` recipe lookup below. cnt/s1..s4 are
             # additive partition sums over the finite rows, so a fold's TRAIN-only moments equal full - test
@@ -279,19 +241,15 @@ def fit_binned_numeric_agg(
                 # device from those recipes, then builds the OOF for the FEW survivors - so the OOF of the
                 # dropped candidates is never computed. The ``full`` per-cell lookup + globals (the recipe
                 # fields) are cheap 1-pass njit and are always built.
-                assert _fold_test is not None and _ct_by_fold is not None  # populated whenever recipe_only is False
+                assert _fold_ne is not None and _fold_test is not None and _ct_by_fold is not None  # populated whenever recipe_only is False
                 oof = {s: np.full(n, globals_[s], dtype=np.float64) for s in kept_stats}
                 for f in range(int(n_folds)):
+                    tr = _fold_ne[f] & finite
+                    if not tr.any():
+                        continue
                     test = _fold_test[f]
                     ct = _ct_by_fold[f]
                     test_fin = test[finite[test]]
-                    # Equivalent to the old ``(fold_ids != f) & finite`` full-array-AND + ``.any()`` gate
-                    # (an O(n) scan done once per (gcol, acol, fold), G*A*n_folds times total) without
-                    # materialising it: train has zero finite rows iff ALL finite rows fell into this
-                    # fold's test set, i.e. ``test_fin`` (already computed, O(n/n_folds)) covers every
-                    # finite row.
-                    if test_fin.size == finite_count:
-                        continue
                     t_cnt, t_s1, t_s2, t_s3, t_s4 = _raw_moments(codes[test_fin], av[test_fin], n_cells)
                     per = _derive_cell_stats(full_cnt - t_cnt, full_s1 - t_s1, full_s2 - t_s2, full_s3 - t_s3, full_s4 - t_s4, kept_stats)
                     for s in kept_stats:
@@ -420,6 +378,144 @@ def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> f
     return float(compute_mi_from_codes(xc, y_codes))
 
 
+def _cheap_mi_group_selection(X: pd.DataFrame, gcands: Sequence[str], y_codes: np.ndarray, nbins: int = 10) -> dict:
+    """GROUP MI(qbin(g); y) pre-selection over ``gcands`` -- batched-parallel CPU path by default.
+
+    Under ``fe_gpu_strict_resident_enabled()`` (the diagnostic FULL-GPU-coverage mode), stays on
+    ``_cheap_mi_with_y``'s existing per-column loop unchanged, so that mode's every-kernel-on-device
+    contract and its GPU/host selection-equivalence guarantees are untouched. Otherwise batches every
+    finite/non-constant candidate through ONE ``_cheap_mi_batch_njit`` prange call instead of walking them
+    one at a time in a serial Python loop -- bit-identical values, just computed concurrently across cores.
+    """
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+        if fe_gpu_strict_resident_enabled():
+            return {g: _cheap_mi_with_y(X[g].to_numpy(), y_codes, nbins) for g in gcands}
+    except Exception as e:
+        logger.debug("_cheap_mi_group_selection: GPU-strict-resident probe failed, using the batched CPU path: %s", e)
+    out: dict = {}
+    valid_names: list = []
+    valid_cols: list = []
+    for g in gcands:
+        cv = np.asarray(X[g].to_numpy(), dtype=np.float64)
+        if not np.isfinite(cv).all() or float(np.min(cv)) == float(np.max(cv)):
+            out[g] = 0.0
+            continue
+        valid_names.append(g)
+        valid_cols.append(cv)
+    if valid_names:
+        mat = np.ascontiguousarray(np.column_stack(valid_cols))
+        y_codes_i64 = np.ascontiguousarray(y_codes, dtype=np.int64)
+        mis = _cheap_mi_batch_njit(mat, y_codes_i64, int(nbins))
+        for g, mi in zip(valid_names, mis):
+            out[g] = float(mi)
+    return out
+
+
+@njit(cache=True, fastmath=True)
+def _cheap_mi_edge_dedup_njit(cv: np.ndarray, y_codes: np.ndarray, nbins: int) -> float:
+    """Bit-identical njit port of ``_cheap_mi_with_y``'s host fallback (``quantile_edges`` dedup +
+    ``searchsorted`` + ``compute_mi_from_codes``), one column, for use inside ``_cheap_mi_batch_njit``'s
+    ``prange`` over columns. Interior quantile edges via the SAME linear-interpolation order-statistic
+    convention ``np.quantile`` uses (order statistics found via ``np.partition``, matching
+    ``_fe_edge_mi._edge_bin_codes``'s technique), then adjacent-deduped (the edges are non-decreasing by
+    quantile-function monotonicity, so a single adjacent-dedup pass is equivalent to ``np.unique`` on this
+    array) -- unlike ``_fe_edge_mi.plugin_mi_classif_batch_edge_njit`` (the OTHER existing batched-edge-MI
+    kernel), which deliberately does NOT dedup so it bit-matches the GPU orth-family kernel; that would
+    change the effective bin count on tied columns and is NOT a safe drop-in for this call site."""
+    n = cv.shape[0]
+    nq = nbins - 1
+    if nq <= 0 or n == 0:
+        return 0.0
+    los = np.empty(nq, dtype=np.int64)
+    fracs = np.empty(nq, dtype=np.float64)
+    kths = np.empty(2 * nq, dtype=np.int64)
+    m = 0
+    for k in range(nq):
+        q = (k + 1) / nbins
+        pos = q * (n - 1)
+        lo = int(np.floor(pos))
+        hi = lo + 1 if lo < n - 1 else lo
+        los[k] = lo
+        fracs[k] = pos - lo
+        kths[m] = lo
+        kths[m + 1] = hi
+        m += 2
+    part = np.partition(cv, kths[:m])
+    raw_edges = np.empty(nq, dtype=np.float64)
+    for k in range(nq):
+        lo = los[k]
+        hi = lo + 1 if lo < n - 1 else lo
+        raw_edges[k] = part[lo] + (part[hi] - part[lo]) * fracs[k]
+    edges = np.empty(nq, dtype=np.float64)
+    ne = 0
+    for k in range(nq):
+        if ne == 0 or raw_edges[k] != edges[ne - 1]:
+            edges[ne] = raw_edges[k]
+            ne += 1
+    if ne == 0:
+        return 0.0
+    na = ne + 1
+    y_min = y_codes[0]
+    y_max = y_codes[0]
+    for i in range(1, y_codes.shape[0]):
+        if y_codes[i] < y_min:
+            y_min = y_codes[i]
+        if y_codes[i] > y_max:
+            y_max = y_codes[i]
+    nb = (y_max - y_min) + 1
+    hist_xy = np.zeros((na, nb), dtype=np.int64)
+    hist_x = np.zeros(na, dtype=np.int64)
+    hist_y = np.zeros(nb, dtype=np.int64)
+    for i in range(n):
+        v = cv[i]
+        lo = 0
+        hi = ne
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if v < edges[mid]:
+                hi = mid
+            else:
+                lo = mid + 1
+        b = lo
+        c = y_codes[i] - y_min
+        hist_xy[b, c] += 1
+        hist_x[b] += 1
+        hist_y[c] += 1
+    log_n = np.log(n)
+    mi = 0.0
+    for b in range(na):
+        if hist_x[b] == 0:
+            continue
+        log_hx = np.log(hist_x[b])
+        for c in range(nb):
+            n_xy = hist_xy[b, c]
+            if n_xy == 0 or hist_y[c] == 0:
+                continue
+            mi += (n_xy / n) * (np.log(n_xy) + log_n - log_hx - np.log(hist_y[c]))
+    if mi < 0.0:
+        mi = 0.0
+    return mi
+
+
+@njit(cache=True, fastmath=True, parallel=True)
+def _cheap_mi_batch_njit(X_cols: np.ndarray, y_codes: np.ndarray, nbins: int) -> np.ndarray:
+    """``prange``-parallel batch of :func:`_cheap_mi_edge_dedup_njit` over every column of ``X_cols``.
+
+    ``binned_numeric_agg_with_recipes``'s GROUP pre-selection called ``_cheap_mi_with_y`` once per
+    candidate column in a serial Python dict comprehension -- each call independently sorting/binning the
+    full ``n``-row column single-threaded (cProfile at n=2M: 228 calls / 47.1s tottime, ~207ms/call, one
+    core at a time). The candidate columns are independent (no cross-column dependency), so this fuses them
+    into ONE parallel-njit call spread across all cores instead of walking them one at a time -- bit-
+    identical to the sequential loop (same per-column algorithm, see ``_cheap_mi_edge_dedup_njit``'s
+    docstring), just computed concurrently."""
+    k = X_cols.shape[1]
+    out = np.zeros(k, dtype=np.float64)
+    for j in prange(k):
+        out[j] = _cheap_mi_edge_dedup_njit(np.ascontiguousarray(X_cols[:, j]), y_codes, nbins)
+    return out
+
+
 def compute_mi_from_codes(a: np.ndarray, b: np.ndarray) -> float:
     """Plug-in MI of two integer-code arrays via a 2-D bincount joint histogram (nats)."""
     na, nb = int(a.max()) + 1, int(b.max()) + 1
@@ -466,7 +562,7 @@ def binned_numeric_agg_with_recipes(
         _, y_codes = np.unique(y_arr, return_inverse=True)
     else:
         y_codes = np.searchsorted(quantile_edges(y_arr, 10), y_arr, side="right")
-    g_mi = {g: _cheap_mi_with_y(X[g].to_numpy(), y_codes) for g in gcands}
+    g_mi = _cheap_mi_group_selection(X, gcands, y_codes)
     gsel = sorted([g for g in gcands if g_mi[g] > 0.0], key=lambda g: g_mi[g], reverse=True)[: max(1, int(max_group_cols))]
     # AGG pre-selection by variance (unsupervised - the aggregated column needs spread to have per-cell shape).
     a_var = {a: float(np.var(np.asarray(X[a].to_numpy(), dtype=np.float64))) for a in acands}
