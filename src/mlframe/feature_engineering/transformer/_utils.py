@@ -301,6 +301,22 @@ def kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int, k_s
     return out
 
 
+def pos_loggap_columns(feats: np.ndarray, column_prefix: str, dtype: type, k_scales: tuple) -> dict:
+    """Name and cast a flat ``(n, 2*len(k_scales))`` distance/log-gap matrix into per-k-scale output
+    columns: ``{prefix}_pos_k{k}`` for the first half, ``{prefix}_loggap_k{k}`` for the second.
+
+    Shared across the transformer/ SMOTE-virtual family -- was independently duplicated as a closure
+    over ``column_prefix``/``dtype``/``k_scales`` in each module; consolidated here with all three
+    promoted to explicit parameters.
+    """
+    cols: dict = {}
+    for j, k in enumerate(k_scales):
+        cols[f"{column_prefix}_pos_k{k}"] = feats[:, j].astype(dtype, copy=False)
+    for j, k in enumerate(k_scales):
+        cols[f"{column_prefix}_loggap_k{k}"] = feats[:, len(k_scales) + j].astype(dtype, copy=False)
+    return cols
+
+
 def class_or_quantile_slice(X_sub: np.ndarray, y_sub: np.ndarray, task: str, q_high: float) -> tuple:
     """Split rows into (positive-cloud, negative-cloud) subsets: class masks for binary
     (``y > 0.5``), ``q_high``/``1-q_high`` quantile tails for regression.

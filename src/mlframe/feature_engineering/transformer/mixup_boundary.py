@@ -28,7 +28,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, class_or_quantile_slice
+from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, class_or_quantile_slice, pos_loggap_columns
 
 logger = logging.getLogger(__name__)
 
@@ -100,19 +100,10 @@ def compute_mixup_boundary_features(
         log_gap = np.log(np.maximum(neg_d, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
         return np.asarray(np.concatenate([pos_d, log_gap], axis=1).astype(np.float32))
 
-    def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
-        """Split the flat ``_process`` output into named columns: ``{prefix}_pos_k{k}`` distance columns followed by ``{prefix}_loggap_k{k}`` gap columns, cast to the requested output ``dtype``."""
-        cols: dict[str, np.ndarray] = {}
-        for j, k in enumerate(_K_SCALES):
-            cols[f"{column_prefix}_pos_k{k}"] = feats[:, j].astype(dtype, copy=False)
-        for j, k in enumerate(_K_SCALES):
-            cols[f"{column_prefix}_loggap_k{k}"] = feats[:, len(_K_SCALES) + j].astype(dtype, copy=False)
-        return cols
-
     if X_query is not None:
         Xq = np.asarray(X_query, dtype=np.float32)
         feats = _process(X_train_f, Xq, y_train_f, seed)
-        return pl.DataFrame(_make_df(feats))
+        return pl.DataFrame(pos_loggap_columns(feats, column_prefix, dtype, _K_SCALES))
 
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
@@ -124,4 +115,4 @@ def compute_mixup_boundary_features(
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("mixup_boundary: fold %d/%d done", fold_idx + 1, len(splits))
 
-    return pl.DataFrame(_make_df(out))
+    return pl.DataFrame(pos_loggap_columns(out, column_prefix, dtype, _K_SCALES))
