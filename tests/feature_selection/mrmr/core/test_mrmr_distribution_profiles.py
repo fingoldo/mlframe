@@ -35,12 +35,14 @@ Run with MLFRAME_DISABLE_HNSW=1 (harness-set); each fit is seeded.
 from __future__ import annotations
 
 import os
+import pathlib
 import sys
 
 import numpy as np
 import pandas as pd
 import pytest
 
+import mlframe
 from mlframe.feature_selection.filters.mrmr import MRMR
 from tests.feature_selection import _synthetic_distributions as sd
 
@@ -506,6 +508,9 @@ def test_documented_xfail_cell_recovers_in_fresh_process(kind, formula, profile,
     env = dict(os.environ)
     env.setdefault("MLFRAME_DISABLE_HNSW", "1")
     env.setdefault("CUDA_VISIBLE_DEVICES", "")
+    # This machine's global editable-install .pth can be stale; propagate the src/ dir this
+    # process actually imported mlframe from so the subprocess resolves the same package.
+    env["PYTHONPATH"] = os.pathsep.join(p for p in (str(pathlib.Path(mlframe.__file__).resolve().parents[1]), env.get("PYTHONPATH", "")) if p)
     proc = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", src],
         capture_output=True,

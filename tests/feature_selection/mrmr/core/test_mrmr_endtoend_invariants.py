@@ -288,9 +288,15 @@ def _run_case(case: dict, fe_kwargs: dict, timeout: int = 600) -> dict:
     concurrent-load failure mode) per the repo's retry policy.
     """
     # repo root (parent of ``tests/``) so the worker can resolve absolute
-    # ``tests.feature_selection.*`` imports after the mrmr/ subpackage move.
-    test_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    src_dir = os.environ.get("MRMR_SRC_DIR")
+    # ``tests.feature_selection.*`` imports after the mrmr/ subpackage move. This file lives 5
+    # levels below the repo root (core/mrmr/feature_selection/tests/<root>), not 4 -- a stale
+    # dirname count here silently pointed at ``<root>/tests`` instead of ``<root>``, which broke
+    # both this import AND the ``src_dir`` fallback below (fixed together).
+    test_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+    # ``MRMR_SRC_DIR`` lets a caller override the mlframe src root explicitly; absent that, fall back to
+    # THIS repo's own src/ (test_dir's sibling) so the worker finds mlframe even when the machine's global
+    # editable-install .pth is stale (a documented gotcha -- see test_audit_hermite_fixes.py's own env=).
+    src_dir = os.environ.get("MRMR_SRC_DIR") or os.path.join(test_dir, "src")
     pyutilz = os.environ.get("MRMR_PYUTILZ_DIR")
     env = dict(os.environ)
     env["NUMBA_DISABLE_CUDA"] = "1"

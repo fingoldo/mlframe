@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import re
 import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
@@ -49,6 +50,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import mlframe
 from mlframe.feature_selection.filters.mrmr import MRMR
 
 # ---------------------------------------------------------------------------
@@ -96,6 +98,9 @@ def _fit_in_subprocess(body: str, *, timeout: int = 850) -> dict:
     env["CUDA_VISIBLE_DEVICES"] = ""
     env["MLFRAME_DISABLE_HNSW"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
+    # This machine's global editable-install .pth can be stale; propagate the src/ dir this
+    # process actually imported mlframe from so the subprocess resolves the same package.
+    env["PYTHONPATH"] = os.pathsep.join(p for p in (str(pathlib.Path(mlframe.__file__).resolve().parents[1]), env.get("PYTHONPATH", "")) if p)
     proc = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", src],
         capture_output=True,

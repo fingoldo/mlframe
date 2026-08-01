@@ -30,12 +30,14 @@ formula structure (a**2/b, log(c)*sin(d), f/5 + e as noise) is preserved.
 from __future__ import annotations
 
 import os
+import pathlib
 import re
 
 import numpy as np
 import pandas as pd
 import pytest
 
+import mlframe
 from mlframe.feature_selection.filters.mrmr import MRMR
 
 N = 20_000
@@ -381,6 +383,9 @@ def _run_user_case_in_subprocess(seed: int, private: bool, n: int = _BUG1_N):
     # spurious "subprocess fit did not return a selection" failures unrelated to BUG1.
     # Disabling it makes the verdict reproducible regardless of concurrent load (2026-06-15).
     env["PYUTILZ_KERNEL_DISABLE_SWEEP"] = "1"
+    # This machine's global editable-install .pth can be stale; propagate the src/ dir this
+    # process actually imported mlframe from so the subprocess resolves the same package.
+    env["PYTHONPATH"] = os.pathsep.join(p for p in (str(pathlib.Path(mlframe.__file__).resolve().parents[1]), env.get("PYTHONPATH", "")) if p)
     proc = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
         [sys.executable, "-c", src],
         capture_output=True,
