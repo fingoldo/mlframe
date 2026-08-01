@@ -1,17 +1,22 @@
-"""Regression tests for cross-round joblib worker-pool reuse in ``screen_predictors`` (2026-07-09 fix,
-MRMR audit finding #6).
+"""Regression tests for the ``seed_workers_pool``/``n_workers`` contract of ``screen_predictors``.
 
-Before this fix, every ``screen_predictors()`` call with ``n_workers>1`` built a FRESH
-``joblib.Parallel`` pool plus an eager warmup dispatch (spawning ``n_workers`` threads), even though a
-typical fit calls ``screen_predictors`` 2-3 times (once per screen/FE round) with an unchanged pool
-config for the whole ``fit()`` call. The fix adds an optional ``seed_workers_pool`` parameter: a pool
-object returned by a prior call, which is reused verbatim (no rebuild, no re-warmup) instead of being
-rebuilt from scratch every round.
+Originally written 2026-07-09 (MRMR audit finding #6) for a cross-round joblib worker-pool reuse
+feature: at ``n_workers>1``, a ``joblib.Parallel`` pool was built once and returned so a caller could
+pass it back in via ``seed_workers_pool`` on the next round instead of rebuilding/re-warming it.
 
-These tests verify: (a) the parameter is fully backward-compatible (``seed_workers_pool=None`` unchanged
-behavior), (b) the pool IS actually reused (object identity), not silently ignored and rebuilt anyway,
-(c) selection is IDENTICAL whether or not the pool is reused (pure speedup, no behavior change), and
-(d) at n_workers<=1 the returned pool is always None (no pool exists to reuse).
+That pool construction was REMOVED 2026-07-19 (see ``_screen_predictors.py``'s own comment at the
+``workers_pool = None`` assignment): an isolated/warmed/best-of-3+ A/B at realistic
+``evaluate_candidates`` scales (m=10 -> 0.03x, m=320 -> 0.72-0.73x, m=820/n_workers=8 -> 0.81x) found
+the pool NEVER wins over the serial path -- it's GIL-bound at the joblib dispatch boundary even though
+the underlying njit kernels themselves release the GIL. ``evaluate_candidates`` now always runs serial;
+``n_workers``/``seed_workers_pool`` are kept as accepted-but-inert parameters (other call sites, e.g.
+the Fleuret conditional-confirmation gate, still branch on ``n_workers`` for unrelated reasons).
+
+These tests verify the CURRENT, validated contract: (a) the parameter is fully backward-compatible
+(``seed_workers_pool=None`` unchanged behavior), (b) the returned pool is ALWAYS ``None`` regardless of
+``n_workers``/``seed_workers_pool`` (no pool is ever built or reused -- the 2026-07-19 removal is a
+permanent, validated design decision, not a bug), and (c) selection is IDENTICAL regardless of what's
+passed for ``seed_workers_pool`` (the parameter is truly inert, not silently changing results).
 """
 
 from __future__ import annotations
@@ -20,7 +25,6 @@ import inspect
 
 import numpy as np
 import pytest
-from joblib import Parallel
 
 from mlframe.feature_selection.filters.screen import screen_predictors
 
@@ -78,24 +82,28 @@ def test_seed_workers_pool_none_matches_legacy_default_behavior():
     assert out_omitted[0] == out_explicit_none[0]  # selected_vars identical
 
 
-def test_n_workers_gt_1_returns_a_parallel_pool():
-    """N workers gt 1 returns a parallel pool."""
+def test_n_workers_gt_1_still_returns_none_pool():
+    """Re-framed 2026-08-01: pool construction at n_workers>1 was deliberately removed 2026-07-19
+    (measured 0.03x-0.81x -- the joblib.Parallel pool never beats serial at any tested scale, see
+    ``_screen_predictors.py``'s own comment at ``workers_pool = None``). The returned pool is now
+    ALWAYS None, at any n_workers -- this is the validated, current contract, not a regression."""
     fd, fn, td, tn = _make_data(seed=3)
     out = screen_predictors(**_common_kwargs(fd, fn, td, tn, n_workers=2))
-    assert isinstance(out[-1], Parallel)
+    assert out[-1] is None
 
 
-def test_seeded_pool_is_reused_verbatim_not_rebuilt():
-    """The direct mechanism the fix relies on: passing round 1's pool back in as seed_workers_pool must
-    return the IDENTICAL object (not an equal-but-distinct rebuild) -- proving no fresh pool/warmup ran."""
+def test_seed_workers_pool_param_is_inert_at_n_workers_gt_1():
+    """Re-framed 2026-08-01: ``seed_workers_pool`` is accepted for backward compatibility but no
+    longer used (no pool is ever built to reuse) -- passing ANY value (including a stale/foreign
+    object) must not raise and must not change the returned pool (always None) or the selection."""
     fd, fn, td, tn = _make_data(seed=4)
     out1 = screen_predictors(**_common_kwargs(fd, fn, td, tn, n_workers=2))
-    pool1 = out1[-1]
-    assert pool1 is not None
+    assert out1[-1] is None
 
-    out2 = screen_predictors(**_common_kwargs(fd, fn, td, tn, n_workers=2, seed_workers_pool=pool1))
-    pool2 = out2[-1]
-    assert pool2 is pool1, "seeded pool must be reused verbatim (same object), not rebuilt"
+    sentinel = object()  # deliberately not a real Parallel instance -- proves the param is unread
+    out2 = screen_predictors(**_common_kwargs(fd, fn, td, tn, n_workers=2, seed_workers_pool=sentinel))
+    assert out2[-1] is None
+    assert out2[0] == out1[0], "seed_workers_pool must not influence selection -- it's inert"
 
 
 def test_pool_reuse_preserves_selection_identity():
