@@ -146,6 +146,15 @@ n=50/500/5000) and 1345x faster in isolation at n=1.6M (69.2s -> 0.051s). Full `
 ## Coverage cannot see inside `@njit`
 numba-compiled bodies never reach the Python trace hook, so every `@njit` function reads as uncovered no matter how heavily it is exercised. Measure them with `NUMBA_DISABLE_JIT=1`, and expect the run to be much slower.
 
+## PERF cycle REJECT (2026-08-01): c0011 2M-row profile, all fresh candidates already documented/sub-material
+2M-row cProfile on combo `c0011_903f1399` (LGB+XGB, multi_target_regression, polars_nullable, 15 cats;
+290s total, mostly threading waits + real booster fits) surfaced no candidate above ~10s cumtime not
+already covered: `row_wise_extremality._compute_extremality_matrix`'s per-column argsort loop already has
+a documented 2026-07-13 bench-rejected vectorization attempt (axis=0 argsort measured 3.3x SLOWER, kept
+the loop) and its own absolute cost here (3.2s tottime / 3 calls) is sub-material; `_gpu_resident_select`'s
+radix-select and `_resident_candidate_mi`'s candidate-MI path are the same already-saturated MANDATE-2 GPU
+subsystem as the c0003 REJECT above. No safe, well-scoped, materially-sized win identified this cycle.
+
 ## PERF cycle REJECT (2026-07-31): c0003 2M-row profile, GPU-resident FE candidate MI already saturated
 2M-row cProfile on combo `c0003_5a0bbd4e` (HGB, multilabel, polars_nullable, 15 cats) surfaced two more
 mlframe-internal candidates besides the ECE jackknife win above:
