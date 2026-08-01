@@ -39,7 +39,12 @@ def _referenced_columns(mrmr) -> set:
     names = list(mrmr.get_feature_names_out())
     referenced: set = set()
     for nm in names:
-        referenced |= set(_IDENT.findall(str(nm)))
+        for tok in _IDENT.findall(str(nm)):
+            referenced.add(tok)
+            # ``_IDENT`` can't see the ``__`` FE-suffix boundary (``_`` is a word char), so
+            # ``b__He1_He1`` matches as one token -- also credit the source-column prefix.
+            if "__" in tok:
+                referenced.add(tok.split("__", 1)[0])
     return referenced
 
 
