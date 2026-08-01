@@ -103,10 +103,12 @@ def test_sentinel_and_empty():
     sort_idx, offsets = prepare_group_segments(g)
     v = group_blocked_mi(cx, cy, sort_idx, offsets, 3, 3, min_rows=2, size_weighted=True, use_mm=False)
     assert np.isfinite(v) and v >= 0.0
-    # all-sentinel -> 0
+    # all-sentinel -> no group has any valid x data, so no group clears min_rows -- group_blocked_mi's
+    # own contract (see its docstring) returns nan for this "cannot decide" case, not 0.0, so a caller
+    # can't confuse it with a genuine 0.0 within-group signal.
     cx2 = np.full(120, -1, dtype=np.int64)
     v2 = group_blocked_mi(cx2, cy, sort_idx, offsets, 3, 3, min_rows=2, size_weighted=True, use_mm=False)
-    assert v2 == 0.0
+    assert np.isnan(v2)
 
 
 def test_equal_vs_size_weight_differ_when_groups_unequal():
