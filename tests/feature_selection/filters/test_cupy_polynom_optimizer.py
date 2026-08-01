@@ -10,7 +10,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.conftest import _need_cuda
+
 cp = pytest.importorskip("cupy")
+
+
+pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
 from mlframe.feature_selection.filters._cupy_polynom_optimizer import run_cupy_kernel_search
 

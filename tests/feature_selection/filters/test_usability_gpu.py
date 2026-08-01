@@ -10,6 +10,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.conftest import _need_cuda
+
 from mlframe.feature_selection.filters import _usability_gpu as ug
 
 
@@ -47,6 +49,8 @@ class TestFeGpuUsabilityEnabledGate:
             monkeypatch.setenv("MLFRAME_FE_GPU_USABILITY", val)
             assert ug.fe_gpu_usability_enabled() is False, f"env var {val!r} must not enable the gate"
 
+    @pytest.mark.gpu
+    @pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
     def test_on_when_cupy_available_env_var_set_and_not_globally_disabled(self, monkeypatch):
         """The one path that actually enables the gate -- requires real cupy, so this test is meaningful
         only on a host where cupy is installed and MLFRAME_DISABLE_GPU is not set."""
@@ -60,6 +64,8 @@ class TestFeGpuUsabilityEnabledGate:
 
 class TestGpuAbscorrParity:
     """gpu_abscorr / gpu_abscorr_batch must match the host |corr| reference bit-for-bit-close."""
+
+    pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
     def test_gpu_abscorr_matches_host_reference(self):
         """A genuinely correlated pair's GPU |corr| must match the host reference to near-fp precision."""
@@ -101,6 +107,8 @@ class TestGpuAbscorrParity:
 
 class TestGpuAdditiveBasisResidualParity:
     """gpu_additive_basis_residual must match the documented StandardScaler+LinearRegression equivalence."""
+
+    pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
     def test_residual_matches_sklearn_reference(self):
         """The mean-centered-OLS residual must match the CPU StandardScaler+LinearRegression residual

@@ -12,7 +12,11 @@ is unchanged whichever path the KTC crossover picks.
 import numpy as np
 import pytest
 
+from tests.conftest import _need_cuda
+
 from mlframe.feature_selection.filters._permutation_null import _pooled_gain_floor_perms_njit
+
+pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
 
 def _make_inputs(n, ncand, nperm, nbins_x=16, nbins_y=10, seed=0):

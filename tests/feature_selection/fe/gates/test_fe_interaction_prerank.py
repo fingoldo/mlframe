@@ -13,6 +13,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.conftest import _need_cuda
+
 from mlframe.feature_selection.filters._fe_interaction_prerank import (
     second_moment_propensity,
     top_k_by_interaction_propensity,
@@ -214,7 +216,14 @@ def test_all_target_types_score_finite_and_recover(target_kind):
 
 
 @pytest.mark.parametrize("nclasses", [2, 5])
-@pytest.mark.parametrize("backend", ["numpy", "numba", "cupy"])
+@pytest.mark.parametrize(
+    "backend",
+    [
+        "numpy",
+        "numba",
+        pytest.param("cupy", marks=[pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]),
+    ],
+)
 def test_kernel_variants_match_per_class_loop_reference(backend, nclasses):
     """Every dispatcher backend (numpy/numba/cupy GEMM) must reproduce the original per-class-loop
     reference score to float precision AND give the identical descending ranking -- the kernel

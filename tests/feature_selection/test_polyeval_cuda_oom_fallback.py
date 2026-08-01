@@ -12,6 +12,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.conftest import _need_cuda
+
 import mlframe.feature_selection.filters.hermite_fe as hf
 
 
@@ -58,6 +60,8 @@ def test_polyeval_default_never_uploads_to_gpu(monkeypatch):
     assert np.allclose(got, cpu_expected)
 
 
+@pytest.mark.gpu
+@pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 def test_resident_vram_gate_raises_when_matrix_exceeds_budget(monkeypatch):
     """The resident univariate builder's VRAM gate must raise (-> caller's host fallback) when the estimated device
     footprint exceeds the free-VRAM budget, instead of attempting the poisoning multi-GB pinned upload."""
@@ -70,6 +74,8 @@ def test_resident_vram_gate_raises_when_matrix_exceeds_budget(monkeypatch):
         ofe._raise_if_vram_insufficient(5_000_000, 80)
 
 
+@pytest.mark.gpu
+@pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 def test_resident_vram_gate_noop_on_query_failure(monkeypatch):
     """A memGetInfo failure must NOT raise (the try/except OOM fallback is the backstop) -- assume OK."""
     import mlframe.feature_selection.filters._orthogonal_univariate_fe as ofe

@@ -10,7 +10,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.conftest import _need_cuda
+
 cp = pytest.importorskip("cupy")
+
+
+pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
 from mlframe.feature_selection.filters._hinge_detect_gpu_resident import detect_hinge_breakpoints_gpu
 from mlframe.feature_selection.filters._fe_resident_operands import clear_fe_resident_operands

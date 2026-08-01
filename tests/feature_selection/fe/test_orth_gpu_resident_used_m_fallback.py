@@ -14,7 +14,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import _need_cuda
+
 cp = pytest.importorskip("cupy")
+
+
+pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
 from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_gpu_resident import _gpu_build_and_score_univariate
 from mlframe.feature_selection.filters._fe_resident_operands import clear_fe_resident_operands

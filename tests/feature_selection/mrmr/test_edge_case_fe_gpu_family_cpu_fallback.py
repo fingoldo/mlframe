@@ -23,6 +23,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import _need_cuda
+
 warnings.filterwarnings("ignore")
 
 from mlframe.feature_selection.filters.mrmr import MRMR
@@ -70,6 +72,8 @@ def test_default_no_strict_env_recovers_trapped_pair_interaction():
     ), f"expected a recovered a*b pair-interaction engineered column in support_, got {names}"
 
 
+@pytest.mark.gpu
+@pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 def test_gpu_resident_path_selection_equivalent_to_cpu_default(monkeypatch):
     """When a CUDA device IS available and STRICT-residency is explicitly forced on, the
     GPU-resident non-separability filter must select the SAME engineered columns as the exact CPU

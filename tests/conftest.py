@@ -244,6 +244,19 @@ def running_under_xdist() -> bool:
     return bool(os.environ.get("PYTEST_XDIST_WORKER"))
 
 
+def _need_cuda() -> bool:
+    """Whether a usable CUDA device is available (used by GPU-marked tests to skip when it is not).
+
+    Shared here so GPU test modules don't each duplicate the same try/except import guard.
+    """
+    try:
+        from pyutilz.core.pythonlib import is_cuda_available
+
+        return is_cuda_available()
+    except Exception:
+        return False
+
+
 def _host_cpu_contended(min_other_python_procs: int = 5) -> bool:
     """True when enough OTHER python processes are running that a standalone (non-xdist) wall-clock perf test would
     flake from host contention.

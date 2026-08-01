@@ -13,6 +13,8 @@ import importlib
 import numpy as np
 import pytest
 
+from tests.conftest import _need_cuda
+
 MOD = "mlframe.feature_selection.filters._hinge_detect_gpu_resident"
 
 _KW = dict(
@@ -36,6 +38,8 @@ def _hinge_data(n, seed=0):
     return x, y
 
 
+@pytest.mark.gpu
+@pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 @pytest.mark.parametrize("max_rows", ["200000", "0"])
 def test_hinge_subsample_still_finds_breakpoint(max_rows, monkeypatch):
     """Hinge subsample still finds breakpoint."""
@@ -56,6 +60,8 @@ def test_hinge_subsample_still_finds_breakpoint(max_rows, monkeypatch):
         m.__dict__.update(_orig_dict)
 
 
+@pytest.mark.gpu
+@pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 def test_hinge_gpu_subsampled_matches_cpu_full_n_above_cap():
     """mrmr_audit_2026-07-20 B-16: the module docstring/comments claim the GPU-resident detector's
     subsampling above MLFRAME_HINGE_MAX_ROWS is "selection-equivalent" to the CPU detector's full-n

@@ -17,6 +17,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import _need_cuda
+
 
 def _canonical_fixture(seed, n):
     """Canonical fixture."""
@@ -55,6 +57,8 @@ def test_fusion_stride_formula(n, max_rows, expect_stride):
         assert np.arange(n)[::st].shape[0] < n
 
 
+@pytest.mark.gpu
+@pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 @pytest.mark.slow
 @pytest.mark.timeout(900)
 def test_fusion_scoring_subsample_keeps_output_full_n():

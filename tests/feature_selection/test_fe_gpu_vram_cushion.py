@@ -34,6 +34,7 @@ def _patch_meminfo(monkeypatch, free_b: int, total_b: int = 4 * GB):
     monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", lambda: (int(free_b), int(total_b)))
 
 
+@pytest.mark.gpu
 def test_declines_when_free_below_cushion(monkeypatch, vram):
     """free < 1 GB cushion -> False (route CPU). The core near-full-card regression."""
     pytest.importorskip("cupy")
@@ -42,6 +43,7 @@ def test_declines_when_free_below_cushion(monkeypatch, vram):
     assert vram.fe_gpu_has_vram_cushion(10 * MB) is False
 
 
+@pytest.mark.gpu
 def test_allows_when_free_minus_needed_meets_cushion(monkeypatch, vram):
     """free - bytes_needed >= cushion -> True (GPU allowed)."""
     pytest.importorskip("cupy")
@@ -50,6 +52,7 @@ def test_allows_when_free_minus_needed_meets_cushion(monkeypatch, vram):
     assert vram.fe_gpu_has_vram_cushion(1 * GB) is True  # 3 - 1 = 2 GB >= 1 GB cushion
 
 
+@pytest.mark.gpu
 def test_declines_when_needed_pushes_below_cushion(monkeypatch, vram):
     """Enough free, but bytes_needed eats the cushion -> False."""
     pytest.importorskip("cupy")
@@ -71,6 +74,7 @@ def test_declines_when_needed_pushes_below_cushion(monkeypatch, vram):
     assert vram.fe_gpu_has_vram_cushion(1 * GB) is False  # 1.5 - 1.0 = 0.5 GB < 1 GB cushion
 
 
+@pytest.mark.gpu
 def test_pool_retained_blocks_released_before_declining(monkeypatch, vram):
     """Regression (2026-07-14 wellbore 100k): memGetInfo counts our own cupy pool's internally-FREE
     (retained) blocks as used -- a batch_pair_mi upload of 0.16GB was rejected at free=0.52GB/4GB while
@@ -102,6 +106,7 @@ def test_pool_retained_blocks_released_before_declining(monkeypatch, vram):
     assert state["freed"] is True
 
 
+@pytest.mark.gpu
 def test_pool_flush_still_declines_when_genuinely_full(monkeypatch, vram):
     """After the pool flush the card is STILL near-full (another process owns the memory) -> decline."""
     pytest.importorskip("cupy")
@@ -129,6 +134,7 @@ def test_pool_flush_still_declines_when_genuinely_full(monkeypatch, vram):
     assert state["freed"] is True
 
 
+@pytest.mark.gpu
 def test_env_override_min_free_mb(monkeypatch, vram):
     """MLFRAME_FE_GPU_MIN_FREE_MB tightens/loosens the absolute floor."""
     pytest.importorskip("cupy")
@@ -139,6 +145,7 @@ def test_env_override_min_free_mb(monkeypatch, vram):
     assert vram.fe_gpu_has_vram_cushion(0) is True  # 1.5 GB >= 0.5 GB
 
 
+@pytest.mark.gpu
 def test_tiny_card_fraction_clamps_cushion(monkeypatch, vram):
     """On a hypothetical tiny card the cushion is min(abs floor, 50% of total), never > half the card."""
     pytest.importorskip("cupy")
@@ -165,6 +172,7 @@ def test_permissive_when_cupy_import_fails(monkeypatch, vram):
     assert vram.fe_gpu_has_vram_cushion(10 * GB) is True
 
 
+@pytest.mark.gpu
 def test_permissive_when_memgetinfo_raises(monkeypatch, vram):
     """A probe error must not block the GPU -> permissive True."""
     pytest.importorskip("cupy")
@@ -178,6 +186,7 @@ def test_permissive_when_memgetinfo_raises(monkeypatch, vram):
     assert vram.fe_gpu_has_vram_cushion(0) is True
 
 
+@pytest.mark.gpu
 def test_ensure_pool_limit_idempotent(monkeypatch, vram):
     """set_limit is called exactly ONCE per process (idempotent once-flag), with fraction= kwarg."""
     pytest.importorskip("cupy")
@@ -201,6 +210,7 @@ def test_ensure_pool_limit_idempotent(monkeypatch, vram):
     assert calls[0][0] is None and calls[0][1] == pytest.approx(0.6)  # fraction=0.6 default, size unused
 
 
+@pytest.mark.gpu
 def test_ensure_pool_limit_env_fraction(monkeypatch, vram):
     """MLFRAME_FE_GPU_POOL_FRACTION overrides the cap fraction."""
     pytest.importorskip("cupy")
@@ -241,6 +251,7 @@ def test_ensure_pool_limit_noop_without_cupy(monkeypatch, vram):
 # ================================================================================================
 
 
+@pytest.mark.gpu
 def test_pool_cap_plus_cushion_never_exceeds_total_on_small_card(monkeypatch, vram):
     """Regression sensor for the self-conflicting-arithmetic bug: on a small (1.5 GB) card the OLD
     independently-chosen fractions (0.6 pool + up-to-0.5-of-total cushion) summed past 100% of total
@@ -271,6 +282,7 @@ def test_pool_cap_plus_cushion_never_exceeds_total_on_small_card(monkeypatch, vr
     )
 
 
+@pytest.mark.gpu
 def test_pool_cap_unaffected_on_large_card(monkeypatch, vram):
     """On a normal-sized card (well above the cushion's clamp point) the requested fraction is honoured
     unchanged -- the joint bound must not needlessly tighten a card that was never at risk."""
@@ -297,6 +309,7 @@ def test_cushion_bytes_shared_by_both_mechanisms(vram):
     assert vram._cushion_bytes(total_b) == min(vram._min_free_mb() * MB, int(total_b * vram._TINY_CARD_CUSHION_FRACTION))
 
 
+@pytest.mark.gpu
 def test_regression_guard_declines_gpu_at_low_free(monkeypatch, vram):
     """Regression: a real guard (the _cmi_cuda batched-CMI gate) must decline the GPU on a near-full card.
 

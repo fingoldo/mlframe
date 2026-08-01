@@ -12,6 +12,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.conftest import _need_cuda
+
 
 def _gen_pair(n=200, m=150, seed=0):
     """Builds seeded synthetic test data; returns ``(x, y)``."""
@@ -52,6 +54,8 @@ class TestDtwCpuBaseline:
 
 class TestDtwGpuBackends:
     """Groups tests covering TestDtwGpuBackends."""
+
+    pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
     @pytest.mark.parametrize("shape", [(200, 150), (500, 300), (1000, 800)])
     def test_cupy_distance_matches_cpu(self, shape):
@@ -106,6 +110,8 @@ class TestDtwBandedGpuBuffer:
     matrix. The banded buffer must produce a BIT-IDENTICAL distance + path to the
     pre-fix full-matrix sweep AND match the dtaidistance CPU reference, including
     band-boundary windows."""
+
+    pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
     def _full_matrix_cupy(self, x, y, window):
         """The retained pre-CPX-P0-2 full-matrix cupy sweep (regression baseline)."""
@@ -222,6 +228,8 @@ class TestDispatcher:
         assert path_disp == path_cpu
         _DTW_SPEC._choice_cache.clear()
 
+    @pytest.mark.gpu
+    @pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
     def test_large_n_routes_to_gpu_when_available(self):
         """Large n routes to gpu when available."""
         pytest.importorskip("cupy")

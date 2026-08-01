@@ -13,6 +13,8 @@ import numpy as np
 import pandas as pd
 import warnings
 
+from tests.conftest import _need_cuda
+
 # Import the module under test
 from mlframe.feature_selection.filters import (
     MRMR,
@@ -308,6 +310,8 @@ class TestMRMRPermKernelGPU:
     n_failed counts should match up to last-bit fp rounding on
     continuous data.
     """
+
+    pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
     def test_gpu_kernel_matches_cpu_within_tolerance(self):
         """Run both kernels on the same input + base_seed; n_failed

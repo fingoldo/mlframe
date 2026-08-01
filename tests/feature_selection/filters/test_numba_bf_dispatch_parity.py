@@ -11,6 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.conftest import _need_cuda
+
 from mlframe.feature_selection.filters._numba_polynom_optimizer import _BF_NAME_TO_ID, _bf_dispatch_njit
 from mlframe.feature_selection.filters.hermite_fe import _DEFAULT_BIN_FUNCS
 
@@ -61,6 +63,8 @@ def test_numba_kernel_recovers_cubic_inner_winner():
     assert res.mi >= 0.45, f"expected ~0.4813 parity with the reference optimizers, got {res.mi:.4f}"
 
 
+@pytest.mark.gpu
+@pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 def test_cupy_kernel_recovers_cubic_inner_winner():
     """The GPU generation-batched optimizer must recover the same cubic-inner logabs winner as every
     reference-scored backend (selection-equivalence bar; cp.argsort tie-order is the only permitted

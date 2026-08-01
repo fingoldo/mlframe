@@ -38,6 +38,7 @@ def _make_data(n: int, f: int, seed: int):
     return X, y
 
 
+@pytest.mark.gpu
 @_skip_no_cuda
 def test_native_gpu_shap_bit_identical_to_shap_explainer():
     """Native gpu shap bit identical to shap explainer."""
@@ -88,6 +89,7 @@ def test_native_xgboost_gpu_shap_contribs_returns_none_when_unavailable():
     assert native_xgboost_gpu_shap_contribs(model, X) is None
 
 
+@pytest.mark.gpu
 @_skip_no_cuda
 def test_native_gpu_shap_additivity_holds_on_gpu():
     """SHAP additivity: sum(contribs) + base_value == raw model margin output.

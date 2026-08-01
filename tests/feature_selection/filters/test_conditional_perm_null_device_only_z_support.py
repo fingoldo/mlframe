@@ -16,7 +16,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.conftest import _need_cuda
+
 from mlframe.feature_selection.filters._fe_cmi_redundancy_null import _conditional_perm_null
+
+pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
 
 def test_device_only_z_support_with_single_permutation_does_not_crash():

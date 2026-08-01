@@ -57,6 +57,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import _need_cuda
+
 from mlframe.feature_selection.filters._fe_cmi_redundancy_gate import (
     DEFAULT_CMI_RETAIN_FRAC,
     _CMI_SIGNIFICANCE_ESCAPE_MARGIN,
@@ -758,6 +760,8 @@ def test_analytic_cmi_null_falls_back_on_sparse_cells():
     assert f1 != f2, "expected permutation fallback (seed-sensitive) on sparse cells, got identical floors"
 
 
+@pytest.mark.gpu
+@pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 def test_gpu_resident_perm_null_selection_equivalent_to_cpu():
     """The GPU-RESIDENT permutation null (``MLFRAME_FE_GPU_STRICT_RESIDENT=1``, 2026-06-28) must make the SAME
     gate decision as the CPU permutation null on the sparse-cell case (the path that actually runs permutations --

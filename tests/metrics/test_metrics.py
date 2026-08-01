@@ -1721,6 +1721,7 @@ except ImportError:
     _cupy_available = False
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not _cupy_available, reason="GPU tests require cupy")
 class TestGpuMetrics:
     """Correctness checks for the cupy GPU batch metrics in mlframe.metrics.core.

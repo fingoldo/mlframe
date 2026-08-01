@@ -9,6 +9,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.conftest import _need_cuda
+
 cp = pytest.importorskip("cupy")
 
 from mlframe.feature_engineering.transformer._kernels_cupy import (
@@ -16,7 +18,7 @@ from mlframe.feature_engineering.transformer._kernels_cupy import (
     row_attention_stage4_cupy,
 )
 
-pytestmark = pytest.mark.fast
+pytestmark = [pytest.mark.fast, pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
 
 def test_cupy_stage4_softmax_temp_zero_no_inf():

@@ -94,6 +94,7 @@ def device_alloc_counter(monkeypatch):
             cp.cuda.set_allocator(prev)
 
 
+@pytest.mark.gpu
 def test_gpu_optout_allocates_nothing_on_device(monkeypatch, device_alloc_counter):
     """A full MRMR fit with every FE family on allocates zero device memory under the opt-out."""
     monkeypatch.setenv("MLFRAME_DISABLE_GPU", "1")

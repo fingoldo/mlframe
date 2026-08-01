@@ -11,7 +11,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.conftest import _need_cuda
+
 cp = pytest.importorskip("cupy")
+
+
+pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
 from mlframe.feature_selection.filters._fe_pure_form_retention_gpu_resident import (
     adds_nonlinear_value_batch_gpu_resident,

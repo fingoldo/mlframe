@@ -42,6 +42,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import _need_cuda
+
 warnings.filterwarnings("ignore")
 
 N = 4000
@@ -330,6 +332,8 @@ def test_cost_precheck_passes_genuine_kink():
     assert taus and min(abs(t - 0.7) for t in taus) < 0.06
 
 
+@pytest.mark.gpu
+@pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 def test_batched_detector_matches_percolumn_detector():
     """Batched cross-column precheck (detect_hinge_breakpoints_gpu_batch) must find the SAME breakpoints
     as the per-column detector across noise / linear / genuine-kink / near-zero-variance columns -- the

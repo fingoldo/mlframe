@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import _need_cuda
+
 # ---------------------------------------------------------------------------
 # CORE_CLASS-1 (P0): store_params_in_object's postfix default changed upstream
 # (pyutilz) from "" to "_param_"; the MRMR __init__ call site never pinned it
@@ -604,6 +606,8 @@ def test_regression_dispatch_batch_mi_noise_gate_gpu_catches_bare_exception_cuda
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.gpu
+@pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 def test_regression_batch_pair_mi_cuda_row_chunked_empty_input_no_zero_division():
     """Pre-fix: n_samples=0 raised ZeroDivisionError deep inside _mi_from_joint_counts(_cupy).
     Post-fix: an early `if n_samples == 0: return zeros` guard mirrors the cupy sibling."""
@@ -625,6 +629,8 @@ def test_regression_batch_pair_mi_cuda_row_chunked_empty_input_no_zero_division(
     assert np.all(out == 0.0)
 
 
+@pytest.mark.gpu
+@pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 def test_regression_batch_pair_mi_cuda_shared_fused_empty_input_no_zero_division():
     """Pre-fix: n_samples=0 raised ZeroDivisionError at `inv_n = 1.0 / float(n_samples)`.
     Post-fix: an early `if n_samples == 0: return zeros` guard mirrors the cupy sibling."""
@@ -889,6 +895,8 @@ def test_regression_install_cuda_teardown_guard_has_lock():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.gpu
+@pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 def test_regression_resident_bincount_debug_check_bounds_catches_oob():
     """Pre-fix: no way to catch an out-of-range index short of the silent-wrap/OOB-write UB. Post-fix:
     debug_check_bounds=True raises ValueError instead."""
@@ -1148,6 +1156,8 @@ def test_regression_fe_cmi_perm_null_gpu_no_dead_resident_y_isinstance_check():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.gpu
+@pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 @pytest.mark.parametrize("method", ["uniform", "quantile"])
 def test_regression_discretize_2d_array_cuda_row_chunked_nan_parity(method):
     """Pre-fix: a single NaN anywhere in a column poisoned that column's edges to NaN, collapsing every

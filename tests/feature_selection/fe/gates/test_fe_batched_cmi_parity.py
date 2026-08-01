@@ -6,6 +6,10 @@ CMI ports under STRICT knowing it reproduces the CPU plug-in CMI. cupy-gated."""
 import numpy as np
 import pytest
 
+from tests.conftest import _need_cuda
+
+pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
+
 
 @pytest.mark.parametrize("seed", [0, 1, 7, 42])
 @pytest.mark.parametrize("dist", ["uniform", "normal", "lognormal"])

@@ -12,6 +12,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import _need_cuda
+
 
 def _continuous_y_temporal_frame(n_entities=40, per=12, seed=0):
     """Continuous y temporal frame."""
@@ -142,6 +144,8 @@ def test_lasso_multiclass_not_driven_by_spurious_ordinal():
     assert top == "u0__sig", f"multiclass selection must be driven by the true class-1 signal, not the spurious ordinal column; got top={top}\n{res}"
 
 
+@pytest.mark.gpu
+@pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 def test_ksg_gpu_cpu_parity_on_discrete_ties():
     """Ksg gpu cpu parity on discrete ties."""
     pytest.importorskip("cupy")

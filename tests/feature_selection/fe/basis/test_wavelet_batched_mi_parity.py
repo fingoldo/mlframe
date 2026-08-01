@@ -6,6 +6,10 @@ reproduces the per-leg ``_binned_mi`` ranking. cupy-gated (importorskip)."""
 import numpy as np
 import pytest
 
+from tests.conftest import _need_cuda
+
+pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
+
 
 def test_wavelet_batched_mi_matches_per_column_cpu():
     """Wavelet batched mi matches per column cpu."""
