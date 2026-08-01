@@ -373,7 +373,11 @@ class TestMRMRSelectsGroupedDelta:
             fe_grouped_delta_num_cols=("age",),
         ).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert any(nm in ("grouped_delta_age__region", "grouped_zscore_age__region") for nm in names), f"grouped delta / zscore not in support; got {names}"
+        targets = ("grouped_delta_age__region", "grouped_zscore_age__region")
+        # Accept the standalone spelling OR either name fused into a composite (e.g.
+        # ``max(prewarp(noise_c),sign(grouped_delta_age__region))``) -- the FE step may
+        # deliver the signal fused rather than standalone, same as other biz_val contracts.
+        assert any(t in nm for nm in names for t in targets), f"grouped delta / zscore not in support; got {names}"
 
 
 class TestMRMRSelectsLaggedDiff:
