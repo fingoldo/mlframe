@@ -221,6 +221,7 @@ class TestExtraBasisGatedOnHybridEnable:
             fe_hybrid_orth_enable=True,
             fe_univariate_basis_enable=True,
             fe_hybrid_orth_extra_bases=("bspline",),
+            fe_max_steps=1,
         )
         m.fit(X, y)
         assert calls["n"] >= 1, "extra-basis FE did not run despite fe_hybrid_orth_enable=True and a non-empty fe_hybrid_orth_extra_bases tuple"
