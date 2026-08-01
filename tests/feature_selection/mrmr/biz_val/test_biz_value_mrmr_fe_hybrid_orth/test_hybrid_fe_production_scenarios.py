@@ -263,7 +263,9 @@ def _engineered_uses(support, *vars_) -> bool:
         s = str(col)
         if not any(tok in s for tok in ("(", "__", "*")):
             continue  # a bare raw column is not an engineered recovery
-        if all(re.search(rf"(?<![0-9A-Za-z_]){re.escape(v)}(?![0-9A-Za-z_])", s) for v in vars_):
+        # After the var, either NOT a word char (``sqr(a)``) or the ``__`` FE-suffix
+        # separator (``a__He2``) -- a bare word char (``ab``) is a different identifier.
+        if all(re.search(rf"(?<![0-9A-Za-z_]){re.escape(v)}(?=__|[^0-9A-Za-z_]|$)", s) for v in vars_):
             return True
     return False
 
