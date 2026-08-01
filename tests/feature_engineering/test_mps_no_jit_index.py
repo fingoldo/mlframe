@@ -6,10 +6,13 @@ Under ``@numba.njit`` bounds-checks are relaxed and the out-of-range read silent
 from __future__ import annotations
 
 import os
+import pathlib
 import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 import sys
 
 import numpy as np
+
+import mlframe
 
 
 def test_compute_area_profits_no_oob_when_positions_shorter_than_prices():
@@ -37,6 +40,9 @@ def test_find_maximum_profit_system_under_disabled_jit_subprocess():
     env = dict(os.environ)
     env["NUMBA_DISABLE_JIT"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
+    # This machine's global editable-install .pth can be stale; propagate the src/ dir this
+    # process actually imported mlframe from so the subprocess resolves the same package.
+    env["PYTHONPATH"] = os.pathsep.join(p for p in (str(pathlib.Path(mlframe.__file__).resolve().parents[1]), env.get("PYTHONPATH", "")) if p)
     code = (
         "import numpy as np\n"
         "from mlframe.feature_engineering.mps import find_maximum_profit_system\n"
