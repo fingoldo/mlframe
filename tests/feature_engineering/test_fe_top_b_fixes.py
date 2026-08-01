@@ -83,7 +83,18 @@ def test_per_group_apply_throttles_per_group_failure_logs(caplog):
     5 detailed warnings plus one summary line, closing an unthrottled-hot-loop-log finding."""
     import logging
 
+    import sys
+
     from mlframe.feature_engineering.grouped import per_group_apply
+
+    # ``mlframe.utils.__init__`` does ``from .log_throttle import log_throttle``, which OVERWRITES the
+    # ``log_throttle`` attribute on the ``mlframe.utils`` package with the function -- so even
+    # ``import mlframe.utils.log_throttle as x`` (equivalent to ``x = mlframe.utils.log_throttle``,
+    # attribute access) resolves to the function, not the submodule. Reach the real submodule via
+    # sys.modules, keyed by its full dotted name, bypassing attribute lookup entirely.
+    import mlframe.utils.log_throttle  # noqa: F401 -- ensures the submodule is registered in sys.modules
+
+    log_throttle_module = sys.modules["mlframe.utils.log_throttle"]
 
     def _fails_on_odd_groups(seg):
         """Fails on every odd-valued group, succeeds on even ones."""
@@ -95,6 +106,10 @@ def test_per_group_apply_throttles_per_group_failure_logs(caplog):
     group_ids = np.repeat(np.arange(n_groups), 3)
     values = group_ids.astype(np.float64)
 
+    # log_throttle's per-key counters are module-level global state, shared across every test in the
+    # session -- another test hitting the SAME "per_group_apply_fn_raised" key first would leave this
+    # test seeing fewer than max_count fresh detailed logs. Reset the key so this test is order-independent.
+    log_throttle_module._counts.pop("per_group_apply_fn_raised", None)
     with caplog.at_level(logging.WARNING, logger="mlframe.feature_engineering.grouped"):
         per_group_apply(values, group_ids, _fails_on_odd_groups, fill_value=-1.0)
 
