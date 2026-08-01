@@ -101,7 +101,8 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0, *, free_b: "int | None" = Non
     neither must be given; a partial pair falls back to probing (never silently mixes a stale value).
 
     Also lazily installs the own-pool cap on first call (see ``ensure_fe_gpu_pool_limit``)."""
-    if free_b is None or total_b is None:
+    caller_supplied_probe = free_b is not None and total_b is not None
+    if not caller_supplied_probe:
         try:
             import cupy as cp
         except Exception:  # - no cupy: non-GPU host, stay permissive (caller's other gates decide)
@@ -116,9 +117,18 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0, *, free_b: "int | None" = Non
     else:
         # Caller already probed; still ensure the pool cap is installed (idempotent, no extra memGetInfo).
         ensure_fe_gpu_pool_limit()
+    assert free_b is not None and total_b is not None  # guaranteed by the two branches above
     cushion_b = _cushion_bytes(total_b)
     if (free_b - int(bytes_needed)) >= cushion_b:
         return True
+    # The caller supplied its OWN probe (already did its own memGetInfo, possibly for a different
+    # purpose -- see the docstring's redundant-probe-avoidance rationale). Honor that value exactly:
+    # the caller owns the decision to probe or not, and this function must be a pure function of the
+    # inputs it was given, not silently do a competing live re-probe behind the caller's back
+    # (test_fe_gpu_vram_cushion_no_reprobe.py's whole point: "independent of any internal memGetInfo
+    # probe" once free_b/total_b are supplied).
+    if caller_supplied_probe:
+        return False
     # ``memGetInfo``'s free counts blocks RETAINED by our own cupy pool as used - after a few FE stages the
     # pool can hold most of the card in internally-FREE blocks (instantly reusable by the next cupy alloc,
     # invisible to memGetInfo). Observed live (2026-07-14 wellbore 100k): free=0.52GB of 4GB with the pool
@@ -126,7 +136,8 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0, *, free_b: "int | None" = Non
     # to fall off the full-resident path. Before declining, release the pool's free blocks back to the
     # device (a no-op for blocks actually in use) and re-probe - the check is then exact, with no
     # fragmentation assumptions. The re-cudaMalloc cost this trades away only occurs where the alternative
-    # was rejecting the GPU path outright.
+    # was rejecting the GPU path outright. Only reachable when THIS function did its own internal probe
+    # (free_b/total_b were not supplied), since a caller-supplied probe returns immediately above.
     try:
         import cupy as cp
         pool = cp.get_default_memory_pool()

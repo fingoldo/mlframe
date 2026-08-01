@@ -8,12 +8,15 @@ bug found and fixed here in ``_mah.py``).
 """
 from __future__ import annotations
 
+import os
+import pathlib
 import subprocess
 import sys
 import time
 
 import numpy as np
 
+import mlframe
 from mlframe.feature_selection.filters._adaptive_nbins import edges_qs, qs_nbins
 from mlframe.feature_selection.filters._mah import _compute_y_binning, clear_mah_y_binning_cache, mah_bin_edges, mah_mi
 
@@ -213,9 +216,14 @@ def test_mah_bin_edges_high_cardinality_integer_target_subprocess_empirical_boun
     # 120s budget (not the ~0.66s warm in-process measurement): a fresh process pays numba's cold
     # njit-compile cost on top, which under concurrent machine load can itself take tens of seconds --
     # this test only needs to prove it is NOT the pre-fix multi-minute-plus hang, not race the JIT.
+    # Propagate the importable path explicitly: pytest's own `pythonpath = ["src"]` ini setting does
+    # NOT reach a subprocess.run() child, and this machine's global editable-install .pth points at a
+    # stale worktree -- without this, the child raises ModuleNotFoundError instead of exercising the
+    # timing this test actually checks.
+    env = {**os.environ, "PYTHONPATH": str(pathlib.Path(mlframe.__file__).resolve().parents[1])}
     result = subprocess.run(
         [sys.executable, "-c", script],
-        capture_output=True, text=True, timeout=120,
+        capture_output=True, text=True, timeout=120, env=env,
     )
     assert result.returncode == 0, f"subprocess failed/timed out: stdout={result.stdout!r} stderr={result.stderr[-2000:]!r}"
     assert "OK" in result.stdout
