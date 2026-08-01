@@ -375,7 +375,7 @@ def _mrmr_hybrid_kw():
     return dict(
         verbose=0,
         interactions_max_order=1,
-        fe_max_steps=0,
+        fe_max_steps=1,
         dcd_enable=False,
         cluster_aggregate_enable=False,
         build_friend_graph=False,
