@@ -45,8 +45,16 @@ class Leaderboard:
     )
     from ._cw import _get_tasks_onehot, _find_weights_for_majority_graph  # type: ignore[misc]  # same class-scoped-import pattern as above
 
-    def __init__(self, table: pd.DataFrame, weights: Optional[Dict[str, float]] = None):
-        """Store the score table and per-task weights (default 1.0), then build ranks."""
+    def __init__(self, table: pd.DataFrame, weights: Optional[Dict[str, float]] = None, allow_partial: bool = False):
+        """Store the score table and per-task weights (default 1.0), then build ranks.
+
+        ``allow_partial``: bypass ``_partial_table_guard`` for methods with no NaN-fill strategy
+        of their own (see its docstring) -- for deliberate back-compat callers ONLY (e.g. an
+        explicit "skip" imputation policy reproducing the pre-fix pandas skipna=True bias for
+        A/B comparison). Everyone else should go through ``elect_all``/``rank_all``'s
+        ``PARTIAL_METHODS`` filter instead of setting this.
+        """
+        self.allow_partial = allow_partial
         self.table = table
         self.tasks = list(self.table.columns)
         self.n_tasks = len(self.tasks)

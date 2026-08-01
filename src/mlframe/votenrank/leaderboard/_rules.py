@@ -47,7 +47,7 @@ def _partial_table_guard(self, method_name: str) -> None:
     routed away from partial tables via ``elect_all``/``rank_all``'s ``PARTIAL_METHODS`` filter; called
     directly they had no protection of their own.
     """
-    if self.is_partial:
+    if self.is_partial and not getattr(self, "allow_partial", False):
         raise ValueError(f"{method_name}: table is partial (contains NaN); this method has no NaN-fill strategy. Use a complete table or a method in PARTIAL_METHODS.")
 
 

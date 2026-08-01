@@ -872,12 +872,16 @@ def get_actual_features_ranking(feature_importances: dict, votes_aggregation_met
         return []
     table = pd.DataFrame(feature_importances)
     table = _impute_ragged_fi_table(table, policy=fi_missing_policy)
+    # "skip" deliberately hands the raw, still-partial table to Leaderboard (see
+    # _impute_ragged_fi_table's own docstring: a back-compat A/B path reproducing the pre-fix
+    # pandas skipna=True bias) -- bypass the F6 partial-table guard ONLY for this intentional case.
+    _allow_partial = fi_missing_policy == "skip"
     # F8: forward run_weights into Leaderboard. Leaderboard normalises by sum
     # so we just pass the float weights; the rule code multiplies per-column.
     if run_weights:
-        lb = Leaderboard(table=table, weights=dict(run_weights))
+        lb = Leaderboard(table=table, weights=dict(run_weights), allow_partial=_allow_partial)
     else:
-        lb = Leaderboard(table=table)
+        lb = Leaderboard(table=table, allow_partial=_allow_partial)
     if votes_aggregation_method == VotesAggregation.Borda:
         ranks = lb.borda_ranking()
     elif votes_aggregation_method == VotesAggregation.AM:
