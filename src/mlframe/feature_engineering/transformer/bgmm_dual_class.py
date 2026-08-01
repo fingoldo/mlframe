@@ -26,12 +26,12 @@ from __future__ import annotations
 
 import logging
 import warnings
-from typing import Any, Literal, Optional, Tuple
+from typing import Any, Literal, Optional
 
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input, kth_nearest_dists
+from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, class_or_quantile_slice
 
 logger = logging.getLogger(__name__)
 
@@ -93,15 +93,6 @@ def compute_bgmm_dual_class_features(
     X_train_f = np.asarray(X_train, dtype=np.float32)
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
-    def _slice(X_sub: np.ndarray, y_sub: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Split rows into (positive-class, negative-class) subsets: binary threshold at 0.5, regression via ``q_high``/``1-q_high`` quantile tails."""
-        if task == "binary":
-            pos = y_sub > 0.5
-            return X_sub[pos], X_sub[~pos]
-        y_hi = np.quantile(y_sub, q_high)
-        y_lo = np.quantile(y_sub, 1.0 - q_high)
-        return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
-
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
         """Fit dual-class BGMs on the train slice, sample pos/neg virtuals, and assemble the 20-column (5 groups x 4 k-scales) feature block for the query rows."""
         if standardize:
@@ -112,7 +103,7 @@ def compute_bgmm_dual_class_features(
         else:
             Xt_s = Xt
             Xq_s = Xq
-        Xt_pos, Xt_neg = _slice(Xt_s, y_t)
+        Xt_pos, Xt_neg = class_or_quantile_slice(Xt_s, y_t, task, q_high)
         if Xt_pos.shape[0] < 2 or Xt_neg.shape[0] < 2:
             return np.zeros((Xq_s.shape[0], 5 * len(_K_SCALES)), dtype=np.float32)
         k_pos = max(2, min(n_components_pos, Xt_pos.shape[0] // 3))

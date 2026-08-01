@@ -38,7 +38,7 @@ from typing import Any, Literal, Optional, Tuple
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input
+from ._utils import require_seed, validate_numeric_input, class_or_quantile_slice
 
 logger = logging.getLogger(__name__)
 
@@ -96,15 +96,6 @@ def compute_bgmm_density_ratio_features(
     X_train_f = np.asarray(X_train, dtype=np.float32)
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
-    def _slice(X_sub: np.ndarray, y_sub: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Split rows into a (positive, negative) pair: binary uses the label threshold; regression uses the top/bottom ``q_high``/``1 - q_high`` quantile tails as the pseudo-positive/negative classes."""
-        if task == "binary":
-            pos = y_sub > 0.5
-            return X_sub[pos], X_sub[~pos]
-        y_hi = np.quantile(y_sub, q_high)
-        y_lo = np.quantile(y_sub, 1.0 - q_high)
-        return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
-
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
         """For each component-count scale, fit a Bayesian GMM on the positive class and one on the negative class, then emit each query row's log-density under both plus their log-ratio; returns all-zero features when either class has fewer than 2 train rows. Deliberately serial across scales (see the rejected-parallelization note above) since sklearn's EM fit is not thread-count-invariant."""
         if standardize:
@@ -115,7 +106,7 @@ def compute_bgmm_density_ratio_features(
         else:
             Xt_s = Xt
             Xq_s = Xq
-        Xt_pos, Xt_neg = _slice(Xt_s, y_t)
+        Xt_pos, Xt_neg = class_or_quantile_slice(Xt_s, y_t, task, q_high)
         n_q = Xq_s.shape[0]
         all_feats = np.zeros((n_q, len(component_counts) * 3), dtype=np.float32)
         if Xt_pos.shape[0] < 2 or Xt_neg.shape[0] < 2:

@@ -301,6 +301,22 @@ def kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int, k_s
     return out
 
 
+def class_or_quantile_slice(X_sub: np.ndarray, y_sub: np.ndarray, task: str, q_high: float) -> tuple:
+    """Split rows into (positive-cloud, negative-cloud) subsets: class masks for binary
+    (``y > 0.5``), ``q_high``/``1-q_high`` quantile tails for regression.
+
+    Shared across the transformer/ SMOTE-virtual family -- was independently duplicated as a
+    closure over ``task``/``q_high`` in each module; consolidated here with both promoted to
+    explicit parameters.
+    """
+    if task == "binary":
+        pos = y_sub > 0.5
+        return X_sub[pos], X_sub[~pos]
+    y_hi = np.quantile(y_sub, q_high)
+    y_lo = np.quantile(y_sub, 1.0 - q_high)
+    return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
+
+
 def require_seed(seed: object) -> int:
     """Validate that ``seed`` is a literal Python int and not ``None`` or derived-from-data.
 
