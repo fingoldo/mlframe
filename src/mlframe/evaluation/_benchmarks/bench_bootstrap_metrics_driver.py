@@ -17,12 +17,14 @@ from statistics import median
 
 import numpy as np
 
-from mlframe.evaluation.bootstrap import bootstrap_metrics, _jackknife_auc
-from mlframe.metrics.core import (
-    fast_brier_score_loss as _fast_brier,
-    fast_log_loss as _fast_ll,
-    make_bootstrap_auc_resampler,
+from mlframe.evaluation._bootstrap_metric_adapters import (
+    brier as _brier,
+    log_loss as _ll,
+    ll_per_row as _ll_per_row,
+    brier_per_row as _brier_per_row,
 )
+from mlframe.evaluation.bootstrap import bootstrap_metrics, _jackknife_auc
+from mlframe.metrics.core import make_bootstrap_auc_resampler
 
 
 def build_inputs(n: int, seed: int = 0):
@@ -36,21 +38,6 @@ def build_inputs(n: int, seed: int = 0):
 
 
 def build_kwargs(y_true, y_f64, p_f64):
-    def _brier(yy, pp):
-        return float(_fast_brier(yy, pp))
-
-    def _ll(yy, pp):
-        return float(_fast_ll(yy, pp))
-
-    def _ll_per_row(yy, pp):
-        _eps = np.finfo(np.asarray(pp).dtype).eps
-        _pc = np.clip(pp, _eps, 1.0 - _eps)
-        return np.where(np.asarray(yy) == 1, -np.log(_pc), -np.log(1.0 - _pc))
-
-    def _brier_per_row(yy, pp):
-        _d = np.asarray(pp, dtype=np.float64) - np.asarray(yy, dtype=np.float64)
-        return _d * _d
-
     metric_fns = {"brier": _brier, "log_loss": _ll}
     per_row_fns = {"log_loss": (_ll_per_row, True, None), "brier": (_brier_per_row, False, None)}
     jackknife_fns = {"roc_auc": lambda yy, ss: _jackknife_auc(yy, ss)}

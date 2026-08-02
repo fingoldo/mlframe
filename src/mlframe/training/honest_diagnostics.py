@@ -114,9 +114,13 @@ def _bootstrap_block(
             # identical when scores are float64 continuous (the dominant
             # case from real ML model outputs); see kernel docstring for
             # the rationale and when to use the stable variant instead.
+            from mlframe.evaluation._bootstrap_metric_adapters import (
+                brier as _brier,
+                log_loss as _ll,
+                ll_per_row as _ll_per_row,
+                brier_per_row as _brier_per_row,
+            )
             from mlframe.metrics.core import (
-                fast_brier_score_loss as _fast_brier,
-                fast_log_loss as _fast_ll,
                 make_bootstrap_auc_resampler,
             )
 
@@ -145,14 +149,6 @@ def _bootstrap_block(
             # With the pre-cast the kernels receive float64 directly: bit-
             # identical (same values), and the dispatcher hits the same
             # (float64,float64) fast path the prior code wanted.
-            def _brier(yy, pp):
-                """Bootstrap-resample Brier score via the numba-fast kernel (see the surrounding perf note)."""
-                return float(_fast_brier(yy, pp))
-
-            def _ll(yy, pp):
-                """Bootstrap-resample log-loss via the numba-fast kernel (see the surrounding perf note)."""
-                return float(_fast_ll(yy, pp))
-
             metric_fns["brier"] = _brier
             metric_fns["log_loss"] = _ll
 
@@ -161,17 +157,6 @@ def _bootstrap_block(
             # leave-out point -- ~11s -> ~20ms per metric at n=300k, ~1e-13 CI-equivalent. eps matches fast_log_loss's
             # dtype-eps clip so the per-row cross-entropy equals the kernel's; requires_both_classes=True mirrors
             # log-loss's single-class NaN (Brier is defined on any set).
-            def _ll_per_row(yy, pp):
-                """Per-row cross-entropy contribution, used by the BCa jackknife's O(n) exact-algebraic leave-one-out formula for log-loss."""
-                _eps = np.finfo(np.asarray(pp).dtype).eps
-                _pc = np.clip(pp, _eps, 1.0 - _eps)
-                return np.where(np.asarray(yy) == 1, -np.log(_pc), -np.log(1.0 - _pc))
-
-            def _brier_per_row(yy, pp):
-                """Per-row squared-error contribution, used by the BCa jackknife's O(n) exact-algebraic leave-one-out formula for Brier score."""
-                _d = np.asarray(pp, dtype=np.float64) - np.asarray(yy, dtype=np.float64)
-                return _d * _d
-
             _per_row_fns = {"log_loss": (_ll_per_row, True, None), "brier": (_brier_per_row, False, None)}
 
             # ROC-AUC is not a mean of per-row values, but its BCa jackknife has an exact O(n log n) closed form via
