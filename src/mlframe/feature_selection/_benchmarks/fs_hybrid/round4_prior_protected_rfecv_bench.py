@@ -26,7 +26,7 @@ from __future__ import annotations
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
-import numpy as np, pandas as pd
+import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
@@ -34,11 +34,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hard_synth import make_hard_dataset
 from synth import make_dataset
 import fs_selectors as S
+from _downstream_shared import make_ckpt_writer
 
 CK = "D:/Temp/queue_ideas_progress.txt"
-def ck(m):
-    with open(CK, "a") as f:
-        f.write(m + "\n")
+ck = make_ckpt_writer(CK)
 
 
 def downstream(Xtr, Xte, ytr, yte, sel):

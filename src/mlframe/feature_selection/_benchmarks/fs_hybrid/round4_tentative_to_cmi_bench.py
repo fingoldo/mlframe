@@ -35,13 +35,11 @@ from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hard_synth import make_hard_dataset
-from synth import make_dataset
 import fs_selectors as S
+from _downstream_shared import make_ckpt_writer
 
 CK = "D:/Temp/queue_ideas_progress.txt"
-def ck(m):
-    with open(CK, "a") as f:
-        f.write(m + "\n")
+ck = make_ckpt_writer(CK)
 
 
 def _qbin(col, nbins=8):

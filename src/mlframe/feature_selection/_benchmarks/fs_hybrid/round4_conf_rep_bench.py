@@ -27,18 +27,15 @@ import warnings; warnings.filterwarnings("ignore")
 import numpy as np, pandas as pd
 from collections import defaultdict
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_auc_score
-import lightgbm as lgb
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from round3_realdata_bench import downstream
 from synth import make_dataset
 from hard_synth import make_hard_dataset
 from hybrid_selector import HybridSelector
+from _downstream_shared import make_ckpt_writer
 
 CK = "D:/Temp/queue_ideas_progress.txt"
-def ck(m):
-    with open(CK, "a") as f:
-        f.write(m + "\n")
+ck = make_ckpt_writer(CK)
 
 
 class ConfRepHybrid(HybridSelector):

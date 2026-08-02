@@ -36,6 +36,7 @@ from sklearn.ensemble import RandomForestClassifier
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from synth import make_dataset
 from hard_synth import make_hard_dataset
+from _downstream_shared import make_ckpt_writer
 
 try:
     from scipy.stats import binomtest as _binomtest
@@ -47,9 +48,7 @@ except ImportError:
         return _bt(int(x), n=int(n), p=p, alternative=alt)
 
 CK = "D:/Temp/queue_ideas_progress.txt"
-def ck(m):
-    with open(CK, "a") as f:
-        f.write(m + "\n")
+ck = make_ckpt_writer(CK)
 
 
 def replay_decisions(history_hits, n_cols, pvalue=0.05):

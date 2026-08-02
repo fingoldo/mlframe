@@ -33,6 +33,16 @@ def downstream_on_matrix(Ztr, Zte, ytr, yte):
     return {k: round(float(v), 4) for k, v in o.items()}
 
 
+def make_ckpt_writer(path):
+    """Build a ``ck(m)`` checkpoint-line appender: each call opens ``path`` in append mode and writes one line."""
+
+    def ck(m):
+        with open(path, "a") as f:
+            f.write(m + "\n")
+
+    return ck
+
+
 def mrmr_sel_transform(self, X):
     """Shared ``_Sel.transform`` body for the fs_hybrid MRMR-wrapper adapters: rename the fitted MRMR's
     output columns to the ``fit``-time-computed ``self.ren_`` mapping (raw cols kept, engineered cols
