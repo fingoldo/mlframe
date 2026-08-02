@@ -21,12 +21,14 @@ Cost: SMOTE on (k-NN search over minority) is O(n_pos * d * log n_pos). For mamm
 """
 from __future__ import annotations
 
+import functools
 import logging
 from typing import Any, Literal, Optional
 
 import numpy as np
 import polars as pl
 
+from ._baseline_disagreement_shared import disagreement_feats_to_cols
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
@@ -145,18 +147,7 @@ def compute_baseline_disagreement_smote_features(
         lgb_vs_linear = ((p1 + p2) / 2.0) - p3
         return np.column_stack([p1, p2, p3, mean, std, rng, lgb_diff, lgb_vs_linear])
 
-    def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
-        """Map the fixed 8-column layout of ``feats`` (3 baseline predictions + 5 disagreement stats) to their ``{column_prefix}_*`` output names."""
-        cols: dict[str, np.ndarray] = {}
-        cols[f"{column_prefix}_p_lgbd3"] = feats[:, 0].astype(dtype, copy=False)
-        cols[f"{column_prefix}_p_lgbd5"] = feats[:, 1].astype(dtype, copy=False)
-        cols[f"{column_prefix}_p_linear"] = feats[:, 2].astype(dtype, copy=False)
-        cols[f"{column_prefix}_mean"] = feats[:, 3].astype(dtype, copy=False)
-        cols[f"{column_prefix}_std"] = feats[:, 4].astype(dtype, copy=False)
-        cols[f"{column_prefix}_range"] = feats[:, 5].astype(dtype, copy=False)
-        cols[f"{column_prefix}_depth_diff"] = feats[:, 6].astype(dtype, copy=False)
-        cols[f"{column_prefix}_lgb_vs_linear"] = feats[:, 7].astype(dtype, copy=False)
-        return cols
+    _make_df = functools.partial(disagreement_feats_to_cols, column_prefix=column_prefix, dtype=dtype)
 
     n_features = 8
 
