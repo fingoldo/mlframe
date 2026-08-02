@@ -57,6 +57,7 @@ from sklearn.ensemble import ExtraTreesRegressor, RandomForestRegressor
 
 from .estimator import CompositeTargetEstimator
 from .transforms import get_transform
+from ._composite_utils import sklearn_set_params
 
 try:
     import numba
@@ -254,11 +255,7 @@ class _LeafResidualForest:
             "random_state": self.random_state,
         }
 
-    def set_params(self, **params: Any) -> "_LeafResidualForest":
-        """sklearn-compatible bulk attribute setter (used by ``clone`` / grid-search)."""
-        for k, v in params.items():
-            setattr(self, k, v)
-        return self
+    set_params = sklearn_set_params
 
     def fit(self, X: Any, y: Any, sample_weight: np.ndarray | None = None, **kw: Any) -> "_LeafResidualForest":
         """Fit the underlying forest on ``T`` and cache per-tree leaf memberships + the packed inverse-leaf-size table

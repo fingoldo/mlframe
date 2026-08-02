@@ -34,3 +34,10 @@ def is_polars_df_logged(x: Any) -> bool:
     except Exception as exc:
         logger.debug("is_polars_df_logged: polars unavailable or isinstance check failed: %s", exc)
         return False
+
+
+def sklearn_set_params(self: Any, **params: Any) -> Any:
+    """sklearn-compatible bulk attribute setter (used by ``clone`` / grid-search); bind as ``ClassName.set_params = sklearn_set_params``."""
+    for k, v in params.items():
+        setattr(self, k, v)
+    return self

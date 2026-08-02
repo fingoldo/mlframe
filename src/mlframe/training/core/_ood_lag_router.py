@@ -19,6 +19,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from ._lag_router_shared import rmse_min50 as _rmse
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,15 +47,6 @@ class OODLagRouter:
 
     def __repr__(self) -> str:  # pragma: no cover - cosmetic
         return f"OODLagRouter(lo={self.lo:.4g}, hi={self.hi:.4g})"
-
-
-def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """RMSE over the finite-paired subset; returns NaN below 50 usable pairs so routing decisions never trust a noisy few-sample estimate."""
-    f = np.isfinite(y_true) & np.isfinite(y_pred)
-    if int(f.sum()) < 50:
-        return float("nan")
-    d = y_true[f] - y_pred[f]
-    return float(np.sqrt(np.mean(d * d)))
 
 
 def build_ood_lag_router(

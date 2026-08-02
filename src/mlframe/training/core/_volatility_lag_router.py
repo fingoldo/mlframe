@@ -24,6 +24,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from ._lag_router_shared import rmse_min50 as _rmse
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,15 +69,6 @@ def _extract_column(X: Any, name: str) -> Optional[np.ndarray]:
         logger.debug("_extract_column: %r extraction failed: %s", name, exc)
         return None
     return None
-
-
-def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """RMSE over the finite-valued rows of both arrays; returns NaN when fewer than 50 finite pairs remain, since an RMSE from a tiny sample is not a reliable routing signal."""
-    f = np.isfinite(y_true) & np.isfinite(y_pred)
-    if int(f.sum()) < 50:
-        return float("nan")
-    d = y_true[f] - y_pred[f]
-    return float(np.sqrt(np.mean(d * d)))
 
 
 class VolatilityLagRouter:

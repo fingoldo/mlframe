@@ -51,6 +51,7 @@ from sklearn.metrics import log_loss
 from sklearn.model_selection import StratifiedKFold, train_test_split
 
 from .classification import CompositeClassificationEstimator
+from ._composite_utils import sklearn_set_params
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -361,11 +362,7 @@ class _UnivariateColumnMargin:
         """Return the constructor parameters, for sklearn clone/grid-search compatibility."""
         return {"lr": self.lr, "column": self.column}
 
-    def set_params(self, **params: Any) -> "_UnivariateColumnMargin":
-        """Set constructor parameters in place, for sklearn clone/grid-search compatibility."""
-        for k, v in params.items():
-            setattr(self, k, v)
-        return self
+    set_params = sklearn_set_params
 
     def _col(self, X: Any) -> np.ndarray:
         """Extract and impute this adapter's single named column from ``X``."""
