@@ -16,8 +16,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from mlframe.feature_engineering.transformer._utils import softmax as _softmax_with_temp
 from mlframe.feature_engineering.transformer.inducing_attention import (
-    _softmax_with_temp,
     _squared_dists,
     _stage_a_anchor_to_train,
 )

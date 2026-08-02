@@ -43,7 +43,7 @@ from typing import Any, Literal, Optional, Tuple
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input
+from ._utils import require_seed, validate_numeric_input, softmax
 
 logger = logging.getLogger(__name__)
 
@@ -57,14 +57,6 @@ def _fit_anchors_kmeans(X: np.ndarray, M: int, seed: int) -> np.ndarray:
         km = KMeans(n_clusters=M_eff, random_state=seed, n_init=5, max_iter=100)
         km.fit(X)
     return np.asarray(km.cluster_centers_.astype(np.float32, copy=False))
-
-
-def _softmax_with_temp(scores: np.ndarray, temp: float) -> np.ndarray:
-    """Numerically-stable softmax along last axis with temperature."""
-    scaled = scores / max(temp, 1e-9)
-    scaled = scaled - scaled.max(axis=-1, keepdims=True)
-    e = np.exp(scaled)
-    return np.asarray(e / e.sum(axis=-1, keepdims=True))
 
 
 def _squared_dists(A: np.ndarray, B: np.ndarray) -> np.ndarray:
@@ -92,7 +84,7 @@ def _stage_a_anchor_to_train(
     # Use negative squared distance (standardised) so closer train rows get higher score.
     sq = _squared_dists(anchors, X_train)  # (M, N)
     scores = -sq  # closer → higher score
-    weights = _softmax_with_temp(scores, temp=temp)  # (M, N) — softmax over N for each anchor
+    weights = softmax(scores, temp=temp)  # (M, N) — softmax over N for each anchor
     # Anchor's pooled y_mean and y_std.
     y_mean_m = (weights * y_train[None, :]).sum(axis=-1).astype(np.float32)  # (M,)
     y_var_m = ((weights * (y_train[None, :] - y_mean_m[:, None]) ** 2).sum(axis=-1)).astype(np.float32)
@@ -108,7 +100,7 @@ def _stage_b_query_to_anchor(
     """Stage B: query→anchor softmax. Returns weights of shape (n_query, M)."""
     sq = _squared_dists(queries, anchors)  # (n_q, M)
     scores = -sq
-    return _softmax_with_temp(scores, temp=temp)  # (n_q, M)
+    return softmax(scores, temp=temp)  # (n_q, M)
 
 
 def compute_inducing_attention_features(

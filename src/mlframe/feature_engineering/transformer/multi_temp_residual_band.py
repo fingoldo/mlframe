@@ -27,19 +27,11 @@ from typing import Any, Literal, Optional, Sequence
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input
+from ._utils import require_seed, validate_numeric_input, softmax
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TEMPS: tuple[float, ...] = (0.3, 1.0, 3.0)
-
-
-def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
-    """Numerically-stable temperature-scaled softmax over the last axis (max-subtraction before ``exp``); ``temp`` controls how sharply the output concentrates on the highest-scoring band."""
-    scaled = scores / max(temp, 1e-9)
-    scaled = scaled - scaled.max(axis=-1, keepdims=True)
-    e = np.exp(scaled)
-    return np.asarray(e / e.sum(axis=-1, keepdims=True))
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
@@ -143,7 +135,7 @@ def compute_multi_temp_residual_band_features(
         n_q = Xq_s.shape[0]
         out_blocks = np.zeros((n_q, n_temps * features_per_temp), dtype=np.float32)
         for ti, t in enumerate(temps_list):
-            weights = _softmax(scores, temp=t)
+            weights = softmax(scores, temp=t)
             entropy = -np.sum(weights * np.log(weights + 1e-9), axis=-1).astype(np.float32)
             agg_y_mean = (weights * band_y_mean[None, :]).sum(axis=-1).astype(np.float32)
             agg_y_std = (weights * band_y_std[None, :]).sum(axis=-1).astype(np.float32)

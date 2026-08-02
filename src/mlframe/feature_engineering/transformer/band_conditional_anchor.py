@@ -34,17 +34,9 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input
+from ._utils import require_seed, validate_numeric_input, softmax
 
 logger = logging.getLogger(__name__)
-
-
-def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
-    """Temperature-scaled, numerically stable softmax over the last axis (subtracts the row max before exponentiating)."""
-    scaled = scores / max(temp, 1e-9)
-    scaled = scaled - scaled.max(axis=-1, keepdims=True)
-    e = np.exp(scaled)
-    return np.asarray(e / e.sum(axis=-1, keepdims=True))
 
 
 def compute_band_conditional_anchor_features(
@@ -151,7 +143,7 @@ def compute_band_conditional_anchor_features(
         if band_empty.any():
             scores = scores.copy()
             scores[:, band_empty[anchor_parent_band]] = -np.inf
-        weights = _softmax(scores, temp=temp)  # (n_q, n_anchors_total)
+        weights = softmax(scores, temp=temp)  # (n_q, n_anchors_total)
         entropy = -np.sum(weights * np.log(weights + 1e-9), axis=-1).astype(np.float32)
 
         anchor_y_mean = band_y_mean[anchor_parent_band]  # (n_anchors_total,)

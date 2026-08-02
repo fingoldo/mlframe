@@ -33,17 +33,9 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input
+from ._utils import require_seed, validate_numeric_input, softmax
 
 logger = logging.getLogger(__name__)
-
-
-def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
-    """Temperature-scaled softmax over the last axis, max-subtracted for numerical stability; ``temp`` is floored at 1e-9 to avoid a division blow-up."""
-    scaled = scores / max(temp, 1e-9)
-    scaled = scaled - scaled.max(axis=-1, keepdims=True)
-    e = np.exp(scaled)
-    return np.asarray(e / e.sum(axis=-1, keepdims=True))
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
@@ -145,7 +137,7 @@ def compute_signed_residual_band_features(
         diffs = Xq_s[:, None, :] - band_centroids[None, :, :]
         sq = (diffs**2).sum(axis=-1)
         scores = -sq
-        weights = _softmax(scores, temp=temp)
+        weights = softmax(scores, temp=temp)
         entropy = -np.sum(weights * np.log(weights + 1e-9), axis=-1).astype(np.float32)
         agg_y_mean = (weights * band_y_mean[None, :]).sum(axis=-1).astype(np.float32)
         agg_y_std = (weights * band_y_std[None, :]).sum(axis=-1).astype(np.float32)

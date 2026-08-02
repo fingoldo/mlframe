@@ -333,6 +333,19 @@ def class_or_quantile_slice(X_sub: np.ndarray, y_sub: np.ndarray, task: str, q_h
     return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
 
 
+def softmax(scores: np.ndarray, temp: float) -> np.ndarray:
+    """Temperature-scaled, numerically stable softmax over the last axis (subtracts the row max before exponentiating).
+
+    Shared across the transformer/ band/attention family (band_conditional_anchor, bidir_residual_band,
+    class_balanced_hard_row, ...) -- was independently duplicated in each module; consolidated here so a
+    fix to the softmax stabilization logic can't silently drift out of sync across copies.
+    """
+    scaled = scores / max(temp, 1e-9)
+    scaled = scaled - scaled.max(axis=-1, keepdims=True)
+    e = np.exp(scaled)
+    return np.asarray(e / e.sum(axis=-1, keepdims=True))
+
+
 def require_seed(seed: object) -> int:
     """Validate that ``seed`` is a literal Python int and not ``None`` or derived-from-data.
 

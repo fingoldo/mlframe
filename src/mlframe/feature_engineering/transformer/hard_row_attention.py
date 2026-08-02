@@ -34,21 +34,9 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
-from ._utils import require_seed, validate_numeric_input
+from ._utils import require_seed, validate_numeric_input, softmax
 
 logger = logging.getLogger(__name__)
-
-
-def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
-    """Temperature-scaled softmax over the last axis, numerically stabilized by subtracting the row-wise max before exponentiating.
-
-    ``temp`` is floored at 1e-9 so a caller-supplied ``temp=0`` cannot divide by zero; a very small temp approaches
-    a hard argmax over the anchors, while a large temp flattens the distribution toward uniform weights.
-    """
-    scaled = scores / max(temp, 1e-9)
-    scaled = scaled - scaled.max(axis=-1, keepdims=True)
-    e = np.exp(scaled)
-    return np.asarray(e / e.sum(axis=-1, keepdims=True))
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
@@ -142,7 +130,7 @@ def compute_hard_row_attention_features(
         diffs = Xq_s[:, None, :] - anchors_X[None, :, :]  # (n_q, n_hard, d)
         sq = (diffs**2).sum(axis=-1)
         scores = -sq
-        weights = _softmax(scores, temp=temp)  # (n_q, n_hard)
+        weights = softmax(scores, temp=temp)  # (n_q, n_hard)
         entropy = -np.sum(weights * np.log(weights + 1e-9), axis=-1).astype(np.float32)
         agg_y = (weights * anchors_y[None, :]).sum(axis=-1).astype(np.float32)
         agg_abs_resid = (weights * anchors_abs_resid[None, :]).sum(axis=-1).astype(np.float32)
