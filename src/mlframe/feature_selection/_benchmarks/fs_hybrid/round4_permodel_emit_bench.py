@@ -186,17 +186,9 @@ class PerModelHybrid(HybridSelector):
         return list(self.raw_selected_)
 
     # -------- KNN family (most noise/redundancy sensitive; wants the tightest clean de-collinearized set)
-    def set_knn_consensus_clean(self):
-        """Tightest clean set: consensus clusters only (>=2 votes), 1 highest-FI rep each, engineered included."""
-        cols = list(self._Xaug_.columns)
-        eng = self._engineered_cols()
-        vc = self._vote_count()
-        out = [self._top_fi_rep(r, cols) for r, n in vc.items() if n >= 2]
-        out = [c for c in out if c is not None]
-        out += [c for c in eng if c in cols]
-        if len(out) < 2:
-            out = list(self.raw_selected_)
-        return [c for c in dict.fromkeys(out) if c in cols]
+    # Identical selection logic to set_linear_consensus_eng today (both want consensus-only + engineered);
+    # kept as a distinct name because the two families are conceptually separate call sites that may diverge.
+    set_knn_consensus_clean = set_linear_consensus_eng
 
 
 def run_bed(name, X, y, seed):
