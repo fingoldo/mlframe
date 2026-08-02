@@ -9,16 +9,12 @@ from __future__ import annotations
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
-import numpy as np, pandas as pd
+import pandas as pd
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import make_pipeline
-from sklearn.linear_model import LogisticRegression
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from synth import make_dataset
+from _downstream_shared import lgb_logit_knn_mean_auc as auc
 from mlframe.feature_selection.wrappers import RFECV, FIConfig, SearchConfig
 
 SEEDS = [0, 1, 2]
@@ -31,16 +27,6 @@ def fit_rfecv(X, y, cv):
               search_config=SearchConfig(max_refits=14, max_runtime_mins=2), random_state=0)
     r.fit(X, y)
     return [c for c in r.get_feature_names_out() if c in X.columns]
-
-
-def auc(Xtr, Xte, ytr, yte, cols):
-    if not cols:
-        return float("nan")
-    a = [roc_auc_score(yte, mk().fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1]) for mk in
-         (lambda: lgb.LGBMClassifier(n_estimators=300, verbose=-1),
-          lambda: make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)),
-          lambda: make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)))]
-    return round(float(np.mean(a)), 4)
 
 
 def jacc(a, b):

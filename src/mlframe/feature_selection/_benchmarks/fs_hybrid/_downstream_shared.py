@@ -6,11 +6,29 @@ drift out of sync across copies. Each benchmark script stays independently runna
 from __future__ import annotations
 
 import lightgbm as lgb
+import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+
+
+def lgb_logit_knn_mean_auc(Xtr, Xte, ytr, yte, cols) -> float:
+    """Mean held-out AUC across LGBM (300 trees) / StandardScaler+LogisticRegression /
+    StandardScaler+kNN(25) on the ``cols`` subset -- the round2 RFECV bench pair's shared downstream metric.
+    NaN if ``cols`` is empty."""
+    if not cols:
+        return float("nan")
+    a = [
+        roc_auc_score(yte, mk().fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])
+        for mk in (
+            lambda: lgb.LGBMClassifier(n_estimators=300, verbose=-1),
+            lambda: make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)),
+            lambda: make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)),
+        )
+    ]
+    return round(float(np.mean(a)), 4)
 
 
 def boruta_single(X, y):
