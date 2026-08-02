@@ -11,6 +11,8 @@ from __future__ import annotations
 import time
 import numpy as np
 
+from mlframe.feature_engineering.transformer.density_ratio import _gaussian_kde_log as _kde_gemm
+
 
 def _kde_broadcast(X_query, X_train_subset, h, chunk=1000):
     n_q = X_query.shape[0]
@@ -24,28 +26,6 @@ def _kde_broadcast(X_query, X_train_subset, h, chunk=1000):
         end = min(start + chunk, n_q)
         Xq = X_query[start:end]
         d2 = ((Xq[:, None, :] - X_train_subset[None, :, :]) ** 2).sum(axis=2)
-        logits = -d2 / (2.0 * h_sq)
-        m = logits.max(axis=1, keepdims=True)
-        lse = m.ravel() + np.log(np.exp(logits - m).sum(axis=1) + 1e-30)
-        out[start:end] = (lse - log_N).astype(np.float32)
-    return out
-
-
-def _kde_gemm(X_query, X_train_subset, h, chunk=1000):
-    n_q = X_query.shape[0]
-    n_t = X_train_subset.shape[0]
-    if n_t < 1:
-        return np.full(n_q, -30.0, dtype=np.float32)
-    out = np.zeros(n_q, dtype=np.float32)
-    h_sq = max(h * h, 1e-9)
-    log_N = np.log(n_t)
-    t_sq = np.einsum("ij,ij->i", X_train_subset, X_train_subset)  # |y|^2, (n_t,)
-    for start in range(0, n_q, chunk):
-        end = min(start + chunk, n_q)
-        Xq = X_query[start:end]
-        q_sq = np.einsum("ij,ij->i", Xq, Xq)  # |x|^2, (chunk,)
-        d2 = q_sq[:, None] + t_sq[None, :] - 2.0 * (Xq @ X_train_subset.T)
-        np.maximum(d2, 0.0, out=d2)  # guard tiny negatives from cancellation
         logits = -d2 / (2.0 * h_sq)
         m = logits.max(axis=1, keepdims=True)
         lse = m.ravel() + np.log(np.exp(logits - m).sum(axis=1) + 1e-30)
