@@ -1,42 +1,16 @@
 import sys; sys.modules['cupy'] = None  # type: ignore[assignment]
 import time, numpy as np
 from typing import Callable
-from numba import njit, prange
 
-@njit(cache=True, nogil=True, fastmath=True)
-def ad_serial(sorted_pit: np.ndarray, n: int) -> float:
-    eps=1e-12; acc=0.0
-    for k in range(n):
-        a=sorted_pit[k]
-        if a<eps: a=eps
-        elif a>1.0-eps: a=1.0-eps
-        b=sorted_pit[n-1-k]
-        if b<eps: b=eps
-        elif b>1.0-eps: b=1.0-eps
-        acc += (2*(k+1)-1)*(np.log(a)+np.log(1.0-b))
-    return -n - (1.0/n)*acc
+from mlframe.calibration.quality import _anderson_darling_kernel as ad_serial, _anderson_darling_kernel_parallel as ad_par
 
-@njit(cache=True, nogil=True, fastmath=True, parallel=True)
-def ad_par(sorted_pit: np.ndarray, n: int) -> float:
-    eps=1e-12; acc=0.0
-    for k in prange(n):
-        a=sorted_pit[k]
-        if a<eps: a=eps
-        elif a>1.0-eps: a=1.0-eps
-        b=sorted_pit[n-1-k]
-        if b<eps: b=eps
-        elif b>1.0-eps: b=1.0-eps
-        acc += (2*(k+1)-1)*(np.log(a)+np.log(1.0-b))
-    return -n - (1.0/n)*acc
-
-n=10_000_000
+n = 10_000_000
 if __name__ == "__main__":
     rng=np.random.default_rng(0)
     pit=np.sort(rng.random(n))
     ad_serial(pit,n); ad_par(pit,n)
-    import math
     def best(f: "Callable[[np.ndarray, int], float]", r: int = 7) -> "tuple[float, float]":
-        ts=[]
+        ts = []
         for _ in range(r):
             t=time.perf_counter(); v=f(pit,n); ts.append(time.perf_counter()-t)
         return min(ts), v

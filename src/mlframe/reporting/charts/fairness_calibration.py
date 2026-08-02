@@ -20,7 +20,7 @@ from typing import Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
-from mlframe.reporting.charts.calibration import standard_ece
+from mlframe.reporting.charts._calibration_chart_shared import is_single_class, reliability_points
 from mlframe.reporting.spec import AnnotationPanelSpec, BarPanelSpec, FigureSpec, LinePanelSpec, PanelSpec
 
 # Below this many finite rows OR with a single class present a group's reliability curve / ECE is meaningless noise;
@@ -37,28 +37,8 @@ _GROUP_COLORS: Tuple[str, ...] = (
 _OTHER_LABEL: str = "other"
 
 
-def _is_single_class(y_true: np.ndarray) -> bool:
-    """True iff the binary labels are all-0 or all-1 -- a reliability curve needs both classes. O(n), no sort/unique."""
-    s = float(y_true.sum())
-    return s == 0.0 or s == float(y_true.size)
-
-
-def _reliability_points(y_true: np.ndarray, y_score: np.ndarray, n_bins: int):
-    """Per-bin (mean-pred, observed-freq, population) + standard ECE for one group, via the shared njit binning.
-
-    Returns ``(freqs_predicted, freqs_true, ece)`` or ``None`` when the group is degenerate (single class /
-    all-equal scores / no populated bin). Reuses ``fast_calibration_binning`` so the binning matches the suite's
-    reliability diagram exactly.
-    """
-    from mlframe.metrics.calibration import fast_calibration_binning
-
-    fp, ft, hits = fast_calibration_binning(y_true, y_score, nbins=n_bins)
-    if fp.size == 0:
-        return None
-    ece = standard_ece(fp, ft, hits)
-    if not np.isfinite(ece):
-        return None
-    return fp, ft, ece
+_is_single_class = is_single_class
+_reliability_points = reliability_points
 
 
 def _gap_traffic_light(gap: float) -> str:
