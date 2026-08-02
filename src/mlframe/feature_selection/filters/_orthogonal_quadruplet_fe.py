@@ -52,7 +52,7 @@ import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
 from .hermite_fe import basis_route_by_moments, _POLY_BASES
-from ._orthogonal_shared import coerce_y_classif
+from ._orthogonal_shared import coerce_y_classif, parse_code_deg_with_basis
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
     _mi_classif_batch, mi_classif_batch_chunked,
@@ -541,16 +541,6 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
         nbins=nbins,
     )
     appended = [c for c in X_aug.columns if c not in X.columns]
-    code_to_basis = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
-
-    def _parse_code_deg(s: str):
-        """Parse a basis-code-plus-degree token (e.g. ``"He3"``) into its ``(basis_name, degree)`` pair."""
-        for code in ("LL", "He", "T", "L"):
-            if s.startswith(code):
-                rest = s[len(code) :]
-                if rest.isdigit():
-                    return code_to_basis[code], int(rest)
-        return None, None
 
     recipes = []
     for name in appended:
@@ -575,10 +565,10 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
                     name,
                 )
                 continue
-            basis_a, deg_a = _parse_code_deg(parts[0])
-            basis_b, deg_b = _parse_code_deg(parts[1])
-            basis_c, deg_c = _parse_code_deg(parts[2])
-            basis_d, deg_d = _parse_code_deg(parts[3])
+            basis_a, deg_a = parse_code_deg_with_basis(parts[0])
+            basis_b, deg_b = parse_code_deg_with_basis(parts[1])
+            basis_c, deg_c = parse_code_deg_with_basis(parts[2])
+            basis_d, deg_d = parse_code_deg_with_basis(parts[3])
             if basis_a is None or basis_b is None or basis_c is None or basis_d is None:
                 log_throttle(
                     logger, "quadruplet_recipe_cannot_parse_code_deg", logging.WARNING,
@@ -627,7 +617,7 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
             # univariate: "{col}__{code}{degree}"
             src = legs[0]
             suffix = name.split("__", 1)[1] if "__" in name else ""
-            chosen_basis, chosen_degree = _parse_code_deg(suffix)
+            chosen_basis, chosen_degree = parse_code_deg_with_basis(suffix)
             if chosen_basis is None or chosen_degree is None:
                 log_throttle(
                     logger, "quadruplet_recipe_cannot_parse_basis_degree", logging.WARNING,

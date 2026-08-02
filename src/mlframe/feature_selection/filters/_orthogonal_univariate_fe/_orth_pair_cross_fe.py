@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from ..hermite_fe import _POLY_BASES, basis_route_by_moments
+from .._orthogonal_shared import parse_code_deg_with_basis
 from ._orth_mi_backends import _mi_classif_batch, mi_classif_batch_chunked
 from mlframe.utils.log_throttle import log_throttle
 
@@ -578,16 +579,8 @@ def hybrid_orth_mi_pair_fe_with_recipes(
                     "suffix %r in %r; skipping recipe.", suffix, name,
                 )
                 continue
-            def _parse_code_deg(s: str):
-                """Split an engineered-name leg like ``He3`` into its (basis, degree) pair; try codes longest-first ("LL" before "L") to avoid mis-splitting the shorter prefix."""
-                for code in ("LL", "He", "T", "L"):
-                    if s.startswith(code):
-                        rest = s[len(code) :]
-                        if rest.isdigit():
-                            return code_to_basis[code], int(rest)
-                return None, None
-            basis_a, deg_a = _parse_code_deg(left)
-            basis_b, deg_b = _parse_code_deg(right)
+            basis_a, deg_a = parse_code_deg_with_basis(left)
+            basis_b, deg_b = parse_code_deg_with_basis(right)
             if basis_a is None or basis_b is None:
                 log_throttle(
                     logger, "pair_cross_recipe_cannot_parse_code_deg", logging.WARNING,

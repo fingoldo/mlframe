@@ -56,6 +56,8 @@ replay path.
 """
 from __future__ import annotations
 
+from ._orthogonal_shared import parse_code_deg_with_basis
+
 import logging
 from itertools import combinations
 from typing import Optional, Sequence
@@ -643,16 +645,6 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
         nbins=nbins,
     )
     appended = [c for c in X_aug.columns if c not in X.columns]
-    code_to_basis = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
-
-    def _parse_code_deg(s: str):
-        """Parse a leg-name suffix like 'He3' or 'LL2' back into (basis_name, degree); returns (None, None) if unrecognized."""
-        for code in ("LL", "He", "T", "L"):
-            if s.startswith(code):
-                rest = s[len(code) :]
-                if rest.isdigit():
-                    return code_to_basis[code], int(rest)
-        return None, None
 
     _basis_per_col: dict[str, str] = getattr(adaptive_scores, "attrs", {}).get("basis_per_col") or {}
 
@@ -704,7 +696,7 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
         suffix = name.split("__", 1)[1] if "__" in name else ""
         parts = suffix.split("_")
         if arity == 1:
-            chosen_basis, chosen_degree = _parse_code_deg(parts[0]) if parts else (None, None)
+            chosen_basis, chosen_degree = parse_code_deg_with_basis(parts[0]) if parts else (None, None)
             if chosen_basis is None or chosen_degree is None:
                 log_throttle(
                     logger, "adaptive_arity_recipe_cannot_parse_univariate_suffix", logging.WARNING,
@@ -736,8 +728,8 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
                     name,
                 )
                 continue
-            basis_a, deg_a = _parse_code_deg(parts[0])
-            basis_b, deg_b = _parse_code_deg(parts[1])
+            basis_a, deg_a = parse_code_deg_with_basis(parts[0])
+            basis_b, deg_b = parse_code_deg_with_basis(parts[1])
             if basis_a is None or basis_b is None:
                 continue
             basis_a = _route_basis(legs[0])
@@ -755,9 +747,9 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
         elif arity == 3:
             if len(parts) != 3:
                 continue
-            basis_a, deg_a = _parse_code_deg(parts[0])
-            basis_b, deg_b = _parse_code_deg(parts[1])
-            basis_c, deg_c = _parse_code_deg(parts[2])
+            basis_a, deg_a = parse_code_deg_with_basis(parts[0])
+            basis_b, deg_b = parse_code_deg_with_basis(parts[1])
+            basis_c, deg_c = parse_code_deg_with_basis(parts[2])
             if basis_a is None or basis_b is None or basis_c is None:
                 continue
             basis_a = _route_basis(legs[0])
@@ -775,10 +767,10 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
         elif arity == 4:
             if len(parts) != 4:
                 continue
-            basis_a, deg_a = _parse_code_deg(parts[0])
-            basis_b, deg_b = _parse_code_deg(parts[1])
-            basis_c, deg_c = _parse_code_deg(parts[2])
-            basis_d, deg_d = _parse_code_deg(parts[3])
+            basis_a, deg_a = parse_code_deg_with_basis(parts[0])
+            basis_b, deg_b = parse_code_deg_with_basis(parts[1])
+            basis_c, deg_c = parse_code_deg_with_basis(parts[2])
+            basis_d, deg_d = parse_code_deg_with_basis(parts[3])
             if basis_a is None or basis_b is None or basis_c is None or basis_d is None:
                 continue
             basis_a = _route_basis(legs[0])

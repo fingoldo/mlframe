@@ -7,6 +7,26 @@ from __future__ import annotations
 
 import numpy as np
 
+_CODE_TO_BASIS = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
+
+
+def parse_code_deg_with_basis(s: str):
+    """Parse a leg-code token like ``"He3"``/``"LL2"``/``"T1"``/``"L4"`` into ``(basis_name, degree)``,
+    checking two-letter codes before single-letter ones so ``"LL"`` isn't mis-parsed as ``"L"``; returns
+    ``(None, None)`` when ``s`` doesn't match any known code prefix.
+
+    Distinct from ``_orthogonal_univariate_fe/_gpu_resident_cross_basis.py``'s ``_parse_code_deg``, which
+    returns only the degree (int) and discards the basis code -- that device-builder variant deliberately
+    ignores the code since the GPU leg spec re-routes basis via ``basis_route_by_moments``. This one is for
+    the host-side generators that need the parsed basis name too.
+    """
+    for code in ("LL", "He", "T", "L"):
+        if s.startswith(code):
+            rest = s[len(code) :]
+            if rest.isdigit():
+                return _CODE_TO_BASIS[code], int(rest)
+    return None, None
+
 
 def coerce_y_classif(y) -> np.ndarray:
     """Dense int64 class labels for MI estimators.
