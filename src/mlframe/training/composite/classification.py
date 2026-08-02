@@ -32,6 +32,7 @@ from typing import Any
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, clone
 
+from mlframe._sklearn_predict_shared import argmax_predict
 from ._booster_margin import inner_raw_margin
 
 logger = logging.getLogger(__name__)
@@ -228,10 +229,7 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
             return np.column_stack([1.0 - p1, p1])
         return _softmax(np.asarray(margin, dtype=np.float64))
 
-    def predict(self, X: Any) -> np.ndarray:
-        """Argmax class label over ``predict_proba``, mapped back through ``classes_``."""
-        proba = self.predict_proba(X)
-        return np.asarray(self.classes_[np.argmax(proba, axis=1)])
+    predict = argmax_predict
 
     def calibration_report(self, X: Any, y: Any, n_bins: int = 10) -> dict:
         """Top-label reliability diagram + Expected Calibration Error (ECE).

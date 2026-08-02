@@ -33,6 +33,8 @@ from sklearn.mixture import GaussianMixture
 from sklearn.utils.multiclass import unique_labels
 from sklearn.utils.validation import check_array, check_is_fitted, check_X_y
 
+from mlframe._sklearn_predict_shared import argmax_predict
+
 __all__ = ["GaussianMixtureClassifier"]
 
 
@@ -141,7 +143,4 @@ class GaussianMixtureClassifier(BaseEstimator, ClassifierMixin):
         probs /= probs.sum(axis=1, keepdims=True)
         return np.asarray(probs, dtype=np.float64)
 
-    def predict(self, X: npt.ArrayLike) -> npt.NDArray[Any]:
-        """Predict the class label with highest posterior probability for each sample."""
-        proba = self.predict_proba(X)
-        return np.asarray(self.classes_[np.argmax(proba, axis=1)])
+    predict = argmax_predict
