@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from mlframe._bench_rmse_shared import rmse_asarray
 from mlframe.training.composite.ensemble import (
     CompositeCrossTargetEnsemble as E,
     build_meta_stack_ensemble,
@@ -29,8 +30,7 @@ class _Col:
         return np.asarray(X)[:, self.col]
 
 
-def _rmse(a, b) -> float:
-    return float(np.sqrt(np.mean((np.asarray(a) - np.asarray(b)) ** 2)))
+_rmse = rmse_asarray
 
 
 def gen_interaction(n: int, seed: int):

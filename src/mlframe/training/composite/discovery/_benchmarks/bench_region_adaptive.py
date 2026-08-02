@@ -25,6 +25,7 @@ import time
 
 import numpy as np
 
+from mlframe._bench_rmse_shared import rmse_asarray
 from mlframe.training.composite.discovery._region_adaptive import (
     DEFAULT_REGION_CANDIDATES,
     fit_region_adaptive,
@@ -61,8 +62,7 @@ def _gbm():
     return HistGradientBoostingRegressor(max_iter=120, max_depth=4, learning_rate=0.1, random_state=0)
 
 
-def _rmse(a, b):
-    return float(np.sqrt(np.mean((np.asarray(a) - np.asarray(b)) ** 2)))
+_rmse = rmse_asarray
 
 
 def eval_global(y_tr, b_tr, X_tr, y_te, b_te, X_te) -> tuple[str, float]:

@@ -17,15 +17,11 @@ sys.modules.setdefault("cupy", None)
 
 from sklearn.tree import DecisionTreeRegressor
 
+from mlframe._bench_rmse_shared import mae_asarray, rmse_asarray, trimmed_mean
 from mlframe.training.composite.bagging import BaggedCompositeEstimator
 
-
-def _rmse(a, b):
-    return float(np.sqrt(np.mean((np.asarray(a) - np.asarray(b)) ** 2)))
-
-
-def _mae(a, b):
-    return float(np.mean(np.abs(np.asarray(a) - np.asarray(b))))
+_rmse = rmse_asarray
+_mae = mae_asarray
 
 
 def _make_data(scenario: str, seed: int, n: int = 1200, p: int = 8):
@@ -47,14 +43,7 @@ def _make_data(scenario: str, seed: int, n: int = 1200, p: int = 8):
     return X[:cut], y[:cut], X[cut:], truth[cut:]
 
 
-def _trimmed_mean(members: np.ndarray, trim: float = 0.1) -> np.ndarray:
-    """Symmetric trimmed mean across members: sort each column, drop the lowest/highest ``trim`` fraction, mean the rest."""
-    m = members.shape[0]
-    k = int(np.floor(trim * m))
-    if k == 0:
-        return members.mean(axis=0)
-    s = np.sort(members, axis=0)
-    return s[k : m - k].mean(axis=0)
+_trimmed_mean = trimmed_mean
 
 
 def run():
