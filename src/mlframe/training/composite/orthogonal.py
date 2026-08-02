@@ -54,6 +54,7 @@ logger = logging.getLogger(__name__)
 _DENOM_FLOOR = 1e-12
 
 
+from ._composite_array_shared import n_features as _n_features, to_1d_numpy as _to_1d_numpy
 from ._composite_utils import is_polars_df_logged as _is_polars_df
 
 
@@ -91,25 +92,6 @@ def _drop_base_column(X: Any, base_column: str) -> Any:
     if hasattr(X, "columns"):
         return X.drop(columns=[base_column]) if base_column in X.columns else X
     return X
-
-
-def _n_features(X: Any) -> int:
-    """Robust feature count for pandas / polars / 2-D ndarray (named-column length first, then ``shape[1]``)."""
-    cols = getattr(X, "columns", None)
-    if cols is not None:
-        try:
-            return len(cols)
-        except TypeError:
-            pass
-    shape = getattr(X, "shape", None)
-    if shape is not None and len(shape) >= 2:
-        return int(shape[1])
-    return 0
-
-
-def _to_1d_numpy(y: Any) -> np.ndarray:
-    """Coerce any array-like (pandas/polars Series, list, 2-D column vector) to a flat float64 ndarray."""
-    return np.asarray(y, dtype=np.float64).ravel()
 
 
 def _cross_fitted_oof(estimator: Any, X: Any, target: np.ndarray, kf: KFold) -> np.ndarray:

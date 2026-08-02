@@ -48,30 +48,8 @@ from sklearn.exceptions import NotFittedError
 logger = logging.getLogger(__name__)
 
 
+from ._composite_array_shared import n_features as _n_features, to_1d_numpy as _to_1d_numpy
 from ._composite_utils import is_polars_df_logged as _is_polars_df
-
-
-def _to_1d_numpy(y: Any) -> np.ndarray:
-    """Coerce any array-like target to a flat float64 ndarray."""
-    return np.asarray(y, dtype=np.float64).ravel()
-
-
-def _n_features(X: Any) -> int:
-    """Robust column count for pandas / polars / 2-D ndarray.
-
-    ``getattr(X, 'shape', (0, 0))[1]`` returns 0 for any carrier whose ``shape`` is 1-D or absent (e.g. a list of dicts);
-    prefer the named-column length when present so ``n_features_in_`` reflects the real feature count for the sklearn contract.
-    """
-    cols = getattr(X, "columns", None)
-    if cols is not None:
-        try:
-            return len(cols)
-        except TypeError:
-            pass
-    shape = getattr(X, "shape", None)
-    if shape is not None and len(shape) >= 2:
-        return int(shape[1])
-    return 0
 
 
 def _extract_entity(X: Any, entity_column: str) -> np.ndarray:
