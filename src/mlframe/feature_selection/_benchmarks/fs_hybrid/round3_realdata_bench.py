@@ -21,6 +21,7 @@ import lightgbm as lgb
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hybrid_selector import HybridSelector
 import fs_selectors as S
+from _downstream_shared import mrmr_sel_transform
 
 
 def load_real():
@@ -69,8 +70,7 @@ def mrmr_fe_variant(fe_strict):
             self.ren_ = {c: (c if _SAFE.match(str(c)) else f"eng_{i}") for i, c in enumerate(out)}
             self.raw_selected_ = [c for c in out if _SAFE.match(str(c)) and c in X.columns]
             return self
-        def transform(self, X):
-            df = self.m_.transform(X).copy(); df.columns = [self.ren_[c] for c in df.columns]; return df
+        transform = mrmr_sel_transform
     return _Sel()
 
 

@@ -32,6 +32,7 @@ from sklearn.model_selection import train_test_split
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from round3_realdata_bench import downstream  # lgbm/logit/knn held-out AUC, returns {model: auc}
 from hybrid_selector import HybridSelector
+from _downstream_shared import mrmr_sel_transform
 
 import re
 _SAFE = re.compile(r"^[A-Za-z0-9_]+$")
@@ -144,8 +145,7 @@ def make_mrmr_fe():
             self.ren_ = _safe_rename(out, set(X.columns))
             return self
 
-        def transform(self, X):
-            df = self.m_.transform(X).copy(); df.columns = [self.ren_[c] for c in df.columns]; return df
+        transform = mrmr_sel_transform
     return _Sel()
 
 
@@ -161,8 +161,7 @@ def make_mrmr_tree():
             self.ren_ = _safe_rename(out, set(X.columns))
             return self
 
-        def transform(self, X):
-            df = self.m_.transform(X).copy(); df.columns = [self.ren_[c] for c in df.columns]; return df
+        transform = mrmr_sel_transform
     return _Sel()
 
 

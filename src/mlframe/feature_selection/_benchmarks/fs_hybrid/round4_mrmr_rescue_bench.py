@@ -37,6 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from round3_realdata_bench import load_real, downstream
 from synth import make_dataset
 from hard_synth import make_hard_dataset
+from _downstream_shared import mrmr_sel_transform
 
 _SAFE = re.compile(r"^[A-Za-z0-9_]+$")
 PROGRESS = r"D:\Temp\mrmr_fix_progress.txt"
@@ -67,10 +68,7 @@ def build_mrmr(**extra):
             self.n_eng_ = len(out) - self.n_raw_
             return self
 
-        def transform(self, X):
-            df = self.m_.transform(X).copy()
-            df.columns = [self.ren_[c] for c in df.columns]
-            return df
+        transform = mrmr_sel_transform
 
     return _Sel()
 

@@ -31,3 +31,15 @@ def downstream_on_matrix(Ztr, Zte, ytr, yte):
     o["logit"] = roc_auc_score(yte, make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Ztr, ytr).predict_proba(Zte)[:, 1])
     o["knn"] = roc_auc_score(yte, make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)).fit(Ztr, ytr).predict_proba(Zte)[:, 1])
     return {k: round(float(v), 4) for k, v in o.items()}
+
+
+def mrmr_sel_transform(self, X):
+    """Shared ``_Sel.transform`` body for the fs_hybrid MRMR-wrapper adapters: rename the fitted MRMR's
+    output columns to the ``fit``-time-computed ``self.ren_`` mapping (raw cols kept, engineered cols
+    made LightGBM-safe). Bound as a class attribute (``transform = mrmr_sel_transform``) on each local
+    ``_Sel`` class, which relies on ``self.m_`` (the fitted MRMR instance) and ``self.ren_`` (the rename
+    map) always being set in ``fit`` under those exact attribute names.
+    """
+    df = self.m_.transform(X).copy()
+    df.columns = [self.ren_[c] for c in df.columns]
+    return df
