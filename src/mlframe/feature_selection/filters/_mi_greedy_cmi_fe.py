@@ -40,6 +40,7 @@ contingency table so the joint stays computable even at d=8+ support cols
 """
 from __future__ import annotations
 
+import functools
 import logging
 import math
 from typing import Optional, Sequence
@@ -1137,9 +1138,7 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False, kx: int = 0
 
     from ._fe_batched_mi import joint_entropy_gpu
 
-    def _entc(codes, cards):
-        """Joint entropy (fused histogram + plug-in entropy in ONE launch when the joint fits shared memory, else the two-kernel path); same partition counts as the unfused path -> selection-equivalent."""
-        return joint_entropy_gpu(codes, cards, inv_n)
+    _entc = functools.partial(joint_entropy_gpu, inv_n=inv_n)
 
     # Content-cache the candidate cardinality on the host-input path: the same candidate is re-scored across
     # greedy steps (identical content), so its max-code fingerprint hits and skips the int(dx.max()) D2H sync.
@@ -1276,9 +1275,7 @@ def _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n) -> floa
     dz = resident_operand(z_i, "fixedyz_z", dtype=np.int64)
     inv_n = 1.0 / float(n)
 
-    def _entc(codes, cards):
-        """Joint entropy (fused histogram + plug-in entropy in ONE launch when the joint fits shared memory, else the two-kernel path); same partition counts as the unfused path -> selection-equivalent."""
-        return joint_entropy_gpu(codes, cards, inv_n)
+    _entc = functools.partial(joint_entropy_gpu, inv_n=inv_n)
 
     Kx = (int(dx.max()) + 1) if dx.size else 1
     ky = _cached_card(y_i, dy)  # y is a fit-constant -> cardinality cached
