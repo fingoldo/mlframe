@@ -35,6 +35,8 @@ import subprocess  # nosec B404 - subprocess used below with list args only, no 
 import sys
 import time
 
+from mlframe.feature_selection._benchmarks._bench_shared import write_worker_source
+
 WIDTHS = (2000, 4000, 6000, 10000)
 N_ROWS_GRID = (2000, 5000, 10000)
 MODES = (True, False)
@@ -107,11 +109,6 @@ with open(out_path, "w") as f:
 """
 
 
-def _write_worker(worker_path: str) -> None:
-    with open(worker_path, "w") as f:
-        f.write(WORKER_SRC)
-
-
 def run_cell(worker_path, width, n_rows, stratified, out_root):
     fit_out = os.path.join(out_root, f"iter101_cell_w{width}_n{n_rows}_s{int(stratified)}.json")
     cmd = [sys.executable, worker_path, str(width), str(N_RED), str(RHO), str(n_rows), str(N_INF), str(SNR), str(SEED), "1" if stratified else "0", fit_out]
@@ -156,7 +153,7 @@ def _maybe_reuse_iter100(width, n_rows, stratified, out_root):
 def main():
     out_root = os.environ.get("ITER101_OUT_DIR", "D:/Temp")
     worker_path = os.path.join(out_root, "iter101_worker.py")
-    _write_worker(worker_path)
+    write_worker_source(worker_path, WORKER_SRC)
     print(f"[iter101] grid: widths={WIDTHS} n_rows={N_ROWS_GRID} modes={MODES}", flush=True)
     t_start = time.perf_counter()
     results = []

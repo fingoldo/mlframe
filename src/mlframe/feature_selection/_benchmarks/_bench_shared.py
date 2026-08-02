@@ -12,6 +12,14 @@ import numpy as np
 from mlframe.feature_selection.filters._cluster_aggregate import uf_find  # noqa: F401 -- re-exported for the bench-family call sites
 
 
+def write_worker_source(worker_path: str, source: str) -> None:
+    """Write ``source`` to ``worker_path``: the subprocess-worker-script materialization step shared
+    by the iter100/iter101 stratified-anchors benches (each closes over its own module-level source
+    string and calls this with it)."""
+    with open(worker_path, "w") as f:
+        f.write(source)
+
+
 def make_shap_proxy_fit_data(n: int = 20000, n_inf: int = 8, n_noise: int = 5, n_corr: int = 2, seed: int = 0):
     """Synthetic (X, y): ``n_inf`` informative + ``n_noise`` noise + ``n_corr`` informative-correlated
     columns, binary ``y`` from a linear-decaying-coefficient logit on the informatives. Shared fit-profile

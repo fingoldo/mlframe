@@ -28,6 +28,8 @@ import subprocess  # nosec B404 - subprocess used below with list args only, no 
 import sys
 import time
 
+from mlframe.feature_selection._benchmarks._bench_shared import write_worker_source
+
 WIDTHS = (2000, 4000, 6000, 10000)
 COND = (
     # name, n_redundant, rho
@@ -101,11 +103,6 @@ with open(out_path, "w") as f:
 """
 
 
-def _write_worker(worker_path: str) -> None:
-    with open(worker_path, "w") as f:
-        f.write(WORKER_SRC)
-
-
 def run_cell(worker_path, width, cond_name, n_red, rho, stratified, out_root):
     fit_out = os.path.join(out_root, f"iter100_cell_{width}_{cond_name}_{int(stratified)}.json")
     cmd = [sys.executable, worker_path, str(width), str(n_red), str(rho), str(N_ROWS), str(N_INF), str(SNR), str(SEED), "1" if stratified else "0", fit_out]
@@ -136,7 +133,7 @@ def run_cell(worker_path, width, cond_name, n_red, rho, stratified, out_root):
 def main():
     out_root = os.environ.get("ITER100_OUT_DIR", "D:/Temp")
     worker_path = os.path.join(out_root, "iter100_worker.py")
-    _write_worker(worker_path)
+    write_worker_source(worker_path, WORKER_SRC)
     print(f"[iter100] grid: widths={WIDTHS} cond={[c[0] for c in COND]} modes={MODES}", flush=True)
     t_start = time.perf_counter()
     results = []
