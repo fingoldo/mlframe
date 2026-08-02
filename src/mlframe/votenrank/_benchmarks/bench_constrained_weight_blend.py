@@ -4,6 +4,8 @@ Run: ``python -m mlframe.votenrank._benchmarks.bench_constrained_weight_blend``
 """
 from __future__ import annotations
 
+from mlframe.votenrank._benchmarks._bench_shared import rmse
+
 import cProfile
 import pstats
 import time
@@ -14,15 +16,11 @@ import numpy as np
 from mlframe.votenrank.constrained_weight_blend import constrained_weight_blend
 
 
-def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
-
-
 def _run(n_samples: int, n_models: int, n_restarts: int, max_nonzero_weights: int | None = None) -> None:
     rng = np.random.default_rng(0)
     y_true = rng.standard_normal(n_samples)
     preds = [y_true + rng.uniform(0.2, 2.0) * rng.standard_normal(n_samples) for _ in range(n_models)]
-    constrained_weight_blend(preds, y_true, _rmse, n_restarts=n_restarts, random_state=0, max_nonzero_weights=max_nonzero_weights)
+    constrained_weight_blend(preds, y_true, rmse, n_restarts=n_restarts, random_state=0, max_nonzero_weights=max_nonzero_weights)
 
 
 if __name__ == "__main__":

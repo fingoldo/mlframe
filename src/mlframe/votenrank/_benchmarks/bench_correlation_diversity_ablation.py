@@ -4,6 +4,8 @@ Run: ``python -m mlframe.votenrank._benchmarks.bench_correlation_diversity_ablat
 """
 from __future__ import annotations
 
+from mlframe.votenrank._benchmarks._bench_shared import rmse
+
 import cProfile
 import pstats
 import time
@@ -14,10 +16,6 @@ import numpy as np
 from mlframe.votenrank.correlation_diversity_ablation import diversity_ablation_report, recommend_diversity_additions
 
 
-def _rmse(y_true, y_pred):
-    return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
-
-
 def _make_dataset(n_samples: int, n_models: int, seed: int):
     rng = np.random.default_rng(seed)
     y_true = rng.normal(size=n_samples)
@@ -25,18 +23,18 @@ def _make_dataset(n_samples: int, n_models: int, seed: int):
     for i in range(n_models):
         noise_scale = 0.2 if i < n_models // 2 else 1.5
         oof_preds[f"m{i}"] = y_true + noise_scale * rng.standard_normal(n_samples)
-    individual_scores = {name: -_rmse(y_true, pred) for name, pred in oof_preds.items()}
+    individual_scores = {name: -rmse(y_true, pred) for name, pred in oof_preds.items()}
     return y_true, oof_preds, individual_scores
 
 
 def _run(n_samples: int, n_models: int, use_greedy_search: bool = False) -> None:
     y_true, oof_preds, individual_scores = _make_dataset(n_samples, n_models, seed=0)
-    diversity_ablation_report(oof_preds, individual_scores, y_true, _rmse, use_greedy_search=use_greedy_search)
+    diversity_ablation_report(oof_preds, individual_scores, y_true, rmse, use_greedy_search=use_greedy_search)
 
 
 def _run_recommend(n_samples: int, n_models: int, top_k=None) -> None:
     y_true, oof_preds, individual_scores = _make_dataset(n_samples, n_models, seed=0)
-    recommend_diversity_additions(oof_preds, individual_scores, y_true, _rmse, top_k=top_k)
+    recommend_diversity_additions(oof_preds, individual_scores, y_true, rmse, top_k=top_k)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,8 @@ Run: ``python -m mlframe.votenrank._benchmarks.bench_dual_optimizer_blend``
 """
 from __future__ import annotations
 
+from mlframe.votenrank._benchmarks._bench_shared import rmse
+
 import cProfile
 import pstats
 import time
@@ -12,10 +14,6 @@ from io import StringIO
 import numpy as np
 
 from mlframe.votenrank.dual_optimizer_blend import dual_optimizer_weight_blend
-
-
-def _rmse(y_true, y_pred):
-    return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
 
 
 def _make_dataset(n_samples: int, n_models: int, seed: int):
@@ -30,7 +28,7 @@ def _run(n_samples: int, n_models: int, n_optuna_trials: int, include_coord_desc
     dual_optimizer_weight_blend(
         preds,
         y_true,
-        _rmse,
+        rmse,
         n_restarts=5,
         n_optuna_trials=n_optuna_trials,
         random_state=0,

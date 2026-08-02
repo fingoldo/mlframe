@@ -4,6 +4,8 @@ Run: ``python -m mlframe.votenrank._benchmarks.bench_hill_climb``
 """
 from __future__ import annotations
 
+from mlframe.votenrank._benchmarks._bench_shared import rmse
+
 import cProfile
 import pstats
 import time
@@ -14,16 +16,12 @@ import numpy as np
 from mlframe.votenrank.hill_climb import hill_climb_ensemble
 
 
-def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
-
-
 def _run(n_samples: int, n_models: int, max_iterations: int, n_calls: int) -> None:
     rng = np.random.default_rng(0)
     y_true = rng.standard_normal(n_samples)
     preds = [y_true + rng.uniform(0.2, 2.0) * rng.standard_normal(n_samples) for _ in range(n_models)]
     for _ in range(n_calls):
-        hill_climb_ensemble(preds, y_true, _rmse, maximize=False, max_iterations=max_iterations)
+        hill_climb_ensemble(preds, y_true, rmse, maximize=False, max_iterations=max_iterations)
 
 
 def _run_bagged(n_samples: int, n_models: int, max_iterations: int, n_calls: int, n_bags: int) -> None:
@@ -34,7 +32,7 @@ def _run_bagged(n_samples: int, n_models: int, max_iterations: int, n_calls: int
         hill_climb_ensemble(
             preds,
             y_true,
-            _rmse,
+            rmse,
             maximize=False,
             max_iterations=max_iterations,
             n_bags=n_bags,
