@@ -263,6 +263,29 @@ class PdKBinsDiscretizer(KBinsDiscretizer):
         else:
             return X
 
+def _avg_classifier_fit(self, X, y):
+    """Shared ``fit`` for the nprobs-averaging classifier siblings (ArithmAvgClassifier/GeomAvgClassifier):
+    validate ``nprobs`` against the actual feature count and record ``classes_``/``n_features_in_``; does no
+    real training."""
+    X = check_array(X)
+    # ``nprobs`` columns are averaged in predict_proba; a value exceeding the
+    # available feature count would silently average an empty / short slice
+    # (NaN or a wrong-width mean) instead of erroring.
+    if self.nprobs is None or self.nprobs < 1 or self.nprobs > X.shape[1]:
+        raise ValueError(f"nprobs must be in [1, n_features={X.shape[1]}]; got {self.nprobs!r}.")
+    self.classes_ = np.unique(y)
+    self.n_features_in_ = X.shape[1]
+    return self
+
+
+def _avg_classifier_predict(self, X):
+    """Shared ``predict`` for the nprobs-averaging classifier siblings: argmax class over ``predict_proba``'s
+    two columns."""
+    check_is_fitted(self)
+    X = check_array(X)
+    return self.classes_[np.argmax(self.predict_proba(X), axis=1)]
+
+
 class ArithmAvgClassifier(BaseEstimator, ClassifierMixin):
     """Binary classifier that averages the first ``nprobs`` columns of X as the positive-class probability.
 
@@ -274,23 +297,8 @@ class ArithmAvgClassifier(BaseEstimator, ClassifierMixin):
     def __init__(self, nprobs):
         self.nprobs = nprobs
 
-    def fit(self, X, y):
-        """Validate ``nprobs`` against the actual feature count and record ``classes_``/``n_features_in_``; does no real training."""
-        X = check_array(X)
-        # ``nprobs`` columns are averaged in predict_proba; a value exceeding the
-        # available feature count would silently average an empty / short slice
-        # (NaN or a wrong-width mean) instead of erroring.
-        if self.nprobs is None or self.nprobs < 1 or self.nprobs > X.shape[1]:
-            raise ValueError(f"nprobs must be in [1, n_features={X.shape[1]}]; got {self.nprobs!r}.")
-        self.classes_ = np.unique(y)
-        self.n_features_in_ = X.shape[1]
-        return self
-
-    def predict(self, X):
-        """Return the argmax class over ``predict_proba``'s two columns."""
-        check_is_fitted(self)
-        X = check_array(X)
-        return self.classes_[np.argmax(self.predict_proba(X), axis=1)]
+    fit = _avg_classifier_fit
+    predict = _avg_classifier_predict
 
     def predict_proba(self, X):
         """Average the first ``nprobs`` columns of ``X`` (clipped to [0, 1]) into P(class=1) and return ``[1-p, p]``."""
@@ -314,20 +322,8 @@ class GeomAvgClassifier(BaseEstimator, ClassifierMixin):
     def __init__(self, nprobs):
         self.nprobs = nprobs
 
-    def fit(self, X, y):
-        """Validate ``nprobs`` against the actual feature count and record ``classes_``/``n_features_in_``; does no real training."""
-        X = check_array(X)
-        if self.nprobs is None or self.nprobs < 1 or self.nprobs > X.shape[1]:
-            raise ValueError(f"nprobs must be in [1, n_features={X.shape[1]}]; got {self.nprobs!r}.")
-        self.classes_ = np.unique(y)
-        self.n_features_in_ = X.shape[1]
-        return self
-
-    def predict(self, X):
-        """Return the argmax class over ``predict_proba``'s two columns."""
-        check_is_fitted(self)
-        X = check_array(X)
-        return self.classes_[np.argmax(self.predict_proba(X), axis=1)]
+    fit = _avg_classifier_fit
+    predict = _avg_classifier_predict
 
     def predict_proba(self, X):
         """Geometrically average the first ``nprobs`` columns of ``X`` (log-space, clipped to [0, 1]) into P(class=1)."""
