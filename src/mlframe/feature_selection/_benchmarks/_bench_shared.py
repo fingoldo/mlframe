@@ -12,6 +12,19 @@ import numpy as np
 from mlframe.feature_selection.filters._cluster_aggregate import uf_find  # noqa: F401 -- re-exported for the bench-family call sites
 
 
+def logreg_holdout_auc(Xtr, ytr, Xte, yte, cols) -> float:
+    """Fit a max_iter=1000 ``LogisticRegression`` on the ``cols`` subset of ``Xtr`` and return its held-out AUC
+    on ``Xte`` -- the cross-selector-family cluster-reduction benchmarks' shared evaluation step. Falls back to
+    the full column set when ``cols`` is empty."""
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import roc_auc_score
+
+    if len(cols) == 0:
+        cols = np.arange(Xtr.shape[1])
+    clf = LogisticRegression(max_iter=1000).fit(Xtr.iloc[:, cols], ytr)
+    return float(roc_auc_score(yte, clf.predict_proba(Xte.iloc[:, cols])[:, 1]))
+
+
 def searchsorted_bin_codes(x: np.ndarray, edges: np.ndarray) -> np.ndarray:
     """Right-side ``searchsorted`` bin-code assignment: the shared quantile-edge binning step
     duplicated across the cell-encoding benchmark family."""

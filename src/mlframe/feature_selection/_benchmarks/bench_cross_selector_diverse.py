@@ -28,10 +28,10 @@ from sklearn.datasets import (
 )
 from sklearn.feature_selection import RFECV
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
+from mlframe.feature_selection._benchmarks._bench_shared import logreg_holdout_auc as _auc
 from mlframe.feature_selection.filters.group_aware import (
     _cluster_medoids, cluster_features_by_correlation,
 )
@@ -55,13 +55,6 @@ def _rfecv_reduced(Xtr, ytr, corr_threshold=0.9):
     # expand=True: keep ALL members of any selected cluster.
     expanded = np.array([j for j in range(Xtr.shape[1]) if cid[j] in sel_clusters])
     return expanded, len(medoids)
-
-
-def _auc(Xtr, ytr, Xte, yte, cols):
-    if len(cols) == 0:
-        cols = np.arange(Xtr.shape[1])
-    clf = LogisticRegression(max_iter=1000).fit(Xtr.iloc[:, cols], ytr)
-    return roc_auc_score(yte, clf.predict_proba(Xte.iloc[:, cols])[:, 1])
 
 
 def _run(name, X, y, seed=0):

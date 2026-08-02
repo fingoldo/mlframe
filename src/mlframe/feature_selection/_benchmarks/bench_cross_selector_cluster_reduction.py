@@ -24,8 +24,8 @@ import numpy as np
 import pandas as pd
 from sklearn.feature_selection import RFECV
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score
 
+from mlframe.feature_selection._benchmarks._bench_shared import logreg_holdout_auc as _auc
 from mlframe.feature_selection.filters.group_aware import (
     _cluster_medoids,
     cluster_features_by_correlation,
@@ -53,13 +53,6 @@ def _rfecv(Xtr, ytr):
     sel = RFECV(est, step=0.1, cv=3, min_features_to_select=2, n_jobs=1)
     sel.fit(Xtr, ytr)
     return np.where(sel.support_)[0]
-
-
-def _auc(Xtr, ytr, Xte, yte, cols):
-    if len(cols) == 0:
-        cols = np.arange(Xtr.shape[1])
-    clf = LogisticRegression(max_iter=1000).fit(Xtr.iloc[:, cols], ytr)
-    return roc_auc_score(yte, clf.predict_proba(Xte.iloc[:, cols])[:, 1])
 
 
 def main():
