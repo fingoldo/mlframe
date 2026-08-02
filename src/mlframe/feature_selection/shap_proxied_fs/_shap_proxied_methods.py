@@ -268,10 +268,6 @@ class ShapProxiedMethodsMixin:
             return X.loc[:, selected]
         return X[selected]
 
-    def fit_transform(self, X, y=None, **fit_params):
-        """Fit the selector on ``(X, y)`` then return ``X`` subset to the selected features."""
-        return self.fit(X, y).transform(X)
-
     def get_support(self, indices: bool = False):
         """Boolean support mask over the original input columns (or, if ``indices=True``, the integer positions where it is True); raises ``NotFittedError`` if called before ``fit``."""
         from sklearn.exceptions import NotFittedError

@@ -147,10 +147,6 @@ class _FunctionalSelectorBase(BaseEstimator, TransformerMixin):
             return X.select(cols)
         return np.asarray(X)[:, self.support_]
 
-    def fit_transform(self, X, y=None, **fit_params):
-        """Fit then transform in one call."""
-        return self.fit(X, y).transform(X)
-
     def get_support(self, indices: bool = False):
         """Return the boolean support mask, or the selected indices when ``indices=True``."""
         from sklearn.exceptions import NotFittedError

@@ -329,10 +329,6 @@ class ACESelector(BaseEstimator, TransformerMixin):
             return X.iloc[:, idx]
         return np.asarray(X)[:, self.support_]
 
-    def fit_transform(self, X, y=None, **fit_params):
-        """Convenience ``fit`` then ``transform`` in one call (fit_params accepted for sklearn API parity, unused)."""
-        return self.fit(X, y).transform(X)
-
     def get_support(self, indices: bool = False):
         """sklearn-style accepted-feature mask; returns positional indices instead when ``indices=True``."""
         from sklearn.exceptions import NotFittedError

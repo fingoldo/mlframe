@@ -368,10 +368,6 @@ class StabilityFESelector(BaseEstimator, TransformerMixin):
         keep = raw_kept + [c for c in stable_present if c not in raw_kept]
         return out.loc[:, keep]
 
-    def fit_transform(self, X, y=None, **fit_params):
-        """Fit then transform in one call."""
-        return self.fit(X, y).transform(X)
-
     def get_feature_names_out(self, input_features=None):
         """Selected feature names (sklearn transformer contract).
         was missing entirely, unlike ``MRMR``/``GroupAwareMRMR``/``StabilityMRMR``

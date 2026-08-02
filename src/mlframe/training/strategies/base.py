@@ -247,10 +247,6 @@ class _NumericOnlyTransformer(TransformerMixin, BaseEstimator):
             out[c] = transformed[c].to_numpy() if hasattr(transformed[c], "to_numpy") else transformed[c]
         return out
 
-    def fit_transform(self, X, y=None):
-        """Fit then transform in one call."""
-        return self.fit(X, y).transform(X)
-
     def get_feature_names_out(self, input_features=None):
         """Echo ``input_features`` if given, else the names/count captured at fit time, per sklearn's contract."""
         import numpy as _np
