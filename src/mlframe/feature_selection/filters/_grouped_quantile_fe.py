@@ -42,6 +42,8 @@ Leakage safety (CRITICAL)
 """
 from __future__ import annotations
 
+from ._grouped_coerce_shared import coerce_X_for_grouped
+
 import logging
 from typing import Optional, Sequence
 
@@ -493,30 +495,12 @@ def apply_target_aware_group_bin(X_test: pd.DataFrame, recipe: dict) -> np.ndarr
 # ---------------------------------------------------------------------------
 
 
-def _coerce_X(X, group_col: str, num_col: str, recipe_name: str) -> pd.DataFrame:
-    """Extract ``[group_col, num_col]`` from ``X`` as a pandas frame regardless of the incoming carrier (pandas / polars / structured ndarray), for recipe replay."""
-    if isinstance(X, pd.DataFrame):
-        return X
-    try:
-        import polars as _pl
-        if isinstance(X, _pl.DataFrame):
-            return pd.DataFrame({
-                group_col: X[group_col].to_numpy(),
-                num_col: X[num_col].to_numpy(),
-            })
-    except ImportError:
-        pass
-    if isinstance(X, np.ndarray) and X.dtype.names is not None:
-        return pd.DataFrame({group_col: X[group_col], num_col: X[num_col]})
-    raise TypeError(f"recipe '{recipe_name}': cannot extract {group_col!r}/{num_col!r} " f"from X of type {type(X).__name__}")
-
-
 def _apply_grouped_quantile_recipe(recipe, X) -> np.ndarray:
     """Adapter: pulls the stored payload from ``recipe.extra`` and replays via
     :func:`apply_grouped_quantile`."""
     group_col = str(recipe.extra["group_col"])
     num_col = str(recipe.extra["num_col"])
-    X_view = _coerce_X(X, group_col, num_col, recipe.name)
+    X_view = coerce_X_for_grouped(X, group_col, num_col, recipe.name)
     return apply_grouped_quantile(
         X_view,
         {
@@ -538,7 +522,7 @@ def _apply_target_aware_group_bin_recipe(recipe, X) -> np.ndarray:
     :func:`apply_target_aware_group_bin`."""
     group_col = str(recipe.extra["group_col"])
     num_col = str(recipe.extra["num_col"])
-    X_view = _coerce_X(X, group_col, num_col, recipe.name)
+    X_view = coerce_X_for_grouped(X, group_col, num_col, recipe.name)
     return apply_target_aware_group_bin(
         X_view,
         {

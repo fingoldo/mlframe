@@ -34,6 +34,8 @@ extra layout:
 
 from __future__ import annotations
 
+from ._grouped_coerce_shared import coerce_X_for_grouped
+
 import logging
 from typing import Callable, Optional, Sequence
 
@@ -742,29 +744,11 @@ def _apply_pairwise_ratio_recipe(recipe, X) -> np.ndarray:
     raise ValueError(f"pairwise_ratio recipe '{recipe.name}': unknown kind {kind!r}")
 
 
-def _coerce_X_for_grouped_delta(X, group_col: str, num_col: str, recipe_name: str) -> pd.DataFrame:
-    """Extract ``group_col``/``num_col`` from an arbitrary carrier (pandas, polars, or structured ndarray) as a pandas DataFrame for ``apply_grouped_delta`` at recipe-replay time."""
-    if isinstance(X, pd.DataFrame):
-        return X
-    try:
-        import polars as _pl
-        if isinstance(X, _pl.DataFrame):
-            return pd.DataFrame({
-                group_col: X[group_col].to_numpy(),
-                num_col: X[num_col].to_numpy(),
-            })
-    except ImportError:
-        pass
-    if isinstance(X, np.ndarray) and X.dtype.names is not None:
-        return pd.DataFrame({group_col: X[group_col], num_col: X[num_col]})
-    raise TypeError(f"recipe '{recipe_name}': cannot extract {group_col!r}/{num_col!r} " f"from X of type {type(X).__name__}")
-
-
 def _apply_grouped_delta_recipe(recipe, X) -> np.ndarray:
     """Recipe-apply adapter (consumed by ``engineered_recipes.apply_recipe``): rebuilds the ``apply_grouped_delta`` recipe dict from the frozen ``recipe.extra`` payload and replays it on ``X``."""
     group_col = str(recipe.extra["group_col"])
     num_col = str(recipe.extra["num_col"])
-    X_view = _coerce_X_for_grouped_delta(X, group_col, num_col, recipe.name)
+    X_view = coerce_X_for_grouped(X, group_col, num_col, recipe.name)
     return apply_grouped_delta(
         X_view,
         {
