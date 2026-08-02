@@ -128,6 +128,19 @@ Run unbuffered with `-x -s` rather than launching a long blind run.
 A failure that is an OOM or a Windows paging-file error (WinError 1455 under joblib fan-out) reflects machine-wide memory pressure at that moment, not a defect: retry once, and if it fails again it is real. Tolerate it in code via `OSError` plus a skip.
 Heavily-parametrised modules expose a fast mode (a `--fast` flag or env var plus a `fast_subset` helper) that runs one representative case per code path, with the exhaustive sweep behind a slow marker. Without it the only options are the full matrix or no coverage, and the full matrix stops being run.
 
+## PROCESS FIX (2026-08-02): check `git log -- <file>` vs origin/master BEFORE investing in a fix
+Second redundant-work collision in one loop session (after the MDLP permutation-null one above):
+independently found + fixed `group_aware_relevance`'s (`_ranker_fs.py`) NaN-column/NaN-`y` fallback
+still walking a serial per-column `np.quantile` loop (324,002 calls, 105.5s of a 183.2s/96%-of-suite
+hotspot on LTR combo `c0037_1aebc059`) — only to discover, right before commit, that `origin/master`
+already had a comprehensive fix for the EXACT SAME profile finding (`git log -- <file>` showed commit
+`36b5f6b56`, "fuse group_aware_relevance's per-group loop into one chunk-parallel njit call (237x)"),
+superseding the local change entirely. Discarded again (`git checkout --`). **Standing rule going
+forward**: before spending real effort on a hotspot found via profiling, run `git log --oneline -3 --
+<file>` (or diff the worktree's rebased copy against the file) FIRST — a concurrent session may
+already be working the same profile, and the file's recent-commit list is a two-second check that
+would have caught both collisions before any implementation time was spent.
+
 ## ENV NOTE (2026-08-02): stale installed `pyutilz` crashed every mlframe import
 The site-packages `pyutilz` install lagged mlframe's current code (missing
 `_generate_combinations_recursive_njit_core`, added by concurrent pyutilz work), crashing every
