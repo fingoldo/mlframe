@@ -5,7 +5,15 @@ from this same ``_benchmarks/`` directory -- only the literal duplicated bodies 
 """
 from __future__ import annotations
 
-from typing import Callable, TextIO
+from typing import Callable, List, TextIO
+
+
+def uf_find(x: int, parent: List[int]) -> int:
+    """Union-find root lookup with path-halving compression; mutates ``parent`` in place."""
+    while parent[x] != x:
+        parent[x] = parent[parent[x]]
+        x = parent[x]
+    return x
 
 
 def make_dataset(cfg: dict):

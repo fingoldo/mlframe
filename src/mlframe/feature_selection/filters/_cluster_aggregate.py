@@ -307,6 +307,14 @@ def _continuous_cols(X, names: Sequence[str]) -> np.ndarray:
     return np.column_stack(cols)
 
 
+def uf_find(x: int, parent: list) -> int:
+    """Union-find root lookup with path-halving compression; mutates ``parent`` in place."""
+    while parent[x] != x:
+        parent[x] = parent[parent[x]]
+        x = parent[x]
+    return x
+
+
 def _connected_components(n: int, edges: list) -> list:
     """Union-find connected components over ``edges`` (list of (a,b) into 0..n-1).
 
@@ -319,20 +327,13 @@ def _connected_components(n: int, edges: list) -> list:
     """
     parent = list(range(n))
 
-    def find(x):
-        """Path-halving find with iterative parent-pointer compression."""
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
     for a, b in edges:
-        ra, rb = find(a), find(b)
+        ra, rb = uf_find(a, parent), uf_find(b, parent)
         if ra != rb:
             parent[rb] = ra
     comps: dict = {}
     for i in range(n):
-        comps.setdefault(find(i), []).append(i)
+        comps.setdefault(uf_find(i, parent), []).append(i)
     return [c for c in comps.values() if len(c) > 1]
 
 

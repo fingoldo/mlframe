@@ -74,6 +74,7 @@ import numpy as np
 import pandas as pd
 
 from .hermite_fe import _POLY_BASES
+from ._cluster_aggregate import uf_find
 from ._orthogonal_shared import coerce_y_classif
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
@@ -116,22 +117,14 @@ def _connected_components(n: int, edges: list[tuple[int, int]]) -> list[list[int
     """
     parent = list(range(n))
 
-    def find(x: int) -> int:
-        """Union-find root lookup with path compression (halving), giving amortised near-constant-time find."""
-        # Path compression for amortised near-constant find.
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
     for a, b in edges:
-        ra, rb = find(a), find(b)
+        ra, rb = uf_find(a, parent), uf_find(b, parent)
         if ra != rb:
             parent[rb] = ra
 
     comps: dict[int, list[int]] = {}
     for i in range(n):
-        comps.setdefault(find(i), []).append(i)
+        comps.setdefault(uf_find(i, parent), []).append(i)
     return [c for c in comps.values() if len(c) >= 2]
 
 

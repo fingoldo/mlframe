@@ -25,6 +25,8 @@ hierarchy-stability-14, shap-proxy-clustering-8.
 """
 from __future__ import annotations
 
+from mlframe.feature_selection._benchmarks._bench_shared import uf_find
+
 import numpy as np
 
 from mlframe.feature_selection.filters.info_theory import entropy, merge_vars
@@ -57,17 +59,13 @@ def _su_matrix(fd, fn, n):
 def _single_linkage_cc(S, tau):
     p = S.shape[0]
     parent = list(range(p))
-    def find(x):
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]; x = parent[x]
-        return x
     for i in range(p):
         for j in range(i + 1, p):
             if S[i, j] > tau:
-                ri, rj = find(i), find(j)
+                ri, rj = uf_find(i, parent), uf_find(j, parent)
                 if ri != rj:
                     parent[rj] = ri
-    roots = [find(i) for i in range(p)]
+    roots = [uf_find(i, parent) for i in range(p)]
     uniq = {r: k for k, r in enumerate(sorted(set(roots)))}
     return np.array([uniq[r] for r in roots])
 

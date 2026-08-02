@@ -19,6 +19,8 @@ selection. Not shipped.
 """
 from __future__ import annotations
 
+from mlframe.feature_selection._benchmarks._bench_shared import uf_find
+
 import numpy as np
 
 from mlframe.feature_selection.filters.info_theory import entropy, merge_vars
@@ -47,15 +49,11 @@ def _su_matrix(fd, fn):
 
 def _cc(S, tau):
     p = S.shape[0]; parent = list(range(p))
-    def find(x):
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]; x = parent[x]
-        return x
     for i in range(p):
         for j in range(i + 1, p):
             if S[i, j] > tau:
-                parent[find(j)] = find(i)
-    roots = [find(i) for i in range(p)]
+                parent[uf_find(j, parent)] = uf_find(i, parent)
+    roots = [uf_find(i, parent) for i in range(p)]
     u = {r: k for k, r in enumerate(sorted(set(roots)))}
     return np.array([u[r] for r in roots])
 
