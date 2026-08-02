@@ -14,10 +14,9 @@ Run:
 
 from __future__ import annotations
 
-import time
-
 import numpy as np
 
+from mlframe._bench_timing_shared import best_of_seconds_no_warmup
 from mlframe.feature_engineering.stationarity import ewma_residual
 
 
@@ -34,15 +33,6 @@ def _old_ewma_single(seg: np.ndarray, hl: float, adjust: bool = False) -> np.nda
         w_cum = np.cumsum(w[::-1])
         ewma = ewma * w[::-1] / w_cum
     return seg - ewma
-
-
-def _bench(fn, *args, n_iter=20):
-    best = float("inf")
-    for _ in range(n_iter):
-        t0 = time.perf_counter()
-        fn(*args)
-        best = min(best, time.perf_counter() - t0)
-    return best
 
 
 def main():
@@ -62,8 +52,8 @@ def main():
         # warm njit
         ewma_residual(x[:100], half_life=hl_list)
 
-        t_old = _bench(lambda: [_old_ewma_single(x, hl) for hl in hl_list])
-        t_new = _bench(lambda: ewma_residual(x, half_life=hl_list))
+        t_old = best_of_seconds_no_warmup(lambda: [_old_ewma_single(x, hl) for hl in hl_list], repeat=20)
+        t_new = best_of_seconds_no_warmup(lambda: ewma_residual(x, half_life=hl_list), repeat=20)
         print(f"n={n:>9} OLD={t_old*1e3:9.3f}ms NEW={t_new*1e3:9.3f}ms " f"speedup={t_old/t_new:5.2f}x identical={ident} max_abs={max_abs:.2e}")
 
 
