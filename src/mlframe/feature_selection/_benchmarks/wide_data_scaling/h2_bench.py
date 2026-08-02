@@ -5,11 +5,7 @@ import numpy as np
 if __name__ == "__main__":
     sys.path.insert(0, r"D:/Upd/Programming/PythonCodeRepository/mlframe/src")
 
-    PROG = r"D:/Temp/synergy_scale_bench/progress.txt"
-    def ck(msg):
-        with open(PROG, "a") as f:
-            f.write(time.strftime("%Y-%m-%d %H:%M:%S") + " | " + msg + "\n")
-        print(msg, flush=True)
+    from mlframe.feature_selection._benchmarks.wide_data_scaling._progress_shared import ck
 
     N = 8000
     NBINS = 8
@@ -30,7 +26,6 @@ if __name__ == "__main__":
     except Exception:
         HAS_LGB = False
     ck("H2 start dcor=%s lgb=%s" % (HAS_DCOR, HAS_LGB))
-
 
     def make_frame(p, seed, L):
         """K pure pair interactions. Operands ~0 marginal signal; y = XOR-like sign product.
@@ -53,11 +48,9 @@ if __name__ == "__main__":
         y = (rng.random(N) < p_y).astype(np.int32)
         return X, y, set(operands)
 
-
     def bin_codes(x):
         q = np.quantile(x, np.linspace(0, 1, NBINS + 1)[1:-1])
         return np.searchsorted(q, x)
-
 
     # ---- criteria, each returns score array length p (higher = more interesting) ----
 
@@ -125,13 +118,11 @@ if __name__ == "__main__":
         imp = booster.feature_importance(importance_type="split")
         return imp.astype(float)
 
-
     CRITS = [("marginal_MI", crit_marginal_mi), ("2nd_moment", crit_second_moment), ("cond_resp_var", crit_cond_resp_var)]
     if HAS_DCOR:
         CRITS.append(("dcor", crit_dcor))
     if HAS_LGB:
         CRITS.append(("gbm_splits", crit_gbm_splits))
-
 
     def recall(scores, operands, m):
         top = set(np.argsort(scores)[::-1][:m].tolist())

@@ -6,12 +6,7 @@ if __name__ == "__main__":
     sys.path.insert(0, r"D:/Upd/Programming/PythonCodeRepository/mlframe/src")
     sys.path.insert(0, r"D:/Upd/Programming/PythonCodeRepository")
 
-    PROG = r"D:/Temp/synergy_scale_bench/progress.txt"
-    def ck(msg):
-        with open(PROG, "a") as f:
-            f.write(time.strftime("%Y-%m-%d %H:%M:%S") + " | " + msg + "\n")
-        print(msg, flush=True)
-
+    from mlframe.feature_selection._benchmarks.wide_data_scaling._progress_shared import ck
     from mlframe.feature_selection.filters.batch_pair_mi_gpu import (
         batch_pair_mi_njit_prange, batch_pair_mi_cuda, batch_pair_mi_cupy,
         _CUDA_AVAIL, _CUPY_AVAIL,
