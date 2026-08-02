@@ -30,6 +30,12 @@ from __future__ import annotations
 
 import numpy as np
 
+from mlframe.metrics._benchmarks._calibration_scenarios_shared import (
+    scn_calibrated_bimodal as _scn_calibrated_bimodal,
+    scn_miscal_sigmoid as _scn_miscal_sigmoid,
+    scn_miscal_overconf as _scn_miscal_overconf,
+)
+
 
 def _scn_calibrated_uniform(rng, n):
     """Perfectly calibrated, uniform scores. True ECE = 0."""
@@ -43,30 +49,6 @@ def _scn_calibrated_beta(rng, n):
     s = np.clip(rng.beta(0.6, 8.0, n), 1e-6, 1 - 1e-6)
     acc = s.copy()
     return s, acc, 0.0
-
-
-def _scn_calibrated_bimodal(rng, n):
-    """Perfectly calibrated, bimodal scores. True ECE = 0."""
-    half = n // 2
-    s = np.empty(n)
-    s[:half] = np.clip(rng.beta(2.0, 12.0, half), 1e-6, 1 - 1e-6)
-    s[half:] = np.clip(rng.beta(12.0, 2.0, n - half), 1e-6, 1 - 1e-6)
-    return s, s.copy(), 0.0
-
-
-def _scn_miscal_sigmoid(rng, n):
-    """Logit-shifted miscalibration; nonzero true ECE (fine-grid reference)."""
-    s = np.clip(rng.beta(1.2, 6.0, n), 1e-6, 1 - 1e-6)
-    logit = np.log(s / (1 - s)) + 0.8
-    acc = 1.0 / (1.0 + np.exp(-logit))
-    return s, acc, None
-
-
-def _scn_miscal_overconf(rng, n):
-    """Overconfident model; nonzero true ECE."""
-    s = np.clip(rng.uniform(0, 1, n), 1e-6, 1 - 1e-6)
-    acc = np.clip(0.5 + 0.5 * (s - 0.5) * 0.4, 0, 1)  # squashed toward 0.5
-    return s, acc, None
 
 
 SCENARIOS = {
