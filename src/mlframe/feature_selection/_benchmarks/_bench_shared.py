@@ -5,9 +5,11 @@ from this same ``_benchmarks/`` directory -- only the literal duplicated bodies 
 """
 from __future__ import annotations
 
-from typing import Any, Callable, List, TextIO
+from typing import Any, Callable, TextIO
 
 import numpy as np
+
+from mlframe.feature_selection.filters._cluster_aggregate import uf_find  # noqa: F401 -- re-exported for the bench-family call sites
 
 
 def searchsorted_bin_codes(x: np.ndarray, edges: np.ndarray) -> np.ndarray:
@@ -44,14 +46,6 @@ def random_baseline_brier(y) -> float:
     the proxy: anything we ship MUST beat this. y is binary 0/1."""
     p = float(np.asarray(y).mean())
     return float(np.mean((np.asarray(y, dtype=np.float64) - p) ** 2))
-
-
-def uf_find(x: int, parent: List[int]) -> int:
-    """Union-find root lookup with path-halving compression; mutates ``parent`` in place."""
-    while parent[x] != x:
-        parent[x] = parent[parent[x]]
-        x = parent[x]
-    return x
 
 
 def make_dataset(cfg: dict):
