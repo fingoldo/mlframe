@@ -36,7 +36,7 @@ import lightgbm as lgb
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hard_synth import make_hard_dataset
 import fs_selectors as S
-from _downstream_shared import make_ckpt_writer
+from _downstream_shared import make_ckpt_writer, entropy as _entropy
 
 CK = "D:/Temp/queue_ideas_progress.txt"
 ck = make_ckpt_writer(CK)
@@ -48,11 +48,6 @@ def _qbin(col, nbins=8):
     if len(edges) <= 2:
         return np.zeros(len(col), dtype=np.int64)
     return np.clip(np.digitize(col, edges[1:-1]), 0, len(edges) - 2).astype(np.int64)
-
-def _entropy(labels):
-    _, cnt = np.unique(labels, return_counts=True)
-    p = cnt / cnt.sum()
-    return float(-(p * np.log(p)).sum())
 
 def _joint(*arrs):
     out = arrs[0].astype(np.int64).copy()

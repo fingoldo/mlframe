@@ -53,6 +53,14 @@ def boruta_single(X, y):
     return [c for c in b.selected_features_ if c in X.columns]
 
 
+def entropy(labels) -> float:
+    """Discrete Shannon entropy (nats) of an integer-coded label array -- shared by the round4
+    tentative_to_cmi / su_seeded_interactions bench pair."""
+    _, cnt = np.unique(labels, return_counts=True)
+    p = cnt / cnt.sum()
+    return float(-(p * np.log(p)).sum())
+
+
 def load_scene(n_rows):
     """Load the OpenML 'scene' dataset (binarised to the majority-class target), optionally subsampled
     to ``n_rows`` rows -- shared by the round4_scene_cprofile / round4_fs_campaign_profile bench pair."""

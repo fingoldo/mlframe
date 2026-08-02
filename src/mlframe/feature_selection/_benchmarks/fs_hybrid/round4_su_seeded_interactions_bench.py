@@ -43,6 +43,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from synth import make_dataset
 from hard_synth import make_hard_dataset
 import fs_selectors as S
+from _downstream_shared import entropy as _entropy
 
 CK = "D:/Temp/queue_ideas_progress.txt"
 def ck(msg):
@@ -61,11 +62,6 @@ def _qbin(col, nbins=10):
     except Exception as exc:
         ck(f"_qbin: quantile binning failed, returning zeros: {exc!r}")
         return np.zeros(len(col), dtype=np.int64)
-
-def _entropy(labels):
-    _, cnt = np.unique(labels, return_counts=True)
-    p = cnt / cnt.sum()
-    return float(-(p * np.log(p)).sum())
 
 def _mi(a, b):
     # joint label via cantor-ish pairing on small-card ints
