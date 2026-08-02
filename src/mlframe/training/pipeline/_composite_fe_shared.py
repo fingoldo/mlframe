@@ -11,6 +11,11 @@ import pandas as pd
 import polars as pl
 
 
+def row_count(df: Any) -> int:
+    """Row count of ``df``, or 0 if ``df`` is None."""
+    return df.shape[0] if df is not None else 0
+
+
 def to_pandas(df: Any) -> Optional[pd.DataFrame]:
     """Convert a polars DataFrame to pandas; pass through pandas/None unchanged."""
     if df is None:

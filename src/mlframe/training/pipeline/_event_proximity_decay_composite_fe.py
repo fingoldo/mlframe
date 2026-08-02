@@ -23,14 +23,9 @@ import pandas as pd
 
 from mlframe.feature_engineering.event_proximity_decay import event_proximity_decay_features
 from mlframe.utils.log_throttle import log_throttle
-from ._composite_fe_shared import attach_new_columns
+from ._composite_fe_shared import attach_new_columns, row_count
 
 logger = logging.getLogger(__name__)
-
-
-def _row_count(df: Any) -> int:
-    """Row count of df, or 0 if df is None."""
-    return df.shape[0] if df is not None else 0
 
 
 def apply_event_proximity_decay_composite_fe(
@@ -84,7 +79,7 @@ def apply_event_proximity_decay_composite_fe(
         if df is None:
             out[split_name] = None
             continue
-        ts_split = _slice(idx, _row_count(df))
+        ts_split = _slice(idx, row_count(df))
         if ts_split is None:
             out[split_name] = df
             continue
@@ -123,7 +118,7 @@ def replay_event_proximity_decay_composite_fe(df: Any, metadata: dict, timestamp
     if not config.event_proximity_decay_event_dates:
         return df
     train, _, _ = apply_event_proximity_decay_composite_fe(
-        df, None, None, config, timestamps, train_idx=np.arange(_row_count(df)), val_idx=None, test_idx=None, verbose=verbose,
+        df, None, None, config, timestamps, train_idx=np.arange(row_count(df)), val_idx=None, test_idx=None, verbose=verbose,
     )
     return train
 

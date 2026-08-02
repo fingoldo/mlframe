@@ -22,7 +22,7 @@ import polars as pl
 from mlframe.feature_engineering.recency_aggregation import per_group_recency_weighted_agg
 from mlframe.feature_engineering.state_duration import time_since_state_change
 from mlframe.utils.log_throttle import log_throttle
-from ._composite_fe_shared import attach_new_columns
+from ._composite_fe_shared import attach_new_columns, row_count
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +34,6 @@ def _to_numpy_column(df: Any, col: str) -> Optional[np.ndarray]:
     if isinstance(df, pl.DataFrame):
         return np.asarray(df[col].to_numpy())
     return np.asarray(df[col].to_numpy())
-
-
-def _row_count(df: Any) -> int:
-    """Row count of ``df``, or 0 if ``df`` is None."""
-    return df.shape[0] if df is not None else 0
 
 
 def apply_entity_time_composite_fe(
@@ -98,14 +93,14 @@ def apply_entity_time_composite_fe(
         if df is None:
             out[split_name] = None
             continue
-        sliced = _slice(idx, _row_count(df))
+        sliced = _slice(idx, row_count(df))
         if sliced is None:
             # idx not usable for this split (length mismatch) -- skip the step for this split rather
             # than risk misaligning group_ids/timestamps against df's actual rows.
             out[split_name] = df
             continue
         g, t = sliced
-        new_cols = pd.DataFrame(index=range(_row_count(df)))
+        new_cols = pd.DataFrame(index=range(row_count(df)))
 
         for col in state_cols:
             state_vals = _to_numpy_column(df, col)
@@ -173,7 +168,7 @@ def replay_entity_time_composite_fe(
         return df
     train, _, _ = apply_entity_time_composite_fe(
         df, None, None, config, group_ids, timestamps,
-        train_idx=np.arange(_row_count(df)), val_idx=None, test_idx=None, verbose=verbose,
+        train_idx=np.arange(row_count(df)), val_idx=None, test_idx=None, verbose=verbose,
     )
     return train
 

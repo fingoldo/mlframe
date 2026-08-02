@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 
 from mlframe.feature_engineering.two_step_target_encode import two_step_recency_weighted_target_encode
-from ._composite_fe_shared import attach_new_columns, to_pandas
+from ._composite_fe_shared import attach_new_columns, to_pandas, row_count
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ def apply_target_encoding_composite_fe(
     group_ids = np.asarray(group_ids)
     ts_arr = np.asarray(timestamps) if timestamps is not None else np.arange(len(group_ids), dtype=np.float64)
     train_idx_arr = np.asarray(train_idx)
-    if len(train_idx_arr) != _row_count(train_df) or len(group_ids) <= int(train_idx_arr.max()):
+    if len(train_idx_arr) != row_count(train_df) or len(group_ids) <= int(train_idx_arr.max()):
         return train_df, val_df, test_df
 
     train_pd = to_pandas(train_df)
@@ -110,7 +110,7 @@ def apply_target_encoding_composite_fe(
         """Attach the train-fitted per-entity target encoding onto a val/test split by group id."""
         if df is None:
             return None
-        if idx is None or len(np.asarray(idx)) != _row_count(df) or len(group_ids) <= int(np.asarray(idx).max()):
+        if idx is None or len(np.asarray(idx)) != row_count(df) or len(group_ids) <= int(np.asarray(idx).max()):
             return df
         g = group_ids[np.asarray(idx)]
         vals = np.array([entity_lookup.get(gid, global_prior) for gid in g], dtype=np.float64)
@@ -123,11 +123,6 @@ def apply_target_encoding_composite_fe(
         logger.info("apply_target_encoding_composite_fe: added %r (%d train entities in lookup)", out_col, len(entity_lookup))
 
     return out_train, out_val, out_test
-
-
-def _row_count(df: Any) -> int:
-    """Row count of df, or 0 if df is None."""
-    return df.shape[0] if df is not None else 0
 
 
 def _normalize_entity_key(gid: Any) -> str:
@@ -154,7 +149,7 @@ def replay_target_encoding_composite_fe(df: Any, metadata: dict, group_ids: Opti
     if not out_col or entity_lookup is None or global_prior is None:
         return df
     g = np.asarray(group_ids)
-    if len(g) != _row_count(df):
+    if len(g) != row_count(df):
         return df
     vals = np.array([entity_lookup.get(_normalize_entity_key(gid), global_prior) for gid in g], dtype=np.float64)
     if verbose:
