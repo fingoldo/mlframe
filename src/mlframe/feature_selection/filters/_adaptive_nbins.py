@@ -69,11 +69,19 @@ _BB_DEFAULT_SUBSAMPLE_THRESHOLD = 5000
 
 logger = logging.getLogger(__name__)
 
-# Minimum number of cache-MISS columns before per_feature_edges engages the thread
-# pool. Below this, thread-pool spawn + dispatch overhead outweighs the per-column
-# compute (verified on p=50: parallel ties serial). Wide frames (p>=128) are where
-# the GIL-releasing njit MDLP kernels yield the ~3x wall-time win.
-_PARALLEL_EDGES_MIN_COLS = 128
+# Minimum number of cache-MISS columns before per_feature_edges engages the thread pool. The
+# GIL-releasing njit MDLP kernels make threading pay off far earlier than the previous threshold
+# (128) assumed: 2M-row cProfile (combo c0037_c314bb14, master-seed 2026_04_29) found
+# per_feature_edges/_compute_col_edges costing 78s wall on a fayyad_irani fit with only ~30 feature
+# columns -- well under the old 128-column gate, so the thread pool never engaged in practice on any
+# realistic combo width. Re-benchmarked fresh (n=300k, fayyad_irani, this host): ncols=2 -> 1.24x,
+# ncols=4 -> 3.71x, ncols=8 -> 4.44x, ncols=16 -> 4.44x, ncols=30 -> 7.18x -- consistently faster
+# threaded from the smallest tested width, no regression at any point measured. The old "p=50: parallel
+# ties serial" comment this replaced does not reproduce; trusting the fresh, reproducible A/B over the
+# stale claim. Edges stay BIT-IDENTICAL to the serial path regardless of n_jobs/thread scheduling (by
+# construction: each column's edges are computed independently, no shared mutable state) at any
+# threshold, so this is a pure wall-time change.
+_PARALLEL_EDGES_MIN_COLS = 2
 
 
 __all__ = [

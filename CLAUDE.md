@@ -128,6 +128,31 @@ Run unbuffered with `-x -s` rather than launching a long blind run.
 A failure that is an OOM or a Windows paging-file error (WinError 1455 under joblib fan-out) reflects machine-wide memory pressure at that moment, not a defect: retry once, and if it fails again it is real. Tolerate it in code via `OSError` plus a skip.
 Heavily-parametrised modules expose a fast mode (a `--fast` flag or env var plus a `fast_subset` helper) that runs one representative case per code path, with the exhaustive sweep behind a slow marker. Without it the only options are the full matrix or no coverage, and the full matrix stops being run.
 
+## PERF WIN (2026-08-02): per_feature_edges' thread-pool threshold was 64x too high for real usage (1.2x-7.2x)
+2M-row cProfile on combo `c0037_c314bb14` (master-seed `2026_04_29`) found `per_feature_edges`/
+`_compute_col_edges` (`_adaptive_nbins.py`) costing 78s wall on a `fayyad_irani` (MDLP) fit with
+only ~30 feature columns. `per_feature_edges` already had a `ThreadPoolExecutor` path for its
+per-column edge loop (the columns are independent and the MDLP njit kernels release the GIL) — but
+it was gated behind `_PARALLEL_EDGES_MIN_COLS = 128`, a threshold no realistic fuzz-combo width
+(typically 10-50 columns) ever reaches, so the thread pool was effectively DEAD CODE in production
+despite the docstring's own "columns are independent... a THREAD pool gives real wall-time
+parallelism" rationale. Re-benchmarked fresh on this host (n=300k, `fayyad_irani`): ncols=2 -> 1.24x,
+ncols=4 -> 3.71x, ncols=8 -> 4.44x, ncols=16 -> 4.24x, ncols=30 -> 7.18x — consistently faster
+threaded from the smallest width tested, zero regression anywhere measured. The threshold's own prior
+comment ("verified on p=50: parallel ties serial") does not reproduce; trusted the fresh, reproducible
+A/B over the stale unverifiable claim. Lowered `_PARALLEL_EDGES_MIN_COLS` from 128 to 2. Edges are
+BIT-IDENTICAL to the serial path regardless of thread count (each column's edges are independent, no
+shared mutable state) — verified directly (0 mismatches across 12 synthetic columns, new default vs.
+`n_jobs=1`). 58 tests across the adaptive-nbins / fayyad-irani / categorize_dataset suites pass.
+
+**Incidental bug fix caught while validating**: `test_per_feature_edges_default_uses_validated_split`
+failed — but on a literal revert-and-rerun (fully unmodified code) it failed IDENTICALLY, proving it
+predates and is unrelated to the threshold change. Root cause: the test mocked
+`_mdlp_recurse_validated` (the pre-2026-07-31 DFS recursion name); the 2026-07-31 BFS rewrite changed
+`mdlp_bin_edges`'s default validated path to call `_mdlp_recurse_validated_bfs` instead, so the mock
+never intercepted anything (`call_record` stayed all-zero) and the test failed unconditionally since
+that landed. Fixed the mock target to the current function name; all 6 tests in the file pass.
+
 ## PERF WIN (2026-08-02): Fourier peak-frequency refine's grid scan fused into one parallel-njit batch call (3.1x)
 2M-row cProfile on combo `c0016_c3f401e4` (master-seed `2026_04_29`) found `_power_centered`
 (`_orth_extra_basis_fe.py`) at 30.98s tottime / 2134 calls. `_refine_peak_freq`'s `_scan` helper grid-

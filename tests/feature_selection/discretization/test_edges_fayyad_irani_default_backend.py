@@ -139,9 +139,17 @@ def test_per_feature_edges_fast_mode_uses_njit_default():
 def test_per_feature_edges_default_uses_validated_split():
     """2026-07-19: pins the NEW default contract -- ``per_feature_edges`` with no
     ``mdlp_fast_mode`` kwarg must route through the significance-gated validated
-    path (``_mdlp_recurse_validated``), NOT either classic recursion function.
+    path (``_mdlp_recurse_validated_bfs``), NOT either classic recursion function.
     See ``mdlp_bin_edges``'s docstring / ``_mdlp_validated_split.py`` for the
-    accuracy-over-speed rationale (user decision) backing this default flip."""
+    accuracy-over-speed rationale (user decision) backing this default flip.
+
+    BUG FOUND AND FIXED (2026-08-02, incidental to a profiling cycle): this test mocked
+    ``_mdlp_recurse_validated`` (the pre-2026-07-31 DFS recursion), but the 2026-07-31 BFS rewrite
+    (``perf(training): njit port of iterstrat...`` / the MDLP level-order batching landed the same
+    day) changed ``mdlp_bin_edges``'s default validated path to call ``_mdlp_recurse_validated_bfs``
+    instead -- so this test's mock never intercepted anything (``call_record`` stayed all-zero) and
+    it failed unconditionally, unrelated to any of this session's other changes (confirmed via a
+    literal revert-and-rerun on fully unmodified code, which failed identically)."""
     from unittest.mock import patch
     from mlframe.feature_selection.filters._adaptive_nbins import per_feature_edges
 
@@ -156,7 +164,7 @@ def test_per_feature_edges_default_uses_validated_split():
     mvs = pytest.importorskip("mlframe.feature_selection.filters._mdlp_validated_split")
     real_njit = sb._mdlp_recurse_njit
     real_python = sb._mdlp_recurse
-    real_validated = mvs._mdlp_recurse_validated
+    real_validated = mvs._mdlp_recurse_validated_bfs
 
     def fake_njit(*args, **kwargs):
         """Fake njit."""
@@ -176,11 +184,11 @@ def test_per_feature_edges_default_uses_validated_split():
     with (
         patch("mlframe.feature_selection.filters.supervised_binning._mdlp_recurse_njit", side_effect=fake_njit),
         patch("mlframe.feature_selection.filters.supervised_binning._mdlp_recurse", side_effect=fake_python),
-        patch("mlframe.feature_selection.filters._mdlp_validated_split._mdlp_recurse_validated", side_effect=fake_validated),
+        patch("mlframe.feature_selection.filters._mdlp_validated_split._mdlp_recurse_validated_bfs", side_effect=fake_validated),
     ):
         per_feature_edges(x, y, method="fayyad_irani")
 
-    assert call_record["validated"] >= 1, f"default per_feature_edges must route to _mdlp_recurse_validated; call record: {call_record}"
+    assert call_record["validated"] >= 1, f"default per_feature_edges must route to _mdlp_recurse_validated_bfs; call record: {call_record}"
     assert (
         call_record["njit"] == 0 and call_record["python"] == 0
     ), f"default per_feature_edges must NOT route to either classic recursion function; call record: {call_record}"
