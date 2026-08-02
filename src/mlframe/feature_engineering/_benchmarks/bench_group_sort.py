@@ -6,7 +6,8 @@ import scipy.stats  # noqa
 import numba  # noqa
 import time
 import numpy as np
-from numba import njit
+
+from mlframe.feature_engineering.grouped import _stable_counting_segments_int as _stable_counting_argsort_int
 
 
 def baseline(group_ids):
@@ -17,39 +18,6 @@ def baseline(group_ids):
     bnd = np.where(g_sorted[1:] != g_sorted[:-1])[0] + 1
     starts = np.concatenate(([0], bnd)).astype(np.intp)
     ends = np.concatenate((bnd, [n])).astype(np.intp)
-    return sort_idx, starts, ends
-
-
-@njit(cache=True)
-def _stable_counting_argsort_int(g, gmin, span):
-    # Stable counting sort returning sort_idx ordered by (gid, original index).
-    n = g.shape[0]
-    counts = np.zeros(span + 1, dtype=np.int64)
-    for i in range(n):
-        counts[g[i] - gmin] += 1
-    # prefix offsets
-    offsets = np.empty(span + 1, dtype=np.int64)
-    acc = 0
-    nonempty = 0
-    for b in range(span + 1):
-        offsets[b] = acc
-        if counts[b] > 0:
-            nonempty += 1
-        acc += counts[b]
-    sort_idx = np.empty(n, dtype=np.intp)
-    cursor = offsets.copy()
-    for i in range(n):  # ascending i => stable within group
-        b = g[i] - gmin
-        sort_idx[cursor[b]] = i
-        cursor[b] += 1
-    starts = np.empty(nonempty, dtype=np.intp)
-    ends = np.empty(nonempty, dtype=np.intp)
-    k = 0
-    for b in range(span + 1):
-        if counts[b] > 0:
-            starts[k] = offsets[b]
-            ends[k] = offsets[b] + counts[b]
-            k += 1
     return sort_idx, starts, ends
 
 
