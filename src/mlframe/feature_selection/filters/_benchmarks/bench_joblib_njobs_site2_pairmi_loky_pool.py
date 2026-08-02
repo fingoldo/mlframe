@@ -15,13 +15,13 @@ Run: PYTHONPATH=src CUDA_VISIBLE_DEVICES="" python src/mlframe/feature_selection
 """
 from __future__ import annotations
 
-import time
 from itertools import combinations
 
 import numpy as np
 from joblib import Parallel, delayed
 from joblib._parallel_backends import LokyBackend
 
+from mlframe.feature_selection._bench_timing_shared import best_of
 from mlframe.feature_selection.filters._joblib_safe import disable_cuda_in_worker
 from mlframe.feature_selection.filters.feature_engineering import compute_pairs_mis
 
@@ -35,13 +35,7 @@ def _make_data(n, n_cols, seed):
     return data, y, nbins, freqs_y
 
 
-def _best_of(fn, reps=3):
-    best = float("inf")
-    for _ in range(reps):
-        t0 = time.perf_counter()
-        fn()
-        best = min(best, time.perf_counter() - t0)
-    return best
+_best_of = best_of
 
 
 def _run_serial(all_pairs, data, y, nbins, freqs_y, fe_npermutations):

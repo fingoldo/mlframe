@@ -12,11 +12,12 @@ Run: PYTHONPATH=src python src/mlframe/feature_selection/filters/_benchmarks/ben
 """
 from __future__ import annotations
 
-import time
+import functools
 
 import numpy as np
 import pandas as pd
 
+from mlframe.feature_selection._bench_timing_shared import best_of
 from mlframe.feature_selection.filters.discretization import _multi_col_factorize_native
 
 
@@ -27,13 +28,7 @@ def _make_df(n, n_cols, seed=0):
     return pd.DataFrame(data)  # plain object dtype -- forces the factorize path, not .cat.codes
 
 
-def _best_of(fn, reps=3):
-    best = float("inf")
-    for _ in range(reps):
-        t0 = time.perf_counter()
-        fn()
-        best = min(best, time.perf_counter() - t0)
-    return best
+_best_of = functools.partial(best_of, reps=3)
 
 
 def main():

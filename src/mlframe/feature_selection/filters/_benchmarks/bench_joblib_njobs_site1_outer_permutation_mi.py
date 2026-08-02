@@ -15,13 +15,15 @@ Run: PYTHONPATH=src python src/mlframe/feature_selection/filters/_benchmarks/ben
 """
 from __future__ import annotations
 
-import time
+import functools
 
 import numpy as np
+
+from mlframe.feature_selection._bench_timing_shared import best_of
 from joblib import Parallel, delayed
 
 from mlframe.feature_selection.filters._internals import NMAX_NONPARALLEL_ITERS
-from mlframe.feature_selection.filters.permutation import distribute_permutations, mi_direct, parallel_mi
+from mlframe.feature_selection.filters.permutation import distribute_permutations, parallel_mi
 
 
 def _make_classes(n, seed):
@@ -33,13 +35,7 @@ def _make_classes(n, seed):
     return classes_x, freqs_x, classes_y, freqs_y
 
 
-def _best_of(fn, reps=3):
-    best = float("inf")
-    for _ in range(reps):
-        t0 = time.perf_counter()
-        fn()
-        best = min(best, time.perf_counter() - t0)
-    return best
+_best_of = functools.partial(best_of, reps=3)
 
 
 def _run_outer_pool(n_workers, npermutations, classes_x, freqs_x, classes_y, freqs_y):
