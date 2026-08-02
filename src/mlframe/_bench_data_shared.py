@@ -16,6 +16,14 @@ def make_regression_data(n: int, n_features: int, seed: int = 0) -> tuple[pd.Dat
     return X, y
 
 
+def make_latent_projection_data(n: int, d: int, seed: int) -> np.ndarray:
+    """Synthetic X: a 3-dimensional Gaussian latent projected up to ``d`` columns plus small noise."""
+    rng = np.random.default_rng(seed)
+    latent = rng.normal(size=(n, 3))
+    W = rng.normal(size=(3, d))
+    return latent @ W + rng.normal(scale=0.2, size=(n, d))
+
+
 def make_binary_ensemble_pred_matrix(m: int, n: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
     """Synthetic (preds, y) for ensemble-selection benches: ``m`` binary-classifier prediction rows over ``n``
     samples, noise level per row spanning ``linspace(0.4, 1.6, m)`` so models range from strong to weak signal."""

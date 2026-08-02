@@ -12,15 +12,8 @@ from io import StringIO
 
 import numpy as np
 
+from mlframe._bench_data_shared import make_latent_projection_data as _make_dataset
 from mlframe.feature_engineering.transformer.swap_noise import swap_noise_augment
-
-
-def _make_dataset(n: int, d: int, seed: int) -> np.ndarray:
-    rng = np.random.default_rng(seed)
-    latent = rng.normal(size=(n, 3))
-    W = rng.normal(size=(3, d))
-    return latent @ W + rng.normal(scale=0.2, size=(n, d))
-
 
 if __name__ == "__main__":
     X = _make_dataset(50_000, d=20, seed=0)

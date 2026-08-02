@@ -14,14 +14,8 @@ from typing import Literal
 import numpy as np
 from sklearn.model_selection import KFold
 
+from mlframe._bench_data_shared import make_latent_projection_data as _make_dataset
 from mlframe.feature_engineering.transformer import compute_denoising_autoencoder_features, swap_noise_augment
-
-
-def _make_dataset(n: int, d: int, seed: int) -> np.ndarray:
-    rng = np.random.default_rng(seed)
-    latent = rng.normal(size=(n, 3))
-    W = rng.normal(size=(3, d))
-    return latent @ W + rng.normal(scale=0.2, size=(n, d))
 
 
 def _run_dae(n: int, extract_layers: Literal["bottleneck", "multi"] = "bottleneck") -> None:
