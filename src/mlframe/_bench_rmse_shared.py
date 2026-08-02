@@ -4,6 +4,8 @@ those scripts, consolidated here so a fix can't silently drift out of sync acros
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 
 
@@ -25,6 +27,17 @@ def mae_asarray(a, b) -> float:
 def sigmoid(z: np.ndarray) -> np.ndarray:
     """Logistic sigmoid, elementwise."""
     return np.asarray(1.0 / (1.0 + np.exp(-z)))
+
+
+def rss_mb(logger: logging.Logger) -> float:
+    """Process resident set size in MB; psutil-optional so the bench runs in minimal envs. NaN (never raises) when psutil is absent or the probe fails."""
+    try:
+        import psutil
+
+        return float(psutil.Process().memory_info().rss) / (1024 * 1024)
+    except Exception as exc:
+        logger.debug("rss_mb: psutil probe failed: %s", exc)
+        return float("nan")
 
 
 def trimmed_mean(members: np.ndarray, trim: float = 0.1) -> np.ndarray:
