@@ -8,9 +8,9 @@ Run: python this.py
 """
 from __future__ import annotations
 
-import time
-
 import numpy as np
+
+from mlframe.feature_selection._bench_timing_shared import best_of
 
 
 def main():
@@ -39,14 +39,8 @@ def main():
     o = old(); ne = new()
     assert np.array_equal(o[0], ne[0]) and np.array_equal(o[1], ne[1]), "identity"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
 
-    def _best(fn, reps=5):
-        t = []
-        for _ in range(reps):
-            s = time.perf_counter(); fn(); t.append(time.perf_counter() - s)
-        return min(t)
-
-    t_old = _best(old)
-    t_new = _best(new)
+    t_old = best_of(old, reps=5)
+    t_new = best_of(new, reps=5)
     print(f"plug_in+copula over p={p} n={n}: OLD(per-col) {t_old*1e3:.2f}ms -> " f"NEW(batched) {t_new*1e3:.2f}ms ({t_old/t_new:.2f}x) identity OK")
 
 

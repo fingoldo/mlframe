@@ -6,9 +6,9 @@ removes that. Bit-identical scores. Run: python this.py
 """
 from __future__ import annotations
 
-import time
-
 import numpy as np
+
+from mlframe.feature_selection._bench_timing_shared import best_of
 
 
 def main():
@@ -39,14 +39,8 @@ def main():
     _copula_mi_batch(X, y)  # warm current impl
     assert np.allclose(old(), _copula_mi_batch(X, y))  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
 
-    def _best(fn, reps=7):
-        t = []
-        for _ in range(reps):
-            s = time.perf_counter(); fn(); t.append(time.perf_counter() - s)
-        return min(t)
-
-    t_old = _best(old)
-    t_new = _best(lambda: _copula_mi_batch(X, y))
+    t_old = best_of(old, reps=7)
+    t_new = best_of(lambda: _copula_mi_batch(X, y), reps=7)
     print(f"n={n} p={p}: OLD(re-rank y/col) {t_old*1e3:.2f}ms -> " f"NEW(hoist) {t_new*1e3:.2f}ms ({t_old/t_new:.2f}x) identity OK")
 
 
