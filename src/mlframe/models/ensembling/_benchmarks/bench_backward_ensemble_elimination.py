@@ -9,20 +9,8 @@ import pstats
 import time
 from io import StringIO
 
-import numpy as np
-
 from mlframe.models.ensembling.selection import greedy_backward_ensemble_elimination
-
-
-def _make_matrix(m: int, n: int, seed: int):
-    rng = np.random.default_rng(seed)
-    y = (rng.random(n) < 0.5).astype(np.int64)
-    signal = 2 * y - 1
-    noise_levels = np.linspace(0.4, 1.6, m)
-    preds = np.empty((m, n))
-    for i, nl in enumerate(noise_levels):
-        preds[i] = np.clip(0.5 + 0.4 * signal + rng.normal(0, nl, n), 0, 1)
-    return preds, y
+from mlframe._bench_data_shared import make_binary_ensemble_pred_matrix as _make_matrix
 
 
 def _run(m: int, n: int) -> None:

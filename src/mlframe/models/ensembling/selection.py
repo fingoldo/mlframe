@@ -299,6 +299,13 @@ def caruana_greedy_selection(
     )
 
 
+def _uniform_mean_blend_predict(self, stacked: np.ndarray) -> np.ndarray:
+    """Uniform-mean blend of a NEW stacked ``(M, N[, K])`` matrix restricted to ``self.kept``. Shared by
+    ``BackwardEliminationResult``/``StepwiseSelectionResult``; bind as ``ClassName.predict = _uniform_mean_blend_predict``."""
+    arr = np.asarray(stacked, dtype=np.float64)
+    return np.asarray(arr[self.kept].mean(axis=0))
+
+
 class BackwardEliminationResult:
     """Result of :func:`greedy_backward_ensemble_elimination`.
 
@@ -323,10 +330,7 @@ class BackwardEliminationResult:
         self.score = score
         self.removal_votes = removal_votes
 
-    def predict(self, stacked: np.ndarray) -> np.ndarray:
-        """Uniform-mean blend of a NEW stacked ``(M, N[, K])`` matrix restricted to ``self.kept``."""
-        arr = np.asarray(stacked, dtype=np.float64)
-        return np.asarray(arr[self.kept].mean(axis=0))
+    predict = _uniform_mean_blend_predict
 
 
 def _greedy_backward_elimination_core(
@@ -515,10 +519,7 @@ class StepwiseSelectionResult:
         self.removed_order = removed_order
         self.score = score
 
-    def predict(self, stacked: np.ndarray) -> np.ndarray:
-        """Uniform-mean blend of a NEW stacked ``(M, N[, K])`` matrix restricted to ``self.kept``."""
-        arr = np.asarray(stacked, dtype=np.float64)
-        return np.asarray(arr[self.kept].mean(axis=0))
+    predict = _uniform_mean_blend_predict
 
 
 def stepwise_ensemble_selection(

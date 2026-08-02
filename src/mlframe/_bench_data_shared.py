@@ -16,6 +16,19 @@ def make_regression_data(n: int, n_features: int, seed: int = 0) -> tuple[pd.Dat
     return X, y
 
 
+def make_binary_ensemble_pred_matrix(m: int, n: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
+    """Synthetic (preds, y) for ensemble-selection benches: ``m`` binary-classifier prediction rows over ``n``
+    samples, noise level per row spanning ``linspace(0.4, 1.6, m)`` so models range from strong to weak signal."""
+    rng = np.random.default_rng(seed)
+    y = (rng.random(n) < 0.5).astype(np.int64)
+    signal = 2 * y - 1
+    noise_levels = np.linspace(0.4, 1.6, m)
+    preds = np.empty((m, n))
+    for i, nl in enumerate(noise_levels):
+        preds[i] = np.clip(0.5 + 0.4 * signal + rng.normal(0, nl, n), 0, 1)
+    return preds, y
+
+
 def make_binary_noise_dataset(n_rows: int, n_cols: int, seed: int) -> tuple[pd.DataFrame, np.ndarray]:
     """Synthetic (df, y): ``n_cols`` pure-noise Gaussian columns, ``y`` an independent Bernoulli label -- every
     column has near-chance AUC by construction, for benching a drop-near-noise-univariate-AUC style screen."""

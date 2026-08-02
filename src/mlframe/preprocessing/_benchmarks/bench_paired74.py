@@ -8,22 +8,9 @@ import numba  # noqa: F401
 import numpy as np
 import mlframe.preprocessing.cleaning as C
 from mlframe.preprocessing.cleaning import is_variable_truly_continuous
+from mlframe.preprocessing._benchmarks._nunique_bench_shared import get_nunique_old as OLD
 
 NEW = C._get_nunique
-
-
-def OLD(vals, skip_nan=True, skip_vals=None):
-    unique_vals = np.unique(vals)
-    if skip_nan:
-        if unique_vals.dtype.kind in ("f", "c"):
-            unique_vals = unique_vals[~np.isnan(unique_vals)]
-        else:
-            import pandas as pd
-            unique_vals = unique_vals[~pd.isna(unique_vals)]
-    if skip_vals:
-        for val in skip_vals:
-            unique_vals = unique_vals[unique_vals != val]
-    return len(unique_vals)
 
 
 if __name__ == "__main__":
@@ -37,13 +24,11 @@ if __name__ == "__main__":
         "wide": rng.uniform(-1e6, 1e6, N).astype(np.float64),
     }
 
-
     def run_once():
         out = []
         for v in cols.values():
             out.append(is_variable_truly_continuous(values=v, use_quantile=0.1))
         return out
-
 
     # identity
     C._get_nunique = OLD
