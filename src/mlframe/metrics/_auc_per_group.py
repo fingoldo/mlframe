@@ -27,7 +27,7 @@ from ._numba_params import NUMBA_NJIT_PARAMS
 # circular import: ``core`` re-exports the symbols below at the bottom of
 # its module, so we must not import core eagerly.
 
-from ._core_auc_brier import _argsort_desc_for_metrics  # iter338 dispatcher
+from ._core_auc_brier import _argsort_desc_for_metrics, fast_numba_aucs as fast_numba_aucs_simple  # iter338 dispatcher
 
 
 def fast_aucs_per_group(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.ndarray) -> Tuple[float, float, Dict[int, Tuple[float, float]]]:
@@ -198,62 +198,6 @@ def compute_grouped_group_aucs(sorted_group_ids: np.ndarray, sorted_y_true: np.n
                 current_group = sorted_group_ids[i]
 
     return group_aucs
-
-
-@numba.njit(**NUMBA_NJIT_PARAMS)
-def fast_numba_aucs_simple(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices: np.ndarray) -> Tuple[float, float]:
-    """
-    Simplified version of the per-group AUC kernel: ROC + PR in one pass over
-    score-sorted data.
-    """
-    y_score_sorted = y_score[desc_score_indices]
-    y_true_sorted = y_true[desc_score_indices]
-    total_pos = np.sum(y_true_sorted)
-    total_neg = len(y_true_sorted) - total_pos
-
-    if total_pos == 0 or total_neg == 0:
-        # Single-class data: both ROC AUC and PR AUC are undefined
-        return np.nan, np.nan
-
-    # Variables for ROC AUC
-    last_counted_fps = 0
-    last_counted_tps = 0
-    tps, fps = 0, 0
-    roc_auc = 0.0
-
-    # Variables for PR AUC
-    prev_recall = 0.0
-    pr_auc = 0.0
-    n = len(y_true_sorted)
-
-    for i in range(n):
-        tps += y_true_sorted[i]
-        fps += 1 - y_true_sorted[i]
-
-        if i == n - 1 or y_score_sorted[i + 1] != y_score_sorted[i]:
-            # Update ROC AUC
-            delta_fps = fps - last_counted_fps
-            sum_tps = last_counted_tps + tps
-            roc_auc += delta_fps * sum_tps
-            last_counted_fps = fps
-            last_counted_tps = tps
-
-            # Update PR AUC
-            current_precision = tps / (tps + fps) if (tps + fps) > 0 else 0.0
-            current_recall = tps / total_pos
-            delta_recall = current_recall - prev_recall
-            pr_auc += delta_recall * current_precision
-            prev_recall = current_recall
-
-    # Normalize ROC AUC
-    denom_roc = tps * fps * 2
-    if denom_roc > 0:
-        roc_auc /= denom_roc
-    else:
-        # Should not reach here due to early return, but handle defensively
-        roc_auc = np.nan
-
-    return roc_auc, pr_auc
 
 
 def compute_mean_aucs_per_group(group_aucs: dict) -> tuple:
