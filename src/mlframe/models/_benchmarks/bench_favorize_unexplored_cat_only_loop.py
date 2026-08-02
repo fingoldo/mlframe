@@ -27,17 +27,9 @@ import logging
 
 logging.disable(logging.CRITICAL)
 
-from mlframe.models.tuning import favorize_unexplored as NEW
+from mlframe.models.tuning import favorize_unexplored as NEW, normalize_probs as _normalize_probs
 
 _MISS = object()
-
-
-def _normalize_probs(probs):
-    total = probs.sum()
-    if total <= 0 or not np.isfinite(total):
-        probs[:] = 1.0 / len(probs)
-        return
-    np.divide(probs, total, out=probs)
 
 
 def OLD(candidates, probs, trials, cat_features, order: int = 1) -> None:
