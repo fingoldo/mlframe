@@ -17,6 +17,7 @@ import polars as pl
 
 from mlframe.feature_engineering.cross_sectional_neighbors import compute_cross_sectional_neighbor_features
 from mlframe.utils.log_throttle import log_throttle
+from ._composite_fe_shared import attach_new_columns
 
 logger = logging.getLogger(__name__)
 
@@ -28,15 +29,6 @@ def _to_pandas(df: Any) -> Optional[pd.DataFrame]:
     if isinstance(df, pl.DataFrame):
         return df.to_pandas()
     return df
-
-
-def _attach_new_columns(df: Any, new_cols: "pd.DataFrame") -> Any:
-    """Attach ``new_cols`` (a pandas frame) onto ``df``, matching df's own polars/pandas type."""
-    if new_cols.shape[1] == 0:
-        return df
-    if isinstance(df, pl.DataFrame):
-        return df.with_columns([pl.Series(c, new_cols[c].to_numpy()) for c in new_cols.columns])
-    return df.join(new_cols) if hasattr(df, "join") else pd.concat([df, new_cols], axis=1)
 
 
 def apply_cross_sectional_composite_fe(
@@ -105,7 +97,7 @@ def apply_cross_sectional_composite_fe(
             )
             new_cols = result.to_pandas() if isinstance(result, pl.DataFrame) else result
             new_cols = new_cols.reset_index(drop=True)
-            out[split_name] = _attach_new_columns(df, new_cols)
+            out[split_name] = attach_new_columns(df, new_cols)
             if verbose:
                 logger.info("apply_cross_sectional_composite_fe[%s]: added %d column(s)", split_name, new_cols.shape[1])
         except Exception:

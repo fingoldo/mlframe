@@ -22,17 +22,9 @@ import polars as pl
 from mlframe.feature_engineering.recency_aggregation import per_group_recency_weighted_agg
 from mlframe.feature_engineering.state_duration import time_since_state_change
 from mlframe.utils.log_throttle import log_throttle
+from ._composite_fe_shared import attach_new_columns
 
 logger = logging.getLogger(__name__)
-
-
-def _attach_new_columns(df: Any, new_cols: "pd.DataFrame") -> Any:
-    """Attach ``new_cols`` (a pandas frame) onto ``df``, matching df's own polars/pandas type."""
-    if new_cols.shape[1] == 0:
-        return df
-    if isinstance(df, pl.DataFrame):
-        return df.with_columns([pl.Series(c, new_cols[c].to_numpy()) for c in new_cols.columns])
-    return df.join(new_cols) if hasattr(df, "join") else pd.concat([df, new_cols], axis=1)
 
 
 def _to_numpy_column(df: Any, col: str) -> Optional[np.ndarray]:
@@ -143,7 +135,7 @@ def apply_entity_time_composite_fe(
             except Exception:
                 log_throttle(logger, "entity_time_fe_recency_aggregation_failed", logging.ERROR, "apply_entity_time_composite_fe: recency_aggregation step failed for column %r; skipping.", col, exc_info=True)
 
-        out[split_name] = _attach_new_columns(df, new_cols)
+        out[split_name] = attach_new_columns(df, new_cols)
         if verbose and new_cols.shape[1] > 0:
             logger.info("apply_entity_time_composite_fe[%s]: added %d column(s)", split_name, new_cols.shape[1])
 

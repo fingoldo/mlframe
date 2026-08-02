@@ -20,30 +20,14 @@ from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
-import polars as pl
 
 from mlframe.feature_engineering.two_step_target_encode import two_step_recency_weighted_target_encode
+from ._composite_fe_shared import attach_new_columns, to_pandas
 
 logger = logging.getLogger(__name__)
 
 _ENTITY_COL = "__mlframe_tste_entity__"
 _TIME_COL = "__mlframe_tste_time__"
-
-
-def _to_pandas(df: Any) -> Optional[pd.DataFrame]:
-    """Convert a polars DataFrame to pandas; pass through pandas/None unchanged."""
-    if df is None:
-        return None
-    return df.to_pandas() if isinstance(df, pl.DataFrame) else df
-
-
-def _attach_new_columns(df: Any, new_cols: "pd.DataFrame") -> Any:
-    """Attach new_cols (a pandas frame) onto df, matching df's own polars/pandas type."""
-    if new_cols.shape[1] == 0:
-        return df
-    if isinstance(df, pl.DataFrame):
-        return df.with_columns([pl.Series(c, new_cols[c].to_numpy()) for c in new_cols.columns])
-    return df.join(new_cols) if hasattr(df, "join") else pd.concat([df, new_cols], axis=1)
 
 
 def _out_col_name(columns: list) -> str:
@@ -78,7 +62,7 @@ def apply_target_encoding_composite_fe(
     if len(train_idx_arr) != _row_count(train_df) or len(group_ids) <= int(train_idx_arr.max()):
         return train_df, val_df, test_df
 
-    train_pd = _to_pandas(train_df)
+    train_pd = to_pandas(train_df)
     if train_pd is None or not all(c in train_pd.columns for c in columns):
         return train_df, val_df, test_df
 
@@ -120,7 +104,7 @@ def apply_target_encoding_composite_fe(
         metadata["two_step_target_encode_out_col"] = out_col
 
     train_new = pd.DataFrame({out_col: causal_encoding}, index=range(len(train_pd)))
-    out_train = _attach_new_columns(train_df, train_new)
+    out_train = attach_new_columns(train_df, train_new)
 
     def _lookup_split(df: Any, idx: Optional[np.ndarray]) -> Any:
         """Attach the train-fitted per-entity target encoding onto a val/test split by group id."""
@@ -130,7 +114,7 @@ def apply_target_encoding_composite_fe(
             return df
         g = group_ids[np.asarray(idx)]
         vals = np.array([entity_lookup.get(gid, global_prior) for gid in g], dtype=np.float64)
-        return _attach_new_columns(df, pd.DataFrame({out_col: vals}, index=range(len(vals))))
+        return attach_new_columns(df, pd.DataFrame({out_col: vals}, index=range(len(vals))))
 
     out_val = _lookup_split(val_df, val_idx)
     out_test = _lookup_split(test_df, test_idx)
@@ -175,7 +159,7 @@ def replay_target_encoding_composite_fe(df: Any, metadata: dict, group_ids: Opti
     vals = np.array([entity_lookup.get(_normalize_entity_key(gid), global_prior) for gid in g], dtype=np.float64)
     if verbose:
         logger.info("replay_target_encoding_composite_fe: replayed %r via entity lookup", out_col)
-    return _attach_new_columns(df, pd.DataFrame({out_col: vals}, index=range(len(vals))))
+    return attach_new_columns(df, pd.DataFrame({out_col: vals}, index=range(len(vals))))
 
 
 __all__ = ["apply_target_encoding_composite_fe", "replay_target_encoding_composite_fe"]

@@ -20,21 +20,12 @@ from typing import Any, List, Optional
 
 import numpy as np
 import pandas as pd
-import polars as pl
 
 from mlframe.feature_engineering.event_proximity_decay import event_proximity_decay_features
 from mlframe.utils.log_throttle import log_throttle
+from ._composite_fe_shared import attach_new_columns
 
 logger = logging.getLogger(__name__)
-
-
-def _attach_new_columns(df: Any, new_cols: "pd.DataFrame") -> Any:
-    """Attach new_cols (a pandas frame) onto df, matching df's own polars/pandas type."""
-    if new_cols.shape[1] == 0:
-        return df
-    if isinstance(df, pl.DataFrame):
-        return df.with_columns([pl.Series(c, new_cols[c].to_numpy()) for c in new_cols.columns])
-    return df.join(new_cols) if hasattr(df, "join") else pd.concat([df, new_cols], axis=1)
 
 
 def _row_count(df: Any) -> int:
@@ -102,7 +93,7 @@ def apply_event_proximity_decay_composite_fe(
                 pd.Series(ts_split), event_dates, cap=cap, column_prefix=column_prefix,
                 cap_before=cap_before, cap_after=cap_after,
             )
-            out[split_name] = _attach_new_columns(df, result.reset_index(drop=True))
+            out[split_name] = attach_new_columns(df, result.reset_index(drop=True))
             if verbose:
                 logger.info("apply_event_proximity_decay_composite_fe[%s]: added %d column(s)", split_name, result.shape[1])
         except Exception:

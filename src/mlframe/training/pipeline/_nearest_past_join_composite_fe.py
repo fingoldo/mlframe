@@ -19,15 +19,9 @@ import polars as pl
 
 from mlframe.feature_engineering.nearest_past_join import nearest_past_join
 from mlframe.utils.log_throttle import log_throttle
+from ._composite_fe_shared import to_pandas
 
 logger = logging.getLogger(__name__)
-
-
-def _to_pandas(df: Any) -> Optional[pd.DataFrame]:
-    """Convert a polars DataFrame to pandas; pass through pandas/None unchanged."""
-    if df is None:
-        return None
-    return df.to_pandas() if isinstance(df, pl.DataFrame) else df
 
 
 def _restore_frame_type(original: Any, result_pd: pd.DataFrame) -> Any:
@@ -50,7 +44,7 @@ def apply_nearest_past_join_composite_fe(
     if not on or not by or auxiliary_events_df is None or train_df is None:
         return train_df, val_df, test_df
 
-    right_pd = _to_pandas(auxiliary_events_df)
+    right_pd = to_pandas(auxiliary_events_df)
     if right_pd is None or on not in right_pd.columns or not all(c in right_pd.columns for c in by):
         logger.warning(
             "apply_nearest_past_join_composite_fe: on=%r/by=%r not both present in auxiliary_events_df; skipping.", on, by,
@@ -74,7 +68,7 @@ def apply_nearest_past_join_composite_fe(
         if df is None:
             out[split_name] = None
             continue
-        left_pd = _to_pandas(df)
+        left_pd = to_pandas(df)
         if left_pd is None or on not in left_pd.columns or not all(c in left_pd.columns for c in by):
             out[split_name] = df
             continue

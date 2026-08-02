@@ -19,6 +19,7 @@ import polars as pl
 from mlframe.feature_engineering.categorical_group_concat import auto_concat_categorical_groups, concat_categorical_group
 from mlframe.feature_engineering.categorical_powerset_concat import categorical_powerset_concat
 from mlframe.training.strategies import get_polars_cat_columns
+from ._composite_fe_shared import attach_new_columns
 
 logger = logging.getLogger(__name__)
 
@@ -36,15 +37,6 @@ def _detect_cat_columns(df: Any) -> List[str]:
             logger.debug("_detect_cat_columns: select_dtypes probe failed: %s", exc)
             return []
     return []
-
-
-def _attach_new_columns(df: Any, new_cols: "pd.DataFrame") -> Any:
-    """Append ``new_cols`` (a pandas frame, same row count/order as ``df``) onto ``df``, preserving ``df``'s own frame type."""
-    if new_cols.shape[1] == 0:
-        return df
-    if isinstance(df, pl.DataFrame):
-        return df.with_columns([pl.Series(c, new_cols[c].to_numpy()) for c in new_cols.columns])
-    return df.join(new_cols) if hasattr(df, "join") else pd.concat([df, new_cols], axis=1)
 
 
 def _to_pandas_view(df: Any, columns: Sequence[str]) -> Optional[pd.DataFrame]:
@@ -126,11 +118,11 @@ def apply_categorical_composite_fe(
                         _new_cols[_fname] = _composed[_fname].to_numpy()
                     _pending_new_cols[_split_name] = _new_cols
                 if "train" in _pending_new_cols:
-                    train_df = _attach_new_columns(train_df, _pending_new_cols["train"])
+                    train_df = attach_new_columns(train_df, _pending_new_cols["train"])
                 if "val" in _pending_new_cols:
-                    val_df = _attach_new_columns(val_df, _pending_new_cols["val"])
+                    val_df = attach_new_columns(val_df, _pending_new_cols["val"])
                 if "test" in _pending_new_cols:
-                    test_df = _attach_new_columns(test_df, _pending_new_cols["test"])
+                    test_df = attach_new_columns(test_df, _pending_new_cols["test"])
                 if verbose:
                     logger.info("apply_categorical_composite_fe: auto-discovered %d composite group(s): %s", len(_multi_col_groups), _multi_col_groups)
         except Exception:
@@ -150,11 +142,11 @@ def apply_categorical_composite_fe(
                 _powerset_out = categorical_powerset_concat(_pd_view, columns=cat_cols, separator=COMPOSITE_SEPARATOR, max_order=_max_order)
                 _new_cols = _powerset_out.drop(columns=list(cat_cols))
                 if _split_name == "train":
-                    train_df = _attach_new_columns(train_df, _new_cols)
+                    train_df = attach_new_columns(train_df, _new_cols)
                 elif _split_name == "val":
-                    val_df = _attach_new_columns(val_df, _new_cols)
+                    val_df = attach_new_columns(val_df, _new_cols)
                 else:
-                    test_df = _attach_new_columns(test_df, _new_cols)
+                    test_df = attach_new_columns(test_df, _new_cols)
             if verbose:
                 logger.info("apply_categorical_composite_fe: powerset-concat over %d source column(s), max_order=%d", len(cat_cols), _max_order)
         except Exception:
@@ -200,7 +192,7 @@ def replay_categorical_composite_fe(df: Any, metadata: dict, verbose: int = 0) -
 
     if verbose:
         logger.info("replay_categorical_composite_fe: replayed %d composite column(s)", new_cols.shape[1])
-    return _attach_new_columns(df, new_cols)
+    return attach_new_columns(df, new_cols)
 
 
 __all__ = ["apply_categorical_composite_fe", "replay_categorical_composite_fe"]

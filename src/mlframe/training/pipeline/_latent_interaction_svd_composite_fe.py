@@ -29,27 +29,11 @@ from typing import Any, Optional, Tuple, cast
 
 import numpy as np
 import pandas as pd
-import polars as pl
 
 from mlframe.feature_engineering.latent_interaction_svd import FittedLatentInteractionSvd, latent_interaction_features
+from ._composite_fe_shared import attach_new_columns, to_pandas
 
 logger = logging.getLogger(__name__)
-
-
-def _to_pandas(df: Any) -> Optional[pd.DataFrame]:
-    """Convert a polars DataFrame to pandas; pass through pandas/None unchanged."""
-    if df is None:
-        return None
-    return df.to_pandas() if isinstance(df, pl.DataFrame) else df
-
-
-def _attach_new_columns(df: Any, new_cols: "pd.DataFrame") -> Any:
-    """Attach new_cols (a pandas frame) onto df, matching df's own polars/pandas type."""
-    if new_cols.shape[1] == 0:
-        return df
-    if isinstance(df, pl.DataFrame):
-        return df.with_columns([pl.Series(c, new_cols[c].to_numpy()) for c in new_cols.columns])
-    return df.join(new_cols) if hasattr(df, "join") else pd.concat([df, new_cols], axis=1)
 
 
 def _join_embeddings(df: Any, group_ids_split: Optional[np.ndarray], row_emb: "pd.DataFrame", column_prefix: str) -> Any:
@@ -62,7 +46,7 @@ def _join_embeddings(df: Any, group_ids_split: Optional[np.ndarray], row_emb: "p
     vecs = np.array([lut.get(gid, zero_vec) for gid in group_ids_split])
     cols = [f"{column_prefix}_{c}" for c in row_emb.columns]
     new_cols = pd.DataFrame(vecs, columns=cols, index=range(n))
-    return _attach_new_columns(df, new_cols)
+    return attach_new_columns(df, new_cols)
 
 
 def apply_latent_interaction_svd_composite_fe(
@@ -85,7 +69,7 @@ def apply_latent_interaction_svd_composite_fe(
     if not row_entity or not col_entity or auxiliary_events_df is None or group_ids is None or train_df is None:
         return train_df, val_df, test_df
 
-    events_pd = _to_pandas(auxiliary_events_df)
+    events_pd = to_pandas(auxiliary_events_df)
     if events_pd is None or row_entity not in events_pd.columns or col_entity not in events_pd.columns:
         logger.warning(
             "apply_latent_interaction_svd_composite_fe: row_entity=%r/col_entity=%r not both present in "
@@ -152,7 +136,7 @@ def replay_latent_interaction_svd_composite_fe(
     column_prefix = metadata.get("latent_interaction_svd_column_prefix")
     if fitted is None or not column_prefix:
         return df
-    events_pd = _to_pandas(auxiliary_events_df)
+    events_pd = to_pandas(auxiliary_events_df)
     if events_pd is None:
         return df
     try:
