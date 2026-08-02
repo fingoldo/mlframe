@@ -11,6 +11,7 @@ except ImportError:
 
 # Parent package re-exports XGBoostStrategy AFTER TreeModelStrategy is bound, so this partial-package import resolves.
 from . import TreeModelStrategy
+from ._cat_levels_shared import batched_unique
 
 logger = logging.getLogger(__name__)
 
@@ -290,26 +291,8 @@ class XGBoostStrategy(TreeModelStrategy):
         # loop on any error so one bad cast doesn't poison the frame.
         out: Dict[str, pl.Enum] = {}
 
-        def _batched_unique(df: "pl.DataFrame") -> "Dict[str, list]":
-            """Extract per-column unique values for all candidate categorical columns in one lazy collect() instead of one collect per column; on failure (bad cast, etc.) falls back to a per-column loop so a single poisoned column doesn't blank out the whole frame's categories."""
-            cols_present = [c for c in candidate_cols if c in df.columns]
-            if not cols_present:
-                return {}
-            try:
-                lf = df.lazy().select([pl.col(c).cast(pl.String).drop_nulls().unique().implode().alias(c) for c in cols_present])
-                row = lf.collect()
-                return {c: row[c][0].to_list() for c in cols_present}
-            except Exception:
-                d: Dict[str, list] = {}
-                for c in cols_present:
-                    try:
-                        d[c] = df[c].drop_nulls().unique().cast(pl.String).to_list()
-                    except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                        d[c] = []
-                return d
-
-        train_levels = _batched_unique(train_df)
-        val_levels = _batched_unique(val_df) if val_df is not None else {}
+        train_levels = batched_unique(train_df, candidate_cols)
+        val_levels = batched_unique(val_df, candidate_cols) if val_df is not None else {}
         for col in candidate_cols:
             levels: set = set()
             levels.update(train_levels.get(col, []))

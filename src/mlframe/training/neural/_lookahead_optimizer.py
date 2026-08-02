@@ -39,10 +39,10 @@ Mlframe wiring:
 """
 from __future__ import annotations
 
-from typing import List
-
 import torch
 from torch.optim import Optimizer
+
+from ._optimizer_wrapper_shared import wrapper_param_groups, wrapper_state, wrapper_zero_grad
 
 
 class Lookahead(Optimizer):
@@ -102,25 +102,8 @@ class Lookahead(Optimizer):
 
     # ---- Optimizer protocol forwarding -------------------------------
 
-    @property
-    def param_groups(self) -> List[dict]:
-        """Delegate to ``base_optimizer.param_groups`` so Lightning's scheduler attachment sees the wrapped optimizer's real param groups."""
-        return self.base_optimizer.param_groups
-
-    @param_groups.setter
-    def param_groups(self, value: List[dict]) -> None:
-        """Forward a param_groups assignment to the wrapped optimizer."""
-        self.base_optimizer.param_groups = value
-
-    @property  # type: ignore[override]  # Lookahead wraps base_optimizer and intentionally delegates state as a property
-    def state(self) -> dict:
-        """Delegate to ``base_optimizer.state`` (Lookahead keeps its own slow-weight state separately in ``_slow_weights``, not here)."""
-        return self.base_optimizer.state
-
-    @state.setter
-    def state(self, value: dict) -> None:
-        """Forward a state assignment to the wrapped optimizer."""
-        self.base_optimizer.state = value  # type: ignore[assignment]  # torch's Optimizer.state stub is narrower (defaultdict[Tensor, Any]) than the plain dict this setter accepts
+    param_groups = wrapper_param_groups  # type: ignore[assignment]
+    state = wrapper_state  # type: ignore[override,assignment]  # Lookahead wraps base_optimizer and intentionally delegates state as a property (keeps its own slow-weight state separately in ``_slow_weights``)
 
     def add_param_group(self, param_group: dict) -> None:
         """F-C fix (2026-05-31, audit follow-up): when a new param group
@@ -198,9 +181,7 @@ class Lookahead(Optimizer):
                 device=p.device, dtype=p.dtype,
             )
 
-    def zero_grad(self, set_to_none: bool = True) -> None:
-        """Forward ``zero_grad`` to the wrapped base optimizer."""
-        self.base_optimizer.zero_grad(set_to_none=set_to_none)
+    zero_grad = wrapper_zero_grad
 
     # ---- The actual lookahead logic ----------------------------------
 

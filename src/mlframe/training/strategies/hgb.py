@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional, TYPE_CHECKING
 
 from .base import ModelPipelineStrategy
+from ._cat_levels_shared import batched_unique
 
 if TYPE_CHECKING:
     import polars as pl
@@ -151,26 +152,8 @@ class HGBStrategy(ModelPipelineStrategy):
         # loop on any error so one bad cast doesn't poison the frame.
         out: Dict[str, pl.Enum] = {}
 
-        def _batched_unique(df: "pl.DataFrame") -> "Dict[str, list]":
-            """Collect distinct string values for every candidate column in one lazy ``.select`` + ``.collect()`` instead of one collect per column; falls back to a per-column loop on any error so a single bad cast doesn't poison the whole batch."""
-            cols_present = [c for c in candidate_cols if c in df.columns]
-            if not cols_present:
-                return {}
-            try:
-                lf = df.lazy().select([pl.col(c).cast(pl.String).drop_nulls().unique().implode().alias(c) for c in cols_present])
-                row = lf.collect()
-                return {c: row[c][0].to_list() for c in cols_present}
-            except Exception:
-                d: Dict[str, list] = {}
-                for c in cols_present:
-                    try:
-                        d[c] = df[c].drop_nulls().unique().cast(pl.String).to_list()
-                    except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                        d[c] = []
-                return d
-
-        train_levels = _batched_unique(train_df)
-        val_levels = _batched_unique(val_df) if val_df is not None else {}
+        train_levels = batched_unique(train_df, candidate_cols)
+        val_levels = batched_unique(val_df, candidate_cols) if val_df is not None else {}
         for col in candidate_cols:
             levels: set = set()
             levels.update(train_levels.get(col, []))

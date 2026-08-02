@@ -53,10 +53,12 @@ additional lift on most settings.
 """
 from __future__ import annotations
 
-from typing import Callable, List, cast
+from typing import Callable, cast
 
 import torch
 from torch.optim import Optimizer
+
+from ._optimizer_wrapper_shared import wrapper_param_groups, wrapper_state, wrapper_zero_grad
 
 
 class SAM(Optimizer):
@@ -101,25 +103,8 @@ class SAM(Optimizer):
 
     # ---- Optimizer protocol forwarding -------------------------------
 
-    @property
-    def param_groups(self) -> List[dict]:
-        """Forward to the wrapped base optimizer's ``param_groups`` so SAM is a transparent drop-in for schedulers/logging that read it."""
-        return self.base_optimizer.param_groups
-
-    @param_groups.setter
-    def param_groups(self, value: List[dict]) -> None:
-        """Forward assignment to the wrapped base optimizer, keeping SAM's view in sync."""
-        self.base_optimizer.param_groups = value
-
-    @property  # type: ignore[override]  # SAM wraps base_optimizer and intentionally delegates state as a property
-    def state(self) -> dict:
-        """Forward to the wrapped base optimizer's ``state`` (per-param optimizer state such as momentum buffers)."""
-        return self.base_optimizer.state
-
-    @state.setter
-    def state(self, value: dict) -> None:
-        """Forward assignment to the wrapped base optimizer's ``state``."""
-        self.base_optimizer.state = value  # type: ignore[assignment]  # torch's Optimizer.state stub is narrower (defaultdict[Tensor, Any]) than the plain dict this setter accepts
+    param_groups = wrapper_param_groups  # type: ignore[assignment]
+    state = wrapper_state  # type: ignore[override,assignment]  # SAM wraps base_optimizer and intentionally delegates state as a property
 
     def add_param_group(self, param_group: dict) -> None:
         """Delegate to the base optimizer so newly added groups get its scheduling/state handling; SAM has no per-group state of its own."""
@@ -140,9 +125,7 @@ class SAM(Optimizer):
         self.adaptive = state_dict.get("adaptive", self.adaptive)
         self._param_backup = {}
 
-    def zero_grad(self, set_to_none: bool = True) -> None:
-        """Forward to the base optimizer's ``zero_grad``."""
-        self.base_optimizer.zero_grad(set_to_none=set_to_none)
+    zero_grad = wrapper_zero_grad
 
     # ---- SAM-specific two-step API ------------------------------------
 
