@@ -36,6 +36,8 @@ import os
 import numba
 import numpy as np
 
+from mlframe.core.robust_location import _median_sorted as _median_sorted_njit
+
 # Robust bounds = median +/- _ROBUST_AXIS_K * (1.4826*MAD). MAD is contamination-proof up to ~50% of the column, so the
 # derived span ~ 6*sigma stays anchored to the CLEAN core regardless of how many 1000x spikes are injected - unlike an
 # inner-quantile trim, which only excludes the tail when the trim fraction exceeds the contamination fraction. k=3 covers
@@ -59,21 +61,6 @@ def _robust_axis_enabled() -> bool:
     import os as _os
     flag = _os.environ.get("MLFRAME_ROBUST_AXIS", "").strip().lower()
     return flag not in ("0", "false", "off", "no")
-
-
-@numba.njit(cache=True)
-def _median_sorted_njit(a: np.ndarray) -> float:
-    """Median of a 1-D array via full sort + midpoint, bit-identical to ``np.median`` (numpy's introselect partition and
-    this sort agree on the two middle order statistics, and both average them for even n). Used in nopython code INSTEAD of
-    ``np.median`` because numba's ``np.median`` support is version/environment-fragile (it raised "Use of unsupported NumPy
-    function 'numpy.median'" under numba 0.65 in CI while compiling fine elsewhere); ``np.sort`` is universally supported.
-    Mirrors the existing in-module convention of hand-rolling sort-based quantiles rather than calling numba's np.quantile."""
-    s = np.sort(a)
-    n = s.size
-    m = n // 2
-    if n & 1:
-        return float(s[m])
-    return float(0.5 * (s[m - 1] + s[m]))
 
 
 @numba.njit(cache=True)
