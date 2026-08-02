@@ -139,26 +139,6 @@ from .trainer import (
 logger = logging.getLogger(__name__)
 
 
-def _n_classes_from_target(target, target_type: Optional[TargetTypes]) -> Optional[int]:
-    """Derive K for per-strategy classification dispatch.
-
-    MULTILABEL: K = number of label columns (target.shape[1]).
-    MULTICLASS: K = number of unique values in 1-D target.
-    BINARY/REGRESSION/None: returns None (caller leaves dispatch alone).
-    """
-    if target is None or target_type is None:
-        return None
-    if target_type == TargetTypes.MULTILABEL_CLASSIFICATION:
-        arr = np.asarray(target)
-        return int(arr.shape[1]) if arr.ndim == 2 else 1
-    if target_type == TargetTypes.MULTICLASS_CLASSIFICATION:
-        arr = np.asarray(target)
-        if arr.ndim != 1:
-            return None
-        return len(np.unique(arr))
-    return None
-
-
 # =============================================================================
 # Storage Optimization
 # =============================================================================

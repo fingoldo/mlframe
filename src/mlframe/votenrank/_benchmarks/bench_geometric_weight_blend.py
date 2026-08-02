@@ -13,10 +13,7 @@ import numpy as np
 from sklearn.metrics import log_loss
 
 from mlframe.votenrank.geometric_weight_blend import geometric_weight_blend
-
-
-def _sigmoid(z):
-    return 1.0 / (1.0 + np.exp(-z))
+from mlframe._bench_rmse_shared import sigmoid as _sigmoid
 
 
 def _log_loss(y_true, y_pred):

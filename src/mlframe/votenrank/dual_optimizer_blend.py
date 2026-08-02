@@ -27,7 +27,7 @@ from typing import Callable, Sequence
 
 import numpy as np
 
-from mlframe.votenrank.constrained_weight_blend import constrained_weight_blend
+from mlframe.votenrank.constrained_weight_blend import constrained_weight_blend, blend_loss
 
 
 def _coordinate_descent_simplex_search(preds: np.ndarray, y: np.ndarray, loss_fn: Callable, n_iters: int, random_state: int, n_restarts: int = 3) -> np.ndarray:
@@ -43,8 +43,7 @@ def _coordinate_descent_simplex_search(preds: np.ndarray, y: np.ndarray, loss_fn
 
     def _loss(w: np.ndarray) -> float:
         """Loss of the weighted blend of preds under candidate weights w."""
-        blended = np.tensordot(w, preds, axes=(0, 0))
-        return float(loss_fn(y, blended))
+        return blend_loss(w, preds, y, loss_fn)
 
     best_w: np.ndarray | None = None
     best_loss = float("inf")

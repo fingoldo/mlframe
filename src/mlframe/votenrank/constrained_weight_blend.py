@@ -13,6 +13,12 @@ from typing import Callable, Optional, Sequence
 import numpy as np
 
 
+def blend_loss(w: np.ndarray, preds: np.ndarray, y: np.ndarray, loss_fn: Callable[[np.ndarray, np.ndarray], float]) -> float:
+    """Loss of the weighted blend of preds under candidate weights w."""
+    blended = np.tensordot(w, preds, axes=(0, 0))
+    return float(loss_fn(y, blended))
+
+
 def _solve_simplex_weights(
     preds: np.ndarray,
     y: np.ndarray,
@@ -27,8 +33,7 @@ def _solve_simplex_weights(
 
     def _objective(w: np.ndarray) -> float:
         """Loss of the weighted blend of preds under candidate weights w."""
-        blended = np.tensordot(w, preds, axes=(0, 0))
-        return float(loss_fn(y, blended))
+        return blend_loss(w, preds, y, loss_fn)
 
     constraints = [{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}]
     bounds = [(0.0, 1.0)] * n_models
@@ -119,4 +124,4 @@ def constrained_weight_blend(
     }
 
 
-__all__ = ["constrained_weight_blend"]
+__all__ = ["constrained_weight_blend", "blend_loss"]

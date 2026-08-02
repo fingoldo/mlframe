@@ -24,10 +24,7 @@ from sklearn.metrics import log_loss, roc_auc_score
 
 from mlframe.models.ensembling.selection import caruana_greedy_selection
 from mlframe.training.composite.ensemble.stacking import stacking_aware_gate
-
-
-def _sigmoid(z: np.ndarray) -> np.ndarray:
-    return 1.0 / (1.0 + np.exp(-z))
+from mlframe._bench_rmse_shared import sigmoid as _sigmoid
 
 
 def _members(z: np.ndarray, alphas, noises, rng) -> np.ndarray:

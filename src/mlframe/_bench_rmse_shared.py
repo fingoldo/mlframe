@@ -22,6 +22,11 @@ def mae_asarray(a, b) -> float:
     return float(np.mean(np.abs(np.asarray(a) - np.asarray(b))))
 
 
+def sigmoid(z: np.ndarray) -> np.ndarray:
+    """Logistic sigmoid, elementwise."""
+    return np.asarray(1.0 / (1.0 + np.exp(-z)))
+
+
 def trimmed_mean(members: np.ndarray, trim: float = 0.1) -> np.ndarray:
     """Symmetric trimmed mean across members: sort each column, drop the lowest/highest ``trim`` fraction, mean the rest."""
     m = members.shape[0]
