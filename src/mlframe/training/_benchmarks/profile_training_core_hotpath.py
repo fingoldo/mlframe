@@ -24,6 +24,8 @@ Output: JSON summary -> sibling ``_results/training_core_hotpath.json``.
 """
 from __future__ import annotations
 
+from mlframe.training._benchmarks._profile_shared import profile_table
+
 import cProfile
 import io
 import json
@@ -106,11 +108,6 @@ def _profile_one(target_type: str, n_rows: int, models: tuple[str, ...], seed: i
         profiler.disable()
     wall = time.perf_counter() - t0
 
-    def _table(sort_key: str) -> str:
-        s = io.StringIO()
-        pstats.Stats(profiler, stream=s).sort_stats(sort_key).print_stats(top_n)
-        return s.getvalue()
-
     return {
         "target_type": target_type,
         "n_rows": n_rows,
@@ -119,8 +116,8 @@ def _profile_one(target_type: str, n_rows: int, models: tuple[str, ...], seed: i
         "seed": seed,
         "wall_s": round(wall, 3),
         "status": status,
-        "cumulative_top": _table("cumulative"),
-        "tottime_top": _table("tottime"),
+        "cumulative_top": profile_table(profiler, "cumulative", top_n),
+        "tottime_top": profile_table(profiler, "tottime", top_n),
     }
 
 
