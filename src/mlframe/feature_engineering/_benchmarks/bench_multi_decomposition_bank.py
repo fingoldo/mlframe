@@ -10,14 +10,9 @@ import time
 from io import StringIO
 
 import numpy as np
-import pandas as pd
 
+from mlframe.feature_engineering._benchmarks._dataset_bench_shared import make_gaussian_dataset as _make_dataset
 from mlframe.feature_engineering.multi_decomposition_bank import multi_decomposition_feature_bank
-
-
-def _make_dataset(n_rows: int, n_cols: int, seed: int) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    return pd.DataFrame(rng.normal(size=(n_rows, n_cols)), columns=[f"f{i}" for i in range(n_cols)])
 
 
 def _run(n_rows: int, n_cols: int, n_components: int) -> None:
@@ -29,9 +24,7 @@ def _run_pruned(n_rows: int, n_cols: int, n_components: int) -> None:
     df = _make_dataset(n_rows, n_cols, seed=0)
     rng = np.random.default_rng(0)
     y = rng.integers(0, 2, size=n_rows)
-    multi_decomposition_feature_bank(
-        df, n_components=n_components, methods=("svd", "pca", "grp", "srp"), y=y, prune_uninformative_methods=True
-    )
+    multi_decomposition_feature_bank(df, n_components=n_components, methods=("svd", "pca", "grp", "srp"), y=y, prune_uninformative_methods=True)
 
 
 def _run_auto_k(n_rows: int, n_cols: int, n_components: int) -> None:

@@ -10,14 +10,9 @@ import time
 from io import StringIO
 
 import numpy as np
-import pandas as pd
 
+from mlframe.feature_engineering._benchmarks._dataset_bench_shared import make_gaussian_dataset as _make_dataset
 from mlframe.feature_engineering.variance_gated_pairwise_diff import variance_gated_pairwise_diff
-
-
-def _make_dataset(n_rows: int, n_cols: int, seed: int) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    return pd.DataFrame(rng.normal(size=(n_rows, n_cols)), columns=[f"f{i}" for i in range(n_cols)])
 
 
 def _run(n_rows: int, n_cols: int) -> None:

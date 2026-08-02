@@ -12,12 +12,8 @@ from io import StringIO
 import numpy as np
 import pandas as pd
 
-from mlframe.feature_engineering.sentinel_missing_count import add_sentinel_missing_count_feature, detect_sentinel_values
-
-
-def _make_dataset(n_rows: int, n_cols: int, seed: int) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    return pd.DataFrame(rng.normal(size=(n_rows, n_cols)), columns=[f"f{i}" for i in range(n_cols)])
+from mlframe.feature_engineering._benchmarks._dataset_bench_shared import make_gaussian_dataset as _make_dataset
+from mlframe.feature_engineering.sentinel_missing_count import add_sentinel_missing_count_feature
 
 
 def _make_per_column_sentinel_dataset(n_rows: int, n_cols: int, seed: int) -> pd.DataFrame:
