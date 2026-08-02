@@ -95,32 +95,31 @@ def _score_fastmi_mise(x_tr, y_tr, x_va, y_va, grid_size: int = 128) -> tuple[fl
     return fastmi(x_va, y_va.astype(np.float64), grid_size=grid_size, bandwidth="mise"), 0
 
 
+def _panel_fd(a, b):
+    e = edges_freedman_diaconis(a)
+    bb = np.searchsorted(e, a.astype(np.float64), side="right")
+    return _plug_in_mi(bb, b.astype(np.int64), miller_madow=True)
+
+
+def _panel_qs(a, b):
+    e = edges_qs(a)
+    bb = np.searchsorted(e, a.astype(np.float64), side="right")
+    return _plug_in_mi(bb, b.astype(np.int64), miller_madow=True)
+
+
+def _panel_ksg(a, b):
+    return mixed_ksg_mi(a, b.astype(np.float64), k=5)
+
+
+_PANEL_ESTIMATORS = {"fd": _panel_fd, "qs": _panel_qs, "ksg": _panel_ksg}
+
+
 def _score_median_panel(x_tr, y_tr, x_va, y_va) -> tuple[float, int]:
-    def _fd(a, b):
-        e = edges_freedman_diaconis(a)
-        bb = np.searchsorted(e, a.astype(np.float64), side="right")
-        return _plug_in_mi(bb, b.astype(np.int64), miller_madow=True)
-    def _qs(a, b):
-        e = edges_qs(a)
-        bb = np.searchsorted(e, a.astype(np.float64), side="right")
-        return _plug_in_mi(bb, b.astype(np.int64), miller_madow=True)
-    def _ksg(a, b):
-        return mixed_ksg_mi(a, b.astype(np.float64), k=5)
-    return median_mi_panel(x_va, y_va, {"fd": _fd, "qs": _qs, "ksg": _ksg}), 0
+    return median_mi_panel(x_va, y_va, _PANEL_ESTIMATORS), 0
 
 
 def _score_genie_panel(x_tr, y_tr, x_va, y_va) -> tuple[float, int]:
-    def _fd(a, b):
-        e = edges_freedman_diaconis(a)
-        bb = np.searchsorted(e, a.astype(np.float64), side="right")
-        return _plug_in_mi(bb, b.astype(np.int64), miller_madow=True)
-    def _qs(a, b):
-        e = edges_qs(a)
-        bb = np.searchsorted(e, a.astype(np.float64), side="right")
-        return _plug_in_mi(bb, b.astype(np.int64), miller_madow=True)
-    def _ksg(a, b):
-        return mixed_ksg_mi(a, b.astype(np.float64), k=5)
-    return genie_mi_panel(x_va, y_va, {"fd": _fd, "qs": _qs, "ksg": _ksg}), 0
+    return genie_mi_panel(x_va, y_va, _PANEL_ESTIMATORS), 0
 
 
 # WAVE 1 fixes applied as "the production defaults" for binning methods.
