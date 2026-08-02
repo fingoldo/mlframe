@@ -46,6 +46,11 @@ from scipy.stats import rankdata
 logger = logging.getLogger("mlframe.models.ensembling.selection")
 
 
+def _better(a: float, b: float, sign: float, tol: float) -> bool:
+    """Whether candidate score ``a`` beats the current-best ``b`` by more than ``tol``, in the direction ``sign`` implies."""
+    return sign * (a - b) > tol
+
+
 def _rank_transform(scores: np.ndarray, *, axis: int = -1, normalise: bool = True) -> np.ndarray:
     """Average-rank transform along ``axis`` (ties share the mean rank); optionally rescale ranks to [0, 1].
 
@@ -230,11 +235,6 @@ def caruana_greedy_selection(
 
     sign = 1.0 if greater_is_better else -1.0
 
-    def _better(a: float, b: float) -> bool:
-        """Whether candidate score ``a`` beats the current-best ``b`` by more than ``tol``, in the direction ``sign`` implies."""
-        # ``a`` improves over ``b`` by more than ``tol`` in the direction implied by greater_is_better.
-        return sign * (a - b) > tol
-
     # Profiled (300k fuzz loop, new-feature pass): the greedy walk is dominated by the per-candidate ROC-AUC scoring,
     # which fast_roc_auc already routes to the GPU argsort (measured FASTER than the CPU-njit AUC even with the per-call
     # host transfer -- forcing CPU was a REJECT: 82ms vs 128ms at M=4/N=60k). Micro-opts explored + rejected: (a) a
@@ -278,7 +278,7 @@ def caruana_greedy_selection(
             # Incremental bag mean if model i were added: (running_sum + arr[i]) / (bag_size + 1).
             cand_blend = (running_sum + arr[i]) / new_size
             s = _score_blend(cand_blend, yv, metric)
-            if _better(s, best_cand_score):
+            if _better(s, best_cand_score, sign, tol):
                 best_cand_score = s
                 best_cand = i
         if best_cand < 0:
@@ -345,10 +345,6 @@ def _greedy_backward_elimination_core(
     m = arr.shape[0]
     sign = 1.0 if greater_is_better else -1.0
 
-    def _better(a: float, b: float) -> bool:
-        """Return whether score ``a`` beats score ``b`` by more than ``tol``, sign-aware for greater/less-is-better."""
-        return sign * (a - b) > tol
-
     kept = list(range(m))
     removed_order: list[int] = []
     # Running SUM of the currently-kept models (mirrors caruana_greedy_selection's incremental-sum trick):
@@ -366,7 +362,7 @@ def _greedy_backward_elimination_core(
         for idx in kept:
             cand_blend = (running_sum - arr[idx]) / new_size
             s = _score_blend(cand_blend, yv, metric)
-            if _better(s, best_cand_score):
+            if _better(s, best_cand_score, sign, tol):
                 best_cand_score = s
                 best_cand = idx
         if best_cand < 0:
@@ -604,10 +600,6 @@ def stepwise_ensemble_selection(
 
     sign = 1.0 if greater_is_better else -1.0
 
-    def _better(a: float, b: float) -> bool:
-        """Return whether score ``a`` beats score ``b`` by more than ``tol``, sign-aware for greater/less-is-better."""
-        return sign * (a - b) > tol
-
     single_scores = np.array([_score_blend(arr[i], yv, metric) for i in range(m)], dtype=np.float64)
     best_single = int(np.argsort(-sign * single_scores)[0])  # index of the best single model (sign-aware)
 
@@ -636,7 +628,7 @@ def stepwise_ensemble_selection(
             for i in fwd_candidates:
                 cand_blend = (running_sum + arr[i]) / new_size
                 s = _score_blend(cand_blend, yv, metric)
-                if _better(s, best_cand_score):
+                if _better(s, best_cand_score, sign, tol):
                     best_cand_score = s
                     best_cand = i
             if best_cand >= 0:
@@ -659,7 +651,7 @@ def stepwise_ensemble_selection(
                 for i in bwd_candidates:
                     cand_blend = (running_sum - arr[i]) / new_size
                     s = _score_blend(cand_blend, yv, metric)
-                    if _better(s, best_cand_score):
+                    if _better(s, best_cand_score, sign, tol):
                         best_cand_score = s
                         best_cand = i
                 if best_cand >= 0:
