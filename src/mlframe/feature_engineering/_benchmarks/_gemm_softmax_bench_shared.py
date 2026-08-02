@@ -5,9 +5,9 @@ out of sync across copies.
 """
 from __future__ import annotations
 
-import time
-
 import numpy as np
+
+from mlframe._bench_timing_shared import best_of_seconds_no_warmup, best_of_seconds_args_no_warmup
 
 
 def dists_broadcast(X, anchors):
@@ -34,20 +34,10 @@ def softmax_from_dists(dists, temp):
 
 def best_of(fn, *args, n: int = 30) -> float:
     """Run ``fn(*args)`` ``n`` times and return the best (minimum) wall-clock time."""
-    best = float("inf")
-    for _ in range(n):
-        t0 = time.perf_counter()
-        fn(*args)
-        best = min(best, time.perf_counter() - t0)
-    return best
+    return best_of_seconds_no_warmup(fn, *args, repeat=n)
 
 
 def best_of_args(fn, args: tuple, n: int = 7) -> float:
     """Run ``fn(*args)`` ``n`` times and return the best (minimum) wall-clock time (args passed as an explicit
     tuple rather than varargs, matching this call convention's existing call sites)."""
-    best = float("inf")
-    for _ in range(n):
-        t0 = time.perf_counter()
-        fn(*args)
-        best = min(best, time.perf_counter() - t0)
-    return best
+    return best_of_seconds_args_no_warmup(fn, args, reps=n)
