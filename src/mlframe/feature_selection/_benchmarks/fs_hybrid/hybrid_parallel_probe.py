@@ -10,7 +10,6 @@ from __future__ import annotations
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
-import numpy as np, pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -21,17 +20,9 @@ SEED = int(os.environ.get("HYB_SEED", "0"))
 def _disable_kernel_tuning_sweep():
     try:
         import pyutilz.performance.kernel_tuning.cache as _M
-        def _no_sweep(self, kernel_name, *, dims, tuner, axes, fallback, **kw):
-            if not callable(fallback):
-                return fallback
-            try:
-                return fallback()
-            except TypeError:
-                try:
-                    return fallback(**dims)
-                except TypeError:
-                    return fallback(*dims.values())
-        _M.KernelTuningCache.get_or_tune = _no_sweep
+        from _downstream_shared import no_sweep_get_or_tune
+
+        _M.KernelTuningCache.get_or_tune = no_sweep_get_or_tune
         _inmem = _M.KernelTuningCache(in_memory=True)
         _M.KernelTuningCache.load_or_create = classmethod(lambda cls: _inmem)
     except Exception:  # nosec B110 - best-effort path

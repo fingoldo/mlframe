@@ -18,7 +18,6 @@ from __future__ import annotations
 import os, sys, time, json, cProfile, pstats, io
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
-import numpy as np, pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 MODE = os.environ.get("MODE", "baseline").lower()
@@ -32,18 +31,9 @@ def _disable_kernel_tuning_sweep():
     postgres-disk cache load (the scene-profile lesson). The FE/MI kernels still run; only the sweep+disk are bypassed."""
     try:
         import pyutilz.performance.kernel_tuning.cache as _M
+        from _downstream_shared import no_sweep_get_or_tune
 
-        def _no_sweep(self, kernel_name, *, dims, tuner, axes, fallback, **kw):
-            if not callable(fallback):
-                return fallback
-            try:
-                return fallback()
-            except TypeError:
-                try:
-                    return fallback(**dims)
-                except TypeError:
-                    return fallback(*dims.values())
-        _M.KernelTuningCache.get_or_tune = _no_sweep
+        _M.KernelTuningCache.get_or_tune = no_sweep_get_or_tune
         _inmem = _M.KernelTuningCache(in_memory=True)
         _M.KernelTuningCache.load_or_create = classmethod(lambda cls: _inmem)
         print("[kernel-tuning sweep+disk DISABLED -> in-memory fallback]", flush=True)

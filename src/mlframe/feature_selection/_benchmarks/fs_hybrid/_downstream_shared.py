@@ -43,6 +43,21 @@ def make_ckpt_writer(path):
     return ck
 
 
+def no_sweep_get_or_tune(self, kernel_name, *, dims, tuner, axes, fallback, **kw):
+    """Monkeypatch target for ``KernelTuningCache.get_or_tune``, forcing the always-fallback (no-sweep) path: never
+    tunes/sweeps, just calls ``fallback`` -- zero-arg first, falling back to dim-keyword then dim-positional so a
+    fallback needing the dims never raises a TypeError."""
+    if not callable(fallback):
+        return fallback
+    try:
+        return fallback()
+    except TypeError:
+        try:
+            return fallback(**dims)
+        except TypeError:
+            return fallback(*dims.values())
+
+
 def mrmr_sel_transform(self, X):
     """Shared ``_Sel.transform`` body for the fs_hybrid MRMR-wrapper adapters: rename the fitted MRMR's
     output columns to the ``fit``-time-computed ``self.ren_`` mapping (raw cols kept, engineered cols

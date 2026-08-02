@@ -24,20 +24,9 @@ N_ROWS = int(os.environ.get("SCENE_N", "500"))
 def _disable_kernel_tuning_sweep():
     try:
         import pyutilz.performance.kernel_tuning.cache as _M
+        from _downstream_shared import no_sweep_get_or_tune
 
-        def _no_sweep(self, kernel_name, *, dims, tuner, axes, fallback, **kw):
-            if not callable(fallback):
-                return fallback
-            # Some specs pass a fallback needing the dims (e.g. _batch_pair_mi_fallback_choice(n, k));
-            # try zero-arg, then dim-keyword / positional, so this never raises a TypeError.
-            try:
-                return fallback()
-            except TypeError:
-                try:
-                    return fallback(**dims)
-                except TypeError:
-                    return fallback(*dims.values())
-        _M.KernelTuningCache.get_or_tune = _no_sweep
+        _M.KernelTuningCache.get_or_tune = no_sweep_get_or_tune
         # The postgres-loaded disk makes the per-host cache load_or_create() block for MINUTES (disk + filelock).
         # Use a throwaway in-memory cache so profiling the FE hotspot is not gated on disk I/O (we already force the
         # fallback above, so the cache content is irrelevant here).
