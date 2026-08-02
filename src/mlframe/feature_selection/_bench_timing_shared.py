@@ -8,6 +8,8 @@ from __future__ import annotations
 import time
 from typing import Callable
 
+import numpy as np
+
 
 def best_of(fn: Callable, *a, reps: int) -> float:
     """Run ``fn(*a)`` ``reps`` times and return the best (minimum) wall-clock time."""
@@ -17,6 +19,17 @@ def best_of(fn: Callable, *a, reps: int) -> float:
         fn(*a)
         t.append(time.perf_counter() - s)
     return min(t)
+
+
+def median_time(fn: Callable, n_runs: int = 7) -> float:
+    """Warm ``fn()`` once, then return the median wall-clock time of ``n_runs`` zero-arg calls."""
+    fn()
+    ts = []
+    for _ in range(n_runs):
+        t0 = time.perf_counter()
+        fn()
+        ts.append(time.perf_counter() - t0)
+    return float(np.median(ts))
 
 
 def best_of_args(fn: Callable, args: tuple, reps: int) -> float:

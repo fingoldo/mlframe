@@ -16,11 +16,12 @@ module. Warm + median-of-N. Run:
 import os
 import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 import sys
-import time
 import types
 
 import numpy as np
 import pandas as pd
+
+from mlframe.feature_selection._bench_timing_shared import median_time
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
@@ -49,14 +50,7 @@ def _load_old_module() -> types.ModuleType:
     return mod
 
 
-def _median_time(fn, n_runs=7):
-    fn()  # warm
-    ts = []
-    for _ in range(n_runs):
-        t0 = time.perf_counter()
-        fn()
-        ts.append(time.perf_counter() - t0)
-    return float(np.median(ts))
+_median_time = median_time
 
 
 def bench_pairwise(old_mod, new_mod, p=40, n=100_000, seed=0):
