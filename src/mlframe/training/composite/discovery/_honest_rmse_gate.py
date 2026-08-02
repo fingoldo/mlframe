@@ -33,7 +33,7 @@ materialised; never a frame copy.
 """
 from __future__ import annotations
 
-from ._spec_shared import spec_base_columns
+from ._spec_shared import spec_base_columns, rmse
 
 import logging
 from typing import Any, Sequence
@@ -46,12 +46,6 @@ from ._rejection_ledger import RejectStage, ledger_append
 from ._screening_tiny import _build_tiny_model
 
 logger = logging.getLogger(__name__)
-
-
-def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Plain RMSE in float64 (upcast so wide-range targets don't lose precision)."""
-    d = np.asarray(y_true, dtype=np.float64) - np.asarray(y_pred, dtype=np.float64)
-    return float(np.sqrt(np.mean(d * d)))
 
 
 def _base_arg(df: Any, base_columns: Sequence[str], rows: np.ndarray) -> np.ndarray:
@@ -129,7 +123,7 @@ def apply_honest_rmse_gate(
         return np.asarray(model.predict(x_eval), dtype=np.float64)
 
     try:
-        raw_rmse = _rmse(y_eval, _fit_predict(y_fit))
+        raw_rmse = rmse(y_eval, _fit_predict(y_fit))
     except Exception as exc:  # -- no baseline, no sound gate
         logger.warning("[CompositeTargetDiscovery.honest_rmse_gate] raw-y baseline fit failed (%s); gate skipped.", exc)
         return kept_specs
@@ -195,7 +189,7 @@ def apply_honest_rmse_gate(
             ledger_append(self, spec_name=spec.name, stage=RejectStage.HONEST_RMSE, reason=_r,
                           numbers={"pred_std": pred_std, "y_eval_std": y_eval_std}, **_led_kw)
             continue
-        rmse_y = _rmse(y_eval[finite], y_hat[finite])
+        rmse_y = rmse(y_eval[finite], y_hat[finite])
         if not np.isfinite(rmse_y) or rmse_y > threshold:
             _r = f"honest y-RMSE={rmse_y:.4g} > raw {raw_rmse:.4g} x {tol:.2f}"
             rejected.append((spec.name, _r))

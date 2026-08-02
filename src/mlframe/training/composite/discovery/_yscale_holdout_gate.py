@@ -29,7 +29,7 @@ are materialised; no frame copy.
 """
 from __future__ import annotations
 
-from ._spec_shared import spec_base_columns
+from ._spec_shared import spec_base_columns, rmse
 
 import logging
 from typing import Any, Sequence
@@ -43,12 +43,6 @@ from ._screening_tiny import _build_tiny_model
 from ._rejection_ledger import RejectStage, ledger_append
 
 logger = logging.getLogger(__name__)
-
-
-def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Plain RMSE, upcasting both arrays to float64 to avoid overflow/precision loss on wide-range targets."""
-    d = np.asarray(y_true, dtype=np.float64) - np.asarray(y_pred, dtype=np.float64)
-    return float(np.sqrt(np.mean(d * d)))
 
 
 def _base_arg(df, base_columns: Sequence[str], rows: np.ndarray) -> np.ndarray:
@@ -358,7 +352,7 @@ def apply_yscale_holdout_gate(
     # Raw-y tiny baseline on the SAME group-disjoint split (apples-to-apples).
     try:
         raw_pred = _fit_predict(y_fit)
-        raw_rmse = _rmse(y_eval, raw_pred)
+        raw_rmse = rmse(y_eval, raw_pred)
     except Exception as exc:  # -- baseline failure -> can't gate, keep all
         logger.warning("[CompositeTargetDiscovery.yscale_gate] raw-y baseline fit failed (%s); gate skipped.", exc)
         return kept_specs
@@ -426,7 +420,7 @@ def apply_yscale_holdout_gate(
             ledger_append(self, spec_name=spec.name, stage=RejectStage.YSCALE_HOLDOUT, reason=_r,
                           numbers={"pred_std": pred_std, "y_eval_std": y_eval_std}, **_led_kw)
             continue
-        rmse_y = _rmse(y_eval[finite], y_hat[finite])
+        rmse_y = rmse(y_eval[finite], y_hat[finite])
         if not np.isfinite(rmse_y) or rmse_y > threshold:
             _r = f"y-RMSE={rmse_y:.4g} > raw {raw_rmse:.4g} x {tol:.2f}"
             rejected.append((spec.name, _r, float(rmse_y)))

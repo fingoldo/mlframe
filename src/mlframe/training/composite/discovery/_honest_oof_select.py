@@ -21,7 +21,7 @@ group-internal CV-RMSE rather than auto-killing the spec.
 """
 from __future__ import annotations
 
-from ._spec_shared import spec_base_columns
+from ._spec_shared import spec_base_columns, rmse
 
 import logging
 from typing import Any, Sequence
@@ -35,12 +35,6 @@ from .screening import _extract_column_array
 from ._screening_tiny import _build_tiny_model
 
 logger = logging.getLogger(__name__)
-
-
-def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Plain RMSE, upcasting both arrays to float64 to avoid overflow/precision loss on wide-range targets."""
-    d = np.asarray(y_true, dtype=np.float64) - np.asarray(y_pred, dtype=np.float64)
-    return float(np.sqrt(np.mean(d * d)))
 
 
 def _base_arg(df, base_columns: Sequence[str], rows: np.ndarray) -> np.ndarray:
@@ -123,7 +117,7 @@ def honest_oof_reconstruction_rmse(
     try:
         raw_model = _new_model()
         raw_model.fit(x_fit, y_fit)
-        raw_rmse = _rmse(y_eval, np.asarray(raw_model.predict(x_eval), dtype=np.float64))
+        raw_rmse = rmse(y_eval, np.asarray(raw_model.predict(x_eval), dtype=np.float64))
         self._honest_oof_raw_rmse = float(raw_rmse) if np.isfinite(raw_rmse) else float("nan")
     except Exception as exc:  # -- baseline failure -> no ranking key produced
         logger.warning("[CompositeTargetDiscovery.honest_oof_select] raw-y baseline fit failed (%s); selector skipped.", exc)
@@ -181,7 +175,7 @@ def honest_oof_reconstruction_rmse(
         pred_std = float(np.std(y_hat[finite]))
         if y_eval_std > 0 and pred_std < 1e-4 * y_eval_std:
             return spec.name, float("inf")  # collapsed to ~constant -> genuine collapse
-        rmse_y = _rmse(y_eval[finite], y_hat[finite])
+        rmse_y = rmse(y_eval[finite], y_hat[finite])
         if not np.isfinite(rmse_y):
             return spec.name, float("inf")
         return spec.name, float(rmse_y)
