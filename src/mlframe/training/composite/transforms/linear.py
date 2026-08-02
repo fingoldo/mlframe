@@ -8,8 +8,10 @@ resolves transparently.
 """
 from __future__ import annotations
 
+from ._domain_shared import residual_domain_no_cast
+
 import logging
-from typing import Any, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 
@@ -237,12 +239,7 @@ def _linear_residual_inverse(
     alpha = float(params["alpha"])
     beta = float(params["beta"])
     return t_hat + alpha * base + beta
-def _linear_residual_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
-    """Return the boolean row mask where ``base`` (and ``y``, if given) are finite; no positivity constraint (unlike logratio)."""
-    base_ok = np.isfinite(base)
-    if y is None:
-        return np.asarray(base_ok)
-    return np.asarray(base_ok & np.isfinite(y))
+_linear_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_no_cast
 def _linear_residual_robust_fit(
     y: np.ndarray, base: np.ndarray,
     sample_weight: np.ndarray | None = None,

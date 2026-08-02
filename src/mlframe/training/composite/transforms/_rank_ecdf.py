@@ -36,7 +36,9 @@ default and at the vectorised floor.
 """
 from __future__ import annotations
 
-from typing import Any
+from ._domain_shared import residual_domain_plain
+
+from typing import Any, Callable, Optional
 
 import numpy as np
 
@@ -123,11 +125,4 @@ def _rank_ecdf_residual_inverse(
     return np.interp(u_y, y_cdf, y_knots)
 
 
-def _rank_ecdf_residual_domain(
-    y: np.ndarray | None, base: np.ndarray,
-) -> np.ndarray:
-    """Boolean mask of rows usable by the transform: finite ``base`` (and finite ``y`` when supplied, i.e. fit-time)."""
-    base_ok = np.isfinite(np.asarray(base, dtype=np.float64))
-    if y is None:
-        return base_ok
-    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64)))
+_rank_ecdf_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_plain

@@ -32,7 +32,9 @@ default. Forward + inverse are already at the vectorised floor.
 """
 from __future__ import annotations
 
-from typing import Any
+from ._domain_shared import residual_domain_no_cast
+
+from typing import Any, Callable, Optional
 
 import numpy as np
 
@@ -150,11 +152,4 @@ def _causal_anchor_residual_inverse(
     return t_hat + alpha * base
 
 
-def _causal_anchor_residual_domain(
-    y: np.ndarray | None, base: np.ndarray,
-) -> np.ndarray:
-    """Row mask of valid inputs for this transform: finite ``base`` (and finite ``y`` when given)."""
-    base_ok = np.isfinite(base)
-    if y is None:
-        return np.asarray(base_ok)
-    return np.asarray(base_ok & np.isfinite(y))
+_causal_anchor_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_no_cast

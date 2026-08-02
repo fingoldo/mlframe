@@ -4,10 +4,14 @@ Bound back into the parent's namespace via re-export at the parent's module bott
 """
 from __future__ import annotations
 
+from ._domain_shared import residual_domain_reshaped
+
 import logging
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
+    Optional,
 )
 
 import numpy as np
@@ -386,14 +390,7 @@ def _quantile_residual_inverse(
     iqrs = np.asarray(params["bin_iqrs"], dtype=np.float64)
     bin_idx = _quantile_residual_assign_bins(base, edges)
     return np.asarray(np.asarray(t_hat, dtype=np.float64) * iqrs[bin_idx] + medians[bin_idx])
-def _quantile_residual_domain(
-    y: np.ndarray | None, base: np.ndarray,
-) -> np.ndarray:
-    """Return the boolean mask of rows where the transform is defined: finite ``base`` (and finite ``y`` when provided)."""
-    base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
-    if y is None:
-        return base_ok
-    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1)))
+_quantile_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_reshaped
 def _spearman_sign(a: np.ndarray, b: np.ndarray) -> int:
     """Return +1 / -1: the sign of the Spearman rank correlation between ``a`` and ``b``.
 
@@ -562,14 +559,7 @@ def _monotonic_residual_inverse(
 ) -> np.ndarray:
     """Undo the transform: ``y = T_hat + g(base)``."""
     return np.asarray(np.asarray(t_hat, dtype=np.float64) + _monotonic_residual_g(base, params))
-def _monotonic_residual_domain(
-    y: np.ndarray | None, base: np.ndarray,
-) -> np.ndarray:
-    """Return the boolean mask of rows where the transform is defined: finite ``base`` (and finite ``y`` when provided)."""
-    base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
-    if y is None:
-        return base_ok
-    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1)))
+_monotonic_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_reshaped
 def _ewma_residual_fit(
     y: np.ndarray, base: np.ndarray, k: int = _EWMA_RESIDUAL_DEFAULT_K,
     _finite_mask: np.ndarray | None = None,
@@ -816,14 +806,7 @@ def _ewma_residual_inverse(
     return np.asarray(np.asarray(t_hat, dtype=np.float64) + _ewma_compute(
         base, int(params["k"]), _ewma_anchor(params),
     ))
-def _ewma_residual_domain(
-    y: np.ndarray | None, base: np.ndarray,
-) -> np.ndarray:
-    """Return the boolean mask of rows where the transform is defined: finite ``base`` (and finite ``y`` when provided)."""
-    base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
-    if y is None:
-        return base_ok
-    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1)))
+_ewma_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_reshaped
 def _rolling_median_pandas(arr_f: np.ndarray, k: int) -> np.ndarray:
     """Reference centred rolling median: pandas ``rolling(window=k, center=True, min_periods=1).median()``. This is the CONTRACT both backends reproduce. ``arr_f`` must already be float64 / 1-D / non-empty; ``k`` already clamped to ``>= 1``."""
     import pandas as pd  # lazy

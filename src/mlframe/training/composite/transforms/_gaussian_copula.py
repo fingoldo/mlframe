@@ -11,7 +11,9 @@ count so ``Phi^-1`` stays finite at the tails -- this makes the round-trip lossy
 """
 from __future__ import annotations
 
-from typing import Any
+from ._domain_shared import residual_domain_reshaped
+
+from typing import Any, Callable, Optional
 
 import numpy as np
 
@@ -77,11 +79,4 @@ def _gaussian_copula_residual_inverse(
     return np.asarray(np.interp(u, np.asarray(params["y_cdf"], dtype=np.float64), np.asarray(params["y_knots"], dtype=np.float64)))
 
 
-def _gaussian_copula_residual_domain(
-    y: np.ndarray | None, base: np.ndarray,
-) -> np.ndarray:
-    """Finite ``base`` (and finite ``y`` when provided)."""
-    base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
-    if y is None:
-        return base_ok
-    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1)))
+_gaussian_copula_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_reshaped

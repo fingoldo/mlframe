@@ -22,6 +22,8 @@ These helpers are pure numpy; integration into the registry + ``CompositeTargetE
 """
 from __future__ import annotations
 
+from ._domain_shared import y_domain_finite
+
 from typing import Any, Callable, Dict, Tuple
 
 import numpy as np
@@ -126,7 +128,7 @@ def cbrt_y_inverse(t: np.ndarray, params: Dict[str, Any] | None = None) -> np.nd
 
 def cbrt_y_domain(y: np.ndarray) -> np.ndarray:
     """Domain mask for the signed cube-root: valid wherever ``y`` is finite (defined on all real y)."""
-    return np.isfinite(np.asarray(y, dtype=np.float64))
+    return y_domain_finite(y)
 
 
 # ----------------------------------------------------------------------
@@ -190,7 +192,7 @@ def signed_power_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
 
 def signed_power_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) -> np.ndarray:
     """Domain mask for the signed power transform: valid wherever ``y`` is finite."""
-    return np.isfinite(np.asarray(y, dtype=np.float64))
+    return y_domain_finite(y)
 
 
 # ----------------------------------------------------------------------
@@ -368,7 +370,7 @@ def yeo_johnson_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
 
 def yeo_johnson_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) -> np.ndarray:
     """Domain mask for Yeo-Johnson: valid wherever ``y`` is finite."""
-    return np.isfinite(np.asarray(y, dtype=np.float64))
+    return y_domain_finite(y)
 
 
 # ----------------------------------------------------------------------
@@ -478,7 +480,7 @@ def quantile_normal_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarr
 
 def quantile_normal_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) -> np.ndarray:
     """Domain mask for the quantile-normal map: valid wherever ``y`` is finite."""
-    return np.isfinite(np.asarray(y, dtype=np.float64))
+    return y_domain_finite(y)
 
 
 # ----------------------------------------------------------------------

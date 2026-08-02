@@ -8,8 +8,10 @@ module bottom so historical
 """
 from __future__ import annotations
 
+from ._domain_shared import residual_domain_no_cast, residual_domain_reshaped
+
 import logging
-from typing import Any
+from typing import Any, Callable, Optional
 
 import numpy as np
 
@@ -73,12 +75,7 @@ def _diff_inverse(t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any]) -
     return np.asarray(t_hat + base)
 
 
-def _diff_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
-    """Return the boolean mask of rows where the transform is defined: finite ``base`` (and finite ``y`` when provided)."""
-    base_ok = np.isfinite(base)
-    if y is None:
-        return np.asarray(base_ok)
-    return np.asarray(base_ok & np.isfinite(y))
+_diff_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_no_cast
 
 
 # ----------------------------------------------------------------------
@@ -116,14 +113,7 @@ def _additive_residual_inverse(
     return np.asarray(t_hat + base + float(params.get("beta", 0.0)))
 
 
-def _additive_residual_domain(
-    y: np.ndarray | None, base: np.ndarray,
-) -> np.ndarray:
-    """Return the boolean mask of rows where the transform is defined: finite ``base`` (and finite ``y`` when provided)."""
-    base_ok = np.isfinite(base)
-    if y is None:
-        return np.asarray(base_ok)
-    return np.asarray(base_ok & np.isfinite(y))
+_additive_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_no_cast
 
 
 # ----------------------------------------------------------------------
@@ -238,14 +228,7 @@ def _median_residual_inverse(
     return np.asarray(t_hat + _median_residual_g(base, params))
 
 
-def _median_residual_domain(
-    y: np.ndarray | None, base: np.ndarray,
-) -> np.ndarray:
-    """Return the boolean mask of rows where the transform is defined: finite ``base`` (and finite ``y`` when provided)."""
-    base_ok = np.isfinite(base)
-    if y is None:
-        return np.asarray(base_ok)
-    return np.asarray(base_ok & np.isfinite(y))
+_median_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_no_cast
 
 
 # ----------------------------------------------------------------------
@@ -464,11 +447,4 @@ def _rolling_quantile_ratio_inverse(
     return np.asarray(np.asarray(t_hat, dtype=np.float64) * safe)
 
 
-def _rolling_quantile_ratio_domain(
-    y: np.ndarray | None, base: np.ndarray,
-) -> np.ndarray:
-    """Return the boolean mask of rows where the transform is defined: finite ``base`` (and finite ``y`` when provided)."""
-    base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
-    if y is None:
-        return base_ok
-    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1)))
+_rolling_quantile_ratio_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_reshaped

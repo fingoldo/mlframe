@@ -49,8 +49,10 @@ transform per target). Numpy is correct here.
 """
 from __future__ import annotations
 
+from ._domain_shared import residual_domain_plain
+
 import logging
-from typing import Any
+from typing import Any, Callable, Optional
 
 import numpy as np
 
@@ -111,14 +113,7 @@ def _asinh_residual_inverse(
     return np.sinh(z)
 
 
-def _asinh_residual_domain(
-    y: np.ndarray | None, base: np.ndarray,
-) -> np.ndarray:
-    """Row mask for asinh_residual: every finite base (and finite y, when supplied) is admissible since arcsinh is defined on all reals."""
-    base_ok = np.isfinite(np.asarray(base, dtype=np.float64))
-    if y is None:
-        return base_ok
-    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64)))
+_asinh_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_plain
 
 
 # ============================================================
@@ -167,14 +162,7 @@ def _centered_ratio_inverse(
     return np.asarray(np.asarray(t_hat, dtype=np.float64) * safe)
 
 
-def _centered_ratio_domain(
-    y: np.ndarray | None, base: np.ndarray,
-) -> np.ndarray:
-    """Row mask for centered_ratio: only finiteness of base (and y, when supplied) is required; the shift/eps handling is done in forward/inverse."""
-    base_ok = np.isfinite(np.asarray(base, dtype=np.float64))
-    if y is None:
-        return base_ok
-    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64)))
+_centered_ratio_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_plain
 
 
 # ============================================================
@@ -234,14 +222,7 @@ def _polynomial_residual_deg2_inverse(
     return np.asarray(t_hat, dtype=np.float64) + a1 * bv + a2 * bv * bv + b
 
 
-def _polynomial_residual_deg2_domain(
-    y: np.ndarray | None, base: np.ndarray,
-) -> np.ndarray:
-    """Row mask for polynomial_residual_deg2: any finite base value is admissible (no positivity constraint since it is a polynomial, not a ratio/log)."""
-    base_ok = np.isfinite(np.asarray(base, dtype=np.float64))
-    if y is None:
-        return base_ok
-    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64)))
+_polynomial_residual_deg2_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_plain
 
 
 # ============================================================
@@ -328,14 +309,7 @@ def _rank_residual_inverse(
     return y_sorted[idx]
 
 
-def _rank_residual_domain(
-    y: np.ndarray | None, base: np.ndarray,
-) -> np.ndarray:
-    """Row mask for rank_residual: distribution-free, so only finiteness of base (and y, when supplied) is required."""
-    base_ok = np.isfinite(np.asarray(base, dtype=np.float64))
-    if y is None:
-        return base_ok
-    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64)))
+_rank_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_plain
 
 
 # ============================================================
@@ -433,14 +407,7 @@ def _smoothing_spline_residual_inverse(
     return np.asarray(np.asarray(t_hat, dtype=np.float64) + _smoothing_spline_g(base, params))
 
 
-def _smoothing_spline_residual_domain(
-    y: np.ndarray | None, base: np.ndarray,
-) -> np.ndarray:
-    """Row mask for smoothing_spline_residual: only finiteness of base (and y, when supplied) is required; the spline's ``ext='const'`` extrapolation handles out-of-train-range base values."""
-    base_ok = np.isfinite(np.asarray(base, dtype=np.float64))
-    if y is None:
-        return base_ok
-    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64)))
+_smoothing_spline_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_plain
 
 
 # ============================================================

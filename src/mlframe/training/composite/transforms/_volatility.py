@@ -11,7 +11,9 @@ estimator opted into recurrence continuation).
 """
 from __future__ import annotations
 
-from typing import Any
+from ._domain_shared import residual_domain_reshaped
+
+from typing import Any, Callable, Optional
 
 import numpy as np
 
@@ -91,11 +93,4 @@ def _volatility_normalized_residual_inverse(
     return np.asarray(np.asarray(t_hat, dtype=np.float64).reshape(-1) * v + level)
 
 
-def _volatility_normalized_residual_domain(
-    y: np.ndarray | None, base: np.ndarray,
-) -> np.ndarray:
-    """Finite ``base`` (and finite ``y`` when provided), matching ``ewma_residual``."""
-    base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
-    if y is None:
-        return base_ok
-    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1)))
+_volatility_normalized_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_reshaped
