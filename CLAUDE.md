@@ -128,6 +128,23 @@ Run unbuffered with `-x -s` rather than launching a long blind run.
 A failure that is an OOM or a Windows paging-file error (WinError 1455 under joblib fan-out) reflects machine-wide memory pressure at that moment, not a defect: retry once, and if it fails again it is real. Tolerate it in code via `OSError` plus a skip.
 Heavily-parametrised modules expose a fast mode (a `--fast` flag or env var plus a `fast_subset` helper) that runs one representative case per code path, with the exhaustive sweep behind a slow marker. Without it the only options are the full matrix or no coverage, and the full matrix stops being run.
 
+## PERF WIN (2026-08-02): Fourier peak-frequency refine's grid scan fused into one parallel-njit batch call (3.1x)
+2M-row cProfile on combo `c0016_c3f401e4` (master-seed `2026_04_29`) found `_power_centered`
+(`_orth_extra_basis_fe.py`) at 30.98s tottime / 2134 calls. `_refine_peak_freq`'s `_scan` helper grid-
+searches a frequency band via a serial Python `for` loop calling `_power_centered` once per candidate
+point (~9-21 points per scan, 2 scans per refine call) — every candidate in one scan shares the SAME
+`z_tr`/`yc`/`y_ss`, only `freq` varies, yet each call independently re-dispatches the ALREADY-parallel
+njit kernel (`_power_centered_fused_par_njit`), paying its own thread-launch overhead every time. Added
+`_power_centered_batch_njit`: flattens `n_freqs * nblocks` independent (frequency, block) partial-sum
+tasks into ONE `prange` dispatch, then reduces each frequency's own blocks in the SAME fixed 0..NB-1
+order the single-frequency kernel already used — bit-identical per frequency (concurrent OTHER
+frequencies' block schedule cannot affect a given frequency's own float accumulation order). Wired into
+`_scan`, gated on the same `_POWER_CENTERED_PAR_MIN_N` threshold the single-call path already used (the
+small-n numpy fallback is untouched). Verified EXACT match (`==`, not just close) against the original
+per-call loop across 10 synthetic single-tone-plus-noise scenarios (n=5k-8k). Measured 3.12x at n=200k
+(0.304s -> 0.097s, warm, best-of-5). 49 tests across `test_spline_fourier_basis_fe.py` +
+`test_extra_basis_fe_adaptive_max_cols.py` + `test_corr_sq_centered_noalloc.py` pass unchanged.
+
 ## BUG FIX (2026-08-02): auto-drop after feature_distribution_analyzer silently no-op'd on every pandas train_df
 Incidentally spotted in a profiling cycle's log (`c0091` combo): `WARNING: [mini-HPT] auto-drop after
 feature_distribution_analyzer failed (The truth value of a Index is ambiguous...)`. Root cause in

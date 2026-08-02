@@ -338,6 +338,91 @@ def _power_centered_fused_par_njit(z: np.ndarray, yc: np.ndarray, y_ss: float, f
     return out
 
 
+@numba.njit(fastmath=True, parallel=True, cache=True)
+def _power_centered_batch_njit(z: np.ndarray, yc: np.ndarray, y_ss: float, freqs: np.ndarray) -> np.ndarray:
+    """Batch of :func:`_power_centered_fused_par_njit` over every ``freqs[i]``, ONE parallel dispatch.
+
+    ``_refine_peak_freq``'s ``_scan`` helper grid-searches a frequency band by calling
+    ``_power_centered`` once per candidate point in a serial Python ``for`` loop (~9-21 points per
+    scan, 2 scans per refine call) -- each call independently re-dispatches the parallel njit kernel
+    (its own thread-launch overhead) even though every candidate in one scan shares the SAME
+    ``z``/``yc``/``y_ss``, only ``freq`` varies. 2M-row cProfile (combo `c0016_c3f401e4`,
+    master-seed 2026_04_29): `_power_centered` 30.98s tottime / 2134 calls. Flattens the work into
+    ``n_freqs * nblocks`` independent (frequency, block) partial-sum tasks scheduled across ONE
+    ``prange``, then reduces each frequency's own ``nblocks`` partials in the SAME fixed 0..NB-1
+    order the single-frequency kernel uses -- bit-identical per-frequency result (the reduction order
+    within a frequency is unchanged; only which OTHER frequencies' blocks happen to run concurrently
+    on other threads differs, which cannot affect a given frequency's own float accumulation)."""
+    n = z.shape[0]
+    nf = freqs.shape[0]
+    nblocks = _POWER_CENTERED_PAR_NBLOCKS
+    if nblocks > n:
+        nblocks = n
+    if nblocks < 1:
+        nblocks = 1
+    base = n // nblocks
+    rem = n % nblocks
+    partials = np.zeros((nf, nblocks, 6))
+    total_work = nf * nblocks
+    for w in prange(total_work):
+        fi = w // nblocks
+        b = w % nblocks
+        tp = 2.0 * np.pi * freqs[fi]
+        if b < rem:
+            start = b * (base + 1)
+            stop = start + (base + 1)
+        else:
+            start = rem * (base + 1) + (b - rem) * base
+            stop = start + base
+        psums = 0.0
+        pss_s = 0.0
+        psy = 0.0
+        psumc = 0.0
+        pss_c = 0.0
+        pcy = 0.0
+        for i in range(start, stop):
+            a = tp * z[i]
+            s = np.sin(a)
+            c = np.cos(a)
+            yv = yc[i]
+            psums += s
+            pss_s += s * s
+            psy += s * yv
+            psumc += c
+            pss_c += c * c
+            pcy += c * yv
+        partials[fi, b, 0] = psums
+        partials[fi, b, 1] = pss_s
+        partials[fi, b, 2] = psy
+        partials[fi, b, 3] = psumc
+        partials[fi, b, 4] = pss_c
+        partials[fi, b, 5] = pcy
+    out = np.zeros(nf, dtype=np.float64)
+    for fi in range(nf):
+        sums = 0.0
+        ss_s = 0.0
+        sy = 0.0
+        sumc = 0.0
+        ss_c = 0.0
+        cy = 0.0
+        for b in range(nblocks):
+            sums += partials[fi, b, 0]
+            ss_s += partials[fi, b, 1]
+            sy += partials[fi, b, 2]
+            sumc += partials[fi, b, 3]
+            ss_c += partials[fi, b, 4]
+            cy += partials[fi, b, 5]
+        p = 0.0
+        v_ss = ss_s - sums * sums / n
+        if v_ss > 1e-12 * ss_s and v_ss >= 1e-24 and y_ss >= 1e-24:
+            p += (sy * sy) / (v_ss * y_ss)
+        v_cc = ss_c - sumc * sumc / n
+        if v_cc > 1e-12 * ss_c and v_cc >= 1e-24 and y_ss >= 1e-24:
+            p += (cy * cy) / (v_cc * y_ss)
+        out[fi] = p
+    return out
+
+
 def _power_centered(z: np.ndarray, yc: np.ndarray, y_ss: float, freq: float) -> float:
     """Periodogram power at ``freq`` against a pre-centered ``y`` (``yc``,
     sum-of-squares ``y_ss``). Hot-loop variant that skips re-centering y."""
@@ -371,15 +456,27 @@ def _refine_peak_freq(
         lo_r = max(0.05, center - half_width)
         hi_r = center + half_width
         n_steps = round((hi_r - lo_r) / step) + 1
-        best_f = center
-        best_p = _power_centered(z_tr, yc, y_ss, center)
-        for k in range(n_steps):
-            f = lo_r + step * k
-            p = _power_centered(z_tr, yc, y_ss, f)
+        cand_freqs = [center] + [lo_r + step * k for k in range(n_steps)]
+        # Batched fused-njit dispatch (see _power_centered_batch_njit's docstring): every candidate in
+        # one scan shares the SAME z_tr/yc/y_ss, only freq varies, so this fuses the whole grid into ONE
+        # parallel-njit call instead of one dispatch per candidate. Bit-identical to the per-call
+        # _power_centered path; gated on the SAME n threshold that path uses to pick the parallel
+        # kernel, so the small-n numpy fallback (never worth batching) is untouched.
+        if z_tr.shape[0] >= _POWER_CENTERED_PAR_MIN_N:
+            powers = _power_centered_batch_njit(
+                np.ascontiguousarray(z_tr, dtype=np.float64), np.ascontiguousarray(yc, dtype=np.float64),
+                float(y_ss), np.asarray(cand_freqs, dtype=np.float64),
+            )
+        else:
+            powers = [_power_centered(z_tr, yc, y_ss, f) for f in cand_freqs]
+        best_idx = 0
+        best_p = float(powers[0])
+        for idx in range(1, len(cand_freqs)):
+            p = float(powers[idx])
             if p > best_p:
                 best_p = p
-                best_f = f
-        return best_f, best_p
+                best_idx = idx
+        return cand_freqs[best_idx], best_p
     f1, _ = _scan(coarse_f, 0.25, 0.05)
     f2, _ = _scan(f1, 0.05, 0.0125)
     return float(f2)
