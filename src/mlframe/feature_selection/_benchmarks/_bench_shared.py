@@ -5,7 +5,39 @@ from this same ``_benchmarks/`` directory -- only the literal duplicated bodies 
 """
 from __future__ import annotations
 
-from typing import Callable, List, TextIO
+from typing import Any, Callable, List, TextIO
+
+import numpy as np
+
+
+def build_selector(seed: int = 0) -> Any:
+    """Wide-data ShapProxiedFS config: prefilter on, clustering on, exhaustive-approx search, honest re-validation."""
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    return ShapProxiedFS(
+        classification=True,
+        metric="brier",
+        optimizer="auto",
+        prefilter_top=500,
+        cluster_features=True,
+        cluster_corr_threshold=0.7,
+        top_n=20,
+        n_splits=4,
+        n_revalidation_models=3,
+        trust_guard=True,
+        n_anchors=24,
+        run_importance_ablation=True,
+        within_cluster_refine=True,
+        random_state=seed,
+        verbose=False,
+    )
+
+
+def random_baseline_brier(y) -> float:
+    """Predict the prior on every row (constant probability == positive rate). Reference floor for
+    the proxy: anything we ship MUST beat this. y is binary 0/1."""
+    p = float(np.asarray(y).mean())
+    return float(np.mean((np.asarray(y, dtype=np.float64) - p) ** 2))
 
 
 def uf_find(x: int, parent: List[int]) -> int:

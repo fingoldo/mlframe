@@ -35,7 +35,7 @@ CV of two boosters on all columns).
 
 from __future__ import annotations
 
-from mlframe.feature_selection._benchmarks._bench_shared import make_dataset, recovered, make_tee_print
+from mlframe.feature_selection._benchmarks._bench_shared import make_dataset, recovered, make_tee_print, build_selector, random_baseline_brier
 
 import argparse
 import cProfile
@@ -63,34 +63,13 @@ _STAGE_ORDER = (
 )
 
 
-def _build_selector(seed: int):
-    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
-
-    # Wide-data config: same shape as bench_iter31 / bench_shap_proxy_scaling so iter33 numbers
-    # compose cleanly with the prior live-regime measurements.
-    return ShapProxiedFS(
-        classification=True, metric="brier", optimizer="auto",
-        prefilter_top=500, cluster_features=True, cluster_corr_threshold=0.7,
-        top_n=20, n_splits=4, n_revalidation_models=3, trust_guard=True, n_anchors=24,
-        run_importance_ablation=True, within_cluster_refine=True,
-        random_state=seed, verbose=False)
-
-
-
-def _random_baseline_brier(y) -> float:
-    """Predict the prior on every row (constant probability == positive rate). Reference floor for
-    the proxy: anything we ship MUST beat this. y is binary 0/1."""
-    p = float(np.asarray(y).mean())
-    return float(np.mean((np.asarray(y, dtype=np.float64) - p) ** 2))
-
-
 def run_one(name: str, cfg: dict, *, do_cprofile: bool = False, run_preflight: bool = True):
     print(f"\n[{name}] cfg={cfg}", flush=True)
     print(f"[{name}] making dataset...", flush=True)
     t_data = time.perf_counter()
     X, y, roles = make_dataset(cfg)
     print(f"[{name}] dataset shape={X.shape} in {time.perf_counter()-t_data:.1f}s", flush=True)
-    sel = _build_selector(cfg["seed"])
+    sel = build_selector(cfg["seed"])
     sel._stage_timings = {}
 
     print(f"[{name}] fitting (cprofile={do_cprofile})...", flush=True)
@@ -113,7 +92,7 @@ def run_one(name: str, cfg: dict, *, do_cprofile: bool = False, run_preflight: b
     # Brier vs random baseline on the holdout. The selector already reports honest holdout numbers
     # inside report['revalidation']['ranked'][0] (top-1 by stable_score / parsimony). Pull the chosen
     # subset's honest_loss out and compare against the prior-only baseline computed inline.
-    rb = _random_baseline_brier(y)
+    rb = random_baseline_brier(y)
     chosen_loss = None
     ranked = report.get("revalidation", {}).get("ranked", []) if isinstance(report.get("revalidation"), dict) else []
     if ranked:

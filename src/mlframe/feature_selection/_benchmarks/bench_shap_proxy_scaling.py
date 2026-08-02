@@ -32,6 +32,8 @@ cumulative hotspots.
 
 from __future__ import annotations
 
+from mlframe.feature_selection._benchmarks._bench_shared import build_selector
+
 import argparse
 import statistics
 import time
@@ -67,23 +69,11 @@ def make_wide(n_features: int, *, n_rows: int = 4000, n_informative: int = 8, n_
     return X, y, roles
 
 
-def _build_selector(seed: int = 0):
-    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
-
-    # Wide-data config: prefilter on, clustering on, exhaustive-approx search, honest re-validation.
-    return ShapProxiedFS(
-        classification=True, metric="brier", optimizer="auto",
-        prefilter_top=500, cluster_features=True, cluster_corr_threshold=0.7,
-        top_n=20, n_splits=4, n_revalidation_models=3, trust_guard=True, n_anchors=24,
-        run_importance_ablation=True, within_cluster_refine=True,
-        random_state=seed, verbose=False)
-
-
 def bench_width_single(n_features: int, *, n_rows: int, seed: int, snr: float = 5.0) -> tuple[float, dict, object, dict]:
     """Run one full fit at a given (width, seed); return (total_seconds, stage_timings,
     fitted_selector, roles)."""
     X, y, roles = make_wide(n_features, n_rows=n_rows, snr=snr, seed=seed)
-    sel = _build_selector(seed=seed)
+    sel = build_selector(seed=seed)
     sel._stage_timings = {}
     t0 = time.perf_counter()
     sel.fit(X, y)
@@ -192,7 +182,7 @@ def profile_widest(n_features: int, *, n_rows: int) -> None:
     import pstats
 
     X, y, _ = make_wide(n_features, n_rows=n_rows)
-    sel = _build_selector()
+    sel = build_selector()
     pr = cProfile.Profile()
     pr.enable()
     sel.fit(X, y)

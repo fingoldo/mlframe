@@ -26,23 +26,14 @@ budget ~10min. Per-cell summary lands on stdout immediately for liveness.
 
 from __future__ import annotations
 
+from mlframe.feature_selection._benchmarks._bench_shared import build_selector
+
 import argparse
 import statistics
 import time
 import warnings
 
 warnings.filterwarnings("ignore")
-
-
-def _build_selector(seed: int = 0):
-    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
-
-    return ShapProxiedFS(
-        classification=True, metric="brier", optimizer="auto",
-        prefilter_top=500, cluster_features=True, cluster_corr_threshold=0.7,
-        top_n=20, n_splits=4, n_revalidation_models=3, trust_guard=True, n_anchors=24,
-        run_importance_ablation=True, within_cluster_refine=True,
-        random_state=seed, verbose=False)
 
 
 def _make(*, n_features: int, n_rows: int, snr: float, seed: int, n_informative: int = 8, n_redundant: int = 12):
@@ -69,7 +60,7 @@ def run_cell(*, n_features: int, n_rows: int, snr: float, n_seeds: int):
         print(f"[width={n_features} n_rows={n_rows} snr={snr} seed={seed}] starting fit", flush=True)
         X, y, roles = _make(n_features=n_features, n_rows=n_rows, snr=snr, seed=seed)
         informative = {n for n, r in roles.items() if r == "informative"}
-        sel = _build_selector(seed=seed)
+        sel = build_selector(seed=seed)
         t0 = time.perf_counter()
         sel.fit(X, y)
         wall = time.perf_counter() - t0
