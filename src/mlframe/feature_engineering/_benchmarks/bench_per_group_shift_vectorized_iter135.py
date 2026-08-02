@@ -15,28 +15,11 @@ import time
 
 import numpy as np
 
-from mlframe.feature_engineering.grouped import iter_group_segments, per_group_shift
+from mlframe.feature_engineering.grouped import per_group_shift
 
-
-def _old_per_group_shift(values, group_ids, n=1, *, fill_value=np.nan, output_dtype=np.float64):
-    values_arr = np.ascontiguousarray(values)
-    out = np.full(values_arr.size, fill_value, dtype=output_dtype)
-    sort_idx, starts, ends = iter_group_segments(group_ids)
-    for s, e in zip(starts, ends):
-        seg_idx = sort_idx[s:e]
-        seg_len = seg_idx.size
-        if n > 0:
-            if seg_len <= n:
-                continue
-            out[seg_idx[n:]] = values_arr[seg_idx[:-n]]
-        elif n < 0:
-            k = -n
-            if seg_len <= k:
-                continue
-            out[seg_idx[:-k]] = values_arr[seg_idx[k:]]
-        else:
-            out[seg_idx] = values_arr[seg_idx]
-    return out
+# prod's own per_group_shift IS the OLD segment-loop (the vectorized rewrite below was
+# bench-rejected and never shipped -- see grouped.py::per_group_shift's docstring comment).
+_old_per_group_shift = per_group_shift
 
 
 def _bestof(fn, args, reps=5):

@@ -22,7 +22,7 @@ from __future__ import annotations
 import gc
 import logging
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Tuple
 
 import numpy as np
 
@@ -70,36 +70,13 @@ def _col_stats_numpy(arr: np.ndarray) -> bytes:
 
 
 def _build_col_stats_numba():
-    try:
-        import numba
-    except ImportError:
+    from mlframe.training.composite import cache as _cache_mod
+
+    if not _cache_mod._HAS_NUMBA:
         return None
 
-    @numba.njit(cache=True, fastmath=False, parallel=False)
-    def _kernel(arr):
-        # Mirrors the production kernel in ``composite_cache._col_stats_float_numba_kernel``:
-        # ``fastmath=False`` is required so ``v != v`` survives as the NaN check (fastmath
-        # assumes finite operands and collapses the test). Serial loop because a parallel
-        # min / max reduction needs explicit atomics which numba doesn't expose cheaply; the
-        # serial scan still ships >3x faster than the numpy mask path because it fuses the
-        # passes.
-        n = arr.shape[0]
-        n_null = 0
-        mn = np.inf
-        mx = -np.inf
-        for i in range(n):
-            v = arr[i]
-            if v != v or v == np.inf or v == -np.inf:
-                n_null += 1
-            else:
-                if v < mn:
-                    mn = v
-                if v > mx:
-                    mx = v
-        return mn, mx, n_null
-
     def _col_stats_numba(arr: np.ndarray) -> bytes:
-        mn, mx, n_null = _kernel(arr)
+        mn, mx, n_null = _cache_mod._col_stats_float_numba_kernel(arr)
         if not np.isfinite(mn):
             return f"all_null:{n_null}".encode("utf-8")
         return f"min={float(mn):.12g};max={float(mx):.12g};null={n_null}".encode("utf-8")
