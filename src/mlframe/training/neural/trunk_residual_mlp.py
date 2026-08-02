@@ -22,6 +22,8 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 from sklearn.exceptions import NotFittedError
 from torch import nn
 
+from ._mlp_predict_shared import mlp_predict
+
 
 class _TrunkInjectedBlock(nn.Module):
     """Residual block that re-injects the shared trunk representation into its own input every forward pass."""
@@ -106,13 +108,7 @@ class TrunkResidualMLPRegressor(BaseEstimator, RegressorMixin):
 
         return self
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        """Predict with the fitted trunk-residual MLP module in eval mode."""
-        X_arr = np.asarray(X, dtype=np.float32)
-        self.model_.eval()
-        with torch.no_grad():
-            preds = self.model_(torch.from_numpy(X_arr))
-        return np.asarray(preds.numpy())
+    predict = mlp_predict
 
     # ------------------------------------------------------------------
     # Opt-in seed-ensemble: fit()/predict() above are untouched by any of this --

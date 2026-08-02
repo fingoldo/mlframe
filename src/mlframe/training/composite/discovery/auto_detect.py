@@ -13,6 +13,15 @@ from .._composite_utils import is_polars_df as _is_polars_df
 
 from .screening import _is_numeric_column
 
+
+def _col_as_ndarray(df: Any, c: str) -> np.ndarray:
+    """Column ``c`` of ``df`` (polars or pandas) as an ndarray -- polars ``Series.to_numpy()`` already returns
+    an ndarray directly, pandas needs the explicit ``.to_numpy()`` call. Shared by the group- and
+    categorical-column candidate scanners below."""
+    if _is_polars_df(df):
+        return np.asarray(df.get_column(c).to_numpy())
+    return np.asarray(df[c].to_numpy())
+
 # ----------------------------------------------------------------------
 # detect_time_column + sort_df_by_time (auto-sort for EWMA / rolling / frac_diff transforms which assume chronological row order).
 #
@@ -197,13 +206,6 @@ def detect_group_column_candidates(
                 if dtype in int_dtypes and df.get_column(c).drop_nulls().n_unique() <= max_unique:
                     cand.append(c)
             candidate_columns = cand
-        def get_col(c):
-            """Polars column-as-ndarray accessor for the group-scan loop below.
-
-            Polars Series.to_numpy() already returns an ndarray -- the
-            earlier np.asarray wrapper allocated a redundant view.
-            """
-            return df.get_column(c).to_numpy()
     elif isinstance(df, pd.DataFrame):
         if candidate_columns is None:
             # Default: ALL non-numeric columns + low-cardinality numeric (int) ones.
@@ -213,9 +215,6 @@ def detect_group_column_candidates(
                 or pd.api.types.is_bool_dtype(df[c])
                 or (pd.api.types.is_integer_dtype(df[c]) and df[c].nunique() <= max_unique)
             ]
-        def get_col(c):
-            """Pandas column-as-ndarray accessor for the group-scan loop below."""
-            return df[c].to_numpy()
     else:
         raise TypeError(f"detect_group_column_candidates: unsupported df type {type(df).__name__}")
 
@@ -224,7 +223,7 @@ def detect_group_column_candidates(
     results: list[tuple[str, dict[str, Any]]] = []
     for col in candidate_columns:
         try:
-            arr = get_col(col)
+            arr = _col_as_ndarray(df, col)
             # Skip all-null columns.
             mask_finite = pd.notna(arr) if hasattr(arr, "__iter__") else None
             if mask_finite is not None and not np.any(mask_finite):
@@ -394,9 +393,6 @@ def detect_cat_columns(
                 if dtype in int_dtypes and df.get_column(c).drop_nulls().n_unique() <= max_unique:
                     cand.append(c)
             candidate_columns = cand
-        def get_col(c):
-            """Polars column-as-ndarray accessor for the categorical-scan loop below."""
-            return df.get_column(c).to_numpy()
     elif isinstance(df, pd.DataFrame):
         if candidate_columns is None:
             # Default: non-float columns -- string, bool, low-cardinality int
@@ -414,9 +410,6 @@ def detect_cat_columns(
                     or (pd.api.types.is_integer_dtype(df[c]) and df[c].nunique() <= max_unique)
                 )
             ]
-        def get_col(c):
-            """Pandas column-as-ndarray accessor for the categorical-scan loop below."""
-            return df[c].to_numpy()
     else:
         raise TypeError(f"detect_cat_columns: unsupported df type {type(df).__name__}")
 
@@ -427,7 +420,7 @@ def detect_cat_columns(
     results: list[tuple[str, dict[str, Any]]] = []
     for col in candidate_columns:
         try:
-            arr = get_col(col)
+            arr = _col_as_ndarray(df, col)
             # Strip nulls so they don't count as a separate "category".
             mask_finite = pd.notna(arr) if hasattr(arr, "__iter__") else None
             if mask_finite is not None and not np.any(mask_finite):

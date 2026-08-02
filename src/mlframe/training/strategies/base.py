@@ -51,6 +51,18 @@ def _get_feature_names_out_shared(self, input_features=None):
     return _np.asarray([f"x{i}" for i in range(n)])
 
 
+def _stamp_fit_shared(self, X, y=None):
+    """Stamp ``feature_names_in_``/``n_features_in_`` without touching values, per sklearn's fitted-attribute contract; the transform itself needs no other fitted state."""
+    import numpy as _np
+
+    if hasattr(X, "columns"):
+        self.feature_names_in_ = _np.asarray(list(X.columns))
+    _shape = getattr(X, "shape", None)
+    if _shape is not None and len(_shape) >= 2:
+        self.n_features_in_ = int(_shape[1])
+    return self
+
+
 from sklearn.base import BaseEstimator, TransformerMixin
 
 
@@ -71,20 +83,7 @@ class _Float32CastTransformer(TransformerMixin, BaseEstimator):
         tags.input_tags.allow_nan = True
         return tags
 
-    def fit(self, X, y=None):  # -- sklearn signature
-        """Stamp ``feature_names_in_``/``n_features_in_`` without touching values; the cast itself is stateless."""
-        # Stamp the standard fitted attributes so ``check_is_fitted`` succeeds
-        # AND sklearn's pipeline name-tracker (which calls
-        # ``get_feature_names_out(input_features=None)`` on each step in turn,
-        # passing the prior step's output names back in) gets back a non-empty
-        # name vector that matches the data width.
-        import numpy as _np
-        if hasattr(X, "columns"):
-            self.feature_names_in_ = _np.asarray(list(X.columns))
-        _shape = getattr(X, "shape", None)
-        if _shape is not None and len(_shape) >= 2:
-            self.n_features_in_ = int(_shape[1])
-        return self
+    fit = _stamp_fit_shared
 
     def transform(self, X):
         """Cast ``X`` to float32, delegating to the module-level helper."""
@@ -120,15 +119,7 @@ class _InfToNaNTransformer(TransformerMixin, BaseEstimator):
         tags.input_tags.allow_nan = True
         return tags
 
-    def fit(self, X, y=None):  # -- sklearn signature
-        """Stamp ``feature_names_in_``/``n_features_in_``; the inf->NaN replacement itself needs no fitted state."""
-        import numpy as _np
-        if hasattr(X, "columns"):
-            self.feature_names_in_ = _np.asarray(list(X.columns))
-        _shape = getattr(X, "shape", None)
-        if _shape is not None and len(_shape) >= 2:
-            self.n_features_in_ = int(_shape[1])
-        return self
+    fit = _stamp_fit_shared
 
     @staticmethod
     def _replace(X):

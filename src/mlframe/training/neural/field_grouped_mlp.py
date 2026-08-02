@@ -21,6 +21,8 @@ import torch
 from sklearn.base import BaseEstimator, RegressorMixin
 from torch import nn
 
+from ._mlp_predict_shared import mlp_predict
+
 
 class _FieldGroupedMLPModule(nn.Module):
     """Torch module: per-field sub-MLP encoders whose outputs are concatenated and fed to a shared head."""
@@ -95,13 +97,7 @@ class FieldGroupedMLPRegressor(BaseEstimator, RegressorMixin):
 
         return self
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        """Predict with the fitted field-grouped MLP module in eval mode."""
-        X_arr = np.asarray(X, dtype=np.float32)
-        self.model_.eval()
-        with torch.no_grad():
-            preds = self.model_(torch.from_numpy(X_arr))
-        return np.asarray(preds.numpy())
+    predict = mlp_predict
 
 
 __all__ = ["FieldGroupedMLPRegressor"]
