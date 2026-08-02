@@ -42,7 +42,7 @@ Leakage safety (CRITICAL)
 """
 from __future__ import annotations
 
-from ._grouped_coerce_shared import coerce_X_for_grouped
+from ._grouped_coerce_shared import coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols
 
 import logging
 from typing import Optional, Sequence
@@ -654,35 +654,6 @@ def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 4) -> list[str]:
             if 3 <= nun <= min(500, max(3, n // 2)):
                 out.append(str(c))
         return out[:max_cols]
-
-
-def _auto_detect_num_cols(
-    X: pd.DataFrame, group_cols: Sequence[str], max_cols: int = 8,
-) -> list[str]:
-    """Pick up to ``max_cols`` numeric source columns for grouped-quantile FE: floats always qualify, high-cardinality
-    integers qualify, group columns and already-``grp``-prefixed engineered columns are excluded (see inline comment
-    on why nesting on an engineered column would break replay)."""
-    group_set = set(group_cols)
-    out: list[str] = []
-    for c in X.columns:
-        if c in group_set:
-            continue
-        # Skip already-engineered grouped columns (grpagg/grpz/grpratio/grpiqr/grpp90p10/... appended by an EARLIER grouped-FE
-        # stage). A per-group quantile of one of these builds a nested recipe whose transform-replay needs the intermediate
-        # engineered column materialised first - but transform() replays from raw X only, so it raises KeyError on the missing
-        # source. The grouped aggregates are also constant within group, so a quantile of them is degenerate. Keep the source scope
-        # to raw columns so every grouped-quantile recipe is 1-deep and replayable.
-        if str(c).startswith("grp"):
-            continue
-        col = X[c]
-        if not pd.api.types.is_numeric_dtype(col):
-            continue
-        if pd.api.types.is_float_dtype(col):
-            out.append(str(c))
-            continue
-        if int(col.nunique(dropna=True)) > 500:
-            out.append(str(c))
-    return out[:max_cols]
 
 
 # ---------------------------------------------------------------------------

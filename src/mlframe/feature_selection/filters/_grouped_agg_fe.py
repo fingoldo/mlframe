@@ -41,7 +41,7 @@ at fit time, so ``transform`` is leakage-free by construction.
 """
 from __future__ import annotations
 
-from ._grouped_coerce_shared import coerce_X_for_grouped
+from ._grouped_coerce_shared import coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols
 
 import logging
 from typing import Optional, Sequence
@@ -506,33 +506,6 @@ def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 4) -> list[str]:
             if 3 <= nun <= min(500, max(3, n // 2)):
                 out.append(str(c))
         return out[:max_cols]
-
-
-def _auto_detect_num_cols(
-    X: pd.DataFrame, group_cols: Sequence[str], max_cols: int = 8,
-) -> list[str]:
-    """Continuous columns (float dtype, or high-cardinality numeric) excluding
-    the chosen group columns.
-    """
-    group_set = set(group_cols)
-    out: list[str] = []
-    for c in X.columns:
-        if c in group_set:
-            continue
-        # Skip already-engineered grouped columns (grpagg/grpz/grpratio/... from an earlier grouped-FE stage). They are constant
-        # within group, so aggregating them again is degenerate, and the nested recipe cannot replay from raw X at transform time.
-        if str(c).startswith("grp"):
-            continue
-        col = X[c]
-        if not pd.api.types.is_numeric_dtype(col):
-            continue
-        if pd.api.types.is_float_dtype(col):
-            out.append(str(c))
-            continue
-        # Integer column: treat as continuous only if high cardinality.
-        if int(col.nunique(dropna=True)) > 500:
-            out.append(str(c))
-    return out[:max_cols]
 
 
 def _filter_num_cols_by_relevance(
