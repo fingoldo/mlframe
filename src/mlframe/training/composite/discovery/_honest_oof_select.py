@@ -21,6 +21,8 @@ group-internal CV-RMSE rather than auto-killing the spec.
 """
 from __future__ import annotations
 
+from ._spec_shared import spec_base_columns
+
 import logging
 from typing import Any, Sequence
 
@@ -39,14 +41,6 @@ def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Plain RMSE, upcasting both arrays to float64 to avoid overflow/precision loss on wide-range targets."""
     d = np.asarray(y_true, dtype=np.float64) - np.asarray(y_pred, dtype=np.float64)
     return float(np.sqrt(np.mean(d * d)))
-
-
-def _spec_base_columns(spec) -> list[str]:
-    """Collect the column(s) a spec's inverse transform needs as its ``base`` argument: the primary ``base_column`` plus any ``extra_base_columns``."""
-    extra = tuple(getattr(spec, "extra_base_columns", ()) or ())
-    if not spec.base_column:
-        return []
-    return [spec.base_column, *extra]
 
 
 def _base_arg(df, base_columns: Sequence[str], rows: np.ndarray) -> np.ndarray:
@@ -155,7 +149,7 @@ def honest_oof_reconstruction_rmse(
         except UnknownTransformError:
             return spec.name, None
         params = dict(getattr(spec, "fitted_params", {}) or {})
-        base_cols = _spec_base_columns(spec)
+        base_cols = spec_base_columns(spec)
         base_fit = _base_arg(df, base_cols, fit_idx)
         base_eval = _base_arg(df, base_cols, eval_idx)
         try:

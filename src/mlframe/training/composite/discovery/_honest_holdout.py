@@ -22,6 +22,8 @@ materialised, never a frame copy.
 """
 from __future__ import annotations
 
+from ._spec_shared import spec_base_columns
+
 import logging
 import threading
 from typing import Any, Sequence
@@ -154,14 +156,6 @@ def carve_screening_holdout(self, train_idx: np.ndarray) -> tuple[np.ndarray, np
     return screen_idx, holdout_idx
 
 
-def _spec_base_columns(spec) -> list[str]:
-    """Full ordered base-column list for a spec: primary + any extra (multi-base)."""
-    extra = tuple(getattr(spec, "extra_base_columns", ()) or ())
-    if not spec.base_column:
-        return []  # unary (base-free) spec.
-    return [spec.base_column, *extra]
-
-
 def _build_x_remaining_holdout(
     df: Any,
     usable_features: Sequence[str],
@@ -261,7 +255,7 @@ def rescore_specs_on_holdout(
             transform = get_transform(spec.transform_name)
         except UnknownTransformError:
             return
-        base_columns = _spec_base_columns(spec)
+        base_columns = spec_base_columns(spec)
         x_remaining = _build_x_remaining_holdout(df, usable_features, base_columns, holdout_idx)
         if x_remaining.shape[1] == 0:
             return

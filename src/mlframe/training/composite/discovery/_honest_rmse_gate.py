@@ -33,6 +33,8 @@ materialised; never a frame copy.
 """
 from __future__ import annotations
 
+from ._spec_shared import spec_base_columns
+
 import logging
 from typing import Any, Sequence
 
@@ -50,14 +52,6 @@ def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Plain RMSE in float64 (upcast so wide-range targets don't lose precision)."""
     d = np.asarray(y_true, dtype=np.float64) - np.asarray(y_pred, dtype=np.float64)
     return float(np.sqrt(np.mean(d * d)))
-
-
-def _spec_base_columns(spec: Any) -> list[str]:
-    """Ordered base-column list the spec's forward/inverse needs (primary + multi-base extras); empty for unary."""
-    extra = tuple(getattr(spec, "extra_base_columns", ()) or ())
-    if not spec.base_column:
-        return []
-    return [spec.base_column, *extra]
 
 
 def _base_arg(df: Any, base_columns: Sequence[str], rows: np.ndarray) -> np.ndarray:
@@ -154,7 +148,7 @@ def apply_honest_rmse_gate(
             survivors.append(spec)  # cannot evaluate -> never penalise
             continue
         params = dict(spec.fitted_params)
-        base_cols = _spec_base_columns(spec)
+        base_cols = spec_base_columns(spec)
         base_fit = _base_arg(df, base_cols, fit_idx)
         base_eval = _base_arg(df, base_cols, eval_idx)
         # Same two-stage domain gate the screen applies, so T is fit on the spec's real domain.
