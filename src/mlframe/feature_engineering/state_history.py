@@ -120,41 +120,10 @@ if _NUMBA_AVAILABLE:
                             changed = True
                     i = j
 
-    @numba.njit(cache=True)
-    def _state_history_njit(codes_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, k: int) -> Tuple[np.ndarray, np.ndarray]:
-        """Numba-accelerated computation of each row's last-k prior state codes and their run durations within each group."""
-        n = codes_sorted.shape[0]
-        out_states = np.full((n, k), -1, dtype=np.int64)
-        out_durations = np.full((n, k), np.nan, dtype=np.float64)
-
-        for g in range(starts.shape[0]):
-            s, e = starts[g], ends[g]
-            buf_states = np.full(k, -1, dtype=np.int64)
-            buf_durations = np.zeros(k, dtype=np.float64)
-            head = 0
-            count = 0
-
-            run_length = 1
-            prev_state = codes_sorted[s]
-            for i in range(s, e):
-                if i > s:
-                    if codes_sorted[i] != prev_state:
-                        buf_states[head] = prev_state
-                        buf_durations[head] = run_length
-                        head = (head + 1) % k
-                        count = min(count + 1, k)
-                        run_length = 1
-                        prev_state = codes_sorted[i]
-                    else:
-                        run_length += 1
-
-                for kk in range(k):
-                    idx = (head - 1 - kk) % k
-                    if kk < count:
-                        out_states[i, kk] = buf_states[idx]
-                        out_durations[i, kk] = buf_durations[idx]
-
-        return out_states, out_durations
+    # Compiles the SAME function object defined above (the numpy fallback) rather than declaring a second
+    # identical body under a new name -- numba.njit accepts an existing function directly, so there is only
+    # ever one physical copy of this algorithm's source in the file.
+    _state_history_njit = numba.njit(cache=True)(_state_history_numpy)
 
 
 def last_k_distinct_states_with_durations(
