@@ -17,6 +17,17 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
+def _arr(v):
+    """Coerce a pandas Series/ndarray/None to a flat float64 array, or None if empty/missing."""
+    import numpy as _np
+
+    if v is None:
+        return None
+    a = v.values if hasattr(v, "values") else v
+    a = _np.asarray(a, dtype=_np.float64).reshape(-1)
+    return a if a.size else None
+
+
 def _auto_calibrate_on_calib_slice(ctx: "TrainingContext") -> None:
     """Auto-fit post-hoc calibrators for every per-target model that carries a disjoint calib slice.
 
@@ -163,8 +174,6 @@ def _apply_confidence_shrinkage_to_regression(ctx: "TrainingContext") -> None:
     then applied to that same model's test/val predictions in place (``apply_confidence_shrinkage``). Gated by
     ``RegressionCalibrationConfig.apply_confidence_shrinkage``; default OFF (bit-identical no-op).
     """
-    import numpy as _np
-
     from ...calibration.confidence_shrinkage import apply_confidence_shrinkage, compute_oof_confidence
 
     # ``ctx.configs`` was a dead fallback: TrainingContext has always exposed its configs as flat
@@ -175,14 +184,6 @@ def _apply_confidence_shrinkage_to_regression(ctx: "TrainingContext") -> None:
         return
     _kwargs = dict(getattr(_cfg, "confidence_shrinkage_kwargs", None) or {})
     _segment_ids = _kwargs.pop("segment_ids", None)
-
-    def _arr(v):
-        """Coerce a pandas Series/ndarray/None to a flat float64 array, or None if empty/missing."""
-        if v is None:
-            return None
-        a = v.values if hasattr(v, "values") else v
-        a = _np.asarray(a, dtype=_np.float64).reshape(-1)
-        return a if a.size else None
 
     entries_by_key: dict = {}
     for _ttype, _by_name in (ctx.models or {}).items():
@@ -265,8 +266,6 @@ def _recalibrate_regression_on_calib_slice(ctx: "TrainingContext") -> None:
     per-split predictions are re-stamped to the recalibrated values so the conformal pass (which runs after)
     scores the SHIPPED predictor. Runs before ``_conformal_on_calib_slice``.
     """
-    import numpy as _np
-
     from .._regression_calibration import RecalibratedRegressor, cv2_recalibration_gain, fit_point_recalibrator
 
     _cfg = getattr(ctx, "regression_calibration_config", None)
@@ -280,14 +279,6 @@ def _recalibrate_regression_on_calib_slice(ctx: "TrainingContext") -> None:
     if method not in ("isotonic", "linear"):
         return
     min_gain = float(getattr(_cfg, "min_gain", 0.0)) if _cfg is not None else 0.0
-
-    def _arr(v):
-        """Coerce a pandas Series/ndarray/None to a flat float64 array, or None if empty/missing."""
-        if v is None:
-            return None
-        a = v.values if hasattr(v, "values") else v
-        a = _np.asarray(a, dtype=_np.float64).reshape(-1)
-        return a if a.size else None
 
     applied: dict = {}
     for _ttype, _by_name in (ctx.models or {}).items():
@@ -374,14 +365,6 @@ def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
     score = str(getattr(_cfg, "score", "normalized")) if _cfg is not None else "normalized"
     cls_mode = str(getattr(_cfg, "classification_mode", "sets_lac")) if _cfg is not None else "sets_lac"
     structure = _conformal_finalize_structure(ctx)
-
-    def _arr(v):
-        """Coerce a pandas Series/ndarray/None to a flat float64 array, or None if empty/missing."""
-        if v is None:
-            return None
-        a = v.values if hasattr(v, "values") else v
-        a = _np.asarray(a, dtype=_np.float64).reshape(-1)
-        return a if a.size else None
 
     def _raw1d(v):
         """Like _arr but preserves the original dtype (needed for classification labels, not just floats)."""
