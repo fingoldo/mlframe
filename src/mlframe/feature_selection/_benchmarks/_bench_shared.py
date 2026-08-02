@@ -12,6 +12,13 @@ import numpy as np
 from mlframe.feature_selection.filters._cluster_aggregate import uf_find  # noqa: F401 -- re-exported for the bench-family call sites
 
 
+def standard_normal_matrix(n_rows: int, p: int, seed: int) -> np.ndarray:
+    """Plain ``(n_rows, p)`` standard-normal input matrix -- the shared cProfile-bench fixture used
+    by the random_fourier_features / LOF cProfile scripts."""
+    rng = np.random.default_rng(seed)
+    return rng.standard_normal((n_rows, p))
+
+
 def occupied_k(codes: np.ndarray) -> int:
     """Number of distinct integer codes present -- the "occupied cell count" ``k`` used by the
     Miller-Madow debiasing terms across the uplift-ratio / joint-recovery-floor bench family."""

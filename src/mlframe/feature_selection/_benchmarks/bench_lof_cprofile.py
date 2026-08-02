@@ -16,14 +16,8 @@ import pstats
 import time
 from io import StringIO
 
-import numpy as np
-
+from mlframe.feature_selection._benchmarks._bench_shared import standard_normal_matrix as _make_data
 from mlframe.feature_selection.filters._lof_fe import lof_scores
-
-
-def _make_data(n_rows: int, p: int, seed: int):
-    rng = np.random.default_rng(seed)
-    return rng.standard_normal((n_rows, p))
 
 
 def _run(n_rows: int, p: int, k: int) -> None:
