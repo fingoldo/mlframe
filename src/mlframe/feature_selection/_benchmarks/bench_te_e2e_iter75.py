@@ -10,27 +10,10 @@ import numba  # noqa: F401
 import numpy as np
 import pandas as pd
 
+from mlframe.feature_selection._benchmarks.bench_te_column_to_str_iter75 import OLD as OLD_FN
 from mlframe.feature_selection.filters import _target_encoding_fe as M
-from mlframe.feature_selection.filters._internals import canonical_group_token
 
 NEW_FN = M._column_to_str
-
-
-def OLD_FN(col):
-    arr = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
-    if arr.dtype.kind in ("i", "u", "b"):
-        uniq, inv = np.unique(arr, return_inverse=True)
-        toks = np.array([canonical_group_token(u) for u in uniq], dtype=object)
-        return toks[inv]
-    out = np.empty(len(arr), dtype=object)
-    for i, v in enumerate(arr):
-        if v is None:
-            out[i] = "__nan__"
-        elif isinstance(v, float) and v != v:
-            out[i] = "__nan__"
-        else:
-            out[i] = canonical_group_token(v)
-    return out
 
 
 N = 200_000
@@ -43,13 +26,11 @@ if __name__ == "__main__":
     })
     y = rng.integers(0, 2, N).astype(np.float64)
 
-
     def run():
         te_df, recipes = M.kfold_target_encode_fit(X, y, ["c_obj", "c_int"])
         a = M.apply_target_encoding(X, "c_obj", recipes["c_obj"])
         b = M.apply_target_encoding(X, "c_int", recipes["c_int"])
         return te_df, a, b
-
 
     # Identity of the FULL e2e output.
     M._column_to_str = OLD_FN
