@@ -54,6 +54,39 @@ def write_worker_source(worker_path: str, source: str) -> None:
         f.write(source)
 
 
+def build_classification_scene(n: int = 2407, p: int = 120, informative: int = 20, seed: int = 42):
+    """Deterministic ``make_classification`` scene (a few informative columns + noise): shared fixture
+    for the profile_boruta_shap / profile_boruta_shap_small bench pair."""
+    from sklearn.datasets import make_classification
+
+    X, y = make_classification(
+        n_samples=n,
+        n_features=p,
+        n_informative=informative,
+        n_redundant=0,
+        n_classes=2,
+        n_clusters_per_class=1,
+        random_state=seed,
+        shuffle=False,
+    )
+    import pandas as pd
+
+    return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)]), y
+
+
+def extract_boruta_shap_golden(bs) -> dict:
+    """Bit-identity golden: accept/reject/tentative sets + per-feature hit vector + trials run + selection,
+    extracted from a fitted BorutaShap -- shared by the profile_boruta_shap bench pair."""
+    return {
+        "accepted": sorted(bs.accepted),
+        "rejected": sorted(bs.rejected),
+        "tentative": sorted([str(t) for t in bs.tentative]),
+        "hits": [float(h) for h in bs.hits],
+        "n_trials_run": int(bs.n_trials_run_),
+        "selected_features": sorted(bs.selected_features_),
+    }
+
+
 def make_shap_proxy_fit_data(n: int = 20000, n_inf: int = 8, n_noise: int = 5, n_corr: int = 2, seed: int = 0):
     """Synthetic (X, y): ``n_inf`` informative + ``n_noise`` noise + ``n_corr`` informative-correlated
     columns, binary ``y`` from a linear-decaying-coefficient logit on the informatives. Shared fit-profile

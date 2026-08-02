@@ -29,21 +29,9 @@ import time
 import warnings
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
-from sklearn.datasets import make_classification
+from mlframe.feature_selection._benchmarks._bench_shared import build_classification_scene as build_scene, extract_boruta_shap_golden as extract_golden
 
 warnings.filterwarnings("ignore")
-
-
-def build_scene(n: int = 2407, p: int = 120, informative: int = 20, seed: int = 42) -> tuple[pd.DataFrame, np.ndarray]:
-    """Build the representative classification scene (deterministic make_classification) for the BorutaShap profile."""
-    X, y = make_classification(
-        n_samples=n, n_features=p, n_informative=informative,
-        n_redundant=0, n_classes=2, n_clusters_per_class=1,
-        random_state=seed, shuffle=False,
-    )
-    return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)]), y
 
 
 def make_selector() -> "object":
@@ -56,18 +44,6 @@ def make_selector() -> "object":
         model=model, importance_measure="shap", classification=True,
         n_trials=30, random_state=0, verbose=False, normalize=True,
     )
-
-
-def extract_golden(bs: "object") -> dict:
-    """Extract the bit-identity golden (accept/reject/tentative sets + per-feature hit vector) from a fitted BorutaShap."""
-    return {
-        "accepted": sorted(bs.accepted),
-        "rejected": sorted(bs.rejected),
-        "tentative": sorted([str(t) for t in bs.tentative]),
-        "hits": [float(h) for h in bs.hits],
-        "n_trials_run": int(bs.n_trials_run_),
-        "selected_features": sorted(bs.selected_features_),
-    }
 
 
 def run_once_walltime() -> tuple[float, dict]:

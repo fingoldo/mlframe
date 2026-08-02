@@ -62,24 +62,12 @@ from pathlib import Path
 
 from typing import TYPE_CHECKING
 
-import numpy as np
-import pandas as pd
-from sklearn.datasets import make_classification
+from mlframe.feature_selection._benchmarks._bench_shared import build_classification_scene as build_scene, extract_boruta_shap_golden as extract_golden
 
 if TYPE_CHECKING:
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
 warnings.filterwarnings("ignore")
-
-
-def build_scene(n: int, p: int, informative: int, seed: int = 42) -> tuple[pd.DataFrame, np.ndarray]:
-    """Deterministic make_classification scene -- a few informative columns + noise."""
-    X, y = make_classification(
-        n_samples=n, n_features=p, n_informative=informative,
-        n_redundant=0, n_classes=2, n_clusters_per_class=1,
-        random_state=seed, shuffle=False,
-    )
-    return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)]), y
 
 
 def make_selector(n_estimators: int, n_trials: int) -> BorutaShap:
@@ -92,18 +80,6 @@ def make_selector(n_estimators: int, n_trials: int) -> BorutaShap:
         model=model, importance_measure="shap", classification=True,
         n_trials=n_trials, random_state=0, verbose=False, normalize=True,
     )
-
-
-def extract_golden(bs: BorutaShap) -> dict:
-    """Bit-identity golden: accept/reject/tentative sets + per-feature hit vector + trials run + selection."""
-    return {
-        "accepted": sorted(bs.accepted),
-        "rejected": sorted(bs.rejected),
-        "tentative": sorted([str(t) for t in bs.tentative]),
-        "hits": [float(h) for h in bs.hits],
-        "n_trials_run": int(bs.n_trials_run_),
-        "selected_features": sorted(bs.selected_features_),
-    }
 
 
 SCENES = {
