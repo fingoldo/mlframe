@@ -53,6 +53,24 @@ def boruta_single(X, y):
     return [c for c in b.selected_features_ if c in X.columns]
 
 
+def load_scene(n_rows):
+    """Load the OpenML 'scene' dataset (binarised to the majority-class target), optionally subsampled
+    to ``n_rows`` rows -- shared by the round4_scene_cprofile / round4_fs_campaign_profile bench pair."""
+    import pandas as pd
+    from sklearn.datasets import fetch_openml
+
+    d = fetch_openml(name="scene", version=1, as_frame=True, parser="auto")
+    X = d.data.apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    X.columns = [f"f{i}" for i in range(X.shape[1])]
+    y = pd.Series(pd.factorize(d.target)[0])
+    y = (y == y.value_counts().idxmax()).astype(int).reset_index(drop=True)
+    X = X.reset_index(drop=True)
+    if n_rows < len(X):
+        idx = np.random.default_rng(0).choice(len(X), size=n_rows, replace=False)
+        X, y = X.iloc[idx].reset_index(drop=True), y.iloc[idx].reset_index(drop=True)
+    return X, y
+
+
 def build_products(X, pairs) -> dict:
     """Return ``{name: product array}`` for the given ``(a, b)`` pairs present in ``X`` -- shared by
     the round4 fe_accept/fe_accept_frugal bench pair."""

@@ -12,8 +12,8 @@ from __future__ import annotations
 import os, sys, time, cProfile, pstats, io
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
-import numpy as np, pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _downstream_shared import load_scene
 
 N_ROWS = int(os.environ.get("SCENE_N", "500"))
 
@@ -35,19 +35,6 @@ def _disable_kernel_tuning_sweep():
         print("[kernel-tuning sweep+disk DISABLED for profiling -> in-memory fallback]", flush=True)
     except Exception as e:
         print(f"[no-sweep patch failed: {e}]", flush=True)
-
-
-def load_scene(n_rows):
-    from sklearn.datasets import fetch_openml
-    d = fetch_openml(name="scene", version=1, as_frame=True, parser="auto")
-    X = d.data.apply(pd.to_numeric, errors="coerce").fillna(0.0)
-    X.columns = [f"f{i}" for i in range(X.shape[1])]
-    y = pd.Series(pd.factorize(d.target)[0]); y = (y == y.value_counts().idxmax()).astype(int).reset_index(drop=True)
-    X = X.reset_index(drop=True)
-    if n_rows < len(X):
-        idx = np.random.default_rng(0).choice(len(X), size=n_rows, replace=False)
-        X, y = X.iloc[idx].reset_index(drop=True), y.iloc[idx].reset_index(drop=True)
-    return X, y
 
 
 def main():

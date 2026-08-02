@@ -10,25 +10,12 @@ from __future__ import annotations
 import os, sys, time, cProfile, pstats, io
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
-import numpy as np, pandas as pd
+import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _downstream_shared import load_scene
 
 FS = os.environ.get("FS", "rfecv").lower()
 N_ROWS = int(os.environ.get("SCENE_N", "700"))
-
-
-def load_scene(n_rows):
-    """Load the OpenML 'scene' dataset (binarised to the majority-class target), optionally subsampled to n_rows rows."""
-    from sklearn.datasets import fetch_openml
-    d = fetch_openml(name="scene", version=1, as_frame=True, parser="auto")
-    X = d.data.apply(pd.to_numeric, errors="coerce").fillna(0.0)
-    X.columns = [f"f{i}" for i in range(X.shape[1])]
-    y = pd.Series(pd.factorize(d.target)[0]); y = (y == y.value_counts().idxmax()).astype(int).reset_index(drop=True)
-    X = X.reset_index(drop=True)
-    if n_rows < len(X):
-        idx = np.random.default_rng(0).choice(len(X), size=n_rows, replace=False)
-        X, y = X.iloc[idx].reset_index(drop=True), y.iloc[idx].reset_index(drop=True)
-    return X, y
 
 
 def make_selector(fs):
