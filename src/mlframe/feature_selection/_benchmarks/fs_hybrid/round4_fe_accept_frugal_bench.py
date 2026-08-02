@@ -45,17 +45,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from round3_realdata_bench import load_real, downstream
 from synth import make_dataset
 from hard_synth import make_hard_dataset
+import functools
+from _downstream_shared import checkpoint_at, build_products
 
 NJ = 2  # n_jobs cap under heavy concurrent load
 PROGRESS = "D:/Temp/fe_accept_progress.txt"
 GREEDY_FLOOR = 0.0015  # held-out AUC gain floor to accept another product
 TOPK = (5, 10)
 
-
-def checkpoint(msg):
-    with open(PROGRESS, "a") as f:
-        f.write(f"{time.strftime('%H:%M:%S')} {msg}\n")
-    print(f"  [ckpt] {msg}", flush=True)
+checkpoint = functools.partial(checkpoint_at, PROGRESS)
 
 
 def shallow_tree_signals(X, y, n_estimators=120, max_depth=3, top_pairs=30, seed=0):
@@ -80,15 +78,6 @@ def shallow_tree_signals(X, y, n_estimators=120, max_depth=3, top_pairs=30, seed
     top = [p for p, _ in pair_w.most_common(top_pairs)]
     del m; gc.collect()
     return ranked, top
-
-
-def build_products(X, pairs):
-    """Return dict name -> product array for the given (a,b) pairs present in X."""
-    prods = {}
-    for i, (a, b) in enumerate(pairs):
-        if a in X.columns and b in X.columns:
-            prods[f"prod_{i}"] = (X[a].values * X[b].values).astype(np.float64)
-    return prods
 
 
 def holdout_greedy_accept(base_mat, prod_dict, y, floor=GREEDY_FLOOR, seed=0):

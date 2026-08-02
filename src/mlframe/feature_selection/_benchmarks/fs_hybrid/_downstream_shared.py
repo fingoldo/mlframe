@@ -5,6 +5,8 @@ drift out of sync across copies. Each benchmark script stays independently runna
 """
 from __future__ import annotations
 
+import time
+
 import lightgbm as lgb
 import numpy as np
 from sklearn.linear_model import LogisticRegression
@@ -49,6 +51,25 @@ def boruta_single(X, y):
     )
     b.fit(X, y)
     return [c for c in b.selected_features_ if c in X.columns]
+
+
+def build_products(X, pairs) -> dict:
+    """Return ``{name: product array}`` for the given ``(a, b)`` pairs present in ``X`` -- shared by
+    the round4 fe_accept/fe_accept_frugal bench pair."""
+    prods = {}
+    for i, (a, b) in enumerate(pairs):
+        if a in X.columns and b in X.columns:
+            prods[f"prod_{i}"] = (X[a].values * X[b].values).astype(np.float64)
+    return prods
+
+
+def checkpoint_at(progress_path: str, msg: str) -> None:
+    """Append a ``HH:MM:SS``-timestamped ``msg`` to ``progress_path`` and echo it to stdout: the
+    checkpoint helper shared by the round4 fe_accept/fe_accept_frugal bench pair (both use the same
+    ``D:/Temp/fe_accept_progress.txt`` path)."""
+    with open(progress_path, "a") as f:
+        f.write(f"{time.strftime('%H:%M:%S')} {msg}\n")
+    print(f"  [ckpt] {msg}", flush=True)
 
 
 def checkpoint(msg: str) -> None:

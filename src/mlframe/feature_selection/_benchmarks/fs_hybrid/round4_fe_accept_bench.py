@@ -35,15 +35,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from round3_realdata_bench import load_real, downstream
 from synth import make_dataset
 from hard_synth import make_hard_dataset
+import functools
+from _downstream_shared import checkpoint_at, build_products
 
 NJ = 4  # n_jobs cap under concurrent load
 PROGRESS = "D:/Temp/fe_accept_progress.txt"
 
-
-def checkpoint(msg):
-    with open(PROGRESS, "a") as f:
-        f.write(f"{time.strftime('%H:%M:%S')} {msg}\n")
-    print(f"  [ckpt] {msg}", flush=True)
+checkpoint = functools.partial(checkpoint_at, PROGRESS)
 
 
 def shallow_tree_signals(X, y, n_estimators=120, max_depth=3, top_pairs=30, seed=0):
@@ -67,15 +65,6 @@ def shallow_tree_signals(X, y, n_estimators=120, max_depth=3, top_pairs=30, seed
             pair_w[(a, b)] += gain
     top = [p for p, _ in pair_w.most_common(top_pairs)]
     return ranked, top
-
-
-def build_products(X, pairs):
-    """Return dict name -> product array for the given (a,b) pairs present in X."""
-    prods = {}
-    for i, (a, b) in enumerate(pairs):
-        if a in X.columns and b in X.columns:
-            prods[f"prod_{i}"] = (X[a].values * X[b].values).astype(np.float64)
-    return prods
 
 
 def _auc_cv(Xmat, y, n_estimators=150, seed=0):
