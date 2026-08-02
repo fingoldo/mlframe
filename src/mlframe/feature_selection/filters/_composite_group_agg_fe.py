@@ -37,6 +37,8 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from ._grouped_coerce_shared import auto_detect_num_cols_plain as _auto_detect_num_cols
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -541,26 +543,6 @@ def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 6) -> list[str]:
             continue
         nun = int(col.nunique(dropna=True))
         if 3 <= nun <= min(500, max(3, n // 2)):
-            out.append(str(c))
-    return out[:max_cols]
-
-
-def _auto_detect_num_cols(
-    X: pd.DataFrame, group_cols: Sequence[str], max_cols: int = 8,
-) -> list[str]:
-    """Pick numeric columns worth composite-aggregating: any float column, or an int column with >500 distinct values (low-cardinality ints are treated as categorical, not aggregation targets)."""
-    group_set = set(group_cols)
-    out: list[str] = []
-    for c in X.columns:
-        if c in group_set:
-            continue
-        col = X[c]
-        if not pd.api.types.is_numeric_dtype(col):
-            continue
-        if pd.api.types.is_float_dtype(col):
-            out.append(str(c))
-            continue
-        if int(col.nunique(dropna=True)) > 500:
             out.append(str(c))
     return out[:max_cols]
 

@@ -56,6 +56,7 @@ try:
 except ImportError:  # numba is an optional dep; fall back to scipy below.
     _HAVE_NUMBA = False
 
+from ._grouped_coerce_shared import auto_detect_num_cols_plain as _auto_detect_num_cols
 from ._internals import group_key_strings
 
 logger = logging.getLogger(__name__)
@@ -413,26 +414,6 @@ def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 4) -> list[str]:
             if 3 <= nun <= min(500, max(3, n // 2)):
                 out.append(str(c))
         return out[:max_cols]
-
-
-def _auto_detect_num_cols(
-    X: pd.DataFrame, group_cols: Sequence[str], max_cols: int = 8,
-) -> list[str]:
-    """Pick up to ``max_cols`` numeric candidate columns to compute group-distance features for, excluding ``group_cols``: all float columns qualify, integer columns only if high-cardinality (>500 uniques, i.e. not really categorical)."""
-    group_set = set(group_cols)
-    out: list[str] = []
-    for c in X.columns:
-        if c in group_set:
-            continue
-        col = X[c]
-        if not pd.api.types.is_numeric_dtype(col):
-            continue
-        if pd.api.types.is_float_dtype(col):
-            out.append(str(c))
-            continue
-        if int(col.nunique(dropna=True)) > 500:
-            out.append(str(c))
-    return out[:max_cols]
 
 
 def hybrid_group_distance_fe(
