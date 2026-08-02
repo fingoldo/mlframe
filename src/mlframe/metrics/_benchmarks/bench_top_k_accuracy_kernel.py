@@ -17,9 +17,8 @@ from __future__ import annotations
 import time
 
 import numpy as np
-import numba
 
-from .._numba_params import NUMBA_NJIT_PARAMS
+from mlframe.metrics.classification._classification_extras import _top_k_hits_kernel as _topk_hits_kernel
 
 
 def _old_top_k_accuracy(y_true, probs_NK, k=1):
@@ -39,20 +38,6 @@ def _old_top_k_accuracy(y_true, probs_NK, k=1):
                     hits += 1
                     break
     return hits / n if n > 0 else np.nan
-
-
-@numba.njit(**NUMBA_NJIT_PARAMS)
-def _topk_hits_kernel(topk_idx, y_true, K):
-    n, k = topk_idx.shape
-    hits = 0
-    for i in range(n):
-        ti = y_true[i]
-        if 0 <= ti < K:
-            for j in range(k):
-                if topk_idx[i, j] == ti:
-                    hits += 1
-                    break
-    return hits
 
 
 def _new_top_k_accuracy(y_true, probs_NK, k=1):

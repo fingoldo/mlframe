@@ -34,29 +34,7 @@ import numpy as np
 from .._numba_params import _PARALLEL_REDUCTION_THRESHOLD, NUMBA_NJIT_PARAMS, _check_equal_length
 
 # ---------- helpers ----------
-from ._classification_extras import _confusion_counts_binary_par, _multiclass_confusion_kernel
-
-
-@numba.njit(**NUMBA_NJIT_PARAMS)
-def _binary_confusion_block_kernel_seq(
-    y_true: np.ndarray, y_pred: np.ndarray,
-) -> Tuple[int, int, int, int]:
-    """Sequential confusion-counts. Same body as
-    ``_confusion_counts_binary`` but unrolled here so the fused
-    public API doesn't pay the cross-module call overhead."""
-    tp = 0; fp = 0; tn = 0; fn = 0
-    for i in range(y_true.shape[0]):
-        if y_true[i] != 0:
-            if y_pred[i] != 0:
-                tp += 1
-            else:
-                fn += 1
-        else:
-            if y_pred[i] != 0:
-                fp += 1
-            else:
-                tn += 1
-    return tp, fp, tn, fn
+from ._classification_extras import _confusion_counts_binary as _binary_confusion_block_kernel_seq, _confusion_counts_binary_par, _multiclass_confusion_kernel
 
 
 def fast_binary_confusion_metrics_block(
