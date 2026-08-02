@@ -12,6 +12,26 @@ import numpy as np
 from mlframe.feature_selection.filters._cluster_aggregate import uf_find  # noqa: F401 -- re-exported for the bench-family call sites
 
 
+def make_shap_proxy_fit_data(n: int = 20000, n_inf: int = 8, n_noise: int = 5, n_corr: int = 2, seed: int = 0):
+    """Synthetic (X, y): ``n_inf`` informative + ``n_noise`` noise + ``n_corr`` informative-correlated
+    columns, binary ``y`` from a linear-decaying-coefficient logit on the informatives. Shared fit-profile
+    fixture for the shap_proxied_fs profile/bench family."""
+    rng = np.random.default_rng(seed)
+    inf = rng.normal(size=(n, n_inf))
+    noise = rng.normal(size=(n, n_noise))
+    corr = inf[:, :n_corr] + 0.3 * rng.normal(size=(n, n_corr))
+    import pandas as pd
+
+    X = pd.DataFrame(
+        np.column_stack([inf, noise, corr]),
+        columns=[f"inf{i}" for i in range(n_inf)] + [f"noise{i}" for i in range(n_noise)] + [f"corr{i}" for i in range(n_corr)],
+    )
+    coefs = np.linspace(1.0, 0.3, n_inf)
+    logit = inf @ coefs
+    y = (logit + 0.4 * rng.normal(size=n) > 0).astype(int)
+    return X, y
+
+
 def make_shap_proxy_wide_regime(n_features: int, *, n_rows: int = 4000, n_informative: int = 8, n_redundant: int = 12, snr: float = 5.0, seed: int = 0):
     """Wide shap-proxy regime dataset: a few informatives + correlated redundant copies + the rest noise.
     Shared by the shap-proxy scaling / noise-pool-sweep bench family.

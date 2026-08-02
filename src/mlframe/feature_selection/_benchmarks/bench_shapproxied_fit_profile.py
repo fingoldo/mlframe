@@ -52,25 +52,12 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
+from mlframe.feature_selection._benchmarks._bench_shared import make_shap_proxy_fit_data as make_data
+
 if TYPE_CHECKING:
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
 warnings.filterwarnings("ignore")
-
-
-def make_data(n: int = 800, n_inf: int = 8, n_noise: int = 12, n_corr: int = 5, seed: int = 0) -> tuple[pd.DataFrame, np.ndarray]:
-    rng = np.random.default_rng(seed)
-    inf = rng.normal(size=(n, n_inf))
-    noise = rng.normal(size=(n, n_noise))
-    corr = inf[:, :n_corr] + 0.3 * rng.normal(size=(n, n_corr))
-    X = pd.DataFrame(
-        np.column_stack([inf, noise, corr]),
-        columns=[f"inf{i}" for i in range(n_inf)] + [f"noise{i}" for i in range(n_noise)] + [f"corr{i}" for i in range(n_corr)],
-    )
-    coefs = np.linspace(1.0, 0.3, n_inf)
-    logit = inf @ coefs
-    y = (logit + 0.4 * rng.normal(size=n) > 0).astype(int)
-    return X, y
 
 
 def _make_selector(seed=0):

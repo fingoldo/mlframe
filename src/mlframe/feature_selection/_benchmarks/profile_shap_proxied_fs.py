@@ -18,25 +18,9 @@ import pstats
 import time
 import warnings
 
-import numpy as np
-import pandas as pd
+from mlframe.feature_selection._benchmarks._bench_shared import make_shap_proxy_fit_data as make_data
 
 warnings.filterwarnings("ignore")
-
-
-def make_data(n=20000, n_inf=8, n_noise=5, n_corr=2, seed=0):
-    rng = np.random.default_rng(seed)
-    inf = rng.normal(size=(n, n_inf))
-    noise = rng.normal(size=(n, n_noise))
-    corr = inf[:, :n_corr] + 0.3 * rng.normal(size=(n, n_corr))
-    X = pd.DataFrame(
-        np.column_stack([inf, noise, corr]),
-        columns=[f"inf{i}" for i in range(n_inf)] + [f"noise{i}" for i in range(n_noise)] + [f"corr{i}" for i in range(n_corr)],
-    )
-    coefs = np.linspace(1.0, 0.3, n_inf)
-    logit = inf @ coefs
-    y = (logit + 0.4 * rng.normal(size=n) > 0).astype(int)
-    return X, y
 
 
 def bench_proxy_vs_honest(X, y):
