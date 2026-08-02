@@ -20,7 +20,7 @@ Run::
 
 from __future__ import annotations
 
-from mlframe.feature_selection._benchmarks._bench_shared import make_dataset
+from mlframe.feature_selection._benchmarks._bench_shared import make_dataset, informative_recall as _informative_recall
 
 import os
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -47,14 +47,6 @@ def _build_selector(seed, *, top_n):
         revalidation_ucb_enabled=True,
         revalidation_adaptive_n_models=True,
         random_state=seed, verbose=False)
-
-
-def _informative_recall(chosen, roles):
-    inf_cols = {name for name, role in roles.items() if role == "informative"}
-    if not inf_cols:
-        return float("nan")
-    sel = set(chosen)
-    return len(sel & inf_cols) / len(inf_cols)
 
 
 def run_one(value, cfg, X, y, roles):

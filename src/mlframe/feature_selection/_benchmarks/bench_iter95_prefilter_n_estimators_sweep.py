@@ -19,7 +19,7 @@ Run::
 
 from __future__ import annotations
 
-from mlframe.feature_selection._benchmarks._bench_shared import make_dataset
+from mlframe.feature_selection._benchmarks._bench_shared import make_dataset, informative_recall as _informative_recall
 
 import os
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -45,19 +45,9 @@ def _build_selector(seed, *, prefilter_n_estimators):
         run_importance_ablation=True, within_cluster_refine=True,
         revalidation_ucb_enabled=True,
         revalidation_adaptive_n_models=True,
-        random_state=seed, verbose=False)
-
-
-def _informative_recall(chosen, roles):
-    """Fraction of true-informative columns retained in the chosen subset.
-
-    ``roles`` is a ``{column_name: role_str}`` mapping; ``informative`` columns are the ground truth.
-    """
-    inf_cols = {name for name, role in roles.items() if role == "informative"}
-    if not inf_cols:
-        return float("nan")
-    sel = set(chosen)
-    return len(sel & inf_cols) / len(inf_cols)
+        random_state=seed,
+        verbose=False,
+    )
 
 
 def run_one(value, cfg, X, y, roles):

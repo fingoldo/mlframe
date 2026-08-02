@@ -12,6 +12,15 @@ import numpy as np
 from mlframe.feature_selection.filters._cluster_aggregate import uf_find  # noqa: F401 -- re-exported for the bench-family call sites
 
 
+def informative_recall(chosen, roles) -> float:
+    """Fraction of planted informative columns present in ``chosen`` -- shared iter95/iter96 sweep metric."""
+    inf_cols = {name for name, role in roles.items() if role == "informative"}
+    if not inf_cols:
+        return float("nan")
+    sel = set(chosen)
+    return len(sel & inf_cols) / len(inf_cols)
+
+
 def build_brute_force_cap_selector(seed: int, brute_force_max_features: int):
     """ShapProxiedFS config shared by the iter56/iter58 brute-force-cap bench pair: prefilter+cluster+trust_guard
     on, ``brute_force_max_features`` swept by the caller."""
