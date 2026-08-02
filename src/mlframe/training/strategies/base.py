@@ -39,6 +39,18 @@ def _cast_numeric_to_float32(X):
     return _np.asarray(X, dtype=_np.float32)
 
 
+def _get_feature_names_out_shared(self, input_features=None):
+    """Echo ``input_features`` if given, else the names/count captured at fit time, per sklearn's contract."""
+    import numpy as _np
+
+    if input_features is not None:
+        return _np.asarray(input_features)
+    if hasattr(self, "feature_names_in_"):
+        return self.feature_names_in_
+    n = getattr(self, "n_features_in_", 0)
+    return _np.asarray([f"x{i}" for i in range(n)])
+
+
 from sklearn.base import BaseEstimator, TransformerMixin
 
 
@@ -83,15 +95,7 @@ class _Float32CastTransformer(TransformerMixin, BaseEstimator):
         self.fit(X)
         return _cast_numeric_to_float32(X)
 
-    def get_feature_names_out(self, input_features=None):
-        """Echo ``input_features`` if given, else the names/count captured at fit time, per sklearn's contract."""
-        import numpy as _np
-        if input_features is not None:
-            return _np.asarray(input_features)
-        if hasattr(self, "feature_names_in_"):
-            return self.feature_names_in_
-        n = getattr(self, "n_features_in_", 0)
-        return _np.asarray([f"x{i}" for i in range(n)])
+    get_feature_names_out = _get_feature_names_out_shared
 
 class _InfToNaNTransformer(TransformerMixin, BaseEstimator):
     """Replace +/-inf with NaN so the downstream SimpleImputer fills them.
@@ -147,15 +151,7 @@ class _InfToNaNTransformer(TransformerMixin, BaseEstimator):
         self.fit(X)
         return self._replace(X)
 
-    def get_feature_names_out(self, input_features=None):
-        """Echo ``input_features`` if given, else the names/count captured at fit time, per sklearn's contract."""
-        import numpy as _np
-        if input_features is not None:
-            return _np.asarray(input_features)
-        if hasattr(self, "feature_names_in_"):
-            return self.feature_names_in_
-        n = getattr(self, "n_features_in_", 0)
-        return _np.asarray([f"x{i}" for i in range(n)])
+    get_feature_names_out = _get_feature_names_out_shared
 
 
 class _NumericOnlyTransformer(TransformerMixin, BaseEstimator):
@@ -247,15 +243,7 @@ class _NumericOnlyTransformer(TransformerMixin, BaseEstimator):
             out[c] = transformed[c].to_numpy() if hasattr(transformed[c], "to_numpy") else transformed[c]
         return out
 
-    def get_feature_names_out(self, input_features=None):
-        """Echo ``input_features`` if given, else the names/count captured at fit time, per sklearn's contract."""
-        import numpy as _np
-        if input_features is not None:
-            return _np.asarray(input_features)
-        if hasattr(self, "feature_names_in_"):
-            return self.feature_names_in_
-        n = getattr(self, "n_features_in_", 0)
-        return _np.asarray([f"x{i}" for i in range(n)])
+    get_feature_names_out = _get_feature_names_out_shared
 
 
 # Pre-compiled slug pattern (MEMORY.md: pre-compile regex at module level).
