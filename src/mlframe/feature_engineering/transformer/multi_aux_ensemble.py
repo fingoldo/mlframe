@@ -36,29 +36,10 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from ._focal_loss_shared import make_focal_objective as _focal_obj
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
-
-
-def _focal_obj(gamma: float = 2.0):
-    """Focal-loss custom objective for LightGBM (rare-class-emphasized cross-entropy)."""
-    def objective(preds, train_data):
-        """LightGBM custom-objective signature: raw logits + Dataset -> (grad, hess) for the focal loss above."""
-        labels = train_data.get_label()
-        preds_clipped = np.clip(preds, -30.0, 30.0)
-        p = 1.0 / (1.0 + np.exp(-preds_clipped))
-        pt = labels * p + (1.0 - labels) * (1.0 - p)
-        focal_term = (1.0 - pt) ** gamma
-        grad = focal_term * (
-            labels * (gamma * pt * np.log(np.maximum(pt, 1e-9)) - (1.0 - pt))
-            + (1.0 - labels) * ((1.0 - pt) - gamma * pt * np.log(np.maximum(pt, 1e-9)))
-        ) * (p - labels) / np.maximum(pt, 1e-9)
-        hess = focal_term * p * (1.0 - p) * (1.0 + gamma * (1.0 - pt))
-        grad = np.clip(grad, -10.0, 10.0)
-        hess = np.maximum(hess, 1e-6)
-        return grad, hess
-    return objective
 
 
 def _fit_aux_lgb(X: np.ndarray, y: np.ndarray, *, task: str, seed: int, focal: bool = False, n_estimators: int = 200, max_depth: int = 4):

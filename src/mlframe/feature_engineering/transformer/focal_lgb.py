@@ -25,40 +25,10 @@ from typing import Any, Optional
 import numpy as np
 import polars as pl
 
+from ._focal_loss_shared import make_focal_objective as _focal_loss_obj
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
-
-
-def _focal_loss_obj(gamma: float):
-    """LightGBM custom objective: focal loss (Lin et al. 2017) for binary classification.
-
-    Returns (grad, hess) given preds (raw logits) and labels. gamma=2 is the published default.
-    """
-    def objective(preds, train_data):
-        """LightGBM-conforming ``(grad, hess)`` callable closing over ``gamma``; converts raw logits to
-        probabilities via a clipped sigmoid before applying the focal modulating factor."""
-        labels = train_data.get_label()
-        # Clip raw preds before sigmoid to avoid float overflow in exp(-preds).
-        preds_clipped = np.clip(preds, -30.0, 30.0)
-        p = 1.0 / (1.0 + np.exp(-preds_clipped))
-        # Focal modulating factor.
-        pt = labels * p + (1.0 - labels) * (1.0 - p)
-        # Gradient: d/dlogit of focal CE.
-        focal_term = (1.0 - pt) ** gamma
-        # First derivative: gradient of focal loss w.r.t. raw logit.
-        # See Lin 2017 supplement; for binary with sigmoid output:
-        grad = focal_term * (
-            labels * (gamma * pt * np.log(np.maximum(pt, 1e-9)) - (1.0 - pt))
-            + (1.0 - labels) * ((1.0 - pt) - gamma * pt * np.log(np.maximum(pt, 1e-9)))
-        ) * (p - labels) / np.maximum(pt, 1e-9)
-        # Approximate Hessian (diagonal); use BCE-style p*(1-p) scaled by focal term.
-        hess = focal_term * p * (1.0 - p) * (1.0 + gamma * (1.0 - pt))
-        # Clip to avoid numerical issues.
-        grad = np.clip(grad, -10.0, 10.0)
-        hess = np.maximum(hess, 1e-6)
-        return grad, hess
-    return objective
 
 
 def _fit_focal_lgb(X: np.ndarray, y: np.ndarray, *, n_estimators: int, max_depth: int, gamma: float, seed: int):
