@@ -24,15 +24,9 @@ import os
 from datetime import datetime
 
 import numpy as np
-from scipy.optimize import nnls
 
 from mlframe.training.composite import residual_dedup_indices
-
-
-def _nnls_stack_test_rmse(oof_preds, y_oof, test_preds, y_test):
-    w, _ = nnls(oof_preds, y_oof)
-    pred = test_preds @ w
-    return float(np.sqrt(np.mean((pred - y_test) ** 2)))
+from .bench_ct_ensemble_residual_dedup import _nnls_stack_test_rmse
 
 
 def _mean_test_rmse(test_preds, y_test):

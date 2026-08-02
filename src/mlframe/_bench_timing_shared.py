@@ -15,3 +15,16 @@ def time_call(fn: Callable, *args, iters: int) -> float:
     for _ in range(iters):
         fn(*args)
     return (time.perf_counter() - t0) / iters * 1e6
+
+
+def best_of_ms(fn: Callable, *args, repeat: int = 5) -> float:
+    """Warm ``fn(*args)`` once, then return its best (minimum) wall-clock time in milliseconds over ``repeat`` calls."""
+    fn(*args)
+    best = float("inf")
+    for _ in range(repeat):
+        t0 = time.perf_counter()
+        fn(*args)
+        dt = (time.perf_counter() - t0) * 1000.0
+        if dt < best:
+            best = dt
+    return best

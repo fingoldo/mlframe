@@ -17,20 +17,12 @@ import os
 import tempfile
 
 import numpy as np
-import pandas as pd
 from sklearn.metrics import roc_auc_score, mean_squared_error
 
 from mlframe.training.core import train_mlframe_models_suite, predict_mlframe_models_suite
 from mlframe.training.configs import ReportingConfig, OutputConfig
 from mlframe.training.configs import TrainingSplitConfig
-
-
-def _make_fte(regression):
-    # Reuse the canonical test extractor so the suite contract (8-tuple transform) is exercised exactly.
-    from tests.training.shared import SimpleFeaturesAndTargetsExtractor
-
-    return SimpleFeaturesAndTargetsExtractor(target_column="target", regression=regression)
-
+from ._earlystop_bench_shared import make_fte as _make_fte, split as _split
 
 # ----------------------------------------------------------------------------------------
 # Synthetic scenarios. Each returns (train_df, holdout_df, regression).
@@ -99,20 +91,6 @@ def _scenario_interactions(seed, regression):
     else:
         y = ((signal + rng.randn(n) * 2.5) > 0).astype(int)
     return _split(X, y, p, seed)
-
-
-def _split(X, y, p, seed):
-    rng = np.random.RandomState(seed + 777)
-    n = X.shape[0]
-    idx = rng.permutation(n)
-    n_hold = n // 4
-    hold, train = idx[:n_hold], idx[n_hold:]
-    cols = [f"f_{i}" for i in range(p)]
-    tr = pd.DataFrame(X[train], columns=cols)
-    tr["target"] = y[train]
-    ho = pd.DataFrame(X[hold], columns=cols)
-    ho["target"] = y[hold]
-    return tr, ho
 
 
 SCENARIOS = {

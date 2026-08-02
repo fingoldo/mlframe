@@ -18,12 +18,13 @@ Run:
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from mlframe._bench_timing_shared import best_of_ms
 
 try:
     import numba as _nb
@@ -207,16 +208,7 @@ def _quantile_v3_pandas_groupby(y: np.ndarray, bin_idx: np.ndarray, n_bins: int)
     return meds, iqrs, sizes
 
 
-def _time_call(fn, *args, repeat: int = 5) -> float:
-    fn(*args)  # warm
-    best = float("inf")
-    for _ in range(repeat):
-        t0 = time.perf_counter()
-        fn(*args)
-        dt = (time.perf_counter() - t0) * 1000.0
-        if dt < best:
-            best = dt
-    return best
+_time_call = best_of_ms
 
 
 def _make_inputs(n: int, n_bins: int, seed: int = 17):
