@@ -6,12 +6,11 @@ Run directly: ``python -m mlframe.competition._benchmarks.bench_quantization_rec
 """
 from __future__ import annotations
 
-import cProfile
-import pstats
-import time
+import functools
 
 import numpy as np
 
+from mlframe.competition._benchmarks._cprofile_bench_shared import cprofile_main
 from mlframe.competition.quantization_recovery import (
     derounded_feature,
     detect_quantization_step,
@@ -41,17 +40,7 @@ def _run_once() -> None:
     rank_features_by_quantization_confidence(features)
 
 
-def main() -> None:
-    profiler = cProfile.Profile()
-    t0 = time.perf_counter()
-    profiler.enable()
-    _run_once()
-    profiler.disable()
-    wall = time.perf_counter() - t0
-
-    stats = pstats.Stats(profiler).sort_stats("cumulative")
-    print(f"wall time: {wall:.4f}s")
-    stats.print_stats(30)
+main = functools.partial(cprofile_main, _run_once)
 
 
 if __name__ == "__main__":

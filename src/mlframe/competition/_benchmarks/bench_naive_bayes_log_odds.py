@@ -6,12 +6,11 @@ Run directly: ``python -m mlframe.competition._benchmarks.bench_naive_bayes_log_
 """
 from __future__ import annotations
 
-import cProfile
-import pstats
-import time
+import functools
 
 import numpy as np
 
+from mlframe.competition._benchmarks._cprofile_bench_shared import cprofile_main
 from mlframe.competition.naive_bayes_log_odds import NaiveBayesLogOddsEnsembler
 
 
@@ -35,17 +34,7 @@ def _run_once() -> None:
         ens.predict_proba_average_baseline(X_test)
 
 
-def main() -> None:
-    profiler = cProfile.Profile()
-    t0 = time.perf_counter()
-    profiler.enable()
-    _run_once()
-    profiler.disable()
-    wall = time.perf_counter() - t0
-
-    stats = pstats.Stats(profiler).sort_stats("cumulative")
-    print(f"wall time: {wall:.4f}s")
-    stats.print_stats(30)
+main = functools.partial(cprofile_main, _run_once)
 
 
 if __name__ == "__main__":

@@ -6,13 +6,12 @@ Run directly: ``python -m mlframe.competition._benchmarks.bench_leak_scan``
 """
 from __future__ import annotations
 
-import cProfile
-import pstats
-import time
+import functools
 
 import numpy as np
 import pandas as pd
 
+from mlframe.competition._benchmarks._cprofile_bench_shared import cprofile_main
 from mlframe.competition.leak_scan import find_shifted_column_groups, sort_by_density_leak_scan
 
 
@@ -34,17 +33,7 @@ def _run_once() -> None:
     find_shifted_column_groups(small_df, max_lag=2)
 
 
-def main() -> None:
-    profiler = cProfile.Profile()
-    t0 = time.perf_counter()
-    profiler.enable()
-    _run_once()
-    profiler.disable()
-    wall = time.perf_counter() - t0
-
-    stats = pstats.Stats(profiler).sort_stats("cumulative")
-    print(f"wall time: {wall:.4f}s")
-    stats.print_stats(30)
+main = functools.partial(cprofile_main, _run_once)
 
 
 if __name__ == "__main__":
