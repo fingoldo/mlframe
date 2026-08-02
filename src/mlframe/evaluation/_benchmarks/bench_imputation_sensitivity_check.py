@@ -10,19 +10,15 @@ import time
 from io import StringIO
 
 import numpy as np
-import pandas as pd
+
+from mlframe._bench_data_shared import make_regression_data
 from sklearn.linear_model import Ridge
 from sklearn.metrics import r2_score
 from sklearn.model_selection import KFold
 
 from mlframe.evaluation.imputation_sensitivity_check import imputation_sensitivity_check
 
-
-def _make_data(n: int, n_features: int, seed: int = 0):
-    rng = np.random.default_rng(seed)
-    X = pd.DataFrame(rng.normal(size=(n, n_features)), columns=[f"f{i}" for i in range(n_features)])
-    y = (X.iloc[:, :3].sum(axis=1) + rng.normal(scale=0.5, size=n)).to_numpy()
-    return X, y
+_make_data = make_regression_data
 
 
 def _run(n: int, n_features: int, n_variants: int, with_shift: bool = False) -> None:
