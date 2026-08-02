@@ -13,11 +13,12 @@ Run: python -m mlframe.feature_engineering._benchmarks.bench_extra_aggregates_ve
 """
 from __future__ import annotations
 
-import time
+from functools import partial
 
 import numpy as np
 
 from mlframe.feature_engineering.transformer._aggregation import compute_extra_aggregates
+from mlframe._bench_timing_shared import best_of_seconds_with_output
 
 
 def _old_weights(q_proj, k_proj, topk_ids, softmax_temp):
@@ -54,14 +55,7 @@ def _new_weights(q_proj, k_proj, topk_ids, softmax_temp):
     return weights.astype(np.float32, copy=False)
 
 
-def _best_of(fn, *args, n=7):
-    best = float("inf")
-    out = None
-    for _ in range(n):
-        t0 = time.perf_counter()
-        out = fn(*args)
-        best = min(best, time.perf_counter() - t0)
-    return best, out
+_best_of = partial(best_of_seconds_with_output, reps=7)
 
 
 def main():
@@ -85,7 +79,7 @@ def main():
             # End-to-end on the public function (y_skew + x_centroid_dist + y_iqr) before/after is compared in the identity test;
             # here we time the full call to confirm the loop dominates.
             aggs = ("y_skew", "x_centroid_dist", "y_iqr")
-            t_full, _ = _best_of(compute_extra_aggregates, q_proj, k_proj, y_train, topk_ids, softmax_temp, aggs, n=3)
+            t_full, _ = _best_of(compute_extra_aggregates, q_proj, k_proj, y_train, topk_ids, softmax_temp, aggs, reps=3)
             print(f"                    full call ({','.join(aggs)})  {t_full*1e3:8.2f}ms")
 
 

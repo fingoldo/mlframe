@@ -14,11 +14,10 @@ Run:
 """
 from __future__ import annotations
 
-import time
-
 import numpy as np
 import pandas as pd
 
+from mlframe._bench_timing_shared import time_once
 from mlframe.feature_selection.filters._cat_triple_fe import (
     apply_cat_triple_cross,
     _encode_triple,
@@ -84,10 +83,7 @@ def main():
             print(f"{n:>8} {card:>5} {enc:>7} {best_old*1e3:>9.2f} {best_new*1e3:>9.2f} {best_old/best_new:>7.2f}x  {'BIT-IDENTICAL' if identical else 'MISMATCH!'}")
 
 
-def _time(fn):
-    t0 = time.perf_counter()
-    fn()
-    return time.perf_counter() - t0
+_time = time_once
 
 
 if __name__ == "__main__":

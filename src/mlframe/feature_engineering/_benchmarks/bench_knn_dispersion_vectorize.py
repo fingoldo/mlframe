@@ -16,10 +16,12 @@ from __future__ import annotations
 import importlib.util
 import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 import tempfile
-import time
+from functools import partial
 from pathlib import Path
 
 import numpy as np
+
+from mlframe._bench_timing_shared import best_of_seconds_with_output
 
 REPO = Path(__file__).resolve().parents[4]
 SPATIAL_REL = "src/mlframe/feature_engineering/spatial.py"
@@ -45,11 +47,7 @@ def _make_data(n_ref, n_q, n_classes=5, seed=0):
     return ref, q, reg_labels, cls_labels
 
 
-def _best_of(fn, reps=5):
-    best = float("inf"); out = None
-    for _ in range(reps):
-        t0 = time.perf_counter(); out = fn(); best = min(best, time.perf_counter() - t0)
-    return best, out
+_best_of = partial(best_of_seconds_with_output, reps=5)
 
 
 def _cmp(r_old, r_new):

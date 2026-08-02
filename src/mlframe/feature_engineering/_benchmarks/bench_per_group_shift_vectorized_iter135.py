@@ -11,10 +11,10 @@ Run: CUDA_VISIBLE_DEVICES="" python bench_per_group_shift_vectorized_iter135.py
 """
 import sys
 sys.modules["cupy"] = None
-import time
 
 import numpy as np
 
+from mlframe._bench_timing_shared import best_of_seconds_args_no_warmup
 from mlframe.feature_engineering.grouped import per_group_shift
 
 # prod's own per_group_shift IS the OLD segment-loop (the vectorized rewrite below was
@@ -22,13 +22,7 @@ from mlframe.feature_engineering.grouped import per_group_shift
 _old_per_group_shift = per_group_shift
 
 
-def _bestof(fn, args, reps=5):
-    best = float("inf")
-    for _ in range(reps):
-        t0 = time.perf_counter()
-        fn(*args)
-        best = min(best, time.perf_counter() - t0)
-    return best
+_bestof = best_of_seconds_args_no_warmup
 
 
 def main():

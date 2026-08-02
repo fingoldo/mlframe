@@ -15,10 +15,12 @@ Run:
 from __future__ import annotations
 
 import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
-import time
+from functools import partial
 from pathlib import Path
 
 import numpy as np
+
+from mlframe._bench_timing_shared import best_of_seconds_with_output
 
 REPO = Path(__file__).resolve().parents[4]
 ANCHOR_REL = "src/mlframe/feature_engineering/anchor.py"
@@ -43,14 +45,7 @@ def _make_data(n, anchor_frac, seed=0):
     return label.astype(np.float64), is_anchor
 
 
-def _best_of(fn, reps=3):
-    best = float("inf")
-    out = None
-    for _ in range(reps):
-        t0 = time.perf_counter()
-        out = fn()
-        best = min(best, time.perf_counter() - t0)
-    return best, out
+_best_of = partial(best_of_seconds_with_output, reps=3)
 
 
 def main():

@@ -11,10 +11,9 @@ bit-identity of the resulting CRPS scalar on representative (N, K).
 
 from __future__ import annotations
 
-import time
-
 import numpy as np
 
+from mlframe._bench_timing_shared import best_of_seconds_no_warmup
 from mlframe.metrics.quantile import (
     _fast_pinball_per_alpha,
     pinball_loss,
@@ -56,13 +55,7 @@ def _crps_fused(y, p, a):
     return 2.0 * integral
 
 
-def _time(fn, *args, repeat=5):
-    best = float("inf")
-    for _ in range(repeat):
-        t0 = time.perf_counter()
-        fn(*args)
-        best = min(best, time.perf_counter() - t0)
-    return best
+_time = best_of_seconds_no_warmup
 
 
 def main():

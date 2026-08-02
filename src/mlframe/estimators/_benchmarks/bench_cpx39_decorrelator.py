@@ -6,9 +6,11 @@ OLD side is loaded via ``git show HEAD:...`` so we A/B two real artifacts, not a
 Warm + best-of-N; identity gate on the dropped-columns set across several seeds / correlation structures.
 """
 
-import os, time, subprocess, types  # nosec B404 - subprocess used below with fixed list args, no shell=True
+import os, subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 
 import numpy as np, pandas as pd
+
+from mlframe._bench_timing_shared import best_of_seconds
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
@@ -51,14 +53,7 @@ def _new_fit(X, threshold):
     return {cols[c] for c in range(len(cols)) if (upper[:, c] > threshold).any()}
 
 
-def _best_of(fn, *args, n=5):
-    fn(*args)  # warm
-    best = float("inf")
-    for _ in range(n):
-        t = time.perf_counter()
-        fn(*args)
-        best = min(best, time.perf_counter() - t)
-    return best
+_best_of = best_of_seconds
 
 
 def main():

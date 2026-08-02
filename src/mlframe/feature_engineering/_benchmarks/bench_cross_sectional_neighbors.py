@@ -12,6 +12,8 @@ from io import StringIO
 import numpy as np
 import pandas as pd
 
+from mlframe._bench_timing_shared import time_once
+
 from mlframe.feature_engineering import compute_cross_sectional_neighbor_features
 
 
@@ -26,10 +28,7 @@ def _make_dataset(n_snapshots: int, rows_per_snap: int, seed: int) -> pd.DataFra
     return pd.DataFrame(rows)
 
 
-def _time(fn) -> float:
-    t0 = time.perf_counter()
-    fn()
-    return time.perf_counter() - t0
+_time = time_once
 
 
 def _run(n_snapshots: int, rows_per_snap: int) -> None:

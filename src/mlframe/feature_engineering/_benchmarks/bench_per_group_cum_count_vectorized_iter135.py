@@ -17,10 +17,10 @@ Run: CUDA_VISIBLE_DEVICES="" python bench_per_group_cum_count_vectorized_iter135
 """
 import sys
 sys.modules["cupy"] = None
-import time
 
 import numpy as np
 
+from mlframe._bench_timing_shared import best_of_seconds_args_no_warmup
 from mlframe.feature_engineering.grouped import iter_group_segments, per_group_cum_reduce
 
 
@@ -37,13 +37,7 @@ def _old_count(group_ids, reverse=False, output_dtype=np.float64):
     return out
 
 
-def _bestof(fn, args, reps=5):
-    best = float("inf")
-    for _ in range(reps):
-        t0 = time.perf_counter()
-        fn(*args)
-        best = min(best, time.perf_counter() - t0)
-    return best
+_bestof = best_of_seconds_args_no_warmup
 
 
 def main():

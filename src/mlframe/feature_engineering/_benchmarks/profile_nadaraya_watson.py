@@ -11,21 +11,13 @@ from __future__ import annotations
 
 import cProfile
 import pstats
-import time
 
 import numpy as np
 
 from mlframe.feature_engineering.nadaraya_watson import _nw_parallel, _nw_serial, nadaraya_watson_smooth
+from mlframe._bench_timing_shared import best_of_seconds
 
-
-def _best_of(fn, *args, n=5):
-    fn(*args)
-    best = float("inf")
-    for _ in range(n):
-        t = time.perf_counter()
-        fn(*args)
-        best = min(best, time.perf_counter() - t)
-    return best
+_best_of = best_of_seconds
 
 
 def bench_backends():

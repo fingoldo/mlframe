@@ -11,9 +11,11 @@ Run: python -m mlframe.feature_engineering._benchmarks.bench_extra_aggregates_y_
 """
 from __future__ import annotations
 
-import time
+from functools import partial
 
 import numpy as np
+
+from mlframe._bench_timing_shared import best_of_seconds_with_output
 
 
 def _old_y_iqr(y_train, topk_ids, weights):
@@ -41,14 +43,7 @@ def _new_y_iqr(y_train, topk_ids, weights):
     return _weighted_iqr_batched(y_sorted, cum_w)
 
 
-def _best_of(fn, *args, n=7):
-    best = float("inf")
-    out = None
-    for _ in range(n):
-        t0 = time.perf_counter()
-        out = fn(*args)
-        best = min(best, time.perf_counter() - t0)
-    return best, out
+_best_of = partial(best_of_seconds_with_output, reps=7)
 
 
 def main():

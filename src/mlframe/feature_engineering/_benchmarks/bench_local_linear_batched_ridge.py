@@ -17,8 +17,9 @@ Run: CUDA_VISIBLE_DEVICES="" python bench_local_linear_batched_ridge.py
 """
 from __future__ import annotations
 
-import time
 import numpy as np
+
+from mlframe._bench_timing_shared import best_of_seconds_no_warmup
 
 
 def _old_loop(Xn_all, yn_all, d, return_r2, dtype):
@@ -76,13 +77,7 @@ def _make_blocks(n_anchor, k, d, seed=0):
     return Xn_all, yn_all
 
 
-def _best_of(fn, *args, repeat=5):
-    best = float("inf")
-    for _ in range(repeat):
-        t0 = time.perf_counter()
-        fn(*args)
-        best = min(best, time.perf_counter() - t0)
-    return best
+_best_of = best_of_seconds_no_warmup
 
 
 if __name__ == "__main__":

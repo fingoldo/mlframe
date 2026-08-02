@@ -39,6 +39,45 @@ def best_of_seconds_zero_arg(fn: Callable, repeats: int = 3) -> float:
     return best
 
 
+def best_of_seconds(fn: Callable, *args, reps: int = 5) -> float:
+    """Warm ``fn(*args)`` once, then return its best (minimum) wall-clock time in seconds over ``reps`` calls (no output captured)."""
+    fn(*args)
+    best = float("inf")
+    for _ in range(reps):
+        t0 = time.perf_counter()
+        fn(*args)
+        best = min(best, time.perf_counter() - t0)
+    return best
+
+
+def best_of_seconds_no_warmup(fn: Callable, *args, repeat: int = 5) -> float:
+    """Best (minimum) wall-clock time in seconds over ``repeat`` calls, no warm-up call before the loop."""
+    best = float("inf")
+    for _ in range(repeat):
+        t0 = time.perf_counter()
+        fn(*args)
+        best = min(best, time.perf_counter() - t0)
+    return best
+
+
+def best_of_seconds_args_no_warmup(fn: Callable, args: tuple, reps: int = 5) -> float:
+    """Best (minimum) wall-clock time in seconds over ``reps`` calls of ``fn(*args)``, ``args`` passed as an
+    explicit tuple (not varargs); no warm-up call before the loop."""
+    best = float("inf")
+    for _ in range(reps):
+        t0 = time.perf_counter()
+        fn(*args)
+        best = min(best, time.perf_counter() - t0)
+    return best
+
+
+def time_once(fn: Callable) -> float:
+    """Wall-clock time in seconds of a single (unwarmed) ``fn()`` call."""
+    t0 = time.perf_counter()
+    fn()
+    return time.perf_counter() - t0
+
+
 def best_of_ms(fn: Callable, *args, repeat: int = 5) -> float:
     """Warm ``fn(*args)`` once, then return its best (minimum) wall-clock time in milliseconds over ``repeat`` calls."""
     fn(*args)
