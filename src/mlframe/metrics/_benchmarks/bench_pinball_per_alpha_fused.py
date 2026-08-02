@@ -11,6 +11,8 @@ import time
 import numpy as np
 import numba
 
+from mlframe.metrics.quantile import _fast_pinball_per_alpha
+
 _NJIT_KW = dict(fastmath=False, cache=True, nogil=True)
 
 
@@ -31,28 +33,6 @@ def _fast_pinball(y, q, alpha):
 
 def _per_alpha_old(y, P, alphas):
     return {float(a): float(_fast_pinball(y, np.ascontiguousarray(P[:, j]), float(a))) for j, a in enumerate(alphas)}
-
-
-@numba.njit(**_NJIT_KW)
-def _fast_pinball_per_alpha(y, P, alphas):
-    """All K alphas in one row-major pass over C-contiguous (N,K) ``P``."""
-    n = P.shape[0]
-    k = P.shape[1]
-    out = np.zeros(k, dtype=np.float64)
-    if n == 0:
-        return out
-    for i in range(n):
-        yi = y[i]
-        for j in range(k):
-            e = yi - P[i, j]
-            a = alphas[j]
-            if e > 0:
-                out[j] += a * e
-            else:
-                out[j] += (a - 1.0) * e
-    for j in range(k):
-        out[j] /= n
-    return out
 
 
 def _per_alpha_new(y, P, alphas_arr):
