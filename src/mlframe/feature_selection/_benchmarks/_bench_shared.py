@@ -12,6 +12,26 @@ import numpy as np
 from mlframe.feature_selection.filters._cluster_aggregate import uf_find  # noqa: F401 -- re-exported for the bench-family call sites
 
 
+def make_shap_proxy_wide_regime(n_features: int, *, n_rows: int = 4000, n_informative: int = 8, n_redundant: int = 12, snr: float = 5.0, seed: int = 0):
+    """Wide shap-proxy regime dataset: a few informatives + correlated redundant copies + the rest noise.
+    Shared by the shap-proxy scaling / noise-pool-sweep bench family.
+
+    Recall caveat at width>=5000 / n_rows<=2000 (iter23): the dropped-informative set is
+    NON-DETERMINISTIC across seeds and NOT coef-monotone (seed sweep at width=7000, n_rows=2000
+    showed dropped inf indices varying by seed, with strong-coef informatives sometimes dropping
+    while weaker ones survive). This is a finite-sample noise-pool artifact from
+    ``make_regime_dataset`` (linspace 1.0->0.4 coefs + Gaussian noise) -- raise ``n_rows`` to
+    >=5000 or ``snr`` to >=8 before reading recall numbers at the high-width end as algorithmic.
+    """
+    from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
+
+    n_noise = max(0, n_features - n_informative - n_redundant)
+    X, y, roles = make_regime_dataset(
+        n_samples=n_rows, n_informative=n_informative, n_redundant=n_redundant, redundancy_rho=0.9, n_noise=n_noise, snr=snr, task="binary", seed=seed
+    )
+    return X, y, roles
+
+
 def standard_normal_matrix(n_rows: int, p: int, seed: int) -> np.ndarray:
     """Plain ``(n_rows, p)`` standard-normal input matrix -- the shared cProfile-bench fixture used
     by the random_fourier_features / LOF cProfile scripts."""

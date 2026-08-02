@@ -32,14 +32,12 @@ cumulative hotspots.
 
 from __future__ import annotations
 
-from mlframe.feature_selection._benchmarks._bench_shared import build_selector
+from mlframe.feature_selection._benchmarks._bench_shared import build_selector, make_shap_proxy_wide_regime as make_wide
 
 import argparse
 import statistics
 import time
 import warnings
-
-import numpy as np
 
 warnings.filterwarnings("ignore")
 
@@ -48,25 +46,6 @@ _STAGE_ORDER = (
     "prefilter", "clustering", "oof_shap", "prescreen", "search",
     "trust_guard", "revalidation", "importance_ablation", "within_cluster_refine",
 )
-
-
-def make_wide(n_features: int, *, n_rows: int = 4000, n_informative: int = 8, n_redundant: int = 12, snr: float = 5.0, seed: int = 0):
-    """Wide regime dataset: a few informatives + correlated redundant copies + the rest noise.
-
-    Recall caveat at width>=5000 / n_rows<=2000 (iter23): the dropped-informative set is
-    NON-DETERMINISTIC across seeds and NOT coef-monotone (seed sweep at width=7000, n_rows=2000
-    showed dropped inf indices varying by seed, with strong-coef informatives sometimes dropping
-    while weaker ones survive). This is a finite-sample noise-pool artifact from
-    ``make_regime_dataset`` (linspace 1.0->0.4 coefs + Gaussian noise) -- raise ``n_rows`` to
-    >=5000 or ``snr`` to >=8 before reading recall numbers at the high-width end as algorithmic.
-    """
-    from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
-
-    n_noise = max(0, n_features - n_informative - n_redundant)
-    X, y, roles = make_regime_dataset(
-        n_samples=n_rows, n_informative=n_informative, n_redundant=n_redundant, redundancy_rho=0.9, n_noise=n_noise, snr=snr, task="binary", seed=seed
-    )
-    return X, y, roles
 
 
 def bench_width_single(n_features: int, *, n_rows: int, seed: int, snr: float = 5.0) -> tuple[float, dict, object, dict]:

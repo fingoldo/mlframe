@@ -26,7 +26,7 @@ budget ~10min. Per-cell summary lands on stdout immediately for liveness.
 
 from __future__ import annotations
 
-from mlframe.feature_selection._benchmarks._bench_shared import build_selector
+from mlframe.feature_selection._benchmarks._bench_shared import build_selector, make_shap_proxy_wide_regime as _make
 
 import argparse
 import statistics
@@ -34,16 +34,6 @@ import time
 import warnings
 
 warnings.filterwarnings("ignore")
-
-
-def _make(*, n_features: int, n_rows: int, snr: float, seed: int, n_informative: int = 8, n_redundant: int = 12):
-    from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
-
-    n_noise = max(0, n_features - n_informative - n_redundant)
-    X, y, roles = make_regime_dataset(
-        n_samples=n_rows, n_informative=n_informative, n_redundant=n_redundant, redundancy_rho=0.9, n_noise=n_noise, snr=snr, task="binary", seed=seed
-    )
-    return X, y, roles
 
 
 def _agg(values):
