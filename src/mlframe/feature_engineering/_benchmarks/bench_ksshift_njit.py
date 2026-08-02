@@ -19,7 +19,6 @@ from __future__ import annotations
 import time
 
 import numpy as np
-import numba
 
 
 # ---- OLD: verbatim from git HEAD ks_shift._ks_and_wasserstein ----
@@ -40,38 +39,8 @@ def _ks_and_wasserstein_old(y_neighbors: np.ndarray, y_global_sorted: np.ndarray
     return ks_out, w1_out
 
 
-# ---- NEW: njit(parallel) kernel ----
-@numba.njit(cache=True, fastmath=True, parallel=True)
-def _ks_w1_kernel(y_local_sorted, y_global_sorted, ks_out, w1_out):
-    n_q, k = y_local_sorted.shape
-    n_g = y_global_sorted.shape[0]
-    inv_k = np.float32(1.0) / np.float32(k)
-    inv_ng = np.float32(1.0) / np.float32(n_g)
-    for i in numba.prange(n_q):
-        ks = np.float32(0.0)
-        w1 = np.float32(0.0)
-        prev = y_local_sorted[i, 0]
-        for j in range(k):
-            v = y_local_sorted[i, j]
-            # searchsorted side="right" via binary search on the sorted global array
-            lo = 0
-            hi = n_g
-            while lo < hi:
-                mid = (lo + hi) >> 1
-                if y_global_sorted[mid] <= v:
-                    lo = mid + 1
-                else:
-                    hi = mid
-            g_rank = np.float32(lo) * inv_ng
-            cdf_local = np.float32(j + 1) * inv_k
-            d = abs(cdf_local - g_rank)
-            if d > ks:
-                ks = d
-            width = v - prev if j > 0 else np.float32(0.0)
-            w1 += d * width
-            prev = v
-        ks_out[i] = ks
-        w1_out[i] = w1
+# ---- NEW: njit(parallel) kernel -- same kernel prod ships in ks_shift.py, imported directly ----
+from mlframe.feature_engineering.transformer.ks_shift import _ks_w1_kernel
 
 
 def _ks_and_wasserstein_new(y_neighbors: np.ndarray, y_global_sorted: np.ndarray):

@@ -21,26 +21,9 @@ from __future__ import annotations
 
 import time
 
-import numba
 import numpy as np
 
-from mlframe.feature_engineering.transformer.per_column_rff import compute_per_column_rff
-
-
-@numba.njit(parallel=True, cache=True, fastmath=False)
-def _pcrff_fused_njit(X_std, W, b, scale):  # pragma: no cover - bench
-    n, d_input = X_std.shape
-    m = W.shape[1]
-    out = np.empty((n, d_input * 2 * m), dtype=np.float32)
-    for r in numba.prange(n):
-        for j in range(d_input):
-            base = j * 2 * m
-            xj = X_std[r, j]
-            for i in range(m):
-                a = xj * W[j, i] + b[j, i]
-                out[r, base + i] = scale * np.cos(a)
-                out[r, base + m + i] = scale * np.sin(a)
-    return out
+from mlframe.feature_engineering.transformer.per_column_rff import _pcrff_fused_njit
 
 
 def _old_numpy(X_std, W, b, m):
