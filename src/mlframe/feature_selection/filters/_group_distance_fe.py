@@ -56,7 +56,7 @@ try:
 except ImportError:  # numba is an optional dep; fall back to scipy below.
     _HAVE_NUMBA = False
 
-from ._grouped_coerce_shared import auto_detect_num_cols_plain as _auto_detect_num_cols
+from ._grouped_coerce_shared import auto_detect_num_cols_plain as _auto_detect_num_cols, broadcast_lookup as _broadcast_lookup
 from ._internals import group_key_strings
 
 logger = logging.getLogger(__name__)
@@ -95,25 +95,6 @@ def engineered_name_group_kl(num_col: str, group_col: str) -> str:
 def engineered_name_group_wasserstein(num_col: str, group_col: str) -> str:
     """Canonical name for the 1-D Wasserstein-distance-from-global-distribution feature of ``num_col`` within ``group_col``."""
     return f"gwdist({num_col}|{group_col})"
-
-
-def _broadcast_lookup(g_keys: np.ndarray, lookup: dict, glob: float) -> np.ndarray:
-    """Map each row's group key through ``lookup`` (str-keyed), unseen -> glob.
-
-    Mirrors the Layer-88 ``_broadcast_lookup`` hot-path: resolve once per UNIQUE
-    key via ``np.unique(return_inverse)`` and broadcast back, rather than once
-    per row. Falls back to a per-row mapping on the TypeError np.unique raises
-    for unorderable mixed-type objects.
-    """
-    g_keys = np.asarray(g_keys)
-    try:
-        uniq, inverse = np.unique(g_keys, return_inverse=True)
-        inverse = np.asarray(inverse).reshape(-1)
-        uniq_vals = np.array([lookup.get(str(_k), glob) for _k in uniq], dtype=np.float64)
-        out = uniq_vals[inverse]
-    except (TypeError, ValueError):
-        out = np.array([lookup.get(str(_k), glob) for _k in g_keys], dtype=np.float64)
-    return np.nan_to_num(out, nan=glob, posinf=glob, neginf=glob)
 
 
 def _kl_divergence(group_vals: np.ndarray, global_edges: np.ndarray, global_hist: np.ndarray) -> float:

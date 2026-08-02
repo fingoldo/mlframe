@@ -9,6 +9,26 @@ import numpy as np
 import pandas as pd
 
 
+def broadcast_lookup(g_keys: np.ndarray, lookup: dict, glob: float) -> np.ndarray:
+    """Map each row's group key through ``lookup`` (str-keyed), unseen -> ``glob``.
+
+    Group columns are low-cardinality, so the ``str(key)`` + ``dict.get`` is resolved once per UNIQUE key
+    (``np.unique(return_inverse=True)``) and broadcast back via the inverse index, not once per row --
+    the per-row listcomp form was a Layer-88 hotspot. Bit-identical to the per-row mapping (same
+    ``str()``+``get`` per distinct key). Falls back to a per-row mapping on the ``TypeError``/``ValueError``
+    ``np.unique`` raises for unorderable mixed-type objects. Shared by the grouped_quantile_fe /
+    group_distance_fe pair."""
+    g_keys = np.asarray(g_keys)
+    try:
+        uniq, inverse = np.unique(g_keys, return_inverse=True)
+        inverse = np.asarray(inverse).reshape(-1)
+        uniq_vals = np.array([lookup.get(str(_k), glob) for _k in uniq], dtype=np.float64)
+        out = uniq_vals[inverse]
+    except (TypeError, ValueError):
+        out = np.array([lookup.get(str(_k), glob) for _k in g_keys], dtype=np.float64)
+    return np.nan_to_num(out, nan=glob, posinf=glob, neginf=glob)
+
+
 def auto_detect_num_cols_plain(X: pd.DataFrame, group_cols, max_cols: int = 8) -> list:
     """Pick up to ``max_cols`` numeric candidate columns excluding ``group_cols``: all float columns
     qualify, integer columns only if high-cardinality (>500 uniques, i.e. not really categorical). No

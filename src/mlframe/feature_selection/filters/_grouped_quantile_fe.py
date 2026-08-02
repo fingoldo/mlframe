@@ -42,7 +42,7 @@ Leakage safety (CRITICAL)
 """
 from __future__ import annotations
 
-from ._grouped_coerce_shared import coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols
+from ._grouped_coerce_shared import coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols, broadcast_lookup as _broadcast_lookup
 
 import logging
 from typing import Optional, Sequence
@@ -98,28 +98,6 @@ def engineered_name_target_aware_bin(num_col: str, group_col: str) -> str:
 # ---------------------------------------------------------------------------
 # Percentile-rank-within-group + spread
 # ---------------------------------------------------------------------------
-
-
-def _broadcast_lookup(g_keys: np.ndarray, lookup: dict, glob: float) -> np.ndarray:
-    """Map each row's group key through ``lookup`` (str-keyed), unseen -> glob.
-
-    Group columns are low-cardinality, so the ``str(key)`` + ``dict.get`` is
-    resolved once per UNIQUE key (np.unique return_inverse) and broadcast back
-    via the inverse index, not once per row - the per-row listcomp form was a
-    Layer-88 grouped-quantile hotspot (~0.65s x 2 sites / 32 calls each). Bit-
-    identical to the per-row mapping (same str()+get per distinct key). Ravels
-    the inverse (numpy 2.0.0 briefly returned 2-D) and falls back to the per-row
-    path on the TypeError np.unique raises for unorderable mixed-type objects.
-    """
-    g_keys = np.asarray(g_keys)
-    try:
-        uniq, inverse = np.unique(g_keys, return_inverse=True)
-        inverse = np.asarray(inverse).reshape(-1)
-        uniq_vals = np.array([lookup.get(str(_k), glob) for _k in uniq], dtype=np.float64)
-        out = uniq_vals[inverse]
-    except (TypeError, ValueError):
-        out = np.array([lookup.get(str(_k), glob) for _k in g_keys], dtype=np.float64)
-    return np.nan_to_num(out, nan=glob, posinf=glob, neginf=glob)
 
 
 def _pct_rank_in_sorted(sorted_vals: np.ndarray, x: np.ndarray) -> np.ndarray:
