@@ -9,19 +9,8 @@ import pstats
 import time
 from io import StringIO
 
-import numpy as np
-
 from mlframe.training.composite.ensemble._stackers import fit_elasticnet_meta_stacker
-
-
-def _make_oof(n_rows: int, n_components: int, seed: int):
-    rng = np.random.default_rng(seed)
-    a = rng.normal(size=n_rows)
-    b = rng.normal(size=n_rows)
-    y = 0.7 * a + 0.3 * b + 0.05 * rng.normal(size=n_rows)
-    extra = [rng.normal(size=n_rows) for _ in range(n_components - 2)]
-    X = np.column_stack([a, b, *extra])
-    return X, y
+from mlframe._bench_data_shared import make_meta_stacker_oof as _make_oof
 
 
 def _run(n_rows: int, n_components: int) -> None:

@@ -14,3 +14,15 @@ def make_regression_data(n: int, n_features: int, seed: int = 0) -> tuple[pd.Dat
     X = pd.DataFrame(rng.normal(size=(n, n_features)), columns=[f"f{i}" for i in range(n_features)])
     y = (X.iloc[:, :3].sum(axis=1) + rng.normal(scale=0.5, size=n)).to_numpy()
     return X, y
+
+
+def make_meta_stacker_oof(n_rows: int, n_components: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
+    """Synthetic OOF-prediction matrix (X) + target (y) for the lasso/elasticnet meta-stacker benches: the first two
+    columns carry the signal (0.7/0.3 weighted mix), the rest are pure noise components."""
+    rng = np.random.default_rng(seed)
+    a = rng.normal(size=n_rows)
+    b = rng.normal(size=n_rows)
+    y = 0.7 * a + 0.3 * b + 0.05 * rng.normal(size=n_rows)
+    extra = [rng.normal(size=n_rows) for _ in range(n_components - 2)]
+    X = np.column_stack([a, b, *extra])
+    return X, y

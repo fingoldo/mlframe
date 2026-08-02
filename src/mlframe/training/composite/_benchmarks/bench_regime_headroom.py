@@ -14,12 +14,12 @@ from __future__ import annotations
 
 import cProfile
 import pstats
-import time
 from io import StringIO
 
 import numpy as np
 
 from mlframe.training.composite._regime_headroom import regime_headroom_map
+from mlframe._bench_timing_shared import best_of_seconds_with_output as _best_of
 
 try:
     import numba
@@ -67,16 +67,6 @@ def _make_data(n=1_000_000, seed=0):
     comp = y + rng.normal(0.0, 0.6, n)
     lag = y + rng.normal(0.0, 1.5, n)
     return y, raw, comp, lag, axis
-
-
-def _best_of(fn, *args, reps=7):
-    best = float("inf")
-    out = None
-    for _ in range(reps):
-        t0 = time.perf_counter()
-        out = fn(*args)
-        best = min(best, time.perf_counter() - t0)
-    return best, out
 
 
 def main():
