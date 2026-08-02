@@ -23,7 +23,8 @@ import pandas as pd
 from scipy.stats import skew, kurtosis
 from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
 from sklearn.metrics import roc_auc_score, r2_score
-from sklearn.model_selection import KFold
+
+from mlframe.feature_selection._benchmarks._bench_shared import searchsorted_bin_codes as _bin
 
 SEEDS = (0, 1, 2, 3, 4)
 STATS = ("mean", "std", "skew", "kurt")
@@ -66,10 +67,6 @@ def _oof_multistat_encode(codes_tr, src_tr, n_folds, seed, which_stats, global_s
 
 def _apply_table(codes, table, gstats, which_stats):
     return np.array([[table.get(int(c), gstats)[k] for k in which_stats] for c in codes], dtype=np.float64)
-
-
-def _bin(x, edges):
-    return np.searchsorted(edges, x, side="right")
 
 
 def _make_cross_codes(x0, x1, nbins, e0=None, e1=None):

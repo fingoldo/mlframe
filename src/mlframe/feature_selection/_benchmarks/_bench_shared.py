@@ -10,6 +10,12 @@ from typing import Any, Callable, List, TextIO
 import numpy as np
 
 
+def searchsorted_bin_codes(x: np.ndarray, edges: np.ndarray) -> np.ndarray:
+    """Right-side ``searchsorted`` bin-code assignment: the shared quantile-edge binning step
+    duplicated across the cell-encoding benchmark family."""
+    return np.searchsorted(edges, x, side="right")
+
+
 def build_selector(seed: int = 0) -> Any:
     """Wide-data ShapProxiedFS config: prefilter on, clustering on, exhaustive-approx search, honest re-validation."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS

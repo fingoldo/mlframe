@@ -17,6 +17,8 @@ import pandas as pd
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.metrics import r2_score
 
+from mlframe.feature_selection._benchmarks._bench_shared import searchsorted_bin_codes as _codes
+
 SEEDS = (0, 1, 2, 3, 4)
 # Minimum rows-per-cell for a stable estimate of each moment order (rule-of-thumb).
 _N_MIN = {"mean": 5, "std": 12, "skew": 30, "kurt": 100}
@@ -47,10 +49,6 @@ def _moment_aware_nbins(n: int, k: int, highest_moment: str) -> int:
 def _edges(x, nbins):
     qs = np.linspace(0, 1, nbins + 1)[1:-1]
     return np.unique(np.quantile(x, qs))
-
-
-def _codes(x, edges):
-    return np.searchsorted(edges, x, side="right")
 
 
 def _cell_std(codes_tr, aux_tr, n_cells, codes_te):
