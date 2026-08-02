@@ -18,6 +18,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _downstream_shared import downstream_on_matrix
 from hard_synth import make_hard_dataset
 from hybrid_selector import HybridSelector
 import fs_selectors as S
@@ -45,14 +46,6 @@ class HybridRFECV(HybridSelector):
         return self
 
 
-def downstream(Ztr, Zte, ytr, yte):
-    o = {}
-    o["lgbm"] = roc_auc_score(yte, lgb.LGBMClassifier(n_estimators=300, verbose=-1).fit(Ztr, ytr).predict_proba(Zte)[:, 1])
-    o["logit"] = roc_auc_score(yte, make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Ztr, ytr).predict_proba(Zte)[:, 1])
-    o["knn"] = roc_auc_score(yte, make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)).fit(Ztr, ytr).predict_proba(Zte)[:, 1])
-    return {k: round(float(v), 4) for k, v in o.items()}
-
-
 def build(name):
     return {"mrmr_fe": lambda: S.MRMRSel(fe=True),
             "rfecv_perm": lambda: S.RFECVSel("lgbm_perm"),
@@ -73,7 +66,7 @@ def main():
             t0 = time.time(); sel = build(name); sel.fit(Xtr, ytr); dt = time.time() - t0
             Ztr, Zte = sel.transform(Xtr), sel.transform(Xte)
             raw = set(c for c in getattr(sel, "raw_selected_", []) if c in X.columns)
-            a = downstream(Ztr, Zte, ytr, yte); am = round(float(np.nanmean(list(a.values()))), 4)
+            a = downstream_on_matrix(Ztr, Zte, ytr, yte); am = round(float(np.nanmean(list(a.values()))), 4)
             rows.append(dict(seed=sd, strategy=name, n=int(Ztr.shape[1]), n_eng=int(getattr(sel, "n_engineered_", 0)),
                              strong=len(raw & strong), weak=len(raw & weak), fit_s=round(dt, 1), auc=a, auc_mean=am))
             print(f"sd{sd} {name:20s} n={rows[-1]['n']:3d} eng={rows[-1]['n_eng']:2d} strong={rows[-1]['strong']}/4 "

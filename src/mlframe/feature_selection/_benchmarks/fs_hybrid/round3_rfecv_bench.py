@@ -21,20 +21,11 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _downstream_shared import downstream_on_cols
 from synth import make_dataset
 from mlframe.feature_selection.wrappers import RFECV, FIConfig, SearchConfig
 
 SEEDS = [0, 1, 2]
-
-
-def downstream(Xtr, Xte, ytr, yte, cols):
-    if not cols:
-        return {"lgbm": float("nan"), "logit": float("nan"), "knn": float("nan")}
-    o = {}
-    o["lgbm"] = roc_auc_score(yte, lgb.LGBMClassifier(n_estimators=300, verbose=-1).fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])
-    o["logit"] = roc_auc_score(yte, make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])
-    o["knn"] = roc_auc_score(yte, make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)).fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])
-    return {k: round(float(v), 4) for k, v in o.items()}
 
 
 def fit_rfecv(X, y, rule):
@@ -73,7 +64,7 @@ def main():
         # R3-2: rule audit
         for rule in ("one_se_min", "one_se_max", "argmax"):
             t0 = time.time(); sel = fit_rfecv(Xtr, ytr, rule); dt = time.time() - t0
-            a = downstream(Xtr, Xte, ytr, yte, sel); am = round(float(np.nanmean(list(a.values()))), 4)
+            a = downstream_on_cols(Xtr, Xte, ytr, yte, sel); am = round(float(np.nanmean(list(a.values()))), 4)
             rows.append(dict(seed=sd, config=f"rule_{rule}", n=len(sel), base=len(set(sel) & base),
                              base_recall=round(len(set(sel) & base) / len(base), 3), noise=len(set(sel) & noise),
                              fit_s=round(dt, 1), auc_mean=am))
@@ -89,7 +80,7 @@ def main():
             extra = {n: (Xdf[a] * Xdf[b]) for n, (a, b, _) in prods.items()}
             return pd.concat([Xdf[sel]] + [v.rename(n) for n, v in extra.items()], axis=1) if extra else Xdf[sel]
         Ztr, Zte = add_prods(Xtr), add_prods(Xte)
-        a = downstream(Ztr, Zte, ytr, yte, list(Ztr.columns)); am = round(float(np.nanmean(list(a.values()))), 4)
+        a = downstream_on_cols(Ztr, Zte, ytr, yte, list(Ztr.columns)); am = round(float(np.nanmean(list(a.values()))), 4)
         # did we form a TRUE interaction product (both operands in oper)?
         true_prod = any({pa, pb} <= oper for (pa, pb, _) in prods.values()) if oper else False
         rows.append(dict(seed=sd, config="survivor_FE", n=Ztr.shape[1], base=len(set(sel) & base),

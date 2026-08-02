@@ -22,6 +22,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _downstream_shared import downstream_on_matrix
 from synth import make_dataset
 from mlframe.feature_selection.filters import MRMR
 
@@ -36,14 +37,6 @@ CONFIGS = {
     "fe_pairs_25": dict(fe_max_pair_features=25),
     "fe_strict": dict(fe_synergy_min_prevalence=1.5, fe_min_engineered_mi_prevalence=0.97),
 }
-
-
-def downstream(Ztr, Zte, ytr, yte):
-    o = {}
-    o["lgbm"] = roc_auc_score(yte, lgb.LGBMClassifier(n_estimators=300, verbose=-1).fit(Ztr, ytr).predict_proba(Zte)[:, 1])
-    o["logit"] = roc_auc_score(yte, make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Ztr, ytr).predict_proba(Zte)[:, 1])
-    o["knn"] = roc_auc_score(yte, make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)).fit(Ztr, ytr).predict_proba(Zte)[:, 1])
-    return {k: round(float(v), 4) for k, v in o.items()}
 
 
 def main():
@@ -67,7 +60,7 @@ def main():
                 spurious = sum(1 for c in eng if "inf_" not in str(c))
                 Ztr = m.transform(Xtr).copy(); Ztr.columns = [ren[c] for c in Ztr.columns]
                 Zte = m.transform(Xte).copy(); Zte.columns = [ren[c] for c in Zte.columns]
-                a = downstream(Ztr, Zte, ytr, yte); am = round(float(np.nanmean(list(a.values()))), 4)
+                a = downstream_on_matrix(Ztr, Zte, ytr, yte); am = round(float(np.nanmean(list(a.values()))), 4)
                 row = dict(seed=sd, config=name, n=Ztr.shape[1], n_eng=len(eng), spurious_eng=spurious,
                            base=len(set(raw_sel) & base), base_recall=round(len(set(raw_sel) & base) / len(base), 3),
                            noise=len(set(raw_sel) & noise), fit_s=round(dt, 1), auc=a, auc_mean=am)

@@ -22,6 +22,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _downstream_shared import downstream_on_matrix
 from synth import make_dataset
 from hybrid_selector import HybridSelector
 
@@ -135,14 +136,6 @@ class H36(HybridSelector):  # cluster confirmed by any vote; emit engineered mem
 VARIANTS = {"default": HybridSelector, "H32_voteOOF": H32, "H33_feprotect": H33, "H34_rfecv": H34, "H35_autocombine": H35, "H36_decouple": H36}
 
 
-def downstream(Ztr, Zte, ytr, yte):
-    o = {}
-    o["lgbm"] = roc_auc_score(yte, lgb.LGBMClassifier(n_estimators=300, verbose=-1).fit(Ztr, ytr).predict_proba(Zte)[:, 1])
-    o["logit"] = roc_auc_score(yte, make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Ztr, ytr).predict_proba(Zte)[:, 1])
-    o["knn"] = roc_auc_score(yte, make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)).fit(Ztr, ytr).predict_proba(Zte)[:, 1])
-    return {k: round(float(v), 4) for k, v in o.items()}
-
-
 def main():
     rows = []
     for sd in SEEDS:
@@ -153,7 +146,7 @@ def main():
             try:
                 t0 = time.time(); h = cls(vote=1, use_fe=True, random_state=0); h.fit(Xtr, ytr); dt = time.time() - t0
                 Ztr, Zte = h.transform(Xtr), h.transform(Xte)
-                a = downstream(Ztr, Zte, ytr, yte); am = round(float(np.nanmean(list(a.values()))), 4)
+                a = downstream_on_matrix(Ztr, Zte, ytr, yte); am = round(float(np.nanmean(list(a.values()))), 4)
                 raw = [c for c in h.raw_selected_ if c in X.columns]
                 rows.append(dict(seed=sd, variant=name, n=Ztr.shape[1], base_recall=round(len(set(raw) & base) / len(base), 3),
                                  fit_s=round(dt, 1), auc_mean=am))

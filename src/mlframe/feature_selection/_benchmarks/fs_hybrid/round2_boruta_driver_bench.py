@@ -25,6 +25,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _downstream_shared import downstream_on_cols
 from scenarios import SCENARIOS, make
 from mlframe.feature_selection.boruta_shap import BorutaShap
 
@@ -34,16 +35,6 @@ PERM_REPEATS = 2
 CORR_THR = 0.92
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_results")
 os.makedirs(OUT, exist_ok=True)
-
-
-def downstream(Xtr, Xte, ytr, yte, cols):
-    if not cols:
-        return {"lgbm": float("nan"), "logit": float("nan"), "knn": float("nan")}
-    o = {}
-    o["lgbm"] = roc_auc_score(yte, lgb.LGBMClassifier(n_estimators=300, verbose=-1).fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])
-    o["logit"] = roc_auc_score(yte, make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])
-    o["knn"] = roc_auc_score(yte, make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)).fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])
-    return {k: round(float(v), 4) for k, v in o.items()}
 
 
 def boruta(X, y, measure, train_or_test="train", perm_repeats=3):
@@ -95,7 +86,7 @@ def main():
             t0 = time.time(); cols, nreps = boruta_premerge(Xtr, ytr); methods["premerge_gini"] = (cols, time.time() - t0, f"reps={nreps}")
             for name, (cols, dt, extra) in methods.items():
                 cols = [c for c in cols if c in X.columns]
-                a = downstream(Xtr, Xte, ytr, yte, cols)
+                a = downstream_on_cols(Xtr, Xte, ytr, yte, cols)
                 am = round(float(np.nanmean(list(a.values()))), 4)
                 row = dict(scenario=sc, seed=sd, method=name, n=len(cols), base=len(set(cols) & base),
                            noise=len(set(cols) & noise), fit_s=round(dt, 1), auc=a, auc_mean=am, extra=extra)

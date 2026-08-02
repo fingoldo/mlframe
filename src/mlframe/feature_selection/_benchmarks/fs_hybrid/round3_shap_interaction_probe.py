@@ -17,6 +17,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _downstream_shared import downstream_on_cols
 from synth import make_dataset
 from scenarios import make
 from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
@@ -31,16 +32,6 @@ def load(name, seed):
     if name == "make_dataset":
         return make_dataset(n_samples=5000, seed=seed)
     return make(name, seed)
-
-
-def downstream(Xtr, Xte, ytr, yte, cols):
-    if not cols:
-        return {"lgbm": float("nan"), "logit": float("nan"), "knn": float("nan")}
-    o = {}
-    o["lgbm"] = roc_auc_score(yte, lgb.LGBMClassifier(n_estimators=300, verbose=-1).fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])
-    o["logit"] = roc_auc_score(yte, make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])
-    o["knn"] = roc_auc_score(yte, make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)).fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])
-    return {k: round(float(v), 4) for k, v in o.items()}
 
 
 def main():
@@ -59,7 +50,7 @@ def main():
             try:
                 s.fit(Xtr, ytr); dt = time.time() - t0
                 sel = [c for c in s.selected_features_ if c in X.columns]
-                a = downstream(Xtr, Xte, ytr, yte, sel)
+                a = downstream_on_cols(Xtr, Xte, ytr, yte, sel)
                 am = round(float(np.nanmean(list(a.values()))), 4)
                 row = dict(case=f"{name}_sd{sd}", config=cname, n=len(sel),
                            base=len(set(sel) & base), oper=len(set(sel) & oper), n_oper=len(oper),

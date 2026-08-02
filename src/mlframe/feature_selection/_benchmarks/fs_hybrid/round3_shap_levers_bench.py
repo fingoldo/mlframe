@@ -23,6 +23,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _downstream_shared import downstream_on_cols
 from synth import make_dataset
 from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -38,20 +39,10 @@ def mk(p, **over):
     return ShapProxiedFS(**kw)
 
 
-def downstream(Xtr, Xte, ytr, yte, cols):
-    if not cols:
-        return {"lgbm": float("nan"), "logit": float("nan"), "knn": float("nan")}
-    o = {}
-    o["lgbm"] = roc_auc_score(yte, lgb.LGBMClassifier(n_estimators=300, verbose=-1).fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])
-    o["logit"] = roc_auc_score(yte, make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])
-    o["knn"] = roc_auc_score(yte, make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)).fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])
-    return {k: round(float(v), 4) for k, v in o.items()}
-
-
 def run(name, sel, Xtr, Xte, ytr, yte, base, noise, oper):
     t0 = time.time(); sel.fit(Xtr, ytr); dt = time.time() - t0
     cols = [c for c in sel.selected_features_ if c in Xtr.columns]
-    a = downstream(Xtr, Xte, ytr, yte, cols); am = round(float(np.nanmean(list(a.values()))), 4)
+    a = downstream_on_cols(Xtr, Xte, ytr, yte, cols); am = round(float(np.nanmean(list(a.values()))), 4)
     return dict(variant=name, n=len(cols), base=len(set(cols) & base), base_recall=round(len(set(cols) & base) / len(base), 3),
                 noise=len(set(cols) & noise), oper=len(set(cols) & oper), fit_s=round(dt, 1), auc_mean=am)
 
@@ -91,7 +82,7 @@ def main():
             sb.fit(Xtr.iloc[idx].reset_index(drop=True), ytr.iloc[idx].reset_index(drop=True))
             cnt.update([c for c in sb.selected_features_ if c in Xtr.columns])
         ksel = [c for c in X.columns if cnt.get(c, 0) >= 2]
-        a = downstream(Xtr, Xte, ytr, yte, ksel); am = round(float(np.nanmean(list(a.values()))), 4)
+        a = downstream_on_cols(Xtr, Xte, ytr, yte, ksel); am = round(float(np.nanmean(list(a.values()))), 4)
         rows.append(dict(variant="Ksplit_vote", n=len(ksel), base=len(set(ksel) & base), base_recall=round(len(set(ksel) & base) / len(base), 3),
                          noise=len(set(ksel) & noise), oper=len(set(ksel) & oper), fit_s=0.0, auc_mean=am))
         print(f"sd{sd} Ksplit_vote    n={len(ksel):2d} base={len(set(ksel)&base)}/{len(base)} noise={len(set(ksel)&noise)} mean={am}", flush=True)
