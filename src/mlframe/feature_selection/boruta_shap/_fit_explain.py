@@ -8,15 +8,6 @@ from __future__ import annotations
 from mlframe.utils.misc import get_pipeline_last_element
 from pyutilz.system import tqdmu
 
-try:
-    from scipy.stats import binomtest as _binomtest
-
-    def binom_test(x, n, p, alternative="two-sided"):
-        """Shim over SciPy 1.7+ ``binomtest`` matching the removed ``scipy.stats.binom_test`` signature/return (a bare p-value, not the result object)."""
-        # SciPy 1.7+ ``binomtest`` requires ``k`` integer; our hit-count vector is float (np.zeros), so coerce on the boundary.
-        return _binomtest(int(x), n=int(n), p=p, alternative=alternative).pvalue
-except ImportError:  # SciPy < 1.7 fallback
-    from scipy.stats import binom_test  # type: ignore
 import pandas as pd
 import numpy as np
 import shap
@@ -104,13 +95,18 @@ def _tentative_near_boundary(hits, tentative_indices, iteration, n_tests, pvalue
     feature is "near a boundary" when either corrected p-value < ``pvalue * (1 + margin)``. Returns True if any
     tentative feature is near (so it is NOT yet safe to stop); False when the whole tail is provably stuck.
     """
+    # Lazy import of the package facade's memoized binom_test to avoid the facade<->submodule circular import at
+    # module-import time (this submodule is imported at the bottom of the package ``__init__``, after
+    # ``_binom_test_cached`` is defined there).
+    from . import _binom_test_cached
+
     thr = pvalue * (1.0 + margin)
     for i in tentative_indices:
         h = hits[i]
-        acc_pc = min(binom_test(h, n=iteration, p=null_p, alternative="greater") * n_tests, 1.0)
+        acc_pc = min(_binom_test_cached(int(h), n=iteration, p=null_p, alternative="greater") * n_tests, 1.0)
         if acc_pc < thr:
             return True
-        rej_pc = min(binom_test(h, n=iteration, p=null_p, alternative="less") * n_tests, 1.0)
+        rej_pc = min(_binom_test_cached(int(h), n=iteration, p=null_p, alternative="less") * n_tests, 1.0)
         if rej_pc < thr:
             return True
     return False

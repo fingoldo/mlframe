@@ -196,9 +196,7 @@ def _sigmoid_fit(x: np.ndarray):
     return x.astype(np.float64), dict(thresholds=thresholds, slope=slope)
 
 
-def _sigmoid_apply(x: np.ndarray, params: dict) -> np.ndarray:
-    """Sigmoid doesn't transform x for eval - thresholds + slope come from params. Just ensure float64 contiguous (mirrors ``_rbf_apply``)."""
-    return np.ascontiguousarray(x, dtype=np.float64)
+_sigmoid_apply = _rbf_apply
 
 
 @njit(fastmath=True, cache=True)

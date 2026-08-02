@@ -15,15 +15,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.cluster import KMeans
 from scipy.sparse import issparse
-try:
-    from scipy.stats import binomtest as _binomtest
-
-    def binom_test(x, n, p, alternative="two-sided"):
-        """SciPy 1.7+ shim: forward to ``binomtest``, coercing the float hit-count to int."""
-        # SciPy 1.7+ ``binomtest`` requires ``k`` integer; our hit-count vector is float (np.zeros), so coerce on the boundary.
-        return _binomtest(int(x), n=int(n), p=p, alternative=alternative).pvalue
-except ImportError:  # SciPy < 1.7 fallback
-    from scipy.stats import binom_test  # type: ignore
+from mlframe.feature_selection.boruta_shap._binom_test_shim import binom_test
 
 import functools as _functools
 
