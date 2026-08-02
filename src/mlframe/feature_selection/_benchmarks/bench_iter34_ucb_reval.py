@@ -15,7 +15,7 @@ Run::
 
 from __future__ import annotations
 
-from mlframe.feature_selection._benchmarks._bench_shared import make_dataset, recovered_count
+from mlframe.feature_selection._benchmarks._bench_shared import make_dataset, recovered_count, random_baseline_brier
 
 import argparse
 import time
@@ -43,13 +43,9 @@ def _build_selector(seed: int, *, ucb_enabled: bool):
         top_n=20, n_splits=4, n_revalidation_models=3, trust_guard=True, n_anchors=24,
         run_importance_ablation=True, within_cluster_refine=True,
         revalidation_ucb_enabled=ucb_enabled,
-        random_state=seed, verbose=False)
-
-
-
-def _random_brier(y):
-    p = float(np.asarray(y).mean())
-    return float(np.mean((np.asarray(y, dtype=np.float64) - p) ** 2))
+        random_state=seed,
+        verbose=False,
+    )
 
 
 def run_one(name, cfg, *, ucb_enabled, per_config_cap_s=120.0):
@@ -67,7 +63,7 @@ def run_one(name, cfg, *, ucb_enabled, per_config_cap_s=120.0):
     print(f"[{name} {label}] fit done in {total:.2f}s", flush=True)
 
     rec = recovered_count(sel, roles)
-    rb = _random_brier(y)
+    rb = random_baseline_brier(y)
     chosen_loss = None
     ranked = sel.shap_proxy_report_.get("revalidation", {}).get("ranked", [])
     if ranked:
