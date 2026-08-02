@@ -128,6 +128,28 @@ Run unbuffered with `-x -s` rather than launching a long blind run.
 A failure that is an OOM or a Windows paging-file error (WinError 1455 under joblib fan-out) reflects machine-wide memory pressure at that moment, not a defect: retry once, and if it fails again it is real. Tolerate it in code via `OSError` plus a skip.
 Heavily-parametrised modules expose a fast mode (a `--fast` flag or env var plus a `fast_subset` helper) that runs one representative case per code path, with the exhaustive sweep behind a slow marker. Without it the only options are the full matrix or no coverage, and the full matrix stops being run.
 
+## PERF WIN (2026-08-02): wavelet leg-scan's CPU fallback fused into one parallel-njit batch call (12.2x)
+2M-row cProfile on combo `c0079_b01d8c82` (HGB+LGB+linear, regression) found `_select_wavelet_legs`
+(`_wavelet_basis_fe.py`) at 380.1s cumtime — 28% of the entire suite's wall time — with `_binned_mi`
+alone costing 207.9s across 1200 calls. A GPU-resident batched path already exists for this function
+(`select_wavelet_legs_batched`, STRICT-gated, off by default), but the CPU fallback (the DEFAULT path)
+still walked every candidate `(j, k)` Haar leg through a serial `for j: for k:` Python loop calling
+`_binned_mi` twice per leg (train + held-out), each paying `np.unique`/`np.searchsorted`/`np.bincount`
+dispatch overhead. A Haar leg's values are ALWAYS exactly `{-1, 0, +1}` (3 classes, by construction —
+see `_dyadic_haar_leg`'s docstring) and the target codes are already precomputed once per source column,
+so every leg's MI can be scored inline from a fixed-size (3, n_y_classes) joint histogram without ever
+materializing the `{-1,0,1}` array or calling `_binned_mi`. Added `_wavelet_legs_mi_batch_njit` (`prange`
+over legs, ternary leg-code built directly from the base column `z`) and wired it into the CPU fallback's
+sole call site, preserving the exact `(j, k)` enumeration order for tie-breaking. A leg/y class absent
+from a given (leg, split) pair contributes a literal zero either way (fixed vs. `np.unique`-derived
+alphabet is mathematically equivalent, not an approximation — verified, not assumed). Verified exact
+match (`==`, not just close) against the original per-leg loop across 8 synthetic scenarios (binary +
+multiclass y, varying n). Measured 12.2x at n=200k/max_scale=6 (4.28s -> 0.35s, warm, best-of-3). 40
+tests across `test_wavelet_batched_mi_parity.py` + `test_fourier_wavelet_max_cols_default_bounded.py` +
+`test_binned_mi_bincount_identity.py` + `test_wavelet_basis_fe_max_cols.py` + `test_wavelet_basis_fe.py`
+pass unchanged (including the suite's own embedded cProfile smoke check, now showing
+`_select_wavelet_legs` as a minor cost instead of the dominant one).
+
 ## PROCESS FIX (2026-08-02): check `git log -- <file>` vs origin/master BEFORE investing in a fix
 Second redundant-work collision in one loop session (after the MDLP permutation-null one above):
 independently found + fixed `group_aware_relevance`'s (`_ranker_fs.py`) NaN-column/NaN-`y` fallback

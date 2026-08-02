@@ -78,6 +78,7 @@ from typing import TYPE_CHECKING, Optional, Sequence
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+from numba import njit, prange
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -539,6 +540,108 @@ def _heldout_incremental_mi(
     return _heldout_incremental_mi_from_prep(_heldout_incremental_mi_prep(x, y, nbins=nbins), leg)
 
 
+@njit(cache=True, parallel=True)
+def _wavelet_legs_mi_batch_njit(z, yb_tr, yb_va, tr_idx, va_idx, n_y_classes, js, ks):
+    """``prange``-parallel batch of the per-leg train/held-out ``_binned_mi`` scoring
+    :func:`_select_wavelet_legs`'s CPU fallback ran serially, one (j, k) leg at a time.
+
+    2M-row cProfile on combo ``c0079_b01d8c82``: ``_select_wavelet_legs`` was 380.1s cumtime (28% of the
+    whole suite's wall), with ``_binned_mi`` itself costing 207.9s across 1200 calls -- a Python
+    ``for j: for k:`` loop calling ``_binned_mi`` TWICE per leg (train + held-out), each call re-paying
+    ``np.unique``/``np.searchsorted``/``np.bincount`` dispatch overhead on top of building the leg's `{-1,
+    0, +1}` values via boolean masks. The leg's own values are ALWAYS exactly 3 classes (see
+    ``_dyadic_haar_leg``'s docstring) and the target codes (``yb_tr``/``yb_va``) are already precomputed
+    ONCE per source column (fit-constant across every leg) -- so a leg's MI can be computed inline, with
+    the leg's ternary code (0=leg==-1, 1=leg==0, 2=leg==+1, matching ``np.unique([-1,0,1])``-then-
+    ``searchsorted`` exactly) built directly from ``z`` instead of materialising the ``{-1,0,+1}`` array
+    first. Fixed-size (3, n_y_classes) joint histograms per leg (rather than ``_binned_mi``'s dynamically-
+    sized ``np.unique``-derived alphabet) give the IDENTICAL MI value: a leg class or y class absent from
+    a given (leg, split) pair contributes a literal zero count either way, and the plug-in MI sum already
+    skips zero-probability cells (``if pa <= 0: continue``) -- so the fixed alphabet is mathematically
+    equivalent, not an approximation. ``tr_idx``/``va_idx`` are the row positions of the deterministic
+    ``%3`` train/held-out split (``np.flatnonzero(tr)``/``np.flatnonzero(va)``), aligned with
+    ``yb_tr``/``yb_va``. Bit-identical to the original per-leg ``_binned_mi`` calls (~1e-15 FP-reduction-
+    order only); wired at the sole CPU fallback call site, byte-identical candidate-list order preserved
+    (``js``/``ks`` built in the same ``for j: for k:`` enumeration order as before)."""
+    n_legs = js.shape[0]
+    n_tr = tr_idx.shape[0]
+    n_va = va_idx.shape[0]
+    mi_tr = np.zeros(n_legs, dtype=np.float64)
+    mi_va = np.zeros(n_legs, dtype=np.float64)
+    for li in prange(n_legs):
+        j = js[li]
+        k = ks[li]
+        width = 1.0 / (2**j)
+        left = k * width
+        mid = left + width / 2.0
+        right = left + width
+
+        joint_tr = np.zeros((3, n_y_classes), dtype=np.int64)
+        ca_tr = np.zeros(3, dtype=np.int64)
+        for ii in range(n_tr):
+            i = tr_idx[ii]
+            zi = z[i]
+            if zi >= left and zi < mid:
+                code = 2
+            elif zi >= mid and zi < right:
+                code = 0
+            else:
+                code = 1
+            yc = yb_tr[ii]
+            joint_tr[code, yc] += 1
+            ca_tr[code] += 1
+        cb_tr = np.zeros(n_y_classes, dtype=np.int64)
+        for a in range(3):
+            for b in range(n_y_classes):
+                cb_tr[b] += joint_tr[a, b]
+        mi = 0.0
+        nf = float(n_tr)
+        for a in range(3):
+            pa = ca_tr[a] / nf
+            if pa <= 0.0:
+                continue
+            for b in range(n_y_classes):
+                cab = joint_tr[a, b]
+                if cab > 0:
+                    pab = cab / nf
+                    pb = cb_tr[b] / nf
+                    mi += pab * np.log(pab / (pa * pb))
+        mi_tr[li] = mi if mi > 0.0 else 0.0
+
+        joint_va = np.zeros((3, n_y_classes), dtype=np.int64)
+        ca_va = np.zeros(3, dtype=np.int64)
+        for ii in range(n_va):
+            i = va_idx[ii]
+            zi = z[i]
+            if zi >= left and zi < mid:
+                code = 2
+            elif zi >= mid and zi < right:
+                code = 0
+            else:
+                code = 1
+            yc = yb_va[ii]
+            joint_va[code, yc] += 1
+            ca_va[code] += 1
+        cb_va = np.zeros(n_y_classes, dtype=np.int64)
+        for a in range(3):
+            for b in range(n_y_classes):
+                cb_va[b] += joint_va[a, b]
+        mi = 0.0
+        nf = float(n_va)
+        for a in range(3):
+            pa = ca_va[a] / nf
+            if pa <= 0.0:
+                continue
+            for b in range(n_y_classes):
+                cab = joint_va[a, b]
+                if cab > 0:
+                    pab = cab / nf
+                    pb = cb_va[b] / nf
+                    mi += pab * np.log(pab / (pa * pb))
+        mi_va[li] = mi if mi > 0.0 else 0.0
+    return mi_tr, mi_va
+
+
 def _select_wavelet_legs(
     x: np.ndarray,
     y: np.ndarray,
@@ -604,6 +707,8 @@ def _select_wavelet_legs(
     yb_va = _bin_y_codes(y[va])
     cand: list[tuple] = []  # (train_mi, heldout_mi, j, k)
     leg_arrays: dict = {}
+    js_list: list = []
+    ks_list: list = []
     for j in range(int(max_scale) + 1):
         for k in range(2**j):
             leg = _dyadic_haar_leg(z, j, k)
@@ -612,11 +717,27 @@ def _select_wavelet_legs(
             # Require enough rows in each non-zero half-cell for a trustworthy MI.
             if nz_left < _WAVELET_MIN_HALF_ROWS or nz_right < _WAVELET_MIN_HALF_ROWS:
                 continue
-            mi_tr = _binned_mi(leg[tr], y[tr], y_codes=yb_tr)
-            mi_va = _binned_mi(leg[va], y[va], y_codes=yb_va)
-            cand.append((mi_tr, mi_va, j, k))
+            js_list.append(j)
+            ks_list.append(k)
             if return_arrays:
                 leg_arrays[(j, k)] = leg
+    if not js_list:
+        return []
+    # Fused parallel-njit batch (see _wavelet_legs_mi_batch_njit's docstring): scores every surviving
+    # leg's train+held-out MI in ONE prange dispatch instead of 2 _binned_mi calls per leg. Preserves
+    # the exact (j, k) enumeration order above, so `cand`'s tie-breaking order is unchanged.
+    js_arr = np.asarray(js_list, dtype=np.int64)
+    ks_arr = np.asarray(ks_list, dtype=np.int64)
+    tr_idx = np.flatnonzero(tr).astype(np.int64)
+    va_idx = np.flatnonzero(va).astype(np.int64)
+    n_y_classes = int(max(int(yb_tr.max()), int(yb_va.max()))) + 1
+    mi_tr_arr, mi_va_arr = _wavelet_legs_mi_batch_njit(
+        np.ascontiguousarray(z, dtype=np.float64),
+        np.ascontiguousarray(yb_tr, dtype=np.int64),
+        np.ascontiguousarray(yb_va, dtype=np.int64),
+        tr_idx, va_idx, n_y_classes, js_arr, ks_arr,
+    )
+    cand = [(float(mi_tr_arr[i]), float(mi_va_arr[i]), int(js_arr[i]), int(ks_arr[i])) for i in range(js_arr.size)]
     if not cand:
         return []
     heldout = np.array([c[1] for c in cand], dtype=np.float64)
