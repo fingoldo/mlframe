@@ -20,7 +20,7 @@ Run: python -m mlframe.metrics._benchmarks.bench_ks_statistic_njit
 """
 from __future__ import annotations
 
-import time
+from mlframe._bench_timing_shared import time_call
 
 import numpy as np
 import numba
@@ -28,7 +28,6 @@ import numba
 from mlframe.metrics.classification._classification_extras import (
     _ks_statistic_kernel,
     _ks_statistic_kernel_ordered,
-    ks_statistic,
 )
 
 
@@ -87,14 +86,6 @@ def ks_inkernel(yt: np.ndarray, ys: np.ndarray) -> float:
     return float(_ks_inkernel(yt, ys))
 
 
-def _time(fn, *args, iters: int = 200) -> float:
-    fn(*args)  # warm
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        fn(*args)
-    return (time.perf_counter() - t0) / iters * 1e6
-
-
 def main() -> None:
     rng = np.random.default_rng(7)
     print(f"{'n':>8} {'ratio':>6} {'numpy_us':>10} {'fused_us':>10} {'inker_us':>10} " f"{'fu_sp':>7} {'ik_sp':>7} {'identical':>10}")
@@ -107,9 +98,9 @@ def main() -> None:
             inker = ks_inkernel(yt, ys)
             identical = (base == fused) and (base == inker)
             # median of 3 timing blocks to damp noise
-            t_np = min(_time(ks_numpy_current, yt, ys) for _ in range(3))
-            t_fu = min(_time(ks_fused_gather, yt, ys) for _ in range(3))
-            t_ik = min(_time(ks_inkernel, yt, ys) for _ in range(3))
+            t_np = min(time_call(ks_numpy_current, yt, ys, iters=200) for _ in range(3))
+            t_fu = min(time_call(ks_fused_gather, yt, ys, iters=200) for _ in range(3))
+            t_ik = min(time_call(ks_inkernel, yt, ys, iters=200) for _ in range(3))
             print(f"{n:>8} {ratio:>6.2f} {t_np:>10.1f} {t_fu:>10.1f} {t_ik:>10.1f} " f"{t_np / t_fu:>6.2f}x {t_np / t_ik:>6.2f}x {str(identical):>10}")
 
 

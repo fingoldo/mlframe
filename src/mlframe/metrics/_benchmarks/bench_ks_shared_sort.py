@@ -31,7 +31,7 @@ extras-block entanglement). Keeps its independent sort.
 """
 from __future__ import annotations
 
-import time
+from mlframe._bench_timing_shared import time_call
 
 import numpy as np
 
@@ -55,14 +55,6 @@ def ks_via_desc_reverse(y_true: np.ndarray, y_score: np.ndarray) -> float:
     return float(_ks_statistic_kernel(yt[asc], ys[asc]))
 
 
-def _time(fn, *args, iters: int = 100) -> float:
-    fn(*args)
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        fn(*args)
-    return (time.perf_counter() - t0) / iters * 1e6
-
-
 def main() -> None:
     rng = np.random.default_rng(1)
     for n in (10_000, 100_000, 500_000):
@@ -74,9 +66,9 @@ def main() -> None:
         identical = base == shared
 
         # cost of JUST the argsort vs full ks_statistic
-        t_sort = _time(lambda a: np.argsort(a, kind="quicksort"), ys)
-        t_ks = _time(ks_statistic, yt, ys)
-        t_shared = _time(ks_via_desc_reverse, yt, ys)
+        t_sort = time_call(lambda a: np.argsort(a, kind="quicksort"), ys, iters=100)
+        t_ks = time_call(ks_statistic, yt, ys, iters=100)
+        t_shared = time_call(ks_via_desc_reverse, yt, ys, iters=100)
         print(
             f"n={n:>7}  argsort_alone={t_sort:8.1f}us  ks_full={t_ks:8.1f}us  "
             f"(sort={100*t_sort/t_ks:4.0f}% of ks)  ks_desc_reverse={t_shared:8.1f}us  "

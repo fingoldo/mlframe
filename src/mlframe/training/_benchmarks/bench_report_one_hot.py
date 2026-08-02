@@ -22,9 +22,9 @@ the 2D random-index scatter is the slow part.
 """
 from __future__ import annotations
 
-import time
-
 import numpy as np
+
+from mlframe._bench_timing_shared import time_call
 
 
 def build_column_stack(targets: np.ndarray, classes) -> np.ndarray:
@@ -86,14 +86,6 @@ def build_searchsorted_allvalid(targets: np.ndarray, classes) -> np.ndarray:
     return out
 
 
-def _time(fn, *args, iters: int = 200) -> float:
-    fn(*args)  # warm
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        fn(*args)
-    return (time.perf_counter() - t0) / iters * 1e6  # us/call
-
-
 def main() -> None:
     rng = np.random.default_rng(0)
     for n, k, label_offset in [(100_000, 5, 0), (100_000, 5, 10), (500_000, 20, 0), (10_000, 3, 0)]:
@@ -104,10 +96,10 @@ def main() -> None:
         c = build_searchsorted(targets, classes)
         d = build_searchsorted_allvalid(targets, classes)
         ok = np.array_equal(a, b) and np.array_equal(a, c) and np.array_equal(a, d)
-        t_cs = _time(build_column_stack, targets, classes)
-        t_vec = _time(build_vectorized, targets, classes)
-        t_ss = _time(build_searchsorted, targets, classes)
-        t_ssa = _time(build_searchsorted_allvalid, targets, classes)
+        t_cs = time_call(build_column_stack, targets, classes, iters=200)
+        t_vec = time_call(build_vectorized, targets, classes, iters=200)
+        t_ss = time_call(build_searchsorted, targets, classes, iters=200)
+        t_ssa = time_call(build_searchsorted_allvalid, targets, classes, iters=200)
         print(
             f"n={n:>7} K={k:>2} off={label_offset:>2}  "
             f"col_stack={t_cs:8.1f}us  loop_scatter={t_vec:8.1f}us  "
