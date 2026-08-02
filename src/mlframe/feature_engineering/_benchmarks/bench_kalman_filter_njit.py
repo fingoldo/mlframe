@@ -21,7 +21,8 @@ import math
 import time
 
 import numpy as np
-import numba
+
+from mlframe.feature_engineering.bayesian import _kf_inner as _kf_njit
 
 
 # --------------------------------------------------------------------------
@@ -45,47 +46,6 @@ def _kf_old(observations, prior_traj, *, transition_sigma, observation_sigma, in
         var_pred = var + Q
         if np.isfinite(observations[t]):
             innovation = float(observations[t] - mean_pred)
-            innovation_var = var_pred + R
-            K = var_pred / (innovation_var + 1e-12)
-            mean = mean_pred + K * innovation
-            var = (1.0 - K) * var_pred
-            log_lik = -0.5 * (math.log(2.0 * math.pi * innovation_var) + (innovation * innovation) / innovation_var)
-        else:
-            mean = mean_pred
-            var = var_pred
-            innovation = math.nan
-            innovation_var = math.nan
-            log_lik = math.nan
-        out[t, 0] = mean
-        out[t, 1] = var
-        out[t, 2] = innovation
-        out[t, 3] = innovation_var
-        out[t, 4] = log_lik
-    return out
-
-
-# --------------------------------------------------------------------------
-# NEW: njit kernel, identical scalar arithmetic, fastmath=False (bit-identical).
-# --------------------------------------------------------------------------
-@numba.njit(cache=True, fastmath=False)
-def _kf_njit(observations, prior_traj, Q, R, initial_variance):
-    T = observations.size
-    out = np.full((T, 5), np.nan, dtype=np.float64)
-    if T == 0:
-        return out
-    if np.isfinite(observations[0]):
-        mean = observations[0]
-    else:
-        mean = 0.0
-    var = initial_variance
-    for t in range(T):
-        drift = 0.0
-        if t > 0 and np.isfinite(prior_traj[t]) and np.isfinite(prior_traj[t - 1]):
-            drift = prior_traj[t] - prior_traj[t - 1]
-        mean_pred = mean + drift
-        var_pred = var + Q
-        if np.isfinite(observations[t]):
-            innovation = observations[t] - mean_pred
             innovation_var = var_pred + R
             K = var_pred / (innovation_var + 1e-12)
             mean = mean_pred + K * innovation
