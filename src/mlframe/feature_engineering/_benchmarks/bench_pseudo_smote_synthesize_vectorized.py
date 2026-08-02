@@ -13,10 +13,12 @@ Run: python -m mlframe.feature_engineering._benchmarks.bench_pseudo_smote_synthe
 """
 from __future__ import annotations
 
-import time
+import functools
 
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
+
+from mlframe.feature_engineering._benchmarks._smote_bench_shared import smote_bit_identity_and_speed_main
 
 
 def _old(X, n_syn, k_neighbors, seed):
@@ -61,25 +63,7 @@ def _new(X, n_syn, k_neighbors, seed):
     return (x_src + alpha[:, None] * (X[nbr] - x_src)).astype(np.float32)
 
 
-def _best(fn, *a, n=15):
-    fn(*a)
-    ts = []
-    for _ in range(n):
-        t = time.perf_counter()
-        fn(*a)
-        ts.append(time.perf_counter() - t)
-    return min(ts)
-
-
-def main():
-    rng = np.random.default_rng(0)
-    X = rng.standard_normal((500, 30)).astype(np.float32)
-    a = _old(X, 5000, 5, 1)
-    b = _new(X, 5000, 5, 1)
-    assert np.array_equal(a, b), "not bit-identical"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
-    old = _best(_old, X, 5000, 5, 1)
-    new = _best(_new, X, 5000, 5, 1)
-    print(f"OLD={old*1000:.2f}ms  NEW={new*1000:.2f}ms  speedup={old/new:.2f}x  bit-identical=True")
+main = functools.partial(smote_bit_identity_and_speed_main, _old, _new)
 
 
 if __name__ == "__main__":
