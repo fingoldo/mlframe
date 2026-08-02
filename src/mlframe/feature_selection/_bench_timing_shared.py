@@ -17,3 +17,14 @@ def best_of(fn: Callable, *a, reps: int) -> float:
         fn(*a)
         t.append(time.perf_counter() - s)
     return min(t)
+
+
+def best_of_args(fn: Callable, args: tuple, reps: int) -> float:
+    """Run ``fn(*args)`` ``reps`` times and return the best (minimum) wall-clock time (args passed as an explicit
+    tuple rather than varargs, matching this call convention's existing call sites)."""
+    best = 1e18
+    for _ in range(reps):
+        t = time.perf_counter()
+        fn(*args)
+        best = min(best, time.perf_counter() - t)
+    return best

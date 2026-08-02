@@ -21,9 +21,9 @@ Run:
 """
 from __future__ import annotations
 
-import time
 import numpy as np
 
+from mlframe.feature_selection._bench_timing_shared import best_of_args
 from mlframe.feature_selection.filters.info_theory._class_mi_kernels import (
     compute_mi_from_classes,
 )
@@ -62,13 +62,7 @@ def _new_loop(cls_x1, fq_x1, classes_y, freqs_y, n_perms, dtype):
     return acc
 
 
-def _best_of(fn, args, reps):
-    best = 1e18
-    for _ in range(reps):
-        t = time.perf_counter()
-        fn(*args)
-        best = min(best, time.perf_counter() - t)
-    return best
+_best_of = best_of_args
 
 
 def main():

@@ -28,10 +28,9 @@ Run:
 """
 from __future__ import annotations
 
-import time
-
 import numpy as np
 
+from mlframe.feature_selection._bench_timing_shared import best_of_args
 from mlframe.feature_selection.filters.info_theory import merge_vars
 from mlframe.feature_selection.filters._cat_kway_materialize import _dense_renumber_codes
 
@@ -71,13 +70,7 @@ def _chain_new(factors_data, idx_tuple, nbins, dtype):
     return results
 
 
-def _best_of(fn, args, reps):
-    best = 1e18
-    for _ in range(reps):
-        t = time.perf_counter()
-        fn(*args)
-        best = min(best, time.perf_counter() - t)
-    return best
+_best_of = best_of_args
 
 
 def main():
@@ -96,10 +89,7 @@ def main():
 
             old_res = _chain_old(data, idx_tuple, nbins, dtype)
             new_res = _chain_new(data, idx_tuple, nbins, dtype)
-            ident = all(
-                np.array_equal(oc, nc) and on == nn
-                for (oc, on), (nc, nn) in zip(old_res, new_res)
-            )
+            ident = all(np.array_equal(oc, nc) and on == nn for (oc, on), (nc, nn) in zip(old_res, new_res))
             assert ident  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
 
             reps = 20 if n <= 30_000 else 6
