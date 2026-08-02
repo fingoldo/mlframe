@@ -128,6 +128,25 @@ Run unbuffered with `-x -s` rather than launching a long blind run.
 A failure that is an OOM or a Windows paging-file error (WinError 1455 under joblib fan-out) reflects machine-wide memory pressure at that moment, not a defect: retry once, and if it fails again it is real. Tolerate it in code via `OSError` plus a skip.
 Heavily-parametrised modules expose a fast mode (a `--fast` flag or env var plus a `fast_subset` helper) that runs one representative case per code path, with the exhaustive sweep behind a slow marker. Without it the only options are the full matrix or no coverage, and the full matrix stops being run.
 
+## ENV NOTE (2026-08-02): stale installed `pyutilz` crashed every mlframe import
+The site-packages `pyutilz` install lagged mlframe's current code (missing
+`_generate_combinations_recursive_njit_core`, added by concurrent pyutilz work), crashing every
+import (`ImportError` from `feature_selection/filters/evaluation.py`). Fixed by reinstalling from
+the sibling source repo (`pip install -e . --no-deps` in `../pyutilz`). Not an mlframe code issue;
+noted in case it recurs — check `pip show pyutilz` points at the source checkout, not a stale wheel.
+
+**Worktree-copy trap (same session, caught before push)**: independently found and parallelized
+`_permutation_null_gain_njit`'s permutation loop (`prange`, ~330x at n=200k) — only to discover, at
+`git commit` time (mypy failed referencing a nonexistent `_mdlp_recurse_validated_bfs`), that
+origin/master already had this EXACT fix plus a superior BFS-batching rewrite on top of it, landed
+by concurrent work between this cycle's `git rebase origin/master` and its `cp`-from-main-tree step.
+The bug: copying files from the (stale, un-pulled) main working tree into a freshly-rebased worktree
+silently overwrites whatever the rebase just pulled in for that same file. Lesson: after `git rebase
+origin/master` in the worktree, diff the file against `origin/master` (or just re-fetch + inspect)
+BEFORE copying the main-tree version over it, when the file's own history shows recent unrelated
+concurrent activity — don't assume the main tree is authoritative. Discarded the now-redundant
+local change (`git checkout --`) instead of committing over the newer upstream version.
+
 ## PERF WIN (2026-08-01): binned_numeric_agg's GROUP MI pre-selection fused into one parallel-njit batch call
 2M-row cProfile on combo `c0033_87df93d9` (LGB+MLP+XGB, binary classification) surfaced `_cheap_mi_with_y`
 (`_binned_numeric_agg_fe.py`) at 47.1s tottime / 228 calls (~207ms/call) inside
