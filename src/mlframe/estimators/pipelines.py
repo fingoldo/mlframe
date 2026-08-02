@@ -29,15 +29,10 @@ import tempfile
 import joblib
 
 from mlframe.utils.safe_pickle import (
-    _sha256_of_file as _safe_pickle_sha256_of_file,
+    _sha256_of_file,  # noqa: F401 -- re-exported for callers importing pipelines._sha256_of_file
     verify_sidecar as _safe_pickle_verify_sidecar,
     write_sidecar,
 )
-
-
-def _sha256_of_file(path: str, chunk: int = 1 << 20) -> str:
-    """Back-compat shim delegating to :func:`mlframe.utils.safe_pickle._sha256_of_file`."""
-    return str(_safe_pickle_sha256_of_file(path, chunk=chunk))
 
 
 def _verify_sidecar(path: str) -> bool:

@@ -25,7 +25,7 @@ from os.path import join, isfile, isdir, splitext
 from pyutilz.system import tqdmu
 
 from mlframe.utils.safe_pickle import (
-    _sha256_of_file as _safe_pickle_sha256_of_file,
+    _sha256_of_file,  # noqa: F401 -- re-exported for callers importing predict._sha256_of_file
     verify_sidecar as _safe_pickle_verify_sidecar,
 )
 from mlframe.utils.log_throttle import log_throttle
@@ -34,11 +34,6 @@ from mlframe.training.io import safe_joblib_load
 # Allow-listed extensions for joblib model deserialization. Anything outside
 # this set is skipped to make "drop a planted .pkl in the dir" attacks harder.
 _ALLOWED_MODEL_EXTENSIONS = frozenset({".dump", ".joblib", ".pkl", ".pickle"})
-
-
-def _sha256_of_file(path: str, chunk: int = 1 << 20) -> str:
-    """Back-compat shim delegating to :func:`mlframe.utils.safe_pickle._sha256_of_file`."""
-    return str(_safe_pickle_sha256_of_file(path, chunk=chunk))
 
 
 def _verify_sidecar(path: str) -> bool:
