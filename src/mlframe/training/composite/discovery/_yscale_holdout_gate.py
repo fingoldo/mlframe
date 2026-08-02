@@ -37,21 +37,12 @@ from typing import Any, Sequence
 import numpy as np
 
 from ..transforms import UnknownTransformError, get_transform
-from .screening import _extract_column_array
+from .screening import _extract_column_array, base_arg as _base_arg
 from ._causal_lag import is_causal_base_name
 from ._screening_tiny import _build_tiny_model
 from ._rejection_ledger import RejectStage, ledger_append
 
 logger = logging.getLogger(__name__)
-
-
-def _base_arg(df, base_columns: Sequence[str], rows: np.ndarray) -> np.ndarray:
-    """Materialise the base argument shape ``transform.forward/inverse`` expects."""
-    if not base_columns:
-        return np.zeros(rows.size, dtype=np.float64)
-    if len(base_columns) == 1:
-        return _extract_column_array(df, base_columns[0], rows=rows).astype(np.float64)
-    return np.column_stack([_extract_column_array(df, c, rows=rows).astype(np.float64) for c in base_columns])
 
 
 def _carve_group_disjoint(sample_idx: np.ndarray, groups_sample: np.ndarray, holdout_frac: float, rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray]:

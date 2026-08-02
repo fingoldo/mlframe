@@ -72,6 +72,15 @@ def _extract_column_array(df: Any, col: str, rows: np.ndarray | None = None) -> 
     raise TypeError(f"CompositeTargetDiscovery: unsupported df type {type(df).__name__}")
 
 
+def base_arg(df: Any, base_columns: Sequence[str], rows: np.ndarray) -> np.ndarray:
+    """Materialise the base argument shape ``transform.forward/inverse`` expects."""
+    if not base_columns:
+        return np.zeros(rows.size, dtype=np.float64)
+    if len(base_columns) == 1:
+        return _extract_column_array(df, base_columns[0], rows=rows).astype(np.float64)
+    return np.column_stack([_extract_column_array(df, c, rows=rows).astype(np.float64) for c in base_columns])
+
+
 def _is_numeric_column(df: Any, col: str) -> bool:
     """True if ``col`` is numeric in ``df``. Falls back to False on
     error -- discovery skips non-numeric base candidates rather than

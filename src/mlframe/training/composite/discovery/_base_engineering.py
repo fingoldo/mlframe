@@ -40,19 +40,7 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-try:  # numba is a core mlframe dep; the pure-numpy fallback keeps the module importable in a stripped CI env.
-    import numba
-
-    _HAVE_NUMBA = True
-except Exception:  # pragma: no cover -- numba always present in prod
-    _HAVE_NUMBA = False
-
-
-def _njit(func):
-    """Apply ``numba.njit(cache=True)`` when available, else return the plain Python function (correctness-preserving)."""
-    if _HAVE_NUMBA:
-        return numba.njit(cache=True)(func)
-    return func
+from ._njit_shared import njit_or_passthrough as _njit
 
 
 def _causal_rolling_mean_impl(y_sorted: np.ndarray, window: int) -> np.ndarray:

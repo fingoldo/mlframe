@@ -36,23 +36,9 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from ._base_engineering import _extract_column, add_engineered_bases_to_pool
-
-try:  # numba is a core mlframe dep; the pure-numpy fallback keeps the module importable in a stripped CI env.
-    import numba
-
-    _HAVE_NUMBA = True
-except Exception:  # pragma: no cover -- numba always present in prod
-    _HAVE_NUMBA = False
-
+from ._njit_shared import njit_or_passthrough as _njit
 
 _VALID_OPS = ("lag", "trailing_mean", "expanding_mean")
-
-
-def _njit(func):
-    """Apply ``numba.njit(cache=True)`` when available, else return the plain Python function (correctness-preserving)."""
-    if _HAVE_NUMBA:
-        return numba.njit(cache=True)(func)
-    return func
 
 
 def _grouped_lag_impl(y_sorted, offsets, k, fill_group):

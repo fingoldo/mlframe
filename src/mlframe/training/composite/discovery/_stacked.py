@@ -6,6 +6,7 @@ Bound onto the class via method-rebinding at the parent module's bottom;
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import Any, Sequence
 
 import numpy as np
@@ -36,6 +37,19 @@ def _spec_base_columns(spec: Any) -> tuple[str, ...] | None:
     if not extra:
         return None
     return (spec.base_column, *extra)
+
+
+def _ridge_composite_factory(spec: Any) -> Any:
+    """Build a fresh Ridge-based ``CompositeTargetEstimator`` replaying ``spec``'s transform, for one fold of an OOF stacking pass."""
+    from ..estimator import CompositeTargetEstimator
+    from sklearn.linear_model import Ridge
+
+    return CompositeTargetEstimator(
+        base_estimator=Ridge(alpha=1e-3),
+        transform_name=spec.transform_name,
+        base_column=spec.base_column,
+        base_columns=_spec_base_columns(spec),
+    )
 
 
 def _warn_unrebuildable_oof_specs(pass2_specs, existing_names):
@@ -123,10 +137,7 @@ def fit_stacked(
     top_specs = ranked[: int(max_pass1_specs_to_stack)]
 
     from ..ensemble.feature_stacking import composite_oof_predictions
-    from ..estimator import CompositeTargetEstimator
 
-    # Lightweight Ridge inner so pass 2 cost stays small.
-    from sklearn.linear_model import Ridge
     _train_idx_arr = np.asarray(train_idx)
     y_full = _extract_column_array(df, target_col)
     y_train = y_full[_train_idx_arr]
@@ -152,14 +163,7 @@ def fit_stacked(
             return self
     oof_cols: dict[str, np.ndarray] = {}
     for spec in top_specs:
-        def _factory(_s=spec):  # bind spec
-            """Build a fresh Ridge-based ``CompositeTargetEstimator`` replaying ``_s``'s transform, for one fold of the OOF stacking pass."""
-            return CompositeTargetEstimator(
-                base_estimator=Ridge(alpha=1e-3),
-                transform_name=_s.transform_name,
-                base_column=_s.base_column,
-                base_columns=_spec_base_columns(_s),
-            )
+        _factory = partial(_ridge_composite_factory, spec)
         try:
             preds = composite_oof_predictions(
                 _factory, X_train, y_train,
@@ -279,8 +283,6 @@ def fit_stacked_on_residual(
 
     Returns: ``self.specs_`` = pass1_specs UNION pass2_specs, with ``discovered_on_residual=True`` annotation in spec metadata for pass-2 entries. Suite-side training integration (fit pass-2 specs on the actual residual not raw y) is the follow-up step -- the current scaffolding returns the specs for inspection / experimentation. Because the suite does NOT yet route these specs through a residual-aware training path, a WARNING is emitted listing them: their ``fitted_params`` were fit against the residual but training would apply them against raw ``y``, so they must be treated as inspection-only until the residual-aware path lands.
     """
-    from sklearn.linear_model import Ridge
-
     self.fit(df, target_col, feature_cols, train_idx, val_idx, test_idx)
     pass1_specs = list(self.specs_) if self.specs_ else []
     if not pass1_specs:
@@ -293,7 +295,6 @@ def fit_stacked_on_residual(
         key=lambda s: rank_by_tiny.get(s.name, float("inf")),
     )
 
-    from ..estimator import CompositeTargetEstimator
     from ..ensemble.feature_stacking import composite_oof_predictions
 
     _train_idx_arr = np.asarray(train_idx)
@@ -330,14 +331,7 @@ def fit_stacked_on_residual(
 
     oof_preds_per_spec: list[np.ndarray] = []
     for spec in _ranked_capped:
-        def _factory(_s=spec):
-            """Build a fresh Ridge-based ``CompositeTargetEstimator`` replaying ``_s``'s transform, for one fold of the residual-target OOF stacking pass."""
-            return CompositeTargetEstimator(
-                base_estimator=Ridge(alpha=1e-3),
-                transform_name=_s.transform_name,
-                base_column=_s.base_column,
-                base_columns=_spec_base_columns(_s),
-            )
+        _factory = partial(_ridge_composite_factory, spec)
         try:
             _oof = composite_oof_predictions(
                 _factory, X_train, y_train,
