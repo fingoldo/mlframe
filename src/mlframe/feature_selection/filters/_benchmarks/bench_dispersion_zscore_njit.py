@@ -14,7 +14,8 @@ Run: python src/mlframe/feature_selection/filters/_benchmarks/bench_dispersion_z
 """
 import time
 import numpy as np
-from numba import njit
+
+from mlframe.feature_selection.filters._extra_fe_families_dispersion import _zscore_from_bins_njit as _zscore_njit
 
 _FLOOR = 1e-9
 
@@ -27,27 +28,6 @@ def old_zscore(xi, codes_j, bin_mean, bin_std):
     finite_i = np.isfinite(xi)
     z = np.zeros_like(xi, dtype=np.float64)
     z[finite_i] = (xi[finite_i] - per_row_mean[finite_i]) / per_row_std[finite_i]
-    return z
-
-
-@njit(cache=True, nogil=True)
-def _zscore_njit(xi, codes_j, bin_mean, bin_std, floor):
-    n = xi.shape[0]
-    nb = bin_mean.shape[0]
-    z = np.zeros(n, dtype=np.float64)
-    for i in range(n):
-        v = xi[i]
-        if not np.isfinite(v):
-            continue
-        c = codes_j[i]
-        if c < 0:
-            c = 0
-        elif c >= nb:
-            c = nb - 1
-        s = bin_std[c]
-        if s < floor:
-            s = 1.0
-        z[i] = (v - bin_mean[c]) / s
     return z
 
 
