@@ -162,10 +162,24 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
             else:
                 mis_dense = plugin_mi_classif_batch_dispatch(X_dense, y_i64, nbins)
                 mis[dense_cols] = mis_dense
-        except Exception:
+        except Exception as e:
             # If the batch path fails for any reason (cupy import error,
             # kernel tuning miss, etc.), fall back to sklearn for the
             # affected slice rather than poisoning the whole call.
+            #
+            # BUG FOUND AND FIXED (2026-08-02, incidental to a profiling cycle): this except was previously
+            # silent -- no logging at all -- so when the numba/GPU dispatch call fails, the ~53x-slower
+            # sklearn loop kicks in for that slice with zero diagnostic trail. Confirmed live via a 2M-row
+            # cProfile (combo `c0056_f76bf491`) that caught `_mi_classif_batch_sklearn` costing 149.3s
+            # cumtime across 23 calls (~12% of a 1271s run) with no indication of WHY the fast path was
+            # skipped that often. WARN (visible, not silent) with the exception type/message so a future
+            # profiling cycle can tell "GPU contention/OOM" from "a genuine kernel-dispatch regression"
+            # instead of re-discovering this fallback blind every time.
+            logger.warning(
+                "_mi_classif_batch_numba: batch dispatch failed for a %d-col slice (%s: %s) -- falling back "
+                "to the sklearn reference loop (~53x slower) for this slice.",
+                dense_cols.size, type(e).__name__, e,
+            )
             mis[dense_cols] = _mi_classif_batch_sklearn(
                 X_dense, y_i64, nbins=nbins,
             )

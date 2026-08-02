@@ -145,6 +145,21 @@ still defaults to `"numba"` rather than permanently paying the fallback. Verifie
 test (`test_select_mi_backend_transient_failure.py`, 3 tests) pinning the fix. 63 existing MI-dispatch
 tests pass unchanged.
 
+## BUG FIX (2026-08-02): the per-call numba/GPU MI dispatch fallback was silent, hiding a 12%-of-wall regression
+Same finding, one call deeper: 2M-row cProfile on combo `c0056_f76bf491` (master-seed `31337`, 5-model
+cb/hgb/lgb/linear/xgb suite) caught `_mi_classif_batch_sklearn` costing 149.3s cumtime across 23 calls
+(~12% of a 1271s run), even with `_mi_classif_batch_numba` clearly resolved and running (231 calls,
+275.7s cumtime) in the same profile. Root cause: `_mi_classif_batch_numba`'s dense-column batch-dispatch
+call (`plugin_mi_classif_batch_dispatch` / the GPU batcher) is wrapped in a per-call
+`except Exception: mis[dense_cols] = _mi_classif_batch_sklearn(...)` with **zero logging** — any dispatch
+failure (cupy import error, kernel-tuning miss, transient GPU contention, or a genuine kernel regression)
+silently falls to the ~53x-slower sklearn loop for that slice, and there was no way to tell which cause
+it was after the fact. Added a `logger.warning` naming the exception type/message and slice width before
+the fallback runs (the fallback's own behavior — still return correct MI via sklearn — is unchanged, so
+this is a diagnosability fix, not a behavior change). New regression test
+(`test_mi_classif_batch_numba_fallback_logs.py`, 2 tests: failure path warns + returns correct values,
+success path stays silent) pins both directions.
+
 ## PERF WIN (2026-08-02): per_feature_edges' thread-pool threshold was 64x too high for real usage (1.2x-7.2x)
 2M-row cProfile on combo `c0037_c314bb14` (master-seed `2026_04_29`) found `per_feature_edges`/
 `_compute_col_edges` (`_adaptive_nbins.py`) costing 78s wall on a `fayyad_irani` (MDLP) fit with
