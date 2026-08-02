@@ -93,3 +93,13 @@ def make_tee_print(orig: Callable, fp: TextIO) -> Callable:
             pass
 
     return _tee_print
+
+
+def print_stage_table(timings: dict, total: float) -> None:
+    """Print a per-stage wall-time breakdown of the shap-proxy pipeline's fixed stage order, skipping any stage absent from ``timings``."""
+    order = ("prefilter", "clustering", "oof_shap", "prescreen", "search", "trust_guard", "revalidation", "importance_ablation", "within_cluster_refine")
+    print(f"  total={total:.2f}s  stages:")
+    for k in order:
+        v = timings.get(k)
+        if v is not None:
+            print(f"    {k:24s} {v:8.3f}s ({100 * v / total:5.1f}%)")

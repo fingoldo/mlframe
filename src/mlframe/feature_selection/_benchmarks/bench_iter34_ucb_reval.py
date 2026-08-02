@@ -15,13 +15,11 @@ Run::
 
 from __future__ import annotations
 
-from mlframe.feature_selection._benchmarks._bench_shared import make_dataset, recovered_count, random_baseline_brier
+from mlframe.feature_selection._benchmarks._bench_shared import make_dataset, recovered_count, random_baseline_brier, print_stage_table
 
 import argparse
 import time
 import warnings
-
-import numpy as np
 
 warnings.filterwarnings("ignore")
 
@@ -85,15 +83,6 @@ def run_one(name, cfg, *, ucb_enabled, per_config_cap_s=120.0):
         n_evaluated=ucb.get("n_candidates_evaluated"),
         ucb_slack=ucb.get("slack"),
     )
-
-
-def print_stage_table(timings, total):
-    order = ("prefilter", "clustering", "oof_shap", "prescreen", "search", "trust_guard", "revalidation", "importance_ablation", "within_cluster_refine")
-    print(f"  total={total:.2f}s  stages:")
-    for k in order:
-        v = timings.get(k)
-        if v is not None:
-            print(f"    {k:24s} {v:8.3f}s ({100*v/total:5.1f}%)")
 
 
 def main(argv=None):
