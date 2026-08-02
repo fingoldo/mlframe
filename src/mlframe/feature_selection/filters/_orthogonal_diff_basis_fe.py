@@ -51,6 +51,7 @@ import numpy as np
 import pandas as pd
 
 from .hermite_fe import _POLY_BASES
+from ._orthogonal_shared import coerce_y_classif
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
     _mi_classif_batch,
@@ -69,18 +70,6 @@ __all__ = [
     "hybrid_orth_mi_diff_basis_fe_with_recipes",
     "parse_diff_basis_col_name",
 ]
-
-
-def _coerce_y_int64(y) -> np.ndarray:
-    """Dense int64 class labels. Non-integer y is densified via
-    ``np.unique(return_inverse=...)`` rather than truncated with
-    ``.astype(int64)`` - plain truncation merges distinct labels and destroys
-    continuous-y signal (everything in [0, 1) collapses to class 0)."""
-    arr = np.asarray(y).ravel()
-    if np.issubdtype(arr.dtype, np.integer):
-        return arr.astype(np.int64, copy=False)
-    _, inv = np.unique(arr, return_inverse=True)
-    return inv.astype(np.int64, copy=False)
 
 
 def _diff_col_name(col_a: str, col_b: str, basis: str, degree: int) -> str:
@@ -319,7 +308,7 @@ def generate_diff_basis_features(
     if not pairs_norm:
         return pd.DataFrame(index=X.index), {}
 
-    y_arr = _coerce_y_int64(y)
+    y_arr = coerce_y_classif(y)
     # ---- Step 2: raw baselines for every column touched by a pair.
     touched = sorted({c for pair in pairs_norm for c in pair})
     raw_mat = X[touched].to_numpy(dtype=np.float64, copy=False)

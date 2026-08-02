@@ -74,6 +74,7 @@ import numpy as np
 import pandas as pd
 
 from .hermite_fe import _POLY_BASES
+from ._orthogonal_shared import coerce_y_classif
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
     _mi_classif_batch,
@@ -94,18 +95,6 @@ __all__ = [
 ]
 
 _VALID_AGGREGATORS = ("mean_z", "median_z", "pc1")
-
-
-def _coerce_y_int64(y) -> np.ndarray:
-    """Dense int64 class labels. Non-integer y is densified via
-    ``np.unique(return_inverse=...)`` rather than truncated with
-    ``.astype(int64)`` - plain truncation merges distinct labels and destroys
-    continuous-y signal (everything in [0, 1) collapses to class 0)."""
-    arr = np.asarray(y).ravel()
-    if np.issubdtype(arr.dtype, np.integer):
-        return arr.astype(np.int64, copy=False)
-    _, inv = np.unique(arr, return_inverse=True)
-    return inv.astype(np.int64, copy=False)
 
 
 def _cluster_col_name(anchor: str, aggregator: str, basis: str, degree: int) -> str:
@@ -426,7 +415,7 @@ def generate_cluster_basis_features(
     if not degrees or not cluster_members:
         return pd.DataFrame(index=X.index), {}
 
-    y_arr = _coerce_y_int64(y)
+    y_arr = coerce_y_classif(y)
 
     # Filter clusters down to members that are actually present and numeric
     # in X. Sort members deterministically (lexicographic) so the recipe

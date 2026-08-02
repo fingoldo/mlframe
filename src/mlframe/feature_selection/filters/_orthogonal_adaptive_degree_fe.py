@@ -42,6 +42,7 @@ import numpy as np
 import pandas as pd
 
 from .hermite_fe import _POLY_BASES
+from ._orthogonal_shared import coerce_y_classif
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
     _mi_classif_batch,
@@ -65,23 +66,6 @@ __all__ = [
     "hybrid_orth_mi_adaptive_degree_fe",
     "hybrid_orth_mi_adaptive_degree_fe_with_recipes",
 ]
-
-
-def _coerce_y_classif(y) -> np.ndarray:
-    """Dense int64 class labels for ``_mi_classif_batch``.
-
-    Integer dtypes pass straight through. Non-integer y (float / continuous /
-    categorical) is DENSIFIED via ``np.unique(return_inverse=...)`` rather than
-    truncated with ``.astype(int64)``: plain truncation merges distinct labels
-    (1.2 and 1.8 -> 1) and destroys continuous-y signal entirely (every value
-    in [0, 1) collapses to 0). The dense-rank mapping preserves every distinct
-    value as its own class, which is the contract the MI estimator expects.
-    """
-    arr = np.asarray(y).ravel()
-    if np.issubdtype(arr.dtype, np.integer):
-        return arr.astype(np.int64, copy=False)
-    _, inv = np.unique(arr, return_inverse=True)
-    return inv.astype(np.int64, copy=False)
 
 
 def generate_adaptive_degree_basis_features(
@@ -150,7 +134,7 @@ def generate_adaptive_degree_basis_features(
     if not cols or not degree_range:
         return pd.DataFrame(index=X.index), {}
 
-    y_arr = _coerce_y_classif(np.asarray(y))
+    y_arr = coerce_y_classif(np.asarray(y))
 
     # ---- Step 1: raw baselines for the chosen sources (one batch MI call)
     raw_X = X[cols]

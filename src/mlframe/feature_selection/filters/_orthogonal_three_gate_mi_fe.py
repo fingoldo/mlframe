@@ -67,6 +67,7 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from ._orthogonal_shared import coerce_y_classif
 from ._orthogonal_univariate_fe import (
     _mi_classif_batch,
     generate_univariate_basis_features,
@@ -96,18 +97,6 @@ __all__ = [
     "hybrid_orth_mi_three_gate_fe",
     "hybrid_orth_mi_three_gate_fe_with_recipes",
 ]
-
-
-def _coerce_y_int64(y) -> np.ndarray:
-    """Dense int64 class labels. Non-integer y is densified via
-    ``np.unique(return_inverse=...)`` rather than truncated with
-    ``.astype(int64)`` - plain truncation merges distinct labels and destroys
-    continuous-y signal (everything in [0, 1) collapses to class 0)."""
-    arr = np.asarray(y).ravel()
-    if np.issubdtype(arr.dtype, np.integer):
-        return arr.astype(np.int64, copy=False)
-    _, inv = np.unique(arr, return_inverse=True)
-    return inv.astype(np.int64, copy=False)
 
 
 def _stratified_fold_indices(
@@ -354,7 +343,7 @@ def score_features_by_kfold_oof_mi(
     if len(raw_X) != len(np.asarray(y)):
         raise ValueError(f"score_features_by_kfold_oof_mi: raw_X has {len(raw_X)} rows " f"but y has {len(np.asarray(y))}; aligned indices required.")
 
-    y_arr = _coerce_y_int64(y)
+    y_arr = coerce_y_classif(y)
     raw_cols = list(raw_X.columns)
     eng_cols = list(engineered_X.columns)
     n = len(raw_X)
@@ -609,7 +598,7 @@ def hybrid_orth_mi_three_gate_fe(
         return X, pd.DataFrame(columns=empty_cols)
 
     # Gate 3: CMI conditional on current_support.
-    y_int = _coerce_y_int64(y)
+    y_int = coerce_y_classif(y)
     use_cmi_gate = (
         current_support is not None and isinstance(current_support, pd.DataFrame) and current_support.shape[1] > 0 and len(current_support) == len(engineered)
     )

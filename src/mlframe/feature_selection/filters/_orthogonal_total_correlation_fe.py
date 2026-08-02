@@ -86,6 +86,7 @@ import numpy as np
 import pandas as pd
 
 from ._mi_greedy_cmi_fe import _quantile_bin, _renumber_joint
+from ._orthogonal_shared import coerce_y_classif
 from ._orthogonal_univariate_fe import (
     generate_univariate_basis_features,
     cached_raw_mi_baseline,
@@ -102,18 +103,6 @@ __all__ = [
     "hybrid_orth_mi_tc_fe",
     "hybrid_orth_mi_tc_fe_with_recipes",
 ]
-
-
-def _coerce_y_int64(y) -> np.ndarray:
-    """Dense int64 class labels. Non-integer y is densified via
-    ``np.unique(return_inverse=...)`` rather than truncated with
-    ``.astype(int64)`` - plain truncation merges distinct labels and destroys
-    continuous-y signal (everything in [0, 1) collapses to class 0)."""
-    arr = np.asarray(y).ravel()
-    if np.issubdtype(arr.dtype, np.integer):
-        return arr.astype(np.int64, copy=False)
-    _, inv = np.unique(arr, return_inverse=True)
-    return inv.astype(np.int64, copy=False)
 
 
 def _entropy_from_classes(classes: np.ndarray) -> float:
@@ -403,7 +392,7 @@ def score_features_by_tc_uplift(
     if engineered_X.empty:
         return pd.DataFrame(columns=empty_cols)
 
-    y_int = _coerce_y_int64(y)
+    y_int = coerce_y_classif(y)
     from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
     # Fit-scoped memo (cached_raw_mi_baseline): a no-op passthrough outside an active

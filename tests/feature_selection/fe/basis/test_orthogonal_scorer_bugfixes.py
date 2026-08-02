@@ -122,10 +122,10 @@ def test_adaptive_degree_near_zero_baseline_does_not_pass_gate():
 @pytest.mark.parametrize(
     "coerce",
     [
-        adeg._coerce_y_classif,
-        boot._coerce_y_int64,
-        cmim._coerce_y_int64,
-        tc._coerce_y_int64,
+        adeg.coerce_y_classif,
+        boot.coerce_y_classif,
+        cmim.coerce_y_classif,
+        tc.coerce_y_classif,
     ],
 )
 def test_coerce_y_does_not_truncate_float_labels(coerce):
@@ -147,7 +147,7 @@ def test_coerce_y_continuous_signal_preserved_for_mi():
     n = 300
     x = rng.normal(size=n)
     y = 0.3 + 0.4 * (x > 0)  # values 0.3 / 0.7, both inside [0,1)
-    out = cmim._coerce_y_int64(y)
+    out = cmim.coerce_y_classif(y)
     assert len(np.unique(out)) == 2
 
 

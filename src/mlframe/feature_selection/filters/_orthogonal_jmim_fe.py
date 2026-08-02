@@ -94,6 +94,7 @@ import pandas as pd
 
 from ._jmim_scorer import _joint_mi_3d_njit, jmim_score
 from ._mi_greedy_cmi_fe import _quantile_bin
+from ._orthogonal_shared import coerce_y_classif
 from ._orthogonal_univariate_fe import (
     _mi_classif_batch,
     generate_univariate_basis_features,
@@ -108,18 +109,6 @@ __all__ = [
     "hybrid_orth_mi_jmim_fe",
     "hybrid_orth_mi_jmim_fe_with_recipes",
 ]
-
-
-def _coerce_y_int64(y) -> np.ndarray:
-    """Dense int64 class labels. Non-integer y is densified via
-    ``np.unique(return_inverse=...)`` rather than truncated with
-    ``.astype(int64)`` - plain truncation merges distinct labels and destroys
-    continuous-y signal (everything in [0, 1) collapses to class 0)."""
-    arr = np.asarray(y).ravel()
-    if np.issubdtype(arr.dtype, np.integer):
-        return arr.astype(np.int64, copy=False)
-    _, inv = np.unique(arr, return_inverse=True)
-    return inv.astype(np.int64, copy=False)
 
 
 def _bin_columns(
@@ -270,7 +259,7 @@ def score_features_by_jmim(
     # Per-source baseline marginal MI - used to populate the ``uplift``
     # column so the JMIM ranking is comparable across columns with very
     # different source-marginal magnitudes.
-    y_int = _coerce_y_int64(y)
+    y_int = coerce_y_classif(y)
     raw_mi = _mi_classif_batch(
         raw_X.to_numpy(dtype=np.float64), y_int, nbins=int(n_bins),
     )

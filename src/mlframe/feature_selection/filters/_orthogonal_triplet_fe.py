@@ -49,6 +49,7 @@ import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
 from .hermite_fe import basis_route_by_moments, _POLY_BASES
+from ._orthogonal_shared import coerce_y_classif
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
     _mi_classif_batch, mi_classif_batch_chunked,
@@ -65,18 +66,6 @@ __all__ = [
     "hybrid_orth_mi_triplet_fe",
     "hybrid_orth_mi_triplet_fe_with_recipes",
 ]
-
-
-def _coerce_y_int64(y) -> np.ndarray:
-    """Dense int64 class labels. Non-integer y is densified via
-    ``np.unique(return_inverse=...)`` rather than truncated with
-    ``.astype(int64)`` - plain truncation merges distinct labels and destroys
-    continuous-y signal (everything in [0, 1) collapses to class 0)."""
-    arr = np.asarray(y).ravel()
-    if np.issubdtype(arr.dtype, np.integer):
-        return arr.astype(np.int64, copy=False)
-    _, inv = np.unique(arr, return_inverse=True)
-    return inv.astype(np.int64, copy=False)
 
 
 def _triplet_eng_col_name(
@@ -282,7 +271,7 @@ def score_triplet_cross_basis_by_mi_uplift(
     """
     from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
-    y_arr = _coerce_y_int64(y)
+    y_arr = coerce_y_classif(y)
     raw_cols = list(raw_X.columns)
     if engineered_X.empty:
         return pd.DataFrame(columns=_TRIPLET_SCORE_EMPTY_COLS)
@@ -460,7 +449,7 @@ def hybrid_orth_mi_triplet_fe(
                 _baseline_map = uni_scores.groupby("source_col")["baseline_mi"].first().to_dict()
             _missing = [c for c in raw_cols_all if c not in _baseline_map]
             if _missing:
-                y_arr = _coerce_y_int64(y)
+                y_arr = coerce_y_classif(y)
                 from ._fe_usability_signal import _crit_np_dtype
                 _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
                 # Fit-scoped memo: no-op passthrough outside an active orth_scoring_memo_scope(); inside a
