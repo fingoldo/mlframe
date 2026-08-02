@@ -6,7 +6,7 @@ parentheses/commas, which MRMR feature-engineering produces). Cascades chain fit
 adapters; ensembles union/intersect two raw selected sets.
 """
 from __future__ import annotations
-import os, re, time
+import os, re
 os.environ.setdefault("TQDM_DISABLE", "1")
 import numpy as np
 import pandas as pd
@@ -16,6 +16,11 @@ _SAFE = re.compile(r"^[A-Za-z0-9_]+$")
 
 def _is_safe(name: str) -> bool:
     return bool(_SAFE.match(str(name)))
+
+
+def _raw_selected_transform(self, X):
+    """Shared ``.transform`` body for adapters that keep only ``self.raw_selected_`` (no engineered cols)."""
+    return X[self.raw_selected_]
 
 
 # ----------------------------------------------------------------------------- base adapters
@@ -76,8 +81,7 @@ class BorutaSel:
             self.raw_selected_ = list(X.columns[:1])
         self.n_engineered_ = 0
         return self
-    def transform(self, X):
-        return X[self.raw_selected_]
+    transform = _raw_selected_transform
 
 
 class RFECVSel:
@@ -217,8 +221,7 @@ class ReliefFSel:
         self.n_engineered_ = 0
         return self
 
-    def transform(self, X):
-        return X[self.raw_selected_]
+    transform = _raw_selected_transform
 
 
 # ----------------------------------------------------------------------------- combinators
@@ -255,5 +258,4 @@ class Ensemble:
         self.raw_selected_ = [c for c in X.columns if c in merged]
         self.n_engineered_ = 0
         return self
-    def transform(self, X):
-        return X[self.raw_selected_]
+    transform = _raw_selected_transform
