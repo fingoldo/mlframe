@@ -30,35 +30,13 @@ from typing import Any, Literal, Optional, Tuple
 import numpy as np
 import polars as pl
 
+from ._smote_kernels_shared import smote_synthesize_minority_rowloop as _smote_with_k
 from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, class_or_quantile_slice
 
 logger = logging.getLogger(__name__)
 
 _K_SCALES = (1, 3, 5, 10)
 _SMOTE_K_DEFAULT = (3, 8, 15)
-
-
-def _smote_with_k(X_minority: np.ndarray, n_synthetic: int, k_neighbors: int, seed: int) -> np.ndarray:
-    """Vanilla SMOTE with explicit k_neighbors."""
-    n_min = X_minority.shape[0]
-    if n_min < 2:
-        return X_minority.copy() if n_min > 0 else np.zeros((0, X_minority.shape[1] if n_min > 0 else 1), dtype=np.float32)
-    from sklearn.neighbors import NearestNeighbors
-    k_used = min(k_neighbors + 1, n_min)
-    nn = NearestNeighbors(n_neighbors=k_used).fit(X_minority)
-    _dists, ids = nn.kneighbors(X_minority)
-    rng = np.random.default_rng(seed)
-    out = np.zeros((n_synthetic, X_minority.shape[1]), dtype=np.float32)
-    for i in range(n_synthetic):
-        src_idx = rng.integers(0, n_min)
-        candidates = ids[src_idx, 1:k_used]
-        if candidates.size == 0:
-            out[i] = X_minority[src_idx]
-            continue
-        nbr_idx = candidates[rng.integers(0, candidates.size)]
-        alpha = rng.random()
-        out[i] = X_minority[src_idx] + alpha * (X_minority[nbr_idx] - X_minority[src_idx])
-    return out.astype(np.float32)
 
 
 def compute_multiscale_smote_features(

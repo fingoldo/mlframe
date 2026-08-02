@@ -33,6 +33,7 @@ from typing import Any, Literal, Optional, Tuple
 import numpy as np
 import polars as pl
 
+from ._smote_kernels_shared import smote_synthesize_minority_vectorized as _smote_synthesize_from
 from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, pos_loggap_columns
 
 logger = logging.getLogger(__name__)
@@ -68,35 +69,6 @@ def _find_borderline_positives(X_pos: np.ndarray, X_full: np.ndarray, y_full: np
     y_neigh = np.where(is_self_match[:, None], y_full[ids_excl_self], y_full[ids_excl_farthest])
     negative_rate = (y_neigh <= 0.5).mean(axis=1)
     return np.asarray(negative_rate > 0.5)
-
-
-def _smote_synthesize_from(X_minority: np.ndarray, n_synthetic: int, k_neighbors: int, seed: int) -> np.ndarray:
-    """SMOTE-interpolate among the provided minority subset (which may itself be a filtered "borderline" subset)."""
-    n_min = X_minority.shape[0]
-    if n_min < 2:
-        return X_minority.copy() if n_min > 0 else np.zeros((0, 0), dtype=np.float32)
-    from sklearn.neighbors import NearestNeighbors
-    k_used = min(k_neighbors + 1, n_min)
-    nn = NearestNeighbors(n_neighbors=k_used).fit(X_minority)
-    _dists, ids = nn.kneighbors(X_minority)
-    rng = np.random.default_rng(seed)
-    # Draw indices/alphas in the exact per-iteration order (interleaved src/nbr/alpha) the PCG64 stream
-    # produced before, then do the gather+lerp as one vectorised pass — bit-identical to the row loop.
-    src = np.empty(n_synthetic, dtype=np.int64)
-    nbr = np.empty(n_synthetic, dtype=np.int64)
-    alpha = np.empty(n_synthetic, dtype=np.float32)
-    for i in range(n_synthetic):
-        s = rng.integers(0, n_min)
-        candidates = ids[s, 1:k_used]
-        src[i] = s
-        if candidates.size == 0:
-            nbr[i] = s
-            alpha[i] = np.float32(0.0)
-            continue
-        nbr[i] = candidates[rng.integers(0, candidates.size)]
-        alpha[i] = rng.random()
-    x_src = X_minority[src]
-    return np.asarray((x_src + alpha[:, None] * (X_minority[nbr] - x_src)).astype(np.float32))
 
 
 def compute_borderline_smote_features(

@@ -38,6 +38,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from ._smote_kernels_shared import smote_synthesize_minority_vectorized as _smote_synthesize_intra
 from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, class_or_quantile_slice, pos_loggap_columns
 
 logger = logging.getLogger(__name__)
@@ -45,37 +46,9 @@ logger = logging.getLogger(__name__)
 _K_SCALES = (1, 3, 5, 10)
 
 
-def _smote_synthesize_intra(X_minority: np.ndarray, n_synthetic: int, k_neighbors: int, seed: int) -> np.ndarray:
-    """SMOTE-interpolate among minority subset (same as iter 33 vanilla SMOTE)."""
-    n_min = X_minority.shape[0]
-    if n_min < 2:
-        return X_minority.copy() if n_min > 0 else np.zeros((0, 0), dtype=np.float32)
-    from sklearn.neighbors import NearestNeighbors
-    k_used = min(k_neighbors + 1, n_min)
-    nn = NearestNeighbors(n_neighbors=k_used).fit(X_minority)
-    _dists, ids = nn.kneighbors(X_minority)
-    rng = np.random.default_rng(seed)
-    # Draw (src, nbr, alpha) in the exact interleaved per-iteration order the PCG64 stream produced before,
-    # then gather + convex-interpolate as one vectorized pass — bit-identical to the row loop. The draw order
-    # is load-bearing: batching the draws would change WHICH neighbours interpolate and break selection downstream.
-    src = np.empty(n_synthetic, dtype=np.int64)
-    nbr = np.empty(n_synthetic, dtype=np.int64)
-    alpha = np.empty(n_synthetic, dtype=np.float32)
-    for i in range(n_synthetic):
-        s = rng.integers(0, n_min)
-        candidates = ids[s, 1:k_used]
-        src[i] = s
-        if candidates.size == 0:
-            nbr[i] = s
-            alpha[i] = np.float32(0.0)
-            continue
-        nbr[i] = candidates[rng.integers(0, candidates.size)]
-        alpha[i] = rng.random()
-    x_src = X_minority[src]
-    return np.asarray((x_src + alpha[:, None] * (X_minority[nbr] - x_src)).astype(np.float32))
-
-
-def _fit_aux_lgb_and_filter(X_train: np.ndarray, y_train: np.ndarray, virtuals: np.ndarray, task: str, seed: int, threshold: float, n_estimators: int = 200, max_depth: int = 4) -> np.ndarray:
+def _fit_aux_lgb_and_filter(
+    X_train: np.ndarray, y_train: np.ndarray, virtuals: np.ndarray, task: str, seed: int, threshold: float, n_estimators: int = 200, max_depth: int = 4
+) -> np.ndarray:
     """Train aux LGB and keep only virtuals with predicted P(y=1) >= threshold (binary) or top-quantile predicted (regression)."""
     import lightgbm as lgb
     params = dict(
