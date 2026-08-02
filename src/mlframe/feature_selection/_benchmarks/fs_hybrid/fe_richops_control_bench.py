@@ -25,12 +25,7 @@ from round3_realdata_bench import load_real
 from hard_synth import make_hard_dataset
 from round4_tree_seed_bench import shallow_tree_signals
 from fe_richops_bench import _fit_params, _apply_op, REAL_OPS, downstream_frugal
-
-
-def _checkpoint(msg):
-    with open(r"D:/Temp/fe_ops_progress.txt", "a") as f:
-        f.write(msg + "\n")
-    print(msg, flush=True)
+from _downstream_shared import checkpoint as _checkpoint
 
 
 def run_bed(name, X, y, seed=0):

@@ -28,9 +28,10 @@ import warnings; warnings.filterwarnings("ignore")
 import numpy as np, pandas as pd
 from sklearn.model_selection import train_test_split
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from round3_realdata_bench import load_real, downstream
+from round3_realdata_bench import load_real
 from hard_synth import make_hard_dataset
 from round4_tree_seed_bench import shallow_tree_signals
+from _downstream_shared import checkpoint as _checkpoint
 
 EPS = 1e-9
 N_JOBS = 4  # machine under concurrent load
@@ -106,12 +107,6 @@ def downstream_frugal(Xtr, Xte, ytr, yte):
     o["logit"] = roc_auc_score(yte, make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Xtr, ytr).predict_proba(Xte)[:, 1])
     o["knn"] = roc_auc_score(yte, make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)).fit(Xtr, ytr).predict_proba(Xte)[:, 1])
     return {k: round(float(v), 4) for k, v in o.items()}
-
-
-def _checkpoint(msg):
-    with open(r"D:/Temp/fe_ops_progress.txt", "a") as f:
-        f.write(msg + "\n")
-    print(msg, flush=True)
 
 
 # ================================================================== PART 1: DESIGNED BEDS

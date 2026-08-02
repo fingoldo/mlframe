@@ -13,6 +13,14 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 
+def checkpoint(msg: str) -> None:
+    """Append ``msg`` to the shared fe_richops progress log and echo it to stdout -- the checkpoint
+    helper duplicated across the fe_richops control/main bench pair."""
+    with open(r"D:/Temp/fe_ops_progress.txt", "a") as f:
+        f.write(msg + "\n")
+    print(msg, flush=True)
+
+
 def downstream_on_cols(Xtr, Xte, ytr, yte, cols):
     """Fit LGBM / logistic / kNN on the ``cols`` subset of ``Xtr``/``Xte`` and return each model's test AUC (NaN triple if ``cols`` is empty)."""
     if not cols:
