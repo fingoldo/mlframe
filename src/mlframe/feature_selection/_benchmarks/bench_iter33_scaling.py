@@ -35,6 +35,8 @@ CV of two boosters on all columns).
 
 from __future__ import annotations
 
+from mlframe.feature_selection._benchmarks._bench_shared import make_dataset, recovered, make_tee_print
+
 import argparse
 import cProfile
 import io
@@ -61,17 +63,6 @@ _STAGE_ORDER = (
 )
 
 
-def _make_dataset(cfg: dict):
-    from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
-
-    n_noise = max(0, cfg["width"] - cfg["n_informative"] - cfg["n_redundant"])
-    X, y, roles = make_regime_dataset(
-        n_samples=cfg["n_rows"], n_informative=cfg["n_informative"],
-        n_redundant=cfg["n_redundant"], redundancy_rho=cfg["redundancy_rho"],
-        n_noise=n_noise, snr=cfg["snr"], task="binary", seed=cfg["seed"])
-    return X, y, roles
-
-
 def _build_selector(seed: int):
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -85,10 +76,6 @@ def _build_selector(seed: int):
         random_state=seed, verbose=False)
 
 
-def _recovered(sel, roles):
-    inf = {n for n, r in roles.items() if r == "informative"}
-    return len(inf & set(sel.selected_features_)), len(inf)
-
 
 def _random_baseline_brier(y) -> float:
     """Predict the prior on every row (constant probability == positive rate). Reference floor for
@@ -101,7 +88,7 @@ def run_one(name: str, cfg: dict, *, do_cprofile: bool = False, run_preflight: b
     print(f"\n[{name}] cfg={cfg}", flush=True)
     print(f"[{name}] making dataset...", flush=True)
     t_data = time.perf_counter()
-    X, y, roles = _make_dataset(cfg)
+    X, y, roles = make_dataset(cfg)
     print(f"[{name}] dataset shape={X.shape} in {time.perf_counter()-t_data:.1f}s", flush=True)
     sel = _build_selector(cfg["seed"])
     sel._stage_timings = {}
@@ -119,7 +106,7 @@ def run_one(name: str, cfg: dict, *, do_cprofile: bool = False, run_preflight: b
     total = time.perf_counter() - t0
     print(f"[{name}] fit done in {total:.2f}s", flush=True)
 
-    rec_hit, rec_total = _recovered(sel, roles)
+    rec_hit, rec_total = recovered(sel, roles)
     stage_timings = dict(sel._stage_timings)
     report = dict(sel.shap_proxy_report_)
 
@@ -207,15 +194,7 @@ def main(argv=None):
         atexit.register(_fp.close)
         _orig = builtins.print
 
-        def _tee_print(*a, **kw):
-            kw["flush"] = True
-            _orig(*a, **kw)
-            try:
-                kw2 = dict(kw); kw2["file"] = _fp; kw2["flush"] = True
-                _orig(*a, **kw2)
-            except (OSError, ValueError):
-                pass
-        builtins.print = _tee_print
+        builtins.print = make_tee_print(_orig, _fp)
 
     requested = [c.strip() for c in args.configs.split(",") if c.strip()]
     profile_set = {c.strip() for c in args.cprofile_configs.split(",") if c.strip()}

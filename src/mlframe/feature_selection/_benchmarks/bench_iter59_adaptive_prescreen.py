@@ -17,6 +17,8 @@ Two scales::
 
 from __future__ import annotations
 
+from mlframe.feature_selection._benchmarks._bench_shared import make_dataset, recovered, make_tee_print
+
 import argparse
 import time
 import warnings
@@ -39,17 +41,6 @@ def _config_for(scale: str, name: str) -> dict:
     raise SystemExit(f"unknown config {name!r}; known: C3, C3_hard")
 
 
-def _make_dataset(cfg):
-    from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
-
-    n_noise = max(0, cfg["width"] - cfg["n_informative"] - cfg["n_redundant"])
-    X, y, roles = make_regime_dataset(
-        n_samples=cfg["n_rows"], n_informative=cfg["n_informative"],
-        n_redundant=cfg["n_redundant"], redundancy_rho=cfg["redundancy_rho"],
-        n_noise=n_noise, snr=cfg["snr"], task="binary", seed=cfg["seed"])
-    return X, y, roles
-
-
 def _build_selector(seed: int, adaptive: bool, n_jobs: int):
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -64,10 +55,6 @@ def _build_selector(seed: int, adaptive: bool, n_jobs: int):
         random_state=seed, verbose=False)
 
 
-def _recovered(sel, roles):
-    inf = {n for n, r in roles.items() if r == "informative"}
-    return len(inf & set(sel.selected_features_)), len(inf)
-
 
 def run_one(name: str, cfg: dict, adaptive: bool, X, y, roles, n_jobs: int):
     label = "adaptive" if adaptive else "static"
@@ -77,7 +64,7 @@ def run_one(name: str, cfg: dict, adaptive: bool, X, y, roles, n_jobs: int):
     t0 = time.perf_counter()
     sel.fit(X, y)
     total = time.perf_counter() - t0
-    rec_hit, rec_total = _recovered(sel, roles)
+    rec_hit, rec_total = recovered(sel, roles)
     stage_timings = dict(sel._stage_timings)
     report = dict(sel.shap_proxy_report_)
     adapt_info = report.get("adaptive_prescreen") or {}
@@ -131,21 +118,13 @@ def main(argv=None):
         atexit.register(_fp.close)
         _orig = builtins.print
 
-        def _tee_print(*a, **kw):
-            kw["flush"] = True
-            _orig(*a, **kw)
-            try:
-                kw2 = dict(kw); kw2["file"] = _fp; kw2["flush"] = True
-                _orig(*a, **kw2)
-            except (OSError, ValueError):
-                pass
-        builtins.print = _tee_print
+        builtins.print = make_tee_print(_orig, _fp)
 
     requested = [c.strip() for c in args.configs.split(",") if c.strip()]
     print(f"iter59 adaptive-prescreen A/B: scale={args.scale} configs={requested} n_jobs={args.n_jobs}", flush=True)
     print("\n[warmup] tiny fit to amortise JIT compile across the A/B...", flush=True)
     t_warm = time.perf_counter()
-    _warm_X, _warm_y, _ = _make_dataset(dict(width=200, n_rows=400, n_informative=10, n_redundant=5, redundancy_rho=0.5, snr=4.0, seed=0))
+    _warm_X, _warm_y, _ = make_dataset(dict(width=200, n_rows=400, n_informative=10, n_redundant=5, redundancy_rho=0.5, snr=4.0, seed=0))
     _warm_sel = _build_selector(seed=0, adaptive=True, n_jobs=args.n_jobs)
     _warm_sel.fit(_warm_X, _warm_y)
     print(f"[warmup] done in {time.perf_counter()-t_warm:.1f}s", flush=True)
@@ -155,7 +134,7 @@ def main(argv=None):
         cfg = _config_for(args.scale, name)
         print(f"\n[{name}] cfg={cfg}", flush=True)
         t_data = time.perf_counter()
-        X, y, roles = _make_dataset(cfg)
+        X, y, roles = make_dataset(cfg)
         print(f"[{name}] dataset shape={X.shape} in {time.perf_counter()-t_data:.1f}s", flush=True)
         results = []
         for adaptive in (False, True):

@@ -21,6 +21,8 @@ Run::
 
 from __future__ import annotations
 
+from mlframe.feature_selection._benchmarks._bench_shared import make_dataset, recovered, make_tee_print
+
 import argparse
 import time
 import warnings
@@ -38,17 +40,6 @@ CONFIGS = {
 }
 
 
-def _make_dataset(cfg):
-    from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
-
-    n_noise = max(0, cfg["width"] - cfg["n_informative"] - cfg["n_redundant"])
-    X, y, roles = make_regime_dataset(
-        n_samples=cfg["n_rows"], n_informative=cfg["n_informative"],
-        n_redundant=cfg["n_redundant"], redundancy_rho=cfg["redundancy_rho"],
-        n_noise=n_noise, snr=cfg["snr"], task="binary", seed=cfg["seed"])
-    return X, y, roles
-
-
 def _build_selector(seed: int, brute_force_max_features: int):
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -61,10 +52,6 @@ def _build_selector(seed: int, brute_force_max_features: int):
         random_state=seed, verbose=False)
 
 
-def _recovered(sel, roles):
-    inf = {n for n, r in roles.items() if r == "informative"}
-    return len(inf & set(sel.selected_features_)), len(inf)
-
 
 def run_one(name: str, cfg: dict, brute_force_max_features: int, X, y, roles):
     label = f"cap{brute_force_max_features}"
@@ -74,7 +61,7 @@ def run_one(name: str, cfg: dict, brute_force_max_features: int, X, y, roles):
     t0 = time.perf_counter()
     sel.fit(X, y)
     total = time.perf_counter() - t0
-    rec_hit, rec_total = _recovered(sel, roles)
+    rec_hit, rec_total = recovered(sel, roles)
     stage_timings = dict(sel._stage_timings)
     report = dict(sel.shap_proxy_report_)
 
@@ -105,15 +92,7 @@ def main(argv=None):
         atexit.register(_fp.close)
         _orig = builtins.print
 
-        def _tee_print(*a, **kw):
-            kw["flush"] = True
-            _orig(*a, **kw)
-            try:
-                kw2 = dict(kw); kw2["file"] = _fp; kw2["flush"] = True
-                _orig(*a, **kw2)
-            except (OSError, ValueError):
-                pass
-        builtins.print = _tee_print
+        builtins.print = make_tee_print(_orig, _fp)
 
     requested = [c.strip() for c in args.configs.split(",") if c.strip()]
     for c in requested:
@@ -126,7 +105,7 @@ def main(argv=None):
         cfg = CONFIGS[name]
         print(f"\n[{name}] cfg={cfg}", flush=True)
         t_data = time.perf_counter()
-        X, y, roles = _make_dataset(cfg)
+        X, y, roles = make_dataset(cfg)
         print(f"[{name}] dataset shape={X.shape} in {time.perf_counter()-t_data:.1f}s", flush=True)
         # Run cap22 (legacy) first so JIT warmup is amortised against the slower path. The lever
         # only changes the search stage; all other stages share warmed kernels across runs.

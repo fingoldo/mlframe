@@ -11,6 +11,8 @@ Run::
 
 from __future__ import annotations
 
+from mlframe.feature_selection._benchmarks._bench_shared import make_dataset, recovered_count
+
 import argparse
 import time
 import warnings
@@ -29,17 +31,6 @@ CONFIGS = {
 }
 
 
-def _make_dataset(cfg):
-    from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
-
-    n_noise = max(0, cfg["width"] - cfg["n_informative"] - cfg["n_redundant"])
-    X, y, roles = make_regime_dataset(
-        n_samples=cfg["n_rows"], n_informative=cfg["n_informative"],
-        n_redundant=cfg["n_redundant"], redundancy_rho=cfg["redundancy_rho"],
-        n_noise=n_noise, snr=cfg["snr"], task="binary", seed=cfg["seed"])
-    return X, y, roles
-
-
 def _build_selector(seed, *, adaptive):
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -53,16 +44,12 @@ def _build_selector(seed, *, adaptive):
         random_state=seed, verbose=False)
 
 
-def _recovered(sel, roles):
-    inf = {n for n, r in roles.items() if r == "informative"}
-    return len(inf & set(sel.selected_features_))
-
 
 def run_one(name, cfg, *, adaptive):
     label = "ADAPTIVE" if adaptive else "BASELINE"
     print(f"\n[{name} {label}] cfg={cfg}", flush=True)
     t0 = time.perf_counter()
-    X, y, roles = _make_dataset(cfg)
+    X, y, roles = make_dataset(cfg)
     print(f"[{name} {label}] dataset shape={X.shape} in {time.perf_counter()-t0:.1f}s", flush=True)
     sel = _build_selector(cfg["seed"], adaptive=adaptive)
     sel._stage_timings = {}
@@ -71,7 +58,7 @@ def run_one(name, cfg, *, adaptive):
     total = time.perf_counter() - t0
     print(f"[{name} {label}] fit done in {total:.2f}s", flush=True)
 
-    rec = _recovered(sel, roles)
+    rec = recovered_count(sel, roles)
     baseline = sel.shap_proxy_report_.get("revalidation", {}).get("random_baseline", {}) or {}
     ucb = baseline.get("ucb", {}) if isinstance(baseline, dict) else {}
     chosen = tuple(sorted(sel.selected_features_))

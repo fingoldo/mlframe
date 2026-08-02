@@ -17,6 +17,8 @@ Run::
 
 from __future__ import annotations
 
+from mlframe.feature_selection._benchmarks._bench_shared import make_dataset
+
 import os
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
@@ -27,17 +29,6 @@ warnings.filterwarnings("ignore")
 
 
 C3 = dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20, redundancy_rho=0.8, snr=8.0, seed=0)
-
-
-def _make_dataset(cfg):
-    from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
-
-    n_noise = max(0, cfg["width"] - cfg["n_informative"] - cfg["n_redundant"])
-    X, y, roles = make_regime_dataset(
-        n_samples=cfg["n_rows"], n_informative=cfg["n_informative"],
-        n_redundant=cfg["n_redundant"], redundancy_rho=cfg["redundancy_rho"],
-        n_noise=n_noise, snr=cfg["snr"], task="binary", seed=cfg["seed"])
-    return X, y, roles
 
 
 def _build_selector(seed, *, trust_guard_n_estimators):
@@ -81,7 +72,7 @@ def run_one(value, cfg, X, y, roles):
 def main():
     print(f"[iter94] cfg={C3}", flush=True)
     t0 = time.perf_counter()
-    X, y, roles = _make_dataset(C3)
+    X, y, roles = make_dataset(C3)
     print(f"[iter94] dataset shape={X.shape} in {time.perf_counter()-t0:.1f}s", flush=True)
 
     results = []

@@ -6,6 +6,8 @@ snr=8.0) across seeds 0 and 1. Reports stage timings, cProfile attribution, e2e 
 
 from __future__ import annotations
 
+from mlframe.feature_selection._benchmarks._bench_shared import recovered
+
 import argparse
 import cProfile
 import io
@@ -52,11 +54,6 @@ def _build_selector(seed: int, *, shap_prefilter_enabled: bool):
     return ShapProxiedFS(**kwargs)
 
 
-def _recovered(sel, roles):
-    inf = {n for n, r in roles.items() if r == "informative"}
-    return len(inf & set(sel.selected_features_)), len(inf)
-
-
 def run_one(
     seed: int, *, shap_prefilter_enabled: bool, n_features: int = 1000, n_rows: int = 5000, n_inf: int = 12, snr: float = 8.0, do_cprofile: bool = False
 ):
@@ -75,7 +72,7 @@ def run_one(
         pr = None
         sel.fit(X, y)
     total = time.perf_counter() - t0
-    rec_hit, rec_total = _recovered(sel, roles)
+    rec_hit, rec_total = recovered(sel, roles)
     stage_timings = dict(sel._stage_timings)
     return dict(seed=seed, total=total, stage_timings=stage_timings, recall=(rec_hit, rec_total), profile=pr, selected=list(sel.selected_features_))
 
