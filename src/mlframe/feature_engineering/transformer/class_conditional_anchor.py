@@ -37,6 +37,7 @@ import numpy as np
 import polars as pl
 
 from ._utils import require_seed, validate_numeric_input
+from ._squared_dists_shared import squared_dists as _squared_dists
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -49,19 +50,6 @@ def _fit_kmeans(X: np.ndarray, n_anchors: int, seed: int) -> np.ndarray:
     km = KMeans(n_clusters=n_anchors_actual, random_state=seed, n_init=5, max_iter=100)
     km.fit(X)
     return np.asarray(km.cluster_centers_.astype(np.float32, copy=False))
-
-
-def _squared_dists(X: np.ndarray, anchors: np.ndarray) -> np.ndarray:
-    """Per-row squared euclidean distance to each anchor, (n_rows, n_anchors), via the
-    ``||x||^2 - 2 x.a + ||a||^2`` GEMM decomposition. Avoids the (n_rows, n_anchors, d) broadcast
-    cube that ``np.sum((X[:,None,:]-anchors[None,:,:])**2, axis=2)`` materialises; only the
-    (n_rows, n_anchors) result is allocated. Differs from the subtraction form by float32 reduction
-    order (~1e-5 on the downstream softmax), selection-equivalent for these FE features."""
-    x_sq = np.einsum("ij,ij->i", X, X)[:, None]
-    a_sq = np.einsum("ij,ij->i", anchors, anchors)[None, :]
-    d = x_sq - 2.0 * (X @ anchors.T) + a_sq
-    np.maximum(d, 0.0, out=d)
-    return np.asarray(d)
 
 
 def _softmax_similarity(X: np.ndarray, anchors: np.ndarray, softmax_temp: float) -> np.ndarray:

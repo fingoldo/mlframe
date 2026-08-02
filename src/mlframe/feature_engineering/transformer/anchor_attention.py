@@ -32,23 +32,11 @@ import numpy as np
 import polars as pl
 
 from ._utils import require_seed, validate_numeric_input
+from ._squared_dists_shared import squared_dists as _squared_dists
 
 logger = logging.getLogger(__name__)
 
 _VALID_AGGS = ("y_mean", "y_std", "count", "y_q10", "y_q90")
-
-
-def _squared_dists(X: np.ndarray, anchors: np.ndarray) -> np.ndarray:
-    """Per-row squared euclidean distance to each anchor, (n_rows, n_anchors), via the
-    ``||x||^2 - 2 x.a + ||a||^2`` GEMM decomposition. Avoids the (n_rows, n_anchors, d) broadcast
-    cube that ``np.sum((X[:,None,:]-anchors[None,:,:])**2, axis=2)`` materialises; only the
-    (n_rows, n_anchors) result is allocated. Differs from the subtraction form by float32 reduction
-    order (~1e-5 on the downstream softmax, argmin-equivalent), selection-equivalent for these FE features."""
-    x_sq = np.einsum("ij,ij->i", X, X)[:, None]
-    a_sq = np.einsum("ij,ij->i", anchors, anchors)[None, :]
-    d = x_sq - 2.0 * (X @ anchors.T) + a_sq
-    np.maximum(d, 0.0, out=d)
-    return np.asarray(d)
 
 
 def _fit_anchors(X: np.ndarray, n_anchors: int, seed: int) -> np.ndarray:

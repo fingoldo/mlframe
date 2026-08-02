@@ -44,6 +44,7 @@ import numpy as np
 import polars as pl
 
 from ._utils import require_seed, validate_numeric_input, softmax
+from ._squared_dists_shared import squared_dists as _squared_dists
 
 logger = logging.getLogger(__name__)
 
@@ -57,18 +58,6 @@ def _fit_anchors_kmeans(X: np.ndarray, M: int, seed: int) -> np.ndarray:
         km = KMeans(n_clusters=M_eff, random_state=seed, n_init=5, max_iter=100)
         km.fit(X)
     return np.asarray(km.cluster_centers_.astype(np.float32, copy=False))
-
-
-def _squared_dists(A: np.ndarray, B: np.ndarray) -> np.ndarray:
-    """Pairwise squared euclidean distance, (len(A), len(B)), via the ``||a||^2 - 2 a.b + ||b||^2`` GEMM
-    decomposition. Avoids the (len(A), len(B), d) broadcast cube that ``((A[:, None, :] - B[None, :, :]) ** 2).sum(axis=-1)``
-    materialises; only the (len(A), len(B)) result is allocated. Differs from the subtraction form by float32 reduction
-    order (~2e-7 relative on the downstream softmax), selection-equivalent for these attention features."""
-    a_sq = np.einsum("ij,ij->i", A, A)[:, None]
-    b_sq = np.einsum("ij,ij->i", B, B)[None, :]
-    d = a_sq - 2.0 * (A @ B.T) + b_sq
-    np.maximum(d, 0.0, out=d)
-    return np.asarray(d)
 
 
 def _stage_a_anchor_to_train(
