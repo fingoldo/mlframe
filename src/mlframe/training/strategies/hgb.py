@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional, TYPE_CHECKING
 
 from .base import ModelPipelineStrategy
-from ._cat_levels_shared import batched_unique
+from ._cat_levels_shared import build_polars_enum_map as _build_polars_enum_map
 
 if TYPE_CHECKING:
     import polars as pl
@@ -119,44 +119,4 @@ class HGBStrategy(ModelPipelineStrategy):
                     )
         return df
 
-    def build_polars_enum_map(
-        self,
-        train_df: "pl.DataFrame",
-        val_df: "Optional[pl.DataFrame]",
-        cat_features: List[str],
-    ) -> "Dict[str, pl.Enum]":
-        """Mirror of ``XGBoostStrategy.build_polars_enum_map``: leak-free
-        per-column Enum from train+val UNION (test EXCLUDED). HGB's
-        cardinality split into Enum vs UInt32 happens at
-        ``prepare_polars_dataframe`` time using the same map - the map
-        always carries the FULL value set, the cardinality decision is
-        applied per frame.
-        """
-        import polars as pl
-
-        cat_features = cat_features or []
-        candidate_cols = [
-            name
-            for name, dtype in train_df.schema.items()
-            if dtype in (pl.Utf8, pl.String) or dtype == pl.Categorical or isinstance(dtype, pl.Enum) or name in cat_features
-        ]
-        candidate_cols = [c for c in candidate_cols if c in train_df.columns]
-
-        # 2026-05-08 perf: batch per-column unique extraction into one
-        # collect() per frame (train + val). The previous loop did
-        # ``df[col].unique()`` per cat col -- on c0031 (15 cat cols x
-        # 2 frames = 30 collects per build) that cost ~300ms across
-        # the suite via PyLazyFrame.collect. Batched via implode() it's
-        # 2 collects total per call. Same pattern as session 1 win #2
-        # (get_trainset_features_stats_polars). Falls back to per-col
-        # loop on any error so one bad cast doesn't poison the frame.
-        out: Dict[str, pl.Enum] = {}
-
-        train_levels = batched_unique(train_df, candidate_cols)
-        val_levels = batched_unique(val_df, candidate_cols) if val_df is not None else {}
-        for col in candidate_cols:
-            levels: set = set()
-            levels.update(train_levels.get(col, []))
-            levels.update(val_levels.get(col, []))
-            out[col] = pl.Enum(sorted(levels))
-        return out
+    build_polars_enum_map = _build_polars_enum_map

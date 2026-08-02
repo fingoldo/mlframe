@@ -29,3 +29,34 @@ def batched_unique(df: "pl.DataFrame", candidate_cols: List[str]) -> "Dict[str, 
             except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 d[c] = []
         return d
+
+
+def build_polars_enum_map(self, train_df: "pl.DataFrame", val_df, cat_features: List[str]) -> "Dict[str, pl.Any]":
+    """Build per-column ``pl.Enum`` dtypes from the union of train+val unique values. Test data is intentionally
+    excluded -- letting test levels widen the Enum would leak label-time information back into the model's
+    accepted-category set. Returns ``{col_name: pl.Enum([...])}`` for every string / Categorical / Enum column
+    present in ``train_df``. Columns absent from ``val_df`` contribute only their train levels (still safe).
+    Bind as ``ClassName.build_polars_enum_map = build_polars_enum_map`` -- ``self`` is unused (kept for the
+    tree-strategy method signature the callers already dispatch through)."""
+    import polars as pl
+
+    cat_features = cat_features or []
+    candidate_cols = [
+        name for name, dtype in train_df.schema.items() if dtype in (pl.Utf8, pl.String) or dtype == pl.Categorical or isinstance(dtype, pl.Enum) or name in cat_features
+    ]
+    candidate_cols = [c for c in candidate_cols if c in train_df.columns]
+
+    # 2026-05-08 perf: batch per-column unique extraction into one collect() per frame (train + val). The
+    # previous loop did ``df[col].unique()`` per cat col -- on c0031 (15 cat cols x 2 frames = 30 collects
+    # per build) that cost ~300ms across the suite via PyLazyFrame.collect. Batched via implode() it's 2
+    # collects total per call. Falls back to a per-col loop on any error so one bad cast doesn't poison the frame.
+    out: Dict[str, pl.Any] = {}
+
+    train_levels = batched_unique(train_df, candidate_cols)
+    val_levels = batched_unique(val_df, candidate_cols) if val_df is not None else {}
+    for col in candidate_cols:
+        levels: set = set()
+        levels.update(train_levels.get(col, []))
+        levels.update(val_levels.get(col, []))
+        out[col] = pl.Enum(sorted(levels))
+    return out

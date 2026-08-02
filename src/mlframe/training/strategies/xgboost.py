@@ -11,7 +11,7 @@ except ImportError:
 
 # Parent package re-exports XGBoostStrategy AFTER TreeModelStrategy is bound, so this partial-package import resolves.
 from . import TreeModelStrategy
-from ._cat_levels_shared import batched_unique
+from ._cat_levels_shared import build_polars_enum_map as _build_polars_enum_map
 
 logger = logging.getLogger(__name__)
 
@@ -256,46 +256,4 @@ class XGBoostStrategy(TreeModelStrategy):
             exprs.append(pl.col(c).cast(pl.String).cast(enum_dtype).alias(c))
         return df.with_columns(exprs)
 
-    def build_polars_enum_map(
-        self,
-        train_df: "pl.DataFrame",
-        val_df: "Optional[pl.DataFrame]",
-        cat_features: List[str],
-    ) -> "Dict[str, pl.Enum]":
-        """Build per-column ``pl.Enum`` dtypes from the union of train+val
-        unique values. Test data is intentionally excluded -- letting test
-        levels widen the Enum would leak label-time information back into
-        the model's accepted-category set.
-
-        Returns ``{col_name: pl.Enum([...])}`` for every string /
-        Categorical / Enum column present in ``train_df``. Columns absent
-        from ``val_df`` contribute only their train levels (still safe).
-        """
-        import polars as pl
-
-        cat_features = cat_features or []
-        candidate_cols = [
-            name
-            for name, dtype in train_df.schema.items()
-            if dtype in (pl.Utf8, pl.String) or dtype == pl.Categorical or isinstance(dtype, pl.Enum) or name in cat_features
-        ]
-        candidate_cols = [c for c in candidate_cols if c in train_df.columns]
-
-        # 2026-05-08 perf: batch per-column unique extraction into one
-        # collect() per frame (train + val). The previous loop did
-        # ``df[col].unique()`` per cat col -- on c0031 (15 cat cols x
-        # 2 frames = 30 collects per build) that cost ~300ms across
-        # the suite via PyLazyFrame.collect. Batched via implode() it's
-        # 2 collects total per call. Same pattern as session 1 win #2
-        # (get_trainset_features_stats_polars). Falls back to per-col
-        # loop on any error so one bad cast doesn't poison the frame.
-        out: Dict[str, pl.Enum] = {}
-
-        train_levels = batched_unique(train_df, candidate_cols)
-        val_levels = batched_unique(val_df, candidate_cols) if val_df is not None else {}
-        for col in candidate_cols:
-            levels: set = set()
-            levels.update(train_levels.get(col, []))
-            levels.update(val_levels.get(col, []))
-            out[col] = pl.Enum(sorted(levels))
-        return out
+    build_polars_enum_map = _build_polars_enum_map

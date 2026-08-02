@@ -8,6 +8,7 @@ lower-variance alternative to a trained stacker when the pool is many cheap vari
 """
 from __future__ import annotations
 
+from functools import partial
 from typing import Callable, Optional, Sequence
 
 import numpy as np
@@ -31,9 +32,7 @@ def _solve_simplex_weights(
 
     n_models = preds.shape[0]
 
-    def _objective(w: np.ndarray) -> float:
-        """Loss of the weighted blend of preds under candidate weights w."""
-        return blend_loss(w, preds, y, loss_fn)
+    _objective = partial(blend_loss, preds=preds, y=y, loss_fn=loss_fn)
 
     constraints = [{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}]
     bounds = [(0.0, 1.0)] * n_models

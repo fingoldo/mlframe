@@ -23,6 +23,7 @@ correlated 2-way blind spot the pairwise check alone cannot see.
 """
 from __future__ import annotations
 
+from functools import partial
 from typing import Callable, Sequence
 
 import numpy as np
@@ -41,9 +42,7 @@ def _coordinate_descent_simplex_search(preds: np.ndarray, y: np.ndarray, loss_fn
     n_models = preds.shape[0]
     rng = np.random.default_rng(random_state)
 
-    def _loss(w: np.ndarray) -> float:
-        """Loss of the weighted blend of preds under candidate weights w."""
-        return blend_loss(w, preds, y, loss_fn)
+    _loss = partial(blend_loss, preds=preds, y=y, loss_fn=loss_fn)
 
     best_w: np.ndarray | None = None
     best_loss = float("inf")
