@@ -14,17 +14,13 @@ import io
 import pstats
 import time
 
+import functools
+
 import numpy as np
 
+from mlframe.data_valuation._benchmarks._dv_bench_shared import make_blob_fixture
 
-def _make_fixture(n_train: int, n_val: int, n_features: int = 8, seed: int = 0):
-    """Synthetic 2-class blob-style fixture of the given (n_train, n_val, n_features) shape."""
-    rng = np.random.default_rng(seed)
-    X_train = rng.standard_normal((n_train, n_features))
-    y_train = (X_train[:, 0] + X_train[:, 1] > 0).astype(np.int64)
-    X_val = rng.standard_normal((n_val, n_features))
-    y_val = (X_val[:, 0] + X_val[:, 1] > 0).astype(np.int64)
-    return X_train, y_train, X_val, y_val
+_make_fixture = functools.partial(make_blob_fixture, n_features=8, seed=0)
 
 
 def _numpy_reference_recursion(match: np.ndarray, k: int) -> np.ndarray:
