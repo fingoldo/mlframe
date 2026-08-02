@@ -19,9 +19,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 
+from mlframe._bench_rmse_shared import rmse
 from mlframe.training.composite.ensemble._calibration import OutputCalibrator
 
 N_OOF_GRID = (60, 150, 400)
@@ -54,8 +56,7 @@ def _surface(scenario: str, n: int, rng: np.random.Generator) -> tuple[np.ndarra
     raise ValueError(scenario)
 
 
-def _rmse(a: np.ndarray, b: np.ndarray) -> float:
-    return float(np.sqrt(np.mean((a - b) ** 2)))
+_rmse: Callable[[np.ndarray, np.ndarray], float] = rmse
 
 
 def run() -> dict:

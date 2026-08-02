@@ -16,8 +16,11 @@ corrupted cells is the production default candidate. Run::
 
 from __future__ import annotations
 
+from typing import Callable
+
 import numpy as np
 
+from mlframe._bench_rmse_shared import rmse
 from mlframe.models.ensembling.float_aggregation import robust_float_ensemble
 
 FACTORS = (3.5, 4.0, 4.5, 5.0, 6.0, 8.0)
@@ -25,9 +28,7 @@ SEEDS = (0, 1, 2, 3, 4)
 CLEAN_K = (3, 5, 8)
 OUTLIER_CELLS = ((5, 1), (5, 2), (8, 1), (8, 2))  # (K, n_bad)
 
-
-def _rmse(a: np.ndarray, b: np.ndarray) -> float:
-    return float(np.sqrt(np.mean((a - b) ** 2)))
+_rmse: Callable[[np.ndarray, np.ndarray], float] = rmse
 
 
 def _make_y(rng: np.random.Generator, n: int):

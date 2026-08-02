@@ -18,11 +18,13 @@ Run::
 
 from __future__ import annotations
 
+from typing import Callable
+
 import numpy as np
 
+from mlframe._bench_rmse_shared import rmse
 
-def _rmse(a: np.ndarray, b: np.ndarray) -> float:
-    return float(np.sqrt(np.mean((a - b) ** 2)))
+_rmse: Callable[[np.ndarray, np.ndarray], float] = rmse
 
 
 def _make_members(rng: np.random.Generator, y: np.ndarray, k: int, n_bad: int, scenario: str):

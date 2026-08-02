@@ -21,11 +21,12 @@ Run:  python -m mlframe.training.composite.ensemble._benchmarks.bench_calibratio
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 
+from mlframe._bench_rmse_shared import rmse
 from mlframe.training.composite.ensemble._calibration import OutputCalibrator
 
 METHODS = ("isotonic", "sigmoid", "linear")
@@ -51,8 +52,7 @@ def _make_surface(scenario: str, n: int, rng: np.random.Generator) -> tuple[np.n
     return p.astype(np.float64), y.astype(np.float64)
 
 
-def _rmse(a: np.ndarray, b: np.ndarray) -> float:
-    return float(np.sqrt(np.mean((a - b) ** 2)))
+_rmse: Callable[[np.ndarray, np.ndarray], float] = rmse
 
 
 def run() -> dict:
