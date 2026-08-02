@@ -15,53 +15,8 @@ from __future__ import annotations
 
 import functools
 
-import numpy as np
-from sklearn.neighbors import NearestNeighbors
-
 from mlframe.feature_engineering._benchmarks._smote_bench_shared import smote_bit_identity_and_speed_main
-
-
-def _old(X, n_syn, k_neighbors, seed):
-    n_min = X.shape[0]
-    k_used = min(k_neighbors + 1, n_min)
-    nn = NearestNeighbors(n_neighbors=k_used).fit(X)
-    _d, ids = nn.kneighbors(X)
-    rng = np.random.default_rng(seed)
-    out = np.zeros((n_syn, X.shape[1]), dtype=np.float32)
-    for i in range(n_syn):
-        s = rng.integers(0, n_min)
-        cand = ids[s, 1:k_used]
-        if cand.size == 0:
-            out[i] = X[s]
-            continue
-        nbr = cand[rng.integers(0, cand.size)]
-        a = rng.random()
-        out[i] = X[s] + a * (X[nbr] - X[s])
-    return out.astype(np.float32)
-
-
-def _new(X, n_syn, k_neighbors, seed):
-    n_min = X.shape[0]
-    k_used = min(k_neighbors + 1, n_min)
-    nn = NearestNeighbors(n_neighbors=k_used).fit(X)
-    _d, ids = nn.kneighbors(X)
-    rng = np.random.default_rng(seed)
-    src = np.empty(n_syn, np.int64)
-    nbr = np.empty(n_syn, np.int64)
-    alpha = np.empty(n_syn, np.float32)
-    for i in range(n_syn):
-        s = rng.integers(0, n_min)
-        cand = ids[s, 1:k_used]
-        src[i] = s
-        if cand.size == 0:
-            nbr[i] = s
-            alpha[i] = np.float32(0.0)
-            continue
-        nbr[i] = cand[rng.integers(0, cand.size)]
-        alpha[i] = rng.random()
-    x_src = X[src]
-    return (x_src + alpha[:, None] * (X[nbr] - x_src)).astype(np.float32)
-
+from mlframe.feature_engineering.transformer._smote_kernels_shared import smote_synthesize_rowloop as _old, smote_synthesize_vectorized as _new
 
 main = functools.partial(smote_bit_identity_and_speed_main, _old, _new)
 
