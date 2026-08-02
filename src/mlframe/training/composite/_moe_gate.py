@@ -53,6 +53,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from mlframe.training.composite._composite_report_shared import factorize as _shared_factorize, to_native
+
 try:
     import pandas as pd
 
@@ -124,26 +126,8 @@ def _as1d(a: Any) -> np.ndarray:
     return np.ascontiguousarray(np.asarray(a, dtype=np.float64).reshape(-1))
 
 
-def _to_native(v: Any) -> Any:
-    """JSON / dict-key-native group label (numpy scalars -> python; bytes -> ascii; else str)."""
-    if v is None or isinstance(v, (str, bool, int, float)):
-        return v
-    if isinstance(v, np.generic):
-        n = v.item()
-        return n if isinstance(n, (str, bool, int, float)) else str(n)
-    if isinstance(v, bytes):
-        return v.decode("ascii", "replace")
-    return str(v)
-
-
-def _factorize(group_ids: Any) -> tuple[np.ndarray, list]:
-    """(codes, unique_labels). NaN / null labels map to code -1 (excluded from selection + routed global)."""
-    if _HAVE_PANDAS:
-        codes, uniq = pd.factorize(np.asarray(group_ids), sort=False)
-        return np.asarray(codes, dtype=np.int64), list(uniq)
-    arr = np.asarray(group_ids)
-    uniq, codes = np.unique(arr, return_inverse=True)
-    return np.asarray(codes, dtype=np.int64), list(uniq)
+_to_native = to_native
+_factorize = _shared_factorize
 
 
 def _grouped_sse_bincount(codes, w, y, P, n_groups, n_experts, lag_idx):
