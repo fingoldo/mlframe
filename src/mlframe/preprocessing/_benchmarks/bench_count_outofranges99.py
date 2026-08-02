@@ -19,7 +19,9 @@ import time
 
 import numpy as np
 import scipy.stats  # noqa: F401  (segfault-avoidance import-order on py3.14)
-from numba import njit, prange
+from numba import njit
+
+from mlframe.preprocessing.outliers import count_num_outofranges as _parallel
 
 
 @njit(cache=True)
@@ -27,20 +29,6 @@ def _serial(X, mins, maxs):
     n, d = X.shape
     out = np.zeros(n, dtype=np.int64)
     for i in range(n):
-        c = 0
-        for j in range(d):
-            v = X[i, j]
-            if v < mins[j] or v > maxs[j]:
-                c += 1
-        out[i] = c
-    return out
-
-
-@njit(cache=True, parallel=True)
-def _parallel(X, mins, maxs):
-    n, d = X.shape
-    out = np.zeros(n, dtype=np.int64)
-    for i in prange(n):
         c = 0
         for j in range(d):
             v = X[i, j]
