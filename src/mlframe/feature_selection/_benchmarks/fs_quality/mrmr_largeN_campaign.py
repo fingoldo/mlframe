@@ -76,6 +76,8 @@ from pathlib import Path
 
 import numpy as np
 
+from mlframe.feature_selection._benchmarks.fs_quality._bench_shared import build_mrmr, cell_key, mean_or_nan
+
 logger = logging.getLogger(__name__)
 
 RESULTS_DIR = Path(__file__).resolve().parent / "_results"
@@ -143,22 +145,7 @@ def _make_dgp(n: int, p: int, scenario: str, seed: int) -> tuple[np.ndarray, np.
 
 
 def _build_mrmr(variant: str, scenario: str, seed: int):
-    from mlframe.feature_selection.filters import MRMR
-
-    base = dict(
-        # FE disabled so support_ holds RAW column indices only -- precision/recall against the known driver index set stays exact.
-        fe_max_steps=0,
-        interactions_max_order=1,
-        full_npermutations=3,
-        baseline_npermutations=2,
-        random_seed=seed,
-        use_gpu=False,
-        n_jobs=1,
-        verbose=0,
-        cv=2,
-    )
-    base.update(VARIANTS[variant])
-    return MRMR(**base)
+    return build_mrmr(variant, seed, variants=VARIANTS)
 
 
 def _downstream_score(X_tr, y_tr, X_ho, y_ho, sel_idx, scenario: str) -> float | None:
@@ -233,8 +220,7 @@ def _run_cell(variant: str, scenario: str, n: int, p: int, seed: int) -> dict:
     }
 
 
-def _cell_key(row: dict) -> tuple:
-    return (row["variant"], row["scenario"], int(row["n"]), int(row["p"]), int(row["seed"]))
+_cell_key = cell_key
 
 
 def _load_done(path: Path) -> set[tuple]:
@@ -339,9 +325,7 @@ def summarize(smoke: bool) -> None:
     for r in rows:
         groups[(r["variant"], r["scenario"], int(r["n"]), int(r["p"]))].append(r)
 
-    def _mean(vals):
-        vals = [v for v in vals if v is not None]
-        return float(np.mean(vals)) if vals else float("nan")
+    _mean = mean_or_nan
 
     print("\n=== per-(variant, scenario, n, p) MEANS ===")
     header = f"{'variant':>8} {'scenario':<14} {'n':>7} {'p':>4} {'prec':>6} {'rec':>6} {'F1':>6} {'hold':>7} {'nsel':>5} {'cells':>5}"

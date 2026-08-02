@@ -43,6 +43,7 @@ Smoke: --smoke (n=2000, p=40, 2 seeds, regression only). Resume: re-run the same
 from __future__ import annotations
 
 import argparse
+import functools
 import os
 import sys
 import time
@@ -50,6 +51,8 @@ from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
+
+from mlframe.feature_selection._benchmarks.fs_quality._bench_shared import build_mrmr, cell_key, mean_or_nan
 
 # Reuse campaign #1's DGP, downstream scorer, checkpoint I/O and F1 helper verbatim -- identical evaluation, comparable results.
 from mlframe.feature_selection._benchmarks.fs_quality.mrmr_largeN_campaign import (
@@ -75,22 +78,7 @@ VARIANTS: dict[str, dict] = {
 SCENARIOS = ("regression", "classification")
 
 
-def _build_mrmr(variant: str, seed: int):
-    from mlframe.feature_selection.filters import MRMR
-
-    base = dict(
-        fe_max_steps=0,  # raw-index-only support_ so precision/recall vs the known driver set stays exact
-        interactions_max_order=1,
-        full_npermutations=3,
-        baseline_npermutations=2,
-        random_seed=seed,
-        use_gpu=False,
-        n_jobs=1,
-        verbose=0,
-        cv=2,
-    )
-    base.update(VARIANTS[variant])
-    return MRMR(**base)
+_build_mrmr = functools.partial(build_mrmr, variants=VARIANTS)
 
 
 def _run_cell(variant: str, scenario: str, n: int, p: int, seed: int) -> dict:
@@ -122,8 +110,7 @@ def _run_cell(variant: str, scenario: str, n: int, p: int, seed: int) -> dict:
     }
 
 
-def _cell_key(row: dict) -> tuple:
-    return (row["variant"], row["scenario"], int(row["n"]), int(row["p"]), int(row["seed"]))
+_cell_key = cell_key
 
 
 def run_campaign(smoke: bool) -> None:
@@ -182,9 +169,7 @@ def summarize(smoke: bool) -> None:
     for r in rows:
         groups[(r["variant"], r["scenario"], int(r["n"]), int(r["p"]))].append(r)
 
-    def _mean(vals):
-        vals = [v for v in vals if v is not None]
-        return float(np.mean(vals)) if vals else float("nan")
+    _mean = mean_or_nan
 
     print("\n=== per-(variant, scenario, n, p) MEANS ===")
     header = f"{'variant':>13} {'scenario':<14} {'n':>7} {'p':>4} {'prec':>6} {'rec':>6} {'F1':>6} {'hold':>7} {'nsel':>5} {'cells':>5}"

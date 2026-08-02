@@ -38,6 +38,7 @@ USAGE
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import sys
@@ -46,6 +47,8 @@ from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
+
+from mlframe.feature_selection._benchmarks.fs_quality._bench_shared import build_mrmr, mean_or_nan
 
 RESULTS_DIR = Path(__file__).resolve().parent / "_results"
 FULL_JSONL = RESULTS_DIR / "mrmr_synergy_regime.jsonl"
@@ -139,15 +142,7 @@ def _holdout_auc(X_tr, y_tr, X_ho, y_ho, sel_idx):
     return out
 
 
-def _build_mrmr(variant: str, seed: int):
-    from mlframe.feature_selection.filters import MRMR
-    base = dict(
-        fe_max_steps=0, interactions_max_order=1,
-        full_npermutations=3, baseline_npermutations=2,
-        random_seed=seed, use_gpu=False, n_jobs=1, verbose=0, cv=2,
-    )
-    base.update(VARIANTS[variant])
-    return MRMR(**base)
+_build_mrmr = functools.partial(build_mrmr, variants=VARIANTS)
 
 
 def _run_cell(variant, regime, n, seed, dims):
@@ -244,9 +239,7 @@ def summarize(smoke):
         print("[summarize] empty")
         return
 
-    def _mean(vs):
-        vs = [v for v in vs if v is not None]
-        return float(np.mean(vs)) if vs else float("nan")
+    _mean = mean_or_nan
 
     groups = defaultdict(list)
     for r in rows:
