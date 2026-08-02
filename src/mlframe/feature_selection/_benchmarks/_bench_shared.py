@@ -12,6 +12,37 @@ import numpy as np
 from mlframe.feature_selection.filters._cluster_aggregate import uf_find  # noqa: F401 -- re-exported for the bench-family call sites
 
 
+def occupied_k(codes: np.ndarray) -> int:
+    """Number of distinct integer codes present -- the "occupied cell count" ``k`` used by the
+    Miller-Madow debiasing terms across the uplift-ratio / joint-recovery-floor bench family."""
+    return int(np.unique(np.asarray(codes)).size)
+
+
+def plugin_mi_1d(x_codes: np.ndarray, y_codes: np.ndarray) -> float:
+    """Plug-in MI of two integer-coded 1-D arrays (nats), consistent estimator for both ratio sides."""
+    n = x_codes.size
+    if n == 0:
+        return 0.0
+    kx = int(x_codes.max()) + 1
+    ky = int(y_codes.max()) + 1
+    joint = np.zeros((kx, ky), dtype=np.float64)
+    np.add.at(joint, (x_codes, y_codes), 1.0)
+    joint /= n
+    px = joint.sum(axis=1, keepdims=True)
+    py = joint.sum(axis=0, keepdims=True)
+    nz = joint > 0
+    return float(np.sum(joint[nz] * np.log(joint[nz] / (px @ py)[nz])))
+
+
+def discretize_quantile_10bin(arr: np.ndarray) -> np.ndarray:
+    """Quantile-discretize ``arr`` into 10 integer bins -- the shared preprocessing step for the
+    uplift-ratio / joint-recovery-floor bench family's MI estimators."""
+    from mlframe.feature_selection.filters.discretization import discretize_array
+
+    d = discretize_array(arr=np.asarray(arr, dtype=np.float64), n_bins=10, method="quantile", dtype=np.int32)
+    return np.asarray(d, dtype=np.int64).ravel()
+
+
 def noise_frame_no_structure(p: int, n: int, seed: int = 0):
     """Pure-noise + ordinary-smooth integer columns with NO planted structure (no modular/lattice pattern): a
     smooth linear threshold of the first two columns is the only signal, so a structure-detector under test

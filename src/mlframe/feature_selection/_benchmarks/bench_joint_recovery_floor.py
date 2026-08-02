@@ -29,34 +29,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from mlframe.feature_selection.filters.discretization import discretize_array
+from mlframe.feature_selection._benchmarks._bench_shared import occupied_k as _occupied_k, plugin_mi_1d as _plugin_mi, discretize_quantile_10bin as _disc
 from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_gates import mm_debiased_prevalence_ratio
-
-_NBINS = 10
-
-
-def _occupied_k(codes):
-    return int(np.unique(np.asarray(codes)).size)
-
-
-def _disc(arr):
-    d = discretize_array(arr=np.asarray(arr, dtype=np.float64), n_bins=_NBINS, method="quantile", dtype=np.int32)
-    return np.asarray(d, dtype=np.int64).ravel()
-
-
-def _plugin_mi(x_codes, y_codes):
-    n = x_codes.size
-    if n == 0:
-        return 0.0
-    kx = int(x_codes.max()) + 1
-    ky = int(y_codes.max()) + 1
-    joint = np.zeros((kx, ky), dtype=np.float64)
-    np.add.at(joint, (x_codes, y_codes), 1.0)
-    joint /= n
-    px = joint.sum(axis=1, keepdims=True)
-    py = joint.sum(axis=0, keepdims=True)
-    nz = joint > 0
-    return float(np.sum(joint[nz] * np.log(joint[nz] / (px @ py)[nz])))
 
 
 def _joint_codes(a_codes, b_codes):

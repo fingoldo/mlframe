@@ -31,35 +31,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from mlframe.feature_selection.filters.discretization import discretize_array
+from mlframe.feature_selection._benchmarks._bench_shared import occupied_k as _occupied_k, plugin_mi_1d as _plugin_mi_1d, discretize_quantile_10bin as _disc
 from mlframe.feature_selection.filters.info_theory._entropy_kernels import mi_miller_madow_correct
-
-_NBINS = 10
-
-
-def _occupied_k(codes: np.ndarray) -> int:
-    return int(np.unique(np.asarray(codes)).size)
-
-
-def _plugin_mi_1d(x_codes: np.ndarray, y_codes: np.ndarray) -> float:
-    """Plug-in MI of two integer-coded 1-D arrays (nats), consistent estimator for both ratio sides."""
-    n = x_codes.size
-    if n == 0:
-        return 0.0
-    kx = int(x_codes.max()) + 1
-    ky = int(y_codes.max()) + 1
-    joint = np.zeros((kx, ky), dtype=np.float64)
-    np.add.at(joint, (x_codes, y_codes), 1.0)
-    joint /= n
-    px = joint.sum(axis=1, keepdims=True)
-    py = joint.sum(axis=0, keepdims=True)
-    nz = joint > 0
-    return float(np.sum(joint[nz] * np.log(joint[nz] / (px @ py)[nz])))
-
-
-def _disc(arr: np.ndarray) -> np.ndarray:
-    d = discretize_array(arr=np.asarray(arr, dtype=np.float64), n_bins=_NBINS, method="quantile", dtype=np.int32)
-    return np.asarray(d, dtype=np.int64).ravel()
 
 
 def _ratios(eng_col, op_a, op_b, y_codes, ky, n):
