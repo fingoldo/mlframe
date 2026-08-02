@@ -17,7 +17,6 @@ import json
 import time
 import warnings
 from pathlib import Path
-from typing import Callable, Optional
 
 import numpy as np
 
@@ -36,138 +35,11 @@ from numpy.polynomial.chebyshev import chebval as _np_chebval
 from numpy.polynomial.laguerre import lagval as _np_lagval
 
 # Backend 2: njit single-thread (already in hermite_fe.py)
+# Backend 3: njit parallel (already in hermite_fe.py, prange over array elements)
 from mlframe.feature_selection.filters.hermite_fe import (
     _hermeval_njit, _legval_njit, _chebval_njit, _lagval_njit,
+    _hermeval_njit_parallel, _legval_njit_parallel, _chebval_njit_parallel, _lagval_njit_parallel,
 )
-
-# Backend 3: njit parallel (prange over array elements)
-try:
-    from numba import njit, prange
-    _NUMBA_AVAILABLE = True
-except ImportError:
-    _NUMBA_AVAILABLE = False
-    def njit(*args, **kwargs):
-        if len(args) == 1 and callable(args[0]):
-            return args[0]
-        def deco(fn):
-            return fn
-        return deco
-    def prange(n):
-        return range(n)
-
-
-@njit(cache=True, fastmath=True, parallel=True)
-def _hermeval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
-    """Parallel njit Hermite-e evaluation. ``prange`` over array
-    elements; the recurrence runs once per element. For n>>cache size
-    this hides memory latency across cores."""
-    n = x.shape[0]
-    nc = c.shape[0]
-    out = np.zeros(n, dtype=np.float64)
-    if nc == 0:
-        return out
-    if nc == 1:
-        c0 = c[0]
-        for i in prange(n):
-            out[i] = c0
-        return out
-    for i in prange(n):
-        xi = x[i]
-        p_prev = 1.0
-        p_curr = xi
-        s = c[0] + c[1] * p_curr
-        for k in range(2, nc):
-            p_next = xi * p_curr - (k - 1) * p_prev
-            s += c[k] * p_next
-            p_prev = p_curr
-            p_curr = p_next
-        out[i] = s
-    return out
-
-
-@njit(cache=True, fastmath=True, parallel=True)
-def _legval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
-    n = x.shape[0]
-    nc = c.shape[0]
-    out = np.zeros(n, dtype=np.float64)
-    if nc == 0:
-        return out
-    if nc == 1:
-        c0 = c[0]
-        for i in prange(n):
-            out[i] = c0
-        return out
-    for i in prange(n):
-        xi = x[i]
-        p_prev = 1.0
-        p_curr = xi
-        s = c[0] + c[1] * p_curr
-        for k in range(2, nc):
-            inv_k = 1.0 / k
-            two_km1 = 2 * k - 1
-            km1 = k - 1
-            p_next = (two_km1 * xi * p_curr - km1 * p_prev) * inv_k
-            s += c[k] * p_next
-            p_prev = p_curr
-            p_curr = p_next
-        out[i] = s
-    return out
-
-
-@njit(cache=True, fastmath=True, parallel=True)
-def _chebval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
-    n = x.shape[0]
-    nc = c.shape[0]
-    out = np.zeros(n, dtype=np.float64)
-    if nc == 0:
-        return out
-    if nc == 1:
-        c0 = c[0]
-        for i in prange(n):
-            out[i] = c0
-        return out
-    for i in prange(n):
-        xi = x[i]
-        p_prev = 1.0
-        p_curr = xi
-        s = c[0] + c[1] * p_curr
-        for k in range(2, nc):
-            p_next = 2.0 * xi * p_curr - p_prev
-            s += c[k] * p_next
-            p_prev = p_curr
-            p_curr = p_next
-        out[i] = s
-    return out
-
-
-@njit(cache=True, fastmath=True, parallel=True)
-def _lagval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
-    n = x.shape[0]
-    nc = c.shape[0]
-    out = np.zeros(n, dtype=np.float64)
-    if nc == 0:
-        return out
-    if nc == 1:
-        c0 = c[0]
-        for i in prange(n):
-            out[i] = c0
-        return out
-    for i in prange(n):
-        xi = x[i]
-        p_prev = 1.0
-        p_curr = 1.0 - xi
-        s = c[0] + c[1] * p_curr
-        for k in range(2, nc):
-            inv_k = 1.0 / k
-            two_km1 = 2 * k - 1
-            km1 = k - 1
-            p_next = ((two_km1 - xi) * p_curr - km1 * p_prev) * inv_k
-            s += c[k] * p_next
-            p_prev = p_curr
-            p_curr = p_next
-        out[i] = s
-    return out
-
 
 # Backend 4 + 5: cupy
 try:

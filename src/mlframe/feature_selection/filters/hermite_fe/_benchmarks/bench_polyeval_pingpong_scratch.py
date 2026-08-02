@@ -29,37 +29,7 @@ import time
 import numpy as np
 from numba import njit
 
-
-# -------- SHIPPED (current source) fused-prologue form, per-degree np.empty --------
-@njit(cache=True, fastmath=True)
-def _legval_shipped(x, c):
-    n = x.shape[0]
-    out = np.zeros(n, dtype=np.float64)
-    nc = c.shape[0]
-    if nc == 0:
-        return out
-    c0 = c[0]
-    if nc == 1:
-        for i in range(n):
-            out[i] = c0
-        return out
-    c1 = c[1]
-    p_prev = np.ones(n, dtype=np.float64)
-    p_curr = x
-    for i in range(n):
-        out[i] = c0 + c1 * x[i]
-    for k in range(2, nc):
-        p_next = np.empty(n, dtype=np.float64)
-        ck = c[k]
-        inv_k = 1.0 / k
-        two_km1 = 2 * k - 1
-        km1 = k - 1
-        for i in range(n):
-            p_next[i] = (two_km1 * x[i] * p_curr[i] - km1 * p_prev[i]) * inv_k
-            out[i] += ck * p_next[i]
-        p_prev = p_curr
-        p_curr = p_next
-    return out
+from mlframe.feature_selection.filters.hermite_fe import _legval_njit as _legval_shipped
 
 
 # -------- NEW ping-pong scratch form: two pre-allocated buffers, no per-degree alloc --------
