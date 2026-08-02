@@ -434,6 +434,13 @@ _LIB_VERSION_DISTS: tuple = (
 # small RF bundle: the actual unpickle was ~2 ms, the version walk ~10 ms). Keying on ``id(_LIB_VERSION_DISTS)`` keeps the cache correct under
 # tests that ``monkeypatch.setattr`` a different dist tuple (new identity -> recompute) without an explicit clear.
 _LIB_VERSIONS_CACHE: "Dict[int, Dict[str, str]]" = {}
+# Guards every mutation of _LIB_VERSIONS_CACHE. Save/load can run concurrently across request threads in a
+# long-lived inference service; without this, two threads computing the memo simultaneously can race on the
+# same dict write (a bare dict assignment is atomic under the GIL, but the read-check-then-write sequence in
+# _collect_lib_versions is not, so a thread could re-do the ~10ms metadata walk it was meant to skip).
+import threading as _threading
+
+_LIB_VERSIONS_CACHE_LOCK = _threading.Lock()
 
 
 def _collect_lib_versions() -> Dict[str, str]:
@@ -483,13 +490,15 @@ def _collect_lib_versions() -> Dict[str, str]:
                     _ver = str(_mv)
         if _ver is not None:
             out[_name] = str(_ver)
-    _LIB_VERSIONS_CACHE[id(_LIB_VERSION_DISTS)] = out
+    with _LIB_VERSIONS_CACHE_LOCK:
+        _LIB_VERSIONS_CACHE[id(_LIB_VERSION_DISTS)] = out
     return dict(out)
 
 
 def _lib_versions_cache_clear() -> None:
     """Reset the per-process library-version memo. For tests that mutate the live environment's installed metadata."""
-    _LIB_VERSIONS_CACHE.clear()
+    with _LIB_VERSIONS_CACHE_LOCK:
+        _LIB_VERSIONS_CACHE.clear()
 
 
 def _meta_sidecar_path(bundle_path: str) -> str:
@@ -640,7 +649,6 @@ def validate_load_meta_sidecar(
 # in-memory unpickled form is typically larger still and a 4 GB CatBoost model would exhaust
 # the inference host's RAM if cached.
 _LOAD_MODEL_CACHE: "OrderedDict[tuple, object]" = OrderedDict()
-import threading as _threading
 # Guards every mutation of _LOAD_MODEL_CACHE (get+move_to_end / store / popitem). A long-lived inference
 # service calls load_mlframe_model concurrently from request threads; without this, concurrent move_to_end /
 # popitem can raise "OrderedDict mutated during iteration" or corrupt the LRU order.

@@ -1,7 +1,4 @@
 [
-  "feature_selection/filters/_joblib_safe.py:246:fit_constant_memmap:_FIT_MEMMAP_CACHE",
   "feature_selection/filters/_neural_mi.py:468:_compute_mist_calibration:_MIST_CALIBRATION_CACHE",
-  "training/io.py:439:_collect_lib_versions:_LIB_VERSIONS_CACHE",
-  "training/io.py:490:_lib_versions_cache_clear:_LIB_VERSIONS_CACHE",
   "training/pipeline/_pipeline_cache.py:567:_pre_pipeline_cache_key:_LAST_KEY_CACHE"
 ]
