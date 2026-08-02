@@ -18,7 +18,7 @@ def test_bench_shap_proxy_scaling_imports_and_aggregates():
     # Module surface that the bench script + downstream callers depend on.
     for name in (
         "make_wide",
-        "_build_selector",
+        "build_selector",
         "bench_width_single",
         "bench_width_multi_seed",
         "_agg",
@@ -54,7 +54,7 @@ def test_bench_shap_proxy_noise_pool_sweep_imports_and_aggregates():
     """Bench shap proxy noise pool sweep imports and aggregates."""
     from mlframe.feature_selection._benchmarks import bench_shap_proxy_noise_pool_sweep as mod
 
-    for name in ("_build_selector", "_make", "_agg", "run_cell", "main"):
+    for name in ("build_selector", "_make", "_agg", "run_cell", "main"):
         assert hasattr(mod, name), name
 
     # _agg contract mirrors the scaling bench (kept in sync deliberately).
