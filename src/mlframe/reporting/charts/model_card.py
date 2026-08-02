@@ -23,6 +23,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
+from mlframe._ranks_shared import ordinal_ranks_float as _ranks
 from mlframe.reporting.charts._layout import figsize_for_grid
 from mlframe.reporting.charts.binary import _ScoreSort, _decimate, _finite_binary
 from mlframe.reporting.charts.regression import _finite_pair
@@ -142,13 +143,6 @@ def _spearman(a: np.ndarray, b: np.ndarray) -> float:
     n = a.size
     if n < 3:
         return 0.0
-    def _ranks(v: np.ndarray) -> np.ndarray:
-        """Ordinal ranks via single argsort + scatter (bit-identical to argsort(argsort(v)), ~1.7-1.9x faster)."""
-        order = np.argsort(v)
-        r = np.empty(v.size, dtype=np.float64)
-        r[order] = np.arange(v.size, dtype=np.float64)
-        return r
-
     ra = _ranks(a)
     rb = _ranks(b)
     ra -= ra.mean()

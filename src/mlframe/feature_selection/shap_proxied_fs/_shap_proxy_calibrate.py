@@ -21,6 +21,8 @@ from typing import Optional
 
 import numpy as np
 
+from mlframe._ranks_shared import ordinal_ranks_float as _ranks
+
 
 def _mean_abs_offdiag_corr(sub_by_var: np.ndarray) -> float:
     """Mean |correlation| over the upper triangle of ``corrcoef`` of ``sub_by_var`` (variables as
@@ -145,13 +147,6 @@ def _ranks_non_inverting(proxy: np.ndarray, pred: np.ndarray) -> bool:
     undefined rank correlation) are treated as non-inverting (the corrector cannot reorder a tie)."""
     if proxy.size < 2:
         return True
-
-    def _ranks(v: np.ndarray) -> np.ndarray:
-        """Ordinal ranks via single argsort + scatter (bit-identical to argsort(argsort(v)), ~1.7-1.9x faster)."""
-        order = np.argsort(v)
-        r = np.empty(v.size, dtype=np.float64)
-        r[order] = np.arange(v.size, dtype=np.float64)
-        return r
 
     pr = _ranks(proxy)
     pe = _ranks(pred)
