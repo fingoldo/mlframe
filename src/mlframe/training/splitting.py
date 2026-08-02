@@ -19,7 +19,7 @@ from sklearn.model_selection import train_test_split
 
 logger = logging.getLogger(__name__)
 
-from mlframe.training._splitting_helpers import _build_details, _calculate_split_sizes, _perform_split
+from mlframe.training._splitting_helpers import _build_details, _calculate_split_sizes, _perform_split, fmt_ts
 
 
 def make_train_test_split(
@@ -416,18 +416,8 @@ def make_train_test_split(
 
         # Build detail strings. ``.min()`` on empty index yields NaT, which
         # then crashes the ``:%Y-%m-%d`` formatter. Guard for empty train.
-        # Numeric ts also crashes ``:%Y-%m-%d`` formatter -- reuse the
-        # ``_fmt_ts`` helper defined inside ``_build_details``. (Promoted
-        # to module-private if more sites grow this need; for now inline.)
-        def _fmt_ts(value):
-            """Formats a timestamp as ``YYYY-MM-DD``, falling back to ``str()`` for non-datetime (e.g. numeric) timestamp values that the format spec would otherwise crash on."""
-            try:
-                return format(value, "%Y-%m-%d")
-            except (ValueError, TypeError):
-                return str(value)
-
         if len(train_idx) > 0:
-            train_details = f"{_fmt_ts(timestamps.iloc[train_idx].min())}/{_fmt_ts(timestamps.iloc[train_idx].max())}"
+            train_details = f"{fmt_ts(timestamps.iloc[train_idx].min())}/{fmt_ts(timestamps.iloc[train_idx].max())}"
         else:
             train_details = "(empty)"
 
@@ -473,16 +463,9 @@ def make_train_test_split(
             train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)) :]
 
         # Build detail strings (same NaT-on-empty guard as above; also
-        # numeric-ts safe via the inline ``_fmt_ts`` fallback).
-        def _fmt_ts(value):
-            """Formats a timestamp as ``YYYY-MM-DD``, falling back to ``str()`` for non-datetime (e.g. numeric) timestamp values that the format spec would otherwise crash on."""
-            try:
-                return format(value, "%Y-%m-%d")
-            except (ValueError, TypeError):
-                return str(value)
-
+        # numeric-ts safe via the ``fmt_ts`` fallback).
         if len(train_idx) > 0:
-            train_details = f"{_fmt_ts(timestamps.iloc[train_idx].min())}/{_fmt_ts(timestamps.iloc[train_idx].max())}"
+            train_details = f"{fmt_ts(timestamps.iloc[train_idx].min())}/{fmt_ts(timestamps.iloc[train_idx].max())}"
         else:
             train_details = "(empty)"
         val_details = _build_details(timestamps, val_idx, val_idx_seq, eff_val_shuf, "R")

@@ -107,6 +107,15 @@ def _perform_split(sorted_items, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf,
 
     return train_items, val_items, test_items, val_seq, test_seq, eff_test_shuf, eff_val_shuf
 
+def fmt_ts(value):
+    """Format a single timestamp as ``YYYY-MM-DD``, falling back to ``str()`` for non-datetime (e.g.
+    numeric epoch-seconds) values that the ``%Y-%m-%d`` format spec would otherwise crash on."""
+    try:
+        return format(value, "%Y-%m-%d")
+    except (ValueError, TypeError):
+        return str(value)
+
+
 def _build_details(timestamps, idx, sequential_idx, n_shuffled, unit) -> str:
     """Build a detail string for a split set.
 
@@ -123,27 +132,13 @@ def _build_details(timestamps, idx, sequential_idx, n_shuffled, unit) -> str:
     45k val rows from outside the Jan-Apr 2014 window were shuffled in
     on top of the sequential 45k that fell inside the window.
     """
-    def _fmt_ts(value):
-        """Format a single timestamp for log lines. Datetime-typed
-        values use ``%Y-%m-%d``; numeric (int/float epoch-seconds or
-        generic numeric proxy) values fall back to ``repr(value)``
-        because the ``%Y-%m-%d`` format-spec raises
-        ``ValueError: Invalid format specifier '%Y-%m-%d' for object
-        of type 'int'`` on non-datetime inputs (the FTE's ``ts_field``
-        plumbing accepts any monotone numeric column).
-        """
-        try:
-            return format(value, "%Y-%m-%d")
-        except (ValueError, TypeError):
-            return str(value)
-
     if sequential_idx is not None and len(sequential_idx) > 0:
-        details = f"{_fmt_ts(timestamps.iloc[sequential_idx].min())}/{_fmt_ts(timestamps.iloc[sequential_idx].max())}"
+        details = f"{fmt_ts(timestamps.iloc[sequential_idx].min())}/{fmt_ts(timestamps.iloc[sequential_idx].max())}"
         if n_shuffled > 0:
             details += f" +{n_shuffled}{unit}"
     else:
         if len(idx) > 0:
-            details = f"{_fmt_ts(timestamps.iloc[idx].min())}/{_fmt_ts(timestamps.iloc[idx].max())}"
+            details = f"{fmt_ts(timestamps.iloc[idx].min())}/{fmt_ts(timestamps.iloc[idx].max())}"
         else:
             details = ""
     return details
