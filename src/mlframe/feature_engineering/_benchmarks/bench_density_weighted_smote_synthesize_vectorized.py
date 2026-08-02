@@ -14,10 +14,10 @@ Run: python -m mlframe.feature_engineering._benchmarks.bench_density_weighted_sm
 """
 from __future__ import annotations
 
-import time
-
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
+
+from mlframe.feature_engineering._benchmarks._smote_bench_shared import _best
 
 
 def _weights(X, k_neighbors):
@@ -63,16 +63,6 @@ def _new(X, n_syn, k_neighbors, seed):
         alpha[i] = rng.random()
     x_src = X[src]
     return (x_src + alpha[:, None] * (X[nbr] - x_src)).astype(np.float32)
-
-
-def _best(fn, *a, n=15):
-    fn(*a)
-    ts = []
-    for _ in range(n):
-        t = time.perf_counter()
-        fn(*a)
-        ts.append(time.perf_counter() - t)
-    return min(ts)
 
 
 def main():
