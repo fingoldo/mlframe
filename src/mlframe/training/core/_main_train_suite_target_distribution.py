@@ -79,7 +79,14 @@ def _maybe_auto_drop_after_feature_analyzer(
     if not drop_set:
         return train_df, val_df, test_df, []
     # Filter the drop set to columns actually present in train_df.
-    train_cols = set(getattr(train_df, "columns", []) or [])
+    # ``getattr(..., "columns", []) or []`` used to force bool() on the result to pick the `or`
+    # fallback - pandas raises ValueError ("truth value of a Index is ambiguous") for any multi-
+    # element Index in a boolean context, so this crashed (caught by the caller's best-effort
+    # except, silently falling back to the full column set) on every pandas train_df. `columns`
+    # is always a real iterable when present (getattr's default already covers "attribute
+    # missing"); guard only the "attribute exists but is None" case explicitly.
+    _train_cols_raw = getattr(train_df, "columns", None)
+    train_cols = set(_train_cols_raw) if _train_cols_raw is not None else set()
     drop_list = sorted(c for c in drop_set if c in train_cols)
     if not drop_list:
         return train_df, val_df, test_df, []
@@ -91,11 +98,17 @@ def _maybe_auto_drop_after_feature_analyzer(
         present = [c for c in cols if c in getattr(df, "columns", [])]
         if not present:
             return df
-        # polars + pandas both expose .drop(cols, ...); polars wants list, pandas wants list (axis=1).
+        # polars + pandas both expose .drop(cols, ...), but with DIFFERENT default axes: polars'
+        # .drop(list) drops COLUMNS; pandas' .drop(list) drops ROWS by index label (axis=0) unless
+        # told columns= - so the bare df.drop(present) call silently tried to drop `present` as row
+        # labels on every pandas frame, raising KeyError ("not found in axis") rather than the
+        # TypeError this used to catch, so the fallback below never ran and the caller's best-effort
+        # except swallowed the failure (auto-drop silently no-op'd on every pandas train_df).
         try:
-            return df.drop(present)
-        except TypeError:
             return df.drop(columns=present)
+        except TypeError:
+            # polars: .drop() takes column names positionally, no columns= kwarg.
+            return df.drop(present)
     train_df = _drop(train_df, drop_list)
     val_df = _drop(val_df, drop_list)
     test_df = _drop(test_df, drop_list)

@@ -128,6 +128,25 @@ Run unbuffered with `-x -s` rather than launching a long blind run.
 A failure that is an OOM or a Windows paging-file error (WinError 1455 under joblib fan-out) reflects machine-wide memory pressure at that moment, not a defect: retry once, and if it fails again it is real. Tolerate it in code via `OSError` plus a skip.
 Heavily-parametrised modules expose a fast mode (a `--fast` flag or env var plus a `fast_subset` helper) that runs one representative case per code path, with the exhaustive sweep behind a slow marker. Without it the only options are the full matrix or no coverage, and the full matrix stops being run.
 
+## BUG FIX (2026-08-02): auto-drop after feature_distribution_analyzer silently no-op'd on every pandas train_df
+Incidentally spotted in a profiling cycle's log (`c0091` combo): `WARNING: [mini-HPT] auto-drop after
+feature_distribution_analyzer failed (The truth value of a Index is ambiguous...)`. Root cause in
+`_maybe_auto_drop_after_feature_analyzer` (`_main_train_suite_target_distribution.py`): `train_cols =
+set(getattr(train_df, "columns", []) or [])` forced `bool()` on the `or` operator's left side, and
+pandas raises `ValueError: The truth value of a Index is ambiguous` for any multi-column
+`DataFrame.columns` — so this crashed on EVERY pandas `train_df` (caught by the caller's best-effort
+`except`, silently falling back to the full column set — the analyzer's drop recommendations were
+computed but never applied). A SECOND, independent bug in the same function's `_drop` helper: `df.drop(
+present)` — pandas' `.drop()` defaults to `axis=0` (drops ROWS by index label, not columns), so even
+past the first bug this would have raised `KeyError` (never caught by the `except TypeError` that was
+meant to catch a wrong-signature call) instead of dropping columns. Fixed both: `train_cols` now guards
+only the genuine "attribute is `None`" case explicitly (no boolean-context Index evaluation), and `_drop`
+now calls `df.drop(columns=present)` first (pandas), falling back to the positional form (`df.drop(
+present)`) that polars actually accepts on `TypeError`. Verified via a live repro (both bugs reproduced
+and fixed for pandas AND polars) and a new regression test
+(`test_auto_drop_after_feature_analyzer_drops_columns_on_pandas_and_polars` in
+`test_run_target_distribution_analyzer_arity.py`) pinning both fixes.
+
 ## PERF WIN (2026-08-02): wavelet leg-scan's CPU fallback fused into one parallel-njit batch call (12.2x)
 2M-row cProfile on combo `c0079_b01d8c82` (HGB+LGB+linear, regression) found `_select_wavelet_legs`
 (`_wavelet_basis_fe.py`) at 380.1s cumtime — 28% of the entire suite's wall time — with `_binned_mi`

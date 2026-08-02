@@ -68,3 +68,56 @@ def test_empty_target_by_type_also_four_tuple():
     )
     assert isinstance(out, tuple) and len(out) == 4
     assert out == ("HP", "TRAIN", "VAL", "TEST")
+
+
+def test_auto_drop_after_feature_analyzer_drops_columns_on_pandas_and_polars():
+    """``_maybe_auto_drop_after_feature_analyzer`` must actually drop the analyzer's flagged
+    columns on both pandas and polars frames.
+
+    BUG FOUND AND FIXED (2026-08-02, incidental to a profiling cycle): ``getattr(train_df,
+    "columns", []) or []`` forced ``bool()`` on the ``or`` operator's left side, and pandas
+    raises ``ValueError: The truth value of a Index is ambiguous`` for any multi-column
+    ``DataFrame.columns`` -- so auto-drop crashed (caught by the caller's best-effort
+    ``except``, silently falling back to the full column set) on EVERY pandas ``train_df``.
+    A second, independent bug in the same function: the drop helper called ``df.drop(present)``
+    -- pandas' ``.drop()`` defaults to axis=0 (drops ROWS by index label, not columns), so even
+    past the first bug this raised ``KeyError`` (never caught by the ``except TypeError`` that
+    was meant to catch it) instead of actually dropping columns. Pins both fixes: pandas
+    now drops via ``columns=``, polars falls back to the positional form its ``.drop()``
+    actually accepts."""
+    import pandas as pd
+    import polars as pl
+
+    from mlframe.training.core._main_train_suite_target_distribution import (
+        _maybe_auto_drop_after_feature_analyzer,
+    )
+
+    class _FakeReport:
+        """Minimal stand-in for the feature-distribution report: flags column 'b' as a drop candidate."""
+
+        drop_candidates = ["b"]
+        diagnostics: dict = {}
+
+    class _BehaviorConfig:
+        """Minimal stand-in for behavior_config: opts into candidate-list auto-drop, near-dup drop disabled."""
+
+        auto_drop_distribution_analyzer_candidates = True
+        auto_drop_near_duplicate_threshold = 2.0  # > 1.0 -> the near-duplicate branch is a no-op
+
+    for make_df in (
+        lambda: pd.DataFrame({"a": [1, 2], "b": [3, 4], "c": [5, 6]}),
+        lambda: pl.DataFrame({"a": [1, 2], "b": [3, 4], "c": [5, 6]}),
+    ):
+        df = make_df()
+        train_df, val_df, test_df, dropped = _maybe_auto_drop_after_feature_analyzer(
+            fd_report=_FakeReport(),
+            train_df=df,
+            val_df=df,
+            test_df=df,
+            behavior_config=_BehaviorConfig(),
+            metadata={},
+            verbose=False,
+        )
+        assert dropped == ["b"], f"expected 'b' to be dropped for {type(df).__name__}; got {dropped!r}"
+        for out in (train_df, val_df, test_df):
+            assert list(out.columns) == ["a", "c"], f"expected columns ['a', 'c'] for {type(df).__name__}; got {list(out.columns)!r}"
