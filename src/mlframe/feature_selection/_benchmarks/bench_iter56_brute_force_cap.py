@@ -21,13 +21,11 @@ Run::
 
 from __future__ import annotations
 
-from mlframe.feature_selection._benchmarks._bench_shared import make_dataset, recovered, make_tee_print
+from mlframe.feature_selection._benchmarks._bench_shared import make_dataset, recovered, make_tee_print, build_brute_force_cap_selector as _build_selector
 
 import argparse
 import time
 import warnings
-
-import numpy as np
 
 warnings.filterwarnings("ignore")
 
@@ -38,19 +36,6 @@ CONFIGS = {
     # Hard regime: noisy SHAP ranking, no redundants. Weak informatives may rank in 23..28.
     "C3_hard": dict(width=10000, n_rows=5000, n_informative=20, n_redundant=0, redundancy_rho=0.8, snr=2.0, seed=0),
 }
-
-
-def _build_selector(seed: int, brute_force_max_features: int):
-    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
-
-    return ShapProxiedFS(
-        classification=True, metric="brier", optimizer="auto",
-        prefilter_top=500, cluster_features=True, cluster_corr_threshold=0.7,
-        top_n=20, n_splits=4, n_revalidation_models=3, trust_guard=True, n_anchors=24,
-        run_importance_ablation=True, within_cluster_refine=True,
-        brute_force_max_features=brute_force_max_features,
-        random_state=seed, verbose=False)
-
 
 
 def run_one(name: str, cfg: dict, brute_force_max_features: int, X, y, roles):

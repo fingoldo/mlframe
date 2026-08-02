@@ -12,6 +12,31 @@ import numpy as np
 from mlframe.feature_selection.filters._cluster_aggregate import uf_find  # noqa: F401 -- re-exported for the bench-family call sites
 
 
+def build_brute_force_cap_selector(seed: int, brute_force_max_features: int):
+    """ShapProxiedFS config shared by the iter56/iter58 brute-force-cap bench pair: prefilter+cluster+trust_guard
+    on, ``brute_force_max_features`` swept by the caller."""
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    return ShapProxiedFS(
+        classification=True,
+        metric="brier",
+        optimizer="auto",
+        prefilter_top=500,
+        cluster_features=True,
+        cluster_corr_threshold=0.7,
+        top_n=20,
+        n_splits=4,
+        n_revalidation_models=3,
+        trust_guard=True,
+        n_anchors=24,
+        run_importance_ablation=True,
+        within_cluster_refine=True,
+        brute_force_max_features=brute_force_max_features,
+        random_state=seed,
+        verbose=False,
+    )
+
+
 def write_worker_source(worker_path: str, source: str) -> None:
     """Write ``source`` to ``worker_path``: the subprocess-worker-script materialization step shared
     by the iter100/iter101 stratified-anchors benches (each closes over its own module-level source
