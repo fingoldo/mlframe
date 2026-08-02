@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 
 import numpy as np
 
+from .transforms.simple import _diff_inverse as _inv_diff
+
 __all__ = [
     "SERVING_SPEC_VERSION",
     "LIGHTWEIGHT_TRANSFORMS",
@@ -79,12 +81,6 @@ _MULTI_BASE["linear_residual_multi"] = True
 # inner prediction. base is 1-D (n,) for single-base transforms, 2-D (n, K) for
 # linear_residual_multi.
 # ----------------------------------------------------------------------
-
-def _inv_diff(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.ndarray:
-    """Inverts the ``diff`` transform: ``y = t_hat + base`` (mirrors ``transforms/simple.py::_diff_inverse``)."""
-    # transforms/simple.py::_diff_inverse -> t + base
-    return np.asarray(t_hat + base)
-
 
 def _inv_additive_residual(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.ndarray:
     """Inverts ``additive_residual``: ``y = t_hat + base + beta`` (mirrors ``_additive_residual_inverse``)."""

@@ -50,6 +50,17 @@ def _coerce_to_numpy(arr):
     return np.asarray(arr)
 
 
+def _slice_positional(values, idx):
+    """Positional row slice for target-value containers; routes pandas Series through ``.iloc`` since bare ``[idx]`` is label-indexed on a non-default index."""
+    if values is None or idx is None:
+        return None
+    if isinstance(values, pd.Series):
+        return values.iloc[idx]
+    if hasattr(values, "__getitem__"):
+        return values[idx]
+    return None
+
+
 def _coerce_features_to_float32(
     features,
     *,
@@ -259,15 +270,6 @@ def _apply_recurrent_to_ensemble(
         # pandas Series ``[positional_idx]`` is LABEL-indexed, so for a non-default Series index this returns
         # the wrong rows. Route Series through .iloc for positional semantics; ndarray / pl.Series keep
         # __getitem__ semantics which ARE positional. Mirrors the guard in _phase_train_one_target:895-899.
-        def _slice_positional(values, idx):
-            """Positional row slice for target-value containers; routes pandas Series through ``.iloc`` since bare ``[idx]`` is label-indexed on a non-default index."""
-            if values is None or idx is None:
-                return None
-            if isinstance(values, pd.Series):
-                return values.iloc[idx]
-            if hasattr(values, "__getitem__"):
-                return values[idx]
-            return None
         train_target = _coerce_to_numpy(_slice_positional(target_values, ctx.train_idx))
         val_target = _coerce_to_numpy(_slice_positional(target_values, ctx.val_idx))
         test_target = _coerce_to_numpy(_slice_positional(target_values, ctx.test_idx))
@@ -487,17 +489,8 @@ def train_recurrent_models(
                 # ``hasattr(pd.Series, "__getitem__")`` is True but Series[positional] is LABEL-indexed --
                 # mirror the isinstance(...) guard used in _phase_train_one_target:895-899 so non-default
                 # indices don't silently produce label-indexed (wrong-row) slices.
-                def _pos_slice(values, idx):
-                    """Positional row slice for target-value containers; routes pandas Series through ``.iloc`` since bare ``[idx]`` is label-indexed on a non-default index."""
-                    if values is None or idx is None:
-                        return None
-                    if isinstance(values, pd.Series):
-                        return values.iloc[idx]
-                    if hasattr(values, "__getitem__"):
-                        return values[idx]
-                    return None
-                train_target = _coerce_to_numpy(_pos_slice(target_values, train_idx))
-                val_target = _coerce_to_numpy(_pos_slice(target_values, val_idx))
+                train_target = _coerce_to_numpy(_slice_positional(target_values, train_idx))
+                val_target = _coerce_to_numpy(_slice_positional(target_values, val_idx))
 
                 model_clone = clone(recurrent_model)
 

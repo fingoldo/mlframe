@@ -74,30 +74,23 @@ def _drop_columns_for_mlp(df, cols_to_drop):
         return df
 
 
-def _apply_mlp_extreme_ar_weight_decay_bump(
-    model, factor: float, base_weight_decay: float,
-) -> bool:
-    """Walk the MLP estimator nesting (TTR / pipeline / metamodel) to find ``model_params`` on the inner ``PytorchLightningEstimator`` and bump ``optimizer_kwargs["weight_decay"]`` by ``factor`` (against ``base_weight_decay`` when no prior decay was set). Forces AdamW when the prior optimizer was plain Adam (Adam ignores weight_decay).
-
-    Returns True if the bump was applied (i.e. an inner Lightning estimator was found and its model_params mutated), False otherwise.
-    """
+def _find_inner_estimator(model, predicate):
+    """BFS the MLP estimator nesting (TTR / pipeline / metamodel) for the first node satisfying ``predicate``, guarding against cycles in the nested-estimator graph. Returns ``None`` if no node matches."""
     candidates = []
     visited = set()
 
     def _enqueue(obj):
-        """Add ``obj`` to the BFS worklist unless it is ``None`` or already visited (guards against cycles in the nested-estimator graph)."""
+        """Add ``obj`` to the BFS worklist unless it is ``None`` or already visited."""
         if obj is None or id(obj) in visited:
             return
         visited.add(id(obj))
         candidates.append(obj)
 
     _enqueue(model)
-    found_inner = None
     while candidates:
         cur = candidates.pop(0)
-        if hasattr(cur, "model_params") and hasattr(cur, "network_params"):
-            found_inner = cur
-            break
+        if predicate(cur):
+            return cur
         if hasattr(cur, "regressor"):
             _enqueue(getattr(cur, "regressor"))
         if hasattr(cur, "named_steps"):
@@ -106,6 +99,17 @@ def _apply_mlp_extreme_ar_weight_decay_bump(
         for attr in ("estimator", "base_estimator", "estimator_", "regressor_"):
             if hasattr(cur, attr):
                 _enqueue(getattr(cur, attr))
+    return None
+
+
+def _apply_mlp_extreme_ar_weight_decay_bump(
+    model, factor: float, base_weight_decay: float,
+) -> bool:
+    """Walk the MLP estimator nesting (TTR / pipeline / metamodel) to find ``model_params`` on the inner ``PytorchLightningEstimator`` and bump ``optimizer_kwargs["weight_decay"]`` by ``factor`` (against ``base_weight_decay`` when no prior decay was set). Forces AdamW when the prior optimizer was plain Adam (Adam ignores weight_decay).
+
+    Returns True if the bump was applied (i.e. an inner Lightning estimator was found and its model_params mutated), False otherwise.
+    """
+    found_inner = _find_inner_estimator(model, lambda cur: hasattr(cur, "model_params") and hasattr(cur, "network_params"))
 
     if found_inner is None:
         return False
@@ -145,31 +149,7 @@ def _apply_mlp_extreme_ar_output_activation(model) -> bool:
 
     Returns True if applied, False otherwise.
     """
-    candidates = []
-    visited = set()
-
-    def _enqueue(obj):
-        """Add ``obj`` to the BFS worklist unless it is ``None`` or already visited (guards against cycles in the nested-estimator graph)."""
-        if obj is None or id(obj) in visited:
-            return
-        visited.add(id(obj))
-        candidates.append(obj)
-
-    _enqueue(model)
-    found_inner = None
-    while candidates:
-        cur = candidates.pop(0)
-        if hasattr(cur, "network_params") and isinstance(getattr(cur, "network_params"), dict):
-            found_inner = cur
-            break
-        if hasattr(cur, "regressor"):
-            _enqueue(getattr(cur, "regressor"))
-        if hasattr(cur, "named_steps"):
-            for step in cur.named_steps.values():
-                _enqueue(step)
-        for attr in ("estimator", "base_estimator", "estimator_", "regressor_"):
-            if hasattr(cur, attr):
-                _enqueue(getattr(cur, attr))
+    found_inner = _find_inner_estimator(model, lambda cur: hasattr(cur, "network_params") and isinstance(getattr(cur, "network_params"), dict))
 
     if found_inner is None:
         return False
