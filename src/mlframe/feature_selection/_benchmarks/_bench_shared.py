@@ -12,6 +12,19 @@ import numpy as np
 from mlframe.feature_selection.filters._cluster_aggregate import uf_find  # noqa: F401 -- re-exported for the bench-family call sites
 
 
+def noise_frame_no_structure(p: int, n: int, seed: int = 0):
+    """Pure-noise + ordinary-smooth integer columns with NO planted structure (no modular/lattice pattern): a
+    smooth linear threshold of the first two columns is the only signal, so a structure-detector under test
+    must stay silent on this frame. Shared negative-control fixture for the wideframe structure-scan benches."""
+    import pandas as pd
+
+    rng = np.random.default_rng(seed)
+    cols = {f"c{i}": rng.integers(0, 100, n) for i in range(p)}
+    X = pd.DataFrame(cols)
+    y = ((X["c0"] + 0.7 * X["c1"]) > 85).astype(int).to_numpy()
+    return X, y
+
+
 def logreg_holdout_auc(Xtr, ytr, Xte, yte, cols) -> float:
     """Fit a max_iter=1000 ``LogisticRegression`` on the ``cols`` subset of ``Xtr`` and return its held-out AUC
     on ``Xte`` -- the cross-selector-family cluster-reduction benchmarks' shared evaluation step. Falls back to

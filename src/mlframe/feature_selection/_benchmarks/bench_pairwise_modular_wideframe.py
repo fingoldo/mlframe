@@ -27,19 +27,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from mlframe.feature_selection._benchmarks._bench_shared import noise_frame_no_structure as _noise_frame
+
 RESULTS_DIR = Path(__file__).parent / "_results"
 P_GRID = (5, 15, 30, 31, 50, 100)
 N_GRID = (2000, 20000)
-
-
-def _noise_frame(p: int, n: int, seed: int = 0) -> tuple[pd.DataFrame, np.ndarray]:
-    """Pure-noise + ordinary-smooth integer columns, NO modular structure. y is a smooth linear
-    threshold of two columns (the kind a poly/Fourier leg handles) so the modular scan must stay silent."""
-    rng = np.random.default_rng(seed)
-    cols = {f"c{i}": rng.integers(0, 100, n) for i in range(p)}
-    X = pd.DataFrame(cols)
-    y = ((X["c0"] + 0.7 * X["c1"]) > 85).astype(int).to_numpy()
-    return X, y
 
 
 def _full_fit_seconds(X, y, *, enable: bool) -> tuple[float, Any]:
