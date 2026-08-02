@@ -18,78 +18,19 @@ from __future__ import annotations
 import time
 
 import numpy as np
+
+from mlframe.metrics._multilabel_extras import (
+    _lrap_kernel as _lrap_old,
+    _ranking_loss_kernel_pairs as _ranking_loss_old,
+    _ranking_loss_kernel_sorted as _ranking_loss_new,
+)
+
+# _lrap_new has no dedicated prod name (the presort LRAP kernel IS _lrap_kernel's replacement candidate,
+# but prod hasn't adopted a presort LRAP dispatcher the way it has for ranking-loss) -- kept as the only
+# remaining locally-defined kernel in this bench.
 import numba
 
 NJIT = dict(fastmath=False, cache=True, nogil=True)
-
-
-# ===================== OLD kernels (verbatim baseline) =====================
-
-
-@numba.njit(**NJIT)
-def _lrap_old(y_true, scores):
-    n, K = y_true.shape
-    total = 0.0
-    counted = 0
-    for i in range(n):
-        n_true = 0
-        for k in range(K):
-            if y_true[i, k] != 0:
-                n_true += 1
-        if n_true == 0 or n_true == K:
-            continue
-        counted += 1
-        row_sum = 0.0
-        for k in range(K):
-            if y_true[i, k] == 0:
-                continue
-            sk = scores[i, k]
-            rank = 0
-            tp_rank = 0
-            for j in range(K):
-                if scores[i, j] >= sk:
-                    rank += 1
-                    if y_true[i, j] != 0:
-                        tp_rank += 1
-            row_sum += tp_rank / rank
-        total += row_sum / n_true
-    if counted == 0:
-        return np.nan
-    return total / counted
-
-
-@numba.njit(**NJIT)
-def _ranking_loss_old(y_true, scores):
-    n, K = y_true.shape
-    total = 0.0
-    counted = 0
-    for i in range(n):
-        n_true = 0
-        for k in range(K):
-            if y_true[i, k] != 0:
-                n_true += 1
-        n_false = K - n_true
-        if n_true == 0 or n_false == 0:
-            continue
-        counted += 1
-        bad = 0.0
-        for t in range(K):
-            if y_true[i, t] == 0:
-                continue
-            for f in range(K):
-                if y_true[i, f] != 0:
-                    continue
-                if scores[i, f] > scores[i, t]:
-                    bad += 1.0
-                elif scores[i, f] == scores[i, t]:
-                    bad += 0.5
-        total += bad / (n_true * n_false)
-    if counted == 0:
-        return np.nan
-    return total / counted
-
-
-# ===================== NEW kernels (presort, O(n*K log K)) =====================
 
 
 @numba.njit(**NJIT)
@@ -136,55 +77,6 @@ def _lrap_new(y_true, scores):
             seen_true = tp_rank
             g = h
         total += row_sum / n_true
-    if counted == 0:
-        return np.nan
-    return total / counted
-
-
-@numba.njit(**NJIT)
-def _ranking_loss_new(y_true, scores):
-    """Label-ranking loss via per-row descending sort + single forward pass.
-
-    Walk the row in descending-score tie-groups maintaining `false_above`
-    (false labels strictly above the current group). A true label in a group
-    is mis-ordered relative to: every false label strictly above it
-    (`false_above`, counts 1.0 each) plus every false label tied with it
-    (within-group, counts 0.5 each). Summing over the group's true labels:
-        bad += grp_true*false_above + 0.5*grp_true*grp_false
-    matching the OLD O(K^2) pair loop (> => 1.0, == => 0.5) bit-for-bit.
-    """
-    n, K = y_true.shape
-    total = 0.0
-    counted = 0
-    for i in range(n):
-        n_true = 0
-        for k in range(K):
-            if y_true[i, k] != 0:
-                n_true += 1
-        n_false = K - n_true
-        if n_true == 0 or n_false == 0:
-            continue
-        counted += 1
-        order = np.argsort(scores[i])[::-1]
-        bad = 0.0
-        false_above = 0
-        g = 0
-        while g < K:
-            s_g = scores[i, order[g]]
-            h = g + 1
-            while h < K and scores[i, order[h]] == s_g:
-                h += 1
-            grp_true = 0
-            grp_false = 0
-            for p in range(g, h):
-                if y_true[i, order[p]] != 0:
-                    grp_true += 1
-                else:
-                    grp_false += 1
-            bad += grp_true * false_above + 0.5 * grp_true * grp_false
-            false_above += grp_false
-            g = h
-        total += bad / (n_true * n_false)
     if counted == 0:
         return np.nan
     return total / counted

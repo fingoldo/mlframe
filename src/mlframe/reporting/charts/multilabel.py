@@ -33,6 +33,7 @@ import numpy as np
 from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels, parse_panel_template,
 )
+from mlframe.reporting.charts.multiclass import _avg_ranks
 from mlframe.reporting.colors import HEATMAP_CMAP, line_color
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
@@ -66,28 +67,6 @@ def _per_label_auc(y_true: np.ndarray, y_proba: np.ndarray) -> np.ndarray:
         rank_sum_pos = ranks[pos].sum()
         out[k] = (rank_sum_pos - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg)
     return out
-
-
-def _avg_ranks(scores: np.ndarray) -> np.ndarray:
-    """Tie-averaged ranks (1-based) of ``scores``, fully vectorised (matches ``scipy.stats.rankdata`` 'average').
-
-    Tie averaging is required so the rank-sum AUC matches sklearn on clipped (0/1-saturated) probability columns,
-    which are dense with ties. Run boundaries come from a single diff, not a Python per-run loop.
-    """
-    n = scores.shape[0]
-    order = np.argsort(scores)  # within-tie order irrelevant (tied runs collapse to one average rank)
-    sorted_scores = scores[order]
-    dense = np.empty(n, dtype=np.intp)
-    dense[0] = 0
-    if n > 1:
-        np.cumsum(sorted_scores[1:] != sorted_scores[:-1], out=dense[1:])
-    counts = np.bincount(dense)
-    last_ord = np.cumsum(counts)
-    first_ord = last_ord - counts + 1
-    group_avg = (first_ord + last_ord) / 2.0
-    ranks = np.empty(n, dtype=np.float64)
-    ranks[order] = group_avg[dense]
-    return ranks
 
 
 def _select_overlay_labels(y_true: np.ndarray, y_proba: np.ndarray, top_n: int) -> np.ndarray:
