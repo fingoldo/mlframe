@@ -179,11 +179,30 @@ def _hinge_slope_change_plausible(
         logger.debug("hinge candidate cut-quantile computation failed, no hinge candidate produced: %s", e)
         return False
     best_drop = 0.0
+    # PERF FIX (2026-08-03, incidental to a profiling cycle): this loop used to call ``_segmented_sse`` (a
+    # fresh ``np.linalg.lstsq`` per cut) even though the precheck ALREADY has the QR factorization (``Q``,
+    # ``r_y``) of the fixed design ``B=[1,x]`` from ``_linear_qr_fit`` right above -- exactly the projection
+    # basis ``_detect_hinge_breakpoints``'s round-0 FWL scan uses to score each cut in one rank-1 update
+    # instead of a full solve (see that function's docstring). The precheck's own 3-cut loop just never got
+    # the same treatment. A 2M-row cProfile (combo c0417_7a16cb7d) caught ``_segmented_sse`` costing 13.7s
+    # cumtime across 74 calls (~2.6s pure self-time in the column_stack/lstsq call overhead alone) -- all of
+    # it from HERE, since the main scan already uses the FWL path exclusively. Replaced with the identical
+    # FWL rank-1 update (``sse_h = sse_lin - (r_relu.r_y)^2 / (r_relu.r_relu)``): bit-identical math to the
+    # full lstsq SSE (FP reduction order ~1e-12, the same tolerance already accepted for the main scan), no
+    # per-cut QR/lstsq at all. ``_segmented_sse`` itself is kept (still used by ``_heldout_hinge_r2_uplift``'s
+    # design-comparison closures and as a debugging/reference path) -- this only rewires ITS caller.
     for c in cuts:
         n_right = int(np.count_nonzero(x > c))
         if n_right < _HINGE_MIN_SEG_ROWS or (n - n_right) < _HINGE_MIN_SEG_ROWS:
             continue
-        sse_h = _segmented_sse(x, y, float(c))
+        relu = np.maximum(x - c, 0.0)
+        r_relu = relu - Q @ (Q.T @ relu)
+        denom = float(r_relu @ r_relu)
+        if denom < 1e-24:
+            sse_h = sse_lin
+        else:
+            num = float(r_relu @ r_y)
+            sse_h = sse_lin - num * num / denom
         if not np.isfinite(sse_h):
             continue
         drop = 1.0 - sse_h / sse_lin

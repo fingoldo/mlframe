@@ -160,6 +160,20 @@ this is a diagnosability fix, not a behavior change). New regression test
 (`test_mi_classif_batch_numba_fallback_logs.py`, 2 tests: failure path warns + returns correct values,
 success path stays silent) pins both directions.
 
+## PERF WIN (2026-08-03): hinge pre-check's 3-cut loop did a full lstsq per cut instead of the FWL rank-1 update it already had the QR for
+2M-row cProfile on combo `c0417_7a16cb7d` (master-seed `31337`, cb/xgb suite) caught `_segmented_sse`
+costing 13.7s cumtime across 74 calls (~2.6s of that pure self-time in the `column_stack`/`lstsq` call
+overhead). All 74 calls trace to `_hinge_slope_change_plausible`'s 3-candidate precheck loop — the *main*
+24-cut hinge scan in `_detect_hinge_breakpoints` already scores each cut via a Frisch-Waugh-Lovell rank-1
+update against a QR factorization computed ONCE per round (see that function's docstring: 2.4x faster than
+per-cut lstsq, and a prior bench explicitly rejected re-forming `A.T@A` per cut as 2.2x SLOWER). The
+precheck computes that exact same QR (`Q`, `r_y`, `sse_lin`) via `_linear_qr_fit` for its own linear-SSE
+baseline, but its 3-cut loop never got the FWL treatment — it still called `_segmented_sse` (fresh
+`lstsq`) per cut. Rewired the precheck loop to the identical FWL rank-1 update the main scan already
+uses. Verified 0 mismatches across 30 synthetic scenarios (kink / pure-linear / pure-noise, n=500-200k)
+and 1.92x speedup at n=2M (warm, best-of-20). `_segmented_sse` itself is unchanged and still used
+elsewhere (`_heldout_hinge_r2_uplift`'s design-comparison closures); only its caller here was rewired.
+
 ## PERF WIN (2026-08-02): per_feature_edges' thread-pool threshold was 64x too high for real usage (1.2x-7.2x)
 2M-row cProfile on combo `c0037_c314bb14` (master-seed `2026_04_29`) found `per_feature_edges`/
 `_compute_col_edges` (`_adaptive_nbins.py`) costing 78s wall on a `fayyad_irani` (MDLP) fit with
