@@ -39,33 +39,11 @@ import numpy as np
 import polars as pl
 
 from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, class_or_quantile_slice, pos_loggap_columns
+from ._smote_kernels_shared import smote_within_cluster as _smote_within_cluster
 
 logger = logging.getLogger(__name__)
 
 _K_SCALES = (1, 3, 5, 10)
-
-
-def _smote_within_cluster(X_cluster: np.ndarray, n_synthetic: int, k_neighbors: int, seed: int) -> np.ndarray:
-    """SMOTE-interpolate within a single cluster of positives."""
-    n_cluster = X_cluster.shape[0]
-    if n_cluster < 2:
-        return np.tile(X_cluster, (n_synthetic // max(1, n_cluster) + 1, 1))[:n_synthetic].astype(np.float32)
-    from sklearn.neighbors import NearestNeighbors
-    k_used = min(k_neighbors + 1, n_cluster)
-    nn = NearestNeighbors(n_neighbors=k_used).fit(X_cluster)
-    _dists, ids = nn.kneighbors(X_cluster)
-    rng = np.random.default_rng(seed)
-    out = np.zeros((n_synthetic, X_cluster.shape[1]), dtype=np.float32)
-    for i in range(n_synthetic):
-        src_idx = rng.integers(0, n_cluster)
-        candidates = ids[src_idx, 1:k_used]
-        if candidates.size == 0:
-            out[i] = X_cluster[src_idx]
-            continue
-        nbr_idx = candidates[rng.integers(0, candidates.size)]
-        alpha = rng.random()
-        out[i] = X_cluster[src_idx] + alpha * (X_cluster[nbr_idx] - X_cluster[src_idx])
-    return out
 
 
 def _bgm_cluster_smote_synthesize(X_pos: np.ndarray, n_components: int, n_synthetic_total: int, k_neighbors: int, seed: int) -> np.ndarray:
