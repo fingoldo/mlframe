@@ -13,7 +13,6 @@ KernelExplainer interaction approximation -- it is prohibitively slow and not wh
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Sequence, Tuple
 
@@ -25,6 +24,7 @@ except ImportError:  # plt-using paths are guarded; matplotlib-less envs skip pl
     plt = None  # type: ignore[assignment]
 
 from mlframe.reporting.charts._sampling import subsample_preserving_extremes
+from mlframe.reporting.charts._layout import base_for as _base_for
 from mlframe.reporting.charts.shap_panels import (
     _close_figs,
     _save_figure,
@@ -170,12 +170,6 @@ def _render_heatmap(mat: np.ndarray, names: Sequence[str]) -> Any:
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="mean |interaction|")
     fig.tight_layout()
     return fig
-
-
-def _base_for(plot_file: str, suffix: str) -> str:
-    """Insert ``_suffix`` before the extension of ``plot_file`` (e.g. for naming the bar/heatmap sibling outputs)."""
-    root, ext = os.path.splitext(plot_file)
-    return f"{root}_{suffix}{ext}"
 
 
 __all__ = [

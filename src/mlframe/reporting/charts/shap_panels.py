@@ -42,7 +42,8 @@ try:
 except ImportError:  # plt-using paths are guarded; matplotlib-less envs skip plotting
     plt = None  # type: ignore[assignment]
 
-from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels  # noqa: F401  (pack_panels re-exported for grid composers / parity with pdp_ice)
+from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels, base_for as _base_for  # noqa: F401  (pack_panels re-exported for grid composers / parity with pdp_ice)
+from mlframe.reporting.charts._coerce_shared import coerce_float_2d as _coerce_float_2d
 from mlframe.reporting.charts._sampling import subsample_preserving_extremes
 from mlframe.utils.log_throttle import log_throttle
 
@@ -162,34 +163,6 @@ def _model_has_catboost_embedding_features(model: Any) -> bool:
     except Exception as e:
         logger.debug("get_embedding_feature_indices() probe failed (%s: %s) -- treating as not the risky case", type(e).__name__, e)
         return False
-
-
-def _coerce_float_2d(vals: np.ndarray) -> np.ndarray:
-    """Best-effort 2-D float64 view of a (possibly mixed / string / categorical) value matrix.
-
-    Only used for the residual-proxy tail-selection and the per-feature dependence x-values, so it must never crash on a
-    non-numeric column: a whole-frame ``astype(float64)`` blew up with ``could not convert string to float`` whenever the
-    model was trained with a string/categorical feature, which silently disabled the ENTIRE SHAP panel (the caller's
-    broad except swallowed it). Numeric columns pass through; a non-numeric column is label-encoded (``pd.factorize``)
-    to category codes so the dependence x-axis still has usable spread instead of taking down the diagnostic.
-    """
-    vals = np.asarray(vals)
-    if vals.ndim == 1:
-        vals = vals.reshape(-1, 1)
-    if vals.dtype.kind in "fiub":
-        return vals.astype(np.float64)
-    import pandas as pd
-    out = np.empty(vals.shape, dtype=np.float64)
-    for j in range(vals.shape[1]):
-        col = vals[:, j]
-        try:
-            out[:, j] = col.astype(np.float64)
-        except (ValueError, TypeError):
-            codes, _ = pd.factorize(pd.Series(col).astype("string"), use_na_sentinel=True)
-            # factorize returns -1 for missing; map that to NaN so the dependence scatter drops it rather than plotting a
-            # spurious -1 category.
-            out[:, j] = np.where(codes < 0, np.nan, codes).astype(np.float64)
-    return out
 
 
 def _carrier_with_categoricals(X: Any) -> Any:
@@ -668,12 +641,6 @@ def shap_summary_and_dependence(
 def _safe(name: str) -> str:
     """Filename-safe feature name (alnum / underscore / dash). Retained for sibling shap_per_instance reuse."""
     return "".join(c if (c.isalnum() or c in "_-") else "_" for c in str(name))[:48]
-
-
-def _base_for(plot_file: str, suffix: str) -> str:
-    """Compose a per-panel base path: ``<root>_<suffix><ext>`` so each panel writes a distinct file."""
-    root, ext = os.path.splitext(plot_file)
-    return f"{root}_{suffix}{ext}"
 
 
 __all__ = [

@@ -8,6 +8,7 @@ padding the last row with ``None`` cells when needed.
 
 from __future__ import annotations
 
+import os
 from typing import List, Sequence, Tuple
 
 from mlframe.reporting.spec import PanelSpec
@@ -52,4 +53,10 @@ def parse_panel_template(template: str) -> List[str]:
     return [t.strip().upper() for t in template.split() if t.strip()]
 
 
-__all__ = ["pack_panels", "figsize_for_grid", "parse_panel_template"]
+def base_for(plot_file: str, suffix: str) -> str:
+    """Compose a per-panel sibling path: insert ``_<suffix>`` before ``plot_file``'s extension so each panel writes a distinct file."""
+    root, ext = os.path.splitext(plot_file)
+    return f"{root}_{suffix}{ext}"
+
+
+__all__ = ["pack_panels", "figsize_for_grid", "parse_panel_template", "base_for"]
