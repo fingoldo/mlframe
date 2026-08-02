@@ -10,16 +10,9 @@ import time
 from io import StringIO
 
 import numpy as np
-import pandas as pd
 
 from mlframe.preprocessing.align_feature_direction import align_feature_direction, check_feature_direction_stability
-
-
-def _make_dataset(n_rows: int, n_cols: int, seed: int):
-    rng = np.random.default_rng(seed)
-    y = rng.integers(0, 2, n_rows)
-    df = pd.DataFrame(rng.normal(size=(n_rows, n_cols)), columns=[f"f{i}" for i in range(n_cols)])
-    return df, y
+from mlframe._bench_data_shared import make_binary_noise_dataset as _make_dataset
 
 
 def _make_dataset_with_nonmonotonic(n_rows: int, n_cols: int, seed: int):

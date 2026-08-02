@@ -16,6 +16,15 @@ def make_regression_data(n: int, n_features: int, seed: int = 0) -> tuple[pd.Dat
     return X, y
 
 
+def make_binary_noise_dataset(n_rows: int, n_cols: int, seed: int) -> tuple[pd.DataFrame, np.ndarray]:
+    """Synthetic (df, y): ``n_cols`` pure-noise Gaussian columns, ``y`` an independent Bernoulli label -- every
+    column has near-chance AUC by construction, for benching a drop-near-noise-univariate-AUC style screen."""
+    rng = np.random.default_rng(seed)
+    y = rng.integers(0, 2, n_rows)
+    df = pd.DataFrame(rng.normal(size=(n_rows, n_cols)), columns=[f"f{i}" for i in range(n_cols)])
+    return df, y
+
+
 def make_meta_stacker_oof(n_rows: int, n_components: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
     """Synthetic OOF-prediction matrix (X) + target (y) for the lasso/elasticnet meta-stacker benches: the first two
     columns carry the signal (0.7/0.3 weighted mix), the rest are pure noise components."""

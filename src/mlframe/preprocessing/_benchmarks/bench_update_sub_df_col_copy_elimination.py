@@ -20,15 +20,11 @@ import pandas as pd
 
 from mlframe.preprocessing.cleaning import _update_sub_df_col, analyse_and_clean_features
 import mlframe.preprocessing.cleaning as cleaning_module
+from functools import partial
 
+from mlframe._bench_timing_shared import best_of_seconds_zero_arg
 
-def best_of(fn, n=5):
-    ts = []
-    for _ in range(n):
-        t = time.perf_counter()
-        fn()
-        ts.append(time.perf_counter() - t)
-    return min(ts)
+best_of = partial(best_of_seconds_zero_arg, repeats=5)
 
 
 def _old_update_sub_df_col(df: pd.DataFrame, sub_df: pd.DataFrame, col: str, col_unique_values, nunique, analyse_mask=None):

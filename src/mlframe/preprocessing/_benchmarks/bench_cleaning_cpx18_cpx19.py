@@ -9,19 +9,14 @@ Identity is asserted inside (counts / n_outliers / values_in_span equal).
 """
 import sys
 sys.modules.setdefault("cupy", None)  # avoid pre-existing cupy native-AV at import on this box
-import time
 import numpy as np
 
 from mlframe.preprocessing.cleaning import _get_nunique, _get_span_fence_njit
+from functools import partial
 
+from mlframe._bench_timing_shared import best_of_seconds_zero_arg
 
-def best_of(fn, n=7):
-    ts = []
-    for _ in range(n):
-        t = time.perf_counter()
-        fn()
-        ts.append(time.perf_counter() - t)
-    return min(ts)
+best_of = partial(best_of_seconds_zero_arg, repeats=7)
 
 
 def make_data(n, seed=0):

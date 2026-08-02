@@ -9,17 +9,8 @@ import pstats
 import time
 from io import StringIO
 
-import numpy as np
-import pandas as pd
-
 from mlframe.feature_selection.drop_near_noise_univariate_auc import drop_near_noise_univariate_auc
-
-
-def _make_dataset(n_rows: int, n_cols: int, seed: int):
-    rng = np.random.default_rng(seed)
-    y = rng.integers(0, 2, n_rows)
-    df = pd.DataFrame(rng.normal(size=(n_rows, n_cols)), columns=[f"f{i}" for i in range(n_cols)])
-    return df, y
+from mlframe._bench_data_shared import make_binary_noise_dataset as _make_dataset
 
 
 def _run(n_rows: int, n_cols: int) -> None:
