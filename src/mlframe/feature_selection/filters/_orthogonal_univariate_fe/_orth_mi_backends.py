@@ -212,9 +212,33 @@ def _select_mi_backend() -> str:
     try:
         from ..hermite_fe import plugin_mi_classif_batch_dispatch  # noqa: F401
         return "numba"
-    except Exception as e:
+    except ImportError as e:
+        # Genuinely no numba dispatcher available (e.g. a stripped-down install without numba) -- the
+        # sklearn reference loop is the correct, only-viable fallback here.
         logger.debug("_select_mi_backend: numba dispatcher import failed, falling back to the sklearn backend: %s", e)
         return "sklearn"
+    except Exception as e:
+        # BUG FOUND AND FIXED (2026-08-02, incidental to a profiling cycle): the prior bare ``except
+        # Exception`` here caught EVERY exception the trial import could raise, including a transient
+        # device/driver fault surfaced while importing ``hermite_fe`` (which probes CUDA availability at
+        # import time) -- unrelated to whether the CPU njit dispatcher itself works. Because this
+        # function's result is cached ONCE per process into the module-level ``_MI_BACKEND`` (see the
+        # comment above this function), a single transient hiccup silently downgraded the ENTIRE process
+        # to the sklearn reference loop for its whole lifetime -- confirmed live via a 2M-row cProfile
+        # (combo `c0094_5637be0a`) that caught `_mi_classif_batch_sklearn` costing 161.8s cumtime / 19
+        # calls (~8.5s/call) on a heavily GPU-contended run, while a clean process import resolves
+        # `_MI_BACKEND` to `"numba"` correctly. A non-ImportError failure here says nothing about the CPU
+        # njit path; WARN (visible, not debug-buried) and default to `"numba"` rather than permanently
+        # paying a ~100x-slower fallback for an unrelated, transient fault. Set MLFRAME_NUMBA_MI=0 to
+        # force sklearn explicitly if that is genuinely desired.
+        logger.warning(
+            "_select_mi_backend: numba dispatcher trial import raised a non-ImportError (%s: %s) -- likely "
+            "a transient device/driver fault unrelated to the CPU njit dispatcher; defaulting to 'numba' "
+            "rather than permanently downgrading this process to the sklearn reference loop. Set "
+            "MLFRAME_NUMBA_MI=0 to force sklearn explicitly.",
+            type(e).__name__, e,
+        )
+        return "numba"
 
 
 _MI_BACKEND = _select_mi_backend()

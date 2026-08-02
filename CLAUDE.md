@@ -128,6 +128,23 @@ Run unbuffered with `-x -s` rather than launching a long blind run.
 A failure that is an OOM or a Windows paging-file error (WinError 1455 under joblib fan-out) reflects machine-wide memory pressure at that moment, not a defect: retry once, and if it fails again it is real. Tolerate it in code via `OSError` plus a skip.
 Heavily-parametrised modules expose a fast mode (a `--fast` flag or env var plus a `fast_subset` helper) that runs one representative case per code path, with the exhaustive sweep behind a slow marker. Without it the only options are the full matrix or no coverage, and the full matrix stops being run.
 
+## BUG FIX (2026-08-02): a broad except silently downgraded the whole process's MI backend to sklearn (~100x)
+2M-row cProfile on combo `c0094_5637be0a` (master-seed `9999`) found `_mi_classif_batch_sklearn`
+(`_orth_mi_backends.py` — the reference/legacy loop, meant only for "numba absent" installs) costing
+161.8s cumtime across 19 calls (~8.5s/call), even though numba/njit was clearly available and used
+everywhere else in the same profile. Root cause: `_select_mi_backend()` resolves numba-vs-sklearn via a
+trial import and caches the result ONCE per process into module-level `_MI_BACKEND` — but a bare
+`except Exception` around that trial import treated ANY exception as "numba genuinely unavailable",
+including a transient device/driver fault surfaced while importing `hermite_fe` (which probes CUDA
+availability at import time) — unrelated to whether the CPU njit dispatcher itself works. One transient
+hiccup at process startup silently downgrades the ENTIRE process to the ~100x-slower sklearn reference
+loop for its whole lifetime, logged only at `debug` (invisible in production). Narrowed the except to
+`ImportError` only (the one genuine "numba absent" case); any other exception now logs a `warning` and
+still defaults to `"numba"` rather than permanently paying the fallback. Verified both branches directly
+(simulated `ImportError` → sklearn; simulated transient `RuntimeError` → numba) plus a new regression
+test (`test_select_mi_backend_transient_failure.py`, 3 tests) pinning the fix. 63 existing MI-dispatch
+tests pass unchanged.
+
 ## PERF WIN (2026-08-02): per_feature_edges' thread-pool threshold was 64x too high for real usage (1.2x-7.2x)
 2M-row cProfile on combo `c0037_c314bb14` (master-seed `2026_04_29`) found `per_feature_edges`/
 `_compute_col_edges` (`_adaptive_nbins.py`) costing 78s wall on a `fayyad_irani` (MDLP) fit with
