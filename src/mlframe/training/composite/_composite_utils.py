@@ -1,0 +1,36 @@
+"""Shared helpers for the ``training/composite/`` package: small utilities independently
+duplicated across multiple composite modules, consolidated here so a fix can't silently drift
+out of sync across copies.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+def is_polars_df(x: Any) -> bool:
+    """True iff ``x`` is a polars DataFrame; False (never raises) if polars is absent or ``x`` is any other type.
+
+    Explicit isinstance check, not duck-typing (e.g. ``hasattr(x, "to_pandas")``) -- duck-typing
+    mis-detects any object exposing a same-named method (mocks, custom wrappers, sklearn pipeline
+    stubs).
+    """
+    try:
+        import polars as pl
+
+        return isinstance(x, pl.DataFrame)
+    except Exception:
+        return False
+
+
+def is_polars_df_logged(x: Any) -> bool:
+    """Same contract as :func:`is_polars_df`, but debug-logs the exception when polars is absent or the isinstance check itself fails."""
+    try:
+        import polars as pl
+
+        return isinstance(x, pl.DataFrame)
+    except Exception as exc:
+        logger.debug("is_polars_df_logged: polars unavailable or isinstance check failed: %s", exc)
+        return False

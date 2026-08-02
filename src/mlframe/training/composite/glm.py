@@ -65,14 +65,7 @@ _BASE_MEAN_FLOOR = 1e-6
 _MARGIN_CLIP = 80.0
 
 
-def _is_polars_df(x: Any) -> bool:
-    """Return True iff ``x`` is a polars DataFrame; False (never raises) if polars is absent or ``x`` is any other type."""
-    try:
-        import polars as pl
-        return isinstance(x, pl.DataFrame)
-    except Exception as exc:
-        logger.debug("_is_polars_df: polars unavailable or isinstance check failed: %s", exc)
-        return False
+from ._composite_utils import is_polars_df_logged as _is_polars_df  # noqa: F401 -- re-exported for tests/test_meta/test_audit_baseline_debt_wave10_logging.py
 
 
 def _inner_raw_margin(model: Any, X: Any) -> np.ndarray:

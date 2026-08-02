@@ -14,19 +14,7 @@ from typing import (
 import numpy as np
 import pandas as pd
 
-try:
-    import polars as pl
-    _HAS_POLARS = True
-except ImportError:  # pragma: no cover - polars optional dep
-    pl = None  # type: ignore
-    _HAS_POLARS = False
-
-
-def _is_polars_df(x: Any) -> bool:
-    """ENS-P2-6: prefer explicit isinstance check over duck-typing on
-    ``hasattr(x, "to_pandas")`` (which mis-detects any object exposing that
-    method - mocks, custom wrappers, sklearn pipeline stubs)."""
-    return _HAS_POLARS and isinstance(x, pl.DataFrame)
+from .._composite_utils import is_polars_df as _is_polars_df
 
 
 from ..transforms import (

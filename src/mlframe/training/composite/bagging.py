@@ -49,18 +49,7 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 logger = logging.getLogger(__name__)
 
-try:
-    import polars as pl
-
-    _HAS_POLARS = True
-except Exception:  # pragma: no cover - polars optional
-    pl = None  # type: ignore
-    _HAS_POLARS = False
-
-
-def _is_polars_df(x: Any) -> bool:
-    """True iff ``x`` is a polars DataFrame and polars is importable in this environment."""
-    return _HAS_POLARS and isinstance(x, pl.DataFrame)
+from ._composite_utils import is_polars_df as _is_polars_df
 
 
 def _n_rows(X: Any) -> int:

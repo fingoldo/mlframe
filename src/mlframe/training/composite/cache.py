@@ -97,10 +97,7 @@ except Exception:  # pragma: no cover
     _HAS_POLARS = False
 
 
-def _is_polars_df(x: Any) -> bool:
-    """Prefer an explicit isinstance check over duck-typing."""
-    return _HAS_POLARS and isinstance(x, pl.DataFrame)
-
+from ._composite_utils import is_polars_df as _is_polars_df
 
 # Discovery caching layer: key discovery results by a content hash of (data-sample, target-column, config-signature, random_state) so re-runs that only vary inner hyperparameters skip the minutes-long MI-null / Wilcoxon / tiny-rerank phases.
 # Primitives: ``data_signature`` (blake2b over a deterministic sample + dtypes + a reorder-sensitive row fingerprint), ``DiscoveryCache(cache_dir)`` (disk key->pickle store: get/set/invalidate/clear/__contains__), ``make_discovery_cache_key`` (stable hex key), ``compute_config_signature_v1`` (config -> ConfigSignatureV1). The layer does NOT auto-integrate with fit(); callers manage lookup/store at their orchestration level to keep the discovery class free of I/O.

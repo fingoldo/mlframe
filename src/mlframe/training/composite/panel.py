@@ -48,15 +48,7 @@ from sklearn.exceptions import NotFittedError
 logger = logging.getLogger(__name__)
 
 
-def _is_polars_df(x: Any) -> bool:
-    """Explicit isinstance check (no duck-typing on ``to_pandas``)."""
-    try:
-        import polars as pl
-
-        return isinstance(x, pl.DataFrame)
-    except Exception as exc:
-        logger.debug("_is_polars_df: polars unavailable or isinstance check failed: %s", exc)
-        return False
+from ._composite_utils import is_polars_df_logged as _is_polars_df
 
 
 def _to_1d_numpy(y: Any) -> np.ndarray:

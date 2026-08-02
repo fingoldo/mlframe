@@ -24,9 +24,7 @@ except Exception:  # pragma: no cover
     _HAS_POLARS = False
 
 
-def _is_polars_df(x: Any) -> bool:
-    """Prefer explicit isinstance check over duck-typing."""
-    return _HAS_POLARS and isinstance(x, pl.DataFrame)
+from .._composite_utils import is_polars_df as _is_polars_df
 
 
 from ._corr_numba import safe_abs_corr_all_dispatch as _safe_abs_corr_all_dispatch

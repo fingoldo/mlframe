@@ -8,18 +8,7 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
-try:
-    import polars as pl
-    _HAS_POLARS = True
-except ImportError:  # pragma: no cover
-    pl = None  # type: ignore
-    _HAS_POLARS = False
-
-
-def _is_polars_df(x: Any) -> bool:
-    """True iff polars is importable and ``x`` is a polars DataFrame. Explicit
-    isinstance avoids duck-typing false positives (e.g. user-side wrappers)."""
-    return _HAS_POLARS and isinstance(x, pl.DataFrame)
+from .._composite_utils import is_polars_df as _is_polars_df
 
 
 from .screening import _is_numeric_column

@@ -66,15 +66,7 @@ _LAMBDARANK_NUM_GAINS = 31
 _MAX_PAIRS_PER_GROUP = 4096
 
 
-def _is_polars_df(x: Any) -> bool:
-    """True iff ``x`` is a ``polars.DataFrame`` (polars import is optional; treated as False if unavailable)."""
-    try:
-        import polars as pl
-
-        return isinstance(x, pl.DataFrame)
-    except Exception as exc:
-        logger.debug("_is_polars_df: polars unavailable or isinstance check failed: %s", exc)
-        return False
+from ._composite_utils import is_polars_df_logged as _is_polars_df
 
 
 def _group_boundaries(group: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

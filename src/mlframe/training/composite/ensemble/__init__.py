@@ -22,9 +22,7 @@ except Exception:  # pragma: no cover
     _HAS_POLARS = False
 
 
-def _is_polars_df(x: Any) -> bool:
-    """Explicit isinstance check over duck-typing."""
-    return _HAS_POLARS and isinstance(x, pl.DataFrame)
+from .._composite_utils import is_polars_df as _is_polars_df
 
 
 from ..estimator import CompositeTargetEstimator
