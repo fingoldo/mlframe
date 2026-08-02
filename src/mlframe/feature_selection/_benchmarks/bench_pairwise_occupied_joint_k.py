@@ -14,10 +14,10 @@ from __future__ import annotations
 
 from itertools import combinations
 
-import numba
 import numpy as np
 
 from mlframe.feature_selection._bench_timing_shared import best_of
+from mlframe.feature_selection.filters._permutation_null import _pairwise_occupied_joint_k_njit as _new_pairwise_occupied_joint_k
 
 
 # ---- OLD: verbatim pure-Python reference (the prior _pairwise_occupied_joint_k body) ----
@@ -36,23 +36,6 @@ def _old_pairwise_occupied_joint_k(factors_data, pair_a, pair_b, nbins):
 
 
 # ---- NEW: njit boolean-seen kernel (bit-identical distinct-count) ----
-@numba.njit(cache=True)
-def _new_pairwise_occupied_joint_k(factors_data, pair_a, pair_b, nbins):
-    n = factors_data.shape[0]
-    n_pairs = pair_a.shape[0]
-    out = np.empty(n_pairs, dtype=np.int64)
-    for p in range(n_pairs):
-        a = pair_a[p]; b = pair_b[p]
-        nb_a = nbins[a]; nb_b = nbins[b]
-        seen = np.zeros(nb_a * nb_b, dtype=np.uint8)
-        cnt = 0
-        for i in range(n):
-            code = factors_data[i, a] * nb_b + factors_data[i, b]
-            if seen[code] == 0:
-                seen[code] = 1
-                cnt += 1
-        out[p] = cnt
-    return out
 
 
 def _make(n, p, card, seed=0):

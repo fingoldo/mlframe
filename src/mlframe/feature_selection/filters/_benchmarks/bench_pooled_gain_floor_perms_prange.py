@@ -24,7 +24,8 @@ import time
 
 import numba
 import numpy as np
-from numba import prange
+
+from mlframe.feature_selection.filters._permutation_null import _pooled_gain_floor_perms_njit as _new_kernel
 
 
 @numba.njit(cache=True)
@@ -39,40 +40,6 @@ def _old_kernel(scaled_flat, offsets, joint_card, h_x, mm_bias, h_y, y_perms, in
             max_jc = joint_card[j]
     counts = np.empty(max_jc, dtype=np.float64)
     for k in range(nperm):
-        yp = y_perms[k]
-        best = 0.0
-        for j in range(ncand):
-            jc = joint_card[j]
-            for t in range(jc):
-                counts[t] = 0.0
-            s0 = offsets[j]
-            for i in range(n):
-                counts[scaled_flat[s0 + i] + yp[i]] += 1.0
-            h_xy = 0.0
-            for t in range(jc):
-                c = counts[t]
-                if c > 0.0:
-                    p = c * inv_n
-                    h_xy -= p * np.log(p)
-            mi = h_x[j] + h_y - h_xy - mm_bias[j]
-            if mi > best:
-                best = mi
-        maxes[k] = best
-    return maxes
-
-
-@numba.njit(cache=True, parallel=True)
-def _new_kernel(scaled_flat, offsets, joint_card, h_x, mm_bias, h_y, y_perms, inv_n):
-    nperm = y_perms.shape[0]
-    n = y_perms.shape[1]
-    ncand = offsets.shape[0] - 1
-    maxes = np.empty(nperm, dtype=np.float64)
-    max_jc = 0
-    for j in range(ncand):
-        if joint_card[j] > max_jc:
-            max_jc = joint_card[j]
-    for k in prange(nperm):
-        counts = np.empty(max_jc, dtype=np.float64)  # per-thread scratch
         yp = y_perms[k]
         best = 0.0
         for j in range(ncand):
