@@ -11,37 +11,14 @@ selection-equivalence claim is grounded.
 """
 from __future__ import annotations
 
-import time
-
 import numpy as np
 
-
-def _dists_broadcast(X, anchors):
-    return np.sum((X[:, None, :] - anchors[None, :, :]) ** 2, axis=2)
-
-
-def _dists_gemm(X, anchors):
-    x_sq = np.einsum("ij,ij->i", X, X)[:, None]
-    a_sq = np.einsum("ij,ij->i", anchors, anchors)[None, :]
-    d = x_sq - 2.0 * (X @ anchors.T) + a_sq
-    np.maximum(d, 0.0, out=d)
-    return d
-
-
-def _softmax_from_dists(dists, temp):
-    logits = -dists / (temp + 1e-9)
-    logits -= logits.max(axis=1, keepdims=True)
-    e = np.exp(logits)
-    return (e / e.sum(axis=1, keepdims=True)).astype(np.float32)
-
-
-def _best_of(fn, *args, n=30):
-    best = float("inf")
-    for _ in range(n):
-        t0 = time.perf_counter()
-        fn(*args)
-        best = min(best, time.perf_counter() - t0)
-    return best
+from mlframe.feature_engineering._benchmarks._gemm_softmax_bench_shared import (
+    best_of as _best_of,
+    dists_broadcast as _dists_broadcast,
+    dists_gemm as _dists_gemm,
+    softmax_from_dists as _softmax_from_dists,
+)
 
 
 def main():

@@ -16,9 +16,9 @@ Run:
 """
 from __future__ import annotations
 
-import time
-
 import numpy as np
+
+from mlframe.feature_engineering._benchmarks._gemm_softmax_bench_shared import best_of_args as _best_of
 
 
 def _make_realistic_itemsets(d: int, n_bins: int, n_frequent: int, max_len: int, seed: int = 0):
@@ -48,15 +48,6 @@ def _new_resolve(col_names, itemsets):
         cols_idx = [col_index[it] for it in itemset]
         out.append(cols_idx)
     return out
-
-
-def _best_of(fn, args, n=7):
-    best = float("inf")
-    for _ in range(n):
-        t0 = time.perf_counter()
-        fn(*args)
-        best = min(best, time.perf_counter() - t0)
-    return best
 
 
 def main():
