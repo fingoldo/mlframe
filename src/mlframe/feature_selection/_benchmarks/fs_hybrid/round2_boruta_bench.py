@@ -9,29 +9,14 @@ os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
 import numpy as np, pandas as pd
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import make_pipeline
-from sklearn.linear_model import LogisticRegression
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import roc_auc_score
-import lightgbm as lgb
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _downstream_shared import downstream_on_cols
+from _downstream_shared import downstream_on_cols, boruta_single
 from scenarios import SCENARIOS, make
 from mlframe.feature_selection.hetero_vote import heterogeneous_relevance_vote
-from mlframe.feature_selection.boruta_shap import BorutaShap
 
 SEEDS = [0, 1]
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_results")
 os.makedirs(OUT, exist_ok=True)
-
-
-def boruta_single(X, y):
-    b = BorutaShap(model=RandomForestClassifier(n_estimators=80, n_jobs=-1, random_state=0),
-                   importance_measure="gini", classification=True, n_trials=60, percentile=95, verbose=False, random_state=0)
-    b.fit(X, y)
-    return [c for c in b.selected_features_ if c in X.columns]
 
 
 def main():

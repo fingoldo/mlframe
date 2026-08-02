@@ -13,6 +13,26 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 
+def boruta_single(X, y):
+    """Fit a single BorutaShap run (RF, 80 trees, 60 trials, percentile=95, seed=0) and return the
+    selected columns present in ``X`` -- the round2 boruta/hetero-skillweight bench pair's shared baseline call."""
+    from sklearn.ensemble import RandomForestClassifier
+
+    from mlframe.feature_selection.boruta_shap import BorutaShap
+
+    b = BorutaShap(
+        model=RandomForestClassifier(n_estimators=80, n_jobs=-1, random_state=0),
+        importance_measure="gini",
+        classification=True,
+        n_trials=60,
+        percentile=95,
+        verbose=False,
+        random_state=0,
+    )
+    b.fit(X, y)
+    return [c for c in b.selected_features_ if c in X.columns]
+
+
 def checkpoint(msg: str) -> None:
     """Append ``msg`` to the shared fe_richops progress log and echo it to stdout -- the checkpoint
     helper duplicated across the fe_richops control/main bench pair."""
