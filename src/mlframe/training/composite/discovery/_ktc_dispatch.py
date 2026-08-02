@@ -46,6 +46,8 @@ and tested; only the "trust this host's numbers" decision is deliberately deferr
 """
 from __future__ import annotations
 
+from mlframe._ktc_dispatch_shared import get_ktc_cache
+
 import logging
 import os
 import time
@@ -67,25 +69,6 @@ def _forced_backend(env_key: str) -> str | None:
     """
     val = os.environ.get(env_key, "").strip().lower()
     return val if val in _VALID_BACKENDS else None
-
-
-def _get_cache():
-    """Return the shared per-process KernelTuningCache singleton or ``None``.
-
-    Delegates to the FS-side singleton so this module and the hot-path filters share
-    ONE instance (one ``nvidia-smi`` probe per process).  Any import miss / init
-    failure returns ``None`` -> the caller uses its hardcoded fallback.
-    """
-    try:
-        from mlframe.feature_selection.filters import get_kernel_tuning_cache
-    except Exception as exc:  # pyutilz / FS package unavailable -> hardcoded fallback.
-        logger.debug("_get_cache: import failed, tuning cache unavailable: %s", exc)
-        return None
-    try:
-        return get_kernel_tuning_cache()
-    except Exception as exc:  # pragma: no cover - defensive; singleton already guards.
-        logger.debug("_get_cache: singleton construction failed: %s", exc)
-        return None
 
 
 def _median_call_ms(callable_no_args, n_iters: int) -> float:
@@ -223,7 +206,7 @@ def _lookup_backend(
     (``_run_sweep_composite_corr`` / ``_collinear``, pure CPU, cheap) on a cache miss
     instead of just falling through, and persists the result for subsequent calls.
     """
-    cache = _get_cache()
+    cache = get_ktc_cache()
     if cache is None or cache is False:
         return fallback
     try:
@@ -311,7 +294,7 @@ def ensure_composite_corr_tuning(force: bool = False) -> list[dict] | None:
     ``force=True`` re-sweeps even if a cached entry exists. Returns the persisted
     regions, or ``None`` if pyutilz/the cache is unavailable.
     """
-    cache = _get_cache()
+    cache = get_ktc_cache()
     if cache is None or cache is False:
         return None
     if not force and cache.has("composite_corr_dispatch"):
@@ -328,7 +311,7 @@ def ensure_composite_collinear_tuning(force: bool = False) -> list[dict] | None:
     ``force=True`` re-sweeps even if a cached entry exists. Returns the persisted
     regions, or ``None`` if pyutilz/the cache is unavailable.
     """
-    cache = _get_cache()
+    cache = get_ktc_cache()
     if cache is None or cache is False:
         return None
     if not force and cache.has("composite_collinear_dispatch"):

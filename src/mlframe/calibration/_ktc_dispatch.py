@@ -28,9 +28,9 @@ and falls back to CPU when no device is visible).
 """
 from __future__ import annotations
 
+from mlframe._ktc_dispatch_shared import forced_backend, measure_backend
+
 import logging
-import os
-import time
 from typing import Any, Callable
 
 import numpy as np
@@ -40,12 +40,6 @@ logger = logging.getLogger(__name__)
 _ENV_KEY = "MLFRAME_ODDS_COMBINE_BACKEND"
 _VALID_BACKENDS = ("njit_single", "njit_parallel", "cupy")
 _KERNEL_NAME = "calibration_odds_ratio_combine"
-
-
-def _forced_backend() -> str | None:
-    """Return the backend forced via the ``MLFRAME_ODDS_COMBINE_BACKEND`` env var, or ``None`` if unset/invalid."""
-    val = os.environ.get(_ENV_KEY, "").strip().lower()
-    return val if val in _VALID_BACKENDS else None
 
 
 def _get_cache() -> Any:
@@ -62,17 +56,6 @@ def _get_cache() -> Any:
         return None
 
 
-def _measure_backend(fn: Callable[[], object], n_iters: int = 3) -> float:
-    """Min-of-N wall time in ms, after one warm-up call."""
-    fn()
-    best = float("inf")
-    for _ in range(n_iters):
-        t0 = time.perf_counter()
-        fn()
-        best = min(best, (time.perf_counter() - t0) * 1000.0)
-    return best
-
-
 def _make_tuner(n: int, k: int) -> Callable[[], list[dict]]:
     """Build a zero-arg tuner that measures every available backend at shape ``(n, k)`` and returns the
     region dict for the winner. Closes over ``n, k`` so ``get_or_tune`` can call it with no arguments."""
@@ -85,8 +68,8 @@ def _make_tuner(n: int, k: int) -> Callable[[], list[dict]]:
         p = rng.uniform(0.01, 0.99, size=(n, k))
         timings: dict[str, float] = {}
         if _NUMBA_AVAILABLE:
-            timings["njit_single"] = _measure_backend(lambda: _odds_combine_njit(p, 1e-7))
-            timings["njit_parallel"] = _measure_backend(lambda: _odds_combine_njit_parallel(p, 1e-7))
+            timings["njit_single"] = measure_backend(lambda: _odds_combine_njit(p, 1e-7))
+            timings["njit_parallel"] = measure_backend(lambda: _odds_combine_njit_parallel(p, 1e-7))
         try:
             import cupy as cp
 
@@ -101,7 +84,7 @@ def _make_tuner(n: int, k: int) -> Callable[[], list[dict]]:
                 cp.cuda.Stream.null.synchronize()
                 return r
 
-            timings["cupy"] = _measure_backend(_gpu_call)
+            timings["cupy"] = measure_backend(_gpu_call)
         except Exception as exc:
             logger.debug("odds_ratio_combine tuner: cupy unavailable/failed (%s)", exc)
 
@@ -123,7 +106,7 @@ def choose_odds_combine_backend(n: int, k: int, *, fallback: str) -> str:
     Order: env-var force-override -> KTC measured region -> caller-supplied size-threshold fallback (used
     immediately on cache miss; the async sweep measures in the background and persists for next time).
     """
-    forced = _forced_backend()
+    forced = forced_backend(_ENV_KEY, _VALID_BACKENDS)
     if forced is not None:
         return forced
 

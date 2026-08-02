@@ -19,10 +19,10 @@ Env override: ``MLFRAME_CONFIDENCE_BLEND_BACKEND=numpy|njit|njit_parallel|cupy``
 """
 from __future__ import annotations
 
+from mlframe._ktc_dispatch_shared import forced_backend, measure_backend, get_ktc_cache
+
 import logging
-import os
-import time
-from typing import Any, Callable, Optional
+from typing import Callable
 
 import numpy as np
 
@@ -31,37 +31,6 @@ logger = logging.getLogger(__name__)
 _ENV_KEY = "MLFRAME_CONFIDENCE_BLEND_BACKEND"
 _VALID_BACKENDS = ("numpy", "njit", "njit_parallel", "cupy")
 _KERNEL_NAME = "votenrank_confidence_gated_blend"
-
-
-def _forced_backend() -> Optional[str]:
-    """Return the backend forced via the MLFRAME_CONFIDENCE_BLEND_BACKEND env var, or None if unset/invalid."""
-    val = os.environ.get(_ENV_KEY, "").strip().lower()
-    return val if val in _VALID_BACKENDS else None
-
-
-def _get_cache() -> Any:
-    """Return the shared KernelTuningCache singleton, or None if pyutilz/FS is unavailable."""
-    try:
-        from mlframe.feature_selection.filters import get_kernel_tuning_cache
-    except Exception as exc:  # pyutilz / FS package unavailable -> hardcoded fallback.
-        logger.debug("_get_cache: import failed, tuning cache unavailable: %s", exc)
-        return None
-    try:
-        return get_kernel_tuning_cache()
-    except Exception as exc:  # pragma: no cover - defensive; singleton already guards.
-        logger.debug("_get_cache: singleton construction failed: %s", exc)
-        return None
-
-
-def _measure_backend(fn: Callable[[], object], n_iters: int = 3) -> float:
-    """Min-of-N wall time in ms, after one warm-up call."""
-    fn()
-    best = float("inf")
-    for _ in range(n_iters):
-        t0 = time.perf_counter()
-        fn()
-        best = min(best, (time.perf_counter() - t0) * 1000.0)
-    return best
 
 
 def _make_tuner(n: int) -> Callable[[], list]:
@@ -80,12 +49,12 @@ def _make_tuner(n: int) -> Callable[[], list]:
         threshold, gated_w, default_w = 0.6, 0.5, 0.0
 
         timings: dict = {}
-        timings["numpy"] = _measure_backend(lambda: _blend_numpy(ensemble, aux, conf, threshold, gated_w, default_w))
+        timings["numpy"] = measure_backend(lambda: _blend_numpy(ensemble, aux, conf, threshold, gated_w, default_w))
         try:
             _blend_njit(ensemble, aux, conf, threshold, gated_w, default_w)  # compile before timing
-            timings["njit"] = _measure_backend(lambda: _blend_njit(ensemble, aux, conf, threshold, gated_w, default_w))
+            timings["njit"] = measure_backend(lambda: _blend_njit(ensemble, aux, conf, threshold, gated_w, default_w))
             _blend_njit_parallel(ensemble, aux, conf, threshold, gated_w, default_w)
-            timings["njit_parallel"] = _measure_backend(lambda: _blend_njit_parallel(ensemble, aux, conf, threshold, gated_w, default_w))
+            timings["njit_parallel"] = measure_backend(lambda: _blend_njit_parallel(ensemble, aux, conf, threshold, gated_w, default_w))
         except Exception as exc:
             logger.debug("confidence_gated_blend tuner: numba unavailable/failed (%s)", exc)
         try:
@@ -101,7 +70,7 @@ def _make_tuner(n: int) -> Callable[[], list]:
                 result = cp.asnumpy(out)
                 return result
 
-            timings["cupy"] = _measure_backend(_gpu_call)
+            timings["cupy"] = measure_backend(_gpu_call)
         except Exception as exc:
             logger.debug("confidence_gated_blend tuner: cupy unavailable/failed (%s)", exc)
 
@@ -119,11 +88,11 @@ def choose_confidence_blend_backend(n: int, *, fallback: str) -> str:
     Order: env-var force-override -> KTC measured region -> caller-supplied size-threshold fallback (used
     immediately on cache miss; the async sweep measures in the background and persists for next time).
     """
-    forced = _forced_backend()
+    forced = forced_backend(_ENV_KEY, _VALID_BACKENDS)
     if forced is not None:
         return forced
 
-    cache = _get_cache()
+    cache = get_ktc_cache()
     if cache is None or cache is False:
         return fallback
     try:

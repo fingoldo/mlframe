@@ -16,10 +16,10 @@ Env override: ``MLFRAME_LOGICAL_CONSTRAINTS_BACKEND=njit_single|njit_parallel|cu
 """
 from __future__ import annotations
 
+from mlframe._ktc_dispatch_shared import forced_backend, measure_backend, get_ktc_cache
+
 import logging
-import os
-import time
-from typing import Any, Callable
+from typing import Callable
 
 import numpy as np
 
@@ -28,37 +28,6 @@ logger = logging.getLogger(__name__)
 _ENV_KEY = "MLFRAME_LOGICAL_CONSTRAINTS_BACKEND"
 _VALID_BACKENDS = ("njit_single", "njit_parallel", "cupy")
 _KERNEL_NAME = "inference_apply_logical_constraints"
-
-
-def _forced_backend() -> str | None:
-    """Return the backend name forced via the env-var override, or ``None`` if unset/invalid."""
-    val = os.environ.get(_ENV_KEY, "").strip().lower()
-    return val if val in _VALID_BACKENDS else None
-
-
-def _get_cache() -> Any:
-    """Return the shared kernel-tuning-cache singleton, or ``None`` if unavailable."""
-    try:
-        from mlframe.feature_selection.filters import get_kernel_tuning_cache
-    except Exception as exc:
-        logger.debug("_get_cache: import failed, tuning cache unavailable: %s", exc)
-        return None
-    try:
-        return get_kernel_tuning_cache()
-    except Exception as exc:  # pragma: no cover - defensive; singleton already guards.
-        logger.debug("_get_cache: singleton construction failed: %s", exc)
-        return None
-
-
-def _measure_backend(fn: Callable[[], object], n_iters: int = 3) -> float:
-    """Warm ``fn`` once then return its best wall-clock time in milliseconds over ``n_iters`` runs."""
-    fn()
-    best = float("inf")
-    for _ in range(n_iters):
-        t0 = time.perf_counter()
-        fn()
-        best = min(best, (time.perf_counter() - t0) * 1000.0)
-    return best
 
 
 def _make_tuner(n: int, n_labels: int, n_rules: int) -> Callable[[], list[dict]]:
@@ -75,8 +44,8 @@ def _make_tuner(n: int, n_labels: int, n_rules: int) -> Callable[[], list[dict]]
 
         timings: dict[str, float] = {}
         if _NUMBA_AVAILABLE:
-            timings["njit_single"] = _measure_backend(lambda: _apply_njit(preds.copy(), rules_arr))
-            timings["njit_parallel"] = _measure_backend(lambda: _apply_njit_parallel(preds.copy(), rules_arr))
+            timings["njit_single"] = measure_backend(lambda: _apply_njit(preds.copy(), rules_arr))
+            timings["njit_parallel"] = measure_backend(lambda: _apply_njit_parallel(preds.copy(), rules_arr))
         try:
             import cupy as cp
 
@@ -95,7 +64,7 @@ def _make_tuner(n: int, n_labels: int, n_rules: int) -> Callable[[], list[dict]]
                 cp.cuda.Stream.null.synchronize()
                 return out
 
-            timings["cupy"] = _measure_backend(_gpu_call)
+            timings["cupy"] = measure_backend(_gpu_call)
         except Exception as exc:
             logger.debug("apply_logical_constraints tuner: cupy unavailable/failed (%s)", exc)
 
@@ -120,11 +89,11 @@ def choose_logical_constraints_backend(n: int, n_labels: int, n_rules: int, *, f
     Order: env-var force-override -> KTC measured region -> caller-supplied size-threshold fallback (used
     immediately on cache miss; the async sweep measures in the background and persists for next time).
     """
-    forced = _forced_backend()
+    forced = forced_backend(_ENV_KEY, _VALID_BACKENDS)
     if forced is not None:
         return forced
 
-    cache = _get_cache()
+    cache = get_ktc_cache()
     if cache is None or cache is False:
         return fallback
     try:
