@@ -12,11 +12,12 @@ Run:  CUDA_VISIBLE_DEVICES="" python bench_pairwise_occupied_joint_k.py
 """
 from __future__ import annotations
 
-import time
 from itertools import combinations
 
 import numba
 import numpy as np
+
+from mlframe.feature_selection._bench_timing_shared import best_of
 
 
 # ---- OLD: verbatim pure-Python reference (the prior _pairwise_occupied_joint_k body) ----
@@ -62,15 +63,6 @@ def _make(n, p, card, seed=0):
     pa = np.fromiter((x[0] for x in pairs), dtype=np.int64, count=len(pairs))
     pb = np.fromiter((x[1] for x in pairs), dtype=np.int64, count=len(pairs))
     return data, pa, pb, nbins
-
-
-def best_of(fn, *a, reps=5):
-    t = []
-    for _ in range(reps):
-        s = time.perf_counter()
-        fn(*a)
-        t.append(time.perf_counter() - s)
-    return min(t)
 
 
 if __name__ == "__main__":

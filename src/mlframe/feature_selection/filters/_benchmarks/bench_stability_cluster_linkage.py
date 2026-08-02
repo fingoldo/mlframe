@@ -6,9 +6,9 @@ over the actual edges only. Same clusters. Run: python this.py
 """
 from __future__ import annotations
 
-import time
-
 import numpy as np
+
+from mlframe.feature_selection._bench_timing_shared import best_of
 
 
 def _find_factory(parent):
@@ -50,13 +50,6 @@ def _compact(raw):
     return np.array([m[int(v)] for v in raw])
 
 
-def _best(fn, *a, reps=5):
-    t = []
-    for _ in range(reps):
-        s = time.perf_counter(); fn(*a); t.append(time.perf_counter() - s)
-    return min(t)
-
-
 def main():
     rng = np.random.default_rng(0)
     for p in (200, 500):
@@ -70,7 +63,7 @@ def main():
         num_ok = np.ones(p, dtype=bool)
         thr = 0.8
         assert np.array_equal(_compact(_old(C, thr, num_ok, p)), _compact(_new(C, thr, num_ok, p)))  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
-        to = _best(_old, C, thr, num_ok, p); tn = _best(_new, C, thr, num_ok, p)
+        to = best_of(_old, C, thr, num_ok, p, reps=5); tn = best_of(_new, C, thr, num_ok, p, reps=5)
         print(f"p={p}: OLD {to*1e3:.2f}ms -> NEW {tn*1e3:.3f}ms ({to/tn:.1f}x) clusters identical")
 
 
