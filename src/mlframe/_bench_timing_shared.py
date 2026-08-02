@@ -28,6 +28,17 @@ def best_of_seconds_with_output(fn: Callable, *args, reps: int = 7):
     return best, out
 
 
+def best_of_seconds_zero_arg(fn: Callable, repeats: int = 3) -> float:
+    """Warm ``fn()`` once (no args), then return its best (minimum) wall-clock time in seconds over ``repeats`` calls."""
+    fn()
+    best = float("inf")
+    for _ in range(repeats):
+        t0 = time.perf_counter()
+        fn()
+        best = min(best, time.perf_counter() - t0)
+    return best
+
+
 def best_of_ms(fn: Callable, *args, repeat: int = 5) -> float:
     """Warm ``fn(*args)`` once, then return its best (minimum) wall-clock time in milliseconds over ``repeat`` calls."""
     fn(*args)

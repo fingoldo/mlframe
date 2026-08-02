@@ -10,9 +10,10 @@ from __future__ import annotations
 import cProfile
 import io
 import pstats
-import time
 
 import numpy as np
+
+from mlframe._bench_timing_shared import best_of_seconds_zero_arg as _time
 
 
 def make_multiclass(n: int, K: int, seed: int = 0):
@@ -30,16 +31,6 @@ def make_multilabel(n: int, K: int, seed: int = 0):
     yt = (rng.random((n, K)) < 0.3).astype(np.int8)
     proba = np.clip(0.15 + 0.7 * yt + rng.normal(0.0, 0.2, size=(n, K)), 0.0, 1.0)
     return yt, proba, [f"lbl{k}" for k in range(K)]
-
-
-def _time(fn, repeat: int = 3) -> float:
-    fn()  # warm
-    best = float("inf")
-    for _ in range(repeat):
-        t0 = time.perf_counter()
-        fn()
-        best = min(best, time.perf_counter() - t0)
-    return best
 
 
 def bench(n: int = 200_000, ks=(10, 50, 100), **compose_kwargs) -> None:

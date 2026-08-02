@@ -7,25 +7,17 @@ it directly against scipy across n in {500, 2000, 10000, 50000}, warm + best-of-
 Run:  CUDA_VISIBLE_DEVICES="" python src/mlframe/feature_selection/wrappers/_benchmarks/bench_cpx33_kendall.py
 """
 
-import time
-
 import numpy as np
 from scipy.stats import kendalltau
 
+from functools import partial
+
 from mlframe.feature_selection.wrappers._univariate_ht import _kendall_tau_z
+from mlframe._bench_timing_shared import best_of_seconds_zero_arg
 
 SIZES = (500, 2000, 10000, 50000)
 REPEAT = 5
-
-
-def _best_of(fn, repeat=REPEAT):
-    fn()  # warm (numba JIT for the njit O(n^2) kernel)
-    best = float("inf")
-    for _ in range(repeat):
-        t0 = time.perf_counter()
-        fn()
-        best = min(best, time.perf_counter() - t0)
-    return best
+_best_of = partial(best_of_seconds_zero_arg, repeats=REPEAT)
 
 
 def main():

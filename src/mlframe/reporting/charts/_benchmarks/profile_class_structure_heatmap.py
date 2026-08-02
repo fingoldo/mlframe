@@ -18,13 +18,13 @@ from __future__ import annotations
 
 import cProfile
 import pstats
-import time
 from io import StringIO
 
 import numpy as np
 import pandas as pd
 
 from mlframe.reporting.charts.class_structure_heatmap import class_structure_matrix, class_structure_panel
+from mlframe._bench_timing_shared import best_of_seconds_zero_arg as _walltime
 
 
 def _numpy_matrix(gc: np.ndarray, tc: np.ndarray, y: np.ndarray, n_groups: int, n_time: int):
@@ -35,16 +35,6 @@ def _numpy_matrix(gc: np.ndarray, tc: np.ndarray, y: np.ndarray, n_groups: int, 
     with np.errstate(invalid="ignore", divide="ignore"):
         rate = np.where(counts > 0, sums / counts, np.nan)
     return rate, counts
-
-
-def _walltime(fn, repeats: int = 3) -> float:
-    fn()  # warm (njit compile)
-    best = float("inf")
-    for _ in range(repeats):
-        t0 = time.perf_counter()
-        fn()
-        best = min(best, time.perf_counter() - t0)
-    return best
 
 
 def main() -> None:

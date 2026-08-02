@@ -19,13 +19,13 @@ from __future__ import annotations
 
 import cProfile
 import pstats
-import time
 from io import StringIO
 
 import numpy as np
 import pandas as pd
 
 from mlframe.reporting.charts.engineered_separability import separability_panel, separability_score
+from mlframe._bench_timing_shared import best_of_seconds_zero_arg as _walltime
 
 
 def _numpy_score(z0, z1, y):
@@ -47,16 +47,6 @@ def _numpy_score(z0, z1, y):
     inv = np.array([[cov[1, 1], -cov[0, 1]], [-cov[1, 0], cov[0, 0]]]) / det
     dd = m1 - m0
     return float(dd @ inv @ dd)
-
-
-def _walltime(fn, repeats: int = 3) -> float:
-    fn()  # warm (njit compile)
-    best = float("inf")
-    for _ in range(repeats):
-        t0 = time.perf_counter()
-        fn()
-        best = min(best, time.perf_counter() - t0)
-    return best
 
 
 def main() -> None:
