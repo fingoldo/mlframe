@@ -38,39 +38,14 @@ import numpy as np
 # suppression comment rather than re-deleted - see CLAUDE.md's project-wide-rewrite-without-review incident.
 from mlframe.feature_selection.wrappers import RFECV  # noqa: F401
 
-# astropy is imported lazily on first histogram() call: the top-level
-# ``import astropy`` costs ~0.6s and this fingerprints module is on the
-# eager MRMR import path, yet most fits never call histogram().
-_astropy_histogram = None
-_astropy_resolved = False
-
-
-def _resolve_astropy_histogram():
-    """Lazily imports and memoises astropy's ``histogram``, caching a permanent ``None`` on failure so a
-    missing/broken astropy install is only probed once per process instead of retried on every call."""
-    global _astropy_histogram, _astropy_resolved
-    if not _astropy_resolved:
-        try:
-            from astropy.stats import histogram as _h
-            _astropy_histogram = _h
-        except (ImportError, AttributeError):
-            _astropy_histogram = None
-        _astropy_resolved = True
-    return _astropy_histogram
-
+from mlframe.feature_engineering.numerical import (  # noqa: F401 -- re-exported for mrmr/__init__.py
+    _astropy_histogram,
+    _resolve_astropy_histogram,
+    histogram,
+)
 
 if TYPE_CHECKING:
     from .mrmr import MRMR
-
-
-def histogram(a, bins="auto", **kwargs):
-    """Astropy histogram with np.histogram fallback. See
-    ``mlframe.feature_engineering.numerical.histogram`` for the rationale.
-    """
-    _h = _resolve_astropy_histogram()
-    if _h is not None:
-        return _h(a, bins=bins, **kwargs)
-    return np.histogram(a, bins=bins, **kwargs)
 
 
 logger = logging.getLogger(__name__)
