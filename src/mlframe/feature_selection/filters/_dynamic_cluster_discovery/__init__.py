@@ -629,8 +629,8 @@ def discover_cluster_members(
                     factors_data=factors_data, factors_nbins=factors_nbins,
                     entropy_cache=entropy_cache,
                 )
-            except Exception:  # nosec B110 - warmup is best-effort; the loop recomputes on miss
-                pass
+            except Exception as e:  # nosec B110 - warmup is best-effort; the loop recomputes on miss
+                logger.debug("cluster-discovery warm-up failed, loop will recompute on miss: %s", e)
     for c in candidate_pool:
         try:
             c_int = int(c)

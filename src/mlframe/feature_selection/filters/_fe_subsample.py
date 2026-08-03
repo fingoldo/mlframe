@@ -29,7 +29,7 @@ try:
     from numba import njit
 
     _HAVE_NUMBA = True
-except Exception:  # pragma: no cover - numba is a hard dep in this repo but stay safe
+except ImportError:  # pragma: no cover - numba is a hard dep in this repo but stay safe
     _HAVE_NUMBA = False
 
     def njit(*args, **kwargs):

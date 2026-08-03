@@ -38,7 +38,7 @@ def _cpsat_pack(works: list[int], speeds: list[float]) -> list[int] | None:
     """Exact speed-weighted makespan assignment via CP-SAT; None if ortools is unavailable / no solution."""
     try:
         from ortools.sat.python import cp_model
-    except Exception:
+    except ImportError:
         return None
     B, D = len(works), len(speeds)
     mn = min(speeds)

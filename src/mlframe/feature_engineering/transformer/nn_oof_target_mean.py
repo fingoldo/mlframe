@@ -76,7 +76,8 @@ def _fit_3baselines_predict_two(
             m3.fit(Xt, y_t.astype(np.int32))
             train_emb[:, 2] = m3.predict_proba(Xt)[:, 1].astype(np.float32)
             query_emb[:, 2] = m3.predict_proba(Xq)[:, 1].astype(np.float32)
-        except Exception:
+        except Exception as e:
+            logger.debug("LogisticRegression member fit/predict failed, falling back to prior: %s", e)
             prior = float(y_t.mean())
             train_emb[:, 2] = prior
             query_emb[:, 2] = prior

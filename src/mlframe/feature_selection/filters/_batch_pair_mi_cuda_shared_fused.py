@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 try:
     import cupy as _cp
     _CUPY_AVAIL = True
-except Exception:
+except ImportError:
     _cp = None
     _CUPY_AVAIL = False
 

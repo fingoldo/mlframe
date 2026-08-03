@@ -48,8 +48,8 @@ def _set_live(name, value) -> None:
     if mod is not None:
         try:
             setattr(mod, name, value)
-        except Exception:  # nosec B110 - best-effort sync, non-fatal by design
-            pass
+        except Exception as e:  # nosec B110 - best-effort sync, non-fatal by design
+            logger.debug("could not sync %s to module %s: %s", name, mod, e)
 
 # Wave 27 P1: ``check_prospective_fe_pairs`` is dispatched via
 # ``parallel_run`` from mrmr.py with backend='threading'. The function

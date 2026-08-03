@@ -912,7 +912,8 @@ def per_feature_edges(
             import psutil
 
             _resolved_jobs = psutil.cpu_count(logical=False) or 1
-        except Exception:
+        except Exception as e:
+            logger.debug("psutil.cpu_count(logical=False) failed, falling back to os.cpu_count(): %s", e)
             import os
 
             _resolved_jobs = os.cpu_count() or 1

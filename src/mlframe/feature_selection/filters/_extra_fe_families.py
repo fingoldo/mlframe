@@ -295,7 +295,8 @@ def _auto_detect_cat_cols(X: pd.DataFrame, max_cols: int = 8) -> list[str]:
     try:
         from ._target_encoding_fe import auto_detect_te_cols
         return list(auto_detect_te_cols(X, min_card=2, max_card=10000))[:max_cols]
-    except Exception:
+    except Exception as e:
+        logger.debug("auto_detect_te_cols failed, falling back to low-cardinality scan: %s", e)
         out: list[str] = []
         n = len(X)
         for c in X.columns:

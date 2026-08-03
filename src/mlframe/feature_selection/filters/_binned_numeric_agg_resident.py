@@ -350,7 +350,7 @@ def local_mi_gate_binagg_resident(
     the collapsed upload; reproducing it host-side keeps the floor (and thus the keep/drop decision) identical."""
     try:
         import cupy as cp
-    except Exception:
+    except ImportError:
         return None
     # ``cand_cols`` / ``n_rows`` let the DEVICE-BORN caller (binned_numeric_agg_with_recipes' recipes-only path)
     # gate WITHOUT materialising the host OOF feat_df - it fits recipes-only, gates from those recipes here, then

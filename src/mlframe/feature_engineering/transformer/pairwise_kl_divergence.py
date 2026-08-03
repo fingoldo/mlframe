@@ -59,7 +59,8 @@ def _fit_3baselines_with_sigma(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, 
             m3.fit(Xt, y_t.astype(np.int32))
             p3_train = m3.predict_proba(Xt)[:, 1].astype(np.float32)
             p3_query = m3.predict_proba(Xq)[:, 1].astype(np.float32)
-        except Exception:
+        except Exception as e:
+            logger.debug("LogisticRegression member fit/predict failed, falling back to prior: %s", e)
             prior = float(y_t.mean())
             p3_train = np.full(Xt.shape[0], prior, dtype=np.float32)
             p3_query = np.full(Xq.shape[0], prior, dtype=np.float32)

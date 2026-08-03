@@ -44,7 +44,7 @@ try:  # scipy is a hard mlframe dep, but keep the import defensive so an env wit
     # permutation path). Regression-pinned in test_analytic_mi_null_chi2_export.
     from scipy.stats import chi2 as _chi2
     _HAVE_CHI2 = True
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     _HAVE_CHI2 = False
     _chi2 = None
 

@@ -89,7 +89,8 @@ def _eigvecs_from_graph(W: sp.csr_matrix, n_eigvecs: int) -> tuple[np.ndarray, n
     k_needed = min(n_eigvecs + 1, n - 1)
     try:
         eigvals_A, eigvecs_A = eigsh(A, k=k_needed, which="LM")  # largest of A
-    except Exception:
+    except Exception as e:
+        logger.debug("sparse Lanczos eigsh failed, falling back to dense eigh: %s", e)
         # Fall back to dense if Lanczos fails (small N or pathological structure).
         A_dense = A.toarray().astype(np.float64)
         full_eigvals, full_eigvecs = np.linalg.eigh(A_dense)

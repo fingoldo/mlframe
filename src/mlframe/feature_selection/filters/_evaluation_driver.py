@@ -380,7 +380,8 @@ def _evaluate_candidates_inner(
                 _zc, _zk = _materialize_var(factors_data, _z, factors_nbins, dtype=dtype)
                 _relax_sel_cols.append(_zc)
                 _relax_sel_nbins.append(_zk)
-        except Exception:
+        except Exception as e:
+            logger.debug("relaxed-selection column materialization failed: %s", e)
             _relax_y_col = _relax_k_y = _relax_sel_cols = _relax_sel_nbins = None
 
     for cand_idx, X, nexisting in tqdmu(workload, leave=False, desc="Thread Candidates", disable=not verbose):

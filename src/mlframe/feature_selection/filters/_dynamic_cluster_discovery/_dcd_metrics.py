@@ -384,7 +384,8 @@ def _binarize_aggregate(values: np.ndarray, *, method: str, n_bins: int, dtype) 
             if edges.size < 3:
                 raise ValueError("degenerate quantile edges")
             binned = np.searchsorted(edges[1:-1], values, side="right")
-        except Exception:
+        except Exception as e:
+            logger.debug("quantile-edge binning failed, falling back to min-max linear binning: %s", e)
             mn, mx = float(finite.min()), float(finite.max())
             if mx <= mn:
                 return np.zeros(values.shape, dtype=dtype)

@@ -23,7 +23,7 @@ from ._cat_confirm_permutation import (
 try:
     import cupy as _cp_probe  # noqa: F401
     _CUPY_AVAIL = True
-except Exception:
+except ImportError:
     _CUPY_AVAIL = False
 
 

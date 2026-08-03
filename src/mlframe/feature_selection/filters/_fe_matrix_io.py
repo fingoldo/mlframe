@@ -34,11 +34,14 @@ branch), ``prewarp`` / ``gate_med`` (fit-time coefficients), ``grad1`` / ``grad2
 """
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # Families that are NOT pure-elementwise - a per-block kernel corrupts them unless their full-column
 # anchor (min/nanmin/median/fit-coeff) is frozen first, or (gradient) they are computed full-column.
@@ -130,7 +133,8 @@ def _polars_column_to_arrays(s, dtype):
         else:  # Categorical
             try:
                 categories = s.cat.get_categories().to_list()
-            except Exception:
+            except Exception as e:
+                logger.debug("could not resolve categories for polars Categorical column: %s", e)
                 categories = []
         codes = np.where(null_mask, -1, codes)
         return None, codes, categories, null_mask

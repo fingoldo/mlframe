@@ -31,7 +31,8 @@ def _fit_3baselines(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int):
         m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1).fit(Xt, y_t.astype(np.int32))
         try:
             m3 = LogisticRegression(max_iter=200, solver="liblinear", random_state=int(seed) + 2).fit(Xt, y_t.astype(np.int32))
-        except Exception:
+        except Exception as e:
+            logger.debug("LogisticRegression member fit failed: %s", e)
             m3 = None
         is_binary = True
     else:
