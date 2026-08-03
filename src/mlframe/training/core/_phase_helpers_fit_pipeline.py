@@ -155,7 +155,8 @@ def _phase_fit_pipeline(
         elif hasattr(train_df, "select_dtypes"):
             try:
                 _declared_cats = train_df.select_dtypes(include=["category", "object", "string"]).columns.tolist()
-            except Exception:
+            except Exception as e:
+                logger.debug("select_dtypes for declared categoricals failed: %s", e)
                 _declared_cats = []
     # Only auto-flip when EVERY suite model supports native categorical input.
     # If a non-CB / non-native model is also in the suite (e.g. ``ridge``),
@@ -327,7 +328,8 @@ def _phase_fit_pipeline(
                 if str(train_df[_c].dtype).startswith("object"):
                     try:
                         _first = next((v for v in train_df[_c].head(8) if v is not None), None)
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("peeking column %r's first non-null value failed: %s", _c, e)
                         _first = None
                     if _first is not None and (hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))):
                         _embedding_object_cols.append(_c)
@@ -358,7 +360,8 @@ def _phase_fit_pipeline(
                 "non_string_category_cols": _non_string_category_cols,
                 "shape": tuple(train_df.shape),
             }
-        except Exception:
+        except Exception as e:
+            logger.debug("train_df_pandas_pre_meta computation failed: %s", e)
             train_df_pandas_pre_meta = None
 
     # Normalize preprocessing_extensions BEFORE the categorical-composite check below (needs a real
@@ -387,7 +390,8 @@ def _phase_fit_pipeline(
                 if _cand is not None:
                     _y_for_composite = _cand.to_numpy() if hasattr(_cand, "to_numpy") else np.asarray(_cand)
                     break
-        except Exception:
+        except Exception as e:
+            logger.debug("y_for_composite extraction failed: %s", e)
             _y_for_composite = None
     if (
         _y_for_composite is not None and train_idx is not None
@@ -399,7 +403,8 @@ def _phase_fit_pipeline(
                 _y_for_composite = _y_for_composite[_idx_arr_composite]
             else:
                 _y_for_composite = None
-        except Exception:
+        except Exception as e:
+            logger.debug("y_for_composite index-alignment failed: %s", e)
             _y_for_composite = None
 
     # Categorical composite FE (powerset concat / auto MI-grouped concat) -- MUST run before
@@ -579,6 +584,8 @@ def _phase_fit_pipeline(
                     "Could not extract y_train for PySR FE: %s: %s (target_by_type %s)",
                     type(_exc).__name__, _exc, _diag,
                 )
+            else:
+                logger.debug("Could not extract y_train for PySR FE: %s: %s", type(_exc).__name__, _exc)
             _y_train_for_ext = None
     t0_ext = timer()
     # Snapshot the train_df_polars_pre column set so we can detect which new
@@ -683,12 +690,16 @@ def _phase_fit_pipeline(
                                 "Failed to back-merge extension columns into polars-pre %s frame: %s",
                                 _label, _exc,
                             )
+                        else:
+                            logger.debug("Failed to back-merge extension columns into polars-pre %s frame: %s", _label, _exc)
     except Exception as _exc:
         if verbose:
             logger.warning(
                 "Polars-pre extension back-merge skipped (%s); polars-fastpath models will not see extension columns.",
                 _exc,
             )
+        else:
+            logger.debug("Polars-pre extension back-merge skipped (%s); polars-fastpath models will not see extension columns.", _exc)
 
     metadata["pipeline"] = pipeline
     metadata["extensions_pipeline"] = extensions_pipeline

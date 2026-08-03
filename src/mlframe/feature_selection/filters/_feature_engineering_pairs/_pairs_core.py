@@ -116,7 +116,7 @@ def _short_fe_name(name, maxlen: int = 30) -> str:
 # (this package is imported by feature_engineering's transitive deps); the value is a plain int read at def time.
 try:
     from ..feature_engineering import UNIFIED_FE_SUBSAMPLE_N
-except Exception:
+except ImportError:
     UNIFIED_FE_SUBSAMPLE_N = 30_000  # bootstrap fallback if feature_engineering not yet importable
 
 logger = logging.getLogger(__name__)
@@ -198,8 +198,8 @@ def _fe_gpu_discretize_enabled_uncached(n_rows: int, n_cands: int) -> bool:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
         if fe_gpu_strict_enabled(n=int(n_rows), p=int(n_cands)):
             return True
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("fe_gpu_strict_enabled() check failed, continuing to the crossover-based decision: %s", e)
     try:  # auto: per-host crossover from kernel_tuning_cache (measurement-backed fallback)
         from .._gpu_resident_fe import fe_gpu_pairs_mi_backend_choice  # type: ignore[attr-defined]  # dynamically re-exported via globals()
         return bool(fe_gpu_pairs_mi_backend_choice(int(n_rows), int(n_cands)) == "gpu")
@@ -248,8 +248,8 @@ def _fe_gpu_binning_enabled_uncached(n_rows: int, n_cands: int) -> bool:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
         if fe_gpu_strict_enabled(n=int(n_rows), p=int(n_cands)):
             return True
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("fe_gpu_strict_enabled() check failed, continuing to the crossover-based decision: %s", e)
     try:  # auto: per-host binning crossover from kernel_tuning_cache (measurement-backed fallback)
         from .._gpu_resident_fe import fe_gpu_binning_backend_choice  # type: ignore[attr-defined]  # dynamically re-exported via globals()
         return bool(fe_gpu_binning_backend_choice(int(n_rows), int(n_cands)) == "gpu")
@@ -533,7 +533,8 @@ def check_prospective_fe_pairs(
             _si = np.asarray(shared_subsample_idx)
             if _si.ndim == 1 and 0 < _si.shape[0] < _full_n_rows and int(_si.max()) < _full_n_rows:
                 _shared_idx = _si.astype(np.int64, copy=False)
-        except Exception:
+        except Exception as e:
+            logger.debug("shared_subsample_idx validation failed, falling back to no shared subsample: %s", e)
             _shared_idx = None
     _use_subsample = (_shared_idx is not None) or (isinstance(subsample_n, int) and 0 < subsample_n < _full_n_rows)
     _sample_idx = None  # set below when subsampling; threaded into _fit_prewarp_and_gate_med
@@ -671,7 +672,8 @@ def check_prospective_fe_pairs(
                         _vals = X[_name].to_numpy()  # polars
                     else:
                         _vals = None
-                except Exception:
+                except Exception as e:
+                    logger.debug("reading column %r as numpy failed, skipping: %s", _name, e)
                     _vals = None
             if _vals is not None:
                 _vals = np.asarray(_vals)
@@ -889,7 +891,8 @@ def check_prospective_fe_pairs(
         if _cyc.shape[0] == len(classes_y) and np.isfinite(_cyc).any() and float(np.nanstd(_cyc)) > 1e-12:
             _corr_y_cont = _cyc
             _corr_y_cont_finite = np.isfinite(_corr_y_cont)
-    except Exception:
+    except Exception as e:
+        logger.debug("y-continuous correlation prep failed, skipping that signal: %s", e)
         _corr_y_cont = None
         _corr_y_cont_finite = None
 
@@ -1014,7 +1017,8 @@ def check_prospective_fe_pairs(
                     arr=transformed_vars[:, _idx], n_bins=quantization_nbins,
                     method=quantization_method, dtype=quantization_dtype,
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug("discretizing operand %r failed, caching None: %s", _var, e)
                 _codes = None
         _operand_disc_cache[_var] = _codes
         return _codes
@@ -1118,7 +1122,8 @@ def check_prospective_fe_pairs(
             try:
                 from .._fe_gpu_strict import fe_gpu_strict_enabled
                 _pipe_on = bool(fe_gpu_strict_enabled(n=len(X), p=int(_chunk_buf_width)))
-            except Exception:
+            except Exception as e:
+                logger.debug("fe_gpu_strict_enabled() check failed, defaulting _pipe_on to False: %s", e)
                 _pipe_on = False
         if _pipe_on:
             try:
