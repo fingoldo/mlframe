@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 from numba import njit, prange
@@ -31,7 +31,7 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
-def make_single_merge(factors_data: np.ndarray, nbins: np.ndarray, dtype, cache: dict):
+def make_single_merge(factors_data: np.ndarray, nbins: np.ndarray, dtype: "np.dtype | type", cache: dict) -> Callable[[int], tuple]:
     """Build a memoized single-variable ``merge_vars`` lookup closing over ``factors_data``/``nbins``/``dtype``,
     reading and writing into the caller-supplied ``cache`` dict (not copied, so hits/misses accumulate into the
     same dict across calls). The single-variable merge of feature ``idx`` depends only on ``factors_data[:, idx]``

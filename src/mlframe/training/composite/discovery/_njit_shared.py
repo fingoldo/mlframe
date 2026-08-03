@@ -4,6 +4,8 @@ across those modules, consolidated here so a fix can't silently drift out of syn
 """
 from __future__ import annotations
 
+from typing import Callable, cast
+
 try:  # numba is a core mlframe dep; the pure-numpy fallback keeps the module importable in a stripped CI env.
     import numba
 
@@ -12,8 +14,8 @@ except Exception:  # pragma: no cover -- numba always present in prod
     _HAVE_NUMBA = False
 
 
-def njit_or_passthrough(func):
+def njit_or_passthrough(func: Callable) -> Callable:
     """Apply ``numba.njit(cache=True)`` when available, else return the plain Python function (correctness-preserving)."""
     if _HAVE_NUMBA:
-        return numba.njit(cache=True)(func)
+        return cast(Callable, numba.njit(cache=True)(func))
     return func

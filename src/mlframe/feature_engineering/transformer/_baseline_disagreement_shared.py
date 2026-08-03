@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 
 
-def disagreement_feats_to_cols(feats: np.ndarray, column_prefix: str, dtype) -> dict[str, np.ndarray]:
+def disagreement_feats_to_cols(feats: np.ndarray, column_prefix: str, dtype: "np.dtype | type") -> dict[str, np.ndarray]:
     """Map the fixed 8-column layout of ``feats`` (3 baseline predictions + 5 disagreement stats) to their
     ``{column_prefix}_*`` output names, cast to the requested output ``dtype``."""
     cols: dict[str, np.ndarray] = {}

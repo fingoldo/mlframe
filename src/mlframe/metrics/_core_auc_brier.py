@@ -377,7 +377,7 @@ def _fused_resample_auc_batch_parallel(idxs: np.ndarray, base_rank: np.ndarray, 
     return out
 
 
-def bootstrap_auc_distribution_parallel(y_true: np.ndarray, y_score: np.ndarray, n_bootstrap: int, random_state=None, chunk_size: int = 200) -> "np.ndarray | None":
+def bootstrap_auc_distribution_parallel(y_true: np.ndarray, y_score: np.ndarray, n_bootstrap: int, random_state: "int | None" = None, chunk_size: int = 200) -> "np.ndarray | None":
     """Compute a FULL bootstrap AUC distribution (``n_bootstrap`` resamples) via the batched
     ``prange``-parallel kernel, gated on the same all-distinct-base-scores condition as
     :func:`make_bootstrap_auc_resampler`'s fast path.

@@ -7,13 +7,15 @@ binds a class's ``responded`` property to whichever ``_responded`` the caller's 
 """
 from __future__ import annotations
 
+from typing import Callable
+
 
 def margin_over_operands(self) -> float:
     """MI gained by the engineered feature over the best raw operand / existing-op floor alone."""
     return float(self.feat_mi - self.operand_floor)
 
 
-def responded_property(responded_fn):
+def responded_property(responded_fn: Callable[[float, float, float], bool]) -> property:
     """Bind a ``responded`` property to ``responded_fn(feat_mi, operand_floor, null_hi)`` - use as
     ``responded = responded_property(_responded)`` inside a frozen-dataclass body."""
 

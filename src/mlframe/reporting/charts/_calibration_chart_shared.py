@@ -15,7 +15,7 @@ def is_single_class(y_true: np.ndarray) -> bool:
     return s == 0.0 or s == float(y_true.size)
 
 
-def reliability_points(y_true: np.ndarray, y_score: np.ndarray, n_bins: int):
+def reliability_points(y_true: np.ndarray, y_score: np.ndarray, n_bins: int) -> "tuple[np.ndarray, np.ndarray, float] | None":
     """Per-bin (mean-pred, observed-freq) + standard ECE for one slice (feature-bin or group), via the shared
     njit binning.
 

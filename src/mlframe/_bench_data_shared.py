@@ -16,7 +16,7 @@ def make_regression_data(n: int, n_features: int, seed: int = 0) -> tuple[pd.Dat
     return X, y
 
 
-def make_neural_regression_float32_data(n: int, n_features: int, seed: int = 0):
+def make_neural_regression_float32_data(n: int, n_features: int, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
     """Synthetic float32 (X, y) for the neural-net bench family: ``y`` is a noisy sum of the first 3
     ``X`` columns, both arrays ``float32`` (matching the dtype the neural regressors expect)."""
     rng = np.random.default_rng(seed)

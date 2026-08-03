@@ -5,6 +5,8 @@ so a fix can't silently drift out of sync across copies.
 """
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 _CODE_TO_BASIS = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
@@ -47,7 +49,7 @@ def noise_aware_floor(values: np.ndarray, sigma_thresh: float) -> float:
     return med + sigma_thresh * 1.4826 * mad
 
 
-def parse_code_deg_with_basis(s: str):
+def parse_code_deg_with_basis(s: str) -> "tuple[str | None, int | None]":
     """Parse a leg-code token like ``"He3"``/``"LL2"``/``"T1"``/``"L4"`` into ``(basis_name, degree)``,
     checking two-letter codes before single-letter ones so ``"LL"`` isn't mis-parsed as ``"L"``; returns
     ``(None, None)`` when ``s`` doesn't match any known code prefix.
@@ -65,7 +67,7 @@ def parse_code_deg_with_basis(s: str):
     return None, None
 
 
-def coerce_y_classif(y) -> np.ndarray:
+def coerce_y_classif(y: "np.ndarray | Any") -> np.ndarray:
     """Dense int64 class labels for MI estimators.
 
     Integer dtypes pass straight through. Non-integer y (float / continuous /

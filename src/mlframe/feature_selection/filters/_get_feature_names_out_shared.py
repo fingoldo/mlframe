@@ -8,7 +8,7 @@ from __future__ import annotations
 import numpy as np
 
 
-def get_feature_names_out_support_based(self, input_features=None):
+def get_feature_names_out_support_based(self, input_features: "list | np.ndarray | None" = None) -> np.ndarray:
     """Selected feature names (sklearn transformer contract). ``support_`` is an integer index array
     into ``feature_names_in_``; a passed ``input_features`` must match ``n_features_in_`` (sklearn
     column-drift contract) and, when correct-length, overrides the stored names."""

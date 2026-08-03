@@ -31,7 +31,7 @@ def batched_unique(df: "pl.DataFrame", candidate_cols: List[str]) -> "Dict[str, 
         return d
 
 
-def build_polars_enum_map(self, train_df: "pl.DataFrame", val_df, cat_features: List[str]) -> "Dict[str, pl.Any]":
+def build_polars_enum_map(self, train_df: "pl.DataFrame", val_df: "pl.DataFrame", cat_features: List[str]) -> "Dict[str, pl.Any]":
     """Build per-column ``pl.Enum`` dtypes from the union of train+val unique values. Test data is intentionally
     excluded -- letting test levels widen the Enum would leak label-time information back into the model's
     accepted-category set. Returns ``{col_name: pl.Enum([...])}`` for every string / Categorical / Enum column

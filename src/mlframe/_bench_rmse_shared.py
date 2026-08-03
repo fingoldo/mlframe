@@ -14,12 +14,12 @@ def rmse(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.sqrt(np.mean((a - b) ** 2)))
 
 
-def rmse_asarray(a, b) -> float:
+def rmse_asarray(a: np.ndarray, b: np.ndarray) -> float:
     """Root-mean-squared error, coercing both inputs through ``np.asarray`` first."""
     return float(np.sqrt(np.mean((np.asarray(a) - np.asarray(b)) ** 2)))
 
 
-def mae_asarray(a, b) -> float:
+def mae_asarray(a: np.ndarray, b: np.ndarray) -> float:
     """Mean absolute error, coercing both inputs through ``np.asarray`` first."""
     return float(np.mean(np.abs(np.asarray(a) - np.asarray(b))))
 

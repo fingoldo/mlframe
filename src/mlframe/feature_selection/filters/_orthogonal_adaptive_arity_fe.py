@@ -730,7 +730,7 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
                 continue
             basis_a, deg_a = parse_code_deg_with_basis(parts[0])
             basis_b, deg_b = parse_code_deg_with_basis(parts[1])
-            if basis_a is None or basis_b is None:
+            if basis_a is None or basis_b is None or deg_a is None or deg_b is None:
                 continue
             basis_a = _route_basis(legs[0])
             basis_b = _route_basis(legs[1])
@@ -750,7 +750,7 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
             basis_a, deg_a = parse_code_deg_with_basis(parts[0])
             basis_b, deg_b = parse_code_deg_with_basis(parts[1])
             basis_c, deg_c = parse_code_deg_with_basis(parts[2])
-            if basis_a is None or basis_b is None or basis_c is None:
+            if basis_a is None or basis_b is None or basis_c is None or deg_a is None or deg_b is None or deg_c is None:
                 continue
             basis_a = _route_basis(legs[0])
             basis_b = _route_basis(legs[1])
@@ -771,7 +771,7 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
             basis_b, deg_b = parse_code_deg_with_basis(parts[1])
             basis_c, deg_c = parse_code_deg_with_basis(parts[2])
             basis_d, deg_d = parse_code_deg_with_basis(parts[3])
-            if basis_a is None or basis_b is None or basis_c is None or basis_d is None:
+            if basis_a is None or basis_b is None or basis_c is None or basis_d is None or deg_a is None or deg_b is None or deg_c is None or deg_d is None:
                 continue
             basis_a = _route_basis(legs[0])
             basis_b = _route_basis(legs[1])

@@ -5,6 +5,8 @@ across copies.
 """
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 
@@ -29,7 +31,7 @@ def broadcast_lookup(g_keys: np.ndarray, lookup: dict, glob: float) -> np.ndarra
     return np.nan_to_num(out, nan=glob, posinf=glob, neginf=glob)
 
 
-def auto_detect_num_cols_plain(X: pd.DataFrame, group_cols, max_cols: int = 8) -> list:
+def auto_detect_num_cols_plain(X: pd.DataFrame, group_cols: "list | tuple | set", max_cols: int = 8) -> list:
     """Pick up to ``max_cols`` numeric candidate columns excluding ``group_cols``: all float columns
     qualify, integer columns only if high-cardinality (>500 uniques, i.e. not really categorical). No
     ``grp``-prefix exclusion -- shared by the group_distance_fe / composite_group_agg_fe pair."""
@@ -49,7 +51,7 @@ def auto_detect_num_cols_plain(X: pd.DataFrame, group_cols, max_cols: int = 8) -
     return out[:max_cols]
 
 
-def auto_detect_num_cols_skip_grp(X: pd.DataFrame, group_cols, max_cols: int = 8) -> list:
+def auto_detect_num_cols_skip_grp(X: pd.DataFrame, group_cols: "list | tuple | set", max_cols: int = 8) -> list:
     """Pick up to ``max_cols`` numeric candidate columns excluding ``group_cols`` AND already-``grp``-prefixed
     engineered columns (a per-group stat of one of those would build a nested recipe that can't replay from
     raw X at transform time, and the aggregate is constant within group anyway): shared by the
@@ -72,7 +74,7 @@ def auto_detect_num_cols_skip_grp(X: pd.DataFrame, group_cols, max_cols: int = 8
     return out[:max_cols]
 
 
-def coerce_X_for_grouped(X, group_col: str, num_col: str, recipe_name: str) -> pd.DataFrame:
+def coerce_X_for_grouped(X: "pd.DataFrame | Any", group_col: str, num_col: str, recipe_name: str) -> pd.DataFrame:
     """Extract only ``group_col``/``num_col`` into a narrow pandas frame for recipe replay, accepting
     pandas/polars/structured-ndarray input without a full-frame copy."""
     if isinstance(X, pd.DataFrame):

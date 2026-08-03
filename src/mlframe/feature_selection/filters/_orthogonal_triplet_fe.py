@@ -599,7 +599,7 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
             basis_a, deg_a = parse_code_deg_with_basis(parts[0])
             basis_b, deg_b = parse_code_deg_with_basis(parts[1])
             basis_c, deg_c = parse_code_deg_with_basis(parts[2])
-            if basis_a is None or basis_b is None or basis_c is None:
+            if basis_a is None or basis_b is None or basis_c is None or deg_a is None or deg_b is None or deg_c is None:
                 log_throttle(
                     logger, "triplet_recipe_cannot_parse_code_deg", logging.WARNING,
                     "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse " "code/deg from %r; skipping recipe.",

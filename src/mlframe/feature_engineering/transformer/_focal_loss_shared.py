@@ -4,10 +4,12 @@ so a fix can't silently drift out of sync across copies.
 """
 from __future__ import annotations
 
+from typing import Any, Callable
+
 import numpy as np
 
 
-def make_focal_objective(gamma: float = 2.0):
+def make_focal_objective(gamma: float = 2.0) -> Callable[[np.ndarray, Any], "tuple[np.ndarray, np.ndarray]"]:
     """Build a LightGBM-conforming ``(preds, train_data) -> (grad, hess)`` closure for binary focal loss."""
 
     def objective(preds, train_data):

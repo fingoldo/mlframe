@@ -7,6 +7,7 @@ closures in ``make_train_test_split``; the two closure references (``rng`` and t
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import numpy as np
 
@@ -107,7 +108,7 @@ def _perform_split(sorted_items, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf,
 
     return train_items, val_items, test_items, val_seq, test_seq, eff_test_shuf, eff_val_shuf
 
-def fmt_ts(value):
+def fmt_ts(value: Any) -> str:
     """Format a single timestamp as ``YYYY-MM-DD``, falling back to ``str()`` for non-datetime (e.g.
     numeric epoch-seconds) values that the ``%Y-%m-%d`` format spec would otherwise crash on."""
     try:

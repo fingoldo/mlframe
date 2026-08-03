@@ -5,7 +5,7 @@ can't silently drift out of sync across copies.
 from __future__ import annotations
 
 import time
-from typing import Callable
+from typing import Any, Callable
 
 
 def best_of_median_seconds(fn: Callable, n: int = 5) -> tuple[float, float]:
@@ -30,7 +30,7 @@ def time_call(fn: Callable, *args, iters: int) -> float:
     return (time.perf_counter() - t0) / iters * 1e6
 
 
-def best_of_seconds_with_output(fn: Callable, *args, reps: int = 7):
+def best_of_seconds_with_output(fn: Callable, *args, reps: int = 7) -> "tuple[float, Any]":
     """Best (minimum) wall-clock time in seconds over ``reps`` calls, plus the LAST call's return value."""
     best = float("inf")
     out = None

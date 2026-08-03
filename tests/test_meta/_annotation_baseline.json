@@ -216,7 +216,6 @@
   "feature_selection/filters/_mrmr_fe_step_helpers.py::compute_pair_maxt_floor",
   "feature_selection/filters/_mrmr_fe_step_helpers.py::log_fe_summary",
   "feature_selection/filters/_mrmr_fe_step_helpers.py::run_cluster_aggregate_emission",
-  "feature_selection/filters/_mrmr_fingerprints.py::histogram",
   "feature_selection/filters/_mrmr_fit_impl/_helpers.py::fe_decide_on_subsample",
   "feature_selection/filters/_mrmr_partial_fit.py::partial_fit",
   "feature_selection/filters/_mrmr_sis_screen.py::sis_screen",

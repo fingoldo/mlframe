@@ -12,7 +12,7 @@ def predict_from_proba(classes_: np.ndarray, proba: np.ndarray) -> np.ndarray:
     return np.asarray(classes_[np.argmax(proba, axis=1)])
 
 
-def argmax_predict(self, X) -> np.ndarray:
+def argmax_predict(self, X: np.ndarray) -> np.ndarray:
     """Shared ``.predict`` for classifiers whose prediction is just an argmax over their own
     ``.predict_proba(X)``, mapped back through ``self.classes_``. Bound as a class attribute
     (``predict = argmax_predict``); Python's descriptor protocol resolves it to a normal bound
