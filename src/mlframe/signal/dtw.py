@@ -46,7 +46,8 @@ cp, _HAS_CUPY = try_import_cupy()
 try:
     from numba import cuda as _nb_cuda
     _HAS_NB_CUDA = bool(_nb_cuda.is_available())
-except Exception:
+except Exception as e:
+    logger.debug("numba.cuda import/availability probe failed: %s", e)
     _nb_cuda = None
     _HAS_NB_CUDA = False
 
@@ -577,12 +578,14 @@ def dtw_dispatch(
     if choice == "cupy" and _HAS_CUPY:
         try:
             return dtw_cupy(x, y, window=window)
-        except Exception:  # GPU path failed at runtime (OOM, driver hiccup) -> CPU fallback, never raise
+        except Exception as e:  # GPU path failed at runtime (OOM, driver hiccup) -> CPU fallback, never raise
+            logger.debug("dtw_cupy failed, falling back to dtw_cpu: %s", e)
             return dtw_cpu(x, y, window=window, psi=psi)
     if choice == "cuda" and _HAS_NB_CUDA:
         try:
             return dtw_cuda(x, y, window=window)
-        except Exception:  # GPU path failed at runtime (OOM, driver hiccup) -> CPU fallback, never raise
+        except Exception as e:  # GPU path failed at runtime (OOM, driver hiccup) -> CPU fallback, never raise
+            logger.debug("dtw_cuda failed, falling back to dtw_cpu: %s", e)
             return dtw_cpu(x, y, window=window, psi=psi)
     return dtw_cpu(x, y, window=window, psi=psi)
 

@@ -322,7 +322,8 @@ def fingerprint_df(
     if columns is None:
         try:
             cols = list(df.columns)
-        except Exception:
+        except Exception as e:
+            logger.debug("reading df.columns failed: %s", e)
             cols = []
     else:
         cols = list(columns)
@@ -397,7 +398,8 @@ def fingerprint_df(
                         for c in cols_sorted:
                             try:
                                 col_bytes = sub[c].to_numpy().tobytes()
-                            except Exception:
+                            except Exception as e:
+                                logger.debug("to_numpy().tobytes() failed for column %r, falling back to str(to_list()): %s", c, e)
                                 col_bytes = str(sub[c].to_list()).encode("utf-8")
                             h_outer.update(xxhash.xxh3_64(col_bytes).digest())
                         payload_parts.append(h_outer.digest())
@@ -412,7 +414,8 @@ def fingerprint_df(
                         for c in cols_sorted:
                             try:
                                 parts.append(sub[c].to_numpy().tobytes())
-                            except Exception:
+                            except Exception as e:
+                                logger.debug("to_numpy().tobytes() failed for column %r, falling back to str(to_list()): %s", c, e)
                                 parts.append(str(sub[c].to_list()).encode("utf-8"))
                             parts.append(f"|{c}|".encode())
                         payload_parts.append(b"".join(parts))

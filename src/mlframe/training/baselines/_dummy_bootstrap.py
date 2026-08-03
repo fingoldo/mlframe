@@ -442,7 +442,8 @@ def _bootstrap_ci_for_strongest(
                 samples = _vectorized_bootstrap_logloss_samples(
                     y, p, int(n_resamples), int(seed),
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug("_vectorized_bootstrap_logloss_samples failed, falling back to the per-resample loop: %s", e)
                 samples = None
             if samples is not None and len(samples) >= max(1, n_resamples // 4):
                 eps = 1e-15
@@ -486,6 +487,7 @@ def _bootstrap_ci_for_strongest(
                         try:
                             losses.append(float(_ll(yi[:, k], pi[:, k], labels=[0, 1])))
                         except Exception as _e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+                            logger.debug("multilabel log-loss: class %d component failed: %s", k, _e)
                             # Pre-fix `continue` silently dropped failing classes
                             # from the mean -- the multilabel log-loss reported
                             # back was a biased average over surviving classes only.
@@ -538,6 +540,8 @@ def _bootstrap_ci_for_strongest(
                 if np.isfinite(v):
                     samples.append(float(v))
             except Exception as _e_boot:
+                if first_err is None:
+                    logger.debug("bootstrap resample metric failed, first occurrence: %s", _e_boot)
                 # Pre-fix `continue` was silent. Track failure count so we
                 # can WARN-log if more than a small fraction failed -- the
                 # `< n_resamples // 4` guard below only catches extreme

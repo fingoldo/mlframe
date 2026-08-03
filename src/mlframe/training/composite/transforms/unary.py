@@ -22,16 +22,20 @@ These helpers are pure numpy; integration into the registry + ``CompositeTargetE
 """
 from __future__ import annotations
 
+import logging
+
 from ._domain_shared import y_domain_finite
 
 from typing import Any, Callable, Dict, Tuple
 
 import numpy as np
 
+logger = logging.getLogger(__name__)
+
 try:
     import numba as _numba
     _HAS_NUMBA = True
-except Exception:  # pragma: no cover - numba is a hard dep but allow graceful skip
+except ImportError:  # pragma: no cover - numba is a hard dep but allow graceful skip
     _numba = None
     _HAS_NUMBA = False
 
@@ -353,7 +357,8 @@ def yeo_johnson_y_fit(y: np.ndarray) -> Dict[str, Any]:
         from scipy.optimize import minimize_scalar
         result = minimize_scalar(neg_loglik, bounds=(-2.0, 4.0), method="bounded", options={"xatol": 1e-4})
         lam = float(result.x) if result.success else 1.0
-    except Exception:
+    except Exception as e:
+        logger.debug("Box-Cox lambda MLE optimization failed, defaulting to 1.0: %s", e)
         lam = 1.0
     return {"lambda": float(np.clip(lam, -2.0, 4.0))}
 
@@ -399,7 +404,8 @@ def box_cox_y_fit(y: np.ndarray) -> Dict[str, Any]:
         lam = float(lam)
         if not np.isfinite(lam):
             lam = 1.0
-    except Exception:
+    except Exception as e:
+        logger.debug("Box-Cox lambda computation failed, defaulting to 1.0: %s", e)
         lam = 1.0
     return {"lambda": float(np.clip(lam, *_BOX_COX_LAMBDA_RANGE))}
 

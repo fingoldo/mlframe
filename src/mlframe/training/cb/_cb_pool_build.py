@@ -82,7 +82,8 @@ def _maybe_get_or_build_cb_pool(
     # to CB only -- XGB/LGB have their own handling for missing cols.
     try:
         _df_cols = set(train_df.columns) if hasattr(train_df, "columns") else None
-    except Exception:
+    except Exception as e:
+        logger.debug("reading train_df.columns failed: %s", e)
         _df_cols = None
 
     def _filter_to_df(feats):
@@ -225,7 +226,8 @@ def _maybe_get_or_build_cb_pool(
                     # regression target keeps float64 instead of silently
                     # collapsing adjacent values under float32 (~7 sig digits).
                     _label_for_swap = _coerce_label_for_cb_pool(train_target)
-                except Exception:
+                except Exception as e:
+                    logger.debug("_coerce_label_for_cb_pool failed, using train_target as-is: %s", e)
                     _label_for_swap = train_target
                 cached.set_label(_label_for_swap)
                 cached._mlframe_last_target_sig = _target_sig
@@ -288,7 +290,8 @@ def _maybe_get_or_build_cb_pool(
     # shadow on the Pool.
     try:
         _label_for_pool = _coerce_label_for_cb_pool(train_target)
-    except Exception:
+    except Exception as e:
+        logger.debug("_coerce_label_for_cb_pool failed, using train_target as-is: %s", e)
         _label_for_pool = train_target
 
     try:

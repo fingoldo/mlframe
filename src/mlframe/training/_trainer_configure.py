@@ -347,7 +347,8 @@ def configure_training_params(
                     assert target_arr is not None
                     _first = target_arr[0]
                     nlabels = (len(_first) if hasattr(_first, "__len__") else int(np.asarray(_first).size)) + 1
-                except Exception:
+                except Exception as e:
+                    logger.debug("inferring nlabels from target_arr failed, defaulting to 3: %s", e)
                     nlabels = 3
             elif target_arr is not None:
                 nlabels = len(np.unique(target_arr))
@@ -507,9 +508,9 @@ def configure_training_params(
         # CB 1.2.x's ``_set_features_order_data_polars_categorical_column`` has dispatch gaps on our nullable-Categorical / Enum schema, so opting CB into pandas at predict time bypasses the doomed retry on success and costs nothing on failure. Set on the base instance so ``clone()`` carries the param-equivalent state forward; for the attr to survive clone we also re-assert it inside ``train_eval.py:process_model``'s clone call.
         try:
             _cb_model._mlframe_polars_fastpath_broken = True
-        except Exception:  # nosec B110 - non-trivial body
+        except Exception as e:  # nosec B110 - non-trivial body
             # CB Python class is permissive about attributes; slot-only forks could refuse - degrade to "pay first-call retry".
-            pass
+            logger.debug("setting _mlframe_polars_fastpath_broken failed: %s", e)
         cb_params = dict(
             model=_cb_model,
             fit_params=dict(
@@ -529,7 +530,8 @@ def configure_training_params(
         # Disable eval_set-dependent early stopping on the inner estimator.
         try:
             params = estimator.get_params()
-        except Exception:
+        except Exception as e:
+            logger.debug("estimator.get_params() failed, treating params as empty: %s", e)
             params = {}
         _patch: dict = {}
         if "early_stopping_rounds" in params and params.get("early_stopping_rounds") is not None:

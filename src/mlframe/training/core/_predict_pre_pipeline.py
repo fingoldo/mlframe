@@ -69,7 +69,8 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
             _spmat = _vec.transform(_text)
             try:
                 _n_feats = len(_vec.get_feature_names_out())
-            except Exception:
+            except Exception as e:
+                logger.debug("get_feature_names_out() failed, using the sparse matrix width: %s", e)
                 _n_feats = _spmat.shape[1]
             _new_cols = [f"{_col}__tfidf_{i}" for i in range(_n_feats)]
             from ..pipeline import sparse_df_from_spmatrix
@@ -142,7 +143,8 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
         try:
             from ..pipeline import sparse_df_from_spmatrix
             return sparse_df_from_spmatrix(_arr, _names, df.index)
-        except Exception:
+        except Exception as e:
+            logger.debug("sparse_df_from_spmatrix failed, densifying instead: %s", e)
             _arr = _arr.toarray()
     return pd.DataFrame(_arr, columns=_names, index=df.index)
 
@@ -389,7 +391,8 @@ def _apply_pre_pipeline_with_passthrough(
     try:
         check_is_fitted(model_obj.pre_pipeline)
         _pp_fitted = True
-    except Exception:
+    except Exception as e:
+        logger.debug("check_is_fitted(pre_pipeline) failed: %s", e)
         _pp_fitted = False
 
     if not _pp_fitted:

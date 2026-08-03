@@ -168,8 +168,8 @@ def _ensure_kaleido_server_started() -> bool:
                 """Stop the kaleido sync server at interpreter shutdown so the Chromium subprocess exits cleanly."""
                 try:
                     kaleido.stop_sync_server(silence_warnings=True)
-                except Exception:  # nosec B110 - optional dependency import guard
-                    pass
+                except Exception as e:  # nosec B110 - optional dependency import guard
+                    logger.debug("kaleido.stop_sync_server() at interpreter shutdown failed: %s", e)
             atexit.register(_stop)
             return True
         except Exception as e:
@@ -198,7 +198,8 @@ def _oneshot_write_static(fig: Any, path: str, fmt: str) -> None:
     try:
         fig.write_image(path, format=fmt)
         return
-    except Exception:
+    except Exception as e:
+        logger.debug("fig.write_image() failed, falling back to kaleido.calc_fig_sync(): %s", e)
         import kaleido
         data = kaleido.calc_fig_sync(fig, opts={"format": fmt})
         with open(path, "wb") as fh:
@@ -235,6 +236,7 @@ def write_image_via_kaleido(fig: Any, path: str, fmt: str) -> None:
             try:
                 _kal.write_fig_sync(fig, path, opts={"format": fmt})
             except Exception as ee:
+                logger.debug("persistent-server write_fig_sync failed: %s", ee)
                 _exc[0] = ee
 
         th = threading.Thread(target=_do_persistent, daemon=True)

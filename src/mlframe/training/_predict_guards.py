@@ -130,7 +130,8 @@ def _cb_val_pool_cache_lookup(X: Any, method: str) -> Any | None:
     try:
         _shape = X.shape
         _shape_sig = (int(_shape[0]), int(_shape[1]))
-    except Exception:
+    except Exception as e:
+        logger.debug("computing X shape signature failed: %s", e)
         _shape_sig = None
     try:
         if hasattr(X, "dtypes"):
@@ -139,7 +140,8 @@ def _cb_val_pool_cache_lookup(X: Any, method: str) -> Any | None:
             _dtypes_sig = tuple(str(d) for d in X.schema.values())
         else:
             _dtypes_sig = None
-    except Exception:
+    except Exception as e:
+        logger.debug("computing X dtypes signature failed: %s", e)
         _dtypes_sig = None
 
     _id = id(X)
@@ -294,7 +296,8 @@ def _apply_nan_guard(
             # which SimpleImputer(strategy="mean", keep_empty_features=True) does NOT replace, so +-inf rows
             # would pass the gate but then propagate unchanged through imputer+scaler.
             _has_nan = bool(np.any(np.isnan(_arr_check[:500])))
-    except Exception:
+    except Exception as e:
+        logger.debug("NaN probe on the first 500 rows failed: %s", e)
         _has_nan = False
 
     if not _has_nan:

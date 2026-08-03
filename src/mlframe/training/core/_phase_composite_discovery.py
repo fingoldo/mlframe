@@ -89,7 +89,8 @@ def run_composite_target_discovery(
 
     try:
         _disc_feature_cols = list(filtered_train_df.columns)
-    except Exception:
+    except Exception as e:
+        logger.debug("reading filtered_train_df.columns failed, using train_df_pd.columns: %s", e)
         _disc_feature_cols = list(train_df_pd.columns)
 
     # filtered_train_df is row-aligned to filtered_train_idx, so discovery sees a contiguous range.
@@ -161,7 +162,8 @@ def run_composite_target_discovery(
                 "defaulted to %.3f (raw R^2 > 0.9996 -> composite has no headroom).",
                 _RERANK_SKIP_RATIO_BOUNDED_DEFAULT,
             )
-        except Exception:
+        except Exception as e:
+            logger.debug("re-rank-skip-ratio auto-default computation failed, using the caller's config as-is: %s", e)
             _disc_cfg_base = composite_target_discovery_config
 
     # Suite-constant group_ids: coerce once + materialise the filtered slice + length cap; the per-target loop below otherwise pays a fresh
@@ -650,7 +652,8 @@ def run_composite_target_discovery(
                                 if hasattr(val_df_pd, "__len__") and len(val_df_pd) == len(_vy):
                                     _disc_val_df = val_df_pd
                                     _disc_val_y = _vy
-                        except Exception:  # -- val gate is best-effort; fall back to train-group holdout
+                        except Exception as e:  # -- val gate is best-effort; fall back to train-group holdout
+                            logger.debug("val-gate construction failed, falling back to train-group holdout: %s", e)
                             _disc_val_df, _disc_val_y = None, None
                         _disc = _disc_instance.fit(
                             df=_disc_df,

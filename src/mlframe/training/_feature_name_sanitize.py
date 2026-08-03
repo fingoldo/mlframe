@@ -27,7 +27,10 @@ is returned unchanged.
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional, Sequence
+
+logger = logging.getLogger(__name__)
 
 # JSON-structural characters rejected by LightGBM plus XGBoost's ``< > [ ]``.
 _HOSTILE_CHARS = ',[]{}":<>'
@@ -97,15 +100,16 @@ def sanitize_frame_columns(df):
 
         if isinstance(df, _pd.DataFrame):
             return df.rename(columns=mapping)
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("pandas rename(columns=...) failed: %s", e)
     try:
         return df.rename(mapping)  # polars.DataFrame
-    except Exception:
+    except Exception as e:
+        logger.debug("polars rename(mapping) failed, falling back to direct columns assignment: %s", e)
         try:
             df.columns = [mapping.get(c, mapping.get(str(c), c)) for c in cols_list]
-        except Exception:  # nosec B110 - best-effort path
-            pass
+        except Exception as e2:  # nosec B110 - best-effort path
+            logger.debug("direct columns assignment also failed: %s", e2)
         return df
 
 

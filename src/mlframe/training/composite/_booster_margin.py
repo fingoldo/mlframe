@@ -45,7 +45,7 @@ def inner_raw_margin(
     lgb: Any
     try:
         import lightgbm as lgb
-    except Exception:  # nosec B110 - optional dependency import guard
+    except ImportError:
         lgb = None
     if lgb is not None and isinstance(model, getattr(lgb, lgbm_attr)):
         out = model.predict(X, raw_score=True)
@@ -53,14 +53,14 @@ def inner_raw_margin(
         xgb: Any
         try:
             import xgboost as xgb
-        except Exception:  # nosec B110 - optional dependency import guard
+        except ImportError:
             xgb = None
         if xgb is not None and isinstance(model, getattr(xgb, xgb_attr)):
             out = model.predict(X, output_margin=True)
     if out is None:
         try:
             import catboost as cb
-        except Exception:  # nosec B110 - optional dependency import guard
+        except ImportError:
             cb = None
         if cb is not None and isinstance(model, getattr(cb, catboost_attr)):
             out = model.predict(X, prediction_type="RawFormulaVal")

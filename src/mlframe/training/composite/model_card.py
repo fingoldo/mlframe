@@ -60,7 +60,8 @@ def _resolve_base_columns(estimator: Any) -> tuple[str, ...]:
     """Resolve the base column tuple (multi-base first, then single, else ())."""
     try:
         return tuple(estimator._resolve_base_columns())
-    except Exception:  # pragma: no cover - defensive; estimator may be a bare mock
+    except Exception as e:  # pragma: no cover - defensive; estimator may be a bare mock
+        logger.debug("_resolve_base_columns() failed: %s", e)
         cols = getattr(estimator, "base_columns", None)
         if cols:
             return tuple(cols)
@@ -178,6 +179,7 @@ def _attribution(estimator: Any, X: Any) -> Optional[dict[str, Any]]:
     try:
         summary = attribution_summary(estimator, X)
     except Exception as exc:  # pragma: no cover - best-effort: escalated via the returned "reason" field
+        logger.debug("attribution_summary() failed: %s", exc)
         return {"available": False, "reason": f"attribution failed: {exc}"}
     summary["available"] = True
     return summary
@@ -200,6 +202,7 @@ def _leakage_check(estimator: Any, X: Any, y: Any, base_cols: tuple[str, ...]) -
     try:
         base_arr = estimator._extract_base_for_transform(X, base_cols)
     except Exception as exc:  # pragma: no cover - best-effort: escalated via the returned "reason" field (X may lack the base column)
+        logger.debug("_extract_base_for_transform() failed: %s", exc)
         return {"available": False, "reason": f"base column unavailable in X: {exc}"}
     base_arr = np.asarray(base_arr, dtype=np.float64)
     if base_arr.ndim > 1:
