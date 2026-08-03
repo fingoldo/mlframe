@@ -62,6 +62,7 @@ from typing import Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
+from numba import njit
 
 logger = logging.getLogger(__name__)
 
@@ -408,6 +409,25 @@ def _digitize_with_edges(x: np.ndarray, edges: np.ndarray) -> np.ndarray:
     return codes.astype(np.int64)
 
 
+@njit(cache=True)
+def _bin_sum_count_masked_njit(codes_j: np.ndarray, xi: np.ndarray, finite_i: np.ndarray, n_bins_eff: int) -> tuple:
+    """Fused single-pass per-bin sum + count of ``xi`` over ``finite_i``-masked rows, grouped by
+    ``codes_j``. Replaces the caller's ``codes_j[finite_i]`` / ``xi[finite_i]`` subset builds + two
+    separate ``np.bincount`` calls (2 full-array passes plus 2 subset-copy allocations) with one row scan
+    that masks and accumulates both statistics together. Accumulation order is the original row order
+    (skipping non-finite rows) - identical to what ``np.bincount`` does on the pre-built finite-only
+    subset, so results are bit-identical."""
+    n = codes_j.shape[0]
+    bin_sum = np.zeros(n_bins_eff, dtype=np.float64)
+    bin_cnt = np.zeros(n_bins_eff, dtype=np.float64)
+    for r in range(n):
+        if finite_i[r]:
+            c = codes_j[r]
+            bin_sum[c] += xi[r]
+            bin_cnt[c] += 1.0
+    return bin_sum, bin_cnt
+
+
 def generate_conditional_residual_features(
     X: pd.DataFrame,
     num_cols: Sequence[str],
@@ -451,10 +471,9 @@ def generate_conditional_residual_features(
             xi = col_vals[x_i]
             finite_i = finite_of[x_i]
             global_mean = global_mean_of[x_i]
-            codes_jf = codes_j[finite_i]
-            # np.bincount accumulates per bin in element order exactly as np.add.at does - bit-identical sum/count, but a single C pass instead of the unbuffered scatter.
-            bin_sum = np.bincount(codes_jf, weights=xi[finite_i], minlength=n_bins_eff).astype(np.float64)
-            bin_cnt = np.bincount(codes_jf, minlength=n_bins_eff).astype(np.float64)
+            # Fused single-pass sum+count (see _bin_sum_count_masked_njit) instead of building the
+            # codes_j[finite_i]/xi[finite_i] subsets and running two separate np.bincount passes.
+            bin_sum, bin_cnt = _bin_sum_count_masked_njit(codes_j, xi, finite_i, n_bins_eff)
             bin_mean = np.where(
                 bin_cnt > 0.0, bin_sum / np.maximum(bin_cnt, 1.0), global_mean,
             )

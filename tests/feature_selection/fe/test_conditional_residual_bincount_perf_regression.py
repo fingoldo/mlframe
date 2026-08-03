@@ -1,18 +1,24 @@
-"""Regression sensor for the iter111 perf rewrite of
+"""Regression sensor for the perf rewrites of
 ``generate_conditional_residual_features``.
 
-The inner ``(x_i, x_j)`` loop accumulated per-bin sum/count via ``np.add.at``
-(unbuffered scatter) and recomputed the per-``x_i`` finiteness mask + global
-mean once per pair. iter111 replaced the scatter with ``np.bincount`` (a single
-C pass, bit-identical accumulation order) and hoisted the per-``x_i``
-invariants out of the inner loop.
+The inner ``(x_i, x_j)`` loop originally accumulated per-bin sum/count via
+``np.add.at`` (unbuffered scatter) and recomputed the per-``x_i`` finiteness
+mask + global mean once per pair. iter111 replaced the scatter with
+``np.bincount`` (a single C pass, bit-identical accumulation order) and hoisted
+the per-``x_i`` invariants out of the inner loop. A later pass (2026-08-03,
+incidental to a profiling cycle -- a 2M-row cProfile caught this function
+costing real self-time) fused iter111's TWO separate ``np.bincount`` calls
+(sum, count) into ONE njit single-pass kernel (``_bin_sum_count_masked_njit``),
+avoiding the ``codes_j[finite_i]``/``xi[finite_i]`` subset-copy allocations too
+-- 1.48x at n=2M/k=15, bit-identical (verified against the add.at reference
+below).
 
 Two pins:
 
-* ``test_..._does_not_use_np_add_at`` -- the generate path must NOT call
-  ``np.add.at`` any more (FAILS on the pre-iter111 code which called it 2x per
-  pair).
-* ``test_..._bit_identical_to_add_at_reference`` -- the bincount accumulation is
+* ``test_..._uses_fused_njit_kernel`` -- the generate path must call the fused
+  ``_bin_sum_count_masked_njit`` kernel (the current scatter-free/bincount-free
+  accumulation mechanism).
+* ``test_..._bit_identical_to_add_at_reference`` -- the fused accumulation is
   byte-for-byte identical to the add.at reference on discrete / NaN-mixed data
   (exercises ties + the global-mean fallback bin).
 """
@@ -20,6 +26,7 @@ Two pins:
 import numpy as np
 import pandas as pd
 
+from mlframe.feature_selection.filters import _extra_fe_families
 from mlframe.feature_selection.filters._extra_fe_families import (
     generate_conditional_residual_features,
 )
@@ -38,25 +45,26 @@ def _make_df(n: int = 5000) -> tuple[pd.DataFrame, list[str]]:
     return pd.DataFrame(data), cols
 
 
-def test_conditional_residual_generate_uses_bincount_not_add_at(monkeypatch):
+def test_conditional_residual_generate_uses_fused_njit_kernel(monkeypatch):
     # np.add.at is a ufunc METHOD and is READ-ONLY in current numpy -- it cannot be monkeypatched
-    # (setattr raises "'numpy.ufunc' object attribute 'at' is read-only"). Pin the iter111 rewrite by its
-    # POSITIVE signal instead: np.bincount IS used (it replaced the per-pair np.add.at scatter, 2 calls
-    # per pair). Bit-identical accumulation is pinned by the reference test below; together they guarantee
-    # the scatter-free bincount path. A regression back to np.add.at would drop bincount usage to zero here.
-    """Conditional residual generate uses bincount not add at."""
+    # (setattr raises "'numpy.ufunc' object attribute 'at' is read-only"). Pin the current rewrite by its
+    # POSITIVE signal instead: the fused njit kernel IS called (it replaced iter111's two per-pair
+    # np.bincount calls, which themselves replaced the original np.add.at scatter). Bit-identical
+    # accumulation is pinned by the reference test below; together they guarantee the
+    # scatter-free/bincount-free fused path is what actually runs.
+    """Conditional residual generate uses the fused njit sum+count kernel."""
     calls = {"n": 0}
-    orig = np.bincount
+    orig = _extra_fe_families._bin_sum_count_masked_njit
 
     def spy(*args, **kwargs):
         """Helper that spy."""
         calls["n"] += 1
         return orig(*args, **kwargs)
 
-    monkeypatch.setattr(np, "bincount", spy)
+    monkeypatch.setattr(_extra_fe_families, "_bin_sum_count_masked_njit", spy)
     X, cols = _make_df()
     generate_conditional_residual_features(X, cols, n_bins=10)
-    assert calls["n"] > 0, "generate must use np.bincount (the iter111 scatter-free accumulation)"
+    assert calls["n"] > 0, "generate must use the fused _bin_sum_count_masked_njit kernel"
 
 
 def test_conditional_residual_generate_bit_identical_to_add_at_reference():

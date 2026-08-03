@@ -196,6 +196,20 @@ element) and wired it in, collapsing 4 traversals to 1. Verified 0 mismatches ac
 (n=500-200k, varying scale `j`/offset `k`, float32 + float64 output dtype) and 8.02x speedup at n=2M (warm,
 best-of-30).
 
+## PERF WIN (2026-08-03): conditional-residual FE's per-pair sum+count split into a fused njit pass (1.48x)
+2M-row cProfile on combo `c0367_a7a91550` (master-seed `31337`, lgb-only regression) caught
+`generate_conditional_residual_features` (`_extra_fe_families.py`) with real self-time. Its inner
+`(x_i, x_j)` loop (iter111, an earlier rewrite) already used `np.bincount` instead of `np.add.at`, but still
+paid TWO separate bincount passes per pair — one for the per-bin sum, one for the per-bin count — plus two
+subset-copy allocations (`codes_j[finite_i]`, `xi[finite_i]`) to feed them. Added
+`_bin_sum_count_masked_njit`: one row-scan that masks and accumulates both sum and count together, in the
+same row order `np.bincount` on the pre-built finite-only subset used (so results are bit-identical).
+Verified 0 mismatches across 15 synthetic scenarios (n=500-50k, k=2-6 columns, NaN-mixed) and 1.48x speedup
+at n=2M/k=15 (warm, best-of-5). The existing perf-regression test pinning this function's accumulation
+mechanism (`test_conditional_residual_bincount_perf_regression.py`) was reframed to spy on the new fused
+kernel instead of `np.bincount` — its real invariant (no `np.add.at` scatter, bit-identical accumulation)
+is unchanged, only the current mechanism-under-test needed updating.
+
 ## PERF WIN (2026-08-02): per_feature_edges' thread-pool threshold was 64x too high for real usage (1.2x-7.2x)
 2M-row cProfile on combo `c0037_c314bb14` (master-seed `2026_04_29`) found `per_feature_edges`/
 `_compute_col_edges` (`_adaptive_nbins.py`) costing 78s wall on a `fayyad_irani` (MDLP) fit with
