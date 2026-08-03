@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 import sys; sys.modules['cupy'] = None
 import numpy as np, time
 from numba import njit
-from math import log
 
 NP = dict(cache=True, fastmath=True, nogil=True)
 

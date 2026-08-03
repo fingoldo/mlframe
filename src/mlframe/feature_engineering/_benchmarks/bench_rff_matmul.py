@@ -107,7 +107,7 @@ def main() -> int:
     for row in sweep:
         gs = f"{row['gpu_s']:>10.4f}" if row["gpu_s"] is not None else f"{'(no GPU)':>10}"
         sp = f"{row['speedup']:>8.2f}x" if row["speedup"] is not None else f"{'-':>9}"
-        print(f"{row['n']:>10} {row['d']:>5} {row['work']:>12} " f"{row['cpu_s']:>10.4f} {gs} {sp} {str(row['gpu_wins']):>9}")
+        print(f"{row['n']:>10} {row['d']:>5} {row['work']:>12} " f"{row['cpu_s']:>10.4f} {gs} {sp} {row['gpu_wins']!s:>9}")
     if threshold is None:
         print("\nNo GPU crossover found on this hardware (CPU faster across the sweep). " "Placeholder fallback (5_000_000 * 256) will remain in effect.")
         return 1

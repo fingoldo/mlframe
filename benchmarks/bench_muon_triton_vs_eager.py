@@ -81,7 +81,7 @@ def _bootstrap_triton_windows() -> bool:
     if sys.platform != "win32":
         return True
     try:
-        import triton  # noqa: F401
+        import triton
         return True  # already works, no bootstrap needed
     except ImportError:
         pass

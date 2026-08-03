@@ -20,14 +20,14 @@ from __future__ import annotations
 import sys
 
 sys.modules.setdefault("cupy", None)
-import scipy.stats  # noqa: F401,E402
-import numba  # noqa: F401,E402
+import scipy.stats  # noqa: F401
+import numba  # noqa: F401
 
-from timeit import default_timer as timer  # noqa: E402
+from timeit import default_timer as timer
 
-import numpy as np  # noqa: E402
+import numpy as np
 
-from mlframe.training.composite.discovery._collinear_numba import block_shuffle_gather  # noqa: E402
+from mlframe.training.composite.discovery._collinear_numba import block_shuffle_gather
 
 
 def _legacy(arr, perm, block_len):

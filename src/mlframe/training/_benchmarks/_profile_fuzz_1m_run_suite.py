@@ -13,7 +13,7 @@ import logging
 import pstats
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 
@@ -43,8 +43,7 @@ if __name__ == "__main__":
         from mlframe.training.core.predict import predict_from_models
         from mlframe.training.configs import (
             TargetTypes, BaselineDiagnosticsConfig, DummyBaselinesConfig,
-            OutputConfig, ReportingConfig, CompositeTargetDiscoveryConfig,
-            FeatureSelectionConfig, OutlierDetectionConfig,
+            OutputConfig, ReportingConfig, FeatureSelectionConfig, OutlierDetectionConfig,
             PreprocessingBackendConfig, PreprocessingExtensionsConfig,
         )
         from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor

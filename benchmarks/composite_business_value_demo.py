@@ -27,7 +27,7 @@ import argparse
 import json
 import sys
 import time
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List
 
 import numpy as np
 import pandas as pd

@@ -101,7 +101,7 @@ def main() -> None:
             t_np = min(time_call(ks_numpy_current, yt, ys, iters=200) for _ in range(3))
             t_fu = min(time_call(ks_fused_gather, yt, ys, iters=200) for _ in range(3))
             t_ik = min(time_call(ks_inkernel, yt, ys, iters=200) for _ in range(3))
-            print(f"{n:>8} {ratio:>6.2f} {t_np:>10.1f} {t_fu:>10.1f} {t_ik:>10.1f} " f"{t_np / t_fu:>6.2f}x {t_np / t_ik:>6.2f}x {str(identical):>10}")
+            print(f"{n:>8} {ratio:>6.2f} {t_np:>10.1f} {t_fu:>10.1f} {t_ik:>10.1f} " f"{t_np / t_fu:>6.2f}x {t_np / t_ik:>6.2f}x {identical!s:>10}")
 
 
 if __name__ == "__main__":

@@ -21,15 +21,15 @@ import functools
 import sys
 
 sys.modules.setdefault("cupy", None)
-import scipy.stats  # noqa: F401,E402
-import numba  # noqa: F401,E402
+import scipy.stats  # noqa: F401
+import numba  # noqa: F401
 
-import cProfile  # noqa: E402
-import io  # noqa: E402
-import pstats  # noqa: E402
+import cProfile
+import io
+import pstats
 
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
+import numpy as np
+import pandas as pd
 
 from ._bench_discovery_shared import run_discovery_fit as _run_discovery_fit
 

@@ -38,9 +38,9 @@ os.environ.setdefault("MLFRAME_KEEP_BROKEN_CUPY", "1")
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
-import numpy as np  # noqa: E402
+import numpy as np
 
-from mlframe.training.baselines._dummy_bootstrap import (  # noqa: E402
+from mlframe.training.baselines._dummy_bootstrap import (
     _numba_bootstrap_rmse_samples,
     _numba_bootstrap_logloss_binary_samples,
 )

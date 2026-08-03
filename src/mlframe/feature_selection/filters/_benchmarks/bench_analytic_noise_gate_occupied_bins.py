@@ -22,7 +22,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[5] / "src"))
 
-from mlframe.feature_selection.filters._analytic_mi_null import (  # noqa: E402
+from mlframe.feature_selection.filters._analytic_mi_null import (
     _occupied_bins_per_col,
 )
 

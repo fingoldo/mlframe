@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 import time
 import warnings
 
-import numpy as np
 
 warnings.filterwarnings("ignore")
 

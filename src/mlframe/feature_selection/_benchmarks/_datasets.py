@@ -8,7 +8,6 @@ produce identical outputs.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
 import pandas as pd

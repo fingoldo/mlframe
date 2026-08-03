@@ -104,7 +104,7 @@ def main():
         rv_str = f"{r['reval_wall']:.3f}" if r['reval_wall'] is not None else "n/a"
         print(f"{r['value']:>6} {rv_str:>11} {r['total']:>8.2f} "
               f"{r['informative_recall']:>8.4f} {loss_str:>14} {r['n_selected']:>6} "
-              f"{r['n_evaluated']:>7} {str(r['n_models_run_sum']):>8}")
+              f"{r['n_evaluated']:>7} {r['n_models_run_sum']!s:>8}")
 
     base = results[0]
     print("\n=== chosen-subset comparison vs baseline value=20 ===")

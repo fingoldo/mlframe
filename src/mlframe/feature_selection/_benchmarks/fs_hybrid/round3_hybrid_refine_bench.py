@@ -19,11 +19,6 @@ import warnings; warnings.filterwarnings("ignore")
 import numpy as np, pandas as pd
 from collections import defaultdict
 from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import make_pipeline
-from sklearn.linear_model import LogisticRegression
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _downstream_shared import downstream_on_matrix

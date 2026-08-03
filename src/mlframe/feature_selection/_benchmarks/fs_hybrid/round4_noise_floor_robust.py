@@ -3,16 +3,16 @@ and is the downstream win a property of the AUTO-LOCATED N (not just 'any small 
 across a neighborhood of N so we can see the plateau the rule landed on.
 """
 from __future__ import annotations
-import os, sys, time
+import os, sys
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
-import numpy as np, pandas as pd
-from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
+import numpy as np
+from sklearn.model_selection import train_test_split, StratifiedKFold
 import lightgbm as lgb
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from round3_realdata_bench import load_real, downstream
-from round4_noise_floor_bench import cv_curve, noise_floor_plateau, noise_floor_first, _mk_model
+from round4_noise_floor_bench import cv_curve, noise_floor_plateau, noise_floor_first
 
 OUT = "D:/Temp/rfecv_floor_robust.txt"
 

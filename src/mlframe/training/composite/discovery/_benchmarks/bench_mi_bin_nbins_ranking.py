@@ -26,7 +26,7 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 os.environ.setdefault("MLFRAME_NO_CUDA_AUTOCONFIG", "1")
 os.environ.setdefault("MLFRAME_KEEP_BROKEN_CUPY", "1")
 
-from mlframe.training.composite.discovery.screening import _mi_pair_bin  # noqa: E402
+from mlframe.training.composite.discovery.screening import _mi_pair_bin
 
 NBINS_GRID = (8, 12, 16, 24, 32)
 SEEDS = (0, 1, 2, 3, 4)

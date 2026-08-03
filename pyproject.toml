@@ -804,7 +804,7 @@ exclude = '''
 [tool.ruff]
 extend = "$PY_CI_SHARED_DIR/configs/ruff-base.toml"
 target-version = "py39"
-exclude = ["tests", "scripts", ".git", "__pycache__", "build", "dist", "legacy", "benchmarks", "_benchmarks", "profiling"]
+exclude = ["tests", "scripts", ".git", "__pycache__", "build", "dist", "legacy", "profiling"]
 
 [tool.ruff.lint]
 extend-select = [
@@ -870,6 +870,12 @@ max-complexity = 40
 "src/mlframe/**/_profile_*.py" = ["B023", "T201"]
 "src/mlframe/**/_smoke_*.py" = ["T201"]
 "src/mlframe/**/_*_showcase.py" = ["T201"]
+# Standalone bench/profile scripts: print() to stdout is the interface (progress/results
+# output read by a human running the script directly), not something that should route
+# through logging. B023 loop-closures are the same "time/print this iteration now, never
+# stored" pattern as _profile_*.py above.
+"src/mlframe/**/_benchmarks/**" = ["T201", "B023"]
+"src/mlframe/**/benchmarks/**" = ["T201", "B023"]
 # Vendored third-party model code -- left at upstream shape.
 "src/mlframe/feature_selection/filters/_vendored/**" = ["T201", "A001", "A002", "N801"]
 # numba @njit kernels: verbose-gated diagnostic prints inside nopython-mode functions cannot use the

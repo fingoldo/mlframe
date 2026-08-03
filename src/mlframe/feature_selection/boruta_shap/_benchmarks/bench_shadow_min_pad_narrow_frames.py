@@ -24,7 +24,6 @@ Re-run this file to refresh; results in _results/shadow_min_pad_narrow_frames.js
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import numpy as np

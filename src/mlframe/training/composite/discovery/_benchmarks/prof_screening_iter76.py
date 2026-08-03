@@ -21,10 +21,8 @@ import numpy as np
 
 from mlframe.training.composite.discovery.screening import (
     _prebin_feature_columns,
-    _mi_per_feature_prebinned,
     _mi_to_target_prebinned,
     _safe_abs_corr_all,
-    _mi_per_feature_y_fixed,
 )
 
 _N = 200_000

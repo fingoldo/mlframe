@@ -77,7 +77,7 @@ def main():
             new_t.append((time.perf_counter() - t0) / REP)
         om, nm = np.median(old_t) * 1e3, np.median(new_t) * 1e3
         sp = om / nm if nm > 0 else float("nan")
-        print(f"{n:>9} {nb_x:>5} {nb_y:>5} {om:>9.3f} {nm:>9.3f} {sp:>7.2f}x {maxdiff:>10.1e} {str(bx_ok):>6}")
+        print(f"{n:>9} {nb_x:>5} {nb_y:>5} {om:>9.3f} {nm:>9.3f} {sp:>7.2f}x {maxdiff:>10.1e} {bx_ok!s:>6}")
 
 
 if __name__ == "__main__":

@@ -199,7 +199,7 @@ def main():
                 results.append(row)
                 print(
                     f"{scen_name:22s} seed={seed} {cell['name']:14s} "
-                    f"dom={str(dom):8s} top{TOPK_VERDICT}={ranking[:TOPK_VERDICT]} "
+                    f"dom={dom!s:8s} top{TOPK_VERDICT}={ranking[:TOPK_VERDICT]} "
                     f"wall={wall:.3f}s "
                     f"dom_same={row['dominant_same_as_default']} "
                     f"topk_same={row['topk_same_as_default']}"

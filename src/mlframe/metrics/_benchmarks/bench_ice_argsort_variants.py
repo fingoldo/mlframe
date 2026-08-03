@@ -71,7 +71,7 @@ def run(n, tied):
         _ = numpy_sort_auc(yt[:, 0].astype(np.int64), p[:, 0])
     t_np = (time.perf_counter() - t) / reps
 
-    print(f"n={n:>8} tied={str(tied):5}: full_kernel(njit-mergesort)={t_cur*1e3:6.1f}ms  "
+    print(f"n={n:>8} tied={tied!s:5}: full_kernel(njit-mergesort)={t_cur*1e3:6.1f}ms  "
           f"numpy-argsort+walk-only={t_np*1e3:6.1f}ms  (walk-only is a LOWER bound on an extracted variant)")
     return r0
 

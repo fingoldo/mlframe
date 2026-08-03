@@ -36,7 +36,6 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split
 
 sys.path.insert(0, "D:/Upd/Programming/PythonCodeRepository/mlframe")
 sys.path.insert(0, "D:/Upd/Programming/PythonCodeRepository")
@@ -169,7 +168,6 @@ def _run_with_config(
     top-1 composite, return OOF RMSE on test_idx + chosen base."""
     from mlframe.training.composite import (
         CompositeTargetDiscovery,
-        CompositeTargetEstimator,
         get_transform,
     )
     from mlframe.training.configs import CompositeTargetDiscoveryConfig

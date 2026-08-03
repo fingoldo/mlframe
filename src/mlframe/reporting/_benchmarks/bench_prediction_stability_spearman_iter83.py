@@ -19,10 +19,10 @@ import numpy as np
 
 sys.modules.setdefault("cupy", None)  # block cupy: cold import native-segfaults under contention on py3.14
 
-import scipy.stats  # noqa: E402,F401  (import before mlframe to avoid the cold-import segfault)
-import numba  # noqa: E402,F401
+import scipy.stats  # noqa: F401  (import before mlframe to avoid the cold-import segfault)
+import numba  # noqa: F401
 
-from mlframe.reporting.charts import prediction_stability as ps  # noqa: E402
+from mlframe.reporting.charts import prediction_stability as ps
 
 
 def _bench(fn, r=7):

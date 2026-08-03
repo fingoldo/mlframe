@@ -12,12 +12,12 @@ import sys
 import time
 
 sys.modules.setdefault("cupy", None)
-import scipy.stats  # noqa: F401,E402  pre-import to dodge py3.14 cold-import segfault
-import numba  # noqa: F401,E402
-import numpy as np  # noqa: E402
+import scipy.stats  # noqa: F401  pre-import to dodge py3.14 cold-import segfault
+import numba  # noqa: F401
+import numpy as np
 
-from mlframe.feature_engineering import windowed_shape as ws  # noqa: E402
-from mlframe.feature_engineering.grouped import per_group_sliding_window  # noqa: E402
+from mlframe.feature_engineering import windowed_shape as ws
+from mlframe.feature_engineering.grouped import per_group_sliding_window
 
 
 def _old_zero_crossings(values, group_ids, window_K=20, center="zero", fill_value=np.nan):

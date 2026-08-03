@@ -19,7 +19,6 @@ import time
 import numpy as np
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interaction_proxy import (
-    build_pair_table,
     interaction_proxy_top_n,
 )
 

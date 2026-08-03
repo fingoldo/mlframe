@@ -92,4 +92,4 @@ if __name__ == "__main__":
         diff = np.abs(old.astype(np.float64) - new.astype(np.float64)).max()
         t_old = _best_of(_old_loop, Xn_all, yn_all, d, True, dtype, repeat=3)
         t_new = _best_of(_new_batched, Xn_all, yn_all, d, True, dtype, repeat=5)
-        print(f"{str((n_anchor,k,d)):>20} {t_old*1e3:>10.2f} {t_new*1e3:>10.2f} {t_old/t_new:>8.1f}x {diff:>12.2e}")
+        print(f"{(n_anchor,k,d)!s:>20} {t_old*1e3:>10.2f} {t_new*1e3:>10.2f} {t_old/t_new:>8.1f}x {diff:>12.2e}")

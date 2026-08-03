@@ -31,15 +31,12 @@ logger = logging.getLogger(__name__)
 from mlframe.training._benchmarks._profile_shared import profile_table
 
 import cProfile
-import io
 import json
 import os
-import pstats
 import time
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 
 # Force CPU-only BEFORE any heavy import that might init CUDA.
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
@@ -48,7 +45,7 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 # ``from mlframe.training.core import ...`` segfaults (0xC0000005) due to a
 # native-lib load-order conflict in the package-init chain; pre-importing the
 # pipeline module loads the conflicting runtimes in the safe order first.
-import mlframe.training.pipeline as _pipeline_preimport  # noqa: E402,F401
+import mlframe.training.pipeline as _pipeline_preimport  # noqa: F401
 
 _RESULTS_DIR = Path(__file__).resolve().parent / "_results"
 
@@ -61,7 +58,7 @@ def _profile_one(target_type: str, n_rows: int, models: tuple[str, ...], seed: i
     """
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.configs import (
-        TargetTypes, BaselineDiagnosticsConfig, DummyBaselinesConfig,
+        BaselineDiagnosticsConfig, DummyBaselinesConfig,
         OutputConfig, ReportingConfig, FeatureSelectionConfig,
         CompositeTargetDiscoveryConfig,
     )
@@ -106,7 +103,7 @@ def _profile_one(target_type: str, n_rows: int, models: tuple[str, ...], seed: i
             reporting_config=ReportingConfig(plot_outputs="matplotlib[png]", plot_inline_display=False),
             verbose=0,
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.debug("suite fit failed: %s: %s", type(e).__name__, e)
         status = f"{type(e).__name__}: {e}"[:200]
     finally:

@@ -17,7 +17,6 @@ import io
 import pstats
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from sklearn.datasets import make_classification
 from sklearn.linear_model import LogisticRegression

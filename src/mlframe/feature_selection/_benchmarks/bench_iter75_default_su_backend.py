@@ -10,10 +10,8 @@ feature set so any cluster-boundary differences are inspectable side-by-side.
 
 from __future__ import annotations
 
-import os
 import time
 
-import numpy as np
 
 
 def _make(width, n_rows, n_informative=5, seed=0):

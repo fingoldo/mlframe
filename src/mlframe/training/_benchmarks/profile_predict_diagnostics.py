@@ -41,10 +41,8 @@ logger = logging.getLogger(__name__)
 from mlframe.training._benchmarks._profile_shared import profile_table
 
 import cProfile
-import io
 import json
 import os
-import pstats
 import time
 from pathlib import Path
 from typing import Any
@@ -54,7 +52,7 @@ import numpy as np
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
 # Native DLL-load-order guard (see profile_training_core_hotpath docstring).
-import mlframe.training.pipeline as _pipeline_preimport  # noqa: E402,F401
+import mlframe.training.pipeline as _pipeline_preimport  # noqa: F401
 
 _RESULTS_DIR = Path(__file__).resolve().parent / "_results"
 
@@ -149,7 +147,7 @@ def _profile_one(n_rows: int, n_cat_cols: int, seed: int, top_n: int) -> dict[st
     profiler.enable()
     try:
         run_honest_diagnostics(ctx, models, meta)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.debug("honest diagnostics failed: %s: %s", type(e).__name__, e)
         status = f"{type(e).__name__}: {e}"[:200]
     finally:

@@ -4,7 +4,7 @@ Single-seed showed mrmr_fe+rescue +0.10 on madelon (collapse 0.70 -> 0.80), byte
 (gate doesn't fire). madelon has high seed variance, so confirm the rescue win across 3 split-seeds before integrating.
 """
 from __future__ import annotations
-import os, sys, time, math
+import os, sys, math
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
 import numpy as np, pandas as pd

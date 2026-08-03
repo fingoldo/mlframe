@@ -30,8 +30,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
-from mlframe.feature_selection.filters._fe_synergy_screen import joint_synergy_mi  # noqa: E402
-from mlframe.feature_selection.filters._synergy_detector import _pair_mm_mi as _pair_mm_mi_new  # noqa: E402
+from mlframe.feature_selection.filters._fe_synergy_screen import joint_synergy_mi
+from mlframe.feature_selection.filters._synergy_detector import _pair_mm_mi as _pair_mm_mi_new
 
 
 def _best_of(fn, *a, reps=7):

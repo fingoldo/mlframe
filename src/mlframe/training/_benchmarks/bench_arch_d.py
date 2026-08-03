@@ -65,8 +65,8 @@ def _col_stats_numpy(arr: np.ndarray) -> bytes:
     n_null = int(isnan.sum())
     finite = arr[~isnan]
     if finite.size == 0:
-        return f"all_null:{n_null}".encode("utf-8")
-    return (f"min={float(np.min(finite)):.12g};" f"max={float(np.max(finite)):.12g};" f"null={n_null}").encode("utf-8")
+        return f"all_null:{n_null}".encode()
+    return (f"min={float(np.min(finite)):.12g};" f"max={float(np.max(finite)):.12g};" f"null={n_null}").encode()
 
 
 def _build_col_stats_numba():
@@ -78,8 +78,8 @@ def _build_col_stats_numba():
     def _col_stats_numba(arr: np.ndarray) -> bytes:
         mn, mx, n_null = _cache_mod._col_stats_float_numba_kernel(arr)
         if not np.isfinite(mn):
-            return f"all_null:{n_null}".encode("utf-8")
-        return f"min={float(mn):.12g};max={float(mx):.12g};null={n_null}".encode("utf-8")
+            return f"all_null:{n_null}".encode()
+        return f"min={float(mn):.12g};max={float(mx):.12g};null={n_null}".encode()
 
     return _col_stats_numba
 

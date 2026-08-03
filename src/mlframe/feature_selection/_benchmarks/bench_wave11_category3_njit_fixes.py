@@ -80,7 +80,7 @@ def bench_bspline():
         _bspline_basis_values(z, knots, idx, degree=3)
     t_new = time.perf_counter() - t0
 
-    print(f"H1 bspline: n_basis={n_basis} n={n_rows}: OLD={t_old:.3f}s NEW={t_new:.4f}s speedup={t_old / t_new:.1f}x")  # noqa: T201
+    print(f"H1 bspline: n_basis={n_basis} n={n_rows}: OLD={t_old:.3f}s NEW={t_new:.4f}s speedup={t_old / t_new:.1f}x")
 
 
 def bench_ratio_delta_redundancy():
@@ -125,7 +125,7 @@ def bench_ratio_delta_redundancy():
     t_old = time.perf_counter() - t0
 
     scale = (500 * 499) / len(pairs)
-    print(  # noqa: T201
+    print(
         f"H2 ratio-delta redundancy: p={p} n={n} ({len(pairs)} pairs): OLD={t_old:.3f}s NEW={t_new:.3f}s "
         f"speedup={t_old / t_new:.2f}x; extrapolated to p=500: OLD~{t_old*scale:.1f}s NEW~{t_new*scale:.1f}s"
     )
@@ -182,8 +182,8 @@ def bench_categorize_dataset_adaptive_searchsorted():
         old_loop(edges_per_col, arr, np.int32)
     t_old = (time.perf_counter() - t0) / 5
 
-    print(f"M8 categorize_dataset searchsorted: n={n} p={p}: OLD={t_old:.4f}s NEW={t_new:.4f}s speedup={t_old / t_new:.2f}x")  # noqa: T201
-    print(f"    full adaptive-path categorize_dataset wall: {t_new_full:.3f}s")  # noqa: T201
+    print(f"M8 categorize_dataset searchsorted: n={n} p={p}: OLD={t_old:.4f}s NEW={t_new:.4f}s speedup={t_old / t_new:.2f}x")
+    print(f"    full adaptive-path categorize_dataset wall: {t_new_full:.3f}s")
 
 
 def bench_cat_interactions_pair_enum():
@@ -226,7 +226,7 @@ def bench_cat_interactions_pair_enum():
     t_new = time.perf_counter() - t0
 
     assert np.array_equal(a_old, a_new) and np.array_equal(b_old, b_new)
-    print(f"M10 cat-interactions pair enum: {n_cand} candidates (~{n_cand*(n_cand-1)//2} pairs): OLD={t_old:.4f}s NEW={t_new:.4f}s speedup={t_old / t_new:.1f}x")  # noqa: T201
+    print(f"M10 cat-interactions pair enum: {n_cand} candidates (~{n_cand*(n_cand-1)//2} pairs): OLD={t_old:.4f}s NEW={t_new:.4f}s speedup={t_old / t_new:.1f}x")
 
 
 if __name__ == "__main__":

@@ -20,9 +20,9 @@ import sys
 
 sys.modules["cupy"] = None  # type: ignore[assignment]  # block cupy native import (py3.14 cold-import segfault under contention)
 
-import time  # noqa: E402
+import time
 
-import numpy as np  # noqa: E402
+import numpy as np
 
 
 def _avg_rank_two_sweep(fit_sorted: np.ndarray, vals: np.ndarray) -> np.ndarray:

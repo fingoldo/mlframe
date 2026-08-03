@@ -17,7 +17,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from mlframe.feature_engineering.basic import (  # noqa: E402
+from mlframe.feature_engineering.basic import (
     create_date_features,
     _DEFAULT_DATE_METHODS,
     _DEFAULT_CYCLICAL_PERIODS,

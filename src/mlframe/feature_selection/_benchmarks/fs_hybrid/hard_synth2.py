@@ -126,7 +126,6 @@ def rare_class_imbalance(seed: int = 0, n: int = 12000, p: int = 80, pos_rate: f
     logit += 1.6 * z[:, a] * z[:, b]
     inter_idx = [a, b]
     # shift the intercept so the marginal positive rate hits pos_rate
-    from math import log
     # binary search the bias for the requested prevalence (deterministic, no randomness)
     lo, hi = -20.0, 20.0
     for _ in range(60):

@@ -121,7 +121,7 @@ def main(argv=None):
             net = f"{ne}/{nt}" if ne is not None else "-"
             print(f"{name:<8} {r['label']:<10} {r['total']:>7.2f}s {t:>7.2f}s "
                   f"{r['recall']:>4}/20 {r['n_selected']:>7} "
-                  f"{str(r['trustworthy']):>6} {net:>14} {sl:>10}")
+                  f"{r['trustworthy']!s:>6} {net:>14} {sl:>10}")
     print("\nSpeed comparison (UCB vs BASELINE):")
     for name in requested:
         rb, ru = results[name]

@@ -26,7 +26,7 @@ class _Col:
     def __init__(self, col: int) -> None:
         self.col = col
 
-    def predict(self, X):  # noqa: D401
+    def predict(self, X):
         return np.asarray(X)[:, self.col]
 
 

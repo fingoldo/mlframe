@@ -104,7 +104,7 @@ def main():
         ts = time.perf_counter()
         hits = scan_integer_lattice_pairs(X, y, ["a", "b"], nbins=_NBINS)
         scan_s = time.perf_counter() - ts
-        proto_mi = max((_mi(apply_integer_lattice(a, b, op), y, nbins=_NBINS) for op in INTEGER_LATTICE_OPS))
+        proto_mi = max(_mi(apply_integer_lattice(a, b, op), y, nbins=_NBINS) for op in INTEGER_LATTICE_OPS)
         best_existing = _best_existing_mi(a, b, y)
         lift = proto_mi / max(best_existing, 1e-6)
         is_control = name.startswith("control")
@@ -119,7 +119,7 @@ def main():
     print(f"{'target':28s} {'proto':>7s} {'exist':>7s} {'lift':>6s} {'hits':>5s} {'op':>5s}  verdict")
     for r in rows:
         print(f"{r['target']:28s} {r['proto_mi']:7.3f} {r['best_existing_mi']:7.3f} {r['lift']:6.2f} "
-              f"{r['n_hits']:5d} {str(r['top_hit']):>5s}  {r['verdict']}")
+              f"{r['n_hits']:5d} {r['top_hit']!s:>5s}  {r['verdict']}")
     print(f"\ntotal {total_s:.2f}s")
 
     _RESULTS.mkdir(exist_ok=True)

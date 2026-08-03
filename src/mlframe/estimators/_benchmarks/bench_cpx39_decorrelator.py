@@ -69,7 +69,7 @@ def main():
         all_ident &= ident
         old_ms = _best_of(old_fit, X, threshold) * 1e3
         new_ms = _best_of(_new_fit, X, threshold) * 1e3
-        print(f"{f'(5000,200) s{seed}':>12} {old_ms:>10.2f} {new_ms:>10.2f} {old_ms/new_ms:>7.2f}x {str(ident):>9}")
+        print(f"{f'(5000,200) s{seed}':>12} {old_ms:>10.2f} {new_ms:>10.2f} {old_ms/new_ms:>7.2f}x {ident!s:>9}")
     print(f"\nALL identical across seeds: {all_ident}")
 
 

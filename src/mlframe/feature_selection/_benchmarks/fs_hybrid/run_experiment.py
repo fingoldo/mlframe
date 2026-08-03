@@ -16,7 +16,6 @@ import os, sys, time, json, traceback
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
 import numpy as np
-import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline

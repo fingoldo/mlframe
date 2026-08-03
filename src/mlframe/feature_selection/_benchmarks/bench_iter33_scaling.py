@@ -47,7 +47,6 @@ logger = logging.getLogger(__name__)
 import time
 import warnings
 
-import numpy as np
 
 warnings.filterwarnings("ignore")
 
@@ -221,7 +220,7 @@ def main(argv=None):
         rec = f"{r['recall'][0]}/{r['recall'][1]}"
         print(f"{name:<6} {c['width']:>6} {c['n_rows']:>6} {c['n_informative']:>4} "
               f"{c['n_redundant']:>4} {r['total']:>7.2f}s {rec:>8} {r['n_selected']:>7} "
-              f"{str(r['trustworthy']):>6}")
+              f"{r['trustworthy']!s:>6}")
     print(f"\nbench-wall total: {time.perf_counter()-t_bench0:.1f}s")
     return results
 

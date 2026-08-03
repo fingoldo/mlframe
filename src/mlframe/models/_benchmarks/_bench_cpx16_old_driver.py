@@ -7,7 +7,6 @@ if __name__ == "__main__":
 
     import sys
     import time
-    import types
     import importlib.util
 
     import numpy as np

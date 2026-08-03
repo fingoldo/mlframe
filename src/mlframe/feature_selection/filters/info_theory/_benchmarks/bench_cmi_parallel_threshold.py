@@ -20,7 +20,7 @@ import os, sys, time
 import numpy as np
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
-from mlframe.feature_selection.filters.info_theory._cmi_cuda import (  # noqa: E402
+from mlframe.feature_selection.filters.info_theory._cmi_cuda import (
     _cpu_cmi_loop_hoisted_parallel,
     _cpu_cmi_loop_hoisted_serial,
 )

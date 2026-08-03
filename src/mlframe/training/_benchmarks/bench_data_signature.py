@@ -73,19 +73,19 @@ def _legacy_data_signature(
             n_null = int(isnan.sum())
             finite = full[~isnan]
             if finite.size == 0:
-                h.update(f"all_null:{n_null}".encode("utf-8"))
+                h.update(f"all_null:{n_null}".encode())
             else:
-                h.update(f"min={float(np.min(finite)):.12g};max={float(np.max(finite)):.12g};null={n_null}".encode("utf-8"))
+                h.update(f"min={float(np.min(finite)):.12g};max={float(np.max(finite)):.12g};null={n_null}".encode())
         elif kind in ("i", "u", "b"):
             try:
-                h.update(f"intmin={int(np.min(full))};intmax={int(np.max(full))};nuniq={int(np.unique(full).size)}".encode("utf-8"))
+                h.update(f"intmin={int(np.min(full))};intmax={int(np.max(full))};nuniq={int(np.unique(full).size)}".encode())
             except Exception as e:
                 logger.debug("int-column signature computation failed: %s", e)
                 h.update(b"int_opaque")
         else:
             try:
                 u = np.unique(full.astype(str, copy=False))
-                h.update(f"uniq={int(u.size)};first={u[0] if u.size else ''};last={u[-1] if u.size else ''}".encode("utf-8"))
+                h.update(f"uniq={int(u.size)};first={u[0] if u.size else ''};last={u[-1] if u.size else ''}".encode())
             except Exception as e:
                 logger.debug("column signature computation failed: %s", e)
                 h.update(b"opaque")

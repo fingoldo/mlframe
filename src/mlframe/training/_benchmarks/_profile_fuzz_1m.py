@@ -71,11 +71,7 @@ plot_outputs has plotly+png). Everything else is library-bounded.
 from __future__ import annotations
 
 import argparse
-import io
 import logging
-import time
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -231,7 +227,7 @@ def _make_synthetic_frame(
         # Strictly monotonic-increasing seconds-since-epoch column. The FTE's recency
         # weighting needs a comparable (numeric/datetime) sequence; a plain int64 second
         # count is the simplest form the polars + pandas paths both accept.
-        _start = int(1_700_000_000)  # Nov 2023 epoch baseline
+        _start = 1_700_000_000  # Nov 2023 epoch baseline
         cols["ts"] = _start + np.arange(n_rows, dtype=np.int64)
 
     if use_polars:
@@ -389,4 +385,4 @@ if __name__ == "__main__":
 # lives in ``_profile_fuzz_1m_run_suite.py`` so this file stays below
 # the 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
-from ._profile_fuzz_1m_run_suite import _run_suite_profiled  # noqa: E402,F401
+from ._profile_fuzz_1m_run_suite import _run_suite_profiled

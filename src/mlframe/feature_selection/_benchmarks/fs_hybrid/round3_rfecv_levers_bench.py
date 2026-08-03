@@ -11,17 +11,12 @@ settled) yields the support + an FI ranking; the post-process variants are appli
 Reports downstream honest-holdout AUC vs the baseline RFECV.
 """
 from __future__ import annotations
-import os, sys, time
+import os, sys
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
 import numpy as np, pandas as pd
 from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import make_pipeline
-from sklearn.linear_model import LogisticRegression
-from sklearn.neighbors import KNeighborsClassifier
 from sklearn.inspection import permutation_importance
-from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _downstream_shared import downstream_on_cols

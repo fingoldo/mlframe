@@ -15,7 +15,7 @@ if __name__ == "__main__":
             _f.write(time.strftime("%H:%M:%S") + " | " + m + "\n")
         print(m, flush=True)
 
-    from mlframe.feature_selection.filters.batch_pair_mi_gpu import batch_pair_mi_cuda, _CUDA_AVAIL
+    from mlframe.feature_selection.filters.batch_pair_mi_gpu import batch_pair_mi_cuda
     import cupy as cp
 
     N, NBINS = 8000, 8

@@ -33,10 +33,8 @@ logger = logging.getLogger(__name__)
 from mlframe.training._benchmarks._profile_shared import profile_table
 
 import cProfile
-import io
 import json
 import os
-import pstats
 import sys
 import time
 from pathlib import Path
@@ -49,7 +47,7 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
 # Native DLL-load-order guard (mirrors profile_training_core_hotpath): pre-import
 # the pipeline module so conflicting native runtimes load in the safe order first.
-import mlframe.training.pipeline as _pipeline_preimport  # noqa: E402,F401
+import mlframe.training.pipeline as _pipeline_preimport  # noqa: F401
 
 _RESULTS_DIR = Path(__file__).resolve().parent / "_results"
 # The proven multilabel-capable test mock FTE lives under tests/training/shared.py.
@@ -143,7 +141,7 @@ def _profile_one(n_rows: int, *, n_labels: int, iterations: int, seed: int, top_
             reporting_config=ReportingConfig(plot_outputs="matplotlib[png]", plot_inline_display=False),
             verbose=0,
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         import traceback
         logger.debug("suite fit failed: %s: %s", type(e).__name__, e)
         status = f"{type(e).__name__}: {e}"[:300]

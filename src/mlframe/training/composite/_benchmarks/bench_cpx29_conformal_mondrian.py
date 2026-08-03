@@ -18,7 +18,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
-from mlframe.training.composite import conformal as conf  # noqa: E402
+from mlframe.training.composite import conformal as conf
 
 
 class _Stub:

@@ -60,7 +60,7 @@ def _time_call_slow(fn, *a):
 def _is_object_array_col(df, c) -> bool:
     try:
         return str(df[c].dtype) == "object" and isinstance(df[c].iloc[0], np.ndarray)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug("_is_object_array_col: probe failed for column %r: %s", c, exc)
         return False
 
@@ -82,7 +82,7 @@ def main():
         for c in cat_cols:
             try:
                 nun = int(df[c].nunique(dropna=False))
-            except Exception as e:  # noqa: BLE001  e.g. unhashable ndarray cells (embedding col)
+            except Exception as e:
                 logger.debug("nunique() failed for column %s: %s", c, e)
                 nun = f"UNHASHABLE:{type(e).__name__}"
             if _is_object_array_col(df, c):

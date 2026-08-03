@@ -34,8 +34,9 @@ Run:
 """
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
-from math import floor
 
 from mlframe.metrics.calibration._calibration_metrics import compute_ece_debiased
 
@@ -84,7 +85,7 @@ def _equal_mass_debiased_ece(y_true: np.ndarray, y_pred: np.ndarray, nbins: int)
     return ece
 
 
-def _make_calibrated(rng, n, kind):
+def _make_calibrated(rng: Any, n: int, kind: str) -> Any:
     """Perfectly-calibrated: draw p from a distribution, then y ~ Bernoulli(p). True ECE == 0."""
     if kind == "uniform":
         p = rng.uniform(0, 1, n)
@@ -101,7 +102,7 @@ def _make_calibrated(rng, n, kind):
     return y, p
 
 
-def _make_miscalibrated(rng, n, kind):
+def _make_miscalibrated(rng: Any, n: int, kind: str) -> Any:
     """Miscalibrated: true label uses a shifted prob, so reported probs are systematically off. True ECE > 0."""
     if kind == "overconf":
         p = rng.beta(2.0, 2.0, n)
@@ -115,7 +116,7 @@ def _make_miscalibrated(rng, n, kind):
     return y, p
 
 
-def _run_one_n(n: int, seeds, nbins_grid, calib_scenarios, miscal_scenarios):
+def _run_one_n(n: int, seeds: Any, nbins_grid: Any, calib_scenarios: Any, miscal_scenarios: Any) -> Any:
     print(f"n={n}, seeds={seeds}, nbins={nbins_grid}")
     print("=" * 100)
     print("CALIBRATED scenarios (true ECE = 0); honest metric = |estimate - 0|; lower is better")
@@ -164,7 +165,7 @@ def _run_one_n(n: int, seeds, nbins_grid, calib_scenarios, miscal_scenarios):
     return total_eqmass_wins, total_cells
 
 
-def main():
+def main() -> None:
     seeds = list(range(8))
     nbins_grid = [10, 15, 20]
     calib_scenarios = ["uniform", "beta_rare", "beta_mid", "bimodal"]

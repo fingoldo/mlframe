@@ -18,7 +18,6 @@ import pandas as pd
 
 from mlframe.feature_selection.filters._periodic_fe import (
     _modular_njit,
-    _modular_all_ops_njit,
     _VALID_OPS,
     engineered_name_modular,
     DEFAULT_PERIODS,

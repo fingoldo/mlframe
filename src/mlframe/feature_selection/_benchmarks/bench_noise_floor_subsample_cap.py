@@ -48,6 +48,6 @@ if __name__ == "__main__":
         rej_cap = r_cap is None
 
         m = (rej_full == rej_cap); matches += m; total += 1
-        print(f"{kind:8} {str(rej_full):>9} {str(rej_cap):>8} {str(m):>6} {t_full:9.0f} {t_cap:8.0f} {t_full/max(t_cap,1e-9):8.2f}x")
+        print(f"{kind:8} {rej_full!s:>9} {rej_cap!s:>8} {m!s:>6} {t_full:9.0f} {t_cap:8.0f} {t_full/max(t_cap,1e-9):8.2f}x")
 
     print(f"\nreject-decision match: {matches}/{total}")

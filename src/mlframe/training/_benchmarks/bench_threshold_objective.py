@@ -33,7 +33,7 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 os.environ.setdefault("MLFRAME_NO_CUDA_AUTOCONFIG", "1")
 os.environ.setdefault("MLFRAME_KEEP_BROKEN_CUPY", "1")
 
-from mlframe.training.core._setup_helpers import tune_decision_threshold  # noqa: E402
+from mlframe.training.core._setup_helpers import tune_decision_threshold
 
 N_CAND = 200
 

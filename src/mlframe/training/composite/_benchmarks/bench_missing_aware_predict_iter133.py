@@ -58,11 +58,11 @@ def main() -> None:
     class FakeComp(BaseEstimator, RegressorMixin):
         base_column = "b"
 
-        def fit(self, X, y, **k):  # noqa: N803
+        def fit(self, X, y, **k):
             self.n_ = 1
             return self
 
-        def predict(self, X):  # noqa: N803
+        def predict(self, X):
             return np.zeros(X.shape[0])
 
     m = MissingAwareComposite(composite=FakeComp())

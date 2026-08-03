@@ -37,13 +37,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 
 logger = logging.getLogger(__name__)
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 

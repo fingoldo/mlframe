@@ -56,7 +56,6 @@ def _before_after() -> list[dict]:
     the 12-permutation null for combiners that cannot clear the baseline margin -- both bit-identical to the reference
     responded-set. This section records the measured speedup; numbers feed the regression test floor."""
     import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
-    import sys
     import types
 
     ref_src = subprocess.run(  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally

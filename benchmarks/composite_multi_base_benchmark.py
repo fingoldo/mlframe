@@ -33,8 +33,6 @@ import numpy as np
 
 from mlframe.training.composite import (
     _linear_residual_fit,
-    _linear_residual_forward,
-    _linear_residual_inverse,
     forward_stepwise_multi_base,
 )
 

@@ -63,7 +63,6 @@ from mlframe.feature_selection.filters.hermite_fe import (
 from mlframe.feature_selection.filters.fe_baselines import (
     best_trivial_pair,
     score_triplet_baselines,
-    auto_unary_transforms,
     best_unary_transform,
     _mi_1d,
 )

@@ -1,7 +1,6 @@
 """Aggregate _results/results.jsonl into decision tables."""
 from __future__ import annotations
 import json, os
-import numpy as np
 import pandas as pd
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_results")

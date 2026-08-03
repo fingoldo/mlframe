@@ -118,8 +118,8 @@ def main(reps: int = 1000) -> dict:
             b = fast_roc_auc_unstable(y[ix], p[ix])
             max_abs = max(max_abs, abs(a - b))
         out[f"n{n}"] = {
-            "current_resampler_x{}".format(reps): cur_t,
-            "fused_x{}".format(reps): fused_t,
+            f"current_resampler_x{reps}": cur_t,
+            f"fused_x{reps}": fused_t,
             "speedup": round(cur_t / fused_t, 2) if fused_t else None,
             "max_abs_diff_vs_exact": max_abs,
         }

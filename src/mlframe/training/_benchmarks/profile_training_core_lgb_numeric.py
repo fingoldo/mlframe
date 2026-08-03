@@ -27,10 +27,8 @@ logger = logging.getLogger(__name__)
 from mlframe.training._benchmarks._profile_shared import profile_table
 
 import cProfile
-import io
 import json
 import os
-import pstats
 import time
 from pathlib import Path
 from typing import Any
@@ -41,7 +39,7 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
 # Native DLL-load-order guard (same as sibling harness): pre-import pipeline so
 # the conflicting native runtimes load in the safe order before training.core.
-import mlframe.training.pipeline as _pipeline_preimport  # noqa: E402,F401
+import mlframe.training.pipeline as _pipeline_preimport  # noqa: F401
 
 _RESULTS_DIR = Path(__file__).resolve().parent / "_results"
 
@@ -100,7 +98,7 @@ def _profile_one(n_rows: int, models: tuple[str, ...], seed: int, top_n: int) ->
             reporting_config=ReportingConfig(plot_outputs="matplotlib[png]", plot_inline_display=False),
             verbose=0,
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.debug("suite fit failed: %s: %s", type(e).__name__, e)
         status = f"{type(e).__name__}: {e}"[:300]
     finally:

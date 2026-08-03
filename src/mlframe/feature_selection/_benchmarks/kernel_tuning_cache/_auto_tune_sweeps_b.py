@@ -514,7 +514,7 @@ def _run_sweep_knn_hnsw_crossover(n_iters: int = 3) -> list[dict]:
         )
         return []
     try:
-        import hnswlib  # noqa: F401
+        import hnswlib
     except ImportError:
         logger.info(
             "auto_tune knn_hnsw_crossover skipped: hnswlib not installed",

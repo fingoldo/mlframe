@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -28,13 +29,13 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 os.environ.setdefault("MLFRAME_NO_CUDA_AUTOCONFIG", "1")
 os.environ.setdefault("MLFRAME_KEEP_BROKEN_CUPY", "1")
 
-from sklearn.isotonic import IsotonicRegression  # noqa: E402
-from sklearn.linear_model import LogisticRegression  # noqa: E402
+from sklearn.isotonic import IsotonicRegression
+from sklearn.linear_model import LogisticRegression
 
 N_BINS = 10
 
 
-def _heldout_ece_binary(y, p, n_bins=N_BINS):
+def _heldout_ece_binary(y: Any, p: Any, n_bins: int = N_BINS) -> float:
     """Equal-width-bin ECE of a one-vs-rest probability column on held-out data."""
     y = np.asarray(y, dtype=np.float64)
     p = np.clip(np.asarray(p, dtype=np.float64), 0.0, 1.0)
@@ -51,13 +52,13 @@ def _heldout_ece_binary(y, p, n_bins=N_BINS):
     return ece
 
 
-def _fit_isotonic(p, y):
+def _fit_isotonic(p: Any, y: Any) -> Any:
     iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
     iso.fit(p, y)
     return lambda q: np.clip(iso.predict(q), 0.0, 1.0)
 
 
-def _fit_sigmoid(p, y):
+def _fit_sigmoid(p: Any, y: Any) -> Any:
     """Platt: 1-D logistic on the logit of the score; falls back to identity if degenerate."""
     eps = 1e-6
     pc = np.clip(p, eps, 1 - eps)
@@ -67,7 +68,7 @@ def _fit_sigmoid(p, y):
     lr = LogisticRegression(C=1e6, solver="lbfgs")
     lr.fit(z, y)
 
-    def _apply(q):
+    def _apply(q: Any) -> Any:
         qc = np.clip(q, eps, 1 - eps)
         zq = np.log(qc / (1 - qc)).reshape(-1, 1)
         return lr.predict_proba(zq)[:, 1]
@@ -75,7 +76,7 @@ def _fit_sigmoid(p, y):
     return _apply
 
 
-def _scenario(name, rng, n, K):
+def _scenario(name: str, rng: Any, n: int, K: int) -> Any:
     """Return (scores_NK, labels_N) where scores are MISCALIBRATED multiclass probs."""
     # True latent logits; produce a label, then a DISTORTED score matrix simulating an
     # over/under-confident base model.
@@ -101,7 +102,7 @@ def _scenario(name, rng, n, K):
     return s, y
 
 
-def _eval(method_fit, s_cal, y_cal, s_ho, y_ho, K):
+def _eval(method_fit: Any, s_cal: Any, y_cal: Any, s_ho: Any, y_ho: Any, K: int) -> float:
     eces = []
     for k in range(K):
         yk_cal = (y_cal == k).astype(np.float64)
@@ -116,7 +117,7 @@ def _eval(method_fit, s_cal, y_cal, s_ho, y_ho, K):
     return float(np.mean(eces))
 
 
-def main():
+def main() -> None:
     scenarios = ["overconfident", "underconfident", "shifted", "skewed_temp", "noisy"]
     seeds = [0, 1, 2]
     K = 5

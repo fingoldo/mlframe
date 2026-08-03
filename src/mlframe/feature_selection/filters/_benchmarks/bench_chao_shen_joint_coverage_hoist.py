@@ -209,7 +209,7 @@ def main():
         reps = 5000
         o = _best_of(_joint_old, j, reps)
         nw = _best_of(_joint_new, j, reps)
-        print(f"{str((K_x,K_y)):>14} {n:>8} {o*1e6:>10.3f} {nw*1e6:>10.3f} {o/nw:>7.2f}x  {ident}  (old={a:.6f} new={b:.6f})")
+        print(f"{(K_x,K_y)!s:>14} {n:>8} {o*1e6:>10.3f} {nw*1e6:>10.3f} {o/nw:>7.2f}x  {ident}  (old={a:.6f} new={b:.6f})")
 
 
 if __name__ == "__main__":

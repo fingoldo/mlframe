@@ -122,7 +122,7 @@ def check_reference_infeasible() -> None:
     try:
         sub.construct()
         print("UNEXPECTED: reference subset constructed (re-verify on this LGBM build)")
-    except Exception as exc:  # noqa: BLE001 - documenting the rejection
+    except Exception as exc:
         logger.debug("reference subset infeasible (expected): %s: %s", type(exc).__name__, exc)
         print(f"reference subset INFEASIBLE (expected): {type(exc).__name__}: {exc}")
 

@@ -85,7 +85,7 @@ def run(n: int = 3000):
         omin = min(outlier[f]); omean = float(np.mean(outlier[f]))
         clean_ok = cmax <= 1.01
         protect_ok = omin >= 2.0
-        print(f"{f:>5.1f}  {cmax:>15.4f}  {cmean:>16.4f}  {str(clean_ok):>16}  {omin:>19.3f}  {omean:>20.3f}  {str(protect_ok):>16}")
+        print(f"{f:>5.1f}  {cmax:>15.4f}  {cmean:>16.4f}  {clean_ok!s:>16}  {omin:>19.3f}  {omean:>20.3f}  {protect_ok!s:>16}")
         if chosen is None and clean_ok and protect_ok:
             chosen = f
 

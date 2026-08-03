@@ -28,7 +28,6 @@ from mlframe.training.composite.transforms._causal_anchor import (
     _causal_anchor_residual_fit,
     _causal_anchor_residual_forward,
     _causal_anchor_residual_inverse,
-    _ols_slope_intercept,
     _robust_slope,
 )
 

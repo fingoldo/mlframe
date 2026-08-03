@@ -78,7 +78,7 @@ def main():
         identical = r_before == r_after
         t_before = _time(_crps_loop, y, p, a) * 1e3
         t_after = _time(_crps_fused, y, p, a) * 1e3
-        print(f"{n:>10} {k:>4} {t_before:>12.3f} {t_after:>12.3f} {t_before / t_after:>8.2f}x {str(identical):>14}")
+        print(f"{n:>10} {k:>4} {t_before:>12.3f} {t_after:>12.3f} {t_before / t_after:>8.2f}x {identical!s:>14}")
         # also verify shipped function equals loop
         assert crps_from_quantiles(y, p, a) == r_before or np.isclose(crps_from_quantiles(y, p, a), r_before, rtol=0, atol=0), "shipped != loop"  # nosec B101 - internal invariant check in src/mlframe/metrics/_benchmarks, not reachable with untrusted input
 

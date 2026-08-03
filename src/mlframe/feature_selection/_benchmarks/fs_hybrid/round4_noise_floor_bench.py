@@ -35,7 +35,6 @@ os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
 import numpy as np, pandas as pd
 from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
-from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

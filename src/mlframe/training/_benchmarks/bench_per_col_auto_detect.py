@@ -27,7 +27,6 @@ import time
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import polars as pl
 
 RESULTS_DIR = Path(__file__).parent / "_results"

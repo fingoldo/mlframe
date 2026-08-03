@@ -147,7 +147,7 @@ def main() -> None:
         print(f"-- seed {seed} --")
         for label, r in res.items():
             print(
-                f"{label:<6}{r['n_train']:>6}{r['n_holdout']:>6}{str(r['used_own_discovery']):>9}  "
+                f"{label:<6}{r['n_train']:>6}{r['n_holdout']:>6}{r['used_own_discovery']!s:>9}  "
                 f"{r['global_spec']:<22}{r['own_spec']:<22}"
                 f"{r['rmse_global_forced']:>13.4f}{r['rmse_per_group']:>13.4f}{r['improvement_pct']:>9.1f}%"
             )

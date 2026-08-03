@@ -39,9 +39,9 @@ _SRC = Path(__file__).resolve().parents[4]
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from sklearn.metrics import log_loss, roc_auc_score  # noqa: E402
+from sklearn.metrics import log_loss, roc_auc_score
 
-from mlframe.training.feature_handling.target_encoders import (  # noqa: E402
+from mlframe.training.feature_handling.target_encoders import (
     LeakageSafeEncoder,
 )
 

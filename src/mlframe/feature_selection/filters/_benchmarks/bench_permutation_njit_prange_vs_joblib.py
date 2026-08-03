@@ -123,7 +123,7 @@ def main():
 
                 identical = (joblib_res == serial_res == prange_res)
                 print(f"{n:>8} {npermutations:>6} {n_jobs:>6} {t_serial:>12.5f} {t_joblib:>12.5f} {t_prange:>12.5f} "
-                      f"{t_serial / t_joblib:>10.2f} {t_serial / t_prange:>10.2f} {str(identical):>10}")
+                      f"{t_serial / t_joblib:>10.2f} {t_serial / t_prange:>10.2f} {identical!s:>10}")
 
 
 if __name__ == "__main__":

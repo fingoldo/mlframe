@@ -129,7 +129,7 @@ def main() -> None:
             t_inline = _time(_inline_hash, blob, iters=iters)
             same = _reopen_and_hash(path) == _inline_hash(blob)
             sp = t_reopen / t_inline if t_inline > 0 else float("inf")
-            print(f"{label:<18} {disk_mb:>10.2f} {t_reopen:>10.3f} {t_inline:>10.3f} {sp:>7.2f}x {str(same):>9}")
+            print(f"{label:<18} {disk_mb:>10.2f} {t_reopen:>10.3f} {t_inline:>10.3f} {sp:>7.2f}x {same!s:>9}")
     _frame_equivalence_probe()
     print(
         "\nVerdict (REJECT, keep reopen): inline hashing of the in-RAM compressed bytes saves the reopen-read only "

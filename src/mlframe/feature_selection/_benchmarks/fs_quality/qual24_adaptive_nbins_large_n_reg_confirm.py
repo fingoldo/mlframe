@@ -14,11 +14,10 @@ import sys
 import warnings
 from pathlib import Path
 
-import numpy as np
 
 warnings.filterwarnings("ignore")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from mrmr_largeN_campaign import _make_dgp  # noqa: E402
+from mrmr_largeN_campaign import _make_dgp
 
 
 def _f1(p: float, r: float) -> float:
@@ -59,7 +58,7 @@ def main() -> None:
     print(f"{'scenario':<14}{'n':>8}{'seed':>5}{'fired':>7}{'strat':>7}{'nbins':>6}{'nsel':>5}{'prec':>6}{'rec':>6}{'F1':>6}")
     for scn, n, seed in cells:
         r = _run(scn, n, seed)
-        print(f"{r['scenario']:<14}{r['n']:>8}{r['seed']:>5}{str(r['fired']):>7}{str(r['nbins_strategy']):>7}"
+        print(f"{r['scenario']:<14}{r['n']:>8}{r['seed']:>5}{r['fired']!s:>7}{r['nbins_strategy']!s:>7}"
               f"{r['quantization_nbins']:>6}{r['nsel']:>5}{r['precision']:>6.3f}{r['recall']:>6.3f}{r['f1']:>6.3f}")
 
 

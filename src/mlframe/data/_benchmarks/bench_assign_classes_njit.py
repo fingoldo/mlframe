@@ -68,7 +68,7 @@ def main():
 
             t_old = _best_of(_old_python, p, draw, n_classes)
             t_new = _best_of(_assign_classes_from_probability_kernel, p, draw, n_classes)
-            print(f"{n_samples:>10} {n_classes:>5} {t_old*1e3:>10.3f} {t_new*1e3:>10.3f} {t_old/t_new:>7.1f}x {str(identical):>10}")
+            print(f"{n_samples:>10} {n_classes:>5} {t_old*1e3:>10.3f} {t_new*1e3:>10.3f} {t_old/t_new:>7.1f}x {identical!s:>10}")
 
 
 if __name__ == "__main__":

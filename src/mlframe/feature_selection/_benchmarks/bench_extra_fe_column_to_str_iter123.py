@@ -22,11 +22,11 @@ import gc
 
 sys.modules.setdefault("cupy", None)
 
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
+import numpy as np
+import pandas as pd
 
-import mlframe.feature_selection.filters._extra_fe_families as M  # noqa: E402
-from mlframe.feature_selection.filters._internals import canonical_group_token  # noqa: E402
+import mlframe.feature_selection.filters._extra_fe_families as M
+from mlframe.feature_selection.filters._internals import canonical_group_token
 
 NEW = M._column_to_str
 

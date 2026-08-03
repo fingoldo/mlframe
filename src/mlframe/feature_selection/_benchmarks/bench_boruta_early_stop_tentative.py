@@ -25,7 +25,6 @@ Output: prints a per-cell + per-scenario table and writes _results/boruta_early_
 from __future__ import annotations
 
 import json
-import os
 import sys
 import time
 from pathlib import Path

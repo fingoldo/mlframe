@@ -32,7 +32,7 @@ import numba
 import numpy as np
 from numba import prange
 
-from mlframe.metrics.ranking import _summary_batched_kernel, NUMBA_NJIT_PARAMS
+from mlframe.metrics.ranking import _summary_batched_kernel
 
 
 # --------------------------------------------------------------------------

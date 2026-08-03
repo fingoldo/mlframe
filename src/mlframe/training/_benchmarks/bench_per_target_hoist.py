@@ -121,8 +121,8 @@ def _time_suite(df: pd.DataFrame, n_targets: int, *, force_clear_caches: bool) -
             arts_after = ctx.artifacts or {}
             print(
                 f"[bench-debug] target_call={_call_n['value']} target={cur_target_name} "
-                f"clear={force_clear_caches} feature_side_cache_size={len((arts_after.get('feature_side_cache') or {}))} "
-                f"dataset_reuse_cache_size={len((arts_after.get('dataset_reuse_cache') or {}))}",
+                f"clear={force_clear_caches} feature_side_cache_size={len(arts_after.get('feature_side_cache') or {})} "
+                f"dataset_reuse_cache_size={len(arts_after.get('dataset_reuse_cache') or {})}",
                 flush=True,
             )
         return _orig_train_one(ctx, target_type, targets, cur_target_name, cur_target_values)

@@ -132,7 +132,7 @@ def time_one(fn, X, y, *, repeats: int = 3, timeout_s: float = 120.0) -> tuple[f
         t0 = time.perf_counter()
         try:
             alpha, beta = fn(X, y)
-        except Exception as exc:
+        except Exception:
             return float("inf"), float("nan"), float("nan")
         dt = time.perf_counter() - t0
         times.append(dt)

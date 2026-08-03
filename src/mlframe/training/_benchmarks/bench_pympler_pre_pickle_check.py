@@ -34,7 +34,7 @@ _SRC = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
 if _SRC not in sys.path:
     sys.path.insert(0, os.path.join(_SRC, "src"))
 
-from mlframe.training.io import save_mlframe_model  # noqa: E402
+from mlframe.training.io import save_mlframe_model
 
 
 def _build_payload(n_train: int):

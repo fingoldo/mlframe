@@ -56,7 +56,7 @@ def _cached_cc_major() -> int:
     cc-agnostic fallback). Avoids the per-call ``nvidia-smi`` subprocess that
     ``gpu_capability_summary`` incurs for its live-VRAM fields, which this hot
     dispatch path does not use."""
-    global _CC_MAJOR_CACHE  # noqa: PLW0603 - process-lifetime memo by design
+    global _CC_MAJOR_CACHE
     if _CC_MAJOR_CACHE is not None:
         return _CC_MAJOR_CACHE
     cc = -1
@@ -197,7 +197,7 @@ def _maybe_online_relearn(n_samples: int, joint_size: int) -> None:
         # or None on failure. Merges into the existing cache via update().
         region = _at._measure_single_region(
             n_samples=n_samples, joint_size=joint_size, n_iters=3,
-        )  # noqa: SLF001 - intentional access to private API
+        )
         if region is None:
             return
         cache = _get_cache()

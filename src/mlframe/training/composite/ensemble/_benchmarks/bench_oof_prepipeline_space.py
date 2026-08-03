@@ -62,7 +62,7 @@ def _old_pair(pp, X_train, X_holdout, *, y_train=None):
             return X
         try:
             return p.transform(X)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             oof_mod.logger.warning(
                 "[ensemble] pre_pipeline.transform failed (%s: %s); falling back "
                 "to RAW X for this slice -- OOF may evaluate a different space "

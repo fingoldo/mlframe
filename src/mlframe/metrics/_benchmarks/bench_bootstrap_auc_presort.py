@@ -19,7 +19,6 @@ import numpy as np
 from mlframe.metrics._core_auc_brier import (
     fast_roc_auc_unstable,
     make_bootstrap_auc_resampler,
-    fast_numba_auc_nonw,
 )
 
 

@@ -25,7 +25,6 @@ Run::
 from __future__ import annotations
 
 import math
-import time
 
 import numpy as np
 

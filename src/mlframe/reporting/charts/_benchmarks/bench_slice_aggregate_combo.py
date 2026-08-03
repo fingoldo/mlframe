@@ -30,7 +30,7 @@ import numpy as np
 
 
 def _bench() -> None:
-    from mlframe.reporting.charts.slice_finder import _bin_matrix, _aggregate_combo, _fused_sum_count_2col
+    from mlframe.reporting.charts.slice_finder import _bin_matrix, _aggregate_combo
 
     rng = np.random.default_rng(1)
     n, p, nbins = 48_000, 120, 4

@@ -96,9 +96,6 @@ def main():
     print(f"inner construction isolated: old={o:.4f}s new={n:.4f}s  ({o / n:.2f}x)")
 
     # full end-to-end A/B against the real prior code via git show
-    import subprocess  # nosec B404 - subprocess used below with list args only, no shell=True
-    import sys
-    import importlib
 
     from mlframe.feature_engineering.transformer import local_curvature as lc
 

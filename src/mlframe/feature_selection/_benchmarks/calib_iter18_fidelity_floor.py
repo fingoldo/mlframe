@@ -25,7 +25,6 @@ Run with the worktree on PYTHONPATH:
 from __future__ import annotations
 
 import time
-import numpy as np
 
 from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
 from mlframe.feature_selection._benchmarks.calib_iter17_fidelity_weights import REGIMES

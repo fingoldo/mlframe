@@ -91,7 +91,7 @@ def main():
     print(f"{'n_anchors':>10} {'tg_wall':>10} {'e2e':>8} {'trust':>7} {'spearman':>10} {'recall@k':>10} {'fidelity':>10} {'n_sel':>6}")
     for r in results:
         print(f"{r['n_anchors']:>10} {r['trust_guard_wall']:>10.3f} {r['total']:>8.2f} "
-              f"{str(r['trustworthy']):>7} {r['spearman']:>10.4f} "
+              f"{r['trustworthy']!s:>7} {r['spearman']:>10.4f} "
               f"{r['recall_at_k']:>10.4f} {r['proxy_fidelity_score']:>10.4f} {r['n_selected']:>6}")
 
     base = results[0]

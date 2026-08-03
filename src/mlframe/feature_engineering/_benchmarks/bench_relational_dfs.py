@@ -12,7 +12,7 @@ from io import StringIO
 import numpy as np
 import pandas as pd
 
-from mlframe.feature_engineering.relational_dfs import ChildTableSpec, RelationalHop, compute_relational_features, stack_relational_chain, stack_relational_features
+from mlframe.feature_engineering.relational_dfs import ChildTableSpec, RelationalHop, compute_relational_features, stack_relational_chain
 
 
 def _make_dataset(n_parents: int, n_children_per_parent: int, seed: int):

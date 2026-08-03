@@ -32,7 +32,7 @@ REL = "src/mlframe/feature_selection/filters/_conditional_permutation.py"
 
 def _load_old_module() -> types.ModuleType:
     src = subprocess.run(["git", "show", f"HEAD:{REL}"], cwd=REPO, capture_output=True, text=True, check=True).stdout  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
-    from mlframe.feature_selection.filters import _cmi_perm_stop  # noqa: F401
+    from mlframe.feature_selection.filters import _cmi_perm_stop
 
     pkg_name = "_cpt_old_pkg"
     pkg = types.ModuleType(pkg_name)

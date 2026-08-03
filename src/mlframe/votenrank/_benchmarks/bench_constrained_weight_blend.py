@@ -35,7 +35,7 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(
             f"n_samples={n_samples:>9,} n_models={n_models:>3} n_restarts={n_restarts:>2} "
-            f"max_nonzero_weights={str(max_nonzero_weights):>4} -> {wall * 1000:9.2f} ms"
+            f"max_nonzero_weights={max_nonzero_weights!s:>4} -> {wall * 1000:9.2f} ms"
         )
 
     profiler = cProfile.Profile()

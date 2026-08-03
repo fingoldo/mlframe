@@ -21,7 +21,6 @@ import pstats
 import time
 import warnings
 
-import numpy as np
 
 warnings.filterwarnings("ignore")
 

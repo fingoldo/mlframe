@@ -7,7 +7,7 @@ per-candidate melt is memory-bandwidth-gated (documents the prange verdict).
 Run:  NUMBA_NUM_THREADS=<k> python -m ...bench_cmi_thread_scaling
 """
 from __future__ import annotations
-import os, time
+import time
 import numpy as np
 
 

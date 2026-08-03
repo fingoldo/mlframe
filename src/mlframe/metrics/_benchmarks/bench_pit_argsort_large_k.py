@@ -70,7 +70,7 @@ def main():
         identical = np.array_equal(r1, r2)
         t1 = _time(_fast_pit, P, y, a) * 1e3
         t2 = _time(_fast_pit_argsort, P, y, a) * 1e3
-        print(f"{n:>8} {k:>5} {t1:>12.3f} {t2:>12.3f} {t1 / t2:>8.2f}x {str(identical):>10}")
+        print(f"{n:>8} {k:>5} {t1:>12.3f} {t2:>12.3f} {t1 / t2:>8.2f}x {identical!s:>10}")
 
 
 if __name__ == "__main__":

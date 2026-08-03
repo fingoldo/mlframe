@@ -6,7 +6,7 @@ std (the robustness target) and (ii) selection stability (Jaccard of selected se
 Impurity importance (fast) - the question is about the SELECTION aggregation, not the importance metric.
 """
 from __future__ import annotations
-import os, sys, time, json
+import os, sys, json
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
 import numpy as np, pandas as pd

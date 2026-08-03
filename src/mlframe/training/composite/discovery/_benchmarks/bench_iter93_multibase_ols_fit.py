@@ -17,14 +17,14 @@ from __future__ import annotations
 import sys
 
 sys.modules.setdefault("cupy", None)
-import scipy.stats  # noqa: F401,E402
-import numba  # noqa: F401,E402
+import scipy.stats  # noqa: F401
+import numba  # noqa: F401
 
-import time  # noqa: E402
+import time
 
-import numpy as np  # noqa: E402
+import numpy as np
 
-from ...transforms.linear import _linear_residual_multi_fit  # noqa: E402
+from ...transforms.linear import _linear_residual_multi_fit
 
 _TINY = np.finfo(np.float64).tiny
 _COND = 30.0

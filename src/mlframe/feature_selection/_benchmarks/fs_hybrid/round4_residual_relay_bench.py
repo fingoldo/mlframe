@@ -15,7 +15,6 @@ import warnings; warnings.filterwarnings("ignore")
 import numpy as np, pandas as pd
 from sklearn.model_selection import train_test_split, cross_val_predict
 from sklearn.feature_selection import mutual_info_classif
-from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from round3_realdata_bench import load_real, downstream

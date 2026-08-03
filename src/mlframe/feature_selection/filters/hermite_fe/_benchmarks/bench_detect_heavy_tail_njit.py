@@ -15,9 +15,6 @@ import numpy as np
 from mlframe.feature_selection.filters.hermite_fe._hermite_robust import (
     _detect_heavy_tail,
     _detect_heavy_tail_njit,
-    _ROBUST_AXIS_OUTER_K,
-    _ROBUST_AXIS_GAP,
-    _ROBUST_AXIS_MAX_FRAC,
 )
 
 

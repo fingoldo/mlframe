@@ -19,15 +19,15 @@ from __future__ import annotations
 import sys
 
 sys.modules.setdefault("cupy", None)
-import scipy.stats  # noqa: F401,E402
-import numba  # noqa: F401,E402
+import scipy.stats  # noqa: F401
+import numba  # noqa: F401
 
-import statistics  # noqa: E402
-import time  # noqa: E402
+import statistics
+import time
 
-import numpy as np  # noqa: E402
+import numpy as np
 
-from ..screening import (  # noqa: E402
+from ..screening import (
     _mi_from_binned_pair,
     _mi_from_binned_pair_njit_kernel,
 )

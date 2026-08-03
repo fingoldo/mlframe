@@ -97,4 +97,4 @@ if __name__ == "__main__":
         t_old = _best_of(_old, args) * 1e3
         t_new = _best_of(_new, args) * 1e3
         ident = f"exact={gid and aid} max|d|grad={gmax:.2e} align={amax:.2e}"
-        print(f"{str((n_q,k,d)):>22} | {t_old:9.2f} | {t_new:9.2f} | {t_old/t_new:6.2f}x | {ident}")
+        print(f"{(n_q,k,d)!s:>22} | {t_old:9.2f} | {t_new:9.2f} | {t_old/t_new:6.2f}x | {ident}")
