@@ -84,6 +84,13 @@ def gpu_materialise_extval_codes_host(
             return None
         K = n_ext * n_ops
         out_dev = cp.empty((n, K), dtype=cp.float64)
+        # bench-attempt-rejected (2026-08-03): batching across ext factors via one (n, n_ext) stacked matrix
+        # + broadcasting (pa[:, None] op B) per op -- reducing n_ext*n_ops single-column kernel launches to
+        # n_ops broadcast launches -- was measured 0.85x (SLOWER), not faster, on n=1.62M/n_ext=20/n_ops=9
+        # (2529ms -> 2967ms, warm, best-of-10). Root cause: the (n, n_ext) stack itself costs n_ext separate
+        # column-assignment launches (no cheaper than the original per-column op launches it replaced), and
+        # cupy's broadcast op over the wider (n, n_ext) array does MORE total elementwise work per launch than
+        # the per-column narrow op it's compared against averages out to. Kept the per-column loop.
         for _e, _pb in enumerate(param_b_list):
             b = resident_operand(_pb, ("extval_ext",), dtype=np.float64).ravel()
             if b.shape[0] != n:
