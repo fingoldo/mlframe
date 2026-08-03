@@ -36,13 +36,7 @@ _KNOWN_INDIRECT_SUBCONFIGS: dict[str, str] = {}
 
 # User-deferred, mirrors the same list in test_config_field_consumption.py
 # but scoped to sub-config fields so the failure message is targeted.
-_USER_DEFERRED_SUBCONFIGS: dict[str, str] = {
-    "TrainingConfig.linear_config": "shadowed by trainer.py kwarg `linear_model_config`",
-    "TrainingConfig.tree_config": "shadowed by trainer.py kwarg `tree_model_config`",
-    "TrainingConfig.mlp_config": "shadowed by trainer.py kwarg `mlp_config`",
-    "TrainingConfig.ngb_config": "shadowed by trainer.py kwarg `ngb_model_config`",
-    "TrainingConfig.behavior": "shadowed by trainer.py kwarg `behavior_config`",
-}
+_USER_DEFERRED_SUBCONFIGS: dict[str, str] = {}
 
 
 def _consumer_corpus() -> str:

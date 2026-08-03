@@ -21,7 +21,7 @@ if TYPE_CHECKING:
         FeatureTypesConfig, LearningToRankConfig, LinearModelConfig, ModelHyperparamsConfig,
         MultilabelDispatchConfig, OutlierDetectionConfig, OutputConfig, PreprocessingBackendConfig,
         PreprocessingConfig, PreprocessingExtensionsConfig, QuantileRegressionConfig, ReportingConfig,
-        TargetTypes, TrainingBehaviorConfig, TrainingSplitConfig,
+        TargetTypes, TrainingBehaviorConfig, TrainingSplitConfig, TrainingConfig,
     )
 
 logger = logging.getLogger(__name__)
@@ -119,6 +119,11 @@ def train_mlframe_models_suite(
     linear_model_config: Optional[LinearModelConfig] = None,
     hyperparams_config: Optional[Union[ModelHyperparamsConfig, Dict]] = None,
     behavior_config: Optional[Union[TrainingBehaviorConfig, Dict]] = None,
+    # Aggregate config carrier: supplies ``linear_model_config`` / ``behavior_config`` defaults
+    # from its own ``.linear_config`` / ``.behavior`` sub-configs when those explicit kwargs are
+    # left as None (an explicit kwarg always wins). Does not touch any other kwarg -- pass the
+    # other *_config kwargs directly as before.
+    training_config: Optional["TrainingConfig"] = None,
     multilabel_dispatch_config: Optional["MultilabelDispatchConfig"] = None,
     reporting_config: Optional[Union["ReportingConfig", Dict]] = None,
     output_config: Optional[Union["OutputConfig", Dict]] = None,
@@ -200,6 +205,9 @@ def train_mlframe_models_suite(
             ``nearest_past_join``. None (default) is a genuine no-op for both.
         feature_types_config: Numeric/categorical/text type-detection overrides. See ``FeatureTypesConfig``.
         linear_model_config: Linear-model family hyperparameters. See ``LinearModelConfig``.
+        training_config: Aggregate ``TrainingConfig`` carrier; supplies ``linear_model_config`` /
+            ``behavior_config`` defaults from its ``.linear_config`` / ``.behavior`` sub-configs
+            when those explicit kwargs are left as None (an explicit kwarg always wins).
         multilabel_dispatch_config: Multilabel-only strategy (wrapper/chain/native). See ``MultilabelDispatchConfig``.
         confidence_analysis_config: SHAP-based confidence-of-correct-prediction analysis. See ``ConfidenceAnalysisConfig``.
         baseline_diagnostics_config: Baseline ablation / quick-model diagnostics. See ``BaselineDiagnosticsConfig``.
@@ -286,6 +294,12 @@ def train_mlframe_models_suite(
         features_and_targets_extractor = _build_default_extractor(df, target_name)
 
     df = validate_suite_inputs(df, target_name, model_name, features_and_targets_extractor)
+
+    if training_config is not None:
+        if linear_model_config is None:
+            linear_model_config = training_config.linear_config
+        if behavior_config is None:
+            behavior_config = training_config.behavior
 
     ctx = pr.setup_configuration(
         preprocessing_config=preprocessing_config,

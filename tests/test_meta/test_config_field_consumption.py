@@ -64,11 +64,6 @@ _USER_DEFERRED_DEAD: dict[str, str] = {
     "FairnessConfig.fairness_metrics": "name collides with metrics.compute_fairness_metrics function",
     "MultilabelDispatchConfig.cv": "ClassifierChain.cv knob — chain dispatch hardcodes cv=5; wire when chain ensemble path is exercised",
     "TreeModelConfig.hgb_kwargs": "duplicate of ModelHyperparamsConfig.hgb_kwargs (which IS consumed via model_dump splat)",
-    "TrainingConfig.linear_config": "shadowed by trainer.py kwarg `linear_model_config`; orphan until TrainingConfig becomes the canonical entrypoint",
-    "TrainingConfig.tree_config": "shadowed by trainer.py kwarg `tree_model_config`",
-    "TrainingConfig.mlp_config": "shadowed by trainer.py kwarg `mlp_config`",
-    "TrainingConfig.ngb_config": "shadowed by trainer.py kwarg `ngb_model_config`",
-    "TrainingConfig.behavior": "shadowed by trainer.py kwarg `behavior_config`",
     "NGBConfig.minibatch_frac": "NGBConfig class never instantiated — NGB is configured via ngb_kwargs dict instead",
     "NGBConfig.Dist": "same — class never instantiated in production",
     # 2026-05-15 — new entries surfaced after the src/ migration; same pattern

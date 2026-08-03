@@ -26,9 +26,6 @@ from ._preprocessing_configs import (
 )
 from ._model_configs import (
     LinearModelConfig,
-    TreeModelConfig,
-    MLPConfig,
-    NGBConfig,
     ModelHyperparamsConfig,
     TrainingBehaviorConfig,
 )
@@ -147,13 +144,8 @@ class TrainingConfig(BaseConfig):
     feature_selection : FeatureSelectionConfig
         Feature selection settings.
     linear_config : LinearModelConfig, optional
-        Linear model hyperparameters.
-    tree_config : TreeModelConfig, optional
-        Tree model hyperparameters.
-    mlp_config : MLPConfig, optional
-        MLP hyperparameters.
-    ngb_config : NGBConfig, optional
-        NGBoost hyperparameters.
+        Linear model hyperparameters. Threaded into ``train_mlframe_models_suite``'s
+        ``linear_model_config`` when this ``TrainingConfig`` is passed via ``training_config=``.
     data_dir : str
         Base directory for data files.
     models_dir : str
@@ -161,7 +153,9 @@ class TrainingConfig(BaseConfig):
     hyperparams : ModelHyperparamsConfig
         Model hyperparameters (iterations, learning rate, per-model kwargs).
     behavior : TrainingBehaviorConfig
-        Training behavior flags (GPU preference, calibration, fairness).
+        Training behavior flags (GPU preference, calibration, fairness). Threaded into
+        ``train_mlframe_models_suite``'s ``behavior_config`` when this ``TrainingConfig`` is
+        passed via ``training_config=``.
     verbose : int
         Verbosity level (default: 1).
     metamodel_func : Callable, optional
@@ -192,11 +186,12 @@ class TrainingConfig(BaseConfig):
     pipeline: PreprocessingBackendConfig = Field(default_factory=PreprocessingBackendConfig)
     feature_selection: FeatureSelectionConfig = Field(default_factory=FeatureSelectionConfig)
 
-    # Model-specific configs (can be overridden per model)
+    # Linear-model hyperparameters (no unified-config equivalent exists; threaded into
+    # train_mlframe_models_suite's linear_model_config kwarg when this TrainingConfig is
+    # passed via training_config=). No tree_config / mlp_config / ngb_config here: those
+    # duplicated hyperparams (ModelHyperparamsConfig).hgb_kwargs / mlp_kwargs / ngb_kwargs,
+    # which is the actual consumed per-family kwargs surface.
     linear_config: Optional[LinearModelConfig] = None
-    tree_config: Optional[TreeModelConfig] = None
-    mlp_config: Optional[MLPConfig] = None
-    ngb_config: Optional[NGBConfig] = None
 
     # Directory paths
     data_dir: str = ""
