@@ -38,7 +38,7 @@ import numpy as np
 from numba import njit, prange
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import METRIC_CODES, resolve_metric, score_margin
-from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import brute_force_top_n, generate_combinations, _merge_topn
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import brute_force_top_n, generate_combinations, _merge_topn, total_subsets as _total_subsets
 
 logger = logging.getLogger(__name__)
 
@@ -170,12 +170,6 @@ def _gpu_min_subsets() -> int:
         logger.debug("suppressed: %s", e)
         pass
     return _DEFAULT_GPU_MIN_SUBSETS
-
-
-def _total_subsets(n_features: int, min_card: int, max_card: int | None) -> int:
-    """Total number of feature subsets of cardinality in [min_card, max_card] out of ``n_features``, used to decide the CPU/GPU dispatch threshold."""
-    max_card = n_features if max_card is None else min(max_card, n_features)
-    return int(sum(math.comb(n_features, r) for r in range(min_card, max_card + 1)))
 
 
 def brute_force_top_n_dispatch(
