@@ -32,6 +32,10 @@ PASS end-to-end: ShapSel + SU-top-K product cols beats plain ShapSel recall by >
   WITHOUT the O(P^2) cost (screen is O(P) univariate SU + O(K) pair SU).
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time, itertools
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -60,6 +64,7 @@ def _qbin(col, nbins=10):
             return np.zeros(len(col), dtype=np.int64)
         return np.clip(np.digitize(col, edges[1:-1]), 0, len(edges) - 2).astype(np.int64)
     except Exception as exc:
+        logger.debug("quantile binning failed: %r", exc)
         ck(f"_qbin: quantile binning failed, returning zeros: {exc!r}")
         return np.zeros(len(col), dtype=np.int64)
 

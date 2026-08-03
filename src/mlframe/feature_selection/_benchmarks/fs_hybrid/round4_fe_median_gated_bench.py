@@ -11,6 +11,10 @@ Verifies the WIN claim from agent E before recommending a (shared-file) pipeline
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import warnings
 import numpy as np
 import pandas as pd
@@ -25,7 +29,7 @@ from sklearn.metrics import roc_auc_score
 try:
     from lightgbm import LGBMClassifier
     _HAVE_LGBM = True
-except Exception:
+except ImportError:
     _HAVE_LGBM = False
 
 N_JOBS = 2

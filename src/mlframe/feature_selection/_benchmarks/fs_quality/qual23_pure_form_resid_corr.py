@@ -12,6 +12,10 @@ pure form that lifts OOF R^2 without regressing the control scenario (where no w
 
 Run: PYTHONPATH=src python -m mlframe.feature_selection._benchmarks.fs_quality.qual23_pure_form_resid_corr
 """
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time
 os.environ.setdefault("MLFRAME_SKIP_NUMBA_PREWARM", "1"); os.environ.setdefault("CUDA_VISIBLE_DEVICES", ""); os.environ.setdefault("NUMBA_DISABLE_CUDA", "1")
 import scipy.stats, numba  # noqa
@@ -52,8 +56,8 @@ def oof_r2(X, y, recipes, raw_cols, seed):
             v = np.nan_to_num(np.asarray(apply_recipe(r, X), float).ravel())
             if v.shape[0] == len(X):
                 cols.append(v)
-        except Exception:  # nosec B110 - best-effort path
-            pass
+        except Exception as e:  # nosec B110 - best-effort path
+            logger.debug("candidate column append failed: %s", e)
     if not cols:
         return float("nan")
     M = np.column_stack(cols)

@@ -22,6 +22,10 @@ report). On OOM / paging / "Unable to allocate" / LightGBM "model format" the da
 D:/Temp/broad_val_progress.txt, results table -> D:/Temp/broad_val_results.md.
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time, gc, traceback
 
 os.environ.setdefault("TQDM_DISABLE", "1")
@@ -52,8 +56,8 @@ def _chk(msg: str):
     try:
         with open(PROGRESS, "a", encoding="ascii", errors="replace") as f:
             f.write(line + "\n")
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("progress-log write failed: %s", e)
 
 
 # ---------------------------------------------------------------------------- dataset loading
@@ -252,6 +256,7 @@ def run_dataset(name, X, y, note):
             _chk(f"  {name}/{nm:10s} n={r['n']:4d} {r['fit_s']:6.1f}s mean={r['auc_mean']} prod={r.get('auc_prod')} "
                  f"lgbm={r.get('lgbm')} logit={r.get('logit')} knn={r.get('knn')}")
         except Exception as e:
+            logger.debug("strategy %s/%s failed: %s: %s", name, nm, type(e).__name__, e)
             _chk(f"  {name}/{nm:10s} STRATEGY FAILED: {type(e).__name__}: {e}")
             rows.append(dict(dataset=name, strategy=nm, n=-1, fit_s=-1.0, auc_mean=float("nan"),
                              auc_prod=float("nan"), lgbm=float("nan"), logit=float("nan"), knn=float("nan"),
@@ -269,6 +274,7 @@ def load_with_retry(name, kw):
                 note = note + " | RETRY (reduced budget after OOM)"
             return run_dataset(name, X, y, note)
         except Exception as e:
+            logger.debug("load_with_retry attempt=%s for %s failed: %s: %s", attempt, name, type(e).__name__, e)
             if _is_oom(e) and attempt == 0:
                 _chk(f"  (OOM-ish on {name}: {type(e).__name__}: {e}; sleeping 90s then retrying with reduced budget)")
                 gc.collect(); time.sleep(90); continue
@@ -358,8 +364,8 @@ def main():
     for p in (PROGRESS, RESULTS):
         try:
             os.makedirs(os.path.dirname(p), exist_ok=True)
-        except Exception:  # nosec B110 - best-effort path
-            pass
+        except Exception as e:  # nosec B110 - best-effort path
+            logger.debug("makedirs for %s failed: %s", p, e)
     with open(PROGRESS, "w", encoding="ascii"):
         pass
     _chk("=== broad real-data FS validation START ===")
@@ -371,6 +377,7 @@ def main():
         try:
             rows = load_with_retry(name, kw)
         except Exception as e:
+            logger.debug("dataset %s hard-skipped: %s: %s", name, type(e).__name__, e)
             _chk(f"  (hard-skip {name}: {type(e).__name__}: {e})")
             rows = []
         if rows:
@@ -380,6 +387,7 @@ def main():
             try:
                 write_results(pd.DataFrame(allrows))
             except Exception as e:
+                logger.debug("mid-run results write failed: %s: %s", type(e).__name__, e)
                 _chk(f"  (results write failed mid-run: {type(e).__name__}: {e})")
 
     if not loaded_any:

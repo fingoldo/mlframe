@@ -21,6 +21,10 @@ Memory-frugal (heavy concurrent load): n_jobs=4, n_estimators<=200, synth/hard_s
 stress only (artifact cached). stdout -> file. ASCII-only prints (cp1251).
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -265,6 +269,7 @@ def main():
             print(pd.DataFrame(mrows).to_string(index=False))
             print(verdict(df))
         except Exception as e:
+            logger.debug("madelon stress skipped: %s: %s", type(e).__name__, e)
             print(f"  (madelon stress skipped: {type(e).__name__}: {e})", flush=True)
 
     # write results markdown

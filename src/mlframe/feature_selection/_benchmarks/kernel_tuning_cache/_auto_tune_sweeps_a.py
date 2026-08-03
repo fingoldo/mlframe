@@ -42,7 +42,8 @@ def _physical_concurrency() -> int:
     try:
         import psutil
         c = psutil.cpu_count(logical=False) or psutil.cpu_count() or 1
-    except Exception:
+    except Exception as e:
+        logger.debug("psutil.cpu_count() failed, falling back to os.cpu_count(): %s", e)
         c = os.cpu_count() or 2
     return max(1, min(8, int(c)))
 

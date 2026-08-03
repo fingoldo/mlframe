@@ -7,6 +7,10 @@ and prints the top mlframe-side hotspots by tottime + cumtime. Drives the optimi
   FS=rfecv|boruta|shap|mrmr|mrmr_fe  SCENE_N=700  python round4_fs_campaign_profile.py
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time, cProfile, pstats, io
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -48,6 +52,7 @@ def main():
     try:
         make_selector(FS).fit(X.iloc[:120], y.iloc[:120])
     except Exception as e:
+        logger.debug("warm-up failed: %s: %s", type(e).__name__, e)
         print(f"[warm-up note] {type(e).__name__}: {e}", flush=True)
     print(f"[warm-up {time.time()-tw:.1f}s] profiling the warm fit...", flush=True)
 
@@ -57,7 +62,8 @@ def main():
     pr.disable(); dt = time.time() - t0
     try:
         nsel = int(np.asarray(sel.transform(X.iloc[:5])).shape[1])
-    except Exception:
+    except Exception as e:
+        logger.debug("selector transform probe failed: %s", e)
         nsel = -1
     print(f"[FS={FS}] fit {dt:.1f}s; selected n={nsel}", flush=True)
 

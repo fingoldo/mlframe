@@ -9,6 +9,10 @@ rows to keep the profile tractable (the per-pair Python overhead is largely n-in
 at small n -- and if the wall barely drops with n, that itself confirms the bottleneck is n-independent Python).
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time, cProfile, pstats, io
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -34,6 +38,7 @@ def _disable_kernel_tuning_sweep():
         _M.KernelTuningCache.load_or_create = classmethod(lambda cls: _inmem)
         print("[kernel-tuning sweep+disk DISABLED for profiling -> in-memory fallback]", flush=True)
     except Exception as e:
+        logger.debug("no-sweep patch failed: %s", e)
         print(f"[no-sweep patch failed: {e}]", flush=True)
 
 

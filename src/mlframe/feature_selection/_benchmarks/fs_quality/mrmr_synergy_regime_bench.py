@@ -37,6 +37,10 @@ USAGE
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import argparse
 import functools
 import json
@@ -128,7 +132,8 @@ def _holdout_auc(X_tr, y_tr, X_ho, y_ho, sel_idx):
         m = LGBMClassifier(n_estimators=80, num_leaves=15, verbose=-1, random_state=0)
         m.fit(Xtr, y_tr)
         out["lgbm"] = float(roc_auc_score(y_ho, m.predict_proba(Xho)[:, 1]))
-    except Exception:
+    except Exception as e:
+        logger.debug("lgbm fit/score failed: %s", e)
         out["lgbm"] = None
     try:
         from sklearn.linear_model import LogisticRegression
@@ -137,7 +142,8 @@ def _holdout_auc(X_tr, y_tr, X_ho, y_ho, sel_idx):
         m = LogisticRegression(max_iter=500)
         m.fit(Xs.transform(Xtr), y_tr)
         out["logit"] = float(roc_auc_score(y_ho, m.predict_proba(Xs.transform(Xho))[:, 1]))
-    except Exception:
+    except Exception as e:
+        logger.debug("logit fit/score failed: %s", e)
         out["logit"] = None
     return out
 

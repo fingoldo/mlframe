@@ -29,6 +29,10 @@ VERDICT: CONFIRMED if operands collapse to 1 bin under RAW MDLP but keep >1 bin 
 (and we report whether the PRODUCTION fallback already rescues them); REFUTED otherwise.
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -164,6 +168,7 @@ def main():
     try:
         Xr, yr, rname = load_real()
     except Exception as e:
+        logger.debug("madelon load failed: %s: %s", type(e).__name__, e)
         ckpt(f"madelon load FAILED {type(e).__name__}: {e}")
         Xr = None
     if Xr is not None and rname == "madelon":

@@ -23,6 +23,10 @@ Beds: hard_synth (split signal; RFECV's known regime) + synth. Core = Boruta-acc
 PASS: protected_rfecv beats plain_rfecv AUC by >= +0.005 on a bed without regressing the other > 0.005.
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -55,11 +59,13 @@ def high_conf_core(Xtr, ytr):
         bs = S.BorutaSel(); bs.fit(Xtr, ytr)
         core |= set(c for c in bs.b_.accepted if c in Xtr.columns)
     except Exception as e:
+        logger.debug("boruta core failed: %s: %s", type(e).__name__, e)
         print(f"  (boruta core skip: {type(e).__name__})", flush=True)
     try:
         mr = S.MRMRSel(fe=False); mr.fit(Xtr, ytr)
         core |= set(c for c in mr.raw_selected_ if c in Xtr.columns)
     except Exception as e:
+        logger.debug("mrmr core failed: %s: %s", type(e).__name__, e)
         print(f"  (mrmr core skip: {type(e).__name__})", flush=True)
     return [c for c in Xtr.columns if c in core]
 

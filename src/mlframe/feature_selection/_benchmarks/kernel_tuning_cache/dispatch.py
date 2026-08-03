@@ -65,7 +65,8 @@ def _cached_cc_major() -> int:
         summary = gpu_capability_summary(0)
         if summary is not None:
             cc = int(summary.get("cc_major", 0))
-    except Exception:
+    except Exception as e:
+        logger.debug("GPU compute-capability probe failed: %s", e)
         cc = -1
     _CC_MAJOR_CACHE = cc
     return cc

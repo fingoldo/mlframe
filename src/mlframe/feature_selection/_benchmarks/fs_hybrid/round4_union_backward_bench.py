@@ -23,6 +23,10 @@ Memory-frugal under heavy concurrent load: all LightGBM / RFECV / permutation n_
 n_estimators, RFECV max_refits capped low (the union is small so few refits are needed). madelon cached to disk.
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time, pickle  # nosec B403 - module used safely in this file, see call sites below (no untrusted input reaches it)
 os.environ.setdefault("TQDM_DISABLE", "1")
 # cap thread oversubscription from the many native-threaded estimators running concurrently with sibling agents
@@ -48,8 +52,8 @@ def log(msg: str):
     try:
         with open(PROGRESS, "a", encoding="ascii", errors="replace") as fh:
             fh.write(line + "\n")
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("progress-log write failed: %s", e)
 
 
 def union_of_members(member_sel: dict, cols) -> list:
@@ -129,6 +133,7 @@ def get_madelon():
             log(f"madelon loaded from cache {MADELON_CACHE} shape={X.shape}")
             return X, y, nm
         except Exception as e:
+            logger.debug("madelon cache read failed: %s: %s", type(e).__name__, e)
             log(f"madelon cache read failed ({type(e).__name__}); reloading")
     X, y, nm = load_real()
     try:
@@ -136,6 +141,7 @@ def get_madelon():
             pickle.dump((X, y, nm), fh, protocol=pickle.HIGHEST_PROTOCOL)
         log(f"madelon cached to {MADELON_CACHE} shape={X.shape}")
     except Exception as e:
+        logger.debug("madelon cache write failed: %s: %s", type(e).__name__, e)
         log(f"madelon cache write failed ({type(e).__name__})")
     return X, y, nm
 
@@ -158,6 +164,7 @@ def main():
         for seed in seeds:
             allrows += run_bed(rname, Xr, yr, seed)
     except Exception as e:
+        logger.debug("madelon bed failed: %s: %s", type(e).__name__, e)
         log(f"madelon bed FAILED ({type(e).__name__}: {e}); primary beds stand")
 
     df = pd.DataFrame(allrows)

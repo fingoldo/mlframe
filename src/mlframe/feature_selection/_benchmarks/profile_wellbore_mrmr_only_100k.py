@@ -15,6 +15,10 @@ Under ncu (per-kernel occupancy/bandwidth; -c caps kernel launches profiled, --s
 The MRMR config mirrors wellbore_train.py's mrmr_kwargs exactly (fe_max_steps=1, cat FE on, medium
 presets) so hotspots found here transfer 1:1 to the production suite run.
 """
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os
 import time
 from os.path import join
@@ -41,6 +45,7 @@ if os.environ.get("WELLBORE_DUMP_AUDIT", "0") == "1":
                 hint = f"{frames[-1].filename.split('mlframe')[-1]}:{frames[-1].lineno}" if frames else "?"
                 print(f"[dump-audit] shape={a.shape} dtype={a.dtype} {a.nbytes/1e6:.0f}MB from {hint}", flush=True)
         except Exception as exc:
+            logger.debug("dump-audit hook failed: %r", exc)
             print(f"[dump-audit] audit hook failed: {exc!r}", flush=True)
         return _orig_reduce(self, a)
     _jmr.ArrayMemmapForwardReducer.__call__ = _audited

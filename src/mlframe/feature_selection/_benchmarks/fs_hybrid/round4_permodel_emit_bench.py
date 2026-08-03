@@ -28,6 +28,10 @@ VERDICT: per-family beats shared by >= +0.005 on hard_synth or madelon WITHOUT h
 A clean NEGATIVE (one-size-fits-all holds even on split-signal) is a valuable, reportable result.
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time, gc
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -258,6 +262,7 @@ def run_with_retry(name, X, y, seed):
     try:
         return run_bed(name, X, y, seed)
     except Exception as e:
+        logger.debug("run_bed %s seed=%s failed: %s: %s", name, seed, type(e).__name__, e)
         _ckpt(f"RETRY {name} seed={seed} after error: {type(e).__name__}: {e}")
         time.sleep(60)
         return run_bed(name, X, y, seed)

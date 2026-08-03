@@ -8,6 +8,10 @@ ground-truth recovery (vs known causal/redundant/noise blocks), parsimony, cost.
 Writes results.jsonl incrementally and progress.txt checkpoints (one line per cell).
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time, json, traceback
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -157,12 +161,14 @@ def main():
                         clf = mfac(); clf.fit(Ztr, ytr)
                         aucs[mname] = round(float(roc_auc_score(yte, clf.predict_proba(Zte)[:, 1])), 4)
                     except Exception as e:
+                        logger.debug("model %s fit/score failed: %s: %s", mname, type(e).__name__, e)
                         aucs[mname] = None; row[f"err_{mname}"] = f"{type(e).__name__}: {e}"
                 row["auc"] = aucs
                 row["auc_mean"] = round(float(np.mean([v for v in aucs.values() if v is not None])), 4) if any(aucs.values()) else None
                 log(f"[{cell}/{total}] {scen_name}/{name} seed={seed} n={row['n_features']} eng={row['n_engineered']} "
                     f"fit={row['fit_seconds']}s rec={row.get('base_recall')} noise={row.get('n_noise_selected')} auc={aucs}")
             except Exception as e:
+                logger.debug("cell failed: %s: %s", type(e).__name__, e)
                 row["error"] = f"{type(e).__name__}: {e}"
                 row["traceback"] = traceback.format_exc()[-1500:]
                 log(f"[{cell}/{total}] {scen_name}/{name} seed={seed} ERROR {type(e).__name__}: {e}")

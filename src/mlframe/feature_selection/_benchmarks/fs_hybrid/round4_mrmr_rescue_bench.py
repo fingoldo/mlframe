@@ -23,6 +23,10 @@ VERDICT goal: which (if any) lifts madelon >3 feats toward ~0.84 WITHOUT regress
 raising fe_synergy_screen_max_features a safe default-raise or does O(p^2)/synth forbid it?
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -139,6 +143,7 @@ def run_bed(name, X, y, cap_grid, seed=0):
             emit(rows, name, f"mrmr_cap{cap}", sel.transform(Xtr), sel.transform(Xte), ytr, yte, t0, extra=f"(raw={sel.n_raw_} eng={sel.n_eng_})")
             ckpt(f"bed={name} mrmr_cap{cap} done n_raw={sel.n_raw_} n_eng={sel.n_eng_} t={round(time.time()-t0,1)}s")
         except Exception as e:
+            logger.debug("mrmr_cap%s for %s failed: %s: %s", cap, name, type(e).__name__, e)
             print(f"[{name}] mrmr_cap{cap} FAILED: {type(e).__name__}: {e}", flush=True)
             ckpt(f"bed={name} mrmr_cap{cap} FAILED {type(e).__name__}")
 

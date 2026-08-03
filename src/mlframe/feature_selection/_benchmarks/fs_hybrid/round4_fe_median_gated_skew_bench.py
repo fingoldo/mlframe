@@ -4,6 +4,10 @@ gate beat threshold-0? Uses SHIFTED/SKEWED operands (median far from 0). Multi-s
 Leak-safe: median from TRAIN only, replayed on TEST.
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import warnings
 import numpy as np
 warnings.filterwarnings("ignore")
@@ -13,7 +17,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import roc_auc_score
 try:
     from lightgbm import LGBMClassifier; _HAVE_LGBM = True
-except Exception:
+except ImportError:
     _HAVE_LGBM = False
 N_JOBS = 2
 SEEDS = [1, 2, 3, 4]
