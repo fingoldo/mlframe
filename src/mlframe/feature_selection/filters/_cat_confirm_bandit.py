@@ -22,6 +22,7 @@ from ._cat_confirm_permutation import (
     _shuffle_and_compute_three_mis,
     _bulk_shuffle_and_compute_three_mis,
     _apply_fwer_correction,
+    make_single_merge,
 )
 
 logger = logging.getLogger(__name__)
@@ -93,19 +94,7 @@ def _confirm_pairs_bandit_ucb1(
     # mutates only a copy of classes_y, never classes_x1/x2), so sharing one
     # array across pairs is safe. Bit-identical: same merge_vars output, memoised.
     _single_merge_cache: dict = {}
-
-    def _single_merge(idx: int):
-        """Memoized single-variable ``merge_vars`` classes/freqs for feature ``idx``, shared across every pair that contains it (bit-identical to a fresh call since the merge is deterministic per-feature)."""
-        cached = _single_merge_cache.get(idx)
-        if cached is None:
-            cls, fq, _ = merge_vars(
-                factors_data=factors_data,
-                vars_indices=np.array([idx], dtype=np.int64),
-                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
-            )
-            cached = (cls, fq)
-            _single_merge_cache[idx] = cached
-        return cached
+    _single_merge = make_single_merge(factors_data, nbins, dtype, _single_merge_cache)
 
     for k in selected_idx:
         i = int(pairs_a[k])

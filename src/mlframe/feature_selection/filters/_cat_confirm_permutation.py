@@ -30,6 +30,29 @@ from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
+
+def make_single_merge(factors_data: np.ndarray, nbins: np.ndarray, dtype, cache: dict):
+    """Build a memoized single-variable ``merge_vars`` lookup closing over ``factors_data``/``nbins``/``dtype``,
+    reading and writing into the caller-supplied ``cache`` dict (not copied, so hits/misses accumulate into the
+    same dict across calls). The single-variable merge of feature ``idx`` depends only on ``factors_data[:, idx]``
+    + ``nbins[idx]`` (default ``current_nclasses=1``, fresh ``final_classes``), so it is identical for every
+    survivor pair that contains ``idx`` -- shared by the permutation-confirm / bandit-confirm call sites."""
+
+    def _single_merge(idx: int):
+        """Memoized single-variable ``merge_vars`` classes/freqs for feature ``idx``, shared across every pair that contains it (bit-identical to a fresh call since the merge is deterministic per-feature)."""
+        cached = cache.get(idx)
+        if cached is None:
+            cls, fq, _ = merge_vars(
+                factors_data=factors_data,
+                vars_indices=np.array([idx], dtype=np.int64),
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            cached = (cls, fq)
+            cache[idx] = cached
+        return cached
+
+    return _single_merge
+
 # Stable base seed for the confirmation phase's local RNGs (Westfall-Young shuffle, null subsample).
 # CatFEConfig carries no user seed; this keeps the permutation null + subsample reproducible across
 # runs without touching (or being touched by) the process-global numpy RNG.
@@ -742,19 +765,7 @@ def _confirm_pairs_via_permutation(
     # A caller-supplied ``single_merge_cache`` is used directly (not copied) so hits/misses accumulate into the
     # SAME dict the caller holds, letting it be reused for a subsequent call against the same survivor set.
     _single_merge_cache: dict = single_merge_cache if single_merge_cache is not None else {}
-
-    def _single_merge(idx: int):
-        """Memoized single-variable ``merge_vars`` classes/freqs for feature ``idx``, shared across every survivor pair that contains it (bit-identical to a fresh call since the merge is deterministic per-feature)."""
-        cached = _single_merge_cache.get(idx)
-        if cached is None:
-            cls, fq, _ = merge_vars(
-                factors_data=factors_data,
-                vars_indices=np.array([idx], dtype=np.int64),
-                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
-            )
-            cached = (cls, fq)
-            _single_merge_cache[idx] = cached
-        return cached
+    _single_merge = make_single_merge(factors_data, nbins, dtype, _single_merge_cache)
 
     if verbose:
         logger.info(
