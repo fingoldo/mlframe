@@ -24,34 +24,13 @@ import time
 import numpy as np
 from numba import njit, prange
 
-from mlframe.feature_selection.filters.info_theory._class_encoding import merge_vars
-from mlframe.feature_selection.filters.info_theory._entropy_kernels import (
-    entropy,
-    _entropy_xz_fused,
-    _entropy_x_onto_classes,
-)
 from mlframe.feature_selection.filters.info_theory._cmi_cuda import (
     _cmi_yz_fixed_terms,
+    _cmi_one_fixed_yz as _cmi_one_fixed_yz_NEW,
 )
-
+from mlframe.feature_selection.filters.info_theory._benchmarks.bench_cmi_yz_hoist import _cmi_one_hoisted as _cmi_one_fixed_yz_OLD
 
 # ---- OLD per-candidate kernel (current prod: full merge_vars, discards final_classes) ----
-@njit(cache=True)
-def _cmi_one_fixed_yz_OLD(factors_data, xi, zi, classes_yz, nclasses_yz, ent_yz, ent_z, factors_nbins, dtype):
-    xz = np.empty(2, dtype=np.int64)
-    if xi <= zi:
-        xz[0] = xi; xz[1] = zi
-    else:
-        xz[0] = zi; xz[1] = xi
-    _, freqs_xz, _ = merge_vars(factors_data, xz, None, factors_nbins, dtype=dtype)
-    ent_xz = entropy(freqs_xz)
-    scratch = classes_yz.copy()
-    xarr = np.empty(1, dtype=np.int64)
-    xarr[0] = xi
-    _, freqs_xyz, _ = merge_vars(factors_data, xarr, None, factors_nbins, current_nclasses=nclasses_yz, final_classes=scratch, dtype=dtype)
-    ent_xyz = entropy(freqs_xyz)
-    r = ent_xz + ent_yz - ent_z - ent_xyz
-    return r if r > 0.0 else 0.0
 
 
 @njit(parallel=True, cache=True)
@@ -66,18 +45,6 @@ def _loop_OLD(factors_data, cand_indices, y, z, factors_nbins, dtype=np.int32):
 
 
 # ---- NEW per-candidate kernel (pruned: fused freqs-only melts, no discarded arrays) ----
-@njit(cache=True)
-def _cmi_one_fixed_yz_NEW(factors_data, xi, zi, classes_yz, nclasses_yz, ent_yz, ent_z, factors_nbins, dtype):
-    xz = np.empty(2, dtype=np.int64)
-    if xi <= zi:
-        xz[0] = xi; xz[1] = zi
-    else:
-        xz[0] = zi; xz[1] = xi
-    ent_xz = _entropy_xz_fused(factors_data, xz, factors_nbins, dtype)
-    ent_xyz = _entropy_x_onto_classes(factors_data, xi, classes_yz, nclasses_yz, factors_nbins[xi])
-    r = ent_xz + ent_yz - ent_z - ent_xyz
-    return r if r > 0.0 else 0.0
-
 
 @njit(parallel=True, cache=True)
 def _loop_NEW(factors_data, cand_indices, y, z, factors_nbins, dtype=np.int32):
