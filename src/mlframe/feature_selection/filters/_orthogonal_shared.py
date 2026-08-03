@@ -10,6 +10,43 @@ import numpy as np
 _CODE_TO_BASIS = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
 
 
+def quantile_bin_batched(arr: np.ndarray, nbins: int) -> np.ndarray:
+    """Vectorised equi-frequency bin of a 2-D (n, k) all-finite float array.
+
+    Computes ``np.quantile(arr, qs, axis=0)`` ONCE for the whole batch (the underlying
+    partition-based selector amortises across columns much better than ``k`` separate
+    ``np.quantile(col, qs)`` calls). Then a per-column dedup + ``np.searchsorted`` produces
+    dense int64 bin codes matching the contract of ``_quantile_bin`` on the all-finite path:
+    the same edges (after ``np.unique`` dedup) and the same ``side='right'`` searchsorted
+    convention. Bit-equivalent to ``_quantile_bin`` on all-finite numeric input; the
+    per-column fallback handles mixed-NaN / Inf data via the original per-column path."""
+    n, k = arr.shape
+    out = np.zeros((n, k), dtype=np.int64)
+    if n == 0 or k == 0:
+        return out
+    qs = np.linspace(0.0, 1.0, int(nbins) + 1)
+    edges_all = np.quantile(arr, qs, axis=0)  # shape (nbins+1, k)
+    for j in range(k):
+        col_edges = np.unique(edges_all[:, j])
+        if col_edges.size <= 2:
+            if col_edges.size == 2:
+                out[:, j] = (arr[:, j] >= col_edges[1]).astype(np.int64)
+            continue
+        inner = col_edges[1:-1]
+        out[:, j] = np.searchsorted(inner, arr[:, j], side="right").astype(np.int64)
+    return out
+
+
+def noise_aware_floor(values: np.ndarray, sigma_thresh: float) -> float:
+    """Median + sigma * 1.4826 * MAD noise floor used by the Layer 22/56 pair pipelines.
+    Returns 0 when too few values to estimate robustly."""
+    if values.size < 4:
+        return 0.0
+    med = float(np.median(values))
+    mad = float(np.median(np.abs(values - med)))
+    return med + sigma_thresh * 1.4826 * mad
+
+
 def parse_code_deg_with_basis(s: str):
     """Parse a leg-code token like ``"He3"``/``"LL2"``/``"T1"``/``"L4"`` into ``(basis_name, degree)``,
     checking two-letter codes before single-letter ones so ``"LL"`` isn't mis-parsed as ``"L"``; returns

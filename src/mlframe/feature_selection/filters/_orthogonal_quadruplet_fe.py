@@ -52,7 +52,7 @@ import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
 from .hermite_fe import basis_route_by_moments, _POLY_BASES
-from ._orthogonal_shared import coerce_y_classif, parse_code_deg_with_basis
+from ._orthogonal_shared import coerce_y_classif, parse_code_deg_with_basis, noise_aware_floor as _noise_aware_floor
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
     _mi_classif_batch, mi_classif_batch_chunked,
@@ -343,17 +343,6 @@ def score_quadruplet_cross_basis_by_mi_uplift(
     if not df.empty:
         df = df.sort_values("uplift", ascending=False).reset_index(drop=True)
     return df
-
-
-def _noise_aware_floor(values: np.ndarray, sigma_thresh: float) -> float:
-    """Median + sigma * 1.4826 * MAD noise floor used by Layer 22 / 56.
-    Returns 0 when too few values to estimate robustly.
-    """
-    if values.size < 4:
-        return 0.0
-    med = float(np.median(values))
-    mad = float(np.median(np.abs(values - med)))
-    return med + sigma_thresh * 1.4826 * mad
 
 
 def hybrid_orth_mi_quadruplet_fe(

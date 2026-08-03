@@ -94,7 +94,7 @@ import pandas as pd
 
 from ._jmim_scorer import _joint_mi_3d_njit, jmim_score
 from ._mi_greedy_cmi_fe import _quantile_bin
-from ._orthogonal_shared import coerce_y_classif
+from ._orthogonal_shared import coerce_y_classif, quantile_bin_batched as _quantile_bin_batched
 from ._orthogonal_univariate_fe import (
     _mi_classif_batch,
     generate_univariate_basis_features,
@@ -157,40 +157,6 @@ def _bin_columns(
         bins.append(b)
         ks.append(max(1, k))
     return bins, ks, names
-
-
-def _quantile_bin_batched(arr: np.ndarray, nbins: int) -> np.ndarray:
-    """Vectorised equi-frequency bin of a 2-D (n, k) all-finite float array.
-
-    Computes ``np.quantile(arr, qs, axis=0)`` ONCE for the whole batch
-    (the underlying partition-based selector amortises across columns
-    much better than ``k`` separate ``np.quantile(col, qs)`` calls). Then
-    a per-column dedup + ``np.searchsorted`` produces dense int64 bin
-    codes matching the contract of :func:`_quantile_bin` on the all-
-    finite path: the same edges (after ``np.unique`` dedup) and the same
-    ``side='right'`` searchsorted convention.
-
-    Bit-equivalent to ``_quantile_bin`` on all-finite numeric input; the
-    per-column fallback handles mixed-NaN / Inf data via the original
-    path.
-    """
-    n, k = arr.shape
-    out = np.zeros((n, k), dtype=np.int64)
-    if n == 0 or k == 0:
-        return out
-    qs = np.linspace(0.0, 1.0, int(nbins) + 1)
-    # Batched quantile: (nbins+1, k). One partition + interpolation per
-    # column under the hood but called via the broadcast path.
-    edges_all = np.quantile(arr, qs, axis=0)  # shape (nbins+1, k)
-    for j in range(k):
-        col_edges = np.unique(edges_all[:, j])
-        if col_edges.size <= 2:
-            if col_edges.size == 2:
-                out[:, j] = (arr[:, j] >= col_edges[1]).astype(np.int64)
-            continue
-        inner = col_edges[1:-1]
-        out[:, j] = np.searchsorted(inner, arr[:, j], side="right").astype(np.int64)
-    return out
 
 
 def score_features_by_jmim(

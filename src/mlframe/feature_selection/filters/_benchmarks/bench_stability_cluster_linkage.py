@@ -9,15 +9,7 @@ from __future__ import annotations
 import numpy as np
 
 from mlframe.feature_selection._bench_timing_shared import best_of
-
-
-def _find_factory(parent):
-    def _find(i):
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-    return _find
+from mlframe.feature_selection.filters._stability_cluster import _find_factory
 
 
 def _old(C, corr_threshold, num_ok, p):

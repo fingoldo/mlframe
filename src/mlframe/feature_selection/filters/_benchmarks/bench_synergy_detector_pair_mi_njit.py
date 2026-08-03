@@ -30,23 +30,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
-from mlframe.feature_selection.filters._fe_synergy_screen import (  # noqa: E402
-    joint_synergy_mi,
-    _pair_mm_mi_njit,
-)
-
-
-def _pair_mm_mi_new(code_x, code_y, yc, min_rows_per_cell=5.0):
-    cx = np.ascontiguousarray(np.asarray(code_x).astype(np.int64).ravel())
-    cy = np.ascontiguousarray(np.asarray(code_y).astype(np.int64).ravel())
-    yt = np.ascontiguousarray(np.asarray(yc).astype(np.int64).ravel())
-    n = cx.shape[0]
-    if n == 0 or cy.shape[0] != n or yt.shape[0] != n:
-        return 0.0
-    kx = int(cx.max()) + 1
-    ky = int(cy.max()) + 1
-    kt = int(yt.max()) + 1
-    return float(_pair_mm_mi_njit(cx, cy, yt, kx, ky, kt, float(min_rows_per_cell)))
+from mlframe.feature_selection.filters._fe_synergy_screen import joint_synergy_mi  # noqa: E402
+from mlframe.feature_selection.filters._synergy_detector import _pair_mm_mi as _pair_mm_mi_new  # noqa: E402
 
 
 def _best_of(fn, *a, reps=7):

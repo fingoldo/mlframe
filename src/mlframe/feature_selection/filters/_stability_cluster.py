@@ -54,6 +54,19 @@ except (ValueError, TypeError):
     _CLUSTER_MAX_FEATURES = 4000
 
 
+def _find_factory(parent):
+    """Bind a union-find root-lookup (with path compression) closure to the given ``parent`` array."""
+
+    def _find(i):
+        """Follow ``parent`` links to the root, compressing the path as it walks."""
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    return _find
+
+
 def cluster_stability_selection(
     X: Any, y: np.ndarray,
     selector_fn: Callable[[np.ndarray, np.ndarray], np.ndarray],
@@ -175,12 +188,7 @@ def cluster_stability_selection(
     cluster_id = np.arange(p, dtype=np.int64)
     # Single-linkage union-find.
     parent = np.arange(p, dtype=np.int64)
-    def _find(i):
-        """Union-find root lookup with path compression."""
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
+    _find = _find_factory(parent)
     # Vectorise edge discovery: build the upper-triangular |corr|>=thr adjacency over the kept K x K
     # block, then union-find only over the actual edges (translated back to global p-indices). Same
     # single-linkage result as an O(p^2) Python double loop over all p, but the quadratic scan runs in
