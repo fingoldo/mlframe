@@ -35,6 +35,10 @@ not a gate.
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os
 import sys
 import time
@@ -136,6 +140,7 @@ def _run_one(
             pysr_params_override=params, verbose=0,
         )
     except Exception as e:
+        logger.debug("PySR fit failed for %s: %s", label, e)
         return {"label": label, "wall_s": -1.0, "rmse": float("nan"), "form_score": -1, "error": str(e)[:80]}
     wall = time.perf_counter() - t0
 
@@ -149,7 +154,8 @@ def _run_one(
     try:
         y_pred = np.asarray(model.predict(df_holdout, index=best.name), dtype=np.float32).ravel()
         rmse = float(np.sqrt(np.mean((y_pred - y_holdout) ** 2)))
-    except Exception:
+    except Exception as e:
+        logger.debug("holdout RMSE computation failed: %s", e)
         rmse = float("nan")
     form = _equation_form_score(eq_str)
     return {"label": label, "wall_s": wall, "rmse": rmse, "form_score": form, "eq": eq_str[:80]}
@@ -201,6 +207,7 @@ def main() -> int:
         out.write_text(md, encoding="utf-8")
         print(f"\nSaved to {out}", file=sys.stderr)
     except Exception as e:
+        logger.debug("could not save to %s: %s", out, e)
         print(f"WARN: could not save to {out}: {e}", file=sys.stderr)
 
     return 0

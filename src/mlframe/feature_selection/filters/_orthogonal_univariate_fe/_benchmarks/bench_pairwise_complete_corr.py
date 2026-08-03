@@ -25,6 +25,10 @@ All backends are bit-identical to numpy (maxdiff ~1e-16). Verdicts:
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import time
 
 import numpy as np
@@ -71,7 +75,7 @@ def main():
         import cupy  # noqa: F401
 
         has_cupy = True
-    except Exception:
+    except ImportError:
         has_cupy = False
 
     rng = np.random.default_rng(0)

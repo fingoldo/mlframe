@@ -17,6 +17,10 @@ Outputs a markdown table: shape | loop_py ms | numpy ms | numba ms | numpy speed
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import time
 import numpy as np
 
@@ -85,7 +89,8 @@ def _bench(shape: tuple, n_repeats: int = 5) -> dict:
             assert np.allclose(a, e, atol=1e-9) and np.allclose(b, f, atol=1e-9)  # nosec B101 - internal invariant check in src/mlframe/training/_benchmarks, not reachable with untrusted input
         else:
             t_numba = float("nan")
-    except Exception:
+    except Exception as e:
+        logger.debug("numba backend failed: %s", e)
         t_numba = float("nan")
 
     return {"shape": shape, "loop_ms": t_loop, "np_ms": t_np, "numba_ms": t_numba}

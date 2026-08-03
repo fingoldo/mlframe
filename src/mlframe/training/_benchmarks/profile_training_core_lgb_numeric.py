@@ -20,6 +20,10 @@ Output -> sibling ``_results/training_core_lgb_numeric.json``.
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from mlframe.training._benchmarks._profile_shared import profile_table
 
 import cProfile
@@ -97,6 +101,7 @@ def _profile_one(n_rows: int, models: tuple[str, ...], seed: int, top_n: int) ->
             verbose=0,
         )
     except Exception as e:  # noqa: BLE001
+        logger.debug("suite fit failed: %s: %s", type(e).__name__, e)
         status = f"{type(e).__name__}: {e}"[:300]
     finally:
         profiler.disable()

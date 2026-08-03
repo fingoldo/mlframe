@@ -18,6 +18,10 @@ Run (host env vars required to avoid the cupy-probe segfault on this box):
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import json
 import tempfile
 from pathlib import Path
@@ -31,7 +35,7 @@ from mlframe.training import TrainingSplitConfig, OutputConfig
 
 try:
     from tests.training.shared import SimpleFeaturesAndTargetsExtractor
-except Exception:  # pragma: no cover - allow running from installed tree
+except ImportError:  # pragma: no cover - allow running from installed tree
     from mlframe.tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 VAL_SIZES = [0.10, 0.15, 0.20]

@@ -17,6 +17,10 @@ Only runs when torch is importable. Skip silently otherwise.
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os
 import time
 from typing import Tuple
@@ -25,7 +29,7 @@ try:
     import torch  # type: ignore
     from torch.utils.data import DataLoader, TensorDataset  # type: ignore
     _TORCH_OK = True
-except Exception as e:
+except ImportError as e:
     print(f"torch import failed: {e}; skipping bench")
     _TORCH_OK = False
 

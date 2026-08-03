@@ -18,13 +18,17 @@ Run: python -m mlframe.feature_selection.filters._benchmarks.bench_fe_batch_free
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import time
 
 
 def main() -> None:
     try:
         import cupy as cp
-    except Exception:
+    except ImportError:
         print("cupy unavailable - skipping (the free_blocks bench requires a CUDA device)")
         return
 

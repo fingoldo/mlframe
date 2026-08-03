@@ -13,6 +13,10 @@ Two questions:
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import cProfile
 import pstats
 from io import StringIO
@@ -41,7 +45,7 @@ try:
         return W, sse_raw, sse_comp, sse_lag
 
     _HAVE_NUMBA = True
-except Exception:
+except ImportError:
     _HAVE_NUMBA = False
 
 

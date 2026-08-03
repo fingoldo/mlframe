@@ -34,6 +34,10 @@ Usage::
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import json
 import os
 import sys
@@ -105,7 +109,7 @@ def main() -> None:
     try:
         import importlib
         importlib.import_module("lightgbm")
-    except Exception:
+    except ImportError:
         family = "linear"
 
     y, x, bin_vars = _make(_N, _F, _B)

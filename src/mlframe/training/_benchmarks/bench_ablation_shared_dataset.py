@@ -66,6 +66,10 @@ Run: python -m mlframe.training._benchmarks.bench_ablation_shared_dataset
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import time
 
 import numpy as np
@@ -119,6 +123,7 @@ def check_reference_infeasible() -> None:
         sub.construct()
         print("UNEXPECTED: reference subset constructed (re-verify on this LGBM build)")
     except Exception as exc:  # noqa: BLE001 - documenting the rejection
+        logger.debug("reference subset infeasible (expected): %s: %s", type(exc).__name__, exc)
         print(f"reference subset INFEASIBLE (expected): {type(exc).__name__}: {exc}")
 
 

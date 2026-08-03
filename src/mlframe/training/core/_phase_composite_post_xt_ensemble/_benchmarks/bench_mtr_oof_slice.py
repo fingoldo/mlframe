@@ -27,6 +27,10 @@ Output JSON -> sibling _results/bench_mtr_oof_slice.json
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import json
 import os
 import time
@@ -39,7 +43,7 @@ try:
 
     def _dumps(obj) -> bytes:
         return orjson.dumps(obj, option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS)
-except Exception:  # pragma: no cover - orjson optional
+except ImportError:  # pragma: no cover - orjson optional
     def _dumps(obj) -> bytes:
         return json.dumps(obj, indent=2, sort_keys=True).encode()
 

@@ -26,6 +26,10 @@ Output: JSON summary -> sibling ``_results/cb_multilabel_cat.json``.
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from mlframe.training._benchmarks._profile_shared import profile_table
 
 import cProfile
@@ -141,6 +145,7 @@ def _profile_one(n_rows: int, *, n_labels: int, iterations: int, seed: int, top_
         )
     except Exception as e:  # noqa: BLE001
         import traceback
+        logger.debug("suite fit failed: %s: %s", type(e).__name__, e)
         status = f"{type(e).__name__}: {e}"[:300]
         traceback.print_exc()
     finally:

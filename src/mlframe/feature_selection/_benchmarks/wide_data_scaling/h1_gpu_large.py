@@ -1,4 +1,8 @@
 """H1 large-p GPU-only: measured CUDA points at p=5000,10000 + GPU memory feasibility."""
+import logging
+
+logger = logging.getLogger(__name__)
+
 import sys, time
 import numpy as np
 if __name__ == "__main__":
@@ -51,6 +55,7 @@ if __name__ == "__main__":
                 p,npairs,dt,npairs/dt,codes_mb,idx_mb,out_mb,free0/1e6,total/1e6))
             ck("  planted-pair MI(0,1)=%.4f rank=%d/%d"%(mi[0], int((mi>mi[0]).sum()), npairs))
         except Exception as e:
+            logger.debug("p=%s CUDA failed: %r", p, e)
             ck("p=%d CUDA FAIL: %r | host codes=%.0fMB idx=%.0fMB out=%.0fMB" % (p, e, codes_mb, idx_mb, out_mb))
         del codes, a, b
     ck("H1 GPU-large done")

@@ -19,6 +19,10 @@ Run:
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import json
 import time
 from pathlib import Path
@@ -30,14 +34,15 @@ from mlframe._bench_timing_shared import best_of_ms
 try:
     import numba as _nb
     _HAS_NB = True
-except Exception:
+except ImportError:
     _nb = None
     _HAS_NB = False
 
 try:
     import cupy as _cp
     _HAS_CP = _cp.cuda.runtime.getDeviceCount() > 0
-except Exception:
+except Exception as e:
+    logger.debug("cupy import/device-count probe failed: %s", e)
     _cp = None
     _HAS_CP = False
 

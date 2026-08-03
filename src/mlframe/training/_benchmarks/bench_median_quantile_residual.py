@@ -17,6 +17,10 @@ Run:
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import json
 import time
 from pathlib import Path
@@ -29,7 +33,7 @@ from mlframe._bench_timing_shared import best_of_ms
 try:
     import numba as _nb
     _HAS_NB = True
-except Exception:
+except ImportError:
     _nb = None
     _HAS_NB = False
 

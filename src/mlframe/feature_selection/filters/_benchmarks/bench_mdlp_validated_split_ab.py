@@ -26,6 +26,10 @@ Run: python src/mlframe/feature_selection/filters/_benchmarks/bench_mdlp_validat
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import math
 import time
 
@@ -129,4 +133,5 @@ if __name__ == "__main__":
                 bench_case(f"REAL wellbore: {cand} vs TVT", xc[m2], y_real[m2])
                 break
     except Exception as exc:
+        logger.debug("real-data section skipped: %r", exc)
         print(f"[skip real-data section] {exc!r}")

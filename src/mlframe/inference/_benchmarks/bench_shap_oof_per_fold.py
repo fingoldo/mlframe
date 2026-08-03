@@ -20,6 +20,10 @@ catboost+shap importorskip: falls back to a sklearn GradientBoosting tree model 
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import time
 import numpy as np
 
@@ -39,7 +43,7 @@ def _fit_model():
 
         m = CatBoostClassifier(iterations=200, depth=5, learning_rate=0.1, verbose=0, allow_writing_files=False)
         return m, "catboost"
-    except Exception:
+    except ImportError:
         from sklearn.ensemble import GradientBoostingClassifier
 
         return GradientBoostingClassifier(n_estimators=120, max_depth=3, random_state=0), "sklearn_gb"

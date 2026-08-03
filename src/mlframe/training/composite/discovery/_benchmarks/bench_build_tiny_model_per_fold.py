@@ -15,6 +15,10 @@ Run:
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import time
 
 from mlframe.training.composite.discovery._screening_tiny import _build_tiny_model
@@ -36,6 +40,7 @@ def main() -> None:
         try:
             us = _time_build(fam, iters=20_000)
         except Exception as e:  # optional booster missing
+            logger.debug("family %s timing failed: %s", fam, e)
             print(f"{fam:<10} {'(skip: ' + type(e).__name__ + ')':>10}")
             continue
         print(f"{fam:<10} {us:>10.2f} {us * cv_folds:>18.2f}")

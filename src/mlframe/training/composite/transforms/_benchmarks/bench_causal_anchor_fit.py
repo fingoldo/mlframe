@@ -11,6 +11,10 @@ Run::
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import cProfile
 import pstats
 import time
@@ -74,7 +78,7 @@ try:
         return np.dot(dxk, yk - myk) / vxk
 
     _HAS_NUMBA = True
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     _HAS_NUMBA = False
 
 

@@ -1,4 +1,8 @@
 """H1: exhaustive C(p,2) joint-MI sweep wall-time vs p, CPU vs GPU (GTX 1050 Ti)."""
+import logging
+
+logger = logging.getLogger(__name__)
+
 import sys, time, math
 import numpy as np
 
@@ -47,6 +51,7 @@ if __name__ == "__main__":
         try:
             batch_pair_mi_cuda(_c, _pa, _pb, _nb, _y, _fy)
         except Exception as e:
+            logger.debug("cuda warmup failed: %r", e)
             ck("cuda warmup fail: %r" % e)
     ck("warmup done")
 
@@ -74,6 +79,7 @@ if __name__ == "__main__":
                     if seed == 0 and not np.allclose(mi_cpu, mi_cuda, atol=1e-6):
                         ck("WARN p=%d cuda mismatch max=%g" % (p, np.abs(mi_cpu - mi_cuda).max()))
                 except Exception as e:
+                    logger.debug("cuda backend failed: %r", e)
                     cuda_err = repr(e)[:120]
                     ck("p=%d CUDA fail: %s" % (p, cuda_err))
             # CuPy only for small p (per-pair python loop, very slow) -> skip above 500
@@ -83,6 +89,7 @@ if __name__ == "__main__":
                     batch_pair_mi_cupy(codes, pa, pb, nbins, y, fy)
                     cupy_times.append(time.perf_counter() - t0)
                 except Exception as e:
+                    logger.debug("cupy backend failed: %r", e)
                     cupy_err = repr(e)[:120]
             del codes, pa, pb
         cpu_s = np.median(cpu_times)

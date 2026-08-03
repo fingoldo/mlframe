@@ -79,6 +79,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+logger = logging.getLogger(__name__)
+
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
 
@@ -250,6 +252,7 @@ def _make_synthetic_frame(
             print(f"  frame type: POLARS  cols: {list(pl_cols.keys())}")
             return pl.DataFrame(pl_cols)
         except Exception as _exc:
+            logger.debug("polars construction failed: %s: %s", type(_exc).__name__, _exc)
             print(f"  polars construction failed ({type(_exc).__name__}); falling back to pandas")
     print(f"  frame type: PANDAS  cols: {list(cols.keys())}")
     return pd.DataFrame(cols)

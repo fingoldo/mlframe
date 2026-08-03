@@ -6,6 +6,10 @@ The general 1<p<2 / p>2 kernel computed three variable-exponent powers per row: 
 yp**(2-p) == yp**(1-p) * yp algebraically, so we drop one transcendental pow/row (each is exp(log) under the hood).
 Identity: bit-equiv up to a single-ULP FP reorder (mul vs independent pow); validated vs sklearn.mean_tweedie_deviance.
 """
+import logging
+
+logger = logging.getLogger(__name__)
+
 import sys; sys.modules['cupy'] = None
 import numpy as np, time
 from numba import njit
@@ -82,6 +86,7 @@ def bench():
             nw = new_kernel(yt, yp, power)[0]
             print(f"sklearn p={power}: sklearn={sk:.10f} new={nw:.10f} absdiff={abs(sk-nw):.3e}")
     except Exception as e:
+        logger.debug("sklearn comparison check skipped: %s", e)
         print("sklearn check skipped:", e)
 
 

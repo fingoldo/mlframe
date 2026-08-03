@@ -83,6 +83,7 @@ def main():
             try:
                 nun = int(df[c].nunique(dropna=False))
             except Exception as e:  # noqa: BLE001  e.g. unhashable ndarray cells (embedding col)
+                logger.debug("nunique() failed for column %s: %s", c, e)
                 nun = f"UNHASHABLE:{type(e).__name__}"
             if _is_object_array_col(df, c):
                 r = _time_call_slow(_col_value_counts, df, c)

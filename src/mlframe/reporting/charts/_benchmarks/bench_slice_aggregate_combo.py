@@ -19,6 +19,10 @@ Run: ``python -m mlframe.reporting.charts._benchmarks.bench_slice_aggregate_comb
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import itertools
 import time
 
@@ -52,7 +56,8 @@ def _bench() -> None:
                 sums[c] += err_[i]
                 counts[c] += 1.0
             return sums, counts
-    except Exception:
+    except Exception as e:
+        logger.debug("fused njit kernel build failed: %s", e)
         _full_fused = None
 
     for c in combos[:5]:

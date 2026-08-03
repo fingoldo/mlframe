@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+logger = logging.getLogger(__name__)
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
@@ -436,6 +438,7 @@ if __name__ == "__main__":
                 ),
             )
         except Exception as e:
+            logger.debug("training step failed: %s: %s", type(e).__name__, e)
             status = f"{type(e).__name__}: {e}"[:120]
         finally:
             train_profiler.disable()
@@ -511,6 +514,7 @@ if __name__ == "__main__":
                         )
             except Exception as e:
                 # Don't clobber the training status; surface predict-only failure separately.
+                logger.debug("predict-only failure: %s: %s", type(e).__name__, e)
                 status = f"{status} | PREDICT:{type(e).__name__}: {e}"[:200]
             finally:
                 predict_profiler.disable()
@@ -589,7 +593,8 @@ if __name__ == "__main__":
                         if isinstance(_tt_key, str):
                             _sttt[_slugify(str(_tt_key).lower())] = _tt_key
                     _meta_for_save["slug_to_original_target_type"] = _sttt
-                except Exception:  # nosec B110 - non-trivial body; best-effort/optional path, no module logger
+                except Exception as e:  # nosec B110 - non-trivial body
+                    logger.debug("slug_to_original_target_type build failed: %s", e)
                     # Best-effort -- if metadata is non-dict for some exotic
                     # reason, fall through and save as-is.
                     pass
@@ -612,8 +617,8 @@ if __name__ == "__main__":
                                 _PdsPipeline.from_json(_pl_pipeline.to_json())
                                 _meta_for_save = dict(_meta_for_save)
                                 _meta_for_save["pipeline"] = _PolarsDsPipelineJsonProxy(_pl_pipeline)
-                            except Exception:  # nosec B110 - optional/best-effort path, rationale documented
-                                pass  # roundtrip failed; ship as plain pickle
+                            except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+                                logger.debug("polars-pipeline JSON roundtrip failed, shipping as plain pickle: %s", e)
                     except ImportError:
                         pass  # polars-ds unavailable; nothing to wrap
                     _meta_path = _save_root / "metadata.pkl.zst"
@@ -623,6 +628,7 @@ if __name__ == "__main__":
                     if _meta_path.exists():
                         save_total_bytes += _meta_path.stat().st_size
                 except Exception as _meta_err:
+                    logger.debug("metadata save failed: %s: %s", type(_meta_err).__name__, _meta_err)
                     status = f"{status} | SAVE_META:{type(_meta_err).__name__}: {_meta_err}"[:200]
                 # Per-model dump files under <tt_slug>/<name_slug>/<idx>.dump
                 for _tt_key, _by_name in trained_models.items():
@@ -658,8 +664,10 @@ if __name__ == "__main__":
                                 else:
                                     status = f"{status} | SAVE_ONE_FAIL:returned={_save_ok!r} file_exists={_path.exists()}"[:200]
                             except Exception as _save_one_err:
+                                logger.debug("save-one failed: %s: %s", type(_save_one_err).__name__, _save_one_err)
                                 status = f"{status} | SAVE_ONE:{type(_save_one_err).__name__}: {_save_one_err}"[:200]
             except Exception as e:
+                logger.debug("save failed: %s: %s", type(e).__name__, e)
                 status = f"{status} | SAVE:{type(e).__name__}: {e}"[:200]
             finally:
                 save_profiler.disable()
@@ -690,6 +698,7 @@ if __name__ == "__main__":
                     if isinstance(_entries, list)
                 )
             except Exception as e:
+                logger.debug("load failed: %s: %s", type(e).__name__, e)
                 status = f"{status} | LOAD:{type(e).__name__}: {e}"[:200]
             finally:
                 load_profiler.disable()
@@ -725,6 +734,7 @@ if __name__ == "__main__":
                     _pl_kwargs["predict_batch_rows"] = _predict_batch_rows
                 _predict_loaded_results = _predict_from_models_loaded(**_pl_kwargs)
             except Exception as e:
+                logger.debug("predict-loaded failed: %s: %s", type(e).__name__, e)
                 status = f"{status} | PREDICT_LOADED:{type(e).__name__}: {e}"[:200]
             finally:
                 predict_loaded_profiler.disable()
@@ -759,6 +769,7 @@ if __name__ == "__main__":
                         _max_abs = float(np.nanmax(np.abs(_a - _b))) if _a.size else 0.0
                         _diffs.append(f"{_label}:maxabs={_max_abs:.3g}")
                 except Exception as _pcerr:
+                    logger.debug("prediction comparison failed for %s: %s", _label, _pcerr)
                     _diffs.append(f"{_label}:cmp_err={_pcerr}")
 
             def _cmp_dict(_kind: str, _pre: dict, _post: dict) -> None:
@@ -836,8 +847,8 @@ if __name__ == "__main__":
             try:
                 import shutil as _shutil
                 _shutil.rmtree(_save_tmpdir_obj, ignore_errors=True)
-            except Exception:  # nosec B110 - optional dependency import guard
-                pass
+            except Exception as e:  # nosec B110 - optional dependency import guard
+                logger.debug("tmpdir cleanup failed: %s", e)
 
         return (
             train_wall, status.startswith("OK"), status, train_profile_text,

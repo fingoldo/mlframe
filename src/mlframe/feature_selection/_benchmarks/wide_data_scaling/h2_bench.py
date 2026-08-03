@@ -1,4 +1,8 @@
 """H2: O(p) interaction-propensity ranking recall of planted PURE-pair operands."""
+import logging
+
+logger = logging.getLogger(__name__)
+
 import sys, time
 import numpy as np
 
@@ -18,12 +22,12 @@ if __name__ == "__main__":
     try:
         import dcor as _dcor
         HAS_DCOR = True
-    except Exception:
+    except ImportError:
         HAS_DCOR = False
     try:
         import lightgbm as lgb
         HAS_LGB = True
-    except Exception:
+    except ImportError:
         HAS_LGB = False
     ck("H2 start dcor=%s lgb=%s" % (HAS_DCOR, HAS_LGB))
 

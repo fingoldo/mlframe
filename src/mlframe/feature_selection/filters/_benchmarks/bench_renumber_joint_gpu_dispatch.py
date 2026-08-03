@@ -13,6 +13,10 @@ columns (the shapes seen at ``_fe_raw_redundancy_drop.py``'s sibling-conditionin
 
 Run: python bench_renumber_joint_gpu_dispatch.py
 """
+import logging
+
+logger = logging.getLogger(__name__)
+
 import time
 
 import numpy as np
@@ -86,7 +90,7 @@ def main():
     try:
         import cupy as cp  # noqa: F401
         has_gpu = True
-    except Exception as e:
+    except ImportError:
         has_gpu = False
         print(f"cupy/CUDA unavailable ({e}); host-only numbers below.")
 
@@ -99,6 +103,7 @@ def main():
                 fresh_t = _bench_gpu_fresh_upload(cols)
                 res_t = _bench_gpu_already_resident(cols)
             except Exception as e:
+                logger.debug("k=%s GPU path raised: %s", k, e)
                 print(f"k={k}: GPU path raised {e}")
                 continue
             print(f"{k:>7} {host_t*1e3:>10.4f} {fresh_t*1e3:>13.4f} {res_t*1e3:>16.4f} {host_t/fresh_t:>14.2f} {host_t/res_t:>17.2f}")

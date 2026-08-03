@@ -15,6 +15,10 @@ this file stays committed so the measured win is reproducible (REJECTED!=DELETED
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import time
 
 import numpy as np
@@ -30,7 +34,7 @@ def _bench():
     try:
         from dtaidistance import dtw as _dtai
         _HAS_DTAI = True
-    except Exception:
+    except ImportError:
         _HAS_DTAI = False
 
     rng = np.random.default_rng(0)

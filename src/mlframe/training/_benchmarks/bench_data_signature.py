@@ -15,6 +15,10 @@ benchmark can compare; the production implementation is imported from ``composit
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import hashlib
 import time
 from typing import Sequence
@@ -75,13 +79,15 @@ def _legacy_data_signature(
         elif kind in ("i", "u", "b"):
             try:
                 h.update(f"intmin={int(np.min(full))};intmax={int(np.max(full))};nuniq={int(np.unique(full).size)}".encode("utf-8"))
-            except Exception:
+            except Exception as e:
+                logger.debug("int-column signature computation failed: %s", e)
                 h.update(b"int_opaque")
         else:
             try:
                 u = np.unique(full.astype(str, copy=False))
                 h.update(f"uniq={int(u.size)};first={u[0] if u.size else ''};last={u[-1] if u.size else ''}".encode("utf-8"))
-            except Exception:
+            except Exception as e:
+                logger.debug("column signature computation failed: %s", e)
                 h.update(b"opaque")
         sampled = full[sample_idx]
         h.update(np.ascontiguousarray(sampled).tobytes())

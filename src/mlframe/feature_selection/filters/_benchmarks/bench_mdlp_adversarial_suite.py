@@ -26,6 +26,10 @@ single point estimate). Run standalone:
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import math
 from dataclasses import dataclass
 
@@ -243,6 +247,7 @@ def run_extreme_imbalance_boundary_stress(n_seeds: int = 40) -> "list[ImbalanceC
                     edges = mdlp_bin_edges_validated(x, y, alpha=0.05, seed=seed)
                 except Exception as e:  # noqa: BLE001 -- deliberately catching ANY exception, a crash under stress is the bug being hunted
                     n_crashes += 1
+                    logger.debug("CRASH at n=%s minority_frac=%s seed=%s: %s: %s", n, minority_frac, seed, type(e).__name__, e)
                     print(f"CRASH at n={n} minority_frac={minority_frac} seed={seed}: {type(e).__name__}: {e}")
                     continue
                 if edges.size > 2:
@@ -284,6 +289,7 @@ def run_extreme_outlier_boundary_stress(n_seeds: int = 40) -> "list[OutlierCell]
                     edges = mdlp_bin_edges(x, y, fast_mode=False)
                 except Exception as e:  # noqa: BLE001 -- crash-hunting, any exception is the signal
                     n_crashes += 1
+                    logger.debug("CRASH at n=%s outlier_frac=%s seed=%s: %s: %s", n, outlier_frac, seed, type(e).__name__, e)
                     print(f"CRASH at n={n} outlier_frac={outlier_frac} seed={seed}: {type(e).__name__}: {e}")
                     continue
                 inner = edges[1:-1]

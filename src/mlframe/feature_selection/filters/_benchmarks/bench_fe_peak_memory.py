@@ -22,6 +22,10 @@ Not a pytest target (no asserts) -- a manual diagnostic.
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import argparse
 import threading
 import time
@@ -77,8 +81,8 @@ def main() -> None:
     try:
         import psutil
         base_mb = psutil.Process().memory_info().rss / 1e6
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("psutil RSS probe failed: %s", e)
 
     poller = _RSSPoller()
     poller.start()
