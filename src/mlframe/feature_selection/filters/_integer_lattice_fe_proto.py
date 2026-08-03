@@ -27,6 +27,7 @@ from __future__ import annotations
 import numpy as np
 
 from ._pairwise_modular_fe import _is_integer_col, _mi
+from ._lattice_gate_proto_shared import perm_null_hi as _perm_null_hi
 
 __all__ = [
     "INTEGER_LATTICE_OPS",
@@ -44,15 +45,6 @@ _MIN_MARGIN = 0.02
 def _to_int(x: np.ndarray) -> np.ndarray:
     """Round-to-nearest int64 view of an exactly-integer-valued column (eligibility already checked by caller)."""
     return np.rint(np.asarray(x, dtype=np.float64)).astype(np.int64)
-
-
-def _perm_null_hi(feat: np.ndarray, yi: np.ndarray, nbins: int, n_perm: int, rng, z: float = 3.0) -> float:
-    """Upper band (mean + z*std) of the pre-computed feature's MI under y permutation - the noise reference the
-    feature MI must clear. The feature is fixed; only y is shuffled (cheap, n_perm small)."""
-    vals = np.empty(n_perm, dtype=np.float64)
-    for i in range(n_perm):
-        vals[i] = _mi(feat, yi[rng.permutation(yi.size)], nbins=nbins)
-    return float(vals.mean() + z * vals.std())
 
 
 def apply_integer_lattice(a: np.ndarray, b: np.ndarray, op: str) -> np.ndarray:

@@ -31,6 +31,7 @@ from __future__ import annotations
 import numpy as np
 
 from ._pairwise_modular_fe import _mi
+from ._lattice_gate_proto_shared import perm_null_hi as _perm_null_hi
 
 __all__ = [
     "GATE_MODES",
@@ -69,14 +70,6 @@ def apply_row_argmax(cols: list[np.ndarray]) -> np.ndarray:
     """``argmax`` over a row's columns -> the integer index of the largest. Pure function of X (no y); leak-free at replay."""
     stk = np.stack([np.asarray(c, dtype=np.float64) for c in cols], axis=1)
     return np.asarray(np.argmax(stk, axis=1).astype(np.float64))
-
-
-def _perm_null_hi(feat: np.ndarray, yi: np.ndarray, nbins: int, n_perm: int, rng, z: float = 3.0) -> float:
-    """Upper band (mean + z*std) of the fixed feature's MI under y permutation - the noise reference the feature must clear."""
-    vals = np.empty(n_perm, dtype=np.float64)
-    for i in range(n_perm):
-        vals[i] = _mi(feat, yi[rng.permutation(yi.size)], nbins=nbins)
-    return float(vals.mean() + z * vals.std())
 
 
 def scan_conditional_gate(

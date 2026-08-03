@@ -36,6 +36,13 @@ external callers (LRU byte-cap gate, orth-FE scorer dispatch) rely on.
 # the import cost. Every alternate scorer's ``*_with_recipes`` returns the
 # same ``(X_aug, scores_df, recipes_list)`` 3-tuple as Layer 21's plain
 # univariate path - so the caller plumbing in ``_fit_impl`` is unchanged.
+def _engineered_recipe_name(_r):
+    """Resolve an ``EngineeredRecipe`` to its materialised column name (via ``.name``), falling back to
+    ``str(r)`` for a legacy bare-string entry."""
+    _nm = getattr(_r, "name", None)
+    return str(_nm) if _nm is not None else str(_r)
+
+
 def _orth_fe_numeric_cols(X, cols):
     """Keep only numeric (incl. bool) scalar columns from ``cols`` for the orthogonal / polynomial hybrid-FE family,
     which converts operands to float. Raw categorical / string columns (e.g. a string-coded cat 'B') would otherwise

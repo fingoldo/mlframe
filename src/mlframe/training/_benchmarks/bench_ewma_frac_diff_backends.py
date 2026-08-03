@@ -49,17 +49,7 @@ _RESULTS.mkdir(exist_ok=True)
 # ---------------- EWMA kernels ----------------
 
 if _HAS_NB:
-    @_nb.njit(cache=True)
-    def _ewma_v1_njit_kernel(base_f, alpha, anchor):
-        n = base_f.size
-        out = np.empty(n, dtype=np.float64)
-        state = anchor
-        for i in range(n):
-            x = base_f[i]
-            if np.isfinite(x):
-                state = (1.0 - alpha) * state + alpha * x
-            out[i] = state
-        return out
+    from mlframe.training.composite.transforms.nonlinear import _ewma_kernel as _ewma_v1_njit_kernel
 
     @_nb.njit(cache=True, parallel=True)
     def _ewma_v2_njit_par_batched_kernel(base_batch, alphas, anchors):
@@ -143,20 +133,7 @@ def _ewma_v3_cuda_batched(base_batch, alphas, anchors):
 # ---------------- frac_diff_inverse kernels ----------------
 
 if _HAS_NB:
-    @_nb.njit(cache=True)
-    def _frac_diff_inverse_v1_njit_kernel(t_f, lags, weights, anchor):
-        n = t_f.size
-        out = np.empty(n, dtype=np.float64)
-        inv_w0 = 1.0 / weights[0]
-        for i in range(n):
-            lag_sum = 0.0
-            upper = min(i + 1, lags + 1)
-            for k_idx in range(1, upper):
-                lag_sum += weights[k_idx] * out[i - k_idx]
-            for k_idx in range(upper, lags + 1):
-                lag_sum += weights[k_idx] * anchor
-            out[i] = (t_f[i] - lag_sum) * inv_w0
-        return out
+    from mlframe.training.composite.transforms.nonlinear import _frac_diff_inverse_kernel as _frac_diff_inverse_v1_njit_kernel
 
     @_nb.njit(cache=True, parallel=True)
     def _frac_diff_inverse_v2_njit_par_batched_kernel(t_batch, lags, weights_batch, anchors):

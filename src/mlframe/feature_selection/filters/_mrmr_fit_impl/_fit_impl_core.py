@@ -81,7 +81,7 @@ in the sibling _helpers.py.
 """
 
 
-from ._helpers import _dispatch_default_scorer, _mrmr_cache_bytes_total, _orth_fe_numeric_cols, _build_stability_replay_state, fe_decide_on_subsample
+from ._helpers import _dispatch_default_scorer, _mrmr_cache_bytes_total, _orth_fe_numeric_cols, _build_stability_replay_state, fe_decide_on_subsample, _engineered_recipe_name
 
 def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, **fit_params):
     """We run N selections on data subsets, and pick only features that appear in all selections"""
@@ -8692,10 +8692,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # name - so ``str(r)`` neither matches ``cols`` nor is a clean token source.
             # Resolve the name from ``.name`` (the column the recipe materialises), falling
             # back to ``str(r)`` only for a legacy bare-string entry.
-            def _ne_recipe_name(_r):
-                """Resolve an ``EngineeredRecipe`` to its materialised column name (via ``.name``), falling back to ``str(r)`` for a legacy bare-string entry."""
-                _nm = getattr(_r, "name", None)
-                return str(_nm) if _nm is not None else str(_r)
+            _ne_recipe_name = _engineered_recipe_name
             # name -> index map built once (O(F)); reused below for ``_eng_survivor_cols`` too.
             # ``cols`` is not mutated for the remainder of ``_fit_impl`` past this point.
             _ne_cols_idx = {nm: i for i, nm in enumerate(cols)}
