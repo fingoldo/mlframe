@@ -11,14 +11,8 @@ from io import StringIO
 
 import numpy as np
 
+from mlframe._bench_data_shared import make_neural_regression_float32_data as _make_data
 from mlframe.training.neural.tabular_1dcnn import Tabular1DCNNClassifier, Tabular1DCNNRegressor, correlation_order_features
-
-
-def _make_data(n: int, n_features: int, seed: int = 0):
-    rng = np.random.default_rng(seed)
-    X = rng.normal(size=(n, n_features)).astype(np.float32)
-    y = (X[:, :3].sum(axis=1) + rng.normal(scale=0.5, size=n)).astype(np.float32)
-    return X, y
 
 
 def _make_classification_data(n: int, n_features: int, seed: int = 0):

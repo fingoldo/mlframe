@@ -9,16 +9,8 @@ import pstats
 import time
 from io import StringIO
 
-import numpy as np
-
+from mlframe._bench_data_shared import make_neural_regression_float32_data as _make_data
 from mlframe.training.neural.trunk_residual_mlp import TrunkResidualMLPRegressor
-
-
-def _make_data(n: int, n_features: int, seed: int = 0):
-    rng = np.random.default_rng(seed)
-    X = rng.normal(size=(n, n_features)).astype(np.float32)
-    y = (X[:, :3].sum(axis=1) + rng.normal(scale=0.5, size=n)).astype(np.float32)
-    return X, y
 
 
 def _run_fit(n: int, n_features: int, n_blocks: int, n_epochs: int) -> None:

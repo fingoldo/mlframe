@@ -16,6 +16,15 @@ def make_regression_data(n: int, n_features: int, seed: int = 0) -> tuple[pd.Dat
     return X, y
 
 
+def make_neural_regression_float32_data(n: int, n_features: int, seed: int = 0):
+    """Synthetic float32 (X, y) for the neural-net bench family: ``y`` is a noisy sum of the first 3
+    ``X`` columns, both arrays ``float32`` (matching the dtype the neural regressors expect)."""
+    rng = np.random.default_rng(seed)
+    X = rng.normal(size=(n, n_features)).astype(np.float32)
+    y = (X[:, :3].sum(axis=1) + rng.normal(scale=0.5, size=n)).astype(np.float32)
+    return X, y
+
+
 def make_latent_projection_data(n: int, d: int, seed: int) -> np.ndarray:
     """Synthetic X: a 3-dimensional Gaussian latent projected up to ``d`` columns plus small noise."""
     rng = np.random.default_rng(seed)
