@@ -282,7 +282,8 @@ def _release_ctx_polars_frames(
             continue
         try:
             _sz = estimate_df_size_mb(_frame)
-        except Exception:
+        except Exception as e:
+            logger.debug("estimate_df_size_mb failed: %s", e)
             _sz = 0.0
         if _sz and _sz != float("inf"):
             expected_mb += float(_sz)
@@ -335,8 +336,8 @@ def _release_ctx_polars_frames(
     try:
         from mlframe.training.utils import clear_pandas_view_cache
         clear_pandas_view_cache()
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("clear_pandas_view_cache() failed: %s", e)
     new_baseline = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason=reason)
     # Only emit the lingering-refs warning when the expected reclaim is large enough for the
     # actual delta to be measurable above RSS-measurement noise. Windows / Linux RSS reporting

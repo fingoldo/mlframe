@@ -125,7 +125,8 @@ def _pipeline_disk_cache_version_tag() -> str:
         try:
             mod = __import__(mod_name)
             parts.append(f"{mod_name}={getattr(mod, '__version__', 'unknown')}")
-        except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+        except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+            logger.debug("could not resolve version for %s: %s", mod_name, e)
             parts.append(f"{mod_name}=unknown")
     return "|".join(parts)
 
@@ -204,8 +205,8 @@ def _persist_pipeline_disk_cache() -> None:
             with open(tmp_path, "w", encoding="utf-8") as fh:
                 _json.dump(payload, fh)
         os.replace(tmp_path, path)
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("pipeline-cache metadata write failed for %s: %s", path, e)
 
 
 class _PolarsDsPipelineJsonProxy:

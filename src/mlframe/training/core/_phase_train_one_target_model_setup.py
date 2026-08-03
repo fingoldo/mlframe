@@ -104,7 +104,8 @@ def _render_per_target_diagnostics(
     if timestamps is not None and test_idx is not None:
         try:
             _ts_test = np.asarray(timestamps)[test_idx]
-        except Exception:
+        except Exception as e:
+            logger.debug("timestamp indexing for test split failed: %s", e)
             _ts_test = None
 
     if train_df is not None and test_df is not None:
@@ -480,7 +481,8 @@ def _setup_per_target_mlframe_models(
                 _target_hyperparams_config = hyperparams_config.model_copy(
                     update={"mlp_kwargs": _merged_mlp_kwargs},
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug("hyperparams_config.model_copy with merged mlp_kwargs failed: %s", e)
                 _target_hyperparams_config = hyperparams_config
             metadata.setdefault("feature_drift_auto_action", {}).setdefault(str(target_type), {})[cur_target_name] = {
                 "sklearn_override": dict(_sklearn_override),

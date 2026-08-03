@@ -190,7 +190,8 @@ def run_dummy_baselines(
                         _dummy_mt_suffix = f" {_dummy_mt_tag}={_dummy_fmt(_dummy_mt_val)}"
                     else:
                         _dummy_mt_suffix = ""
-                except Exception:
+                except Exception as e:
+                    logger.debug("dummy multi-target suffix formatting failed: %s", e)
                     _dummy_mt_suffix = ""
                 _dummy_name = f"DummyBaseline:{_db_report.strongest} " f"{target_name} {model_name} {cur_target_name}" f"{_dummy_mt_suffix}"
 
@@ -208,7 +209,8 @@ def run_dummy_baselines(
                     try:
                         from .._prediction_envelope_clip import compute_train_envelope_stats
                         _dummy_envelope_stats = compute_train_envelope_stats(current_train_target)
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("compute_train_envelope_stats failed: %s", e)
                         _dummy_envelope_stats = None
                 _common = dict(
                     columns=list(_columns_attr) if _columns_attr is not None else [],

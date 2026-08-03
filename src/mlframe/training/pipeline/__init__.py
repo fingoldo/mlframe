@@ -336,7 +336,8 @@ def prepare_dfs_for_catboost_joint(
         if _col_series.dtype == object:
             try:
                 _first = next((v for v in _col_series.head(8) if v is not None), None)
-            except Exception:
+            except Exception as e:
+                logger.debug("could not probe first non-null value for object-dtype column: %s", e)
                 _first = None
             if _first is not None and (hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))):
                 log_throttle(
@@ -467,7 +468,8 @@ def _select_scalable_numeric_columns(
 
     try:
         stats_row = train_df.lazy().select(select_exprs).collect()
-    except Exception:
+    except Exception as e:
+        logger.debug("batched polars stats eval failed, falling back to per-column loop: %s", e)
         # Fall back to per-col loop on any batched-eval failure.
         stats_row = None
 

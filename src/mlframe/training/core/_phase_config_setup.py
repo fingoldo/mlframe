@@ -232,8 +232,8 @@ def setup_configuration(
         try:
             from ..baselines import _warmup_numba_kernels
             _warmup_numba_kernels()
-        except Exception:  # nosec B110 - optional dependency import guard
-            pass
+        except Exception as e:  # nosec B110 - optional dependency import guard
+            logger.debug("numba kernel warm-up failed, first real call will pay JIT cost: %s", e)
     _step_done("_warmup_numba_kernels (JIT prewarm)")
 
     composite_target_discovery_config = _ensure_config(composite_target_discovery_config, CompositeTargetDiscoveryConfig, {})
@@ -285,7 +285,8 @@ def setup_configuration(
                     if _bk == "plotly" and (set(_fmts) & {"png", "svg", "pdf"}):
                         _plotly_kaleido = True
                         break
-            except Exception:  # -- parse failure -> fall back to the substring heuristic
+            except Exception as e:  # -- parse failure -> fall back to the substring heuristic
+                logger.debug("plotly output-format parse failed, using substring heuristic: %s", e)
                 _plotly_kaleido = "plotly" in _po and ("png" in _po or "svg" in _po or "pdf" in _po)
         if _plotly_kaleido:
             logger.warning(

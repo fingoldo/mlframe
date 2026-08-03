@@ -323,12 +323,13 @@ def _build_pre_pipelines(
         import copy as _copy
         try:
             from sklearn.base import clone as _sk_clone
-        except Exception:
+        except ImportError:
             _sk_clone = None
         for pipeline_name, pipeline_obj in custom_pre_pipelines.items():
             try:
                 _cloned = _sk_clone(pipeline_obj) if _sk_clone is not None else _copy.deepcopy(pipeline_obj)
-            except Exception:
+            except Exception as e:
+                logger.debug("sklearn clone() failed for pipeline %s, falling back to deepcopy: %s", pipeline_name, e)
                 _cloned = _copy.deepcopy(pipeline_obj)
             pre_pipelines.append(_cloned)
             pre_pipeline_names.append(f"{pipeline_name} ")

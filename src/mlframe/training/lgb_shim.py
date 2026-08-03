@@ -385,7 +385,7 @@ class _DatasetReuseMixin:
         try:
             import lightgbm as _lgb
             state["_saved_lgb_version"] = str(getattr(_lgb, "__version__", "unknown"))
-        except Exception:
+        except ImportError:
             # lightgbm should always be importable in this code path (the
             # class wraps it) but be defensive.
             state["_saved_lgb_version"] = "unknown"
@@ -413,7 +413,7 @@ class _DatasetReuseMixin:
             try:
                 import lightgbm as _lgb
                 _live_ver = str(getattr(_lgb, "__version__", "unknown"))
-            except Exception:
+            except ImportError:
                 _live_ver = "unknown"
             if _live_ver != "unknown" and _live_ver != _saved_ver:
                 import logging as _logging

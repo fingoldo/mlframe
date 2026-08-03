@@ -4,12 +4,15 @@ Carved out of ``base.py`` to keep the parent below the 1k-line monolith threshol
 """
 from __future__ import annotations
 
+import logging
 import warnings as _warnings
 
 import numpy as np
 import pandas as pd
 import polars as pl
 import torch
+
+logger = logging.getLogger(__name__)
 
 
 def custom_collate_fn(batch):
@@ -146,14 +149,15 @@ def _probe_cuda_is_usable() -> bool:
             torch.cuda.synchronize()
             torch.cuda.empty_cache()
             ok = True
-    except Exception:
+    except Exception as e:
+        logger.debug("CUDA context probe failed, treating device as unusable: %s", e)
         ok = False
         # Best-effort: try empty_cache once more inside the failure handler
         # so a downstream caller isn't surprised by a half-poisoned context.
         try:
             torch.cuda.empty_cache()
-        except Exception:  # nosec B110 - best-effort path
-            pass
+        except Exception as e2:  # nosec B110 - best-effort path
+            logger.debug("empty_cache() retry also failed: %s", e2)
     _CUDA_PROBE_CACHE["usable"] = ok
     return ok
 

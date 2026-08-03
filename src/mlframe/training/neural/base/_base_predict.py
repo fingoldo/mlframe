@@ -123,14 +123,16 @@ class _PredictMixin:
                             _n_features = int(X.shape[1])
                         elif hasattr(X, "columns"):
                             _n_features = len(X.columns)
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("could not probe input width for predict batch-size auto-tune: %s", e)
                         _n_features = None
                     pred_batch_size = resolve_mlp_predict_batch_size(
                         n_features=_n_features,
                         train_batch_size=self.datamodule_params.get("batch_size"),
                     )
                     _batch_source = f"auto n_features={_n_features if _n_features is not None else 'unknown'}"
-                except Exception:
+                except Exception as e:
+                    logger.debug("resolve_mlp_predict_batch_size failed, falling back to train batch_size: %s", e)
                     # Resolver failed - fall back to the train-time batch size (still vastly better than 64 on production setups).
                     _train_batch_hint = self.datamodule_params.get("batch_size", 1024)
                     if isinstance(_train_batch_hint, str):

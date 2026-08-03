@@ -525,7 +525,8 @@ def _pipeline_signature_for_cache(pipeline) -> str:
         try:
             params = step.get_params(deep=False)
             kw = ",".join(f"{k}={params[k]!r}" for k in sorted(params))
-        except Exception:
+        except Exception as e:
+            logger.debug("get_params(deep=False) failed for cache-key computation on %s: %s", type(step).__name__, e)
             kw = "?"
         # Fold the setattr-injected ``_mlframe_use_sample_weights_in_fs_`` marker into the per-step signature so a mid-suite toggle of weight-aware FS misses the cache. The marker lives in ``__dict__`` (set by ``_setup_helpers``) and is invisible to ``get_params``; without folding, a weight-blind fit cached under the prior toggle replays for a weight-aware caller.
         _sw_marker = getattr(step, "_mlframe_use_sample_weights_in_fs_", None)
@@ -618,7 +619,8 @@ def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, targe
                     if getattr(_step, "_mlframe_use_sample_weights_in_fs_", False):
                         _wants_sw = True
                         break
-    except Exception:
+    except Exception as e:
+        logger.debug("sample-weight-in-FS marker walk failed: %s", e)
         _wants_sw = False
     _sw_fp = _content_fingerprint_for_cache(sample_weight) if (_wants_sw and sample_weight is not None) else ("no_sw",)
     key = (

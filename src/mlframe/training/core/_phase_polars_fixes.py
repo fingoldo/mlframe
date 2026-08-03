@@ -229,7 +229,8 @@ def apply_polars_categorical_fixes(
             try:
                 _pre_df = test_df_polars.lazy().select([pl.col(c).null_count().alias(c) for c in _eligible_cols if c in test_df_polars.columns]).collect()
                 _test_nulls_pre = {c: int(_pre_df[c][0]) for c in _pre_df.columns}
-            except Exception:
+            except Exception as e:
+                logger.debug("pre-fix null-count collection failed: %s", e)
                 _test_nulls_pre = {}
         for col in _eligible_cols:
             try:
@@ -365,7 +366,8 @@ def apply_polars_categorical_fixes(
     for _k, _v in (precomputed_category_union or {}).items():
         try:
             _exported_domains[_k] = sorted(set(_v), key=str)
-        except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+        except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+            logger.debug("could not sort category domain for %s, keeping insertion order: %s", _k, e)
             _exported_domains[_k] = list(_v)
 
     return PolarsCategoricalFixesResult(

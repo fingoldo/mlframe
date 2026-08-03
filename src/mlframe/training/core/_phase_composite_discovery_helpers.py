@@ -125,7 +125,8 @@ def _discovery_config_signature(config: Any) -> ConfigSignatureV1:
     try:
         from mlframe import __version__ as _mlv
         versions["mlframe"] = _mlv
-    except Exception:
+    except Exception as e:
+        logger.debug("could not resolve mlframe version: %s", e)
         versions["mlframe"] = "?"
     for _name in (
         "sklearn",
@@ -146,7 +147,8 @@ def _discovery_config_signature(config: Any) -> ConfigSignatureV1:
             if len(_parts) >= 2 and _parts[0].isdigit():
                 _ver_str = f"{_parts[0]}.{_parts[1].split('+')[0].split('rc')[0].split('dev')[0]}"
             versions[_name] = _ver_str
-        except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+        except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+            logger.debug("could not resolve version for %s: %s", _name, e)
             versions[_name] = "absent"
     versions["python"] = f"{sys.version_info.major}.{sys.version_info.minor}"
     return compute_config_signature_v1(config, library_versions=versions)

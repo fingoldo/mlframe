@@ -293,7 +293,8 @@ def translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
                 out["model_params"]["optimizer"] = torch.optim.AdamW
             out["model_params"].setdefault("optimizer_kwargs", {})
             out["model_params"]["optimizer_kwargs"]["weight_decay"] = float(sklearn_overrides["alpha"])
-        except Exception:
+        except Exception as e:
+            logger.debug("could not translate sklearn 'alpha' override to weight_decay: %s", e)
             untranslated.append("alpha")
 
     if "hidden_layer_sizes" in sklearn_overrides:
@@ -340,7 +341,8 @@ def translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
                 out["network_params"]["inputs_dropout_prob"] = 0.0
             else:
                 untranslated.append(f"activation={_act}")
-        except Exception:
+        except Exception as e:
+            logger.debug("could not translate sklearn activation override: %s", e)
             untranslated.append("activation")
 
     for k, v in sklearn_overrides.items():
