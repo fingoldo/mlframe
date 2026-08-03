@@ -15,13 +15,13 @@ What lives here:
 """
 from __future__ import annotations
 
-import bisect
 import logging
 from typing import Optional
 
 import numpy as np
 
 from .cat_fe_state import CatFEConfig
+from ._cat_kway_materialize import _build_merge_prefix_states, _merge_vars_sorted_insert
 from .info_theory import compute_mi_from_classes, compute_mi_from_classes_weighted, merge_vars
 # ``_materialize_pairs`` / ``_select_top_k_pairs`` /
 # ``resolve_min_interaction_information`` live in ``cat_interactions`` itself
@@ -31,71 +31,6 @@ from .info_theory import compute_mi_from_classes, compute_mi_from_classes_weight
 # stays broken.
 
 logger = logging.getLogger(__name__)
-
-
-def _build_merge_prefix_states(
-    factors_data: np.ndarray,
-    sorted_members: list,
-    factors_nbins: np.ndarray,
-    dtype,
-    final_state: tuple | None = None,
-) -> list:
-    """Incremental ``merge_vars`` states after merging ``sorted_members[:i]`` (ascending order), for every ``i`` in ``0..len(sorted_members)``.
-
-    ``merge_vars``'s dense renumbering is ORDER-SENSITIVE: merging the same variable set in a different order yields a bijective but numerically DIFFERENT
-    ``final_classes`` encoding (verified empirically - only the count of distinct classes is order-invariant, not the labels). A candidate variable inserted
-    at some position ``pos`` among ``sorted_members`` therefore needs the merge to walk ``sorted_members[:pos] + [cand] + sorted_members[pos:]`` to stay
-    bit-identical to a fresh ``merge_vars`` over the fully re-sorted tuple - these prefix states let ``_merge_vars_sorted_insert`` splice a candidate in at
-    its correct sorted position without re-scanning the members before it, for every candidate sharing that same insertion point.
-
-    ``final_state`` lets the caller hand in an already-computed ``(classes, nclasses)`` for the FULL ``sorted_members`` merge (e.g. the parent state carried
-    from the previous round) instead of re-deriving it here.
-    """
-    n_rows = factors_data.shape[0]
-    states = [(np.zeros(n_rows, dtype=dtype), 1)]
-    upto = len(sorted_members) - 1 if final_state is not None else len(sorted_members)
-    for i in range(1, upto + 1):
-        prev_classes, prev_nclasses = states[-1]
-        classes_i, _freqs_i, nclasses_i = merge_vars(
-            factors_data=factors_data,
-            vars_indices=np.array([sorted_members[i - 1]], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=factors_nbins,
-            current_nclasses=prev_nclasses, final_classes=prev_classes.copy(), dtype=dtype,
-        )
-        states.append((classes_i, nclasses_i))
-    if final_state is not None:
-        states.append(final_state)
-    return states
-
-
-def _merge_vars_sorted_insert(
-    factors_data: np.ndarray,
-    prefix_states: list,
-    sorted_members: list,
-    cand_int: int,
-    factors_nbins: np.ndarray,
-    dtype,
-) -> tuple:
-    """``merge_vars`` over ``sorted(sorted_members + [cand_int])``, splicing ``cand_int`` into its correct sorted position via ``prefix_states`` instead of
-    re-scanning the members before it. Bit-identical to a fresh full-tuple ``merge_vars`` call (verified end-to-end against the pre-fix algorithm across
-    randomized trials incl. min/mid/max insertion positions and varying arities/cardinalities/row-counts - see
-    ``_benchmarks/bench_kway_coord_ascent_frozen_prefix.py``)."""
-    ins = bisect.bisect_left(sorted_members, cand_int)
-    prefix_classes, prefix_nclasses = prefix_states[ins]
-    classes1, freqs1, nclasses1 = merge_vars(
-        factors_data=factors_data, vars_indices=np.array([cand_int], dtype=np.int64),
-        var_is_nominal=None, factors_nbins=factors_nbins,
-        current_nclasses=prefix_nclasses, final_classes=prefix_classes.copy(), dtype=dtype,
-    )
-    suffix = sorted_members[ins:]
-    if not suffix:
-        return classes1, freqs1, nclasses1
-    classes2, freqs2, nclasses2 = merge_vars(
-        factors_data=factors_data, vars_indices=np.array(suffix, dtype=np.int64),
-        var_is_nominal=None, factors_nbins=factors_nbins,
-        current_nclasses=nclasses1, final_classes=classes1, dtype=dtype,
-    )
-    return classes2, freqs2, nclasses2
 
 
 # ============================================================================
