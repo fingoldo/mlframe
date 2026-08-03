@@ -21,11 +21,11 @@ import numpy as np
 
 try:
     import pandas as pd
-except Exception:  # pragma: no cover - pandas is a hard dep in practice
+except ImportError:  # pragma: no cover - pandas is a hard dep in practice
     pd = None
 try:
     import polars as pl
-except Exception:
+except ImportError:
     pl = None  # type: ignore[assignment]
 
 

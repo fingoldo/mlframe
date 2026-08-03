@@ -26,7 +26,10 @@ bit-identical for any HW-valid (block, grid). This module only picks faster-but-
 """
 from __future__ import annotations
 
+import logging
 import threading
+
+logger = logging.getLogger(__name__)
 
 # Device-property cache (queried once per process). Keyed nothing - single current device.
 _DEV_PROPS: "dict | None" = None
@@ -69,10 +72,12 @@ def _device_props_uncached() -> dict:
             p = cp.cuda.runtime.getDeviceProperties(dev.id)
             props["regs_per_sm"] = int(p.get("regsPerMultiprocessor", props["regs_per_block"])) or props["regs_per_block"]
             props["shared_per_sm"] = int(p.get("sharedMemPerMultiprocessor", props["shared_per_block"])) or props["shared_per_block"]
-        except Exception:
+        except Exception as e:
+            logger.debug("querying regs/shared-per-multiprocessor failed, using per-block values: %s", e)
             props["regs_per_sm"] = props["regs_per_block"]
             props["shared_per_sm"] = props["shared_per_block"]
-    except Exception:
+    except Exception as e:
+        logger.debug("device-property probe failed: %s", e)
         props = {}
     _DEV_PROPS = props
     return props

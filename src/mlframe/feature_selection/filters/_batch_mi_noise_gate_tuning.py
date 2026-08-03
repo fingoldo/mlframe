@@ -17,6 +17,8 @@ import numpy as np
 from .info_theory import batch_mi_with_noise_gate as _cpu_batch_mi_with_noise_gate
 from typing import cast
 
+logger = logging.getLogger(__name__)
+
 from ._batch_mi_noise_gate_kernels import (
     _CUDA_AVAIL,
     _CUPY_AVAIL,
@@ -123,7 +125,8 @@ def _run_batch_mi_noise_gate_sweep() -> list:
     try:
         import psutil
         free = int(psutil.virtual_memory().available)
-    except Exception:
+    except Exception as e:
+        logger.debug("psutil.virtual_memory() probe failed, using the conservative 4GiB default: %s", e)
         free = 4 * 1024**3
     budget = int(free * 0.4)
     max_n = max(n_rows) if n_rows else 1
@@ -168,7 +171,8 @@ def ensure_batch_mi_noise_gate_tuning(force: bool = False):
     region list (``[]``/``None`` if cupy/CUDA absent or the sweep fails -> caller reports a skip)."""
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
-    except Exception:
+    except ImportError as e:
+        logger.debug("KernelTuningCache import failed: %s", e)
         return None
     cache = KernelTuningCache.load_or_create()
     if cache is None:

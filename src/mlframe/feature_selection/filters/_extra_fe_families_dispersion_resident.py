@@ -233,7 +233,8 @@ def dual_uplift_sibling_mi_resident(
     ``_mi_classif_batch`` over the host-built ``sib_abs`` (byte-identical default path untouched)."""
     try:
         import cupy as cp
-    except Exception:
+    except ImportError as e:
+        logger.debug("cupy import failed: %s", e)
         return None
     if not col_specs:
         return np.empty((0,), dtype=np.float64)
@@ -284,7 +285,8 @@ def local_mi_gate_dispersion_resident(
     identical."""
     try:
         import cupy as cp
-    except Exception:
+    except ImportError as e:
+        logger.debug("cupy import failed: %s", e)
         return None
     if not isinstance(enc_df, pd.DataFrame) or enc_df.shape[1] == 0:
         return []

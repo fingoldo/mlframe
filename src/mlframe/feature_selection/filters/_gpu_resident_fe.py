@@ -591,7 +591,8 @@ def _gpu_apply_prewarp(cp, x, spec):
         _get_prewarp_transform_kernel(cp)(((nrow + threads - 1) // threads,), (threads,),
             (xfc, np.int32(code), np.float64(lo), np.float64(span), np.float64(mean), np.float64(std_safe),
              np.float64(clip_lo), np.float64(clip_hi), np.int32(1 if has_clip else 0), np.int64(nrow), z))
-    except Exception:
+    except Exception as e:
+        logger.debug("fused prewarp-transform kernel failed, falling back to the exact cupy chain: %s", e)
         if basis in ("legendre", "chebyshev"):
             z = 2 * (xf - pp["lo"]) / (pp["hi"] - pp["lo"] + 1e-12) - 1
             if clip is not None:
@@ -1008,7 +1009,8 @@ def _gpu_k_chunk(n: int, *, free_bytes: int | None = None,
         try:
             _mp = cp.get_default_memory_pool()
             _pool_free = int(_mp.total_bytes()) - int(_mp.used_bytes())
-        except Exception:
+        except Exception as e:
+            logger.debug("querying the cupy memory pool free bytes failed: %s", e)
             _pool_free = 0
         # Cap the pool-free contribution at a fraction of TOTAL VRAM so one batch's working set stays bounded
         # (the full pool_free would size a multi-GB (n, k_chunk) allocation that churns the pool on this 4 GB

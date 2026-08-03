@@ -116,8 +116,8 @@ def _visible_device_ids() -> list[int]:
         try:
             want = {int(t) for t in subset.split(",") if t.strip() != ""}
             ids = [i for i in ids if i in want]
-        except Exception:  # nosec B110 - best-effort path
-            pass
+        except Exception as e:  # nosec B110 - best-effort path
+            logger.debug("parsing device subset %r failed, using all visible devices: %s", subset, e)
     return ids
 
 
@@ -155,6 +155,7 @@ def enumerate_device_profiles() -> list[DeviceProfile]:
     for i in _visible_device_ids():
         try:
             out.append(_profile_device(i))
-        except Exception:  # nosec B112 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+        except Exception as e:  # nosec B112 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+            logger.debug("_profile_device(%d) failed, skipping: %s", i, e)
             continue
     return out

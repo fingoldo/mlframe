@@ -174,7 +174,8 @@ def gbm_split_propensity(values: np.ndarray, y: np.ndarray, num_boost_round: int
     Returns a length-p float array (split count per column); zeros if LightGBM is unavailable."""
     try:
         import lightgbm as lgb
-    except Exception:
+    except ImportError as e:
+        logger.debug("lightgbm import failed: %s", e)
         return np.zeros(values.shape[1], dtype=np.float64)
     X = np.ascontiguousarray(values, dtype=np.float64)
     X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
@@ -280,6 +281,7 @@ def _resolve_auto_criterion(
         warm_gbm_cost_cache()  # best-effort: make the prediction measured, not the cold fallback
         predicted, cps, source = predict_gbm_fit_seconds(n_rows, n_candidates)
     except Exception as exc:  # cost model unavailable -> safe cheap path
+        logger.debug("gbm cost model unavailable, falling back to second_moment: %s", exc)
         return "second_moment", f"auto -> second_moment: gbm cost model unavailable ({type(exc).__name__}: {exc})"
     if predicted <= budget:
         return "fused", (

@@ -55,12 +55,15 @@ mid-fit) - see ``_host_bins`` / the ``cand_bins_dev`` truthiness checks througho
 """
 from __future__ import annotations
 
+import logging
 import os
 import threading
 
 # Quiet the intermittent cupy<->numba illegal-address race at interpreter teardown (cosmetic; suppressed ONLY
 # during finalization, never mid-fit - see _gpu_teardown_guard). Cheap import (no cupy), idempotent install.
 from ._gpu_teardown_guard import install_cuda_teardown_guard as _install_cuda_teardown_guard
+
+logger = logging.getLogger(__name__)
 
 _install_cuda_teardown_guard()
 
@@ -175,11 +178,13 @@ def _cuda_usable() -> bool:
             try:
                 from ._gpu_policy import cuda_available_for_run
                 _CUDA_USABLE_CACHE = bool(cuda_available_for_run())
-            except Exception:
+            except Exception as e:
+                logger.debug("cuda_available_for_run() check failed, falling back to numba.cuda.is_available(): %s", e)
                 try:
                     from numba import cuda as _c
                     _CUDA_USABLE_CACHE = bool(getattr(_c, "is_available", lambda: False)())
-                except Exception:
+                except Exception as e2:
+                    logger.debug("numba.cuda.is_available() probe failed, assuming CUDA unusable: %s", e2)
                     _CUDA_USABLE_CACHE = False
     return _CUDA_USABLE_CACHE
 

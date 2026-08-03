@@ -251,7 +251,8 @@ def drop_redundant_raw_operands(
             from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
             from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
             _gate_resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=n_rows, p=len(sel)))
-        except Exception:
+        except Exception as e:
+            logger.debug("fe_gpu_strict_resident_enabled/_cmi_gpu_enabled check failed, defaulting to non-resident: %s", e)
             _gate_resident = False
 
     from ._fe_raw_redundancy_anchors import build_raw_redundancy_anchors
@@ -629,7 +630,8 @@ def drop_redundant_raw_operands(
         from .info_theory._state_and_dispatch import get_group_mi
 
         _gmi_payload = get_group_mi()
-    except Exception:
+    except Exception as e:
+        logger.debug("get_group_mi() failed: %s", e)
         _gmi_payload = None
     if _gmi_payload is not None and drop_names:
         try:

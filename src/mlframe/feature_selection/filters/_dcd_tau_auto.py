@@ -26,9 +26,12 @@ from ``_dynamic_cluster_discovery``).
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # Sentinel used for the legacy 0.7 default. The kernel_tuning_cache route
 # only fires when the caller's constructor value is the dev-machine default.
@@ -235,7 +238,8 @@ def _calibrate_tau_auto(
     su_scores: list = []
     try:
         batch_scores = pair_su_batch(cal_state, pairs)
-    except Exception:
+    except Exception as e:
+        logger.debug("pair_su_batch failed, falling back to the per-pair loop: %s", e)
         batch_scores = None
     if batch_scores is not None:
         su_scores.extend(float(s) for s in batch_scores if np.isfinite(s))
@@ -243,7 +247,8 @@ def _calibrate_tau_auto(
         for a, b in pairs:
             try:
                 s = pair_su(cal_state, a, b)
-            except Exception:  # nosec B112 - best-effort path
+            except Exception as e:  # nosec B112 - best-effort path
+                logger.debug("pair_su(%r, %r) failed, skipping: %s", a, b, e)
                 continue
             if np.isfinite(s):
                 su_scores.append(float(s))

@@ -15,7 +15,10 @@ path. Honors:
 """
 from __future__ import annotations
 
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 
 def gpu_globally_disabled() -> bool:
@@ -47,12 +50,14 @@ def cuda_available_for_run() -> bool:
         from pyutilz.core.pythonlib import is_cuda_available
 
         return bool(is_cuda_available())
-    except Exception:
+    except Exception as e:
+        logger.debug("pyutilz is_cuda_available() failed, falling back to numba.cuda.is_available(): %s", e)
         try:
             from numba import cuda as _c
 
             return bool(getattr(_c, "is_available", lambda: False)())
-        except Exception:
+        except Exception as e2:
+            logger.debug("numba.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e2)
             return False
 
 

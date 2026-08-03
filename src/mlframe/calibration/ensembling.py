@@ -16,9 +16,12 @@ njit_parallel wins at n=1,000,000 (25.9ms vs cupy 28.2ms) — no backend dominat
 """
 from __future__ import annotations
 
+import logging
 import warnings
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 from mlframe.calibration._independence_check import member_residual_correlation
 
@@ -155,7 +158,8 @@ def _dispatch(p: np.ndarray, clip: float) -> np.ndarray:
     if backend == "cupy":
         try:
             return _odds_combine_cupy(p, clip)
-        except Exception:  # GPU path failed at runtime (OOM, driver hiccup) -> CPU fallback, never raise
+        except Exception as e:  # GPU path failed at runtime (OOM, driver hiccup) -> CPU fallback, never raise
+            logger.debug("_odds_combine_cupy failed, falling back to CPU: %s", e)
             backend = "njit_parallel" if _NUMBA_AVAILABLE else "numpy"
     if not _NUMBA_AVAILABLE:
         return _odds_combine_numpy(p, clip)
@@ -174,7 +178,8 @@ def _dispatch_weighted(p: np.ndarray, w: np.ndarray, clip: float) -> np.ndarray:
     if backend == "cupy":
         try:
             return _odds_combine_cupy_weighted(p, w, clip)
-        except Exception:
+        except Exception as e:
+            logger.debug("_odds_combine_cupy_weighted failed, falling back to CPU: %s", e)
             backend = "njit_parallel" if _NUMBA_AVAILABLE else "numpy"
     if not _NUMBA_AVAILABLE:
         return _odds_combine_numpy_weighted(p, w, clip)

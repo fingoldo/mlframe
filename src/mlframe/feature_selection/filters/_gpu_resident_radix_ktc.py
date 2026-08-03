@@ -248,7 +248,8 @@ try:
         salt=_RADIX_THREADS_SALT,
         cli_label="gpu_fe_radix_select_threads",
     )
-except Exception:
+except Exception as e:
+    logger.debug("gpu_fe_radix_select_threads kernel_tuner registration failed: %s", e)
     _RADIX_THREADS_SPEC = None
 
 
@@ -265,5 +266,6 @@ try:
         salt=_RADIX_F32_VARIANT_SALT,
         cli_label="gpu_fe_radix_select_f32_variant",
     )
-except Exception:
+except Exception as e:
+    logger.debug("gpu_fe_radix_select_f32_variant kernel_tuner registration failed: %s", e)
     _RADIX_F32_VARIANT_SPEC = None

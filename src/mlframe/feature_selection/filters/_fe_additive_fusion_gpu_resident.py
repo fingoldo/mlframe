@@ -79,7 +79,8 @@ def _multiple_r_gpu(cp, X2_dev, yv_dev, y_std: float) -> float:
         Aty = design.T @ yv_dev
         try:
             beta = cp.linalg.solve(AtA, Aty)
-        except Exception:
+        except Exception as e:
+            logger.debug("cp.linalg.solve failed (likely singular), falling back to lstsq: %s", e)
             beta = cp.linalg.lstsq(design, yv_dev, rcond=None)[0]
     except Exception as e:
         logger.debug("_multiple_r_gpu_resident: normal-equation solve and lstsq fallback both failed on a degenerate/singular design, returning 0.0: %s", e)
@@ -372,7 +373,8 @@ def propose_additive_fusions_gpu(
                 try:
                     if hasattr(X, "columns") and _rn in getattr(X, "columns", []):
                         _rv = np.asarray(X[_rn], dtype=np.float64).ravel()
-                except Exception:
+                except Exception as e:
+                    logger.debug("reading raw column %r failed: %s", _rn, e)
                     _rv = None
                 if _rv is None or _rv.shape[0] != n_rows:
                     continue
