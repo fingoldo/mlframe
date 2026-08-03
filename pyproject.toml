@@ -874,9 +874,24 @@ max-complexity = 40
 # output read by a human running the script directly), not something that should route
 # through logging. B023 loop-closures are the same "time/print this iteration now, never
 # stored" pattern as _profile_*.py above.
-"src/mlframe/**/_benchmarks/**" = ["T201", "B023"]
-"src/mlframe/**/benchmarks/**" = ["T201", "B023"]
-"benchmarks/**" = ["T201", "B023"]
+# N811/N812/N814: A/B-comparison bench scripts routinely alias a candidate implementation to a
+# short/CAPS name (``as M``, ``as NEW``, ``as _S``) so every call site in the file reads as
+# "old vs new" at a glance -- a deliberate one-off script idiom, not a naming-convention bug.
+# N999: filenames documenting a specific dataset/data size in their name (e.g. bench_1M_stress.py,
+# profile_largeK_multiclass_multilabel.py) predate this rule and would need a rename (and every
+# `-m mlframe...bench_1M_stress` invocation in a run:: docstring updated) to satisfy it; not worth
+# the churn for a script nobody imports.
+# PERF401/402/403/203: micro-optimisation hints (list-builder rewrites, try/except-in-loop
+# overhead) that matter in a hot production path, not a script whose wall-time is dominated by
+# the ML fit it's timing. DTZ005: naive datetime.now() in a bench result filename/log timestamp
+# is meant to be readable local time, not UTC -- the "safe" auto-fix would silently change that.
+# E741 (single-letter loop/unpack vars like `l`), B008 (an immutable range()/tuple() default arg
+# is never the mutable-default footgun this rule exists for), RUF059 (tracemalloc-style unpacked
+# tuples where only one half is used), G004 (f-string in a plain logger call, not the hot-path
+# %-formatting concern this rule targets in production code): all script-local style, not bugs.
+"src/mlframe/**/_benchmarks/**" = ["T201", "B023", "N811", "N812", "N814", "N999", "PERF401", "PERF402", "PERF403", "PERF203", "PERF102", "DTZ005", "E741", "B008", "RUF059", "G004"]
+"src/mlframe/**/benchmarks/**" = ["T201", "B023", "N811", "N812", "N814", "N999", "PERF401", "PERF402", "PERF403", "PERF203", "PERF102", "DTZ005", "E741", "B008", "RUF059", "G004"]
+"benchmarks/**" = ["T201", "B023", "N811", "N812", "N814", "N999", "PERF401", "PERF402", "PERF403", "PERF203", "PERF102", "DTZ005", "E741", "B008", "RUF059", "G004"]
 # Vendored third-party model code -- left at upstream shape.
 "src/mlframe/feature_selection/filters/_vendored/**" = ["T201", "A001", "A002", "N801"]
 # numba @njit kernels: verbose-gated diagnostic prints inside nopython-mode functions cannot use the

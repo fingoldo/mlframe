@@ -335,7 +335,7 @@ def _summarise(results: List[FoldResult], methods: List[str]) -> Dict:
         by_task_all.setdefault(key, {})[r.method] = r.mi_val
     win_count: Dict[str, int] = {m: 0 for m in methods}
     total_tasks_with_winner = 0
-    for key, mvals in by_task_all.items():
+    for _key, mvals in by_task_all.items():
         if not mvals:
             continue
         winner = max(mvals, key=mvals.get)

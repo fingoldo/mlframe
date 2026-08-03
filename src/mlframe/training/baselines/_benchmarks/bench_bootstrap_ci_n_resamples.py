@@ -157,7 +157,7 @@ def main():
     # Decision: does a challenger beat the incumbent 1000 in the MAJORITY of cells?
     inc = 1000
     chal_wins = {B: 0 for B in CANDIDATES if B != inc}
-    for r in rows:
+    for _r in rows:
         pass
     # rebuild per-cell err to compare each challenger vs incumbent directly
     per_cell = {}

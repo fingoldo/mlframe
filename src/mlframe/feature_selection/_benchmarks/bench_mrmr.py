@@ -257,7 +257,7 @@ def run_scenario(scenario: _datasets.Scenario, runs: int, profile: bool, seed_ba
     if agg["wall_time"]["dispersion"] > DISPERSION_GATE and runs < MAX_EXTRA_RUNS:
         extra = min(MAX_EXTRA_RUNS - runs, runs)
         logger.warning(f"[{scenario.name}] dispersion {agg['wall_time']['dispersion']:.3f} > {DISPERSION_GATE}; +{extra} runs")
-        for i in range(extra):
+        for _i in range(extra):
             per_run.append(_run_one(scenario, seed_base, profile=False))
             gc.collect()
         agg = _aggregate_runs(per_run)

@@ -90,7 +90,7 @@ def main():
     try:
         import cupy as cp  # noqa: F401
         has_gpu = True
-    except ImportError:
+    except ImportError as e:
         has_gpu = False
         print(f"cupy/CUDA unavailable ({e}); host-only numbers below.")
 

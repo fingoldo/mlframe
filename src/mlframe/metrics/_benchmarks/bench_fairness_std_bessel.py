@@ -91,7 +91,7 @@ def run() -> dict:
     print("-" * 96)
     print("SIGNED bias (negative = systematic UNDER-estimation of dispersion -- the fairness harm):")
     sstd_win1 = svar_win1 = 0
-    for sc_name, K, sigma_true in scenarios:
+    for sc_name, K, _sigma_true in scenarios:
         b_std0 = np.mean([signed[(sc_name, s)][0] for s in seeds])
         b_std1 = np.mean([signed[(sc_name, s)][1] for s in seeds])
         b_var0 = np.mean([signed[(sc_name, s)][2] for s in seeds])

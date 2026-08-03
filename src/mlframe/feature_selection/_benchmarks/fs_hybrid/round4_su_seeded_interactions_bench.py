@@ -141,7 +141,7 @@ def run_bed(name, X, y, truth):
     scr_s = round(time.time() - t0, 2)
     op_set = set(operands)
     rank_of_true = None
-    for r, (syn, jsu, a, b) in enumerate(top_pairs):
+    for r, (_syn, _jsu, a, b) in enumerate(top_pairs):
         if {a, b} == op_set:
             rank_of_true = r
             break
@@ -178,7 +178,7 @@ def run_bed(name, X, y, truth):
         Xtr2, Xte2 = Xtr.copy(), Xte.copy()
         added = []
         if add_products:
-            for syn, jsu, a, b in top_pairs[:8]:  # seed top-8 SU pairs as product cols
+            for _syn, _jsu, a, b in top_pairs[:8]:  # seed top-8 SU pairs as product cols
                 nm = f"{a}__x__{b}"
                 Xtr2[nm] = Xtr[a].values * Xtr[b].values
                 Xte2[nm] = Xte[a].values * Xte[b].values

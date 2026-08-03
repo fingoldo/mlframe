@@ -269,7 +269,7 @@ def summarize(smoke):
     print("\n=== PAIRED WINS vs default (per regime) ===")
     for target in ("jmim", "auto"):
         agg = defaultdict(lambda: {"rec": [0, 0, 0], "auc": [0, 0, 0]})
-        for (reg, n, _s), vs in by.items():
+        for (reg, _n, _s), vs in by.items():
             if "default" not in vs or target not in vs:
                 continue
             b, t = vs["default"], vs[target]

@@ -283,7 +283,7 @@ def main() -> None:
         key = (r["n_samples"], r["joint_size"])
         by_nb_js.setdefault(key, {})[r["block_size"]] = r["wall_ms_shared"]
     bs_wins_acc: dict[int, int] = {}
-    for key, bs_walls in by_nb_js.items():
+    for _key, bs_walls in by_nb_js.items():
         best_bs = min(bs_walls, key=bs_walls.get)
         bs_wins_acc[best_bs] = bs_wins_acc.get(best_bs, 0) + 1
     print("\n  block_size that wins most often (shared kernel):")

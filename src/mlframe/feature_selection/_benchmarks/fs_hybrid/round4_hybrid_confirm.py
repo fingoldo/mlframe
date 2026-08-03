@@ -50,7 +50,7 @@ def main():
         nt = df[(df.bed == bed) & (df.variant == "notree")]["auc_mean"].mean()
         d = round(t - nt, 4)
         thr = 0.03 if bed == rname else -0.005
-        good = (d >= thr) if bed == rname else (d >= thr)
+        good = d >= thr
         ok = ok and good
         print(f"  {bed:12s} tree {round(t,4)} vs notree {round(nt,4)}  d={d:+}  ({'OK' if good else 'FAIL'})")
     print("\nSHIP default-ON:", "YES" if ok else "NO -- needs regime gate")

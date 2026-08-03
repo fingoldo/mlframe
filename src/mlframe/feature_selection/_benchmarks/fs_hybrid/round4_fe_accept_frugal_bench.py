@@ -162,7 +162,7 @@ def run_bed(name, X, y, seed=0):
     rows = []
 
     def emit(tag, base_cols, prod_names, prod_tr, prod_te, t0):
-        Ztr = Xtr[base_cols].copy(); Zte = Xte[base_cols].copy()
+        Ztr = Xtr[base_cols].copy(); Zte = Xte[base_cols].copy()  # noqa: F821 -- closure over run_bed's Xtr/Xte, ruff false positive
         for pn in prod_names:
             Ztr[pn] = prod_tr[pn]; Zte[pn] = prod_te[pn]
         a = downstream(Ztr, Zte, ytr, yte); am = round(float(np.nanmean(list(a.values()))), 4)

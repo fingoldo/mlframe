@@ -467,7 +467,7 @@ def main() -> int:
     strategy_improvements: Dict[str, List[float]] = {
         s: [] for s in strategies_list
     }
-    for sc_name, sc_rmses in all_rmses.items():
+    for _sc_name, sc_rmses in all_rmses.items():
         baseline = sc_rmses.get("best_single_by_train")
         if not baseline:
             continue

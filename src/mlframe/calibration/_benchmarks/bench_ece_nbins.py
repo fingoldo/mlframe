@@ -1,3 +1,7 @@
+# _benchmarks/ is excluded from [tool.mypy], but the scoped beachhead hook (files:
+# 'src/mlframe/calibration/...') passes this file explicitly, which bypasses that exclude;
+# the directive below restores the intended exemption for this one-off script.
+# mypy: ignore-errors
 """Isolated bench: ECE n_bins default (DEFAULT_ECE_NBINS=15) bias+variance vs ground truth.
 
 Honest metric. Each scenario fixes a TRUE calibration map g(p)=P(y=1|score=p) on a
@@ -122,7 +126,7 @@ def run(seeds=12, ns=(1000, 5000, 20000), nbins_grid=(5, 10, 15, 20, 30, 50), ve
         per_nb_rmse = {nb: [] for nb in nbins_grid}
         # rebuild rmse lookup
         rl = {}
-        for name, n, nb, et, bias, std, rmse in rows:
+        for name, n, nb, _et, _bias, _std, rmse in rows:
             rl[(name, n, nb)] = rmse
         for name, n in cell_winner:
             for nb in nbins_grid:

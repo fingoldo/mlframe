@@ -61,7 +61,7 @@ def main():
     print(df.groupby("config").agg(auc_mean=("auc_mean", "mean"), lgbm=("auc", lambda s: np.mean([a["lgbm"] for a in s])),
                                    n=("n", "mean"), base=("base", "mean"), fit_s=("fit_s", "mean")).round(4).to_string())
     wins = {}
-    for (sc, sd), g in df.groupby(["scenario", "seed"]):
+    for (_sc, _sd), g in df.groupby(["scenario", "seed"]):
         b = g.loc[g["auc_mean"].idxmax(), "config"]; wins[b] = wins.get(b, 0) + 1
     print("win counts (best auc_mean):", wins)
 

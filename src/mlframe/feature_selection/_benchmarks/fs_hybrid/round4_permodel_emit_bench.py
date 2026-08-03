@@ -204,8 +204,8 @@ def run_bed(name, X, y, seed):
     Ztr, Zte = h._augment(Xtr), h._augment(Xte)
 
     def slice_ok(sel):
-        s = [c for c in dict.fromkeys(sel) if c in Ztr.columns and c in Zte.columns]
-        return s if s else list(h.raw_selected_)
+        s = [c for c in dict.fromkeys(sel) if c in Ztr.columns and c in Zte.columns]  # noqa: F821 -- closure over run_bed's Ztr/Zte, ruff false positive
+        return s if s else list(h.raw_selected_)  # noqa: F821 -- closure over run_bed's h, ruff false positive
 
     S = slice_ok(list(h.raw_selected_))
     L1 = slice_ok(h.set_linear_consensus_eng())  # consensus + engineered (drop single-vote noise)
@@ -215,7 +215,7 @@ def run_bed(name, X, y, seed):
     K1 = slice_ok(h.set_knn_consensus_clean())  # tightest clean consensus set
 
     def auc(model_fn, sel):
-        return model_fn(Ztr[sel], Zte[sel], ytr, yte)
+        return model_fn(Ztr[sel], Zte[sel], ytr, yte)  # noqa: F821 -- closure over run_bed's Ztr/Zte, ruff false positive
 
     # baseline: every family on the shared set S
     base_lgbm = auc(_lgbm_auc, S)

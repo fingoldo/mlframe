@@ -94,7 +94,7 @@ def main():
     print(df.groupby("method").agg(auc_mean=("auc_mean", "mean"), lgbm=("auc", lambda s: np.mean([a["lgbm"] for a in s])),
                                    noise=("noise", "mean"), n=("n", "mean"), fit_s=("fit_s", "mean")).round(4).to_string())
     wins = {}
-    for (sc, sd), g in df.groupby(["scenario", "seed"]):
+    for (_sc, _sd), g in df.groupby(["scenario", "seed"]):
         b = g.loc[g["auc_mean"].idxmax(), "method"]; wins[b] = wins.get(b, 0) + 1
     print("win counts (best auc_mean):", wins)
     # R2b-5 driver head-to-head: gini vs shap vs permutation (held-out + in-bag), ignoring premerge
@@ -103,7 +103,7 @@ def main():
     gv = {m: round(s.auc_mean.mean(), 4) for m, s in g2.groupby("method")}
     sv = {m: round(s.fit_s.mean(), 1) for m, s in g2.groupby("method")}
     dwins = {}
-    for (sc, sd), g in g2.groupby(["scenario", "seed"]):
+    for (_sc, _sd), g in g2.groupby(["scenario", "seed"]):
         w = g.loc[g.auc_mean.idxmax(), "method"]; dwins[w] = dwins.get(w, 0) + 1
     print(f"R2b-5 drivers mean auc {gv}")
     print(f"        driver fit_s  {sv}")
