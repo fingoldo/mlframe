@@ -8,8 +8,11 @@ would false-fail; what must be zero is BULK transfer (arrays whose size scales w
 from __future__ import annotations
 
 import contextlib
+import logging
 import threading
 from typing import Iterator
+
+logger = logging.getLogger(__name__)
 
 # bytes at/above which a transfer is "bulk" (a scalar / tiny index is far below; one operand column at
 # n_sub=30k f32 is 120KB, so 8KB cleanly separates scalar decisions from bulk data).
@@ -62,7 +65,8 @@ def residency_audit() -> Iterator[ResidencyReport]:
     try:
         import cupy as cp
         import numpy as np
-    except Exception:
+    except ImportError as e:
+        logger.debug("residency_audit: cupy unavailable, yielding an empty report: %s", e)
         yield rep
         return
 
@@ -75,8 +79,8 @@ def residency_audit() -> Iterator[ResidencyReport]:
         try:
             if isinstance(obj, np.ndarray):
                 rep.h2d.append(int(obj.nbytes))
-        except Exception:  # nosec B110 - best-effort path
-            pass
+        except Exception as e:  # nosec B110 - best-effort path
+            logger.debug("residency_audit: recording an H2D transfer failed: %s", e)
         return _orig_asarray(obj, *a, **k)
 
     def _asnumpy(obj, *a, **k):
@@ -85,16 +89,16 @@ def residency_audit() -> Iterator[ResidencyReport]:
             nb = int(getattr(obj, "nbytes", 0))
             if nb:
                 rep.d2h.append(nb)
-        except Exception:  # nosec B110 - best-effort path
-            pass
+        except Exception as e:  # nosec B110 - best-effort path
+            logger.debug("residency_audit: recording a D2H transfer (asnumpy) failed: %s", e)
         return _orig_asnumpy(obj, *a, **k)
 
     def _get(self, *a, **k):
         """Monkeypatched ``cupy.ndarray.get``: records ``self``'s byte size as a D2H transfer, then delegates unchanged."""
         try:
             rep.d2h.append(int(self.nbytes))
-        except Exception:  # nosec B110 - best-effort path
-            pass
+        except Exception as e:  # nosec B110 - best-effort path
+            logger.debug("residency_audit: recording a D2H transfer (ndarray.get) failed: %s", e)
         return _orig_get(self, *a, **k)
 
     with _AUDIT_LOCK:
@@ -102,8 +106,8 @@ def residency_audit() -> Iterator[ResidencyReport]:
         cp.asnumpy = _asnumpy
         try:
             cp.ndarray.get = _get  # may be read-only on some cupy builds; guarded
-        except Exception:  # nosec B110 - best-effort path
-            pass
+        except Exception as e:  # nosec B110 - best-effort path
+            logger.debug("residency_audit: patching cupy.ndarray.get failed, .get() transfers won't be tracked: %s", e)
         try:
             yield rep
         finally:
@@ -111,5 +115,5 @@ def residency_audit() -> Iterator[ResidencyReport]:
             cp.asnumpy = _orig_asnumpy
             try:
                 cp.ndarray.get = _orig_get
-            except Exception:  # nosec B110 - best-effort path
-                pass
+            except Exception as e:  # nosec B110 - best-effort path
+                logger.debug("residency_audit: restoring the original cupy.ndarray.get failed: %s", e)

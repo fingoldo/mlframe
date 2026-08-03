@@ -71,7 +71,8 @@ def _build_oof_fold_fit_disk_key(model_template, X_tr_fold, y_tr_fold, classific
 
         try:
             params = model_template.get_params(deep=False)
-        except Exception:
+        except Exception as e:
+            logger.debug("get_params(deep=False) failed, using repr() as the cache-key params: %s", e)
             params = {"_repr": repr(model_template)}
         x_tr_key = hash_array_summary(X_tr_fold.values if hasattr(X_tr_fold, "values") else np.asarray(X_tr_fold))
         y_tr_key = hash_array_summary(np.asarray(y_tr_fold))
@@ -122,13 +123,15 @@ def _maybe_patch_shap_xgb_base_score():
     try:
         import shap
         from shap.explainers import _tree as _shap_tree
-    except Exception:
+    except ImportError as e:
+        logger.debug("shap import failed, skipping the xgboost patch: %s", e)
         _SHAP_XGB_PATCHED = True
         return
 
     try:
         _shap_ver = tuple(int(p) for p in str(shap.__version__).split(".")[:2])
-    except Exception:
+    except Exception as e:
+        logger.debug("parsing shap.__version__ failed, treating it as (0, 0): %s", e)
         _shap_ver = (0, 0)
     # shap >= 0.52 handles the array base_score natively and uses ``float`` as a numpy dtype; touching it is harmful + unnecessary -> no-op.
     if _shap_ver >= (0, 52):
@@ -201,8 +204,8 @@ def _pick_backend(explainer_base, X: pd.DataFrame, backend: str) -> str:
 
         if gpu_treeshap_available() and X.shape[0] * X.shape[1] >= 1_000_000:
             return "treeshap_gpu"
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("gpu_treeshap_available() check failed, falling back to treeshap_numba: %s", e)
     return "treeshap_numba"
 
 
@@ -362,7 +365,8 @@ def compute_phi_rank_stability(per_fold_phi_mean, top_k: int = 80) -> float:
         corr = np.asarray(corr, dtype=np.float64)
         iu = np.triu_indices(n_folds, k=1)
         vals = corr[iu]
-    except Exception:
+    except Exception as e:
+        logger.debug("vectorized correlation-pair extraction failed, falling back to the per-row argsort path: %s", e)
         # Single argsort + scatter per row instead of double argsort (bit-identical, ~1.7-1.9x faster).
         _order = np.argsort(-sub, axis=1)
         ranks = np.empty_like(_order)
@@ -584,7 +588,8 @@ def compute_shap_matrix(
             _cache = DiskCache(cache_dir)
             try:
                 _params = model_template.get_params(deep=False)
-            except Exception:
+            except Exception as e:
+                logger.debug("get_params(deep=False) failed, using repr() as the cache-key params: %s", e)
                 _params = {"_repr": repr(model_template)}
             _rng_state: Any
             try:

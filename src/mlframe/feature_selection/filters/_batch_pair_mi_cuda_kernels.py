@@ -25,17 +25,19 @@ logger = logging.getLogger(__name__)
 
 try:
     from numba import cuda as _nb_cuda
-except Exception:
+except ImportError:
     _nb_cuda = None
 
 try:
     from pyutilz.core.pythonlib import is_cuda_available as _pyutilz_is_cuda_available
     _CUDA_AVAIL = _pyutilz_is_cuda_available()
-except Exception:
+except Exception as e:
     # Fallback to inline numba probe if pyutilz is not importable for some reason.
+    logger.debug("pyutilz.core.pythonlib.is_cuda_available() probe failed, falling back to numba.cuda.is_available(): %s", e)
     try:
         _CUDA_AVAIL = bool(getattr(_nb_cuda, "is_available", lambda: False)()) if _nb_cuda is not None else False
-    except Exception:
+    except Exception as e2:
+        logger.debug("numba.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e2)
         _CUDA_AVAIL = False
 
 # Require numba.cuda to actually compile+launch a kernel (not just device presence) so a
@@ -46,7 +48,7 @@ _CUDA_AVAIL = _CUDA_AVAIL and _numba_cuda_can_compile()
 try:
     import cupy as _cp
     _CUPY_AVAIL = True
-except Exception:
+except ImportError:
     _cp = None
     _CUPY_AVAIL = False
 
@@ -355,7 +357,8 @@ def _hist_kernel_shared_fits_budget(max_joint: int, n_classes_y: int) -> int:
     needed = (max_joint * n_classes_y + max_joint) * 4  # int32
     try:
         budget = _nb_cuda.get_current_device().MAX_SHARED_MEMORY_PER_BLOCK
-    except Exception:
+    except Exception as e:
+        logger.debug("querying MAX_SHARED_MEMORY_PER_BLOCK failed, using the cc 6.x+ safe default: %s", e)
         budget = 49152  # cc 6.x+ safe default without opt-in
     # Leave headroom for the driver's own per-block reserved shared memory (a few hundred bytes,
     # observed ~1KB on cc 8.9 via ncu's "Driver Shared Memory Per Block").
@@ -597,7 +600,8 @@ def batch_pair_mi_cuda_row_chunked(
         import cupy as cp
 
         free_b, _total_b = cp.cuda.runtime.memGetInfo()
-    except Exception:
+    except Exception as e:
+        logger.debug("cp.cuda.runtime.memGetInfo() probe failed, using the conservative 512MiB fallback: %s", e)
         free_b = 512 * 1024 * 1024  # conservative fallback if the probe is unavailable
 
     row_chunk_rows = _choose_row_chunk_rows(n_cols, free_b)

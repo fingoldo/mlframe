@@ -23,18 +23,21 @@ combos that never use MRMR this saved cold-start time per process.
 """
 from __future__ import annotations
 
+import logging
 from typing import Iterable
 
 import numpy as np
 
+logger = logging.getLogger(__name__)
+
 try:
     import polars as pl
-except Exception:
+except ImportError:
     pl = None  # type: ignore[assignment]
 
 try:
     import pandas as pd
-except Exception:
+except ImportError:
     pd = None
 
 
@@ -85,7 +88,8 @@ def compute_unsupervised_drops(
             col = train_df[col_name]
             try:
                 null_count = int(col.null_count())
-            except Exception:
+            except Exception as e:
+                logger.debug("null_count() failed for column %r, treating as 0: %s", col_name, e)
                 null_count = 0
             if null_count > null_cutoff:
                 drops.add(col_name)
@@ -97,13 +101,15 @@ def compute_unsupervised_drops(
             try:
                 dt = col.dtype
                 is_numeric = dt.is_numeric() if hasattr(dt, "is_numeric") else False
-            except Exception:
+            except Exception as e:
+                logger.debug("dtype numeric check failed for column %r, treating as non-numeric: %s", col_name, e)
                 is_numeric = False
             if not is_numeric:
                 continue
             try:
                 var_val = col.var()
-            except Exception:
+            except Exception as e:
+                logger.debug("var() failed for column %r: %s", col_name, e)
                 var_val = None
             if var_val is None:
                 # All-null after the null check would have been caught above; treat as constant.
@@ -164,7 +170,8 @@ def compute_unsupervised_drops(
                         null_count = 0
                     else:
                         null_count = int(col.isna().sum())
-            except Exception:
+            except Exception as e:
+                logger.debug("isna().sum() failed for column %r, treating as 0: %s", col_name, e)
                 null_count = 0
             if null_count > null_cutoff:
                 drops.add(col_name)

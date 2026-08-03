@@ -9,15 +9,18 @@ source / numerics / dispatch behavior changed by the move.
 """
 from __future__ import annotations
 
+import logging
 import math
 
 import numpy as np
 from numba import njit, prange
 
+logger = logging.getLogger(__name__)
+
 # Optional GPU deps - mirror batch_pair_mi_gpu.py's probe order exactly.
 try:
     from numba import cuda as _nb_cuda
-except Exception:
+except ImportError:
     _nb_cuda = None
 
 from ._internals import numba_cuda_can_compile as _numba_cuda_can_compile
@@ -25,10 +28,12 @@ from ._internals import numba_cuda_can_compile as _numba_cuda_can_compile
 try:
     from pyutilz.core.pythonlib import is_cuda_available as _pyutilz_is_cuda_available
     _CUDA_AVAIL = _pyutilz_is_cuda_available()
-except Exception:
+except Exception as e:
+    logger.debug("pyutilz.core.pythonlib.is_cuda_available() probe failed, falling back to numba.cuda.is_available(): %s", e)
     try:
         _CUDA_AVAIL = bool(getattr(_nb_cuda, "is_available", lambda: False)()) if _nb_cuda is not None else False
-    except Exception:
+    except Exception as e2:
+        logger.debug("numba.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e2)
         _CUDA_AVAIL = False
 
 # Device-presence alone is not enough: a GPU with a cudatoolkit/numba NVVM mismatch passes the
@@ -39,7 +44,7 @@ _CUDA_AVAIL = _CUDA_AVAIL and _numba_cuda_can_compile()
 try:
     import cupy as _cp
     _CUPY_AVAIL = True
-except Exception:
+except ImportError:
     _cp = None
     _CUPY_AVAIL = False
 
@@ -58,7 +63,7 @@ except Exception:
 # import; if a future cupy renames it we fall back to public ``cupy.bincount``.
 try:
     from cupy._statistics.histogram import _bincount_kernel as _cupy_bincount_kernel
-except Exception:
+except ImportError:
     _cupy_bincount_kernel = None
 
 
@@ -506,7 +511,8 @@ def _cuda_shared_mem_per_block() -> int:
     val = 0
     try:
         val = int(getattr(_nb_cuda.get_current_device(), "MAX_SHARED_MEMORY_PER_BLOCK", 0)) or 0
-    except Exception:
+    except Exception as e:
+        logger.debug("querying MAX_SHARED_MEMORY_PER_BLOCK failed, using 0: %s", e)
         val = 0
     _CUDA_SHARED_BYTES_PER_BLOCK = val
     return val
