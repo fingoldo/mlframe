@@ -22,6 +22,8 @@ import logging
 
 import numpy as np
 import pandas as pd
+
+from ._get_feature_names_out_shared import get_feature_names_out_support_based
 from sklearn.base import BaseEstimator, TransformerMixin, clone
 
 from mlframe.utils.misc import rng_hygienic_fit
@@ -511,25 +513,7 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
             mask[sup.astype(np.int64)] = True
         return mask
 
-    def get_feature_names_out(self, input_features=None):
-        """Selected feature names (sklearn transformer contract) so this is a
-        faithful drop-in inside the training-suite pre-pipeline. ``support_`` is
-        an integer index array into ``feature_names_in_``."""
-        names = getattr(self, "feature_names_in_", None)
-        # sklearn ``_check_feature_names_in`` contract: a passed input_features MUST match n_features_in_ (column-drift detection) and, when correct-length, OVERRIDES the stored feature_names_in_ - so a caller can re-inject real names after an ndarray fit (which synthesized f_0..f_N placeholders).
-        if input_features is not None:
-            input_features = list(input_features)
-            n_in = int(getattr(self, "n_features_in_", len(input_features)))
-            if len(input_features) != n_in:
-                raise ValueError(
-                    f"input_features has {len(input_features)} elements, expected {n_in} "
-                    f"(n_features_in_); names passed to get_feature_names_out must match the "
-                    f"feature set this selector was fit on (sklearn column-drift contract)."
-                )
-            return np.asarray([input_features[int(i)] for i in self.support_], dtype=object)
-        if names is not None:
-            return np.asarray([names[int(i)] for i in self.support_], dtype=object)
-        return np.asarray([f"f_{int(i)}" for i in self.support_], dtype=object)
+    get_feature_names_out = get_feature_names_out_support_based
 
     @property
     def accepted(self):
