@@ -235,9 +235,7 @@ def _sigmoid_make_eval(params: dict):
     return _eval
 
 
-def _sigmoid_coef_size(degree: int) -> int:
-    """Sigmoid degree maps to number of threshold bumps used. Up to 9 thresholds at quantiles 0.1..0.9 (mirrors ``_rbf_coef_size``); degree saturates at 9."""
-    return min(max(1, degree + 1), 9)
+_sigmoid_coef_size = _rbf_coef_size
 
 
 def _sigmoid_canonical_seeds(degree: int) -> list:
