@@ -34,16 +34,19 @@ regression test pins this across seeds plus a degenerate constant column.
 from __future__ import annotations
 
 import hashlib
+import logging
 from collections import OrderedDict
 from typing import Any
 
 import numpy as np
 
+logger = logging.getLogger(__name__)
+
 try:
     import numba as _numba
 
     _HAS_NUMBA = True
-except Exception:  # pragma: no cover - numba is a hard dep; allow graceful skip.
+except ImportError:  # pragma: no cover - numba is a hard dep; allow graceful skip.
     _numba = None
     _HAS_NUMBA = False
 
@@ -401,8 +404,8 @@ def _warm_collinear_kernel() -> None:
         _keep_mask_kernel_allfinite(warm, _mean, _var, 0.99, _BORDERLINE_BAND)
         _block_gather_kernel(np.arange(4, dtype=np.int64), np.arange(2, dtype=np.int64), 2)
         _block_gather_kernel(np.arange(4, dtype=np.float32), np.arange(2, dtype=np.int64), 2)
-    except Exception:  # pragma: no cover - warming is best-effort.  # nosec B110 - best-effort/optional path, no module logger
-        pass
+    except Exception as e:  # pragma: no cover - warming is best-effort.  # nosec B110
+        logger.debug("collinear kernel warm-up failed, first real call will pay JIT cost: %s", e)
 
 
 _warm_collinear_kernel()

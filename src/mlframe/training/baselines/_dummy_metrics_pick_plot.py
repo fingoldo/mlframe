@@ -210,7 +210,8 @@ def _compute_metrics_table(
                             row[f"{split_name}_NDCG@{k}"] = summary.get(f"ndcg@{k}", float("nan"))
                         row[f"{split_name}_MAP@10"] = summary.get("map@10", float("nan"))
                         row[f"{split_name}_MRR"] = summary.get("mrr", float("nan"))
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("ranking summary failed for baseline=%s split=%s: %s", name, split_name, e)
                         for k in (1, 5, 10):
                             row[f"{split_name}_NDCG@{k}"] = float("nan")
                         row[f"{split_name}_MAP@10"] = float("nan")
@@ -516,7 +517,8 @@ def plot_best_dummy_baseline_overlay(
                 # cell auto-flush to re-render the figure (the "толпа
                 # графиков" double-render seen 2026-05-26).
                 _plt.close(fig)
-            except Exception:
+            except Exception as e:
+                logger.debug("IPython inline display failed, falling back to plt.show(): %s", e)
                 # block=False (not plt.ion()) so the process-global interactive flag is not leaked; close after to avoid the leak.
                 _plt.show(block=False)
                 _plt.close(fig)

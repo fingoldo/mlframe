@@ -233,6 +233,8 @@ def catastrophic_drop_kn(
     except Exception as _kn_err:
         if verbose:
             logger.warning("[ensemble] K>2 catastrophic-drop check raised %s; proceeding without drop.", _kn_err)
+        else:
+            logger.debug("[ensemble] K>2 catastrophic-drop check raised %s; proceeding without drop.", _kn_err)
     return level_models_and_predictions, _gate_preds_for_check, _ensemble_member_tags, _ensemble_short_tags
 
 
@@ -335,4 +337,6 @@ def catastrophic_drop_k2(
     except Exception as _k2_err:
         if verbose:
             logger.warning("[ensemble] K=2 catastrophic-dropout check raised %s; proceeding without drop.", _k2_err)
+        else:
+            logger.debug("[ensemble] K=2 catastrophic-dropout check raised %s; proceeding without drop.", _k2_err)
     return level_models_and_predictions, _ensemble_member_tags, _ensemble_short_tags, ensemble_name, False

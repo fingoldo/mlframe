@@ -352,10 +352,10 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
                     )
         except ValueError:
             raise
-        except Exception:  # nosec B110 - non-trivial body
+        except Exception as e:  # nosec B110 - non-trivial body
             # np.unique/asarray edge cases on object dtype etc -- let the
             # downstream backend surface its own error.
-            pass
+            logger.debug("target uniqueness pre-check failed, deferring to downstream backend: %s", e)
 
 
 def _validate_infinity_and_columns(df, train_df, skip_infinity_checks, drop_columns):
@@ -851,7 +851,8 @@ def _detect_max_iter(model_category: str, model_obj: Any) -> int | None:
         return None
     try:
         params = model_obj.get_params() if hasattr(model_obj, "get_params") else {}
-    except Exception:
+    except Exception as e:
+        logger.debug("get_params() failed for %s, treating as empty: %s", type(model_obj).__name__, e)
         params = {}
     if model_category == "cb":
         return params.get("iterations") or params.get("n_estimators")

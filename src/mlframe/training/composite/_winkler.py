@@ -40,7 +40,7 @@ try:
     import pandas as pd
 
     _HAVE_PANDAS = True
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     _HAVE_PANDAS = False
 
 _NJIT_KW = dict(fastmath=False, cache=True, nogil=True)
@@ -125,7 +125,7 @@ try:
         return S, Wd, W, cov, cnt
 
     _HAVE_NUMBA = True
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     _HAVE_NUMBA = False
 
 

@@ -627,14 +627,16 @@ def _render_split_diagnostics(
     if subgroups and idx is not None:
         try:
             split_subgroups = {k: np.asarray(v)[idx] for k, v in subgroups.items()}
-        except Exception:
+        except Exception as e:
+            logger.debug("subgroup indexing failed, dropping subgroups for this split: %s", e)
             split_subgroups = None
 
     split_ts = None
     if split_timestamps is not None and idx is not None:
         try:
             split_ts = np.asarray(split_timestamps)[idx]
-        except Exception:
+        except Exception as e:
+            logger.debug("timestamp indexing failed, dropping timestamps for this split: %s", e)
             split_ts = None
 
     from mlframe.reporting.diagnostics_dispatch import (

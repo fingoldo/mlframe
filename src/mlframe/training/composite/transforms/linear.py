@@ -18,7 +18,7 @@ import numpy as np
 try:
     import numba as _numba
     _HAS_NUMBA = True
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     _numba = None
     _HAS_NUMBA = False
 
@@ -649,7 +649,8 @@ def _linear_residual_grouped_fit(
             params_g = _linear_residual_fit(y_g, base_g, sample_weight=sw_g)
             a_g = float(params_g["alpha"])
             b_g = float(params_g["beta"])
-        except Exception:  # pragma: no cover - defensive
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug("per-group OLS fit failed for group %s, falling back to global alpha/beta: %s", g_key, e)
             a_g, b_g = alpha_global, beta_global
         per_group_alphas[g_key] = a_g
         per_group_betas[g_key] = b_g

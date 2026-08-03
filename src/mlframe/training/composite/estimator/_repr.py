@@ -13,7 +13,10 @@ notebook without printing the whole ``fitted_params_`` dict.
 from __future__ import annotations
 
 import html
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Headline fitted parameters shown first (in this order) when present; every
 # other fitted_params_ key is summarised in a count so the table stays compact.
@@ -68,6 +71,7 @@ def _repr_html_(self: Any) -> str:
     try:
         return _build_repr_html(self)
     except Exception as exc:  # pragma: no cover - best-effort: a repr must never raise, error escalated via the returned HTML div
+        logger.debug("repr build failed: %s", exc)
         return "<div style='font-family:monospace;color:#a00;'>" f"CompositeTargetEstimator (repr failed: {html.escape(str(exc))})" "</div>"
 
 
@@ -78,7 +82,8 @@ def _build_repr_html(self: Any) -> str:
     # path and the single-column legacy alias both render correctly.
     try:
         base_cols = self._resolve_base_columns()
-    except Exception:
+    except Exception as e:
+        logger.debug("_resolve_base_columns() failed in repr: %s", e)
         base_cols = ()
     if base_cols:
         base_str = ", ".join(map(str, base_cols))

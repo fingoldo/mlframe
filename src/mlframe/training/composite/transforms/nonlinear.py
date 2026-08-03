@@ -19,7 +19,7 @@ import numpy as np
 try:
     import numba as _numba
     _HAS_NUMBA = True
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     _numba = None
     _HAS_NUMBA = False
 
@@ -492,7 +492,8 @@ def _monotonic_residual_fit(
     if y_clean.size >= 3 and base_clean.size >= 3:
         try:
             direction = _spearman_sign(base_clean, y_clean)
-        except Exception:
+        except Exception as e:
+            logger.debug("_spearman_sign failed, defaulting to positive orientation: %s", e)
             direction = 1
     else:
         direction = 1

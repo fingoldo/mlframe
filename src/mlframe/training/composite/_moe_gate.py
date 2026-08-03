@@ -59,7 +59,7 @@ try:
     import pandas as pd
 
     _HAVE_PANDAS = True
-except Exception:  # pragma: no cover - pandas is a hard dep in practice
+except ImportError:  # pragma: no cover - pandas is a hard dep in practice
     _HAVE_PANDAS = False
 
 try:
@@ -114,7 +114,7 @@ try:
         return rows_all, W_all, sse_all, rows_nl, W_nl, sse_nl
 
     _HAVE_NUMBA = True
-except Exception:  # pragma: no cover - numba is an optional accelerator here
+except ImportError:  # pragma: no cover - numba is an optional accelerator here
     _HAVE_NUMBA = False
 
 

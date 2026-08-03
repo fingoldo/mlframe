@@ -39,13 +39,17 @@ across seeds plus a constant / degenerate column.
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:
     import numba as _numba
 
     _HAS_NUMBA = True
-except Exception:  # pragma: no cover - numba is a hard dep; allow graceful skip.
+except ImportError:  # pragma: no cover - numba is a hard dep; allow graceful skip.
     _numba = None
     _HAS_NUMBA = False
 
@@ -198,8 +202,8 @@ def _warm_corr_kernel() -> None:
         warm[:, 1] = np.arange(4.0)[::-1]
         y_dev = np.arange(4.0) - 1.5
         _abs_corr_all_kernel(warm, y_dev, float(np.dot(y_dev, y_dev)), _BORDERLINE_BAND)
-    except Exception:  # pragma: no cover - warming is best-effort.  # nosec B110 - best-effort/optional path, no module logger
-        pass
+    except Exception as e:  # pragma: no cover - warming is best-effort.  # nosec B110
+        logger.debug("corr kernel warm-up failed, first real call will pay JIT cost: %s", e)
 
 
 _warm_corr_kernel()

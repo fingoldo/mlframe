@@ -15,9 +15,11 @@ try:
     from numba.cuda import is_available as is_cuda_available
     try:
         CUDA_IS_AVAILABLE = bool(is_cuda_available())
-    except Exception:
+    except Exception as e:
+        logger.debug("numba.cuda.is_available() probe failed, assuming no CUDA: %s", e)
         CUDA_IS_AVAILABLE = False
-except Exception:
+except Exception as e:
+    logger.debug("numba.cuda import/probe failed, assuming no CUDA: %s", e)
     CUDA_IS_AVAILABLE = False
 
 
