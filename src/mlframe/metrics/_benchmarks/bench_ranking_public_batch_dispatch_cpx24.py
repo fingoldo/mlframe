@@ -20,11 +20,13 @@ Run: CUDA_VISIBLE_DEVICES="" python bench_ranking_public_batch_dispatch_cpx24.py
 import scipy.stats  # noqa: F401  (py3.14 ABI prewarm before mlframe import)
 import numba  # noqa: F401
 import numpy as np
-import time
 import importlib.util
 import os
 import sys
 import types
+import functools
+
+from mlframe._bench_timing_shared import best_of_median_seconds
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _METRICS_DIR = os.path.dirname(_HERE)
@@ -99,13 +101,7 @@ def make_data(n, groups_per, seed=0):
     return yt, ys, gids
 
 
-def best(fn, n=7):
-    ts = []
-    for _ in range(n):
-        t = time.perf_counter()
-        fn()
-        ts.append(time.perf_counter() - t)
-    return min(ts), float(np.median(ts))
+best = functools.partial(best_of_median_seconds, n=7)
 
 
 if __name__ == "__main__":

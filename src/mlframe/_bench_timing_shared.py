@@ -8,6 +8,19 @@ import time
 from typing import Callable
 
 
+def best_of_median_seconds(fn: Callable, n: int = 5) -> tuple[float, float]:
+    """Run zero-arg ``fn()`` ``n`` times and return ``(best, median)`` wall-clock seconds, no warm-up
+    call before the loop. Shared by the ranking-metrics dispatch bench pair."""
+    import numpy as np
+
+    ts = []
+    for _ in range(n):
+        t = time.perf_counter()
+        fn()
+        ts.append(time.perf_counter() - t)
+    return min(ts), float(np.median(ts))
+
+
 def time_call(fn: Callable, *args, iters: int) -> float:
     """Warm ``fn(*args)`` once, then return its mean wall-clock time in microseconds over ``iters`` calls."""
     fn(*args)

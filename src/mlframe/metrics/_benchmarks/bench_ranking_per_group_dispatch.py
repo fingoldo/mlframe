@@ -7,10 +7,11 @@ n=200k with ~20k groups that is ~20k Python->njit dispatches per metric.
 import scipy.stats  # noqa: F401  (py3.14 ABI prewarm before mlframe import)
 import numba  # noqa: F401
 import numpy as np
-import time
 import cProfile
 import pstats
 import io
+
+from mlframe._bench_timing_shared import best_of_median_seconds as best
 
 # ``mlframe.metrics.core`` native-segfaults at import on py3.14 (eager numba warmup),
 # so load the leaf module directly, bypassing the package ``__init__`` chain.
@@ -51,15 +52,6 @@ def make_data(n=200_000, groups_per=10, seed=0):
     yt = rng.integers(0, 5, size=n).astype(np.float64)
     ys = rng.standard_normal(n)
     return yt, ys, gids
-
-
-def best(fn, n=5):
-    ts = []
-    for _ in range(n):
-        t = time.perf_counter()
-        fn()
-        ts.append(time.perf_counter() - t)
-    return min(ts), float(np.median(ts))
 
 
 if __name__ == "__main__":
