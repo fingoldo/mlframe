@@ -139,7 +139,8 @@ def _mi(col: np.ndarray, y: np.ndarray, nbins: int = 12) -> float:
     try:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         _rb = fe_gpu_strict_resident_enabled()
-    except Exception:
+    except Exception as e:
+        logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
         _rb = False
     if _is_cupy_ndarray(col):
         arr = col  # resident (n,) or (n,1) cupy -> _mi_classif_batch reshapes 1-D to a column itself
@@ -222,7 +223,8 @@ def _residue_mi(c: np.ndarray, y: np.ndarray, k: int, nbins: int) -> float:
     try:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         _rb = fe_gpu_strict_resident_enabled()
-    except Exception:
+    except Exception as e:
+        logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
         _rb = False
     from ._pairwise_modular_resident import combiner_mi_resident
 
@@ -284,7 +286,8 @@ def _perm_null_hi(c: np.ndarray, y: np.ndarray, k: int, nbins: int, n_perm: int 
     try:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         _rb = fe_gpu_strict_resident_enabled()
-    except Exception:
+    except Exception as e:
+        logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
         _rb = False
     from ._pairwise_modular_resident import perm_null_residue_mis_resident
 
@@ -338,7 +341,8 @@ def cheap_modular_scan(
     try:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         _scan_rb = fe_gpu_strict_resident_enabled()
-    except Exception:
+    except Exception as e:
+        logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
         _scan_rb = False
     from ._pairwise_modular_resident import combiner_mi_resident
 

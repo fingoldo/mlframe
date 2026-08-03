@@ -258,7 +258,8 @@ def _quantile_bin(col: np.ndarray, nbins: int) -> np.ndarray:
         try:
             from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
             _gpu_on = fe_gpu_strict_resident_enabled()
-        except Exception:
+        except Exception as e:
+            logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
             _gpu_on = False
         if _gpu_on:
             _g = _quantile_bin_gpu(a, nbins)
@@ -1044,7 +1045,8 @@ def _ent_from_counts(c, inv_n: float):
         _get_ent_nnz_kernel(cp)((blocks,), (threads,), (c, float(inv_n), np.int64(M), out))
         h_k = cp.asnumpy(out)
         return float(-h_k[0]), round(h_k[1])
-    except Exception:
+    except Exception as e:
+        logger.debug("fused entropy-nnz kernel failed, falling back to the reduction kernel path: %s", e)
         if _ENT_RK is None:
             _ENT_RK = cp.ReductionKernel("int64 c, float64 inv_n", "float64 h",
                                          "c > 0 ? (c * inv_n) * log(c * inv_n) : 0.0", "a + b", "h = -a", "0.0", "mrmr_ent_rk")
@@ -1513,7 +1515,8 @@ def greedy_cmi_fe_construct(
             import cupy as _cp
             from ._fe_resident_operands import resident_code_operand as _resident_code_operand
             y_bin_dev = _resident_code_operand(y_bin, "cmi_greedy_y_fixed")
-        except Exception:
+        except Exception as e:
+            logger.debug("resident_code_operand for y_bin failed, falling back to the per-call upload path: %s", e)
             y_bin_dev = None
     z_joint: Optional[np.ndarray] = None
     z_joint_dev = None  # resident twin of z_joint, maintained alongside it once cand_bins_dev is available
@@ -1729,7 +1732,8 @@ def greedy_cmi_fe_construct(
                 _bi, _bv = cmi_device_argmax(_mi_d)
                 best_cmi = float(_bv); best_name = _scan[_bi]
                 _batched_done = True
-        except Exception:
+        except Exception as e:
+            logger.debug("batched CMI argmax computation failed, falling back to the per-candidate path: %s", e)
             _batched_done = False
         if _batched_done:
             pass

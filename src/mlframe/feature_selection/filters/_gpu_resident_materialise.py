@@ -583,7 +583,9 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
         try:
             _host = np.ascontiguousarray(np.column_stack(cols)) if len(cols) > 1 else np.ascontiguousarray(cols[0]).reshape(-1, 1)
             _dev_groups[_dk] = cp.asarray(_host)
-        except Exception:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+        except Exception as e:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+            import logging
+            logging.getLogger(__name__).debug("group column-stack/upload failed for group %r, marking as unavailable: %s", _dk, e)
             _dev_groups[_dk] = None
     n_gpu = 0
     n_cpu = 0
@@ -628,7 +630,9 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
                 )
                 _batched.update(oc)
             n_gpu += len(_batched)
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("batched GPU column build failed, falling back to the per-column path: %s", e)
         _batched = set()  # any batch failure -> every column rebuilt by the exact per-column path below
     for _spec_t in col_specs:
         col_idx, raw_vals, unary_name = _spec_t[0], _spec_t[1], _spec_t[2]
@@ -654,7 +658,9 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
                     # (un-scrubbed) too - the materialise kernel scrubs NaN/inf inline -> bit-equal.
                     g[:, col_idx] = col.astype(cp.float32)
                     gpu_built = True
-            except Exception:
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).debug("per-column GPU build failed, falling back to the host path: %s", e)
                 gpu_built = False
         if not gpu_built:
             # Non-plain (prewarp / gate_med / poly) or failed: copy just THIS column from the host (a single
@@ -740,7 +746,9 @@ def gpu_materialise_discretize_codes_host(
     if out_cand is not None:
         try:
             _copy_stream = cp.cuda.Stream(non_blocking=True)
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug("non-blocking copy stream creation failed, falling back to synchronous copy: %s", e)
             _copy_stream = None
 
     def _drain_pending():

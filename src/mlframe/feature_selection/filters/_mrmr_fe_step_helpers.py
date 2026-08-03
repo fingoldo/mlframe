@@ -85,6 +85,8 @@ def apply_synergy_bootstrap(
         except Exception as _exh_e:
             if verbose:
                 logger.info("MRMR FE synergy exhaustive decision degraded (%s: %s); using pre-rank path.", type(_exh_e).__name__, _exh_e)
+            else:
+                logger.debug("MRMR FE synergy exhaustive decision degraded (%s: %s); using pre-rank path.", type(_exh_e).__name__, _exh_e)
         # WIDE-FRAME PRE-RANK. Above the cap the bootstrap historically SKIPPED entirely, so a
         # zero-marginal interaction on a wide frame (p >> cap) was engineered as NOTHING. Marginal MI cannot
         # pick the surviving cap columns (the operands have ~0 marginal MI by construction - the whole reason
@@ -149,6 +151,8 @@ def apply_synergy_bootstrap(
             except Exception as _e:  # correctness over the optimisation - fall back to the legacy skip
                 if verbose:
                     logger.info("MRMR FE synergy pre-rank degraded (%s: %s); using legacy skip-past-cap.", type(_e).__name__, _e)
+                else:
+                    logger.debug("MRMR FE synergy pre-rank degraded (%s: %s); using legacy skip-past-cap.", type(_e).__name__, _e)
         _sweep_cost = n_rows_for_synergy * (_n_raw**2)
         if 0 < _n_raw <= synergy_cap and _sweep_cost <= synergy_max_sweep_cost:
             _added = _raw_numeric_idx - numeric_vars_to_consider
@@ -677,11 +681,13 @@ def log_fe_summary(
     """
     try:
         _n_pairs_considered = len(prospective_pairs)
-    except Exception:
+    except Exception as e:
+        logger.debug("counting prospective_pairs failed: %s", e)
         _n_pairs_considered = -1
     try:
         _n_pairs_with_additions = sum(1 for v in prospective_additions.values() if v[0])  # this_pair_features non-empty
-    except Exception:
+    except Exception as e:
+        logger.debug("counting prospective_additions with results failed: %s", e)
         _n_pairs_with_additions = -1
     if verbose >= 1:
         logger.info(

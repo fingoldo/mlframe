@@ -12,12 +12,15 @@ would cache the pre-init ``None`` placeholder.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 import numpy as np
 
 from ._internals import GPU_MAX_BLOCK_SIZE
 from .info_theory import compute_mi_from_classes, merge_vars
+
+logger = logging.getLogger(__name__)
 
 
 def _gpu_batched_bytes_per_perm(n: int) -> int:
@@ -98,7 +101,8 @@ def mi_direct_gpu_batched(
     try:
         from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
         _cushion_ok = fe_gpu_has_vram_cushion(n * 4)
-    except Exception:  # - cushion module unavailable: leave existing guards in charge
+    except Exception as e:  # - cushion module unavailable: leave existing guards in charge
+        logger.debug("fe_gpu_has_vram_cushion() check failed, leaving existing guards in charge: %s", e)
         _cushion_ok = True
     if not _cushion_ok:
         from .permutation import mi_direct
@@ -149,8 +153,9 @@ def mi_direct_gpu_batched(
         _choice = lookup_joint_hist(n_samples=n, joint_size=joint_size)
         use_shared_hist = _choice["kernel_variant"] == "shared"
         block_size = int(_choice["block_size"])
-    except Exception:
+    except Exception as e:
         # Hand-tuned source-code fallback (matches the pre-cache defaults).
+        logger.debug("lookup_joint_hist() failed, using the hand-tuned source-code fallback: %s", e)
         use_shared_hist = joint_size <= 4096
         block_size = 512 if use_shared_hist else GPU_MAX_BLOCK_SIZE
 
@@ -340,7 +345,8 @@ def mi_direct_gpu_batched_streamed(
     try:
         from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
         _cushion_ok = fe_gpu_has_vram_cushion(n * 4)
-    except Exception:
+    except Exception as e:
+        logger.debug("fe_gpu_has_vram_cushion() check failed, leaving existing guards in charge: %s", e)
         _cushion_ok = True
     if not _cushion_ok:
         from .permutation import mi_direct
@@ -378,8 +384,9 @@ def mi_direct_gpu_batched_streamed(
         _choice = lookup_joint_hist(n_samples=n, joint_size=joint_size)
         use_shared_hist = _choice["kernel_variant"] == "shared"
         block_size = int(_choice["block_size"])
-    except Exception:
+    except Exception as e:
         # Hand-tuned source-code fallback (matches the pre-cache defaults).
+        logger.debug("lookup_joint_hist() failed, using the hand-tuned source-code fallback: %s", e)
         use_shared_hist = joint_size <= 4096
         block_size = 512 if use_shared_hist else GPU_MAX_BLOCK_SIZE
     shared_mem_bytes = joint_size * 4 if use_shared_hist else 0

@@ -112,7 +112,8 @@ def _batch_usability_admission_verdicts(self, *, need_usability, y_continuous, c
         for _pk, _v in zip(need_usability, _verdicts_m):
             _usability_verdict[_pk] = bool(_v)
         return _usability_verdict
-    except Exception:  # nosec B110 - optional/best-effort path, rationale documented
+    except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+        logger.debug("usability-verdict batch lookup failed, every candidate defaults to False: %s", e)
         return {}  # any failure: every lookup defaults to False (strict rank-MI decision stands)
 
 
@@ -255,7 +256,8 @@ def _maybe_relax_prevalence_for_tail_concentrated_pool(
                     )
                 return _relaxed_bar
         return fe_min_pair_mi_prevalence
-    except Exception:  # nosec B110 - optional/best-effort path, rationale documented
+    except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+        logger.debug("relaxed prevalence-bar computation failed, keeping the strict bar: %s", e)
         return fe_min_pair_mi_prevalence  # any failure keeps the strict prevalence bar (byte-identical)
 
 
@@ -360,8 +362,8 @@ def _resolve_pair_prevalence_gate(
                 )
                 if _cmi_obs > _cfloor and (_cmi_obs - _cnull_mean) >= _cfloor:
                     _prev_thresh = fe_min_pair_mi_prevalence
-            except Exception:  # nosec B110 - optional/best-effort path, rationale documented
-                pass  # keep the strict 1.5 bar on any failure
+            except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+                logger.debug("permutation-null prevalence check failed, keeping the strict 1.5 bar: %s", e)
     # ORDER-2 maxT floor (computed once above) applied IN ADDITION to the per-pair prevalence gate: the
     # pair's JOINT MI must clear the pool's permutation-null max as well, rejecting best-of-p chance-max
     # noise pairs the per-pair prevalence bar misses. No-op when floor==0.0. ``_pair_mi_floor_cmp`` is
@@ -684,7 +686,8 @@ def score_prospective_pairs(
                                     "(CMI(%d|%d)=%.4f > floor %.4f, excess %.4f) -- data-driven prevalence.",
                                     raw_vars_pair, _cand_i, _anchor_i, _cmi_obs, _floor, _cmi_obs - _null_mean,
                                 )
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("permutation-based admission check failed, not admitting via permutation: %s", e)
                         _admit_via_perm = False
                 # bench-attempt-rejected (2026-06-25): the cheap proxy below (2-operand joint OLS R^2 of the
                 # CONTINUOUS y on the BINNED operand codes) does NOT recover with_outliers at any threshold
