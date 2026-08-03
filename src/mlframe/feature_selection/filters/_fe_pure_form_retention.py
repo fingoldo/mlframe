@@ -311,8 +311,8 @@ def retain_usable_pure_forms(
                 _r2 = float(_mp(StandardScaler(), LinearRegression()).fit(_Xg, _yg).score(_Xg, _yg))
                 if _r2 >= 0.92:
                     return []  # raws already fit y linearly - no trapped nonlinear interaction to recover
-        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
-            pass  # gate is an optimisation; on any failure fall through to the (correct) full path
+        except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+            logger.debug("linear-fit gate check failed, falling through to the full path: %s", e)  # gate is an optimisation; on any failure fall through to the (correct) full path
 
         # Scope wide frames: keep the highest-variance base operands so the O(pairs) pool stays bounded
         # (the usability pool itself also caps pairs, but trimming here bounds its input). ROW SUBSAMPLE
@@ -431,7 +431,8 @@ def retain_usable_pure_forms(
                     try:
                         from ._usability_gpu import gpu_additive_basis_residual
                         resid = gpu_additive_basis_residual(fv, xa, xb)
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("gpu_additive_basis_residual failed, falling back to the host residual: %s", e)
                         resid = None
                 if resid is None:
                     _pair_key = frozenset((nm_a, nm_b))
@@ -502,10 +503,10 @@ def retain_usable_pure_forms(
         if not is_clf:
             try:
                 from ._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled
-            except Exception:
+            except ImportError:
                 try:
                     from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
-                except Exception:
+                except ImportError:
                     fe_gpu_strict_resident_enabled = None  # type: ignore
             if fe_gpu_strict_resident_enabled is not None and fe_gpu_strict_resident_enabled():
                 try:
@@ -522,7 +523,8 @@ def retain_usable_pure_forms(
                         )
                         if _verdicts is not None and len(_verdicts) == len(_pair_cands):
                             _resid_verdicts = {id(c): bool(v) for c, v in zip(_pair_cands, _verdicts)}
-                except Exception:
+                except Exception as e:
+                    logger.debug("resident-batch verdict computation failed, falling back to the per-candidate CPU path: %s", e)
                     _resid_verdicts = None  # any failure -> exact per-candidate CPU path below
 
         filtered = []

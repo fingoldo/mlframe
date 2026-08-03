@@ -54,9 +54,12 @@ the residual corr), a different discriminator - a classification call returns
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def adds_nonlinear_value_batch_gpu_resident(
@@ -91,7 +94,8 @@ def adds_nonlinear_value_batch_gpu_resident(
         return None
     try:
         import cupy as cp
-    except Exception:
+    except ImportError as e:
+        logger.debug("cupy import failed, resident pure-form retention unavailable: %s", e)
         return None
     # Narrow device-fault set for the resident fallbacks below. A genuine cupy/device/linalg fault
     # (singular OLS, OOM, CUDA runtime error) legitimately routes to the exact CPU path; a logic/shape
@@ -100,12 +104,12 @@ def adds_nonlinear_value_batch_gpu_resident(
     _dev_errs = [np.linalg.LinAlgError]
     try:
         _dev_errs.append(cp.cuda.runtime.CUDARuntimeError)
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("CUDARuntimeError symbol lookup failed: %s", e)
     try:
         _dev_errs.append(cp.cuda.memory.OutOfMemoryError)
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("OutOfMemoryError symbol lookup failed: %s", e)
     # FIX4: the direct cp.linalg.lstsq below raises cuSOLVER/cuBLAS errors that subclass
     # plain RuntimeError, NOT CUDARuntimeError -> omitting them would crash instead of falling back to
     # the exact CPU path. getattr so an absent symbol can't break the tuple builder.
@@ -118,15 +122,15 @@ def adds_nonlinear_value_batch_gpu_resident(
         _e = getattr(_cublas, "CUBLASError", None)
         if _e is not None:
             _dev_errs.append(_e)
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("cusolver/cublas error-type import probe failed: %s", e)
     _DEV_ERRS = tuple(_dev_errs)
     try:
         from ._gpu_policy import gpu_globally_disabled
         if gpu_globally_disabled():
             return None
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("gpu_globally_disabled() check failed, proceeding without the global-disable gate: %s", e)
 
     try:
         from ._usability_aware_selection import _f64, _scrub

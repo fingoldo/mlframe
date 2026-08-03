@@ -136,7 +136,7 @@ def propose_additive_fusions(
     # breaks a fit. This twin is EXPECTED slower on the small-n / sequential-pair-scan HW - a PASS by the contract.
     try:
         from ._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled as _fusion_resident_flag_on
-    except Exception:
+    except ImportError:
         _fusion_resident_flag_on = None  # type: ignore
     if _fusion_resident_flag_on is not None and _fusion_resident_flag_on():
         # Import stays broad-guarded (cupy/twin may be absent); the CALL is narrowed to genuine
@@ -145,7 +145,7 @@ def propose_additive_fusions(
         try:
             from ._fe_additive_fusion_gpu_resident import propose_additive_fusions_gpu
             _twin_ready = True
-        except Exception:
+        except ImportError:
             _twin_ready = False
         if _twin_ready:
             _dev_errs: list = []
@@ -161,8 +161,8 @@ def propose_additive_fusions(
                 _dev_errs.append(getattr(_cusolver, "CUSOLVERError", None))
                 from cupy_backends.cuda.libs import cublas as _cublas
                 _dev_errs.append(getattr(_cublas, "CUBLASError", None))
-            except Exception:  # nosec B110 - optional dependency import guard
-                pass
+            except Exception as e:  # nosec B110 - optional dependency import guard
+                logger.debug("cusolver/cublas error-type import probe failed: %s", e)
             _dev_errs = [e for e in _dev_errs if isinstance(e, type) and issubclass(e, BaseException)]
             try:
                 return propose_additive_fusions_gpu(
@@ -234,7 +234,8 @@ def propose_additive_fusions(
             for _j, _t in enumerate(_pre):
                 _Xh[:, _j] = _t[4]
             _mis = np.asarray(batched_cmi_gpu(_Xh, y_dense, None), dtype=np.float64)
-    except Exception:
+    except Exception as e:
+        logger.debug("batched_cmi_gpu failed, falling back to the per-candidate CPU path: %s", e)
         _mis = None
     for _j, (nm, rec, vals, toks, vb) in enumerate(_pre):
         mi = float(_mis[_j]) if _mis is not None else float(_cmi_from_binned(vb, y_dense, None))
@@ -379,7 +380,8 @@ def propose_additive_fusions(
                     try:
                         if hasattr(X, "columns") and _rn in getattr(X, "columns", []):
                             _rv = np.asarray(X[_rn], dtype=np.float64).ravel()
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("reading raw column %r for the fusion residual failed: %s", _rn, e)
                         _rv = None
                     if _rv is None or _rv.shape[0] != n_rows:
                         continue

@@ -198,7 +198,9 @@ def _rows_entropy_and_k(counts, inv_n):
             return out_h, out_k
         _ker((K,), (threads,), (c, float(inv_n), np.int32(K), np.int64(M), out_h, out_k))
         return out_h, out_k
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("fused xlogx-rows kernel failed, falling back to the elementwise kernel: %s", e)
         if _XLOGX_ROWS_EK is None:
             _XLOGX_ROWS_EK = cp.ElementwiseKernel("T c, float64 invn", "float64 o", "o = c > 0 ? (c * invn) * log(c * invn) : 0.0", "mrmr_xlogx_rows_ek")
         h = -_XLOGX_ROWS_EK(counts, float(inv_n)).sum(axis=1)
@@ -416,7 +418,9 @@ def _get_batched_joint_entropy_kernel(cp):
         _BATCHED_JOINT_ENTROPY_KERNEL = cp.RawKernel(_BATCHED_JOINT_ENTROPY_SRC, "batched_joint_entropy2")
         try:
             _BATCHED_JOINT_ENTROPY_SH_LIMIT = int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug("querying MaxSharedMemoryPerBlock failed, using the 48KiB default: %s", e)
             _BATCHED_JOINT_ENTROPY_SH_LIMIT = 48 * 1024
     return _BATCHED_JOINT_ENTROPY_KERNEL
 
@@ -514,7 +518,9 @@ def _ent_nnz_1d(c, inv_n):
         _ENT_NNZ_1D_KERNEL((blocks,), (threads,), (c, float(inv_n), np.int64(M), out))
         h_k = cp.asnumpy(out)
         return float(-h_k[0]), round(h_k[1])
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("fused nnz-1d entropy kernel failed, falling back to the elementwise path: %s", e)
         cf = c.astype(cp.float64) if c.dtype != cp.float64 else c
         p = cf[cf > 0] * float(inv_n)
         return float(-(p * cp.log(p)).sum()), int((cf > 0).sum())
@@ -615,7 +621,9 @@ def _get_joint_entropy_kernels():
         _JOINT_ENTROPY_KERNELS = (mod.get_function("joint_entropy1"), mod.get_function("joint_entropy2"), mod.get_function("joint_entropy3"))
         try:
             _JOINT_ENTROPY_SH_LIMIT = int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug("querying MaxSharedMemoryPerBlock failed, using the 48KiB default: %s", e)
             _JOINT_ENTROPY_SH_LIMIT = 48 * 1024
     return _JOINT_ENTROPY_KERNELS
 
@@ -649,8 +657,9 @@ def joint_entropy_gpu(codes: Any, cards: Any, inv_n: float) -> tuple[float, int]
                         shared_mem=shmem)
             hk = cp.asnumpy(out)
             return float(-hk[0]), round(hk[1])
-        except Exception:  # nosec B110 - best-effort/optional path, no module logger
-            pass
+        except Exception as e:  # nosec B110 - best-effort/optional path, no module logger
+            import logging
+            logging.getLogger(__name__).debug("fused nnz-1d entropy path failed, falling back to joint_counts_gpu: %s", e)
     return _ent_nnz_1d(joint_counts_gpu(codes, cards), inv_n)  # type: ignore[no-any-return]
 
 

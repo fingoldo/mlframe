@@ -191,7 +191,8 @@ def _emit_pair_features(
                     _lvals = None
                 if _lvals is not None:
                     _leader_usability[_lc] = _safe_abs_corr(_lvals)
-            except Exception:  # nosec B112 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+            except Exception as e:  # nosec B112 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+                logger.debug("leader usability computation for %r failed, skipping: %s", _lc, e)
                 continue
 
     # ABSOLUTE binned-MI tie band. Two FORMS of
@@ -329,7 +330,8 @@ def _emit_pair_features(
                         try:
                             from .._gpu_strict_fe import fe_gpu_strict_resident_enabled as _ev_resident_on
                             _ev_use_dev = bool(_ev_resident_on())
-                        except Exception:
+                        except Exception as e:
+                            logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
                             _ev_use_dev = False
                         if _ev_use_dev:
                             from .._gpu_resident_extval import gpu_materialise_extval_codes_host
@@ -382,7 +384,8 @@ def _emit_pair_features(
                                     _ev_buf[:, :_ev_col], int(quantization_nbins), dtype=_ev_code_dtype,
                                     defer_host_fill=True,
                                 )
-                        except Exception:
+                        except Exception as e:
+                            logger.debug("resident discretization failed, falling back to the host path: %s", e)
                             _ev_disc = None
                         if _ev_disc is None:
                             _ev_disc = discretize_2d_quantile_batch(
@@ -509,8 +512,8 @@ def _emit_pair_features(
         for _c in sorted(_already, key=_cached_name):
             try:
                 _emitted_cols.append(np.asarray(_resolve_col(_c[2]), dtype=np.float64))
-            except Exception:  # nosec B110 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-                pass
+            except Exception as e:  # nosec B110 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+                logger.debug("resolving already-emitted column %r failed, skipping: %s", _c, e)
         for _cfg, _cfg_mi in sort_dict_by_value(var_pairs_perf).items():
             if len(this_pair_features) >= int(fe_multi_emit_max_per_pair):
                 break
@@ -520,7 +523,8 @@ def _emit_pair_features(
                 continue
             try:
                 _col = np.asarray(_resolve_col(_cfg[2]), dtype=np.float64)
-            except Exception:  # nosec B112 - best-effort path
+            except Exception as e:  # nosec B112 - best-effort path
+                logger.debug("resolving column %r failed, skipping: %s", _cfg, e)
                 continue
             _col = np.nan_to_num(_col, nan=0.0, posinf=0.0, neginf=0.0)
             if float(np.std(_col)) <= 1e-9:

@@ -103,7 +103,8 @@ def _conditional_perm_null(
         import cupy as _cp_c
         if isinstance(cand_bin, _cp_c.ndarray):
             cand_dev = cand_bin.astype(_cp_c.int64, copy=False).ravel()
-    except Exception:
+    except Exception as e:
+        logger.debug("cupy candidate-code conversion failed, falling back to the host path: %s", e)
         cand_dev = None
 
     _host_x_cache: list = [None]
@@ -141,7 +142,8 @@ def _conditional_perm_null(
     # MLFRAME_MI_ANALYTIC_NULL=0 routes everything to the permutation path.
     try:
         from ._analytic_mi_null import _HAVE_CHI2, _chi2, _min_expected_cell, analytic_null_enabled
-    except Exception:
+    except ImportError as e:
+        logger.debug("_analytic_mi_null import failed, analytic null unavailable: %s", e)
         _HAVE_CHI2 = False
     n_size = int(cand_dev.size) if cand_dev is not None else int(np.asarray(cand_bin).size)
     if _HAVE_CHI2 and analytic_null_enabled() and n_size >= _cmi_analytic_null_min_n():
@@ -171,7 +173,8 @@ def _conditional_perm_null(
                         # RESIDENT candidate code + RESIDENT support (joint_cardinalities_cupy resident-input
                         # branch) -> no re-upload at the ``card_cand_x`` / ``cmi_z`` sites; host code otherwise.
                         _ks = joint_cardinalities_cupy(cand_dev if cand_dev is not None else _host_x(), y, _z if _z is not None else z_support_dev)
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("joint_cardinalities_cupy failed, falling back to the host cardinality path: %s", e)
                         _ks = None
                 if _ks is not None:
                     k_z, k_xz, k_yz, k_xyz = _ks
@@ -245,7 +248,8 @@ def _conditional_perm_null(
         try:
             from ._fe_cmi_perm_null_gpu import perm_null_gpu_resident_enabled
             _resident = perm_null_gpu_resident_enabled()
-        except Exception:
+        except Exception as e:
+            logger.debug("perm_null_gpu_resident_enabled() check failed, defaulting to non-resident: %s", e)
             _resident = False
         if _resident and _cmi_gpu_enabled(n=n_size, p=nperm, min_p=2) and nperm > 1:
             try:
@@ -361,7 +365,8 @@ def _conditional_perm_null(
     try:
         from ._fe_cmi_perm_null_gpu import perm_null_gpu_resident_enabled
         _resident = perm_null_gpu_resident_enabled()
-    except Exception:
+    except Exception as e:
+        logger.debug("perm_null_gpu_resident_enabled() check failed, defaulting to non-resident: %s", e)
         _resident = False
     if _resident and _cmi_gpu_enabled(n=n_size, p=_nperm, min_p=2) and _nperm > 1:
         try:
