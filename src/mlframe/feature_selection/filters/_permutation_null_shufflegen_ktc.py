@@ -135,8 +135,8 @@ def shufflegen_use_gpu(n: int, nperm: int) -> bool:
         from ._fe_gpu_strict import fe_gpu_strict_enabled
         if fe_gpu_strict_enabled(n=int(n)):
             return True
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("fe_gpu_strict_enabled() check failed, continuing to the crossover-based decision: %s", e)
     if _SHUFFLEGEN_SPEC is None:
         return False
     pb = min(_SHUFFLEGEN_SWEEP_NPERM, key=lambda b: abs(b - int(nperm)))
@@ -182,5 +182,6 @@ try:
         salt=_SHUFFLEGEN_SALT,
         cli_label="fe_maxt_permnull_shufflegen_backend",
     )
-except Exception:
+except Exception as e:
+    logger.debug("fe_maxt_permnull_shufflegen_backend kernel_tuner registration failed: %s", e)
     _SHUFFLEGEN_SPEC = None

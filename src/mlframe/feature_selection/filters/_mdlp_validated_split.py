@@ -83,11 +83,14 @@ O(n_permutations * node scan cost), and only at small, cheap nodes) - not one pe
 """
 from __future__ import annotations
 
+import logging
 import math
 
 import numpy as np
 import numba
 from numba import njit
+
+logger = logging.getLogger(__name__)
 
 from ._analytic_mi_null import analytic_mi_null, analytic_null_applicable
 from .supervised_binning import _entropy_from_counts_njit, _mdlp_best_split_njit
@@ -586,7 +589,8 @@ def mdlp_bin_edges_validated(
         try:
             import pandas as _pd
             _y_arr, _ = _pd.factorize(_y_arr, sort=True)
-        except Exception:
+        except Exception as e:
+            logger.debug("pandas factorize failed, falling back to np.unique: %s", e)
             _uniq, _y_arr = np.unique(_y_arr, return_inverse=True)
     else:
         _y_finite = _y_arr[np.isfinite(_y_arr)] if _y_arr.dtype.kind == "f" else _y_arr
@@ -810,7 +814,8 @@ def mdlp_bin_edges_oos_validated(
         try:
             import pandas as _pd
             _y_arr, _ = _pd.factorize(_y_arr, sort=True)
-        except Exception:
+        except Exception as e:
+            logger.debug("pandas factorize failed, falling back to np.unique: %s", e)
             _uniq, _y_arr = np.unique(_y_arr, return_inverse=True)
     else:
         _y_finite = _y_arr[np.isfinite(_y_arr)] if _y_arr.dtype.kind == "f" else _y_arr

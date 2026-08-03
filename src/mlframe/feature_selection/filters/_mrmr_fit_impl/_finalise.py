@@ -222,7 +222,8 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
                         return_null_mean=True, parallelism="none", dtype=_q_dtype, prefer_gpu=False,
                     )
                     _p_value = float(_sig[3])
-                except Exception:
+                except Exception as e:
+                    logger.debug("significance p-value computation failed, falling back to the magnitude-only decision: %s", e)
                     _p_value = 0.0  # significance unavailable -> fall back to the magnitude-only decision (keep)
                 if _p_value >= _signif_alpha:
                     continue
@@ -234,7 +235,8 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
                             factors_data=data, x=np.array([_cols_idx], dtype=np.int64),
                             y=np.array([_acc_cols], dtype=np.int64), factors_nbins=nbins, dtype=_q_dtype,
                         ))
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("pair-MI computation failed, recording 0.0: %s", e)
                         _pair_mi = 0.0
                     if _pair_mi >= _redundancy_frac * max(_mi, 1e-12):
                         _is_redundant = True

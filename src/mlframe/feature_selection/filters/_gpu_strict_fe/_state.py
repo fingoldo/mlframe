@@ -21,10 +21,13 @@ Collapses to a single entry when one (or zero) device is visible, so the multi-G
 1-GPU host. Module-level / instance-held device handles are NEVER pickled (see ``__getstate__``)."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -135,7 +138,8 @@ class ResidentFEState:
         """Release all resident device arrays (call at FE-step end). Idempotent."""
         try:
             import cupy as cp
-        except Exception:
+        except ImportError as e:
+            logger.debug("cupy import failed, clearing resident state without freeing device memory: %s", e)
             self._operands.clear(); self._y_codes.clear(); (self._y_cont or {}).clear()
             return
         for d in list(self._operands):
@@ -146,8 +150,8 @@ class ResidentFEState:
                     self._y_cont.pop(d, None)
         try:
             cp.get_default_memory_pool().free_all_blocks()
-        except Exception:  # nosec B110 - best-effort path
-            pass
+        except Exception as e:  # nosec B110 - best-effort path
+            logger.debug("freeing the cupy default memory pool failed: %s", e)
 
     # device handles must never be pickled (mirrors the module-level resident-cache convention).
     def __getstate__(self):

@@ -174,7 +174,8 @@ def compute_pair_mis_and_floor(
     if _exhaustive_active:
         try:
             from mlframe.feature_selection.filters.batch_pair_mi_gpu import _CUDA_AVAIL
-        except Exception:
+        except ImportError as e:
+            logger.debug("batch_pair_mi_gpu._CUDA_AVAIL import failed: %s", e)
             _CUDA_AVAIL = False
         _exhaustive_backend = "cuda" if _CUDA_AVAIL else "njit_parallel"
     _batch_precompute_t0 = perf_counter()
@@ -527,7 +528,8 @@ def compute_pair_mis_and_floor(
                         if _rpc < _auto_min_rpc:
                             _b = 0.0  # under-sampled joint -> unreliable bias -> use raw pair_mi
                     _pair_mm_bias[tuple(sorted(_apr))] = _b
-        except Exception:
+        except Exception as e:
+            logger.debug("prevalence auto-debias computation failed, disabling it for this fit: %s", e)
             _prevalence_debias_auto = False
 
     return numeric_vars_to_consider, _eng_cap, _pair_maxt_floor, _pair_mm_bias, _prevalence_debias_auto

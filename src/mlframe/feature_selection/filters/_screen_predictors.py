@@ -424,7 +424,8 @@ def screen_predictors(
             try:
                 import cupy as cp
                 cp.random.seed(random_seed)
-            except Exception:  # nosec B110 - non-trivial body
+            except Exception as e:  # nosec B110 - non-trivial body
+                logger.debug("cupy RNG seeding failed: %s", e)
                 # CuPy absent -> CPU fallback below. Also tolerate the legacy global cuRAND host generator
                 # failing to init (CURAND_STATUS_INITIALIZATION_FAILED on some driver/lib combos): seeding
                 # it is best-effort reproducibility and the GPU kernels use the modern Generator API anyway,
@@ -509,7 +510,8 @@ def screen_predictors(
                         targets_data = factors_data
                     elif targets_data is not None and len(targets_data) == len(_screen_full_factors):
                         targets_data = targets_data[_sidx]
-            except Exception:
+            except Exception as e:
+                logger.debug("subsample-index application failed, falling back to the full factors: %s", e)
                 _screen_full_factors = None
 
         # Mutate-and-restore instead of a whole-matrix copy: ``data_copy`` aliases ``factors_data`` and the Fleuret permutation njit

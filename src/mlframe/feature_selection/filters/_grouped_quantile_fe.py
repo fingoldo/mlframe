@@ -302,7 +302,8 @@ def _fit_group_edges(vals: np.ndarray, yv: np.ndarray, n_bins: int) -> np.ndarra
         return np.array([], dtype=np.float64)
     try:
         edges = edges_fayyad_irani(vals, yv.astype(np.int64))
-    except Exception:
+    except Exception as e:
+        logger.debug("edges_fayyad_irani failed: %s", e)
         edges = np.array([], dtype=np.float64)
     if edges.size == 0:
         # Fallback: fixed quantile edges capped at n_bins.
@@ -348,7 +349,8 @@ def generate_target_aware_group_bins(
         else:
             try:
                 y_arr = pd.qcut(y_arr, q=10, labels=False, duplicates="drop").to_numpy()
-            except Exception:
+            except Exception as e:
+                logger.debug("pd.qcut failed, falling back to direct int64 cast: %s", e)
                 y_arr = y_arr.astype(np.int64)
     y_arr = y_arr.astype(np.int64)
 

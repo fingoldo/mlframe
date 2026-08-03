@@ -126,7 +126,8 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
     try:
         from ..hermite_fe._hermite_robust import _robust_axis_enabled
         robust_axis = bool(_robust_axis_enabled())
-    except Exception:
+    except Exception as e:
+        logger.debug("_robust_axis_enabled() check failed, defaulting to False: %s", e)
         robust_axis = False
 
     n = len(X)
@@ -233,7 +234,8 @@ def raw_and_product_mi_resident(
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     try:
         import cupy as cp
-    except Exception:
+    except ImportError as e:
+        logger.debug("cupy import failed: %s", e)
         return None
     if engineered_X is None or engineered_X.shape[1] == 0:
         return None

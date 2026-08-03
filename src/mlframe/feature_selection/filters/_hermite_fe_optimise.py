@@ -120,7 +120,8 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
     _bf_name_to_id: dict[str, int]
     try:
         from ._numba_polynom_optimizer import _BF_NAME_TO_ID as _bf_name_to_id, _fill_bf_batch_njit  # noqa: N811
-    except Exception:
+    except ImportError as e:
+        logger.debug("_numba_polynom_optimizer import failed: %s", e)
         _bf_name_to_id = {}
         _fill_bf_batch_njit = None
     _bf_ids1 = [_bf_name_to_id.get(nm, -1) for nm in bf_names] if _bf_name_to_id else [-1]
@@ -284,7 +285,8 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
     _bf_name_to_id: dict[str, int]
     try:
         from ._numba_polynom_optimizer import _BF_NAME_TO_ID as _bf_name_to_id, _bf_dispatch_njit, _fill_bf_batch_njit  # noqa: N811
-    except Exception:
+    except ImportError as e:
+        logger.debug("_numba_polynom_optimizer import failed: %s", e)
         _bf_name_to_id, _bf_dispatch_njit, _fill_bf_batch_njit = {}, None, None
     col_meta: list = []  # tuples (p, k)
     KBF = len(bf_callables)

@@ -51,8 +51,8 @@ def permnull_use_resident(n: int, ncand: int, nperm: int) -> bool:
         from ._fe_gpu_strict import fe_gpu_strict_enabled
         if fe_gpu_strict_enabled(n=int(n), p=int(ncand)):
             return True
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("fe_gpu_strict_enabled() check failed, continuing to the crossover-based decision: %s", e)
     if _PERMNULL_SPEC is None:
         return False
     nb = min(_PERMNULL_SWEEP_NCAND, key=lambda b: abs(b - int(ncand)))
@@ -150,5 +150,6 @@ try:
         salt=_PERMNULL_SALT,
         cli_label="fe_maxt_permnull_floor_resident_crossover",
     )
-except Exception:
+except Exception as e:
+    logger.debug("fe_maxt_permnull_floor_resident_crossover kernel_tuner registration failed: %s", e)
     _PERMNULL_SPEC = None

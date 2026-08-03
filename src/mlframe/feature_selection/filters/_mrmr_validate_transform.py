@@ -174,7 +174,8 @@ def _validate_inputs(self, X, y):
             try:
                 import psutil as _psutil
                 _available_bytes = int(_psutil.virtual_memory().available)
-            except Exception:
+            except Exception as e:
+                logger.debug("psutil.virtual_memory() probe failed: %s", e)
                 _available_bytes = 0
             _headroom_bytes = _available_bytes // 2
             if _headroom_bytes > 0 and _footprint_bytes > _headroom_bytes:
@@ -436,7 +437,8 @@ def transform(self, X, y=None):
         from sklearn.utils._set_output import _get_output_config
         _cfg = _get_output_config("transform", estimator=self)
         _want_pandas = (_cfg.get("dense") or "default") == "pandas"
-    except Exception:
+    except Exception as e:
+        logger.debug("sklearn set_output config lookup failed, defaulting to non-pandas: %s", e)
         _want_pandas = False
     if _want_pandas:
         try:

@@ -329,8 +329,8 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
             from ._fe_gpu_batch._devices import crit_float_dtype
             if crit_float_dtype() == cp.float32:
                 X_gpu = X_gpu.astype(cp.float32)
-        except Exception:  # nosec B110 - optional dependency import guard
-            pass
+        except Exception as e:  # nosec B110 - optional dependency import guard
+            logger.debug("crit_float_dtype() lookup failed, keeping the default dtype: %s", e)
     if y_gpu.dtype != cp.int64:
         y_gpu = y_gpu.astype(cp.int64)
     # Class axis spans [y_min, y_max]; labels may be negative / non-dense. Offset by y_min so the bincount
@@ -379,7 +379,8 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
             from ._gpu_resident_select import _radix_select_interior_edges, fe_gpu_radix_edges_enabled
             if fe_gpu_radix_edges_enabled():
                 interior = _radix_select_interior_edges(X_gpu, n_bins)  # (n_bins-1, k), sort-free, == edges[1:-1]
-        except Exception:
+        except Exception as e:
+            logger.debug("_radix_select_interior_edges failed, falling back to the exact percentile path: %s", e)
             interior = None
     if interior is None:
         qs = cp.linspace(0.0, 100.0, n_bins + 1)

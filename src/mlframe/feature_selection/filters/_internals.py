@@ -2,11 +2,14 @@
 and (c) the empirical / algorithmic basis. Magic numbers without docstrings are not allowed here."""
 from __future__ import annotations
 
+import logging
 import warnings
 from typing import Sequence
 
 import numpy as np
 import numba
+
+logger = logging.getLogger(__name__)
 from numba import njit
 from numba import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
 
@@ -66,7 +69,8 @@ def numba_cuda_can_compile() -> bool:
         _probe[1, 1](out)
         _cuda.synchronize()
         _NUMBA_CUDA_CAN_COMPILE = int(out.copy_to_host()[0]) == 1
-    except Exception:
+    except Exception as e:
+        logger.debug("numba.cuda kernel-compile probe failed: %s", e)
         # NvvmSupportError, missing toolkit, driver mismatch, OOM at probe - any failure means
         # the numba.cuda path is unusable on this host; route to cupy/CPU.
         _NUMBA_CUDA_CAN_COMPILE = False
@@ -241,8 +245,8 @@ def njit_functions_dict(
                     dict_[key] = cached
                 else:
                     dict_[key] = njit(func)
-            except Exception:  # nosec B110 - best-effort path
-                pass
+            except Exception as e:  # nosec B110 - best-effort path
+                logger.debug("njit-wrapping %r failed, leaving it un-cached: %s", key, e)
 
 
 def sanitize(obj):

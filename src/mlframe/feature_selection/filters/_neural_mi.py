@@ -340,7 +340,8 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
     try:
         _y_key = (y.shape, hash(y.tobytes()), int(seed), int(point_cloud_size))
         _cached_yr = _INFONET_Y_PREP_CACHE.get(_y_key)
-    except Exception:
+    except Exception as e:
+        logger.debug("y-prep cache key computation failed, skipping the memo: %s", e)
         _y_key = None
         _cached_yr = None
 
@@ -552,7 +553,8 @@ def _classify_y_kind(y: np.ndarray) -> str:
         _hit = _Y_KIND_CACHE.get(_key)
         if _hit is not None:
             return _hit
-    except Exception:
+    except Exception as e:
+        logger.debug("y-kind cache key computation failed, skipping the memo: %s", e)
         _key = None
     uniq = np.unique(y)
     if uniq.size == 2:
