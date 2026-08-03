@@ -474,7 +474,8 @@ def fragment_df_on_ram_usage_increase(df: pd.DataFrame, prev_mem_usage: float, m
         if new_mem_usage is not None and new_mem_usage >= prev_mem_usage * (1 + max_increase_percent):
             try:
                 df_bytes = int(df.memory_usage(deep=True).sum())
-            except Exception:
+            except Exception as e:
+                logger.debug("memory_usage(deep=True) failed: %s", e)
                 df_bytes = 0
             if df_bytes > _DEFRAG_COPY_MAX_BYTES:
                 # Copying a multi-GB frame to defragment would double peak RAM; not worth it.

@@ -46,7 +46,7 @@ try:
         return sums, counts
 
     _HAS_NUMBA = True
-except Exception:  # numba unavailable: fall back to a flattened two-bincount numpy accumulate.
+except ImportError:  # numba unavailable: fall back to a flattened two-bincount numpy accumulate.
     _HAS_NUMBA = False
 
     def _accumulate_group_time(group_codes, time_codes, y, n_groups, n_time):

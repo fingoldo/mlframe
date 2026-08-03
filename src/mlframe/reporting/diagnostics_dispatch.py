@@ -80,8 +80,8 @@ def _save_figure(fig, plot_outputs: str, base_path: str) -> bool:
             import matplotlib.pyplot as plt
 
             plt.close(fig)
-        except Exception:  # nosec B110 - optional dependency import guard
-            pass
+        except Exception as e:  # nosec B110 - optional dependency import guard
+            logger.debug("matplotlib figure close-on-error failed: %s", e)
 
 
 def _column_names(frame: Any) -> Optional[List[str]]:

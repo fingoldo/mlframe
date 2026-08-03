@@ -393,7 +393,7 @@ def _f1_sweep_uniform_grid(yt: np.ndarray, P: np.ndarray, T: int):
     """
     try:
         from ._threshold_sweep_kernel import f1_sweep_kernel
-    except Exception:
+    except ImportError:
         return None
     return f1_sweep_kernel(
         np.ascontiguousarray(yt, dtype=np.uint8),

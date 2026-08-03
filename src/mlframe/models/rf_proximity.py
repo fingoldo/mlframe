@@ -23,7 +23,7 @@ try:
     import numba
 
     _HAS_NUMBA = True
-except Exception:  # numba is an optional accelerator; fall back to numpy
+except ImportError:  # numba is an optional accelerator; fall back to numpy
     _HAS_NUMBA = False
 
 logger = logging.getLogger(__name__)

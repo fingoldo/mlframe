@@ -75,7 +75,8 @@ def compute_member_quality_gate(
                 _disagreement = float(np.mean(np.abs(_a - _b)))
             else:
                 _disagreement = float("nan")
-        except Exception:
+        except Exception as e:
+            logger.debug("disagreement computation failed: %s", e)
             _disagreement = float("nan")
         return list(range(n)), [], {"k2_disagreement": _disagreement, "filter_too_restrictive": False}
 

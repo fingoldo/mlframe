@@ -17,6 +17,7 @@ surface is (approximately) additive f(x)+g(y).
 
 from __future__ import annotations
 
+import logging
 from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
@@ -24,6 +25,8 @@ import numpy as np
 from mlframe.reporting.charts.pdp_ice import (
     DEFAULT_PDP_GRID, DEFAULT_PDP_SAMPLE, _as_2d, _feat_label, compute_pdp_2d,
 )
+
+logger = logging.getLogger(__name__)
 
 Feature = Union[int, str]
 
@@ -68,8 +71,8 @@ def _default_pair(model: Any, X: Any, names: Optional[List[str]], n_cols: int) -
             iu = np.triu_indices(mat.shape[0], k=1)
             best = int(np.argmax(mat[iu]))
             return label(int(iu[0][best])), label(int(iu[1][best]))
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("non-additive-residual pair selection failed: %s", e)
 
     imp = getattr(model, "feature_importances_", None)
     if imp is None:

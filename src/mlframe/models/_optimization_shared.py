@@ -8,10 +8,13 @@ instead, so neither has to wait on the other's ``__init__``.
 """
 from __future__ import annotations
 
+import logging
 from enum import Enum, auto
 from typing import Any, Optional, Sequence, Union
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class _LazyModule:
@@ -206,8 +209,8 @@ def plot_search_state(
     try:
         plt.show(block=False)
         plt.pause(0.001)
-    except Exception:  # nosec B110 - non-trivial body
+    except Exception as e:  # nosec B110 - non-trivial body
         # Headless / Agg backend: show is a no-op, pause may not work
         # without a backend. Failure here must NEVER block training.
-        pass
+        logger.debug("plt.show/pause failed (likely headless/Agg backend): %s", e)
     plt.close(fig)

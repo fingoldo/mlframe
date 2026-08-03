@@ -95,7 +95,7 @@ try:
         return sums, counts
 
     _HAS_NUMBA_SLICE = True
-except Exception:  # numba unavailable: fall back to the two-bincount numpy path.
+except ImportError:  # numba unavailable: fall back to the two-bincount numpy path.
     _HAS_NUMBA_SLICE = False
 
     def _fused_sum_count(flat, err, ncells):

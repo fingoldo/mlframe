@@ -86,7 +86,7 @@ try:
         return ddx * (inv_xx * ddx + inv_xy * ddy) + ddy * (inv_xy * ddx + inv_yy * ddy)
 
     _HAS_NUMBA = True
-except Exception:  # numba unavailable: numpy two-pass reduction with the same pooled-covariance Mahalanobis formula.
+except ImportError:  # numba unavailable: numpy two-pass reduction with the same pooled-covariance Mahalanobis formula.
     _HAS_NUMBA = False
 
     def _fisher_2d(z0, z1, y):

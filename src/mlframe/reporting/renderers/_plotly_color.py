@@ -28,7 +28,8 @@ def _axis_ref(fig, row: int, col: int) -> str:
     try:
         n_cols = len(fig._grid_ref[0])
         idx = (row - 1) * n_cols + col
-    except Exception:
+    except Exception as e:
+        logger.debug("subplot grid-index resolution failed, defaulting to 1: %s", e)
         idx = 1
     return "x" if idx == 1 else f"x{idx}"
 

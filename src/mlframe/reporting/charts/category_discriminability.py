@@ -59,7 +59,7 @@ try:
         return pos, tot
 
     _HAS_NUMBA = True
-except Exception:  # numba unavailable: two-bincount numpy fallback (bit-identical accumulation, just slower).
+except ImportError:  # numba unavailable: two-bincount numpy fallback (bit-identical accumulation, just slower).
     _HAS_NUMBA = False
 
     def _level_counts_njit(codes: np.ndarray, y: np.ndarray, n_levels: int):

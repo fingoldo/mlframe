@@ -1,8 +1,11 @@
 """Post-fit model introspection helpers (currently: XGBoost booster size/leaf-count summary)."""
 from __future__ import annotations
 
+import logging
 import sys
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def analyze_xgboost_model(model: Any, print_chunk: int = 0) -> dict:
@@ -24,7 +27,8 @@ def analyze_xgboost_model(model: Any, print_chunk: int = 0) -> dict:
         # Ensure trees with zero leaves (impossible for well-formed XGBoost trees) do not
         # crash max() on an empty series; fall back to 0 for safety.
         nleaves = [int(leaves_per_tree.get(i, 0)) for i in range(len(trees))]
-    except Exception:
+    except Exception as e:
+        logger.debug("trees_to_dataframe() leaf-count failed, falling back to regex leaf-counting: %s", e)
         leaf_pattern = _re.compile(r"\bleaf=")
         nleaves = [len(leaf_pattern.findall(tree)) for tree in trees]
 

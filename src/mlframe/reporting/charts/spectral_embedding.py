@@ -14,11 +14,14 @@ dense decomposition).
 
 from __future__ import annotations
 
+import logging
 
 import numpy as np
 
 from mlframe.reporting.colors import LINE_PALETTE, line_color
 from mlframe.reporting.spec import FigureSpec, NetworkPanelSpec
+
+logger = logging.getLogger(__name__)
 
 # Above this node count a full dense O(n^3) eigendecomposition is wasteful when only 3 eigenvectors are needed; route to
 # the sparse k-smallest ARPACK solver when SciPy is present (falls back to dense otherwise).
@@ -45,8 +48,8 @@ def _laplacian_smallest_eigenvectors(n_nodes: int, edges, k: int = 3):
             vals, vecs = eigsh(csr_matrix(L), k=min(kk, n_nodes - 1), which="SA")  # k smallest-algebraic (L is PSD)
             order = np.argsort(vals)
             return vals[order], vecs[:, order]
-        except Exception:  # SciPy absent or ARPACK non-convergence -> dense fallback keeps the layout available  # nosec B110 - best-effort/optional path, no module logger
-            pass
+        except Exception as e:  # SciPy absent or ARPACK non-convergence -> dense fallback keeps the layout available  # nosec B110
+            logger.debug("sparse ARPACK eigsh failed, falling back to dense eigh: %s", e)
     vals, vecs = np.linalg.eigh(L)
     return vals[:kk], vecs[:, :kk]
 

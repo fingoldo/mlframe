@@ -184,7 +184,8 @@ class MatplotlibRenderer:
         if "IPython" in sys.modules:
             try:
                 ip = sys.modules["IPython"].get_ipython()
-            except Exception:
+            except Exception as e:
+                logger.debug("IPython.get_ipython() probe failed: %s", e)
                 ip = None
             if ip is not None:
                 from IPython.display import display

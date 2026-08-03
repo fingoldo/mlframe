@@ -220,7 +220,8 @@ def collapse_to_single_flavour_if_identical(
         _stack = np.vstack([np.asarray(p, dtype=np.float64).ravel() for p in _gate_preds_for_check])
         _ref = _stack[0]
         _all_close = all(np.allclose(_stack[i], _ref, atol=1e-9, rtol=1e-9) for i in range(1, _stack.shape[0]))
-    except Exception:  # pragma: no cover -- defensive
+    except Exception as e:  # pragma: no cover -- defensive
+        logger.debug("gate-predictions closeness check failed: %s", e)
         _all_close = False
     if _all_close:
         if verbose:

@@ -190,7 +190,7 @@ try:  # pragma: no cover -- env-dependent
                     for ki in range(K):
                         aggregated[n, ki] *= inv
         return aggregated
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     _HAS_NUMBA_PER_MEMBER = False
     _per_member_mae_std_njit = None
     _rrf_aggregate_probs_njit = None

@@ -292,8 +292,8 @@ def render_and_save(
             try:
                 import matplotlib.pyplot as plt
                 plt.close(fig)
-            except Exception:  # nosec B110 - optional dependency import guard
-                pass
+            except Exception as e:  # nosec B110 - optional dependency import guard
+                logger.debug("matplotlib figure close failed: %s", e)
 
     return handles if keep_handles else None
 

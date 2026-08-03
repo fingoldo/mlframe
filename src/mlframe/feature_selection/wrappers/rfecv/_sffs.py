@@ -106,6 +106,8 @@ def _sffs_swap_pass(
                     "SFFS swap %s -> %s evaluation failed (%s); skipping pair.",
                     out_f, in_f, _exc,
                 )
+            else:
+                logger.debug("SFFS swap %s -> %s evaluation failed (%s); skipping pair.", out_f, in_f, _exc)
             continue
         if trial_scores is None or len(trial_scores) == 0:
             continue
