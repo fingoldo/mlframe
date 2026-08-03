@@ -253,7 +253,8 @@ def batch_mi_with_noise_gate_cupy(
     # against queried free memory (use a fraction to leave headroom for d_base etc.).
     try:
         free_b, _tot_b = cp.cuda.runtime.memGetInfo()
-    except Exception:
+    except Exception as e:
+        logger.debug("cp.cuda.runtime.memGetInfo() failed, using the conservative 512MiB default: %s", e)
         free_b = 512 * 1024 * 1024  # conservative default
     budget = int(free_b * 0.35)
     # Per y-row device cost of a tile: the flat index array (n*K int64) + the
@@ -504,8 +505,9 @@ def batch_mi_with_noise_gate_cuda_resident(
         if _CUDA_AVAIL and _n_su > 0:
             try:
                 _d_y_all_su = _resident_y_all_device(classes_y, classes_y_safe, base_seed, _nperm_su, _n_su, _nperm_su + 1)
-            except Exception:
-                _d_y_all_su = None  # best-effort: any failure falls back to the per-call shuffle+upload path
+            except Exception as e:
+                logger.debug("_resident_y_all_device failed, falling back to the per-call shuffle+upload path: %s", e)
+                _d_y_all_su = None
         return batch_mi_with_noise_gate_cuda(
             disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations,
             base_seed, min_nonzero_confidence, use_su, dtype,
@@ -563,7 +565,8 @@ def batch_mi_with_noise_gate_cuda_resident(
         try:
             from ._gpu_resident_histgate_ktc import histgate_threads
             threads_per_block = int(histgate_threads(n))
-        except Exception:
+        except Exception as e:
+            logger.debug("histgate_threads() lookup failed, using the default 128: %s", e)
             threads_per_block = 128
     K_y = int(freqs_y.shape[0])
     nbins_arr = np.asarray(factors_nbins, dtype=np.int64)
@@ -593,7 +596,8 @@ def batch_mi_with_noise_gate_cuda_resident(
             _rdt = np.dtype(d_disc_resident.dtype)
             if _rshape == (n, K) and _rdt.itemsize <= 2 and _rdt == np.dtype(_disc_dt):
                 d_disc = d_disc_resident  # resident device codes -> NO H2D (the round-trip we eliminate)
-        except Exception:
+        except Exception as e:
+            logger.debug("resident device-codes reuse check failed, falling back to a fresh H2D upload: %s", e)
             d_disc = None
     if d_disc is None:
         # disc_2d is the discretized FE-CANDIDATE matrix - a different chunk of engineered columns on
@@ -649,7 +653,7 @@ def batch_mi_with_noise_gate_cuda_resident(
     import warnings as _warnings
     try:
         from numba.core.errors import NumbaPerformanceWarning as _NbPerfWarn
-    except Exception:
+    except ImportError:
         _NbPerfWarn = None
     with _warnings.catch_warnings():
         if _NbPerfWarn is not None:
@@ -742,7 +746,7 @@ def batch_mi_with_noise_gate_cuda(
     import warnings as _warnings
     try:
         from numba.core.errors import NumbaPerformanceWarning as _NbPerfWarn
-    except Exception:
+    except ImportError:
         _NbPerfWarn = None
 
     def _counts_from_device_y(d_y) -> np.ndarray:
@@ -842,8 +846,8 @@ def dispatch_batch_mi_with_noise_gate_gpu(
         from ._fe_gpu_vram import fe_gpu_has_vram_cushion
         if not fe_gpu_has_vram_cushion(n * max(K, 1) * 8):
             return None
-    except Exception:  # nosec B110 - best-effort/optional path, no module logger
-        pass
+    except Exception as e:  # nosec B110 - best-effort/optional path, no module logger
+        logger.debug("fe_gpu_has_vram_cushion() check failed, proceeding without the VRAM cushion gate: %s", e)
 
     if force_backend is not None:
         fb = force_backend.lower()

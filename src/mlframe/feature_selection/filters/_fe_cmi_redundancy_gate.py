@@ -286,7 +286,8 @@ def apply_cmi_redundancy_gate(
             from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
             from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
             _gate_resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=int(np.asarray(y_bin).shape[0]), p=len(names)))
-        except Exception:
+        except Exception as e:
+            logger.debug("fe_gpu_strict_resident_enabled/_cmi_gpu_enabled check failed, defaulting _gate_resident to False: %s", e)
             _gate_resident = False
 
     y_arr = np.asarray(y_bin)
@@ -300,7 +301,8 @@ def apply_cmi_redundancy_gate(
         _yk = (y_arr.shape, str(y_arr.dtype), hash(y_arr.tobytes()))
         with _Y_DENSE_MEMO_LOCK:
             _yhit = _Y_DENSE_MEMO.get(_yk)
-    except Exception:
+    except Exception as e:
+        logger.debug("y-dense memo key computation failed, skipping the memo: %s", e)
         _yhit = None
     if _yhit is not None:
         y_dense = _yhit.copy()
@@ -342,7 +344,8 @@ def apply_cmi_redundancy_gate(
             try:
                 from ._mi_greedy_cmi_fe import _quantile_bin_gpu_resident
                 _dev = _quantile_bin_gpu_resident(vals, nbins)
-            except Exception:
+            except Exception as e:
+                logger.debug("_quantile_bin_gpu_resident failed, falling back to the host path: %s", e)
                 _dev = None
         if _dev is not None:
             import cupy as _cp
@@ -511,7 +514,8 @@ def apply_cmi_redundancy_gate(
             try:
                 from ._mi_greedy_cmi_fe import _renumber_joint_gpu
                 z_support_dev, _ = _renumber_joint_gpu(*accepted_bins_dev)
-            except Exception:
+            except Exception as e:
+                logger.debug("_renumber_joint_gpu failed, falling back to the host path: %s", e)
                 z_support_dev = None
         if z_support_dev is None:
             if _prev_z_support is not None:
@@ -588,9 +592,11 @@ def apply_cmi_redundancy_gate(
                             if _df > 0 and (_nf / float(_cells)) >= _mincell:
                                 _flr = float(_chi2.ppf(float(quantile), _df)) / (2.0 * _nf)
                                 _round_floor[_nm] = (_flr if _flr > 0.0 else 0.0, _df / (2.0 * _nf))
-                except Exception:
+                except Exception as e:
+                    logger.debug("per-name round-floor computation failed, using an empty round_floor: %s", e)
                     _round_floor = {}
-        except Exception:
+        except Exception as e:
+            logger.debug("round CMI/floor computation failed, using empty dicts: %s", e)
             _round_cmi = {}
             _round_floor = {}
         # z_support is FIXED within the round, so read its occupied cardinality ONCE here (one D2H) and pass it
@@ -602,7 +608,8 @@ def apply_cmi_redundancy_gate(
         elif _z_scored is not None:
             try:
                 _zcard = (int(_z_scored.max()) + 1) if getattr(_z_scored, "size", 0) else 0
-            except Exception:
+            except Exception as e:
+                logger.debug("_z_scored cardinality computation failed, using 0: %s", e)
                 _zcard = 0
         for nm in _rem_list:
             # Prefer the RESIDENT candidate code for the per-candidate CMI + perm-null fallbacks (both dispatch
