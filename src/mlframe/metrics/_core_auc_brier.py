@@ -5,6 +5,8 @@ Carved from ``core.py``. Public symbols are re-exported from the parent.
 
 from __future__ import annotations
 
+import functools
+
 import numba
 import numpy as np
 import pandas as pd
@@ -419,6 +421,12 @@ def bootstrap_auc_distribution_parallel(y_true: np.ndarray, y_score: np.ndarray,
     return out
 
 
+def exact_bootstrap_auc_resample(y_true: np.ndarray, y_score: np.ndarray, idx: np.ndarray) -> float:
+    """Recompute AUC exactly on the resampled (index-gathered) ``y_true``/``y_score`` -- the fallback
+    bootstrap AUC resampler used when the fast fused path isn't applicable."""
+    return fast_roc_auc_unstable(y_true[idx], y_score[idx])
+
+
 def make_bootstrap_auc_resampler(y_true: np.ndarray, y_score: np.ndarray):
     """Factory: pre-argsort the BASE score vector ONCE, return a callable
     ``resampler(idx) -> float`` that scores each bootstrap resample without
@@ -485,10 +493,7 @@ def make_bootstrap_auc_resampler(y_true: np.ndarray, y_score: np.ndarray):
                 return float(_fused_resample_auc_grouped(idx, group_of_base, y_base, ngroups, _grouped_counts, _grouped_ones))
             return _resampler_grouped
 
-        def _resampler_exact(idx: np.ndarray) -> float:
-            """Fallback bootstrap AUC resampler: recomputes AUC exactly on the resampled (index-gathered) y_true/y_score, used when the fast fused path isn't applicable."""
-            return fast_roc_auc_unstable(y_true[idx], y_score[idx])
-        return _resampler_exact
+        return functools.partial(exact_bootstrap_auc_resample, y_true, y_score)
 
     # base_rank[i] = ascending rank of base index i (inverse permutation)
     base_rank = np.empty(n, dtype=np.int64)

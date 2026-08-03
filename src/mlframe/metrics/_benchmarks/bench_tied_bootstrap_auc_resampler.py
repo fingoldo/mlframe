@@ -15,8 +15,7 @@ import numpy as np
 
 from mlframe.metrics._core_auc_brier import (
     make_bootstrap_auc_resampler,
-    fast_roc_auc_unstable,
-    _fused_resample_auc_grouped,
+    exact_bootstrap_auc_resample,
 )
 
 
@@ -31,9 +30,9 @@ def _make_tied(n: int, ndistinct: int, seed: int = 0):
 
 
 def _exact_resampler(y_true, y_score):
-    def _r(idx):
-        return fast_roc_auc_unstable(y_true[idx], y_score[idx])
-    return _r
+    import functools
+
+    return functools.partial(exact_bootstrap_auc_resample, y_true, y_score)
 
 
 def bench(n=200_000, ndistinct=50, nboot=1000, seed=0):
