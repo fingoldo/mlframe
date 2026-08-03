@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from typing import cast
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +120,7 @@ def _run_permnull_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {"njit": _permnull_njit, "resident": _permnull_resident}
-    return sweep_backend_grid(
+    return cast(list, sweep_backend_grid(
         variants,
         {"n_samples": _PERMNULL_SWEEP_N, "ncand": _PERMNULL_SWEEP_NCAND, "nperm": _PERMNULL_SWEEP_NPERM},
         _make_permnull_inputs,
@@ -128,7 +129,7 @@ def _run_permnull_sweep() -> list:
         # only in float64 summation order (~1e-12 worst case), so 5e-2 was ~13 orders too loose and could crown
         # a genuinely-divergent resident kernel as equivalent. Match the sibling noise-gate KTC sweep.
         repeats=3, equiv_rtol=1e-9, equiv_atol=1e-12,
-    )
+    ))
 
 
 def _permnull_fallback_choice(n_samples: int, ncand: int = 8, nperm: int = 200) -> str:

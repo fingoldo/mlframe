@@ -37,6 +37,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from mlframe.metrics._trapezoid_shared import trapezoid
 from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels, parse_panel_template,
 )
@@ -192,7 +193,7 @@ def _roc_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: f
     tps, fps, _ = sort.distinct_threshold_counts()
     tpr = np.concatenate(([0.0], tps / sort.n_pos))
     fpr = np.concatenate(([0.0], fps / sort.n_neg))
-    roc_auc = float(np.trapezoid(tpr, fpr))
+    roc_auc = trapezoid(tpr, fpr)
     x_thin, (tpr_thin,) = _decimate(fpr, tpr)
     diag = x_thin.copy()
     markers = None

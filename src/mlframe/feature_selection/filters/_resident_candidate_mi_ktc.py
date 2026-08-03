@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from typing import cast
 
 logger = logging.getLogger(__name__)
 
@@ -101,13 +102,13 @@ def _run_rescand_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {"njit": _rescand_njit, "resident": _rescand_resident}
-    return sweep_backend_grid(
+    return cast(list, sweep_backend_grid(
         variants,
         {"n_samples": _RESCAND_SWEEP_N_SAMPLES, "k": _RESCAND_SWEEP_K},
         _make_rescand_inputs,
         reference="njit",
         repeats=3, equiv_rtol=5e-2, equiv_atol=5e-2,
-    )
+    ))
 
 
 def _rescand_fallback_choice(n_samples: int, k: int = 16) -> str:

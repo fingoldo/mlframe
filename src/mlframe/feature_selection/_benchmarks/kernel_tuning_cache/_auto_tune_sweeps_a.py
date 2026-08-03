@@ -59,11 +59,11 @@ def _median_per_call(fn, args=None, *, concurrency: int, n_iters: int, make_inpu
     contended footing. The single-source timing logic now lives in pyutilz so every sweep shares it."""
     from pyutilz.performance.kernel_tuning import time_backend
     factory = make_inputs if make_inputs is not None else (lambda: args)
-    return time_backend(
+    return float(time_backend(
         fn, factory,
         concurrency=max(1, int(concurrency)), n_iters=n_iters, warmup=0,
         fresh_inputs_per_call=bool(fresh and make_inputs is not None),
-    )
+    ))
 
 
 # Sweep axes (_N_SAMPLES_AXIS, _NBINS_AXIS, _BLOCK_SIZE_AXIS) are

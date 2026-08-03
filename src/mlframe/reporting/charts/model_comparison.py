@@ -18,6 +18,7 @@ from typing import Any, List, Mapping, Optional, Tuple
 
 import numpy as np
 
+from mlframe.metrics._trapezoid_shared import trapezoid
 from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels
 from mlframe.reporting.charts.binary import _ScoreSort, _decimate, _finite_binary
 from mlframe.reporting.spec import (
@@ -77,7 +78,7 @@ def _roc_from_sort(sort: _ScoreSort) -> Tuple[np.ndarray, np.ndarray, float]:
     tps, fps, _ = sort.distinct_threshold_counts()
     tpr = np.concatenate(([0.0], tps / max(1, sort.n_pos)))
     fpr = np.concatenate(([0.0], fps / max(1, sort.n_neg)))
-    auc = float(np.trapezoid(tpr, fpr))
+    auc = trapezoid(tpr, fpr)
     x_thin, (tpr_thin,) = _decimate(fpr, tpr, cap=_CURVE_VERTEX_CAP)
     return x_thin, tpr_thin, auc
 

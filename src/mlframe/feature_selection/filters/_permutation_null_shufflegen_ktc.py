@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from typing import cast
 
 logger = logging.getLogger(__name__)
 
@@ -154,13 +155,13 @@ def _run_shufflegen_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {"numpy": _shufflegen_numpy, "numba": _shufflegen_numba, "gpu": _shufflegen_gpu}
-    return sweep_backend_grid(
+    return cast(list, sweep_backend_grid(
         variants,
         {"n_samples": _SHUFFLEGEN_SWEEP_N, "nperm": _SHUFFLEGEN_SWEEP_NPERM},
         _make_shufflegen_inputs,
         reference="numpy",
         repeats=3, equiv_rtol=0.0, equiv_atol=0.0,
-    )
+    ))
 
 
 def _shufflegen_fallback_choice(n_samples: int, nperm: int = 200) -> str:

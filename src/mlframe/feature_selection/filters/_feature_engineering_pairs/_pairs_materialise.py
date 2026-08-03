@@ -9,6 +9,7 @@ from numba import njit, prange
 # OPT-A: per-host serial-vs-parallel crossover for the FE materialise /
 # searchsorted kernels on the serial-main-thread path (no hardcoded threshold).
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+from typing import cast
 
 # NJIT MATERIALISATION. The chunk's candidate columns were filled by a PYTHON loop
 # (``out[:, col] = bin_func(a, b)`` per candidate) - GIL-held -> the remaining single-core bottleneck after the
@@ -233,12 +234,12 @@ def _run_fe_parallelism_sweep() -> list:
         _materialise_chunk_njit_parallel(tv, a_cols, b_cols, ops, out)
         return out
 
-    return sweep_backend_grid(
+    return cast(list, sweep_backend_grid(
         {"serial": _serial, "parallel": _parallel},
         {"n_cols": list(_FE_PARALLELISM_SWEEP_COLS)},
         _make_fe_parallelism_inputs,
         reference="serial", repeats=3, equiv_rtol=0.0, equiv_atol=0.0,
-    )
+    ))
 
 
 def _fe_parallelism_fallback_choice(n_cols: int) -> str:

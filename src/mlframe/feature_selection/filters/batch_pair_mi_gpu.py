@@ -262,13 +262,13 @@ def _run_batch_pair_mi_sweep() -> list:
         variants["cuda"] = lambda *a: batch_pair_mi_cuda(*a)
     if _CUPY_AVAIL:
         variants["cupy"] = lambda *a: batch_pair_mi_cupy(*a)
-    return sweep_backend_grid(
+    return cast(list, sweep_backend_grid(
         variants,
         {"n_samples": _BPMI_SWEEP_N_SAMPLES, "n_pairs": _BPMI_SWEEP_N_PAIRS_GRID},
         _make_batch_pair_mi_inputs,
         reference="njit_serial",
         repeats=5, equiv_rtol=1e-3, equiv_atol=1e-3,
-    )
+    ))
 
 
 def _batch_pair_mi_fallback_choice(n_samples: int, n_pairs: int) -> str:
@@ -672,6 +672,7 @@ def dispatch_batch_pair_mi_chunked(
 # Register with the @kernel_tuner registry so retune_all / mlframe-tune-kernels
 # discover + batch-tune batch_pair_mi. GPU-capable (cuda/cupy backends).
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+from typing import cast
 
 _BPMI_SPEC = kernel_tuner(
     kernel_name="batch_pair_mi",

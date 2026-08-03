@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from mlframe.metrics._trapezoid_shared import trapezoid
 from mlframe.reporting.charts.binary import (
     ALLOWED_BINARY_PANEL_TOKENS,
     DEFAULT_BINARY_PANELS,
@@ -288,7 +289,7 @@ def test_roc_auc_and_pr_ap_match_sklearn(distinct):
     tps, fps, _ = sort.distinct_threshold_counts()
     tpr = np.concatenate(([0.0], tps / sort.n_pos))
     fpr = np.concatenate(([0.0], fps / sort.n_neg))
-    my_auc = float(np.trapezoid(tpr, fpr))
+    my_auc = trapezoid(tpr, fpr)
     precision = tps / np.maximum(tps + fps, 1.0)
     recall = tps / sort.n_pos
     my_ap = float(np.sum(np.diff(np.concatenate(([0.0], recall))) * precision))

@@ -50,7 +50,7 @@ entropy + every keep/drop decision stay on the bit-exact CPU path. Verified by
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 import numpy as np
 
@@ -678,13 +678,13 @@ def _run_friend_graph_sweep() -> list:
         variants["cuda"] = _vec(friend_graph_stats_cuda)
     if _CUPY_AVAIL:
         variants["cupy"] = _vec(friend_graph_stats_cupy)
-    return sweep_backend_grid(
+    return cast(list, sweep_backend_grid(
         variants,
         {"n_rows": _FG_SWEEP_N_ROWS, "k": _FG_SWEEP_K},
         _make_friend_graph_inputs,
         reference="cpu",
         repeats=3, equiv_rtol=1e-9, equiv_atol=1e-12,
-    )
+    ))
 
 
 def _friend_graph_code_version():

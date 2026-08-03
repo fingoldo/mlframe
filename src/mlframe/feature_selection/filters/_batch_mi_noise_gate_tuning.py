@@ -15,6 +15,8 @@ import logging
 import numpy as np
 
 from .info_theory import batch_mi_with_noise_gate as _cpu_batch_mi_with_noise_gate
+from typing import cast
+
 from ._batch_mi_noise_gate_kernels import (
     _CUDA_AVAIL,
     _CUPY_AVAIL,
@@ -127,13 +129,13 @@ def _run_batch_mi_noise_gate_sweep() -> list:
     max_n = max(n_rows) if n_rows else 1
     fitting = [k for k in n_cols if max_n * int(k) * 8 * 3 <= budget]
     n_cols = fitting or [min(n_cols)]  # always keep at least the smallest column
-    return sweep_backend_grid(
+    return cast(list, sweep_backend_grid(
         variants,
         {"n_rows": n_rows, "n_cols": n_cols},
         _make_batch_mi_noise_gate_inputs,
         reference="cpu",
         repeats=3, equiv_rtol=1e-9, equiv_atol=1e-12,
-    )
+    ))
 
 
 def _batch_mi_noise_gate_code_version():

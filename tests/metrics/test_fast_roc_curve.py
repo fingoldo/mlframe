@@ -22,6 +22,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from mlframe.metrics._trapezoid_shared import trapezoid
 from mlframe.metrics.core import fast_roc_curve, fast_roc_auc
 
 # ---------------------------------------------------------------------------
@@ -56,7 +57,7 @@ def test_perfect_separation():
     s = np.array([0.1, 0.2, 0.8, 0.9])
     fpr, tpr, _thr = fast_roc_curve(y, s)
     # perfect classifier reaches tpr=1 at fpr=0
-    assert np.isclose(np.trapezoid(tpr, fpr), 1.0)
+    assert np.isclose(trapezoid(tpr, fpr), 1.0)
 
 
 def test_all_ties_single_threshold():
@@ -142,8 +143,8 @@ def test_equivalence_vs_sklearn(tie_heavy, seed):
     np.testing.assert_allclose(thr[1:], thr_sk[1:])
 
     # np.trapz(tpr, fpr) matches our AUC kernel and sklearn's auc.
-    assert abs(np.trapezoid(tpr, fpr) - sk.auc(fpr_sk, tpr_sk)) < 1e-9
-    assert abs(np.trapezoid(tpr, fpr) - fast_roc_auc(y, s)) < 1e-9
+    assert abs(trapezoid(tpr, fpr) - sk.auc(fpr_sk, tpr_sk)) < 1e-9
+    assert abs(trapezoid(tpr, fpr) - fast_roc_auc(y, s)) < 1e-9
 
 
 @pytest.mark.parametrize("seed", [3, 11, 99])

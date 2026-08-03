@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from typing import cast
 
 logger = logging.getLogger(__name__)
 
@@ -105,13 +106,13 @@ def _run_propagate_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {"host": _propagate_host, "resident": _propagate_resident}
-    return sweep_backend_grid(
+    return cast(list, sweep_backend_grid(
         variants,
         {"n_full": _PROPAGATE_SWEEP_N_FULL, "n_sub": _PROPAGATE_SWEEP_N_SUB},
         _make_propagate_inputs,
         reference="host",
         repeats=3, equiv_rtol=1e-3, equiv_atol=1e-3,
-    )
+    ))
 
 
 def _propagate_fallback_choice(n_full: int, n_sub: int = 20_000) -> str:

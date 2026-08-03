@@ -9,6 +9,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+pytest.importorskip("mlflow", reason="mlflow ships as an optional extra, not installed in the base CI env")
+
 from mlframe.integrations.mlflow import (
     create_mlflow_run_label,
     embed_website_to_mlflow,

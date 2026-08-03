@@ -19,7 +19,7 @@ avoid an import cycle. No kernel-source, dispatch-threshold, residency, or selec
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import Optional, cast
 
 import numpy as np
 
@@ -1004,12 +1004,12 @@ def _run_fe_gpu_pairs_mi_sweep() -> list:
         """GPU-path timing: the resident-basis pair-MI kernel on the same inputs, for crossover comparison against ``_cpu``."""
         return gpu_pairs_fe_mi(cand, nbins, yc, yc, fy, 3, 0.0, False)
 
-    return sweep_backend_grid(
+    return cast(list, sweep_backend_grid(
         {"cpu": _cpu, "gpu": _gpu},
         {"n_rows": [50_000, 100_000, 300_000]},  # GPU path engages only at n >= analytic_null_min_n
         _make_fe_gpu_pairs_inputs,
         reference="cpu", repeats=3, equiv_rtol=1e-9, equiv_atol=1e-12,
-    )
+    ))
 
 
 def _fe_gpu_pairs_mi_code_version():
@@ -1060,7 +1060,7 @@ def ensure_fe_gpu_pairs_mi_tuning(force: bool = False):
         if not force:
             existing = cache.get_regions("fe_gpu_pairs_mi")
             if existing:
-                return existing
+                return cast("list | None", existing)
         regions = _run_fe_gpu_pairs_mi_sweep()
         if regions:
             cache.update("fe_gpu_pairs_mi", axes=["n_rows"], regions=regions, code_version=_fe_gpu_pairs_mi_code_version())
@@ -1137,12 +1137,12 @@ def _run_fe_gpu_binning_sweep() -> list:
         """GPU-path timing: the resident-select discretize kernel, for crossover comparison against ``_cpu``."""
         return gpu_discretize_codes_host(cand, nbins, dtype=np.int8)
 
-    return sweep_backend_grid(
+    return cast(list, sweep_backend_grid(
         {"cpu": _cpu, "gpu": _gpu},
         {"n_rows": [20_000, 50_000, 100_000, 300_000]},
         _make_fe_gpu_binning_inputs,
         reference="cpu", repeats=3, equiv_rtol=0.0, equiv_atol=0.0,  # bit-identical int codes
-    )
+    ))
 
 
 def _fe_gpu_binning_code_version():
@@ -1189,7 +1189,7 @@ def ensure_fe_gpu_binning_tuning(force: bool = False) -> list | None:
         if not force:
             existing = cache.get_regions("fe_gpu_binning")
             if existing:
-                return existing
+                return cast("list | None", existing)
         regions = _run_fe_gpu_binning_sweep()
         if regions:
             cache.update("fe_gpu_binning", axes=["n_rows"], regions=regions, code_version=_fe_gpu_binning_code_version())

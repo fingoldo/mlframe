@@ -34,6 +34,7 @@ from typing import Literal, Optional, Tuple
 
 import numpy as np
 
+from mlframe.metrics._trapezoid_shared import trapezoid
 from mlframe.reporting.spec import FigureSpec, LinePanelSpec
 
 MAX_PLOT_POINTS: int = 2000
@@ -152,7 +153,7 @@ def compute_risk_coverage(
 
     full_risk = float(running_risk[-1])
     # AURC on the full per-row curve (trapezoid over coverage). Coverage starts at 1/n, not 0; integrate as-is.
-    aurc = float(np.trapezoid(running_risk, coverage)) if n > 1 else full_risk
+    aurc = trapezoid(running_risk, coverage) if n > 1 else full_risk
 
     accuracy = np.full(n, np.nan) if is_regression else (1.0 - running_risk)
     return coverage, accuracy, running_risk, aurc, full_risk, has_signal

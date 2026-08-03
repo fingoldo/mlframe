@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from typing import cast
 
 logger = logging.getLogger(__name__)
 
@@ -126,13 +127,13 @@ def _run_pooltable_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {"njit": _pooltable_njit, "resident": _pooltable_resident}
-    return sweep_backend_grid(
+    return cast(list, sweep_backend_grid(
         variants,
         {"n_rows": _POOLRES_SWEEP_N, "npairs": _POOLRES_SWEEP_NPAIRS, "n_combos": _POOLRES_SWEEP_NCOMBOS},
         _make_pooltable_inputs,
         reference="njit",
         repeats=3, equiv_rtol=1e-9, equiv_atol=1e-9,
-    )
+    ))
 
 
 def _pooltable_fallback_choice(n_rows: int, npairs: int = 16, n_combos: int = 578) -> str:

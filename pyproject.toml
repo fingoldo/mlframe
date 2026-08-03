@@ -495,6 +495,7 @@ markers = [
     "numba_disabled: include in the NUMBA_DISABLE_JIT=1 nightly coverage run; tests run 10-100x slower under no-JIT, see scripts/run_numba_coverage.{sh,ps1}",
     "sklearn_matrix: include in the multi-sklearn-version CI matrix (.github/workflows/sklearn-matrix-ci.yml); tests pin scikit-learn surface contracts across the supported version range (1.6-1.8) and must NOT depend on private internals. See tests/test_meta/test_sklearn_matrix_marker_invariants.py for the convention.",
     "strict_cpu_only: test requires a CPU-only run (CUDA_VISIBLE_DEVICES=\"\") and must be skipped/fail fast otherwise; see tests/feature_selection/biz_val/conftest.py.",
+    "xdist_group(name): pytest-xdist builtin -- pins a test to a single xdist worker. Normally auto-registered by the xdist plugin itself, but --strict-markers has been observed to reject it as unregistered on at least one CI shard; registered explicitly here so --strict-markers never depends on plugin load order.",
 ]
 filterwarnings = [
     "error::DeprecationWarning:mlframe",

@@ -97,13 +97,13 @@ def _run_perm_kernel_sweep() -> list:
             return _count_nfailed_joint_indep_cupy(*a, base_seed=_seed)  # type: ignore[misc]  # mypy can't count *a's arity (10 positional args from _make_perm_kernel_inputs); verified correct at runtime
         variants["cupy"] = _gpu
 
-    return sweep_backend_grid(
+    return cast(list, sweep_backend_grid(
         variants,
         {"n_samples": _PERM_SWEEP_N_SAMPLES, "n_perms": _PERM_SWEEP_N_PERMS_GRID},
         _make_perm_kernel_inputs,
         reference="cpu_serial",
         repeats=5, equiv_rtol=1e-3, equiv_atol=1e-3,
-    )
+    ))
 
 
 def _perm_kernel_fallback_choice(n_samples: int, n_perms: int) -> str:
@@ -118,6 +118,7 @@ def _perm_kernel_fallback_choice(n_samples: int, n_perms: int) -> str:
 # Register with the @kernel_tuner registry so retune_all / mlframe-tune-kernels
 # discover + batch-tune the cat-FE permutation kernel. GPU-capable (cupy backend).
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+from typing import cast
 
 _CAT_PERM_SPEC = kernel_tuner(
     kernel_name="cat_fe_perm_kernel",

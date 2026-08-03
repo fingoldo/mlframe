@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from typing import cast
 
 logger = logging.getLogger(__name__)
 
@@ -129,13 +130,13 @@ def _run_histgate_threads_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {f"th_{t}": (lambda *a, _t=t: _hist_counts_with_threads(*a, _t)) for t in _HISTGATE_THREADS_VARIANTS}  # type: ignore[call-arg]  # mypy can't verify arg count through *a unpack of an unbounded tuple; runtime tuple from _make_histgate_inputs has exactly 10 elements + _t = 11, matching the signature
-    return sweep_backend_grid(
+    return cast(list, sweep_backend_grid(
         variants,
         {"n_rows": _HISTGATE_THREADS_SWEEP_N_ROWS},
         _make_histgate_inputs,
         reference=f"th_{_HISTGATE_THREADS_DEFAULT}",
         repeats=3, equiv_rtol=1e-9, equiv_atol=1e-12,
-    )
+    ))
 
 
 def _histgate_threads_fallback_choice(n_rows: int) -> str:

@@ -40,6 +40,7 @@ import numpy as np
 from numba import njit, prange
 
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+from typing import cast
 
 # Optional GPU dep. The dispatcher gracefully falls back to the CPU njit kernels when cupy is
 # missing / the device errors - the fit is NEVER broken by a GPU problem (correctness first).
@@ -679,12 +680,12 @@ def _run_usability_sweep() -> list:
     # GPU sort/bincount/log reassociate at the last bit -> the per-combo MI agrees with the CPU njit
     # to fp64 round-off, not bit-for-bit. The retention ranking only needs the ORDER preserved, so a
     # loosened equiv tol on the GPU cell is the documented deviation (see the GPU section docstring).
-    return sweep_backend_grid(
+    return cast(list, sweep_backend_grid(
         variants,
         {"n_rows": list(_USABILITY_SWEEP_ROWS), "n_combos": list(_USABILITY_SWEEP_COMBOS)},
         _make_usability_inputs,
         reference="serial", repeats=3, equiv_rtol=1e-6, equiv_atol=1e-9,
-    )
+    ))
 
 
 def _usability_fallback_choice(n_rows: int, n_combos: int) -> str:

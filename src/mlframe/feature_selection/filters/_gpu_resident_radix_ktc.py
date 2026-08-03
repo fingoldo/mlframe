@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from typing import cast
 
 logger = logging.getLogger(__name__)
 
@@ -161,13 +162,13 @@ def _run_radix_f32_variant_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {v: (lambda cand, _v=v: _radix_edges_with_f32_variant(cand, 20, _v)) for v in _RADIX_F32_VARIANTS}
-    return sweep_backend_grid(
+    return cast(list, sweep_backend_grid(
         variants,
         {"n_samples": _RADIX_THREADS_SWEEP_N_SAMPLES},
         _make_radix_inputs,
         reference=_RADIX_F32_VARIANT_DEFAULT,
         repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6,
-    )
+    ))
 
 
 def _radix_f32_variant_fallback_choice(n_samples: int) -> str:
@@ -220,13 +221,13 @@ def _run_radix_threads_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {f"th_{t}": (lambda cand, _t=t: _radix_edges_with_threads(cand, 20, _t)) for t in _RADIX_THREADS_VARIANTS}
-    return sweep_backend_grid(
+    return cast(list, sweep_backend_grid(
         variants,
         {"n_samples": _RADIX_THREADS_SWEEP_N_SAMPLES},
         _make_radix_inputs,
         reference=f"th_{_RADIX_THREADS_DEFAULT}",
         repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6,
-    )
+    ))
 
 
 def _radix_threads_fallback_choice(n_samples: int) -> str:

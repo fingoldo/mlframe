@@ -24,6 +24,8 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+from typing import cast
+
 from ._gpu_resident_fe import (
     _GPU_K_CHUNK_VRAM_FRACTION_DEFAULT,
     _GPU_K_CHUNK_VRAM_FRACTIONS,
@@ -106,13 +108,13 @@ def _run_gpu_k_chunk_sweep() -> list:
     variants = {
         f"frac_{f}": (lambda a, b, y, _f=f: gpu_resident_pair_candidate_mi_vram_fraction(a, b, y, vram_fraction=_f)[1]) for f in _GPU_K_CHUNK_VRAM_FRACTIONS
     }
-    return sweep_backend_grid(
+    return cast(list, sweep_backend_grid(
         variants,
         {"n_samples": _GPU_K_CHUNK_SWEEP_N_SAMPLES},
         _make_gpu_k_chunk_inputs,
         reference=f"frac_{_GPU_K_CHUNK_VRAM_FRACTION_DEFAULT}",
         repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6,
-    )
+    ))
 
 
 def _gpu_k_chunk_fallback_choice(n_samples: int) -> str:
