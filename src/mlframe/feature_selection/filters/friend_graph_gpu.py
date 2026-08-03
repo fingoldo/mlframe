@@ -61,16 +61,18 @@ logger = logging.getLogger(__name__)
 # Optional GPU deps - mirror batch_pair_mi_gpu.py's probe order exactly.
 try:
     from numba import cuda as _nb_cuda
-except Exception:
+except ImportError:
     _nb_cuda = None
 
 try:
     from pyutilz.core.pythonlib import is_cuda_available as _pyutilz_is_cuda_available
     _CUDA_AVAIL = _pyutilz_is_cuda_available()
-except Exception:
+except Exception as e:
+    logger.debug("pyutilz.core.pythonlib.is_cuda_available() probe failed, falling back to numba.cuda.is_available(): %s", e)
     try:
         _CUDA_AVAIL = bool(getattr(_nb_cuda, "is_available", lambda: False)()) if _nb_cuda is not None else False
-    except Exception:
+    except Exception as e2:
+        logger.debug("numba.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e2)
         _CUDA_AVAIL = False
 
 # Require numba.cuda kernel compilability (not just device presence) so a cudatoolkit/NVVM
@@ -81,7 +83,7 @@ _CUDA_AVAIL = _CUDA_AVAIL and _numba_cuda_can_compile()
 try:
     import cupy as _cp
     _CUPY_AVAIL = True
-except Exception:
+except ImportError:
     _cp = None
     _CUPY_AVAIL = False
 
@@ -242,7 +244,8 @@ def friend_graph_stats_cupy(
 
             h_node = entropy_segments_gpu(cp, d_node_counts, n, off_node)
             H = {int(sel_arr[i]): float(h_node[i]) for i in range(k)}
-        except Exception:
+        except Exception as e:
+            logger.debug("entropy_segments_gpu (node) failed, falling back to per-node CPU entropy: %s", e)
             H = {}
     if not H:
         node_counts = cp.asnumpy(d_node_counts)
@@ -282,7 +285,8 @@ def friend_graph_stats_cupy(
                 from ._friend_graph_gpu_entropy_resident import entropy_segments_gpu
 
                 h_xy_by_i = entropy_segments_gpu(cp, d_rel_counts, n, off_rel)
-            except Exception:
+            except Exception as e:
+                logger.debug("entropy_segments_gpu (rel) failed, falling back to the per-relation CPU path: %s", e)
                 h_xy_by_i = None
         if h_xy_by_i is None:
             rel_counts = cp.asnumpy(d_rel_counts)
@@ -316,7 +320,8 @@ def friend_graph_stats_cupy(
         # array + its bincount output. Index array (rows*n int64) dominates.
         try:
             free_b, _tot_b = cp.cuda.runtime.memGetInfo()
-        except Exception:
+        except Exception as e:
+            logger.debug("cp.cuda.runtime.memGetInfo() failed, using the conservative 512MiB default: %s", e)
             free_b = 512 * 1024 * 1024
         budget = int(free_b * 0.35)
         # per-pair tile cost ~ n int64 (index col) + joint_card int64 (count slot).
@@ -356,7 +361,8 @@ def friend_graph_stats_cupy(
                     from ._friend_graph_gpu_entropy_resident import entropy_segments_gpu
 
                     h_ab_by_r = entropy_segments_gpu(cp, d_tile_counts, n, tile_off_bounds)
-                except Exception:
+                except Exception as e:
+                    logger.debug("entropy_segments_gpu (tile) failed, falling back to the per-tile CPU path: %s", e)
                     h_ab_by_r = None
             if h_ab_by_r is None:
                 tile_counts = cp.asnumpy(d_tile_counts)
@@ -471,7 +477,7 @@ def friend_graph_stats_cuda(
     import warnings as _warnings
     try:
         from numba.core.errors import NumbaPerformanceWarning as _NbPerfWarn
-    except Exception:
+    except ImportError:
         _NbPerfWarn = None
 
     n = int(factors_data.shape[0])

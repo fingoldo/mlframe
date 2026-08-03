@@ -55,7 +55,11 @@ def _is_log_call(node: ast.AST) -> bool:
         return True
     if isinstance(func, ast.Attribute):
         base = func.value
-        if isinstance(base, ast.Name) and base.id in ("logger", "logger_", "logging", "warnings", "log"):
+        if isinstance(base, ast.Name) and (base.id in ("logging", "warnings", "log") or base.id.rstrip("_").endswith("logger")):
+            # Covers the project's actual logger-variable conventions: module-level ``logger``, a
+            # trailing-underscore ``logger_`` (avoids shadowing a builtin/import), and a shared
+            # cross-file logger imported under a more specific name (e.g. ``_module_logger`` in
+            # ``_feature_engineering_pairs/_pairs_common.py``).
             return True
         if isinstance(base, ast.Attribute) and base.attr in ("logger",):
             return True

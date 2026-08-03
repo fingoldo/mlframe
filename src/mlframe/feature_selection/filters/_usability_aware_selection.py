@@ -61,8 +61,8 @@ def _abscorr(u: np.ndarray, v: np.ndarray) -> float:
         try:
             from ._usability_gpu import gpu_abscorr
             return gpu_abscorr(u, v)
-        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
-            pass  # fall back to the exact CPU path
+        except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+            logger.debug("_abscorr: GPU path failed, falling back to the exact CPU path: %s", e)
     u = _f64(u); v = _f64(v)  # precision for the heavy-tail correlation
     if u.size == 0 or float(np.std(u)) < 1e-12 or float(np.std(v)) < 1e-12:
         return 0.0
@@ -172,7 +172,8 @@ def build_usability_candidate_pool(
     try:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         _seleq = bool(fe_gpu_strict_resident_enabled())
-    except Exception:
+    except Exception as e:
+        logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-strict tiebreak: %s", e)
         _seleq = False
     _mi_key = (lambda m: quantize_mi_tiebreak(m)) if _seleq else (lambda m: m)
 
@@ -242,7 +243,8 @@ def build_usability_candidate_pool(
                 _ky = int(np.asarray(y_codes).max()) + 1
                 _mis = np.asarray(binned_mi_from_codes_gpu(_joint, y_codes, ky=_ky, codes_trusted=True), dtype=np.float64)
                 _pj = {p: quantize_mi_tiebreak(float(_mis[i])) for i, p in enumerate(pairs)}
-            except Exception:
+            except Exception as e:
+                logger.debug("binned_mi_from_codes_gpu batch failed, falling back to the per-pair CPU path: %s", e)
                 _pj = None
         if _pj is None:
             _pj = {p: _mi_key(_pair_joint_mi(p)) for p in pairs}
@@ -320,7 +322,8 @@ def build_usability_candidate_pool(
             _resident_table = score_pair_combos_table_resident(
                 _res_ops, y_codes, y_terms, quantization_nbins, _ua_codes, _ub_codes, _bn_codes,
             )
-        except Exception:
+        except Exception as e:
+            logger.debug("GPU-resident candidate table build failed, falling back to the host path: %s", e)
             _resident_table = None
     for _pidx, (n1, n2) in enumerate(pairs):
         x1 = base_f64[n1]
@@ -379,7 +382,8 @@ def build_usability_candidate_pool(
                     tb = unary[ub](x2); _tb_cache[ib] = tb
                 try:
                     val = _scrub(binary[bn](ta, tb), feature_dtype)
-                except Exception:  # nosec B112 - best-effort path
+                except Exception as e:  # nosec B112 - best-effort path
+                    logger.debug("binary op %r on this candidate pair raised, skipping: %s", bn, e)
                     continue
                 if any(_abscorr(val, k.values) > diversity_corr for k in _njit_kept):
                     continue
@@ -410,20 +414,21 @@ def build_usability_candidate_pool(
             for _ua in unary:
                 try:
                     ta_by_ua[_ua] = unary[_ua](x1)
-                except Exception:  # nosec B110 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-                    pass
+                except Exception as e:  # nosec B110 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+                    logger.debug("unary op %r on x1 raised, skipping: %s", _ua, e)
             tb_by_ub: dict = {}
             for _ub in unary:
                 try:
                     tb_by_ub[_ub] = unary[_ub](x2)
-                except Exception:  # nosec B110 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-                    pass
+                except Exception as e:  # nosec B110 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+                    logger.debug("unary op %r on x2 raised, skipping: %s", _ub, e)
             for ua, ta in ta_by_ua.items():
                 for ub, tb in tb_by_ub.items():
                     for bn, bf in binary.items():
                         try:
                             val = _scrub(bf(ta, tb), feature_dtype)
-                        except Exception:  # nosec B112 - best-effort path
+                        except Exception as e:  # nosec B112 - best-effort path
+                            logger.debug("binary combine on this unary-pair raised, skipping: %s", e)
                             continue
                         if float(np.std(val)) <= 1e-9:
                             continue
@@ -456,7 +461,8 @@ def build_usability_candidate_pool(
                     quantization_dtype=quantization_dtype,
                     fit_values_for_edges=_f64(c.values),  # edges need float64 precision
                 )
-            except Exception:  # nosec B112 - optional/best-effort path, rationale documented
+            except Exception as e:  # nosec B112 - optional/best-effort path, rationale documented
+                logger.debug("recipe build failed, dropping this candidate as not replayable: %s", e)
                 continue  # recipe could not even be built -> not replayable, drop.
             # Verify the replay ONCE per distinct op-combo (see cache note above); trust verified combos
             # for later candidates. A recipe whose replay RAISES or MISMATCHES on its first sighting
@@ -467,7 +473,8 @@ def build_usability_candidate_pool(
                 try:
                     replay = _scrub(apply_recipe(recipe, X_df), feature_dtype)
                     ok = bool(replay.shape == c.values.shape and np.allclose(_f64(replay), _f64(c.values), atol=1e-4, equal_nan=True))
-                except Exception:
+                except Exception as e:
+                    logger.debug("recipe replay verification raised, treating this combo as unverified: %s", e)
                     ok = False
                 _combo_replay_ok[combo] = ok
             if ok:
@@ -520,8 +527,8 @@ def usability_greedy(
             )
             if _res is not None:
                 return _res
-    except Exception:  # nosec B110 - optional/best-effort path, rationale documented
-        pass  # any import/device error -> the exact CPU greedy below
+    except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+        logger.debug("GPU-resident greedy path unavailable, falling back to the exact CPU greedy: %s", e)
     from sklearn.linear_model import LinearRegression, LogisticRegression
     from sklearn.preprocessing import StandardScaler
     from sklearn.pipeline import make_pipeline
@@ -592,8 +599,8 @@ def usability_greedy(
             if _k_fit < _k_eff:
                 K = max(1, _k_fit)
                 shortlist = min(int(shortlist), max(int(K), 1))
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("shortlist auto-sizing failed, keeping the caller-provided shortlist: %s", e)
 
     rng = np.random.default_rng(int(seed))
     # BALANCED PARTITION (audit fix, 2026-06-13): a random ``rng.integers(0, n_folds)`` multinomial
@@ -804,7 +811,8 @@ def usability_greedy(
                 from ._usability_gpu import gpu_abscorr_batch
                 cols = np.column_stack([_pv(i)[rows] for i in cand_ids])
                 uses = gpu_abscorr_batch(cols, _f64(np.asarray(resid)))
-            except Exception:
+            except Exception as e:
+                logger.debug("gpu_abscorr_batch failed, falling back to the exact CPU path: %s", e)
                 uses = None  # fall back to the exact CPU path
         scored = []
         for k, i in enumerate(cand_ids):

@@ -56,7 +56,8 @@ def resolve_fe_dispatch_env_gate() -> _FeDispatchEnvGate:
 try:  # GPU twin owns the canonical code_version (covers CPU + cupy + cuda bodies).
     from ..batch_mi_noise_gate_gpu import _batch_mi_noise_gate_code_version as _bming_code_version
     _BATCH_MI_NOISE_GATE_CODE_VERSION = _bming_code_version() or "batch_mi_noise_gate-v2"
-except Exception:
+except Exception as e:
+    _module_logger.debug("batch_mi_noise_gate_gpu code-version resolution failed, using the static fallback string: %s", e)
     _BATCH_MI_NOISE_GATE_CODE_VERSION = "batch_mi_noise_gate-v2"
 
 
@@ -101,7 +102,8 @@ def _dispatch_batch_mi_with_noise_gate(
     try:
         from ..info_theory._batch_kernels import select_batch_mi_kernel
         _cpu_kernel = select_batch_mi_kernel(int(n), int(K))
-    except Exception:
+    except Exception as e:
+        _module_logger.debug("select_batch_mi_kernel failed, using the default batch_mi_kernel: %s", e)
         _cpu_kernel = batch_mi_kernel
 
     # RESIDENT-CODES HANDOFF (gated, default OFF): if the FE chunk binned these codes ON the GPU and kept
@@ -119,7 +121,8 @@ def _dispatch_batch_mi_with_noise_gate(
         _ensure_host = ensure_host_codes_filled
         if fe_gpu_resident_codes_enabled():
             device_codes = take_resident_codes(disc_2d)
-    except Exception:
+    except Exception as e:
+        _module_logger.debug("GPU-resident codes acquisition failed, falling back to host codes: %s", e)
         device_codes = None
         _ensure_host = None
 
@@ -161,7 +164,8 @@ def _dispatch_batch_mi_with_noise_gate(
             _an_ok = analytic_null_enabled() and analytic_null_applicable(
                 int(n), int(quantization_nbins), _by_occ,
             )
-        except Exception:
+        except Exception as e:
+            _module_logger.debug("analytic_null applicability check failed, skipping the analytic gate: %s", e)
             _an_ok = False
         if _an_ok:
             try:
@@ -215,14 +219,16 @@ def _dispatch_batch_mi_with_noise_gate(
     try:
         from .._fe_deadline import fe_budget_active
         _budget_active = fe_budget_active()
-    except Exception:
+    except Exception as e:
+        _module_logger.debug("fe_budget_active() check failed, treating the run as unbudgeted: %s", e)
         _budget_active = False
     if _budget_active:
         try:
             from ..batch_mi_noise_gate_gpu import _batch_mi_noise_gate_fallback_choice
             _fb = _batch_mi_noise_gate_fallback_choice(int(n), int(K))
             backend = str(_fb.get("backend_choice", "cpu")) if isinstance(_fb, dict) else "cpu"
-        except Exception:
+        except Exception as e:
+            _module_logger.debug("budgeted-run fallback backend choice failed, defaulting to cpu: %s", e)
             backend = "cpu"
     else:
         try:
@@ -250,7 +256,8 @@ def _dispatch_batch_mi_with_noise_gate(
                 backend = _res
             elif _res:
                 backend = str(_res.get("backend_choice", "cpu"))
-        except Exception:  # pyutilz missing / cache error -> CPU (always correct)
+        except Exception as e:  # pyutilz missing / cache error -> CPU (always correct)
+            _module_logger.debug("kernel_tuning_cache get_or_tune failed, defaulting to cpu: %s", e)
             backend = "cpu"
 
     # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, diagnostic, default OFF): force the noise-gate MI onto the
@@ -261,8 +268,8 @@ def _dispatch_batch_mi_with_noise_gate(
         from .._fe_gpu_strict import fe_gpu_strict_enabled
         if fe_gpu_strict_enabled(n=int(n), p=int(K)):
             backend = "gpu"
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        _module_logger.debug("fe_gpu_strict_enabled() check failed, leaving the backend choice untouched: %s", e)
 
     # GPU region: route to the bit-identical GPU twin. Any failure (cupy/cuda
     # unavailable, OOM, shape edge) returns None / raises and falls through to the
@@ -376,7 +383,8 @@ def _batch_mi_with_noise_gate_gpu(
         ensure_host_codes()
     try:
         from ..batch_mi_noise_gate_gpu import dispatch_batch_mi_with_noise_gate_gpu
-    except Exception:
+    except Exception as e:
+        _module_logger.debug("batch_mi_noise_gate_gpu import failed, GPU dispatch unavailable: %s", e)
         return None
     _out = dispatch_batch_mi_with_noise_gate_gpu(
         disc_2d=disc_2d,

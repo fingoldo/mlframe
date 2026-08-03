@@ -246,8 +246,9 @@ def _batched_quantiles(cp, M, q_fracs):
         out = _radix_quantiles(M, q_fracs)
         if out is not None:
             return out
-    except Exception:  # nosec B110 - best-effort/optional path, no module logger
-        pass
+    except Exception as e:  # nosec B110 - best-effort/optional path, no module logger
+        import logging
+        logging.getLogger(__name__).debug("_radix_quantiles failed, falling back to cp.percentile: %s", e)
     return cp.percentile(M, cp.asarray([float(q) * 100.0 for q in q_fracs]), axis=0)
 
 
@@ -388,7 +389,9 @@ def _gpu_robust_scale_batched(cp, M, med, *, q25=None, q75=None):
              cp.ascontiguousarray(q25.astype(cp.float64, copy=False)),
              cp.ascontiguousarray(q75.astype(cp.float64, copy=False)), np.int32(K), out))
         return out
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("robust-scale RawKernel failed, falling back to the cupy chain: %s", e)
         scale = 1.4826 * mad
         iqr = (q75 - q25) / 1.349
         return cp.where(scale > 1e-12, scale, cp.where(iqr > 1e-12, iqr, 0.0))
@@ -477,7 +480,9 @@ def _gpu_detect_heavy_tail_batched(cp, M):
              float(_GPU_ROBUST_AXIS_OUTER_K), float(_GPU_ROBUST_AXIS_GAP),
              float(_GPU_ROBUST_AXIS_MAX_FRAC), np.int64(n), np.int32(K), out_v))
         return out_v.astype(cp.bool_)
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("robust-axis-outlier RawKernel failed, falling back to the cupy chain: %s", e)
         dev = cp.abs(M - med)
         outer = dev > (_GPU_ROBUST_AXIS_OUTER_K * scale)
         n_outer = outer.sum(axis=0)
@@ -694,8 +699,9 @@ def _gpu_basis_preprocess_batched(cp, M, basis, *, robust):
     if basis in _BASIS_PREPROCESS_CODE:
         try:
             return _gpu_basis_preprocess_robust_fused(cp, M, basis) if robust else _gpu_basis_preprocess_nonrobust_fused(cp, M, basis)
-        except Exception:  # nosec B110 - non-trivial body; best-effort/optional path, no module logger
-            pass  # fall through to the exact cupy chain below
+        except Exception as e:  # nosec B110 - non-trivial body; best-effort/optional path, no module logger
+            import logging
+            logging.getLogger(__name__).debug("fused basis-preprocess kernel failed, falling back to the exact cupy chain: %s", e)
     if basis == "hermite":  # z-score
         if robust:
             center = _batched_quantiles(cp, M, [0.5])[0]
@@ -835,7 +841,9 @@ def _gpu_batched_abs_corr(cp, cand, y_cont):
         out = cp.empty(m, dtype=cp.float64)
         _get_abs_corr_kernel()((m,), (256,), (cand2, yv, np.int64(n), np.int32(m), np.float64(Sy), np.float64(Syy), out), shared_mem=3 * 8)
         return out
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("abs-corr RawKernel failed, falling back to the cupy chain: %s", e)
         yc = y_cont - y_cont.mean()
         yn = cp.sqrt((yc * yc).sum())
         cc = cand - cand.mean(axis=0)
@@ -1048,7 +1056,9 @@ def fe_gpu_pairs_mi_backend_choice(n_rows: int, n_cols: int) -> str:
         )
         bc = res if isinstance(res, str) else str((res or {}).get("backend_choice", "cpu"))
         return bc if bc in ("cpu", "gpu") else "cpu"
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("fe_gpu_pairs_mi_backend_choice: kernel_tuning_cache lookup failed, using the measurement-backed fallback: %s", e)
         return _fe_gpu_pairs_mi_fallback_choice(n_rows, n_cols)
 
 
@@ -1177,7 +1187,9 @@ def fe_gpu_binning_backend_choice(n_rows: int, n_cols: int) -> str:
         )
         bc = res if isinstance(res, str) else str((res or {}).get("backend_choice", "cpu"))
         return bc if bc in ("cpu", "gpu") else "cpu"
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("fe_gpu_binning_backend_choice: kernel_tuning_cache lookup failed, using the measurement-backed fallback: %s", e)
         return _fe_gpu_binning_fallback_choice(n_rows, n_cols)
 
 
@@ -1445,7 +1457,9 @@ def grand_fused_pair_mi_fused(
     hist_bytes = P1 * int(nbins) * K_y * 4
     try:
         sm_limit = int(cp.cuda.runtime.getDeviceProperties(cp.cuda.Device().id)["sharedMemPerBlock"])
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("device sharedMemPerBlock probe failed, using the conservative 48KiB default: %s", e)
         sm_limit = 48 * 1024
     if hist_bytes > sm_limit - 256:
         raise RuntimeError(
@@ -1595,7 +1609,9 @@ def pair_candidate_mi_dispatch(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray
     # project rule against hardcoded GPU thresholds; the 50k stays as the conservative cold-start default.
     try:
         _use_gpu = fe_gpu_pairs_mi_backend_choice(n, len(_COMBOS)) == "gpu"
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("fe_gpu_pairs_mi_backend_choice failed, using the size-based fallback: %s", e)
         _use_gpu = n >= _GPU_RESIDENT_MIN_N
     if _use_gpu:
         try:

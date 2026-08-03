@@ -125,13 +125,15 @@ def _polars_schema_diagnostic(
                 try:
                     ordering = getattr(dt, "ordering", "?")
                     variant = f"Categorical(ordering={ordering!r})"
-                except Exception:
+                except Exception as e:
+                    logger.debug("schema diagnostic: reading Categorical ordering failed: %s", e)
                     variant = "Categorical"
             try:
                 nu = df[col].n_unique()
                 nn = int(df[col].null_count())
                 lines.append(f"    {col} [{role}]: {variant}, n_unique={nu}, nulls={nn}")
-            except Exception:
+            except Exception as e:
+                logger.debug("schema diagnostic: n_unique/null_count for column %r failed: %s", col, e)
                 lines.append(f"    {col} [{role}]: {variant}")
             shown += 1
 
@@ -176,6 +178,7 @@ def _polars_schema_diagnostic(
             )
         return header + "\n" + "\n".join(lines)
     except Exception as _diag_err:  # best-effort: escalated via the returned diagnostic string itself
+        logger.debug("schema diagnostic failed: %r", _diag_err)
         return f"  (schema diagnostic failed: {_diag_err!r})"
 
 
@@ -614,7 +617,8 @@ def _cb_gpu_usable() -> bool:
             )
             _probe.fit(_np.zeros((2, 1), dtype=_np.float32), _np.array([0.0, 1.0], dtype=_np.float32))
             _CB_GPU_USABLE_CACHE = True
-        except Exception:
+        except Exception as e:
+            logger.debug("CatBoost GPU usability probe fit failed, treating GPU as unusable: %s", e)
             _CB_GPU_USABLE_CACHE = False
         return _CB_GPU_USABLE_CACHE
 
@@ -706,7 +710,8 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
                 if _label_changed:
                     try:
                         _lab = _coerce_label_for_cb_pool(val_target)
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("_coerce_label_for_cb_pool failed, using val_target as-is: %s", e)
                         _lab = val_target
                     cached.set_label(_lab)
                     cached._mlframe_last_target_sig = _target_sig
@@ -732,7 +737,8 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
 
         try:
             _lab_build = _coerce_label_for_cb_pool(val_target)
-        except Exception:
+        except Exception as e:
+            logger.debug("_coerce_label_for_cb_pool failed, using val_target as-is: %s", e)
             _lab_build = val_target
 
         try:
@@ -767,7 +773,8 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
                 val_pool._mlframe_dtypes_sig = tuple(str(d) for d in val_df.schema.values())
             else:
                 val_pool._mlframe_dtypes_sig = None
-        except Exception:
+        except Exception as e:
+            logger.debug("val_pool dtypes signature computation failed, leaving it None: %s", e)
             val_pool._mlframe_dtypes_sig = None
         _CB_VAL_POOL_CACHE[key] = val_pool
         rewritten.append(val_pool)

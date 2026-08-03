@@ -90,7 +90,8 @@ def _ensure_cb_mtr_loss(model, train_target, pool=None) -> None:
     try:
         get = getattr(model, "get_param", None) or getattr(model, "get_params", None)
         params = get() if callable(get) else {}
-    except Exception:
+    except Exception as e:
+        logger.debug("_ensure_cb_mtr_loss: get_param()/get_params() failed, treating params as empty: %s", e)
         params = {}
     _existing = params.get("loss_function")
     # Skip when the user already wired a multi-target-compatible loss.
@@ -100,7 +101,8 @@ def _ensure_cb_mtr_loss(model, train_target, pool=None) -> None:
     if pool is not None:
         try:
             label_arr = np.asarray(pool.get_label())
-        except Exception:
+        except Exception as e:
+            logger.debug("_ensure_cb_mtr_loss: pool.get_label() failed, treating label_arr as unavailable: %s", e)
             label_arr = None
     if label_arr is None:
         label_arr = np.asarray(train_target) if train_target is not None else None
@@ -112,7 +114,8 @@ def _ensure_cb_mtr_loss(model, train_target, pool=None) -> None:
                 # Bit-identical for uniform-width rows; ragged rows still raise here and
                 # hit the except below exactly as the prior np.stack did.
                 label_arr = np.array(label_arr.tolist())
-            except Exception:
+            except Exception as e:
+                logger.debug("_ensure_cb_mtr_loss: ragged label_arr.tolist() -> np.array() failed: %s", e)
                 label_arr = None
     if label_arr is None or label_arr.ndim != 2 or label_arr.shape[1] < 2:
         return
@@ -141,7 +144,8 @@ def _ensure_cb_multilabel_loss(model, train_target, pool=None) -> None:
     try:
         get = getattr(model, "get_param", None) or getattr(model, "get_params", None)
         params = get() if callable(get) else {}
-    except Exception:
+    except Exception as e:
+        logger.debug("_ensure_cb_multilabel_loss: get_param()/get_params() failed, treating params as empty: %s", e)
         params = {}
     if params.get("loss_function") is not None:
         return
@@ -149,7 +153,8 @@ def _ensure_cb_multilabel_loss(model, train_target, pool=None) -> None:
     if pool is not None:
         try:
             label_arr = np.asarray(pool.get_label())
-        except Exception:
+        except Exception as e:
+            logger.debug("_ensure_cb_multilabel_loss: pool.get_label() failed, treating label_arr as unavailable: %s", e)
             label_arr = None
     if label_arr is None:
         label_arr = np.asarray(train_target) if train_target is not None else None
@@ -475,7 +480,8 @@ def _train_model_with_fallback(
             if hasattr(model, "get_params"):
                 try:
                     _user_text_proc = model.get_params().get("text_processing")
-                except Exception:
+                except Exception as e:
+                    logger.debug("model.get_params() failed, treating text_processing as unset: %s", e)
                     _user_text_proc = None
             if _user_text_proc is None:
                 _tp = compute_cb_text_processing(_cb_n_rows) if _cb_n_rows is not None else None

@@ -357,9 +357,9 @@ def _prewarm_numba_cache_body():
         if not _skip_par_prewarm:
             _ = _fast_r2_score_weighted_par(_reg_y, _reg_p, _reg_w)
         _ = _fast_r2_variance_seq(_reg_y)
-    except Exception:  # nosec B110 - non-trivial body
+    except Exception as e:  # nosec B110 - non-trivial body
         # Non-fatal: a bad cache or numba-runtime hiccup; the seq path still works.
-        pass
+        logger.debug("r2 kernels warmup failed, skipping: %s", e)
 
     # Wrapped in try/except for the same defensive reason as the regression block above: a bad numba
     # cache or runtime hiccup on an exotic build should degrade to seq, not abort the whole prewarm.
@@ -382,12 +382,12 @@ def _prewarm_numba_cache_body():
         yt_packed = np.array([0b011, 0b101, 0b110, 0b001], dtype=np.uint64)
         yp_packed = np.array([0b110, 0b101, 0b100, 0b011], dtype=np.uint64)
         _ = _fast_jaccard_bitmap_seq(yt_packed, yp_packed, 3)
-    except Exception:  # nosec B110 - non-trivial body
+    except Exception as e:  # nosec B110 - non-trivial body
         # Catches the numba-internal ``AssertionError`` raised from
         # ``parfor.py:3886`` lookup() as well as any compile / runtime fault
         # in the sequential helpers. AssertionError inherits from Exception
         # so the bare ``except Exception`` is sufficient.
-        pass
+        logger.debug("jaccard kernels warmup failed, skipping: %s", e)
 
     # Verify nogil=True actually stuck; silent fallback would make parallel val/test metric evaluation secretly sequential.
     _assert_numba_nogil_active()
@@ -411,15 +411,15 @@ def _prewarm_numba_cache_body():
     try:
         from mlframe.feature_selection.filters import prewarm_fs_numba_cache
         prewarm_fs_numba_cache()
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("feature_selection numba-cache prewarm failed, skipping: %s", e)
 
     # Warm dummy_baselines kernels. The suite already calls `_warmup_numba_kernels` early in `train_mlframe_models_suite`, but that lands inside the suite wall-time; warming here shifts cost out of the user-visible timer.
     try:
         from mlframe.training.baselines import _warmup_numba_kernels
         _warmup_numba_kernels()
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("training.baselines numba-kernel warmup failed, skipping: %s", e)
 
     # Prewarm-import the heavy neural-net stack. `mlframe.lightninglib` / `mlframe.training.neural` pulls in PyTorch Lightning, which is a ~275s cold-import on Windows. The cost otherwise lands inside the suite call because the import is deferred until `mlp` is in the model list. Triggered ONLY when lightning is already discoverable; otherwise the import attempt itself would be a 5-10s ModuleNotFoundError walk through sys.path.
     #
@@ -462,22 +462,22 @@ def _prewarm_numba_cache_body():
             if _ilu.find_spec("lightning") is not None:
                 try:
                     import lightning.fabric  # noqa: F401
-                except Exception:  # nosec B110 - optional dependency import guard
-                    pass
+                except Exception as e:  # nosec B110 - optional dependency import guard
+                    logger.debug("lightning.fabric import warmup failed, skipping: %s", e)
                 try:
                     # importlib.import_module (not a bound `import` statement): this is a pure
                     # side-effect warmup, the module's name is never referenced afterward, and a
                     # bound import of a same-package submodule (unlike the third-party imports
                     # above) reads as dead code to vulture's unused-import check.
                     importlib.import_module("mlframe.lightninglib")
-                except Exception:  # nosec B110 - optional dependency import guard
-                    pass
+                except Exception as e:  # nosec B110 - optional dependency import guard
+                    logger.debug("mlframe.lightninglib import warmup failed, skipping: %s", e)
             # `pytorch_lightning` is a separate package from `lightning` (legacy alias kept for back-compat); cold import is ~500s on Windows for the currently-pinned version.
             if _ilu.find_spec("pytorch_lightning") is not None:
                 try:
                     import pytorch_lightning  # noqa: F401
-                except Exception:  # nosec B110 - optional dependency import guard
-                    pass
+                except Exception as e:  # nosec B110 - optional dependency import guard
+                    logger.debug("pytorch_lightning import warmup failed, skipping: %s", e)
             # `shap` cold import is ~228s on Windows (includes `shap.utils.transformers` walking the local transformers registry). The suite imports shap inside trainer.py when use_shap=True.
             if _ilu.find_spec("shap") is not None:
                 try:
@@ -485,14 +485,14 @@ def _prewarm_numba_cache_body():
                     import shap.utils.transformers
                     # Match the runtime monkeypatch so prewarm leaves shap in the state the suite expects.
                     shap.utils.transformers.is_transformers_lm = lambda model: False
-                except Exception:  # nosec B110 - optional dependency import guard
-                    pass
+                except Exception as e:  # nosec B110 - optional dependency import guard
+                    logger.debug("shap.utils.transformers import/monkeypatch warmup failed, skipping: %s", e)
             try:
                 import mlframe.training.neural  # noqa: F401
-            except Exception:  # nosec B110 - optional dependency import guard
-                pass
-        except Exception:  # nosec B110 - optional dependency import guard
-            pass
+            except Exception as e:  # nosec B110 - optional dependency import guard
+                logger.debug("mlframe.training.neural import warmup failed, skipping: %s", e)
+        except Exception as e:  # nosec B110 - optional dependency import guard
+            logger.debug("torch/lightning warmup block failed, skipping: %s", e)
 
     # Warm cupy GPU AUC kernels. `compute_batch_aucs` dispatches to `gpu_multiple_roc_auc_scores` / `gpu_multiple_pr_auc_scores` when N>=100k AND M>=5. cupy compiles CUDA kernels via NVRTC on first call (~128s per fresh process). No-op when cupy isn't installed.
     # Gate the WHOLE block on is_gpu_metrics_available() (which now probes

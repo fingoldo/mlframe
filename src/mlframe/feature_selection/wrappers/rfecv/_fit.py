@@ -65,6 +65,8 @@ def _apply_prescreen(self, *, X, y, candidate_features, verbose):
         except Exception as exc:
             if verbose:
                 logger.warning("Prescreen callable failed (%s); skipping prescreen.", exc)
+            else:
+                logger.debug("Prescreen callable failed (%s); skipping prescreen.", exc)
             return candidate_features
         if _topk is not None and len(_kept) > _topk:
             _kept = _kept[: int(_topk)]
@@ -98,6 +100,8 @@ def _apply_prescreen(self, *, X, y, candidate_features, verbose):
         except Exception as exc:
             if verbose:
                 logger.warning("mRMR prescreen failed (%s); skipping.", exc)
+            else:
+                logger.debug("mRMR prescreen failed (%s); skipping.", exc)
             return candidate_features
         _kept_set = set(_kept)
         return [c for c in candidate_features if c in _kept_set]
@@ -125,6 +129,8 @@ def _apply_prescreen(self, *, X, y, candidate_features, verbose):
         except Exception as exc:
             if verbose:
                 logger.warning("univariate_ht prescreen failed (%s); skipping.", exc)
+            else:
+                logger.debug("univariate_ht prescreen failed (%s); skipping.", exc)
             return candidate_features
         if _topk is not None and len(_kept) > _topk:
             _kept = _kept[: int(_topk)]
@@ -161,6 +167,8 @@ def _precompute_prescreen_fold_universes(self, *, X, y, groups, cv, full_feature
     except Exception as exc:
         if verbose:
             logger.warning("Nested prescreen precompute failed (%s); using the global in-universe estimate.", exc)
+        else:
+            logger.debug("Nested prescreen precompute failed (%s); using the global in-universe estimate.", exc)
         return None
     if verbose:
         logger.info("RFECV nested prescreen: precomputed train-only universes for %d fold(s).", len(universes))
@@ -174,7 +182,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     # form would exceed ~2 GB is refused with a clear error rather than silently doubling host memory.
     try:
         from scipy.sparse import issparse as _issparse
-    except Exception:
+    except ImportError:
         _issparse = None
     if _issparse is not None and _issparse(X):
         _dense_bytes = int(X.shape[0]) * int(X.shape[1]) * 8
@@ -192,7 +200,8 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
         try:
             _y_arr = np.asarray(y)
             _is_2d = _y_arr.ndim >= 2 and _y_arr.shape[-1] > 1
-        except Exception:
+        except Exception as e:
+            logger.debug("y-shape 2D check failed, assuming 1D: %s", e)
             _is_2d = False
         if _is_2d:
             from ._multioutput import fit_multioutput
@@ -259,7 +268,8 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
             # All columns must be numeric/bool AND have a finite-supporting dtype. NaN is fine (LightGBM /
             # tree handles it; float64 carries NaN bit-identically); object / category / string disqualify.
             _all_numeric = bool(len(X.columns)) and all(_is_num(X[c]) or _is_bool(X[c]) for c in X.columns)
-        except Exception:
+        except Exception as e:
+            logger.debug("all-numeric dtype check failed, assuming not all-numeric: %s", e)
             _all_numeric = False
         if _all_numeric:
             try:
@@ -546,7 +556,8 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     state.ram_baseline_mb = _get_process_rss_mb()
     try:
         state.ram_df_size_mb = _estimate_df_size_mb(X)
-    except Exception:
+    except Exception as e:
+        logger.debug("_estimate_df_size_mb failed, recording ram_df_size_mb as 0.0: %s", e)
         state.ram_df_size_mb = 0.0
 
     while state.nsteps < len(original_features):
