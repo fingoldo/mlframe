@@ -75,7 +75,7 @@ def _is_regression_target_type(target_type: Any) -> bool:
     """
     try:
         from ..configs import TargetTypes
-    except Exception:
+    except ImportError:
         return False
     return bool(target_type == TargetTypes.REGRESSION)
 
@@ -110,6 +110,8 @@ def _apply_loss_recommendation_in_place(
                 "[auto-loss] could not import loss recommendation helper: %s. " "Inner regression models keep their default loss.",
                 _imp_err,
             )
+        else:
+            logger_.debug("[auto-loss] could not import loss recommendation helper: %s.", _imp_err)
         return
 
     try:
@@ -121,6 +123,8 @@ def _apply_loss_recommendation_in_place(
                 composite_name,
                 _rec_err,
             )
+        else:
+            logger_.debug("[auto-loss] recommend_boosting_regression_loss failed on target='%s': %s.", composite_name, _rec_err)
         return
 
     # Backend -> (param name on the estimator, recommended value).
@@ -442,7 +446,8 @@ def _compute_pipeline_cache_key(
             _canon_pairs = _canonical_dtype_pairs(train_df)
             if _canon_pairs:
                 _dtype_suffix = f"_dt{hashlib.blake2b(repr(_canon_pairs).encode(), digest_size=6).hexdigest()}"
-        except Exception:
+        except Exception as e:
+            logger.debug("dtype-suffix computation failed, leaving it empty: %s", e)
             _dtype_suffix = ""
     _target_suffix = ""
     if pre_pipeline_name and (target_name is not None or train_target is not None):
@@ -475,7 +480,8 @@ def _canonical_dtype_pairs(train_df) -> tuple:
             _ncols = train_df.width
         elif hasattr(train_df, "columns"):
             _ncols = len(train_df.columns)
-    except Exception:
+    except Exception as e:
+        logger.debug("column-count probe failed: %s", e)
         _ncols = None
     if _ncols is None:
         return _canonical_dtype_pairs_compute(train_df)

@@ -143,7 +143,8 @@ def _normalise_X(
                 # distribution is going to be materialised anyway downstream.
                 try:
                     df = _pl2pd(X.collect())
-                except Exception:
+                except Exception as e:
+                    logger.debug("_pl2pd(X.collect()) failed: %s", e)
                     df = None
             elif _typename == "Series":
                 # 1-D series -> single-column frame. Use the series name if
@@ -153,14 +154,16 @@ def _normalise_X(
                 _name = feature_names[0] if feature_names else (getattr(X, "name", None) or "f0")
                 try:
                     df = pd.DataFrame({_name: X.to_pandas()})
-                except Exception:
+                except Exception as e:
+                    logger.debug("building a DataFrame from a polars Series failed: %s", e)
                     df = None
             else:
                 try:
                     df = _pl2pd(X)
-                except Exception:
+                except Exception as e:
                     # Helper may raise on unusual polars subclasses; fall
                     # back to the naive call so the suite still progresses.
+                    logger.debug("_pl2pd(X) failed, falling back to X.to_pandas() if available: %s", e)
                     _to_pandas = getattr(X, "to_pandas", None)
                     if callable(_to_pandas):
                         df = _to_pandas()
@@ -231,9 +234,10 @@ def _normalise_X(
                 # tell whether the user expected numeric or not; warn so
                 # broken-dispatch shapes (test layer's intent) still surface.
                 _source_had_numeric = True
-        except Exception:
+        except Exception as e:
             # If the probe itself fails, assume there could be numeric data
             # and surface the WARN -- prefer false positive over silent miss.
+            logger.debug("numeric-dtype probe failed, assuming numeric data may be present: %s", e)
             _source_had_numeric = True
         if _source_had_numeric:
             logger.warning(
@@ -473,9 +477,10 @@ def analyze_feature_distribution(
                 y_series = pd.Series(y_arr, index=df.index)
                 try:
                     corrs = df[candidate_numeric].corrwith(y_series, drop=False)
-                except Exception:
+                except Exception as e:
                     # Object-dtype mix or other corrwith refusal — fall through
                     # to nothing rather than crash the analyzer.
+                    logger.debug("corrwith() failed, treating correlations as empty: %s", e)
                     corrs = pd.Series(dtype=np.float64)
                 for c, corr_val_raw in corrs.items():
                     if not pd.notna(corr_val_raw):

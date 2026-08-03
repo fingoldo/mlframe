@@ -108,7 +108,8 @@ def resolve_mlp_dataloader_defaults(
         try:
             import torch
             cuda_ok = bool(torch.cuda.is_available())
-        except Exception:
+        except Exception as e:
+            logger.debug("torch.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e)
             cuda_ok = False
     else:
         cuda_ok = bool(cuda_available)
@@ -194,9 +195,11 @@ def _probe_cuda_precision_cached(device_id: int) -> str:
             try:
                 cc_major, _ = torch.cuda.get_device_capability(int(device_id))
                 result = "bf16-mixed" if cc_major >= _BF16_MIN_CC_MAJOR else "32-true"
-            except Exception:
+            except Exception as e:
+                logger.debug("torch.cuda.get_device_capability() failed, defaulting to 32-true: %s", e)
                 result = "32-true"
-    except Exception:
+    except Exception as e:
+        logger.debug("precision probe failed, defaulting to 32-true: %s", e)
         result = "32-true"
     _PROBE_PRECISION_CACHE[device_id] = result
     return result
@@ -247,7 +250,8 @@ def resolve_mlp_precision_default(
         try:
             import torch
             cuda_ok = bool(torch.cuda.is_available())
-        except Exception:
+        except Exception as e:
+            logger.debug("torch.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e)
             cuda_ok = False
     else:
         cuda_ok = bool(cuda_available)
@@ -353,7 +357,8 @@ def _probe_available_memory_bytes(
         try:
             import torch
             cuda_ok = bool(torch.cuda.is_available())
-        except Exception:
+        except Exception as e:
+            logger.debug("torch.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e)
             cuda_ok = False
     else:
         cuda_ok = bool(cuda_available)

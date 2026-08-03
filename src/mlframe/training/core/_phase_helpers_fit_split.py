@@ -338,7 +338,8 @@ def _phase_train_val_test_split(
                             len(_u),
                             _MAX_COMPOSITE_CARDINALITY,
                         )
-            except Exception:
+            except Exception as e:
+                logger.debug("classification stratify_y construction failed: %s", e)
                 _stratify_y = None
         # Regression bucket-stratify: when no classification stratify_y was set above AND bucket_stratify is enabled (default True), bin regression targets into deciles (quartiles for n<5000) and stratify on bucket ids. Prevents heavy-tail / multimodal regression from concentrating tail rows in val or test (the same all-one-class hazard classification stratification already prevents). Skipped when a classification path already populated _stratify_y, when timestamps drive a temporal split, or when only a single distinct target value is present.
         if _stratify_y is None and _bucket_stratify_enabled and timestamps is None:
@@ -603,7 +604,8 @@ def _phase_auto_detect_feature_types(
         elif detect_df is not None and hasattr(detect_df, "select_dtypes"):
             try:
                 _post_flip_pandas_cats = detect_df.select_dtypes(include=["category"]).columns.tolist()
-            except Exception:
+            except Exception as e:
+                logger.debug("select_dtypes for post-flip pandas categoricals failed: %s", e)
                 _post_flip_pandas_cats = []
     # Order-preserving dedup: ``metadata["cat_features"]`` feeds CatBoost/Pool and is
     # serialised into the recipe -- ``list(set(...))`` would reorder per PYTHONHASHSEED,
@@ -649,11 +651,13 @@ def _phase_auto_detect_feature_types(
                     from mlframe.training.utils import get_pandas_view_of_polars_df as _get_pd_view
 
                     _per_split_views[_label] = _get_pd_view(_frame.select(_present))
-                except Exception:
+                except Exception as e:
+                    logger.debug("get_pandas_view_of_polars_df failed for split %r, falling back to to_pandas(): %s", _label, e)
                     # Fallback to bare to_pandas on the multi-col select; still 1 batch vs N.
                     try:
                         _per_split_views[_label] = _frame.select(_present).to_pandas()
-                    except Exception:
+                    except Exception as e2:
+                        logger.debug("to_pandas() fallback also failed for split %r: %s", _label, e2)
                         _per_split_views[_label] = None
             else:
                 _per_split_views[_label] = _frame
@@ -718,7 +722,8 @@ def _phase_auto_detect_feature_types(
                     if val_df is not None and _c in set(val_df.columns):
                         try:
                             _u_val = val_df.select(pl.col(_c).drop_nulls().unique())[_c].to_list()
-                        except Exception:
+                        except Exception as e:
+                            logger.debug("computing val-side unique domain for column %r failed: %s", _c, e)
                             _u_val = []
                     _enum_domains[_c] = sorted(set(_u_train) | set(_u_val), key=str)
                     _train_set = set(_u_train)
