@@ -174,6 +174,18 @@ uses. Verified 0 mismatches across 30 synthetic scenarios (kink / pure-linear / 
 and 1.92x speedup at n=2M (warm, best-of-20). `_segmented_sse` itself is unchanged and still used
 elsewhere (`_heldout_hinge_r2_uplift`'s design-comparison closures); only its caller here was rewired.
 
+## PERF WIN (2026-08-03): fourier_adaptive prewarp replay's per-frequency Python loop fused into one njit pass (6.96x)
+2M-row cProfile on combo `c0266_c0090719` (master-seed `31337`, hgb-only regression) caught
+`apply_operand_prewarp` (`hermite_fe/_hermite_prewarp.py`) costing 4.03s pure self-time across 191 calls.
+Root cause: its `fourier_adaptive` basis branch replays `f(x) = sum_k a_k*sin(2*pi*f_k*z) +
+b_k*cos(2*pi*f_k*z)` via a Python `for i, f in enumerate(pp["freqs"])` loop, each iteration allocating
+fresh full-`n`-length `ang`/`sin`/`cos` numpy temp arrays — K separate elementwise passes over the column
+instead of one. Added `_fourier_adaptive_prewarp_njit` (`@njit(parallel=True)`, `prange` over rows, the
+frequency reduction as an inner per-row loop in the SAME `i=0..K-1` order the Python loop used) and wired
+it into `apply_operand_prewarp`'s `fourier_adaptive` branch. Verified 0 mismatches across 20 synthetic
+scenarios (K=1-8 frequencies, linear + quadratic axis preprocessing, n=500-50k) and 6.96x speedup at
+n=2M/K=4 (warm, best-of-15). The other basis branches (poly/eval_dispatch) were untouched.
+
 ## PERF WIN (2026-08-02): per_feature_edges' thread-pool threshold was 64x too high for real usage (1.2x-7.2x)
 2M-row cProfile on combo `c0037_c314bb14` (master-seed `2026_04_29`) found `per_feature_edges`/
 `_compute_col_edges` (`_adaptive_nbins.py`) costing 78s wall on a `fayyad_irani` (MDLP) fit with

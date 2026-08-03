@@ -11,7 +11,32 @@ avoid an import cycle.
 from __future__ import annotations
 
 import numpy as np
+from numba import njit, prange
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
+
+
+@njit(cache=True, parallel=True, fastmath=False)
+def _fourier_adaptive_prewarp_njit(axis: np.ndarray, coef: np.ndarray, freqs: np.ndarray) -> np.ndarray:
+    """Fused multi-frequency sin/cos prewarp replay: one prange pass over rows, one inner loop over
+    frequencies per row - the SAME per-row accumulation order (i=0..K-1) as the Python
+    ``for i, f in enumerate(pp["freqs"])`` loop it replaces, so results are bit-identical. Avoids that
+    loop's K separate full-``n``-length ``ang``/``sin``/``cos`` temp-array allocations (one numpy
+    elementwise pass per frequency) in favour of one allocation-light pass per row."""
+    n = axis.shape[0]
+    K = freqs.shape[0]
+    out = np.empty(n, dtype=np.float64)
+    two_pi = 2.0 * np.pi
+    ncoef = coef.shape[0]
+    for r in prange(n):
+        a = axis[r]
+        acc = 0.0
+        for i in range(K):
+            if 2 * i + 1 >= ncoef:
+                break
+            ang = two_pi * freqs[i] * a
+            acc += coef[2 * i] * np.sin(ang) + coef[2 * i + 1] * np.cos(ang)
+        out[r] = acc
+    return out
 
 __all__ = [
     "warm_start_als_seed",
@@ -430,13 +455,8 @@ def apply_operand_prewarp(x: np.ndarray, spec: dict) -> np.ndarray:
         else:
             axis = (xf - float(pp["lo"])) / max(float(pp["span"]), 1e-12)
         coef = np.asarray(spec["coef"], dtype=np.float64).reshape(-1)
-        out = np.zeros_like(axis)
-        for i, f in enumerate(pp["freqs"]):
-            if 2 * i + 1 >= coef.size:
-                break
-            ang = 2.0 * np.pi * float(f) * axis
-            out += coef[2 * i] * np.sin(ang) + coef[2 * i + 1] * np.cos(ang)
-        return out
+        freqs = np.asarray(pp["freqs"], dtype=np.float64).reshape(-1)
+        return np.asarray(_fourier_adaptive_prewarp_njit(np.ascontiguousarray(axis), coef, freqs), dtype=np.float64)
     from . import _POLY_BASES
     bi = _POLY_BASES[basis]
     xf = np.ascontiguousarray(np.asarray(x, dtype=np.float64))
