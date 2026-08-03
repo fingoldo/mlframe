@@ -70,7 +70,7 @@ def _resample_matrix_max_bytes() -> int:
 try:
     from numba import njit as _njit
     _HAS_NUMBA = True
-except Exception:  # pragma: no cover  -- numba is a hard dep, keep guard for static analysers
+except ImportError:  # pragma: no cover  -- numba is a hard dep, keep guard for static analysers
     _HAS_NUMBA = False
     def _njit(*args: Any, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """No-op stand-in for ``numba.njit`` when numba is unavailable; the decorated function runs as plain Python."""

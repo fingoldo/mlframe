@@ -58,7 +58,7 @@ from sklearn.calibration import CalibratedClassifierCV
 
 try:
     from dirichletcal.calib.fulldirichlet import FullDirichletCalibrator
-except Exception:
+except ImportError:
     FullDirichletCalibrator = None
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------

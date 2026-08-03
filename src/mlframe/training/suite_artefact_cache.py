@@ -502,7 +502,8 @@ def cache_artefact(
         """
         try:
             blob = _canonical_dump({"args": [repr(a) for a in args], "kwargs": {k: repr(v) for k, v in sorted(kwargs.items())}})
-        except Exception:
+        except Exception as e:
+            logger.debug("canonical dump for cache-key computation failed, falling back to repr(): %s", e)
             blob = repr((args, sorted(kwargs.items()))).encode("utf-8")
         df_fp = hashlib.blake2b(blob, digest_size=SuiteKeyBuilder.DIGEST_SIZE).hexdigest()
         return SuiteKeyBuilder.build(df_fp=df_fp, config_canonical={"name": name})
@@ -530,7 +531,8 @@ def cache_artefact(
             if size_estimate is not None:
                 try:
                     est = int(size_estimate(value))
-                except Exception:
+                except Exception as e:
+                    logger.debug("size_estimate() callback failed: %s", e)
                     est = None
             try:
                 c.put(key, value, size_estimate=est)

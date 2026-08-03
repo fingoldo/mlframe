@@ -18,7 +18,7 @@ import polars as pl
 
 try:
     from sklearn.base import BaseEstimator, TransformerMixin
-except Exception:  # pragma: no cover - sklearn always present in mlframe
+except ImportError:  # pragma: no cover - sklearn always present in mlframe
     BaseEstimator = object
     TransformerMixin = object
 

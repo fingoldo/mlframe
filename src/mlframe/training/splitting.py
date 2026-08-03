@@ -136,7 +136,8 @@ def make_train_test_split(
     if groups is not None:
         try:
             _n_groups = int(np.unique(np.asarray(groups)).shape[0])
-        except Exception:
+        except Exception as e:
+            logger.debug("group-count computation failed: %s", e)
             _n_groups = -1
         logger.info(
             "Group-aware splitting: ENABLED (n_groups=%d). " "Each group stays within ONE split (no per-row leakage).",
@@ -219,7 +220,8 @@ def make_train_test_split(
         if groups is not None:
             try:
                 _ng = int(np.unique(np.asarray(groups)).shape[0])
-            except Exception:
+            except Exception as e:
+                logger.debug("group-count computation failed: %s", e)
                 _ng = -1
             _group_clause = f"; groups (n_groups={_ng}) still kept whole per split"
         else:

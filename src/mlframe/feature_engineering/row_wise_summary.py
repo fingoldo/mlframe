@@ -59,7 +59,7 @@ try:
         return out
 
     _HAS_NUMBA = True
-except Exception:  # numba unavailable: np.nanquantile fallback below is exact, just slower.
+except ImportError:  # numba unavailable: np.nanquantile fallback below is exact, just slower.
     _HAS_NUMBA = False
 
 

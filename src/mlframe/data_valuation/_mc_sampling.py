@@ -12,9 +12,12 @@ different -- feature-column, not row -- game).
 
 from __future__ import annotations
 
+import logging
 from typing import Callable
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def tmc_shapley(
@@ -155,8 +158,8 @@ def propagate_subsample_values(X_full: np.ndarray, X_subsample: np.ndarray, subs
 
             if propagate_use_resident(n_full, n_sub):
                 return nearest_neighbor_value_resident(X_full, X_subsample, subsample_values)
-        except Exception:  # nosec B110 - GPU path is opportunistic; any failure falls through to the host path below
-            pass
+        except Exception as e:  # nosec B110 - GPU path is opportunistic; any failure falls through to the host path below
+            logger.debug("GPU-resident nearest-neighbor value propagation failed, falling back to host path: %s", e)
 
     out = np.empty(n_full, dtype=np.float64)
     for start in range(0, n_full, batch_full):

@@ -53,7 +53,7 @@ from .grouped import iter_group_segments
 try:
     import numba as _numba
     _NUMBA_AVAILABLE = True
-except Exception:
+except ImportError:
     _NUMBA_AVAILABLE = False
 
 

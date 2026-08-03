@@ -338,7 +338,7 @@ class _DMatrixReuseMixin:
         try:
             import xgboost as _xgb
             state["_saved_xgb_version"] = str(getattr(_xgb, "__version__", "unknown"))
-        except Exception:
+        except ImportError:
             state["_saved_xgb_version"] = "unknown"
         return state
 
@@ -359,7 +359,7 @@ class _DMatrixReuseMixin:
             try:
                 import xgboost as _xgb
                 _live_ver = str(getattr(_xgb, "__version__", "unknown"))
-            except Exception:
+            except ImportError:
                 _live_ver = "unknown"
             if _live_ver != "unknown" and _live_ver != _saved_ver:
                 import logging as _logging

@@ -4,10 +4,13 @@ consolidated here so a fix can't silently drift out of sync across copies.
 """
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Dict, List
 
 if TYPE_CHECKING:
     import polars as pl
+
+logger = logging.getLogger(__name__)
 
 
 def batched_unique(df: "pl.DataFrame", candidate_cols: List[str]) -> "Dict[str, list]":
@@ -21,12 +24,14 @@ def batched_unique(df: "pl.DataFrame", candidate_cols: List[str]) -> "Dict[str, 
         lf = df.lazy().select([pl.col(c).cast(pl.String).drop_nulls().unique().implode().alias(c) for c in cols_present])
         row = lf.collect()
         return {c: row[c][0].to_list() for c in cols_present}
-    except Exception:
+    except Exception as e:
+        logger.debug("batched unique-level collect failed, falling back to per-column loop: %s", e)
         d: Dict[str, list] = {}
         for c in cols_present:
             try:
                 d[c] = df[c].drop_nulls().unique().cast(pl.String).to_list()
-            except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+            except Exception as e2:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+                logger.debug("per-column unique-level extraction failed for %s: %s", c, e2)
                 d[c] = []
         return d
 

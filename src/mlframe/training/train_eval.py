@@ -94,7 +94,8 @@ def _validate_cached_model_schema(
             booster_names = m.get_booster().feature_names
             if booster_names:
                 saved_names = list(booster_names)
-        except Exception:
+        except Exception as e:
+            logger.debug("could not resolve booster feature names: %s", e)
             saved_names = None
 
     if saved_names:
@@ -111,7 +112,8 @@ def _validate_cached_model_schema(
     if saved_names and hasattr(m, "_get_cat_feature_indices"):
         try:
             saved_cat_names = {saved_names[i] for i in m._get_cat_feature_indices() if 0 <= i < len(saved_names)}
-        except Exception:
+        except Exception as e:
+            logger.debug("could not resolve saved categorical feature names: %s", e)
             saved_cat_names = None
         if saved_cat_names is not None:
             current_pl_cats = set(_extract_polars_cat_columns(current_df))

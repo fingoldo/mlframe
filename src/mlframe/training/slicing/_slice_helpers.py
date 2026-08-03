@@ -39,7 +39,7 @@ import numpy as np
 
 try:
     import polars as _pl
-except Exception:  # polars is a mlframe runtime dep, but keep the module importable just in case
+except ImportError:  # polars is a mlframe runtime dep, but keep the module importable just in case
     _pl = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
@@ -96,7 +96,7 @@ def _row_select(frame: Any, row_idx: np.ndarray) -> Any:
     """Row-select preserving dtype (Polars Enum / pandas Categorical / numpy)."""
     try:
         import pandas as pd  # local import keeps the module importable in pandas-less envs
-    except Exception:  # pragma: no cover - mlframe always has pandas in its deps
+    except ImportError:  # pragma: no cover - mlframe always has pandas in its deps
         pd = None
 
     if pd is not None and isinstance(frame, pd.DataFrame):

@@ -163,7 +163,8 @@ def _apply_pre_pipeline_transforms(
                     for _k, _v in fitted_cached.__dict__.items():
                         try:
                             pre_pipeline.__dict__[_k] = _cp.copy(_v)
-                        except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+                        except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+                            logger.debug("shallow-copy of attribute %r failed, keeping original reference: %s", _k, e)
                             # Defensive: a non-copyable attribute (e.g. file handle wrapper)
                             # falls back to the original reference. Logged at debug because the
                             # standard sklearn fitted attributes are all copyable.
@@ -443,8 +444,8 @@ def _apply_pre_pipeline_transforms(
                         break
             try:
                 pre_pipeline._mlframe_identity_equivalent = _cols_same and not _has_value_transforms
-            except Exception:  # nosec B110 - optional/best-effort path, rationale documented
-                pass  # non-writable pre_pipeline (e.g. tuple), safe to ignore
+            except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+                logger.debug("could not stamp _mlframe_identity_equivalent on non-writable pre_pipeline: %s", e)
 
         # Validate the pre_pipeline output against what the model expects.
         # A mis-shaped pre_pipeline output (e.g. a custom step that drops a

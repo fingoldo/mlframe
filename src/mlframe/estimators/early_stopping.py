@@ -254,7 +254,8 @@ class EarlyStoppingWrapper(BaseEstimator):
         if step is None:
             try:
                 base_n = int(self.estimator_.get_params().get(n_attr) or 0)
-            except Exception:
+            except Exception as e:
+                logger.debug("could not resolve base %s from estimator params: %s", n_attr, e)
                 base_n = 0
             step = max(1, base_n // 10) if base_n else 10
         i = 0

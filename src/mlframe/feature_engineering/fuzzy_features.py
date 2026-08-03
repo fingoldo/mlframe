@@ -30,7 +30,7 @@ try:
     import numba
 
     _HAS_NUMBA = True
-except Exception:  # numba is an optional accelerator
+except ImportError:  # numba is an optional accelerator
     _HAS_NUMBA = False
 
 logger = logging.getLogger(__name__)

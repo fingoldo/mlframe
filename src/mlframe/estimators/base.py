@@ -42,7 +42,8 @@ class EstimatorWithEarlyStopping(BaseEstimator):
         n = len(y_arr)
         try:
             is_clf_estimator = is_classifier(self.base_estimator)
-        except Exception:
+        except Exception as e:
+            logger.debug("is_classifier() probe failed on base_estimator: %s", e)
             is_clf_estimator = False
         low_cardinality = y_arr.dtype.kind in "OUS" or np.unique(y_arr).size <= max(2, min(20, n // 10))
         if not (is_clf_estimator or low_cardinality):
