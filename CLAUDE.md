@@ -186,6 +186,16 @@ it into `apply_operand_prewarp`'s `fourier_adaptive` branch. Verified 0 mismatch
 scenarios (K=1-8 frequencies, linear + quadratic axis preprocessing, n=500-50k) and 6.96x speedup at
 n=2M/K=4 (warm, best-of-15). The other basis branches (poly/eval_dispatch) were untouched.
 
+## PERF WIN (2026-08-03): _dyadic_haar_leg's zeros-alloc + 2-mask numpy build fused into one njit pass (8.02x)
+2M-row cProfile on combo `c0317_0c2314d2` (master-seed `31337`, 5-model multiclass suite) caught
+`_dyadic_haar_leg` (`_wavelet_basis_fe.py`) costing 5.3s self-time across 200 calls. The prior form built
+the 3-valued Haar-leg step function (`{-1, 0, +1}`) via `np.zeros_like` + two separate boolean-mask +
+fancy-index writes — 4 full array traversals of a purely memory-bandwidth-bound op. Added
+`_dyadic_haar_leg_njit` (`@njit(parallel=True)`, one `prange` pass doing both comparisons and the write per
+element) and wired it in, collapsing 4 traversals to 1. Verified 0 mismatches across 30 synthetic scenarios
+(n=500-200k, varying scale `j`/offset `k`, float32 + float64 output dtype) and 8.02x speedup at n=2M (warm,
+best-of-30).
+
 ## PERF WIN (2026-08-02): per_feature_edges' thread-pool threshold was 64x too high for real usage (1.2x-7.2x)
 2M-row cProfile on combo `c0037_c314bb14` (master-seed `2026_04_29`) found `per_feature_edges`/
 `_compute_col_edges` (`_adaptive_nbins.py`) costing 78s wall on a `fayyad_irani` (MDLP) fit with

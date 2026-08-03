@@ -165,6 +165,24 @@ _WAVELET_SMOOTH_COMPLEMENT_RATIO: float = 0.5
 _WAVELET_INCR_NULL_PERMS: int = 8
 
 
+@njit(cache=True, parallel=True)
+def _dyadic_haar_leg_njit(z: np.ndarray, left: float, mid: float, right: float, out: np.ndarray) -> None:
+    """Single-pass fused build of the Haar leg into ``out`` (caller-owned, right dtype). Replaces the
+    zeros-alloc + two separate boolean-mask + fancy-index numpy passes (4 full array traversals) with one
+    prange loop doing the 2 comparisons and the write per element in one visit - the whole op is
+    memory-bandwidth-bound, so collapsing traversals is the entire win. Bit-identical (same {-1,0,+1}
+    membership test, evaluated per-element in the same order)."""
+    n = z.shape[0]
+    for i in prange(n):
+        v = z[i]
+        if left <= v < mid:
+            out[i] = 1.0
+        elif mid <= v < right:
+            out[i] = -1.0
+        else:
+            out[i] = 0.0
+
+
 def _dyadic_haar_leg(z: np.ndarray, j: int, k: int, dtype=np.float32) -> np.ndarray:
     """Closed-form Haar wavelet indicator ``psi_{j,k}(z)`` for ``z`` in [0, 1].
 
@@ -178,14 +196,17 @@ def _dyadic_haar_leg(z: np.ndarray, j: int, k: int, dtype=np.float32) -> np.ndar
     engineered column) is bit-identical to float64 while halving the (n_scales, n)
     working-array footprint (e.g. (10, 1M) = 76 MiB -> 38 MiB). The dyadic-cell
     boolean masks are computed against the float64 ``z`` axis, so the cell
-    membership (and hence the leg) does not depend on the output dtype."""
+    membership (and hence the leg) does not depend on the output dtype.
+
+    PERF (2026-08-03, incidental to a profiling cycle): fused into one njit prange pass
+    (:func:`_dyadic_haar_leg_njit`) - the prior form allocated a zeros array then wrote it via two
+    separate boolean-mask + fancy-index passes (4 full traversals of a memory-bandwidth-bound op)."""
     width = 1.0 / (2 ** int(j))
     left = int(k) * width
     mid = left + width / 2.0
     right = left + width
-    leg = np.zeros_like(z, dtype=dtype)
-    leg[(z >= left) & (z < mid)] = 1.0
-    leg[(z >= mid) & (z < right)] = -1.0
+    leg = np.empty_like(z, dtype=dtype)
+    _dyadic_haar_leg_njit(np.ascontiguousarray(z, dtype=np.float64), left, mid, right, leg)
     return leg
 
 
