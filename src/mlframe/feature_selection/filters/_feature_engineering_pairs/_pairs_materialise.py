@@ -3,8 +3,12 @@ op-code registry, narrow-code-dtype selection, and the per-host serial-vs-parall
 kernel_tuning_cache spec + dispatch predicate for the FE pair-search."""
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 from numba import njit, prange
+
+logger = logging.getLogger(__name__)
 
 # OPT-A: per-host serial-vs-parallel crossover for the FE materialise /
 # searchsorted kernels on the serial-main-thread path (no hardcoded threshold).
@@ -277,7 +281,8 @@ def _fe_use_parallel_kernels(n_cols: int, serial_main_thread: bool) -> bool:
         return False
     try:
         return bool(_FE_PARALLELISM_SPEC.choose(n_cols=int(n_cols)) == "parallel")
-    except Exception:
+    except Exception as e:
+        logger.debug("kernel_tuning_cache serial-vs-parallel choice failed, using heuristic fallback: %s", e)
         # Cache/pyutilz failure -> heuristic fallback (still gated on serial_main_thread).
         return _fe_parallelism_fallback_choice(int(n_cols)) == "parallel"
 

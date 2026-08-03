@@ -16,9 +16,12 @@ are bad" knowledge lives in ONE place, not scattered across the 3000-line constr
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, NamedTuple
 
 import warnings
+
+logger = logging.getLogger(__name__)
 
 
 class _Caveat(NamedTuple):
@@ -112,7 +115,8 @@ def warn_accuracy_suboptimal_params(estimator: Any) -> None:
             val = getattr(estimator, c.attr)
             if c.is_bad(val):
                 triggered.append((c, val))
-        except Exception:  # nosec B112 - best-effort path (hasattr/getattr on a raising property must not propagate)
+        except Exception as e:  # nosec B112 - best-effort path (hasattr/getattr on a raising property must not propagate)
+            logger.debug("accuracy-caveat check failed for attr %s: %s", c.attr, e)
             continue
     triggered_attrs = frozenset(c.attr for c, _val in triggered)
     if triggered_attrs == getattr(estimator, "_accuracy_caveats_warned_attrs_", frozenset()):

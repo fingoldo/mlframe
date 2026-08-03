@@ -157,5 +157,6 @@ try:
         salt=_HISTGATE_THREADS_SALT,
         cli_label="gpu_fe_histgate_threads",
     )
-except Exception:
+except Exception as e:
+    logger.debug("kernel_tuner spec build for gpu_fe_histgate_threads failed: %s", e)
     _HISTGATE_THREADS_SPEC = None

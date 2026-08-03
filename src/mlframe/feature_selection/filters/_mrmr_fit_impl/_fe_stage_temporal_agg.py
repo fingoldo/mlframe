@@ -73,7 +73,8 @@ def _fe_stage_temporal_agg(self, X, _y_np, verbose, _temporal_agg_pre_recipes):
                                 _y_for_ta = pd.qcut(
                                     _y_for_ta, q=10, labels=False, duplicates="drop",
                                 ).astype(np.int64)
-                            except Exception:
+                            except Exception as e:
+                                logger.debug("pd.qcut decile binning failed, falling back to raw int64 cast: %s", e)
                                 _y_for_ta = _y_for_ta.astype(np.int64)
                     _ta_stats = tuple(getattr(self, "fe_temporal_agg_stats", ()) or ("mean", "std", "count"))
                     _ta_windows = tuple(getattr(self, "fe_temporal_agg_windows", ()) or ())

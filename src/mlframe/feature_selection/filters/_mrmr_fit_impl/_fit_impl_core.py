@@ -10009,7 +10009,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     try:
         from ..info_theory._state_and_dispatch import get_group_mi as _get_group_mi_final
         _gmi_final_payload = _get_group_mi_final()
-    except Exception:
+    except Exception as e:
+        logger.debug("get_group_mi_final() failed: %s", e)
         _gmi_final_payload = None
     _eng_recipes_final = getattr(self, "_engineered_recipes_", None) or []
     if _gmi_final_payload is not None and _eng_recipes_final:

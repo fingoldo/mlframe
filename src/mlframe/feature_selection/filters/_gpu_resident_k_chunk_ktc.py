@@ -135,5 +135,6 @@ try:
         salt=_GPU_K_CHUNK_SALT,
         cli_label="gpu_fe_k_chunk_vram_fraction",
     )
-except Exception:
+except Exception as e:
+    logger.debug("kernel_tuner spec build for gpu_fe_k_chunk_vram_fraction failed: %s", e)
     _GPU_K_CHUNK_SPEC = None

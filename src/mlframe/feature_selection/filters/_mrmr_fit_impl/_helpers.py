@@ -377,7 +377,8 @@ def fe_decide_on_subsample(
             _s = np.asarray(shared_subsample_idx)
             if _s.ndim == 1 and 0 < _s.shape[0] < n and int(_s.max()) < n:
                 _shared = _s.astype(np.int64, copy=False)
-        except Exception:
+        except Exception as e:
+            logger.debug("shared_subsample_idx validation/cast failed: %s", e)
             _shared = None
     if _shared is None and not (isinstance(subsample_n, int) and 0 < subsample_n < n):
         return fit_with_recipes_fn(fe_to_pandas(X), y, **kwargs)

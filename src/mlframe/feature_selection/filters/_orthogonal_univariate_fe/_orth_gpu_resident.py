@@ -156,7 +156,8 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
                 _gpu_routed = _gpu_route_bases_batched(
                     cp, _Mr, _yc_gpu, list(_POLY_BASES), tuple(degrees), robust_axis=ra,
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug("GPU-resident batched basis routing failed: %s", e)
                 _gpu_routed = None
                 _Mr = None
     used_x: list = []

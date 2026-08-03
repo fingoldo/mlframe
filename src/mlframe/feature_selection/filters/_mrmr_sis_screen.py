@@ -63,7 +63,8 @@ def _free_ram_bytes() -> int:
         import psutil
 
         return int(psutil.virtual_memory().available)
-    except Exception:
+    except Exception as e:
+        logger.debug("psutil.virtual_memory() probe failed, using 2GB conservative fallback: %s", e)
         return 2 * 1024**3  # 2 GB conservative fallback
 
 

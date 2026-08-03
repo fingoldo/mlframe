@@ -70,7 +70,7 @@ def gpu_materialise_extval_codes_host(
         import cupy as cp
         from ._gpu_resident_discretize import _gpu_resident_discretize_codes  # same binner as gpu_discretize_codes_host
         from ._fe_resident_operands import resident_operand  # content-keyed device cache (dedups repeated operands)
-    except Exception:
+    except ImportError:
         return None
     try:
         # param_a + each external-factor column ride the content-keyed resident cache: the SAME ext-factor

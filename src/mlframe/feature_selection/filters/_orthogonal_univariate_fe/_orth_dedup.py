@@ -221,8 +221,8 @@ def _resolve_pc_backend(q: int, r: int, n: int) -> str:
 
         if fe_gpu_strict_enabled(n=n, p=max(q, r)):
             return "cupy"
-    except Exception:  # nosec B110 - strict-gate probe failure must never break the dedup itself
-        pass
+    except Exception as e:  # nosec B110 - strict-gate probe failure must never break the dedup itself
+        logger.debug("fe_gpu_strict_enabled() probe failed, dedup keeps its default backend: %s", e)
     try:
         from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import lookup_pairwise_corr_backend
 

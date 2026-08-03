@@ -170,7 +170,8 @@ def _wasserstein1(group_vals: np.ndarray, global_sorted: np.ndarray) -> float:
     try:
         from scipy.stats import wasserstein_distance
         return float(wasserstein_distance(group_vals, global_sorted))
-    except Exception:
+    except Exception as e:
+        logger.debug("scipy wasserstein_distance failed, falling back to pure-numpy quantile approximation: %s", e)
         # Pure-numpy fallback: mean |Q_group(u) - Q_global(u)| over a fixed
         # quantile grid (Wasserstein-1 for 1-D == integral of |inverse-CDF diff|).
         u = np.linspace(0.0, 1.0, 101)

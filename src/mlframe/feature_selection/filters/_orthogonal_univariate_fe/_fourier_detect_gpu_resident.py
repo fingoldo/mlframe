@@ -33,10 +33,13 @@ Any cupy / device error falls back to the CPU njit detector, so the default
 """
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Sequence
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 _TWO_PI = 2.0 * np.pi
 
@@ -266,7 +269,8 @@ def detect_fourier_freqs_for_col_gpu(
     try:
         from .._fe_gpu_batch._devices import crit_float_dtype
         _zdt = crit_float_dtype()
-    except Exception:
+    except Exception as e:
+        logger.debug("crit_float_dtype() resolution failed, defaulting to cp.float64: %s", e)
         _zdt = cp.float64
     z_tr = cp.asarray(np.ascontiguousarray(np.asarray(z_tr_h, dtype=_zdt)))
     z_va = cp.asarray(np.ascontiguousarray(np.asarray(z_va_h, dtype=_zdt)))

@@ -22,7 +22,10 @@ Best-effort and opt-out: set ``MLFRAME_SKIP_NUMBA_WARMUP=1`` to keep import lean
 
 from __future__ import annotations
 
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 _warmup_done = False
 
@@ -51,6 +54,6 @@ def warmup_typed_dict() -> None:
         if "a,b" in d:
             d["a,b"] = d["a,b"] + 0.5
         del d["c,d|e,f"]
-    except Exception:  # nosec B110 - non-trivial body; best-effort/optional path, no module logger
+    except Exception as e:  # nosec B110 - non-trivial body; best-effort/optional path
         # Best-effort only; a warm-up failure must never affect a real fit.
-        pass
+        logger.debug("typed.Dict warm-up failed, first real fit will pay the JIT cost: %s", e)

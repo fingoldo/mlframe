@@ -253,8 +253,9 @@ def pair_maxt_perm_null_gpu_enabled(n: int, n_pairs: int) -> bool:
         from ._fe_gpu_vram import fe_gpu_has_vram_cushion
         if not fe_gpu_has_vram_cushion(int(n) * max(int(n_pairs), 1) * 8):
             return False
-    except Exception:  # nosec B110 - best-effort/optional path, no module logger
-        pass
+    except Exception as e:  # nosec B110 - best-effort/optional path
+        import logging
+        logging.getLogger(__name__).debug("VRAM cushion probe failed, permissive default keeps resident path eligible: %s", e)
     try:
         from ._fe_gpu_strict import fe_gpu_strict_enabled
 
