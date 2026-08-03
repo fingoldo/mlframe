@@ -290,7 +290,7 @@ class DataConfig(BaseConfig):
     val_target: Optional[Any] = None  # np.ndarray or pd.Series
     test_target: Optional[Any] = None  # np.ndarray or pd.Series
 
-    # 2026-05-10: target_type for downstream-correct chart dispatch.
+    # target_type for downstream-correct chart dispatch.
     # When set (caller knows the target_type), gates
     # ``render_multi_target_panels`` to fire ONLY the matching branch
     # (regression suppresses LTR / multilabel / multiclass panels;
@@ -359,7 +359,7 @@ class TrainingControlConfig(BaseConfig):
     """
 
     verbose: Union[bool, int] = False
-    # 2026-04-27: default flipped False -> True. Cache loading is almost
+    # default flipped False -> True. Cache loading is almost
     # always faster than retraining; the previous False default was
     # inconsistent with train_eval.py:664 which already read the
     # internal common_params dict with .get("use_cache", True). Making
@@ -443,9 +443,9 @@ class FeatureImportanceConfig(BaseConfig):
     """
 
     # History:
-    # * 2026-05-12: default 40 -> 10. Plots/log lines became readable on
+    # * default 40 -> 10. Plots/log lines became readable on
     #   the common feature counts (10-50) without horizontal scroll.
-    # * 2026-05-26 (user request): 10 -> 15. After shipping ~33 new TVT
+    # * 10 -> 15. After shipping ~33 new TVT
     #   features per the brainstorm rollout, the top-10 view truncates
     #   informative tail features; 15 keeps the chart compact while
     #   surfacing the next band of signals. Override via
@@ -458,7 +458,7 @@ class FeatureImportanceConfig(BaseConfig):
     figsize: Tuple[float, float] = (8.0, 6.0)
     positive_fi_only: bool = False
     show_plots: bool = True
-    # 2026-05-12 (user request): cap zero-FI bars so the chart stays
+    # cap zero-FI bars so the chart stays
     # compact when most features were pruned by the model (eg an XGB on a
     # residual target where ``lag_feature=0.99`` and everything else is 0).
     # Shows AT MOST this many bars with |FI| ~ 0 in the magnitude-ranked
@@ -492,7 +492,7 @@ class OutputConfig(BaseConfig):
     plot_file: Optional[str] = ""
     save_charts: bool = True
 
-    # Default ON (2026-07-12): all 6 registered evaluation diagnostics run by default. Names resolve against
+    # Default ON: all 6 registered evaluation diagnostics run by default. Names resolve against
     # ``mlframe.training.core._diagnostics_registry.DIAGNOSTICS_REGISTRY``. Results land under
     # ``metadata["diagnostics"][name]``; a diagnostic that errors or can't be sensibly run from suite-local
     # data reports ``{"error": ...}`` rather than aborting the suite, so a bad fit here never fails the suite.

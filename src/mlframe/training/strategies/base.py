@@ -250,7 +250,7 @@ if TYPE_CHECKING:
 # Used across pipeline.py, trainer.py, utils.py, core.py to detect categoricals.
 # Import these instead of hardcoding type lists.
 
-# 2026-05-21: include "str" so the categorical detector also matches the
+# include "str" so the categorical detector also matches the
 # pandas-3.0 / `future.infer_string=True` "str" dtype that auto-converts
 # object-of-strings during pd.DataFrame construction. Without this entry,
 # tests/training/test_fit_pipeline_*_skip.py and test_ranker_object_cat_*
@@ -643,7 +643,7 @@ class ModelPipelineStrategy(ABC):
         steps.extend(self._extra_pre_encoding_steps(embedding_features, text_features))
 
         # Add category encoding if required and categorical features exist (unless already placed before the selector).
-        # Observability guard (2026-04-19 round-9 probe): if the strategy
+        # Observability guard: if the strategy
         # declares ``requires_encoding=True`` AND there are cat_features
         # in the data BUT the caller passed ``category_encoder=None``,
         # silently skipping the step meant unbounded categorical string
@@ -674,7 +674,7 @@ class ModelPipelineStrategy(ABC):
         _cats_passthrough_raw = (not self.requires_encoding) and bool(cat_features)
 
         # Add imputation if required.
-        # WARN when requires_imputation=True but caller passed imputer=None: silently skipping the step sent raw NaN into LinearRegression.fit (prod log 2026-05-14 4M-row regression suite).
+        # WARN when requires_imputation=True but caller passed imputer=None: silently skipping the step sent raw NaN into LinearRegression.fit (seen on a large real regression suite).
         # Mirrors the requires_encoding WARN above. Root-cause was in caller (ctx.imputer not propagated from _get_pipeline_components); see ef123ff + regression suite in test_strategy_imputer_propagation.py.
         if self.requires_imputation:
             if imputer is not None:

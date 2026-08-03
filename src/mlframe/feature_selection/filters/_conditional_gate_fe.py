@@ -134,7 +134,7 @@ _TAU_QUANTILES = tuple(np.round(np.linspace(0.1, 0.9, 17), 4))
 _MIN_MARGIN = 0.02
 
 # Row threshold above which _build_feats fuses the per-tau (n, 17) mask/select block into one njit(prange) kernel
-# instead of the numpy per-tau loop. The isolated build kernel wins at all n, but the 2026-06-13 iter53 reject found
+# instead of the numpy per-tau loop. The isolated build kernel wins at all n, but an earlier reject found
 # it LOSES end-to-end at small n (build is a tiny fraction of the scan + its prange contends with the MI prange);
 # gated ON only for large n where the build is a real fraction of the scan (validated end-to-end). Env-overridable.
 _GATE_BUILD_NJIT_MIN_N = int(os.environ.get("MLFRAME_GATE_BUILD_NJIT_MIN_N", "20000"))
@@ -548,7 +548,7 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
     probe_idx = [operand_order[i] for i in range(n_probe)]
     probe = mat[:, probe_idx]  # (n, n_probe)
     div = np.zeros(len(cols), dtype=np.float64)
-    # DEVICE-BORN GATE RANK-PRUNE (Phase-1 residency, 2026-07-01). Each gate candidate splits the probe operand
+    # DEVICE-BORN GATE RANK-PRUNE (Phase-1 residency). Each gate candidate splits the probe operand
     # matrix by ``cv > median(cv)`` and scores each side's MI. Without residency the probe SLICE (measured ~24 MB,
     # the _mi_classif_batch upload) AND the per-split y SUBSET (~38 MB, the 14+10 distinct hi/lo subsamples of the
     # y_mi_classif role) re-upload every iteration - the two biggest remaining candidate-code uploads. Keep the
@@ -671,7 +671,7 @@ def cheap_conditional_gate_scan(
             _baseline_cache[key] = best_existing_op_mi(arrs, key, yi, nbins)
         return _baseline_cache[key]
 
-    # BATCHED gate-MI (2026-06-17 perf): every (gate, operand-combo) builds a (n, n_tau) residue block
+    # BATCHED gate-MI: every (gate, operand-combo) builds a (n, n_tau) residue block
     # and previously scored it with its OWN ``_mi_classif_batch`` call (686+ small calls -> per-call njit
     # launch overhead + underfilled prange). The per-column MIs are INDEPENDENT, so we accumulate combos'
     # blocks into a COLUMN-BUDGET-bounded buffer, score them in ONE batched call per chunk, then take each

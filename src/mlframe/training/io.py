@@ -579,7 +579,7 @@ def load_save_meta_sidecar(bundle_path: str) -> Optional[Dict[str, Any]]:
     """
     import json
     sidecar = _meta_sidecar_path(bundle_path)
-    # Wave 48 (2026-05-20): the prior exists-then-open was a redundant TOCTOU check;
+    # the prior exists-then-open was a redundant TOCTOU check;
     # the except below already handles missing sidecar. Drop the precheck so the
     # race window collapses to zero.
     try:
@@ -705,7 +705,7 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
     except OSError:
         # Path doesn't exist or stat refused; fall through to the real loader which will surface the real error.
         pass
-    # Wave 19 P0 #1: validate the .meta.json sidecar BEFORE unpickling so the
+    # validate the .meta.json sidecar BEFORE unpickling so the
     # operator sees library-version drift (catboost / lightgbm minor upgrades
     # silently change booster internals) instead of chasing a cryptic
     # AttributeError deep in predict(). Returns None on legacy bundles

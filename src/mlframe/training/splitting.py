@@ -473,14 +473,14 @@ def make_train_test_split(
 
     else:
         # Row-based splitting without timestamps (fallback to sklearn).
-        # 2026-04-24: stratify_y support -- when provided, route through
+        # stratify_y support -- when provided, route through
         # sklearn StratifiedShuffleSplit (1-D y) or
         # iterstrat.MultilabelStratifiedShuffleSplit (2-D y, multilabel).
         # Both REQUIRE shuffle (cannot stratify a sequential split). When
         # stratify_y is provided AND shuffle_test/shuffle_val is False,
         # we emit a WARNING and stratify anyway (correctness > sequential
         # nicety; user explicitly asked for class balance).
-        # 2026-05-04: ``groups`` support -- when provided (typically for
+        # ``groups`` support -- when provided (typically for
         # learning-to-rank), route through sklearn ``GroupShuffleSplit`` so
         # all rows belonging to one query land in the same split. Mutually
         # exclusive with stratify_y (sklearn doesn't ship a stratified
@@ -681,10 +681,10 @@ def make_train_test_split(
 
         train_details, val_details, test_details = "", "", ""
 
-    # 2026-05-04: Group-spans-cutoff resolution for time-based splits.
+    # Group-spans-cutoff resolution for time-based splits.
     # When ``groups`` is supplied alongside ``timestamps`` (typical LTR
     # scenario where queries are time-stamped), a query may straddle a
-    # train->val or val->test cutoff. Default behaviour (per user 2026-05-04):
+    # train->val or val->test cutoff. Default behaviour:
     # assign the WHOLE spanning group to the LATER side -- preserves
     # temporal ordering, so train never sees rows from a query that
     # leaked into val/test. Emit a single INFO summarising how many
@@ -784,7 +784,7 @@ def make_train_test_split(
     # The fallback paths above already redirect the recoverable wholeday-collapse
     # case to row-based; a still-empty split here is a genuine misconfiguration.
     # test_size=1.0 (val_size=0.0) is a legitimate, explicitly-requested "evaluate-only, no
-    # training" configuration (regression-tested since 2026-04-19 -- test_splitting_edges.py's
+    # training" configuration (see test_splitting_edges.py's
     # NaT-strftime-on-empty-train sensor) and must NOT raise here, mirroring how the val/test
     # guards below only fire when a POSITIVE requested size produced nothing. test_size < 1.0
     # means the user did not claim the whole pool via test alone, so an empty train here is a

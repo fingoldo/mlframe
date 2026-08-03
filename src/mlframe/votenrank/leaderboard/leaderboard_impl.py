@@ -96,7 +96,7 @@ class Leaderboard:
 
     def build_ranks(self):
         """(Re)compute ``self.ranks``/``self.max_ranks`` from ``self.table`` and invalidate any cached majority graph."""
-        # Perf split (2026-05-10): the prior single-step build_ranks ALWAYS
+        # Perf split: the prior single-step build_ranks ALWAYS
         # materialised the n_models x n_models majority_graph, which is the
         # dominant cost on wide tables (10k features = 100M entries / ~800MB
         # at float64, recomputed per Leaderboard rebuild). The majority_graph

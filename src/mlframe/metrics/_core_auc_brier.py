@@ -17,7 +17,7 @@ from ._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD, _ch
 
 import os as _os
 
-# iter338 (2026-05-27): central dispatcher for ``argsort(y_score)[::-1]``
+# central dispatcher for ``argsort(y_score)[::-1]``
 # in metric kernels. Default UNSTABLE (numpy quicksort) -- 2-3x faster than
 # stable sort and numerically identical on continuous-valued ML predictions
 # (the dominant case; exact ties are essentially impossible on float64
@@ -38,7 +38,7 @@ import os as _os
 _GPU_ARGSORT_MIN_N = int(_os.environ.get("MLFRAME_METRICS_ARGSORT_GPU_MIN_N", "50000"))
 _GPU_ARGSORT_AVAILABLE: "bool | None" = None
 
-# iter97 (2026-06-14): parallel bucket-split argsort for the large-N CPU path. The metric kernels' descending argsort is
+# parallel bucket-split argsort for the large-N CPU path. The metric kernels' descending argsort is
 # tie-order-INVARIANT (AUC uses fractional ranks; KS folds tied scores into a single CDF jump), so we may pick any sort
 # whose output orders y_score identically -- the within-bucket tie-break order is immaterial. A linear-range bucketise
 # (parallel per-thread histogram + serial scatter) groups indices into B value-ordered buckets, each bucket is argsorted

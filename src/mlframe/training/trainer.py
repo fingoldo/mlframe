@@ -447,7 +447,7 @@ def _build_configs_from_params(
     # to ReportingConfig but never plumbed here) raised TypeError
     # at process_model.
     honest_estimator_diagnostics=None,
-    # 2026-05-28 W5 wiring: ReportingConfig.mase_seasonality
+    # ReportingConfig.mase_seasonality
     # (default 1 at _reporting_configs.py:140). Passed as int|None
     # here so callers that don't set it leave ReportingConfig at
     # its source default. Mirrors honest_estimator_diagnostics gate.
@@ -566,7 +566,7 @@ def _build_configs_from_params(
     output_config = OutputConfig(
         plot_file=plot_file or "",
         data_dir=data_dir or "",
-        # Wave 14 P2 (re-opened 2026-05-20): ``models_subdir or "models"``
+        # ``models_subdir or "models"``
         # silently rewrote a legitimate ``models_subdir=""`` (intent: write
         # models flat in data_dir, no subfolder) to ``"models"`` subdir.
         # Use explicit None-check so the empty-string intent is preserved.
@@ -694,7 +694,7 @@ def _configure_mlp_params(
             "``pip install mlframe[neural]`` or omit ``mlp`` from mlframe_models."
         )
     # Defaults: nlayers=2 + ratio=2.0 -> 128->64->1, shallow tabular MLP.
-    # 2026-05-27 (user request): cut from nlayers=4 (128->64->32->16->1)
+    # cut from nlayers=4 (128->64->32->16->1)
     # to nlayers=2. Empirically on extreme-AR + group-aware-split regime
     # (TVT_regression.log) the 4-layer network never closed the gap to
     # boosters (R^2=-0.16 on test) -- the extra depth added optimisation
@@ -710,7 +710,7 @@ def _configure_mlp_params(
         min_layer_neurons=16,
         neurons_by_layer_arch=_arch_cls.Declining,
         consec_layers_neurons_ratio=2.0,
-        # 2026-05-27 (user request): activation chain history is
+        # activation chain history is
         #   LeakyReLU -> Tanh -> GELU + spectral_norm=True.
         # GELU is unbounded above but smoother than ReLU (gradient flows
         # everywhere). To keep the unseen-group test-split safety that
@@ -733,14 +733,14 @@ def _configure_mlp_params(
         weights_init_fcn=partial(
             nn.init.kaiming_normal_, nonlinearity="relu",
         ),
-        # SN on by default 2026-05-27: bounds Lipschitz constant of
+        # SN on by default: bounds Lipschitz constant of
         # the linear maps to 1.0 (after power-iter convergence), making
         # catastrophic OOD extrapolation (R^2=-326 / -30 historical
         # regressions) geometrically impossible.
         spectral_norm=True,
         dropout_prob=0.0,
         inputs_dropout_prob=0.0,
-        # 2026-05-26: ``use_batchnorm=True`` is the suite default.
+        # ``use_batchnorm=True`` is the suite default.
         # Prior default (False) + LeakyReLU + Declining 128->64->32->16
         # + Adam + kaiming-normal init produced saturated inner pre-
         # activations on a 4.1M-row, 206-feature TVT regression: with
@@ -755,7 +755,7 @@ def _configure_mlp_params(
         # in a usable range and prevents the saturation. Users may opt
         # out via ``mlp_kwargs["network_params"]["use_batchnorm"]=False``.
         use_batchnorm=True,
-        # Wave 2026-05-21: ``use_layernorm=False`` for the suite default.
+        # ``use_layernorm=False`` for the suite default.
         # ``generate_mlp`` defaults LN_in to True for transformer-style row-
         # independent batches, but it is WRONG for tabular regression: LN
         # normalises per-row across features, destroying the inter-row
@@ -771,7 +771,7 @@ def _configure_mlp_params(
         # LayerNorm is double-norm noise. Users who really need LN can
         # opt in via ``mlp_kwargs["network_params"]["use_layernorm"]=True``.
         use_layernorm=False,
-        # 2026-05-26: output bounded by default. The tanh_train_range
+        # output bounded by default. The tanh_train_range
         # output activation hard-caps the regression head to
         # ``[(y_min+y_max)/2 - ((y_max-y_min)/2 + 3*y_std),
         #   (y_min+y_max)/2 + ((y_max-y_min)/2 + 3*y_std)]``. scale +
@@ -791,7 +791,7 @@ def _configure_mlp_params(
     # train split and catastrophically extrapolates on the test split
     # when n_train is small (regression-collapse-sensor caught this on
     # the resiliency-suite mixed-scale scenario; 4920-row train,
-    # 80-row test, pred_std ~600x target_std). Bench 2026-05-23 confirmed
+    # 80-row test, pred_std ~600x target_std). Bench-confirmed:
     # nlayers=2 STILL collapses on the mixed-scale resiliency scenario;
     # nlayers=1 is the only depth that produces honest predictions under
     # the small-data + short-budget regime. Only auto-applies when the
@@ -828,7 +828,7 @@ def _configure_mlp_params(
         # Auto-standardise the regression target for MLP: a kaiming-init network outputs ~0 at init, so on a target with mean=11500 the network takes many epochs just to learn the constant offset.
         # Stock sklearn ``TransformedTargetRegressor`` standardises ONLY the ``y`` arg of fit(), leaving ``eval_set=(X_val, y_val)`` unchanged; PyTorch-Lightning consumes ``eval_set`` for its val_dataloader and computes ``val_loss`` against RAW y_val while the model predicts on STANDARDISED scale (gap of train_loss=0.16 std-units vs val_loss=1.3e+8 raw-units). The subclass below intercepts ``eval_set`` in fit_kwargs and transforms its y component too, keeping train + val on the same scale so early-stop / val_MSE callbacks see meaningful numbers.
         #
-        # 2026-05-18 Pack #8: ``_TTRWithEvalSetScaling`` lives at module level
+        # ``_TTRWithEvalSetScaling`` lives at module level
         # (``mlframe.training._ttr_eval_set_scaling``) so dill can serialise
         # fitted MLP models. Pre-fix the class was defined INSIDE this
         # function and dill choked on the ABC-metaclass ``_abc._abc_data``
@@ -888,8 +888,8 @@ __all__ = [
 # Sibling-module re-exports. The two largest functions live in
 # ``_trainer_train_and_evaluate.py`` (~673 LOC) and
 # ``_trainer_configure.py`` (~557 LOC) so this file stays below the
-# 1k-LOC monolith threshold. X_EFFICIENCY_ARCHITECTURE-1 fix (mrmr_audit_2026-07-22):
-# _configure_recurrent_params moved to _trainer_configure_recurrent.py (this file had crept back to
+# 1k-LOC monolith threshold. _configure_recurrent_params moved to
+# _trainer_configure_recurrent.py (this file had crept back to
 # 1001 lines).
 # ----------------------------------------------------------------------
 from ._trainer_train_and_evaluate import train_and_evaluate_model

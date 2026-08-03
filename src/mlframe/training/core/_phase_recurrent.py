@@ -314,7 +314,7 @@ def _apply_recurrent_to_ensemble(
     # pre-recurrent build on weighted suites.
     _ctx_sw_dict = getattr(ctx, "sample_weights", None) or {}
     _sw_for_target = _ctx_sw_dict.get(target_name) if isinstance(_ctx_sw_dict, dict) and _ctx_sw_dict else None
-    # Wave 14 P2 (re-opened 2026-05-20): ``ctx.model_name or 'mdl'``
+    # ``ctx.model_name or 'mdl'``
     # silently injected the prefix ``mdl`` when the caller's ctx had
     # ``model_name=""``. Empty string is a legitimate "no prefix" intent
     # (yields names like ``__target__recurrent_rerun``); None should

@@ -145,7 +145,7 @@ def bootstrap_metric(
         if stratify.shape[0] != n:
             raise ValueError(f"bootstrap_metric: stratify length {stratify.shape[0]} must match y_true length {n}")
         groups = {int(c): np.flatnonzero(stratify == c) for c in np.unique(stratify)}
-        # iter358 (2026-05-26): pre-extract list+offsets once and reuse a
+        # pre-extract list+offsets once and reuse a
         # single idx buffer across all n_bootstrap iters. The listcomp +
         # np.concatenate version of this loop on c0144 1M-row binary
         # measured 8.49s tottime / 12000 calls (708us per resample) on
@@ -175,7 +175,7 @@ def bootstrap_metric(
             idx = rng.integers(0, n, size=n, dtype=np.int64)
         else:
             # Per-class resample preserves the original class frequencies.
-            # iter312 (2026-05-26): use rng.integers + index instead of
+            # use rng.integers + index instead of
             # rng.choice(replace=True). c0091/c0141 profile showed the
             # listcomp at ~180us per call x 24000 calls = ~4.3s wall.
             # rng.integers(0, len(grp), size=len(grp)) + grp[idx] runs
@@ -191,7 +191,7 @@ def bootstrap_metric(
             # randoms across all bootstrap iters via ONE big rng.integers
             # call, which conflicts with the bit-identical reproducibility
             # contract for the unstratified path's RNG draw order.
-            # iter451 (2026-05-27): pass dtype=np.int64 explicitly. Saves
+            # pass dtype=np.int64 explicitly. Saves
             # 16% on the rng.integers call (n=99000 x 1000 iter: 400ms
             # -> 345ms) -- numpy skips a small piece of shape-inference
             # dispatch when the output dtype is already specified. Same

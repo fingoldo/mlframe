@@ -110,7 +110,7 @@ def compute_hard_row_attention_features(
         # Pick top-K hardest rows by |residual|.
         n_train_rows = Xt_s.shape[0]
         k_eff = min(n_hard, n_train_rows)
-        # Wave 62 (2026-05-20): lexsort replaces argpartition (impl-defined tie)
+        # lexsort replaces argpartition (impl-defined tie)
         # + secondary key on row index so tied |residual| (duplicate rows / near-
         # equal residuals on rounded predictions) gives deterministic top-K
         # hardest-rows across runs.

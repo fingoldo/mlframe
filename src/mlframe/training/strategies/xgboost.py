@@ -36,11 +36,11 @@ class XGBoostStrategy(TreeModelStrategy):
     # GPU/SHAP support, faster inference).
     supports_native_multiclass = True
     supports_native_ranking = True
-    # 2026-05-08 QR: XGBoost >=2.0 supports single-fit multi-quantile via
+    # XGBoost >=2.0 supports single-fit multi-quantile via
     # ``objective="reg:quantileerror", quantile_alpha=[0.1,0.5,0.9]``;
     # predict() returns (N, K).
     supports_native_quantile = True
-    # F-34 (2026-05-31): XGBoost >=2.0 supports native multi-target
+    # XGBoost >=2.0 supports native multi-target
     # regression via ``multi_strategy="multi_output_tree"`` paired with
     # ``tree_method="hist"``. Single ensemble outputs (N, K).
     supports_native_multi_target = True
@@ -216,7 +216,7 @@ class XGBoostStrategy(TreeModelStrategy):
                     exprs.append(pl.col(c).cast(pl.String).cast(enum_dtype, strict=False).alias(c))
                     _logged_cols.append(c)
             if exprs:
-                # Wave 72 (2026-05-21): quantify OOV-nulling so silent test-cat loss
+                # quantify OOV-nulling so silent test-cat loss
                 # becomes visible.
                 _null_pre = {c: int(df[c].null_count()) for c in _logged_cols}
                 df = df.with_columns(exprs)

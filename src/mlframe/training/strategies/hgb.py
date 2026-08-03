@@ -71,7 +71,7 @@ class HGBStrategy(ModelPipelineStrategy):
             return df
 
         casts = []
-        # Wave 72 (2026-05-21): track which cols use strict=False (test-side
+        # track which cols use strict=False (test-side
         # OOV-tolerant cast) so we can quantify cast-failure rate post-with_columns.
         _strict_false_cols: list[str] = []
         for col in existing:
@@ -104,7 +104,7 @@ class HGBStrategy(ModelPipelineStrategy):
                 casts.append(pl.col(col).cast(pl.String).cast(local_enum).alias(col))
 
         if casts:
-            # Wave 72 (2026-05-21): pre-cast null counts for strict=False columns;
+            # pre-cast null counts for strict=False columns;
             # post-cast delta surfaces silent OOV-nulling.
             _null_pre = {c: int(df[c].null_count()) for c in _strict_false_cols if c in df.columns}
             df = df.with_columns(casts)

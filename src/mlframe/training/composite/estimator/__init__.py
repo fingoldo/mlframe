@@ -157,7 +157,7 @@ def _extract_base_matrix(X: Any, base_columns: Sequence[str]) -> np.ndarray:
     return np.column_stack(cols)
 
 
-# Wave 102 (2026-05-21): CompositeTargetEstimator class (~945 lines) moved
+# CompositeTargetEstimator class (~945 lines) moved
 # to sibling file _composite_target_estimator.py to drop this file below
 # the 1k-line monolith threshold. Re-exported below so existing callers
 # (`from mlframe.training.composite.estimator import CompositeTargetEstimator`)

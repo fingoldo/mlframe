@@ -70,7 +70,7 @@ def _fit_aux_lgb_and_filter(
     filtered = virtuals[keep_mask]
     if filtered.shape[0] < 10:
         # Fallback: if too few pass filter, lower threshold to keep top-N most confident.
-        # Wave 62 (2026-05-20): lexsort with row-index tiebreak for deterministic
+        # lexsort with row-index tiebreak for deterministic
         # top-K across runs on tied proba/pred values.
         if task == "binary":
             top_k = min(max(10, len(virtuals) // 10), len(virtuals))

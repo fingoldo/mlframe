@@ -528,7 +528,7 @@ def soft_winsorize(
     array([  1.8,   2. , 145. ,   3. ,   4. ,   5. , 142.5], dtype=float32)
 
     """
-    # Wave 31 (2026-05-20): assert -> ValueError so -O preserves input validation.
+    # assert -> ValueError so -O preserves input validation.
     if distribution not in ("linear", "quantile"):
         raise ValueError(f"distribution must be 'linear' or 'quantile'; got {distribution!r}.")
 
@@ -579,7 +579,7 @@ def identity(x):
 
 def clip_to_quantiles(arr: np.ndarray, quantile: float = 0.01, method: str = "winsor_quantile", winsor_rel_muliplier: float = 0.05) -> np.ndarray:
     """Clips ndarray to its symmetric quantiles either soft (soft_winsorize) or hard (np.clip) way."""
-    # Wave 31 (2026-05-20): assert -> ValueError so -O preserves input validation.
+    # assert -> ValueError so -O preserves input validation.
     # Pre-fix bad ``method`` slipped past and the elif chain returned None.
     if method not in ("hard", "winsor_linear", "winsor_quantile"):
         raise ValueError(f"method must be 'hard', 'winsor_linear', or 'winsor_quantile'; " f"got {method!r}.")
@@ -592,7 +592,7 @@ def clip_to_quantiles(arr: np.ndarray, quantile: float = 0.01, method: str = "wi
     if not (0 <= winsor_rel_muliplier <= 1):
         raise ValueError(f"winsor_rel_muliplier must be in [0, 1]; got {winsor_rel_muliplier!r}.")
 
-    # Wave 39 (2026-05-20): np.quantile on empty input raises an opaque IndexError
+    # np.quantile on empty input raises an opaque IndexError
     # in numpy>=1.22. Public utility may receive post-filter empty arrays; treat
     # empty as identity (nothing to clip).
     arr_arr = np.asarray(arr)
@@ -662,7 +662,7 @@ class IdentityEstimator(BaseEstimator):
     def fit(self, X, y, **fit_params):
         """Record sorted ``classes_`` from ``y`` when acting as a classifier; no other state is learned."""
         if isinstance(self, ClassifierMixin):
-            # Wave 61 (2026-05-20): object-dtype label set with mixed types
+            # object-dtype label set with mixed types
             # (None + str) would TypeError on Python sorted(); use np.sort
             # when dtype is numeric, str-key fallback otherwise.
             _y_arr = y.unique() if isinstance(y, pd.Series) else np.unique(y)
@@ -678,7 +678,7 @@ class IdentityEstimator(BaseEstimator):
             if self.feature_names:
                 return X.loc[:, self.feature_names].to_numpy()
             else:
-                # Wave 31 (2026-05-20): assert -> ValueError so -O doesn't
+                # assert -> ValueError so -O doesn't
                 # strip the guard. Constructor default is None for both
                 # feature_names and feature_indices; calling predict()
                 # without setting EITHER would raise an opaque IndexError

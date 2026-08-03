@@ -46,7 +46,7 @@ def build_polars_enum_map(self, train_df: "pl.DataFrame", val_df: "pl.DataFrame"
     ]
     candidate_cols = [c for c in candidate_cols if c in train_df.columns]
 
-    # 2026-05-08 perf: batch per-column unique extraction into one collect() per frame (train + val). The
+    # batch per-column unique extraction into one collect() per frame (train + val). The
     # previous loop did ``df[col].unique()`` per cat col -- on c0031 (15 cat cols x 2 frames = 30 collects
     # per build) that cost ~300ms across the suite via PyLazyFrame.collect. Batched via implode() it's 2
     # collects total per call. Falls back to a per-col loop on any error so one bad cast doesn't poison the frame.
