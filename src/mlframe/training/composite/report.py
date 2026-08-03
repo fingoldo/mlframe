@@ -29,12 +29,15 @@ minimal HTML document (sections become ``<h2>`` headers, tables become real
 from __future__ import annotations
 
 import html as _html
+import logging
 from typing import Any, Optional
 
 import numpy as np
 
 from .provenance import _format_transform_formulas
 from ._value_report import build_composite_value_report, render_composite_value_report
+
+logger = logging.getLogger(__name__)
 
 # Headline fitted params shown first, in this fixed order, when present. Mirrors
 # the notebook repr's _HEADLINE_PARAM_KEYS so the report and the repr agree.
@@ -69,7 +72,8 @@ def _resolve_base_str(estimator: Any) -> str:
     """Resolved base column(s) as a display string (never raises)."""
     try:
         cols = estimator._resolve_base_columns()
-    except Exception:
+    except Exception as e:
+        logger.debug("_resolve_base_columns() failed: %s", e)
         cols = ()
     return ", ".join(map(str, cols)) if cols else "(none -- unary y-transform)"
 
@@ -95,7 +99,8 @@ def _gather(estimator: Any, X: Any, y: Any) -> dict[str, Any]:
     try:
         base_cols = estimator._resolve_base_columns()
         primary_base = base_cols[0] if base_cols else "base"
-    except Exception:
+    except Exception as e:
+        logger.debug("_resolve_base_columns() failed, using 'base' as the primary column label: %s", e)
         primary_base = "base"
 
     forward, inverse, description = _format_transform_formulas(
@@ -132,7 +137,8 @@ def _gather(estimator: Any, X: Any, y: Any) -> dict[str, Any]:
     rs_before = dict(getattr(estimator, "runtime_stats_", None) or {})
     try:
         y_hat = np.asarray(estimator.predict(X), dtype=np.float64).reshape(-1)
-    except Exception:
+    except Exception as e:
+        logger.debug("estimator.predict(X) failed, skipping the range/coverage diagnostics: %s", e)
         y_hat = None
 
     if y_hat is not None and y_hat.size:
@@ -162,6 +168,7 @@ def _gather(estimator: Any, X: Any, y: Any) -> dict[str, Any]:
         from .attribution import attribution_summary
         facts["attribution"] = attribution_summary(estimator, X)
     except Exception as exc:
+        logger.debug("attribution_summary() failed: %s", exc)
         facts["attribution_error"] = str(exc)
 
     # Interval coverage: needs y AND a calibrated level.
@@ -198,7 +205,8 @@ def _interval_coverage(estimator: Any, X: Any, y: Any, facts: dict[str, Any]) ->
                     "mean_width": float(np.mean(hi - lo)),
                     "n": int(y_true.shape[0]),
                 })
-            except Exception:  # nosec B112 - best-effort path
+            except Exception as e:  # nosec B112 - best-effort path
+                logger.debug("per-level interval coverage computation failed, skipping: %s", e)
                 continue
     return out or None
 

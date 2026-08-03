@@ -18,7 +18,7 @@ from sklearn.linear_model import Ridge, RidgeCV
 try:
     import polars as pl
     _HAS_POLARS = True
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     pl = None  # type: ignore
     _HAS_POLARS = False
 
@@ -56,7 +56,7 @@ def _pp_is_fitted(pp: Any) -> bool:
     """
     try:
         from ...pipeline._pipeline_helpers import _is_fitted
-    except Exception:  # pragma: no cover - defensive; treat as unfitted
+    except ImportError:  # pragma: no cover - defensive; treat as unfitted
         return False
     return bool(_is_fitted(pp))
 
@@ -152,8 +152,8 @@ def detect_gpu_in_use(mlframe_models: Sequence[str]) -> list[str]:
             from catboost.utils import get_gpu_device_count
             if get_gpu_device_count() > 0:
                 detected.append("catboost")
-        except Exception:  # nosec B110 - optional dependency import guard
-            pass
+        except Exception as e:  # nosec B110 - optional dependency import guard
+            logger.debug("catboost GPU device count probe failed: %s", e)
     return detected
 
 
@@ -577,7 +577,8 @@ def compute_oof_holdout_predictions(
                         # (e.g. multi-base needs the K-column matrix).
                         try:
                             _fold_params = transform.fit(y_stack[valid], base_stack[valid])
-                        except Exception:
+                        except Exception as e:
+                            logger.debug("per-fold transform refit failed, reusing the previously fitted params: %s", e)
                             _fold_params = spec["fitted_params"]
                         t_stack = transform.forward(
                             y_stack[valid], base_stack[valid], _fold_params,
@@ -833,7 +834,8 @@ def compute_oof_holdout_predictions(
                 # Per-fold transform refit (see the kfold branch).
                 try:
                     _fold_params = transform.fit(y_stack[valid], base_stack[valid])
-                except Exception:
+                except Exception as e:
+                    logger.debug("per-fold transform refit failed, reusing the previously fitted params: %s", e)
                     _fold_params = spec["fitted_params"]
                 t_stack = transform.forward(
                     y_stack[valid], base_stack[valid], _fold_params,

@@ -273,7 +273,8 @@ def _cuda_batched_permutation_importance(
     _fail = (lambda: (None, None)) if return_std else (lambda: None)
     try:
         import torch
-    except Exception:
+    except ImportError as e:
+        logger.debug("torch import failed: %s", e)
         return _fail()
     if not torch.cuda.is_available():
         return _fail()
@@ -372,7 +373,8 @@ def _torch_module_from_model(model: Any):
     """
     try:
         import torch.nn as nn
-    except Exception:
+    except ImportError as e:
+        logger.debug("torch.nn import failed: %s", e)
         return None
     seen: set[int] = set()
     cur = model
@@ -415,7 +417,8 @@ def _first_layer_weight_importance(net) -> Optional[np.ndarray]:
     """
     try:
         import torch.nn as nn
-    except Exception:
+    except ImportError as e:
+        logger.debug("torch.nn import failed: %s", e)
         return None
     if isinstance(net, nn.Sequential):
         layers = list(net.children())
@@ -449,7 +452,8 @@ def _captum_integrated_gradients_importance(
     try:
         import torch
         from captum.attr import IntegratedGradients
-    except Exception:
+    except ImportError as e:
+        logger.debug("torch/captum import failed: %s", e)
         return None
     try:
         X_arr = X.to_numpy() if isinstance(X, pd.DataFrame) else np.asarray(X)
@@ -632,7 +636,8 @@ def get_model_feature_importances(
         if needs_perm and X is not None and y is not None:
             try:
                 y_arr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
-            except Exception:
+            except Exception as e:
+                logger.debug("converting y to a numpy array failed: %s", e)
                 y_arr = None
             if y_arr is not None and y_arr.ndim == 2 and y_arr.shape[1] >= len(children):
                 for j in needs_perm:

@@ -97,7 +97,8 @@ def usability_greedy_gpu_resident(
         # through to the exact CPU logistic greedy, keeping flag-off + failures byte-identical CPU.
         try:
             from ._usability_greedy_clf_gpu_resident import usability_greedy_clf_gpu_resident
-        except Exception:
+        except ImportError as e:
+            logger.debug("usability_greedy_clf_gpu_resident import failed: %s", e)
             return None
         return usability_greedy_clf_gpu_resident(
             pool, y_cont, w=w, K=K, seed=seed, n_folds=n_folds,
@@ -107,14 +108,15 @@ def usability_greedy_gpu_resident(
         return None
     try:
         import cupy as cp
-    except Exception:
+    except ImportError as e:
+        logger.debug("cupy import failed, resident usability greedy unavailable: %s", e)
         return None
     try:
         from ._gpu_policy import gpu_globally_disabled
         if gpu_globally_disabled():
             return None
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("gpu_globally_disabled() check failed, proceeding without the global-disable gate: %s", e)
 
     try:
         from ._usability_aware_selection import _scrub, _f64
@@ -148,8 +150,8 @@ def usability_greedy_gpu_resident(
                 if _k_fit < _k_eff:
                     K = max(1, _k_fit)
                     shortlist = min(int(shortlist), max(int(K), 1))
-        except Exception:  # nosec B110 - best-effort path
-            pass
+        except Exception as e:  # nosec B110 - best-effort path
+            logger.debug("shortlist auto-sizing failed, keeping the caller-provided shortlist: %s", e)
 
         # Balanced ``arange % k`` partition, seeded + shuffled IDENTICALLY to the CPU path (host RNG -> the
         # SAME fold vector, so the per-fold train/val splits match bit-for-bit).
@@ -336,7 +338,8 @@ def usability_greedy_gpu_resident(
                         rhs[k] = bnew
                         try:
                             beta = cp.linalg.solve(G, rhs)
-                        except Exception:
+                        except Exception as e:
+                            logger.debug("cp.linalg.solve failed (likely a singular Gram matrix), stopping the greedy: %s", e)
                             singular = True
                             break
                         pred = ybar + Sc_va @ beta[:k] + cc_va * beta[k]

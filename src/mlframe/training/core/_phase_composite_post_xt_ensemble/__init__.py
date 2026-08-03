@@ -119,7 +119,8 @@ def _build_cross_target_ensemble_for_target(
         from mlframe.training import TargetTypes
 
         _is_mtr = str(_tt_e) == str(TargetTypes.MULTI_TARGET_REGRESSION) or (hasattr(_tt_e, "is_multi_target_regression") and _tt_e.is_multi_target_regression)
-    except Exception:
+    except Exception as e:
+        logger.debug("multi-target-regression detection failed, defaulting to False: %s", e)
         _is_mtr = False
 
     if _is_mtr:
@@ -391,13 +392,15 @@ def _build_cross_target_ensemble_for_target(
                 _b_filtered = _b_stack_full[filtered_train_idx]
                 try:
                     _b_val = _b_stack_full[filtered_val_idx]
-                except Exception:
+                except Exception as e:
+                    logger.debug("indexing _b_stack_full by filtered_val_idx failed: %s", e)
                     _b_val = None
             else:
                 _b_filtered = _b_primary[filtered_train_idx]
                 try:
                     _b_val = _b_primary[filtered_val_idx]
-                except Exception:
+                except Exception as e:
+                    logger.debug("indexing _b_primary by filtered_val_idx failed: %s", e)
                     _b_val = None
             # Key by the UNIQUE spec name, not base_column. A multi-base
             # spec and a single-base spec sharing the same PRIMARY base column
@@ -551,7 +554,8 @@ def _build_cross_target_ensemble_for_target(
                                 _dropped_pre.append(f"{_name}(leakyRMSE={_leaky_rmse:.4g})")
                             else:
                                 _keep_mask.append(True)
-                        except Exception:
+                        except Exception as e:
+                            logger.debug("leaky-RMSE pre-check failed for this candidate, keeping it (err on the safe side): %s", e)
                             _keep_mask.append(True)  # err on the safe side
                     if _dropped_pre and sum(_keep_mask) >= 2:
                         _kept = [i for i, k in enumerate(_keep_mask) if k]
@@ -1087,7 +1091,8 @@ def _build_cross_target_ensemble_for_target(
                 if _ens_y_train is not None and len(_ens_y_train) > 0:
                     from ..._prediction_envelope_clip import compute_train_envelope_stats
                     _ens_train_envelope = compute_train_envelope_stats(_ens_y_train)
-            except Exception:
+            except Exception as e:
+                logger.debug("compute_train_envelope_stats failed, leaving the train envelope unset: %s", e)
                 _ens_train_envelope = None
             _ens_common: dict[str, Any] = dict(
                 columns=_ens_columns,

@@ -40,7 +40,8 @@ def _mi_classif_batch_sklearn(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) 
                 continue
             binned = np.searchsorted(edges, col_f)
             mis[j] = float(mutual_info_score(binned, y[finite]))
-        except Exception:
+        except Exception as e:
+            logger.debug("mutual_info_score failed for column %d, treating MI as 0.0: %s", j, e)
             mis[j] = 0.0
     return mis
 
@@ -200,7 +201,8 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
                 mis[j] = float(
                     plugin_mi_classif_batch_dispatch(col_f, y_f, nbins)[0],
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug("plugin_mi_classif_batch_dispatch failed for column %d, treating MI as 0.0: %s", j, e)
                 mis[j] = 0.0
     return mis
 
@@ -423,7 +425,8 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
                 try:
                     from .._gpu_strict_fe import fe_gpu_strict_resident_enabled
                     _resident_on = fe_gpu_strict_resident_enabled()
-                except Exception:
+                except Exception as e:
+                    logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
                     _resident_on = False
                 if _resident_on:
                     from .._gpu_resident_rank_bin import plugin_mi_classif_batch_rank_cuda_resident
@@ -461,7 +464,8 @@ def _mi_chunk_cols_for(n_rows: int) -> int:
     try:
         import psutil
         free = int(psutil.virtual_memory().available)
-    except Exception:
+    except Exception as e:
+        logger.debug("psutil.virtual_memory() probe failed, using the conservative 2GiB default: %s", e)
         free = 2 * 1024**3
     budget = max(1, int(free * 0.10))
     by_ram = budget // (max(1, int(n_rows)) * 8 * 3)
@@ -527,7 +531,8 @@ def _mi_classif_batch_balanced(X: np.ndarray, y: np.ndarray, class_w, *, nbins: 
     """
     try:
         from ._imbalance_mi import _class_balanced_mi_batch_njit
-    except Exception:
+    except ImportError as e:
+        logger.debug("_imbalance_mi import failed: %s", e)
         return None
     _n, p = X.shape
     y_i64 = np.ascontiguousarray(y, dtype=np.int64)
