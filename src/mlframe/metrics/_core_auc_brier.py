@@ -6,10 +6,13 @@ Carved from ``core.py``. Public symbols are re-exported from the parent.
 from __future__ import annotations
 
 import functools
+import logging
 
 import numba
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 import polars as pl
 
 from ._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD, _check_equal_length
@@ -129,7 +132,8 @@ def _gpu_argsort_available() -> bool:
         try:
             import cupy as cp
             _GPU_ARGSORT_AVAILABLE = cp.cuda.runtime.getDeviceCount() > 0
-        except Exception:
+        except Exception as e:
+            logger.debug("cupy device-count probe failed: %s", e)
             _GPU_ARGSORT_AVAILABLE = False
     return _GPU_ARGSORT_AVAILABLE
 
@@ -143,8 +147,8 @@ def _argsort_desc_for_metrics(y_score: np.ndarray) -> np.ndarray:
         try:
             import cupy as cp
             return np.asarray(cp.asnumpy(cp.argsort(cp.asarray(y_score))[::-1]))
-        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
-            pass  # GPU OOM / transient device error -> exact CPU fallback
+        except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+            logger.debug("GPU argsort failed, falling back to the exact CPU path: %s", e)  # GPU OOM / transient device error -> exact CPU fallback
     if n >= _PAR_BUCKET_ARGSORT_MIN_N:
         return _argsort_desc_par_bucket(y_score)
     return np.argsort(y_score)[::-1]

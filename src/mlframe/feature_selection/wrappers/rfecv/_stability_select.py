@@ -181,6 +181,7 @@ def _fit_stability_selection(self, X, y, signature):
             try:
                 est_clone.fit(X_sub, y_sub, **_fit_kwargs)
             except Exception as exc:
+                logger.debug("stability-select bootstrap fit failed: %s", exc)
                 if self.verbose:
                     log_throttle(
                         logger,
@@ -203,6 +204,7 @@ def _fit_stability_selection(self, X, y, signature):
                     random_state=int(rng.integers(0, 2**31 - 1)),
                 )
             except Exception as exc:
+                logger.debug("stability-select permutation-importance computation failed: %s", exc)
                 if self.verbose:
                     log_throttle(
                         logger,

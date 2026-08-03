@@ -199,7 +199,8 @@ def gpu_model_available() -> bool:
         if cp.cuda.runtime.getDeviceCount() <= 0:
             _GPU_MODEL_AVAILABLE_CACHE = False
             return False
-    except Exception:
+    except Exception as e:
+        logger.debug("cupy device-count probe failed: %s", e)
         _GPU_MODEL_AVAILABLE_CACHE = False
         return False
     try:
@@ -209,7 +210,8 @@ def gpu_model_available() -> bool:
         if not info.get("USE_CUDA", False):
             _GPU_MODEL_AVAILABLE_CACHE = False
             return False
-    except Exception:
+    except Exception as e:
+        logger.debug("CUDA-build-info probe failed: %s", e)
         _GPU_MODEL_AVAILABLE_CACHE = False
         return False
     _GPU_MODEL_AVAILABLE_CACHE = True

@@ -26,8 +26,11 @@ the existing import-cost contract.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol, runtime_checkable
+
+logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -220,15 +223,16 @@ def _report_extract_shap_proxied_fs(selector, kept) -> dict:
             _imp = _rep.get("mean_abs_shap") or _rep.get("importances")
             if isinstance(_imp, dict) and _imp:
                 out["scores"] = {str(k): float(v) for k, v in _imp.items()}
-    except Exception:
+    except Exception as e:
+        logger.debug("importance-scores extraction failed: %s", e)
         out["scores"] = None
     try:
         _sel = set(str(c) for c in (getattr(selector, "selected_features_", None) or []))
         _all = getattr(selector, "feature_names_in_", None)
         if _all is not None and _sel:
             out["reason_per_feature"] = {str(c): ("selected" if str(c) in _sel else "dropped") for c in _all}
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("reason_per_feature computation failed: %s", e)
     return out
 
 

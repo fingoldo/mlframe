@@ -61,7 +61,7 @@ from ._batch_pair_mi_cuda_shared_fused import (
 try:
     import cupy as _cp
     _CUPY_AVAIL = True
-except Exception:
+except ImportError:
     _cp = None
     _CUPY_AVAIL = False
 
@@ -491,7 +491,8 @@ def dispatch_batch_pair_mi(
         if _vram_ok:
             try:
                 return batch_pair_mi_cuda(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cuda"
-            except Exception:
+            except Exception as e:
+                logger.debug("batch_pair_mi_cuda failed, falling back to the next backend: %s", e)
                 # Shape guard tripped (most commonly max_joint/n_classes_y exceeding the STATIC
                 # shared-memory kernel's compile-time caps) or a runtime/driver fault -> try the single-
                 # launch shared-fused kernel (sidesteps the static caps via opt-in dynamic shared memory,

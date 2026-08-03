@@ -36,14 +36,17 @@ correct, gated GPU path that wins on a larger subsample / stronger card; the tun
 """
 from __future__ import annotations
 
+import logging
 import os
 
 import numpy as np
 
+logger = logging.getLogger(__name__)
+
 try:
     import cupy as _cp
     _CUPY_AVAIL = True
-except Exception:
+except ImportError:
     _cp = None
     _CUPY_AVAIL = False
 
@@ -60,8 +63,8 @@ def fe_gpu_usability_enabled() -> bool:
         from ._gpu_policy import gpu_globally_disabled
         if gpu_globally_disabled():
             return False
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("gpu_globally_disabled() check failed, proceeding without the global-disable gate: %s", e)
     return True
 
 

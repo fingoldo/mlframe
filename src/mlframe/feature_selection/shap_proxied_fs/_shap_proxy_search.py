@@ -19,11 +19,14 @@ Exact enumeration is intended for ``n_features <= ~22``; larger n routes to the 
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import Any, cast
 
 import numpy as np
 from numba import njit, prange
+
+logger = logging.getLogger(__name__)
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import METRIC_CODES, resolve_metric, score_margin
 
@@ -258,7 +261,8 @@ def _resolve_brute_force_n_chunks() -> int:
         from numba import get_num_threads
 
         val = max(8, 2 * int(get_num_threads()))
-    except Exception:
+    except Exception as e:
+        logger.debug("numba.get_num_threads() failed, using the default 8: %s", e)
         val = 8
     try:
         from mlframe.feature_selection.filters import get_kernel_tuning_cache
@@ -268,8 +272,8 @@ def _resolve_brute_force_n_chunks() -> int:
             entry = cast(Any, ktc).lookup("shap_proxy_brute_force")
             if isinstance(entry, dict) and entry.get("n_chunks"):
                 val = int(entry["n_chunks"])
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("kernel_tuning_cache lookup for shap_proxy_brute_force n_chunks failed: %s", e)
     _brute_force_n_chunks_cache = val
     return val
 

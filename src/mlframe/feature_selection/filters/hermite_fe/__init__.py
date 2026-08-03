@@ -309,7 +309,8 @@ def _polyeval_cuda_pick_devices(n: int) -> list:
     _cushion: Any = None
     try:
         from .._fe_gpu_vram import fe_gpu_has_vram_cushion as _cushion
-    except Exception:
+    except ImportError as e:
+        logger.debug("fe_gpu_has_vram_cushion import failed: %s", e)
         _cushion = None
     fits = []
     for d in range(ndev):

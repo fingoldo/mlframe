@@ -104,7 +104,8 @@ def _edges_blocked(Z, threshold, edge_cap, block, use_gpu):
 
             xp = cp
             Zb = cp.asarray(Z)
-        except Exception:
+        except Exception as e:
+            logger.debug("cupy upload failed, falling back to CPU: %s", e)
             use_gpu = False
             xp = np
             Zb = Z
@@ -182,7 +183,8 @@ def cluster_correlated_features(
             import cupy as cp
 
             gpu = cp.cuda.runtime.getDeviceCount() > 0
-        except Exception:
+        except Exception as e:
+            logger.debug("cupy device-count probe failed: %s", e)
             gpu = False
     if use_gpu is False:
         gpu = False

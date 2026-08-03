@@ -113,7 +113,8 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
     any cupy failure / no-cupy so the caller falls back to the exact host (numpy + ``cp.asarray``) body."""
     try:
         import cupy as cp
-    except Exception:
+    except ImportError as e:
+        logger.debug("cupy import failed: %s", e)
         return None
 
     from ._wavelet_basis_fe import (
@@ -240,8 +241,8 @@ def select_wavelet_legs_batched(x: np.ndarray, y: np.ndarray, lo: float, span: f
             )
             if _dev is not None:
                 return list(_dev)
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("resident wavelet-leg computation failed, falling back to the host path: %s", e)
 
     from ._wavelet_basis_fe import (
         _WAVELET_MIN_HALF_ROWS,

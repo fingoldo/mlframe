@@ -267,7 +267,8 @@ def _column_to_str(col: pd.Series) -> np.ndarray:
     # when no 0/1 is present (the overwhelming common case).
     try:
         _has_01 = bool(np.asarray((uniq == 0) | (uniq == 1)).any())
-    except Exception:
+    except Exception as e:
+        logger.debug("vectorized 0/1 check failed, falling back to the per-element loop: %s", e)
         _has_01 = any((not (isinstance(v, float) and v != v)) and (v == 0 or v == 1) for v in uniq)
     # The bool-instance scan must run over the RAW array, not ``uniq``: factorize keeps only ONE representative
     # per equivalence class, and when a collided bool loses that slot to an equal-valued int (e.g. array order
@@ -277,7 +278,8 @@ def _column_to_str(col: pd.Series) -> np.ndarray:
     if _has_01:
         try:
             _zero_one_mask = np.asarray((arr == 0) | (arr == 1))
-        except Exception:
+        except Exception as e:
+            logger.debug("vectorized 0/1 mask failed, falling back to the per-element loop: %s", e)
             _zero_one_mask = np.array([(not (isinstance(v, float) and v != v)) and (v == 0 or v == 1) for v in arr], dtype=bool)
         _bool_risk = any(isinstance(v, (bool, np.bool_)) for v in arr[_zero_one_mask])
     else:

@@ -74,7 +74,8 @@ def _build_honest_loss_disk_key(model_template, X_tr, y_tr, X_ev, y_ev, idx, cla
 
         try:
             params = model_template.get_params(deep=False)
-        except Exception:
+        except Exception as e:
+            logger.debug("get_params(deep=False) failed, using repr() as the cache-key params: %s", e)
             params = {"_repr": repr(model_template)}
         x_tr_key = hash_array_summary(X_tr.values if hasattr(X_tr, "values") else np.asarray(X_tr))
         y_tr_key = hash_array_summary(np.asarray(y_tr))
@@ -114,7 +115,8 @@ def _build_perm_fit_disk_key(model_template, X_tr, y_tr, idx, n_estimators_cap, 
 
         try:
             params = model_template.get_params(deep=False)
-        except Exception:
+        except Exception as e:
+            logger.debug("get_params(deep=False) failed, using repr() as the cache-key params: %s", e)
             params = {"_repr": repr(model_template)}
         x_tr_key = hash_array_summary(X_tr.values if hasattr(X_tr, "values") else np.asarray(X_tr))
         y_tr_key = hash_array_summary(np.asarray(y_tr))

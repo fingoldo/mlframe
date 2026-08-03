@@ -55,8 +55,8 @@ def pool_table_use_resident(n_rows: int, npairs: int, n_combos: int) -> bool:
         from ._fe_gpu_strict import fe_gpu_strict_enabled
         if fe_gpu_strict_enabled(n=int(n_rows), p=int(npairs)):
             return True
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("fe_gpu_strict_enabled() check failed, continuing to the crossover-based decision: %s", e)
     if _POOLRES_SPEC is None:
         return False
     pb = min(_POOLRES_SWEEP_NPAIRS, key=lambda b: abs(b - int(npairs)))
@@ -154,5 +154,6 @@ try:
         salt=_POOLRES_SALT,
         cli_label="fe_usability_pool_combo_mi_table_resident_crossover",
     )
-except Exception:
+except Exception as e:
+    logger.debug("fe_usability_pool_combo_mi_table_resident_crossover kernel_tuner registration failed: %s", e)
     _POOLRES_SPEC = None
