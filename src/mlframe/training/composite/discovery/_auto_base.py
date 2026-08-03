@@ -601,7 +601,8 @@ def _auto_base(
                 with np.errstate(invalid="ignore", divide="ignore"):
                     _corr = np.where(_xden > 0, _num / (_xden * _yden), 0.0)
                 _abs_corr_to_y = {c: abs(float(_corr[j])) for j, c in enumerate(usable_features)}
-    except Exception:  # -- corr is a heuristic gate; never abort discovery on it
+    except Exception as e:  # -- corr is a heuristic gate; never abort discovery on it
+        logger.debug("abs-corr-to-y heuristic gate computation failed: %s", e)
         _abs_corr_to_y = {}
 
     _boost_corr_gate = float(getattr(self.config, "auto_base_structural_boost_corr_gate", 0.98))

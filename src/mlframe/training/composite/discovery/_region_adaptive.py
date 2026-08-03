@@ -44,6 +44,7 @@ command away.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
@@ -51,6 +52,8 @@ import numpy as np
 
 # Reuse the registry transforms verbatim (fit/forward/inverse), no new Transform.
 from ..transforms.registry import _TRANSFORMS_REGISTRY
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "RegionAdaptiveSpec",
@@ -185,7 +188,8 @@ def _oof_score_transform(
         try:
             params = tr.fit(y[trn], base[trn])
             t_te = tr.forward(y[te], base[te], params)
-        except Exception:  # nosec B112 - best-effort path
+        except Exception as e:  # nosec B112 - best-effort path
+            logger.debug("region-adaptive fold fit/forward failed: %s", e)
             continue
         if not np.all(np.isfinite(t_te)):
             continue

@@ -9,7 +9,10 @@ surfaced via the ``rejection_ledger`` property. Additive: the gates keep their l
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class RejectStage:
@@ -66,5 +69,5 @@ def ledger_append(
             "reason": str(reason),
             "numbers": dict(numbers or {}),
         })
-    except Exception:  # -- ledger is observability-only; never let it break a fit  # nosec B110 - best-effort/optional path, no module logger
-        pass
+    except Exception as e:  # -- ledger is observability-only; never let it break a fit  # nosec B110
+        logger.debug("rejection-ledger append failed: %s", e)

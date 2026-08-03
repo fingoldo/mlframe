@@ -10,7 +10,7 @@ try:  # numba is a core mlframe dep; the pure-numpy fallback keeps the module im
     import numba
 
     _HAVE_NUMBA = True
-except Exception:  # pragma: no cover -- numba always present in prod
+except ImportError:  # pragma: no cover -- numba always present in prod
     _HAVE_NUMBA = False
 
 

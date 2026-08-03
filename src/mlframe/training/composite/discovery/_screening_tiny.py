@@ -130,7 +130,7 @@ def _silence_tiny_model_output(family: str | None = None):
         _silence_tiny_state.lgb_depth = _depth + 1
     try:
         from sklearn.exceptions import ConvergenceWarning
-    except Exception:  # pragma: no cover - sklearn always installed in our deps
+    except ImportError:  # pragma: no cover - sklearn always installed in our deps
         ConvergenceWarning = UserWarning
     with warnings.catch_warnings():
         # Prepend the four ignore filters directly using precompiled message regexes (see ``_FEATURE_NAMES_RE`` note above). ``catch_warnings.__enter__`` has just copied the global filters into a fresh ``warnings.filters`` list, so a plain prepend (newest-first) reproduces the exact order four ``filterwarnings("ignore", ...)`` calls would leave -- last-inserted (RuntimeWarning) first. The second message filter squelches sklearn SimpleImputer's "Skipping features without any observed values" no-op warning (fires per CV fold * candidate spec in tiny-rerank); the actual remediation (drop fully-NaN columns) lives in the auto-base per-column NaN gate.

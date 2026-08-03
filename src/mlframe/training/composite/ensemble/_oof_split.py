@@ -11,7 +11,7 @@ import numpy as np
 try:
     import polars as pl
     _HAS_POLARS = True
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     pl = None  # type: ignore
     _HAS_POLARS = False
 

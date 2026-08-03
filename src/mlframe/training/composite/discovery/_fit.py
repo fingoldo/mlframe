@@ -815,7 +815,8 @@ def fit(
         from ..cache import data_signature as _data_signature
 
         self._fit_data_signature = _data_signature(df, target_col, feature_cols)
-    except Exception:  # -- signature is an optimisation, never load-bearing
+    except Exception as e:  # -- signature is an optimisation, never load-bearing
+        logger.debug("data signature computation failed: %s", e)
         self._fit_data_signature = ""
 
     # Bookkeeping. (target_col + df_ref + train_idx already stashed.)

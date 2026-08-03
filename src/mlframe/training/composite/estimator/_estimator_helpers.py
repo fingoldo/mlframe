@@ -3,9 +3,12 @@ module under the 1000-LOC house limit. Re-imported into ``_estimator`` so call s
 from __future__ import annotations
 
 import inspect
+import logging
 from typing import Any, Callable
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:
     # sklearn's canonical "does this estimator's fit accept <param>" check.
@@ -47,8 +50,8 @@ def _estimator_fit_accepts_sample_weight(estimator: Any) -> bool:
     if _sk_has_fit_parameter is not None:
         try:
             return bool(_sk_has_fit_parameter(estimator, "sample_weight"))
-        except Exception:  # pragma: no cover - defensive; fall through  # nosec B110 - best-effort/optional path, no module logger
-            pass
+        except Exception as e:  # pragma: no cover - defensive; fall through  # nosec B110
+            logger.debug("has_fit_parameter() probe failed, falling through to signature inspection: %s", e)
     fit_fn = getattr(estimator, "fit", None)
     if fit_fn is None:
         return False

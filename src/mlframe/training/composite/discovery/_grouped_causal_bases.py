@@ -31,12 +31,15 @@ sums (no per-row O(window) rescan). The sort is not worth a GPU hand-off at thes
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Mapping, Sequence
 
 import numpy as np
 
 from ._base_engineering import _extract_column, add_engineered_bases_to_pool
 from ._njit_shared import njit_or_passthrough as _njit
+
+logger = logging.getLogger(__name__)
 
 _VALID_OPS = ("lag", "trailing_mean", "expanding_mean")
 
@@ -335,7 +338,7 @@ def _profile_main() -> None:  # pragma: no cover -- manual cProfile harness (see
         import polars as pl
 
         df = pl.DataFrame({"y": y, "well": groups, "md": md})
-    except Exception:
+    except ImportError:
         import pandas as pd
 
         df = pd.DataFrame({"y": y, "well": groups, "md": md})

@@ -254,7 +254,7 @@ def _default_tiny_model():
         from sklearn.ensemble import HistGradientBoostingRegressor
 
         return HistGradientBoostingRegressor(max_iter=60, max_leaf_nodes=15)
-    except Exception:
+    except ImportError:
         from sklearn.linear_model import Ridge
 
         return Ridge()

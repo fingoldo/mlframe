@@ -91,7 +91,8 @@ def composite_predictions_as_feature(
         # warn so the caller can switch to the polars zero-copy path.
         try:
             _sz = int(df.memory_usage(index=False, deep=False).sum())
-        except Exception:
+        except Exception as e:
+            logger.debug("memory_usage() failed, skipping large-frame warning: %s", e)
             _sz = 0
         if _sz > _FEATURE_STACK_LARGE_FRAME_BYTES:
             if not allow_large_frame_copy:

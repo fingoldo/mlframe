@@ -166,7 +166,8 @@ class DiscoveryCache:
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp_path, self._lru_path)
-        except Exception:
+        except Exception as e:
+            logger.debug("LRU cache-store metadata write failed: %s", e)
             if not _fd_adopted:
                 try:
                     os.close(fd)

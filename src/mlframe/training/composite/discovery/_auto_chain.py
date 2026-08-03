@@ -435,7 +435,8 @@ def discover_chains(
             dom = np.asarray(chain_tf.domain_check(y, base), dtype=bool)
             try:
                 params = chain_tf.fit(y[dom], base[dom])
-            except Exception:
+            except Exception as e:
+                logger.debug("chain transform fit failed: %s", e)
                 params = {}
             candidates.append(
                 ChainCandidate(

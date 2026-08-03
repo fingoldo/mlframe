@@ -43,7 +43,8 @@ def apply_base_leakage_guard(
         try:
             _barr = _extract_column_array(df, _bcand)[train_idx]
             _leak = detect_base_target_leakage(y_train, _barr, time_ordering=_to_train)
-        except Exception:
+        except Exception as e:
+            logger.debug("base-target leakage check failed for %s, keeping candidate: %s", _bcand, e)
             kept.append(_bcand)
             continue
         if _leak.get("is_leaky"):

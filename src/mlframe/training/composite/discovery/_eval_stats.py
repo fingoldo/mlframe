@@ -323,7 +323,8 @@ def apply_alpha_drift_gate(
                 continue
             params1 = {"alpha": float(_alphas[0]), "beta": float(_betas[0])}
             params2 = {"alpha": float(_alphas[1]), "beta": float(_betas[1])}
-        except Exception:
+        except Exception as e:
+            logger.debug("split-window param extraction failed for drift check: %s", e)
             drift_kept.append(s)
             continue
         a1 = float(params1.get("alpha", 0.0))

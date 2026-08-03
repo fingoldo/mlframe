@@ -150,7 +150,8 @@ def apply_honest_rmse_gate(
             valid = np.asarray(transform.domain_check(y_fit, base_fit), dtype=bool)
             if valid.shape != y_fit.shape:
                 valid = np.ones(y_fit.shape, dtype=bool)
-        except Exception:
+        except Exception as e:
+            logger.debug("domain_check failed, treating all rows as valid: %s", e)
             valid = np.ones(y_fit.shape, dtype=bool)
         _dcf = getattr(transform, "domain_check_fitted", None)
         if _dcf is not None:
