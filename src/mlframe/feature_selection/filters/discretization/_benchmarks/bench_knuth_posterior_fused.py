@@ -25,18 +25,7 @@ import time
 import numpy as np
 from numba import njit
 
-
-# ----------------------------------------------------------------------------- OLD (real prior code, copied verbatim)
-@njit(nogil=True, cache=True)
-def _knuth_log_posterior(M, n, counts):
-    if M < 1 or n < 1:
-        return -1e300
-    log_M = math.log(M)
-    log_gamma_half = math.lgamma(0.5)
-    s = n * log_M + math.lgamma(M / 2.0) - M * log_gamma_half - math.lgamma(n + M / 2.0)
-    for k in range(M):
-        s += math.lgamma(counts[k] + 0.5)
-    return s
+from mlframe.feature_selection.filters.discretization._discretization_edges import _knuth_log_posterior
 
 
 def _knuth_best_M_old(a, m_max_cap=64):
