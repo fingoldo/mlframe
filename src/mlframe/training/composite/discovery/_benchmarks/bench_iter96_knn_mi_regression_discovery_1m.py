@@ -17,6 +17,7 @@ Run:
 """
 from __future__ import annotations
 
+import functools
 import sys
 
 sys.modules.setdefault("cupy", None)
@@ -29,6 +30,8 @@ import pstats  # noqa: E402
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+
+from ._bench_discovery_shared import run_discovery_fit as _run_discovery_fit
 
 
 def synth_regression(n: int, seed: int = 0):
@@ -64,10 +67,7 @@ def make_discovery():
     return CompositeTargetDiscovery(cfg)
 
 
-def run_fit(Xy, feature_cols, n):
-    disco = make_discovery()
-    train_idx = np.arange(n)
-    return disco.fit(Xy, "y", feature_cols, train_idx)
+run_fit = functools.partial(_run_discovery_fit, make_discovery)
 
 
 def main(argv):
