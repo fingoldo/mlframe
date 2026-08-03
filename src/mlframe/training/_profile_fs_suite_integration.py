@@ -12,10 +12,13 @@ Not a test; lives in the package so any maintainer can rerun the same shape.
 from __future__ import annotations
 
 import cProfile
+import logging
 import os
 import pstats
 import tempfile
 import warnings
+
+logger = logging.getLogger(__name__)
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
@@ -65,6 +68,7 @@ def _run_once():
             try:
                 predict_from_models(df=df, models=models, metadata=metadata, features_and_targets_extractor=fte, verbose=0)  # type: ignore[arg-type]  # duck-typed test double, see above
             except Exception as e:
+                logger.debug("predict skipped: %s: %s", type(e).__name__, e)
                 print("predict skipped:", type(e).__name__, str(e)[:120])
     return res
 

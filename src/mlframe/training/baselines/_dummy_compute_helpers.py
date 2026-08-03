@@ -214,6 +214,7 @@ def _compute_ltr_baselines(
                 }
         except Exception as _pop_err:
             # Non-fatal: popularity is one of N LTR baselines.
+            logger.debug("popularity baseline skipped: %s", _pop_err)
             extras["popularity_skip_reason"] = str(_pop_err)
 
     return val_preds, test_preds, extras

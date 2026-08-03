@@ -44,7 +44,7 @@ try:
     import numba
 
     _HAS_NUMBA = True
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     numba = None
     _HAS_NUMBA = False
 

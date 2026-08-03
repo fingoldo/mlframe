@@ -64,7 +64,7 @@ try:
         return rows, W, sse_raw, sse_comp, sse_lag
 
     _HAVE_NUMBA = True
-except Exception:  # pragma: no cover - numba is an optional accelerator here
+except ImportError:  # pragma: no cover - numba is an optional accelerator here
     _HAVE_NUMBA = False
 
 __all__ = [

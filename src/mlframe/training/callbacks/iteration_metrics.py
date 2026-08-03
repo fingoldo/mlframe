@@ -116,7 +116,8 @@ def make_xgb_iteration_metrics_callback(
             # Always capture the final round even if stride skipped it (the best/last round is the meta-learning anchor).
             try:
                 last = int(model.num_boosted_rounds()) - 1
-            except Exception:
+            except Exception as e:
+                logger.debug("num_boosted_rounds() failed, falling back to last recorded iteration: %s", e)
                 last = max(self.iteration_metrics_, default=-1)
             if last >= 0 and last not in self.iteration_metrics_:
                 score = model.predict(dval, iteration_range=(0, last + 1))

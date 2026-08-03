@@ -76,7 +76,8 @@ def maybe_clean_ram_adaptive() -> None:
             clean_ram()
             try:
                 _MAYBE_CLEAN_BASELINE_MB = psutil.Process().memory_info().rss / 1024**2
-            except Exception:
+            except Exception as e:
+                logger.debug("post-clean RSS re-measurement failed: %s", e)
                 _MAYBE_CLEAN_BASELINE_MB = rss_mb
 
 

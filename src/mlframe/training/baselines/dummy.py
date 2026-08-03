@@ -235,7 +235,8 @@ def _baseline_inputs_hash(
             try:
                 a = np.ascontiguousarray(_to_1d_numpy(arr) if hasattr(arr, "__len__") else np.array([arr]))
                 h.update(a.tobytes())
-            except Exception:
+            except Exception as e:
+                logger.debug("array-to-bytes hashing failed, falling back to repr(): %s", e)
                 h.update(repr(arr).encode())
     return h.hexdigest()
 

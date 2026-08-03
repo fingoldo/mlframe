@@ -21,7 +21,7 @@ def is_polars_df(x: Any) -> bool:
         import polars as pl
 
         return isinstance(x, pl.DataFrame)
-    except Exception:
+    except ImportError:
         return False
 
 

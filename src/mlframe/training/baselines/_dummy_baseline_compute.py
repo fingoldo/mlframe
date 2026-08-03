@@ -107,7 +107,8 @@ def _to_pandas_for_baseline(X: Any) -> pd.DataFrame | None:
         key = id(X)
         try:
             _cols = tuple(X.columns) if hasattr(X, "columns") else None
-        except Exception:
+        except Exception as e:
+            logger.debug("could not resolve columns for cache key: %s", e)
             _cols = None
         _shape = getattr(X, "shape", None)
         cached = _TO_PANDAS_BASELINE_CACHE.get(key)

@@ -16,6 +16,7 @@ import sys
 import numpy as np
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
 
 from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.configs import (
@@ -70,6 +71,7 @@ def main():
             feature_types_config=FeatureTypesConfig(use_text_features=False),
         )
     except Exception as e:
+        logger.debug("suite raised after dummy_baselines fired: %s: %s", type(e).__name__, e)
         print(f"\n!! suite raised after dummy_baselines fired: {type(e).__name__}: {e}\n")
         print("(this is OK if dummy_baselines verdict line emitted above -- the bug is downstream)")
         return 0

@@ -93,8 +93,8 @@ def _canonicalise_row(row_values: Any) -> tuple:
             if isinstance(v, float) and v != v:
                 out.append("__nan__")
                 continue
-        except Exception:  # nosec B110 - best-effort path
-            pass
+        except Exception as e:  # nosec B110 - best-effort path
+            logger.debug("NaN-sentinel check failed for value %r: %s", v, e)
         # numpy scalars: extract Python value to drop dtype carriage.
         if hasattr(v, "item") and callable(v.item):
             try:

@@ -78,7 +78,10 @@ from __future__ import annotations
 #      The physical-vs-logical distinction is rarely load-bearing in our
 #      paths; treating logical-count as physical-count is a benign
 #      approximation that avoids the wmic round trip entirely.
+import logging as _logging
 import os as _os
+
+_logger = _logging.getLogger(__name__)
 
 # Audit 2026-05-17 (Wave 1.5): the loky physical-core count override
 # was originally applied at import time as a global side effect, which
@@ -113,8 +116,8 @@ def apply_loky_cpu_count_override() -> None:
         _count = _os.cpu_count() or 1
         _loky_ctx._count_physical_cores = lambda: (_count, _count)
         _loky_override_applied = True
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as e:  # nosec B110 - best-effort path
+        _logger.debug("loky physical-core-count monkeypatch failed: %s", e)
 
 
 # Lazy imports via __getattr__ — deferred until actually accessed (kept for

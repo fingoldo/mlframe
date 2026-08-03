@@ -8,10 +8,13 @@ continue to resolve identity-equal.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------
 # Public API surface
@@ -208,6 +211,7 @@ class BaselineReport(NamedTuple):
                     f" (n_resamples={self.extras.get('bootstrap_ci_n_resamples', 1000)})"
                 )
         except Exception as e:
+            logger.debug("verdict formatting failed for target=%s: %s", self.target_name, e)
             lines.append(f"[DUMMY_BASELINES] target='{self.target_name}'" f" strongest={self.strongest} (verdict format failed: {e})")
 
         # Plot path line (when present).

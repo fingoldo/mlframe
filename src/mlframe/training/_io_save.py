@@ -259,7 +259,8 @@ def save_mlframe_model(
 
     try:
         _collect_pre_dump_swaps(_payload)
-    except Exception:
+    except Exception as e:
+        logger.debug("pre-dump swap collection failed, proceeding with an unswapped dump attempt: %s", e)
         # Defensive: a malformed payload should still attempt the dump; the
         # wrapping try/except below catches dump-time errors. Reset the swap
         # lists so the restore loop at the bottom is a no-op.

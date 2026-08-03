@@ -534,7 +534,8 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
             else:
                 _arr = _np.asarray(_x_for_fit)
                 _has_nan = (_arr.dtype.kind == "f") and bool(_np.isnan(_arr).any())
-        except Exception:
+        except Exception as e:
+            logger.debug("NaN presence check on fit input failed: %s", e)
             _has_nan = False
         if _has_nan:
             import logging as _lg

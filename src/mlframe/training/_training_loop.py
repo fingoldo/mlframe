@@ -203,8 +203,8 @@ def _handle_oom_error(model_obj, model_type_name: str) -> bool:
         if hasattr(model_obj, _attr):
             try:
                 delattr(model_obj, _attr)
-            except Exception:  # nosec B110 - exception already logged below, non-fatal by design
-                pass
+            except Exception as e:  # nosec B110 - non-fatal by design
+                logger.debug("could not delattr %s during OOM recovery: %s", _attr, e)
     logger.warning(
         "OOM during %s.fit; cleared caches and will retry once.",
         model_type_name,

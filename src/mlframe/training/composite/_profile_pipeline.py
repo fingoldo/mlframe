@@ -87,7 +87,7 @@ def main(argv):
         """Profile base-margin classification (LightGBM init-score fit + softmax); no-ops if lightgbm isn't installed."""
         try:
             import lightgbm as lgb
-        except Exception:
+        except ImportError:
             return
         yc = (y > np.median(y)).astype(int)
         est = CompositeClassificationEstimator(base_estimator=lgb.LGBMClassifier(n_estimators=80, verbose=-1)).fit(X, yc)

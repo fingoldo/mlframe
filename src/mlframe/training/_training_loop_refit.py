@@ -87,7 +87,8 @@ def _maybe_refit_on_degenerate_best_iter(
     _loss_key, _loss_val, _metric_key, _metric_val = _fallback
     try:
         _cur_params = model_obj.get_params() if hasattr(model_obj, "get_params") else {}
-    except Exception:
+    except Exception as e:
+        logger.debug("get_params() failed during refit fallback resolution: %s", e)
         _cur_params = {}
     # Adaptive threshold: respect the user's iteration budget. We only
     # treat best_iter as degenerate if BOTH (a) it is absolutely small

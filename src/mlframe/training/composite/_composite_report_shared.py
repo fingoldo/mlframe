@@ -12,7 +12,7 @@ try:
     import pandas as pd
 
     _HAVE_PANDAS = True
-except Exception:  # pragma: no cover - pandas is a hard dep in practice
+except ImportError:  # pragma: no cover - pandas is a hard dep in practice
     _HAVE_PANDAS = False
 
 
