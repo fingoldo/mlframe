@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from mlframe.metrics._benchmarks._calibration_scenarios_shared import ece_plugin as _ece_equal_width
+
 
 # ---- known reliability maps: return (score, prob_true) so true acc(score) is known ----
 def _scn_rare_overconfident(rng, n):
@@ -87,12 +89,6 @@ SCENARIOS = {
     "bimodal": _scn_bimodal,
     "extreme_rare": _scn_extreme_rare,
 }
-
-
-def _ece_equal_width(y, p, nbins):
-    from mlframe.metrics.calibration._calibration_metrics import compute_ece_and_brier_decomposition
-
-    return compute_ece_and_brier_decomposition(np.asarray(y, dtype=np.float64), np.asarray(p, dtype=np.float64), nbins)[0]
 
 
 def _ece_quantile(y, p, nbins):

@@ -34,6 +34,7 @@ from mlframe.metrics._benchmarks._calibration_scenarios_shared import (
     scn_calibrated_bimodal as _scn_calibrated_bimodal,
     scn_miscal_sigmoid as _scn_miscal_sigmoid,
     scn_miscal_overconf as _scn_miscal_overconf,
+    ece_plugin as _ece_plugin,
 )
 
 
@@ -58,12 +59,6 @@ SCENARIOS = {
     "miscal_sigmoid": _scn_miscal_sigmoid,
     "miscal_overconf": _scn_miscal_overconf,
 }
-
-
-def _ece_plugin(y, p, nbins):
-    from mlframe.metrics.calibration._calibration_metrics import compute_ece_and_brier_decomposition
-
-    return compute_ece_and_brier_decomposition(np.asarray(y, dtype=np.float64), np.asarray(p, dtype=np.float64), nbins)[0]
 
 
 def _ece_debiased(y, p, nbins):

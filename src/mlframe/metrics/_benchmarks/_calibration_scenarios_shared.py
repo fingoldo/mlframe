@@ -30,3 +30,10 @@ def scn_miscal_overconf(rng, n):
     s = np.clip(rng.uniform(0, 1, n), 1e-6, 1 - 1e-6)
     acc = np.clip(0.5 + 0.5 * (s - 0.5) * 0.4, 0, 1)  # squashed toward 0.5
     return s, acc, None
+
+
+def ece_plugin(y, p, nbins):
+    """Plug-in binned ECE via the prod headline kernel: ``sum_b (n_b/N) * |conf_b - acc_b|``."""
+    from mlframe.metrics.calibration._calibration_metrics import compute_ece_and_brier_decomposition
+
+    return compute_ece_and_brier_decomposition(np.asarray(y, dtype=np.float64), np.asarray(p, dtype=np.float64), nbins)[0]
