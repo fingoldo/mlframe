@@ -7,6 +7,10 @@ pre-round-3 defaults -- to check fe_strict generalizes before flipping the share
 parsimony_tol lesson: don't flip a shared-infra default on one synthetic).
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -36,6 +40,7 @@ def load_real():
             if X.shape[1] >= 20:
                 return X.reset_index(drop=True), y, name
         except Exception as e:
+            logger.debug("dataset %s skipped: %s: %s", name, type(e).__name__, e)
             print(f"  (skip {name}: {type(e).__name__})", flush=True)
     try:
         from sklearn.datasets import fetch_covtype
@@ -44,7 +49,8 @@ def load_real():
         X.columns = [f"f{i}" for i in range(X.shape[1])]
         y = (d.frame["Cover_Type"].loc[X.index] == 2).astype(int).reset_index(drop=True)
         return X.reset_index(drop=True), y, "covtype_binary"
-    except Exception:
+    except Exception as e:
+        logger.debug("covtype dataset load failed, falling back to breast_cancer: %s", e)
         d = load_breast_cancer(as_frame=True)
         X = d.data.copy(); X.columns = [f"f{i}" for i in range(X.shape[1])]
         return X.reset_index(drop=True), d.target.reset_index(drop=True), "breast_cancer"

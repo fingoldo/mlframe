@@ -18,6 +18,10 @@ more than the last 0.002 of recall-side AUC.
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import json
 import time
 from datetime import datetime
@@ -69,6 +73,7 @@ def main():
             try:
                 auc, nfeat, wall = _eval(seed, rule)
             except Exception as e:  # keep bench resilient across seeds
+                logger.debug("seed=%s rule=%s failed: %s", seed, rule, e)
                 print(f"seed={seed} rule={rule} FAILED: {e}")
                 continue
             results.append({"seed": seed, "rule": rule, "auc": auc, "n_features": nfeat, "wall_s": wall})

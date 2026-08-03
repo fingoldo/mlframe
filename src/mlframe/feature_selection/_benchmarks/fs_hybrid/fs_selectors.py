@@ -6,6 +6,10 @@ parentheses/commas, which MRMR feature-engineering produces). Cascades chain fit
 adapters; ensembles union/intersect two raw selected sets.
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, re
 os.environ.setdefault("TQDM_DISABLE", "1")
 import numpy as np
@@ -176,7 +180,8 @@ class ShapSel:
         self.n_engineered_ = sum(1 for c in self.all_selected_ if c not in X.columns)
         try:
             self.report_ = {k: self.s_.shap_proxy_report_.get(k) for k in ("trust_guard", "cluster")}
-        except Exception:
+        except Exception as e:
+            logger.debug("shap_proxy_report_ extraction failed: %s", e)
             self.report_ = {}
         return self
     def transform(self, X):

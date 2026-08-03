@@ -9,6 +9,10 @@ Each refinement is a HybridSelector subclass overriding only the combine/member 
 Reports downstream honest-holdout AUC vs the default hybrid; ship any that beats it by > cross-seed noise.
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -152,6 +156,7 @@ def main():
                                  fit_s=round(dt, 1), auc_mean=am))
                 print(f"sd{sd} {name:16s} n={Ztr.shape[1]:2d} rec={rows[-1]['base_recall']} {dt:6.1f}s mean={am} auc={a}", flush=True)
             except Exception as e:
+                logger.debug("sd%s %s failed: %s: %s", sd, name, type(e).__name__, e)
                 print(f"sd{sd} {name:16s} ERROR {type(e).__name__}: {e}", flush=True)
     df = pd.DataFrame(rows)
     print("\n=== mean over seeds (vs default) ===")

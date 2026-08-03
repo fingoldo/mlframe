@@ -5,6 +5,10 @@ that wins downstream honest-holdout AUC on the MAJORITY of (scenario, seed) cell
 Writes _results/importance_shootout.jsonl incrementally + a progress heartbeat.
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time, json, traceback
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -38,7 +42,8 @@ def downstream(Xtr, Xte, ytr, yte, cols):
     }.items():
         try:
             m = mk(); m.fit(Xtr[cols], ytr); out[name] = round(float(roc_auc_score(yte, m.predict_proba(Xte[cols])[:, 1])), 4)
-        except Exception:
+        except Exception as e:
+            logger.debug("model %s fit/score failed: %s", name, e)
             out[name] = None
     return out
 
@@ -74,6 +79,7 @@ def main():
             log(f"[{i}/{len(cells)}] {sc}/{sd}/{ig}: n={row['n_feat']} rec={row['base_recall']} noise={row['noise_sel']} "
                 f"fit={row['fit_s']}s auc={row['auc']}")
         except Exception as e:
+            logger.debug("cell %s/%s/%s failed: %s: %s", sc, sd, ig, type(e).__name__, e)
             row["error"] = f"{type(e).__name__}: {e}"; row["tb"] = traceback.format_exc()[-800:]
             log(f"[{i}/{len(cells)}] {sc}/{sd}/{ig}: ERROR {row['error']}")
         with open(RES, "a", encoding="utf-8") as f:

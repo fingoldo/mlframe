@@ -5,6 +5,10 @@ or does refine=False + wider revalidation (top_n 20->40) win? (R2s-1/4) does a T
 with refine ON beat refine=False (i.e. is the over-pruning just a too-loose tol)? Downstream honest-holdout AUC.
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time, json
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -51,6 +55,7 @@ def main():
                     am = round(float(np.nanmean([v for v in a.values()])), 4)
                     row = dict(scenario=sc, seed=sd, config=name, n=len(cols), base=len(set(cols) & base), fit_s=round(dt, 1), auc=a, auc_mean=am)
                 except Exception as e:
+                    logger.debug("scenario=%s seed=%s config=%s failed: %s: %s", sc, sd, name, type(e).__name__, e)
                     row = dict(scenario=sc, seed=sd, config=name, error=f"{type(e).__name__}: {e}")
                 rows.append(row)
                 print(f"{sc:14s} sd{sd} {name:16s} " + (row.get("error") or f"n={row['n']:2d} base={row['base']}/{len(base)} {row['fit_s']:5.1f}s auc={row['auc']} mean={row['auc_mean']}"), flush=True)

@@ -29,6 +29,10 @@ Run::
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import argparse
 import time
 import warnings
@@ -175,7 +179,8 @@ def _engineer_columns(X_train, y_train, X_val, top_pairs, basis, discrete_target
                 baseline_uplift_threshold=1.0,
                 early_stop_no_improve=max(15, n_trials // 3),
             )
-        except Exception:
+        except Exception as e:
+            logger.debug("optimise_hermite_pair failed: %s", e)
             res = None
         if res is None:
             continue
@@ -231,7 +236,8 @@ def _fit_and_score(X_tr, y_tr, X_va, y_va, discrete_target, model_kind="gbdt"):
                 auc = float(roc_auc_score(y_va, y_proba[:, 1]))
             else:
                 auc = float(roc_auc_score(y_va, y_proba, multi_class="ovr", average="macro"))
-        except Exception:
+        except Exception as e:
+            logger.debug("roc_auc_score computation failed: %s", e)
             auc = float("nan")
         return dict(acc=acc, log_loss=ll, auc=auc)
     from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score

@@ -19,6 +19,10 @@ until a stable host tunes its crossover into the kernel_tuning_cache. The win is
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import json
 import math
 import os
@@ -51,6 +55,7 @@ def main():
 
         gpu_on = gpu_available()
     except Exception as exc:  # cupy import segfault-guarded by isolation; here just record absence
+        logger.debug("gpu_available() probe failed: %s", exc)
         gpu_on, brute_force_top_n_gpu = False, None
         print("GPU unavailable:", exc)
 

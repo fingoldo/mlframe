@@ -22,6 +22,10 @@ catches regressions; this script produces the human-readable report.
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import json
 import time
 import warnings
@@ -201,6 +205,7 @@ def run_one(problem: Problem, estimator_name: str, estimator_factory: Callable, 
         # in the way sklearn's RFECV expects. Record as NaN.
         sk_t = time.perf_counter() - sk_t0
         sk_idx, sk_score, sk_recall = [], float("nan"), float("nan")
+        logger.debug("sklearn h2h skipped: %s: %s", type(exc).__name__, exc)
         print(f"  [sklearn h2h skipped: {type(exc).__name__}: {exc}]")
 
     return {
@@ -288,6 +293,7 @@ def main(seeds: tuple[int, ...] = (0, 1, 2), out_dir: Optional[Path] = None) -> 
         _plot_summary(summary, plot_path)
         print(f"[plot]   {plot_path}")
     except Exception as exc:
+        logger.debug("plot skipped: %s: %s", type(exc).__name__, exc)
         print(f"[plot]   skipped: {type(exc).__name__}: {exc}")
 
     return out_path

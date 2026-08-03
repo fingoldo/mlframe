@@ -18,6 +18,10 @@ Run::
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import argparse
 import time
 
@@ -71,7 +75,8 @@ def main():
                     cells.append(f"{res.mi:.3f}")
                 times.append(dt)
             except Exception as e:
-                cells.append(f"ERR")
+                logger.debug("basis eval failed: %s", e)
+                cells.append("ERR")
                 times.append(0.0)
                 print(f"  {regime}+{basis}: ERROR {type(e).__name__}: {e}")
 

@@ -17,6 +17,10 @@ gate) while every other variant recovers mi=0.4813 from the same warm seeds -- r
 _numba_polynom_optimizer.py's module docstring. bilinear_xor is non-discriminative as constructed
 (trivial baseline captures it; all variants 0.0).
 """
+import logging
+
+logger = logging.getLogger(__name__)
+
 import time
 
 import numpy as np
@@ -87,6 +91,7 @@ if __name__ == "__main__":
                     try:
                         res = optimise_hermite_pair(x_a=xa, x_b=xb, y=y, seed=seed + ro, optimizer=opt, **BUDGET)
                     except Exception as e:
+                        logger.debug("optimise_hermite_pair failed: %s: %s", type(e).__name__, e)
                         failed = f"{type(e).__name__}: {e}"
                         break
                     if res is not None and (best is None or res.mi > best):

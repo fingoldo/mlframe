@@ -115,6 +115,7 @@ def main() -> None:
         loky = _run_one(df, y, backend="loky", n_jobs=args.n_jobs, verbose=args.verbose)
         print(loky)
     except Exception as exc:
+        logger.debug("loky run failed: %s: %s", type(exc).__name__, exc)
         print(f"loky run FAILED: {type(exc).__name__}: {str(exc).splitlines()[0][:200]}")
         loky = None
 

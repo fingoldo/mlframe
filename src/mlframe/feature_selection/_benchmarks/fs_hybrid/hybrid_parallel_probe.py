@@ -7,6 +7,10 @@ members are sklearn/njit/numpy heavy (GIL-releasing) and a thread pool keeps RNG
 process, no pickling of fitted MRMR member / no re-seeded child RNG) -> the combine result stays deterministic.
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -25,8 +29,8 @@ def _disable_kernel_tuning_sweep():
         _M.KernelTuningCache.get_or_tune = no_sweep_get_or_tune
         _inmem = _M.KernelTuningCache(in_memory=True)
         _M.KernelTuningCache.load_or_create = classmethod(lambda cls: _inmem)
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("in-memory KernelTuningCache patch failed: %s", e)
 # NOTE: do NOT call _disable_kernel_tuning_sweep() at import -- discover_tuners imports this module and an
 # import-time monkeypatch of get_or_tune breaks ``refresh-all``. It is invoked under __main__ below.
 

@@ -15,6 +15,10 @@ shared-FI prescreen, cluster-aware vote. use_fe=True (the shipped default) so th
   HYB_N=1500  HYB_SEED=0  MODE=baseline  python hybrid_opt_baseline.py
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time, json, cProfile, pstats, io
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -38,6 +42,7 @@ def _disable_kernel_tuning_sweep():
         _M.KernelTuningCache.load_or_create = classmethod(lambda cls: _inmem)
         print("[kernel-tuning sweep+disk DISABLED -> in-memory fallback]", flush=True)
     except Exception as e:
+        logger.debug("no-sweep patch failed: %s", e)
         print(f"[no-sweep patch failed: {e}]", flush=True)
 # NOTE: do NOT call _disable_kernel_tuning_sweep() at import -- discover_tuners imports this module and an
 # import-time monkeypatch of get_or_tune breaks ``refresh-all``. It is invoked under __main__ below.
@@ -135,6 +140,7 @@ def run_profile() -> None:
     try:
         make_hybrid().fit(X.iloc[:200], y.iloc[:200])
     except Exception as e:
+        logger.debug("warm-up failed: %s: %s", type(e).__name__, e)
         print(f"[warm-up note] {type(e).__name__}: {e}", flush=True)
     print(f"[warm-up {time.time()-tw:.1f}s] profiling warm fit...", flush=True)
     h = make_hybrid()

@@ -5,6 +5,10 @@ heavy cells, measuring interaction-operand recovery + base recall + downstream h
 ranking (S2/B3/R1); candidates still go through honest revalidation. KILL if operands still absent or AUC flat.
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -56,6 +60,7 @@ def main():
                            base=len(set(sel) & base), oper=len(set(sel) & oper), n_oper=len(oper),
                            fit_s=round(dt, 1), auc=a, auc_mean=am)
             except Exception as e:
+                logger.debug("case=%s_sd%s config=%s failed: %s: %s", name, sd, cname, type(e).__name__, e)
                 row = dict(case=f"{name}_sd{sd}", config=cname, error=f"{type(e).__name__}: {e}")
             rows.append(row)
             print(f"{row['case']:16s} {cname:15s} " + (row.get("error") or

@@ -23,6 +23,10 @@ Run::
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import json
 import time
 from dataclasses import dataclass, asdict
@@ -178,6 +182,7 @@ def run_bench(N: int = 5000, n_repeats: int = 2, distributions=None, signals=Non
                         try:
                             mi = float(fn(x, y))
                         except Exception as exc:
+                            logger.debug("MI estimator failed: %s", exc)
                             mi = float("nan")
                             if verbose >= 2:
                                 print(f"  FAIL {name}: {exc}")
@@ -250,6 +255,7 @@ def main():
             json.dump(out, f, indent=2, default=str)
         print(f"[mah-disc] -> {path}")
     except Exception as exc:
+        logger.debug("results save failed: %r", exc)
         print(f"[mah-disc] save failed: {exc!r}")
 
 

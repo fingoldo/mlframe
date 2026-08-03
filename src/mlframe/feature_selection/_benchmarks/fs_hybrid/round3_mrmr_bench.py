@@ -10,6 +10,10 @@ it engineers SPURIOUS noise-only products (mul(log(noise_1),abs(noise_2)) etc.).
 Measures base_recall, raw-noise selected, #spurious engineered (recipe name has no 'inf_' token), downstream AUC.
 """
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os, sys, time, re
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -65,6 +69,7 @@ def main():
                            base=len(set(raw_sel) & base), base_recall=round(len(set(raw_sel) & base) / len(base), 3),
                            noise=len(set(raw_sel) & noise), fit_s=round(dt, 1), auc=a, auc_mean=am)
             except Exception as e:
+                logger.debug("seed=%s config=%s failed: %s: %s", sd, name, type(e).__name__, e)
                 row = dict(seed=sd, config=name, error=f"{type(e).__name__}: {e}")
             rows.append(row)
             print(f"sd{sd} {name:14s} " + (row.get("error") or

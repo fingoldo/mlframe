@@ -21,6 +21,10 @@ VERDICT (measured here, parsimonious n_features_selection_rule='one_se_min', 5 s
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import os
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
@@ -109,7 +113,8 @@ def _honest_score(name, seed, importance_agg):
         s = m.predict(X_te[kept])
     try:
         auc = roc_auc_score(y_te, s)
-    except Exception:
+    except Exception as e:
+        logger.debug("roc_auc_score computation failed: %s", e)
         auc = float("nan")
     return auc, len(kept), p_inf
 

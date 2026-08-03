@@ -10,6 +10,10 @@ On cc 8.x (Ampere) the overlap should be larger.
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import time
 
 import numpy as np
@@ -53,6 +57,7 @@ def main() -> None:
                     npermutations, 64,
                 )
             except Exception as e:
+                logger.debug("n=%s nperm=%s failed: %s: %s", n_rows, npermutations, type(e).__name__, e)
                 print(f"  n={n_rows:>10_} nperm={npermutations:>6} ERROR: {type(e).__name__}: {e}")
                 continue
             spd = t_serial / max(t_streamed, 1e-9)

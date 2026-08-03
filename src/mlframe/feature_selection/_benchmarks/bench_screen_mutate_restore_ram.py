@@ -13,6 +13,10 @@ Usage:
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import sys
 import time
 
@@ -66,6 +70,7 @@ def run_grid():
             print(f"CFG seed={seed} n={n} p={p} path={path} SUPPORT={support} WALL={wall:.2f}")
             sys.stdout.flush()
         except Exception as e:
+            logger.debug("CFG seed=%s n=%s p=%s nj=%s failed: %s: %s", seed, n, p, nj, type(e).__name__, e)
             print(f"CFG seed={seed} n={n} p={p} nj={nj} ERROR={type(e).__name__}: {e}")
             sys.stdout.flush()
 
