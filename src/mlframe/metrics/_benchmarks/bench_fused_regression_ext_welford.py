@@ -3,10 +3,11 @@
 Run: python src/mlframe/metrics/_benchmarks/bench_fused_regression_ext_welford.py (PYTHONPATH=src, CUDA off).
 Result @N=10M: 1.06x@mean=0 / 0.99x@mean=11500 (identity ~1e-13). REJECTED: pass1 is ALU-bound on MAPE/SMAPE divisions, so eliminating pass2 memory read nets nothing while per-element Welford divisions add cost. Kept for re-test on other HW."""
 import sys; sys.modules['cupy']=None
-import numba, numpy as np, time
+import numba, numpy as np
 from numba import njit, prange
+from mlframe._bench_timing_shared import best_of_min_median_args_no_warmup as bench
 if __name__ == "__main__":
-    NP=dict(cache=True, fastmath=True, nogil=True)
+    NP = dict(cache=True, fastmath=True, nogil=True)
 
     @njit(**NP, parallel=True)
     def ext1_par(yt,yp,nt):
@@ -227,10 +228,5 @@ if __name__ == "__main__":
         sst_n,ssp_n,ssr_n,sxy_n=f[10],f[11],f[12],f[13]
         def rel(a,b):return abs(a-b)/(abs(a)+1e-30)
         print(f"mean={mean_}: sst rel={rel(sst_o,sst_n):.2e} ssp rel={rel(ssp_o,ssp_n):.2e} sxy rel={rel(sxy_o,sxy_n):.2e} ssr rel={rel(ssr_o,ssr_n):.2e}")
-        def bench(fn,*a,r=20):
-            ts=[]
-            for _ in range(r):
-                t=time.perf_counter();fn(*a);ts.append(time.perf_counter()-t)
-            return min(ts),np.median(ts)
         om,omed=bench(old,yt,yp,nt);fm,fmed=bench(fused_par,yt,yp,nt)
         print(f"  OLD min={om*1e3:.2f} med={omed*1e3:.2f}ms | NEW min={fm*1e3:.2f} med={fmed*1e3:.2f}ms | speedup={omed/fmed:.2f}x")

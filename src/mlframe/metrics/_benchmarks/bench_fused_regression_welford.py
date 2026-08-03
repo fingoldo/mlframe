@@ -3,8 +3,9 @@
 Run: python src/mlframe/metrics/_benchmarks/bench_fused_regression_welford.py (PYTHONPATH=src, CUDA off).
 Result @N=10M (16-thread Ryzen, py3.14): NEW single-pass 1.59-1.79x faster, SS_tot rel-diff ~1e-13..1e-15 (FP reduction-order, non-decision-altering). RESOLVED: shipped as default for fast_regression_metrics_block."""
 import sys; sys.modules['cupy']=None
-import numba, numpy as np, time
+import numba, numpy as np
 from numba import njit, prange
+from mlframe._bench_timing_shared import best_of_min_median_args_no_warmup as bench
 
 if __name__ == "__main__":
     NP = dict(cache=True, fastmath=True, nogil=True)
@@ -85,11 +86,6 @@ if __name__ == "__main__":
         o=old(yt,yp,nt); f=fused_par(yt,yp,nt)
         print(f"mean={mean_}: SS_tot old={o[3]:.6f} new={f[3]:.6f} reldiff={abs(o[3]-f[3])/abs(o[3]):.2e}")
         print(f"  sa diff={abs(o[0]-f[0]):.2e} ss diff={abs(o[1]-f[1]):.2e} max diff={abs(o[2]-f[2]):.2e}")
-        def bench(fn,*a,r=20):
-            ts=[]
-            for _ in range(r):
-                t=time.perf_counter(); fn(*a); ts.append(time.perf_counter()-t)
-            return min(ts),np.median(ts)
-        om,omed=bench(old,yt,yp,nt)
-        fm,fmed=bench(fused_par,yt,yp,nt)
+        om, omed = bench(old, yt, yp, nt)
+        fm, fmed = bench(fused_par, yt, yp, nt)
         print(f"  OLD min={om*1000:.2f}ms med={omed*1000:.2f}ms | NEW min={fm*1000:.2f}ms med={fmed*1000:.2f}ms | speedup={omed/fmed:.2f}x")

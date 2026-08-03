@@ -91,6 +91,19 @@ def time_once(fn: Callable) -> float:
     return time.perf_counter() - t0
 
 
+def best_of_min_median_args_no_warmup(fn: Callable, *args, r: int = 20) -> tuple[float, float]:
+    """Run ``fn(*args)`` ``r`` times and return ``(best, median)`` wall-clock seconds, no warm-up call
+    before the loop. Shared by the fused-regression Welford A/B bench pair."""
+    import numpy as np
+
+    ts = []
+    for _ in range(r):
+        t = time.perf_counter()
+        fn(*args)
+        ts.append(time.perf_counter() - t)
+    return min(ts), float(np.median(ts))
+
+
 def best_of_ms(fn: Callable, *args, repeat: int = 5) -> float:
     """Warm ``fn(*args)`` once, then return its best (minimum) wall-clock time in milliseconds over ``repeat`` calls."""
     fn(*args)
