@@ -32,6 +32,8 @@ from typing import Any, Callable
 
 import numpy as np
 
+from ._fe_usability_signal import _crit_np_dtype as _stability_corr_dtype
+
 logger = logging.getLogger(__name__)
 
 # the pre-clustering correlation step doesn't need per-feature
@@ -39,13 +41,6 @@ logger = logging.getLogger(__name__)
 # follows the same MLFRAME_CRIT_DTYPE_RELAXED convention _fe_usability_signal.py's usability-|corr| pass
 # already uses for precision-non-critical thresholded correlations - float32 by default (~halves the
 # (n, p) working-set RAM), set the env var to 0 to force strict float64.
-def _stability_corr_dtype() -> type:
-    """float32 when MLFRAME_CRIT_DTYPE_RELAXED (default ON), else float64 - see module docstring."""
-    if os.environ.get("MLFRAME_CRIT_DTYPE_RELAXED", "1").strip().lower() in ("0", "false", "off", "no"):
-        return np.float64
-    return np.float32
-
-
 # Analogous to the main fit path's ``sis_screen_threshold`` (``_mrmr_class.py``), which protects the
 # O(p) screen step from unbounded wide-p input - ``cluster_stability_selection`` had no equivalent cap
 # on its O(p^2) correlation-clustering step. Above this column count, a cheap O(p*n)
