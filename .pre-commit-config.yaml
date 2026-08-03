@@ -248,11 +248,13 @@ repos:
         # follow-imports="normal" walks into every module they import, collapses each
         # missing-dep expression to Any, and reports noise from dozens of files never meant
         # to be covered by this beachhead (same fix applied to the now-retired mypy.yml, 2026-07-08).
-        # --cache-dir points OUTSIDE this checkout, at a dir shared by every mlframe worktree
-        # (they're all siblings under the same parent per the repo's worktree-per-task
-        # convention) -- a fresh worktree's mypy hook would otherwise start from a cold cache
-        # every time. See reference_mlframe_shared_mypy_cache_dir memory note.
-        args: ['--follow-imports=silent', '--cache-dir=../.mlframe_mypy_cache_shared_beachhead']
+        # --cache-dir is LOCAL to this checkout (2026-08-03, was shared across every sibling
+        # mlframe worktree). Proved unsafe: with the shared cache warm, swapping a file back to
+        # a KNOWN-BUGGY prior revision and rerunning mypy against that same shared cache still
+        # reported "Success" -- a different worktree's cache write for the same module name can
+        # mask a real error in this one. A cold cache costs more on a fresh worktree, but a
+        # blocking correctness gate that can silently pass buggy code is worse than a slower one.
+        args: ['--follow-imports=silent', '--cache-dir=.mypy_cache_precommit_beachhead']
         # Every dep here is EXACT-pinned, not range-pinned: an unpinned/range-pinned resolve
         # in this isolated hook env drifts silently over time (observed 2026-07-06: picked up
         # numpy 2.5.1, whose bundled .pyi stubs use PEP 695 `type` statements that mypy rejects
@@ -275,9 +277,15 @@ repos:
         # rather than an isolated `additional_dependencies` env like the beachhead hook -- a
         # fresh isolated env for the WHOLE project's heavy optional deps would be far slower to
         # bootstrap per-commit than reusing the checkout's own env.
-        # --cache-dir shared across worktrees, same convention as the beachhead hook above; see
-        # reference_mlframe_shared_mypy_cache_dir memory note.
-        entry: python -m mypy src/mlframe --cache-dir=../.mlframe_mypy_cache_shared
+        # --cache-dir is LOCAL to this checkout (2026-08-03, was shared across every sibling
+        # mlframe worktree, same as the beachhead hook above). Proved unsafe: with the shared
+        # cache warm, swapping a file back to a KNOWN-BUGGY prior revision (a genuine
+        # no-any-return mypy error) and rerunning against that same shared cache still reported
+        # "Success: no issues found" -- a concurrent worktree's cache write for the same module
+        # name can mask a real error in this one, letting a broken commit land locally and only
+        # fail once pushed to CI (which always runs cold). See reference_mlframe_shared_mypy_cache_dir
+        # memory note for the prior (now superseded) rationale for sharing.
+        entry: python -m mypy src/mlframe --cache-dir=.mypy_cache_precommit_full
         language: system
         types: [python]
         pass_filenames: false
