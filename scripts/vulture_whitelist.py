@@ -175,3 +175,8 @@ fe_wavelet_enable
 TunerSpec  # pyutilz.performance.kernel_tuning.registry -- used only inside a quoted "TunerSpec | None" type annotation; vulture cannot see string-annotation references
 num_averaged  # training/neural/_recurrent_wrapper_base.py _ema_avg_fn -- required positional slot in StochasticWeightAveraging.avg_fn's (averaged_param, model_param, num_averaged) callback contract, unused by the constant-decay EMA formula
 seed_workers_pool  # feature_selection/filters/_screen_predictors.py -- already documented at its own call sites (line ~572, ~610) as "accepted-but-unused for this purpose"; the described pool-reuse optimization was never wired up
+
+# --- estimators/pipelines.py, inference/predict.py, utils/safe_pickle.py: _sha256_of_file is
+# imported purely for re-export (each module already carries a `# noqa: F401` for ruff) so callers
+# can import it from any of the three modules; vulture cannot see that intent from a plain import. ---
+_sha256_of_file

@@ -24,7 +24,7 @@ def ll_per_row(yy: np.ndarray, pp: np.ndarray) -> np.ndarray:
     leave-one-out formula for log-loss."""
     _eps = np.finfo(np.asarray(pp).dtype).eps
     _pc = np.clip(pp, _eps, 1.0 - _eps)
-    return np.where(np.asarray(yy) == 1, -np.log(_pc), -np.log(1.0 - _pc))
+    return np.asarray(np.where(np.asarray(yy) == 1, -np.log(_pc), -np.log(1.0 - _pc)))
 
 
 def brier_per_row(yy: np.ndarray, pp: np.ndarray) -> np.ndarray:
