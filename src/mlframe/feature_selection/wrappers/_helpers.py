@@ -454,13 +454,10 @@ def _suggest_scipy_local(remaining: list, evaluated_scores_mean: dict, n_total: 
     return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total, epsilon=epsilon, rng=rng)
 
 
-def _suggest_scipy_global(remaining: list, evaluated_scores_mean: dict, n_total: int, epsilon: float = 0.0, rng: Any = None) -> Union[int, None]:
-    """S5: retained as a thin alias for ExhaustiveDichotomic.
-
-    Same reasoning as _suggest_scipy_local: differential_evolution over a piecewise-linear interpolant has no global structure to
-    discover beyond the breakpoints. Delegate to dichotomic so the search has a single, well-understood code path.
-    """
-    return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total, epsilon=epsilon, rng=rng)
+# S5: retained as a thin alias for ExhaustiveDichotomic. Same reasoning as _suggest_scipy_local:
+# differential_evolution over a piecewise-linear interpolant has no global structure to discover
+# beyond the breakpoints, so both scipy variants collapse to the identical dichotomic delegate.
+_suggest_scipy_global = _suggest_scipy_local
 
 # ----------------------------------------------------------------------
 # Sibling-module re-exports. Knockoff helpers live in _knockoffs.py
