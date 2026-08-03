@@ -133,7 +133,8 @@ try:
         salt=_PROPAGATE_SALT,
         cli_label="data_valuation_propagate_subsample_crossover",
     )
-except Exception:
+except Exception as e:
+    logger.debug("data_valuation_propagate_subsample_crossover: kernel_tuner registration failed, tuning disabled for this kernel: %s", e)
     _PROPAGATE_SPEC = None
 
 

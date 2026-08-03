@@ -181,17 +181,20 @@ def _mrmr_compute_x_fingerprint(X) -> str:
         if _is_lazy_polars:
             try:
                 dtypes_repr = tuple((str(c), _canonicalise_dtype_str(_resolved_schema[c])) for c in _resolved_schema.names())
-            except Exception:
+            except Exception as e:
+                logger.debug("_mrmr_compute_x_fingerprint: lazy-polars dtype fingerprint failed, using an empty dtypes tuple: %s", e)
                 dtypes_repr = ()
         elif hasattr(X, "schema") and hasattr(X, "columns"):
             try:
                 dtypes_repr = tuple((str(c), _canonicalise_dtype_str(X.schema[c])) for c in X.columns)
-            except Exception:
+            except Exception as e:
+                logger.debug("_mrmr_compute_x_fingerprint: eager-polars dtype fingerprint failed, using an empty dtypes tuple: %s", e)
                 dtypes_repr = ()
         elif hasattr(X, "dtypes") and hasattr(X, "columns"):
             try:
                 dtypes_repr = tuple((str(c), _canonicalise_dtype_str(X.dtypes[c])) for c in X.columns)
-            except Exception:
+            except Exception as e:
+                logger.debug("_mrmr_compute_x_fingerprint: pandas dtype fingerprint failed, using an empty dtypes tuple: %s", e)
                 dtypes_repr = ()
         else:
             dtypes_repr = ()
@@ -218,10 +221,12 @@ def _mrmr_compute_x_fingerprint(X) -> str:
                         # Bit-exact cell bytes (matches the deliberately-tightened y-side ``tobytes()``); ``repr`` of a float papered over distinct-but-near values.
                         vals = tuple(np.asarray(arr[p]).tobytes() for p in positions if p < len(arr))
                         samples.append((str(c), vals))
-                    except Exception:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+                    except Exception as e:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+                        logger.debug("_mrmr_compute_x_fingerprint: cell sample for column %r failed, using an empty sample: %s", c, e)
                         samples.append((str(c), ()))
                 cell_sample = tuple(samples)
-        except Exception:
+        except Exception as e:
+            logger.debug("_mrmr_compute_x_fingerprint: cell sampling failed, falling back to an empty cell_sample: %s", e)
             cell_sample = ()
         payload = repr((cols, n_rows, dtypes_repr, cell_sample)).encode()
         return hashlib.blake2b(payload, digest_size=12).hexdigest()
@@ -261,7 +266,8 @@ def _hashable_params_signature(params: dict) -> tuple:
                     pass
             try:
                 items.append((k, repr(v)))
-            except Exception:
+            except Exception as e:
+                logger.debug("_hashable_params_signature: repr(%r) failed, falling back to id(): %s", k, e)
                 items.append((k, id(v)))
     return tuple(items)
 
@@ -282,7 +288,8 @@ def _content_array_signature(arr) -> tuple:
         if hasattr(arr, "columns"):
             try:
                 col_names = tuple(str(c) for c in arr.columns)
-            except Exception:
+            except Exception as e:
+                logger.debug("_content_array_signature: reading column names failed, proceeding without them: %s", e)
                 col_names = None
         # Unwrap to numpy
         if hasattr(arr, "to_numpy"):
@@ -567,9 +574,10 @@ def _replay_fitted_state(target: MRMR, source: MRMR) -> int:
             # any other object carrying mutable state) is deep-copied so a mutation on the replayed instance never reaches back to the cached source.
             try:
                 target.__dict__[k] = _deepcopy_mod.deepcopy(v)
-            except Exception:
+            except Exception as e:
                 # A non-deepcopyable fitted artefact (e.g. a live framework handle) falls back to the legacy shared assignment rather than failing
                 # the whole replay; such objects are rare and treated as read-only by callers.
+                logger.debug("_replay_state: deepcopy of %r failed, falling back to a shared (non-isolated) reference: %s", k, e)
                 target.__dict__[k] = v
         n_replayed += 1
     return n_replayed

@@ -68,7 +68,8 @@ def _fit_3baselines_predict_on_query(
             m3 = LogisticRegression(max_iter=200, solver="liblinear", random_state=int(seed) + 2)
             m3.fit(Xt, y_t.astype(np.int32))
             p3 = m3.predict_proba(Xq)[:, 1].astype(np.float32)
-        except Exception:
+        except Exception as e:
+            logger.debug("baseline_disagreement (binary): logistic baseline fit failed, falling back to mean-target constant: %s", e)
             p3 = np.full(Xq.shape[0], float(y_t.mean()), dtype=np.float32)
     else:
         m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)

@@ -293,6 +293,7 @@ def _bootstrap_resample_chunk(
                 failures[name] += 1
                 if first_err[name] is None:
                     first_err[name] = f"{type(exc).__name__}: {exc}"
+                    logger.debug("bootstrap resample: metric %r failed on a resample, first occurrence: %s", name, first_err[name])
                 continue
             if _isfinite(v):
                 local_samples[name].append(v)
@@ -305,6 +306,7 @@ def _bootstrap_resample_chunk(
                 failures[name] += 1
                 if first_err[name] is None:
                     first_err[name] = f"{type(exc).__name__}: {exc}"
+                    logger.debug("bootstrap resample: index-based metric %r failed on a resample, first occurrence: %s", name, first_err[name])
                 continue
             if _isfinite(v):
                 local_samples[name].append(v)
@@ -406,12 +408,14 @@ def bootstrap_metrics(
             points[name] = float(fn(y_true, y_pred))
             active.append(name)
         except Exception as exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+            logger.debug("bootstrap point estimate: metric %r failed: %s", name, exc)
             results[name] = {"error": f"point metric failed: {type(exc).__name__}: {exc}"}
     for name, fn_idx in metric_fns_idx.items():
         try:
             points[name] = float(fn_idx(_full_idx))
             active_idx.append(name)
         except Exception as exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+            logger.debug("bootstrap point estimate: index-based metric %r failed: %s", name, exc)
             results[name] = {"error": f"point metric failed: {type(exc).__name__}: {exc}"}
     if not active and not active_idx:
         return results
