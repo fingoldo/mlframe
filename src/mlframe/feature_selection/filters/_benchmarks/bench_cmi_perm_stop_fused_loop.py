@@ -38,8 +38,6 @@ Run: CUDA_VISIBLE_DEVICES="" python bench_cmi_perm_stop_fused_loop.py        # v
 """
 from __future__ import annotations
 
-import time
-
 import numpy as np
 from numba import njit
 
@@ -47,6 +45,7 @@ import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")))
 
 from mlframe.feature_selection.filters._cmi_perm_stop import _cmi_plugin_njit
+from mlframe._bench_timing_shared import best_of_seconds_args_no_warmup as _best_of5
 
 
 # ----- OLD path (verbatim inner loop from cmi_permutation_stop) -----
@@ -148,16 +147,10 @@ def bench():
         max_abs = float(np.max(np.abs(a - b)))
         bit_id = bool(np.array_equal(a, b))
         # timing best-of-5
-        def t(fn):
-            best = 1e9
-            for _ in range(5):
-                s = time.perf_counter()
-                fn(x, y, z, K_x, K_y, K_z, B, 1)
-                best = min(best, time.perf_counter() - s)
-            return best
-        to = t(old_null_dist); tn = t(new_null_dist)
-        print(f"n={n:>7} B={B}: OLD={to*1e3:8.2f}ms NEW={tn*1e3:8.2f}ms "
-              f"speedup={to/tn:5.2f}x  bit_identical={bit_id} max_abs={max_abs:.2e}")
+        args = (x, y, z, K_x, K_y, K_z, B, 1)
+        to = _best_of5(old_null_dist, args)
+        tn = _best_of5(new_null_dist, args)
+        print(f"n={n:>7} B={B}: OLD={to*1e3:8.2f}ms NEW={tn*1e3:8.2f}ms " f"speedup={to/tn:5.2f}x  bit_identical={bit_id} max_abs={max_abs:.2e}")
 
 
 # ----- NEW2: shuffle + reduce fully inside njit, no perm matrix, Pxz folded from joint -----
@@ -233,12 +226,8 @@ def bench2():
         B = 100
         old_null_dist(x, y, z, K_x, K_y, K_z, 3, 1)
         new2_null_dist(x, y, z, K_x, K_y, K_z, 3, 1)
-        def t(fn):
-            best = 1e9
-            for _ in range(5):
-                s = time.perf_counter(); fn(x, y, z, K_x, K_y, K_z, B, 1); best = min(best, time.perf_counter() - s)
-            return best
-        to = t(old_null_dist); tn = t(new2_null_dist)
+        args = (x, y, z, K_x, K_y, K_z, B, 1)
+        to = _best_of5(old_null_dist, args); tn = _best_of5(new2_null_dist, args)
         # v2 won't be bit-identical (different RNG scheme) -> check distribution stats instead
         a = old_null_dist(x, y, z, K_x, K_y, K_z, 500, 7)
         b = new2_null_dist(x, y, z, K_x, K_y, K_z, 500, 7)
