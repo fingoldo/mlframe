@@ -212,7 +212,8 @@ class LocalDiskBackend:
         file_lock = PIDAwareFileLock(self._lru_cross_proc_lock_path, timeout=30.0)
         try:
             file_lock.__enter__()
-        except Exception:
+        except Exception as e:
+            logger.debug("cross-process file lock acquire failed, falling back to in-process lock only: %s", e)
             # Cross-process layer unavailable; in-process lock still protects
             # this interpreter's threads. Hold only for the critical section.
             with self._lru_mem_lock:

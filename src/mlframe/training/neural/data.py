@@ -377,7 +377,8 @@ class TorchDataModule(LightningDataModule):
                 )
                 n_features = self._infer_n_features(features)
                 resolved = resolve_mlp_train_batch_size(n_features=n_features)
-            except Exception:
+            except Exception as e:
+                logger.debug("resolve_mlp_train_batch_size() failed: %s", e)
                 n_features = self._infer_n_features(features)
                 resolved = 1024
             logger.info(

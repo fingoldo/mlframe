@@ -172,7 +172,8 @@ def _finalize_and_save_metadata(ctx: "TrainingContext", *, verbose: int | None =
                         try:
                             _PdsPipeline.from_json(_js)
                             _rt_ok = True
-                        except Exception:
+                        except Exception as e:
+                            logger.debug("pipeline JSON round-trip check failed: %s", e)
                             _rt_ok = False
                         _PIPELINE_JSON_ROUNDTRIP_CACHE[_js_hash] = _rt_ok
                         _persist_pipeline_disk_cache()

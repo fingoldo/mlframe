@@ -83,7 +83,8 @@ def _slugify_class(name: str) -> str:
     try:
         from pyutilz.strings import slugify
         slug = slugify(name)
-    except Exception:
+    except Exception as e:
+        logger.debug("slugify() failed for name=%r: %s", name, e)
         slug = ""
     if not slug:
         slug = "".join(ch if ch.isalnum() else "-" for ch in name).strip("-")

@@ -133,6 +133,7 @@ def compute_mtr_oof_nnls_weights(
                         p = p.reshape(-1, 1)
                     oof[ci, ho_idx, :] = p
                 except Exception as exc:
+                    logger.debug("component %d fold refit raised: %s", ci, exc)
                     excluded[ci] = f"fold refit raised ({exc})"
         # Non-finite OOF cells exclude their component (not the whole weighting).
         # Components already excluded for a raise have NaN rows and are skipped here.

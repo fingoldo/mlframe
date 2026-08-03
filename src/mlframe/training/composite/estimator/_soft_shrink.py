@@ -41,7 +41,7 @@ import numpy as np
 try:
     import numba as _numba
     _HAS_NUMBA = True
-except Exception:  # pragma: no cover - numba optional
+except ImportError:  # pragma: no cover - numba optional
     _numba = None
     _HAS_NUMBA = False
 

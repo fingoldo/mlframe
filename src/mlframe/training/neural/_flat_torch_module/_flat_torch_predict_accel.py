@@ -90,7 +90,8 @@ class _PredictAccelMixin(_PredictAccelBase):
         _recurrent_types = (torch.nn.LSTM, torch.nn.GRU, torch.nn.RNN)
         try:
             _has_recurrent = any(isinstance(m, _recurrent_types) for m in self.network.modules())
-        except Exception:
+        except Exception as e:
+            logger.debug("recurrent-module scan failed: %s", e)
             _has_recurrent = False
         if _has_recurrent:
             logger.warning(

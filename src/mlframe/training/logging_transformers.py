@@ -66,7 +66,8 @@ def log_resources(
                 # raise in finally would mask the func() exception we just caught.
                 try:
                     rss1 = proc.memory_info().rss / 1024**2
-                except Exception:
+                except Exception as e:
+                    logger.debug("post-call RSS re-measurement failed: %s", e)
                     rss1 = 0.0
                 label = stage or func.__qualname__
                 cls_name = type(self).__name__

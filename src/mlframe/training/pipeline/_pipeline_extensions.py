@@ -225,6 +225,8 @@ def _apply_pysr_fe(
                 "PySR fit failed; skipping symbolic feature engineering.",
                 exc_info=True,
             )
+        else:
+            logger.debug("PySR fit failed; skipping symbolic feature engineering.", exc_info=True)
         return []
     finally:
         # Wrap drop in try/except so a pandas KeyError chain on a corrupted MultiIndex column or a read-only frame doesn't mask the in-flight exception (errors="ignore" covers the missing-column case but not deeper pandas-internal failures). Skip the drop when injection itself failed -- nothing to remove.

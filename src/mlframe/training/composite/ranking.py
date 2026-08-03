@@ -293,7 +293,7 @@ class CompositeRankEstimator(BaseEstimator, RegressorMixin):
                 __import__("lightgbm").LGBMRanker(objective="lambdarank", n_estimators=200, verbose=-1),
                 "lambdarank",
             )
-        except Exception:
+        except ImportError:
             from sklearn.linear_model import LogisticRegression
 
             return LogisticRegression(max_iter=1000), "pairwise"

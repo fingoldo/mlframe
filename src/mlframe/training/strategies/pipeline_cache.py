@@ -102,8 +102,8 @@ def _estimate_slot_nbytes(slot: Any) -> int:
         import polars as _pl
         if isinstance(slot, _pl.DataFrame):
             return int(slot.estimated_size())
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("polars estimated_size() probe failed: %s", e)
     try:
         return int(sys.getsizeof(slot))
     except Exception as exc:

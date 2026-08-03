@@ -118,7 +118,7 @@ def _default_inner_estimator() -> Any:
             n_estimators=200, num_leaves=31, learning_rate=0.05,
             min_child_samples=20, verbose=-1, n_jobs=1, random_state=0,
         )
-    except Exception:  # pragma: no cover - lightgbm is a project dep
+    except ImportError:  # pragma: no cover - lightgbm is a project dep
         from sklearn.ensemble import HistGradientBoostingRegressor
 
         # random_state pinned: HistGB early_stopping="auto" draws a random train/val split at n>10000.

@@ -478,7 +478,8 @@ def _collect_lib_versions() -> Dict[str, str]:
             _ver = _md.version(_dist)
         except _md.PackageNotFoundError:
             _ver = None
-        except Exception:
+        except Exception as e:
+            logger.debug("package-version resolution failed: %s", e)
             _ver = None
         if _ver is None:
             # Fallback for libs whose import-name != dist-name lookup failed

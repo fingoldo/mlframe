@@ -519,7 +519,8 @@ def _phase_pandas_conversion_and_cat_prep(
             if val_df is not None and isinstance(val_df, pl.DataFrame):
                 raw_v = float(val_df.estimated_size())
                 val_df_size_bytes_cached = _cat_heavy_size(val_df, raw_v)
-        except Exception:
+        except Exception as e:
+            logger.debug("cached df-size estimation failed: %s", e)
             train_df_size_bytes_cached = None
             val_df_size_bytes_cached = None
 

@@ -360,7 +360,8 @@ def predict_mlframe_models_suite(
                     try:
                         check_is_fitted(model_obj.pre_pipeline)
                         _pp_fitted = True
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("check_is_fitted(pre_pipeline) failed: %s", e)
                         # ``Exception`` already subsumes NotFittedError; listing both is redundant. The
                         # broad catch is intentional - any check_is_fitted internal raise means "not safely
                         # fitted; skip transform".

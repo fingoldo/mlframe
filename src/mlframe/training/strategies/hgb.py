@@ -1,10 +1,13 @@
 """``HGBStrategy`` -- the HistGradientBoosting model pipeline strategy."""
 from __future__ import annotations
 
+import logging
 from typing import Dict, List, Optional, TYPE_CHECKING
 
 from .base import ModelPipelineStrategy
 from ._cat_levels_shared import build_polars_enum_map as _build_polars_enum_map
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     import polars as pl
@@ -93,7 +96,8 @@ class HGBStrategy(ModelPipelineStrategy):
             # No supplied map: build a per-DF Enum from this frame's own values.
             try:
                 vals = df[col].drop_nulls().unique().cast(pl.String).to_list()
-            except Exception:
+            except Exception as e:
+                logger.debug("could not resolve unique values for column %s: %s", col, e)
                 vals = []
             local_enum = pl.Enum(sorted(set(vals))) if vals else None
             if local_enum is None:

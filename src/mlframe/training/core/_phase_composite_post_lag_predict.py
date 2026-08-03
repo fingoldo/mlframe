@@ -4,9 +4,12 @@ Carved out of ``_phase_composite_post.py`` to keep the parent below the 1k-line 
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class _LagPredictDeployableModel:
@@ -62,8 +65,8 @@ class _LagPredictDeployableModel:
             try:
                 col = X.get_column(self.lag_column).to_numpy()
                 return np.asarray(col.astype(np.float64, copy=False).reshape(-1))
-            except Exception:  # nosec B110 - best-effort path
-                pass
+            except Exception as e:  # nosec B110 - best-effort path
+                logger.debug("polars get_column fast path failed, falling through to generic extraction: %s", e)
         if hasattr(X, "loc") or hasattr(X, "__getitem__"):
             try:
                 col = X[self.lag_column]

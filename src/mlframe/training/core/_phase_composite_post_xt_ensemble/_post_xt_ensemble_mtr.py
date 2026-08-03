@@ -246,7 +246,8 @@ def _build_mtr_per_column_ensemble(
         _y_full = (target_by_type or {}).get(_tt_e, {}).get(_orig_tname)
         _y_arr = np.asarray(_y_full) if _y_full is not None else None
         _K = int(_y_arr.shape[1]) if _y_arr is not None and _y_arr.ndim == 2 else 1
-    except Exception:
+    except Exception as e:
+        logger.debug("target-width resolution failed, defaulting K=1: %s", e)
         _K = 1
 
     # Honest-OOF NNLS when valid precomputed weights are supplied; equal_mean otherwise.

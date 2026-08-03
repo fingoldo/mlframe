@@ -264,7 +264,8 @@ def _fit_warm_curve(
     est.set_params(warm_start=True)
     try:
         base_n = int(est.get_params().get(n_attr) or 0)
-    except Exception:
+    except Exception as e:
+        logger.debug("could not resolve base %s from estimator params: %s", n_attr, e)
         base_n = 0
     per_step = max(1, base_n // len(counts)) if base_n else 50
     tr: List[float] = []

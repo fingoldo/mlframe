@@ -299,7 +299,8 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # the prior in-loop import paid ImportError lookup costs on every iter.
                 try:
                     _ram_gb_now = _ps_module.Process().memory_info().rss / (1024**3) if _ps_module is not None else 0.0
-                except Exception:
+                except Exception as e:
+                    logger.debug("psutil RSS probe failed: %s", e)
                     _ram_gb_now = 0.0
                 logger.info(
                     "  process_model(%s) START -- model %d/%d, RAM=%.1fGB",

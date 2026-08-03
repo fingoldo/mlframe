@@ -94,7 +94,8 @@ def run_collapse_sensor(
         _collapse_std = _y_std > 0 and _pred_std < 0.2 * _y_std and _r2 < 0
         try:
             _max_err = float(np.max(np.abs(preds_arr - targets_arr)))
-        except Exception:
+        except Exception as e:
+            logger.debug("max-error computation failed: %s", e)
             _max_err = 0.0
         _collapse_extrapolation = _y_std > 0 and _r2 < -1.0 and _max_err > 5.0 * _y_std
         _collapse_mean_shift = _y_std > 0 and abs(_pred_mean - _y_mean) > 3.0 * _y_std

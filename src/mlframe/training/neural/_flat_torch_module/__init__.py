@@ -427,7 +427,8 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
             # because the user may have forced CPU via accelerator='cpu'.
             try:
                 _any_cuda = any(p.is_cuda for p in self.parameters())
-            except Exception:
+            except Exception as e:
+                logger.debug("parameter CUDA-residency probe failed: %s", e)
                 _any_cuda = False
             # A fused Adam/AdamW unscales gradients internally, so under AMP Lightning's automatic gradient clipping raises "optimizer does not allow for gradient clipping". When the trainer will clip, skip fused — the per-param launch cost is negligible next to losing clip safety.
             # ``self.trainer`` is a Lightning PROPERTY that RAISES RuntimeError("not attached to a Trainer") when the

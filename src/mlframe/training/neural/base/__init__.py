@@ -113,8 +113,9 @@ try:
                 continue
             try:
                 _mod._load_external_callbacks = _load_external_callbacks_cached  # type: ignore[attr-defined]  # dynamic monkeypatch on an arbitrary imported module
-            except Exception:  # nosec B110 - non-trivial body
+            except Exception as e:  # nosec B110 - non-trivial body
                 # Frozen / immutable module objects: skip silently.
+                logger.debug("could not monkeypatch _load_external_callbacks onto %s: %s", _mod, e)
                 pass
         _lf_registry._mlframe_callback_cache_installed = True  # type: ignore[attr-defined]  # dynamic monkeypatch marker on a third-party module
 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design

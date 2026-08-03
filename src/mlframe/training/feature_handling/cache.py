@@ -273,7 +273,8 @@ class FeatureCache:
             cache_size = sum(e.size_bytes for e in self._mem.values())
             try:
                 avail = psutil.virtual_memory().available
-            except Exception:  # pragma: no cover
+            except Exception as e:  # pragma: no cover
+                logger.debug("psutil.virtual_memory() probe failed, treating as unbounded: %s", e)
                 avail = float("inf")
             over_size = cache_size > ram_max_bytes
             under_reserve = avail < reserve_bytes

@@ -174,7 +174,8 @@ class PolynomialFeatureExpander:
             feature_names = [f"x{i}" for i in range(self._n_features_in)]
         try:
             self._feature_names = list(self._impl.get_feature_names_out(feature_names))
-        except Exception:  # pragma: no cover
+        except Exception as e:  # pragma: no cover
+            logger.debug("get_feature_names_out() failed, falling back to generic poly_i names: %s", e)
             self._feature_names = [f"poly_{i}" for i in range(projected)]
 
         self._fitted = True
