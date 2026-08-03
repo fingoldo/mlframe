@@ -33,7 +33,10 @@ from __future__ import annotations
 import argparse
 import gc
 import itertools
+import logging
 import time
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 
@@ -137,6 +140,7 @@ def main() -> None:
             print(f"  {c_res['label']:14s} {c_res['wall_s']}s")
             results.append(c_res)
         except Exception as e:
+            logger.debug("cuda backend skipped: %s: %s", type(e).__name__, e)
             print(f"  cuda skipped: {type(e).__name__}: {e}")
     else:
         print("\n--- skipping cuda (numba.cuda unavailable) ---")
@@ -151,6 +155,7 @@ def main() -> None:
             print(f"  {d_res['label']:14s} {d_res['wall_s']}s")
             results.append(d_res)
         except Exception as e:
+            logger.debug("cupy backend skipped: %s: %s", type(e).__name__, e)
             print(f"  cupy skipped: {type(e).__name__}: {e}")
     else:
         print("\n--- skipping cupy (cupy unavailable) ---")

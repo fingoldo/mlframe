@@ -65,7 +65,7 @@ def main() -> None:
 
     try:
         import cupy as cp
-    except Exception:
+    except ImportError:
         cp = None
 
     n_pairs = 64

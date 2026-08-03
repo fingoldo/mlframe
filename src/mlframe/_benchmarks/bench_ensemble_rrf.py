@@ -27,7 +27,7 @@ import numpy as np
 try:
     import numba as _numba
     _HAS_NUMBA = True
-except Exception:
+except ImportError:
     _HAS_NUMBA = False
 
 

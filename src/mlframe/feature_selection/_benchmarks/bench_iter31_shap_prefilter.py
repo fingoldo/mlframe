@@ -11,7 +11,10 @@ from mlframe.feature_selection._benchmarks._bench_shared import recovered
 import argparse
 import cProfile
 import io
+import logging
 import pstats
+
+logger = logging.getLogger(__name__)
 import time
 import warnings
 
@@ -49,8 +52,8 @@ def _build_selector(seed: int, *, shap_prefilter_enabled: bool):
             sig = inspect.signature(_S.__init__)
             if "shap_prefilter_enabled" in sig.parameters:
                 kwargs["shap_prefilter_enabled"] = False
-        except Exception:  # nosec B110 - optional dependency import guard
-            pass
+        except Exception as e:  # nosec B110 - optional dependency import guard
+            logger.debug("shap_prefilter_enabled signature probe failed: %s", e)
     return ShapProxiedFS(**kwargs)
 
 

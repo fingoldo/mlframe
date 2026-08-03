@@ -30,8 +30,11 @@ from __future__ import annotations
 
 import gc
 import json
+import logging
 import os
 import time
+
+logger = logging.getLogger(__name__)
 import tracemalloc
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
@@ -204,6 +207,7 @@ def run_stress_bench(N: int = 1_000_000, distributions=None, signal_kinds=None, 
                 try:
                     mi = float(est_fn(x, y))
                 except Exception as exc:
+                    logger.debug("MI estimator failed: %s: %s", type(exc).__name__, exc)
                     err_msg = f"{type(exc).__name__}: {exc}"
                 runtime = time.perf_counter() - t0
                 _, peak = tracemalloc.get_traced_memory()
@@ -264,6 +268,7 @@ def main():
             json.dump(out, f, indent=2, default=str)
         print(f"[1M-stress] -> {path}")
     except Exception as exc:
+        logger.debug("results save failed: %r", exc)
         print(f"[1M-stress] save failed: {exc!r}")
 
 

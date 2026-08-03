@@ -13,8 +13,12 @@ Run: python -m mlframe.feature_engineering._benchmarks.bench_curated_fe_holdout_
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 from sklearn.model_selection import train_test_split
 # metric scoring is via mlframe kernels (see _score)
@@ -115,6 +119,7 @@ def run(task: str, n: int = 6000, seeds=range(5)):
                 for m in metrics:
                     deltas[name][m].append(s[m] - base[m])
             except Exception as e:
+                logger.debug("seed %s %s failed: %r", seed, name, e)
                 print(f"  seed {seed} {name}: FAILED {e!r}")
         if len(fe_cache) == len(CURATED_FE_NAMES):
             allftr = np.hstack([raw_tr] + [fe_cache[k][0] for k in CURATED_FE_NAMES])

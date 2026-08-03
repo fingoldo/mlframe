@@ -40,7 +40,10 @@ from mlframe.feature_selection._benchmarks._bench_shared import make_dataset, re
 import argparse
 import cProfile
 import io
+import logging
 import pstats
+
+logger = logging.getLogger(__name__)
 import time
 import warnings
 
@@ -125,6 +128,7 @@ def run_one(name: str, cfg: dict, *, do_cprofile: bool = False, run_preflight: b
             out["preflight"] = pf
             out["preflight_recommendation"] = pf.get("recommendation") if isinstance(pf, dict) else None
         except Exception as exc:
+            logger.debug("preflight check failed: %s", exc)
             out["preflight"] = dict(error=str(exc))
         print(f"[{name}] preflight done in {time.perf_counter()-t_pf:.1f}s", flush=True)
 

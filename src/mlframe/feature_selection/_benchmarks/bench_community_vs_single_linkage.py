@@ -35,7 +35,7 @@ try:
     import networkx as nx
     from networkx.algorithms.community import greedy_modularity_communities
     _HAVE_NX = True
-except Exception:
+except ImportError:
     _HAVE_NX = False
 
 

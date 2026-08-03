@@ -15,9 +15,12 @@ Run:  python -m mlframe.feature_selection._benchmarks.bench_iter87_cumulative
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess  # nosec B404 - module used safely in this file, see call sites below (no untrusted input reaches it)
 import sys
+
+logger = logging.getLogger(__name__)
 import tempfile
 import time
 import warnings
@@ -138,8 +141,8 @@ def _run_subprocess(python_exe: str, pythonpath: str, regime: dict, cache_dir: s
         if line.startswith("__RESULT__"):
             try:
                 payload = json.loads(line[len("__RESULT__") :])
-            except Exception:  # nosec B110 - best-effort path
-                pass
+            except Exception as e:  # nosec B110 - best-effort path
+                logger.debug("subprocess __RESULT__ line JSON parse failed: %s", e)
     if payload is None:
         return {
             "error": "no_result_marker",

@@ -27,7 +27,11 @@ of (scenario x seed) cells -> flip the default ``method`` to "bca"; else honest 
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 from scipy import stats
 
 from mlframe.evaluation.bootstrap import bootstrap_metric
@@ -89,7 +93,8 @@ def run_scenario(name: str, draw, metric_fn, true_value: float, seed: int, n_sam
                 a, b, metric_fn=metric_fn, n_bootstrap=n_bootstrap, alpha=0.05, random_state=int(rng.integers(0, 2**31)), method="percentile"
             )
             r_bca = bootstrap_metric(a, b, metric_fn=metric_fn, n_bootstrap=n_bootstrap, alpha=0.05, random_state=int(rng.integers(0, 2**31)), method="bca")
-        except Exception:  # nosec B112 - best-effort path
+        except Exception as e:  # nosec B112 - best-effort path
+            logger.debug("bootstrap trial failed, skipping: %s", e)
             continue
         valid += 1
         if r_pct["lo"] <= true_value <= r_pct["hi"]:

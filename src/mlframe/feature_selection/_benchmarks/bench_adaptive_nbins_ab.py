@@ -348,6 +348,7 @@ def main():
             json.dump(out, f, indent=2, default=str)
         print(f"[bench_adaptive_nbins_ab] -> {out_path}")
     except Exception as exc:
+        logger.debug("results save failed: %r", exc)
         print(f"[bench_adaptive_nbins_ab] save failed: {exc!r}")
 
 

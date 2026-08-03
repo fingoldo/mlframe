@@ -119,6 +119,7 @@ def main() -> int:
         print("Cache updated. random_features._should_use_gpu_rff will use this value next call.")
         return 0
     except Exception as e:
+        logger.debug("could not write to kernel_tuning_cache: %s", e)
         print(f"Could not write to kernel_tuning_cache: {e}")
         return 2
 

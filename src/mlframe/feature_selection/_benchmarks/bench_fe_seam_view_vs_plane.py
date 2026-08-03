@@ -11,9 +11,12 @@ do not affect this kernel). Reports best-of-N warm wall for each strategy on bot
 """
 from __future__ import annotations
 
+import logging
 import time
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 from mlframe.feature_selection.filters.hermite_fe import plugin_mi_classif_batch_dispatch
 
@@ -79,6 +82,7 @@ def main():
         results["polars/plane"] = _best(_strategy_plane(lambda: ldf.select(cols).to_numpy().astype(np.float32, copy=False), y, cols))
         results["polars/views"] = _best(_strategy_views(lambda c: ldf[c].to_numpy(), y, cols))
     except Exception as exc:
+        logger.debug("polars strategy unavailable: %r", exc)
         print(f"polars unavailable: {exc!r}")
 
     # parity: both strategies must produce the same MI ranking (selection-equivalence gate)

@@ -18,9 +18,12 @@ Run::
 from __future__ import annotations
 
 import argparse
+import logging
 import time
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 from sklearn.feature_selection import mutual_info_classif
 
 
@@ -230,7 +233,8 @@ def _legacy_hermite(x1, x2, y, n_iters=2, n_trials_per_iter=100):
             for bf in bin_funcs.values():
                 try:
                     combined = bf(h_a, h_b)
-                except Exception:  # nosec B112 - best-effort path
+                except Exception as e:  # nosec B112 - best-effort path
+                    logger.debug("basis-fn combine failed: %s", e)
                     continue
                 if not np.all(np.isfinite(combined)):
                     continue

@@ -36,8 +36,11 @@ Run::
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
+
+logger = logging.getLogger(__name__)
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
@@ -246,6 +249,7 @@ def run_benchmark(
                                 )
                                 all_results.append(res)
                             except Exception as exc:
+                                logger.debug("method %s failed on (%s,%s,n=%s,fold=%s): %r", method, dist, sig, n, fold_idx, exc)
                                 if verbose >= 2:
                                     print(f"  [FAIL] {method} on ({dist},{sig},n={n},fold={fold_idx}): {exc!r}")
                             task_counter += 1
@@ -422,6 +426,7 @@ def main():
             json.dump(out, f, indent=2, default=str)
         print(f"[bench_adaptive_nbins] full results -> {out_path}")
     except Exception as exc:
+        logger.debug("could not save json: %r", exc)
         print(f"[bench_adaptive_nbins] could not save json: {exc!r}")
 
 

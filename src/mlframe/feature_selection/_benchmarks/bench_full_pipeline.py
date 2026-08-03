@@ -22,10 +22,13 @@ Run::
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 import pandas as pd
 
 _SIZES: tuple[tuple[int, int], ...] = (
@@ -90,6 +93,7 @@ def main() -> None:
             cold.append(wall)
             print(f"  n={n_rows:>10_} k={n_features:>3} fit_wall={wall:>6.2f}s")
         except Exception as exc:
+            logger.debug("cold-phase fit skipped at n=%s k=%s: %s: %s", n_rows, n_features, type(exc).__name__, exc)
             cold.append(None)
             print(f"  n={n_rows:>10_} k={n_features:>3} SKIPPED ({type(exc).__name__}: {exc})")
 
@@ -103,6 +107,7 @@ def main() -> None:
             warm.append(wall)
             print(f"  n={n_rows:>10_} k={n_features:>3} fit_wall={wall:>6.2f}s")
         except Exception as exc:
+            logger.debug("warm-phase fit skipped at n=%s k=%s: %s: %s", n_rows, n_features, type(exc).__name__, exc)
             warm.append(None)
             print(f"  n={n_rows:>10_} k={n_features:>3} SKIPPED ({type(exc).__name__}: {exc})")
 
@@ -126,6 +131,7 @@ def main() -> None:
             print("\n=== KernelTuningCache contents ===")
             print(json.dumps(data, indent=2)[:1200] + " ...")
     except Exception as e:
+        logger.debug("cache dump failed: %s", e)
         print(f"cache dump failed: {e}")
 
 

@@ -28,8 +28,11 @@ Per-config wall ~50-500 ms; total runtime ~1-3 min on GTX 1050 Ti.
 from __future__ import annotations
 
 import itertools
+import logging
 import os
 import time
+
+logger = logging.getLogger(__name__)
 from typing import Iterable
 
 import numpy as np
@@ -246,6 +249,7 @@ def main() -> None:
                 nbins_x=nbx, nbins_y=nby, seed=11, n_iters=5,
             )
         except Exception as e:
+            logger.debug("kernel sweep failed n=%s bs=%s nbins=(%s,%s): %s: %s", n_samples, block_size, nbx, nby, type(e).__name__, e)
             print(f"  [{done}/{total}] FAIL n={n_samples:_} bs={block_size} " f"nbins=({nbx}, {nby}): {type(e).__name__}: {e}")
             continue
         rows.append(row)

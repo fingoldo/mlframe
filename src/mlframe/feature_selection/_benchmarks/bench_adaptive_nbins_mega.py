@@ -19,7 +19,10 @@ GPU compilation amortises; n=10000 included only for n_repeats=1 to bound cost.
 from __future__ import annotations
 
 import json
+import logging
 import time
+
+logger = logging.getLogger(__name__)
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
@@ -228,6 +231,7 @@ def run_mega_bench(
                                 mi_val, nbins = out if isinstance(out, tuple) else (out, 0)
                                 t_ms = (time.perf_counter() - t0) * 1000.0
                             except Exception as exc:
+                                logger.debug("method %s failed (%s,%s,n=%s,f=%s): %r", mname, dist, sig, n, fold_idx, exc)
                                 if verbose >= 2:
                                     print(f"  [FAIL] {mname} ({dist},{sig},n={n},f={fold_idx}): {exc!r}")
                                 continue
@@ -305,6 +309,7 @@ def main():
             json.dump(out, f, indent=2, default=str)
         print(f"[mega] -> {path}")
     except Exception as exc:
+        logger.debug("results save failed: %r", exc)
         print(f"[mega] save failed: {exc!r}")
 
 

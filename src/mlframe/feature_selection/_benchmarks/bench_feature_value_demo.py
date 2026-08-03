@@ -44,10 +44,13 @@ Run::
 from __future__ import annotations
 
 import argparse
+import logging
 import time
 import warnings
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # Wave 87 (2026-05-21): module-level filter mutation removed; bench scripts
 # now gate via __main__ to avoid poisoning the process-global filter on import.
@@ -188,7 +191,8 @@ def _run_polynomial_panel(x_a, x_b, y, *, n_trials=30):
                 warm_start=True,
             )
             scores[basis] = (res.mi if res else 0.0, res.bin_func_name if res else "-")
-        except Exception:
+        except Exception as e:
+            logger.debug("basis %s scoring failed: %s", basis, e)
             scores[basis] = (0.0, "ERR")
     return scores
 
