@@ -926,6 +926,17 @@ def _frac_diff_domain(
     if y is None:
         return np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
     return np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
+def _delegate_domain_check(bivariate_domain):
+    """Domain-check factory shared by ``_make_chain_transform`` / ``_make_multi_chain_transform``:
+    delegates entirely to the bivariate half, since the unary stage(s) have no base-dependent constraint."""
+
+    def _domain(y, base):
+        """Delegate to the bivariate domain check bound by the enclosing factory."""
+        return bivariate_domain(y, base)
+
+    return _domain
+
+
 def _make_chain_transform(
     *, name: str, short_name: str,
     bivariate_fit, bivariate_forward, bivariate_inverse, bivariate_domain,
@@ -965,9 +976,7 @@ def _make_chain_transform(
             unary=unary_tup,
         )
 
-    def _domain(y, base):
-        """Delegate the domain check to the bivariate half; the unary half has no base-dependent constraint."""
-        return bivariate_domain(y, base)
+    _domain = _delegate_domain_check(bivariate_domain)
 
     return Transform(
         name=name,
@@ -1013,9 +1022,7 @@ def _make_multi_chain_transform(
             unary_stages=unary_stages,
         )
 
-    def _domain(y, base):
-        """Delegate the domain check to the bivariate half; the unary stages have no base-dependent constraint."""
-        return bivariate_domain(y, base)
+    _domain = _delegate_domain_check(bivariate_domain)
 
     return Transform(
         name=name,
