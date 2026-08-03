@@ -46,19 +46,9 @@ from typing import Any, Optional
 
 import numpy as np
 
+from ._fe_stability_vote import _marginal_mi as _marginal_mi_codes
+
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
-
-
-def _marginal_mi_codes(x_codes: np.ndarray, y_codes: np.ndarray) -> float:
-    """Miller-Madow-debiased plug-in ``MI(X; Y)`` from integer bin codes.
-
-    Identical primitive to the in-fit screen relevance estimator and the #15
-    cross-fold vote (``_cmi_from_binned`` with an empty conditioning set), so the
-    replayed relevance is on the SAME debiased scale as the production selection.
-    """
-    from ._mi_greedy_cmi_fe import _cmi_from_binned
-
-    return float(_cmi_from_binned(x_codes, y_codes, None))
 
 
 def selection_stability_report(
