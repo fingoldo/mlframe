@@ -83,7 +83,8 @@ def materialise_and_finalise_fe_candidates(
             from .._gpu_strict_fe import fe_gpu_strict_resident_enabled
             from .._mi_greedy_cmi_fe import _cmi_gpu_enabled
             _gate_resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=int(X.shape[0]), p=len(cols)))
-        except Exception:
+        except Exception as e:
+            logger.debug("fe_gpu_strict_resident_enabled/_cmi_gpu_enabled check failed, defaulting to non-resident: %s", e)
             _gate_resident = False
 
     # CONDITIONAL-MI REDUNDANCY GATE (strategy S5, 2026-06-08). The PRINCIPLED,
@@ -153,7 +154,8 @@ def materialise_and_finalise_fe_candidates(
                     try:
                         from .._mi_greedy_cmi_fe import _quantile_bin_gpu_resident
                         _vb = _quantile_bin_gpu_resident(_vals, int(self.quantization_nbins))
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("_quantile_bin_gpu_resident failed, falling back to the host path: %s", e)
                         _vb = None
                 if _vb is None:
                     _vb = _quantile_bin(_vals, nbins=int(self.quantization_nbins))
@@ -857,7 +859,8 @@ def materialise_and_finalise_fe_candidates(
                             try:
                                 from .._mi_greedy_cmi_fe import _quantile_bin_gpu_resident as _qbr_esc
                                 _cb = _qbr_esc(_cv, int(self.quantization_nbins))
-                            except Exception:
+                            except Exception as e:
+                                logger.debug("_quantile_bin_gpu_resident (escape) failed, falling back to the host path: %s", e)
                                 _cb = None
                         if _cb is None:
                             _cb = _esc_qbin(_cv, nbins=int(self.quantization_nbins))

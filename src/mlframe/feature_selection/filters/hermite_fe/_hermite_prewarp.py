@@ -10,9 +10,13 @@ avoid an import cycle.
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 from numba import njit, prange
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
+
+logger = logging.getLogger(__name__)
 
 
 @njit(cache=True, parallel=True, fastmath=False)
@@ -186,7 +190,7 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
     # this twin is EXPECTED slower on the small-n / sequential-sweep HW and that is a PASS by the residency contract.
     try:
         from .._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled as _als_resident_flag_on
-    except Exception:
+    except ImportError:
         _als_resident_flag_on = None  # type: ignore
     if _als_resident_flag_on is not None and _als_resident_flag_on():
         # Import stays broad-guarded (cupy/twin may be absent); the CALL is narrowed to genuine
@@ -197,7 +201,7 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
                 warm_start_als_seed_gpu, warm_start_als_seed_gpu_from_z,
             )
             _twin_ready = True
-        except Exception:
+        except ImportError:
             _twin_ready = False
         if _twin_ready:
             _dev_errs: list = []
@@ -213,8 +217,8 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
                 _dev_errs.append(getattr(_cusolver, "CUSOLVERError", None))
                 from cupy_backends.cuda.libs import cublas as _cublas
                 _dev_errs.append(getattr(_cublas, "CUBLASError", None))
-            except Exception:  # nosec B110 - optional dependency import guard
-                pass
+            except Exception as e:  # nosec B110 - optional dependency import guard
+                logger.debug("cusolver/cublas error-type import probe failed: %s", e)
             _dev_errs = [e for e in _dev_errs if isinstance(e, type) and issubclass(e, BaseException)]
             try:
                 # DEVICE-BORN design (2026-06-30, H2D collapse): when the caller supplies the small

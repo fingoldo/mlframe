@@ -91,7 +91,8 @@ def rank_bin_codes_gpu_resident(x_gpu: Any, n_bins: int) -> Any:
     """
     try:
         import cupy as cp
-    except Exception:
+    except ImportError as e:
+        logger.debug("cupy import failed: %s", e)
         return None
     try:
         xg = x_gpu if isinstance(x_gpu, cp.ndarray) else cp.asarray(x_gpu)
@@ -120,7 +121,8 @@ def rank_bin_codes_batch_gpu_resident(X_gpu: Any, n_bins: int) -> Any:
     bit-identical (per-column) to :func:`rank_bin_codes_gpu_resident`."""
     try:
         import cupy as cp
-    except Exception:
+    except ImportError as e:
+        logger.debug("cupy import failed: %s", e)
         return None
     try:
         Xg = X_gpu if isinstance(X_gpu, cp.ndarray) else cp.asarray(X_gpu)
@@ -177,7 +179,8 @@ def plugin_mi_classif_batch_rank_cuda_resident(
     """
     try:
         import cupy as cp
-    except Exception:
+    except ImportError as e:
+        logger.debug("cupy import failed: %s", e)
         return None
     try:
         Xg = X_gpu if isinstance(X_gpu, cp.ndarray) else cp.asarray(X_gpu)

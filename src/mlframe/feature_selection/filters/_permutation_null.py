@@ -52,7 +52,8 @@ def _default_pair_maxt_max_rows() -> int:
     circular dep; 30000 is the bootstrap fallback matching feature_engineering.UNIFIED_FE_SUBSAMPLE_N."""
     try:
         from .feature_engineering import UNIFIED_FE_SUBSAMPLE_N
-    except Exception:
+    except ImportError as e:
+        logger.debug("UNIFIED_FE_SUBSAMPLE_N import failed, using the bootstrap fallback: %s", e)
         UNIFIED_FE_SUBSAMPLE_N = 30_000
     return int(UNIFIED_FE_SUBSAMPLE_N) // 2
 
@@ -168,7 +169,8 @@ def _generate_target_shuffles(y_codes: np.ndarray, nperm: int, dtype, rng, *, ra
         from ._permutation_null_shufflegen_ktc import shufflegen_use_numba
 
         use_numba = shufflegen_use_numba(n, nperm)
-    except Exception:
+    except Exception as e:
+        logger.debug("shufflegen_use_numba() check failed, defaulting to False: %s", e)
         use_numba = False
     if use_numba:
         base = 0x9E3779B9 if random_seed is None else (int(random_seed) & 0x7FFFFFFF)
@@ -373,7 +375,8 @@ def pooled_permutation_null_gain_floor(
         from ._permutation_null_resident import order1_maxt_gpu_circuit_breaker_tripped
 
         _resident_ok = bool(permnull_use_resident(n, n_cand, nperm)) and not gpu_globally_disabled() and not order1_maxt_gpu_circuit_breaker_tripped()
-    except Exception:
+    except Exception as e:
+        logger.debug("resident permutation-null availability check failed, defaulting to False: %s", e)
         _resident_ok = False
     y_perms = None
     y_perms_dev = None

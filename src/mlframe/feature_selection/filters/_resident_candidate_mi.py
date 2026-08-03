@@ -114,7 +114,8 @@ def _build_best_existing_op_candidates_gpu(cols_arr_gpu: list, cp):
             ((total + threads - 1) // threads,), (threads,), (M, pi, pj, np.int64(n), np.int32(m), np.int32(npairs), np.int32(has_sum), np.int32(k), out)
         )
         return out
-    except Exception:
+    except Exception as e:
+        logger.debug("batched-fill kernel failed, falling back to the per-candidate loop: %s", e)
         cands = list(cols_arr_gpu)
         for i in range(m):
             for j in range(i + 1, m):
@@ -145,7 +146,8 @@ def best_existing_op_mi_resident(
     rank kernel is unavailable so the caller falls back to the edge path / host njit."""
     try:
         import cupy as cp
-    except Exception:
+    except ImportError as e:
+        logger.debug("cupy import failed: %s", e)
         return None
     try:
         from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
@@ -211,7 +213,8 @@ def gate_grid_mi_resident(
     the exact host ``_gate_grid_mi``)."""
     try:
         import cupy as cp
-    except Exception:
+    except ImportError as e:
+        logger.debug("cupy import failed: %s", e)
         return None
     try:
         from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident

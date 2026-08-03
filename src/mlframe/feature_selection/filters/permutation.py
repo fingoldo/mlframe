@@ -660,7 +660,8 @@ def mi_direct(
             and not use_mi_miller_madow()
             and not use_mi_chao_shen()
         )
-    except Exception:
+    except Exception as e:
+        logger.debug("analytic-null availability check failed, defaulting to False: %s", e)
         _analytic_ok = False
     if _analytic_ok:
         if classes_y is None:
@@ -740,7 +741,8 @@ def mi_direct(
             from pyutilz.core.pythonlib import is_cuda_available
             from ._gpu_policy import gpu_globally_disabled
             _gpu_ok = (not gpu_globally_disabled()) and is_cuda_available()
-        except Exception:
+        except Exception as e:
+            logger.debug("GPU availability check failed, defaulting to False: %s", e)
             _gpu_ok = False
         if _gpu_ok:
             # Proactive VRAM headroom check: before this,
@@ -758,7 +760,8 @@ def mi_direct(
                 _bytes_needed = _n * max(int(npermutations), 64) * 4 + _n * 8
                 from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
                 _gpu_ok = fe_gpu_has_vram_cushion(_bytes_needed)
-            except Exception:
+            except Exception as e:
+                logger.debug("fe_gpu_has_vram_cushion() probe failed, not blocking the GPU launch: %s", e)
                 _gpu_ok = True  # probe failure must not block an otherwise-eligible launch
         if _gpu_ok:
             try:

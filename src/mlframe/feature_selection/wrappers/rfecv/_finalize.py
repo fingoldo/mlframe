@@ -74,7 +74,8 @@ def _finalize_fit_results(
 
         _est_type_name = type(estimator.steps[-1][1]).__name__ if isinstance(estimator, _Pipeline) else type(estimator).__name__
         _es_active = bool(_has_es(_est_type_name))
-    except Exception:
+    except Exception as e:
+        logger.debug("early-stopping-active detection failed, defaulting to False: %s", e)
         _es_active = False
     _has_val_cv = _val_cv_knob_set and _es_active
     _allow_swap_without_es = bool(getattr(self, "swap_top_k_allow_no_es", False))
@@ -102,6 +103,8 @@ def _finalize_fit_results(
         except Exception as _swap_exc:
             if verbose:
                 logger.warning("RFECV: SFFS swap pass failed (%s); continuing.", _swap_exc)
+            else:
+                logger.debug("RFECV: SFFS swap pass failed (%s); continuing.", _swap_exc)
     elif self.swap_top_k and self.swap_top_k > 0 and _has_val_cv and not _allow_swap_without_es:
         if verbose:
             logger.info(
@@ -269,3 +272,5 @@ def _persist_fitted_estimators(self, *, estimator, fitted_estimators, verbose):
     except Exception as exc:
         if verbose:
             logger.warning("RFECV: estimators_save_path persistence failed (%s); continuing.", exc)
+        else:
+            logger.debug("RFECV: estimators_save_path persistence failed (%s); continuing.", exc)

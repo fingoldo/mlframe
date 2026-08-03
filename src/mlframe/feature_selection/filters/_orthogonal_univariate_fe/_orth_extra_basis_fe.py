@@ -576,7 +576,7 @@ def _detect_fourier_freqs_for_col(
     # is EXPECTED slower on small-n / sequential-loop HW and that is a PASS by the residency contract.
     try:
         from .._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled as _fourier_resident_flag_on
-    except Exception:
+    except ImportError:
         _fourier_resident_flag_on = None  # type: ignore
     if _fourier_resident_flag_on is not None and _fourier_resident_flag_on():
         # Import stays broad-guarded (cupy/twin may be absent); the CALL is narrowed to genuine
@@ -586,7 +586,7 @@ def _detect_fourier_freqs_for_col(
             from ._fourier_detect_gpu_resident import detect_fourier_freqs_for_col_gpu
             from .._fourier_detect_cap import get_fourier_detect_max_n
             _twin_ready = True
-        except Exception:
+        except ImportError:
             _twin_ready = False
         if _twin_ready:
             _dev_errs: list = []
@@ -602,8 +602,8 @@ def _detect_fourier_freqs_for_col(
                 _dev_errs.append(getattr(_cusolver, "CUSOLVERError", None))
                 from cupy_backends.cuda.libs import cublas as _cublas
                 _dev_errs.append(getattr(_cublas, "CUBLASError", None))
-            except Exception:  # nosec B110 - optional dependency import guard
-                pass
+            except Exception as e:  # nosec B110 - optional dependency import guard
+                logger.debug("cusolver/cublas error-type import probe failed: %s", e)
             _dev_errs = [e for e in _dev_errs if isinstance(e, type) and issubclass(e, BaseException)]
             try:
                 return detect_fourier_freqs_for_col_gpu(

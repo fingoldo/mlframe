@@ -900,7 +900,8 @@ def _score_one_pair(
                 n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype,
             )
             _k_eng = _occupied_k(_win_codes)
-        except Exception:
+        except Exception as e:
+            logger.debug("_occupied_k computation failed, falling back to quantization_nbins: %s", e)
             _k_eng = quantization_nbins
         # 2-D joint occupied-K of the raw operands (bit-identical discretise to the
         # pair_mi compute); fall back to nominal ``nbins^2`` if either operand is
@@ -1082,7 +1083,8 @@ def _score_one_pair(
                             f"(|corr|={_use_map.get(_override_cfg, 0.0):.3f}) as the winner over the spurious "
                             f"rank-MI leader."
                         )
-        except Exception:
+        except Exception as e:
+            logger.debug("usability-acceptance computation failed, defaulting to reject: %s", e)
             _usability_accept = False
             _usability_primary = False
 
@@ -1178,7 +1180,8 @@ def _score_one_pair(
             if best_config is not None:
                 try:
                     _rej_op = best_config[1]  # binary func name of the best engineered form
-                except Exception:
+                except Exception as e:
+                    logger.debug("reading the best-config binary op name failed: %s", e)
                     _rej_op = None
             if not _passes_joint_gate:
                 _rej_rec = {

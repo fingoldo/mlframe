@@ -105,7 +105,7 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0, *, free_b: "int | None" = Non
     if not caller_supplied_probe:
         try:
             import cupy as cp
-        except Exception:  # - no cupy: non-GPU host, stay permissive (caller's other gates decide)
+        except ImportError:  # - no cupy: non-GPU host, stay permissive (caller's other gates decide)
             return True
         # Lazily cap our own pool so even the first cushion probe benefits from headroom.
         ensure_fe_gpu_pool_limit()
@@ -176,13 +176,14 @@ def ensure_fe_gpu_pool_limit() -> bool:
         _POOL_LIMIT_DONE = True  # set first (still under lock): a failed attempt must not retry every dispatch
     try:
         import cupy as cp
-    except Exception:  # - no cupy: nothing to cap
+    except ImportError:  # - no cupy: nothing to cap
         return False
     try:
         requested_frac = _pool_fraction()
         try:
             _, total_b = cp.cuda.runtime.memGetInfo()
-        except Exception:
+        except Exception as e:
+            logger.debug("cp.cuda.runtime.memGetInfo() failed, treating total VRAM as 0: %s", e)
             total_b = 0
         frac = requested_frac
         if total_b > 0:

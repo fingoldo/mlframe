@@ -264,7 +264,8 @@ def basis_route_by_signal(
                 try:
                     _zf, _ = _POLY_BASES[basis]["fit"](x)
                     _zc = np.ascontiguousarray(_zf, dtype=np.float64)
-                except Exception:
+                except Exception as e:
+                    logger.debug("basis fit for %r failed: %s", basis, e)
                     _zc = None
             for d in degrees:
                 try:
@@ -432,7 +433,8 @@ def generate_univariate_basis_features(
                 try:
                     _z_fit, _ = _POLY_BASES[chosen_basis]["fit"](x)
                     _z_cached = np.ascontiguousarray(_z_fit, dtype=np.float64)
-                except Exception:
+                except Exception as e:
+                    logger.debug("basis fit for %r failed: %s", chosen_basis, e)
                     _z_cached = None
         for d in degrees:
             try:
@@ -876,7 +878,8 @@ def hybrid_orth_mi_fe_with_recipes(
             # given that, the values equal a full-data fit, so the OUTPUT is exact).
             if _do_sub:
                 _full_eng_cols[name] = np.asarray(_vals_full)
-        except Exception:
+        except Exception as e:
+            logger.debug("prewarp-replay full-data fit path failed, falling back to legacy refit-at-replay: %s", e)
             _pp = None  # best-effort: fall back to legacy refit-at-replay path
         recipes.append(build_orth_univariate_recipe(
             name=name, src_name=src,

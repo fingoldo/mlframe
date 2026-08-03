@@ -77,7 +77,8 @@ def retention_form_is_subsumed(
     try:
         from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin, _renumber_joint
         from ._fe_cmi_redundancy_gate import _conditional_perm_null
-    except Exception:
+    except ImportError as e:
+        logger.debug("import for the conditional-permutation-null path failed: %s", e)
         return False
 
     inc = [np.asarray(c, dtype=np.float64).ravel() for c in incumbent_continuous if c is not None]
@@ -126,7 +127,8 @@ def retention_form_is_subsumed(
                 from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
                 from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
                 _resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=int(cand.shape[0]), p=1 + len(inc)))
-            except Exception:
+            except Exception as e:
+                logger.debug("fe_gpu_strict_resident_enabled/_cmi_gpu_enabled check failed, defaulting to non-resident: %s", e)
                 _resident = False
         cand_dev = None
         z_support_dev = None
@@ -142,7 +144,8 @@ def retention_form_is_subsumed(
                     z_support_dev, _ = _renumber_joint_gpu(*_inc_dev)
                 else:
                     cand_dev = None
-            except Exception:
+            except Exception as e:
+                logger.debug("resident candidate/support upload failed, falling back to the host path: %s", e)
                 cand_dev = None
                 z_support_dev = None
         if cand_dev is None:

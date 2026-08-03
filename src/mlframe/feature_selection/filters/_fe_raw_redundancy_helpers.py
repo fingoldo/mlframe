@@ -117,7 +117,8 @@ def raw_retains_signal_given_genuine_children(
             if bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=int(rb.size), p=1)):
                 from ._fe_resident_operands import resident_code_operand
                 _rb_cand = resident_code_operand(rb, "cmi_cand_x")
-        except Exception:
+        except Exception as e:
+            logger.debug("resident_code_operand for rb failed, using the host codes: %s", e)
             _rb_cand = rb
     _rb_kx = int(rb.max()) + 1 if getattr(rb, "size", 0) else 1  # host raw codes -> free cardinality
     _, _, marg_excess = _excess_and_floor(_rb_cand, yb, None, seed=seed, kx=_rb_kx)
@@ -134,7 +135,8 @@ def raw_retains_signal_given_genuine_children(
             try:
                 from ._mi_greedy_cmi_fe import _renumber_joint_gpu
                 z_support_dev, _zcard = _renumber_joint_gpu(*_gcd)
-            except Exception:
+            except Exception as e:
+                logger.debug("_renumber_joint_gpu failed, falling back to the host join: %s", e)
                 z_support_dev = None
     # HOST join only when the device join is unavailable: _excess_and_floor explicitly supports
     # ``z_support=None`` with a resident ``z_support_dev`` (its perm-null / analytic legs D2H the device form
@@ -387,7 +389,8 @@ def _heldout_ridge_r2(X: np.ndarray, y: np.ndarray, frac: float = 0.7) -> Option
         from sklearn.preprocessing import StandardScaler
         from sklearn.pipeline import make_pipeline
         from mlframe.metrics.core import fast_r2_score
-    except Exception:
+    except ImportError as e:
+        logger.debug("sklearn/mlframe metric imports failed: %s", e)
         return None
     X = np.nan_to_num(np.asarray(X, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
     y = np.nan_to_num(np.asarray(y, dtype=np.float64).ravel(), nan=0.0, posinf=0.0, neginf=0.0)

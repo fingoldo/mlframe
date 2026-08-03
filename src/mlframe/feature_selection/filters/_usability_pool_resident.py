@@ -108,7 +108,8 @@ def score_pair_combos_table_resident(
     grid per pair. Only the ``(npairs, nc)`` table comes back to the host."""
     try:
         import cupy as cp
-    except Exception:
+    except ImportError as e:
+        logger.debug("cupy import failed: %s", e)
         return None
     try:
         from ._gpu_policy import gpu_globally_disabled
@@ -172,7 +173,8 @@ def score_pair_combos_table_resident(
         fused_gen = _get_fused_gen_kernel()
         try:
             free_b = int(cp.cuda.runtime.memGetInfo()[0])
-        except Exception:
+        except Exception as e:
+            logger.debug("cp.cuda.runtime.memGetInfo() failed, using the conservative 512MiB default: %s", e)
             free_b = 512 * 1024 * 1024
         # cand block (n, kk) f64 + radix/MI working (~3x): combo_chunk = ~25% free VRAM / (n*8*3), clamped.
         combo_chunk = int(max(1, min(nc, (free_b // 4) // (max(1, n * 8) * 3))))
@@ -220,7 +222,8 @@ def score_pair_combos_table_resident(
                                                             codes_trusted=True, return_device=True)   # d_y dense 0-based fit-constant (FIX1)
                         mi_table_d[base + c0:base + c1] = cp.where(live_d, mi_d, -1.0)
                         wrote_resident = True
-                except Exception:
+                except Exception as e:
+                    logger.debug("resident MI-table write failed, falling back to the per-row sync path: %s", e)
                     wrote_resident = False
                 if not wrote_resident:  # per-row sync fallback (bit-faithful)
                     codes, kx = _gpu_quantile_bin_codes(cp.ascontiguousarray(cand.T), d_qs)

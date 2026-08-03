@@ -26,6 +26,8 @@ from numpy.polynomial.hermite import hermval
 from ._pairs_gates import _GATE_MED_UNARY, _PREWARP_UNARY, _gate_med_apply
 from mlframe.utils.log_throttle import log_throttle
 
+_module_logger = logging.getLogger(__name__)
+
 
 def _fit_prewarp_and_gate_med(
     *,
@@ -143,7 +145,8 @@ def _fit_prewarp_and_gate_med(
                 # at n=200, far above this 0.08 floor); benched 0/20 cases where
                 # |corr|<floor BUT dcor>=0.15 across mul/xor-sign/sq*abs/a*sin(b).
                 return abs(float(np.corrcoef(_recon, _y_val)[0, 1])) >= _pw_min_val_corr
-            except Exception:
+            except Exception as e:
+                _module_logger.debug("prewarp held-out correlation validation failed, falling back to accepting the warp: %s", e)
                 return True  # validation failure -> fall back to accepting the warp
 
         # bench-attempt-rejected (2026-06-20): "skip the ALS prewarp fit when the clean-form
@@ -265,7 +268,8 @@ def _build_operand_table(
     _resident_operands_on = False
     try:
         _resident_operands_on = fe_gpu_resident_operands_enabled() and _cuda_present()
-    except Exception:
+    except Exception as e:
+        _module_logger.debug("fe_gpu_resident_operands_enabled/_cuda_present check failed, defaulting to non-resident: %s", e)
         _resident_operands_on = False
     _operand_col_specs: list | None = [] if _resident_operands_on else None
     i = 0
@@ -348,7 +352,8 @@ def _build_operand_table(
                                                 d_res = _cp_fn(d_vals)
                                             transformed_vars[:, i] = cp.asnumpy(d_res)
                                             _gpu_used = True
-                                except Exception:
+                                except Exception as e:
+                                    _module_logger.debug("GPU unary-transform application failed, falling through to CPU: %s", e)
                                     _gpu_used = False  # fall through to CPU
                             if not _gpu_used:
                                 # Suppress unary-transform NaN/inf RuntimeWarnings

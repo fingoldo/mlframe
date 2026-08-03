@@ -28,9 +28,12 @@ dominate sub-ms workloads).
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional, Tuple
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # Default crossover thresholds. Tunable via ``set_gpu_thresholds(...)``.
 #
@@ -87,8 +90,8 @@ def is_gpu_metrics_available() -> bool:
         _ = cp.asarray([1.0], dtype=cp.float32).sum().item()
         _GPU_AVAILABLE = True
         return True
-    except Exception:  # nosec B110 - best-effort/optional path, no module logger
-        pass
+    except Exception as e:  # nosec B110 - best-effort/optional path, no module logger
+        logger.debug("cupy GPU availability probe failed: %s", e)
     _GPU_AVAILABLE = False
     return False
 
@@ -103,8 +106,8 @@ def _is_numba_cuda_available() -> bool:
         if cuda.is_available():
             _NUMBA_CUDA_AVAILABLE = True
             return True
-    except Exception:  # nosec B110 - best-effort/optional path, no module logger
-        pass
+    except Exception as e:  # nosec B110 - best-effort/optional path, no module logger
+        logger.debug("numba.cuda availability probe failed: %s", e)
     _NUMBA_CUDA_AVAILABLE = False
     return False
 
@@ -214,7 +217,8 @@ def gpu_multiple_rmse_scores(actual, predicted):
                 "rmse_partial_sum", n_samples=int(N), n_cols=int(M),
             )
             BLOCK_N = int(_choice["block_n"]) if _choice and "block_n" in _choice else 256
-        except Exception:
+        except Exception as e:
+            logger.debug("kernel_tuning_cache lookup for rmse_partial_sum block_n failed, using the default 256: %s", e)
             BLOCK_N = 256
         grid_x = (N + BLOCK_N - 1) // BLOCK_N
         partial = cp.zeros((grid_x, M), dtype=cp.float64)

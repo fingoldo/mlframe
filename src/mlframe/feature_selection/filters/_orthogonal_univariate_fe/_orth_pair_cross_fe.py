@@ -611,12 +611,14 @@ def hybrid_orth_mi_pair_fe_with_recipes(
             try:
                 _xi = X[col_i].to_numpy(dtype=_dt)
                 _, _ppi = _ebc(_xi, basis_a, int(deg_a), return_params=True)
-            except Exception:
+            except Exception as e:
+                logger.debug("basis param extraction for column i failed: %s", e)
                 _ppi = None
             try:
                 _xj = X[col_j].to_numpy(dtype=_dt)
                 _, _ppj = _ebc(_xj, basis_b, int(deg_b), return_params=True)
-            except Exception:
+            except Exception as e:
+                logger.debug("basis param extraction for column j failed: %s", e)
                 _ppj = None
             recipes.append(build_orth_pair_cross_recipe(
                 name=name, src_a_name=col_i, src_b_name=col_j,
@@ -651,7 +653,8 @@ def hybrid_orth_mi_pair_fe_with_recipes(
             try:
                 _xc = X[src].to_numpy(dtype=_dt)
                 _, _pp = _ebc(_xc, chosen_basis, int(chosen_degree), return_params=True)
-            except Exception:
+            except Exception as e:
+                logger.debug("basis param extraction failed: %s", e)
                 _pp = None
             recipes.append(build_orth_univariate_recipe(
                 name=name, src_name=src,

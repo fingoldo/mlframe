@@ -34,6 +34,7 @@ quantile edges, same Miller-Madow plug-in MI - so the recovered forms are unchan
 """
 from __future__ import annotations
 
+import logging
 import os
 
 import numpy as np
@@ -42,12 +43,14 @@ from numba import njit, prange
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 from typing import cast
 
+logger = logging.getLogger(__name__)
+
 # Optional GPU dep. The dispatcher gracefully falls back to the CPU njit kernels when cupy is
 # missing / the device errors - the fit is NEVER broken by a GPU problem (correctness first).
 try:
     import cupy as _cp
     _CUPY_AVAIL = True
-except Exception:
+except ImportError:
     _cp = None
     _CUPY_AVAIL = False
 
@@ -722,7 +725,8 @@ def _usability_backend_choice(n_rows: int, n_combos: int) -> str:
         return "gpu"
     try:
         return str(_USABILITY_PARALLELISM_SPEC.choose(n_rows=int(n_rows), n_combos=int(n_combos)))
-    except Exception:
+    except Exception as e:
+        logger.debug("kernel_tuning_cache choose() failed, using the size-based fallback: %s", e)
         return _usability_fallback_choice(int(n_rows), int(n_combos))
 
 
@@ -778,8 +782,8 @@ def score_pair_combos(x1, x2, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_co
         if _CUPY_AVAIL and not gpu_globally_disabled():
             try:
                 return _pair_combo_mi_cupy(*args)
-            except Exception:  # nosec B110 - optional/best-effort path, rationale documented
-                pass  # fall through to CPU
+            except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+                logger.debug("_pair_combo_mi_cupy failed, falling through to CPU: %s", e)
         # cupy missing / disabled / device error -> CPU. Re-resolve serial-vs-parallel for the CPU twin.
         choice = _usability_fallback_choice(n_rows, nc)
 
