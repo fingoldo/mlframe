@@ -54,6 +54,8 @@ import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
 
+from ._numeric_decompose_fe import _numeric_cols, score_decompose_by_bootstrap_mi as score_modular_by_bootstrap_mi
+
 try:
     from numba import njit
 except ImportError:  # pragma: no cover - numba is a hard dep in practice
@@ -191,12 +193,6 @@ def apply_modular(x: np.ndarray, period: float, op: str) -> np.ndarray:
     return np.asarray(_modular_njit(arr, p, op_code))
 
 
-def _numeric_cols(X: pd.DataFrame, cols: Optional[Sequence[str]]) -> list[str]:
-    """Filter ``cols`` (or all of ``X``'s columns when ``cols`` is None) down to those present in ``X`` with a numeric dtype, preserving input order."""
-    candidates = list(cols) if cols is not None else list(X.columns)
-    return [c for c in candidates if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
-
-
 def generate_modular_features(
     X: pd.DataFrame,
     num_cols: Optional[Sequence[str]] = None,
@@ -221,36 +217,6 @@ def generate_modular_features(
             out[engineered_name_modular(c, p, "sin")] = sin_v
             out[engineered_name_modular(c, p, "cos")] = cos_v
     return pd.DataFrame(out, index=X.index)
-
-
-def score_modular_by_bootstrap_mi(
-    raw_X: pd.DataFrame,
-    eng_X: pd.DataFrame,
-    y: np.ndarray,
-    *,
-    n_boot: int = 10,
-    sample_fraction: float = 0.8,
-    seed: int = 0,
-    nbins: int = 10,
-) -> pd.DataFrame:
-    """Gate each modular feature by Layer 62 bootstrap-stable MI.
-
-    Thin wrapper over
-    :func:`_orthogonal_bootstrap_mi_fe.score_features_by_bootstrap_mi` - the
-    SAME lower-CB ranking primitive Layer 90 uses, applied to the modular
-    candidate family. Each engineered column ``"{src}__mod*_{period}"`` maps
-    back to its source via the ``__`` prefix (the L62 scorer's contract), so the
-    per-replicate raw MI of ``src`` is the baseline a modular feature must clear.
-
-    Returns the L62 scores frame sorted by ``uplift_lcb`` descending.
-    """
-    from ._orthogonal_bootstrap_mi_fe import score_features_by_bootstrap_mi
-
-    return score_features_by_bootstrap_mi(
-        raw_X, eng_X, y,
-        n_boot=n_boot, sample_fraction=sample_fraction,
-        seed=seed, nbins=nbins,
-    )
 
 
 def _parse_modular_name(name: str):
