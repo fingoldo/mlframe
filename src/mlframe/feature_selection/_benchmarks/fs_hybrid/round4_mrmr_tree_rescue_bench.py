@@ -22,8 +22,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from round3_realdata_bench import load_real, downstream
 from synth import make_dataset
 from hard_synth import make_hard_dataset
-from round4_jmim_bench import mrmr_fe
 from round4_tree_seed_bench import shallow_tree_signals
+from _downstream_shared import mrmr_sel_transform
 
 
 def mrmr_raw_selected(X, y):
@@ -37,8 +37,9 @@ def mrmr_raw_selected(X, y):
     ren = {c: (c if _SAFE.match(str(c)) else f"eng_{i}") for i, c in enumerate(out)}
 
     class _T:
-        def transform(self, Z):
-            df = m.transform(Z).copy(); df.columns = [ren[c] for c in df.columns]; return df
+        m_ = m
+        ren_ = ren
+        transform = mrmr_sel_transform
     return _T(), raw, len(out)
 
 

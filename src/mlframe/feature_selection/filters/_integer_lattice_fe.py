@@ -52,6 +52,7 @@ import numpy as np
 
 from ._pairwise_modular_fe import _is_integer_col, _mi
 from ._y_encoding import encode_y_for_classif_mi
+from ._lattice_gate_hit_shared import margin_over_operands as _margin_over_operands, responded_property as _responded_property
 
 
 @numba.njit(cache=True, fastmath=False)
@@ -222,15 +223,8 @@ class LatticeHit:
     operand_floor: float  # max raw MI of the two operands = the best a non-lattice op could already recover
     null_hi: float  # permutation-null upper band on the engineered-column MI
 
-    @property
-    def margin_over_operands(self) -> float:
-        """MI gained by the engineered lattice feature over the best raw operand alone."""
-        return self.feat_mi - self.operand_floor
-
-    @property
-    def responded(self) -> bool:
-        """Whether this lattice hit clears both the operand floor and the permutation-null band."""
-        return _responded(self.feat_mi, self.operand_floor, self.null_hi)
+    margin_over_operands = property(_margin_over_operands)
+    responded = _responded_property(_responded)
 
 
 def cheap_integer_lattice_scan(

@@ -58,6 +58,7 @@ import numba
 import numpy as np
 
 from ._pairwise_modular_fe import _mi
+from ._lattice_gate_hit_shared import margin_over_operands as _margin_over_operands, responded_property as _responded_property
 
 logger = logging.getLogger(__name__)
 
@@ -390,15 +391,8 @@ class ArgmaxHit:
     operand_floor: float
     null_hi: float
 
-    @property
-    def margin_over_operands(self) -> float:
-        """MI gained by the argmax code over the hardened best-existing-op floor; the ranking key for candidate triples."""
-        return self.feat_mi - self.operand_floor
-
-    @property
-    def responded(self) -> bool:
-        """Whether this argmax feature's MI clears both the operand floor and the null band - i.e. it is a genuine signal, not noise."""
-        return _responded(self.feat_mi, self.operand_floor, self.null_hi)
+    margin_over_operands = property(_margin_over_operands)
+    responded = _responded_property(_responded)
 
 
 @dataclass(frozen=True)

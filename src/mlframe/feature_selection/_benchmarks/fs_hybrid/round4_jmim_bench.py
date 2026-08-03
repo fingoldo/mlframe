@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from round3_realdata_bench import load_real, downstream
 from synth import make_dataset
 from hard_synth import make_hard_dataset
+from _downstream_shared import mrmr_sel_transform
 import re
 
 _SAFE = re.compile(r"^[A-Za-z0-9_]+$")
@@ -45,8 +46,9 @@ def mrmr_fe(X, y, fe_strict=False, jmim=False):
     ren = {c: (c if _SAFE.match(str(c)) else f"eng_{i}") for i, c in enumerate(out)}
 
     class _T:
-        def transform(self, Z):
-            df = m.transform(Z).copy(); df.columns = [ren[c] for c in df.columns]; return df
+        m_ = m
+        ren_ = ren
+        transform = mrmr_sel_transform
     return _T(), len(out)
 
 
