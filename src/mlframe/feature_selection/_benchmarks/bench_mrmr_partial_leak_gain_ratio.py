@@ -124,7 +124,7 @@ def run():
     legit_med = float(np.median(legit_ratios)) if legit_ratios else None
     # A gain-based audit "works" only if a single threshold T puts every leak >= T and every legit < T (or the mirror).
     # Here leaks are LOW and legits are HIGH -> any T flagging the leak (T <= min leak ratio) also flags every legit. Impossible.
-    clean_separation = bool(leak_ratios and legit_ratios and min(legit_ratios) > max(leak_ratios) * 1.5
+    bool(leak_ratios and legit_ratios and min(legit_ratios) > max(leak_ratios) * 1.5
                             and max(leak_ratios) < FLAG_THRESHOLD <= min(legit_ratios)) is False
     verdict = {
         "leak_lead1_ratio_median": leak_med,

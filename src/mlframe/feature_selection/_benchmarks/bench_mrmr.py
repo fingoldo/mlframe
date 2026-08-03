@@ -113,7 +113,7 @@ def _stage_timer():
         try:
             current, peak = tracemalloc.get_traced_memory()
         except RuntimeError:
-            current, peak = 0, 0
+            _current, peak = 0, 0
         boundaries.append((name, time.perf_counter(), peak))
 
     def breakdown() -> dict[str, dict[str, float]]:
@@ -188,7 +188,7 @@ def _run_one(scenario: _datasets.Scenario, seed: int, profile: bool) -> dict[str
     support = getattr(mrmr, "support_", None)
     support_list = sorted(support.tolist()) if support is not None else None
 
-    current, peak = tracemalloc.get_traced_memory()
+    _current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
     out: dict[str, Any] = {

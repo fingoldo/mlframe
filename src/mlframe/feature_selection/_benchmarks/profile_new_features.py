@@ -61,7 +61,7 @@ def _profile(label: str, fn) -> tuple[pstats.Stats, float]:
 # Conditional Permutation Importance (PR-12)
 # ----------------------------------------------------------------------------
 def _cpi_medium():
-    rng = np.random.default_rng(0)
+    np.random.default_rng(0)
     X, y = make_classification(
         n_samples=600, n_features=40, n_informative=10,
         n_redundant=5, random_state=0, shuffle=False, class_sep=2.0,

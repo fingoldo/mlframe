@@ -367,7 +367,7 @@ def main() -> int:
                 df, target_col, feature_cols, train_idx, test_idx,
                 hint=None, seed=rep,
             )
-            dt_no_hint = time.perf_counter() - t0
+            time.perf_counter() - t0
 
             # Compute hint via tiny ablation (proxy for BaselineDiagnostics).
             ablation_hint = _ablation_top_k(
@@ -379,7 +379,7 @@ def main() -> int:
                 df, target_col, feature_cols, train_idx, test_idx,
                 hint=ablation_hint, seed=rep,
             )
-            dt_with_hint = time.perf_counter() - t0
+            time.perf_counter() - t0
 
             r_raw = _run_raw_y_only(
                 df, target_col, feature_cols, train_idx, test_idx, rep,

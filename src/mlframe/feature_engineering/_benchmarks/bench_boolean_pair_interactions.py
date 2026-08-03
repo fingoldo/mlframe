@@ -27,7 +27,7 @@ def _run(n_rows: int, n_binary_cols: int) -> None:
 
 def _run_pruned(n_rows: int, n_binary_cols: int) -> pd.DataFrame:
     df = _make_dataset(n_rows, n_binary_cols, seed=0)
-    rng = np.random.default_rng(0)
+    np.random.default_rng(0)
     y = (df["b0"].to_numpy() ^ df["b1"].to_numpy()).astype(int)
     return boolean_pair_interactions(df, prune_against_target=(y, 0.05))
 

@@ -189,7 +189,7 @@ def summarize(smoke: bool) -> None:
     print("\n=== WIN COUNTS vs 'default' (paired per scenario/n/p/seed) ===")
     win_hold: dict[str, list[int]] = defaultdict(lambda: [0, 0, 0])
     win_f1: dict[str, list[int]] = defaultdict(lambda: [0, 0, 0])
-    for _cs, variants in by_cellseed.items():
+    for variants in by_cellseed.values():
         if "default" not in variants:
             continue
         base = variants["default"]

@@ -62,7 +62,7 @@ def _predict_stack(X, fitted):
 
 
 def _per_column_nnls(stack, Y):
-    n_comp, N, K = stack.shape
+    n_comp, _N, K = stack.shape
     w = np.zeros((n_comp, K))
     for kk in range(K):
         wk, _ = nnls(stack[:, :, kk].T, Y[:, kk])

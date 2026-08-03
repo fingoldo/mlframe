@@ -187,7 +187,7 @@ def feature_1_regime_gate(seed: int = 0) -> Dict:
         transforms=["logratio"], base_candidates=["base"],
         raw_baseline_tolerance=10.0,  # only per-bin gate fires
     )
-    raw_off, comp_off, picked_off = _train_predict_rmse(
+    _raw_off, comp_off, picked_off = _train_predict_rmse(
         df, "y", ["base", "x1"], train_idx, test_idx, cfg=cfg_off,
         return_picked=True, seed=seed,
     )
@@ -588,11 +588,11 @@ def feature_7_spatial_demoter(seed: int = 0) -> Dict:
         auto_base_top_k=1,
         transforms=["linear_residual"],
     )
-    raw_off, comp_off, picked_off = _train_predict_rmse(
+    _raw_off, comp_off, picked_off = _train_predict_rmse(
         df, "y", ["base_time", "x1", "x2"], train_idx, test_idx,
         cfg=cfg_off, return_picked=True, seed=seed,
     )
-    raw_on, comp_on, picked_on = _train_predict_rmse(
+    _raw_on, comp_on, picked_on = _train_predict_rmse(
         df, "y", ["base_time", "x1", "x2"], train_idx, test_idx,
         cfg=cfg_on, return_picked=True, seed=seed,
     )
@@ -630,7 +630,7 @@ def feature_8_variance_stabilise(seed: int = 0) -> Dict:
     df = pd.DataFrame({"base": base, "x1": x1, "y": y})
     cut = int(n * 0.8)
     train_idx, test_idx = np.arange(cut), np.arange(cut, n)
-    transform = get_transform("logratio")
+    get_transform("logratio")
     rmses = {}
     for stabilise in (False, True):
         inner = LGBMRegressor(
@@ -883,7 +883,7 @@ def feature_stat6_alpha_drift(seed: int = 0) -> Dict:
         "verdict": (
             f"detected drift on {len(flags)} spec(s); "
             "alpha first/second half divergence z="
-            f"{list(flags.values())[0]['z_score']:.2f}"
+            f"{next(iter(flags.values()))['z_score']:.2f}"
             if flags else "no drift detected (likely needs larger drift)"
         ),
     }

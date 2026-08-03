@@ -62,8 +62,8 @@ def main(n: int = 10_000_000):
         print(f"_column_to_str {name}: OLD {to:.3f}s NEW {tn:.3f}s speedup {to/tn:.1f}x  (identical)")
 
     X = pd.DataFrame({"c": xi})
-    enc, recs = M.generate_rare_category_features(X, ["c"])
-    rec = recs[[k for k in recs if k.startswith("is_rare")][0]]
+    _enc, recs = M.generate_rare_category_features(X, ["c"])
+    rec = recs[next(k for k in recs if k.startswith("is_rare"))]
 
     def e2e():
         gc.collect()

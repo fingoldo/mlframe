@@ -173,7 +173,7 @@ def main(scale: str = "small"):
         ),
     }
 
-    X0, y0, informative_idx = _make(0)
+    _X0, _y0, informative_idx = _make(0)
     print(f"informative={sorted(informative_idx)}")
     print()
 

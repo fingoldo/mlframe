@@ -292,7 +292,7 @@ def run_synth(n_samples=5000, n_perm=3):
     n_grid = [n for n in n_grid if 1 <= n <= p]
     checkpoint(f"synth N-grid={n_grid}")
 
-    real_curve, perm_mean, perm_curves, t_real, t_perm = _curves(Xtr, ytr, ranked, n_grid, n_perm)
+    real_curve, perm_mean, perm_curves, _t_real, _t_perm = _curves(Xtr, ytr, ranked, n_grid, n_perm)
     N_first, _, _, first_env = noise_floor_first(n_grid, real_curve, perm_curves, pct=95.0)
     N_plat, _, plat_gain, plat_env = noise_floor_plateau(n_grid, real_curve, perm_curves, pct=95.0)
     checkpoint(f"synth first-clears N*={N_first}, plateau N*={N_plat}")

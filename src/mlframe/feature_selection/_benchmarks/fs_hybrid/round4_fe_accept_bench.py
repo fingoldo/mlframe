@@ -96,8 +96,8 @@ def holdout_greedy_accept(base_df, prod_dict, y, floor=0.0015, seed=0):
     Pva = {k: v[va_pos] for k, v in prod_dict.items()}
 
     def fit_auc(extra_tr, extra_va):
-        Mtr = np.hstack([base_tr] + extra_tr) if extra_tr else base_tr
-        Mva = np.hstack([base_va] + extra_va) if extra_va else base_va
+        Mtr = np.hstack([base_tr, *extra_tr]) if extra_tr else base_tr
+        Mva = np.hstack([base_va, *extra_va]) if extra_va else base_va
         m = lgb.LGBMClassifier(n_estimators=150, num_leaves=31, learning_rate=0.05, n_jobs=NJ, verbose=-1, random_state=seed)
         m.fit(Mtr, yi_tr)
         return roc_auc_score(yi_va, m.predict_proba(Mva)[:, 1])
@@ -108,7 +108,7 @@ def holdout_greedy_accept(base_df, prod_dict, y, floor=0.0015, seed=0):
     while remaining:
         best_name, best_auc = None, cur
         for name in remaining:
-            a = fit_auc(acc_tr + [Ptr[name].reshape(-1, 1)], acc_va + [Pva[name].reshape(-1, 1)])
+            a = fit_auc([*acc_tr, Ptr[name].reshape(-1, 1)], [*acc_va, Pva[name].reshape(-1, 1)])
             if a > best_auc:
                 best_auc, best_name = a, name
         if best_name is None or (best_auc - cur) < floor:
@@ -178,7 +178,7 @@ def run_bed(name, X, y, seed=0):
     t0 = time.time(); emit("base_only", base, [], prod_tr, prod_te, t0)
 
     # (1) keep_all
-    t0 = time.time(); auc_keepall = emit("keep_all", base, cand, prod_tr, prod_te, t0)
+    t0 = time.time(); emit("keep_all", base, cand, prod_tr, prod_te, t0)
     checkpoint(f"{name} seed{seed} keep_all done")
 
     # base_df for ranking/greedy (raw selected set as a frame with RangeIndex)

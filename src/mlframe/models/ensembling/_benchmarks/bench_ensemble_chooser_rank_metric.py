@@ -88,7 +88,7 @@ def run():
     ties = 0
     deltas = []
     print(f"{'scenario':22s} {'seed':>4s} {'ice_pick':>8s} {'auc_pick':>8s} " f"{'test_auc_ice':>12s} {'test_auc_auc':>12s} {'delta':>8s}")
-    for name, n, K, base, specs in _scenarios():
+    for name, n, _K, base, specs in _scenarios():
         for seed in (0, 1, 2):
             rng = np.random.default_rng(1000 + seed)
             y = (rng.random(n) < base).astype(int)

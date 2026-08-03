@@ -37,7 +37,7 @@ class HybridRFECV(HybridSelector):
             self.raw_selected_ = [c for c in self._Xaug_.columns if c in set(sel)] or list(self._Xaug_.columns[:1])
             self.n_engineered_ = sum(1 for c in self.raw_selected_ if c in eng)
         except Exception as e:
-            warnings.warn(f"HybridRFECV degraded ({type(e).__name__}: {e})")
+            warnings.warn(f"HybridRFECV degraded ({type(e).__name__}: {e})", stacklevel=2)
         return self
 
 

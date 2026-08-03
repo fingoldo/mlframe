@@ -173,7 +173,7 @@ def run_bench(N: int = 5000, n_repeats: int = 2, distributions=None, signals=Non
                 if tkey not in truths:
                     truths[tkey] = _truth(dist, sig, K)
                 t = truths[tkey]
-                for rep in range(n_repeats):
+                for _rep in range(n_repeats):
                     sub_rng = np.random.default_rng(int(rng.integers(0, 2**30)))
                     x = _draw_x(dist, N, sub_rng)
                     y = _draw_discrete_y(x, sig, K, sub_rng)

@@ -56,7 +56,7 @@ def corr_clusters(X, thr=0.92):
 def noise_floor(Xtr, ytr, survivors):
     """R3-3: drop a survivor whose held-out permutation importance <= max importance of its shuffled shadow."""
     Xa, Xv, ya, yv = train_test_split(Xtr[survivors], ytr, test_size=0.3, random_state=0, stratify=ytr)
-    m = lgb.LGBMClassifier(n_estimators=200, verbose=-1).fit(Xa, ya)
+    lgb.LGBMClassifier(n_estimators=200, verbose=-1).fit(Xa, ya)
     rng = np.random.default_rng(0)
     shadow = Xv.apply(lambda col: rng.permutation(col.values))
     Xv_sh = pd.concat([Xv, shadow.add_prefix("sh_")], axis=1)

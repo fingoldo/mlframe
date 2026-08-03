@@ -35,7 +35,7 @@ def _old_radius(residuals, alpha):
         return float("inf")
     if alpha >= 1.0:
         return 0.0
-    rank = int(math.ceil((m + 1) * (1.0 - alpha)))
+    rank = math.ceil((m + 1) * (1.0 - alpha))
     if rank > m:
         return float("inf")
     r_sorted = np.sort(r)
@@ -63,7 +63,7 @@ def _new_radius(r_sorted, m, alpha):
         return float("inf")
     if alpha >= 1.0:
         return 0.0
-    rank = int(math.ceil((m + 1) * (1.0 - alpha)))
+    rank = math.ceil((m + 1) * (1.0 - alpha))
     if rank > m:
         return float("inf")
     return float(r_sorted[rank - 1])

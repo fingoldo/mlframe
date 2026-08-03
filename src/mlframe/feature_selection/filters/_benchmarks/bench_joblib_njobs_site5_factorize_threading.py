@@ -39,7 +39,7 @@ def main():
         df = _make_df(n, n_cols)
         print(f"\n=== {label}, n={n} ===")
         _multi_col_factorize_native(df)  # warm
-        t1 = _best_of(lambda: _multi_col_factorize_native(df))
+        _best_of(lambda: _multi_col_factorize_native(df))
         print(f"n_jobs effectively 1 (len<=1 serial loop only applies at n_cols=1; here comparing the ACTUAL joblib call vs forcing serial):")
 
         # Serial reference: loop pd.factorize directly (bypassing joblib entirely).

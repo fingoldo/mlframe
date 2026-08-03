@@ -60,13 +60,13 @@ def run_bed(name, X, y, seed=0):
         rows.append(dict(bed=name, variant=tag, n=int(Ztr.shape[1]), fit_s=round(time.time()-t0,1), auc_mean=am, **a))
         print(f"[{name}] {tag:20s} n={int(Ztr.shape[1]):3d} {rows[-1]['fit_s']:6.1f}s mean={am} {a}", flush=True)
 
-    t0 = time.time(); T, raw, n_out = mrmr_raw_selected(Xtr, ytr)
+    t0 = time.time(); T, raw, _n_out = mrmr_raw_selected(Xtr, ytr)
     emit("mrmr_fe", T, t0)
     under = len(raw) < max(5, math.ceil(0.04 * p)) and p > 60
     print(f"[{name}] mrmr raw-selected={len(raw)} (of p={p}); under-select regime={under}", flush=True)
 
     # tree importance (shared, one fit)
-    t0 = time.time(); ranked, _pairs = shallow_tree_signals(Xtr, ytr); tsig = round(time.time()-t0,1)
+    t0 = time.time(); ranked, _pairs = shallow_tree_signals(Xtr, ytr); round(time.time()-t0,1)
     for K in (15, 25):
         # rescue = mrmr_fe output PLUS tree top-K raw cols, ONLY when under-select detected (else a true no-op = baseline)
         extra = [c for c in ranked[:K] if c in Xtr.columns] if under else None

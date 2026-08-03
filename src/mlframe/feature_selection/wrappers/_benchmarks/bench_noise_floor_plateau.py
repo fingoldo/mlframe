@@ -81,7 +81,6 @@ def main():
         real = np.sort(0.5 + 0.3 * rng.random(G))
         perm = 0.5 + 0.02 * rng.standard_normal((n_perm, G))
 
-        old = noise_floor_plateau  # placeholder; replaced below
         # identity check
         o = _old_plateau(n_grid, real, perm)
         n = noise_floor_plateau(n_grid, real, perm)

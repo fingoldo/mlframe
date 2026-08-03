@@ -234,7 +234,7 @@ def run_ab_benchmark(
     for dist in distributions:
         for sig in signal_kinds:
             for n in sample_sizes:
-                for rep in range(n_repeats):
+                for _rep in range(n_repeats):
                     rng = np.random.default_rng(rng_master.integers(0, 2**31 - 1))
                     x = _draw_distribution(dist, n, rng)
                     y = _draw_signal(sig, x, rng)

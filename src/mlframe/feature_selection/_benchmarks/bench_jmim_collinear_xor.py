@@ -87,7 +87,7 @@ def make_xor_collinear_dataset(n: int = 4000, n_collinear: int = 10, n_pure_nois
 
 
 def run_one(method_label: str, **mrmr_kwargs) -> BenchResult:
-    X, y, signal_features = make_xor_collinear_dataset(seed=42)
+    X, y, _signal_features = make_xor_collinear_dataset(seed=42)
     t0 = time.perf_counter()
     sel = MRMR(verbose=0, **mrmr_kwargs)
     sel.fit(X, y)

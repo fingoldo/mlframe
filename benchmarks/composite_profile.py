@@ -47,7 +47,7 @@ import io
 import pstats
 import sys
 import time
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -359,7 +359,7 @@ FEATURES: Dict[str, Callable[[Any], Callable[[], Any]]] = {
 }
 
 
-def main(argv: List[str] = None) -> int:
+def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Profile every composite-target feature with cProfile + wall-time.",
     )

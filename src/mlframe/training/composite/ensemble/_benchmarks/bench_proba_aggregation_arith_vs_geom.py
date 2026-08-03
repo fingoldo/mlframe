@@ -95,7 +95,7 @@ def _make_members(rng, n, k, n_members, diversity, miscal, balance, wrong_frac=0
     y = rng.choice(k, size=n, p=prior)
     base_logits = np.zeros((n, k))
     base_logits[np.arange(n), y] = rng.uniform(1.2, 2.2)  # separable-ish true signal strength
-    n_wrong = int(round(wrong_frac * n_members))
+    n_wrong = round(wrong_frac * n_members)
     members = []
     for mi in range(n_members):
         if mi < n_wrong:

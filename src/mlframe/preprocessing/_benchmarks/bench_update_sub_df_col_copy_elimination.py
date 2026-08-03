@@ -65,8 +65,10 @@ def bench_isolated_call():
         # col_unique_values / nunique are unconditionally recomputed inside both functions before use,
         # so the placeholder values passed here are never read -- kept type-correct for mypy rather than None.
         _placeholder_counts = pd.Series(dtype="int64")
-        old_fn = lambda: _old_update_sub_df_col(df, sub_df, col, _placeholder_counts, 0, analyse_mask=analyse_mask)
-        new_fn = lambda: _update_sub_df_col(df, sub_df, col, _placeholder_counts, 0, analyse_mask=analyse_mask)
+        def old_fn():
+            return _old_update_sub_df_col(df, sub_df, col, _placeholder_counts, 0, analyse_mask=analyse_mask)
+        def new_fn():
+            return _update_sub_df_col(df, sub_df, col, _placeholder_counts, 0, analyse_mask=analyse_mask)
 
         old_result, _ = old_fn()
         new_result, _ = new_fn()
@@ -94,8 +96,10 @@ def bench_end_to_end():
             finally:
                 cleaning_module._update_sub_df_col = original
 
-        old_fn = lambda: run_with(_old_update_sub_df_col)
-        new_fn = lambda: run_with(_update_sub_df_col)
+        def old_fn():
+            return run_with(_old_update_sub_df_col)
+        def new_fn():
+            return run_with(_update_sub_df_col)
 
         # interleaved (old, new, old, new, ...) instead of all-old-then-all-new, so a slow drift in
         # system load over the run doesn't systematically bias one side.

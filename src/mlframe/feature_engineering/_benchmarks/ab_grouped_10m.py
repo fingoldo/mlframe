@@ -33,9 +33,9 @@ def main():
         new.per_group_cum_reduce(vals[:5000], gids[:5000], "sum")
         old.per_group_cum_reduce(vals[:5000], gids[:5000], "sum")
         tn, to = [], []
-        for i in range(4):
-            t0 = time.perf_counter(); rn = new.per_group_shift(vals, gids, 1); tn.append(time.perf_counter() - t0)
-            t0 = time.perf_counter(); ro = old.per_group_shift(vals, gids, 1); to.append(time.perf_counter() - t0)
+        for _i in range(4):
+            t0 = time.perf_counter(); new.per_group_shift(vals, gids, 1); tn.append(time.perf_counter() - t0)
+            t0 = time.perf_counter(); old.per_group_shift(vals, gids, 1); to.append(time.perf_counter() - t0)
         wins = sum(1 for a, b in zip(tn, to) if a < b)
         print(f"[shift n_groups={n_groups}] NEW best={min(tn):.3f} OLD best={min(to):.3f} speedup={min(to)/min(tn):.2f}x faster {wins}/4")
         # identity (shift + cum_reduce + rolling + rank)

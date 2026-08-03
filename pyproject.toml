@@ -876,6 +876,7 @@ max-complexity = 40
 # stored" pattern as _profile_*.py above.
 "src/mlframe/**/_benchmarks/**" = ["T201", "B023"]
 "src/mlframe/**/benchmarks/**" = ["T201", "B023"]
+"benchmarks/**" = ["T201", "B023"]
 # Vendored third-party model code -- left at upstream shape.
 "src/mlframe/feature_selection/filters/_vendored/**" = ["T201", "A001", "A002", "N801"]
 # numba @njit kernels: verbose-gated diagnostic prints inside nopython-mode functions cannot use the

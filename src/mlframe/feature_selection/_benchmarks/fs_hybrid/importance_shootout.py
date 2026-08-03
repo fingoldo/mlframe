@@ -105,7 +105,7 @@ def summarize():
     # per-cell winner by lgbm AUC
     log("\n=== win counts (best lgbm AUC per scenario,seed) ===")
     wins = {ig: 0 for ig in IMPORTANCE}
-    for (sc, sd), grp in df.groupby(["scenario", "seed"]):
+    for (_sc, _sd), grp in df.groupby(["scenario", "seed"]):
         best = max(grp.to_dict("records"), key=lambda r: (r["auc"].get("lgbm") or -1))
         wins[best["importance"]] += 1
     log(str(wins))

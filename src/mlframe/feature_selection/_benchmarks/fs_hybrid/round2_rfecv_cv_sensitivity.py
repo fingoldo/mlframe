@@ -37,7 +37,7 @@ def jacc(a, b):
 def main():
     rows = []
     for sd in SEEDS:
-        X, y, t = make_dataset(n_samples=5000, seed=sd)
+        X, y, _t = make_dataset(n_samples=5000, seed=sd)
         Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=sd, stratify=y)
         sels = {}
         for cv in (2, 3, 5):

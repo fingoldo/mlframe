@@ -61,7 +61,7 @@ def _synth_polars(n_rows: int, n_cols: int, seed: int) -> pl.DataFrame:
 
 def _legacy_polars_path(df, threshold, min_non_null_abs):
     """Vendored pre-fix: per-col n_unique + per-col count. Excludes embedding/honor checks (irrelevant here)."""
-    text_features, cardinalities, skipped, dropped = [], {}, [], []
+    text_features, cardinalities, skipped, _dropped = [], {}, [], []
     for name, dtype in df.schema.items():
         is_text_like = dtype in (pl.String, pl.Utf8, pl.Categorical) or isinstance(dtype, pl.Enum)
         if not is_text_like:

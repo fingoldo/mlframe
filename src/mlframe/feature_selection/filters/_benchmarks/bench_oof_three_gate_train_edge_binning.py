@@ -47,7 +47,7 @@ def _scalar_path(arr, fold_test_idx, nbins):
 
 def _batched_path(arr, fold_test_idx, nbins):
     """The NEW batched-across-columns path (test bins only)."""
-    n, p = arr.shape
+    n, _p = arr.shape
     out = []
     for test_idx in fold_test_idx:
         train_mask = np.ones(n, dtype=bool)

@@ -103,8 +103,8 @@ def holdout_greedy_accept(base_mat, prod_dict, y, floor=GREEDY_FLOOR, seed=0):
     Pva = {k: v[va_pos].reshape(-1, 1) for k, v in prod_dict.items()}
 
     def probe_auc(extra_tr, extra_va):
-        Mtr = np.hstack([base_tr] + extra_tr) if extra_tr else base_tr
-        Mva = np.hstack([base_va] + extra_va) if extra_va else base_va
+        Mtr = np.hstack([base_tr, *extra_tr]) if extra_tr else base_tr
+        Mva = np.hstack([base_va, *extra_va]) if extra_va else base_va
         sc = StandardScaler().fit(Mtr)
         clf = LogisticRegression(max_iter=500, C=1.0, n_jobs=1)
         clf.fit(sc.transform(Mtr), yi_tr)
@@ -116,7 +116,7 @@ def holdout_greedy_accept(base_mat, prod_dict, y, floor=GREEDY_FLOOR, seed=0):
     while remaining:
         best_name, best_auc = None, cur
         for name in remaining:
-            a = probe_auc(acc_tr + [Ptr[name]], acc_va + [Pva[name]])
+            a = probe_auc([*acc_tr, Ptr[name]], [*acc_va, Pva[name]])
             if a > best_auc:
                 best_auc, best_name = a, name
         if best_name is None or (best_auc - cur) < floor:
@@ -184,7 +184,7 @@ def run_bed(name, X, y, seed=0):
     print(f"[{name}] {len(cand)} candidate products engineered from pairs", flush=True)
 
     t0 = time.time(); emit("base_only", base, [], prod_tr, prod_te, t0)
-    t0 = time.time(); auc_keepall = emit("keep_all", base, cand, prod_tr, prod_te, t0)
+    t0 = time.time(); emit("keep_all", base, cand, prod_tr, prod_te, t0)
     checkpoint(f"{name} seed{seed} keep_all done")
 
     base_mat = Xtr[base].values.astype(np.float64)

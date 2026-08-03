@@ -54,7 +54,8 @@ def main():
     emit("rfecv (support)", support, t0)
     print(f"  -> RFECV kept {len(support)} features", flush=True)
 
-    mk = lambda: lgb.LGBMClassifier(n_estimators=200, num_leaves=31, learning_rate=0.06, n_jobs=-1, verbose=-1)
+    def mk():
+        return lgb.LGBMClassifier(n_estimators=200, num_leaves=31, learning_rate=0.06, n_jobs=-1, verbose=-1)
 
     def knockoff_cut(feats, tag):
         if len(feats) < 5:

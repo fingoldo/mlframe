@@ -31,7 +31,7 @@ def honest_brier(X, y, cols):
 
 
 def run(scenario, seed=0, n_anchors=45):
-    X, y, t = make(scenario, seed)
+    X, y, _t = make(scenario, seed)
     Xtr, _, ytr, _ = train_test_split(X, y, test_size=0.4, random_state=seed, stratify=y)
     Xtr = Xtr.reset_index(drop=True); ytr = ytr.reset_index(drop=True).to_numpy()
     m = lgb.LGBMClassifier(n_estimators=200, num_leaves=31, verbose=-1).fit(Xtr, ytr)

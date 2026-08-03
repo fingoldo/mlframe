@@ -115,7 +115,6 @@ if __name__ == "__main__":
         return scores
 
     def crit_gbm_splits(X, y):
-        p = X.shape[1]
         ds = lgb.Dataset(X, label=y)
         params = dict(objective="binary", num_leaves=31, learning_rate=0.1, verbose=-1, min_child_samples=20, feature_fraction=1.0)
         booster = lgb.train(params, ds, num_boost_round=100)

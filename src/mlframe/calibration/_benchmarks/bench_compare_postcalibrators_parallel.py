@@ -63,7 +63,7 @@ def main() -> None:
 
     with patch("mlframe.calibration.post.get_postcalibrators", _lightweight_zoo):
         start = time.perf_counter()
-        metrics_df, fit_calibrators, failed = compare_postcalibrators(
+        _metrics_df, fit_calibrators, failed = compare_postcalibrators(
             model_name="bench",
             columns=["y"],
             calib_probs=probs,

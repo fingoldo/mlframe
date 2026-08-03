@@ -132,8 +132,8 @@ def bench(n, p, nb, reps=5, serial=False):
             t = time.perf_counter(); fn(); ts.append(time.perf_counter() - t)
         return min(ts), sorted(ts)[len(ts)//2]
 
-    b_min, b_med = timeit(base_fn)
-    h_min, h_med = timeit(hoist_fn)
+    b_min, _b_med = timeit(base_fn)
+    h_min, _h_med = timeit(hoist_fn)
     tag = "SERIAL" if serial else "PARLL "
     print(f"[{tag}] n={n} p={p} nb={nb}: baseline min={b_min*1000:.1f}ms | "
           f"hoisted min={h_min*1000:.1f}ms | speedup={b_min/h_min:.2f}x | maxabsdiff={maxdiff:.2e}")

@@ -270,7 +270,6 @@ def main() -> None:
     # block_size that wins most often.
     print("\n=== Summary ===")
     by_js: dict[int, list[float]] = {}
-    bs_wins: dict[int, int] = {}
     for r in rows:
         by_js.setdefault(r["joint_size"], []).append(r["speedup_shared_vs_global"])
     print("  joint_size | min_speedup | median_speedup | max_speedup")

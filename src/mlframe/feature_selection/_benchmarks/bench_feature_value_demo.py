@@ -262,7 +262,7 @@ def main():
     pair_best = best_trivial_pair(x_a, x_b, y, discrete_target=True)
     pair_mi = pair_best[2] if pair_best else 0.0
     triplet_scores = score_triplet_baselines(x_a, x_b, x_c, y, discrete_target=True)
-    triplet_top = list(triplet_scores.items())[0]
+    triplet_top = next(iter(triplet_scores.items()))
     print(f"    best PAIR trivial:    {pair_best[0] if pair_best else '-':>12s}  mi={pair_mi:.4f}")
     print(f"    best TRIPLET trivial: {triplet_top[0]:>12s}  mi={triplet_top[1]:.4f}  " f"(uplift x{triplet_top[1]/max(pair_mi, 1e-9):.2f})")
     # Show top-3

@@ -57,7 +57,7 @@ def _best_of(fn, n: int = 3) -> tuple[float, Any]:
 
 
 def bench_one(name: str, old_fn, new_fn, task: str, n_train=2000, n_query=400, d=16):
-    Xt, Xq, yt_cont, w = _data(n_train, n_query, d)
+    Xt, Xq, yt_cont, _w = _data(n_train, n_query, d)
     if task == "binary":
         y = (yt_cont > np.median(yt_cont)).astype(np.float32)
     else:

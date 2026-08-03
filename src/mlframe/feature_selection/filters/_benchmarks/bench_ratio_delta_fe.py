@@ -86,7 +86,7 @@ def bench_grouped(old_mod, new_mod, n=200_000, n_groups=500, n_num=4, seed=0):
         data[c] = rng.normal(0.0, 1.0, size=n)
     X = pd.DataFrame(data)
 
-    old_df, old_rec = old_mod.grouped_delta_features(X, "grp", num_cols)
+    old_df, _old_rec = old_mod.grouped_delta_features(X, "grp", num_cols)
     new_df, new_rec = new_mod.grouped_delta_features(X, "grp", num_cols)
     assert np.array_equal(old_df.to_numpy(), new_df.to_numpy()), "grouped_delta features differ"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
 

@@ -331,7 +331,7 @@ def _run_sweep_unary_elementwise(n_iters: int = 5) -> list[dict]:
                     t0 = time.perf_counter()
                     np_fn(vals)
                     t_np.append(time.perf_counter() - t0)
-                d_vals = cp.asarray(vals)
+                cp.asarray(vals)
                 # Include H2D+D2H in the GPU wall (real consumer path).
                 t_gp = []
                 for _ in range(n_iters):

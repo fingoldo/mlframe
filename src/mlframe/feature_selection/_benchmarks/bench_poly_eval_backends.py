@@ -492,7 +492,8 @@ def main():
                 cp.cuda.runtime.deviceSynchronize()
                 for name, fn in cupy_backends[args.basis]:
                     if args.include_h2d:
-                        wrapped = lambda x_local=x_cpu, c_local=c_cpu, f=fn: f(cp.asarray(x_local), cp.asarray(c_local))
+                        def wrapped(x_local=x_cpu, c_local=c_cpu, f=fn):
+                            return f(cp.asarray(x_local), cp.asarray(c_local))
                         t = _time_call(wrapped, (), n_warmup=3, n_iter=max(20, args.n_iter // 5))
                     else:
                         t = _time_call(fn, (x_gpu, c_gpu), n_warmup=3, n_iter=args.n_iter)

@@ -89,7 +89,7 @@ def _score(scenario, mode, n_tr, n_te, n_feat, seed, val_size, tmp_root):
     else:
         train_df, test_df = _make_classification(n_tr, n_te, n_feat, seed)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=regression)
-    vtag = f"v{int(round(val_size * 100)):03d}"
+    vtag = f"v{round(val_size * 100):03d}"
     model_name = f"{scenario}_{mode}_s{seed}_{vtag}"
     data_dir = str(Path(tmp_root) / model_name)
     train_mlframe_models_suite(
@@ -140,7 +140,7 @@ def main():
     summary = {}
     for alt in [x for x in VAL_SIZES if x != baseline]:
         wins = ties = losses = 0
-        for key, row in cells.items():
+        for row in cells.values():
             mode = row["mode"]
             b = row[str(baseline)]
             a = row[str(alt)]

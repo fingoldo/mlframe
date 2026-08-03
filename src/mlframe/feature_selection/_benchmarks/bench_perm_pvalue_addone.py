@@ -44,7 +44,7 @@ def _discrete_frame(seed: int, n: int = 2000):
         cols.append(c); nbins.append(2); truth.append(1)
     for k in (2, 2, 3, 3, 4, 5):
         cols.append(rng.integers(0, k, n).astype(np.int32)); nbins.append(k); truth.append(0)
-    data = np.column_stack(cols + [y]).astype(np.int32)
+    data = np.column_stack([*cols, y]).astype(np.int32)
     nbins.append(2)
     return data, np.array(nbins, dtype=np.int64), np.array(truth, dtype=np.int64), len(cols)
 

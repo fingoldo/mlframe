@@ -36,6 +36,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
+from typing import Optional
 
 # Allow running via direct path OR via -m
 try:
@@ -101,7 +102,7 @@ def _su_pair(factors_data, a: int, b: int, factors_nbins) -> float:
     ))
 
 
-def measure_full_pairwise(factors_data, factors_nbins, max_pairs: int = None
+def measure_full_pairwise(factors_data, factors_nbins, max_pairs: Optional[int] = None
                            ) -> tuple[float, int]:
     """Cost A: full O(p^2) pairwise SU matrix (the legacy post-hoc upper bound).
 
@@ -153,7 +154,7 @@ def measure_dcd_access(factors_data, factors_nbins,
 
     rng = np.random.default_rng(0)
     t0 = time.perf_counter()
-    for k in range(int(n_selected)):
+    for _k in range(int(n_selected)):
         if not pool:
             break
         # Pick a random pool member as the "winner" of this round.

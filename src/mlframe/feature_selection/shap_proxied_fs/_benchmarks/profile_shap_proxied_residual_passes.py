@@ -47,7 +47,7 @@ def bench_width(p, n=2000, seed=0):
     X, y = make_data(n=n, p=p, seed=seed)
     _fit_wall(X, y, 0, seed=seed)  # warm numba / xgboost
     base_wall, _ = _fit_wall(X, y, 0, seed=seed)
-    res_wall, sel_res = _fit_wall(X, y, 1, seed=seed)
+    res_wall, _sel_res = _fit_wall(X, y, 1, seed=seed)
     ratio = res_wall / base_wall if base_wall > 0 else float("nan")
     print(f"p={p}: 0-pass={base_wall:.3f}s 1-pass={res_wall:.3f}s ratio={ratio:.2f}x "
           f"(gt_09 sec 5 acceptance: <=1.8x)")

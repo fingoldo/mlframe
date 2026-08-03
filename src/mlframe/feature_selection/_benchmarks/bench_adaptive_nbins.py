@@ -215,7 +215,7 @@ def run_benchmark(
         "no_signal", "linear", "monotone", "threshold", "xor", "sin",
     ]
     sample_sizes = sample_sizes or [500, 2000, 10000]
-    methods = methods or ([LEGACY_BASELINE] + METHODS)
+    methods = methods or ([LEGACY_BASELINE, *METHODS])
 
     rng_master = np.random.default_rng(random_state)
     all_results: List[FoldResult] = []
@@ -229,7 +229,7 @@ def run_benchmark(
     for dist in distributions:
         for sig in signal_kinds:
             for n in sample_sizes:
-                for rep in range(n_repeats):
+                for _rep in range(n_repeats):
                     rng = np.random.default_rng(rng_master.integers(0, 2**31 - 1))
                     x = _draw_distribution(dist, n, rng)
                     y = _draw_signal(sig, x, rng)

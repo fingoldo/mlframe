@@ -104,7 +104,7 @@ if __name__ == "__main__":
     # Fit O(p^2) curve on CPU pairs/sec to extrapolate
     ck("=== H1 RESULTS ===")
     print("%-7s %-12s %-10s %-12s %-12s %-10s" % ("p", "pairs", "cpu_s", "cuda_s", "cpu_pps", "cuda_pps"))
-    for p, npairs, cpu_s, cuda_s, cupy_s, mem, ce, pe in results:
+    for p, npairs, cpu_s, cuda_s, cupy_s, _mem, _ce, _pe in results:
         cpu_pps = npairs / cpu_s if cpu_s else 0
         cuda_pps = npairs / cuda_s if cuda_s else 0
         print(

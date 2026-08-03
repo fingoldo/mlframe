@@ -134,17 +134,17 @@ def code_path_d_plots():
         plot_alpha_stability, plot_predictions_vs_actual,
     )
     rng = np.random.default_rng(0)
-    fig1 = plot_per_fold_tiny_rmse(
+    plot_per_fold_tiny_rmse(
         {f"spec_{i}": rng.normal(loc=1.0, scale=0.1, size=10).tolist()
          for i in range(8)},
         raw_baseline=1.5,
     )
-    fig2 = plot_per_family_disagreement(
+    plot_per_family_disagreement(
         {f: rng.normal(size=20).tolist()
          for f in ["lgb", "xgb", "cb", "linear"]},
         spec_names=[f"s{i}" for i in range(20)],
     )
-    fig3 = plot_alpha_stability(
+    plot_alpha_stability(
         rng.normal(loc=0.95, scale=0.02, size=50).tolist(),
         expected_alpha=0.95,
     )
@@ -153,7 +153,7 @@ def code_path_d_plots():
         f"spec_{i}": y_true + rng.normal(scale=0.1, size=100_000)
         for i in range(4)
     }
-    fig4 = plot_predictions_vs_actual(y_true, y_preds, sample_n=5000)
+    plot_predictions_vs_actual(y_true, y_preds, sample_n=5000)
     import matplotlib.pyplot as plt
     plt.close("all")
 

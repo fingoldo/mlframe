@@ -18,7 +18,7 @@ from mlframe.preprocessing.unseen_category_imputer import UnseenCategoryImputer
 def _make_frame(n: int, n_categories: int, seed: int = 0) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     cats = [f"cat_{i}" for i in range(n_categories)]
-    df = pd.DataFrame({f"col_{c}": rng.choice(cats + ["__unseen__"], n) for c in range(5)})
+    df = pd.DataFrame({f"col_{c}": rng.choice([*cats, "__unseen__"], n) for c in range(5)})
     df["val"] = rng.normal(size=n)
     return df
 

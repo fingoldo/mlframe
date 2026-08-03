@@ -37,7 +37,7 @@ except ImportError:
 def _rrf_aggregate_numpy(preds_arr: np.ndarray, k: int = 60) -> np.ndarray:
     if preds_arr.ndim != 3:
         preds_arr = preds_arr.reshape(preds_arr.shape[0], preds_arr.shape[1], -1)
-    M, N, K = preds_arr.shape
+    _M, N, K = preds_arr.shape
     aggregated = np.zeros((N, K), dtype=np.float64)
     for k_class in range(K):
         col = preds_arr[:, :, k_class]
@@ -154,8 +154,8 @@ def main() -> None:
 
     for M, N, K in sizes:
         preds_arr = rng.uniform(0.0, 1.0, size=(M, N, K)).astype(np.float64)
-        np_min, np_mean = _bench(_rrf_aggregate_numpy, preds_arr, k)
-        nb_min, nb_mean = _bench(_rrf_aggregate_njit, preds_arr, k)
+        np_min, _np_mean = _bench(_rrf_aggregate_numpy, preds_arr, k)
+        nb_min, _nb_mean = _bench(_rrf_aggregate_njit, preds_arr, k)
         speedup = np_min / nb_min if nb_min > 0 else float("inf")
         out_np = _rrf_aggregate_numpy(preds_arr, k)
         out_nb = _rrf_aggregate_njit(preds_arr, k)

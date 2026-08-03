@@ -42,7 +42,7 @@ def _run_one(n_cols: int, n_samples: int = 5000, nbins: int = 10, seed: int = 0)
     ids = np.arange(n_cols, dtype=np.int64)
 
     t0 = time.perf_counter()
-    a_out, b_out, mi_out, backend_counts = dispatch_batch_pair_mi_chunked(
+    a_out, _b_out, _mi_out, backend_counts = dispatch_batch_pair_mi_chunked(
         factors_data=data, ids=ids, nbins=nbins_arr, classes_y=y, freqs_y=freqs_y, force_backend="njit",
     )
     dt = time.perf_counter() - t0
@@ -53,7 +53,6 @@ def _run_one(n_cols: int, n_samples: int = 5000, nbins: int = 10, seed: int = 0)
 
 def main():
     print("width | n_pairs | wall_s | s_per_1k_pairs | backend_chunks")
-    prior_ratio = None
     for n_cols in (100, 200, 300, 500, 1000, 2000):
         # Warm the njit kernel on the first (smallest) size so its compile cost doesn't pollute
         # the larger-width measurements (per project A/B methodology: warm before measuring).
@@ -66,7 +65,7 @@ def main():
         # across the old cap boundary (100 -> 300), rather than jumping ~1000x as the legacy
         # ~35s/pair path would have.
         if n_cols == 300:
-            prior_ratio = rate
+            pass
     print()
     print("cProfile pass at width=1000 (representative production-shape pool):")
     pr = cProfile.Profile()

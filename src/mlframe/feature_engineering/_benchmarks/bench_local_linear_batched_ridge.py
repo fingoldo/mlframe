@@ -46,7 +46,7 @@ def _old_loop(Xn_all, yn_all, d, return_r2, dtype):
 
 def _new_batched(Xn_all, yn_all, d, return_r2, dtype, ridge_alpha=1e-3):
     """NEW: single batched centred normal-equations solve for all rows."""
-    n_anchor, k, _ = Xn_all.shape
+    n_anchor, _k, _ = Xn_all.shape
     n_out_cols = d + 1 + (1 if return_r2 else 0)
     out = np.zeros((n_anchor, n_out_cols), dtype=dtype)
     Xf = Xn_all.astype(np.float64, copy=False)

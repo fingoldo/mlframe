@@ -42,7 +42,7 @@ def main():
     # actually drops a member (exercises the re-materialise path too).
     base = rng.uniform(0.0, 1.0, size=(n_samples, n_classes))
     members = []
-    for m in range(n_members):
+    for _m in range(n_members):
         noise = rng.normal(0.0, 0.02, size=base.shape)
         members.append(np.clip(base + noise, 0.0, 1.0))
     members[0] = np.clip(base + rng.normal(0.0, 0.20, size=base.shape), 0.0, 1.0)  # outlier

@@ -210,7 +210,7 @@ def new2_null_dist(x_int, y_int, z_comp, K_x, K_y, K_z, n_permutations, seed):
     rng = np.random.default_rng(int(seed))
     order = np.argsort(z_comp, kind="stable")
     zs = z_comp[order]
-    uniq, starts = np.unique(zs, return_index=True)
+    _uniq, starts = np.unique(zs, return_index=True)
     strata_ptr = np.append(starts, len(zs)).astype(np.int64)
     strata_idx = order.astype(np.int64)
     B = int(n_permutations)

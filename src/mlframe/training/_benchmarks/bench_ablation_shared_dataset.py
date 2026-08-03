@@ -94,7 +94,7 @@ def bench_binning_fraction() -> None:
     import lightgbm as lgb
     from sklearn.model_selection import train_test_split
 
-    Xdf, y, cols = _make_data()
+    Xdf, y, _cols = _make_data()
     Xtr, _, ytr, _ = train_test_split(Xdf, y, test_size=0.2, random_state=101, stratify=y)
     params = dict(n_estimators=200, num_leaves=31, learning_rate=0.05, random_state=101, n_jobs=1, verbose=-1, force_col_wise=True)
     lgb.LGBMClassifier(**params).fit(Xtr, ytr)  # warm

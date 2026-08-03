@@ -41,7 +41,7 @@ def build_vectorized(targets: np.ndarray, classes) -> np.ndarray:
     n = targets.shape[0]
     k = len(classes)
     out = np.zeros((n, k), dtype=np.int8)
-    class_to_idx = {c: j for j, c in enumerate(classes)}
+    {c: j for j, c in enumerate(classes)}
     idx = np.full(n, -1, dtype=np.int64)
     for j, c in enumerate(classes):
         idx[targets == c] = j

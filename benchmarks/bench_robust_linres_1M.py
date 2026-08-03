@@ -145,7 +145,7 @@ def main() -> None:
     n = 1_000_000
     print(f"Synthetic: n={n:,}, 5% outliers, alpha_true=0.85, beta_true=50.0")
     print()
-    X_clean, X_dirty, y, alpha_true, beta_true = _make_data(n=n)
+    _X_clean, X_dirty, y, alpha_true, beta_true = _make_data(n=n)
 
     rows: list[tuple[str, float, float, float, float, float]] = []
     for name, fn in REGRESSORS.items():

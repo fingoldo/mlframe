@@ -43,7 +43,8 @@ def main(n=20000, n_bootstrap=1000, reps=12):
     def ll_new(yy, pp):
         return float(L(yy, pp))
 
-    ece = lambda yy, pp: _ece_score(yy, pp)
+    def ece(yy, pp):
+        return _ece_score(yy, pp)
     mf_old = {"brier": br_old, "log_loss": ll_old, "ece": ece}
     mf_new = {"brier": br_new, "log_loss": ll_new, "ece": ece}
     yf = np.ascontiguousarray(y, dtype=np.float64)

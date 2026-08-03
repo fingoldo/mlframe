@@ -39,7 +39,7 @@ def bench(reps=7):
     run()  # warm
     times = []
     for _ in range(reps):
-        t0 = time.perf_counter(); res = run(); times.append(time.perf_counter() - t0)
+        t0 = time.perf_counter(); run(); times.append(time.perf_counter() - t0)
     best = min(times)
     print(f"score=aps  test={tp.shape}  cal={cp.shape}  k={cls.size}  n_alphas={len(alphas)}")
     print(f"best-of-{reps}: {best*1000:.2f} ms  (median {sorted(times)[reps//2]*1000:.2f} ms)")

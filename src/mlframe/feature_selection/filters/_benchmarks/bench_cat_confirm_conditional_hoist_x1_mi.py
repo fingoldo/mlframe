@@ -72,8 +72,8 @@ def main():
         cls_x1, fq_x1, classes_y, freqs_y = _make_inputs(n, K_x1=8, K_y=3)
         args_base = (cls_x1, fq_x1, classes_y, freqs_y)
         # warm
-        a = _old_loop(*args_base, 3, dtype)
-        b = _new_loop(*args_base, 3, dtype)
+        _old_loop(*args_base, 3, dtype)
+        _new_loop(*args_base, 3, dtype)
         for n_perms in (50, 500):
             args = (*args_base, n_perms, dtype)
             ident = _old_loop(*args) == _new_loop(*args)

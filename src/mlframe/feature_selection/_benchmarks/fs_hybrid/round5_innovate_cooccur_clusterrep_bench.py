@@ -135,7 +135,7 @@ def run():
 
     print("\n===== DECISION =====")
     decision = {}
-    for knob, beds in (("cooccur_weight", COOCCUR_BEDS), ("cluster_rep", CLUSTER_BEDS)):
+    for knob, _beds in (("cooccur_weight", COOCCUR_BEDS), ("cluster_rep", CLUSTER_BEDS)):
         sub = [r for r in rows if r["knob"] == knob]
         wins = sum(1 for r in sub if r["delta"] > 1e-9)
         ties = sum(1 for r in sub if abs(r["delta"]) <= 1e-9)

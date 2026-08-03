@@ -47,7 +47,7 @@ def shallow_tree_signals(X, y, n_estimators=80, max_depth=3, top_pairs=12):
     tdf = m.booster_.trees_to_dataframe()
     tdf = tdf[tdf["split_feature"].notna()]
     pair_w = Counter()
-    for tree_id, g in tdf.groupby("tree_index"):
+    for _tree_id, g in tdf.groupby("tree_index"):
         feats = sorted(set(g["split_feature"].tolist()))
         gain = float(g["split_gain"].sum()) + 1e-9
         for a, b in combinations(feats, 2):
@@ -78,7 +78,7 @@ def run_bed(name, X, y, seed=0):
 
     # baseline: all + mrmr_fe (the collapse reference)
     t0 = time.time(); emit("all", Xtr, Xte, t0)
-    t0 = time.time(); T, n = mrmr_fe(Xtr, ytr); emit("mrmr_fe", T.transform(Xtr), T.transform(Xte), t0)
+    t0 = time.time(); T, _n = mrmr_fe(Xtr, ytr); emit("mrmr_fe", T.transform(Xtr), T.transform(Xte), t0)
 
     # shallow-tree signals (one fit, shared)
     t0 = time.time(); ranked, pairs = shallow_tree_signals(Xtr, ytr); tree_s = round(time.time()-t0, 1)

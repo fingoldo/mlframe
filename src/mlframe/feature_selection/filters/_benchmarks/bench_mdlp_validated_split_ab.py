@@ -75,7 +75,7 @@ def bench_case(label, x, y, *, max_y_classes=64):
     x_te, y_te = x[test_idx], y[test_idx]
 
     print(f"\n=== {label}  (n={n}, train={train_idx.size}, test={test_idx.size}) ===")
-    depth_cap = max(1, int(math.ceil(math.log2(max_y_classes))))
+    depth_cap = max(1, math.ceil(math.log2(max_y_classes)))
 
     results = []
     results.append(_run_one("(a) quantile fallback (5 bins)", lambda: np.concatenate([[-np.inf], _edges_from_quantiles(x_tr, 5), [np.inf]]), x_tr, y_tr, x_te, y_te))

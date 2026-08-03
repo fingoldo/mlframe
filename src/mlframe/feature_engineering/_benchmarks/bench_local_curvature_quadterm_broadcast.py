@@ -31,7 +31,7 @@ def _old_inner(dx: np.ndarray, quad_coefs: np.ndarray, k: int, d: int):
     for i in range(d):
         for j in range(i, d):
             quad_terms.append(dx[:, i] * dx[:, j])
-    A_quad = np.column_stack([A_lin] + quad_terms)
+    A_quad = np.column_stack([A_lin, *quad_terms])
     H = np.zeros((d, d), dtype=np.float32)
     kk = 0
     for i in range(d):

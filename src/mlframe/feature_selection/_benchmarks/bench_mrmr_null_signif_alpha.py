@@ -121,7 +121,7 @@ def _make_scenario(name: str, n: int, rng: np.random.Generator):
     else:
         raise ValueError(name)
 
-    factors = np.column_stack(cols + [y]).astype(np.int32)  # (n_samples, n_features) sklearn layout
+    factors = np.column_stack([*cols, y]).astype(np.int32)  # (n_samples, n_features) sklearn layout
     nbins = np.array([int(c.max()) + 1 for c in cols] + [y_card], dtype=np.int32)
     y_idx = factors.shape[1] - 1
     return factors, nbins, labels, y_idx

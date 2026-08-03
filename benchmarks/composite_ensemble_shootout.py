@@ -462,7 +462,7 @@ def main() -> int:
     strategies_list.remove("_oracle_best_single_test")
     if "best_single_by_train" in strategies_list:
         strategies_list.remove("best_single_by_train")
-    strategies_list = ["best_single_by_train"] + sorted(strategies_list)
+    strategies_list = ["best_single_by_train", *sorted(strategies_list)]
     # Per-strategy improvement aggregated across all (scenario, rep).
     strategy_improvements: Dict[str, List[float]] = {
         s: [] for s in strategies_list

@@ -44,7 +44,7 @@ def _run(seed: int):
     aggregates that don't beat their best member's own relevance, which would hide the pruning's
     effect on cluster COMPOSITION behind an unrelated accept/reject decision."""
     Xdf, y = _chain_fixture(seed)
-    cols = list(Xdf.columns) + ["y"]
+    cols = [*list(Xdf.columns), "y"]
     frame = Xdf.copy()
     frame["y"] = y.values
     data = frame.values.astype(np.float64)

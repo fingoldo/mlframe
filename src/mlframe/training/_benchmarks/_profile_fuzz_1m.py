@@ -327,7 +327,7 @@ def main():
         label = f"{tt} x {','.join(models)}"
         print(f"\n=== {label} ===")
         (
-            train_wall, ok, status, train_prof,
+            train_wall, _ok, status, train_prof,
             predict_wall, predict_prof,
             save_wall, save_prof, save_n_models, save_total_bytes,
             load_wall, load_prof, load_n_models,

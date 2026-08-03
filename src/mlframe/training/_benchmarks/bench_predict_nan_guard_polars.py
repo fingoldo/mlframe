@@ -54,7 +54,8 @@ def _bench(n_rows: int, n_cols: int, nan_rate: float, n_runs: int) -> dict:
     model = _FakeRidge()
     X_pl = _synth_polars(n_rows, n_cols, nan_rate, seed=1)
     X_pd = X_pl.to_pandas()
-    fn = lambda x: np.zeros(len(x), dtype=np.float64)
+    def fn(x):
+        return np.zeros(len(x), dtype=np.float64)
 
     # Warm both paths.
     _time_once(model, X_pl, fn, n_rows)

@@ -39,7 +39,7 @@ def _inject_duplicates(x: np.ndarray, y: np.ndarray, dup_rate: float, seed: int)
     row -- inflates apparent n without adding independent (x, y) evidence."""
     rng = np.random.default_rng(seed + 9973)
     n = x.shape[0]
-    n_dup = int(round(dup_rate * n))
+    n_dup = round(dup_rate * n)
     if n_dup <= 0:
         return x, y
     dup_idx = rng.integers(0, n, n_dup)

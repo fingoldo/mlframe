@@ -18,7 +18,7 @@ def _run_splitter(n_samples: int, n_repeats: int) -> None:
     y = np.arange(n_samples)
     splitter = OverlappingWalkForwardCV(window_length=200, step=20, gap=5, test_length=10)
     for _ in range(n_repeats):
-        for train_idx, test_idx in splitter.split(y):
+        for train_idx, _test_idx in splitter.split(y):
             float(np.mean(y[train_idx]))
 
 
@@ -29,7 +29,7 @@ def _run_adaptive_gap_splitter(n_samples: int, n_repeats: int) -> None:
         y[i] = 0.9 * y[i - 1] + rng.normal(0, 1)
     splitter = OverlappingWalkForwardCV(window_length=200, step=20, gap=5, test_length=10, adaptive_gap=True)
     for _ in range(n_repeats):
-        for train_idx, test_idx in splitter.split(y, y=y):
+        for train_idx, _test_idx in splitter.split(y, y=y):
             float(np.mean(y[train_idx]))
 
 

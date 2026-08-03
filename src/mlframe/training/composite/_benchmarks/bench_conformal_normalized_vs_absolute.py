@@ -98,7 +98,7 @@ def run(alpha=0.1, n_cal=2000, n_eval=4000, seeds=(0, 1, 2, 3, 4)):
     for sc in scenarios:
         for seed in seeds:
             rng = np.random.default_rng(1000 * seed + hash(sc) % 997)
-            xc, yhc, yc = _make_scenario(sc, n_cal, rng)
+            _xc, yhc, yc = _make_scenario(sc, n_cal, rng)
             xe, the, ye = _make_scenario(sc, n_eval, rng)
             res_c = yc - yhc
             abs_c = np.abs(res_c)

@@ -120,7 +120,7 @@ def run_bed(name, X, y, truth, weak_key, seed=0):
           f"weak in tentative={block_recall(tentative, weak)}/{len(weak)})", flush=True)
 
     t1 = time.time()
-    admitted, diag = cmi_gate(Xtr, ytr, accepted, tentative, seed=seed)
+    admitted, _diag = cmi_gate(Xtr, ytr, accepted, tentative, seed=seed)
     gate_s = round(time.time() - t1, 2)
     weak_admitted = [f for f in admitted if f in weak]
     noise_admitted = [f for f in admitted if f in noise]

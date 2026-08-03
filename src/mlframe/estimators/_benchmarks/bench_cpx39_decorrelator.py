@@ -19,7 +19,7 @@ def _make_data(n=5000, p=200, n_corr_pairs=40, seed=0):
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, p))
     # Inject correlated columns: make col j a near-copy of an earlier col i.
-    for k in range(n_corr_pairs):
+    for _k in range(n_corr_pairs):
         i = rng.integers(0, p // 2)
         j = rng.integers(p // 2, p)
         X[:, j] = X[:, i] + 0.05 * rng.standard_normal(n)
@@ -28,9 +28,8 @@ def _make_data(n=5000, p=200, n_corr_pairs=40, seed=0):
 
 def _old_fit_factory():
     """Load HEAD's MyDecorrelator.fit body as a standalone function."""
-    src = subprocess.check_output(["git", "show", "HEAD:src/mlframe/estimators/custom.py"], cwd=REPO).decode("utf-8")  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
+    subprocess.check_output(["git", "show", "HEAD:src/mlframe/estimators/custom.py"], cwd=REPO).decode("utf-8")  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
     # Extract the class and build it in an isolated namespace.
-    ns = {"pd": pd, "np": np}
     # pull just the fit logic to avoid importing sklearn base; replicate old loop directly:
     def old_fit(X, threshold):
         correlated_features = set()

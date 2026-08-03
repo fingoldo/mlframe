@@ -46,7 +46,7 @@ def main():
     thresholds = [0.0, 0.3, 0.5, 0.7, 0.9]
     results = []
     for seed in range(5):
-        X, y_cache, y_corr, y_indep = _make(seed)
+        _X, y_cache, y_corr, y_indep = _make(seed)
         s_cache = _mrmr_y_corr_sample(y_cache)
         corr_corr = abs(_mrmr_y_corr(_mrmr_y_corr_sample(y_corr), s_cache) or 0.0)
         corr_indep = abs(_mrmr_y_corr(_mrmr_y_corr_sample(y_indep), s_cache) or 0.0)

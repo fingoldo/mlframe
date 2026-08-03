@@ -95,7 +95,7 @@ def fit_hybrid_cached(bed, X, y, seed):
 def gated_recall(bed, X, y, seed):
     """Run the full gated-recall pipeline for one (bed, seed). Returns a dict of rows + the gate diagnostics."""
     p = fit_hybrid_cached(bed, X, y, seed)
-    Xtr, Xte, ytr, yte = p["Xtr"], p["Xte"], p["ytr"], p["yte"]
+    Xtr, _Xte, ytr, yte = p["Xtr"], p["Xte"], p["ytr"], p["yte"]
     Ztr, Zte, S = p["Ztr"], p["Zte"], p["S"]
     raw_cols = p["raw_cols"]
 
@@ -169,7 +169,6 @@ def gated_recall(bed, X, y, seed):
 
 def main():
     checkpoint("=== gated_recall bench start ===")
-    beds = {}
     # build datasets once per seed where the generator is seeded; madelon (load_real) is seed-invariant -> load once.
     Xr, yr, rname = load_real()
     checkpoint(f"loaded real bed {rname} {Xr.shape}")
@@ -185,8 +184,8 @@ def main():
             t0 = time.time()
             rows, diag = gated_recall(bed, X, y, seed)
             all_rows += rows; all_diag.append(diag)
-            base = [r for r in rows if r["variant"] == "hybrid_S"][0]["auc_mean"]
-            gr = [r for r in rows if r["variant"] == "gated_recall"][0]["auc_mean"]
+            base = next(r for r in rows if r["variant"] == "hybrid_S")["auc_mean"]
+            gr = next(r for r in rows if r["variant"] == "gated_recall")["auc_mean"]
             print(f"[seed={seed}] {bed:12s} S_mean={base} gated_mean={gr} d={round(gr-base,4):+} "
                   f"admitted={diag['n_admitted']}/{diag['n_dropped']} null_thr={diag.get('null_thresh')} "
                   f"({round(time.time()-t0,1)}s)", flush=True)

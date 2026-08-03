@@ -135,7 +135,7 @@ def _warm_bench(label, kw, reps=20):
         _run_once(kw)
         times.append(time.perf_counter() - t0)
     times = np.array(times)
-    n_added, summary = _run_once(kw)
+    n_added, _summary = _run_once(kw)
     print(f"  [{label}] n_added={n_added}  median={np.median(times)*1e3:.2f}ms  min={times.min()*1e3:.2f}ms")
     return np.median(times)
 

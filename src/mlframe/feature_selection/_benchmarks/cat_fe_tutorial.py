@@ -59,7 +59,7 @@ def section(title):
 
 
 def main() -> None:
-    df_train, y_train, df_test, y_test = make_synthetic_dataset()
+    df_train, y_train, df_test, _y_test = make_synthetic_dataset()
 
     section("1. Dataset overview")
     print(f"  train: {df_train.shape}; test: {df_test.shape}")

@@ -216,7 +216,7 @@ if __name__ == "__main__":
                     TM2r+=lM2r[tid]+ddr*ddr*f
                     TCxy+=lCxy[tid]+ddy*ddp*f
                     Tmy+=ddy*cb/tot;Tmp+=ddp*cb/tot;Tmr+=ddr*cb/tot;Tc=tot
-        sy=Tmy*nz*0+0.0  # placeholder; we need sum_y for y_mean too
+        Tmy*nz*0+0.0  # placeholder; we need sum_y for y_mean too
         return sa,ss,ma,sg,sape,ssm,say,nz,Tmy,Tmp,TM2y,TM2p,TM2r,TCxy,Tc
 
     np.random.seed(0); nt=numba.get_num_threads()

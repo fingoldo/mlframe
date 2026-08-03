@@ -155,7 +155,7 @@ def run_bed(name, X, y, n_trials_cap=120, seed=0):
     full_accepted = traj[-1][0]
     a45_accepted = traj[a45_stop][0]
     a45_safe_accepted = traj[a45_safe][0]
-    prod_accepted_at_run = traj[min(n_run - 1, len(traj) - 1)][0]
+    traj[min(n_run - 1, len(traj) - 1)][0]
 
     def jac(a, b_):
         a, b_ = set(a), set(b_)
@@ -165,7 +165,6 @@ def run_bed(name, X, y, n_trials_cap=120, seed=0):
     a45_stop_trial_n = a45_stop + 1
     per_trial_s = wall / max(1, n_run)
     a45_wall = per_trial_s * a45_stop_trial_n
-    prod_actual_wall = wall  # prod ran n_run trials (its own stop already applied)
 
     tail = traj[-1][2]  # residual tentative at cap
     j_a45 = jac(a45_accepted, full_accepted)

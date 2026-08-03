@@ -46,7 +46,7 @@ def test_gate_synergy_admits_only_superadditive_products():
     # tprod_0 = a*b is super-additive (FI 0.9 > max(0.1, 0.1)); tprod_1 = c*d is NOT (FI 0.05 < max(0.4, 0.3)).
     fi = {"a": 0.1, "b": 0.1, "c": 0.4, "d": 0.3, "tprod_0": 0.9, "tprod_1": 0.05}
     raw = ["a", "b", "c", "d"]
-    admitted = _gate("synergy", fi, [("a", "b"), ("c", "d")], raw + ["tprod_0", "tprod_1"], raw)
+    admitted = _gate("synergy", fi, [("a", "b"), ("c", "d")], [*raw, "tprod_0", "tprod_1"], raw)
     assert admitted == {"tprod_0"}  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
 
 
@@ -55,7 +55,7 @@ def test_gate_raw_median_is_looser_than_synergy_on_noise_heavy_frame():
     fi = {"a": 0.5, "b": 0.5, "tprod_0": 0.02}
     fi.update({f"n{i}": 0.0 for i in range(20)})
     raw = ["a", "b"] + [f"n{i}" for i in range(20)]
-    rel = raw + ["tprod_0"]
+    rel = [*raw, "tprod_0"]
     assert _gate("raw_median", fi, [("a", "b")], rel, raw) == {"tprod_0"}  # loose: admitted  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
     assert _gate("synergy", fi, [("a", "b")], rel, raw) == set()  # synergy: rejected (0.02 < 0.5)  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
 

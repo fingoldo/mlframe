@@ -238,7 +238,6 @@ class Cascade:
         cur = X
         for st in self.stages:
             st.fit(cur, y); cur = st.transform(cur)
-        last = self.stages[-1]
         self.raw_selected_ = [c for c in cur.columns if c in X.columns]
         self.n_engineered_ = sum(1 for c in cur.columns if c not in X.columns)
         self.final_cols_ = list(cur.columns)

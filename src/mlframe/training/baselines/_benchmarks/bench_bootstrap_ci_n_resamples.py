@@ -164,7 +164,7 @@ def main():
     for r in rows:
         per_cell.setdefault((r[0], r[1]), {})[r[2]] = r[3]
     for B in chal_wins:
-        for cell, errs in per_cell.items():
+        for errs in per_cell.values():
             if errs[B] < errs[inc] * 0.90:  # material 10% better
                 chal_wins[B] += 1
     print(f"\nChallengers materially (>=10%) better than incumbent B={inc}, per cell (of {total_cells}):")

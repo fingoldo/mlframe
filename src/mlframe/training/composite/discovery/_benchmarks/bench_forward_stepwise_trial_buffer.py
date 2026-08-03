@@ -109,7 +109,7 @@ def _time_isolated(n: int, k: int, n_candidates: int, *, reps: int) -> tuple[flo
 
     def _legacy_round() -> None:
         for c in cand_cols:
-            m = np.column_stack(kept_cols + [c])
+            m = np.column_stack([*kept_cols, c])
             _ = m[:5].sum()  # touch so the stack is not dead-code-eliminated
 
     def _buffer_round() -> None:

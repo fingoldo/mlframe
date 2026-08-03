@@ -56,10 +56,10 @@ def main():
     print(f"[2] replay bit-identical on train rows: {np.array_equal(z_fit, z_fit2)}")
 
     # 3. leak-safety: transform uses the STORED train median, never recomputes on test
-    z_te = gate_med_apply(a_te, rec.extra["gate_med_a_median"]) * b_te
+    gate_med_apply(a_te, rec.extra["gate_med_a_median"]) * b_te
     # If we (wrongly) recomputed median on test, it would differ slightly:
     med_te_wrong = float(np.median(a_te))
-    z_te_leaky = gate_med_apply(a_te, med_te_wrong) * b_te
+    gate_med_apply(a_te, med_te_wrong) * b_te
     n_diff = int(np.sum(gate_med_apply(a_te, med_a) != gate_med_apply(a_te, med_te_wrong)))
     print(f"[3] leak-safe vs leaky-recompute differ on {n_diff}/{len(a_te)} test rows "
           f"(train med={med_a:.4f} vs test med={med_te_wrong:.4f}); "

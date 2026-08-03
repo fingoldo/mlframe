@@ -68,7 +68,7 @@ def _gen(rng: np.random.Generator, n: int, pos_rate: float, sep: float, hetero: 
     from the two Gaussians (so 0.5 on p is Bayes-optimal for accuracy, but NOT for
     balanced accuracy under imbalance -- that is the whole point of tuning).
     """
-    npos = max(1, int(round(n * pos_rate)))
+    npos = max(1, round(n * pos_rate))
     nneg = n - npos
     s_neg = rng.normal(0.0, 1.0, nneg)
     s_pos = rng.normal(sep, hetero, npos)

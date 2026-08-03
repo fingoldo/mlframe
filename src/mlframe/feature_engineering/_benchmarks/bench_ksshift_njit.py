@@ -75,8 +75,8 @@ def main():
         ks_max = float(np.abs(ks_o - ks_n).max())
         w1_max = float(np.abs(w1_o - w1_n).max())
 
-        old_min, old_med = _best_of(_ks_and_wasserstein_old, y_neighbors, y_global)
-        new_min, new_med = _best_of(_ks_and_wasserstein_new, y_neighbors, y_global)
+        _old_min, old_med = _best_of(_ks_and_wasserstein_old, y_neighbors, y_global)
+        _new_min, new_med = _best_of(_ks_and_wasserstein_new, y_neighbors, y_global)
         speedup = old_med / new_med
         print(f"n_q={n_q:6d} k={k} n_g={n_g}: OLD {old_med*1e3:8.2f}ms  NEW {new_med*1e3:8.2f}ms  "
               f"speedup {speedup:5.2f}x | ks_abs_err {ks_max:.2e} w1_abs_err {w1_max:.2e}")

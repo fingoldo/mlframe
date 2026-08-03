@@ -261,7 +261,7 @@ def main(seeds: tuple[int, ...] = (0, 1, 2), out_dir: Optional[Path] = None) -> 
                     f"score={pair['sklearn'].cv_score_on_subset:.4f} t={pair['sklearn'].fit_seconds:5.1f}s]"
                 )
             # Jaccard stability across the 3 seeds for each selector
-            for selector_name, runs in [("ours", ours_results), ("sklearn", sk_results)]:
+            for _selector_name, runs in [("ours", ours_results), ("sklearn", sk_results)]:
                 supports = [set(r.selected_idx) for r in runs]
                 pairwise_jaccard = [jaccard(supports[i], supports[j]) for i in range(len(supports)) for j in range(i + 1, len(supports))]
                 stability = float(np.mean(pairwise_jaccard)) if pairwise_jaccard else 1.0

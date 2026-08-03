@@ -31,7 +31,7 @@ def fit_rfecv(X, y, n_repeats):
 def main():
     rows = []
     for sd in [0, 1, 2]:
-        X, y, t = make_dataset(n_samples=5000, seed=sd)
+        X, y, _t = make_dataset(n_samples=5000, seed=sd)
         Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=sd, stratify=y)
         ref = None
         for nr in (5, 3, 2):

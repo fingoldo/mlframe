@@ -36,8 +36,10 @@ def cpx18():
         q0, q1 = np.nanquantile(x, (0.1, 0.9))
         vis = x[(x >= q0) & (x <= q1)]  # no NaN
         # also the non-quantile branch where values_in_span == values (has NaN)
-        old = lambda: len(np.unique(vis))
-        new = lambda: _get_nunique(vis, skip_nan=False)
+        def old():
+            return len(np.unique(vis))
+        def new():
+            return _get_nunique(vis, skip_nan=False)
         assert old() == new(), (old(), new())  # nosec B101 - internal invariant check in src/mlframe/preprocessing/_benchmarks, not reachable with untrusted input
         # NaN-containing case
         old_n = len(np.unique(x))

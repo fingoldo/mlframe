@@ -61,7 +61,7 @@ def union_of_members(member_sel: dict, cols) -> list:
     This is the candidate set RFECV prunes -- the recall ceiling (raw survivors + engineered eng_/tprod cols)."""
     colset = set(cols)
     seen, out = set(), []
-    for _m, sel in member_sel.items():
+    for sel in member_sel.values():
         for c in sel:
             if c in colset and c not in seen:
                 seen.add(c); out.append(c)

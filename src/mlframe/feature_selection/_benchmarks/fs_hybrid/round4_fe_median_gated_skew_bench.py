@@ -76,8 +76,8 @@ def auc(Xtr, ytr, Xte, yte):
 
 def run(name, mk, kinds):
     print(f"\n# bed={name} (multi-seed mean d vs raw_only)")
-    acc = {k: [] for k in (["raw_only"] + kinds)}
-    accl = {k: [] for k in (["raw_only"] + kinds)}
+    acc = {k: [] for k in (["raw_only", *kinds])}
+    accl = {k: [] for k in (["raw_only", *kinds])}
     for s in SEEDS:
         X, y = mk(s); tr, te = split(len(X), s)
         Xtr, Xte, ytr, yte = X[tr], X[te], y[tr], y[te]

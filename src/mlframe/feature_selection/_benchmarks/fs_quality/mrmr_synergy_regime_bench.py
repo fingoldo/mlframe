@@ -105,7 +105,7 @@ def _make_additive(n: int, n_main: int, n_decoy: int, n_noise: int, seed: int):
     cols = []
     relevant = []
     logit = np.zeros(n)
-    for k in range(n_main):
+    for _k in range(n_main):
         f = rng.standard_normal(n)
         cols.append(f)
         relevant.append(len(cols) - 1)
@@ -269,7 +269,7 @@ def summarize(smoke):
     print("\n=== PAIRED WINS vs default (per regime) ===")
     for target in ("jmim", "auto"):
         agg = defaultdict(lambda: {"rec": [0, 0, 0], "auc": [0, 0, 0]})
-        for (reg, n, s), vs in by.items():
+        for (reg, n, _s), vs in by.items():
             if "default" not in vs or target not in vs:
                 continue
             b, t = vs["default"], vs[target]

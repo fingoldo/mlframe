@@ -93,7 +93,7 @@ def bench_end_to_end():
     X, y = _make_data()
     _fit_wall(X, y, "greedy")  # warm numba / xgboost
     greedy_wall, sel_greedy = _fit_wall(X, y, "greedy")
-    core_wall, sel_core = _fit_wall(X, y, "core")
+    core_wall, _sel_core = _fit_wall(X, y, "core")
     n_before = sel_greedy.shap_proxy_report_["within_cluster_refine"]["before"]
     print(f"end-to-end at k(before-refine)={n_before}: greedy={greedy_wall:.3f}s core={core_wall:.3f}s "
           f"ratio(core/greedy)={core_wall / greedy_wall:.3f} (gt_02 target: <= 1.0)")

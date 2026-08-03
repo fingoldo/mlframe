@@ -41,7 +41,7 @@ class SynergyHybrid(HybridSelector):
         from mlframe.feature_selection.boruta_shap import BorutaShap
         from sklearn.ensemble import RandomForestClassifier
         rep_members = {}
-        for r, ms in self.members_.items():
+        for ms in self.members_.values():
             keep = [m for m in ms if m in relevant]
             if keep:
                 rep = max(keep, key=lambda f: self.fi_.get(f, 0.0))

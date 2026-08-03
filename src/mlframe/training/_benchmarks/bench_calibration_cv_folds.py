@@ -103,7 +103,7 @@ def main():
 
     mean_brier = {k: float(np.mean([r[f"brier_k{k}"] for r in rows])) for k in FOLD_CANDIDATES}
     mean_logloss = {k: float(np.mean([r[f"logloss_k{k}"] for r in rows])) for k in FOLD_CANDIDATES}
-    cur, alt = 3, 5
+    _cur, alt = 3, 5
     majority_alt = wins[alt] > cells / 2
     verdict = ("FLIP to k=%d" % alt) if majority_alt else "KEEP k=3"
     summary = {

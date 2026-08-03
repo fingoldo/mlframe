@@ -99,7 +99,7 @@ def run(task: str, n: int = 6000, seeds=range(5)):
     seeds = list(seeds)
     metrics = _REG_METRICS if task == "regression" else _CLF_METRICS
     print(f"\n===== {task.upper()} (n={n}, {len(seeds)} seeds) -- full metric block =====")
-    variants = list(CURATED_FE_NAMES) + ["ALL"]
+    variants = [*list(CURATED_FE_NAMES), "ALL"]
     # deltas[variant][metric] = list of (variant_metric - base_metric) per seed
     deltas = {v: {m: [] for m in metrics} for v in variants}
     base_acc = {m: [] for m in metrics}

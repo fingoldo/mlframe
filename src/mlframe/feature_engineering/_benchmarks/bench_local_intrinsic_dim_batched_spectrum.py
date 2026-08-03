@@ -26,7 +26,7 @@ N_FEATURES = 5
 
 
 def _old_loop(deviations: np.ndarray, k_eff: int) -> np.ndarray:
-    n_q, _, d = deviations.shape
+    n_q, _, _d = deviations.shape
     out = np.zeros((n_q, N_FEATURES), dtype=np.float32)
     for q in range(n_q):
         cov = (deviations[q].T @ deviations[q]) / float(k_eff)

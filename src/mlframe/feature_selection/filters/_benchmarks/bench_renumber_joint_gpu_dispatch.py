@@ -49,7 +49,7 @@ def _bench_gpu_fresh_upload(cols):
 
     def _call():
         dev_cols = [cp.asarray(c) for c in cols]
-        joint_dev, mult = _renumber_joint_gpu(*dev_cols)
+        _joint_dev, mult = _renumber_joint_gpu(*dev_cols)
         k = int(mult)  # forces the single D2H sync
         return k
 
@@ -72,7 +72,7 @@ def _bench_gpu_already_resident(cols):
     cp.cuda.Stream.null.synchronize()
 
     def _call():
-        joint_dev, mult = _renumber_joint_gpu(*dev_cols)
+        _joint_dev, mult = _renumber_joint_gpu(*dev_cols)
         return int(mult)
 
     _call()

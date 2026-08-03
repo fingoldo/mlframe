@@ -113,7 +113,7 @@ def honest_auc(X, y, sel_names, seed):
 def pick_from_candidates(cands, col_names):
     if not cands:
         return []
-    loss, idx = cands[0]
+    _loss, idx = cands[0]
     return [col_names[i] for i in idx]
 
 
@@ -138,14 +138,14 @@ def run():
     rows = []
     for bed in beds:
         for seed in seeds:
-            X, y, inf, names = make_bed(bed, n, p_noise, seed)
+            X, y, inf, _names = make_bed(bed, n, p_noise, seed)
             # SHAP + interaction tensor from the selector's own machinery (search split only).
             Xs, _Xh, ys, _yh = train_test_split(X, y, test_size=0.25, random_state=seed, stratify=y)
             Xs = Xs.reset_index(drop=True); ys = np.asarray(ys)
             phi, base, y_phi = compute_shap_matrix(
                 _xgb(), Xs, ys, classification=True, out_of_fold=True, n_splits=3, n_models=1, rng=np.random.default_rng(seed), n_jobs=1
             )
-            Phi, ibase = compute_interaction_tensor(_xgb(), Xs, ys, classification=True, rng=np.random.default_rng(seed))
+            Phi, _ibase = compute_interaction_tensor(_xgb(), Xs, ys, classification=True, rng=np.random.default_rng(seed))
             # ADDITIVE proxy (current default): brute force over the (small) width.
             P = phi.shape[1]
             add_c = brute_force_top_n(phi, base, y_phi, classification=True, metric="brier", min_card=1, max_card=min(cap, P), top_n=30, parallel=False)

@@ -43,7 +43,8 @@ def _make(n, seed):
     rng = np.random.default_rng(seed)
     z = rng.standard_normal(n)
     w = rng.standard_normal(n)
-    eps = lambda s=0.05: s * rng.standard_normal(n)
+    def eps(s=0.05):
+        return s * rng.standard_normal(n)
     cols = {
         # monotone-NONLINEAR reflections of z (all share z's information):
         "z_lin": z + eps(),

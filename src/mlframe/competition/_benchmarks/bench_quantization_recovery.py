@@ -29,7 +29,7 @@ def _run_once() -> None:
 
     sizes = [1_000, 10_000, 100_000]
     for n in sizes:
-        x, true_int = _make_scaled_noised_integer_feature(rng, n=n, true_step=0.037, noise_scale=0.037 * 0.03, int_high=max(50, n // 20))
+        x, _true_int = _make_scaled_noised_integer_feature(rng, n=n, true_step=0.037, noise_scale=0.037 * 0.03, int_high=max(50, n // 20))
         step = detect_quantization_step(x)
         derounded_feature(x, step)
 

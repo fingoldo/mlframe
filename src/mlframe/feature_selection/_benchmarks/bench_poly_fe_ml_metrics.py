@@ -251,7 +251,7 @@ def _eval_dataset(name, X, y, discrete_target, *, n_splits, top_k, n_trials, max
     from sklearn.model_selection import KFold, StratifiedKFold
 
     cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42) if discrete_target else KFold(n_splits=n_splits, shuffle=True, random_state=42)
-    methods = ["baseline"] + _BASES + ["ensemble"]
+    methods = ["baseline", *_BASES, "ensemble"]
     results = {m: [] for m in methods}
     pair_log = []  # for diagnostics
     for fold, (tr_idx, va_idx) in enumerate(cv.split(X, y)):
@@ -280,8 +280,8 @@ def _eval_dataset(name, X, y, discrete_target, *, n_splits, top_k, n_trials, max
         all_eng_tr = [eng_per_basis[b][0] for b in _BASES if eng_per_basis[b][0].size]
         all_eng_va = [eng_per_basis[b][1] for b in _BASES if eng_per_basis[b][1].size]
         if all_eng_tr:
-            X_tr_ens = np.column_stack([X_tr_raw] + all_eng_tr)
-            X_va_ens = np.column_stack([X_va_raw] + all_eng_va)
+            X_tr_ens = np.column_stack([X_tr_raw, *all_eng_tr])
+            X_va_ens = np.column_stack([X_va_raw, *all_eng_va])
             results["ensemble"].append(_fit_and_score(X_tr_ens, y_tr, X_va_ens, y_va, discrete_target, model_kind))
         else:
             results["ensemble"].append(results["baseline"][-1])

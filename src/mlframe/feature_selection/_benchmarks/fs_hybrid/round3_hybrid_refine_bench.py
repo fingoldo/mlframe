@@ -89,7 +89,7 @@ class H34(HybridSelector):  # add RFECV as a 4th member
             self.raw_selected_ = [c for c in self._Xaug_.columns if c in set(selected)] or list(self._Xaug_.columns[:1])
             self.n_engineered_ = sum(1 for c in self.raw_selected_ if c in set(self._eng_rename.values()))
         except Exception as e:
-            warnings.warn(f"H34 rfecv member degraded ({type(e).__name__}: {e})")
+            warnings.warn(f"H34 rfecv member degraded ({type(e).__name__}: {e})", stacklevel=2)
         return self
 
 

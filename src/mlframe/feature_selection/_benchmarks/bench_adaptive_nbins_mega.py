@@ -216,7 +216,7 @@ def run_mega_bench(
     for dist in distributions:
         for sig in signal_kinds:
             for n in sample_sizes:
-                for rep in range(n_repeats):
+                for _rep in range(n_repeats):
                     rng = np.random.default_rng(rng_master.integers(0, 2**31 - 1))
                     x = _draw_distribution(dist, n, rng)
                     y = _draw_signal(sig, x, rng)
@@ -272,7 +272,7 @@ def _summarise(results: List[MegaFoldResult]) -> Dict:
         by_task.setdefault(key, {})[r.method] = r.mi_val
     wins: Dict[str, int] = {m: 0 for m in by_m}
     total_tasks = 0
-    for _, mv in by_task.items():
+    for mv in by_task.values():
         if not mv:
             continue
         winner = max(mv, key=mv.get)

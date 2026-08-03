@@ -50,7 +50,7 @@ def main():
     for sc in SCEN:
         single_sets, agg_sets, single_aucs, agg_aucs = [], [], [], []
         for sd in OUTER_SEEDS:
-            X, y, t = make(sc, sd)
+            X, y, _t = make(sc, sd)
             Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=sd, stratify=y)
             Xtr = Xtr.reset_index(drop=True); ytr = ytr.reset_index(drop=True)
             # single fit

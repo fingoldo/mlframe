@@ -114,7 +114,7 @@ def main() -> None:
         if kway_cols:
             col = kway_cols[0]
             # Verify the engineered col actually carries XOR info on test data
-            xor_signal = df_test["x1"].cat.codes.astype(int) ^ df_test["x2"].cat.codes.astype(int)
+            df_test["x1"].cat.codes.astype(int) ^ df_test["x2"].cat.codes.astype(int)
             engineered = out_catfe[col].to_numpy()
             # The factorize merge produces a deterministic 4-cell encoding;
             # each XOR cell maps to a unique class. The engineered col

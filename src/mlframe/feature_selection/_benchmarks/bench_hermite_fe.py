@@ -279,7 +279,7 @@ def main():
 
         t0 = time.perf_counter()
         legacy = _legacy_hermite(x1, x2, y, n_iters=2, n_trials_per_iter=100)
-        t_legacy = time.perf_counter() - t0
+        time.perf_counter() - t0
 
         t0 = time.perf_counter()
         # Pin basis="hermite" -- this bench specifically compares the

@@ -37,7 +37,7 @@ def _wide_corr_frame(n, seed, n_groups=6, per_group=14, n_noise=24):
     latents = [rng.standard_normal(n) for _ in range(n_groups)]
     cols = []
     # Only the first 3 groups drive y; the rest are correlated nuisance.
-    for gi, z in enumerate(latents):
+    for _gi, z in enumerate(latents):
         for _ in range(per_group):
             cols.append(z + 0.25 * rng.standard_normal(n))
     for _ in range(n_noise):
