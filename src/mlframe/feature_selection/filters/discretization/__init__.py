@@ -1181,7 +1181,8 @@ def discretize_2d_array_cuda_row_chunked(
     else:
         try:
             free_b, _total_b = cp.cuda.runtime.memGetInfo()
-        except Exception:
+        except Exception as e:
+            logger.debug("cp.cuda.runtime.memGetInfo() failed, using 512MiB conservative fallback: %s", e)
             free_b = 512 * 1024 * 1024  # conservative fallback if the probe is unavailable
     row_chunk_rows = _choose_discretize_row_chunk_rows(n_cols, arr.dtype.itemsize, free_b, out_itemsize=np.dtype(_out_cp_dtype).itemsize)
     _quantile_subsample_note = f", quantile_subsample_rows={min(n_rows, quantile_subsample_rows)}/{n_rows}" if method == "quantile" else ""

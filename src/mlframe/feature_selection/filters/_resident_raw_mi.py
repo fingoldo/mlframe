@@ -70,7 +70,7 @@ def resident_raw_baseline_mi(
         return None
     try:
         import cupy as cp
-    except Exception:
+    except ImportError:
         return None
     try:
         host = np.ascontiguousarray(np.asarray(mat, dtype=np.float64))

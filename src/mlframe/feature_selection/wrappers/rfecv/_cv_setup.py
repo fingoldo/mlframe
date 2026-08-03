@@ -51,7 +51,8 @@ def _make_group_time_series(n_splits, groups, fallback, verbose):
     try:
         import pandas as _pd
         n_groups = _pd.unique(np.asarray(groups)).shape[0]
-    except Exception:
+    except Exception as e:
+        logger.debug("pandas unique() group-count failed, falling back to np.unique: %s", e)
         n_groups = np.unique(np.asarray(groups)).shape[0]
     if n_groups < n_splits + 1:
         logger.warning(

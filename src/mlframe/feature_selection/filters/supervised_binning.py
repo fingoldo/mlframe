@@ -20,10 +20,13 @@ The helper does not call ``y`` on the val rows, so passing the same edges to bot
 """
 from __future__ import annotations
 
+import logging
 import math
 
 import numpy as np
 from numba import njit
+
+logger = logging.getLogger(__name__)
 
 
 def mdlp_bin_edges(
@@ -148,7 +151,8 @@ def mdlp_bin_edges(
         try:
             import pandas as _pd_iter50
             _y_arr, _ = _pd_iter50.factorize(_y_arr, sort=True)
-        except Exception:
+        except Exception as e:
+            logger.debug("pandas factorize failed, falling back to numpy-only label encode: %s", e)
             # Fallback: numpy-only label encode via unique.
             _uniq, _y_arr = np.unique(_y_arr, return_inverse=True)
     else:

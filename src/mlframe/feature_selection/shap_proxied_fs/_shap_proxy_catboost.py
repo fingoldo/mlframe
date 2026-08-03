@@ -44,7 +44,7 @@ def catboost_available() -> bool:
         return _CATBOOST_AVAILABLE_CACHE
     try:
         import catboost  # noqa: F401
-    except Exception:
+    except ImportError:
         _CATBOOST_AVAILABLE_CACHE = False
         return False
     _CATBOOST_AVAILABLE_CACHE = True

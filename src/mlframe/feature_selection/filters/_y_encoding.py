@@ -12,7 +12,11 @@ int-truncated), then densified. Mirrors the temporal-agg family's continuous-y g
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # Above this many distinct float values a target is treated as continuous and quantile-binned rather than
 # densified as-is (a float target with <=32 levels is already effectively discrete -> densify directly).
@@ -47,7 +51,7 @@ def encode_y_for_classif_mi(y: np.ndarray) -> np.ndarray:
 
             # qcut(labels=False) returns an ndarray for ndarray input (Series for Series) - np.asarray covers both.
             arr = np.asarray(pd.qcut(arr, q=_CONTINUOUS_Y_QCUT_BINS, labels=False, duplicates="drop"))
-        except Exception:  # nosec B110 - qcut can fail on degenerate distributions; fall back to plain densify
-            pass
+        except Exception as e:  # nosec B110 - qcut can fail on degenerate distributions; fall back to plain densify
+            logger.debug("pd.qcut continuous-target binning failed, falling back to plain densify: %s", e)
     _, inv = np.unique(arr, return_inverse=True)
     return inv.astype(np.int64, copy=False)

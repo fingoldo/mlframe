@@ -16,7 +16,11 @@ reproduces ``TimeSeriesSplit`` exactly.
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class GroupTimeSeriesSplit:
@@ -62,7 +66,8 @@ class GroupTimeSeriesSplit:
             import pandas as pd
 
             return np.asarray(pd.unique(np.asarray(groups)))
-        except Exception:
+        except Exception as e:
+            logger.debug("pandas unique() group-order extraction failed, falling back to np.unique: %s", e)
             g = np.asarray(groups)
             _, idx = np.unique(g, return_index=True)
             return g[np.sort(idx)]

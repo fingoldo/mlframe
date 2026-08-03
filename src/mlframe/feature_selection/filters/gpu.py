@@ -404,8 +404,8 @@ def _pin_device_if_needed() -> None:
         import cupy as cp
         if cp.cuda.Device().id != _BEST_DEVICE_ID:
             cp.cuda.Device(_BEST_DEVICE_ID).use()
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("could not set cupy active device to best device: %s", e)
 
 
 def _ensure_kernels_inited() -> None:

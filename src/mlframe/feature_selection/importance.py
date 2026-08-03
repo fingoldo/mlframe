@@ -300,7 +300,8 @@ def plot_feature_importance(
                     for _fig in figs:
                         _ipy_display(_fig)
                     _displayed_inline = True
-                except Exception:
+                except Exception as e:
+                    logger.debug("IPython inline display failed, falling back to plt.show(): %s", e)
                     # Fall back to plt.show on any import / display error.
                     from mlframe.metrics import show_plots_unless_agg
                     show_plots_unless_agg()

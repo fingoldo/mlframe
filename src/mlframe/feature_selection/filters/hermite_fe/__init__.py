@@ -413,6 +413,7 @@ def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
             try:
                 return _polyeval_cuda(basis, x, c, device=_dev)
             except Exception as _cuda_exc:  # OOM / driver error on this device -> try the next, then CPU  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+                logger.debug("polyeval CUDA backend failed on device %s: %s", _dev, _cuda_exc)
                 _warn_polyeval_cuda_fallback_once(_cuda_exc)
         # every device failed - fall through to the CPU njit / njit_par path.
     if forced == "njit_par":

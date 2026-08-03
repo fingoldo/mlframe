@@ -353,6 +353,11 @@ def run_outer_loop_iteration(
                     "RFECV: checkpoint save at nsteps=%d failed: %s",
                     state.nsteps, _ckpt_exc,
                 )
+            else:
+                logger.debug(
+                    "RFECV: checkpoint save at nsteps=%d failed: %s",
+                    state.nsteps, _ckpt_exc,
+                )
 
     if len(state.evaluated_scores_mean) == 2:
         # If the first explored subset (whatever MBH seeded; default seed = 2 features) is already worse than the dummy at 0 features, there's no point continuing.

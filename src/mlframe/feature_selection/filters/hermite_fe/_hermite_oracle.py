@@ -95,8 +95,8 @@ def get_polyeval_oracle():
             fixed_fp={"p": 1, "dtype_kind": "f"},
             fn_name=_POLYEVAL_ORACLE_FN_NAME,
         )
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("oracle.read_ktc_regions() bridge failed: %s", e)
     _polyeval_oracle_singleton = oracle
     return _polyeval_oracle_singleton
 

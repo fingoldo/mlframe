@@ -30,7 +30,7 @@ try:
     import cupy as _cp
 
     _HAS_CUPY = True
-except Exception:
+except ImportError:
     _cp = None
     _HAS_CUPY = False
 

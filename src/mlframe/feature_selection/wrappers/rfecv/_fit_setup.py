@@ -75,7 +75,8 @@ def resolve_effective_n_jobs(
         try:
             import os as _os
             n_jobs_effective = max(1, (_os.cpu_count() or 1))
-        except Exception:
+        except Exception as e:
+            logger.debug("os.cpu_count() probe failed, defaulting n_jobs_effective=1: %s", e)
             n_jobs_effective = 1
     _is_multithreaded = _detect_multithreaded(estimator)
     if n_jobs_effective > 1 and _is_multithreaded and not force_parallel:

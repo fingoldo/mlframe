@@ -59,8 +59,8 @@ def _estimator_tolerates_nan(estimator) -> bool:
 
         if isinstance(estimator, Pipeline) and estimator.steps:
             estimator = estimator.steps[-1][1]
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("Pipeline final-step resolution failed, using estimator as-is: %s", e)
     try:
         tags = estimator.__sklearn_tags__()
         allow = getattr(getattr(tags, "input_tags", None), "allow_nan", None)

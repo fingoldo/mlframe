@@ -61,8 +61,8 @@ def cmi_use_cuda(n: int, p: int) -> bool | None:
         # unconditionally, since this was the only other place in the fallback chain that also checks STRICT.
         if fe_gpu_strict_enabled(n=n, p=p):
             return True
-    except Exception:  # nosec B110 - optional dependency import guard
-        pass
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("fe_gpu_strict_enabled() probe failed: %s", e)
     if _CMI_SPEC is None:
         return None
     p_bucket = min(_CMI_SWEEP_P, key=lambda b: abs(b - int(p)))

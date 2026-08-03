@@ -363,7 +363,8 @@ def _eval_fold_body(
                         multiclass_coef_aggregation=getattr(self, "multiclass_coef_aggregation", "max"),
                         coef_scale_source=getattr(self, "coef_scale_source", "train"),
                     )
-                except Exception:
+                except Exception as e:
+                    logger.debug("signed-coefficient extraction failed for this fold: %s", e)
                     _signed_full = None
                 if _signed_full is not None:
                     if must_include_resolved:

@@ -8,10 +8,13 @@ so the package import graph stays acyclic. It round-trips cleanly through pickle
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Literal
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _extra_equal(a: dict, b: dict) -> bool:
@@ -176,8 +179,8 @@ class EngineeredRecipe:
                 if _v.flags.owndata and _v.flags.writeable:
                     try:
                         _v.flags.writeable = False
-                    except Exception:  # nosec B110 - best-effort path
-                        pass
+                    except Exception as e:  # nosec B110 - best-effort path
+                        logger.debug("could not mark recipe extra array read-only: %s", e)
         # Wrap in read-only proxy. ``MappingProxyType`` returns
         # ``TypeError`` on any ``extra['x'] = ...`` style write.
         object.__setattr__(
