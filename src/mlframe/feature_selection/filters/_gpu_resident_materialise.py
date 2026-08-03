@@ -179,6 +179,9 @@ _FE_MATERIALISE_CM_KERNEL = None  # module-level singleton (lazy-compiled; pickl
 # tv -> (n_operands, n) column-major copy cache (weakref-identity, mirrors _OPERAND_TABLE_CACHE): the
 # operand table is the SAME device array across a step's blocks/chunks, so transpose it ONCE per step.
 _OPERAND_TABLE_CM_CACHE: dict = {"ref": None, "cm": None}
+# Same concurrent-chunk-pipeline race as _OPERAND_TABLE_CACHE_LOCK above: two threads racing the same
+# cache-miss branch would both pay the transpose and the loser's result silently clobbers the winner's.
+_OPERAND_TABLE_CM_CACHE_LOCK = threading.Lock()
 
 
 def fe_gpu_materialise_cm_enabled() -> bool:
@@ -206,17 +209,18 @@ def _operand_table_cm(cp, tv_gpu):
     import weakref
     from ._gpu_resident_select import _transpose_to_cm  # parent transpose kernel (lazy: avoid cycle)
     c = _OPERAND_TABLE_CM_CACHE
-    ref = c["ref"]
-    if ref is not None and ref() is tv_gpu and c["cm"] is not None:
-        return c["cm"]
-    cm = _transpose_to_cm(tv_gpu)  # (n_operands, n) C-order
-    try:
-        c["ref"] = weakref.ref(tv_gpu)
-        c["cm"] = cm
-    except TypeError:
-        c["ref"] = None
-        c["cm"] = None
-    return cm
+    with _OPERAND_TABLE_CM_CACHE_LOCK:
+        ref = c["ref"]
+        if ref is not None and ref() is tv_gpu and c["cm"] is not None:
+            return c["cm"]
+        cm = _transpose_to_cm(tv_gpu)  # (n_operands, n) C-order
+        try:
+            c["ref"] = weakref.ref(tv_gpu)
+            c["cm"] = cm
+        except TypeError:
+            c["ref"] = None
+            c["cm"] = None
+        return cm
 
 
 def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block, return_cm=False):

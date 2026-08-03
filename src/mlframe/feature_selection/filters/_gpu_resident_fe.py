@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from collections import OrderedDict
 
 import numpy as np
@@ -868,6 +869,11 @@ def fe_gpu_grand_fusion_enabled() -> bool:
 
 _COMBO_IDX_CACHE: dict = {}  # block-tuple -> (ua_idx, ub_idx, bop) device int32; module-level -> pickle-safe
 _QLEVELS_CACHE: dict = {}  # (nbins, work-dtype) -> cp.linspace(0,100,nbins+1) device vector; read-only, shared
+# Both caches can be filled from more than one thread under joblib backend="threading"; the lock covers
+# the whole get-or-compute-or-insert sequence so two threads racing on the same key don't both pay the
+# compute and one's result silently overwrite the other's (harmless here since both are deterministic
+# and content-identical, but the race still wastes a device alloc/kernel launch every time it happens).
+_GPU_RESIDENT_FE_CACHE_LOCK = threading.Lock()
 
 
 def _quantile_levels_dev(cp, nbins: int, work):
@@ -875,10 +881,11 @@ def _quantile_levels_dev(cp, nbins: int, work):
     rebuilt every chunk otherwise). Read-only - cp.percentile never mutates it - so sharing is safe and
     the returned array is byte-identical to the inline linspace (deterministic in its args)."""
     key = (int(nbins), work)
-    hit = _QLEVELS_CACHE.get(key)
-    if hit is None:
-        hit = cp.linspace(0.0, 100.0, int(nbins) + 1, dtype=work)
-        _QLEVELS_CACHE[key] = hit
+    with _GPU_RESIDENT_FE_CACHE_LOCK:
+        hit = _QLEVELS_CACHE.get(key)
+        if hit is None:
+            hit = cp.linspace(0.0, 100.0, int(nbins) + 1, dtype=work)
+            _QLEVELS_CACHE[key] = hit
     return hit
 
 
@@ -907,14 +914,15 @@ def _fused_generate_block(ua_cm, ub_cm, combos_block, *, column_major: bool = Fa
     # the block contents (identical across every pair at a fixed k_chunk). Cache the device vectors keyed on
     # the block tuple to drop the per-chunk-per-pair list-comp + tiny-H2D allocs (cupy._core.core.array).
     _ck = tuple(combos_block)
-    _cc = _COMBO_IDX_CACHE.get(_ck)
-    if _cc is None:
-        ua_idx = cp.asarray(np.asarray([_UNARY_IDX[ua] for ua, _, _ in combos_block], dtype=np.int32))
-        ub_idx = cp.asarray(np.asarray([_UNARY_IDX[ub] for _, ub, _ in combos_block], dtype=np.int32))
-        bop = cp.asarray(np.asarray([_BINOP_CODE[bp] for _, _, bp in combos_block], dtype=np.int32))
-        _COMBO_IDX_CACHE[_ck] = (ua_idx, ub_idx, bop)
-    else:
-        ua_idx, ub_idx, bop = _cc
+    with _GPU_RESIDENT_FE_CACHE_LOCK:
+        _cc = _COMBO_IDX_CACHE.get(_ck)
+        if _cc is None:
+            ua_idx = cp.asarray(np.asarray([_UNARY_IDX[ua] for ua, _, _ in combos_block], dtype=np.int32))
+            ub_idx = cp.asarray(np.asarray([_UNARY_IDX[ub] for _, ub, _ in combos_block], dtype=np.int32))
+            bop = cp.asarray(np.asarray([_BINOP_CODE[bp] for _, _, bp in combos_block], dtype=np.int32))
+            _COMBO_IDX_CACHE[_ck] = (ua_idx, ub_idx, bop)
+        else:
+            ua_idx, ub_idx, bop = _cc
     total = n * K
     threads = 256
     blocks = (total + threads - 1) // threads

@@ -43,6 +43,7 @@ from __future__ import annotations
 import functools
 import logging
 import math
+import threading
 from typing import Optional, Sequence
 
 import numpy as np
@@ -1079,6 +1080,10 @@ def _nnz_from_counts(c) -> int:
 # uses); the hash is pure CPU and far cheaper than the H2D .max() it guards, and CANNOT collide two operands of
 # different content onto the same (too-small) card. Selection-IDENTICAL on the happy path (same card value).
 _CARD_MAX_CACHE: dict = {}
+# The greedy candidate search this cache serves can run under joblib backend="threading"; the lock covers
+# the whole get-or-compute-or-evict sequence so two threads racing the same content-hash key don't both
+# pay the device .max() and interleave a clear() with a concurrent insert.
+_CARD_MAX_CACHE_LOCK = threading.Lock()
 
 
 def _cached_card(host_arr, dev_codes) -> int:
@@ -1087,12 +1092,13 @@ def _cached_card(host_arr, dev_codes) -> int:
         return 1
     ha = np.ascontiguousarray(np.asarray(host_arr).ravel())
     key = (int(ha.size), ha.dtype.str, hash(ha.tobytes()))  # content fingerprint (no id-reuse collision)
-    v = _CARD_MAX_CACHE.get(key)
-    if v is None:
-        v = int(dev_codes.max()) + 1
-        if len(_CARD_MAX_CACHE) > 64:
-            _CARD_MAX_CACHE.clear()
-        _CARD_MAX_CACHE[key] = v
+    with _CARD_MAX_CACHE_LOCK:
+        v = _CARD_MAX_CACHE.get(key)
+        if v is None:
+            v = int(dev_codes.max()) + 1
+            if len(_CARD_MAX_CACHE) > 64:
+                _CARD_MAX_CACHE.clear()
+            _CARD_MAX_CACHE[key] = v
     return v
 
 # bench-attempt-rejected (2026-06-26): caching the y/z device codes (a _cached_dev resident-operand cache) to
@@ -1198,6 +1204,8 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False, kx: int = 0
 
 
 _YZ_CARD_CACHE: dict = {}  # (y,z)-identity -> (k_z, k_yz, ky, kz); invariant across a round's candidates
+# Same joblib-threading race class as _CARD_MAX_CACHE_LOCK: covers the whole get-or-compute-or-evict sequence.
+_YZ_CARD_CACHE_LOCK = threading.Lock()
 
 
 def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tuple[int, int, int, int]:
@@ -1243,17 +1251,18 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
     ya = np.ascontiguousarray(np.asarray(y).ravel())
     za = np.ascontiguousarray(np.asarray(z).ravel())
     yzkey = (int(ya.size), ya.dtype.str, hash(ya.tobytes()), int(za.size), za.dtype.str, hash(za.tobytes()))
-    _cached = _YZ_CARD_CACHE.get(yzkey)
-    if _cached is not None:
-        k_z, k_yz, ky, kz = _cached
-    else:
-        ky = (int(dy.max()) + 1) if dy.size else 1
-        kz = (int(dz.max()) + 1) if dz.size else 1
-        k_z = _nc([dz], [kz])
-        k_yz = _nc([dy, dz], [ky, kz])
-        if len(_YZ_CARD_CACHE) > 128:
-            _YZ_CARD_CACHE.clear()
-        _YZ_CARD_CACHE[yzkey] = (k_z, k_yz, ky, kz)
+    with _YZ_CARD_CACHE_LOCK:
+        _cached = _YZ_CARD_CACHE.get(yzkey)
+        if _cached is not None:
+            k_z, k_yz, ky, kz = _cached
+        else:
+            ky = (int(dy.max()) + 1) if dy.size else 1
+            kz = (int(dz.max()) + 1) if dz.size else 1
+            k_z = _nc([dz], [kz])
+            k_yz = _nc([dy, dz], [ky, kz])
+            if len(_YZ_CARD_CACHE) > 128:
+                _YZ_CARD_CACHE.clear()
+            _YZ_CARD_CACHE[yzkey] = (k_z, k_yz, ky, kz)
     k_xz = _nc([dx, dz], [Kx, kz])
     k_xyz = _nc([dx, dy, dz], [Kx, ky, kz])
     return k_z, k_xz, k_yz, k_xyz

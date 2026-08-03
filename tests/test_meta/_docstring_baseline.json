@@ -1,9 +1,1 @@
-[
-  "calibration/smoothed_override_backtest.py::OverrideBacktestResult",
-  "training/core/_diagnostics_registry.py::adapt_adversarial_fold_selection",
-  "training/core/_diagnostics_registry.py::adapt_compare_cv_schemes",
-  "training/core/_diagnostics_registry.py::adapt_constant_group_leak",
-  "training/core/_diagnostics_registry.py::adapt_cv_informativeness",
-  "training/core/_diagnostics_registry.py::adapt_group_leakage",
-  "training/core/_diagnostics_registry.py::adapt_subpopulation_drift"
-]
+[]

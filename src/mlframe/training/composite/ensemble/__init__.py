@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections import OrderedDict
 from typing import (
     Any, Dict, List, Optional, Sequence, Tuple, Union, cast,
@@ -243,25 +244,33 @@ def _maybe_pass_sample_weight(
 # 16-entry LRU; once full the least-recently-USED entry is evicted on insertion. Stays in-process; cleared at interpreter shutdown. ``OrderedDict.move_to_end`` on hits keeps eviction order driven by access (true LRU), not insertion order (which would degrade to FIFO).
 _OOF_HOLDOUT_CACHE: "OrderedDict[tuple, tuple[np.ndarray, np.ndarray, list[str]]]" = OrderedDict()
 _OOF_HOLDOUT_CACHE_CAP = 16
+# External callers are free to invoke this cache from multiple threads; the lock protects OrderedDict's
+# own move_to_end/popitem bookkeeping from concurrent corruption (an unguarded LRU touch racing an
+# eviction can leave the dict in an inconsistent order or double-evict). It does NOT make the caller's
+# get-compute-put sequence atomic -- two threads racing the same miss both compute (deterministically,
+# so idempotent) and the second put simply overwrites the first with an identical value.
+_OOF_HOLDOUT_CACHE_LOCK = threading.Lock()
 
 
 def _oof_cache_get(key: tuple):
     """LRU-touch and return the cached OOF result for ``key``, or ``None`` on a miss."""
-    if key not in _OOF_HOLDOUT_CACHE:
-        return None
-    _OOF_HOLDOUT_CACHE.move_to_end(key)
-    return _OOF_HOLDOUT_CACHE[key]
+    with _OOF_HOLDOUT_CACHE_LOCK:
+        if key not in _OOF_HOLDOUT_CACHE:
+            return None
+        _OOF_HOLDOUT_CACHE.move_to_end(key)
+        return _OOF_HOLDOUT_CACHE[key]
 
 
 def _oof_cache_put(key: tuple, value: tuple) -> None:
     """Store ``value`` under ``key`` in the LRU OOF cache, evicting the oldest entry once over capacity."""
-    if key in _OOF_HOLDOUT_CACHE:
-        _OOF_HOLDOUT_CACHE.move_to_end(key)
+    with _OOF_HOLDOUT_CACHE_LOCK:
+        if key in _OOF_HOLDOUT_CACHE:
+            _OOF_HOLDOUT_CACHE.move_to_end(key)
+            _OOF_HOLDOUT_CACHE[key] = value
+            return
+        if len(_OOF_HOLDOUT_CACHE) >= _OOF_HOLDOUT_CACHE_CAP:
+            _OOF_HOLDOUT_CACHE.popitem(last=False)
         _OOF_HOLDOUT_CACHE[key] = value
-        return
-    if len(_OOF_HOLDOUT_CACHE) >= _OOF_HOLDOUT_CACHE_CAP:
-        _OOF_HOLDOUT_CACHE.popitem(last=False)
-    _OOF_HOLDOUT_CACHE[key] = value
 
 
 def _compute_oof_with_external_holdout(

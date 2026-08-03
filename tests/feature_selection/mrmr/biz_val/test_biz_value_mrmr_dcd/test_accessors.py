@@ -303,7 +303,6 @@ class TestNoRegressionLayer27Adversarial:
             fe_hybrid_orth_degrees=(2,),
             fe_hybrid_orth_pair_max_degree=2,
             interactions_max_order=1,
-            fe_max_steps=0,
         ).fit(X, y)
         sup = list(m.get_feature_names_out())
         # No noise-noise cross of the form noise_i__N__M__noise_j or
@@ -351,7 +350,6 @@ class TestNoRegressionLayer35KitchenSink:
             verbose=0,
             random_seed=0,
             interactions_max_order=1,
-            fe_max_steps=0,
             dcd_enable=True,
             fe_hybrid_orth_enable=True,
             fe_hybrid_orth_degrees=(2,),
