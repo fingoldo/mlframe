@@ -425,7 +425,8 @@ def _heldout_incremental_mi_prep(x: np.ndarray, y: np.ndarray, *, nbins: int = 1
                 Yp_d = cp.asarray(Yp)
                 xc_d = cp.asarray(np.ascontiguousarray(xc.astype(np.int64)))
                 bm = np.asarray(binned_mi_from_codes_gpu(Yp_d, xc_d, kx_per_col=[n_cls] * n_perm, ky=int(base_nb)), dtype=np.float64)
-            except Exception:
+            except Exception as e:
+                logger.debug("binned_mi_from_codes_gpu (base) failed, falling back to the CPU path: %s", e)
                 bm = None
         if bm is None:
             bm = np.empty(n_perm, dtype=np.float64)
@@ -488,7 +489,8 @@ def _heldout_incremental_mi_from_prep(prep: Optional[dict], leg: np.ndarray) -> 
                 joint_d = cp.asarray(np.ascontiguousarray(joint.astype(np.int64)))
                 jm = np.asarray(binned_mi_from_codes_gpu(Yp_d, joint_d, kx_per_col=[n_cls] * n_perm, ky=int(joint_nb)), dtype=np.float64)
                 null = jm - bm
-            except Exception:
+            except Exception as e:
+                logger.debug("binned_mi_from_codes_gpu (joint) failed, falling back to the CPU path: %s", e)
                 null = None
         if null is None:
             null = np.empty(n_perm, dtype=np.float64)
@@ -685,8 +687,8 @@ def _select_wavelet_legs(
                 return _legs
             _z = np.clip((np.asarray(x, dtype=np.float64).ravel() - lo) / span, 0.0, 1.0)
             return [(j, k, _dyadic_haar_leg(_z, j, k)) for j, k in _legs]
-        except Exception:  # nosec B110 - optional dependency import guard
-            pass
+        except Exception as e:  # nosec B110 - optional dependency import guard
+            logger.debug("GPU-resident leg-selection path failed, falling back to the host path: %s", e)
     x = np.asarray(x, dtype=np.float64).ravel()
     y = np.asarray(y).ravel()
     n = x.size
@@ -992,7 +994,8 @@ def hybrid_wavelet_fe_with_recipes(
                 labels=False, duplicates="drop",
             ).to_numpy()
             y_codes = np.where(np.isfinite(y_codes), y_codes, 0).astype(np.int64)
-        except Exception:
+        except Exception as e:
+            logger.debug("y quantile-binning failed, falling back to all-zero codes: %s", e)
             y_codes = np.zeros(y_arr.size, dtype=np.int64)
     else:
         y_codes = y_arr.astype(np.int64)

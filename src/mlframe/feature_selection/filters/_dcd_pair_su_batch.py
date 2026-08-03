@@ -51,9 +51,12 @@ Contract:
 """
 from __future__ import annotations
 
+import logging
 from typing import Iterable, Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:
     from numba import njit, prange
@@ -96,7 +99,7 @@ try:
         return out
 
     _HAVE_NUMBA = True
-except Exception:  # pragma: no cover - numba always present in prod
+except ImportError:  # pragma: no cover - numba always present in prod
     _HAVE_NUMBA = False
 
 
@@ -205,7 +208,8 @@ def pair_su_batch(
                         fd, pair_buf[:1], None, fn_arr, dtype=dtype,
                     )
                     ec[int(col_idx)] = float(entropy(freqs_c))
-            except Exception:  # nosec B110 - non-trivial body; best-effort/optional path, no module logger
+            except Exception as e:  # nosec B110 - non-trivial body; best-effort/optional path, no module logger
+                logger.debug("column-entropy cache warmup failed for column %r: %s", col_idx, e)
                 # Defensive: if the warmup hits an unexpected shape
                 # (caller-supplied fd with wrong dtype, etc), drop the
                 # warmup and let pair_su handle each pair fresh. The
@@ -257,7 +261,8 @@ def pair_su_batch(
                 h_ab_vals = _batch_joint_entropy_pairs(fd, a_arr, b_arr, fn_arr)
                 _joint_cache = {(int(a_arr[i]), int(b_arr[i])): float(h_ab_vals[i]) for i in range(a_arr.shape[0])}
                 state._joint_entropy_batch_cache = _joint_cache
-            except Exception:  # pragma: no cover - defensive: fall back to serial joints
+            except Exception as e:  # pragma: no cover - defensive: fall back to serial joints
+                logger.debug("batched joint-entropy computation failed, falling back to serial joints: %s", e)
                 _joint_cache = None
                 state._joint_entropy_batch_cache = None
 

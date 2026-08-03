@@ -604,7 +604,8 @@ def binned_numeric_agg_with_recipes(
         try:
             from ._gpu_strict_fe import fe_gpu_device_born_binagg_enabled
             _device_binagg = bool(fe_gpu_device_born_binagg_enabled())
-        except Exception:
+        except Exception as e:
+            logger.debug("fe_gpu_device_born_binagg_enabled() check failed, defaulting to False: %s", e)
             _device_binagg = False
 
     feat_df = None
@@ -628,7 +629,8 @@ def binned_numeric_agg_with_recipes(
                 n_folds=n_folds, random_state=random_state, reject_sink=reject_sink,
                 cand_cols=cand_names, n_rows=len(X),
             )
-        except Exception:
+        except Exception as e:
+            logger.debug("device candidate-survivor pass failed, falling back to the host path: %s", e)
             survivor_list = None
         if survivor_list is None:
             _device_binagg = False  # device gate unavailable -> host all-columns path below
@@ -740,7 +742,8 @@ def binned_numeric_agg_with_recipes(
                             _Yp[:, _i] = y_cls[_rng.permutation(y_cls.shape[0])]
                         _null = np.asarray(batched_cmi_gpu(_Yp, cand_bin, z_joint), dtype=np.float64)
                         _null = np.where(np.isfinite(_null), _null, 0.0)
-                except Exception:
+                except Exception as e:
+                    logger.debug("GPU permutation-null batch computation failed, falling back to the host path: %s", e)
                     _null = None
                 if _null is None:
                     _null = np.empty(_n_perm, dtype=np.float64)

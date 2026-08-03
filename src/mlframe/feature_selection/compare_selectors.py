@@ -23,6 +23,7 @@ a recorded note rather than aborting the whole report.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional, Sequence
 
@@ -30,6 +31,8 @@ import numpy as np
 import pandas as pd
 
 from mlframe.core.set_similarity import jaccard as _jaccard_similarity
+
+logger = logging.getLogger(__name__)
 
 
 def _selector_name(selector: Any, idx: int) -> str:
@@ -68,8 +71,8 @@ def _extract_selected(selector: Any, feature_names: Sequence[str]) -> list[str]:
             out = list(np.asarray(gfno(), dtype=object))
             if out:
                 return [str(c) for c in out]
-        except Exception:  # nosec B110 - best-effort path
-            pass
+        except Exception as e:  # nosec B110 - best-effort path
+            logger.debug("get_feature_names_out() failed: %s", e)
 
     # 2) explicit name list
     sel = getattr(selector, "selected_features_", None)
@@ -227,6 +230,7 @@ def compare_selectors(
                 # Broad by design: this is a best-effort cross-selector comparison harness, so any selector that cannot fit (missing optional dep, GPU-only path on a
                 # CPU host, an input it rejects) must not abort the whole comparison. The failure is RECORDED in ``skipped`` with its type+message and surfaced to the
                 # caller - it is visible, not swallowed - so the broad catch is the correct policy for an exploratory comparison rather than a masked error.
+                logger.debug("selector %r fit failed: %s", name, exc)
                 skipped[name] = f"fit failed: {type(exc).__name__}: {exc}"
                 continue
         elif not already:
@@ -236,6 +240,7 @@ def compare_selectors(
         try:
             sel = _extract_selected(selector, feature_names)
         except Exception as exc:
+            logger.debug("selector %r has no readable support: %s", name, exc)
             skipped[name] = f"no readable support: {exc}"
             continue
 

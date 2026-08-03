@@ -74,7 +74,8 @@ def _build_feature_selection_report(
     if selector is not None:
         try:
             _all_in = getattr(selector, "feature_names_in_", None)
-        except Exception:
+        except Exception as e:
+            logger.debug("reading selector.feature_names_in_ failed: %s", e)
             _all_in = None
     if _all_in is None:
         _all_in = fitted_columns_in
@@ -82,7 +83,8 @@ def _build_feature_selection_report(
         try:
             _kept_set = set(kept_columns)
             _report["dropped_features"] = [c for c in _all_in if c not in _kept_set]
-        except Exception:
+        except Exception as e:
+            logger.debug("computing dropped_features failed: %s", e)
             _report["dropped_features"] = None
 
     if _kind == "MRMR":
@@ -129,7 +131,8 @@ def _build_feature_selection_report(
                 _scores = {_f: float(np.mean(_vals)) for _f, _vals in _acc.items() if _vals}
                 if _scores:
                     _report["scores"] = _scores
-        except Exception:
+        except Exception as e:
+            logger.debug("computing per-feature accumulated scores failed: %s", e)
             _report["scores"] = None
         # Ranking-based reason
         try:
@@ -154,7 +157,8 @@ def _build_feature_selection_report(
                 _means = _history.mean(axis=0)
                 if hasattr(_means, "to_dict"):
                     _report["scores"] = {str(k): float(v) for k, v in _means.to_dict().items()}
-        except Exception:
+        except Exception as e:
+            logger.debug("computing mean-history scores failed: %s", e)
             _report["scores"] = None
         try:
             _accepted = set(getattr(selector, "accepted", None) or [])

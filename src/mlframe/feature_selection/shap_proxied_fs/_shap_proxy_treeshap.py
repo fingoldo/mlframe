@@ -559,8 +559,8 @@ def is_supported_xgboost(estimator) -> bool:
         n_class = int(cfg["learner"]["learner_model_param"].get("num_class", "0"))
         if n_class > 2:
             return False
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("xgboost num_class config lookup failed: %s", e)
     return True
 
 
@@ -594,10 +594,12 @@ def _lightgbm_booster_and_nfeatures(estimator):
     booster = estimator if type(estimator).__name__ == "Booster" else estimator.booster_
     try:
         n_features = int(estimator.n_features_in_)
-    except Exception:
+    except Exception as e:
+        logger.debug("estimator.n_features_in_ unavailable, falling back to booster.num_feature(): %s", e)
         try:
             n_features = int(booster.num_feature())
-        except Exception:
+        except Exception as e2:
+            logger.debug("booster.num_feature() failed, falling back to dump_model(): %s", e2)
             n_features = int(booster.dump_model().get("max_feature_idx", 0)) + 1
     return booster, n_features
 
@@ -611,7 +613,8 @@ def extract_ensemble(estimator) -> Optional[TreeEnsemble]:
         booster = estimator.get_booster()
         try:
             n_features = int(estimator.n_features_in_)
-        except Exception:
+        except Exception as e:
+            logger.debug("estimator.n_features_in_ unavailable, falling back to booster.feature_names: %s", e)
             n_features = len(booster.feature_names) if booster.feature_names else 0
         return _extract_xgboost_ensemble(booster, n_features)
     if is_supported_lightgbm(estimator):

@@ -85,16 +85,18 @@ logger = logging.getLogger(__name__)
 
 try:
     from numba import cuda as _nb_cuda
-except Exception:
+except ImportError:
     _nb_cuda = None
 
 try:
     from pyutilz.core.pythonlib import is_cuda_available as _pyutilz_is_cuda_available
     _CUDA_AVAIL = _pyutilz_is_cuda_available()
-except Exception:
+except Exception as e:
+    logger.debug("pyutilz.core.pythonlib.is_cuda_available() probe failed, falling back to numba.cuda.is_available(): %s", e)
     try:
         _CUDA_AVAIL = bool(getattr(_nb_cuda, "is_available", lambda: False)()) if _nb_cuda is not None else False
-    except Exception:
+    except Exception as e2:
+        logger.debug("numba.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e2)
         _CUDA_AVAIL = False
 
 # Require numba.cuda to actually compile+launch a kernel (not just device presence) so a cudatoolkit/NVVM
@@ -102,7 +104,8 @@ except Exception:
 try:
     from ._internals import numba_cuda_can_compile as _numba_cuda_can_compile
     _CUDA_AVAIL = _CUDA_AVAIL and _numba_cuda_can_compile()
-except Exception:
+except Exception as e:
+    logger.debug("numba_cuda_can_compile() check failed, assuming CUDA unavailable: %s", e)
     _CUDA_AVAIL = False
 
 # Integer dispatch enum for the 9 forms - matches usability_form_corrs's _single_forms + _pair_forms order

@@ -56,8 +56,8 @@ def _interaction_numba_min_features() -> int:
             entry = cast(Any, ktc).lookup("shap_proxy_treeshap")
             if isinstance(entry, dict) and entry.get("interaction_numba_min_features"):
                 return int(entry["interaction_numba_min_features"])
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("kernel_tuning_cache lookup for interaction_numba_min_features failed: %s", e)
     return _INTERACTION_NUMBA_MIN_FEATURES
 
 
@@ -71,8 +71,8 @@ def _interaction_gpu_min_cells() -> int:
             entry = cast(Any, ktc).lookup("shap_proxy_treeshap")
             if isinstance(entry, dict) and entry.get("interaction_gpu_min_cells"):
                 return int(entry["interaction_gpu_min_cells"])
-    except Exception:  # nosec B110 - best-effort path
-        pass
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("kernel_tuning_cache lookup for interaction_gpu_min_cells failed: %s", e)
     return _INTERACTION_GPU_MIN_CELLS
 
 
@@ -167,16 +167,16 @@ def compute_interaction_tensor(model_template, X, y, *, classification, rng=None
 
                 if gpu_interactions_available() and X.shape[0] * P * P >= _interaction_gpu_min_cells():
                     use_gpu = True
-            except Exception:  # nosec B110 - optional dependency import guard
-                pass
+            except Exception as e:  # nosec B110 - optional dependency import guard
+                logger.debug("gpu_interactions_available() check failed, defaulting to non-GPU: %s", e)
 
     if use_gpu:
         try:
             out = _interaction_tensor_gpu(est, X, classification=classification)
             if out is not None:
                 return out
-        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
-            pass  # device/cupy/cap hiccup -> numba then shap (never lose the result)
+        except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+            logger.debug("GPU interaction tensor path failed, falling back to numba: %s", e)  # device/cupy/cap hiccup -> numba then shap (never lose the result)
         out = _interaction_tensor_numba(est, X, classification=classification)
         if out is not None:
             return out

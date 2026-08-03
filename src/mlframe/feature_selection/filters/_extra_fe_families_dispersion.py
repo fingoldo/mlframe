@@ -469,7 +469,8 @@ def _dual_uplift_filter(
             enc_b, sib_recipes = generate_conditional_residual_features(
                 X[uniq_num], uniq_num, n_bins=n_bins,
             )
-        except Exception:
+        except Exception as e:
+            logger.debug("generate_conditional_residual_features failed: %s", e)
             enc_b = pd.DataFrame(index=X.index)
             sib_recipes = {}
         from ._extra_fe_families import engineered_name_conditional_residual
@@ -520,7 +521,8 @@ def _dual_uplift_filter(
                         _dev = dual_uplift_sibling_mi_resident(X, y_bin, sib_specs, nbins=n_bins)
                         if _dev is not None:
                             smi = np.asarray(_dev, dtype=np.float64)
-            except Exception:
+            except Exception as e:
+                logger.debug("dual_uplift_sibling_mi_resident failed, falling back to the host path: %s", e)
                 smi = None
             if smi is None:
                 sib_abs = np.abs(enc_b[list(sib_names.values())].to_numpy(dtype=np.float64))
@@ -610,7 +612,8 @@ def hybrid_conditional_dispersion_fe(
                     enc_df, y, raw_X=X, recipes=raw_recipes,
                     top_k=_gate_top_k, reject_sink=reject_sink,
                 )
-        except Exception:
+        except Exception as e:
+            logger.debug("gated winners computation failed: %s", e)
             winners_gated = None
         if winners_gated is None:
             winners = local_mi_gate(

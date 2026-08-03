@@ -114,7 +114,8 @@ def _host_key() -> str:
     try:
         from pyutilz.performance.kernel_tuning.cache import hw_fingerprint
         return str(hw_fingerprint())
-    except Exception:
+    except Exception as e:
+        logger.debug("hw_fingerprint() failed, falling back to platform.node(): %s", e)
         import platform
         return f"node_{platform.node() or 'unknown'}"
 
@@ -189,7 +190,8 @@ def _as_2d_numeric(obj: Any):
     if hasattr(obj, "to_numpy") and hasattr(obj, "shape"):
         try:
             raw = obj.to_numpy()
-        except Exception:
+        except Exception as e:
+            logger.debug("to_numpy() conversion failed: %s", e)
             raw = None
         if raw is not None:
             arr = raw
@@ -255,7 +257,8 @@ def default_fingerprint(args: Sequence[Any], kwargs: Mapping[str, Any]) -> dict:
         # Object/categorical: only cheap structural stats.
         try:
             card = float(np.mean([len(np.unique(arr2d[:, j].astype(str))) for j in range(arr2d.shape[1])]))
-        except Exception:
+        except Exception as e:
+            logger.debug("categorical cardinality computation failed: %s", e)
             card = 0.0
         return {
             "n": n, "p": p, "dtype_kind": "O", "sparsity": 0.0,
@@ -322,7 +325,8 @@ def default_fingerprint(args: Sequence[Any], kwargs: Mapping[str, Any]) -> dict:
                     vals = vals[np.isfinite(vals)]
                     if vals.size:
                         mean_abs_corr = float(np.mean(np.abs(vals)))
-            except Exception:
+            except Exception as e:
+                logger.debug("mean absolute correlation computation failed: %s", e)
                 mean_abs_corr = 0.0
 
     return {

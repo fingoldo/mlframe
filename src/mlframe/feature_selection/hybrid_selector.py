@@ -19,6 +19,7 @@ each kept cluster contributes its highest-permutation-FI member (parsimony), or 
 Adapter protocol matches fs_selectors.py: ``fit(X, y)`` / ``transform(X)`` / ``raw_selected_`` / ``n_engineered_``.
 """
 from __future__ import annotations
+import logging
 import os
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings
@@ -29,6 +30,8 @@ import numpy as np
 import pandas as pd
 
 from mlframe.utils.misc import rng_hygienic_fit
+
+logger = logging.getLogger(__name__)
 
 
 def _as_pandas_view(X):
@@ -313,7 +316,8 @@ class HybridSelector:
             selected = [c for c in m.get_feature_names_out() if c in X.columns]
             try:
                 artifacts = m.export_artifacts()
-            except Exception:
+            except Exception as e:
+                logger.debug("export_artifacts() failed for member %r: %s", m, e)
                 artifacts = None
             # Capture the engineered columns (MRMR outputs not in X) so they can be SHARED to the other members via
             # the augmented frame; map their non-ASCII recipe names to LightGBM-safe eng_N names (stable order).
@@ -325,7 +329,8 @@ class HybridSelector:
                         if c not in X.columns:
                             self._eng_names.append(c); self._eng_rename[c] = f"eng_{k}"; k += 1
                     self._mrmr_member = m
-                except Exception:
+                except Exception as e:
+                    logger.debug("capturing engineered-column names for member %r failed: %s", m, e)
                     self._mrmr_member, self._eng_names, self._eng_rename = None, [], {}
             return selected, artifacts
         except Exception as e:
@@ -465,7 +470,8 @@ class HybridSelector:
                 names = list(artifacts.get("feature_names", []))
                 if relevant and all(c in names for c in relevant):
                     precomputed = restrict_artifacts(artifacts, [names.index(c) for c in relevant])
-            except Exception:
+            except Exception as e:
+                logger.debug("restrict_artifacts() failed: %s", e)
                 precomputed = None
         p = len(relevant)
         s = ShapProxiedFS(classification=True, n_splits=3, top_n=20, min_features=min(8, p),
@@ -552,7 +558,8 @@ class HybridSelector:
         if self.classification is None:
             try:
                 _ttype = type_of_target(y_arr.ravel())
-            except Exception:
+            except Exception as e:
+                logger.debug("type_of_target() failed: %s", e)
                 _ttype = "unknown"
             if _ttype not in ("binary", "multiclass", "unknown"):
                 raise ValueError(

@@ -95,7 +95,8 @@ def _emit_yscale_composite_chart(
     """
     try:
         from ..evaluation import report_regression_model_perf
-    except Exception:
+    except ImportError as e:
+        logger.debug("report_regression_model_perf import failed: %s", e)
         return
     if y_target.size == 0 or y_pred.size == 0:
         return
@@ -194,7 +195,8 @@ def emit_per_model_composite_y_scale_test(
             if train_idx is not None:
                 try:
                     _y_train_arr = _y_full_arr[train_idx]
-                except Exception:
+                except Exception as e:
+                    logger.debug("indexing y_full by train_idx failed, using the full array: %s", e)
                     _y_train_arr = _y_full_arr
             else:
                 _y_train_arr = _y_full_arr
@@ -211,10 +213,10 @@ def emit_per_model_composite_y_scale_test(
             if hasattr(entry, "model"):
                 try:
                     entry.model = _wrapper
-                except Exception:  # nosec B110 - non-trivial body
+                except Exception as e:  # nosec B110 - non-trivial body
                     # Read-only attribute -- skip the in-place mutation; the
                     # end-of-target pass will rebuild the wrapper.
-                    pass
+                    logger.debug("entry.model assignment failed (likely read-only): %s", e)
         _y_arr = np.asarray(y_full)
         _y_test = _y_arr[test_idx]
         _y_pred = np.asarray(
@@ -371,8 +373,9 @@ def _run_composite_target_wrapping(
                 if hasattr(_entry, "model"):
                     try:
                         _entry.model = _wrapper
-                    except Exception:
+                    except Exception as e:
                         # Read-only attribute: replace the entry itself.
+                        logger.debug("_entry.model assignment failed (likely read-only), replacing the entry instead: %s", e)
                         _entries[_i] = _wrapper
                         _n_wrapped += 1
                     else:

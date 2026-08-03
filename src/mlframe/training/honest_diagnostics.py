@@ -192,6 +192,7 @@ def _bootstrap_block(
             from mlframe.calibration.policy import _ece_score
             metric_fns["ece"] = lambda yy, pp: _ece_score(yy, pp)
         except Exception as exc:
+            logger.debug("ece metric setup failed, skipping: %s", exc)
             out["ece"] = {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
         # Bootstrap roc_auc / brier / log_loss / ece TOGETHER: they share the
         # same y_true / p_pos / seed / stratify, so one resample loop serves all
@@ -242,6 +243,7 @@ def _bootstrap_block(
                         jackknife_fns=_jackknife_fns,
                     )
                 except Exception as exc:
+                    logger.debug("bootstrap CI computation failed for this metric bundle: %s", exc)
                     cis = {name: {"error": f"{type(exc).__name__}: {exc}"} for name in metric_fns}
             for name, ci in cis.items():
                 if "error" in ci:
@@ -269,6 +271,7 @@ def _bootstrap_block(
             )
             out["rmse"] = {"point": ci["point"], "ci_lo": ci["lo"], "ci_hi": ci["hi"]}
         except Exception as exc:
+            logger.debug("rmse metric computation failed, skipping: %s", exc)
             out["rmse"] = {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
     return out
 
@@ -467,6 +470,7 @@ def run_honest_diagnostics(
                 y_test, p_test, getattr(entry, "test_preds", None), rng_seed=_derive_seed(master_seed, key),
             )
         except Exception as exc:
+            logger.debug("bootstrap CI block failed for key %r, skipping: %s", key, exc)
             payload["bootstrap_ci"][key] = {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
 
     # Block 2: categorical PSI drift across train/val/test.

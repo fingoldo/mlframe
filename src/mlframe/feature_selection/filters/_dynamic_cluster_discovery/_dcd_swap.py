@@ -70,7 +70,8 @@ def _select_swap_method_auto(
     if state.target_indices is not None and state.target_indices.size > 0 and state.factors_data is not None:
         try:
             y_arr = np.asarray(state.factors_data[:, int(state.target_indices[0])], dtype=np.int64)
-        except Exception:
+        except Exception as e:
+            logger.debug("reading target column from factors_data failed: %s", e)
             y_arr = None
     if y_arr is None and target_y is not None:
         y_arr = np.asarray(target_y, dtype=np.int64).ravel()
@@ -391,7 +392,8 @@ def evaluate_swap_candidate(
             if m_rel > best_member_rel:
                 best_member_rel = m_rel
                 best_member_idx = int(m_idx)
-    except Exception:
+    except Exception as e:
+        logger.debug("member-relevance computation failed: %s", e)
         member_relevances = {}
         best_member_idx = -1
         best_member_rel = float("-inf")
@@ -414,7 +416,8 @@ def evaluate_swap_candidate(
                         np.array([int(m_idx)], dtype=np.int64),
                         target_arr, state.factors_nbins,
                     ))
-            except Exception:
+            except Exception as e:
+                logger.debug("relevance computation failed for member %r, recording 0.0: %s", m_idx, e)
                 m_rel = 0.0
             member_relevances[int(m_idx)] = m_rel
             if m_rel > best_member_rel:

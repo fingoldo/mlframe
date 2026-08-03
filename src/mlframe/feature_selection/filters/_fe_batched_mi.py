@@ -54,7 +54,7 @@ def _assert_codes_in_range(arr, K: int, name: str, codes_trusted: bool = False) 
         import cupy as cp
         is_dev = isinstance(arr, cp.ndarray)
         xp = cp if is_dev else np
-    except Exception:
+    except ImportError:
         cp = None
         is_dev = False
         xp = np
@@ -538,7 +538,8 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
     try:
         from .._benchmarks.kernel_tuning_cache.dispatch import lookup_fe_mi_split_backend
         _use_split = lookup_fe_mi_split_backend(n, K) == "split"
-    except Exception:
+    except Exception as e:
+        logger.debug("kernel_tuning_cache lookup for fe_mi split backend failed, using the size-based fallback: %s", e)
         _use_split = K < 48 and n >= 262144
     if _use_split:
         try:
@@ -780,7 +781,8 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
             # pass (ncu/nsys-driven, 2026-07-15) instead of two standalone Xd.min(axis=0)/Xd.max(axis=0)
             # reduction kernels - returns the full (nbins+1, K) edge matrix directly, no concatenate.
             edges_all = _radix_select_interior_edges(cp.ascontiguousarray(Xd), int(nbins), with_extremes=True)
-    except Exception:
+    except Exception as e:
+        logger.debug("_radix_select_interior_edges failed, falling back to the host edge computation: %s", e)
         edges_all = None
     if edges_all is None:
         qs = cp.linspace(0.0, 100.0, nbins + 1)

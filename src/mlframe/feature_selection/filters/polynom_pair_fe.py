@@ -175,7 +175,8 @@ def run_polynom_pair_fe(
             if _dtypes is not None:  # pandas
                 import pandas as _pd
                 _numeric_pos = {i for i, _dt in enumerate(_dtypes) if _pd.api.types.is_numeric_dtype(_dt)}
-    except Exception:
+    except Exception as e:
+        logger.debug("numeric-dtype position detection failed: %s", e)
         _numeric_pos = None
     if _numeric_pos is not None:
         _pair_keys = [p for p in _pair_keys if int(p[0]) in _numeric_pos and int(p[1]) in _numeric_pos]
@@ -270,7 +271,8 @@ def run_polynom_pair_fe(
                 _psi = np.asarray(shared_subsample_idx)
                 if _psi.ndim == 1 and 0 < _psi.shape[0] < len(vals_a_full) and int(_psi.max()) < len(vals_a_full):
                     _poly_shared_idx = _psi.astype(np.int64, copy=False)
-            except Exception:
+            except Exception as e:
+                logger.debug("shared_subsample_idx validation failed, falling back to no shared subsample: %s", e)
                 _poly_shared_idx = None
         if _poly_shared_idx is not None:
             # Reuse the fit's ONE shared draw (same rows as the pair-search / sufficiency floor).
@@ -348,7 +350,8 @@ def run_polynom_pair_fe(
                         _yv = np.asarray(classes_y_sub, dtype=np.float64).reshape(-1)
                         if _tf.size == _yv.size and float(np.std(_tf)) > 1e-12 and float(np.std(_yv)) > 1e-12:
                             _trivial_corr = abs(float(np.corrcoef(_tf, _yv)[0, 1]))
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("trivial-correlation pre-check failed, falling back to MI-only skip: %s", e)
                         _trivial_corr = 1.0  # corr unavailable -> fall back to MI-only skip
                 if poly_cheap_skip_min_corr <= 0.0 or _trivial_corr >= poly_cheap_skip_min_corr:
                     return (raw_vars_pair, _POLY_CHEAP_SKIP, vals_a_full, vals_b_full)
@@ -606,6 +609,8 @@ def run_polynom_pair_fe(
                     raw_vars_pair,
                     _inj_err,
                 )
+            else:
+                logger.debug("Polynomial-pair FE injection failed for pair=%s: %s.", raw_vars_pair, _inj_err)
     if _new_data_cols:
         # ONE reallocation for all survivors instead of one per survivor (see the loop-entry comment).
         data = np.concatenate([data, *_new_data_cols], axis=1)

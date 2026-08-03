@@ -41,7 +41,7 @@ def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed:
         cp.random.seed(seed)
     except (ImportError, ModuleNotFoundError):
         pass
-    except Exception:  # nosec B110 - non-trivial body; best-effort/optional path, no module logger
+    except Exception as e:  # nosec B110 - non-trivial body; best-effort/optional path, no module logger
         # cupy installed but CUDA backend unusable on this host -- e.g.
         # ``CURAND_STATUS_INITIALIZATION_FAILED`` when libcurand can't be
         # opened (missing CUDA libs, GPU contention, container without
@@ -49,7 +49,7 @@ def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed:
         # The CPU half of the seed pair (random / numpy / numba above)
         # is already set; silently degrade rather than poison every
         # downstream estimator that just wants reproducible CPU paths.
-        pass
+        logger.debug("cupy.random.seed() failed, CUDA RNG left unseeded: %s", e)
     try:
         set_numba_random_seed(seed)
     except (TypeError, ValueError, RuntimeError):
@@ -124,10 +124,10 @@ def _restore_caller_frame_columns(X, original_cols):
         # semantics pandas' inplace=True gives).
         try:
             X._df = X.drop(added)._df
-        except Exception:  # nosec B110 - best-effort path; a future polars version could drop the private _df handle
-            pass
-    except Exception:  # nosec B110 - best-effort path
-        pass
+        except Exception as e:  # nosec B110 - best-effort path; a future polars version could drop the private _df handle
+            logger.debug("X._df private-handle drop failed: %s", e)
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("in-place column drop via ._df failed: %s", e)
 
 
 def hygienic_fit(fit_method):
@@ -150,7 +150,8 @@ def hygienic_fit(fit_method):
                 import polars as _pl
                 if isinstance(X, _pl.DataFrame):
                     original_cols = list(X.columns)
-        except Exception:
+        except Exception as e:
+            logger.debug("capturing original polars column order failed: %s", e)
             original_cols = None
         with preserve_global_rng():
             try:

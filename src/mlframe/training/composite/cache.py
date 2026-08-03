@@ -50,7 +50,7 @@ import pandas as pd
 try:
     import numba as _numba
     _HAS_NUMBA = True
-except Exception:  # pragma: no cover - numba is a core dep but allow graceful skip
+except ImportError:  # pragma: no cover - numba is a core dep but allow graceful skip
     _numba = None
     _HAS_NUMBA = False
 
@@ -92,7 +92,7 @@ if _HAS_NUMBA:
 try:
     import polars as pl
     _HAS_POLARS = True
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     pl = None  # type: ignore
     _HAS_POLARS = False
 
@@ -482,7 +482,8 @@ def compute_config_signature_v1(
     # never collides with a config field or the ``versions`` override map below.
     try:
         from mlframe import __version__ as _mlframe_version
-    except Exception:
+    except ImportError as e:
+        logger.debug("mlframe.__version__ import failed: %s", e)
         _mlframe_version = "?"
     payload["_schema"] = {
         "discovery_cache_schema_version": _DISCOVERY_CACHE_SCHEMA_VERSION,
@@ -496,6 +497,7 @@ def compute_config_signature_v1(
         else:
             payload["config"] = {str(k): str(v) for k, v in sorted(getattr(config, "__dict__", {}).items())} or repr(config)
     except Exception as _e:
+        logger.debug("config serialization failed, falling back to repr(): %s", _e)
         payload["config_repr"] = repr(config)
         payload["config_dump_error"] = str(_e)
     if library_versions is not None:

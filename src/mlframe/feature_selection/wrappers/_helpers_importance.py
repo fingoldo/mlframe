@@ -162,7 +162,8 @@ def _make_fast_default_scorer(model: object) -> Callable:
             return safe_val
         try:
             fast_val = _fast_value(_est, _Xc, _y)
-        except Exception:
+        except Exception as e:
+            logger.debug("_fast_value computation failed: %s", e)
             fast_val = None
         # Bit-identity gate: latch fast ONLY on an exact match (handles NaN equally on both sides).
         if fast_val is not None and (fast_val == safe_val or (fast_val != fast_val and safe_val != safe_val)):
@@ -338,7 +339,8 @@ def _conditional_permutation_importance(
                 # the failure to the consumer.
                 try:
                     score_losses.append(baseline - float(model.score(X_for_score, y)))
-                except Exception:
+                except Exception as e:
+                    logger.debug("permutation-importance score() failed, recording NaN: %s", e)
                     score_losses.append(np.nan)
         finally:
             X_perm[:, j] = orig_col
@@ -391,7 +393,8 @@ def get_feature_importances(
         try:
             _shape = getattr(data, "shape", None)
             _cells = int(_shape[0]) * (int(_shape[1]) if len(_shape) > 1 else 1) if _shape else 0
-        except Exception:
+        except Exception as e:
+            logger.debug("cell-count computation failed: %s", e)
             _cells = 0
         if 0 < _cells <= _PERM_AUTO_CELL_CAP:
             importance_getter = "permutation"  # accuracy winner; below the cost cap
@@ -490,7 +493,8 @@ def get_feature_importances(
                 try:
                     _m.fit(_X_drop, target)
                     _scores[_j] = _baseline - float(_m.score(_X_drop, target))
-                except Exception:
+                except Exception as e:
+                    logger.debug("drop-column importance fit/score failed for column %d, recording 0.0: %s", _j, e)
                     _scores[_j] = 0.0
             res = _scores
         elif importance_getter == "boruta":
