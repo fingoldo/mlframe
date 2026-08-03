@@ -14,7 +14,6 @@ Run:
 """
 from __future__ import annotations
 
-import time
 import numpy as np
 from numba import njit
 
@@ -82,15 +81,7 @@ def _legval_new(x, c):
 # -------- FUSED-PROLOGUE form: keep per-degree array loops (SIMD-friendly) but fuse the
 # out[i]=c[0] / out[i]+=c[1]*p_curr / x.copy() prologue passes into one (now prod's default kernel). --------
 from mlframe.feature_selection.filters.hermite_fe._hermite_basis_eval import _legval_njit as _legval_fused
-
-
-def _best_of(fn, x, c, reps=200):
-    best = 1e9
-    for _ in range(reps):
-        t = time.perf_counter()
-        fn(x, c)
-        best = min(best, time.perf_counter() - t)
-    return best
+from mlframe.feature_selection.filters.hermite_fe._benchmarks._bench_shared import best_of as _best_of
 
 
 def main():

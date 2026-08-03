@@ -25,11 +25,11 @@ the rejected register single-pass form. Do not re-try buffer reuse for the singl
 """
 from __future__ import annotations
 
-import time
 import numpy as np
 from numba import njit
 
 from mlframe.feature_selection.filters.hermite_fe import _legval_njit as _legval_shipped
+from mlframe.feature_selection.filters.hermite_fe._benchmarks._bench_shared import best_of as _best_of
 
 
 # -------- NEW ping-pong scratch form: two pre-allocated buffers, no per-degree alloc --------
@@ -69,15 +69,6 @@ def _legval_pingpong(x, c):
         p_prev = p_curr
         p_curr = p_next
     return out
-
-
-def _best_of(fn, x, c, reps):
-    best = 1e9
-    for _ in range(reps):
-        t = time.perf_counter()
-        fn(x, c)
-        best = min(best, time.perf_counter() - t)
-    return best
 
 
 def main():
