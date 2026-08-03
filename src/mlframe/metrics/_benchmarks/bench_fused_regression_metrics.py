@@ -42,6 +42,12 @@ import time
 import numba
 import numpy as np
 
+from mlframe.metrics.regression._regression_metrics import (
+    _fused_regression_pass1_seq as _fused_pass1_seq,
+    _fused_regression_pass2_par as _fused_pass2_par,
+    _fused_regression_pass2_seq as _fused_pass2_seq,
+)
+
 
 @numba.njit(cache=True, fastmath=False, boundscheck=False, parallel=True)
 def _fused_pass1_par(y_true: np.ndarray, y_pred: np.ndarray):
@@ -94,45 +100,6 @@ def _fused_pass1_par(y_true: np.ndarray, y_pred: np.ndarray):
             max_abs = local_max_abs[tid]
         sum_y += local_sum_y[tid]
     return sum_abs, sum_sqr, max_abs, sum_y
-
-
-@numba.njit(cache=True, fastmath=False, boundscheck=False)
-def _fused_pass1_seq(y_true: np.ndarray, y_pred: np.ndarray):
-    n = y_true.shape[0]
-    sum_abs = 0.0
-    sum_sqr = 0.0
-    max_abs = 0.0
-    sum_y = 0.0
-    for i in range(n):
-        err = y_true[i] - y_pred[i]
-        abs_err = err if err >= 0.0 else -err
-        sum_abs += abs_err
-        sum_sqr += err * err
-        if abs_err > max_abs:
-            max_abs = abs_err
-        sum_y += y_true[i]
-    return sum_abs, sum_sqr, max_abs, sum_y
-
-
-@numba.njit(cache=True, fastmath=False, boundscheck=False, parallel=True)
-def _fused_pass2_par(y_true: np.ndarray, y_mean: float) -> float:
-    """Pass 2: centred sum-of-squares around the pre-computed mean."""
-    n = y_true.shape[0]
-    ss = 0.0
-    for i in numba.prange(n):
-        d = y_true[i] - y_mean
-        ss += d * d
-    return ss
-
-
-@numba.njit(cache=True, fastmath=False, boundscheck=False)
-def _fused_pass2_seq(y_true: np.ndarray, y_mean: float) -> float:
-    n = y_true.shape[0]
-    ss = 0.0
-    for i in range(n):
-        d = y_true[i] - y_mean
-        ss += d * d
-    return ss
 
 
 def fused_regression_metrics(y_true, y_pred, parallel_threshold: int = 200_000):
