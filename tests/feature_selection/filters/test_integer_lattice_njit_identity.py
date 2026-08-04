@@ -66,3 +66,30 @@ def test_kernel_gcd_lcm_correct():
     out = _lattice_gcd_lcm_and_njit(a, b)
     assert out[0, 0] == 6.0 and out[0, 1] == 36.0 and out[0, 2] == float(12 & 18)  # gcd(12,18)=6, lcm=36
     assert out[1, 0] == 5.0 and out[1, 1] == 0.0  # gcd(0,5)=5, lcm(0,5)=0
+
+
+def test_perm_null_hi_batched_matches_per_perm_loop():
+    """_perm_null_hi's batched (n, n_perm) _mi_classif_batch call must be bit-identical to a manual
+    per-permutation loop calling _mi separately (the joint-reindex invariance
+    MI(feat; y[perm]) == MI(feat[inv_perm]; y) this batching relies on)."""
+    from mlframe.feature_selection.filters._integer_lattice_fe import _perm_null_hi
+    from mlframe.feature_selection.filters._pairwise_modular_fe import _mi
+    from mlframe.feature_selection.filters._y_encoding import encode_y_for_classif_mi
+
+    def _reference(feat, y, nbins, n_perm=12, seed=0, z=3.0):
+        """Original unbatched per-permutation loop, kept here as the ground-truth reference."""
+        rng = np.random.default_rng(seed)
+        yi = encode_y_for_classif_mi(y)
+        vals = np.empty(n_perm, dtype=np.float64)
+        for i in range(n_perm):
+            vals[i] = _mi(feat, yi[rng.permutation(yi.size)], nbins=nbins)
+        return float(vals.mean() + z * vals.std())
+
+    rng = np.random.default_rng(3)
+    for trial in range(5):
+        n = int(rng.integers(500, 5000))
+        feat = rng.standard_normal(n)
+        y = rng.integers(0, 4, n).astype(np.float64)
+        ref = _reference(feat, y, nbins=10, seed=trial)
+        got = _perm_null_hi(feat, y, nbins=10, seed=trial)
+        assert ref == got, f"trial={trial}: ref={ref} got={got}"

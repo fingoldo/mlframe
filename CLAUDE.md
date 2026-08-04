@@ -473,6 +473,26 @@ alongside the chunked candidate buffers the module's docstring already accounts 
 of wall-clock) to separate the contention-inflated per-call cost from the genuine cache-sizing question
 before touching `_MAX_ENTRIES` or the eviction policy.
 
+## PERF WIN (2026-08-05): integer-lattice's 12-permutation null band batched into one call — the sibling `_pairwise_modular_fe.py` version already had this fix, `_integer_lattice_fe.py`'s near-identical copy never got it
+2M-row cProfile (combo `c0454`, cb/hgb/lgb, multiclass) surfaced `_perm_null_hi` at real tottime in THREE
+sibling files (`_integer_lattice_fe.py` 3.654s/3 calls, `_pairwise_modular_fe.py` 2.647s/3, `_conditional_gate_fe.py`
+1.272s/3) — each independently implementing "upper band (mean + z\*std) of a fixed feature's MI under
+`n_perm=12` y-permutations." `_pairwise_modular_fe.py`'s version already had a documented batching fix (the
+"SF2 :311 collapse" note: joint-reindex invariance `MI(feat; y[perm]) == MI(feat[inv_perm]; y)` lets all 12
+permuted-feature columns score against the SAME y in one `_mi_classif_batch` call instead of 12 separate
+`_mi()` calls) — but `_integer_lattice_fe.py`'s copy, despite its own docstring saying "Mirrors
+`_pairwise_modular_fe._responded`," still ran the original unbatched per-perm Python loop.
+
+Ported the exact same batching to `_integer_lattice_fe.py._perm_null_hi`: build a `(n, n_perm)` matrix of
+`feat[argsort(perm)]` for each of the 12 RNG-drawn permutations (same draw order, same seed sequence — bit-
+identical reproducibility unchanged) and score all 12 in one `_mi_classif_batch` call. Verified bit-identical
+(0 diff, not just tolerance-close) against the original per-perm loop across 30 synthetic scenarios —
+`bench_lattice_perm_null_hi.py` — and 1.95x at n=200k. Added
+`test_perm_null_hi_batched_matches_per_perm_loop` to `test_integer_lattice_njit_identity.py`. Full
+integer-lattice suite (27 tests, run with `CUDA_VISIBLE_DEVICES=""` after an unrelated native access-violation
+crash mid-suite — matches this session's documented GPU-crash contention pattern, unrelated to this change)
+passes. `_conditional_gate_fe.py`'s copy has NOT yet been checked/ported — worth a follow-up look.
+
 ## PERF WIN (2026-08-02): per_feature_edges' thread-pool threshold was 64x too high for real usage (1.2x-7.2x)
 2M-row cProfile on combo `c0037_c314bb14` (master-seed `2026_04_29`) found `per_feature_edges`/
 `_compute_col_edges` (`_adaptive_nbins.py`) costing 78s wall on a `fayyad_irani` (MDLP) fit with
