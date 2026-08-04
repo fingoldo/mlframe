@@ -188,7 +188,11 @@ def _hurst_rs_single(x: np.ndarray) -> float:
         acc += y[i]
         z[i] = acc
     rng_v = z.max() - z.min()
-    sd = x.std()
+    # ddof=1 (sample std), matching compute_hurst_rs's own explicit ddof=1 convention -- x.std() (ddof=0)
+    # here previously diverged from it by ~2.6% at K=20 despite this function's docstring claiming the
+    # "same definition", a real formula split between the rolling and multi-scale Hurst feature families.
+    var = (y * y).sum() / (n - 1)
+    sd = np.sqrt(var)
     if sd <= _ZERO_EPS or rng_v <= _ZERO_EPS:
         return np.nan
     return float(np.log(rng_v / sd) / np.log(n))

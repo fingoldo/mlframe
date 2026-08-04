@@ -15,6 +15,13 @@ import pandas as pd
 
 from mlframe.feature_engineering.as_of_aggregate import leakage_safe_aggregate
 
+# Loss-of-significance threshold for the upper-minus-lower windowed-sum/count derivation: when a horizon's
+# window is a small fraction of an entity's total history span, `upper` (cumulative-to-cutoff) and `lower`
+# (cumulative-to-window-start) can both be large and nearly equal, so their difference (the actual windowed
+# aggregate) can lose most of its significant digits to catastrophic cancellation. Flag rows where the
+# difference is smaller than this fraction of the larger operand and recompute those cells directly.
+_CANCELLATION_REL_TOL: float = 1e-9
+
 
 def multi_window_aggregate(
     history_df: pd.DataFrame,
@@ -97,7 +104,11 @@ def multi_window_aggregate(
                 colname = f"{col}_{fn}"
                 windowed_name = f"{colname}_last_{horizon}"
                 if fn in ("sum", "count"):
-                    out[windowed_name] = (upper[colname].fillna(0.0) - lower[colname].fillna(0.0)).to_numpy()
+                    upper_vals = upper[colname].fillna(0.0).to_numpy()
+                    lower_vals = lower[colname].fillna(0.0).to_numpy()
+                    out[windowed_name] = _cancellation_safe_diff(
+                        upper_vals, lower_vals, history_df, entity_col, time_col, query, query_entity_col, horizon, col, fn
+                    )
                 elif fn == "mean":
                     upper_sum = upper.get(f"{col}_sum")
                     upper_count = upper.get(f"{col}_count")
@@ -105,8 +116,14 @@ def multi_window_aggregate(
                         raise ValueError(f"multi_window_aggregate: computing windowed 'mean' for {col!r} requires 'sum' and 'count' also in agg_funcs[{col!r}]")
                     lower_sum = lower.get(f"{col}_sum")
                     lower_count = lower.get(f"{col}_count")
-                    win_sum = upper_sum.fillna(0.0) - lower_sum.fillna(0.0)
-                    win_count = upper_count.fillna(0.0) - lower_count.fillna(0.0)
+                    win_sum = _cancellation_safe_diff(
+                        upper_sum.fillna(0.0).to_numpy(), lower_sum.fillna(0.0).to_numpy(),
+                        history_df, entity_col, time_col, query, query_entity_col, horizon, col, "sum",
+                    )
+                    win_count = _cancellation_safe_diff(
+                        upper_count.fillna(0.0).to_numpy(), lower_count.fillna(0.0).to_numpy(),
+                        history_df, entity_col, time_col, query, query_entity_col, horizon, col, "count",
+                    )
                     with np.errstate(invalid="ignore", divide="ignore"):
                         out[windowed_name] = np.where(win_count > 0, win_sum / win_count, np.nan)
                 else:
@@ -182,6 +199,37 @@ def _select_predictive_horizons(
             kept_horizons.append(horizon)
             baseline_score = candidate_score
     return kept_horizons, lifts
+
+
+def _cancellation_safe_diff(
+    upper_vals: np.ndarray,
+    lower_vals: np.ndarray,
+    history_df: pd.DataFrame,
+    entity_col: str,
+    time_col: str,
+    query: pd.DataFrame,
+    query_entity_col: str,
+    horizon: float,
+    col: str,
+    fn: str,
+) -> np.ndarray:
+    """``upper_vals - lower_vals`` (a windowed sum/count derived from two cumulative snapshots), guarded
+    against catastrophic cancellation.
+
+    When an entity's history spans far more than the requested horizon, ``upper`` (cumulative up to the
+    query cutoff) and ``lower`` (cumulative up to the window start) can both be large and nearly equal, so
+    their difference -- the actual windowed aggregate -- can lose most of its significant digits. Rows
+    where the difference is tiny relative to the larger operand are flagged and recomputed directly (exact,
+    searchsorted-scoped) via :func:`_direct_window_agg` instead of trusting the numerically-unreliable
+    subtraction; the fast subtraction path stays in effect for every other row.
+    """
+    win_vals = upper_vals - lower_vals
+    scale = np.maximum(np.abs(upper_vals), np.abs(lower_vals))
+    risky = (scale > 0) & (np.abs(win_vals) < _CANCELLATION_REL_TOL * scale)
+    if risky.any():
+        direct = _direct_window_agg(history_df, entity_col, time_col, query, query_entity_col, horizon, col, fn)
+        win_vals = np.where(risky, np.where(np.isnan(direct), 0.0, direct), win_vals)
+    return np.asarray(win_vals, dtype=np.float64)
 
 
 def _direct_window_agg(

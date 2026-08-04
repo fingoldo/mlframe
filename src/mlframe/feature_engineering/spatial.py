@@ -784,10 +784,27 @@ def knn_gradient_features(
     XtX = np.einsum("ijk,ijl->ikl", X_all, Wx)
     Xty = np.einsum("ijk,ij->ik", X_all, w_all * y_all)[:, :, None]
     eye = np.eye(d + 1, dtype=np.float64) * 1e-12
-    try:
-        beta_all = np.linalg.solve(XtX + eye, Xty)[:, :, 0]
-    except np.linalg.LinAlgError:
-        beta_all = np.full((n_q, d + 1), np.nan, dtype=np.float64)
+    XtX_reg = XtX + eye
+    # np.linalg.solve on a stacked (n_q, d+1, d+1) batch raises LinAlgError for the ENTIRE batch if ANY
+    # single query's design matrix is singular (e.g. duplicate/quantized reference coordinates collapsing
+    # a neighborhood's direction) -- silently NaN-ing every OTHER query's gradient too. Even short of that
+    # (the fixed 1e-12 ridge above already prevents an outright LinAlgError in most degenerate cases), a
+    # rank-deficient neighborhood still solves "successfully" to a spurious near-zero gradient in the
+    # collapsed direction, silently masking that no reliable local gradient exists there. Detect (near-)
+    # singular matrices up front via their batched singular values -- a condition-number check is
+    # scale-invariant (unlike a raw determinant threshold, which is not: det scales with the data's
+    # coordinate/weight magnitude, so a fixed absolute cutoff would misfire on differently-scaled inputs).
+    # Substitute a well-conditioned placeholder (identity) for just the flagged rows so the solve never
+    # raises, then overwrite exactly those rows' betas with NaN afterward -- every other query still gets a
+    # normal, fully-vectorized batched solve.
+    sv = np.linalg.svd(XtX_reg, compute_uv=False)
+    singular = (sv[:, -1] <= 0) | (sv[:, 0] / np.maximum(sv[:, -1], 1e-300) > 1e12)
+    if singular.any():
+        XtX_reg = XtX_reg.copy()
+        XtX_reg[singular] = np.eye(d + 1, dtype=np.float64)
+    beta_all = np.linalg.solve(XtX_reg, Xty)[:, :, 0]
+    if singular.any():
+        beta_all[singular] = np.nan
     pred_all = np.einsum("ijk,ik->ij", X_all, beta_all)
     resid = y_all - pred_all
     if k > 1:

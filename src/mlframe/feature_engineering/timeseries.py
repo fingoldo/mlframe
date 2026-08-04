@@ -568,7 +568,14 @@ def create_windowed_features(
             verbose=verbose,
         )
 
-        if (len(row_targets) < future_nwindows_expected) and len(future_windows_features) == 0:
+        # Whichever container actually accumulates this call's results holds the reliable per-window count:
+        # dict-mode (window_features=None, targets_creation_fcn set) gets one entry per SUCCESSFUL window
+        # size in future_windows_features; list-mode (window_features=row_targets) accumulates into
+        # row_targets instead, leaving future_windows_features permanently empty regardless of success. A
+        # bare `len(future_windows_features) == 0` check in dict-mode only catches a TOTALLY empty future
+        # window set, silently letting a PARTIALLY-satisfied one (some but not all expected windows) through.
+        insufficient_future = len(future_windows_features) < future_nwindows_expected if targets_creation_fcn else len(row_targets) < future_nwindows_expected
+        if insufficient_future:
             continue
 
         past_windows_features = create_and_process_windows(
@@ -585,10 +592,13 @@ def create_windowed_features(
             verbose=verbose,
         )
 
-        # Past-side window-count sanity check, symmetric with the future-side check at the
-        # future-windows branch above. Skip the row when past windows didn't produce the
-        # expected count (data boundary -- not enough history yet at this base_point).
-        if past_nwindows_expected and not past_windows_features and (features_creation_fcn or not row_features):
+        # Past-side window-count sanity check, symmetric with the future-side check above (same
+        # dict-mode-vs-list-mode reasoning: whichever container this call actually populated holds the
+        # reliable per-window count). Skip the row when past windows didn't produce the FULL expected
+        # count (data boundary -- not enough history yet at this base_point), not just when it produced
+        # none at all.
+        insufficient_past = len(past_windows_features) < past_nwindows_expected if features_creation_fcn else len(row_features) < past_nwindows_expected
+        if past_nwindows_expected and insufficient_past:
             continue
 
         if row_features or past_windows_features:
@@ -663,10 +673,16 @@ def create_and_process_windows(
             # Previously this was `break`, which silently dropped every later window_var on the first miss.
             if window_var not in df:
                 continue
-            if forward_direction:
-                window_var_values = df[window_var].values[base_point:]
-            else:
-                window_var_values = df[window_var].values[:base_point]
+            # NOT sliced by base_point: windows_l/windows_r (below) are ABSOLUTE df row indices, used
+            # directly as both find_next_cumsum_*_index's left_index/right_index AND df.iloc bounds. A
+            # base_point-relative slice here (the pre-fix form) would make find_next_cumsum_right_index's
+            # left_index=windows_l=base_point double-offset into an ALREADY-offset array (searching from
+            # absolute row 2*base_point instead of base_point), and the index it returns would then be
+            # mixed absolute/relative when read back by df.iloc -- silently wrong windows for any
+            # base_point > 0 (every row after the first in a real walk). Confirmed empirically: pre-fix,
+            # base_point=10/amount=10 on an all-ones column returned a truncated window of only 7 rows
+            # instead of the correct 10.
+            window_var_values = df[window_var].values
 
         for window_size in windows_lengths:
             accumulated_amount = 0.0

@@ -379,6 +379,106 @@ class TestTimeseriesFixes:
         # And the call MUST be for existing_var (which the bug would have skipped).
         assert any("existing_var" in name for name in calls), f"calls={calls}"
 
+    def test_window_var_windowing_correct_for_nonzero_base_point(self):
+        """Discovered while fixing FE_ROOT_B-5 (2026-08-05 audit): create_and_process_windows's window_var
+        (cumsum-based) branch pre-sliced window_var_values by base_point (df[window_var].values[base_point:]
+        for forward, [:base_point] for backward), but then passed windows_l/windows_r -- ABSOLUTE df row
+        indices, also used directly as df.iloc bounds -- as find_next_cumsum_*_index's left_index/right_index,
+        which index INTO that ALREADY-offset array. For any base_point > 0 this double-offsets the search
+        (effectively starting from row 2*base_point), silently truncating or entirely dropping windows that
+        should have succeeded. Fixed by passing the FULL (unsliced) column array, so absolute indices are
+        consistent throughout. Pins the exact repro: an all-ones column, base_point=10, amount=10 must
+        accumulate the full 10 (rows 10..19), not a truncated 7."""
+        from mlframe.feature_engineering.timeseries import create_and_process_windows
+
+        df = pd.DataFrame({"w": np.ones(30, dtype=np.float64)})
+
+        def apply_fcn(df, row_features, targets, features_names, dataset_name):
+            """Apply fcn."""
+            row_features.append(len(df))
+            features_names.append(dataset_name)
+
+        res = create_and_process_windows(
+            df=df,
+            base_point=10,
+            apply_fcn=apply_fcn,
+            windows={"w": [2, 10]},
+            window_features_names=[],
+            window_features=None,
+            forward_direction=True,
+        )
+        assert res["w:2"] == [2], f"expected the small window to fully accumulate 2, got {res.get('w:2')}"
+        assert res["w:10"] == [10], f"expected the full 10-row window (rows 10..19 all available), got {res.get('w:10')}"
+
+        # At base_point=27 (only 3 rows remain forward), the small window still fully succeeds but the
+        # large one must be cleanly SKIPPED (insufficient data), not silently absent from BOTH (the pre-fix
+        # double-offset made df.iloc[27:2] an empty/inverted slice, dropping w:2 as well).
+        res_tail = create_and_process_windows(
+            df=df,
+            base_point=27,
+            apply_fcn=apply_fcn,
+            windows={"w": [2, 10]},
+            window_features_names=[],
+            window_features=None,
+            forward_direction=True,
+        )
+        assert res_tail == {"w:2": [2]}, f"expected only the small window to survive near the data boundary, got {res_tail}"
+
+        # Backward direction: base_point=10, amount=2 must walk LEFT from row 10 through the full history
+        # (rows 8..10), not fail immediately because of a similarly-mangled reversed offset.
+        res_bwd = create_and_process_windows(
+            df=df,
+            base_point=10,
+            apply_fcn=apply_fcn,
+            windows={"w": [2]},
+            window_features_names=[],
+            window_features=None,
+            forward_direction=False,
+        )
+        assert res_bwd["w:2"] == [2]
+
+    def test_create_windowed_features_skips_row_on_partial_future_window_set(self):
+        """FE_ROOT_B-5 (2026-08-05 audit): with targets_creation_fcn set, the insufficient-future-window
+        skip-guard only checked `len(future_windows_features) == 0` (totally empty), not the exact expected
+        count -- so a PARTIALLY-satisfied future window set (some but not all requested windows produced
+        data) silently proceeded instead of being skipped, unlike the without-targets_creation_fcn path
+        (which already compared against the exact expected count). Builds a df where base_point=10 can
+        satisfy both requested future windows {2, 10} but base_point=27 (near the end) can only satisfy the
+        smaller one -- the row for base_point=27 must be dropped."""
+        from mlframe.feature_engineering.timeseries import create_windowed_features
+
+        df = pd.DataFrame({"w": np.ones(30, dtype=np.float64)})
+
+        def past_fcn(df, row_features, targets, features_names, dataset_name):
+            """Past fcn."""
+            row_features.append(1.0)
+            features_names.append(dataset_name)
+
+        def future_fcn(df, row_features, targets, features_names, dataset_name):
+            """Future fcn."""
+            row_features.append(len(df))
+            features_names.append(dataset_name)
+
+        def targets_fcn(past_windows, future_windows):
+            """Targets fcn: sums whatever future windows actually made it into the dict."""
+            return sum(v[0] for v in future_windows.values())
+
+        X, Y = create_windowed_features(
+            df=df,
+            start_index=10,
+            end_index=28,
+            step_size=17,  # hits exactly base_point 10 (fully satisfiable) and 27 (partial)
+            past_processing_fcn=past_fcn,
+            future_processing_fcn=future_fcn,
+            targets_creation_fcn=targets_fcn,
+            past_windows={"": [1]},
+            future_windows={"w": [2, 10]},
+        )
+
+        assert X is not None and Y is not None
+        assert len(X) == 1, f"expected only base_point=10's row to survive; base_point=27's partial future window set must be dropped. Got {len(X)} rows, targets={Y.tolist() if Y is not None else None}"
+        assert Y.iloc[0] == 12.0, f"expected the surviving row's target to be the FULL w:2 + w:10 sum (2+10=12), got {Y.iloc[0]}"
+
     def test_dtype_category_routes_to_countaggs(self):
         """`var.dtype in ('category', 'object')` must route to compute_countaggs
         when process_categoricals=True; otherwise the var is skipped entirely."""
