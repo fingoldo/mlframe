@@ -742,7 +742,7 @@ DEP001 = [
     # runner). Ignored under both for the same reason DEP003's own comment gives for `finance`/
     # `concepts`, not because they're newly-introduced imports.
     "cupy", "cupyx", "cupy_backends", "kaleido", "torchvision", "dtaidistance", "bottleneck",
-    "model_diagnostics",
+    "model_diagnostics", "mlxtend",
 ]
 
 # DEP003 (transitive dependency imported directly): mirrors DEP002's stance -- these are pulled in
