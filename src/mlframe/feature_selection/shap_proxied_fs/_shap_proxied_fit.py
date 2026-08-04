@@ -804,7 +804,10 @@ class ShapProxiedFitMixin:
                 if self.active_learning and cdata:
                     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import active_learning_revalidate
 
-                    budget = self.active_learning_budget or self.top_n
+                    # `or self.top_n` here would additionally clobber a legitimately-set 0 (a valid
+                    # way to request zero active-learning evaluations) with a nonzero default; only
+                    # widen on a genuine None/unset value.
+                    budget = self.active_learning_budget if self.active_learning_budget is not None else self.top_n
                     best_idx, ranked, n_eval = active_learning_revalidate(
                         candidates, model_template, X_search, y_search, X_hold, y_hold,
                         corrector_data=cdata, phi=phi, budget=budget, n_models=self.n_revalidation_models,

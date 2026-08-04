@@ -355,6 +355,28 @@ def test_active_learning_budget_caps_refinement_model_count():
     assert al_small["n_evaluated"] < al_large["n_evaluated"], f"small budget did not reduce evaluations: small={al_small} large={al_large}"
 
 
+@pytest.mark.slow
+def test_active_learning_budget_zero_is_not_rewritten_to_top_n():
+    """Regression for a default_via_or trap: ``budget = self.active_learning_budget or self.top_n``
+    silently rewrote an explicit, legitimate ``active_learning_budget=0`` (a valid way to request zero
+    active-learning evaluations) into ``self.top_n`` (a large nonzero default), the exact opposite of
+    the configured intent. The published ``report['revalidation']['active_learning']['budget']`` must
+    stay 0, and evaluate strictly fewer candidates than a real nonzero budget."""
+    X, y = _al_dataset()
+    n_features = X.shape[1]
+
+    sel_zero = _al_sel(n_features, budget=0)
+    sel_zero.fit(X, y)
+    sel_nonzero = _al_sel(n_features, budget=3)
+    sel_nonzero.fit(X, y)
+
+    al_zero = sel_zero.shap_proxy_report_["revalidation"]["active_learning"]
+    al_nonzero = sel_nonzero.shap_proxy_report_["revalidation"]["active_learning"]
+
+    assert al_zero["budget"] == 0, f"active_learning_budget=0 must survive, not be rewritten to top_n: {al_zero}"
+    assert al_zero["n_evaluated"] <= al_nonzero["n_evaluated"], f"zero budget evaluated more than a real budget: zero={al_zero} nonzero={al_nonzero}"
+
+
 # --------------------------------------------------------------------------------------------------
 # FAST representative: one cheap path so MLFRAME_FAST=1 keeps coverage of the su_seeded_* knobs.
 # The screen-level top_k test (no model fit) IS the fast representative -- it is not @slow, so it runs
