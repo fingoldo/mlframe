@@ -114,7 +114,7 @@ def _bootstrap_block(
             # identical when scores are float64 continuous (the dominant
             # case from real ML model outputs); see kernel docstring for
             # the rationale and when to use the stable variant instead.
-            from mlframe.evaluation._bootstrap_metric_adapters import (
+            from mlframe.evaluation import (
                 brier as _brier,
                 log_loss as _ll,
                 ll_per_row as _ll_per_row,
@@ -224,7 +224,7 @@ def _bootstrap_block(
             # bit-identical) -- falls back to bootstrap_metrics only if this exact 4-metric bundle isn't
             # present (e.g. the ECE import failed above) or the fused call itself raises.
             if {"brier", "log_loss", "ece"} <= set(metric_fns) and _metric_fns_idx is not None:
-                from mlframe.evaluation._bootstrap_fused_binary_bundle import bootstrap_auc_brier_ll_ece_batch
+                from mlframe.evaluation import bootstrap_auc_brier_ll_ece_batch
 
                 try:
                     cis = bootstrap_auc_brier_ll_ece_batch(

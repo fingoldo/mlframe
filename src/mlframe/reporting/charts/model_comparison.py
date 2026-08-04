@@ -18,7 +18,7 @@ from typing import Any, List, Mapping, Optional, Tuple
 
 import numpy as np
 
-from mlframe.metrics._trapezoid_shared import trapezoid
+from mlframe.metrics import trapezoid
 from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels
 from mlframe.reporting.charts.binary import _ScoreSort, _decimate, _finite_binary
 from mlframe.reporting.spec import (

@@ -41,16 +41,35 @@ from mlframe.evaluation.adversarial_validator import AdversarialValidator
 from mlframe.evaluation.expanding_window_leakage import detect_expanding_window_feature_leakage
 from mlframe.evaluation.compare_cv_schemes import compare_cv_schemes
 from mlframe.evaluation.blend_source_selection import check_pairwise_score_correlation
+# Public re-export so cross-package consumers (training.honest_diagnostics) import the shared
+# metric adapters from the package surface instead of reaching into the underscore-prefixed
+# implementation module directly. ``_bootstrap_metric_adapters`` has no dependency back on
+# ``calibration``, so eager-importing it here is safe.
+from mlframe.evaluation._bootstrap_metric_adapters import brier, brier_per_row, log_loss, ll_per_row
+
+# ``bootstrap_auc_brier_ll_ece_batch`` (in ``_bootstrap_fused_binary_bundle``) is re-exported
+# LAZILY via __getattr__ below, NOT eager-imported: that module imports from
+# ``mlframe.calibration.policy``, which itself imports from ``mlframe.evaluation.bootstrap`` --
+# an eager import here would run mid-package-init and hit a circular
+# "cannot import name ... from partially initialized module" ImportError the first time anything
+# imports ``mlframe.calibration`` before ``mlframe.evaluation`` has finished initializing.
+_LAZY_SUBMODULE_ATTRS = {"bootstrap_auc_brier_ll_ece_batch": "mlframe.evaluation._bootstrap_fused_binary_bundle"}
 
 
 def __getattr__(name: str):
     if name.startswith("_"):
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import importlib
+
+    if name in _LAZY_SUBMODULE_ATTRS:
+        _m = importlib.import_module(_LAZY_SUBMODULE_ATTRS[name])
+        val = getattr(_m, name)
+        globals()[name] = val
+        return val
     # ``from . import reports`` would route through ``_handle_fromlist`` ->
     # ``hasattr(package, 'reports')`` which re-enters this __getattr__ and
     # recurses. ``importlib.import_module`` bypasses the package-attribute
     # check and resolves the submodule via sys.modules directly.
-    import importlib
     _r = importlib.import_module("mlframe.evaluation.reports")
     try:
         val = getattr(_r, name)
@@ -63,4 +82,4 @@ def __getattr__(name: str):
 def __dir__():
     import importlib
     _r = importlib.import_module("mlframe.evaluation.reports")
-    return sorted(set(globals().keys()) | {n for n in dir(_r) if not n.startswith("_")})
+    return sorted(set(globals().keys()) | {n for n in dir(_r) if not n.startswith("_")} | set(_LAZY_SUBMODULE_ATTRS))

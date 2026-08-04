@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.feature_selection.filters._wavelet_basis_fe import generate_wavelet_features
+from mlframe.feature_selection.filters._wavelet_basis_fe_recipes import generate_wavelet_features
 
 
 def _make_step_frame(n=1200, p=8, seed=0):

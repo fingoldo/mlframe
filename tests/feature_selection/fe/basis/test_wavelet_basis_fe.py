@@ -149,7 +149,7 @@ def test_dyadic_haar_leg_closed_form():
 def test_recipe_replay_is_leak_safe_and_bit_exact():
     """The emitted column == apply_recipe replay byte-for-byte, and the recipe
     reads only X (no y)."""
-    from mlframe.feature_selection.filters._wavelet_basis_fe import (
+    from mlframe.feature_selection.filters._wavelet_basis_fe_recipes import (
         generate_wavelet_features,
         build_orth_wavelet_recipe,
     )
@@ -196,7 +196,7 @@ def test_dispatcher_routes_orth_wavelet():
 def test_pure_noise_admits_no_wavelet():
     """Held-out scale-selection + the incremental gate reject every leg on pure
     noise -> 0 legs."""
-    from mlframe.feature_selection.filters._wavelet_basis_fe import (
+    from mlframe.feature_selection.filters._wavelet_basis_fe_recipes import (
         hybrid_wavelet_fe_with_recipes,
     )
 
@@ -226,7 +226,7 @@ def test_noise_columns_admit_no_wavelet_with_correlated_target():
     permutation-null gate (subtract the worst shuffle's incremental MI) must reject all
     noise legs. Pre-fix this emitted 5 noise legs on the n=1500 / seed=49 sensor mesh,
     which polluted the DCD tau-auto calibration and broke the 5-pack clustering."""
-    from mlframe.feature_selection.filters._wavelet_basis_fe import (
+    from mlframe.feature_selection.filters._wavelet_basis_fe_recipes import (
         hybrid_wavelet_fe_with_recipes,
     )
 
@@ -253,7 +253,7 @@ def test_noise_columns_admit_no_wavelet_with_correlated_target():
 def test_scale_selection_bounds_candidate_count():
     """Even on a richly localized column the emitted leg count is capped at
     max_legs (candidate-explosion control)."""
-    from mlframe.feature_selection.filters._wavelet_basis_fe import (
+    from mlframe.feature_selection.filters._wavelet_basis_fe_recipes import (
         generate_wavelet_features,
     )
 
@@ -318,7 +318,7 @@ def test_bizval_smooth_complementarity_fourier_wins():
 def test_bizval_smooth_admits_zero_legs():
     """The admission gate's complementarity guard admits ZERO wavelet legs on a
     smooth sin column (Fourier owns that regime)."""
-    from mlframe.feature_selection.filters._wavelet_basis_fe import (
+    from mlframe.feature_selection.filters._wavelet_basis_fe_recipes import (
         hybrid_wavelet_fe_with_recipes,
     )
 
@@ -344,7 +344,7 @@ def test_bizval_smooth_admits_zero_legs():
 def test_bizval_localized_step_admits_legs():
     """The gate DOES admit legs on a localized step (positive control for the
     complementarity test above)."""
-    from mlframe.feature_selection.filters._wavelet_basis_fe import (
+    from mlframe.feature_selection.filters._wavelet_basis_fe_recipes import (
         hybrid_wavelet_fe_with_recipes,
     )
 
@@ -385,7 +385,7 @@ def test_default_on_selects_wavelet_on_localized_step():
 def test_default_on_canonical_recovery_not_perturbed():
     """On the canonical pair-FE fixture y=a^2/b+log(c)*sin(d) the wavelet stage
     admits ZERO legs -> it does NOT perturb genuine pair-FE recovery."""
-    from mlframe.feature_selection.filters._wavelet_basis_fe import (
+    from mlframe.feature_selection.filters._wavelet_basis_fe_recipes import (
         hybrid_wavelet_fe_with_recipes,
     )
 
@@ -413,7 +413,7 @@ def test_cprofile_wavelet_stage_hotspot(capsys):
     import io
     import pstats
     import time
-    from mlframe.feature_selection.filters._wavelet_basis_fe import (
+    from mlframe.feature_selection.filters._wavelet_basis_fe_recipes import (
         hybrid_wavelet_fe_with_recipes,
     )
 

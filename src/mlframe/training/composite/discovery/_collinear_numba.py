@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import threading
 from collections import OrderedDict
 from typing import Any
 
@@ -62,6 +63,10 @@ except ImportError:  # pragma: no cover - numba is a hard dep; allow graceful sk
 _KEEP_MASK_CACHE: "OrderedDict[Any, np.ndarray]" = OrderedDict()
 _KEEP_MASK_CACHE_MAX_ENTRIES: int = 64
 _KEEP_MASK_HASH_MAX_BYTES: int = 2_000_000_000  # skip caching beyond ~2 GB matrices.
+# Guards the check-then-evict-then-insert sequence below: concurrent joblib(backend="threading")
+# fits could otherwise both observe len() >= MAX and both evict, or race on OrderedDict's internal
+# state during popitem/setitem interleaving.
+_KEEP_MASK_CACHE_LOCK = threading.Lock()
 
 
 def _keep_mask_cache_key(fm: np.ndarray, thr: float):
@@ -347,9 +352,10 @@ def near_collinear_keep_mask_fast(
             if keep[j]:
                 kept_idx.append(j)
     if _ck is not None:
-        if len(_KEEP_MASK_CACHE) >= _KEEP_MASK_CACHE_MAX_ENTRIES:
-            _KEEP_MASK_CACHE.popitem(last=False)
-        _KEEP_MASK_CACHE[_ck] = keep.copy()
+        with _KEEP_MASK_CACHE_LOCK:
+            if len(_KEEP_MASK_CACHE) >= _KEEP_MASK_CACHE_MAX_ENTRIES:
+                _KEEP_MASK_CACHE.popitem(last=False)
+            _KEEP_MASK_CACHE[_ck] = keep.copy()
     return np.asarray(keep)
 
 

@@ -933,66 +933,6 @@ def _heldout_smooth_r2_fast(x: np.ndarray, prep: tuple) -> float:
     return float(1.0 - sse / sst)
 
 
-def _detect_fourier_freq_for_col(
-    z01: np.ndarray,
-    y: np.ndarray,
-    *,
-    f_grid: Sequence[float],
-    min_val_corr: float = 0.15,
-    min_rows: int = 800,
-) -> Optional[float]:
-    """ADAPTIVE-FREQUENCY Fourier detector.
-
-    The fixed Fourier univariate grid only covers z-space frequencies {1, 2}.
-    An ARBITRARY-period oscillation (e.g. ``y = sin(3.7*x)``, ``sin(5.3*x)``)
-    lands at a non-integer z-space frequency and is missed by the fixed grid
-    (recovered at |corr| 0.02-0.23). This detector sweeps a coarse z-space
-    frequency grid, locally refines around the peak, and returns the dominant
-    frequency ONLY when a held-out validation slice confirms it - otherwise
-    None (no adaptive column emitted).
-
-    Method
-    ------
-    * Deterministic stride train/val split: ``val = arange(n) % 3 == 0`` (a
-      third held out, no RNG so the recipe replays identically). The frequency
-      is RANKED on train rows and CONFIRMED on the held-out val rows - a
-      chance frequency that fits a train slice but not the held-out slice is
-      rejected. This is the n-gated false-positive guard: a naive default-on
-      version regressed 9 tests because at small n a chance frequency clears
-      the gate. We require ``n >= min_rows`` (default 800) AND val-slice
-      confirmation.
-    * Rank ``f_grid`` by PERIODOGRAM POWER ``corr(sin)^2 + corr(cos)^2`` on the
-      TRAIN rows (phase-invariant: a single sin or cos alone has low |corr| for
-      a phase-shifted signal, so we must score the sin+cos pair jointly).
-    * Local-refine ``+-0.25`` at ``0.05`` step around the coarse peak (still on
-      train).
-    * KEEP the refined freq only if ``sqrt(val-slice periodogram power) >=
-      max(min_val_corr, 0.30)`` (the held-out effective |corr| of the sin+cos
-      support clears the floor). Otherwise return None.
-
-    Before the search, y is POLYNOMIAL-DETRENDED (cubic in z, train-fit /
-    val-applied) so a monotone / smooth trend cannot masquerade as a low
-    frequency; the 0.30 robust floor then rejects finite-sample chance peaks.
-    See :func:`_detect_fourier_freqs_for_col` for the full rationale.
-
-    ``z01`` is the SAME ``z = (x - lo) / span`` in [0, 1] that the Fourier
-    emitter uses, so the detected frequency drops straight into the emitter's
-    ``fourier_freqs`` for that column. ``y`` may be discrete or continuous;
-    Pearson on y is fine because we only need a phase-invariant linear-usability
-    score, not MI.
-
-    Returns the SINGLE dominant validated frequency (or None). The multitone
-    superposition case is handled by :func:`_detect_fourier_freqs_for_col`,
-    which this delegates to (taking the first detected peak) - so the coarse-
-    sweep + local-refine + held-out-gate contract is shared verbatim.
-    """
-    freqs = _detect_fourier_freqs_for_col(
-        z01, y, f_grid=f_grid, min_val_corr=min_val_corr,
-        min_rows=min_rows, max_freqs=1,
-    )
-    return float(freqs[0]) if freqs else None
-
-
 # generate/recipe entry points carved to _orth_extra_basis_fe_generate.py (1k-LOC ceiling), re-exported
 # here for backward-compat callers importing them from this module.
 #
@@ -1004,7 +944,16 @@ def _detect_fourier_freq_for_col(
 # would hit `ImportError: cannot import name ... from partially initialized module`. A lazy module
 # __getattr__ (PEP 562) defers the import to first actual attribute access, breaking the load-order
 # dependency entirely.
-_LAZY_GENERATE_NAMES = ("_build_recipe_from_meta", "generate_extra_basis_features", "hybrid_orth_extra_basis_fe_with_recipes")
+#
+# ``_detect_fourier_freq_for_col`` (singular) moved to the same sibling to keep this module under the
+# 1k LOC ceiling; it needs no forward-declared name here since it was never defined in this module's
+# own namespace by callers importing it directly (only via this lazy dispatch).
+_LAZY_GENERATE_NAMES = (
+    "_build_recipe_from_meta",
+    "generate_extra_basis_features",
+    "hybrid_orth_extra_basis_fe_with_recipes",
+    "_detect_fourier_freq_for_col",
+)
 
 
 def __getattr__(name: str):

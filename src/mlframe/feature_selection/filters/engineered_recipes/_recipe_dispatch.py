@@ -98,7 +98,7 @@ def apply_recipe(
         # source column, no y reference (structurally like orth_spline). Lazy
         # import keeps this dispatcher dependency-light; the apply helper lives
         # with the wavelet generator one package level up.
-        from .._wavelet_basis_fe import _apply_orth_wavelet
+        from .._wavelet_basis_fe_recipes import _apply_orth_wavelet
         return _apply_orth_wavelet(recipe, X)
     if recipe.kind == "mi_greedy_transform":
         from ._missingness_ratio_recipes import _apply_mi_greedy_transform

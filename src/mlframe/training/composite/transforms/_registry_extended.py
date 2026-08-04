@@ -22,7 +22,7 @@ from . import (
     TAG_REGRESSION,
     Transform,
 )
-from .registry import _make_unary_registry_adapter, _centered_ratio_domain_fitted
+from ._registry_shared_adapters import _make_unary_registry_adapter, _centered_ratio_domain_fitted
 from .linear import (
     _linear_residual_multi_domain,
     _linear_residual_multi_forward,

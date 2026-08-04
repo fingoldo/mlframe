@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -668,6 +669,10 @@ def _col_to_numpy(df: Any, col: str) -> Optional[np.ndarray]:
 # 100 GB workload; a single suite's targets share one signature -> one live entry.
 _DRIFT_INVARIANT_CACHE: "Dict[Any, Dict[str, Any]]" = {}
 _DRIFT_INVARIANT_CACHE_MAX: int = 8
+# Guards the check-then-evict-then-insert sequence below: concurrent joblib(backend="threading")
+# fits racing on the compound "len() >= MAX -> pop(next(iter(...))) -> insert" sequence could
+# double-evict, or hit StopIteration from ``next(iter(...))`` on an already-emptied dict.
+_DRIFT_INVARIANT_CACHE_LOCK = threading.Lock()
 
 
 def _drift_invariant_cache_key(
@@ -839,9 +844,10 @@ def compute_feature_distribution_drift(
             warn_threshold_z=warn_threshold_z, feature_names=feature_names,
         )
         if _cache_key is not None:
-            if len(_DRIFT_INVARIANT_CACHE) >= _DRIFT_INVARIANT_CACHE_MAX:
-                _DRIFT_INVARIANT_CACHE.pop(next(iter(_DRIFT_INVARIANT_CACHE)))
-            _DRIFT_INVARIANT_CACHE[_cache_key] = _invariant
+            with _DRIFT_INVARIANT_CACHE_LOCK:
+                if len(_DRIFT_INVARIANT_CACHE) >= _DRIFT_INVARIANT_CACHE_MAX:
+                    _DRIFT_INVARIANT_CACHE.pop(next(iter(_DRIFT_INVARIANT_CACHE)))
+                _DRIFT_INVARIANT_CACHE[_cache_key] = _invariant
     per_feature = _invariant["per_feature"]
     candidates = _invariant["candidates"]
     categorical_psi = _invariant["categorical_psi"]

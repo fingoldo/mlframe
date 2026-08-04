@@ -60,7 +60,10 @@ def _parse_pyproject_markers() -> set[str]:
     for entry in raw:
         if not isinstance(entry, str):
             continue
-        name = entry.split(":", 1)[0].strip()
+        # pytest's own convention allows an arg-signature suffix before the colon, e.g.
+        # "xdist_group(name): descr" -- pytest's --strict-markers matches only the bare name
+        # before "(" or ":", so strip a parenthesized suffix too, not just split on ":".
+        name = entry.split(":", 1)[0].split("(", 1)[0].strip()
         if name:
             out.add(name)
     return out

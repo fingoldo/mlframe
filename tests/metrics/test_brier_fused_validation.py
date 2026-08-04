@@ -15,8 +15,8 @@ from mlframe.metrics._core_auc_brier import (
     fast_brier_score_loss,
     _fast_brier_score_loss_seq,
     _fast_brier_score_loss_par,
-    _PARALLEL_REDUCTION_THRESHOLD,
 )
+from mlframe.metrics._numba_params import _PARALLEL_REDUCTION_THRESHOLD
 
 
 def _old_kernel(y, p):

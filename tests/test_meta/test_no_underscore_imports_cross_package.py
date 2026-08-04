@@ -20,8 +20,21 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC = REPO_ROOT / "src" / "mlframe"
 
-# ALLOWLIST is empty: the 9 baseline entries (2026-05-25 snapshot) were promoted into public re-exports in Wave 11b. Each entry is ``(importer_relpath_posix, imported_module)`` -- add a new tuple here ONLY when promotion is genuinely infeasible (e.g. a cycle that cannot be broken without an architectural refactor); the standard cleanup is to expose the symbol via the owning package's public ``__init__.py``.
-ALLOWLIST: set[tuple[str, str]] = set()
+# Each entry is ``(importer_relpath_posix, imported_module)`` -- add a new tuple here ONLY when
+# promotion is genuinely infeasible (e.g. a cycle that cannot be broken without an architectural
+# refactor); the standard cleanup is to expose the symbol via the owning package's public
+# ``__init__.py``.
+#
+# _bootstrap_fused_binary_bundle.py imports _fast_brier_score_loss_seq / _fast_log_loss_binary_seq
+# specifically to call from INSIDE its own @numba.njit(parallel=True) bootstrap kernel -- the public
+# fast_brier_score_loss / fast_log_loss_binary dispatchers pick seq-vs-parallel at plain-Python
+# runtime and are not njit-callable, so the private sequential variant is the only usable one at this
+# call site. Promoting it to the package's public surface would misleadingly suggest it's meant for
+# general (non-njit-context) use.
+ALLOWLIST: set[tuple[str, str]] = {
+    ("src/mlframe/evaluation/_bootstrap_fused_binary_bundle.py", "mlframe.metrics._core_auc_brier"),
+    ("src/mlframe/evaluation/_bootstrap_fused_binary_bundle.py", "mlframe.metrics._log_loss_and_separation"),
+}
 
 
 def _is_test_adjacent(path: Path) -> bool:

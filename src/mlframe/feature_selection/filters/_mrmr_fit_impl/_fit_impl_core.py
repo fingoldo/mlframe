@@ -4911,7 +4911,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             )
         else:
             try:
-                from .._wavelet_basis_fe import hybrid_wavelet_fe_with_recipes
+                from .._wavelet_basis_fe_recipes import hybrid_wavelet_fe_with_recipes
 
                 _y_for_wv = _y_np
                 _wv_cols = tuple(getattr(self, "fe_wavelet_cols", ()) or ())

@@ -37,7 +37,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from mlframe.metrics._trapezoid_shared import trapezoid
+from mlframe.metrics import trapezoid
 from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels, parse_panel_template,
 )

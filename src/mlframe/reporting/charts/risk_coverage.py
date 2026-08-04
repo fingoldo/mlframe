@@ -34,7 +34,7 @@ from typing import Literal, Optional, Tuple
 
 import numpy as np
 
-from mlframe.metrics._trapezoid_shared import trapezoid
+from mlframe.metrics import trapezoid
 from mlframe.reporting.spec import FigureSpec, LinePanelSpec
 
 MAX_PLOT_POINTS: int = 2000

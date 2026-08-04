@@ -31,8 +31,10 @@ from mlframe.feature_selection.filters.engineered_recipes import (
     build_orth_pair_cross_recipe,
     build_orth_fourier_recipe,
 )
-from mlframe.feature_selection.filters._wavelet_basis_fe import (
+from mlframe.feature_selection.filters._wavelet_basis_fe_recipes import (
     build_orth_wavelet_recipe,
+)
+from mlframe.feature_selection.filters._wavelet_basis_fe import (
     _dyadic_haar_leg,
 )
 from mlframe.feature_selection.filters._hinge_basis_fe import build_hinge_basis_recipe

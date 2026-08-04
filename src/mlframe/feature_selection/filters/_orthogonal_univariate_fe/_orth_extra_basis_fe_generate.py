@@ -453,7 +453,7 @@ def _build_recipe_from_meta(name: str, meta_entry: dict):
         )
     if basis == "wavelet":
         # Backlog #13: Haar wavelet leg recipe (orth_wavelet).
-        from .._wavelet_basis_fe import build_orth_wavelet_recipe
+        from .._wavelet_basis_fe_recipes import build_orth_wavelet_recipe
         return build_orth_wavelet_recipe(
             name=name, src_name=str(meta_entry["src"]),
             j=int(meta_entry["j"]), k=int(meta_entry["k"]),
@@ -620,3 +620,65 @@ def hybrid_orth_extra_basis_fe_with_recipes(
     else:
         X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
     return X_aug, scores, recipes
+
+
+def _detect_fourier_freq_for_col(
+    z01: np.ndarray,
+    y: np.ndarray,
+    *,
+    f_grid: Sequence[float],
+    min_val_corr: float = 0.15,
+    min_rows: int = 800,
+) -> Optional[float]:
+    """ADAPTIVE-FREQUENCY Fourier detector.
+
+    The fixed Fourier univariate grid only covers z-space frequencies {1, 2}.
+    An ARBITRARY-period oscillation (e.g. ``y = sin(3.7*x)``, ``sin(5.3*x)``)
+    lands at a non-integer z-space frequency and is missed by the fixed grid
+    (recovered at |corr| 0.02-0.23). This detector sweeps a coarse z-space
+    frequency grid, locally refines around the peak, and returns the dominant
+    frequency ONLY when a held-out validation slice confirms it - otherwise
+    None (no adaptive column emitted).
+
+    Method
+    ------
+    * Deterministic stride train/val split: ``val = arange(n) % 3 == 0`` (a
+      third held out, no RNG so the recipe replays identically). The frequency
+      is RANKED on train rows and CONFIRMED on the held-out val rows - a
+      chance frequency that fits a train slice but not the held-out slice is
+      rejected. This is the n-gated false-positive guard: a naive default-on
+      version regressed 9 tests because at small n a chance frequency clears
+      the gate. We require ``n >= min_rows`` (default 800) AND val-slice
+      confirmation.
+    * Rank ``f_grid`` by PERIODOGRAM POWER ``corr(sin)^2 + corr(cos)^2`` on the
+      TRAIN rows (phase-invariant: a single sin or cos alone has low |corr| for
+      a phase-shifted signal, so we must score the sin+cos pair jointly).
+    * Local-refine ``+-0.25`` at ``0.05`` step around the coarse peak (still on
+      train).
+    * KEEP the refined freq only if ``sqrt(val-slice periodogram power) >=
+      max(min_val_corr, 0.30)`` (the held-out effective |corr| of the sin+cos
+      support clears the floor). Otherwise return None.
+
+    Before the search, y is POLYNOMIAL-DETRENDED (cubic in z, train-fit /
+    val-applied) so a monotone / smooth trend cannot masquerade as a low
+    frequency; the 0.30 robust floor then rejects finite-sample chance peaks.
+    See :func:`_detect_fourier_freqs_for_col` for the full rationale.
+
+    ``z01`` is the SAME ``z = (x - lo) / span`` in [0, 1] that the Fourier
+    emitter uses, so the detected frequency drops straight into the emitter's
+    ``fourier_freqs`` for that column. ``y`` may be discrete or continuous;
+    Pearson on y is fine because we only need a phase-invariant linear-usability
+    score, not MI.
+
+    Returns the SINGLE dominant validated frequency (or None). The multitone
+    superposition case is handled by :func:`_detect_fourier_freqs_for_col`,
+    which this delegates to (taking the first detected peak) - so the coarse-
+    sweep + local-refine + held-out-gate contract is shared verbatim.
+    """
+    from ._orth_extra_basis_fe import _detect_fourier_freqs_for_col
+
+    freqs = _detect_fourier_freqs_for_col(
+        z01, y, f_grid=f_grid, min_val_corr=min_val_corr,
+        min_rows=min_rows, max_freqs=1,
+    )
+    return float(freqs[0]) if freqs else None
