@@ -257,6 +257,18 @@ mathematically valid extremality score) — documented in the function's docstri
 precision-vs-speed tradeoff `_ordinal_rank` already accepts for non-tie-averaged ranks. 2.11x speedup at
 n=200k/k=200 (warm, best-of-5); no existing test pins exact tie-order values on discrete columns.
 
+## PERF WIN (2026-08-04): hinge-gate's held-out R^2 fit switched from full SVD lstsq to normal equations
+Same njit-check audit as the three entries above. `_r2` (a closure inside `_fit_impl_core.py`'s selected-set
+incremental-R^2 hinge re-add gate) fit its held-out OLS via `np.linalg.lstsq` — a full SVD solve — on a
+tiny-k (intercept + a handful of base/leg columns) design. The sibling `_deflate_sincos`
+(`_orth_extra_basis_fe.py`) already proved normal equations (`A.T@A` / `np.linalg.solve`) beats a full SVD
+lstsq for exactly this shape (small, well-conditioned design), but `_r2` never got the same treatment.
+Switched to normal equations with an `np.linalg.LinAlgError` fallback to the original lstsq path for a
+singular design. Verified numerically equivalent (max relative diff 1.14e-16 — machine epsilon — across 50
+synthetic OLS scenarios, n=200-100k, k=2-5) so the gate's admit/reject decisions are unchanged. Low call
+volume at this exact site (8 calls / 4.7s in the triggering profile, combo `c0554_46233682`) so the direct
+win here is modest, but flagged and fixed per the "check every lever, not just eyeball it" rule above.
+
 ## PERF WIN (2026-08-02): per_feature_edges' thread-pool threshold was 64x too high for real usage (1.2x-7.2x)
 2M-row cProfile on combo `c0037_c314bb14` (master-seed `2026_04_29`) found `per_feature_edges`/
 `_compute_col_edges` (`_adaptive_nbins.py`) costing 78s wall on a `fayyad_irani` (MDLP) fit with

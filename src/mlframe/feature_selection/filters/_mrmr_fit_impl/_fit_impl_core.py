@@ -7492,10 +7492,25 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 if _sv.shape[0] == n and np.all(np.isfinite(_sv)):
                     base = [*base, _sv, _sv * _sv]
             def _r2(design_cols):
-                """Fit an OLS design on the train stride and return held-out R^2 on the %3 validation stride (``-inf`` on a singular/failed lstsq)."""
+                """Fit an OLS design on the train stride and return held-out R^2 on the %3 validation stride (``-inf`` on a singular/failed solve).
+
+                Normal-equations solve (A.T@A / np.linalg.solve) on the well-conditioned small-k design
+                (intercept + a handful of base/leg columns) instead of a full SVD lstsq -- same win already
+                proven for this module's sibling OLS fit (see ``_deflate_sincos`` in
+                ``_orth_extra_basis_fe.py``: normal equations beats lstsq here because k is tiny and the
+                design isn't near-singular). Falls back to lstsq if A.T@A is singular."""
                 A = np.column_stack(design_cols)
+                A_tr = A[tr]
+                y_tr = _y_for_hinge_gate[tr]
                 try:
-                    coef, *_ = np.linalg.lstsq(A[tr], _y_for_hinge_gate[tr], rcond=None)
+                    AtA = A_tr.T @ A_tr
+                    coef = np.linalg.solve(AtA, A_tr.T @ y_tr)
+                except np.linalg.LinAlgError:
+                    try:
+                        coef, *_ = np.linalg.lstsq(A_tr, y_tr, rcond=None)
+                    except Exception as e:
+                        logger.debug("Hinge-gate OLS lstsq fallback failed (%s: %s) -- treating as a failed candidate", type(e).__name__, e)
+                        return -np.inf
                 except Exception as e:
                     logger.debug("Hinge-gate OLS lstsq failed (%s: %s) -- treating as a failed candidate", type(e).__name__, e)
                     return -np.inf
