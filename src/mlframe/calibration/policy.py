@@ -458,17 +458,22 @@ def _bootstrap_ece_with_indices(
 
     When ``n_bins`` is supplied the per-resample metric is the fused idx-aware ECE kernel
     ``_ece_score_idx_numba_serial``, which gathers ``y[idx]`` / ``p[idx]`` inside the njit bin loop -- removing the
-    per-resample Python-level ``y_true[idx]`` / ``y_pred[idx]`` fancy-index copy entirely. Bit-identical to the
-    slice-based ``metric_fn`` path (equal-width binning is order-independent). ``metric_fn`` still produces the point
-    estimate AND the BCa acceleration jackknife (slice-based, exactly as ``bootstrap_metric`` does), so any
-    caller-specific ECE config flows through unchanged.
+    per-resample Python-level ``y_true[idx]`` / ``y_pred[idx]`` fancy-index copy entirely. ``y_true`` is normalised to
+    {0, 1} once (via ``_normalize_binary_labels``, same as ``_ece_score``) before the loop, so the fused path stays
+    bit-identical to the slice-based ``metric_fn`` path regardless of the input label encoding (equal-width binning is
+    order-independent). ``metric_fn`` still produces the point estimate AND the BCa acceleration jackknife (slice-based,
+    exactly as ``bootstrap_metric`` does), so any caller-specific ECE config flows through unchanged.
     """
     point = float(metric_fn(y_true, y_pred))
     n_bootstrap = idx_matrix.shape[0]
     samples = np.empty(n_bootstrap, dtype=np.float64)
     valid = 0
     if n_bins is not None:
-        yb = np.ascontiguousarray(np.asarray(y_true).ravel())
+        # Normalise to {0, 1} the SAME way the point estimate's own metric_fn (_ece_score) does --
+        # otherwise a non-{0,1}-encoded y_true (e.g. {-1,+1}, {1,2}) feeds raw label values straight
+        # into the fused kernel's sum_y accumulator, producing a bootstrap CI on a different scale
+        # than the point estimate it is supposed to bracket.
+        yb = np.ascontiguousarray(_normalize_binary_labels(np.asarray(y_true).ravel())).astype(np.float64)
         pb = np.ascontiguousarray(np.asarray(y_pred, dtype=np.float64).ravel())
         nb = int(n_bins)
         for b in range(n_bootstrap):

@@ -538,18 +538,38 @@ def per_group_rolling_reduce(
                     s_partial = float(cs[k + 1])
                     out[seg_idx[k]] = s_partial / (k + 1) if op == "mean" else s_partial
         elif op in ("std", "var", "median", "min", "max"):
-            wins = sliding_window_view(seg, window_K)
-            if op == "std":
-                vals = wins.std(axis=1, ddof=1) if window_K > 1 else np.zeros(wins.shape[0])
-            elif op == "var":
-                vals = wins.var(axis=1, ddof=1) if window_K > 1 else np.zeros(wins.shape[0])
-            elif op == "median":
-                vals = np.median(wins, axis=1)
-            elif op == "min":
-                vals = wins.min(axis=1)
-            elif op == "max":
-                vals = wins.max(axis=1)
-            out[seg_idx[window_K - 1 :]] = vals
+            if seg_len >= window_K:
+                wins = sliding_window_view(seg, window_K)
+                if op == "std":
+                    vals = wins.std(axis=1, ddof=1) if window_K > 1 else np.zeros(wins.shape[0])
+                elif op == "var":
+                    vals = wins.var(axis=1, ddof=1) if window_K > 1 else np.zeros(wins.shape[0])
+                elif op == "median":
+                    vals = np.median(wins, axis=1)
+                elif op == "min":
+                    vals = wins.min(axis=1)
+                elif op == "max":
+                    vals = wins.max(axis=1)
+                out[seg_idx[window_K - 1 :]] = vals
+            # min_periods shorter prefix: rows with fewer than window_K observations available (either because
+            # the segment itself is shorter than window_K, or -- when seg_len >= window_K -- the leading rows
+            # before the first full window) mirror the sum/mean branch's partial-prefix handling above via an
+            # EXPANDING (not sliding) window from the start of the group. sliding_window_view cannot express a
+            # window wider than the segment, so a full lstsq-style call would crash here whenever seg_len falls
+            # in [min_periods, window_K) -- this loop is the fix.
+            if min_periods < window_K:
+                for k in range(min_periods - 1, min(window_K - 1, seg_len)):
+                    partial = seg[: k + 1]
+                    if op == "std":
+                        out[seg_idx[k]] = float(partial.std(ddof=1)) if partial.size > 1 else 0.0
+                    elif op == "var":
+                        out[seg_idx[k]] = float(partial.var(ddof=1)) if partial.size > 1 else 0.0
+                    elif op == "median":
+                        out[seg_idx[k]] = float(np.median(partial))
+                    elif op == "min":
+                        out[seg_idx[k]] = float(partial.min())
+                    elif op == "max":
+                        out[seg_idx[k]] = float(partial.max())
         else:
             raise ValueError(f"op={op!r} not in {{'mean','sum','std','var','min','max','median'}}")
     return out

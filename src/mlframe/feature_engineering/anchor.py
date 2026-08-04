@@ -206,6 +206,69 @@ if _NUMBA_AVAILABLE:
                 ewm_slope_out[i] = num / (den + 1e-12)
 
     @_numba.njit(cache=True, fastmath=_ANCHOR_FASTMATH)
+    def _anchor_extrap_core(label, is_anchor, K_slope, rows_since_out, last_val_out, slope_out, extrap_out):
+        """Numba core for ``add_anchor_extrapolation_features`` (the module's flagship function): walks one
+        segment once, maintaining a growing (K_slope-capped) anchor history and the OLS slope over its
+        trailing window, writing ``rows_since``/``last_anchor_value``/``local_slope``/``linear_extrap_pred``
+        in place. Mirrors ``_anchor_features_for_segment``'s Python-list semantics exactly (preallocated
+        arrays + explicit window bounds instead of ``list.append``/``list.pop(0)``, so it compiles under
+        ``@njit`` -- same preallocated-buffer pattern as the other four anchor-feature cores above)."""
+        m = label.size
+        pos = np.empty(m, dtype=np.float64)
+        val = np.empty(m, dtype=np.float64)
+        n_anch = 0
+        last_anchor_row = -1
+        last_anchor_val = np.nan
+        cached_slope = 0.0
+        have_slope = False
+        window_ge2 = False
+        for i in range(m):
+            if is_anchor[i] and np.isfinite(label[i]):
+                pos[n_anch] = i
+                val[n_anch] = label[i]
+                n_anch += 1
+                lo = n_anch - K_slope
+                if lo < 0:
+                    lo = 0
+                w = n_anch - lo
+                last_anchor_row = i
+                last_anchor_val = label[i]
+                rows_since_out[i] = 0.0
+                last_val_out[i] = last_anchor_val
+                extrap_out[i] = last_anchor_val
+                window_ge2 = w >= 2
+                if window_ge2:
+                    xm = 0.0
+                    ym = 0.0
+                    for j in range(lo, n_anch):
+                        xm += pos[j]
+                        ym += val[j]
+                    xm /= w
+                    ym /= w
+                    num = 0.0
+                    den = 0.0
+                    for j in range(lo, n_anch):
+                        dx = pos[j] - xm
+                        num += dx * (val[j] - ym)
+                        den += dx * dx
+                    cached_slope = num / den if den > 1e-12 else 0.0
+                    have_slope = True
+                elif w == 1:
+                    cached_slope = 0.0
+                    have_slope = True
+            else:
+                if last_anchor_row >= 0:
+                    rows_since_out[i] = float(i - last_anchor_row)
+                    last_val_out[i] = last_anchor_val
+            if have_slope:
+                slope_out[i] = cached_slope
+                if last_anchor_row >= 0 and not is_anchor[i]:
+                    if window_ge2:
+                        extrap_out[i] = last_anchor_val + cached_slope * (i - last_anchor_row)
+                    else:
+                        extrap_out[i] = last_anchor_val
+
+    @_numba.njit(cache=True, fastmath=_ANCHOR_FASTMATH)
     def _anchor_density_core(is_anchor, window_rows, count_out, gap_out):
         """Numba core for ``anchor_density_features``: sliding-window (two-pointer) count of anchors within the trailing ``window_rows`` and the mean gap between them, O(n) total via a monotonic head index instead of rescanning the window at each row."""
         m = is_anchor.size
@@ -300,6 +363,22 @@ def _anchor_features_for_segment(
     }
 
 
+def _anchor_features_for_segment_dispatch(label: np.ndarray, is_anchor: np.ndarray, K_slope: int) -> dict:
+    """Compute the four anchor features for ONE group segment, via the njit core (``_anchor_extrap_core``)
+    when numba is available -- mirroring the other four anchor-feature functions, which all dispatch to a
+    preallocated-buffer njit core instead of the growing/shrinking-list Python path. Falls back to
+    ``_anchor_features_for_segment`` (bit-identical, just slower) when numba is unavailable."""
+    if _NUMBA_AVAILABLE:
+        n = label.size
+        rows_since = np.full(n, np.nan, dtype=np.float64)
+        last_val = np.full(n, np.nan, dtype=np.float64)
+        local_slope = np.full(n, np.nan, dtype=np.float64)
+        extrap = np.full(n, np.nan, dtype=np.float64)
+        _anchor_extrap_core(label, is_anchor, K_slope, rows_since, last_val, local_slope, extrap)
+        return {"rows_since": rows_since, "last_anchor_value": last_val, "local_slope": local_slope, "linear_extrap_pred": extrap}
+    return _anchor_features_for_segment(label, is_anchor, K_slope)
+
+
 def add_anchor_extrapolation_features(
     label: np.ndarray,
     is_anchor: np.ndarray,
@@ -356,7 +435,7 @@ def add_anchor_extrapolation_features(
     }
 
     if group_ids is None:
-        feats = _anchor_features_for_segment(label, is_anchor, K_slope)
+        feats = _anchor_features_for_segment_dispatch(label, is_anchor, K_slope)
         out["rows_since_last_anchor"] = feats["rows_since"]
         out["last_anchor_value"] = feats["last_anchor_value"]
         out[f"last_anchor_local_slope_K{K_slope}"] = feats["local_slope"]
@@ -368,7 +447,7 @@ def add_anchor_extrapolation_features(
         idx_seg = sort_idx[s:e]
         seg_label = label[idx_seg]
         seg_anchor = is_anchor[idx_seg]
-        feats = _anchor_features_for_segment(seg_label, seg_anchor, K_slope)
+        feats = _anchor_features_for_segment_dispatch(seg_label, seg_anchor, K_slope)
         out["rows_since_last_anchor"][idx_seg] = feats["rows_since"]
         out["last_anchor_value"][idx_seg] = feats["last_anchor_value"]
         out[f"last_anchor_local_slope_K{K_slope}"][idx_seg] = feats["local_slope"]
