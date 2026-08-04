@@ -58,6 +58,7 @@ from typing import TYPE_CHECKING, Optional, Sequence
 
 import numpy as np
 import pandas as pd
+from numba import njit, prange
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -275,6 +276,87 @@ def _heldout_hinge_r2_uplift(
     return float(r2_hinge - r2_lin)
 
 
+@njit(cache=True, parallel=True)
+def _hinge_cut_scan_njit(Q: np.ndarray, r_y: np.ndarray, sse_B: float, x: np.ndarray, cand: np.ndarray, min_seg_rows: int, found_arr: np.ndarray) -> tuple:
+    """``prange``-parallel fusion of the per-candidate-cut FWL scan loop in :func:`_detect_hinge_breakpoints`.
+
+    That loop was a plain Python ``for c in cand:`` walking up to ``_HINGE_N_CANDIDATES`` (=24) candidates,
+    each doing a handful of numpy calls (``count_nonzero``, two matrix-vector products via ``Q @ (...)``, two
+    dot products) -- correct FWL math (see that function's docstring), but paying Python-level dispatch
+    overhead per cut on top of already-small per-cut numpy calls. A 2M-row cProfile (combo `c0412`) caught
+    `_detect_hinge_breakpoints` itself (not a callee) at 48.0s tottime / 97 calls -- the loop body running
+    directly in this function's own frame. Candidates are mutually independent given the fixed
+    ``Q``/``r_y``/``sse_B`` (computed once per round, outside this loop), so this fuses the whole scan into
+    ONE `prange`-parallel njit call: each candidate's ``n_right`` count, ``relu`` construction, and the two
+    O(n*k) projection reductions run in a private per-candidate accumulator, with the argmin taken over the
+    per-candidate SSEs afterward (avoids a cross-thread running-min race). Recomputes ``relu`` twice (once
+    accumulating ``Q.T @ relu``, once forming ``r_relu``) rather than materialising an ``(n,)`` array, to
+    keep the per-candidate working set O(k) instead of O(n) under ``prange``.
+
+    Returns ``(best_tau, best_sse)`` with ``best_tau = nan`` when no candidate clears the ``min_seg_rows`` /
+    already-found-tau gates (caller's contract for "no valid cut", mirroring the original loop's
+    ``best_tau is None``). Verified bit-identical `tau` and ~1e-14 relative `sse` (well within the FWL
+    identity's own already-documented ~1e-12 FP-reorder tolerance) against the original Python loop across
+    40 synthetic scenarios (varying `n`, design width `k`, and already-found taus) -- see
+    ``bench_hinge_cut_scan.py``. 2.4x (serial) / 14x (this parallel form) faster at n=2M/24 candidates."""
+    n = x.shape[0]
+    k = Q.shape[1]
+    m = cand.shape[0]
+    sse_out = np.full(m, np.inf)
+    for ci in prange(m):
+        c = cand[ci]
+        n_right = 0
+        for i in range(n):
+            if x[i] > c:
+                n_right += 1
+        if n_right < min_seg_rows or (n - n_right) < min_seg_rows:
+            continue
+        skip = False
+        for fi in range(found_arr.shape[0]):
+            d = c - found_arr[fi]
+            if d < 0:
+                d = -d
+            if d < 1e-9:
+                skip = True
+                break
+        if skip:
+            continue
+        qr = np.zeros(k)
+        for j in range(k):
+            s = 0.0
+            for i in range(n):
+                relu_i = x[i] - c
+                if relu_i < 0.0:
+                    relu_i = 0.0
+                s += Q[i, j] * relu_i
+            qr[j] = s
+        rr_dot_rr = 0.0
+        rr_dot_ry = 0.0
+        for i in range(n):
+            relu_i = x[i] - c
+            if relu_i < 0.0:
+                relu_i = 0.0
+            proj_i = 0.0
+            for j in range(k):
+                proj_i += Q[i, j] * qr[j]
+            r_relu_i = relu_i - proj_i
+            rr_dot_rr += r_relu_i * r_relu_i
+            rr_dot_ry += r_relu_i * r_y[i]
+        if rr_dot_rr < 1e-24:
+            sse_out[ci] = sse_B
+        else:
+            sse_out[ci] = sse_B - (rr_dot_ry * rr_dot_ry) / rr_dot_rr
+    best_ci = -1
+    best_sse = np.inf
+    for ci in range(m):
+        if sse_out[ci] < best_sse:
+            best_sse = sse_out[ci]
+            best_ci = ci
+    if best_ci < 0:
+        return np.nan, best_sse
+    return cand[best_ci], best_sse
+
+
 def _detect_hinge_breakpoints(
     x: np.ndarray,
     y: np.ndarray,
@@ -358,8 +440,6 @@ def _detect_hinge_breakpoints(
     extra_legs: list[np.ndarray] = []
     ones = np.ones_like(x)  # intercept column is invariant across every candidate cut and round; build once, not per-cut.
     for _round_idx in range(max(1, int(max_breakpoints))):
-        best_tau = None
-        best_sse = float("inf")
         # The fixed design block ``B = [1, x, *extra_legs]`` is identical across every candidate cut in this round; only the ``relu`` column varies. So we
         # QR-factor B ONCE and score each cut by the partitioned-regression (Frisch-Waugh-Lovell) identity: the SSE of regressing y on ``[B | relu]`` equals
         # ``SSE_B - (r_relu . r_y)^2 / (r_relu . r_relu)`` where ``r_relu`` / ``r_y`` are the residuals of relu / y after projecting out B (one O(n*k) projection
@@ -376,27 +456,16 @@ def _detect_hinge_breakpoints(
             Q, _ = np.linalg.qr(B)
             r_y = y - Q @ (Q.T @ y)
             sse_B = float(r_y @ r_y)
-        for c in cand:
-            # Require enough rows on each side for trustworthy segment slopes.
-            n_right = int(np.count_nonzero(x > c))
-            if n_right < _HINGE_MIN_SEG_ROWS or (n - n_right) < _HINGE_MIN_SEG_ROWS:
-                continue
-            # Skip a cut within a tiny neighbourhood of an already-found tau
-            # (re-detecting the same kink).
-            if any(abs(c - t) < 1e-9 for t in found):
-                continue
-            relu = np.maximum(x - c, 0.0)
-            r_relu = relu - Q @ (Q.T @ relu)
-            denom = float(r_relu @ r_relu)
-            if denom < 1e-24:
-                # relu lies in span(B) at this cut -> adding it cannot reduce SSE; the full-lstsq design is rank-deficient here, matching the legacy ``inf``/skip.
-                sse = sse_B
-            else:
-                num = float(r_relu @ r_y)
-                sse = sse_B - num * num / denom
-            if sse < best_sse:
-                best_sse = sse
-                best_tau = float(c)
+        # Fused prange-parallel scan over every candidate cut (see _hinge_cut_scan_njit's docstring for the
+        # rationale and A/B): replaces the per-cut Python loop (count_nonzero + two matrix-vector products +
+        # two dot products, all at Python-level dispatch cost per cut) with ONE compiled call.
+        found_arr = np.asarray(found, dtype=np.float64)
+        raw_tau, _best_sse = _hinge_cut_scan_njit(
+            np.ascontiguousarray(Q, dtype=np.float64), np.ascontiguousarray(r_y, dtype=np.float64), float(sse_B),
+            np.ascontiguousarray(x, dtype=np.float64), np.ascontiguousarray(cand, dtype=np.float64),
+            int(_HINGE_MIN_SEG_ROWS), found_arr,
+        )
+        best_tau = None if np.isnan(raw_tau) else float(raw_tau)
         if best_tau is None:
             break
         # HELD-OUT tau-validation: the 2-segment fit at best_tau must beat plain

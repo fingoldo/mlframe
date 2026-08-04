@@ -376,6 +376,31 @@ risk; `test_bootstrap_fused_binary_bundle.py`'s existing match-tests (comparing 
 which itself falls back to the SAME generic gather path in the test's reference wiring) continue to pass at
 the 1e-9 tolerance, confirming CI equivalence either way.
 
+## PERF WIN (2026-08-04): hinge breakpoint detector's per-candidate-cut scan fused into one parallel-njit call (2.4x serial / ~14x parallel on the isolated kernel)
+2M-row cProfile on combo `c0412` (cb/lgb/linear, binary classification) showed `_detect_hinge_breakpoints`
+(`_hinge_basis_fe.py`) itself — not a callee — at 48.0s tottime across 97 calls (106.5s cumtime): the
+FWL-scored per-candidate-cut loop (`for c in cand: ...`, up to `_HINGE_N_CANDIDATES`=24 cuts per round) runs
+directly in this function's own Python frame, so its cost cannot be cProfile-misattributed to a callee —
+it's real. The FWL identity itself (`SSE_B - (r_relu.r_y)^2/(r_relu.r_relu)`) was already the fast math (a
+2026-06-09 fix replaced a per-cut `lstsq`/SVD with this rank-1 update), but the per-cut Python loop still
+paid dispatch overhead on top of several already-small numpy calls (`count_nonzero`, two `Q @ (...)`
+matrix-vector products, two dot products) per candidate — candidates are mutually independent given the
+round's fixed `Q`/`r_y`/`sse_B`, exactly the fuse-into-one-parallel-njit-call pattern.
+
+Added `_hinge_cut_scan_njit` (`@njit(parallel=True)`, `prange` over candidates): each candidate's `n_right`
+count, `relu` construction, and the two O(n·k) projection reductions run in a private per-candidate
+accumulator (recomputing `relu` twice rather than materialising an `(n,)` array, to keep the per-candidate
+working set O(k) under `prange`), with the argmin taken over the per-candidate SSEs afterward (avoids a
+cross-thread running-min race). Wired into both `_detect_hinge_breakpoints` call sites (round 0's reused
+precheck QR and every later round's fresh QR) — the round loop no longer has an inline candidate scan at
+all. Verified bit-identical `tau` and ~1e-14 relative `sse` (well within the FWL identity's own already-
+documented ~1e-12 FP-reorder tolerance) against the original Python loop across 40 synthetic scenarios
+(varying `n`, design width, already-found taus) — `bench_hinge_cut_scan.py`. 2.38x on the isolated kernel at
+n=2M/24 candidates (serial njit vs the original numpy loop), ~14.2x with `parallel=True`. Full hinge test
+suite (27 tests across `test_hinge_basis_fe.py`, GPU-resident upload/subsample, provenance, mrmr-gate) passes
+unchanged, incl. `test_detect_hinge_fwl_rank1_taus_bit_identical_to_lstsq_per_cut` — the exact test pinning
+the bit-identity contract this fusion had to preserve.
+
 ## PERF WIN (2026-08-02): per_feature_edges' thread-pool threshold was 64x too high for real usage (1.2x-7.2x)
 2M-row cProfile on combo `c0037_c314bb14` (master-seed `2026_04_29`) found `per_feature_edges`/
 `_compute_col_edges` (`_adaptive_nbins.py`) costing 78s wall on a `fayyad_irani` (MDLP) fit with
