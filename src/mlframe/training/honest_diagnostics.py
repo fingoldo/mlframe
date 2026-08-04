@@ -323,10 +323,13 @@ def _calibration_block(model_entry: Any, target_name: str, out_dir: Optional[str
     oof_arr = _safe_arr(oof)
     if oof_arr is None:
         return {"status": "skipped", "reason": "oof_probs empty / unreadable", "probs_posthoc_calibrated": _posthoc}
-    # OOF target: prefer attached attribute, fall back to test_target as poor-but-consistent proxy.
+    # OOF target: must be the target actually aligned to oof_probs' TRAIN-row order. A prior
+    # fallback to test_target here silently paired oof_probs[i] (a train-row prediction) with
+    # test_target[i] (an unrelated test-split label) whenever both arrays happened to be truncated
+    # to the same length -- a positional coincidence, not a real correspondence -- producing a
+    # meaningless calibration/ECE diagnostic reported as status=ok. No safe proxy exists; skip
+    # cleanly when oof_target is genuinely absent, matching every other skip path in this function.
     y = getattr(model_entry, "oof_target", None)
-    if y is None:
-        y = getattr(model_entry, "test_target", None)
     y_arr = _safe_arr(y)
     if y_arr is None or y_arr.size < 4:
         return {"status": "skipped", "reason": "oof_target absent / too small"}

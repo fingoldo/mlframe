@@ -83,8 +83,27 @@ def compute_numerical_aggregates_numba(
 
     size = len(arr)
     # Empty input would IndexError on arr[0] / arr[-1]; callers usually guard upstream (compute_numaggs short-circuits at len<=1) but the kernel is exported in __all__ so accept the corner.
+    # A hardcoded [0.0] here broke the documented fixed-width output contract get_basic_feature_names()
+    # relies on for column-name alignment: the returned vector's length must depend only on which
+    # return_* flags are set, not on whether arr happened to be empty. Recurse on a single degenerate
+    # zero element instead (size=1, so this branch cannot recurse again) -- it flows through the exact
+    # same flag-driven branches as any real call, producing a correctly-sized (if meaningless) result.
     if size == 0:
-        return [0.0]
+        # `cast()` is NOT numba-nopython-compatible (this function body is @njit-compiled) --
+        # `# type: ignore` is a comment, invisible to numba's AST pass, so it is the only mypy
+        # satisfier usable inside this function.
+        return compute_numerical_aggregates_numba(  # type: ignore[no-any-return]
+            np.zeros(1, dtype=arr.dtype),
+            weights if weights is None else np.ones(1, dtype=weights.dtype),
+            geomean_log_mode,
+            directional_only,
+            whiten_means,
+            return_drawdown_stats,
+            return_profit_factor,
+            return_n_zer_pos_int,
+            return_exotic_means,
+            return_unsorted_stats,
+        )
 
     first = arr[0]
     last = arr[-1]
