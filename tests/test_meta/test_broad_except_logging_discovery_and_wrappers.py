@@ -92,15 +92,16 @@ def test_fit_ram_phase_log_logs_on_memory_probe_failure(caplog, monkeypatch):
 
 
 def test_discovery_ktc_dispatch_get_cache_logs_on_import_failure(caplog):
-    """`_get_cache` (discovery variant) must log when the pyutilz import fails."""
+    """``get_ktc_cache`` (shared helper, imported into the discovery dispatch module) must log
+    when the pyutilz import fails."""
     import sys
     import mlframe.training.composite.discovery._ktc_dispatch as kd
 
     real_mod = sys.modules.pop("mlframe.feature_selection.filters", None)
     sys.modules["mlframe.feature_selection.filters"] = None
     try:
-        with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite.discovery._ktc_dispatch"):
-            out = kd._get_cache()
+        with caplog.at_level(logging.DEBUG, logger="mlframe._ktc_dispatch_shared"):
+            out = kd.get_ktc_cache()
     finally:
         sys.modules.pop("mlframe.feature_selection.filters", None)
         if real_mod is not None:

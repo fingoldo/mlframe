@@ -65,7 +65,7 @@ _BASE_MEAN_FLOOR = 1e-6
 _MARGIN_CLIP = 80.0
 
 
-from ._composite_utils import is_polars_df_logged as _is_polars_df  # noqa: F401 -- re-exported for tests/test_meta/test_audit_baseline_debt_wave10_logging.py
+from ._composite_utils import is_polars_df_logged as _is_polars_df  # noqa: F401 -- re-exported for tests/test_meta/test_broad_except_logging_gpu_ktc_and_composite_models.py
 
 
 def _inner_raw_margin(model: Any, X: Any) -> np.ndarray:

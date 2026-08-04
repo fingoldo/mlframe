@@ -11,6 +11,8 @@ otherwise fail collection through no fault of the wave-13 edits.
 
 from __future__ import annotations
 
+import logging
+
 import mlframe
 
 _MLFRAME_SRC_DIR = mlframe.__path__[0]
@@ -30,8 +32,11 @@ def test_bench_arch_d_free_ram_bytes_logs_on_failure():
 
 
 def test_bench_content_fingerprint_rss_mb_logs_on_failure():
-    """`_rss_mb` must log on a psutil probe failure."""
-    assert "_rss_mb: psutil probe failed" in _read("training/_benchmarks/bench_content_fingerprint.py")
+    """`_rss_mb` delegates to the shared ``mlframe._bench_rmse_shared.rss_mb`` (extracted by
+    9912bbf40), whose own psutil-probe-failure logging is exercised behaviorally in
+    ``test_bench_rmse_shared_rss_mb_logs_on_failure`` below -- this just pins the delegation."""
+    src = _read("training/_benchmarks/bench_content_fingerprint.py")
+    assert "from mlframe._bench_rmse_shared import" in src and "rss_mb" in src
 
 
 def test_bench_drift_value_counts_microbench_logs_on_failure():
@@ -40,8 +45,32 @@ def test_bench_drift_value_counts_microbench_logs_on_failure():
 
 
 def test_bench_lgb_dataset_polars_bridge_rss_mb_logs_on_failure():
-    """`_rss_mb` must log on a psutil probe failure."""
-    assert "_rss_mb: psutil probe failed" in _read("training/_benchmarks/bench_lgb_dataset_polars_bridge.py")
+    """`_rss_mb` delegates to the shared ``mlframe._bench_rmse_shared.rss_mb`` (extracted by
+    9912bbf40), whose own psutil-probe-failure logging is exercised behaviorally in
+    ``test_bench_rmse_shared_rss_mb_logs_on_failure`` below -- this just pins the delegation."""
+    src = _read("training/_benchmarks/bench_lgb_dataset_polars_bridge.py")
+    assert "from mlframe._bench_rmse_shared import" in src and "rss_mb" in src
+
+
+def test_bench_rmse_shared_rss_mb_logs_on_failure(caplog):
+    """The shared ``rss_mb`` helper (used by both bench_content_fingerprint.py and
+    bench_lgb_dataset_polars_bridge.py above) must log and return NaN on a psutil probe failure."""
+    import math
+    import sys
+
+    from mlframe._bench_rmse_shared import rss_mb
+
+    real_psutil = sys.modules.pop("psutil", None)
+    sys.modules["psutil"] = None  # importing a None entry raises ImportError
+    try:
+        with caplog.at_level(logging.DEBUG, logger="mlframe._bench_rmse_shared"):
+            out = rss_mb(logging.getLogger("mlframe._bench_rmse_shared"))
+    finally:
+        sys.modules.pop("psutil", None)
+        if real_psutil is not None:
+            sys.modules["psutil"] = real_psutil
+    assert math.isnan(out)
+    assert any("rss_mb: psutil probe failed" in rec.message for rec in caplog.records)
 
 
 def test_bench_adaptive_nbins_ab_logs_on_failure():

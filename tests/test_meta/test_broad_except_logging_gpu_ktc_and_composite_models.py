@@ -59,15 +59,16 @@ def test_recursion_autotune_code_version_logs_on_failure(caplog):
 
 
 def test_inference_ktc_dispatch_get_cache_logs_on_import_failure(caplog):
-    """`_get_cache` must log when the pyutilz import fails."""
+    """``get_ktc_cache`` (shared helper, formerly a per-module ``_get_cache``) must log when the
+    pyutilz import fails."""
     import sys
-    import mlframe.inference._ktc_dispatch as kd
+    from mlframe._ktc_dispatch_shared import get_ktc_cache
 
     real_mod = sys.modules.pop("mlframe.feature_selection.filters", None)
     sys.modules["mlframe.feature_selection.filters"] = None
     try:
-        with caplog.at_level(logging.DEBUG, logger="mlframe.inference._ktc_dispatch"):
-            out = kd._get_cache()
+        with caplog.at_level(logging.DEBUG, logger="mlframe._ktc_dispatch_shared"):
+            out = get_ktc_cache()
     finally:
         sys.modules.pop("mlframe.feature_selection.filters", None)
         if real_mod is not None:
@@ -260,15 +261,16 @@ def test_utils_misc_restore_caller_frame_columns_logs_on_failure(caplog):
 
 
 def test_votenrank_confidence_blend_get_cache_logs_on_import_failure(caplog):
-    """`_get_cache` (votenrank variant) must log when the pyutilz import fails."""
+    """``get_ktc_cache`` (shared helper, imported into the votenrank dispatch module) must log
+    when the pyutilz import fails."""
     import sys
     import mlframe.votenrank._confidence_gated_blend_ktc_dispatch as vcd
 
     real_mod = sys.modules.pop("mlframe.feature_selection.filters", None)
     sys.modules["mlframe.feature_selection.filters"] = None
     try:
-        with caplog.at_level(logging.DEBUG, logger="mlframe.votenrank._confidence_gated_blend_ktc_dispatch"):
-            out = vcd._get_cache()
+        with caplog.at_level(logging.DEBUG, logger="mlframe._ktc_dispatch_shared"):
+            out = vcd.get_ktc_cache()
     finally:
         sys.modules.pop("mlframe.feature_selection.filters", None)
         if real_mod is not None:
