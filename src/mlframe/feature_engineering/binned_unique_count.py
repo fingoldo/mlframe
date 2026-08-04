@@ -96,7 +96,12 @@ def binned_unique_count(
     # np.unique() the key array ONCE (drops duplicate (entity, bin) pairs globally), then count how many
     # surviving distinct-key rows belong to each entity via np.bincount -- O(n) total instead of O(n_entities)
     # separate reductions.
-    combined_key = entity_codes[valid].astype(np.int64) * n_bins_total + bin_codes[valid].astype(np.int64)
+    # pd.factorize maps a NaN/missing entity_col label to the sentinel code -1; combined with a
+    # valid (finite) value_col observation, that sentinel flowed unmasked into combined_key (going
+    # negative) and then into np.bincount, which requires non-negative integers and raised
+    # ValueError. Exclude NaN-entity rows from the count the same way NaN-value rows already are.
+    valid_key_rows = valid & (entity_codes != -1)
+    combined_key = entity_codes[valid_key_rows].astype(np.int64) * n_bins_total + bin_codes[valid_key_rows].astype(np.int64)
     unique_keys = np.unique(combined_key)
     unique_entity_codes = unique_keys // n_bins_total
     counts = np.bincount(unique_entity_codes, minlength=len(entities)).astype(np.int64)

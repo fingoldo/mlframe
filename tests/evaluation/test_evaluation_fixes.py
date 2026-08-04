@@ -65,6 +65,40 @@ def test_f1_pos_label_not_clobbered_across_estimators():
 
 
 # ---------------------------------------------------------------------------
+# COMPETITION_EVALUATION-2 (2026-08-05 audit): classification_thresholds crashed for classifiers
+# ---------------------------------------------------------------------------
+
+
+def test_classification_thresholds_does_not_crash_for_a_classifier():
+    """classification_thresholds is documented (and used by the regressor branch) as a plain list of
+    per-class representative values; the classifier branch fed that list directly to Series.map(),
+    which requires a dict/callable/Series, crashing with TypeError: 'list' object is not callable."""
+    from sklearn.linear_model import LogisticRegression
+
+    from mlframe.evaluation.reports import evaluate_estimators
+
+    rng = np.random.default_rng(0)
+    n = 200
+    X_train = pd.DataFrame(rng.normal(size=(n, 4)), columns=[f"f{i}" for i in range(4)])
+    y_train = (X_train["f0"].to_numpy() + rng.normal(scale=0.2, size=n) > 0).astype(np.int64)
+    X_test = pd.DataFrame(rng.normal(size=(100, 4)), columns=[f"f{i}" for i in range(4)])
+    y_test = (X_test["f0"].to_numpy() + rng.normal(scale=0.2, size=100) > 0).astype(np.int64)
+
+    results_log = {"results": {}}
+    # pre-fix: TypeError: 'list' object is not callable, raised from inside Series.map(classification_thresholds).
+    evaluate_estimators(
+        X_train, X_test, y_train, y_test,
+        estimators=[LogisticRegression(max_iter=200, random_state=0)],
+        classification_thresholds=[0.0, 100.0],
+        show_calibration_plot=False,
+        show_confusion_matrix=False,
+        plot=False,
+        results_log=results_log,
+    )
+    assert "classification_report_dict" in results_log["results"]
+
+
+# ---------------------------------------------------------------------------
 # F2 / F9 / PR1: optimize_group_blend_weight didn't actually hold previously-tuned groups fixed
 # ---------------------------------------------------------------------------
 

@@ -61,6 +61,7 @@ def assert_no_group_leakage(
         the count of flagged test rows, and the closest observed distance/similarity.
     """
     groups = np.asarray(groups)
+    cv_splits = list(cv_splits)
     for fold_idx, (train_idx, test_idx) in enumerate(cv_splits):
         train_groups = set(groups[train_idx].tolist())
         test_groups = set(groups[test_idx].tolist())

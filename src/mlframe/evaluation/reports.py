@@ -286,7 +286,12 @@ def evaluate_estimators(
                         _bal_acc = balanced_accuracy_score(y_test_test, preds)
                     mes = f"Balanced accuracy on {test_size} samples: {_bal_acc:.2%}"
                     if classification_thresholds is not None:
-                        mes += "\n" + regression_stats(pd.Series(y_test_test).map(classification_thresholds), pd.Series(preds).map(classification_thresholds))
+                        # classification_thresholds is documented as a list (see the regressor branch below,
+                        # which uses it as bin-edge cut points): class index i's representative value is
+                        # classification_thresholds[i]. Series.map() needs a dict/callable/Series, not a bare
+                        # list -- passing the list directly raised "TypeError: 'list' object is not callable".
+                        _thresholds_map = dict(enumerate(classification_thresholds))
+                        mes += "\n" + regression_stats(pd.Series(y_test_test).map(_thresholds_map), pd.Series(preds).map(_thresholds_map))
 
                 else:
 
