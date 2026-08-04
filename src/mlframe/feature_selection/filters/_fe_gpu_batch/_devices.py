@@ -141,11 +141,15 @@ def _profile_device(device: int) -> "DeviceProfile":
         device=int(device),
         free_vram=int(free),
         total_vram=int(total),
-        sm_count=int(_p("multiProcessorCount", 1) or 1),
-        clock_khz=int(_p("clockRate", 1) or 1),
-        shared_per_block=int(_p("sharedMemPerBlock", 48 * 1024) or (48 * 1024)),
-        cc_major=int(_p("major", 6) or 6),
-        cc_minor=int(_p("minor", 0) or 0),
+        # _p() already resolves missing/None keys to the given default; an outer ``or default``
+        # here would additionally clobber a legitimately-returned 0 (e.g. compute capability
+        # minor version 0, as in sm_80/sm_90) with that same default, so it is intentionally
+        # NOT repeated -- see the default_via_or code-audit finding this comment documents.
+        sm_count=int(_p("multiProcessorCount", 1)),
+        clock_khz=int(_p("clockRate", 1)),
+        shared_per_block=int(_p("sharedMemPerBlock", 48 * 1024)),
+        cc_major=int(_p("major", 6)),
+        cc_minor=int(_p("minor", 0)),
     )
 
 
