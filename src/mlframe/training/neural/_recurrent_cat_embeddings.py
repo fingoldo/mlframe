@@ -88,7 +88,12 @@ class _RecurrentCatEmbeddingMixin:
         for col, card in zip(self._cat_cols_, self._cat_cardinalities_):
             if col not in features.columns:
                 continue
-            mapped = features[col].map(code_maps[col])
+            # ``.astype(object)`` BEFORE ``.map``: Series.map on a pandas CATEGORICAL column returns a Categorical (it maps the categories
+            # and keeps the dtype), so the ``.fillna(card)`` unknown-code fill below would try to add ``card`` as a NEW category and raise
+            # "Cannot setitem on a Categorical with a new category". Mapping the plain object values yields a numeric/object Series whose NaN
+            # fill (values unseen at fit) lands as the reserved unknown code, never a new category. Mirrors the flat-MLP fix in
+            # ``base/_base_fit_prep.py::_apply_cat_codes``.
+            mapped = features[col].astype(object).map(code_maps[col])
             encoded_cols[col] = mapped.fillna(float(card)).astype(np.float32)
         other_cols = [c for c in features.columns if c not in self._cat_cols_]
         ordered = [c for c in self._cat_cols_ if c in features.columns] + other_cols

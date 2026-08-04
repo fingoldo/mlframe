@@ -349,6 +349,24 @@ def test_f6_group_bias_correction_warns_on_nan_group(caplog):
     assert "nan" not in ratios  # the NaN row is excluded, not silently keyed as a string
 
 
+def test_f6_group_bias_correction_object_dtype_none_group_excluded(caplog):
+    """A None/NaN group label in an OBJECT/STRING-dtype group array must be excluded (like the
+    float-dtype path), not stringified to the literal "None"/"nan" and fitted as a real group."""
+    from mlframe.calibration.group_bias_correction import fit_group_bias_correction
+
+    rng = np.random.default_rng(1)
+    n = 100
+    group = rng.choice(np.array(["a", "b", "c"], dtype=object), size=n)
+    group[5] = None  # pre-fix: str(None) -> "None", a spurious fitted group
+    y_pred = rng.uniform(1.0, 5.0, size=n)
+    y_true = y_pred * 1.1
+
+    with caplog.at_level(logging.WARNING, logger="mlframe.calibration.group_bias_correction"):
+        ratios = fit_group_bias_correction(y_true, y_pred, group, min_group_size=1, clip_range=None)
+    assert any("NaN group label" in r.getMessage() for r in caplog.records)
+    assert "None" not in ratios and "none" not in ratios
+
+
 def test_f6_group_zero_sum_constraint_warns_on_nan_group(caplog):
     """F6: group zero sum constraint warns on nan group."""
     from mlframe.calibration.group_zero_sum_constraint import apply_group_zero_sum_constraint

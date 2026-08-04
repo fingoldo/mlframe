@@ -96,7 +96,7 @@ class _FitMixin(_FitPrepMixin):
 
         # Factorize raw categorical columns to integer codes (reordered leading) BEFORE validation, so the learnable ``CategoricalEmbedding``
         # can index them and ``_validate_no_nan_inf`` sees a pure-numeric frame. No-op when no ``cat_features`` are named or the knob is off.
-        X, eval_set = self._factorize_cats_fit(X, eval_set, fit_params)
+        X, eval_set = self._factorize_cats_fit(X, eval_set, fit_params, is_partial_fit=is_partial_fit)
 
         # F-06 (2026-05-30): sklearn-canonical reproducibility seed. When
         # ``random_state`` is an int, seed torch + numpy + Python random +

@@ -32,7 +32,11 @@ def _canonical_group_key_series(group: np.ndarray) -> pd.Series:
         keys = np.where(is_whole, safe_int_arr.astype(str), arr.astype(str)).astype(object)
         keys[is_nan] = np.nan
         return pd.Series(keys)
-    return pd.Series(arr).astype(str)
+    ser = pd.Series(arr)
+    is_missing = ser.isna()
+    keys_obj = ser.astype(str).astype(object)
+    keys_obj[is_missing] = np.nan
+    return keys_obj
 
 
 def fit_group_bias_correction(

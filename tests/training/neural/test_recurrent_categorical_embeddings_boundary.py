@@ -243,3 +243,33 @@ def test_biz_value_learnable_embeddings_beat_ordinal_on_nonmonotone_signal():
     assert (
         rmse_emb < rmse_ord / 1.10
     ), f"learnable embeddings (RMSE {rmse_emb:.4f}) should beat ordinal cat-code (RMSE {rmse_ord:.4f}) by >=1.10x on the non-monotone signal"
+
+
+def test_categorical_dtype_cat_predict_routes_unseen_without_setitem_error():
+    """Regression: a pandas CATEGORICAL-dtype cat column (not object/string) must not raise on
+    predict. ``_apply_cat_codes`` did ``features[col].map(mapping)``, which on a Categorical
+    RETURNS a Categorical, so ``.fillna(reserved_code)`` then raised "Cannot setitem on a
+    Categorical with a new category" -- the exact bug already fixed in the sibling flat-MLP
+    ``_apply_cat_codes`` (``base/_base_fit_prep.py``) but never ported to the recurrent path.
+    Fit + predict on an int Categorical-dtype column, including an all-UNSEEN level at predict
+    that must route to the reserved code, must not raise.
+    """
+    rng = np.random.default_rng(4)
+    n = 96
+    feats = pd.DataFrame(
+        {
+            "num_a": rng.normal(size=n).astype(np.float32),
+            "c": pd.Categorical(rng.integers(0, 7, size=n)),  # int Categorical DTYPE, cardinality 7
+        }
+    )
+    seqs = [rng.normal(size=(int(rng.integers(3, 8)), 2)).astype(np.float32) for _ in range(n)]
+    y = rng.normal(size=n).astype(np.float32)
+    reg = RecurrentRegressorWrapper(config=_cfg(), random_state=42)
+    reg.fit(features=feats, labels=y, sequences=seqs, cat_features=["c"])
+    preds = np.asarray(reg.predict(features=feats, sequences=seqs))  # pre-fix: raised on the Categorical column
+    assert preds.shape == (n,) and np.all(np.isfinite(preds))
+
+    feats_unseen = feats.copy()
+    feats_unseen["c"] = pd.Categorical(np.full(n, 999))  # all-UNSEEN level -> every cell routes to the reserved code
+    preds2 = np.asarray(reg.predict(features=feats_unseen, sequences=seqs))
+    assert preds2.shape == (n,) and np.all(np.isfinite(preds2))

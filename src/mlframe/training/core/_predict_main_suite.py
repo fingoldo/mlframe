@@ -88,7 +88,8 @@ def predict_mlframe_models_suite(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .predict import _apply_extensions_pipeline, _apply_row_wise_extensions, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _validate_metadata_version_envelope
+    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _apply_row_wise_extensions, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _validate_metadata_version_envelope
+    from ..composite import CompositeTargetEstimator as _CTE_cls
     from ..pipeline._categorical_composite_fe import replay_categorical_composite_fe
     from ..pipeline._entity_time_composite_fe import replay_entity_time_composite_fe
     from ..pipeline._cross_sectional_composite_fe import replay_cross_sectional_composite_fe
@@ -240,6 +241,13 @@ def predict_mlframe_models_suite(
 
     df = _validate_input_columns_against_metadata(df, metadata, verbose=bool(verbose))
 
+    # Preserve the pre-main-pipeline frame: CompositeTargetEstimator.predict() reads its base
+    # column directly from X to apply the fitted inverse transform (e.g. linear_residual:
+    # y = t_hat + alpha*base + beta), with alpha/beta fit on the RAW base column at discovery
+    # time. Also doubles as the fallback for models whose internal categorical handling crashes
+    # on the post-pipeline encoded form. Mirrors predict_from_models's df_pre_pipeline exactly.
+    df_pre_pipeline = df
+
     if pipeline is not None:
         if verbose:
             logger.info("Applying pipeline transformation...")
@@ -350,38 +358,35 @@ def predict_mlframe_models_suite(
             # in ``_phase_train_one_target`` so two non-native models hit the cache after the first conversion).
             if isinstance(input_for_model, pl.DataFrame) and not _is_polars_native_model(model_obj):
                 input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
-            if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
-                if model_obj.pre_pipeline != pipeline:
-                    # Unified fitted-pipeline check (matches predict_from_models).
-                    # Tree models with a polars-ds main pipeline often carry an
-                    # UNFITTED placeholder sklearn Pipeline in pre_pipeline; calling
-                    # transform on it raises NotFittedError.
-                    from sklearn.utils.validation import check_is_fitted
-                    try:
-                        check_is_fitted(model_obj.pre_pipeline)
-                        _pp_fitted = True
-                    except Exception as e:
-                        logger.debug("check_is_fitted(pre_pipeline) failed: %s", e)
-                        # ``Exception`` already subsumes NotFittedError; listing both is redundant. The
-                        # broad catch is intentional - any check_is_fitted internal raise means "not safely
-                        # fitted; skip transform".
-                        _pp_fitted = False
-                    if _pp_fitted:
-                        try:
-                            input_for_model = model_obj.pre_pipeline.transform(input_for_model)
-                        except Exception as _pp_exc:
-                            log_throttle(
-                                logger, "predict_suite_pre_pipeline_transform_failed", logging.WARNING,
-                                "predict_mlframe_models_suite: %s pre_pipeline.transform " "raised %s: %s. Skipping pre_pipeline.",
-                                model_name,
-                                type(_pp_exc).__name__,
-                                str(_pp_exc).splitlines()[0][:160],
-                            )
-                    elif verbose:
-                        logger.debug(
-                            "predict_mlframe_models_suite: %s has unfitted " "pre_pipeline; skipping .transform.",
-                            model_name,
-                        )
+            # Shared with predict_from_models: text/embedding passthrough stash + feature-subset
+            # fallback + the value-transform re-raise safety net (a FITTED value-transforming
+            # pre_pipeline that fails to transform must drop the model, not silently serve it
+            # un-transformed columns).
+            input_for_model = _apply_pre_pipeline_with_passthrough(
+                input_for_model,
+                model=model,
+                model_obj=model_obj,
+                pipeline=pipeline,
+                df=df,
+                df_pre_pipeline=df_pre_pipeline,
+                metadata=metadata,
+                model_name=model_name,
+                verbose=verbose,
+            )
+
+            # CTE-RAW-X: CompositeTargetEstimator.predict() reads its base column directly from X
+            # to apply the fitted inverse transform (e.g. linear_residual: y = t_hat + alpha*base +
+            # beta); alpha/beta were fit on the RAW base column, but input_for_model is the
+            # pre-pipeline-scaled frame (base column z-scored), which degenerates the inverse to
+            # y_hat ~ t_hat -- predictions silently stay in residual/T scale. Hand the wrapper the
+            # RAW pre-pipeline frame instead; every other (non-composite) estimator stays on the
+            # normal post-pipeline path.
+            if isinstance(model, _CTE_cls):
+                _primary_for_model = df_pre_pipeline
+                if isinstance(_primary_for_model, pl.DataFrame) and not _is_polars_native_model(model_obj):
+                    _primary_for_model = _ensure_pandas_view(_primary_for_model, _pandas_view_cache)
+            else:
+                _primary_for_model = input_for_model
 
             if return_probabilities and hasattr(model, "predict_proba"):
                 # Route through _predict_with_fallback so the same predict-time guards used at training (CB val Pool
@@ -389,15 +394,15 @@ def predict_mlframe_models_suite(
                 # uniformly at inference. Direct model.predict_proba bypassed the CB pool cache -- 50-70s/predict on
                 # 7M rows.
                 try:
-                    probs = np.asarray(_predict_with_fallback(model, input_for_model, method="predict_proba", verbose=bool(verbose)))
+                    probs = np.asarray(_predict_with_fallback(model, _primary_for_model, method="predict_proba", verbose=bool(verbose)))
                 except (TypeError, ValueError, AttributeError) as _polars_exc:
-                    if isinstance(input_for_model, pl.DataFrame):
+                    if isinstance(_primary_for_model, pl.DataFrame):
                         log_throttle(
                             logger, "predict_suite_predict_proba_polars_failed", logging.WARNING,
                             "predict_proba on polars frame failed with %s: %s; retrying via pandas view.", type(_polars_exc).__name__, str(_polars_exc).splitlines()[0][:160],
                         )
-                        input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
-                        probs = np.asarray(_predict_with_fallback(model, input_for_model, method="predict_proba", verbose=bool(verbose)))
+                        _primary_for_model = _ensure_pandas_view(_primary_for_model, _pandas_view_cache)
+                        probs = np.asarray(_predict_with_fallback(model, _primary_for_model, method="predict_proba", verbose=bool(verbose)))
                     else:
                         raise
                 results["probabilities"][model_name] = probs
@@ -432,15 +437,15 @@ def predict_mlframe_models_suite(
                 per_target_preds.setdefault((_tt, _tn), []).append(preds)
             else:
                 try:
-                    preds = np.asarray(_predict_with_fallback(model, input_for_model, method="predict", verbose=bool(verbose)))
+                    preds = np.asarray(_predict_with_fallback(model, _primary_for_model, method="predict", verbose=bool(verbose)))
                 except (TypeError, ValueError, AttributeError) as _polars_exc:
-                    if isinstance(input_for_model, pl.DataFrame):
+                    if isinstance(_primary_for_model, pl.DataFrame):
                         log_throttle(
                             logger, "predict_suite_predict_polars_failed", logging.WARNING,
                             "predict on polars frame failed with %s: %s; retrying via pandas view.", type(_polars_exc).__name__, str(_polars_exc).splitlines()[0][:160],
                         )
-                        input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
-                        preds = np.asarray(_predict_with_fallback(model, input_for_model, method="predict", verbose=bool(verbose)))
+                        _primary_for_model = _ensure_pandas_view(_primary_for_model, _pandas_view_cache)
+                        preds = np.asarray(_predict_with_fallback(model, _primary_for_model, method="predict", verbose=bool(verbose)))
                     else:
                         raise
                 results["predictions"][model_name] = preds
