@@ -474,7 +474,13 @@ def _column_names(*args, **kwargs):
 def _ranked_top_features(names, feature_importances, k):
     """Top-``k`` feature names ranked by importance when available, else the first ``k`` names (mirrors pdp_ice)."""
     if feature_importances is not None and len(feature_importances) == len(names):
-        order = np.argsort(np.asarray(feature_importances, dtype=np.float64))[::-1]
+        importances = np.asarray(feature_importances, dtype=np.float64)
+        # np.argsort sorts NaN LAST (ascending); the prior `[::-1]` reversal then put NaN-importance
+        # features FIRST -- picked as top-ranked instead of excluded. Sort ascending by a NaN-safe
+        # descending key (-x for finite values, so ascending order of the key is descending order of
+        # importance; NaN mapped to +inf so it sinks to the very end regardless).
+        sort_key = np.where(np.isnan(importances), np.inf, -importances)
+        order = np.argsort(sort_key)
         return [names[int(i)] for i in order][:k]
     return list(names)[:k]
 
@@ -493,17 +499,34 @@ def _first_group_column(df, names, max_card: int = 50):
             logger.debug("suppressed: %s", e)
             continue
         dt = getattr(col, "dtype", None)
-        if str(dt) == "category":
+        dt_str = str(dt)
+        # pandas category dtype OR polars Categorical/Enum (str(dtype) is "Categorical(...)"/"Enum(...)").
+        if dt_str == "category" or dt_str.startswith("Categorical") or dt_str.startswith("Enum"):
             try:
-                if 2 <= len(col.cat.categories) <= max_card:
+                if hasattr(col, "cat"):
+                    card = len(col.cat.categories)  # pandas
+                elif hasattr(col, "n_unique"):
+                    card = col.n_unique()  # polars
+                else:
+                    continue
+                if 2 <= card <= max_card:
                     return c
             except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
                 logger.debug("suppressed: %s", e)
                 continue
-        elif dt is object or str(dt).startswith("string"):
+        # `dt is object` compares the dtype INSTANCE by identity against the Python builtin `object`
+        # TYPE, which a pandas object-dtype (numpy.dtype('O')) never satisfies -- this branch was
+        # unreachable for object-dtype columns. Use equality (numpy defines dtype == object
+        # meaningfully) plus explicit string-dtype coverage for pandas' "string"/polars' "String"/"Utf8".
+        elif dt == object or dt_str.startswith("string") or dt_str in ("Utf8", "String"):  # noqa: E721 -- `is` genuinely does not work here (numpy.dtype('O') is object is False); that was the bug just fixed above.
             try:
                 head = col.head(20_000) if hasattr(col, "head") else col
-                nun = int(head.nunique(dropna=True)) if hasattr(head, "nunique") else 0
+                if hasattr(head, "nunique"):
+                    nun = int(head.nunique(dropna=True))  # pandas
+                elif hasattr(head, "n_unique"):
+                    nun = int(head.n_unique())  # polars
+                else:
+                    nun = 0
                 if 2 <= nun <= max_card:
                     return c
             except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
