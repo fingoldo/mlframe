@@ -401,6 +401,52 @@ suite (27 tests across `test_hinge_basis_fe.py`, GPU-resident upload/subsample, 
 unchanged, incl. `test_detect_hinge_fwl_rank1_taus_bit_identical_to_lstsq_per_cut` — the exact test pinning
 the bit-identity contract this fusion had to preserve.
 
+## LIVE BUG CAUGHT (2026-08-04): target-encoding's per-category skew/kurt catastrophically wrong on real (large-offset) regression targets — third instance of a bug class this session
+While auditing a fresh 2M-row cProfile (combo `c0392`) hotspot, `_target_encoding_fe.py:_raw_moment_sums`
+turned out to use the SAME raw-power-sum + textbook-binomial-expansion formula for per-category skew/kurt
+already proven catastrophically unstable TWICE earlier this session (`_binned_numeric_agg_fe.py`'s
+`_global_stats_all`/`_derive_cell_stats`, and the still-open follow-up on `_derive_cell_stats`'s own
+per-cell path). A/B against scipy's direct per-category skew/kurt confirmed it live here too: errors up to
+**5.8e13** on synthetic data with a large offset relative to spread (offset~8.5e3, scale~0.05-0.08) —
+exactly the shape of a real regression target (price, revenue, counts: rarely centred at 0). `stats=(...,
+"skew","kurt")` is opt-in (default `stats=("mean",)`), so the blast radius is every caller that explicitly
+requests higher target-encoding moments, not every target-encoding call.
+
+Fixed with the SAME numerically-stable two-pass pattern as the earlier fixes: `_per_cat_centered_moments_njit`
+(njit, mean pass then one fused pass accumulating centred `(y-mean)**2/3/4` directly — no algebraic
+expansion, no cancellation) + `_smooth_moments_from_centered` (derives std/skew/kurt from those centred
+moments, replacing `_raw_moment_sums`/`_smooth_moments_from_sums` entirely — only this one file used them).
+
+SECOND bug found in the SAME derivation, distinct from cancellation: the old formula padded the skew/kurt
+denominator with an additive `+1e-12` epsilon (`std**3 + 1e-12`, `var*var + 1e-12`) meant to guard
+div-by-zero — but once the numerator/denominator are computed stably (not near-zero, just SMALL, e.g.
+var~1e-6 so var²~1e-12), that epsilon is on the same order as the true denominator and corrupts the result
+by ~30-100% even with zero cancellation error. Caught via a debug trace showing the njit kernel's raw
+moments were correct (`_per_cat_centered_moments_njit`'s own output matched scipy to 1e-10) while the
+DERIVED kurt was still wrong by ~0.8 — the bug was downstream, in the epsilon-padded division, not the
+moment computation. Fixed by dropping the `+eps` pad entirely: the existing `np.where(var > 1e-12, ...)` /
+`np.where(std > 1e-9, ...)` guards already bound the denominator away from zero before it's used, so the
+additive pad was pure liability once the numerator computation stopped needing defensive padding.
+
+Also had to change the OOF fold structure: the old code exploited raw-power-sum ADDITIVITY (`train =
+full - test`) to give each fold an O(n/n_folds) test-only pass instead of an O(n_train) rescan — centred
+moments are NOT additive across row subsets (a subset's own mean differs from the full-data mean, so
+`moments(full) - moments(test) != moments(train)` for any centred quantity), so each fold's TRAIN moments
+are now computed directly via the already-available `train_mask` (no extra computation needed to obtain
+it — it already existed in the loop, just wasn't being used for this). Correctness over the old (buggy)
+row-visit-count optimization.
+
+Added `test_skew_kurt_stable_on_large_offset_small_scale_target` (pins per-category skew/kurt against
+scipy's direct computation on exactly this large-offset regime) to `test_multistat_target_encoding.py`.
+Full target-encoding suite (39 tests across `target_encoding/` + the mrmr biz_val kfold-TE suite) passes.
+
+OPEN FOLLOW-UP (unchanged from the earlier entry): `_binned_numeric_agg_fe.py`'s `_derive_cell_stats` still
+uses the original catastrophically-unstable raw-moment-expansion formula for its per-cell skew/kurt and has
+not yet been fixed — now THREE confirmed/suspected instances of this exact bug class across the codebase
+(`_global_stats_all` fixed, target-encoding fixed here, `_derive_cell_stats` still open). Worth a dedicated
+sweep for any other `s3 = ... ; m3 = s3/n - 3*mean*(s2/n) + 2*mean**3`-shaped code before assuming these
+three are the only occurrences.
+
 ## PERF WIN (2026-08-02): per_feature_edges' thread-pool threshold was 64x too high for real usage (1.2x-7.2x)
 2M-row cProfile on combo `c0037_c314bb14` (master-seed `2026_04_29`) found `per_feature_edges`/
 `_compute_col_edges` (`_adaptive_nbins.py`) costing 78s wall on a `fayyad_irani` (MDLP) fit with

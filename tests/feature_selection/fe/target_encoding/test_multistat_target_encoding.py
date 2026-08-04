@@ -125,3 +125,42 @@ def test_biz_value_multistat_lifts_varying_slope_regression():
 
         deltas.append(_encode(("mean", "std", "skew", "kurt")) - _encode(("mean",)))
     assert float(np.mean(deltas)) > 0.02, f"multistat TE should lift varying-slope regression: deltas={deltas}"
+
+
+def test_skew_kurt_stable_on_large_offset_small_scale_target():
+    """Regression test (2026-08-04): _raw_moment_sums/_smooth_moments_from_sums used to derive per-category
+    skew/kurt via raw power sums (sum(y), sum(y**2), sum(y**3), sum(y**4)) and the textbook binomial
+    expansion -- catastrophically unstable (errors up to 5.8e13 measured) whenever a category's y has a
+    large mean relative to its spread, e.g. a real regression target (price/revenue/count) that is rarely
+    centred at 0. Replaced with a numerically-stable two-pass centred-moment computation
+    (_per_cat_centered_moments_njit + _smooth_moments_from_centered). Pins that per-category skew/kurt
+    match scipy's direct per-slice computation on exactly this large-offset/small-scale regime."""
+    from scipy.stats import kurtosis as sp_kurt, skew as sp_skew
+
+    rng = np.random.default_rng(7)
+    n_cats = 12
+    n = 6000
+    cats = rng.integers(0, n_cats, n)
+    offset = 8500.0
+    scale = 0.05
+    y = rng.standard_normal(n) * scale + offset
+    df = pd.DataFrame({"c": cats})
+
+    _te_df, recipes = kfold_target_encode_fit(df, y, ["c"], stats=("mean", "std", "skew", "kurt"), smoothing=0.0)
+    stat_lookups = recipes["c"]["stat_lookups"]
+
+    checked = 0
+    for c in range(n_cats):
+        mask = cats == c
+        cnt = int(mask.sum())
+        if cnt < 30:
+            continue
+        yc = y[mask]
+        ref_skew = float(sp_skew(yc))
+        ref_kurt = float(sp_kurt(yc))
+        got_skew = stat_lookups["skew"][str(c)]
+        got_kurt = stat_lookups["kurt"][str(c)]
+        assert abs(ref_skew - got_skew) < 1e-6, f"cat={c} skew ref={ref_skew} got={got_skew}"
+        assert abs(ref_kurt - got_kurt) < 1e-6, f"cat={c} kurt ref={ref_kurt} got={got_kurt}"
+        checked += 1
+    assert checked >= n_cats - 1, f"expected almost every category to clear the n>=30 floor, got {checked}/{n_cats}"

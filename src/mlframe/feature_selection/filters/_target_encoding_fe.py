@@ -32,6 +32,7 @@ from typing import Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
+from numba import njit
 
 logger = logging.getLogger(__name__)
 
@@ -81,61 +82,82 @@ def engineered_name_te_stat(col: str, stat: str) -> str:
     return engineered_name_te(col) if stat == "mean" else f"{col}__te_{stat}"
 
 
-def _raw_moment_sums(
-    inverse: np.ndarray, y_arr: np.ndarray, n_cats: int, moment_stats: Sequence[str],
-    *, counts: Optional[np.ndarray] = None,
+@njit(cache=True)
+def _per_cat_centered_moments_njit(inverse: np.ndarray, y: np.ndarray, n_cats: int) -> tuple:
+    """One-pass-per-stage, numerically-STABLE per-category ``(cnt, mean, m2, m3, m4)`` where
+    ``m2/m3/m4`` are sums of CENTRED powers ``(y - mean[cat])**k``, not raw power sums.
+
+    bench-attempt-rejected (2026-08-04): the original per-category moment path here (and its sibling in
+    ``_binned_numeric_agg_fe.py``'s ``_derive_cell_stats``) derived skew/kurt from RAW power sums
+    (``sum(y)``/``sum(y**2)``/``sum(y**3)``/``sum(y**4)``) via the textbook binomial expansion -- measured
+    CATASTROPHICALLY WRONG (errors up to 5.8e13) on categories whose ``y`` has a large mean relative to its
+    spread (e.g. offset~1e4, scale~1e-1..1e-3), the classic large-nearly-equal-numbers cancellation this
+    project has already hit and fixed twice this session (``_global_stats_all`` in `_binned_numeric_agg_fe.py`,
+    the fused bootstrap bundle). Target-encoding a real regression target (price, revenue, counts - rarely
+    centred at 0) with ``stats=(...,"skew","kurt")`` hits this exact regime. Two-pass centred accumulation
+    (mean first, then ``(y-mean)**k`` directly - no algebraic expansion, no cancellation) matches what scipy's
+    own skew/kurtosis do internally, at the SAME O(n) cost (mean pass + one fused centred-power pass)."""
+    n = inverse.shape[0]
+    cnt = np.zeros(n_cats, dtype=np.float64)
+    s1 = np.zeros(n_cats, dtype=np.float64)
+    for i in range(n):
+        c = inverse[i]
+        cnt[c] += 1.0
+        s1[c] += y[i]
+    mean = np.zeros(n_cats, dtype=np.float64)
+    for c in range(n_cats):
+        if cnt[c] > 0.0:
+            mean[c] = s1[c] / cnt[c]
+    m2 = np.zeros(n_cats, dtype=np.float64)
+    m3 = np.zeros(n_cats, dtype=np.float64)
+    m4 = np.zeros(n_cats, dtype=np.float64)
+    for i in range(n):
+        c = inverse[i]
+        d = y[i] - mean[c]
+        d2 = d * d
+        m2[c] += d2
+        m3[c] += d2 * d
+        m4[c] += d2 * d2
+    return cnt, mean, m2, m3, m4
+
+
+def _smooth_moments_from_centered(
+    cnt: np.ndarray, mean: np.ndarray, m2: np.ndarray, m3: np.ndarray, m4: np.ndarray,
+    moment_stats: Sequence[str], global_stats: dict, smoothing: float,
 ) -> dict:
-    """Additive per-category raw-moment sums (``cnt``, ``s1=sum(y)``, ``s2=sum(y**2)``, ``s3=sum(y**3)``,
-    ``s4=sum(y**4)``) needed to derive ``moment_stats``, via ``np.bincount``. Each sum is a pure per-row
-    partition sum, so ``sums(A) + sums(B) == sums(A union B)`` elementwise for any disjoint row sets A/B -
-    ``kfold_target_encode_fit`` exploits this to get a fold's TRAIN-only sums as ``full - test`` instead of
-    rescanning the ``(n_folds-1)/n_folds`` of rows in that fold's training split."""
+    """Derive smoothed (Micci-Barreca) per-category moment stats from the centred moments in
+    :func:`_per_cat_centered_moments_njit`. Pure function of those moments - callable on either the
+    FULL-data moments or a fold's TRAIN-only moments (computed directly on the train subset, since centred
+    moments -- unlike raw power sums -- are NOT additive/subtractable across row subsets: the train subset's
+    own mean differs from the full-data mean, so ``moments(full) - moments(test) != moments(train)`` for any
+    centred quantity. This trades the old raw-sum ``full - test`` O(n/n_folds) shortcut for a direct
+    O(n_train) pass per fold - still O(n) total across all folds, just without the ~(n_folds-1)/2x row-visit
+    reduction the (buggy) raw-sum subtraction bought; correctness comes first.
+
+    No ``+eps`` denominator padding (unlike this function's raw-moment predecessor): the ``np.where`` guards
+    (``std > 1e-9`` / ``var > 1e-12``) already ensure the denominator is bounded away from zero before it's
+    used, so an ADDITIVE epsilon pad only corrupts small-but-legitimate variances (e.g. var~1e-6 has
+    var**2~1e-12, on the same order as a naively-added 1e-12 pad) instead of protecting against a genuine
+    div-by-zero it can no longer reach."""
     out: dict = {}
     if not moment_stats:
         return out
-    out["cnt"] = counts.astype(np.float64) if counts is not None else np.bincount(inverse, minlength=n_cats).astype(np.float64)
-    out["s1"] = np.bincount(inverse, weights=y_arr, minlength=n_cats)
-    if any(s in ("std", "skew", "kurt") for s in moment_stats):
-        out["s2"] = np.bincount(inverse, weights=y_arr * y_arr, minlength=n_cats)
-    if any(s in ("skew", "kurt") for s in moment_stats):
-        out["s3"] = np.bincount(inverse, weights=y_arr**3, minlength=n_cats)
-    if "kurt" in moment_stats:
-        out["s4"] = np.bincount(inverse, weights=y_arr**4, minlength=n_cats)
-    return out
-
-
-def _smooth_moments_from_sums(
-    raw: dict, moment_stats: Sequence[str], global_stats: dict, smoothing: float,
-) -> dict:
-    """Derive smoothed (Micci-Barreca) per-category moment stats from the additive raw sums in ``raw``
-    (see :func:`_raw_moment_sums`). Pure function of the sums - callable on either a direct bincount or a
-    fold's ``full - test`` subtraction result."""
-    out: dict = {}
-    if not moment_stats:
-        return out
-    cnt = raw["cnt"]
     safe = np.maximum(cnt, 1.0)
-    s1 = raw["s1"]
-    mean = s1 / safe
     need_hi = any(s in ("std", "skew", "kurt") for s in moment_stats)
     if need_hi:
-        s2 = raw["s2"]
-        m2 = np.maximum(s2 / safe - mean * mean, 0.0)  # variance (clip tiny negatives from fp error)
-        std = np.sqrt(m2)
+        var = m2 / safe
+        std = np.sqrt(var)
     for stat in moment_stats:
         if stat == "mean":
             rawv = mean
         elif stat == "std":
             rawv = std
         elif stat == "skew":
-            s3 = raw["s3"]
-            m3 = s3 / safe - 3.0 * mean * (s2 / safe) + 2.0 * mean**3
-            rawv = np.where(std > 1e-9, m3 / (std**3 + 1e-12), 0.0)
+            m3n = m3 / safe
+            rawv = np.where(std > 1e-9, m3n / std**3, 0.0)
         elif stat == "kurt":
-            s3 = raw["s3"]
-            s4 = raw["s4"]
-            m4 = s4 / safe - 4.0 * mean * (s3 / safe) + 6.0 * mean**2 * (s2 / safe) - 3.0 * mean**4
-            rawv = np.where(m2 > 1e-12, m4 / (m2 * m2 + 1e-12) - 3.0, 0.0)  # excess kurtosis
+            m4n = m4 / safe
+            rawv = np.where(var > 1e-12, m4n / (var * var) - 3.0, 0.0)  # excess kurtosis
         else:
             raise ValueError(f"target-encoding stat {stat!r} not in {TE_SUPPORTED_STATS}")
         g = float(global_stats[stat])
@@ -397,13 +419,8 @@ def kfold_target_encode_fit(
         unique_cats, inverse = np.unique(cats, return_inverse=True)
         n_cats = unique_cats.shape[0]
 
-        # Full-data counts + raw moment sums (cnt/sum(y)/sum(y^2)/...), needed anyway for the persisted
-        # replay lookup below. moment_stats are additive/linear (unlike order stats, which need y actually
-        # sorted within category and are NOT decomposable this way): a fold's TRAIN-only sums equal
-        # full - test, so each fold below does an O(n/n_folds) TEST-only bincount pass instead of an
-        # O(n*(n_folds-1)/n_folds) TRAIN rescan - cuts total row-visits roughly (n_folds-1)/2 x.
+        # Full-data counts, needed for order stats + the persisted replay lookup below.
         full_counts = np.bincount(inverse, minlength=n_cats) if (moment_stats or order_stats_wanted) else None
-        full_moment_raw = _raw_moment_sums(inverse, y_arr, n_cats, moment_stats, counts=full_counts)
 
         # OOF encoding: for each fold f, compute per-category statistics from rows in folds != f and apply to
         # rows in fold f.
@@ -418,10 +435,15 @@ def kfold_target_encode_fit(
             train_mask = _fold_ne[f]
             per_cat: dict = {}
             if moment_stats:
-                test_counts = np.bincount(inverse[test_idx], minlength=n_cats) if full_counts is not None else None
-                test_raw = _raw_moment_sums(inverse[test_idx], y_arr[test_idx], n_cats, moment_stats, counts=test_counts)
-                train_raw = {k: full_moment_raw[k] - test_raw[k] for k in full_moment_raw}
-                per_cat.update(_smooth_moments_from_sums(train_raw, moment_stats, global_stats, smoothing))
+                # Direct O(n_train) pass on the TRAIN subset via train_mask (already available) -- NOT the old
+                # full-minus-test raw-sum subtraction (see _smooth_moments_from_centered's docstring for why
+                # that shortcut can't carry over to centred moments: the train subset's own mean differs from
+                # the full-data mean, so centred moments aren't additive/subtractable the way raw power sums
+                # were).
+                t_cnt, t_mean, t_m2, t_m3, t_m4 = _per_cat_centered_moments_njit(
+                    np.ascontiguousarray(inverse[train_mask]), np.ascontiguousarray(y_arr[train_mask], dtype=np.float64), n_cats,
+                )
+                per_cat.update(_smooth_moments_from_centered(t_cnt, t_mean, t_m2, t_m3, t_m4, moment_stats, global_stats, smoothing))
             if order_stats_wanted:
                 # Order stats need y actually sorted within each TRAIN category (not expressible from additive
                 # sums), so this branch still rescans the train rows - unchanged from the pre-existing behaviour.
@@ -430,11 +452,13 @@ def kfold_target_encode_fit(
             for s in stats:
                 oof[s][test_idx] = per_cat[s][inv_test]
 
-        # Full-data lookups for transform-time replay (one table per statistic). Reuses full_moment_raw (already
-        # computed above) instead of a third identical bincount pass over the moment stats.
+        # Full-data lookups for transform-time replay (one table per statistic).
         full_per_cat: dict = {}
         if moment_stats:
-            full_per_cat.update(_smooth_moments_from_sums(full_moment_raw, moment_stats, global_stats, smoothing))
+            f_cnt, f_mean, f_m2, f_m3, f_m4 = _per_cat_centered_moments_njit(
+                np.ascontiguousarray(inverse), np.ascontiguousarray(y_arr, dtype=np.float64), n_cats,
+            )
+            full_per_cat.update(_smooth_moments_from_centered(f_cnt, f_mean, f_m2, f_m3, f_m4, moment_stats, global_stats, smoothing))
         if order_stats_wanted:
             full_per_cat.update(per_category_order_stats(inverse, y_arr, n_cats, order_stats_wanted, global_stats, counts=full_counts))
         cat_strs = [str(unique_cats[c]) for c in range(n_cats)]
