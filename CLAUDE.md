@@ -473,6 +473,23 @@ alongside the chunked candidate buffers the module's docstring already accounts 
 of wall-clock) to separate the contention-inflated per-call cost from the genuine cache-sizing question
 before touching `_MAX_ENTRIES` or the eviction policy.
 
+**UPDATE (2026-08-05) — reproduced on a SECOND, different combo, but "just raise `_MAX_ENTRIES`" is NOT the
+safe fix it looks like**: combo `c0576` (hgb/lgb/linear/xgb, multilabel, master-seed `2027_12_20`) showed the
+SAME pattern independently — `resident_operand` called 35285 times, `cupy.array` fired 28837 times (~82%
+miss rate, consistent with the earlier ~84%), `cupy.array` costing 1285.0s / ~24% of the 5263s total run.
+Two different combos landing on the same ~82-84% miss rate makes contention-noise a much weaker explanation
+for the CALL-COUNT finding specifically (still plausible for the per-call wall-clock, per the caveat above).
+
+BUT: this same run's log shows `batch_pair_mi_gpu` REJECTING a 0.27GB upload because it "would breach the
+absolute VRAM cushion floor (free=1.25GB, total=4.00GB)" — this GPU is a 4GB card running with as little as
+1.25GB free DURING THIS EXACT WORKLOAD. `_MAX_ENTRIES=192` was explicitly calibrated in the module's own
+docstring to stay "comfortable alongside the chunked candidate buffers" on a 4GB card — blindly raising it
+to fix the miss-rate would shrink that already-thin headroom further and could turn a slow-but-working run
+into a hard OOM crash elsewhere in the SAME fit, trading a perf problem for a correctness/stability one. A
+safe fix needs to be VRAM-aware (e.g. size the cache from `cupy.cuda.Device().mem_info` free bytes at cache-
+init/reset time instead of a fixed entry count) rather than a blind constant bump — a bigger undertaking than
+originally assumed, still not attempted.
+
 ## PERF WIN (2026-08-05): integer-lattice's 12-permutation null band batched into one call — the sibling `_pairwise_modular_fe.py` version already had this fix, `_integer_lattice_fe.py`'s near-identical copy never got it
 2M-row cProfile (combo `c0454`, cb/hgb/lgb, multiclass) surfaced `_perm_null_hi` at real tottime in THREE
 sibling files (`_integer_lattice_fe.py` 3.654s/3 calls, `_pairwise_modular_fe.py` 2.647s/3, `_conditional_gate_fe.py`
