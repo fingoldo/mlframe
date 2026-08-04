@@ -10,9 +10,12 @@ matrix is materialised in Python (matching ``bootstrap_metrics``'s exact RNG dra
 bit-identical resamples), then every resample's brier/log_loss/ece/auc is computed truly
 concurrently across OS threads with zero per-resample Python overhead.
 
-Gated on the same tie-free-base-scores condition ``make_bootstrap_auc_resampler`` uses for its
-fast AUC path; :func:`bootstrap_auc_brier_ll_ece_batch` returns ``None`` on tied scores so the
-caller falls back to the generic ``bootstrap_metrics`` path.
+Handles both tie-free and tied base scores (the grouped/distinct-score-group AUC counting
+``make_bootstrap_auc_resampler`` uses for its own tied fallback, batched here too) -- real
+predicted probabilities routinely repeat at scale (quantised tree-model leaf outputs, float32
+rounding), so a tie-free-only gate would silently defeat this fusion on exactly the large runs
+it targets most. :func:`bootstrap_auc_brier_ll_ece_batch` still returns ``None`` for a
+degenerate ``n < 2`` input, so the caller falls back to the generic ``bootstrap_metrics`` path.
 """
 
 from __future__ import annotations
@@ -99,6 +102,68 @@ def _bootstrap_batch_auc_brier_ll_ece(
     return auc_out, brier_out, ll_out, ece_out
 
 
+@numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
+def _bootstrap_batch_auc_brier_ll_ece_grouped(
+    idxs: np.ndarray,
+    y_f64: np.ndarray,
+    p_f64: np.ndarray,
+    group_of_base: np.ndarray,
+    y_base: np.ndarray,
+    ngroups: int,
+    n_bins: int,
+):
+    """Tie-aware twin of :func:`_bootstrap_batch_auc_brier_ll_ece` for base scores with duplicate values.
+
+    Real predicted probabilities routinely repeat at scale (quantised tree-model leaf outputs, float32
+    rounding, near-2M-row combos) -- the tie-free gate this bundle used to hard-require on ANY duplicate
+    score silently defeated the whole 2.9-3.4x fused-parallel win in favour of ``bootstrap_metrics``'s
+    fully serial GIL-bound loop on exactly the large real-world runs where it matters most. brier/log_loss/
+    ece are order-invariant per-row reductions (unaffected by ties); only AUC needs the tie-aware
+    treatment, via :func:`_fused_resample_auc_grouped`'s DISTINCT-score-group counting instead of
+    per-base-rank counting -- bit-identical to ``fast_roc_auc_unstable`` on tied OR tie-free scores (see
+    that function's docstring for why: AUC is invariant to within-tie argsort order)."""
+    r_count = idxs.shape[0]
+    auc_out = np.empty(r_count, dtype=np.float64)
+    brier_out = np.empty(r_count, dtype=np.float64)
+    ll_out = np.empty(r_count, dtype=np.float64)
+    ece_out = np.empty(r_count, dtype=np.float64)
+    for r in numba.prange(r_count):
+        idx = idxs[r]
+        yy = y_f64[idx]
+        pp = p_f64[idx]
+        brier_out[r] = _fast_brier_score_loss_seq(yy, pp)
+        ll_out[r] = _fast_log_loss_binary_seq(yy, pp, _LOG_LOSS_EPS_F64)
+        ece_out[r] = _ece_score_numba_serial(yy, pp, n_bins)
+
+        counts = np.zeros(ngroups, dtype=np.int64)
+        ones = np.zeros(ngroups, dtype=np.int64)
+        m = idx.shape[0]
+        for k in range(m):
+            bi = idx[k]
+            g = group_of_base[bi]
+            counts[g] += 1
+            ones[g] += y_base[bi]
+        last_fps = 0
+        last_tps = 0
+        tps = 0
+        fps = 0
+        auc = 0
+        for g in range(ngroups - 1, -1, -1):
+            c = counts[g]
+            if c == 0:
+                continue
+            pos = ones[g]
+            neg = c - pos
+            tps += pos
+            fps += neg
+            auc += (fps - last_fps) * (last_tps + tps)
+            last_fps = fps
+            last_tps = tps
+        tmp = tps * fps * 2
+        auc_out[r] = auc / tmp if tmp > 0 else np.nan
+    return auc_out, brier_out, ll_out, ece_out
+
+
 def _generate_resample_idxs(
     rng: np.random.Generator,
     n_bootstrap: int,
@@ -141,15 +206,21 @@ def bootstrap_auc_brier_ll_ece_batch(
     """Fused fast path for ``honest_diagnostics._bootstrap_block``'s roc_auc/brier/log_loss/ece bundle.
 
     Returns ``{"roc_auc": {...}, "brier": {...}, "log_loss": {...}, "ece": {...}}`` -- same shape as
-    ``bootstrap_metrics`` for this exact metric set -- or ``None`` when the tie-free AUC gate fails
-    (tied/discrete base scores), so the caller falls back to ``bootstrap_metrics``.
+    ``bootstrap_metrics`` for this exact metric set. Handles BOTH tie-free and tied base scores (see
+    :func:`_bootstrap_batch_auc_brier_ll_ece_grouped`'s docstring for why the tie-free-only gate this
+    function used to hard-require was itself the bigger, more damaging pattern: real predicted
+    probabilities routinely repeat at scale, silently forcing the fully serial ``bootstrap_metrics``
+    fallback on exactly the large real-world runs this fusion targets). Still returns ``None`` for
+    ``n < 2`` so the caller falls back to ``bootstrap_metrics`` on a degenerate input.
 
     Bit-identical to ``bootstrap_metrics(y_true, p_pos, {"brier": ..., "log_loss": ..., "ece": ...},
     metric_fns_idx={"roc_auc": make_bootstrap_auc_resampler(y_true, p_pos)}, stratify=stratify,
     random_state=random_state, method=method)`` for the same inputs: identical resample index
     sequence (:func:`_generate_resample_idxs` matches the generic loop's RNG call order exactly),
-    identical per-resample metric values (same underlying njit kernels), identical CI reduction
-    (the same ``_ci_from_samples`` / jackknife helpers, called unchanged).
+    identical per-resample metric values (same underlying njit kernels -- the grouped AUC counting is
+    bit-identical to the exact/tie-free resampler on ANY base scores, tied or not, per
+    ``_fused_resample_auc_grouped``'s docstring), identical CI reduction (the same ``_ci_from_samples``
+    / jackknife helpers, called unchanged).
     """
     y_true = np.ascontiguousarray(y_true)
     p_pos = np.ascontiguousarray(p_pos)
@@ -160,15 +231,9 @@ def bootstrap_auc_brier_ll_ece_batch(
     asc_order = np.argsort(p_pos)
     sorted_score = p_pos[asc_order]
     tie_free = n < 2 or bool(np.all(sorted_score[1:] != sorted_score[:-1]))
-    if not tie_free:
-        return None
 
     y_f64 = np.ascontiguousarray(y_true, dtype=np.float64)
     p_f64 = np.ascontiguousarray(p_pos, dtype=np.float64)
-
-    base_rank = np.empty(n, dtype=np.int64)
-    base_rank[asc_order] = np.arange(n, dtype=np.int64)
-    y_by_rank = np.ascontiguousarray(y_true[asc_order].astype(np.int64))
 
     rng = np.random.default_rng(random_state)
     idxs = _generate_resample_idxs(rng, n_bootstrap, n, stratify)
@@ -177,13 +242,36 @@ def bootstrap_auc_brier_ll_ece_batch(
     brier_samples = np.empty(n_bootstrap, dtype=np.float64)
     ll_samples = np.empty(n_bootstrap, dtype=np.float64)
     ece_samples = np.empty(n_bootstrap, dtype=np.float64)
-    for lo in range(0, n_bootstrap, chunk_size):
-        hi = min(lo + chunk_size, n_bootstrap)
-        auc_c, brier_c, ll_c, ece_c = _bootstrap_batch_auc_brier_ll_ece(idxs[lo:hi], y_f64, p_f64, base_rank, y_by_rank, n, n_bins)
-        auc_samples[lo:hi] = auc_c
-        brier_samples[lo:hi] = brier_c
-        ll_samples[lo:hi] = ll_c
-        ece_samples[lo:hi] = ece_c
+    if tie_free:
+        base_rank = np.empty(n, dtype=np.int64)
+        base_rank[asc_order] = np.arange(n, dtype=np.int64)
+        y_by_rank = np.ascontiguousarray(y_true[asc_order].astype(np.int64))
+        for lo in range(0, n_bootstrap, chunk_size):
+            hi = min(lo + chunk_size, n_bootstrap)
+            auc_c, brier_c, ll_c, ece_c = _bootstrap_batch_auc_brier_ll_ece(idxs[lo:hi], y_f64, p_f64, base_rank, y_by_rank, n, n_bins)
+            auc_samples[lo:hi] = auc_c
+            brier_samples[lo:hi] = brier_c
+            ll_samples[lo:hi] = ll_c
+            ece_samples[lo:hi] = ece_c
+    else:
+        # DISTINCT-score-group counting (see _fused_resample_auc_grouped's docstring): group_of_base[i] =
+        # index of base i's distinct score in ascending order, 0..ngroups-1.
+        boundaries = sorted_score[1:] != sorted_score[:-1]
+        group_by_rank = np.empty(n, dtype=np.int64)
+        group_by_rank[0] = 0
+        if n > 1:
+            group_by_rank[1:] = np.cumsum(boundaries)
+        ngroups = int(group_by_rank[-1]) + 1 if n > 0 else 0
+        group_of_base = np.empty(n, dtype=np.int64)
+        group_of_base[asc_order] = group_by_rank
+        y_base = np.ascontiguousarray(y_true.astype(np.int64))
+        for lo in range(0, n_bootstrap, chunk_size):
+            hi = min(lo + chunk_size, n_bootstrap)
+            auc_c, brier_c, ll_c, ece_c = _bootstrap_batch_auc_brier_ll_ece_grouped(idxs[lo:hi], y_f64, p_f64, group_of_base, y_base, ngroups, n_bins)
+            auc_samples[lo:hi] = auc_c
+            brier_samples[lo:hi] = brier_c
+            ll_samples[lo:hi] = ll_c
+            ece_samples[lo:hi] = ece_c
 
     points = {
         "roc_auc": float(fast_roc_auc_unstable(y_true, p_pos)),

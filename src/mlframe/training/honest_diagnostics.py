@@ -220,9 +220,9 @@ def _bootstrap_block(
             # bench_bootstrap_fused_binary_bundle.py), bit-identical modulo ~1e-14 FP-reorder (the fused
             # kernel calls the sequential brier/log_loss reduction; bootstrap_metrics's size-adaptive
             # dispatcher picks the parallel-reduction variant at n>=100k -- same FP-reorder class the
-            # project already accepts elsewhere). Falls back to bootstrap_metrics on tied base scores
-            # (the fused path's tie-free AUC gate) or if this exact 4-metric bundle isn't present
-            # (e.g. the ECE import failed above).
+            # project already accepts elsewhere). Handles tied base scores too (grouped AUC counting,
+            # bit-identical) -- falls back to bootstrap_metrics only if this exact 4-metric bundle isn't
+            # present (e.g. the ECE import failed above) or the fused call itself raises.
             if {"brier", "log_loss", "ece"} <= set(metric_fns) and _metric_fns_idx is not None:
                 from mlframe.evaluation._bootstrap_fused_binary_bundle import bootstrap_auc_brier_ll_ece_batch
 

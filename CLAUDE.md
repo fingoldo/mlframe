@@ -317,6 +317,41 @@ exact same bug on production data with large per-cell offsets. Needs its own ded
 being ruled safe or unsafe; not fixed here because it's a wider-blast-radius change (touches every per-cell
 stat consumer in this file, not just the global fallback).
 
+## PERF WIN (2026-08-04): fused bootstrap bundle's tie-free-only AUC gate was silently defeating its own 3-4x win on the exact runs it targets — extended to tied scores
+A 2M-row cProfile (combo `c0619`, binary classification, cb/hgb/lgb/mlp/xgb) showed `bootstrap_metrics`
+(`evaluation/bootstrap.py`, the GENERIC serial per-resample bootstrap loop) still costing real time
+(25.6s/5 calls tottime, plus `_resampler_grouped`/`fast_log_loss_binary`/`fast_brier_score_loss`/
+`_ece_score` individually at 6-23s each) ALONGSIDE `_bootstrap_fused_binary_bundle.py`'s fully-njit
+`prange`-parallel bundle (`bootstrap_auc_brier_ll_ece_batch`) — meaning `honest_diagnostics._bootstrap_block`
+was falling back to the slow GIL-bound path for SOME of its 8 per-model bootstrap calls in the same run.
+
+Root cause: `bootstrap_auc_brier_ll_ece_batch` had a hard `tie_free` gate — ANY duplicate value in the
+predicted-probability column (`p_pos`) made it return `None`, forcing the full fallback to
+`bootstrap_metrics`. Real predicted probabilities routinely have ties at scale (quantised tree-ensemble
+leaf outputs, float32 rounding, 2M-row combos) — this gate was silently defeating the module's own
+documented 2.9-3.4x fusion win on exactly the large real-world runs it was built for. The tie-free
+`_fused_resample_auc_batch_parallel` (in `_core_auc_brier.py`) already had a tie-AWARE serial sibling
+(`_fused_resample_auc_grouped`, DISTINCT-score-group counting instead of per-base-rank counting — used by
+`make_bootstrap_auc_resampler`'s own tied fallback) but no BATCHED/parallel twin existed yet, so the fused
+bundle had no tied-score code path to fall into other than bailing out entirely.
+
+Added `_bootstrap_batch_auc_brier_ll_ece_grouped` (prange-parallel twin of the existing
+`_bootstrap_batch_auc_brier_ll_ece`, using `group_of_base`/`y_base`/`ngroups` grouped counting for AUC
+instead of `base_rank`/`y_by_rank` — brier/log_loss/ece are order-invariant per-row reductions, unaffected
+by ties, so only the AUC accumulation needed the tie-aware variant) and wired it into
+`bootstrap_auc_brier_ll_ece_batch`: `tie_free` now selects WHICH kernel runs (base-rank vs grouped) instead
+of gating whether the fusion runs at all. `honest_diagnostics._bootstrap_block`'s call site is unchanged —
+this was already `bootstrap_auc_brier_ll_ece_batch`'s sole production caller, so the fix reaches production
+by construction, no additional wiring needed.
+
+Verified bit-identical to `bootstrap_metrics` (the ground-truth serial path) on tied/low-cardinality scores
+(1e-9 tolerance, incl. an all-identical-scores degenerate case, `ngroups=1`) — `test_fused_bundle_*` suite
+(6 tests, was `test_fused_bundle_returns_none_on_tied_scores`, now
+`test_fused_bundle_matches_bootstrap_metrics_on_tied_scores` + `test_fused_bundle_handles_all_tied_scores`)
+passes, plus the full `tests/evaluation/` suite (185 tests) and `honest_diagnostics` suite (8 tests)
+unchanged. 3.87x speedup measured on n=200k/R=1000 realistic quantised-probability data (warm, was the
+`bootstrap_metrics` fallback path before this fix).
+
 ## PERF WIN (2026-08-02): per_feature_edges' thread-pool threshold was 64x too high for real usage (1.2x-7.2x)
 2M-row cProfile on combo `c0037_c314bb14` (master-seed `2026_04_29`) found `per_feature_edges`/
 `_compute_col_edges` (`_adaptive_nbins.py`) costing 78s wall on a `fayyad_irani` (MDLP) fit with

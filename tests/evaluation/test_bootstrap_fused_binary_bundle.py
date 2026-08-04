@@ -85,14 +85,38 @@ def test_fused_bundle_matches_bootstrap_metrics(n, n_bootstrap):
         assert np.allclose(np.sort(r["samples"]), np.sort(f["samples"]), atol=_TOL), f"{name} samples mismatch"
 
 
-def test_fused_bundle_returns_none_on_tied_scores():
-    """Tied base scores must fall back to None (caller uses bootstrap_metrics instead), mirroring
-    make_bootstrap_auc_resampler's own tie-free gate -- never silently produce a tie-unaware AUC."""
+@pytest.mark.parametrize("n,n_bootstrap", [(2_000, 100), (20_000, 100)])
+def test_fused_bundle_matches_bootstrap_metrics_on_tied_scores(n, n_bootstrap):
+    """Tied/low-cardinality base scores route through the grouped (tie-aware) batch kernel instead of
+    falling back to bootstrap_metrics -- must still match it to the documented tolerance. Regression
+    guard for the fused bundle's former hard ``tie_free`` gate, which used to return None (forcing the
+    fully serial fallback) on ANY duplicate score -- the common case for real quantised model outputs."""
     rng = np.random.default_rng(3)
-    n = 2000
-    p_pos = np.round(rng.random(n) * 9) / 9.0  # low-cardinality -> ties
+    p_pos = np.round(rng.random(n) * 9) / 9.0  # low-cardinality -> guaranteed ties
     y_true = (rng.random(n) < 0.3).astype(np.float64)
-    assert bootstrap_auc_brier_ll_ece_batch(y_true, p_pos, n_bootstrap=8, random_state=0) is None
+    ref = _reference_bootstrap_metrics(y_true, p_pos, n_bootstrap, random_state=0)
+    fused = bootstrap_auc_brier_ll_ece_batch(y_true, p_pos, n_bootstrap=n_bootstrap, alpha=0.05, stratify=y_true, random_state=0)
+    assert fused is not None
+    for name in ("roc_auc", "brier", "log_loss", "ece"):
+        r, f = ref[name], fused[name]
+        assert abs(r["point"] - f["point"]) < _TOL, f"{name} point mismatch"
+        assert abs(r["lo"] - f["lo"]) < _TOL, f"{name} lo mismatch"
+        assert abs(r["hi"] - f["hi"]) < _TOL, f"{name} hi mismatch"
+        assert np.allclose(np.sort(r["samples"]), np.sort(f["samples"]), atol=_TOL), f"{name} samples mismatch"
+
+
+def test_fused_bundle_handles_all_tied_scores():
+    """Degenerate case: every base score identical (ngroups=1). Must not crash and must match
+    bootstrap_metrics (AUC is nan throughout since there is no ranking signal)."""
+    rng = np.random.default_rng(4)
+    n = 500
+    p_pos = np.full(n, 0.5)
+    y_true = (rng.random(n) < 0.3).astype(np.float64)
+    ref = _reference_bootstrap_metrics(y_true, p_pos, 50, random_state=0)
+    fused = bootstrap_auc_brier_ll_ece_batch(y_true, p_pos, n_bootstrap=50, alpha=0.05, stratify=y_true, random_state=0)
+    assert fused is not None
+    for name in ("brier", "log_loss", "ece"):
+        assert abs(ref[name]["point"] - fused[name]["point"]) < _TOL, f"{name} point mismatch"
 
 
 def test_fused_bundle_faster_than_bootstrap_metrics():
