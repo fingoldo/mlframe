@@ -118,7 +118,7 @@ def test_gamma_zero_is_static():
     y = base + 0.5 * feat + rng.normal(0, 0.3, 300)
     est.init_aci(alpha=0.1, gamma=0.0, buffer_n=100, warmup_residuals=np.abs(rng.normal(0, 0.3, 100)))
     est.update_conformal(X, y)
-    state = est.get_aci_state(est) if False else est.get_aci_state()
+    state = est.get_aci_state()
     assert state["alpha_t"] == pytest.approx(0.1)
 
 

@@ -2030,14 +2030,7 @@ def test_cb_gpu_and_cpu_predictions_match_within_tolerance(tmp_path):
             tmp_path / task_type,
             models=("cb",),
             regression=False,
-            extra_kwargs={
-                "hyperparams_config": {
-                    "iterations": 5,
-                    "cb_kwargs": {"task_type": task_type, "verbose": 0, "random_seed": 42},
-                },
-            }
-            if False
-            else None,  # _train_once already sets cb_kwargs; ignore extras here
+            extra_kwargs=None,  # _train_once already sets cb_kwargs; ignore extras here
         )
         models_path = os.path.join(str(tmp_path / task_type), "models", "tgt", "mdl")
         return predict_mlframe_models_suite(serving, models_path=models_path, verbose=0)

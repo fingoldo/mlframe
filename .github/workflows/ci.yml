@@ -216,6 +216,7 @@ jobs:
     with:
       source-path: tests
       codespell-paths: tests
+      vulture-whitelist-path: tests/vulture_whitelist.py
       interrogate-source-path: tests
       interrogate-config: tests/interrogate.toml
       # deptry is project-wide (installed deps are the same regardless of which tree imports

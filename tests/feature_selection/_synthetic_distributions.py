@@ -260,9 +260,7 @@ def family_for_operand(
         positive_pool = [f for f in pool if f in _POSITIVE_FAMILIES]
         if positive_pool:
             pool = positive_pool
-    # Stable hash from operand name + seed (avoid Python's salted hash()).
-    h = abs(hash((operand, int(seed)))) if False else None  # noqa: F841 (documented: do NOT use hash())
-    # Use a deterministic mixing of the operand bytes + seed via a private RNG.
+    # Deterministic mixing of the operand bytes + seed via a private RNG (avoid Python's salted hash()).
     mixer = np.random.default_rng([int(seed), _str_to_int(operand)])
     return pool[int(mixer.integers(0, len(pool)))]
 

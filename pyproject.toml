@@ -732,6 +732,17 @@ DEP001 = [
     # and are deliberately NOT added here -- they should keep surfacing until added to a test
     # extras group or their call sites are confirmed to always `pytest.importorskip` first.
     "test_coverage_fill", "training", "profile_training_core", "_source_proxy_scan",
+    # cupy/cupyx/cupy_backends/kaleido/torchvision/dtaidistance/bottleneck/model_diagnostics
+    # (2026-08-04, CI-only failure -- `finance`/`concepts` above document the identical flip):
+    # deptry's DEP001-vs-DEP003 classification depends on whether the module actually resolves
+    # in the environment deptry runs in. The lint-blocking job's `deptry-install-command` never
+    # installs GPU extras (no CUDA runner) or the calibration-reporting extras, so in that clean
+    # CI checkout these all report DEP001 "missing" even though they're already ignored below
+    # under DEP003 for any environment where they DO resolve (this dev box, or a future GPU
+    # runner). Ignored under both for the same reason DEP003's own comment gives for `finance`/
+    # `concepts`, not because they're newly-introduced imports.
+    "cupy", "cupyx", "cupy_backends", "kaleido", "torchvision", "dtaidistance", "bottleneck",
+    "model_diagnostics",
 ]
 
 # DEP003 (transitive dependency imported directly): mirrors DEP002's stance -- these are pulled in
