@@ -781,6 +781,14 @@ def analyse_and_clean_features(
                                 repl_value = real_val * -1
                         elif col_is_boolean:
                             repl_value = not real_val
+                        else:
+                            # Neither str/numeric/boolean (e.g. decimal.Decimal, pd.Timestamp): negate
+                            # if the type supports arithmetic negation (covers Decimal), else fall back
+                            # to a distinguishing string sentinel (mirrors the str branch's "not X" naming).
+                            try:
+                                repl_value = -real_val
+                            except TypeError:
+                                repl_value = f"not {real_val}"
 
                     if verbose:
                         logger.info("feature %s: %s->%s in %s.", col, na_val, repl_value, col_unique_values)

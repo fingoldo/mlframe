@@ -212,6 +212,11 @@ def maximum_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) ->
     row is non-finite; warns (once per shape) when ``y_true`` contains zeros, since the epsilon
     fallback then dominates and the percentage becomes unreliable.
     """
+    if len(y_true) == 0:
+        # np.nanmax on the empty `mape` array inside the kernel raises ValueError
+        # ("zero-size array to reduction operation fmax"); match every sibling
+        # metric in this module (smape/wmape/mdape/pinball) and return NaN instead.
+        return float(np.nan)
     # Auto seq/par dispatch. Parallel only wins at large N (race-free
     # max via per-thread accumulator + final reduction; lose-band runs
     # to ~200k due to setup cost).

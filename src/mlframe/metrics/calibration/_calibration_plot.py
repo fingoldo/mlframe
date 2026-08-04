@@ -616,6 +616,16 @@ def show_calibration_plot(
         render_and_save(spec, _outputs, _base)
         return None
 
+    if backend == "plotly":
+        # Reaching here means the DSL branch above did NOT fire, i.e. neither
+        # (plot_outputs and base_path) nor (plot_file or show_plots) held -- no
+        # save target and no display request. Everything below this point builds
+        # a matplotlib ``fig`` and is unreachable for backend="plotly" (there is
+        # no plotly equivalent of "return an unsaved live Figure"), which used to
+        # fall through to the unconditional ``return fig`` at the end of this
+        # function and raise UnboundLocalError. Nothing was requested; no-op.
+        return None
+
     # 2026-05-09: short-circuit when there is NO plot consumer. The
     # ``show_plots=True`` default expresses "render if a human can see
     # it"; in a script / CI / fuzz process (no IPython kernel, no

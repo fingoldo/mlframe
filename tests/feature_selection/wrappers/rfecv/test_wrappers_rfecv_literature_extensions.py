@@ -178,6 +178,27 @@ class TestObjectDtypeNaNScan:
         with pytest.raises(ValueError, match="nan_in_X_policy='raise'"):
             rfecv.fit(X, y)
 
+    def test_nonnumeric_column_with_nan_is_mode_imputed_not_crashed(self):
+        """Nonnumeric column with nan is mode imputed not crashed."""
+        # apply_nan_in_X_policy's median-impute loop called to_numpy(dtype=float, ...) unconditionally,
+        # which raises ValueError: could not convert string to float on an object/category column with
+        # NaN. Non-numeric columns must fall back to mode-imputation instead of crashing.
+        from types import SimpleNamespace
+
+        from mlframe.feature_selection.wrappers.rfecv._nan_policy import apply_nan_in_X_policy
+
+        X = pd.DataFrame(
+            {
+                "num": [1.0, 2.0, np.nan, 4.0],
+                "cat": pd.Categorical(["a", "a", None, "b"]),
+            }
+        )
+        fake_self = SimpleNamespace(nan_in_X_policy="impute", verbose=0, estimator=LogisticRegression(), estimators=None, nan_indicator_cols=())
+        out = apply_nan_in_X_policy(fake_self, X)  # pre-fix: raises ValueError on the "cat" column
+        assert not out["cat"].isna().any()
+        assert not out["num"].isna().any()
+        assert out.loc[2, "cat"] == "a"  # mode of {a, a, b} is "a"
+
 
 # ----------------------------------------------------------------------- L1 / L2
 

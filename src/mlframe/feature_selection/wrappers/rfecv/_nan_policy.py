@@ -150,9 +150,21 @@ def apply_nan_in_X_policy(self, X: Union[pd.DataFrame, np.ndarray]):
         X = X.copy(deep=False)
         for c in nan_cols:
             col = X[c]
-            arr = col.to_numpy(dtype=float, na_value=np.nan)
-            med = float(np.nanmedian(arr)) if np.isfinite(arr).any() else 0.0
-            X[c] = col.fillna(med)
+            if pd.api.types.is_numeric_dtype(col) and not isinstance(col.dtype, pd.CategoricalDtype):
+                arr = col.to_numpy(dtype=float, na_value=np.nan)
+                med = float(np.nanmedian(arr)) if np.isfinite(arr).any() else 0.0
+                X[c] = col.fillna(med)
+            else:
+                # Non-numeric (object / string / category, e.g. a Decimal or Timestamp column):
+                # a numeric median is meaningless and ``to_numpy(dtype=float, ...)`` raises. Fall
+                # back to mode-imputation so the graceful-impute contract holds for every dtype.
+                non_null = col.dropna()
+                if non_null.empty:
+                    continue
+                fill_value = non_null.mode().iloc[0]
+                if isinstance(col.dtype, pd.CategoricalDtype) and fill_value not in col.cat.categories:
+                    col = col.cat.add_categories([fill_value])
+                X[c] = col.fillna(fill_value)
 
         for c, mask in indicator_masks.items():
             name = f"{INDICATOR_PREFIX}{c}"

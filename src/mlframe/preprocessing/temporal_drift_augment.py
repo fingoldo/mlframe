@@ -93,11 +93,20 @@ def augment_temporal_drift(
     # a flat Cython segment-restart scan instead and computes the identical expanding mean/std algebraically.
     rank_within_entity = entity_groups.cumcount()
     n = (rank_within_entity + 1).astype(np.float64)
-    cumsum_x = ordered.groupby(entity_col, sort=False)[feature_cols].cumsum()
-    cumsum_x2 = (ordered[feature_cols] ** 2).groupby(ordered[entity_col], sort=False).cumsum()
-    expanding_mean = cumsum_x.div(n, axis=0)
+    # Shift each entity's series by its OWN first observed value before accumulating sums: variance is
+    # shift-invariant, so this is exact, but on realistic large-offset/small-spread columns (e.g. a
+    # revenue-scale feature with offset~1e9, spread~0.5) it is the difference between a well-conditioned
+    # sum(shifted^2) and the raw sum(x^2)-(sum(x))^2/n formula going catastrophically unstable (verified:
+    # the raw formula produces NEGATIVE variance on such data, clipped to 0, silently zeroing every
+    # augmented row's z-score). Shifted sums stay near-zero-magnitude for the common case where within-
+    # entity drift is small relative to the entity's absolute scale.
+    shift = entity_groups[feature_cols].transform("first")
+    shifted = ordered[feature_cols] - shift
+    cumsum_xs = shifted.groupby(ordered[entity_col], sort=False).cumsum()
+    cumsum_xs2 = (shifted**2).groupby(ordered[entity_col], sort=False).cumsum()
+    expanding_mean = cumsum_xs.div(n, axis=0).add(shift)
     # sample variance (ddof=1) of an expanding window from its running sum/sum-of-squares; undefined (NaN) at n=1.
-    var = cumsum_x2.sub(cumsum_x.pow(2).div(n, axis=0)).div((n - 1).where(n > 1, np.nan), axis=0)
+    var = cumsum_xs2.sub(cumsum_xs.pow(2).div(n, axis=0)).div((n - 1).where(n > 1, np.nan), axis=0)
     expanding_std = var.clip(lower=0).pow(0.5)
 
     count_within_entity = entity_groups[entity_col].transform("size")

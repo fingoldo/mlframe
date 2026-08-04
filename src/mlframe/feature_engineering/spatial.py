@@ -222,8 +222,23 @@ def knn_aggregate(
             compact_mask, ref_labels[compact_indices], np.nan,
         )
     else:
-        compact_indices = indices[:, :k]
-        compact_dist = distances[:, :k]
+        # Exclude at most one distance-0 self-match per query row (the
+        # `query is ref` case the docstring promises is leak-safe): the
+        # KDTree returns neighbours sorted by distance ascending, so a
+        # self-match always lands at rank 0 and would otherwise always
+        # survive the naive `indices[:, :k]` truncation, silently
+        # replacing the true k-th neighbour with the query point itself.
+        is_zero_dist = distances <= 0.0
+        first_zero = is_zero_dist & (np.cumsum(is_zero_dist, axis=1) == 1)
+        if first_zero.any():
+            sorted_mask = np.where(first_zero, np.iinfo(np.int64).max, np.arange(q_k))
+            order = np.argsort(sorted_mask, axis=1)
+            keep_idx = order[:, :k]
+            compact_indices = np.take_along_axis(indices, keep_idx, axis=1)
+            compact_dist = np.take_along_axis(distances, keep_idx, axis=1)
+        else:
+            compact_indices = indices[:, :k]
+            compact_dist = distances[:, :k]
         labels_arr = ref_labels[compact_indices]
 
     # Aggregate. Use nan-aware variants if same-group filter introduced NaN.
