@@ -210,6 +210,53 @@ mechanism (`test_conditional_residual_bincount_perf_regression.py`) was reframed
 kernel instead of `np.bincount` — its real invariant (no `np.add.at` scatter, bit-identical accumulation)
 is unchanged, only the current mechanism-under-test needed updating.
 
+## PERF WIN (2026-08-04): hermite_fe's minmax preprocess-replay fused into one njit pass (6.58x)
+2M-row cProfile on combo `c0546_4b643261` caught `_apply_minmax` (`hermite_fe/__init__.py`) — the
+legendre/chebyshev basis `preprocess`-replay closure — with real self-time across 137 calls. The prior form
+was plain numpy (`2*(x-lo)/span - 1`, then an optional `np.clip`): 3-4 separate full-array passes
+(subtract/multiply/divide/subtract, +1 for the clip branch). Added `_apply_minmax_njit` (`@njit(parallel=True)`,
+one `prange` pass, op order kept identical to the numpy expression — `2*(x-lo)/span - 1`, not a
+reciprocal-multiply rewrite — for bit-identical FP rounding) and wired it into `_apply_minmax` (numba-available
+branch; falls back to the original numpy form when numba is absent). Verified 0 mismatches across 20 synthetic
+scenarios (n=500-50k, with/without clip) and 6.58x speedup at n=2M (warm, best-of-30).
+
+## PROCESS FIX (2026-08-04): a REJECT verdict must check for @njit/parallel/cuda.jit/cupy/KTC specifically, not just "look" optimized
+The user caught this live: `_apply_minmax` and `_apply_orth_fourier` (both plain numpy, both doing 3-4
+chained elementwise passes) were almost REJECTed as "already minimal" purely by reading the code, without
+checking whether an `@njit` decorator was actually present anywhere near them. Both turned out to be real
+wins once actually fused (6.58x, 3.84x — see entries below). A third case, `_compute_extremality_matrix`
+(`row_wise_extremality.py`), had a "bench-attempt-rejected" note on file that only ever compared TWO NUMPY
+forms against each other and never tried njit at all — also a real win once fused (2.11x, see below).
+**Rule going forward**: before writing a REJECT for any hotspot with real tottime, explicitly grep it (or
+trace one level into what it calls) for `@njit`, `parallel=True`/`prange`, `cuda.jit`, `cupy`, and
+`KernelTuningCache`/`get_or_tune`. A REJECT is only valid when one of those five is confirmed present and
+actually covers this code path, or a genuine bench-attempt-rejected note already tested THIS lever (not
+just other numpy variants), or the cost is dominated by a third-party call with no first-party loop to
+fuse. See global memory `feedback_check_njit_before_reject.md`.
+
+## PERF WIN (2026-08-04): orth_fourier basis replay's per-element sin/cos chain fused into one njit pass (3.84x)
+Same profiling cycle as the minmax fix above (combo `c0546_4b643261`) also surfaced `_apply_orth_fourier`
+(`engineered_recipes/_orth_basis_recipes.py`) — the Fourier-recipe replay closure, plain numpy doing
+subtract/divide/multiply/(sin|cos)/nan_to_num as separate full-array passes. Added
+`_fourier_linear_sincos_njit` (`@njit(parallel=True)`, one `prange` pass fusing the whole chain, NaN/inf
+outputs zeroed in-kernel to match `nan_to_num`) and wired it into the common `arg='linear'` branch (the
+rarer `arg='quadratic'` chirp-axis branch is untouched, still numpy). Verified 0 mismatches across 20
+synthetic scenarios (n=500-50k, sin/cos, power=1/3) and 3.84x speedup at n=2M (warm, best-of-30).
+
+## PERF WIN (2026-08-04): row-wise extremality's per-column rank loop parallelised across columns via njit (2.11x)
+Same profiling cycle (combo `c0546_4b643261`, triggered by the audit above) revisited
+`_compute_extremality_matrix` (`row_wise_extremality.py`), whose only existing note
+("bench-attempt-rejected 2026-07-13") had compared a per-column Python loop against a single vectorized
+`np.argsort(axis=0)` — both plain numpy, njit was never tried. Added `_extremality_matrix_njit`
+(`@njit(parallel=True)`, `prange` over COLUMNS — each column's own NaN-mask/argsort/rank/normalise chain is
+independent of every other column, so this parallelises the existing loop across cores instead of running
+it on one thread) and wired it in. Verified bit-identical to the numpy reference on NaN handling and on
+tie-free (continuous) data; on heavily-tied/low-cardinality columns numba's argsort breaks ties in a
+different order than numpy's quicksort, so the exact per-row rank WITHIN a tied group can differ (still a
+mathematically valid extremality score) — documented in the function's docstring as the same class of
+precision-vs-speed tradeoff `_ordinal_rank` already accepts for non-tie-averaged ranks. 2.11x speedup at
+n=200k/k=200 (warm, best-of-5); no existing test pins exact tie-order values on discrete columns.
+
 ## PERF WIN (2026-08-02): per_feature_edges' thread-pool threshold was 64x too high for real usage (1.2x-7.2x)
 2M-row cProfile on combo `c0037_c314bb14` (master-seed `2026_04_29`) found `per_feature_edges`/
 `_compute_col_edges` (`_adaptive_nbins.py`) costing 78s wall on a `fayyad_irani` (MDLP) fit with

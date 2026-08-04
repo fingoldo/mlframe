@@ -550,11 +550,33 @@ def _apply_zscore(x, params):
     return z
 
 
+@njit(cache=True, parallel=True)
+def _apply_minmax_njit(x: np.ndarray, lo: float, span: float, has_clip: bool, clip_val: float) -> np.ndarray:
+    """Fused single-pass replay of ``2*(x-lo)/span - 1`` (+ optional symmetric clip), one prange pass instead
+    of the numpy form's separate subtract/multiply/divide/subtract (+ clip) temp-array passes. Op order
+    matches the numpy expression exactly (``2*(x-lo)/span - 1``, not a reciprocal-multiply rewrite) for
+    bit-identical FP rounding."""
+    n = x.shape[0]
+    out = np.empty(n, dtype=np.float64)
+    for i in prange(n):
+        z = 2 * (x[i] - lo) / span - 1
+        if has_clip:
+            if z > clip_val:
+                z = clip_val
+            elif z < -clip_val:
+                z = -clip_val
+        out[i] = z
+    return out
+
+
 def _apply_minmax(x, params):
     """Replay a fitted ``_preprocess_minmax_neg1_1`` transform onto new data from its stored ``lo``/``hi``/(optional)``clip`` params."""
     span = params["hi"] - params["lo"] + 1e-12
-    z = 2 * (x - params["lo"]) / span - 1
     clip = params.get("clip")
+    if _NUMBA_AVAILABLE:
+        xf = np.ascontiguousarray(x, dtype=np.float64)
+        return _apply_minmax_njit(xf, float(params["lo"]), float(span), clip is not None, float(clip) if clip is not None else 0.0)
+    z = 2 * (x - params["lo"]) / span - 1
     if clip is not None:
         z = np.clip(z, -float(clip), float(clip))
     return z

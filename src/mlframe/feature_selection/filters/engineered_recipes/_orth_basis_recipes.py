@@ -11,6 +11,27 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
+from numba import njit, prange
+
+
+@njit(cache=True, parallel=True)
+def _fourier_linear_sincos_njit(vals: np.ndarray, lo: float, span: float, freq: float, is_sin: bool) -> np.ndarray:
+    """Fused replay of the ``arg='linear', power=1`` orth_fourier branch: ``sin/cos(2*pi*freq*(x-lo)/span)``
+    with NaN/inf outputs zeroed, in ONE prange pass instead of the numpy form's separate
+    subtract/divide/multiply/(sin|cos)/nan_to_num passes. ``vals`` must already have non-finite inputs
+    filled (the caller's isfinite-mask/fill step, kept in numpy since it needs a reduction over the whole
+    array first); this kernel only fuses the per-element trig chain."""
+    n = vals.shape[0]
+    out = np.empty(n, dtype=np.float64)
+    two_pi_freq = 2.0 * np.pi * freq
+    for i in prange(n):
+        z = (vals[i] - lo) / span
+        ang = two_pi_freq * z
+        v = np.sin(ang) if is_sin else np.cos(ang)
+        if not np.isfinite(v):
+            v = 0.0
+        out[i] = v
+    return out
 
 if TYPE_CHECKING:
     from . import EngineeredRecipe
@@ -571,18 +592,21 @@ def _apply_orth_fourier(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
             zs = (vals - float(mean)) / max(float(std), 1e-12)
             u = np.sign(zs) * (zs * zs)
             z = (u - lo) / span
-        else:
-            if power != 1:
-                vals = np.power(vals, power)
-            z = (vals - lo) / span
-        ang = 2.0 * np.pi * freq * z
-        if kind == "sin":
-            out = np.sin(ang)
-        elif kind == "cos":
-            out = np.cos(ang)
-        else:
+            ang = 2.0 * np.pi * freq * z
+            if kind == "sin":
+                out = np.sin(ang)
+            elif kind == "cos":
+                out = np.cos(ang)
+            else:
+                raise ValueError(f"orth_fourier recipe '{recipe.name}': unknown kind {kind!r}")
+            return np.asarray(np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0))
+        if power != 1:
+            vals = np.power(vals, power)
+        if kind not in ("sin", "cos"):
             raise ValueError(f"orth_fourier recipe '{recipe.name}': unknown kind {kind!r}")
-    return np.asarray(np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0))
+        # Fused njit path for the common arg='linear' branch (see _fourier_linear_sincos_njit):
+        # subtract/divide/multiply/(sin|cos)/nan_to_num collapse into one pass.
+        return np.asarray(_fourier_linear_sincos_njit(np.ascontiguousarray(vals, dtype=np.float64), lo, span, freq, kind == "sin"), dtype=np.float64)
 
 
 def build_orth_spline_recipe(

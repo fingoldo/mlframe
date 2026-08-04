@@ -17,6 +17,47 @@ from typing import Optional, Sequence
 
 import numpy as np
 import pandas as pd
+from numba import njit, prange
+
+
+@njit(cache=True, parallel=True)
+def _extremality_matrix_njit(values: np.ndarray, out: np.ndarray) -> None:
+    """Parallel-across-columns twin of the per-column ``_ordinal_rank`` + normalise loop below. The prior
+    "bench-attempt-rejected (2026-07-13)" note only compared two NUMPY forms (per-column loop vs vectorized
+    axis=0 argsort) and never tried njit -- this fuses the per-column NaN-mask/argsort/rank/normalise chain
+    into one `prange` pass, one thread per column (each column's own argsort is independent of every other
+    column, so this parallelises across cores instead of running the whole loop on one). Bit-identical to
+    the per-column numpy reference on NaN handling and on tie-free (continuous) data (verified). On
+    HEAVILY TIED / low-cardinality columns, numba's argsort breaks ties in a different order than numpy's
+    quicksort, so the exact per-row rank assignment WITHIN a tied group can differ from the numpy
+    reference (each row still gets a mathematically valid extremality score - just possibly a different
+    specific rank among exactly-equal values). This is the SAME precision-vs-speed tradeoff
+    ``_ordinal_rank``'s own docstring already accepts (non-tie-averaged rank; continuous feature columns
+    rarely have enough exact ties to matter) - only the SOURCE of the tie-order variance is different
+    (a second unstable-sort implementation instead of no tie-averaging)."""
+    n_rows, n_cols = values.shape
+    for j in prange(n_cols):
+        n_valid = 0
+        for i in range(n_rows):
+            if not np.isnan(values[i, j]):
+                n_valid += 1
+        if n_valid == 0:
+            continue
+        valid_vals = np.empty(n_valid, dtype=np.float64)
+        valid_idx = np.empty(n_valid, dtype=np.int64)
+        k = 0
+        for i in range(n_rows):
+            v = values[i, j]
+            if not np.isnan(v):
+                valid_vals[k] = v
+                valid_idx[k] = i
+                k += 1
+        order = np.argsort(valid_vals)
+        denom = n_valid + 1
+        for r in range(n_valid):
+            orig_i = valid_idx[order[r]]
+            frac = (r + 1) / denom
+            out[orig_i, j] = abs(frac - 0.5) * 2.0
 
 
 def _ordinal_rank(x: np.ndarray) -> np.ndarray:
@@ -52,18 +93,13 @@ def _compute_extremality_matrix(X: pd.DataFrame, columns: Optional[Sequence[str]
     # measured SLOWER, not faster: 17.2s vs 5.2s at n=200,000/c=200 (~3.3x regression). Root cause:
     # numpy's axis=0 argsort on a wide 2-D array has poor cache locality (strided per-column access
     # either C- or F-ordered -- both measured, neither helps) and isn't internally batched the way a
-    # loop of per-column 1-D argsort calls effectively is. Kept the loop.
+    # loop of per-column 1-D argsort calls effectively is.
+    #
+    # PERF WIN (2026-08-04, incidental to a profiling cycle): the note above only ever compared two NUMPY
+    # forms and never tried njit. Replaced the per-column Python loop with `_extremality_matrix_njit`
+    # (parallel njit, one thread per column) -- parallelises across cores instead of running serially.
     extremality = np.full((n_rows, n_cols), np.nan, dtype=np.float64)
-    for j in range(n_cols):
-        col = values[:, j]
-        valid = ~np.isnan(col)
-        n_valid = int(valid.sum())
-        if n_valid == 0:
-            continue
-        # normalize the ordinal rank to (0,1) then fold around the median (0.5) to get a symmetric
-        # 0 (median) -> 1 (extreme) extremality score.
-        ranks = _ordinal_rank(col[valid]) / (n_valid + 1)
-        extremality[valid, j] = np.abs(ranks - 0.5) * 2.0
+    _extremality_matrix_njit(np.ascontiguousarray(values, dtype=np.float64), extremality)
 
     return extremality, cols
 
