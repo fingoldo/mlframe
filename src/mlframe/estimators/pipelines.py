@@ -92,17 +92,20 @@ def agg_pipeline_metric(cv_results, metric: str = "root_mean_squared_error", fun
 def replay_cv_results(fname: str, trusted_root: Optional[str] = None):
     """Visualize CV results from stored dump file.
 
-    If ``trusted_root`` is provided, ``fname`` must resolve inside it.
+    ``fname`` must resolve inside ``trusted_root`` (path-traversal guard ahead of
+    ``joblib.load``). When not provided, ``trusted_root`` defaults to ``fname``'s own
+    containing directory -- matching every sibling ``joblib.load`` call site's
+    fail-closed-by-default convention (e.g. ``training._trainer_train_and_evaluate``),
+    rather than skipping the containment check entirely.
     """
-    if trusted_root is not None:
-        abs_root = os.path.abspath(trusted_root)
-        abs_fname = os.path.abspath(fname)
-        try:
-            common = os.path.commonpath([abs_root, abs_fname])
-        except ValueError:
-            raise ValueError(f"Path {abs_fname} is not inside trusted_root {abs_root}")
-        if common != abs_root:
-            raise ValueError(f"Path {abs_fname} is not inside trusted_root {abs_root}")
+    abs_fname = os.path.abspath(fname)
+    abs_root = os.path.abspath(trusted_root) if trusted_root is not None else os.path.dirname(abs_fname)
+    try:
+        common = os.path.commonpath([abs_root, abs_fname])
+    except ValueError:
+        raise ValueError(f"Path {abs_fname} is not inside trusted_root {abs_root}")
+    if common != abs_root:
+        raise ValueError(f"Path {abs_fname} is not inside trusted_root {abs_root}")
     if not _verify_sidecar(fname):
         raise ValueError(f"sha256 sidecar mismatch for {fname}; refusing to load")
     # Trusts the sha256 sidecar verified just above: integrity/corruption gate, NOT authenticity (an attacker with dir write access rewrites both).
