@@ -53,7 +53,11 @@ def apply_synergy_bootstrap(
     self._fe_synergy_exhaustive_active_ = False
     synergy_min_rows = int(getattr(self, "fe_synergy_min_rows", 300) or 0)
     n_rows_for_synergy = int(data.shape[0]) if hasattr(data, "shape") else 0
-    synergy_max_sweep_cost = float(getattr(self, "fe_synergy_max_sweep_cost", 5e8) or float("inf"))
+    # `or float("inf")` here would additionally clobber a legitimately-set 0.0 (which naturally
+    # disables the sweep -- any real n*p^2 cost exceeds a 0 budget) with the opposite, unlimited
+    # budget; only widen on a genuine None/unset value.
+    _synergy_max_sweep_cost_raw = getattr(self, "fe_synergy_max_sweep_cost", 5e8)
+    synergy_max_sweep_cost = float(_synergy_max_sweep_cost_raw) if _synergy_max_sweep_cost_raw is not None else float("inf")
     if synergy_cap > 0 and num_fs_steps == 0 and n_rows_for_synergy >= synergy_min_rows:
         # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
         _raw_names = set(getattr(self, "feature_names_in_", []))
