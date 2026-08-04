@@ -352,6 +352,30 @@ passes, plus the full `tests/evaluation/` suite (185 tests) and `honest_diagnost
 unchanged. 3.87x speedup measured on n=200k/R=1000 realistic quantised-probability data (warm, was the
 `bootstrap_metrics` fallback path before this fix).
 
+## PERF WIN (2026-08-04): fused bootstrap bundle's ECE jackknife was duplicating the OLD pre-fix bootstrap_metrics behaviour instead of using the already-shipped closed form
+Re-profiling combo `c0091` right after the tied-scores fix above (2M rows, 5 model families) surfaced
+`_jackknife_metric` at 23.985s/12 calls (35.9s cumtime) PLUS its callback lambda at
+`_bootstrap_fused_binary_bundle.py:305` costing 21.469s across 24000 calls — both inside
+`bootstrap_auc_brier_ll_ece_batch`'s ECE jackknife branch, now hit far more often since the tied-scores fix
+routes nearly every `_bootstrap_block` call through this module instead of falling back.
+
+Root cause: an already-shipped closed-form ECE jackknife (`_jackknife_ece`, added 2026-07-31 — see that
+entry below — O(n) instead of the generic gather path's O(max_n\*n), ~800x measured) is wired into
+`honest_diagnostics._bootstrap_block`'s OWN `jackknife_fns["ece"]` for its `bootstrap_metrics` fallback
+path, but `_bootstrap_fused_binary_bundle.py` (written to mirror `bootstrap_metrics`'s behaviour) had a
+comment saying ECE has "no closed-form... in bootstrap_metrics either" and called the slow generic
+`_jackknife_metric` directly — true when the fused bundle was first written, stale after the 2026-07-31 fix
+landed on the OTHER call site and nobody circled back to this one. A classic "already-optimized primitive,
+just not wired into every call site that needs it" gap, not a new optimization to invent.
+
+Fixed by calling `_jackknife_ece(y_true, p_pos, n_bins=n_bins)` first, falling back to the generic
+`_jackknife_metric` gather only on `_jackknife_ece`'s documented degeneracy return (`None`) — mirrors
+`bootstrap_metrics`'s own custom-jackknife-then-gather-fallback order exactly. `_jackknife_ece` was already
+verified bit-identical (1.1e-16) to the generic path in the original 2026-07-31 work, so no new correctness
+risk; `test_bootstrap_fused_binary_bundle.py`'s existing match-tests (comparing against `bootstrap_metrics`,
+which itself falls back to the SAME generic gather path in the test's reference wiring) continue to pass at
+the 1e-9 tolerance, confirming CI equivalence either way.
+
 ## PERF WIN (2026-08-02): per_feature_edges' thread-pool threshold was 64x too high for real usage (1.2x-7.2x)
 2M-row cProfile on combo `c0037_c314bb14` (master-seed `2026_04_29`) found `per_feature_edges`/
 `_compute_col_edges` (`_adaptive_nbins.py`) costing 78s wall on a `fayyad_irani` (MDLP) fit with

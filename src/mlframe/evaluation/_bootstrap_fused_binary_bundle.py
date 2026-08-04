@@ -31,7 +31,7 @@ from mlframe.metrics._core_auc_brier import _fast_brier_score_loss_seq, fast_roc
 from mlframe.metrics._log_loss_and_separation import _fast_log_loss_binary_seq
 from mlframe.metrics._numba_params import NUMBA_NJIT_PARAMS
 
-from ._bootstrap_jackknife import _ci_from_samples, _jackknife_auc, _jackknife_mean_metric, _jackknife_metric
+from ._bootstrap_jackknife import _ci_from_samples, _jackknife_auc, _jackknife_ece, _jackknife_mean_metric, _jackknife_metric
 
 logger = logging.getLogger(__name__)
 
@@ -299,10 +299,18 @@ def bootstrap_auc_brier_ll_ece_batch(
                 per_row = np.where(y_f64 == 1, -np.log(_pc), -np.log(1.0 - _pc))
                 jackknife = _jackknife_mean_metric(y_true, per_row, requires_both_classes=True)
             elif name == "ece":
-                # No closed-form/per-row jackknife registered for ECE in bootstrap_metrics either -- it
-                # falls back to the SLOW generic gather jackknife (_jackknife_metric), not to percentile-
-                # only. Match that exactly so the BCa acceleration term -- and the resulting CI -- agree.
-                jackknife = _jackknife_metric(y_true, p_pos, lambda yy, pp: float(_ece_score_numba_serial(np.ascontiguousarray(yy, dtype=np.float64), np.ascontiguousarray(pp, dtype=np.float64), n_bins)))
+                # _jackknife_ece is the SAME O(n) closed-form honest_diagnostics._bootstrap_block's
+                # bootstrap_metrics fallback path already wires into jackknife_fns["ece"] (2026-07-31,
+                # ~800x vs the generic gather jackknife) -- this bundle used to duplicate the OLD, pre-fix
+                # bootstrap_metrics behaviour (a bare _jackknife_metric gather call) instead of the closed
+                # form, caught live via a 2M-row cProfile: _jackknife_metric cost 24.0s/12 calls here, now
+                # that the tied-scores fix above routes nearly every _bootstrap_block call through this
+                # module. Mirrors bootstrap_metrics's own custom-jackknife-then-gather-fallback order: try
+                # the closed form first, fall back to the generic gather only on its documented degeneracy
+                # (n<3, non-binary labels, non-finite total).
+                jackknife = _jackknife_ece(y_true, p_pos, n_bins=n_bins)
+                if jackknife is None:
+                    jackknife = _jackknife_metric(y_true, p_pos, lambda yy, pp: float(_ece_score_numba_serial(np.ascontiguousarray(yy, dtype=np.float64), np.ascontiguousarray(pp, dtype=np.float64), n_bins)))
         lo_ci, hi_ci = _ci_from_samples(finite, points[name], alpha, method, jackknife)
         results[name] = {"point": points[name], "lo": lo_ci, "hi": hi_ci, "samples": finite}
     return results
