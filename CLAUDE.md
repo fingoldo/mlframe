@@ -447,6 +447,32 @@ not yet been fixed — now THREE confirmed/suspected instances of this exact bug
 sweep for any other `s3 = ... ; m3 = s3/n - 3*mean*(s2/n) + 2*mean**3`-shaped code before assuming these
 three are the only occurrences.
 
+## INVESTIGATION LEAD (2026-08-04, NOT yet actionable): `resident_operand`'s GPU cache shows an ~84% miss rate under a wide pairwise-modular/conditional-gate FE sweep — `cupy.array` cost 1697.9s / 29346 calls (~25% of the ENTIRE 6827s run) on combo `c0605` (5 models, multilabel, wide pair search)
+`resident_operand` (`_fe_resident_operands.py`) is an already-sophisticated content-hash LRU cache (192-entry
+cap, ~330MB budget) specifically built to dedupe redundant re-uploads of the SAME fit-constant operand
+content across roles. On this profile it was CALLED 34993 times but only avoided upload on ~16% of calls
+(`cupy.array` fired 29346 times) — the cache is doing its job (no aliasing bugs, no wrong-value hits), the
+workload here just generates far more DISTINCT large operands (via `_pairwise_modular_fe.py`/
+`_conditional_gate_fe.py`'s `_scan_one`/`_residue_grid_mi`/`_add`/`_flush` candidate machinery, 360
+`_scan_one` calls) than the cache's `_MAX_ENTRIES=192` budget was sized for — the module's own comment
+justifying 192 cites "a 1M strict-resident fit touched 118 distinct contents," a DIFFERENT (smaller/narrower)
+combo than this one.
+
+NOT marked RESOLVED or REJECT because the evidence is ambiguous, not because the lead is weak: (a) the
+per-call cost (~58ms/call for `cp.asarray`) is far above cupy's normal array-creation latency and is more
+consistent with this session's well-documented severe multi-process GPU contention than a real per-call
+regression — the same "discard wall-clock as evidence-free under heavy contention" caveat this session has
+applied to CPU thread-lock-dominated profiles applies here too; (b) but the CALL-COUNT-based finding (cache
+miss rate, independent of per-call wall-clock) is contention-immune and does suggest `_MAX_ENTRIES=192` may
+be genuinely undersized for wide-pair-search combos, which VRAM-budget math would need to confirm (each
+evicted-then-reused operand is a few MB; is 192 -> e.g. 500-1000 entries still comfortable on a 4GB card
+alongside the chunked candidate buffers the module's docstring already accounts for?).
+
+**Next step for whoever picks this up**: re-profile this SAME combo (`c0605`, master-seed `2027_07_02`,
+`--combo-pool 700`) on a quiet machine (or instrument `resident_operand` with a hit/miss counter independent
+of wall-clock) to separate the contention-inflated per-call cost from the genuine cache-sizing question
+before touching `_MAX_ENTRIES` or the eviction policy.
+
 ## PERF WIN (2026-08-02): per_feature_edges' thread-pool threshold was 64x too high for real usage (1.2x-7.2x)
 2M-row cProfile on combo `c0037_c314bb14` (master-seed `2026_04_29`) found `per_feature_edges`/
 `_compute_col_edges` (`_adaptive_nbins.py`) costing 78s wall on a `fayyad_irani` (MDLP) fit with
