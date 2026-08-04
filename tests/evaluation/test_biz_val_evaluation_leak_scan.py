@@ -135,6 +135,26 @@ def test_biz_val_scan_temporal_leak_derived_diff_detects_leak_invisible_to_raw_c
     assert diff_corr > raw_only["correlation"].abs().max() + 0.6
 
 
+def test_scan_temporal_leak_binary_split_labels_matches_tie_aware_spearman():
+    """COMPETITION_EVALUATION-4 (2026-08-05 audit): _rank_columns skips tie-averaging, yet split_labels is
+    documented as possibly "a binary train=0/test=1 indicator" -- maximal tie density. Reproduced a ~0.13
+    absolute (~15% relative) systematic inflation vs scipy.stats.spearmanr's tie-aware result. Pins that the
+    scanner's correlation now matches scipy's tie-aware Spearman to machine precision on binary split_labels."""
+    from scipy.stats import spearmanr
+
+    rng = np.random.default_rng(0)
+    n = 4000
+    split_labels = rng.integers(0, 2, size=n)  # binary train=0/test=1 indicator: maximal tie density
+    leak_col = split_labels.astype(np.float64) * 3.0 + rng.standard_normal(n) * 2.0
+    X = pd.DataFrame({"leak_col": leak_col})
+
+    result = scan_temporal_leak(X, split_labels)
+    our_corr = float(result.iloc[0]["correlation"])
+    ref_corr, _ = spearmanr(leak_col, split_labels)
+
+    assert our_corr == pytest.approx(ref_corr, abs=1e-9), f"expected tie-aware match: ours={our_corr} scipy={ref_corr}"
+
+
 def test_scan_temporal_leak_scan_derived_caps_at_max_derived_features():
     """Scan temporal leak scan derived caps at max derived features."""
     X, split_labels = _make_leak_data(500, seed=9)

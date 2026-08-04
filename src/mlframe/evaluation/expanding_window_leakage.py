@@ -24,7 +24,7 @@ false-positive-feature-selection-significance failure mode the source technique 
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -86,10 +86,14 @@ def detect_expanding_window_feature_leakage(
         - ``remediated_feature``: ``(len(df),)`` array, same row order as the ORIGINAL (unsorted) ``df``,
           with each row's value recomputed as of that row's own fold train-cutoff -- safe to feed straight
           back into feature selection / model training in place of the leaky feature.
-        - ``leaky_row_ranges``: list of ``(start, end)`` half-open index pairs (into the ORIGINAL ``df``
-          row order) for every fold whose per-fold ``leaky_score - honest_score`` gap exceeds the same
-          tolerance used for ``leak_detected`` -- the exact rows whose "held-out" score was inflated by
-          future information.
+        - ``leaky_row_positions``: list of ``np.ndarray`` (sorted, into the ORIGINAL ``df`` row order) for
+          every fold whose per-fold ``leaky_score - honest_score`` gap exceeds the same tolerance used for
+          ``leak_detected`` -- the exact rows whose "held-out" score was inflated by future information.
+          Each fold's validation slice is a CONTIGUOUS range in time-sorted order, but ``df`` need not be
+          pre-sorted by ``time_col`` (this function sorts internally), so those rows' ORIGINAL positions
+          are generally scattered, not contiguous -- hence an exact position array rather than a
+          ``(start, end)`` range, which would silently span everything between the scattered positions'
+          min and max on unsorted input.
         - ``remediation_verified``: True if re-running this same detector with ``remediated_feature``
           substituted for the leaky full-dataset computation no longer reports a leak (proves the
           suggested recomputation boundary actually removes the inflation, not just masks it).
@@ -124,7 +128,7 @@ def detect_expanding_window_feature_leakage(
 
     leaky_scores: List[float] = []
     honest_scores: List[float] = []
-    leaky_row_ranges: List[Tuple[int, int]] = []
+    leaky_row_positions: List[np.ndarray] = []
     for fold_idx in range(1, n_splits + 1):
         train_idx = np.concatenate(chunks[:fold_idx])
         val_idx = chunks[fold_idx]
@@ -150,9 +154,12 @@ def detect_expanding_window_feature_leakage(
             # leakage-safe recomputation boundary: fit strictly precedes this fold's split.
             remediated_sorted[val_idx] = honest_feature_all[n_train:]
             if (leaky_score - honest_score) > 0.02:
-                start_sorted, end_sorted = int(val_idx[0]), int(val_idx[-1]) + 1
-                orig_positions = np.sort(inverse_order[start_sorted:end_sorted])
-                leaky_row_ranges.append((int(orig_positions[0]), int(orig_positions[-1]) + 1))
+                # val_idx is contiguous in TIME-SORTED position (an np.array_split chunk), but its ORIGINAL
+                # (pre-sort) positions are generally scattered when df wasn't already time-sorted -- collapsing
+                # to (min, max+1) would silently claim every row in between as leaked too, on the realistic
+                # unsorted-input case spanning nearly the whole dataset. Report the exact scattered positions.
+                orig_positions = np.sort(inverse_order[val_idx])
+                leaky_row_positions.append(orig_positions)
 
     leaky_mean = float(np.mean(leaky_scores))
     honest_mean = float(np.mean(honest_scores))
@@ -189,7 +196,7 @@ def detect_expanding_window_feature_leakage(
         )
 
         result["remediated_feature"] = remediated_feature
-        result["leaky_row_ranges"] = leaky_row_ranges
+        result["leaky_row_positions"] = leaky_row_positions
         result["remediation_verified"] = bool(not verification["leak_detected"])
 
     return result

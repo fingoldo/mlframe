@@ -233,6 +233,67 @@ def test_f3_stable_sort_makes_verification_resort_a_true_identity():
 
 
 # ---------------------------------------------------------------------------
+# COMPETITION_EVALUATION-3 (2026-08-05 audit): leaky_row_ranges' (min, max+1) collapse only reflects the
+# actual leaked rows when df is already time-sorted; on unsorted input it silently spans nearly the whole
+# dataset instead.
+# ---------------------------------------------------------------------------
+
+
+def test_competition_evaluation_3_leaky_row_positions_are_exact_not_a_wide_range():
+    """leaky_row_positions must report the EXACT (generally scattered) original-df positions of the leaked
+    validation rows, not a (min, max+1) range that silently spans everything in between on unsorted input.
+
+    Fixture: categories are narrow, non-repeating, time-clustered slices (each category appears only in
+    one 10-row chronological window and never again), and the original df row order is a random permutation
+    of chronological order. A full-dataset target-mean encoder ("leaky") then achieves near-perfect in-sample
+    R^2 for every fold, while the honest per-fold encoder (fit only on strictly-prior rows) has NEVER seen
+    any validation row's category before, so it falls back to the global mean (near-zero signal) --
+    guaranteeing every fold is flagged. Each flagged fold's true leaked-row COUNT (~33-34, one np.array_split
+    chunk of 200 rows / 6) is far smaller than the SPAN a naive (min, max+1) collapse would report (~180-197,
+    confirmed via direct reproduction of the pre-fix formula below) -- pinning that the fix reports the exact
+    count, not an inflated range.
+    """
+    from sklearn.linear_model import LinearRegression
+
+    from mlframe.evaluation.expanding_window_leakage import detect_expanding_window_feature_leakage
+
+    rng = np.random.default_rng(1)
+    n = 200
+    n_cats = 20
+    cat_of_time = np.repeat(np.arange(n_cats), n // n_cats)
+    rate = rng.uniform(1, 5, n_cats)
+    y_time = rate[cat_of_time] + rng.normal(scale=0.05, size=n)
+    t = np.arange(n)
+
+    perm = rng.permutation(n)  # original df row order != chronological order
+    df = pd.DataFrame({"t": t[perm], "cat": cat_of_time[perm], "_y": y_time[perm]})
+    y = y_time[perm]
+
+    def fit_transform_fn(fit_df, transform_df):
+        """Target-mean encoder: leaky when fit on the full dataset, honest when fit on strictly-prior rows."""
+        means = fit_df.groupby("cat")["_y"].mean()
+        global_mean = fit_df["_y"].mean()
+        return transform_df["cat"].map(means).fillna(global_mean).to_numpy(dtype=np.float64)
+
+    result = detect_expanding_window_feature_leakage(
+        df, "t", y, fit_transform_fn, lambda: LinearRegression(), n_splits=5, scoring="r2", auto_remediate=True,
+    )
+
+    assert result["leak_detected"] is True
+    assert len(result["leaky_row_positions"]) >= 1, "expected at least one flagged fold in this deliberately-leaky fixture"
+
+    for positions in result["leaky_row_positions"]:
+        assert isinstance(positions, np.ndarray)
+        span = int(positions[-1]) - int(positions[0]) + 1
+        # Each fold's expanding-window validation chunk is ~200/6 ~= 33 rows; the exact count must match
+        # that, not the ~180-197-row span a (min, max+1) collapse would report on this scattered fixture.
+        assert len(positions) < 50, f"reported {len(positions)} leaked rows -- expected ~33 (one fold's chunk), not span-inflated"
+        assert span > 2 * len(positions), f"span={span} vs count={len(positions)}: expected the fixture's scattering to make span >> count"
+        assert len(np.unique(positions)) == len(positions), "positions must be unique row indices"
+        assert positions.min() >= 0 and positions.max() < n
+
+
+# ---------------------------------------------------------------------------
 # F4 / PR4: bootstrap_metrics missing from __all__ and package re-exports
 # ---------------------------------------------------------------------------
 
