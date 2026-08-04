@@ -43,12 +43,56 @@ def test_w14a_ensembling_score_flavours_identity():
     assert parent.maybe_build_votenrank_leaderboard is flav.maybe_build_votenrank_leaderboard
 
 
+def test_apply_quality_gate_kn_keeps_tag_lists_positionally_aligned(monkeypatch):
+    """When the gate drops a member, the returned tag lists must stay positionally aligned with the
+    returned (sliced) member list -- downstream compute_high_correlation_pairs indexes member_tags[i]
+    by POSITION against members[i], not by any identity/.index() lookup."""
+    import mlframe.models.ensembling.quality_gate as quality_gate_mod
+    from mlframe.models.ensembling.score_flavours import apply_quality_gate_kn
+
+    # 3 members; the gate drops index 1 ("xgb").
+    monkeypatch.setattr(
+        quality_gate_mod,
+        "compute_member_quality_gate",
+        lambda preds_list, **kwargs: ([0, 2], [(1, "mae_relative")], {"per_member_mae": [0.1, 5.0, 0.2], "median_mae": 0.15, "filter_too_restrictive": False}),
+    )
+
+    members = ["model_cb", "model_xgb", "model_lgb"]
+    tags = ["CatBoostRegressor", "XGBRegressor", "LGBMRegressor"]
+    short_tags = ["cb", "xgb", "lgb"]
+
+    kept_members, kept_tags, kept_short_tags, _name, *_rest = apply_quality_gate_kn(
+        level_models_and_predictions=members,
+        _gate_preds_for_check=[np.zeros(10), np.zeros(10), np.zeros(10)],
+        _gate_source_split="oof",
+        _ensemble_member_tags=tags,
+        _ensemble_short_tags=short_tags,
+        ensemble_name="[cb+xgb+lgb] test",
+        max_mae=0.0,
+        max_std=0.0,
+        max_mae_relative=2.5,
+        max_std_relative=2.5,
+        sample_weight=None,
+        group_ids=None,
+        ensembling_methods=["arithm"],
+        res={},
+        verbose=False,
+    )
+
+    assert kept_members == ["model_cb", "model_lgb"]
+    # pre-fix: kept_tags/kept_short_tags stayed the full unsliced 3-element lists here.
+    assert kept_tags == ["CatBoostRegressor", "LGBMRegressor"], kept_tags
+    assert kept_short_tags == ["cb", "lgb"], kept_short_tags
+    assert len(kept_members) == len(kept_tags) == len(kept_short_tags)
+
+
 def test_w14a_build_member_tag_lists_with_name_attr():
     """``model_name`` (TVT augmented) feeds the full-tag list; underlying class feeds the short-tag list."""
     from mlframe.models.ensembling.score_flavours import build_member_tag_lists
 
     class _FakeReg:
         """Groups tests for: FakeReg."""
+
         pass
 
     m1 = SimpleNamespace(model_name="CatBoostRegressor TVT MTTR=11.2", model=_FakeReg())

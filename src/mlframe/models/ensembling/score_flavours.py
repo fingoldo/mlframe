@@ -409,6 +409,12 @@ def apply_quality_gate_kn(
             }
     if _excluded and not _gate_stats.get("filter_too_restrictive"):
         level_models_and_predictions = [level_models_and_predictions[i] for i in _kept_idx]
+        # Slice the tag lists the SAME way: downstream consumers (compute_high_correlation_pairs ->
+        # _emit_pairs_above_threshold) index member_tags[i] by POSITION against the member list, not
+        # by any .index()-based realignment -- leaving these unsliced silently paired the wrong tag
+        # name with each surviving member's correlation stats once earlier members had been dropped.
+        _ensemble_member_tags = [_ensemble_member_tags[i] for i in _kept_idx]
+        _ensemble_short_tags = [_ensemble_short_tags[i] for i in _kept_idx]
         # 2026-05-11: refresh ``ensemble_name`` to reflect the kept
         # members so downstream model_name_prefix / report titles
         # show [cb+xgb+lgb] (gate-survivors) instead of the original
@@ -419,7 +425,8 @@ def apply_quality_gate_kn(
         # format ([cb+xgb+lgb] for <=4, [N=K] otherwise).
         try:
             # F2 fix (2026-05-11): use the SHORT tag list (cb / xgb / lgb / ...) for the rebuilt ensemble label rather than the full class names; matches the original short-label contract from core.py:5483 and keeps chart titles compact.
-            _kept_tags = [_ensemble_short_tags[i] for i in _kept_idx]
+            # _ensemble_short_tags is already sliced to the kept members above -- use it directly.
+            _kept_tags = list(_ensemble_short_tags)
             _re_label = "[" + "+".join(_kept_tags) + "]" if len(_kept_tags) <= 4 else f"[N={len(_kept_tags)}]"
             # Replace any [...] / [N=k] in ``ensemble_name`` with
             # the new label. The caller pattern is
@@ -458,12 +465,9 @@ def apply_quality_gate_kn(
         max_std = 0.0
         max_mae_relative = 0.0
         max_std_relative = 0.0
-    # Tag lists left unchanged when the gate didn't materially fire (caller's references stay valid).
-    # When the gate dropped members we deliberately do NOT slice them here -- the caller's downstream
-    # diversity / stacking / for-loop code reads tags using the same indices as level_models_and_predictions
-    # AFTER the slice, but the original score_ensemble body kept the pre-gate tag lists intact and the
-    # downstream code already realigns via _ensemble_member_tags.index(...). Returning them unchanged
-    # preserves the original behavioural contract.
+    # Tag lists left unchanged when the gate didn't fire (caller's references stay valid); sliced
+    # in lockstep with level_models_and_predictions above when it did (downstream consumers like
+    # compute_high_correlation_pairs index member_tags by POSITION, not by identity lookup).
     return (
         level_models_and_predictions,
         _ensemble_member_tags,

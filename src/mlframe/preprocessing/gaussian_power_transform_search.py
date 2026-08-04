@@ -21,11 +21,14 @@ unsupervised behavior.
 """
 from __future__ import annotations
 
+import logging
 from typing import Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
 from scipy.stats import pearsonr, skew
+
+logger = logging.getLogger(__name__)
 
 _CANDIDATE_TRANSFORMS = ("identity", "sqrt_signed", "log1p_signed", "boxcox", "yeo_johnson")
 
@@ -214,7 +217,31 @@ def apply_gaussian_power_transform(df: pd.DataFrame, search_result: Dict[str, di
         finite_fill = raw.copy()
         if finite.size:
             finite_fill[~np.isfinite(finite_fill)] = np.median(finite)
-        transformed, _ = _apply_transform(finite_fill, info["best_transform"], fitted_params=info.get("best_fitted_params"))
+        best_transform = info["best_transform"]
+        if best_transform == "boxcox":
+            # _apply_transform's positivity guard is whole-array (needed at FIT time: a single
+            # lambda must be fit over the whole column), which at REPLAY time means one stray
+            # non-positive value at inference (absent from the searched/fitted data) silently
+            # disables the transform for the ENTIRE column with no warning -- every row reverts to
+            # raw scale, not just the offending one. Replay per-row instead: transform the positive
+            # subset with the fitted lambda, leave non-positive rows at their raw value, and warn.
+            positive_mask = finite_fill > 0
+            n_nonpositive = int((~positive_mask).sum())
+            if n_nonpositive:
+                logger.warning(
+                    "apply_gaussian_power_transform: column %r has %d non-positive value(s) at replay time "
+                    "(absent from the fitted data); those rows are left at raw scale, only the %d positive "
+                    "row(s) get the fitted Box-Cox transform.",
+                    col, n_nonpositive, int(positive_mask.sum()),
+                )
+            if positive_mask.any():
+                transformed_pos, _ = _apply_transform(finite_fill[positive_mask], best_transform, fitted_params=info.get("best_fitted_params"))
+                if transformed_pos is not None:
+                    replayed = finite_fill.copy()
+                    replayed[positive_mask] = transformed_pos
+                    out[col] = replayed
+            continue
+        transformed, _ = _apply_transform(finite_fill, best_transform, fitted_params=info.get("best_fitted_params"))
         if transformed is not None:
             out[col] = transformed
     return out
