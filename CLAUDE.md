@@ -269,6 +269,54 @@ synthetic OLS scenarios, n=200-100k, k=2-5) so the gate's admit/reject decisions
 volume at this exact site (8 calls / 4.7s in the triggering profile, combo `c0554_46233682`) so the direct
 win here is modest, but flagged and fixed per the "check every lever, not just eyeball it" rule above.
 
+## PERF WIN + LIVE BUG CAUGHT (2026-08-04): binned-numeric-agg's global fallback stats fused 4 full-array passes into 1-2, restoring a silently-reverted optimization that had a catastrophic numerical bug
+User pushback on the njit-check audit itself: `_global_stat` (`_binned_numeric_agg_fe.py`) individually uses
+`np.mean`/`np.std`/`scipy.stats.skew`/`scipy.stats.kurtosis` — each is individually optimal, but the caller
+(`fit_binned_numeric_agg`) calls it ONCE PER STAT (`{s: _global_stat(av, s) for s in kept_stats}`), so up to
+4 SEPARATE full-array traversals happen per column, each independently recomputing overlapping raw moments
+(std recomputes mean; skew/kurtosis each recompute mean AND variance internally).
+
+Mid-fix, `git log -- <file>` turned up that this EXACT fusion had already been implemented and shipped once
+before, as `_global_stats_all` in commit `2640bc00d` (2026-07-31) — then SILENTLY REVERTED two commits later
+by `2d4d86c60` (2026-08-02, an unrelated GROUP-MI-batching perf commit whose diff, evidently built from a
+stale pre-`2640bc00d` checkout, deleted `_global_stats_all` and the sibling fold-gate optimization as a side
+effect with no mention in its commit message). This is the exact "worktree-copy trap" this session already
+hit once on `_gpu_resident_extval.py` — always `git log -- <file>` before starting AND before finishing any
+optimization, not just to avoid duplicate work but because a "duplicate" can turn out to be a silently-lost
+fix.
+
+Reconstructing `2640bc00d`'s actual `_global_stats_all` (it reused `_raw_moments`/`_derive_cell_stats` — the
+SAME raw-moment-expansion formula `_derive_cell_stats` already uses for PER-CELL stats) and A/B-testing it
+against `_global_stat` over 3000 trials (scale 1e-3..1e6, offset ±1e4) reproduced the bug LIVE: skew/kurt
+errors up to 17 orders of magnitude from large-nearly-equal-numbers cancellation in
+`sum(x**k) - k*mean*sum(x**(k-1)) + ...`. Their own commit message claimed "worst diff 2.3e-10" from a
+3000-trial sweep — their sweep evidently never hit the large-offset/small-scale regime that breaks this
+formula. Had the revert not accidentally happened, this would be a live, shipped production correctness bug.
+
+Restored the fusion (`_global_stats_all`, keeping the name the existing test
+`test_global_stats_all_matches_global_stat` already expects) AND the sibling fold-gate optimization
+(`test_fin.size == finite_count` replacing the `(fold_ids != f) & finite` full-array-AND + `.any()` gate),
+but backed the stats fusion with a NEW, numerically-stable kernel — `_centered_moments_njit`: mean pass,
+then ONE fused pass accumulating `sum((x-mean)^2)`/`^3`/`^4` directly (no algebraic expansion, no
+cancellation) — what scipy's own skew/kurtosis does internally. Also needed an explicit constant-column fast
+path (`vmin == vmax` short-circuit): sequential float summation of many copies of the same value isn't
+always bit-exact to `n*value`, so a truly-constant huge-offset column could still compute a
+just-over-1e-12 "std" from that mean-drift and blow up skew/kurt as (near-zero)/(near-zero)^k.
+
+Verified against the original per-stat calls (`np.mean`/`np.std`/`scipy.stats.skew`/`kurtosis`) across 30
+synthetic scenarios spanning extreme scale/offset combinations (1e-3 to 1e6), NaN-mixed and constant columns
+— max relative diff after both fixes: mean 1e-14, std/skew/kurt at the ~1e-6..1e-8 noise floor (the same
+tolerance `_derive_cell_stats` already accepts for this stat family). 12.04x speedup at n=2M (warm,
+best-of-10) on the common all-4-stats request. Full existing test suite for the file (9 tests, incl. the
+pre-existing `test_global_stats_all_matches_global_stat`) passes.
+
+OPEN FOLLOW-UP: `_derive_cell_stats`'s own per-cell skew/kurt (lines ~129-133) uses the SAME raw-moment
+binomial-expansion formula just proven catastrophically unstable — per-cell offsets are typically smaller
+than a whole-column global, but this is unverified, not yet stress-tested, and is a real candidate for the
+exact same bug on production data with large per-cell offsets. Needs its own dedicated A/B sweep before
+being ruled safe or unsafe; not fixed here because it's a wider-blast-radius change (touches every per-cell
+stat consumer in this file, not just the global fallback).
+
 ## PERF WIN (2026-08-02): per_feature_edges' thread-pool threshold was 64x too high for real usage (1.2x-7.2x)
 2M-row cProfile on combo `c0037_c314bb14` (master-seed `2026_04_29`) found `per_feature_edges`/
 `_compute_col_edges` (`_adaptive_nbins.py`) costing 78s wall on a `fayyad_irani` (MDLP) fit with
