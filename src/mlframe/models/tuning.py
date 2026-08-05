@@ -175,16 +175,20 @@ def check_rules(params, drop_if_rules=None, drop_if_not_rules=None, skip_if_valu
                     skip = True
                     break
             if not skip:
-                if check_condition(condition, params):
-                    any_triggered = False
-                    for field_cond in fields:
-                        if check_condition(field_cond, params):
-                            # print(f"allow cond {condition} triggered for {field_cond}, {params}")
-                            any_triggered = True
-                            break
-                    if not any_triggered:
-                        # print(f"none of allow_if_values_or {conditions} {fields} triggered")
-                        return False
+                # `skip is False` already means every gate condition in `conditions` held (or `conditions`
+                # was empty) -- no need to re-check any single condition here. A prior version re-checked
+                # the loop's leftover `condition` variable, which was dead code (re-testing an already-true
+                # condition) when `conditions` was non-empty, and raised NameError when `conditions` was an
+                # empty tuple (a legal DSL input meaning "no gate, always evaluate the field conditions").
+                any_triggered = False
+                for field_cond in fields:
+                    if check_condition(field_cond, params):
+                        # print(f"allow cond {conditions} triggered for {field_cond}, {params}")
+                        any_triggered = True
+                        break
+                if not any_triggered:
+                    # print(f"none of allow_if_values_or {conditions} {fields} triggered")
+                    return False
 
     if allow_if_values_and:
         for conditions, fields in allow_if_values_and.items():
