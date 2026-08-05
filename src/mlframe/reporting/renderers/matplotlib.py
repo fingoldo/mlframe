@@ -362,7 +362,7 @@ class MatplotlibRenderer:
         if bin_centers is not None:
             if heights is None:
                 heights = np.asarray(p.values)
-                width = float(p.bin_width or (bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0)
+                width = float(p.bin_width or ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
             colors_kw: dict[str, Any] = {"color": p.color}
             if p.bar_colors is not None:
                 cm = matplotlib.colormaps[p.colormap]
