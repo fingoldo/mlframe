@@ -79,6 +79,15 @@ def test_native_gpu_shap_available_false_for_non_xgboost_model():
     assert not native_gpu_shap_available(model)
 
 
+def test_native_gpu_shap_available_false_for_unfitted_xgboost_model():
+    """CORE_INFRA_MISC-2: an unfitted XGBClassifier's get_booster() raises sklearn's NotFittedError, not
+    AttributeError -- native_gpu_shap_available must still return False (never raise), per its docstring."""
+    from mlframe.inference.native_gpu_shap import native_gpu_shap_available
+
+    model = xgboost.XGBClassifier(n_estimators=10, device="cuda")
+    assert not native_gpu_shap_available(model)
+
+
 def test_native_xgboost_gpu_shap_contribs_returns_none_when_unavailable():
     """Native xgboost gpu shap contribs returns none when unavailable."""
     from mlframe.inference.native_gpu_shap import native_xgboost_gpu_shap_contribs
