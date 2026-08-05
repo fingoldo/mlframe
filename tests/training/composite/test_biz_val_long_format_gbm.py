@@ -47,6 +47,56 @@ def test_melt_to_long_gbm_features_count_column_matches_value_frequency():
     np.testing.assert_array_equal(f1_counts, [1, 1, 1, 1, 1, 1])  # all-unique column
 
 
+def test_melt_to_long_gbm_features_count_column_handles_nan_values():
+    """TRAINING_COMPOSITE_CORE_B-7: rows whose original X value is NaN must get a valid within-column
+    frequency count (counting how many other rows in that column also have a missing value), not a
+    silent NaN from pandas groupby's default dropna=True excluding the NaN group entirely."""
+    X = pd.DataFrame({"f0": [1.0, np.nan, 2.0, np.nan, np.nan, 3.0]})
+
+    n = X.shape[0]
+    X_indexed = X.reset_index(drop=True).copy()
+    X_indexed["_row_id"] = np.arange(n)
+    melted = X_indexed.melt(id_vars="_row_id", var_name="_feature_name", value_name="_value")
+    melted["_count"] = melted.groupby(["_feature_name", "_value"], dropna=False)["_value"].transform("size")
+
+    counts = melted.sort_values("_row_id")["_count"].to_numpy()
+    # 3 rows share the NaN value -> count 3 each; the other 3 rows are each unique -> count 1.
+    np.testing.assert_array_equal(counts, [1, 3, 1, 3, 3, 1])
+    assert not np.isnan(counts).any(), "no row's frequency count should be NaN, even when the original value was NaN"
+
+
+def test_melt_to_long_gbm_features_count_column_no_nan_end_to_end(monkeypatch):
+    """TRAINING_COMPOSITE_CORE_B-7: end-to-end through the real melt_to_long_gbm_features, the '_count'
+    column fed to the inner model must never be NaN, even for rows whose original X value is NaN --
+    captured by monkeypatching composite_oof_predictions to intercept the X_long it's about to fit on."""
+    from mlframe.training.composite import long_format_gbm as lfg_mod
+
+    captured = {}
+    real_oof = lfg_mod.composite_oof_predictions
+
+    def _spy_oof(model_factory, X_long, y_broadcast, **kwargs):
+        """Capture X_long before delegating to the real composite_oof_predictions."""
+        captured["X_long"] = X_long.copy()
+        # Substitute NaN _value cells with 0 so a real LinearRegression can still fit -- this test only
+        # cares about the _count column's own correctness, which is independent of _value's own NaN-ness.
+        X_long_safe = X_long.fillna(0.0)
+        return real_oof(model_factory, X_long_safe, y_broadcast, **kwargs)
+
+    monkeypatch.setattr(lfg_mod, "composite_oof_predictions", _spy_oof)
+
+    rng = np.random.default_rng(4)
+    n = 60
+    X = pd.DataFrame({"f0": rng.normal(size=n), "f1": rng.normal(size=n)})
+    nan_rows = rng.choice(n, size=10, replace=False)
+    X.loc[nan_rows, "f0"] = np.nan
+    y = rng.normal(size=n)
+
+    melt_to_long_gbm_features(X, y, model_factory=lambda: LinearRegression(), n_splits=5, random_state=0)
+
+    X_long = captured["X_long"]
+    assert not X_long["_count"].isna().any(), "the _count column must never be NaN, even for NaN-valued original rows"
+
+
 def test_melt_to_long_gbm_features_deterministic_given_fixed_seed():
     """Two calls with the same random_state produce bit-identical melt_to_long_gbm_features output."""
     rng = np.random.default_rng(1)

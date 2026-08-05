@@ -110,7 +110,12 @@ def melt_to_long_gbm_features(
     melted = X_indexed.melt(id_vars="_row_id", var_name="_feature_name", value_name="_value")
     # Within-column value frequency count (the source technique's "count" column) -- vectorized groupby-
     # transform over (feature, value) pairs, one pass, no per-column Python loop.
-    melted["_count"] = melted.groupby(["_feature_name", "_value"])["_value"].transform("count").astype(np.float64)
+    # dropna=False + "size" (not "count"): pandas groupby's default dropna=True excludes NaN-valued rows
+    # from any group entirely, AND ".transform('count')" itself only counts non-null values within a
+    # group regardless of dropna -- a NaN-valued row's group is entirely NaN, so "count" gives 0 for it
+    # even with dropna=False. "size" counts every row in the group (NaN or not), which is the actual
+    # "how many other rows in this column also share this value (including missing)" signal wanted here.
+    melted["_count"] = melted.groupby(["_feature_name", "_value"], dropna=False)["_value"].transform("size").astype(np.float64)
     melted["_feat_code"] = pd.factorize(melted["_feature_name"])[0].astype(np.float64)
 
     row_ids = melted["_row_id"].to_numpy()
