@@ -245,11 +245,11 @@ def _maybe_run_feature_handling_apply(
     here -- TrainingContext uses slots=True so adding a new attribute would AttributeError, and the
     SCOPE constraint forbids touching _training_context.py in this wave.
 
-    sample_weight is accepted for forward compatibility: feature_handling_apply does not yet take it
-    (validated against the current apply.py). The keyword is plumbed through so a later apply.py
-    extension picks it up without a second wire-in change here. NOTE: the underlying handlers do
-    consume sample_weight via LeakageSafeEncoder -- once apply.py grows the kwarg, drop the silent
-    discard below.
+    sample_weight (TRAINING_FEATURE_HANDLING_TARGETS-2): threaded straight through to
+    feature_handling_apply, which forwards it to the target-encoder handlers only
+    (LeakageSafeEncoder.fit_transform already supports weighted per-category means/OOF folds); other
+    handler kinds (text, cat-onehot/ordinal, custom) ignore it. None (default) is bit-identical to the
+    unweighted path.
 
     model_kind comes from ctx.sorted_mlframe_models[0] -- the first concrete kind drives FHC
     validation; the resulting fitted state is model-agnostic for the handlers wired in v1 (TF-IDF,
@@ -262,26 +262,6 @@ def _maybe_run_feature_handling_apply(
         fhc = ctx.artifacts.get("feature_handling_config") if isinstance(getattr(ctx, "artifacts", None), dict) else None
     if fhc is None:
         return None
-    # sample_weight is accepted for forward compatibility but feature_handling_apply does NOT yet
-    # consume it. Under target-encoder handlers (LeakageSafeEncoder), the OOF means are computed
-    # UNWEIGHTED even when the suite is running recency-weighted training. Loud-warn so the operator
-    # sees this BEFORE diagnosing "production AUC degraded vs uniform-trained baseline" -- the
-    # silent discard was the cause. Once apply.py grows the sample_weight kwarg + threads it into
-    # the handler chain, drop the WARN and pass the value through.
-    if sample_weight is not None:
-        # Rate-limit log: emit at most once per process per (target, handler-count) to avoid
-        # spamming the log on multi-target suites where the warning is the same root cause.
-        _key = ("_fhc_sw_discard_warned", cur_target_name)
-        if not getattr(ctx, "artifacts", {}).get(_key):
-            logger.warning(
-                "_maybe_run_feature_handling_apply: sample_weight provided for target %r but "
-                "feature_handling_apply does not yet consume it; target-encoder OOF means will "
-                "compute UNWEIGHTED. Production AUC may degrade vs uniform-trained baseline. "
-                "Track removal of this warning when apply.py threads sample_weight through.",
-                cur_target_name,
-            )
-            if isinstance(getattr(ctx, "artifacts", None), dict):
-                ctx.artifacts[_key] = True
     try:
         from mlframe.training.feature_handling import feature_handling_apply  # local: avoid suite-import cost when FHC is off
     except ImportError:  # pragma: no cover
@@ -311,6 +291,7 @@ def _maybe_run_feature_handling_apply(
             fhc=fhc,
             model_kind=model_kind,
             candidate_cat_columns=_cat_for_fhc,
+            sample_weight=sample_weight,
         )
     except ValueError as fhc_err:
         # Surface configuration errors with the kwarg name so users grep the right place; chain so the
