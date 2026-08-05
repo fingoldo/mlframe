@@ -15,9 +15,12 @@ an ``O(n_rows)`` blend + ``score_fn`` call (AUC's sort dominates at large ``n_ro
 
 from __future__ import annotations
 
+import logging
 from typing import Callable, Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _default_score_fn(y: np.ndarray, blended: np.ndarray) -> float:
@@ -89,6 +92,20 @@ def shapley_model_values(
     n_models, n_rows = preds.shape
     if score_fn is None:
         score_fn = _default_score_fn
+        # _default_score_fn silently falls back to negative-RMSE (treating y as continuous) for any
+        # cardinality != 2 -- including a degenerate single-class y (RMSE against a constant target is
+        # a near-meaningless Shapley game) or an integer-coded multiclass y (RMSE on class-index labels
+        # is not a sane classification score at all). Warn ONCE here (not inside the hot score_fn path,
+        # which runs n_permutations * n_models times per call) so the caller isn't silently handed a
+        # degenerate/wrong-metric Shapley decomposition.
+        _card = len(np.unique(y))
+        if _card != 2:
+            logger.warning(
+                "shapley_model_values: default score_fn falling back to negative-RMSE (treating y as "
+                "continuous) -- y has cardinality %d, not the binary case fast_roc_auc handles. Pass an "
+                "explicit score_fn for single-class or multiclass targets if this is not intended.",
+                _card,
+            )
     if rng is None:
         rng = np.random.default_rng()
 

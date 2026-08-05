@@ -247,3 +247,36 @@ def test_permutation_shapley_does_not_recompute_empty_coalition_score_per_permut
     # Exactly ONE zero-blend call total: shapley_model_values' own v_empty computation. Pre-fix this
     # would be 1 + n_permutations (one extra per permutation's redundant re-score).
     assert zero_blend_calls == 1, f"expected exactly 1 zero-blend score_fn call, got {zero_blend_calls} (pre-fix would be {1 + n_permutations})"
+
+
+def test_default_score_fn_warns_on_non_binary_y(caplog):
+    """VOTENRANK-3: falling back to negative-RMSE for a non-binary y must warn, not silently proceed.
+
+    Covers both degenerate single-class y and integer-coded multiclass y -- both silently produced a
+    negative-RMSE-based Shapley game pre-fix with no signal that the AUC path was never taken.
+    """
+    import logging
+
+    rng = np.random.default_rng(15)
+    n_models, n = 3, 50
+    preds = rng.standard_normal((n_models, n))
+
+    # Single-class y.
+    y_single = np.zeros(n, dtype=np.float64)
+    with caplog.at_level(logging.WARNING, logger="mlframe.votenrank.shapley_blend"):
+        shapley_model_values(preds, y_single, n_permutations=5, rng=np.random.default_rng(16))
+    assert any("cardinality" in r.message for r in caplog.records), "single-class y must warn about the RMSE fallback"
+
+    caplog.clear()
+    # Integer-coded multiclass y (cardinality 3).
+    y_multi = rng.integers(0, 3, size=n).astype(np.float64)
+    with caplog.at_level(logging.WARNING, logger="mlframe.votenrank.shapley_blend"):
+        shapley_model_values(preds, y_multi, n_permutations=5, rng=np.random.default_rng(17))
+    assert any("cardinality" in r.message for r in caplog.records), "multiclass y must warn about the RMSE fallback"
+
+    caplog.clear()
+    # Genuine binary y must NOT warn.
+    y_binary = (rng.standard_normal(n) > 0).astype(np.float64)
+    with caplog.at_level(logging.WARNING, logger="mlframe.votenrank.shapley_blend"):
+        shapley_model_values(preds, y_binary, n_permutations=5, rng=np.random.default_rng(18))
+    assert not any("cardinality" in r.message for r in caplog.records), "binary y must not trigger the RMSE-fallback warning"
