@@ -134,6 +134,7 @@ def ordered_target_encode_batch(
     smoothing: float = 1.0,
     prior: Optional[float] = None,
     noise_std: float = 0.0,
+    noise_count_halflife: Optional[float] = None,
     random_state: Optional[Union[int, np.random.Generator]] = None,
     causal_prior: bool = False,
 ) -> Dict[str, np.ndarray]:
@@ -152,10 +153,12 @@ def ordered_target_encode_batch(
     ----------
     categories_by_column
         Mapping of column name -> ``(n,)`` categorical values, all aligned to the same ``y``/``order``.
-    y, order, smoothing, prior, noise_std, random_state, causal_prior
+    y, order, smoothing, prior, noise_std, noise_count_halflife, random_state, causal_prior
         Same contract as :func:`ordered_target_encode`, shared across every column. ``random_state`` (when an
         int seed) is used to derive one independent ``np.random.Generator`` PER COLUMN via ``np.random.SeedSequence``
         spawning, so results don't depend on dict iteration order and don't collide across columns.
+        ``noise_count_halflife`` (per-column running count -> per-column effective std, same formula as
+        :func:`ordered_target_encode`) is independent per column, same as the noise draw itself.
 
     Returns
     -------
@@ -213,7 +216,13 @@ def ordered_target_encode_batch(
 
         if noise_std > 0.0:
             rng = child_generators[col_idx]
-            encoded = encoded * (1.0 + rng.normal(loc=0.0, scale=noise_std, size=n))
+            if noise_count_halflife is not None and noise_count_halflife > 0.0:
+                running_count_full = np.empty(n, dtype=np.float64)
+                running_count_full[sort_idx] = running_count.to_numpy()
+                effective_std = noise_std * np.power(2.0, -running_count_full / noise_count_halflife)
+                encoded = encoded * (1.0 + rng.normal(loc=0.0, scale=1.0, size=n) * effective_std)
+            else:
+                encoded = encoded * (1.0 + rng.normal(loc=0.0, scale=noise_std, size=n))
 
         result[name] = encoded
 
