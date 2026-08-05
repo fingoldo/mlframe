@@ -27,14 +27,22 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# Row cap for the feature-frame-consuming error-analysis builders. ``_resolve_feature_matrix`` densifies the pulled
-# columns into one float64 matrix, so an unbounded frame would materialise a full dense copy; the tree only needs
-# enough rows to RANK split features and the error-bias quantiles converge well below this. Worst-error rows are
-# preserved in the subsample so the localisation verdict is unchanged.
-DIAG_ROW_CAP: int = 100_000
-# Hard ceiling on feature columns handed to the dense-matrix builders; a several-hundred-column frame at the row cap is
-# still bounded, but a pathological thousands-of-columns engineered frame would blow the dense matrix up.
-DIAG_MAX_FEATURES: int = 200
+# DIAG_ROW_CAP / DIAG_MAX_FEATURES are NOT redefined here -- the actual consumer (and single source of
+# truth) is diagnostics_dispatch.py:34,37; this module never uses either constant itself, only re-exports
+# them via __all__ below for callers that import from this submodule directly. A top-level `from
+# .diagnostics_dispatch import DIAG_ROW_CAP, DIAG_MAX_FEATURES` would reintroduce the exact half-initialised-
+# parent hazard the lazy _record/_record_path/_save_figure delegates above already document (a sibling
+# importing THIS module first would trigger diagnostics_dispatch's bottom import of this module while it's
+# still partially initialised). Resolve lazily via module __getattr__ instead, deferring the cross-import
+# past both modules' load time.
+def __getattr__(name: str):
+    """Lazily resolve DIAG_ROW_CAP/DIAG_MAX_FEATURES from diagnostics_dispatch.py (the single source of
+    truth) on first access, avoiding a duplicate top-level definition that could drift from the original."""
+    if name in ("DIAG_ROW_CAP", "DIAG_MAX_FEATURES"):
+        from . import diagnostics_dispatch
+
+        return getattr(diagnostics_dispatch, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # The four record/save helpers live in the parent ``diagnostics_dispatch``, which re-exports THIS module's
@@ -685,6 +693,6 @@ __all__ = [
     "render_prediction_stability_diagnostic",
     "render_split_comparison_from_suite",
     "build_combined_html_report",
-    "DIAG_ROW_CAP",
-    "DIAG_MAX_FEATURES",
+    "DIAG_ROW_CAP",  # noqa: F822 -- resolved lazily via module __getattr__ above, not a top-level binding
+    "DIAG_MAX_FEATURES",  # noqa: F822 -- resolved lazily via module __getattr__ above, not a top-level binding
 ]
