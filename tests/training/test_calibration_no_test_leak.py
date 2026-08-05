@@ -216,3 +216,56 @@ def test_oof_fallback_uses_stamped_oof_target_not_positional_slice():
     np.testing.assert_array_equal(fit_y, oof_target[: fit_y.shape[0]])
     # Pre-fix this was the all-zero target_series leading slice.
     assert fit_y.sum() > 0, "fit_y is all-zero -> used the buggy positional target_series slice"
+
+
+def test_nondefault_calib_set_size_warns_and_has_no_effect(caplog):
+    """TRAINING_LOOSE_C-8: calib_set_size is dead -- a non-default value must warn (not silently no-op) and the
+    calibration fit input must be identical regardless of its value (it never touches calib_probs slicing)."""
+    import logging
+
+    from mlframe.training.evaluation import post_calibrate_model
+
+    rng = np.random.default_rng(2)
+    n_total = 100
+    test_idx = np.arange(80, 100)
+    val_idx = np.arange(60, 80)
+    calib_idx = np.arange(0, 30)
+
+    test_probs = rng.uniform(size=(20, 2))
+    val_probs = rng.uniform(size=(20, 2))
+    test_preds = (test_probs[:, 1] > 0.5).astype(int)
+    val_preds = (val_probs[:, 1] > 0.5).astype(int)
+    target_series = pd.Series(rng.integers(0, 2, size=n_total))
+    calib_probs = rng.uniform(size=(30, 2))
+    calib_target = rng.integers(0, 2, size=30)
+
+    def _run(calib_set_size):
+        """Run post_calibrate_model with the given calib_set_size and return the meta-model's fit input shape."""
+        meta_model = _StubMetaModel()
+        original_model = (SimpleNamespace(), test_preds, test_probs, val_preds, val_probs, ["c0", "c1"], None, {})
+        post_calibrate_model(
+            original_model=original_model,
+            target_series=target_series,
+            target_label_encoder=None,
+            val_idx=val_idx,
+            test_idx=test_idx,
+            configs=_make_configs_stub(),
+            meta_model=meta_model,
+            calib_idx=calib_idx,
+            calib_probs=calib_probs,
+            calib_target=calib_target,
+            calib_set_size=calib_set_size,
+        )
+        return meta_model.fit_X.shape
+
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.evaluation"):
+        shape_default = _run(2000)
+    assert not any("calib_set_size" in r.message for r in caplog.records), "default calib_set_size must not warn"
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.evaluation"):
+        shape_nondefault = _run(5)
+    assert any(
+        "calib_set_size" in r.message and "no effect" in r.message for r in caplog.records
+    ), "non-default calib_set_size must warn that it silently has no effect"
+    assert shape_default == shape_nondefault, "calib_set_size changed the calibration fit input despite being documented as dead"

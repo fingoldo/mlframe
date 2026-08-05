@@ -191,8 +191,11 @@ def post_calibrate_model(
     configs : object
         Configuration object with `integral_calibration_error` attribute.
     calib_set_size : int, default=2000
-        Legacy alias kept for backward compat with callers that still pass it; only honoured for the multi-output
-        per-class isotonic path when ``calib_probs`` is not supplied. Binary path no longer slices test rows.
+        Dead parameter, kept only so callers that still pass it don't get a TypeError. It is NOT referenced
+        anywhere in this function's body (binary and multi-output paths both derive their calibration source from
+        ``calib_probs`` / ``calib_idx`` / ``model.oof_probs``, never a fixed-size slice) -- the historical
+        ``test_probs[:calib_set_size]`` behaviour was removed because it leaked test rows into the calibrator. A
+        non-default value is logged once at warning level since it silently has no effect.
     nbins : int, default=10
         Number of bins for calibration analysis.
     show_val : bool, default=False
@@ -217,6 +220,14 @@ def post_calibrate_model(
     """
     from catboost import CatBoostClassifier
     from mlframe.metrics.core import ICE
+
+    if calib_set_size != 2000:
+        logger.warning(
+            "post_calibrate_model: calib_set_size=%r has no effect -- this parameter is dead (kept only for "
+            "backward-compat call signatures); the calibration source is calib_probs/calib_idx/model.oof_probs, "
+            "never a fixed-size slice. Pass calib_idx or calib_probs+calib_target to control the calibration set.",
+            calib_set_size,
+        )
 
     if meta_model is None:
         meta_model = CatBoostClassifier(
