@@ -117,6 +117,21 @@ def test_iter_extra_metrics_keyboardinterrupt_propagates():
         list(mr.iter_extra_metrics(TargetTypes.REGRESSION, y, y, y))
 
 
+def test_exploss_empty_y_true_omitted_not_crashed():
+    """TRAINING_LOOSE_C-9: exploss's uniq[-1] on an empty y_true must not raise an uncaught IndexError.
+
+    Pre-fix, an empty y_true made np.unique return an empty array, and uniq[-1] raised IndexError --
+    outside iter_extra_metrics's (ValueError, ZeroDivisionError, TypeError, FloatingPointError) catch
+    tuple, so it crashed the whole metrics pass instead of gracefully omitting exploss.
+    """
+    y_true = np.array([], dtype=np.float64)
+    probs = np.zeros((0, 2), dtype=np.float64)
+    preds = np.array([], dtype=np.float64)
+    # Must not raise; exploss is simply absent from the output.
+    out = dict(mr.iter_extra_metrics(TargetTypes.BINARY_CLASSIFICATION, y_true, probs, preds))
+    assert "exploss" not in out
+
+
 def test_get_metric_direction_returns_flag():
     """Get metric direction returns flag."""
     mr.register_metric(TargetTypes.REGRESSION, "high_is_good", _dummy_metric, higher_is_better=True)
