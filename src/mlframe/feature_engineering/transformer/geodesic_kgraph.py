@@ -64,11 +64,17 @@ def compute_geodesic_kgraph_features(
             Xt_s = Xt
             Xq_s = Xq
         n_t = Xt_s.shape[0]
-        # Build kNN graph on train.
-        nn_graph = NearestNeighbors(n_neighbors=k_graph, n_jobs=-1).fit(Xt_s)
+        # Build kNN graph on train. Query a fit-on-itself index at n_neighbors=k_eff+1 and drop the
+        # self-match (first column, distance 0) -- matching the sibling files' convention
+        # (local_density_gradient.py, spectral_attention.py's _build_knn_graph). Without the +1/drop,
+        # self occupies one of the k_graph slots, silently weakening graph connectivity to only
+        # k_graph-1 real neighbors per row.
+        k_eff = min(k_graph, n_t - 1)
+        nn_graph = NearestNeighbors(n_neighbors=k_eff + 1, n_jobs=-1).fit(Xt_s)
         dists, idxs = nn_graph.kneighbors(Xt_s)
+        dists, idxs = dists[:, 1:], idxs[:, 1:]
         # Build sparse graph: edge weight = distance.
-        rows = np.repeat(np.arange(n_t), k_graph)
+        rows = np.repeat(np.arange(n_t), k_eff)
         cols = idxs.ravel()
         weights = dists.ravel()
         graph = csr_matrix((weights, (rows, cols)), shape=(n_t, n_t))
