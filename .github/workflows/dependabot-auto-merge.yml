@@ -36,9 +36,21 @@ jobs:
         run: |
           set -euo pipefail
           echo "title: $PR_TITLE"
+          # dependabot.yml groups the pip ecosystem's minor/patch bumps into one PR (group name
+          # "python-dependencies"), and GitHub titles a grouped PR "Bump the <group> group ..." with
+          # no per-dependency "from X to Y" pair to parse -- so the version-pair regex below never
+          # matched these PRs, and auto-merge silently never fired for the majority of PRs it exists
+          # to handle. This group is safe to fast-path as eligible unconditionally: dependabot.yml's
+          # own `update-types: [minor, patch]` restriction on this group already guarantees no major
+          # bump can land inside it. Deliberately NOT extended to the github-actions group, whose
+          # `patterns: ["*"]` config has no update-types restriction and can legitimately include a
+          # major bump.
+          if [[ "$PR_TITLE" == *"Bump the python-dependencies group"* ]]; then
+            echo "python-dependencies group bump (dependabot.yml restricts this group to minor/patch) -- eligible for auto-merge"
+            echo "eligible=true" >> "$GITHUB_OUTPUT"
           # Matches "... from 1.2.3 to 1.5.0" (or "1.2.3 to 1.2.4") anywhere in the title;
           # captures the major component of each side.
-          if [[ "$PR_TITLE" =~ from[[:space:]]v?([0-9]+)\.[0-9]+\.[0-9]+.*[[:space:]]to[[:space:]]v?([0-9]+)\.[0-9]+\.[0-9]+ ]]; then
+          elif [[ "$PR_TITLE" =~ from[[:space:]]v?([0-9]+)\.[0-9]+\.[0-9]+.*[[:space:]]to[[:space:]]v?([0-9]+)\.[0-9]+\.[0-9]+ ]]; then
             old_major="${BASH_REMATCH[1]}"
             new_major="${BASH_REMATCH[2]}"
             if [[ "$old_major" == "$new_major" ]]; then
