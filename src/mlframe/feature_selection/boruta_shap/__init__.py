@@ -751,6 +751,9 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
         # history_x is promoted from ndarray to DataFrame by run() before TentativeRoughFix is ever called.
         hx: pd.DataFrame = self.history_x
+        # Row 0 is the pre-loop np.zeros(...) initializer (create_importance_history), not a real trial;
+        # _io_plot.py's results_to_csv/plot already strip it via .iloc[1:] -- mirror that here.
+        hx = hx.iloc[1:]
         median_tentaive_values = hx[self.tentative].median(axis=0).values
         median_max_shadow = hx["Max_Shadow"].median(axis=0)
 

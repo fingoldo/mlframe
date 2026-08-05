@@ -181,18 +181,24 @@ def select_features_fdr(W: dict, q: float = 0.1) -> list:
         return []
     if not (0.0 < q < 1.0):
         raise ValueError(f"q must be in (0, 1); got {q}")
-    abs_W = np.array([abs(v) for v in W.values()])
-    candidates = sorted(set(abs_W[abs_W > 0]))
-    tau = float("inf")
-    for t in candidates:
-        n_neg = sum(1 for v in W.values() if v <= -t)
-        n_pos = sum(1 for v in W.values() if v >= t)
-        ratio = (1 + n_neg) / max(1, n_pos)
-        if ratio <= q:
-            tau = t
-            break
-    if not np.isfinite(tau):
+    vals = np.fromiter(W.values(), dtype=float, count=len(W))
+    abs_vals = np.abs(vals)
+    candidates = np.array(sorted(set(abs_vals[abs_vals > 0])))
+    if candidates.size == 0:
         return []
+    # v <= -t  <=>  -v >= t (exact under IEEE754 negation), so sort each sign's magnitudes once and count
+    # via searchsorted per candidate -- O(p log p) total instead of an O(p) python scan of W.values() PER
+    # candidate (was O(p^2): up to p candidates, each an O(p) scan -- 6.4s at p=5000, contradicting this
+    # function's own documented purpose as the sub-second fast path for p>=5000 wide-data selection).
+    neg_abs_sorted = np.sort(-vals[vals < 0])
+    pos_sorted = np.sort(vals[vals > 0])
+    n_neg = neg_abs_sorted.size - np.searchsorted(neg_abs_sorted, candidates, side="left")
+    n_pos = pos_sorted.size - np.searchsorted(pos_sorted, candidates, side="left")
+    ratio = (1 + n_neg) / np.maximum(1, n_pos)
+    ok_idx = np.flatnonzero(ratio <= q)
+    if ok_idx.size == 0:
+        return []
+    tau = float(candidates[ok_idx[0]])
     selected = [(n, v) for n, v in W.items() if v >= tau]
     # Secondary key on feature name; tied |W| (shrinkage
     # saturation) no longer makes downstream [:topN] slicing drift.

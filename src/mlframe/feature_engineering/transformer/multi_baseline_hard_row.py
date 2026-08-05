@@ -35,6 +35,7 @@ import numpy as np
 import polars as pl
 
 from ._hard_row_shared import topk_within_subset
+from ._squared_dists_shared import squared_dists as _squared_dists
 from ._utils import require_seed, validate_numeric_input, softmax
 
 logger = logging.getLogger(__name__)
@@ -172,8 +173,7 @@ def compute_multi_baseline_hard_row_features(
         anchors_y = np.concatenate(anchors_y_list, axis=0)
         anchors_combined = np.concatenate(anchors_combined_list, axis=0)
 
-        diffs = Xq_s[:, None, :] - anchors_X[None, :, :]
-        sq = (diffs**2).sum(axis=-1)
+        sq = _squared_dists(Xq_s, anchors_X)  # (n_q, n_total)
         scores = -sq
         weights = softmax(scores, temp=temp)
         entropy = -np.sum(weights * np.log(weights + 1e-9), axis=-1).astype(np.float32)

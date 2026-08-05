@@ -34,6 +34,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from ._squared_dists_shared import squared_dists as _squared_dists
 from ._utils import require_seed, validate_numeric_input, softmax
 
 logger = logging.getLogger(__name__)
@@ -137,8 +138,7 @@ def compute_band_conditional_anchor_features(
                     anchor_parent_band[idx] = b
 
         # Per-query softmax over all anchors.
-        diffs = Xq_s[:, None, :] - all_anchors[None, :, :]  # (n_q, n_anchors_total, d)
-        sq = (diffs**2).sum(axis=-1)
+        sq = _squared_dists(Xq_s, all_anchors)  # (n_q, n_total)
         scores = -sq
         if band_empty.any():
             scores = scores.copy()

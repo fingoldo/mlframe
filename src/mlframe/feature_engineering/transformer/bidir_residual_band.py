@@ -32,6 +32,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from ._squared_dists_shared import squared_dists as _squared_dists
 from ._utils import require_seed, validate_numeric_input, softmax
 
 logger = logging.getLogger(__name__)
@@ -148,8 +149,7 @@ def compute_bidir_residual_band_features(
             band_y_std[b] = float(y_band.std()) + 1e-9
             band_signed_residual_mean[b] = float(sr_band.mean())
 
-        diffs = Xq_s[:, None, :] - band_centroids[None, :, :]
-        sq = (diffs**2).sum(axis=-1)
+        sq = _squared_dists(Xq_s, band_centroids)  # (n_q, n_total)
         scores = -sq
         if band_empty.any():
             # Same empty-band-at-origin phantom-anchor issue as quantile_band_attention.py's F2.
