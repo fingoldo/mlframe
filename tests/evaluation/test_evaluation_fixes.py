@@ -294,6 +294,39 @@ def test_competition_evaluation_3_leaky_row_positions_are_exact_not_a_wide_range
 
 
 # ---------------------------------------------------------------------------
+# COMPETITION_EVALUATION-5 / -6: empty-input KeyError from pd.DataFrame([]).sort_values(...)
+# ---------------------------------------------------------------------------
+
+
+def test_competition_evaluation_5_empty_candidate_cols_returns_empty_correctly_columned_frame():
+    """constant_group_target_scan(df, y, candidate_cols=[]) must return an empty, correctly-columned
+    DataFrame instead of raising KeyError from pd.DataFrame([]).sort_values(...)."""
+    from mlframe.evaluation.constant_group_leak_scan import constant_group_target_scan
+
+    df = pd.DataFrame({"a": [1, 2, 3]})
+    y = np.array([0.1, 0.2, 0.3])
+    out = constant_group_target_scan(df, y, candidate_cols=[])
+    assert list(out.columns) == ["column", "n_groups", "min_group_variance_ratio", "worst_group_value", "worst_group_size", "flagged"]
+    assert len(out) == 0
+
+
+def test_competition_evaluation_6_empty_frames_return_empty_correctly_columned_frame():
+    """subpopulation_ratio_drift_check must return an empty, correctly-columned DataFrame when train_df/
+    test_df have zero effective values for subgroup_col, instead of raising KeyError."""
+    from mlframe.evaluation.subpopulation_drift import subpopulation_ratio_drift_check
+
+    empty_train = pd.DataFrame({"grp": pd.Series([], dtype=object)})
+    empty_test = pd.DataFrame({"grp": pd.Series([], dtype=object)})
+    out = subpopulation_ratio_drift_check(empty_train, empty_test, "grp")
+    assert list(out.columns) == ["subgroup_value", "train_prevalence", "test_prevalence", "prevalence_ratio", "flagged"]
+    assert len(out) == 0
+
+    out_scored = subpopulation_ratio_drift_check(empty_train, empty_test, "grp", include_severity_score=True)
+    assert "drift_severity_score" in out_scored.columns
+    assert len(out_scored) == 0
+
+
+# ---------------------------------------------------------------------------
 # F4 / PR4: bootstrap_metrics missing from __all__ and package re-exports
 # ---------------------------------------------------------------------------
 

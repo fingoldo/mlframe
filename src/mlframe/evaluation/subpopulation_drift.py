@@ -93,6 +93,13 @@ def subpopulation_ratio_drift_check(
             row["drift_severity_score"] = _drift_severity_score(ratio)
         rows.append(row)
 
+    # pd.DataFrame([]) has no columns for sort_values to find -- zero effective subgroup values (e.g. both
+    # frames empty) would otherwise raise KeyError instead of returning an empty, correctly-columned frame.
+    if not rows:
+        columns = ["subgroup_value", "train_prevalence", "test_prevalence", "prevalence_ratio", "flagged"]
+        if include_severity_score:
+            columns.append("drift_severity_score")
+        return pd.DataFrame(columns=columns)
     report = pd.DataFrame(rows)
     return report.sort_values("prevalence_ratio", ascending=False).reset_index(drop=True)
 
