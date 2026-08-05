@@ -119,6 +119,27 @@ def test_fused_bundle_handles_all_tied_scores():
         assert abs(ref[name]["point"] - fused[name]["point"]) < _TOL, f"{name} point mismatch"
 
 
+def test_fused_bundle_warns_on_high_failure_rate(caplog):
+    """COMPETITION_EVALUATION-9: when >25% of resamples fail for a metric (e.g. AUC on an all-tied,
+    single-class-per-group degenerate score), bootstrap_auc_brier_ll_ece_batch must log a warning
+    naming the failure rate, matching bootstrap_metrics's documented failure-count diagnostic."""
+    import logging
+
+    # Unstratified resampling of a rare-positive-class target: many resamples draw zero positives
+    # (AUC undefined -> NaN), but not all of them, so this hits the >25%-but-not-100%-failed branch
+    # (the all-failed case short-circuits earlier with an "error" entry instead of a warning).
+    rng = np.random.default_rng(4)
+    n = 60
+    y_true = np.zeros(n, dtype=np.float64)
+    y_true[0] = 1.0  # 1/60 positives -> a plain (unstratified) bootstrap resample very often draws none
+    p_pos = np.clip(y_true * 0.6 + rng.uniform(0, 0.4, n), 0, 1)
+    with caplog.at_level(logging.WARNING, logger="mlframe.evaluation._bootstrap_fused_binary_bundle"):
+        fused = bootstrap_auc_brier_ll_ece_batch(y_true, p_pos, n_bootstrap=200, alpha=0.05, stratify=None, random_state=0)
+    assert fused is not None
+    warned_names = {rec.args[2] for rec in caplog.records if "resamples failed" in rec.message}
+    assert "roc_auc" in warned_names, f"expected a failure-rate warning naming roc_auc; got messages={[r.message for r in caplog.records]}"
+
+
 def test_fused_bundle_faster_than_bootstrap_metrics():
     """Perf sentinel: measured 2.9x-3.4x@50k-300k; assert >=1.5x to catch a regression without
     flaking on a loaded runner."""
