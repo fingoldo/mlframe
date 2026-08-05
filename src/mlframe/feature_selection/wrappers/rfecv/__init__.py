@@ -802,10 +802,13 @@ class RFECV(BaseEstimator, TransformerMixin):
         # fit-time support_ (because RFECV.fit dropped zero-variance cols at entry). Convert to pandas so the name-keyed transform path
         # kicks in and column-set drift becomes a clear RuntimeError instead of an opaque polars index mismatch.
         if isinstance(X, pl.DataFrame):
-            # Mirror the sibling fit-path bridge kwargs (_rfecv_fit.py:102): use_pyarrow_extension_array+split_blocks+self_destruct keep numeric
+            # Mirror the sibling fit-path bridge kwargs (_fit_init.py): use_pyarrow_extension_array+split_blocks+self_destruct keep numeric
             # columns zero-copy through the Arrow split-blocks bridge instead of densifying into a single block on transform.
+            # self_destruct=True releases the polars buffers in-place -- safe only when RFECV owns the frame; gate on the SAME
+            # ownership marker _fit_init.py uses, so an ad-hoc/notebook caller's own polars frame isn't silently destroyed here.
+            _frame_is_internally_owned = bool(getattr(X, "_mlframe_owned_frame_", False) or getattr(self, "_rfecv_owns_polars_frame_", False))
             try:
-                X = X.to_pandas(use_pyarrow_extension_array=True, split_blocks=True, self_destruct=True)
+                X = X.to_pandas(use_pyarrow_extension_array=True, split_blocks=True, self_destruct=_frame_is_internally_owned)
             except TypeError:
                 X = X.to_pandas()
         # transform on an unfitted estimator must raise NotFittedError; silently returning X unchanged masquerades a config bug as a
