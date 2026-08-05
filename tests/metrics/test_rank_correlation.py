@@ -272,6 +272,61 @@ class TestSpearmanScalarKernel:
         assert calls["n"] == 1, "fast_spearman_corr must route through _spearmanr_scalar_njit"
         assert 0.9 < rho <= 1.0
 
+    def test_scalar_njit_nan_precheck_correctness(self) -> None:
+        """METRICS-6 (correctness half): NaN in EITHER x or y must still propagate to NaN in the
+        result now that the leading pre-check loop's early `return` (unparallelizable inside `prange`)
+        was replaced by a `+=` reduction count."""
+        pytest.importorskip("numba")
+        import mlframe.metrics.rank_correlation as rc
+
+        rng = np.random.default_rng(5)
+        n = 50_000
+        x = rng.normal(size=n)
+        y = rng.normal(size=n)
+
+        x_nan = x.copy()
+        x_nan[n // 2] = np.nan
+        assert np.isnan(rc._spearmanr_scalar_njit(x_nan, y))
+        y_nan = y.copy()
+        y_nan[-1] = np.inf
+        assert np.isnan(rc._spearmanr_scalar_njit(x, y_nan))
+        assert np.isfinite(rc._spearmanr_scalar_njit(x, y))
+
+    def test_scalar_njit_nan_precheck_actually_parallelizes(self) -> None:
+        """METRICS-6 (performance half): the leading NaN pre-check loop must not trigger Numba's
+        serial-fallback NumbaPerformanceWarning ('more than one entry to or exit from the loop') --
+        an early `return` inside `prange` is unparallelizable and DOES trigger this warning (verified
+        against the pre-fix code). Run in a fresh subprocess so Numba's JIT diagnostics fire on first
+        compile, not silently skipped because an earlier test in this same process already compiled
+        (and warned about) this exact signature.
+        """
+        import subprocess
+        import sys
+        import textwrap
+
+        pytest.importorskip("numba")
+        script = textwrap.dedent(
+            """
+            import warnings
+            import numpy as np
+            from numba.core.errors import NumbaPerformanceWarning
+            import mlframe.metrics.rank_correlation as rc
+
+            rng = np.random.default_rng(5)
+            x = rng.normal(size=50_000)
+            y = rng.normal(size=50_000)
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                rc._spearmanr_scalar_njit(x, y)
+            perf = [w for w in caught if issubclass(w.category, NumbaPerformanceWarning)]
+            assert not perf, f"unexpected serial-fallback warning(s): {[str(w.message) for w in perf]}"
+            print("OK")
+            """
+        )
+        result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=120)
+        assert result.returncode == 0, f"stdout={result.stdout}\nstderr={result.stderr}"
+        assert "OK" in result.stdout
+
     def test_scalar_edge_cases(self) -> None:
         """Scalar edge cases."""
         pytest.importorskip("numba")

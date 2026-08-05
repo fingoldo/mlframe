@@ -127,9 +127,20 @@ if _HAS_NUMBA:
         n = x.shape[0]
         if n < 2:
             return np.nan
+        # A `return` inside a `prange` loop is a sequential early-exit Numba cannot parallelize (the
+        # loop must run to completion to know whether ANY thread would have returned) -- it silently
+        # falls back to serial execution for this whole loop, contradicting the "2-way prange" claim
+        # below. A reduction (OR-ing a per-iteration bad flag) is fully parallelizable: every iteration
+        # is independent and the reduction is associative/commutative, exactly what prange requires.
+        # `has_nan = 1` (plain assignment) inside prange is NOT a reduction Numba's parallel-accumulator
+        # detection recognizes -- each thread can keep a private copy and the write is silently lost.
+        # `+=` on a scalar IS a recognized reduction pattern, so count instead of flag.
+        n_bad = 0
         for i in prange(n):
             if not (np.isfinite(x[i]) and np.isfinite(y[i])):
-                return np.nan
+                n_bad += 1
+        if n_bad > 0:
+            return np.nan
         rx = np.empty(n, dtype=np.float64)
         ry = np.empty(n, dtype=np.float64)
         for which in prange(2):
