@@ -770,8 +770,31 @@ def _compute_drift_invariant(
         if max_abs_z > warn_threshold_z:
             candidates.append((col, max_abs_z))
     candidates.sort(key=lambda pair: -pair[1])
-    # Categorical-side PSI (target-invariant too): same train/val/test trio.
-    categorical_psi = compute_categorical_drift_psi(train_df, val_df, test_df)
+    # Categorical-side PSI (target-invariant too): same train/val/test trio. A caller-supplied
+    # `feature_names` restriction is intersected with the frame's ACTUAL categorical columns (not
+    # forwarded raw) so a caller restricting compute_feature_distribution_drift to a feature subset
+    # gets that restriction honored on the categorical side too, not just the numeric z-stat side
+    # above -- forwarding the raw list would let numeric column names in `feature_names` get treated
+    # as categorical (value_counts on floats), which compute_categorical_drift_psi's own default
+    # (_categorical_columns) never does.
+    if feature_names is not None:
+        _cat_feature_names = [c for c in feature_names if c in set(_categorical_columns(train_df))]
+        if _cat_feature_names:
+            categorical_psi = compute_categorical_drift_psi(train_df, val_df, test_df, feature_names=_cat_feature_names)
+        else:
+            # compute_categorical_drift_psi treats an EMPTY feature_names list as "not provided" (its
+            # own `cols = feature_names or _categorical_columns(...)` falls back on an empty list) --
+            # short-circuit here so a restriction with zero categorical overlap stays honored as zero,
+            # not silently widened back to every categorical column.
+            categorical_psi = {
+                "per_feature": {},
+                "drift_candidates": [],
+                "moderate_threshold": DEFAULT_CATEGORICAL_PSI_WARN_MODERATE,
+                "high_threshold": DEFAULT_CATEGORICAL_PSI_WARN_HIGH,
+                "n_categorical_features": 0,
+            }
+    else:
+        categorical_psi = compute_categorical_drift_psi(train_df, val_df, test_df)
     return {
         "per_feature": per_feature,
         "candidates": candidates,
