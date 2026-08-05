@@ -152,19 +152,20 @@ def category_discriminability_table(
     top_k: int = 15,
     min_support: int = 30,
     alpha: float = 0.5,
+    seed: int = 0,
 ) -> List[Tuple[str, str, float, int, float]]:
     """Rank ``(feature, level)`` cells by ``|WoE|``: return the top_k as ``(feature, level_label, woe, support, p_rate)``.
 
     Iterates the categorical columns (caller ``features`` or auto-detected object / category dtype), pulls each as codes, and
     scores every level with :func:`level_woe`. Levels below ``min_support`` are dropped and the total drop count is logged (not
     silently discarded). ``p_rate`` is the raw (unsmoothed) ``P(y=1 | level)``. On a huge frame the count pass runs on a bounded
-    seeded row subsample so the pass stays RAM-safe on 100+ GB frames.
+    ``seed``-seeded row subsample so the pass stays RAM-safe on 100+ GB frames.
     """
     y = np.ascontiguousarray(np.asarray(y), dtype=np.float64)
     n = y.shape[0]
     row_idx = None
     if n > _COUNT_SUBSAMPLE_CAP:
-        rng = np.random.default_rng(0)
+        rng = np.random.default_rng(seed)
         row_idx = rng.choice(n, size=_COUNT_SUBSAMPLE_CAP, replace=False)
         row_idx.sort()
         y_use = y[row_idx]
@@ -212,9 +213,10 @@ def category_discriminability_panel(
     top_k: int = 15,
     min_support: int = 30,
     alpha: float = 0.5,
+    seed: int = 0,
 ) -> BarPanelSpec:
     """Horizontal signed-WoE bar of the top_k ``feature=level`` cells (green => tilts to y=1, red => to y=0), zero line at WoE=0."""
-    rows = category_discriminability_table(X, y, features, top_k=top_k, min_support=min_support, alpha=alpha)
+    rows = category_discriminability_table(X, y, features, top_k=top_k, min_support=min_support, alpha=alpha, seed=seed)
     if not rows:
         return BarPanelSpec(
             categories=("(no level above min_support)",),
@@ -247,10 +249,11 @@ def compose_category_discriminability_figure(
     top_k: int = 15,
     min_support: int = 30,
     alpha: float = 0.5,
+    seed: int = 0,
     suptitle: str = "Category discriminability (|WoE|)",
 ) -> FigureSpec:
     """One-panel FigureSpec wrapping :func:`category_discriminability_panel`."""
-    panel = category_discriminability_panel(X, y, features, top_k=top_k, min_support=min_support, alpha=alpha)
+    panel = category_discriminability_panel(X, y, features, top_k=top_k, min_support=min_support, alpha=alpha, seed=seed)
     return FigureSpec(suptitle=suptitle, panels=((panel,),), figsize=(10.0, max(5.0, 0.5 * len(panel.categories) + 2.0)))
 
 

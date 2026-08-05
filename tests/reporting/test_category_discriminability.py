@@ -260,3 +260,46 @@ def test_list_valued_embedding_column_does_not_raise():
 
     feats = {feat for feat, *_ in rows}
     assert feats == {"cat_0"}, "the embedding/numeric columns must be filtered out, not crash or leak through"
+
+
+def test_seed_actually_threaded_through_subsample(monkeypatch):
+    """REPORTING_A-5: category_discriminability_table's seed kwarg must actually control the row
+    subsample RNG when the frame exceeds _COUNT_SUBSAMPLE_CAP -- different seeds must produce a
+    different subsample (and thus, generically, different WoE rows/order) on the same data."""
+    import mlframe.reporting.charts.category_discriminability as cd_mod
+
+    monkeypatch.setattr(cd_mod, "_COUNT_SUBSAMPLE_CAP", 50)  # force the subsample branch cheaply
+
+    rng = np.random.default_rng(0)
+    n = 500
+    X = pd.DataFrame({"cat_0": rng.choice([f"lvl_{i}" for i in range(20)], size=n)})
+    y = rng.integers(0, 2, size=n)
+
+    rows_seed0 = category_discriminability_table(X, y, features=["cat_0"], top_k=15, min_support=1, seed=0)
+    rows_seed1 = category_discriminability_table(X, y, features=["cat_0"], top_k=15, min_support=1, seed=1)
+
+    assert rows_seed0 != rows_seed1, "different seeds should yield a different subsample and thus different rows"
+
+
+def test_compose_and_panel_forward_seed_to_table(monkeypatch):
+    """compose_category_discriminability_figure and category_discriminability_panel must forward their
+    seed kwarg all the way down to category_discriminability_table's RNG, not hardcode seed=0."""
+    import mlframe.reporting.charts.category_discriminability as cd_mod
+
+    captured_seeds = []
+    real_table = cd_mod.category_discriminability_table
+
+    def _spy(*args, **kwargs):
+        """Record the seed kwarg the caller was given, then delegate to the real function."""
+        captured_seeds.append(kwargs.get("seed"))
+        return real_table(*args, **kwargs)
+
+    monkeypatch.setattr(cd_mod, "category_discriminability_table", _spy)
+
+    rng = np.random.default_rng(1)
+    n = 300
+    X = pd.DataFrame({"cat_0": rng.choice(["a", "b", "c"], size=n)})
+    y = rng.integers(0, 2, size=n)
+
+    cd_mod.compose_category_discriminability_figure(X, y, features=["cat_0"], seed=7)
+    assert captured_seeds == [7]

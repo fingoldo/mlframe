@@ -611,7 +611,7 @@ def render_category_discriminability_diagnostic(
         from mlframe.reporting.charts.category_discriminability import compose_category_discriminability_figure
 
         spec = compose_category_discriminability_figure(
-            df, np.asarray(y_true).ravel(), features=names, top_k=top_k, min_support=min_support,
+            df, np.asarray(y_true).ravel(), features=names, top_k=top_k, min_support=min_support, seed=seed,
         )
         if spec is None:
             return False
