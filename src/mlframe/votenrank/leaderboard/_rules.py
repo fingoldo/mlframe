@@ -164,7 +164,13 @@ def minimax_ranking(self, score_type: str = "winning_votes"):
         else:
             raise ValueError("Score type should be winning_votes, margins or pairwise_opposition")
 
-        score = models_scores.drop(model).max()
+        opponents = models_scores.drop(model)
+        # A 1-model leaderboard has no opponents to lose against -- .max() on the resulting empty Series
+        # is NaN, and NaN never compares equal to itself, so minimax_election's ranking2top(ranking ==
+        # ranking.max()) silently returns an empty winner list for the one trivially-correct model.
+        # With no opposition the model's worst pairwise-opposition score is 0 by definition (it can't be
+        # beaten by a model that doesn't exist).
+        score = opponents.max() if not opponents.empty else 0.0
         ranks.append(score)
 
     return (-pd.Series(data=ranks, index=pd.Series(self.models, name="Name"))).sort_values(ascending=False)
