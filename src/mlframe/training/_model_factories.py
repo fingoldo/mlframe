@@ -481,16 +481,24 @@ except (ImportError, OSError):  # pragma: no cover
 # tuple lazily on first call and caches.
 MLPNeuronsByLayerArchitecture = None
 PytorchLightningRegressor = PytorchLightningClassifier = None
+# Distinguishes "never attempted" (None sentinels above) from "attempted and failed" -- without this,
+# a BROKEN (not merely absent) mlframe.training.neural install (e.g. a partial/corrupted lightning
+# install raising ImportError deep in its own import chain) makes every subsequent call retry the same
+# documented 30-180s cold import chain, since the components stay None either way.
+_NEURAL_IMPORT_FAILED = False
 
 
 def _get_neural_components():
     """Lazy-load ``MLPNeuronsByLayerArchitecture`` /
     ``PytorchLightningRegressor`` / ``PytorchLightningClassifier`` on
     first MLP fit. Returns the 3-tuple, or ``(None, None, None)`` if
-    the optional ``mlframe.training.neural`` extras are not installed.
-    Caches into the module-level globals so subsequent calls are free.
+    the optional ``mlframe.training.neural`` extras are not installed
+    (or the import previously failed). Caches into the module-level
+    globals so subsequent calls are free, including on the failure path.
     """
-    global MLPNeuronsByLayerArchitecture, PytorchLightningRegressor, PytorchLightningClassifier
+    global MLPNeuronsByLayerArchitecture, PytorchLightningRegressor, PytorchLightningClassifier, _NEURAL_IMPORT_FAILED
+    if _NEURAL_IMPORT_FAILED:
+        return None, None, None
     if MLPNeuronsByLayerArchitecture is None:
         try:
             # `global` above makes the import bindings update module-level names directly; no rebind step needed.
@@ -500,6 +508,7 @@ def _get_neural_components():
                 PytorchLightningClassifier,
             )
         except ImportError:  # pragma: no cover
+            _NEURAL_IMPORT_FAILED = True
             return None, None, None
     return MLPNeuronsByLayerArchitecture, PytorchLightningRegressor, PytorchLightningClassifier
 
