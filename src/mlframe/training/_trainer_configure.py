@@ -117,6 +117,14 @@ logger = logging.getLogger("mlframe.training.trainer")
 # dicts) so the contract stays "memo when safe; direct otherwise".
 _GTC_CACHE_MAX = 16
 _GTC_CACHE: "dict[tuple, Any]" = {}
+# Pins the exact ``subgroups`` object whose id() was folded into a live cache key, keyed by that same
+# key. CPython can reuse a freed object's id() for a brand-new, unrelated object -- without this pin, a
+# short-lived ``indexed_subgroups`` dict from one target being garbage-collected and a DIFFERENT
+# target's freshly-built dict landing at the same id() would produce a stale cache HIT mixing one
+# target's fairness-subgroup-derived calibration metric config into another target's result. Holding a
+# strong reference here for as long as the cache entry lives guarantees id() cannot be reused by
+# anything else while that entry is still a valid hit; evicted together with its cache entry below.
+_GTC_CACHE_SUBGROUPS_PIN: "dict[tuple, Any]" = {}
 
 
 def _hashable_or_none(v: Any):
@@ -150,6 +158,7 @@ def _get_training_configs_cached(**kwargs):
     from .trainer import get_training_configs
     items: list[tuple[str, Any]] = []
     cacheable = True
+    _subgroups_obj = None
     for k in sorted(kwargs.keys()):
         v = kwargs[k]
         if k == "subgroups":
@@ -158,7 +167,11 @@ def _get_training_configs_cached(**kwargs):
             # reused across ``has_gpu`` flag toggles and across same-target sibling
             # ``get_training_configs`` calls, so ``id()`` is stable enough for the
             # 2-call CPU+GPU pair. ``None`` (default) stays a hash-stable sentinel.
+            # The object itself is pinned below (_GTC_CACHE_SUBGROUPS_PIN) so this
+            # id() cannot be silently reused by a different target's dict for as
+            # long as the resulting cache entry stays alive.
             items.append((k, None if v is None else id(v)))
+            _subgroups_obj = v
             continue
         hv = _hashable_or_none(v)
         if hv is None and v is not None:
@@ -176,8 +189,12 @@ def _get_training_configs_cached(**kwargs):
         # FIFO eviction (Python dict insertion order). Cheap; the cache is small
         # so an LRU dance via OrderedDict would add complexity without measurable
         # gain at maxsize=16.
-        _GTC_CACHE.pop(next(iter(_GTC_CACHE)))
+        _evicted_key = next(iter(_GTC_CACHE))
+        _GTC_CACHE.pop(_evicted_key)
+        _GTC_CACHE_SUBGROUPS_PIN.pop(_evicted_key, None)
     _GTC_CACHE[key] = copy.deepcopy(res)
+    if _subgroups_obj is not None:
+        _GTC_CACHE_SUBGROUPS_PIN[key] = _subgroups_obj
     return res
 
 

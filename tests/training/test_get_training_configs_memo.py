@@ -25,8 +25,10 @@ from mlframe.training import _trainer_configure as tc
 def _clear_gtc_cache():
     """Each test starts with an empty cache so hit / miss counts are deterministic."""
     tc._GTC_CACHE.clear()
+    tc._GTC_CACHE_SUBGROUPS_PIN.clear()
     yield
     tc._GTC_CACHE.clear()
+    tc._GTC_CACHE_SUBGROUPS_PIN.clear()
 
 
 def test_repeated_identical_kwargs_hits_cache_after_first_call():
@@ -123,6 +125,39 @@ def test_returned_object_is_deepcopy_so_caller_mutation_does_not_poison_hits():
 
     assert second.catboost_dict["iterations"] == 100, "deepcopy on return must isolate cache from caller mutation"
     assert not hasattr(second, "poisoned_field"), "cache must not propagate caller-injected attributes"
+
+
+def test_subgroups_object_is_pinned_alive_by_its_cache_entry():
+    """TRAINING_LOOSE_B-2 (2026-08-05 audit): the cache keys partly on id(subgroups), a freshly-built
+    short-lived dict per target. CPython can reuse a freed object's id() for a brand-new, unrelated
+    object -- without pinning the object alive, a DIFFERENT target's subgroups dict landing at the same
+    id() as a garbage-collected earlier one would produce a stale cache HIT mixing one target's
+    fairness-subgroup-derived config into another target's result. The fix pins the exact subgroups
+    object in ``_GTC_CACHE_SUBGROUPS_PIN`` for as long as its cache entry is live, which is what
+    prevents id() from being silently reused. This test verifies that invariant directly: after a
+    cache-populating call, the pinned object for that key IS (identity) the subgroups object passed in,
+    and it is released when the entry is evicted."""
+    from types import SimpleNamespace
+
+    def _stub(**_kw):
+        """Stub."""
+        return SimpleNamespace(payload="x")
+
+    with patch("mlframe.training.trainer.get_training_configs", side_effect=_stub):
+        subgroups_a = {"group": [1, 2, 3]}
+        tc._get_training_configs_cached(has_gpu=False, iterations=100, subgroups=subgroups_a)
+
+        assert len(tc._GTC_CACHE_SUBGROUPS_PIN) == 1, "the cache-populating call must pin exactly one subgroups object"
+        pinned_key, pinned_obj = next(iter(tc._GTC_CACHE_SUBGROUPS_PIN.items()))
+        assert pinned_obj is subgroups_a, "the pinned object must be the EXACT subgroups object (identity), not a copy"
+        assert pinned_key in tc._GTC_CACHE, "the pin key must match a live cache entry"
+
+        # Fill the cache past its cap with distinct entries to force this entry's eviction.
+        for i in range(tc._GTC_CACHE_MAX + 1):
+            tc._get_training_configs_cached(has_gpu=False, iterations=1000 + i, subgroups={"group": [i]})
+
+        assert pinned_key not in tc._GTC_CACHE, "the original entry must have been evicted"
+        assert pinned_key not in tc._GTC_CACHE_SUBGROUPS_PIN, "the pin must be released together with its cache entry (no leak)"
 
 
 def test_none_subgroups_is_stable_cache_key():
