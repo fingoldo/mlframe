@@ -105,7 +105,10 @@ def gmm_bic_membership_features(
         "train_avg_loglik": train_avg_loglik,
         "new_avg_loglik": new_avg_loglik,
         "shift_zscore": float(shift_zscore),
-        "distribution_shift_detected": bool(shift_zscore > shift_zscore_threshold),
+        # abs(): a HIGHER new_avg_loglik (e.g. new data collapsing near one component) is just as much a
+        # distribution shift as a lower one -- the original one-directional `shift_zscore > threshold`
+        # only ever fired on a likelihood DROP, silently missing the opposite-direction shift.
+        "distribution_shift_detected": bool(abs(shift_zscore) > shift_zscore_threshold),
     }
     result.attrs["gmm_shift_diagnostics"] = diagnostics
     return result

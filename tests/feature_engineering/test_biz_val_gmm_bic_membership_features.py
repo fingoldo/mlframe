@@ -92,3 +92,21 @@ def test_biz_val_gmm_membership_features_detects_train_test_distribution_shift()
     assert in_dist_diag["distribution_shift_detected"] is False, f"expected no shift flag on in-distribution new data, got diagnostics={in_dist_diag}"
     assert shifted_diag["distribution_shift_detected"] is True, f"expected a shift flag on far-out-of-distribution new data, got diagnostics={shifted_diag}"
     assert shifted_diag["shift_zscore"] > 20, f"expected a large shift z-score for badly out-of-distribution data, got {shifted_diag['shift_zscore']:.2f}"
+
+
+def test_fe_root_a_6_detects_shift_toward_higher_likelihood_not_only_lower():
+    """FE_ROOT_A-6: shift_zscore's sign convention is (train - new), so new data COLLAPSING tightly near
+    one component (higher average log-likelihood than train, not lower) must still be flagged --
+    the original one-directional `shift_zscore > threshold` only ever fired on a likelihood DROP."""
+    df, _, _ = _make_cluster_driven_dataset(n=1500, seed=4)
+
+    # Tightly collapsed near ONE training cluster center, far tighter than the training scale=1.5 spread --
+    # every row scores near the density peak, so new_avg_loglik >> train_avg_loglik (shift_zscore << 0).
+    rng = np.random.default_rng(9)
+    collapsed_new = pd.DataFrame(rng.normal(loc=[-6, -6], scale=0.05, size=(300, 2)), columns=["x1", "x2"])
+
+    result = gmm_bic_membership_features(df, n_components_range=(2, 3, 4, 5, 6, 8), random_state=0, new_df=collapsed_new)
+    diag = result.attrs["gmm_shift_diagnostics"]
+
+    assert diag["shift_zscore"] < -10, f"expected a large NEGATIVE shift z-score (higher new likelihood), got {diag['shift_zscore']:.2f}"
+    assert diag["distribution_shift_detected"] is True, f"a likelihood-collapse shift must still be flagged, got diagnostics={diag}"
