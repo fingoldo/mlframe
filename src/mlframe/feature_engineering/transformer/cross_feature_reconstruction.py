@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import numpy as np
 import polars as pl
+from ._residual_oof import compute_oof_residual_within
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
@@ -19,8 +20,18 @@ logger = logging.getLogger(__name__)
 def compute_cross_feature_reconstruction_features(
     X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
     n_estimators=30, max_depth=3, standardize=True, column_prefix="xfeat", dtype=np.float32,
+    aux_n_splits=5,
 ):
-    """Fit one leave-one-feature-out LightGBM reconstructor per input feature (predicting x_j from all other features), standardize the residuals by their train-set MAD, then emit 5 aggregate outlierness stats over the per-feature z-residuals of each query row. Unsupervised (y is unused). See module docstring for the mechanism rationale."""
+    """Fit one leave-one-feature-out LightGBM reconstructor per input feature (predicting x_j from all other features), standardize the residuals by their train-set MAD, then emit 5 aggregate outlierness stats over the per-feature z-residuals of each query row. Unsupervised (y is unused). See module docstring for the mechanism rationale.
+
+    The MAD scale is estimated from an aux nested-OOF residual within the train bank
+    (``aux_n_splits``-fold, via ``compute_oof_residual_within`` — same mechanism ``pred_augmented``/
+    ``residual_attention`` use), not from the in-sample residual of the model that reconstructs the
+    query rows: an in-sample residual is biased low (the model saw those exact rows), which understates
+    the MAD scale and inflates every downstream query z-residual. The query-row reconstruction itself
+    still uses a model fit on the FULL train bank (query rows are disjoint from it, so this stays
+    leakage-safe) — only the scale-calibration residual changes.
+    """
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -47,11 +58,18 @@ def compute_cross_feature_reconstruction_features(
             mask = np.ones(d, dtype=bool); mask[j] = False
             Xt_j_in = Xt_s[:, mask]
             Xq_j_in = Xq_s[:, mask]
-            m = lgb.LGBMRegressor(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
-                                  random_state=int(fold_seed) + j, verbose=-1, n_jobs=-1).fit(Xt_j_in, Xt_s[:, j])
-            x_hat_train = np.asarray(m.predict(Xt_j_in)).astype(np.float32)
-            r_train = Xt_s[:, j] - x_hat_train
+
+            def _make_aux(_j=j):
+                """Fresh per-feature LightGBM reconstructor, shared by the OOF scale-calibration fit and the full-train query fit."""
+                return lgb.LGBMRegressor(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
+                                         random_state=int(fold_seed) + _j, verbose=-1, n_jobs=-1)
+
+            r_train = compute_oof_residual_within(
+                Xt_j_in, Xt_s[:, j], task="regression", make_aux=_make_aux,
+                aux_n_splits=aux_n_splits, seed=int(fold_seed) + j,
+            )
             mad_j = float(np.median(np.abs(r_train - float(np.median(r_train))))) + 1e-6
+            m = _make_aux().fit(Xt_j_in, Xt_s[:, j])
             x_hat_q = np.asarray(m.predict(Xq_j_in)).astype(np.float32)
             r_q = Xq_s[:, j] - x_hat_q
             z_residuals_q[:, j] = r_q / mad_j
