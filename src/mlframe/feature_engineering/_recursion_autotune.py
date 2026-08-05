@@ -149,21 +149,24 @@ if __name__ == "__main__":
 # retune_all / ``mlframe-tune-kernels`` discover + batch-tune them. CPU-only
 # (serial vs parallel njit; no GPU variant). Wrapped so a missing pyutilz /
 # circular import never breaks the dispatcher.
-from pyutilz.performance.kernel_tuning.registry import kernel_tuner
-from . import bayesian
+try:
+    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+    from . import bayesian
 
-for _kn, _ref in (("fe_bocpd", bayesian.bocpd_features), ("fe_oblr", bayesian.online_bayesian_linear_regression)):
-    kernel_tuner(
-        kernel_name=_kn,
-        variant_fns=(_ref,),
-        tuner=(lambda kn=_kn: _run_sweep(kn)),
-        axes={"n_samples": [n * r for n, r in _SWEEP_GRID], "n_groups": [g for g, _ in _SWEEP_GRID]},
-        fallback={"backend_choice": "serial"},
-        env_key="MLFRAME_FE_RECURSION_BACKEND",
-        gpu_capable=False,
-        salt=_RECURSION_SALT,
-        cli_label=_kn,
-    )
+    for _kn, _ref in (("fe_bocpd", bayesian.bocpd_features), ("fe_oblr", bayesian.online_bayesian_linear_regression)):
+        kernel_tuner(
+            kernel_name=_kn,
+            variant_fns=(_ref,),
+            tuner=(lambda kn=_kn: _run_sweep(kn)),
+            axes={"n_samples": [n * r for n, r in _SWEEP_GRID], "n_groups": [g for g, _ in _SWEEP_GRID]},
+            fallback={"backend_choice": "serial"},
+            env_key="MLFRAME_FE_RECURSION_BACKEND",
+            gpu_capable=False,
+            salt=_RECURSION_SALT,
+            cli_label=_kn,
+        )
+except ImportError:
+    logging.getLogger(__name__).debug("_recursion_autotune: kernel_tuner registration skipped (pyutilz registry unavailable).", exc_info=True)
 
 
 __all__ = ["ensure_recursion_tuning", "recursion_code_version"]
