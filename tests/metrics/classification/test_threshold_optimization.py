@@ -115,3 +115,11 @@ def test_biz_val_mcc_and_youden_recover_separating_threshold():
         thr, sc = optimal_threshold(y, s, metric=m)
         assert -2 < thr < 2, f"{m} threshold {thr:.2f} should fall in the class gap"
         assert sc > 0.9, f"{m} score {sc:.2f} should be high on separable data"
+
+
+def test_docstring_documents_holdout_contract():
+    """METRICS-7: optimal_threshold's docstring must warn that fitting the threshold on the same rows
+    used for evaluation is optimistically biased, matching quantile.coverage's HOLDOUT CONTRACT convention."""
+    doc = optimal_threshold.__doc__
+    assert doc is not None
+    assert "HOLDOUT CONTRACT" in doc

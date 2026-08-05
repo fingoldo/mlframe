@@ -75,3 +75,12 @@ def test_biz_val_optimizer_never_worse_than_quantile_warmstart():
     qwk_warm = quadratic_weighted_kappa(y, apply_cutpoints(pred, warm, n_classes), n_classes=n_classes)
     _, qwk_opt = optimal_ordinal_cutpoints(y, pred, n_classes=n_classes, metric="qwk")
     assert qwk_opt >= qwk_warm - 1e-9
+
+
+def test_docstring_documents_holdout_contract():
+    """METRICS-7: optimal_ordinal_cutpoints's docstring must warn that fitting the cutpoints on the same
+    rows used for evaluation is optimistically biased, matching quantile.coverage's HOLDOUT CONTRACT
+    convention."""
+    doc = optimal_ordinal_cutpoints.__doc__
+    assert doc is not None
+    assert "HOLDOUT CONTRACT" in doc

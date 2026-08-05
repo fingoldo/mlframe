@@ -101,6 +101,14 @@ def optimal_threshold(y_true: np.ndarray, y_score: np.ndarray, *, metric: str = 
     -------
     (float, float)
         ``(best_threshold, best_metric_value)``. ``best_threshold`` is ``+inf`` when predicting all-negative wins.
+
+    HOLDOUT CONTRACT: this FITS a parameter (the threshold) by maximizing ``metric`` on the exact
+    ``(y_true, y_score)`` supplied -- an in-sample call is optimistically biased (the threshold is chosen
+    to look good on these exact labels) and ``best_metric_value`` overstates deployed performance. The
+    function cannot detect which rows are training vs. holdout -- the CALLER must pass a holdout/OOF split
+    to get an honest threshold and an honest score, the same discipline this package's own
+    ``quantile.coverage``/``quantile.pit_values`` already document for their (lower-risk, read-only)
+    calibration checks.
     """
     if metric not in _METRIC_CODE:
         raise ValueError(f"optimal_threshold: metric must be one of {THRESHOLD_METRICS}, got {metric!r}.")
