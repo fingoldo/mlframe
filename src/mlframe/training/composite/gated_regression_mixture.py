@@ -41,6 +41,25 @@ _LOW = "low"
 _HIGH = "high"
 
 
+def _subset_rows(X: Any, mask: np.ndarray) -> Any:
+    """Row-subset ``X`` by a boolean ``mask``, flavour-native: polars ``DataFrame[idx]`` / pandas ``.iloc`` /
+    ndarray fancy index. The prior fallback (``np.asarray(X)[mask]`` for anything lacking ``.iloc``)
+    silently down-converted a polars DataFrame -- which ``_concat_feature`` a few lines below DOES handle
+    explicitly, showing polars support was intended here too -- to an untyped/object ndarray, breaking
+    feature-name and dtype consistency for the fitted branch regressor."""
+    try:
+        import polars as pl
+
+        if isinstance(X, pl.DataFrame):
+            return X[np.flatnonzero(mask).tolist()]
+    except ImportError:
+        pass
+    iloc = getattr(X, "iloc", None)
+    if iloc is not None:
+        return iloc[np.flatnonzero(mask)]
+    return np.asarray(X)[mask]
+
+
 def _concat_feature(X: Any, col_name: str, values: np.ndarray) -> Any:
     """Append ``values`` as a new column named ``col_name`` to ``X``, matching its frame type."""
     if isinstance(X, pd.DataFrame):
@@ -150,7 +169,7 @@ class GatedRegressionMixture(BaseEstimator, RegressorMixin):
             if not mask.any():
                 log_throttle(logger, "gated_regression_mixture_branch_no_routed_rows", logging.WARNING, "GatedRegressionMixture: branch %s has no routed rows at fit time.", branch)
                 continue
-            X_branch = X.iloc[np.flatnonzero(mask)] if hasattr(X, "iloc") else np.asarray(X)[mask]
+            X_branch = _subset_rows(X, mask)
             if self.use_gate_feature:
                 X_branch = _concat_feature(X_branch, "gate_proba", oof_proba[mask])
             model = clone(regressor)
@@ -164,7 +183,7 @@ class GatedRegressionMixture(BaseEstimator, RegressorMixin):
 
     def _predict_branch(self, branch: str, X: Any, proba: np.ndarray, mask: np.ndarray) -> np.ndarray:
         """Predict with the given branch's model on the rows selected by ``mask``."""
-        X_branch = X.iloc[np.flatnonzero(mask)] if hasattr(X, "iloc") else np.asarray(X)[mask]
+        X_branch = _subset_rows(X, mask)
         if self.use_gate_feature:
             X_branch = _concat_feature(X_branch, "gate_proba", proba[mask])
         return np.asarray(self.branch_models_[branch].predict(X_branch), dtype=np.float64)
