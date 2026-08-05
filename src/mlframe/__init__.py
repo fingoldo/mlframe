@@ -5,12 +5,13 @@ The top-level ``mlframe`` namespace intentionally exports ONLY ``__version__`` a
 ``mlframe.config`` enums; everything else is reached via its subpackage path:
 
     from mlframe.training import train_mlframe_models_suite
+    from mlframe.training.core import predict_from_models
     from mlframe.training.composite import CompositeTargetEstimator
-    from mlframe.feature_selection import MRMR, RFECV
-    from mlframe.metrics.core import expected_calibration_error
+    from mlframe.feature_selection import RFECV
+    from mlframe.feature_selection.filters import MRMR
+    from mlframe.metrics.core import compute_ece_debiased
     from mlframe.calibration.policy import pick_best_calibrator
     from mlframe.models.ensembling import score_ensemble
-    from mlframe.inference.predict import predict_from_models
     from mlframe.evaluation.bootstrap import bootstrap_metric, delong_test
 
 Reaching into double-underscore private submodules (``mlframe.training.core._*``,
