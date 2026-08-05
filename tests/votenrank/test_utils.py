@@ -34,3 +34,46 @@ def test_tracker_filename_format():
 
     out = tracker_filename(model="lgb", task="auc", dirpath="/exp")
     assert out == "/exp/lgb_auc_0/"
+
+
+@pytest.mark.fast
+def test_parse_tracker_dirname_handles_underscore_in_task_name():
+    """VOTENRANK-14: a task name containing its own underscore must not break the model/task split."""
+    from mlframe.votenrank.utils import _parse_tracker_dirname
+
+    known_models = ["lgb", "xgb"]
+    # tracker_filename("lgb", "roc_auc", dirpath) -> "lgb_roc_auc_0"
+    assert _parse_tracker_dirname("lgb_roc_auc_0", known_models) == ("lgb", "roc_auc")
+
+
+@pytest.mark.fast
+def test_parse_tracker_dirname_handles_underscore_in_model_name():
+    """VOTENRANK-14: a model name containing its own underscore must not break the model/task split."""
+    from mlframe.votenrank.utils import _parse_tracker_dirname
+
+    known_models = ["light_gbm", "xgb"]
+    assert _parse_tracker_dirname("light_gbm_auc_0", known_models) == ("light_gbm", "auc")
+
+
+@pytest.mark.fast
+def test_parse_tracker_dirname_simple_case_unchanged():
+    """Sanity: the plain no-underscore case still parses exactly as before."""
+    from mlframe.votenrank.utils import _parse_tracker_dirname
+
+    assert _parse_tracker_dirname("lgb_auc_0", ["lgb"]) == ("lgb", "auc")
+
+
+@pytest.mark.fast
+def test_parse_tracker_dirname_unknown_model_returns_none():
+    """A directory whose model prefix isn't in the known set returns None rather than raising."""
+    from mlframe.votenrank.utils import _parse_tracker_dirname
+
+    assert _parse_tracker_dirname("unknown_auc_0", ["lgb", "xgb"]) is None
+
+
+@pytest.mark.fast
+def test_parse_tracker_dirname_malformed_no_numeric_suffix_returns_none():
+    """A directory name with no trailing numeric run-index returns None rather than raising ValueError."""
+    from mlframe.votenrank.utils import _parse_tracker_dirname
+
+    assert _parse_tracker_dirname("lgb_auc", ["lgb"]) is None
