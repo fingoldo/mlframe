@@ -642,13 +642,14 @@ repos:
         # is what actually makes it run on every commit, since mlframe's mypy-full.yml IS
         # blocking (advisory: false) unlike pyutilz's.
         stages: [pre-commit, pre-merge-commit]
-        # --cache-dir points OUTSIDE this checkout, at a dir shared by every mlframe worktree
-        # (siblings under the same parent per the worktree-per-task convention). Measured
-        # 2026-07-14: a fresh worktree's cold .mypy_cache made this hook take 2-3 MINUTES on as
-        # few as 7 changed files (default follow_imports="normal" still walks + type-checks the
-        # full transitive closure); with the shared cache warm it drops to 6-8s. Runs in the
-        # real project env (language: system, real deps installed, unlike the isolated
-        # beachhead hook above) so it gets its own cache dir -- mixing cache formats across
-        # different dependency-version environments would just thrash. See
-        # reference_mlframe_shared_mypy_cache_dir memory note.
-        args: ['--cache-dir=../.mlframe_mypy_cache_shared']
+        # --cache-dir is LOCAL to this checkout (2026-08-05, was shared across every sibling
+        # worktree at ../.mlframe_mypy_cache_shared) -- moved off the shared cache for the exact
+        # reason the two sibling hooks above already were on 2026-08-03: a worktree on a
+        # known-buggy revision can populate the shared cache with stale/wrong results, and a
+        # DIFFERENT worktree on a fixed revision can then silently inherit that cache and report
+        # "Success" against code it never actually re-checked cold. Measured 2026-07-14 (when the
+        # shared cache was introduced): a fresh worktree's cold .mypy_cache made this hook take
+        # 2-3 MINUTES on as few as 7 changed files; the LOCAL cache still gets the same warm-cache
+        # speedup on repeat commits within one worktree, it just no longer crosses worktree
+        # boundaries. See reference_mlframe_shared_mypy_cache_dir memory note.
+        args: ['--cache-dir=.mypy_cache_precommit_manual']

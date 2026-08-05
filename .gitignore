@@ -58,6 +58,7 @@ coverage.lcov
 .mypy_cache/
 .mypy_cache_precommit_full/
 .mypy_cache_precommit_beachhead/
+.mypy_cache_precommit_manual/
 .dmypy.json
 dmypy.json
 .pyre/
