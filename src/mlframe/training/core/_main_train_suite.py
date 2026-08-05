@@ -719,7 +719,6 @@ def train_mlframe_models_suite(
         # _phase_train_one_target_model_setup.py rather than threaded back up from a local here).
         ctx.slug_to_original_target_type[slugify(str(target_type).lower())] = target_type
 
-        # !TODO ! optimize for creation of inner feature matrices of cb,lgb,xgb here. They should be created once per featureset, not once per target.
         for cur_target_name, cur_target_values in tqdmu_lazy_start(targets.items(), desc="target"):
             cur_target_values = _encode_string_multiclass_target(
                 target_type, cur_target_name, cur_target_values, metadata,
