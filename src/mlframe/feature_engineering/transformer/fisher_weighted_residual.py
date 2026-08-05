@@ -6,6 +6,9 @@ For each row, compute Fisher information proxy = ||∇p̂(x)||² via finite-diff
 of baseline LGB prediction w.r.t. input features. Weight residuals by sqrt(Fisher); quintile-band the
 weighted residuals; emit weighted band id + per-band agg_y + raw Fisher + raw residual.
 
+Train-side residuals (the statistic that sets the quantile-band thresholds) come from an inner-KFold(3)
+OOF pass, not the full-fit model's in-sample predictions -- see ``_oof_train_predictions``.
+
 5 features. Second-order curvature info (none of iter 60-80 used it).
 """
 from __future__ import annotations
@@ -23,6 +26,44 @@ logger = logging.getLogger(__name__)
 # Cap on the vertically-stacked perturbation matrix (float32 elems). 64M ~ 256MB; above this
 # fall back to the per-feature loop to bound peak RAM.
 _MAX_STACK_ELEMS = 64_000_000
+
+
+def _oof_train_predictions(Xt: np.ndarray, y_t: np.ndarray, is_binary: bool, seed: int) -> np.ndarray:
+    """Inner-KFold(3) OOF predictions on Xt, used ONLY for ``resid_train`` (the statistic that sets the
+    quantile-band thresholds in ``compute_fisher_weighted_residual_features``). An in-sample prediction is
+    close to y_t almost by construction (the model was just fit on these exact rows), which understates the
+    true residual and biases which rows land in the high-weighted-residual bands -- the same leakage class
+    already fixed for ``bidir_residual_band.py::_fit_baseline_predict``. The FULL-fit model used elsewhere
+    in ``_process`` (for ``p_query``/``fisher_query``/``fisher_train``) is untouched: it must stay a single
+    full fit since the Fisher-gradient probe and query path need that same model object. Falls back to a
+    single in-sample fit when there are too few rows for a 3-fold inner split.
+    """
+    try:
+        import lightgbm as lgb
+    except ImportError as exc:
+        raise ImportError("fisher_weighted_residual requires lightgbm") from exc
+
+    def _fit_predict(X_fit: np.ndarray, y_fit: np.ndarray, X_pred: np.ndarray, rs: int) -> np.ndarray:
+        """Fit a shallow LightGBM baseline on (X_fit, y_fit), return its predictions on X_pred."""
+        if is_binary:
+            m = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(rs), verbose=-1, n_jobs=-1)
+            m.fit(X_fit, y_fit.astype(np.int32))
+            return np.asarray(m.predict_proba(X_pred))[:, 1].astype(np.float32)
+        m = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(rs), verbose=-1, n_jobs=-1)
+        m.fit(X_fit, y_fit)
+        return np.asarray(m.predict(X_pred)).astype(np.float32)
+
+    n = Xt.shape[0]
+    if n < 3:
+        return _fit_predict(Xt, y_t, Xt, seed)
+
+    from sklearn.model_selection import KFold
+
+    preds = np.zeros(n, dtype=np.float32)
+    inner_splitter = KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11)
+    for inner_idx, (in_tr, in_val) in enumerate(inner_splitter.split(Xt)):
+        preds[in_val] = _fit_predict(Xt[in_tr], y_t[in_tr], Xt[in_val], int(seed) + 7 + inner_idx)
+    return preds
 
 
 def compute_fisher_weighted_residual_features(
@@ -108,21 +149,22 @@ def compute_fisher_weighted_residual_features(
         if task == "binary":
             model = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
                                        random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t.astype(np.int32))
-            p_train = np.asarray(model.predict_proba(Xt_s))[:, 1].astype(np.float32)
             p_query = np.asarray(model.predict_proba(Xq_s))[:, 1].astype(np.float32)
             is_binary = True
-            # Residual proxy: -log p(y|x) per train row.
-            p_train_c = np.clip(p_train, 1e-6, 1 - 1e-6)
+            # Residual proxy: -log p(y|x) per train row, from OOF predictions (see _oof_train_predictions).
+            p_train_oof = _oof_train_predictions(Xt_s, y_t, is_binary, fold_seed)
+            p_train_c = np.clip(p_train_oof, 1e-6, 1 - 1e-6)
             resid_train = (-y_t * np.log(p_train_c) - (1 - y_t) * np.log(1 - p_train_c)).astype(np.float32)
             # Query "residual proxy": entropy of prediction (uncertainty).
             p_query_c = np.clip(p_query, 1e-6, 1 - 1e-6)
             resid_query = (-p_query_c * np.log(p_query_c) - (1 - p_query_c) * np.log(1 - p_query_c)).astype(np.float32)
         else:
             model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
-            p_train = np.asarray(model.predict(Xt_s)).astype(np.float32)
             p_query = np.asarray(model.predict(Xq_s)).astype(np.float32)
             is_binary = False
-            resid_train = np.abs(y_t - p_train).astype(np.float32)
+            # Residual proxy from OOF predictions (see _oof_train_predictions).
+            p_train_oof = _oof_train_predictions(Xt_s, y_t, is_binary, fold_seed)
+            resid_train = np.abs(y_t - p_train_oof).astype(np.float32)
             # Query residual proxy: prediction variance proxy = |p_query - train_y_median|
             resid_query = np.abs(p_query - float(np.median(y_t))).astype(np.float32)
 
