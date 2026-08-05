@@ -154,3 +154,36 @@ def test_maybe_inject_appends_estimator_and_updates_ctx():
     assert out[1].base_column == "f0"
     assert id(out[1]) in ctx.strategy_by_model
     assert ctx.mlframe_models is out or ctx.mlframe_models == out
+
+
+def test_maybe_inject_fires_with_a_real_train_val_test_split():
+    """TRAINING_COMPOSITE_CORE_A-1 (2026-08-05 audit): train_df is the UNFILTERED full frame while
+    y_train (and train_idx) are already sliced to a strict subset -- the sibling test above only ever
+    exercised train_idx=np.arange(n) (the full row range, no real split), so it never caught that
+    _pick_base_column's shape-match guard rejected every column whenever train_idx is a genuine
+    train/val/test subset of train_df's rows, silently disabling this whole feature. Uses a train_idx
+    that is HALF of train_df's rows (a real split) to pin the fix."""
+    from mlframe.training._configs_base import TargetTypes
+    from mlframe.training.composite.extremes import TailCompositeEstimator
+
+    rng = np.random.default_rng(2)
+    n_total, n_train = 400, 200
+    f0 = rng.normal(size=n_total)
+    f1 = rng.normal(size=n_total)
+    train_idx = np.arange(n_train)  # a strict subset: rows [0, n_train) out of n_total
+    y_full = 2.0 * f0 + rng.normal(size=n_total)
+    train_df = pd.DataFrame({"f0": f0, "f1": f1})  # full n_total rows, NOT pre-sliced to train_idx
+
+    ctx = _ctx()
+    out = maybe_inject_distribution_driven_estimator(
+        ctx=ctx,
+        metadata={"target_distribution_report": {"pathologies": ["heavy_tail(excess_kurt=20)"]}},
+        mlframe_models=["xgb"],
+        target_by_type={TargetTypes.REGRESSION: {"t": y_full}},
+        train_idx=train_idx,
+        train_df=train_df,
+        behavior_config=SimpleNamespace(distribution_driven_estimator=True),
+    )
+    assert len(out) == 2, "the estimator must actually be injected under a real train/val/test split"
+    assert isinstance(out[1], TailCompositeEstimator)
+    assert out[1].base_column == "f0"

@@ -180,7 +180,17 @@ def maybe_inject_distribution_driven_estimator(
     else:
         y_train = y_full
 
-    base_column = _pick_base_column(train_df, y_train)
+    # train_df is the UNFILTERED full frame while y_train was just sliced to train_idx above --
+    # _pick_base_column's own shape-match guard then rejected every column (full-n vs train-idx-n),
+    # silently returning None and disabling this whole feature whenever there is a real train/val/test
+    # split. Subset train_df the same way y_train was subset so the row counts line up.
+    train_df_for_base_col = train_df
+    if train_idx is not None:
+        try:
+            train_df_for_base_col = train_df.iloc[np.asarray(train_idx)] if hasattr(train_df, "iloc") else train_df[np.asarray(train_idx)]
+        except (IndexError, TypeError, KeyError):
+            train_df_for_base_col = train_df
+    base_column = _pick_base_column(train_df_for_base_col, y_train)
     if not base_column:
         return mlframe_models
 
