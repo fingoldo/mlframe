@@ -463,7 +463,9 @@ class TestEdgeCaseStress:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        # May fail or succeed depending on imputation
+        # May fail or succeed depending on imputation. Only the training call itself is allowed to
+        # raise (too many NaNs is a legitimate failure mode); the assertion below must always run
+        # to completion and is never allowed to be silently swallowed by this except.
         try:
             models, _metadata = train_mlframe_models_suite(
                 df=df,
@@ -478,10 +480,10 @@ class TestEdgeCaseStress:
                 output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
                 verbose=0,
             )
-            assert TargetTypes.REGRESSION in models
-        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-            # Expected - too many NaNs may cause issues
-            pass
+        except Exception:  # nosec B110 -- expected: too many NaNs may legitimately cause a training failure
+            return
+
+        assert TargetTypes.REGRESSION in models
 
     def test_extreme_values(self, temp_data_dir, common_init_params):
         """Test with extreme values in data."""
