@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import logging
+import threading
 from types import SimpleNamespace
 from typing import Optional, Dict, Any
 
@@ -23,6 +24,18 @@ import dill  # nosec B403 - pickle used only for trusted same-process/dev-local 
 import zstandard as zstd
 
 logger = logging.getLogger("mlframe.training.io")
+
+# _collect_pre_dump_swaps mutates the SHARED nested object graph IN PLACE (torch.compile swap,
+# Lightning-bloat nulling) and restores only in a `finally` block; `lean=True` only shallow-copies the
+# TOP-LEVEL SimpleNamespace, so nested sub-objects are the same live references the caller's model still
+# holds. Two concurrent save_mlframe_model calls on bundles sharing a nested sub-object (e.g. parallel
+# per-model saves referencing a shared preprocessing pipeline) could otherwise interleave their
+# strip/restore windows -- one call's dump could see the other's stripped/nulled state, or a restore
+# could race a strip. Serializing the strip-dump-restore critical section process-wide is the safe fix;
+# saves are I/O-bound and infrequent, so losing save/save parallelism is a non-issue. RLock (not Lock):
+# the auto_lean_retry path recurses into save_mlframe_model from the SAME thread while still inside this
+# lock's critical section.
+_SAVE_MUTATION_LOCK = threading.RLock()
 
 
 def save_mlframe_model(
@@ -257,6 +270,9 @@ def save_mlframe_model(
                 continue
             _collect_pre_dump_swaps(_v)
 
+    # Acquired here (not via `with`, to avoid re-indenting the whole strip/dump/restore body below) and
+    # released at the very end of the `finally:` block further down -- see _SAVE_MUTATION_LOCK's docstring.
+    _SAVE_MUTATION_LOCK.acquire()
     try:
         _collect_pre_dump_swaps(_payload)
     except Exception as e:
@@ -410,3 +426,7 @@ def save_mlframe_model(
                 logger.debug(
                     "save_mlframe_model: could not restore Lightning bloat attr %r", _k,
                 )
+        # Release LAST, after every restore above has run -- see _SAVE_MUTATION_LOCK's docstring.
+        # The recursive auto_lean_retry call (if any) already ran and returned by this point (its own
+        # RLock acquire/release happened entirely within this call's held lock), so releasing here is safe.
+        _SAVE_MUTATION_LOCK.release()
