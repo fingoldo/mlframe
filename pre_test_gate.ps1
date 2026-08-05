@@ -50,8 +50,11 @@ if ($ok) {
 # ---- Gate 3: full suite ----
 if ($ok -and $GatesOnly) { Write-Host "Gates passed (-GatesOnly: not running the full suite)." -ForegroundColor Green }
 elseif ($ok) {
-    $n = [int]([Math]::Max(1, [Math]::Floor((Get-CimInstance Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum / 2)))
-    Write-Host "== Gate 3: full suite -n $n (physical cores / 2) ==" -ForegroundColor Cyan
+    # Quarter physical cores, not half: a known Windows paging-file exhaustion failure mode under joblib
+    # fan-out on this machine (16 physical cores -> -n 4) motivated the documented quarter-cores policy;
+    # half-cores was measured to trip it.
+    $n = [int]([Math]::Max(1, [Math]::Floor((Get-CimInstance Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum / 4)))
+    Write-Host "== Gate 3: full suite -n $n (physical cores / 4, quarter-cores policy) ==" -ForegroundColor Cyan
     $extra = @()
     if ($ContinueOnCollectErrors) { $extra += '--continue-on-collection-errors' }
     python.exe -m pytest tests/ -n $n --fast --dist=worksteal --max-worker-restart=20 --instafail --show-progress -p no:randomly -p no:cacheprovider --no-cov --tb=short --timeout=600 --maxfail=0 -ra -v --color=no @extra 2>&1 | Tee-Object -FilePath $log
