@@ -332,9 +332,10 @@ def test_m_neu_11_no_lazy_import_in_create_dataset() -> None:
     """ThreadPoolExecutor was lazily imported inside _create_dataset on every
     fit/predict pass. Post-fix it is imported once at module top of the module
     that defines _create_dataset (the recurrent monolith was carved into
-    submodules; _create_dataset now lives in recurrent_dataset_helpers).
+    submodules; _create_dataset now lives in _recurrent_wrapper_base --
+    recurrent_dataset_helpers is a pure re-export shim over it).
     """
-    import mlframe.training.neural.recurrent_dataset_helpers as ds
+    import mlframe.training.neural._recurrent_wrapper_base as ds
     from concurrent.futures import ThreadPoolExecutor
 
     # Module top of the owning module must expose ThreadPoolExecutor.
