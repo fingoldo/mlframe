@@ -44,7 +44,7 @@ class TestMLPBatchSizeProbeCache:
         from mlframe.training import mlp_runtime_defaults as mrd
 
         # Reset the cache so the test runs from a known state.
-        mrd._PROBE_MEM_CACHE = None
+        mrd._PROBE_MEM_CACHE.clear()
         first = mrd._probe_available_memory_bytes(cuda_available=False)
         # The cache is now populated; a second probe must return the SAME
         # value even if real free memory has fluctuated.
@@ -57,7 +57,8 @@ class TestMLPBatchSizeProbeCache:
         """Probe reprobe via env."""
         from mlframe.training import mlp_runtime_defaults as mrd
 
-        mrd._PROBE_MEM_CACHE = 12345
+        mrd._PROBE_MEM_CACHE.clear()
+        mrd._PROBE_MEM_CACHE["cpu"] = 12345
         # Without the env var, cached value is returned.
         assert mrd._probe_available_memory_bytes(cuda_available=False) == 12345
         # With MLFRAME_FORCE_REPROBE set, the cache is bypassed and a
@@ -65,6 +66,21 @@ class TestMLPBatchSizeProbeCache:
         monkeypatch.setenv("MLFRAME_FORCE_REPROBE", "1")
         fresh = mrd._probe_available_memory_bytes(cuda_available=False)
         assert fresh != 12345, f"MLFRAME_FORCE_REPROBE should bypass the cache; got the cached value {fresh}"
+
+    def test_probe_cache_does_not_mix_cpu_and_gpu_modes(self) -> None:
+        """TRAINING_LOOSE_C-10: a CPU-mode probe and a GPU-mode probe must not share a cache slot.
+
+        Pre-fix, a single un-keyed cache meant a call in one mode (CPU RAM) followed by a call in the
+        other mode (GPU VRAM) silently returned the FIRST mode's (very different magnitude) cached value,
+        risking a CUDA OOM the batch-size resolver exists to prevent.
+        """
+        from mlframe.training import mlp_runtime_defaults as mrd
+
+        mrd._PROBE_MEM_CACHE.clear()
+        mrd._PROBE_MEM_CACHE["cpu"] = 111
+        mrd._PROBE_MEM_CACHE["cuda:0"] = 999
+        assert mrd._probe_available_memory_bytes(cuda_available=False) == 111
+        assert mrd._probe_available_memory_bytes(cuda_available=True, device_id=0) == 999
 
     def test_train_batch_min_raised(self) -> None:
         """The min train batch was 32 (catastrophically small for

@@ -323,13 +323,16 @@ _TRAIN_MEM_FRACTION: float = 0.10
 _TRAIN_DTYPE_BYTES: int = 4
 
 
-# Module-level cache of the first successful memory probe. ``psutil.virtual_memory().available``
-# fluctuates BETWEEN calls within the same suite run (PyTorch tensors not yet GC'd,
-# Lightning state, intermediate dataloaders) -- prod observed 64x variance in
+# Module-level cache of the first successful memory probe, KEYED by probe mode (CPU-RAM vs a specific
+# CUDA device's VRAM) -- a single un-keyed cache would let a CPU-mode call return a previously-cached
+# GPU-VRAM reading (or vice versa) since both write into the same slot, silently mixing magnitudes that
+# differ by orders of magnitude and risking a CUDA OOM the batch-size resolver exists to prevent.
+# ``psutil.virtual_memory().available`` fluctuates BETWEEN calls within the same suite run (PyTorch
+# tensors not yet GC'd, Lightning state, intermediate dataloaders) -- prod observed 64x variance in
 # resolved batch_size (65536 -> 1024 across 8 MLP trainings on identical data shape).
-# Cache the FIRST probe so all subsequent auto-batch resolutions in one process share a
+# Cache the FIRST probe per mode so all subsequent auto-batch resolutions in one process share a
 # stable memory budget. Set ``MLFRAME_FORCE_REPROBE=1`` to bypass.
-_PROBE_MEM_CACHE: int | None = None
+_PROBE_MEM_CACHE: dict[str, int] = {}
 
 
 def _probe_available_memory_bytes(
@@ -347,12 +350,6 @@ def _probe_available_memory_bytes(
     boxes can target the actual training device's free memory rather than
     always device 0.
     """
-    global _PROBE_MEM_CACHE
-    # Cached-probe path: one stable budget per process so consecutive MLP
-    # trainings in the same suite don't get wildly different batch sizes
-    # from a fluctuating ``available`` reading.
-    if _PROBE_MEM_CACHE is not None and not os.environ.get("MLFRAME_FORCE_REPROBE"):
-        return _PROBE_MEM_CACHE
     if cuda_available is None:
         try:
             import torch
@@ -362,19 +359,26 @@ def _probe_available_memory_bytes(
             cuda_ok = False
     else:
         cuda_ok = bool(cuda_available)
+    # Keyed by mode so a CPU-RAM probe and a GPU-VRAM probe (per device) never share a cache slot.
+    cache_key = f"cuda:{int(device_id)}" if cuda_ok else "cpu"
+    # Cached-probe path: one stable budget per process/mode so consecutive MLP
+    # trainings in the same suite don't get wildly different batch sizes
+    # from a fluctuating ``available`` reading.
+    if cache_key in _PROBE_MEM_CACHE and not os.environ.get("MLFRAME_FORCE_REPROBE"):
+        return _PROBE_MEM_CACHE[cache_key]
     if cuda_ok:
         try:
             import torch
             free_bytes, _total_bytes = torch.cuda.mem_get_info(int(device_id))
-            _PROBE_MEM_CACHE = int(free_bytes)
-            return _PROBE_MEM_CACHE
+            _PROBE_MEM_CACHE[cache_key] = int(free_bytes)
+            return _PROBE_MEM_CACHE[cache_key]
         except Exception as e:  # nosec B110 - optional dependency import guard
             logger.debug("torch.cuda.mem_get_info probe failed (%s: %s) -- falling back to psutil/None", type(e).__name__, e)
     # CPU mode (or CUDA probe failed): use psutil if available, else None.
     try:
         import psutil
-        _PROBE_MEM_CACHE = int(psutil.virtual_memory().available)
-        return _PROBE_MEM_CACHE
+        _PROBE_MEM_CACHE[cache_key] = int(psutil.virtual_memory().available)
+        return _PROBE_MEM_CACHE[cache_key]
     except Exception as e:
         logger.debug("psutil memory probe failed (%s: %s) -- caller falls back to a constant batch size", type(e).__name__, e)
         return None
