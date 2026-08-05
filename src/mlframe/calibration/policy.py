@@ -411,11 +411,11 @@ def _build_resample_indices(
     rng = np.random.default_rng(random_state)
     if stratify is None:
         # int32 indices: exact for n < 2**31 and bit-identical draws to int64
-        # (Generator.integers keys entropy off the range, not the dtype).
-        out = np.empty((n_bootstrap, n), dtype=np.int32)
-        for b in range(n_bootstrap):
-            out[b] = rng.integers(0, n, size=n, dtype=np.int32)
-        return out
+        # (Generator.integers keys entropy off the range, not the dtype). A single
+        # 2-D draw fills C-contiguous (row-major) order -- the same sequential draw
+        # order as the former per-row loop -- so this is bit-identical, just without
+        # the Python-level loop overhead per bootstrap resample.
+        return np.asarray(rng.integers(0, n, size=(n_bootstrap, n), dtype=np.int32))
     stratify = np.asarray(stratify).ravel()
     groups = {int(c): np.flatnonzero(stratify == c) for c in np.unique(stratify)}
     _groups_list = list(groups.values())

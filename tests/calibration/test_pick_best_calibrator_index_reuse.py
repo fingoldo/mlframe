@@ -51,6 +51,22 @@ def test_shared_index_helper_bit_identical_to_bootstrap_metric(stratified):
     assert new["hi"] == old["hi"]
 
 
+def test_build_resample_indices_unstratified_matches_per_row_loop():
+    """CALIBRATION-5: the non-stratified branch's vectorized single rng.integers(size=(n_bootstrap, n))
+    call must draw the exact same values as the former per-row Python loop (same RNG draw order)."""
+    from mlframe.calibration import policy
+
+    n, n_bootstrap, seed = 500, 50, 3
+    vectorized = policy._build_resample_indices(n, n_bootstrap, None, seed)
+
+    rng = np.random.default_rng(seed)
+    looped = np.empty((n_bootstrap, n), dtype=np.int32)
+    for b in range(n_bootstrap):
+        looped[b] = rng.integers(0, n, size=n, dtype=np.int32)
+
+    np.testing.assert_array_equal(vectorized, looped)
+
+
 def test_pick_best_calibrator_selection_identical_to_per_candidate_bootstrap(monkeypatch):
     """End-to-end: chosen calibrator + alternatives match a per-candidate
     ``bootstrap_metric`` reconstruction (the pre-reuse behaviour)."""
