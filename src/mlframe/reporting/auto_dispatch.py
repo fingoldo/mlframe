@@ -266,7 +266,19 @@ def render_multi_target_panels(
 
     # Multiclass: 1-D targets, K>=3 classes in the proba matrix.
     _mc_allowed = tt == "" or tt == "multiclass_classification"
-    if _mc_allowed and targets_arr.ndim == 1 and probs_arr.ndim == 2 and probs_arr.shape[1] >= 3 and multiclass_panels:
+    _mc_shape_ok = targets_arr.ndim == 1 and probs_arr.ndim == 2 and probs_arr.shape[1] >= 3
+    if tt == "multiclass_classification" and multiclass_panels and not _mc_shape_ok:
+        # target_type authoritatively selects this branch, but the actual shapes don't satisfy its
+        # contract -- log and bail rather than silently falling through to "Regression" at the bottom,
+        # matching the multilabel branch's shape-mismatch warning above.
+        logger.warning(
+            "render_multi_target_panels: multiclass_classification target_type but targets %s / probs %s "
+            "don't satisfy the multiclass shape contract (1-D targets, probs (n, K>=3)); skipping multiclass panels.",
+            targets_arr.shape,
+            probs_arr.shape,
+        )
+        return None
+    if _mc_allowed and _mc_shape_ok and multiclass_panels:
         try:
             from mlframe.reporting.charts.multiclass import compose_multiclass_figure
             from mlframe.reporting.output import parse_plot_output_dsl
@@ -295,6 +307,14 @@ def render_multi_target_panels(
     # authoritative target_type gate; the shape heuristic here is the binary
     # back-compat path for callers that do not pass target_type.
     _bin_allowed = tt == "" or tt == "binary_classification"
+    if tt == "binary_classification" and binary_panels and (targets_arr is None or targets_arr.ndim != 1):
+        # target_type authoritatively selects binary, but targets aren't 1-D -- log and bail, matching
+        # the multilabel branch's shape-mismatch warning above (same reasoning as the multiclass guard).
+        logger.warning(
+            "render_multi_target_panels: binary_classification target_type but targets shape %s is not " "1-D; skipping binary panels.",
+            None if targets_arr is None else targets_arr.shape,
+        )
+        return None
     if _bin_allowed and binary_panels and targets_arr is not None and targets_arr.ndim == 1:
         y_score = None
         if probs_arr.ndim == 2 and probs_arr.shape[1] == 2:
@@ -303,6 +323,15 @@ def render_multi_target_panels(
             y_score = probs_arr
         elif probs_arr.ndim == 2 and probs_arr.shape[1] == 1:
             y_score = probs_arr.ravel()
+        if y_score is None and tt == "binary_classification":
+            # target_type authoritatively selects binary, targets are 1-D, but probs' shape doesn't
+            # resolve to a usable score column -- log and bail rather than silently falling through.
+            logger.warning(
+                "render_multi_target_panels: binary_classification target_type but probs shape %s doesn't "
+                "resolve to a usable score column ((n,), (n,1), or (n,2)); skipping binary panels.",
+                probs_arr.shape,
+            )
+            return None
         if y_score is not None:
             # Data-aware emphasis only when the operator left binary_panels at its
             # default; an explicit custom template is never reordered/dropped.
