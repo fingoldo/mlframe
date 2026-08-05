@@ -197,7 +197,7 @@ def _ksg_baseline_pair(x1, x2, y) -> float:
     return float(mutual_info_classif(Xn, y, n_neighbors=3, random_state=42, discrete_features=False).max())
 
 
-def _legacy_hermite(x1, x2, y, n_iters=2, n_trials_per_iter=100):
+def _legacy_hermite(x1, x2, y, n_iters=2, n_trials_per_iter=100, seed=42):
     """Legacy implementation reproduction: random length per trial,
     coef_range [-10, 10], physicist's hermval, no standardisation,
     no regularisation."""
@@ -211,10 +211,15 @@ def _legacy_hermite(x1, x2, y, n_iters=2, n_trials_per_iter=100):
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     bin_funcs = {"add": np.add, "sub": np.subtract, "mul": np.multiply}
 
+    # Every other RNG use in this file (data gen, TPESampler seed=42, optimise_hermite_pair seed=42) is
+    # fully seeded; this drew length_a/length_b from the unseeded global np.random, making the printed
+    # "legacy" baseline MI non-deterministic across runs. A local seeded Generator matches the file's
+    # own determinism contract.
+    rng = np.random.default_rng(seed)
     best_mi = 0.0
     for _ in range(n_iters):
-        length_a = np.random.randint(3, 8)
-        length_b = np.random.randint(3, 8)
+        length_a = int(rng.integers(3, 8))
+        length_b = int(rng.integers(3, 8))
 
         def objective(trial):
             coef_a = np.array(
