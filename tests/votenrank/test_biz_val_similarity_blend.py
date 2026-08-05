@@ -183,3 +183,28 @@ def test_similarity_blend_n_specialist_weights_sum_to_one_and_default_path_uncha
     pred_with_param = with_none_region_estimators.predict(X_probe)
 
     np.testing.assert_array_equal(pred_baseline, pred_with_param)
+
+
+def test_region_similarity_weights_degenerate_row_falls_back_to_uniform_not_zero():
+    """VOTENRANK-4: a query row whose similarity to every region underflows exp(...) to exactly 0.0
+    must fall back to a uniform blend, not silently return an all-zero row (breaking the documented
+    "rows summing to 1" invariant).
+    """
+    rng = np.random.default_rng(6)
+    n_regions = 3
+    region_X_train = [rng.normal(loc=0.0, scale=0.1, size=(20, 2)) for _ in range(n_regions)]
+    region_y_train = [rng.normal(size=20) for _ in range(n_regions)]
+    region_estimators = [LinearRegression() for _ in range(n_regions)]
+    # A tiny similarity_scale makes exp(-mean_dist/scale) underflow to exactly 0.0 for any query row
+    # even moderately far from every region's tight training cluster.
+    blend_n = SimilarityBlendEnsemble(
+        in_dist_estimator=LinearRegression(), out_dist_estimator=LinearRegression(), k=5, similarity_scale=1e-3, region_estimators=region_estimators
+    )
+    blend_n.fit_multi_region(region_X_train, region_y_train)
+
+    X_far = np.array([[1000.0, 1000.0]])  # far from every region -> every column underflows to 0.0
+    weights = blend_n.region_similarity_weights(X_far)
+
+    assert weights.shape == (1, n_regions)
+    np.testing.assert_allclose(weights.sum(axis=1), 1.0, atol=1e-9), "degenerate row must still sum to 1, not silently be all-zero"
+    np.testing.assert_allclose(weights[0], np.full(n_regions, 1.0 / n_regions)), "degenerate row must fall back to a uniform blend"

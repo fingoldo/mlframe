@@ -156,8 +156,17 @@ class SimilarityBlendEnsemble(BaseEstimator, RegressorMixin):
             mean_dist = dists.mean(axis=1)
             sims[:, i] = np.exp(-mean_dist / self.similarity_scale)
         row_sums = sims.sum(axis=1, keepdims=True)
+        degenerate = (row_sums <= 1e-12).ravel()
         row_sums = np.where(row_sums > 1e-12, row_sums, 1.0)
-        return np.asarray(sims / row_sums, dtype=np.float64)
+        weights = sims / row_sums
+        if degenerate.any():
+            # A query row equidistant-and-far from every region underflows exp(-mean_dist/scale) to
+            # exactly 0.0 for every column; dividing by the placeholder 1.0 above would silently return
+            # an all-zero weight row, violating the documented "rows summing to 1" invariant. Fall back
+            # to a uniform blend across regions for those rows -- the least-committal, always-valid
+            # choice when similarity carries no discriminating signal.
+            weights[degenerate, :] = 1.0 / n_regions
+        return np.asarray(weights, dtype=np.float64)
 
     def predict_multi_region(self, X: Any) -> np.ndarray:
         """Blend the N region specialists' predictions per row, weighted by :meth:`region_similarity_weights`."""
