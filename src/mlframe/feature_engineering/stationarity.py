@@ -119,20 +119,28 @@ def frac_diff_weights(d: float, K: int) -> np.ndarray:
 def _frac_diff_single(arr: np.ndarray, w: np.ndarray) -> np.ndarray:
     """Convolve a single 1-D array with truncated weights ``w``.
 
-    First ``K`` rows are NaN (no full-window history). NaN inputs
-    propagate the way numpy's ``np.convolve`` handles them (filled
-    with 0 by caller; downstream NaN is caller's responsibility).
+    First ``K`` rows are NaN (no full-window history). A NaN anywhere ELSE in ``arr`` also NaNs out
+    every output row whose K-length causal window touches it -- the convolution itself is computed
+    against a zero-filled copy of ``arr`` (``np.convolve`` has no native NaN handling), but the
+    zero-fill is corrected for below rather than left to silently corrupt every downstream window a
+    stray NaN happens to fall inside.
     """
     K = w.size
     if arr.size < K:
         return np.full(arr.size, np.nan, dtype=np.float64)
-    arr_f = np.where(np.isfinite(arr), arr, 0.0).astype(np.float64)
+    finite = np.isfinite(arr)
+    arr_f = np.where(finite, arr, 0.0).astype(np.float64)
     # Causal convolution: y[t] = sum_k w[k] * x[t-k].
     # np.convolve(x, h, mode='full')[t] = sum_k h[k] * x[t-k] directly,
     # so pass w (not w[::-1]). Truncate to length n to drop the
     # post-arr tail.
     conv = np.convolve(arr_f, w, mode="full")[: arr.size]
     conv[:K] = np.nan
+    if not finite.all():
+        # A window's output at t depends on arr[t-K+1 .. t]; convolving the (0/1) NaN-indicator with an
+        # all-ones length-K kernel gives, at each t, the count of NaN inputs inside that window.
+        nan_count = np.convolve((~finite).astype(np.float64), np.ones(K), mode="full")[: arr.size]
+        conv[nan_count > 0.0] = np.nan
     return conv
 
 
@@ -171,7 +179,10 @@ def frac_diff(
     np.ndarray
         1-D of length ``n`` when ``d`` is scalar; 2-D ``(n, len(d))``
         when ``d`` is iterable. NaN-filled for the first ``K`` rows
-        of each group (no full-history window).
+        of each group (no full-history window), AND for any later
+        row whose K-length causal window touches a NaN in ``values``
+        (a NaN mid-series propagates forward through the next K-1
+        rows, it is never silently treated as 0).
     """
     arr = np.asarray(values, dtype=np.float64)
     n = arr.size
