@@ -85,3 +85,17 @@ def test_empty_target_does_not_crash() -> None:
     """Empty target does not crash."""
     arr = np.array([], dtype=np.float64)
     _validate_target_values(arr, subset_name="train", is_classification=False)
+
+
+def test_empty_classification_target_raises_clear_valueerror() -> None:
+    """TRAINING_LOOSE_A-1 (2026-08-05 audit): an EMPTY classification target used to silently swallow
+    its own diagnostic. len(np.unique(empty_arr)) < 2 is True for a 0-length array too (not just a
+    genuinely single-valued one), so the raise ValueError(...) message-format expression indexed
+    arr_np.flat[0] on that empty array, itself raising IndexError before the ValueError was ever
+    constructed; the outer `except ValueError: raise` / `except Exception: log.debug` pair then caught
+    the IndexError in the generic branch and returned normally instead of raising anything, letting an
+    empty target proceed straight to a much more opaque downstream backend crash. Must now raise a
+    clear ValueError mentioning the target is empty, not silently pass."""
+    arr = np.array([], dtype=np.float64)
+    with pytest.raises(ValueError, match="EMPTY"):
+        _validate_target_values(arr, subset_name="train", is_classification=True)

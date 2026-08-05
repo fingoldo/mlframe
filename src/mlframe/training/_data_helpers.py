@@ -341,10 +341,18 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
                     )
             else:
                 if len(np.unique(arr_np)) < 2:
+                    # arr_np.size == 0 (an empty target) means np.unique returns an empty array too
+                    # (len 0 < 2), so this branch also fires on a genuinely EMPTY target, not just a
+                    # single-value one -- arr_np.flat[0] on an empty array raises IndexError, which
+                    # the `except ValueError: raise` below does NOT match, so it fell through to the
+                    # generic `except Exception` and was silently swallowed as a debug log, masking
+                    # the intended diagnostic entirely and letting the empty target proceed straight
+                    # to a much more opaque downstream backend crash. Guard the message construction
+                    # so both the single-value and empty-target cases raise their own clear ValueError.
+                    _value_desc = f"({arr_np.flat[0]!r}); classification needs at least 2 classes" if arr_np.size > 0 else "-- the target is EMPTY (0 rows)"
                     raise ValueError(
                         f"{subset_name} target has only one unique value "
-                        f"({arr_np.flat[0]!r}); classification needs at least "
-                        f"2 classes. Most likely cause: upstream filtering "
+                        f"{_value_desc}. Most likely cause: upstream filtering "
                         f"(outlier_detection + trainset_aging_limit + rare "
                         f"imbalance) eliminated the minority class entirely. "
                         f"Investigate the filter pipeline OR loosen the "
