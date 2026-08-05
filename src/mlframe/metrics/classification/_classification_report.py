@@ -80,14 +80,12 @@ def format_classification_report(
     and ``output_dict=True`` (use ``fast_classification_report`` for the
     raw arrays).
 
-    MACRO-AVG CAVEAT (matches sklearn): macro avg is the UNWEIGHTED mean of the per-class
-    precision / recall / f1 over ALL ``nclasses``, INCLUDING any class with support 0 in
-    ``y_true``. An absent class contributes its ``zero_division`` value (0 by default) to the
-    macro mean, which DEFLATES macro precision/recall/f1 on rare-event / sparse-label targets
-    where some classes never appear in this split. If you want the mean over only the classes
-    actually present, filter ``target_names`` to the observed labels before averaging, or read the
-    per-class rows directly. (weighted avg is support-weighted, so absent classes get weight 0 and
-    do not move it.)
+    MACRO-AVG CAVEAT (matches sklearn): this function calls ``fast_classification_report`` with its
+    default ``macro_over_present=True`` -- macro avg is the UNWEIGHTED mean of the per-class
+    precision / recall / f1 over only the classes actually PRESENT (support > 0) in ``y_true``. A
+    class with zero support in this split does NOT contribute a ``zero_division`` value and does
+    NOT deflate the macro mean -- this is what matches sklearn's ``classification_report``.
+    (weighted avg is support-weighted, so absent classes get weight 0 either way and never move it.)
     """
     from ..core import fast_classification_report  # lazy: see import-cycle note at module top
     _hits, _misses, accuracy, _balanced_accuracy, supports, precisions, recalls, f1s, macro_averages, weighted_averages = (
