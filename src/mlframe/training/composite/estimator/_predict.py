@@ -482,6 +482,12 @@ def predict_quantile(
     else:
         domain_ok = np.ones(n_rows, dtype=bool)
 
+    # Soft base-shrink parity with predict() (see _predict_unclipped above): without this,
+    # predict_quantile() never called _soft_shrink.compute, so the default-ON out-of-range-base
+    # soft-shrink/smart-fallback protection that predict() applies was silently absent from
+    # every quantile/interval prediction. Disabled/inapplicable -> base_eff IS base_arr (byte-identical).
+    base_eff, shrunk_mask, deep_ood = _soft_shrink.compute(self, transform, base_arr, params)
+
     # Preserve quantile dimensionality: scalar alpha -> 1-D (n_samples,);
     # array alpha -> 2-D (n_samples, K). Flattening unconditionally would
     # collapse a (n_samples, K) multi-quantile head into one mean-like
@@ -503,8 +509,12 @@ def predict_quantile(
         _t_low_total += _tl
         _t_high_total += _th
         y_col = _inverse_with_fallback(
-            self, transform, t_clipped, base_arr, domain_ok, params, inverse_kwargs,
+            self, transform, t_clipped, base_eff, domain_ok, params, inverse_kwargs,
         )
+        # Smart fallback for deeply out-of-distribution rows, same as predict() -- runs on the
+        # RAW (un-shrunk) base so a lag-as-base failsafe uses the true observed value.
+        if deep_ood is not None:
+            _soft_shrink.apply_smart_fallback(self, y_col, deep_ood, base_arr, domain_ok, X, params)
         _y_low_total += int(np.sum(y_col < low))
         _y_high_total += int(np.sum(y_col > high))
         return np.asarray(np.clip(y_col, low, high))
@@ -513,6 +523,7 @@ def predict_quantile(
 
     if alpha_is_scalar:
         y_q = _invert_one(t_raw)
+        _soft_shrink.record_info(self, shrunk_mask, deep_ood, n_rows)
         _record_runtime_stats(
             self, n_rows, n_violation, _y_low_total, _y_high_total, _t_low_total, _t_high_total,
         )
@@ -522,6 +533,7 @@ def predict_quantile(
         # Inner emits per-alpha 1-D and was called with a vector -- broadcast
         # against the single base column we already extracted (which is 1-D).
         y_q = _invert_one(t_raw).reshape(-1, 1)
+        _soft_shrink.record_info(self, shrunk_mask, deep_ood, n_rows)
         _record_runtime_stats(
             self, n_rows, n_violation, _y_low_total, _y_high_total, _t_low_total, _t_high_total,
         )
@@ -530,6 +542,7 @@ def predict_quantile(
         raise ValueError(f"CompositeTargetEstimator.predict_quantile: inner returned ndim={t_raw.ndim}; expected 1 or 2.")
     # Per-column inverse: base_arr is (n_samples,), so reshape to broadcast.
     cols = [_invert_one(t_raw[:, k]) for k in range(t_raw.shape[1])]
+    _soft_shrink.record_info(self, shrunk_mask, deep_ood, n_rows)
     _record_runtime_stats(
         self, n_rows, n_violation, _y_low_total, _y_high_total, _t_low_total, _t_high_total,
     )
