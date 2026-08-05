@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from mlframe.signal.hull_moving_average import hull_ma_deviation, hull_moving_average, hull_moving_average_multi
 
@@ -74,6 +75,14 @@ def test_hull_moving_average_nan_prefix_length():
     hma = hull_moving_average(x, window=10)
     assert np.isnan(hma[0])
     assert not np.isnan(hma[-1])
+
+
+def test_hull_moving_average_zero_window_raises_clear_valueerror():
+    """CORE_INFRA_MISC-1: window=0 must raise a clear ValueError instead of a shape-mismatch crash from
+    Python's arr[:-0] == arr[:0] trap inside _sma_from_cumsum."""
+    x = np.arange(20, dtype=np.float64)
+    with pytest.raises(ValueError, match="window"):
+        hull_moving_average(x, window=0)
 
 
 def test_hull_moving_average_multi_matches_single_window_calls_bit_identical():

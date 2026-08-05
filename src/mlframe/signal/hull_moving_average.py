@@ -34,6 +34,11 @@ def _cumsum_with_prefix(x: np.ndarray) -> tuple[np.ndarray, int, int]:
 def _sma_from_cumsum(cumsum: np.ndarray, first_valid: int, n_valid: int, n: int, window: int) -> np.ndarray:
     """Windowed-mean reduction over a precomputed ``_cumsum_with_prefix`` result -- see ``_sma`` for the
     single-call entry point and the NaN-prefix rationale."""
+    if window <= 0:
+        # cumsum[window:] - cumsum[:-window] relies on window being a POSITIVE slice length; window=0 hits
+        # Python's arr[:-0] == arr[:0] trap (an empty slice, not "no truncation"), producing a shape mismatch
+        # instead of a clear error.
+        raise ValueError(f"_sma_from_cumsum: window must be a positive integer, got {window}")
     if window > n_valid:
         return np.full(n, np.nan)
     cumsum_valid = cumsum[window:] - cumsum[:-window]
