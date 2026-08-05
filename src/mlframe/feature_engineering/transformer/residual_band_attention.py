@@ -23,9 +23,16 @@ Why this is structurally new vs iter 57/58:
 
 Captures "boosting's blind spots" as features the boosting can then use to localise its own mistakes.
 
-Leakage discipline: 1-iter LGB fit + bands + centroids + y-stats all computed per fold from train-fold rows only.
-Predictions on TRAIN rows are from a model fit on those same rows (in-sample) — that's intentional, because the
-goal is to measure residual under the LGB hypothesis class, not to forecast unseen test residuals. Per-fold reuse
+Leakage discipline: LGB fit + bands + centroids + y-stats all computed per fold from train-fold rows only.
+Predictions on TRAIN rows come from an inner-KFold(3) OOF pass, not the in-sample fit-then-predict this
+module used until 2026-08-05: the original "intentional -- measure residual under the LGB hypothesis
+class, not forecast unseen test residuals" framing was directly contradicted by every later sibling in
+this family (bidir_residual_band.py, decision_region_depth.py, sign_residual_baseline.py,
+multi_temp_cbhr.py, class_balanced_hard_row.py, multi_baseline_hard_row.py, disagreement_band.py), which
+all treat the identical fit-then-predict-on-same-rows pattern as a bug: an in-sample residual is small
+almost by construction (the model just memorized that row's label), which systematically understates
+"fitting difficulty" and biases which rows land in the hard (Q5) band. Since every downstream copy of
+this pattern was fixed, this root (iter 60) is fixed the same way for consistency. Per-fold reuse still
 ensures no test-row label leaks into band assignment.
 
 Cost: 50-iter LGB ~50ms per fold + standard band softmax. Sub-second per fold.
@@ -45,37 +52,47 @@ logger = logging.getLogger(__name__)
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
-    """Fit a small LightGBM on (Xt, y_t), return in-sample predictions on Xt.
+    """Fit a small LightGBM via an inner KFold(3) and return its OUT-OF-FOLD predictions on Xt.
 
-    Used solely to compute residuals for adaptive band partitioning — NOT a downstream model.
+    Used solely to compute residuals for adaptive band partitioning — NOT a downstream model. An in-sample
+    prediction is close to y_t almost by construction (the model was just fit on these exact rows), which
+    systematically understates "fitting difficulty" and biases which rows land in the hard (Q5) band; see
+    the module docstring's leakage-discipline note. Matches every later sibling's
+    ``_fit_baseline_predict``/``_fit_3baselines_oof`` pattern in this cluster. Falls back to a single
+    in-sample fit when there are too few rows for a 3-fold inner split.
     """
     try:
         import lightgbm as lgb
     except ImportError as exc:
         raise ImportError("residual_band_attention requires lightgbm") from exc
-    if task == "binary":
-        model = lgb.LGBMClassifier(
-            n_estimators=n_estimators,
-            max_depth=max_depth,
-            learning_rate=0.1,
-            random_state=int(seed),
-            verbose=-1,
-            n_jobs=-1,
-        )
-        model.fit(Xt, y_t.astype(np.int32))
-        preds = np.asarray(model.predict_proba(Xt))[:, 1].astype(np.float32)
-    else:
+
+    def _fit_predict(X_fit: np.ndarray, y_fit: np.ndarray, X_pred: np.ndarray, rs: int) -> np.ndarray:
+        """Fit a shallow LightGBM baseline on (X_fit, y_fit), return its predictions on X_pred."""
+        if task == "binary":
+            model = lgb.LGBMClassifier(
+                n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
+                random_state=int(rs), verbose=-1, n_jobs=-1,
+            )
+            model.fit(X_fit, y_fit.astype(np.int32))
+            return np.asarray(model.predict_proba(X_pred))[:, 1].astype(np.float32)
         model = lgb.LGBMRegressor(
-            n_estimators=n_estimators,
-            max_depth=max_depth,
-            learning_rate=0.1,
-            random_state=int(seed),
-            verbose=-1,
-            n_jobs=-1,
+            n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
+            random_state=int(rs), verbose=-1, n_jobs=-1,
         )
-        model.fit(Xt, y_t)
-        preds = np.asarray(model.predict(Xt)).astype(np.float32)
-    return np.asarray(preds)
+        model.fit(X_fit, y_fit)
+        return np.asarray(model.predict(X_pred)).astype(np.float32)
+
+    n = Xt.shape[0]
+    if n < 3:
+        return _fit_predict(Xt, y_t, Xt, seed)
+
+    from sklearn.model_selection import KFold
+
+    preds = np.zeros(n, dtype=np.float32)
+    inner_splitter = KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11)
+    for inner_idx, (in_tr, in_val) in enumerate(inner_splitter.split(Xt)):
+        preds[in_val] = _fit_predict(Xt[in_tr], y_t[in_tr], Xt[in_val], int(seed) + 7 + inner_idx)
+    return preds
 
 
 def compute_residual_band_attention_features(
