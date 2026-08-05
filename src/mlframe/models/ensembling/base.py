@@ -415,8 +415,10 @@ def enrich_ensemble_preds_with_numaggs(
 
     if models_names is None:
         models_names = []
-    if numaggs_kwds is None:
-        numaggs_kwds = {"whiten_means": False}
+    # Copy rather than mutate the caller's dict in place: a caller who passes numaggs_kwds and reuses it
+    # for other calls (or reads it afterward) would silently see directional_only/return_hurst/
+    # return_entropy keys added by this function.
+    numaggs_kwds = dict(numaggs_kwds) if numaggs_kwds is not None else {"whiten_means": False}
 
     if predictions.shape[1] >= 10:
         numaggs_kwds.update(dict(directional_only=False, return_hurst=True, return_entropy=True))
