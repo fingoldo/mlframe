@@ -154,7 +154,18 @@ def _stratified_split_3way(
 
         y_i8 = np.ascontiguousarray(y[perm], dtype=np.int8)
         folds = _iterative_stratification_njit(y_i8, r, seed_int)
-    except Exception:
+    except Exception as _njit_exc:
+        # Zero logging here previously meant a GENUINE njit-kernel bug (not just "numba/the
+        # optional module absent") silently fell back to the ~50x slower pure-Python iterstrat
+        # path with no trail -- indistinguishable from the expected/benign case. Log at WARNING
+        # (not DEBUG) so a real regression in the njit kernel is visible instead of only showing
+        # up as an unexplained slowdown.
+        logger.warning(
+            "_stratified_split_3way: njit _iterative_stratification_njit failed (%s: %s); "
+            "falling back to the pure-Python iterstrat path (~50x slower at scale).",
+            type(_njit_exc).__name__,
+            _njit_exc,
+        )
         try:
             from iterstrat.ml_stratifiers import IterativeStratification
         except ImportError as e:
