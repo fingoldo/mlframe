@@ -582,7 +582,11 @@ class MLPRanker(BaseEstimator, RegressorMixin):
 
     Hyperparameters:
         loss_fn      : "ranknet" (default) or "listnet"
-        n_estimators : epochs (default 100)
+        n_estimators : epoch count (default 100). Named to match the sibling CatBoostRanker /
+                       XGBRanker / LGBMRanker booster-style constructors in this same module (see
+                       ``ranking.py``'s ``iterations`` -> ``n_estimators`` normalization); ``n_epochs``
+                       is accepted as an alias for callers coming from the ``n_epochs``-named neural
+                       regressors in ``training/neural/`` (``FieldGroupedMLPRegressor`` etc.).
         learning_rate: AdamW lr (default 1e-3)
         hidden_layers: tuple of hidden-layer sizes (default (64, 64))
         dropout      : (default 0.1)
@@ -607,10 +611,17 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         enable_checkpointing: bool = False,
         accumulate_grad_batches: int = 1,
         queries_per_batch: int = 32,
+        n_epochs: int | None = None,
         seed: int | None = None,
     ):
         self.loss_fn = loss_fn
+        if n_epochs is not None:
+            # Alias for callers coming from the n_epochs-named neural regressors in training/neural/;
+            # n_estimators stays the canonical name (matches the booster-style CatBoostRanker/XGBRanker/
+            # LGBMRanker constructors this class is normalized alongside in ranking.py).
+            n_estimators = n_epochs
         self.n_estimators = n_estimators
+        self.n_epochs = n_epochs
         self.learning_rate = learning_rate
         self.hidden_layers = hidden_layers
         self.dropout = dropout

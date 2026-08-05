@@ -61,6 +61,21 @@ def test_shortlist_transformer_adapter_deprecated_seed_still_works_and_warns(cap
     assert any("deprecated" in r.message and "random_state" in r.message for r in caplog.records)
 
 
+def test_mlp_ranker_accepts_n_epochs_alias_for_n_estimators():
+    """X_ARCHITECTURE_API_CONSISTENCY-4: n_epochs is accepted as an alias for n_estimators, matching the
+    n_epochs-named sibling neural regressors in training/neural/."""
+    model = MLPRanker(n_epochs=17)
+    assert model.n_estimators == 17
+    assert model.n_epochs == 17
+
+
+def test_mlp_ranker_n_estimators_stays_the_default_canonical_name():
+    """Sanity: passing n_estimators directly (the pre-existing, still-canonical name) is unaffected."""
+    model = MLPRanker(n_estimators=25)
+    assert model.n_estimators == 25
+    assert model.n_epochs is None
+
+
 def test_shortlist_transformer_adapter_forwards_random_state_as_seed_kwarg_to_compute_fn():
     """The adapter still calls the wrapped compute_fn with its own seed= keyword (unchanged external contract)."""
     seen_kwargs = {}
