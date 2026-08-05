@@ -138,3 +138,25 @@ def test_biz_val_diversity_ablation_greedy_search_avoids_redundant_trio():
         f"expected the greedy search's smaller selection to beat blindly including the whole redundant trio "
         f"by >=0.06 RMSE, got naive_all={naive_all_loss:.4f} greedy={greedy_loss:.4f}"
     )
+
+
+def test_constant_prediction_model_is_flagged_not_silently_excluded():
+    """VOTENRANK-5: a constant/zero-variance prediction column has undefined (NaN) correlation with every
+    other model. Pre-fix, np.nanmax on the all-NaN off-diagonal row returned NaN, and NaN < threshold is
+    always False, so the constant model was silently excluded from the report instead of flagged."""
+    rng = np.random.default_rng(2)
+    n = 500
+    y_true = rng.normal(size=n)
+    oof_preds = {
+        "good_model": y_true + 0.1 * rng.standard_normal(n),
+        "another_good_model": y_true + 0.1 * rng.standard_normal(n),
+        "constant_model": np.full(n, 5.0),  # zero variance -> undefined (NaN) correlation with everything
+    }
+    individual_scores = {name: -_rmse(y_true, pred) for name, pred in oof_preds.items()}
+
+    report = diversity_ablation_report(oof_preds, individual_scores, y_true, _rmse, correlation_threshold=0.9, higher_score_is_better=True)
+
+    flagged_names = {entry["model"] for entry in report}
+    assert "constant_model" in flagged_names, f"expected the constant-prediction model to be flagged (undefined correlation), got {flagged_names}"
+    constant_entry = next(e for e in report if e["model"] == "constant_model")
+    assert np.isnan(constant_entry["max_correlation"]), "max_correlation for an all-NaN correlation row should surface as NaN, not a fabricated number"
