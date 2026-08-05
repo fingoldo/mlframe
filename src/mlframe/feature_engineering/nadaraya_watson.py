@@ -88,7 +88,11 @@ def _silverman_bandwidth(x: np.ndarray) -> float:
 
 @njit(fastmath=False, cache=True, inline="always")
 def _nw_at(xq, x_sorted, y, w, kernel_code, h, use_w):
-    """NW estimate a(xq) over samples (x, y) with optional per-sample multiplier w. Returns NaN if no kernel mass."""
+    """NW estimate a(xq) over samples (x, y) with optional per-sample multiplier w. Returns NaN if no kernel mass.
+
+    Full scan over every sample; used for the gaussian kernel, which has no compact support so no
+    window can be excluded a priori.
+    """
     inv_h = 1.0 / h
     num = 0.0
     den = 0.0
@@ -102,21 +106,61 @@ def _nw_at(xq, x_sorted, y, w, kernel_code, h, use_w):
     return num / den if den > 0.0 else np.nan
 
 
+@njit(fastmath=False, cache=True, inline="always")
+def _nw_at_windowed(xq, x_sorted, y, w, kernel_code, h, use_w):
+    """NW estimate a(xq) restricted to the ``[xq-h, xq+h]`` window via binary search on sorted ``x_sorted``.
+
+    Valid only for the compact-support kernels (epanechnikov/boxcar/tricube), which are provably zero
+    outside this window -- ``x_sorted`` must actually be sorted ascending. ``searchsorted``'s default
+    (side='left') / side='right' bounds are an exact superset of the nonzero range (kernels differ on
+    strict vs. inclusive boundary at ``u==1.0``), so the inner loop's own ``k != 0.0`` check still
+    handles the exact cutoff -- this only skips samples that are provably zero.
+    """
+    inv_h = 1.0 / h
+    lo = np.searchsorted(x_sorted, xq - h)
+    hi = np.searchsorted(x_sorted, xq + h, side="right")
+    num = 0.0
+    den = 0.0
+    for i in range(lo, hi):
+        u = abs(xq - x_sorted[i]) * inv_h
+        k = _kernel(u, kernel_code)
+        if k != 0.0:
+            wi = k * w[i] if use_w else k
+            num += wi * y[i]
+            den += wi
+    return num / den if den > 0.0 else np.nan
+
+
 @njit(fastmath=False, cache=True)
 def _nw_serial(x_query, x, y, w, kernel_code, h, use_w):
-    """Single-threaded Nadaraya-Watson evaluation over all query points; preferred for small query sets where prange spawn overhead would dominate."""
+    """Single-threaded Nadaraya-Watson evaluation over all query points; preferred for small query sets where prange spawn overhead would dominate.
+
+    ``x`` must be sorted ascending (the caller sorts once); compact kernels (code != 0) take the
+    binary-search windowed path, gaussian (code == 0) takes the full scan.
+    """
     out = np.empty(x_query.shape[0], dtype=np.float64)
-    for q in range(x_query.shape[0]):
-        out[q] = _nw_at(x_query[q], x, y, w, kernel_code, h, use_w)
+    if kernel_code == 0:
+        for q in range(x_query.shape[0]):
+            out[q] = _nw_at(x_query[q], x, y, w, kernel_code, h, use_w)
+    else:
+        for q in range(x_query.shape[0]):
+            out[q] = _nw_at_windowed(x_query[q], x, y, w, kernel_code, h, use_w)
     return out
 
 
 @njit(fastmath=False, cache=True, parallel=True)
 def _nw_parallel(x_query, x, y, w, kernel_code, h, use_w):
-    """Multi-core Nadaraya-Watson evaluation via ``prange`` over query points; wins once the per-point work amortises the thread-spawn cost."""
+    """Multi-core Nadaraya-Watson evaluation via ``prange`` over query points; wins once the per-point work amortises the thread-spawn cost.
+
+    ``x`` must be sorted ascending; see :func:`_nw_serial` for the windowed-vs-full-scan split.
+    """
     out = np.empty(x_query.shape[0], dtype=np.float64)
-    for q in prange(x_query.shape[0]):
-        out[q] = _nw_at(x_query[q], x, y, w, kernel_code, h, use_w)
+    if kernel_code == 0:
+        for q in prange(x_query.shape[0]):
+            out[q] = _nw_at(x_query[q], x, y, w, kernel_code, h, use_w)
+    else:
+        for q in prange(x_query.shape[0]):
+            out[q] = _nw_at_windowed(x_query[q], x, y, w, kernel_code, h, use_w)
     return out
 
 
@@ -172,9 +216,15 @@ def nadaraya_watson_smooth(
     else:
         w = np.ones(1, dtype=np.float64)
     kernel_code = KERNELS.index(kernel)
+    # Compact kernels (code != 0) take a binary-search windowed fast path in _nw_serial/_nw_parallel,
+    # which requires x sorted ascending; sort once here rather than per-query inside the njit kernel.
+    order = np.argsort(x, kind="stable")
+    x_sorted = x[order]
+    y_sorted = y[order]
+    w_sorted = w[order] if use_w else w
     if xq.shape[0] >= _NW_PARALLEL_MIN_QUERIES:
-        return np.asarray(_nw_parallel(xq, x, y, w, kernel_code, h, use_w))
-    return np.asarray(_nw_serial(xq, x, y, w, kernel_code, h, use_w))
+        return np.asarray(_nw_parallel(xq, x_sorted, y_sorted, w_sorted, kernel_code, h, use_w))
+    return np.asarray(_nw_serial(xq, x_sorted, y_sorted, w_sorted, kernel_code, h, use_w))
 
 
 @njit(fastmath=False, cache=True)
@@ -198,8 +248,14 @@ def _nw_per_group(v_sorted, x_sorted, w_sorted, starts, ends, kernel_code, bandw
             continue
         h = bandwidth if bandwidth > 0.0 else _silverman_bandwidth(x_sorted[s:e])
         w_seg = w_sorted[s:e] if use_w else w_sorted
-        for q in range(s, e):
-            out[q] = _nw_at(x_sorted[q], x_sorted[s:e], v_sorted[s:e], w_seg, kernel_code, h, use_w)
+        x_seg = x_sorted[s:e]
+        v_seg = v_sorted[s:e]
+        if kernel_code == 0:
+            for q in range(s, e):
+                out[q] = _nw_at(x_sorted[q], x_seg, v_seg, w_seg, kernel_code, h, use_w)
+        else:
+            for q in range(s, e):
+                out[q] = _nw_at_windowed(x_sorted[q], x_seg, v_seg, w_seg, kernel_code, h, use_w)
     return out
 
 
