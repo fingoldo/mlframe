@@ -52,6 +52,7 @@ def compute_probabilistic_multiclass_error(
     brier_loss_weight: float = 0.8,
     min_roc_auc: float = 0.54,
     roc_auc_penalty: float = 0.00,
+    coverage_weight: float = 0.0,
     use_weighted_calibration: bool = True,
     weight_by_class_npositives: bool = False,
     nbins: int = 10,
@@ -233,6 +234,7 @@ def compute_probabilistic_multiclass_error(
                 float(mae_weight), float(std_weight), float(brier_loss_weight),
                 float(roc_auc_weight), float(pr_auc_weight),
                 float(min_roc_auc), float(roc_auc_penalty),
+                float(coverage_weight),
             )
             # Reduce with per-class weights
             _ice_by_class = {}
@@ -297,6 +299,7 @@ def compute_probabilistic_multiclass_error(
                     mae_weight=mae_weight, std_weight=std_weight, brier_loss_weight=brier_loss_weight,
                     roc_auc_weight=roc_auc_weight, pr_auc_weight=pr_auc_weight,
                     min_roc_auc=min_roc_auc, roc_auc_penalty=roc_auc_penalty,
+                    coverage_weight=coverage_weight,
                 )
                 logger.info("\t class_id=%s, %s", class_id, metrics_string)
                 class_error = ice
@@ -306,6 +309,7 @@ def compute_probabilistic_multiclass_error(
                     mae_weight=mae_weight, std_weight=std_weight, brier_loss_weight=brier_loss_weight,
                     roc_auc_weight=roc_auc_weight, pr_auc_weight=pr_auc_weight,
                     min_roc_auc=min_roc_auc, roc_auc_penalty=roc_auc_penalty,
+                    coverage_weight=coverage_weight,
                 )
         elif method == "brier_score":
             # Only brier_loss is used -- skip binning/AUC/ICE entirely.

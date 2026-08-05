@@ -524,6 +524,7 @@ def _batch_per_class_ice_kernel(
     pr_auc_weight: float,
     min_roc_auc: float,
     roc_auc_penalty: float,
+    coverage_weight: float = 0.0,
 ) -> np.ndarray:
     """Batched per-class ICE: one numba dispatch, prange over K.
 
@@ -555,6 +556,10 @@ def _batch_per_class_ice_kernel(
     N=1M/K=3, 1.01-1.02x smaller. Argsort + AUC walk dominates the
     kernel; pre-argsort pass fusion is below the measurable speedup
     floor. Bench: profiling/bench_batch_ice_kernel_pass_fusion.py.
+
+    ``coverage_weight`` (default 0.0, bit-identical to prior behaviour) mirrors
+    ``integral_calibration_error_from_metrics``'s coverage term: ``(1 - n_nonempty/nbins) * coverage_weight``
+    added to each class's ``base_loss``, using this kernel's own already-computed ``n_nonempty``/``nbins``.
     """
     N = y_true_NK.shape[0]
     K = y_true_NK.shape[1]
@@ -708,7 +713,9 @@ def _batch_per_class_ice_kernel(
             pr_auc = pr_acc
 
         # ---- Combine into ICE (integral_calibration_error_from_metrics body) ----
-        base_loss = brier * brier_loss_weight + cal_mae * mae_weight + cal_std * std_weight
+        coverage = n_nonempty / nbins if nbins > 0 else 1.0
+        cov_term = (1.0 - coverage) * coverage_weight
+        base_loss = brier * brier_loss_weight + cal_mae * mae_weight + cal_std * std_weight + cov_term
         roc_term = 0.0 if np.isnan(roc_auc) else np.abs(roc_auc - 0.5) * roc_auc_weight
         pr_term = 0.0 if np.isnan(pr_auc) else pr_auc * pr_auc_weight
         ice = base_loss - roc_term - pr_term

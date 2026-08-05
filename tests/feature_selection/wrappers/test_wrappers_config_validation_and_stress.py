@@ -522,6 +522,31 @@ class TestB11_SmallSample:
             ).fit(X, y)
 
 
+class TestFsWrappers2MinorityClassDtype:
+    """FS_WRAPPERS-2 (2026-08-05 audit): the minority-class-vs-cv check in _init_fit_state gated its
+    per-class count computation on ``y.dtype.kind in "iu"`` (via np.bincount(y.astype(int))), so a
+    float- or bool-dtype classification y silently skipped this early, actionable ValueError and instead
+    crashed much later with a far less actionable message (deep inside the wrapped classifier or
+    StratifiedKFold.split). Counts now come from the same dtype-agnostic np.unique(y, return_counts=True)
+    call already used for the "y has only N unique classes" check."""
+
+    @pytest.mark.parametrize("dtype", [np.int64, np.float64, np.bool_])
+    def test_minority_class_violation_raises_across_y_dtypes(self, dtype):
+        """A minority class too small for the requested cv must raise ValueError regardless of y's dtype."""
+        rng = np.random.default_rng(0)
+        X = pd.DataFrame(rng.standard_normal((30, 4)), columns=list("abcd"))
+        y = np.zeros(30, dtype=dtype)
+        y[0] = True if dtype is np.bool_ else 1
+        with pytest.raises(ValueError, match="Minority class has"):
+            RFECV(
+                estimator=LogisticRegression(max_iter=100),
+                cv=5,
+                max_refits=2,
+                verbose=0,
+                leakage_corr_threshold=None,
+            ).fit(X, y)
+
+
 class TestF26_RuntimeMins:
     """Groups tests covering TestF26_RuntimeMins."""
     def test_negative_runtime_raises(self):

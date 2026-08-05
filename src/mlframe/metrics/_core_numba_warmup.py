@@ -54,7 +54,7 @@ def numba_warmup() -> None:
         _cb_logits_to_probs_multiclass_par(_logits2)
         _batch_per_class_ice_kernel(
             _y_true_NK, _y_pred_NK, _desc_idx_NK, 10, True,
-            3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0,
+            3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0, 0.0,
         )
     except Exception as _exc:
         # Warmup is best-effort; if a kernel signature mismatches a future
@@ -401,7 +401,7 @@ def _prewarm_numba_cache_body():
         _di_nk4_pw = np.ascontiguousarray(np.argsort(-_yp_nk4_pw, axis=0).astype(np.int64))
         _ = _batch_per_class_ice_kernel(
             _yt_nk4_pw, _yp_nk4_pw, _di_nk4_pw, 10, True,
-            3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0,
+            3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0, 0.0,
         )
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
         logger.debug("suppressed: %s", e)

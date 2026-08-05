@@ -370,7 +370,7 @@ class ModelHyperparamsConfig(BaseConfig):
     _known_extras: ClassVar[FrozenSet[str]] = frozenset({
         # ICE-metric weights (see metrics.integral_calibration_error_from_metrics)
         "mae_weight", "std_weight", "roc_auc_weight", "pr_auc_weight",
-        "brier_loss_weight", "min_roc_auc", "roc_auc_penalty",
+        "brier_loss_weight", "min_roc_auc", "roc_auc_penalty", "coverage_weight",
         # Robustness / integral-error bin config
         "robustness_num_ts_splits", "robustness_std_coeff",
         "robustness_greater_is_better",
