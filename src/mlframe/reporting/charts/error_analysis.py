@@ -244,9 +244,17 @@ def _top_split_features(
         # Surrogate ranking: a feature whose high/low halves differ most in mean error is the most error-discriminating.
         imp = np.zeros(n_cols, dtype=np.float64)
         for j in range(n_cols):
-            med = np.median(fit_mat[:, j])
-            hi = fit_err[fit_mat[:, j] > med]
-            lo = fit_err[fit_mat[:, j] <= med]
+            col = fit_mat[:, j]
+            finite = np.isfinite(col)
+            if not finite.any():
+                continue
+            # nanmedian (not median): a column with ANY NaN made plain np.median return NaN, which makes
+            # BOTH comparison masks (> med, <= med) all-False for every row (NaN comparisons are always
+            # False) -- hi/lo came back empty and the column's surrogate importance silently stayed 0.0
+            # regardless of its real discriminating power on the non-missing rows.
+            med = np.nanmedian(col)
+            hi = fit_err[finite & (col > med)]
+            lo = fit_err[finite & (col <= med)]
             if hi.size and lo.size:
                 imp[j] = abs(float(hi.mean()) - float(lo.mean()))
     if not np.any(imp > 0):

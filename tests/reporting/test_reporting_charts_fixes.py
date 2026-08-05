@@ -125,6 +125,29 @@ def test_f3_top_split_features_logs_warning_on_fit_failure(caplog):
     assert any("weak-segment tree fit failed" in rec.message for rec in caplog.records), "F3 REGRESSION: fallback must log a warning, not fail silently"
 
 
+def test_reporting_b5_surrogate_ranking_survives_nan_column_via_fallback():
+    """REPORTING_B-5: _top_split_features's sklearn-unavailable surrogate median-split ranking must not
+    silently zero out a genuinely discriminating column's importance just because it contains NaN values.
+
+    Old bug: np.median (not np.nanmedian) on a NaN-containing column returns NaN, making BOTH comparison
+    masks (> med, <= med) all-False (any comparison against NaN is False) -- hi/lo came back empty and
+    the column's importance stayed 0.0 regardless of how discriminating it genuinely was on non-missing rows.
+    """
+    from mlframe.reporting.charts.error_analysis import _top_split_features
+
+    rng = np.random.default_rng(1)
+    n = 200
+    mat = rng.normal(size=(n, 3))
+    # Column 0 genuinely discriminates error (err is high when col0 is high) AND has scattered NaNs.
+    err = mat[:, 0] * 5.0 + rng.normal(scale=0.1, size=n)
+    nan_rows = rng.choice(n, size=20, replace=False)
+    mat[nan_rows, 0] = np.nan
+    mat[0, 1] = np.inf  # force the sklearn-fit-failure fallback path (see test_f3 above)
+
+    out = _top_split_features(mat, err, ["a", "b", "c"], max_depth=3, n_features=3, seed=0)
+    assert out[0] == 0, f"the genuinely discriminating NaN-containing column should still rank first, got order {out}"
+
+
 def test_f3_weak_segment_heatmap_filters_inf_features():
     """F3 weak segment heatmap filters inf features."""
     from mlframe.reporting.charts.error_analysis import weak_segment_heatmap
