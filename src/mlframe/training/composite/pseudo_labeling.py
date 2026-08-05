@@ -27,6 +27,8 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, clone
 
+from .post_shim import _model_fit_accepts_sample_weight
+
 logger = logging.getLogger(__name__)
 
 
@@ -241,10 +243,19 @@ class PseudoLabelingLoop(BaseEstimator):
 
     @staticmethod
     def _fit_final(model: Any, X: Any, y: np.ndarray, sample_weight: np.ndarray) -> None:
-        """Fit ``model`` with ``sample_weight`` when its ``fit`` accepts the kwarg, else without."""
-        try:
+        """Fit ``model`` with ``sample_weight`` when its ``fit`` accepts the kwarg, else without.
+
+        Signature-gated (via ``post_shim.py``'s ``_model_fit_accepts_sample_weight``), not a catch-all
+        ``except TypeError`` retry -- the exact anti-pattern ``post_shim.py`` already documents fixing.
+        A ``TypeError`` raised DEEP inside a fit that *does* accept ``sample_weight`` (a bad dtype, a
+        shape mismatch, a downstream library bug) would otherwise be mis-attributed to "no
+        sample_weight support", silently re-fitting the model UNWEIGHTED -- dropping the
+        confirmation-bias down-weighting of pseudo-labeled rows this loop exists to apply, with no
+        warning, AND hiding the real error.
+        """
+        if _model_fit_accepts_sample_weight(model):
             model.fit(X, y, sample_weight=sample_weight)
-        except TypeError:
+        else:
             model.fit(X, y)
 
     def predict(self, X: Any) -> np.ndarray:
