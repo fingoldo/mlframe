@@ -109,6 +109,38 @@ def test_pick_best_calibrator_emit_plot_writes_png():
         assert os.path.getsize(out["plot_path"]) > 1024, "PNG looks suspiciously small"
 
 
+def test_pick_best_calibrator_survives_reliability_spec_build_failure(monkeypatch):
+    """CALIBRATION-4: pick_best_calibrator must NOT crash when build_reliability_overlay_spec (the
+    plot-spec builder, called before render_and_save) raises -- selection already succeeded and
+    plotting is documented as an opt-in, failure-tolerant diagnostic."""
+    import mlframe.reporting.charts.calibration as calibration_charts
+    from mlframe.calibration.policy import pick_best_calibrator
+
+    def _boom(*args, **kwargs):
+        """Stand-in for build_reliability_overlay_spec that always raises."""
+        raise RuntimeError("synthetic spec-build failure")
+
+    monkeypatch.setattr(calibration_charts, "build_reliability_overlay_spec", _boom)
+
+    raw, y = _make_miscalibrated(n=500, seed=23)
+    with tempfile.TemporaryDirectory() as td:
+        plot_path = os.path.join(td, "calib_plot.png")
+        out = pick_best_calibrator(
+            probs=None,
+            y=None,
+            oof_probs=raw,
+            oof_y=y,
+            n_bootstrap=100,
+            random_state=23,
+            emit_plot=True,
+            plot_path=plot_path,
+        )
+        # Selection itself must still have succeeded despite the plotting failure.
+        assert out["chosen"] is not None
+        assert out["plot_path"] is None
+        assert not os.path.exists(plot_path)
+
+
 def test_pick_best_calibrator_rejects_too_few_rows():
     """Pick best calibrator rejects too few rows."""
     from mlframe.calibration.policy import pick_best_calibrator

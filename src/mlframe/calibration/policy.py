@@ -639,9 +639,13 @@ def _emit_reliability_plot(
     calibrated = {name: np.asarray(info["calibrated_probs"]).ravel() for name, info in candidates.items() if info.get("calibrated_probs") is not None}
     labels = {name: f"{name} ECE={info['ece_mean']:.4f}" for name, info in candidates.items() if info.get("calibrated_probs") is not None}
 
-    spec = build_reliability_overlay_spec(
-        raw_p, y, calibrated_probs=calibrated, series_labels=labels, n_bins=n_bins,
-    )
+    try:
+        spec = build_reliability_overlay_spec(
+            raw_p, y, calibrated_probs=calibrated, series_labels=labels, n_bins=n_bins,
+        )
+    except Exception as exc:
+        logger.warning("pick_best_calibrator: reliability spec build failed for %s: %s", plot_path, exc)
+        return None
 
     root, ext = os.path.splitext(plot_path)
     fmt = ext.lstrip(".").lower()
