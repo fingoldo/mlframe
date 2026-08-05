@@ -559,6 +559,24 @@ class _DatasetReuseMixin:
                 # set ones to clear any prior weight; LightGBM treats
                 # an all-1 weight identically to no-weight.
                 dtrain.set_weight(np.ones(dtrain.num_data(), dtype=np.float32))
+            # set_label/set_weight were re-applied above on a cache hit, but set_init_score was
+            # not -- a subsequent .fit(X, y, init_score=new_value) call reusing this cached
+            # Dataset silently trained against the STALE (or entirely absent) init_score baked in
+            # from whichever earlier .fit() call first built it, instead of the new one. Always
+            # re-apply on every cache hit, same as label/weight: an explicit new init_score
+            # overwrites. LightGBM's Dataset.set_init_score(None) does NOT clear a previously-set
+            # init_score (confirmed live: get_init_score() still returns the old array after
+            # set_init_score(None)) -- explicit all-zeros is LightGBM's own default baseline when
+            # no init_score is supplied at all, so that is the correct "no init_score" state to
+            # restore to when this fit call omits it.
+            if init_score is not None:
+                _init_arr = np.asarray(init_score)
+                if _init_arr.shape[0] != dtrain.num_data():
+                    raise ValueError(f"lgb_shim: init_score length " f"{_init_arr.shape[0]} != Dataset.num_data() " f"{dtrain.num_data()}")
+                dtrain.set_init_score(_init_arr)
+            else:
+                dtrain.set_init_score(np.zeros(dtrain.num_data(), dtype=np.float64))
+
             # Promote a module-cache hit to instance-level for the next call on this instance.
             self._cached_train_dataset = dtrain
             self._cached_train_key = train_key
