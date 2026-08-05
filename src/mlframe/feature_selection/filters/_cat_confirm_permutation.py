@@ -789,7 +789,16 @@ def _confirm_pairs_via_permutation(
             "is a separate follow-up); falling back to unweighted."
         )
 
+    from ._fe_deadline import fe_deadline_passed
+
     for j, k in enumerate(selected_idx):
+        # Optional-enrichment wall-clock budget: stop confirming further survivors once MRMR.fit's
+        # deadline passes. confidence_dict only has entries for pairs processed so far, so selected_idx
+        # is truncated to match BEFORE the kept_mask/corrected_conf lookup below (a pair dropped this way
+        # is simply never confirmed - same outward effect as failing confirmation).
+        if fe_deadline_passed():
+            selected_idx = selected_idx[:j]
+            break
         i = int(pairs_a[k])
         jj = int(pairs_b[k])
         ii_obs = float(ii_arr[k])

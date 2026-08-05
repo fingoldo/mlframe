@@ -510,6 +510,53 @@ integer-lattice suite (27 tests, run with `CUDA_VISIBLE_DEVICES=""` after an unr
 crash mid-suite — matches this session's documented GPU-crash contention pattern, unrelated to this change)
 passes. `_conditional_gate_fe.py`'s copy has NOT yet been checked/ported — worth a follow-up look.
 
+## LIVE BUG CAUGHT + ARCHITECTURE (2026-08-05): `_fe_deadline`'s wall-clock budget extended to 8 more FE families, uncovering that `clear_fe_deadline()` was never actually called anywhere — a stale deadline silently persisted across fits
+User-prompted architecture review (prompted by a "would 20M-row profiling be safe?" discussion): `_fe_deadline.py`
+(a thread-local wall-clock deadline `MRMR.fit`'s `max_runtime_mins` publishes so a single enrichment stage can
+abort mid-pass instead of only being gated between FE steps) was consulted by only 3 of ~11 enrichment
+generators (orthogonal-univariate, pair-cross, extra-basis) — hermite (`polynom_pair_fe.py`), wavelet, hinge,
+binned_numeric_agg, pairwise_modular, conditional_gate, cat_interactions (bandit + fixed-budget permutation),
+and target_encoding had NO internal per-candidate deadline check, so a single expensive call inside any of them
+could run past `max_runtime_mins` indefinitely — only the coarse between-step gate would eventually catch it,
+and native model training after FE has NO time budget at all (a real risk when scaling profiling/production
+runs to much larger row counts).
+
+Added a `fe_deadline_passed()` check to each family's main per-candidate/per-column scan loop, mirroring the
+existing 3 generators' pattern exactly (check at the top of the loop body, `break`, return whatever was
+engineered so far). Two of the eight needed extra care beyond "just add the check": `_cat_confirm_bandit.py`'s
+pair-cache-building loop and `_cat_confirm_permutation.py`'s per-pair confirmation loop both pre-size
+`nfailed`/`nshuf`/`kept_mask` arrays against the FULL `selected_idx`, so breaking early would desync those
+arrays from `confidence_dict`/`corrected_conf` and crash downstream — the bandit's cache-building loop was left
+unprotected (its adaptive Phase-2 `while` loop got the check instead, which supports partial-data early exit by
+design), and the permutation confirm loop instead truncates `selected_idx` to the actually-processed prefix
+before building `kept_mask`. `_target_encoding_fe.py`'s `kfold_target_encode_with_recipes` wrapper had the same
+class of downstream-KeyError risk (`raw_recipes[col]` indexed by the ORIGINAL `cat_cols`, not narrowed to what
+an early-exited fit actually produced) — fixed by narrowing `cat_cols` to `raw_recipes.keys()` right after the
+fit call.
+
+While wiring this up, running the affected test suites surfaced 4 test-order-dependent failures (passed in
+isolation, failed under `pytest-randomly`) — root cause: `_fe_deadline.py`'s own docstring claimed the
+deadline was "cleared in a finally" after every `MRMR.fit`, but `grep -rn clear_fe_deadline src/` found **zero
+call sites** for that function outside its own definition. Once ANY test in a pytest-randomly-ordered run
+called `MRMR.fit(max_runtime_mins=...)` and that deadline's timestamp later elapsed, `fe_deadline_passed()`
+returned `True` for the rest of the process/thread — invisible before (only 3 consumers existed, all deep
+inside MRMR's own FE loop, so a stale deadline just made an already-running fit's enrichment stages a bit
+stingier), but now directly breaking unrelated later tests that call the newly-protected functions outside
+an MRMR.fit context entirely. Root-caused by finding `_mrmr_class.py`'s existing `_set_auto_fit_n` /
+`_clear_auto_fit_n` sibling pattern (same file, wraps the same `self._fit_impl(...)` call site in a
+`try`/`finally`) and mirroring it exactly for `_fe_deadline` — `_fit_impl_core.py` itself has no single exit
+point, so the clear belongs at the outer `fit()` wrapper's call-site boundary, not inside `_fit_impl`. Added
+`test_mrmr_fit_clears_deadline_after_run` to `test_fe_deadline.py` (previously had zero coverage of the actual
+MRMR.fit wiring, only the primitive's own unit behaviour) pinning that a real fit leaves no deadline behind.
+Re-ran the full previously-flaky suite (266 tests) after the fix: all pass, 0 failures, confirming the fix
+(not memory locality / VM boot-cache warming from the earlier stray green run) resolved it.
+
+Also worth flagging: `polynom_pair_fe.py`'s multi-seed re-optimisation loop now consults the deadline too, but
+only takes effect when it runs on the main thread (`n_jobs=1`, e.g. this project's profiling harness) — under
+the default `n_jobs=-1` joblib dispatch the thread-local deadline does not cross the worker boundary, matching
+the module's own already-documented constraint for its other consumers. A future fix would need to forward the
+deadline as an explicit kwarg into the joblib worker.
+
 ## PERF WIN (2026-08-02): per_feature_edges' thread-pool threshold was 64x too high for real usage (1.2x-7.2x)
 2M-row cProfile on combo `c0037_c314bb14` (master-seed `2026_04_29`) found `per_feature_edges`/
 `_compute_col_edges` (`_adaptive_nbins.py`) costing 78s wall on a `fayyad_irani` (MDLP) fit with

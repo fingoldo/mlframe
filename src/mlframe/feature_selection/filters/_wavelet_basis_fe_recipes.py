@@ -99,8 +99,15 @@ def generate_wavelet_features(
         return pd.DataFrame(index=X.index), {}
     out_cols: dict = {}
     meta: dict = {}
+    from ._fe_deadline import fe_deadline_passed
+
     for _col_idx, col in enumerate(cols):
         if max_cols is not None and _col_idx >= int(max_cols):
+            break
+        # Optional-enrichment wall-clock budget: stop the per-column held-out scale-selection scan once
+        # MRMR.fit's deadline passes; return whatever legs were engineered so far. No-op without a budget
+        # (mirrors the orth-univariate/pair-cross/extra-basis generators' internal deadline check).
+        if fe_deadline_passed():
             break
         if col not in X.columns or not pd.api.types.is_numeric_dtype(X[col]):
             continue

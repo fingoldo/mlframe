@@ -780,7 +780,15 @@ def cheap_conditional_gate_scan(
         if _pending_cols >= _GATE_MI_COL_BUDGET:
             _flush()
 
+    from ._fe_deadline import fe_deadline_passed
+
     for cgate in gate_cols:
+        # Optional-enrichment wall-clock budget: stop the O(k_gate * k_operand^2) gate sweep once
+        # MRMR.fit's deadline passes; flush whatever candidates are already queued and return the hits
+        # found so far. No-op without a budget (mirrors the orth-univariate/pair-cross/extra-basis
+        # generators' internal deadline check).
+        if fe_deadline_passed():
+            break
         cv = arrs[cgate]
         taus = np.quantile(cv, _TAU_QUANTILES)
         others = [cn for cn in operand_cols if cn != cgate]

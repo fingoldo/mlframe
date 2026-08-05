@@ -528,7 +528,14 @@ def _detect_hinge_breakpoints_for_columns(
                     remaining = []
         except Exception as exc:  # nosec B110 - falls through to the per-column path below, non-fatal
             logger.debug("generate_hinge_features: batched detector unavailable (%s); per-column fallback", exc)
+    from ._fe_deadline import fe_deadline_passed
+
     for col, x in remaining:
+        # Optional-enrichment wall-clock budget: stop the per-column hinge-breakpoint scan once MRMR.fit's
+        # deadline passes; return whatever was engineered so far. No-op without a budget (mirrors the
+        # orth-univariate/pair-cross/extra-basis generators' internal deadline check).
+        if fe_deadline_passed():
+            break
         try:
             taus = _detect_hinge_breakpoints(
                 x, y_arr, max_breakpoints=max_breakpoints, min_heldout_r2_uplift=min_heldout_r2_uplift,

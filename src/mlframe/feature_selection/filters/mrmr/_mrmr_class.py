@@ -99,6 +99,7 @@ from .._meta_fe_recommender import recommend_fe_flags_by_rules
 from .._synergy_detector import detect_synergy
 from .._dynamic_cluster_discovery import set_dcd_active as _set_dcd_active
 from .._fe_gpu_strict import set_auto_fit_n as _set_auto_fit_n, clear_auto_fit_n as _clear_auto_fit_n
+from .._fe_deadline import clear_fe_deadline as _clear_fe_deadline
 from .._mrmr_fe_provenance import populate_fe_provenance as _pop_prov
 from .._fe_rejection_ledger import populate_fe_rejection_ledger as _pop_rej
 from .._fe_family_timing import log_fe_family_summary as _log_fe_wall
@@ -3924,6 +3925,15 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
                     result = self._fit_impl(X, y, groups, **fit_params)
             finally:
                 _clear_auto_fit_n()
+                # _fit_impl_core.py sets the FE-enrichment wall-clock deadline (_fe_deadline.py) near its
+                # own top but - despite that module's docstring claiming "cleared in the finally below" -
+                # nothing ever actually cleared it: a fit with max_runtime_mins set left the deadline as a
+                # stale absolute timestamp for the rest of the process, silently short-circuiting every
+                # later fe_deadline_passed() consumer (including any subsequent MRMR.fit call that itself
+                # passed NO budget) once that timestamp elapsed. Mirrors _clear_auto_fit_n's own
+                # established pattern here - clear exactly once, at the SAME outer call-site boundary,
+                # regardless of how _fit_impl exited.
+                _clear_fe_deadline()
             try:
                 _n_rows = int(X.shape[0]) if hasattr(X, "shape") else None
                 # ``_effective_random_seed`` resolves both the canonical ``random_state`` and the

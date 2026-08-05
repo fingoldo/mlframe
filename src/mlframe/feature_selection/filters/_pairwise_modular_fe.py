@@ -366,23 +366,35 @@ def cheap_modular_scan(
             null_hi = float("inf")
         hits.append(ModularHit(op, cset, best_k, best_mi, base, null_hi, c_arr))
 
+    from ._fe_deadline import fe_deadline_passed
+
+    # Optional-enrichment wall-clock budget: stop the modular sweep (self/pair/triple stages, in order) once
+    # MRMR.fit's deadline passes, and return whatever partial hit list was engineered so far - sorted, same
+    # as the normal-completion contract. No-op without a budget (mirrors the orth-univariate/pair-cross/
+    # extra-basis generators' internal deadline check - this sweep never had one).
+    _deadline_hit = fe_deadline_passed()
     for c in cols:
+        if _deadline_hit:
+            break
         _scan_one("self", (c,), _combine([arrs[c]], "self"))
+        _deadline_hit = fe_deadline_passed()
 
     pair_budget = max_pairs
     for a, b in combinations(cols, 2):
-        if pair_budget <= 0:
+        if pair_budget <= 0 or _deadline_hit:
             break
         for op in _PAIR_OPS:
             _scan_one(op, (a, b), _combine([arrs[a], arrs[b]], op))
         pair_budget -= 1
+        _deadline_hit = fe_deadline_passed()
 
     triple_budget = max_triples
     for a, b, c in combinations(cols, 3):
-        if triple_budget <= 0:
+        if triple_budget <= 0 or _deadline_hit:
             break
         _scan_one("sum3", (a, b, c), arrs[a].astype(np.int64) + arrs[b].astype(np.int64) + arrs[c].astype(np.int64))
         triple_budget -= 1
+        _deadline_hit = fe_deadline_passed()
 
     # Canonical secondary key on (op, operand names) so near-ties don't break by enumeration (column) order.
     hits.sort(key=lambda h: (-h.margin_over_baseline, str(h.op), tuple(str(c) for c in h.cols)))

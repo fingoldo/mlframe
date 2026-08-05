@@ -413,7 +413,15 @@ def kfold_target_encode_fit(
     _fold_test_idx = [np.where(fold_ids == f)[0] for f in range(int(n_folds))]
     moment_stats = [s for s in stats if s in _TE_MOMENT_STATS]
     order_stats_wanted = [s for s in stats if s in _TE_ORDER_STATS]
+    from ._fe_deadline import fe_deadline_passed
+
     for col in cat_cols:
+        # Optional-enrichment wall-clock budget: stop the per-column K-fold target-encoding fit once
+        # MRMR.fit's deadline passes; return whatever columns/recipes were engineered so far. No-op
+        # without a budget (mirrors the orth-univariate/pair-cross/extra-basis generators' internal
+        # deadline check).
+        if fe_deadline_passed():
+            break
         cats = _column_to_str(X[col])
         # Unique categories with stable integer codes.
         unique_cats, inverse = np.unique(cats, return_inverse=True)
@@ -607,6 +615,11 @@ def kfold_target_encode_with_recipes(
         random_state=random_state,
         stats=stats,
     )
+    # kfold_target_encode_fit's internal per-column loop honours MRMR.fit's optional wall-clock deadline
+    # and may return early with fewer columns than requested - narrow cat_cols to what raw_recipes
+    # actually has (order-preserving) so the recipe-building loop below never KeyErrors on a column the
+    # fit didn't reach.
+    cat_cols = [c for c in cat_cols if c in raw_recipes]
 
     # Tier-1 local MI floor (Layer 91): drop target-encoded columns whose
     # MI(col; y) falls below the raw-baseline noise floor, keep top-K. Bounds
