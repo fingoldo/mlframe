@@ -172,6 +172,10 @@ def shapley_blend(
     Shapley value, is pruned too). ``blended`` is the weighted mean of
     survivors (``renormalize=True`` rescales survivor weights to sum to 1).
 
+    Degenerate case (every raw Shapley value <= 0, so every clipped weight is 0): falls back to the
+    single best-valued model with weight 1.0 rather than reporting it as "selected" while silently
+    returning an all-zero ``ensemble_pred``.
+
     Returns a dict with keys ``weights`` (``(n_models,)``, zero for pruned members), ``ensemble_pred``,
     ``score`` (the blended prediction's ``score_fn`` value), ``selected`` / ``selected_indices`` (both
     provided -- ``selected_indices`` matches :func:`mlframe.votenrank.hill_climb.hill_climb_ensemble`'s
@@ -189,14 +193,22 @@ def shapley_blend(
     total = weights.sum()
     threshold = prune_below * total
     keep_mask = weights > threshold
-    if not np.any(keep_mask):
+    degenerate = not np.any(keep_mask)
+    if degenerate:
         # Degenerate: nothing cleared the threshold -- fall back to the single best model rather than
         # returning an empty, unusable ensemble.
         keep_mask = np.zeros(n_models, dtype=bool)
         keep_mask[int(np.argmax(values))] = True
 
     survivor_weights = weights * keep_mask
-    if renormalize and survivor_weights.sum() > 0:
+    if degenerate:
+        # The fallback model's CLIPPED weight is 0 whenever its raw Shapley value is <= 0 (the only
+        # case that reaches this branch when prune_below=0.0), which would otherwise silently produce
+        # an all-zero ensemble_pred while still reporting the model as "selected" -- a misleadingly
+        # valid-looking result for what is actually a degenerate case. Give the sole fallback survivor
+        # full weight so ensemble_pred is that model's own (real) predictions.
+        survivor_weights[keep_mask] = 1.0
+    elif renormalize and survivor_weights.sum() > 0:
         survivor_weights = survivor_weights / survivor_weights.sum()
 
     ensemble_pred = np.zeros(preds.shape[1], dtype=np.float64)
