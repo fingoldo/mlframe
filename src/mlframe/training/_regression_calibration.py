@@ -143,11 +143,17 @@ def duan_log_smearing_factor(residuals_cal: np.ndarray) -> float:
     return float(np.mean(np.exp(r)))
 
 
+_SMEARING_MAX_GRID_CELLS = 50_000_000  # ~400MB at float64; bounds the (chunk_rows, n_cal) broadcast per chunk.
+
+
 def smearing_predict(pred_transformed: np.ndarray, residuals_cal: np.ndarray, inverse_fn, *, max_cal: int = 2000, seed: int = 0) -> np.ndarray:
     """General Duan smearing: ``yhat(x) = mean_i inverse_fn(pred(x) + resid_i)`` over calib residuals.
 
     Unbiased back-transform for an arbitrary monotone ``inverse_fn`` (e.g. ``np.expm1`` for log1p). The
-    calib residual set is subsampled to ``max_cal`` to bound the O(n_test * n_cal) cost.
+    calib residual set is subsampled to ``max_cal`` to bound the per-row cost, and ``pred_transformed`` is
+    processed in row chunks sized to keep the ``(chunk_rows, n_cal)`` broadcast under
+    ``_SMEARING_MAX_GRID_CELLS`` -- ``max_cal`` alone does not bound memory since ``n_test`` is unbounded
+    (a naive single-shot broadcast is ~32GB at n_test=2M, max_cal=2000).
     """
     p = np.asarray(pred_transformed, dtype=np.float64).reshape(-1)
     r = np.asarray(residuals_cal, dtype=np.float64).reshape(-1)
@@ -156,9 +162,14 @@ def smearing_predict(pred_transformed: np.ndarray, residuals_cal: np.ndarray, in
         return np.asarray(inverse_fn(p), dtype=np.float64)
     if r.size > max_cal:
         r = np.random.default_rng(seed).choice(r, size=max_cal, replace=False)
-    # (n_test, n_cal) broadcast then mean over calib; inverse_fn applied elementwise.
-    grid = inverse_fn(p[:, None] + r[None, :])
-    return np.asarray(np.mean(grid, axis=1), dtype=np.float64)
+    chunk_rows = max(1, _SMEARING_MAX_GRID_CELLS // r.size)
+    out = np.empty(p.size, dtype=np.float64)
+    for start in range(0, p.size, chunk_rows):
+        end = min(start + chunk_rows, p.size)
+        # (chunk_rows, n_cal) broadcast then mean over calib; inverse_fn applied elementwise.
+        grid = inverse_fn(p[start:end, None] + r[None, :])
+        out[start:end] = np.mean(grid, axis=1)
+    return out
 
 
 class DistributionalRecalibrator:

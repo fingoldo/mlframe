@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
+import mlframe.training._regression_calibration as _regcal
 from mlframe.training._regression_calibration import duan_log_smearing_factor, smearing_predict
 
 
@@ -54,3 +55,34 @@ def test_general_smearing_matches_log_factor():
     via_factor = np.exp(pred) * duan_log_smearing_factor(resid)
     # Both estimate E[exp(pred+resid)]; agree to a few percent (subsample noise).
     assert np.allclose(via_general, via_factor, rtol=0.05)
+
+
+def test_smearing_predict_chunks_n_test_without_unbounded_broadcast(monkeypatch):
+    """TRAINING_LOOSE_B-3 regression: n_test alone (not just n_cal) must be bounded per broadcast chunk.
+
+    Pre-fix, ``smearing_predict`` built one ``(n_test, n_cal)`` array regardless of n_test, risking OOM
+    on large predict batches. Forces a tiny per-chunk cell budget (so a realistic n_test/n_cal actually
+    splits into multiple chunks) and asserts: no single ``inverse_fn`` call ever sees more than the
+    budgeted number of cells, AND the chunked result is numerically identical to a direct (unchunked)
+    computation over the same (already-subsampled) residual set.
+    """
+    rng = np.random.default_rng(3)
+    n_test, n_cal = 500, 37
+    pred = rng.standard_normal(n_test)
+    resid = rng.standard_normal(n_cal) * 0.3
+
+    seen_max_cells = 0
+
+    def _spying_exp(x: np.ndarray) -> np.ndarray:
+        """Records the largest single-call array size seen, then delegates to np.exp."""
+        nonlocal seen_max_cells
+        seen_max_cells = max(seen_max_cells, x.size)
+        return np.exp(x)
+
+    monkeypatch.setattr(_regcal, "_SMEARING_MAX_GRID_CELLS", n_cal * 10)  # forces ~5 chunks over n_test
+    chunked = smearing_predict(pred, resid, _spying_exp, max_cal=n_cal + 1000)  # max_cal never trims here
+    assert seen_max_cells <= n_cal * 10, "a single inverse_fn call exceeded the configured cell budget"
+    assert seen_max_cells < n_test * n_cal, "chunking never actually kicked in for this fixture"
+
+    direct = np.mean(np.exp(pred[:, None] + resid[None, :]), axis=1)
+    assert np.allclose(chunked, direct, rtol=0, atol=1e-12)
