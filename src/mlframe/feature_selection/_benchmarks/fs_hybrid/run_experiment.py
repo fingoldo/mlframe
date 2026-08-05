@@ -106,6 +106,18 @@ def build_roster():
     return R
 
 
+def compute_auc_mean(aucs: dict) -> "float | None":
+    """Mean of the non-None AUC values in ``aucs``, or ``None`` if every model failed.
+
+    Gates on "any value is not None", not on `any(aucs.values())` -- the latter is truthy-gated, so a
+    legitimate AUC of exactly 0.0 (one model succeeded with a worse-than-random score while the others
+    failed to None) makes every value falsy and silently drops the real result as None.
+    """
+    if not any(v is not None for v in aucs.values()):
+        return None
+    return round(float(np.mean([v for v in aucs.values() if v is not None])), 4)
+
+
 def recovery(raw_selected, truth):
     base = set(truth["base"]); noise = set(truth["noise"]); red = set(truth["relevant"]) - base
     sel = set(raw_selected)
@@ -163,7 +175,7 @@ def main():
                         logger.debug("model %s fit/score failed: %s: %s", mname, type(e).__name__, e)
                         aucs[mname] = None; row[f"err_{mname}"] = f"{type(e).__name__}: {e}"
                 row["auc"] = aucs
-                row["auc_mean"] = round(float(np.mean([v for v in aucs.values() if v is not None])), 4) if any(aucs.values()) else None
+                row["auc_mean"] = compute_auc_mean(aucs)
                 log(f"[{cell}/{total}] {scen_name}/{name} seed={seed} n={row['n_features']} eng={row['n_engineered']} "
                     f"fit={row['fit_seconds']}s rec={row.get('base_recall')} noise={row.get('n_noise_selected')} auc={aucs}")
             except Exception as e:
