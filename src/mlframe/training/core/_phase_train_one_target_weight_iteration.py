@@ -6,6 +6,21 @@ run the per-model post-train tail, and record the model schema. Carved out purel
 module under the file-size ceiling -- the control flow (loop over weight_schemas, break/continue
 handling) stays in the parent; this function returns a result dict the parent uses to update its loop
 state and decide whether to break/continue.
+
+DEAD CODE WARNING (TRAINING_CORE_B-3): this module has ZERO call sites anywhere in ``src/`` -- the
+extraction was never wired into ``_phase_train_one_target_body.py``, which still runs its OWN inline
+duplicate of this exact loop body instead of calling ``_run_one_weight_iteration``. The two copies WILL
+silently drift out of sync (they already did once: TRAINING_CORE_B-1's identity-equivalent-dedup fix had
+to be applied to both files by hand). Do not trust this file as a live, exercised code path, and do not
+assume a fix applied here also applies to the parent's inline copy (or vice versa) without checking both.
+Completing the intended refactor -- replacing the parent's inline loop body with a real call to
+``_run_one_weight_iteration`` -- is a substantial, carefully-staged change (the inline body reads ~30
+closure variables from ``_train_one_target``'s enclosing scope, several flagged "Do NOT inline" / "Do NOT
+move" from past regressions) that deserves its own dedicated pass with the parent's existing regression
+suite as a safety net, not a drive-by edit alongside an unrelated audit finding. Until that lands (or this
+file is deleted as unreachable, which needs an explicit owner decision -- unlike a scratch artifact, this
+is production training code with git history), treat any change to the weight-iteration logic as needing
+to be applied to BOTH ``_phase_train_one_target_body.py``'s inline loop AND this file.
 """
 
 from __future__ import annotations
