@@ -368,33 +368,47 @@ def objective_to_sampling_weights(predictions: np.ndarray, y: np.ndarray, minimi
 def favorize_unexplored(candidates: list, probs: np.ndarray, trials: pd.DataFrame, cat_features: list, order: int = 1) -> None:
     """
     Assign higher select probabilities to combinations of order N that were never chosen yet in the trials object.
+
+    ``order=1`` (the default) favorizes single categorical VALUES not yet seen in ``trials`` -- e.g. a
+    ``grow_policy`` value never tried before. ``order=N>1`` instead favorizes co-occurrences of N
+    categorical fields' values seen together -- e.g. ``(grow_policy=X, bootstrap_type=Y)`` never tried
+    together, even if X and Y individually already appeared (with other companions) in ``trials``. Every
+    size-``order`` combination of ``cat_features`` is scored independently and multiplicatively, same as
+    the order=1 single-field case (this is exactly the order=1 case with singleton combinations).
     """
     if len(cat_features) == 0 or len(trials) == 0:
         return
+    if order < 1:
+        raise ValueError(f"favorize_unexplored: order must be >= 1, got {order}.")
+    order = min(order, len(cat_features))
 
-    logger.info("Favorizing unexplored trials...")
+    logger.info("Favorizing unexplored trials (order=%s)...", order)
 
-    already_sampled = {col: set(trials[col].unique().tolist()) for col in cat_features}
-    newly_seen: dict = {col: set() for col in cat_features}
+    from itertools import combinations
 
-    # Iterate cat_features directly instead of walking every candidate key and testing ``param in cat_features``
-    # (a list -> O(len(cat_features)) membership per key). Candidates also carry many numeric params the
-    # favorization ignores, so the old per-key scan was pure waste. Bit-identical: same first-occurrence-wins
-    # order, same multiplicative factor, same favorized_items count gating normalize_probs.
+    feature_combos = list(combinations(cat_features, order))
+    already_sampled = {combo: set(trials[list(combo)].itertuples(index=False, name=None)) for combo in feature_combos}
+    newly_seen: dict = {combo: set() for combo in feature_combos}
+
+    # Iterate cat_features combos directly instead of walking every candidate key and testing membership
+    # (a list -> O(len(cat_features)) per key). Candidates also carry many numeric params the
+    # favorization ignores, so a per-key scan is pure waste. order=1 is bit-identical to the prior
+    # single-field body: same first-occurrence-wins order, same multiplicative factor, same
+    # favorized_items count gating normalize_probs.
     _MISS = object()
     favorized_items = []
     for i in range(len(probs)):
         candidate = candidates[i]
         novel_factor = 1.0
-        for param in cat_features:
-            value = candidate.get(param, _MISS)
-            if value is _MISS:
+        for combo in feature_combos:
+            values = tuple(candidate.get(param, _MISS) for param in combo)
+            if _MISS in values:
                 continue
-            seen = newly_seen[param]
-            if value not in already_sampled[param] and value not in seen:
+            seen = newly_seen[combo]
+            if values not in already_sampled[combo] and values not in seen:
                 novel_factor *= 2.0
-                favorized_items.append({param: value})
-                seen.add(value)
+                favorized_items.append(dict(zip(combo, values)))
+                seen.add(values)
         if novel_factor > 1.0:
             probs[i] *= novel_factor
 
