@@ -67,10 +67,16 @@ def sibling_group_cold_start_fill(
     global_fallback = float(fallback_value) if fallback_value is not None else float(df[value_col].dropna().mean())
 
     if interpolate:
-        # positional (not order_col-value) distance weighting: siblings are equally spaced by construction
-        # once indexed by their rank in ordered_groups, so a plain `.interpolate()` over the positional index
-        # already implements "weighted by how close in the ordering each sibling is". Bfill/ffill the tails.
-        filled_per_group = last_known_per_group.reset_index(drop=True).interpolate(method="linear", limit_area="inside")
+        # order_col-VALUE distance weighting (not positional rank): siblings are generally NOT equally
+        # spaced in order_col (e.g. groups at order=(0, 1, 100)), so interpolating over a reset positional
+        # index would place a missing group's fill value at the positional midpoint between its neighbors
+        # regardless of how close it actually sits to either one. Re-index by the real order_col value
+        # (group_order is already sorted ascending, in the same order as ordered_groups/last_known_per_group)
+        # and use method="index" so pandas weights by that value's distance, not its rank. Bfill/ffill the tails.
+        order_values = group_order.to_numpy()
+        filled_per_group = last_known_per_group.copy()
+        filled_per_group.index = order_values
+        filled_per_group = filled_per_group.interpolate(method="index", limit_area="inside")
         filled_per_group.index = last_known_per_group.index
         filled_per_group = filled_per_group.ffill().fillna(global_fallback)
     else:

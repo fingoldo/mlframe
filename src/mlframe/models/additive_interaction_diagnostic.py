@@ -26,7 +26,7 @@ def _drop_column(X: Any, is_frame: bool, feature_names: Sequence[str], col_idx: 
 
 def additive_interaction_diagnostic(
     X: Any,
-    y: np.ndarray,
+    y: Any,
     cv_splits: Any,
     metric_fn: Callable[[np.ndarray, np.ndarray], float],
     objective: str = "regression",
@@ -40,7 +40,8 @@ def additive_interaction_diagnostic(
     Parameters
     ----------
     X, y
-        Full feature/target arrays.
+        Full feature/target arrays. ``y`` may be a plain ndarray or a pandas Series; a Series is indexed
+        positionally (``.iloc``) against ``cv_splits``' index arrays regardless of its own index labels.
     cv_splits
         Iterable of ``(train_idx, test_idx)`` index pairs.
     metric_fn
@@ -86,6 +87,8 @@ def additive_interaction_diagnostic(
     additive_params = default_lgbm_params(objective=objective, **(additive_model_overrides or {}))
     additive_params["num_leaves"] = 2
 
+    y_is_indexed = hasattr(y, "iloc")
+
     def _cv_score(params: dict, X_override: Optional[Any] = None) -> float:
         """Fit an LGBM model per CV fold with ``params`` and return the mean metric across folds."""
         X_source = X if X_override is None else X_override
@@ -93,13 +96,18 @@ def additive_interaction_diagnostic(
         for train_idx, test_idx in cv_splits:
             X_train = X_source.iloc[train_idx] if is_frame else X_source[train_idx]
             X_test = X_source.iloc[test_idx] if is_frame else X_source[test_idx]
+            # .iloc (positional) for a pandas Series y: plain `y[train_idx]` performs LABEL-based lookup
+            # for a non-default index, silently misaligning train/test rows against cv_splits' positional
+            # index arrays whenever y's index isn't the default RangeIndex (the common real-world case).
+            y_train = y.iloc[train_idx] if y_is_indexed else y[train_idx]
+            y_test = y.iloc[test_idx] if y_is_indexed else y[test_idx]
             model = lgb.LGBMRegressor(**params) if objective == "regression" else lgb.LGBMClassifier(**params)
-            model.fit(X_train, y[train_idx])
+            model.fit(X_train, y_train)
             if hasattr(model, "predict_proba") and objective != "regression":
                 pred = np.asarray(model.predict_proba(X_test))[:, 1]
             else:
                 pred = np.asarray(model.predict(X_test))
-            fold_scores.append(float(metric_fn(y[test_idx], pred)))
+            fold_scores.append(float(metric_fn(y_test, pred)))
         return float(np.mean(fold_scores))
 
     full_score = _cv_score(full_params)

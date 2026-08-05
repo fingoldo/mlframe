@@ -18,8 +18,9 @@ frequency encoding would collapse.
 """
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Optional, Sequence
 
+import numpy as np
 import pandas as pd
 
 
@@ -28,15 +29,36 @@ def smoothed_target_encode_column(
     test_series: pd.Series,
     y_train: pd.Series,
     smoothing: float = 10.0,
+    oof: bool = True,
+    n_splits: int = 5,
+    random_state: Optional[int] = None,
 ) -> tuple[pd.Series, pd.Series]:
     """James-Stein-style shrinkage target encoding: per-category mean pulled toward the global mean by
     ``smoothing`` pseudo-observations, so low-count levels don't overfit to a handful of target rows.
 
     ``enc(cat) = (count(cat) * mean_y(cat) + smoothing * global_mean) / (count(cat) + smoothing)``
 
+    ``test_encoded`` is always computed from stats fit on the FULL ``train_series``/``y_train`` (no leakage:
+    test rows never inform their own encoding). ``train_encoded`` is, by default (``oof=True``), computed via
+    K-fold out-of-fold encoding: each train row's value comes from stats fit on every OTHER fold, so a row's
+    own label never informs its own encoded value. With ``oof=False`` (legacy behavior), ``train_encoded`` is
+    computed the same way as ``test_encoded`` but reusing ``train_series``' own stats -- every row's own label
+    contributes to its own category's shrunk mean, an in-sample target-encoding leak that inflates
+    ``train_encoded``'s apparent correlation with ``y_train`` versus what a model would see on genuinely
+    unseen rows. Prefer ``oof=True`` (the default) whenever ``train_encoded`` feeds a downstream model fit on
+    the same rows; ``oof=False`` is for pure EDA/screening where in-sample values are being eyeballed
+    directly, not fed back into training.
+
     Test categories unseen in train fall back to the train global mean (same blind spot as plain target-mean
     encoding for genuinely disjoint category sets — this helper is for the *overlapping*, near-uniform-count
     regime, not a fix for zero train/test overlap).
+
+    Parameters
+    ----------
+    oof
+        Default ``True``. See above.
+    n_splits, random_state
+        K-fold configuration for the OOF path; ignored when ``oof=False``.
 
     Returns
     -------
@@ -46,8 +68,23 @@ def smoothed_target_encode_column(
     global_mean = float(y_train.mean())
     stats = y_train.groupby(train_series).agg(["mean", "count"])
     shrunk = (stats["count"] * stats["mean"] + smoothing * global_mean) / (stats["count"] + smoothing)
-    train_encoded = train_series.map(shrunk).fillna(global_mean)
     test_encoded = test_series.map(shrunk).fillna(global_mean)
+
+    if not oof:
+        train_encoded = train_series.map(shrunk).fillna(global_mean)
+        return train_encoded, test_encoded
+
+    from sklearn.model_selection import KFold
+
+    train_encoded = pd.Series(np.nan, index=train_series.index, dtype=np.float64)
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    for fold_train_pos, fold_val_pos in kf.split(np.arange(len(train_series))):
+        fold_train_idx = train_series.index[fold_train_pos]
+        fold_val_idx = train_series.index[fold_val_pos]
+        fold_train_series = train_series.loc[fold_train_idx]
+        fold_stats = y_train.loc[fold_train_idx].groupby(fold_train_series).agg(["mean", "count"])
+        fold_shrunk = (fold_stats["count"] * fold_stats["mean"] + smoothing * global_mean) / (fold_stats["count"] + smoothing)
+        train_encoded.loc[fold_val_idx] = train_series.loc[fold_val_idx].map(fold_shrunk).fillna(global_mean)
     return train_encoded, test_encoded
 
 

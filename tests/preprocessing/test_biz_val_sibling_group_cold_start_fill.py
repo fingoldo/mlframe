@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from mlframe.preprocessing.sibling_group_cold_start_fill import sibling_group_cold_start_fill
 
@@ -120,6 +121,72 @@ def test_sibling_group_cold_start_fill_interpolate_tail_falls_back_to_ffill():
     # group 2 (tail) has no FOLLOWING sibling -> matches interpolate=False behavior: forward-fills from group 1.
     assert filled[4] == 20.0
     assert filled[5] == 20.0
+
+
+def test_sibling_group_cold_start_fill_interpolate_uses_order_col_value_not_positional_rank():
+    """PREPROCESSING-3 (2026-08-05 audit): interpolate=True interpolated over the POSITIONAL rank of
+    groups (via reset_index(drop=True)) instead of the actual order_col value distance the docstring
+    promises. Groups at order=(0, 1, 100) with values=(10, NaN, 50): the missing middle group sits at
+    order=1, essentially right next to the order=0 group -- true linear interpolation by order_col value
+    gives 10 + (50-10)*(1-0)/(100-0) = 10.4, not the positional midpoint 30.0 a rank-based interpolation
+    would (wrongly) produce."""
+    df = pd.DataFrame(
+        {
+            "group": [0, 0, 1, 1, 2, 2],
+            "order": [0, 0, 1, 1, 100, 100],
+            "value": [10.0, 10.0, np.nan, np.nan, 50.0, 50.0],
+        }
+    )
+    filled = sibling_group_cold_start_fill(df, group_col="group", order_col="order", value_col="value", interpolate=True)
+    assert filled[2] == pytest.approx(10.4, abs=1e-9), f"expected order-value-weighted interpolation near 10.4, got {filled[2]}"
+    assert filled[3] == pytest.approx(10.4, abs=1e-9)
+
+
+def test_biz_val_sibling_interpolate_order_value_weighting_beats_positional_on_uneven_spacing():
+    """The order-value-weighted fix must materially beat a naive positional-rank interpolation when
+    sibling groups are UNEVENLY spaced in order_col -- the realistic case the fixed docstring promises
+    to handle correctly."""
+    rng = np.random.default_rng(3)
+    n_groups = 60
+    # Unevenly-spaced order values (increasing gaps), so positional rank and order-col value diverge sharply.
+    gaps = rng.uniform(1.0, 20.0, size=n_groups)
+    order_vals_per_group = np.cumsum(gaps)
+    # True level is a smooth function of the actual order_col VALUE (not group rank/index) -- the realistic
+    # generating process the fixed docstring's "distance in the ordering" promise is about. A rank-based
+    # interpolation has no way to recover this since it never sees the real spacing.
+    levels = 50 + 0.4 * order_vals_per_group + 3.0 * np.sin(order_vals_per_group / 15.0)
+    rows_per_group = 3
+
+    group_ids = np.repeat(np.arange(n_groups), rows_per_group)
+    order_vals = np.repeat(order_vals_per_group, rows_per_group)
+    values = np.repeat(levels, rows_per_group) + rng.normal(scale=0.1, size=n_groups * rows_per_group)
+
+    cold_start_groups = rng.choice(np.arange(1, n_groups - 1), size=12, replace=False)
+    mask_cold = np.isin(group_ids, cold_start_groups)
+    values_with_missing = values.copy()
+    values_with_missing[mask_cold] = np.nan
+
+    df = pd.DataFrame({"group": group_ids, "order": order_vals, "value": values_with_missing})
+    true_level = np.repeat(levels, rows_per_group)
+
+    filled = sibling_group_cold_start_fill(df, group_col="group", order_col="order", value_col="value", interpolate=True)
+
+    # Reference: the OLD (buggy) positional-rank interpolation, reproduced directly.
+    group_order = df.groupby("group", sort=False)["order"].first().sort_values()
+    ordered_groups = group_order.index.to_numpy()
+    last_known_per_group = df.groupby("group", sort=False)["value"].last().reindex(ordered_groups)
+    positional = last_known_per_group.reset_index(drop=True).interpolate(method="linear", limit_area="inside")
+    positional.index = last_known_per_group.index
+    positional = positional.ffill().fillna(float(df["value"].dropna().mean()))
+    filled_positional = df["group"].map(positional)
+
+    mae_fixed = float(np.mean(np.abs(filled[mask_cold] - true_level[mask_cold])))
+    mae_positional = float(np.mean(np.abs(filled_positional[mask_cold] - true_level[mask_cold])))
+
+    assert mae_fixed < mae_positional * 0.7, (
+        f"expected order-value-weighted interpolation to beat positional-rank interpolation on unevenly-spaced "
+        f"siblings, got fixed={mae_fixed:.4f} positional={mae_positional:.4f}"
+    )
 
 
 def test_sibling_group_cold_start_fill_first_group_missing_uses_fallback():

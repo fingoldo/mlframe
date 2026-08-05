@@ -609,8 +609,10 @@ class MBHOptimizer:
             if (
                 self.n_noimproving_iters == 0 and self.plotting == OptimizationProgressPlotting.OnScoreImprovement
             ) or self.plotting == OptimizationProgressPlotting.Regular:
-                # For plotting we need up-to-date known_* arrays; include the in-progress batch.
-                known_cands_for_plot = np.concatenate([self.known_candidates, np.asarray(new_candidates_batch)]).astype(int)
+                # For plotting we need up-to-date known_* arrays; include the in-progress batch. No .astype(int):
+                # candidates come straight from search_space, which may be a continuous (non-integer) space --
+                # forcing int here would corrupt plotted positions for such spaces (see the fix below).
+                known_cands_for_plot = np.concatenate([self.known_candidates, np.asarray(new_candidates_batch)])
                 known_evals_for_plot = np.concatenate([self.known_evaluations, np.asarray(new_evaluations_batch)])
                 plot_search_state(
                     search_space=self.search_space,
@@ -643,5 +645,11 @@ class MBHOptimizer:
             # 15ms vs 5ms at 2000 submits) and is <0.1% of an optimization run dominated by the per-iteration GP fit, while
             # forcing every known_candidates/known_evaluations reader (~15 sites: reshape, [-n:] slicing, .tolist(), np.all) to
             # slice the filled prefix. Not worth the risk/complexity at current scales; revisit if histories reach 10^5+.
-            self.known_candidates = np.concatenate([self.known_candidates, np.asarray(new_candidates_batch)]).astype(int)
+            # No .astype(int): candidates are whatever values search_space holds (this class supports any
+            # search_space, not just integer-valued ones -- e.g. RFECV's integer feature-counts is the
+            # dominant use case, but not the only one). Force-casting to int silently truncated a continuous
+            # search_space's known_candidates, breaking the `next_candidate not in known_candidates_set`
+            # membership checks in suggest_candidate (set built from these same truncated ints), causing
+            # already-evaluated non-integer candidates to be silently re-suggested.
+            self.known_candidates = np.concatenate([self.known_candidates, np.asarray(new_candidates_batch)])
             self.known_evaluations = np.concatenate([self.known_evaluations, np.asarray(new_evaluations_batch)])

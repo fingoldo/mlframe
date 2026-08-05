@@ -859,6 +859,15 @@ class CatboostParamsOptimizer(ParamsOptimizer):
             "nan_mode": ["Min", "Max"],
             "counter_calc_method": ["SkipTest", "Full"],
             "feature_border_type": "Median Uniform UniformAndQuantiles MaxLogSum MinEntropy GreedyLogSum".split(),  # The quantization mode for numerical features.
+            "grow_policy": [
+                "SymmetricTree",
+                "Depthwise",
+                "Lossguide",
+            ],  # Tree growing policy. Required as a rule-DSL companion field: allow_if_values_or requires SymmetricTree when boosting_type=='Ordered', and drop_if_not_rules only keeps max_leaves when this is 'Lossguide'.
+            "model_shrink_mode": [
+                "Constant",
+                "Decreasing",
+            ],  # How the model shrink rate is applied. Required as a rule-DSL companion field: allow_if_values_and requires 'Constant' when posterior_sampling=True. Dropped again for GPU via drop_if_rules (unimplemented there).
             # ----------------------------------------------------------------------------------------------------------------------------
             # Bool params
             # ----------------------------------------------------------------------------------------------------------------------------

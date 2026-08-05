@@ -67,6 +67,52 @@ def test_api5_gpu_enabled_default_consistent():
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
+# MODELS-3 (2026-08-05 audit) - grow_policy/model_shrink_mode rule-DSL companion fields must be samplable
+# ----------------------------------------------------------------------------------------------------------------------------
+
+
+def test_models_3_grow_policy_and_model_shrink_mode_are_samplable_companion_fields():
+    """CatboostParamsOptimizer's rule DSL references grow_policy/model_shrink_mode as required companion
+    fields (allow_if_values_or requires grow_policy=='SymmetricTree' when boosting_type=='Ordered';
+    allow_if_values_and requires model_shrink_mode=='Constant' when posterior_sampling=True) but never
+    added them to self.params -- ParameterSampler then never actually sampled them, so check_condition
+    always saw params.get(field) is None, permanently vetoing posterior_sampling=True and
+    boosting_type=='Ordered' from the approved search space. Pins that both companion fields are now
+    samplable and that both previously-vetoed settings are reachable, with the companion field correctly
+    satisfied whenever they are."""
+    from mlframe.models.tuning import CatboostParamsOptimizer, generate_valid_candidates
+
+    opt = CatboostParamsOptimizer(random_state=0)
+    assert "grow_policy" in opt.params, "grow_policy must be a samplable field"
+    assert "model_shrink_mode" in opt.params, "model_shrink_mode must be a samplable field"
+
+    candidates = generate_valid_candidates(
+        opt.params,
+        drop_if_rules=opt.drop_if_rules,
+        drop_if_not_rules=opt.drop_if_not_rules,
+        skip_if_values_or=opt.skip_if_values_or,
+        allow_if_values_or=opt.allow_if_values_or,
+        allow_if_values_and=opt.allow_if_values_and,
+        n=200,
+        max_iters=20000,
+        random_state=1,
+    )
+    assert len(candidates) > 0
+
+    posterior_candidates = [c for c in candidates if c.get("posterior_sampling") is True]
+    ordered_candidates = [c for c in candidates if c.get("boosting_type") == "Ordered"]
+
+    assert posterior_candidates, "posterior_sampling=True must be reachable in the approved search space"
+    assert ordered_candidates, "boosting_type=='Ordered' must be reachable in the approved search space"
+
+    for c in posterior_candidates:
+        assert c.get("model_shrink_mode") == "Constant", c
+        assert c.get("langevin") is True, c
+    for c in ordered_candidates:
+        assert c.get("grow_policy") == "SymmetricTree", c
+
+
+# ----------------------------------------------------------------------------------------------------------------------------
 # API6 - default blend method agrees across materialised / streaming
 # ----------------------------------------------------------------------------------------------------------------------------
 
