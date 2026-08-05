@@ -178,7 +178,8 @@ jobs:
       # DEP003 rules are meaningless in a bare environment (confirmed 2026-07-09: re-run with
       # [all,dev] actually installed via `python -m deptry .` surfaced exactly 1 real finding).
       deptry-install-command: |
-        git clone --depth 1 https://github.com/fingoldo/pyutilz.git
+        git clone https://github.com/fingoldo/pyutilz.git
+        git -C pyutilz checkout 39eb5416d43c69bdb57aece636d7da9c5f08cd7c  # pinned 2026-08-04, see X_CICD_DEPENDENCIES-1
         uv pip install --system "./pyutilz[system,pandas,polars,database]" -e ".[all,dev]"
       run-zizmor: true
 
@@ -259,7 +260,7 @@ jobs:
         run: |
           python -m venv /tmp/smoke
           /tmp/smoke/bin/pip install --upgrade pip
-          /tmp/smoke/bin/pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git"
+          /tmp/smoke/bin/pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git@39eb5416d43c69bdb57aece636d7da9c5f08cd7c"
           /tmp/smoke/bin/pip install dist/*.whl
           # Assert the PEP 561 py.typed marker actually shipped in the wheel so a
           # package-data regression (dropping typing support) fails the build.

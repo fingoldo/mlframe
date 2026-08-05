@@ -63,7 +63,8 @@ jobs:
 
       - name: Clone & install pyutilz (sibling dependency)
         run: |
-          git clone --depth 1 https://github.com/fingoldo/pyutilz.git
+          git clone https://github.com/fingoldo/pyutilz.git
+          git -C pyutilz checkout 39eb5416d43c69bdb57aece636d7da9c5f08cd7c  # pinned 2026-08-04, see X_CICD_DEPENDENCIES-1
           pip install "./pyutilz[system,pandas,polars,database]"
 
       - name: Install mlframe with all runtime extras + dev tooling
