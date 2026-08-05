@@ -194,6 +194,7 @@ def build_combined_html_report(
     if not base_path or not chart_paths or "png" not in (plot_outputs or "").lower():
         return None
     try:
+        from mlframe.reporting.output import BACKEND_FORMATS
         from mlframe.reporting.report_html import build_combined_report
 
         # Display worst feature-value slices (``_weak_slices``) before the per-split weak-segment heatmaps
@@ -220,9 +221,14 @@ def build_combined_html_report(
             label = os.path.basename(p)
             png = p if p.lower().endswith(".png") else p + ".png"
             if not os.path.exists(png):
-                # matplotlib renderer may suffix the backend (e.g. ``_pdp_ice.matplotlib.png``).
-                alt = p + ".matplotlib.png"
-                png = alt if os.path.exists(alt) else png
+                # A multi-backend/multi-format plot_outputs (renderers/save.py's naming policy)
+                # suffixes the backend name, e.g. ``_pdp_ice.matplotlib.png`` or
+                # ``_pdp_ice.plotly.png`` -- try every registered backend, not just matplotlib.
+                for backend in BACKEND_FORMATS:
+                    alt = f"{p}.{backend}.png"
+                    if os.path.exists(alt):
+                        png = alt
+                        break
             entries.append(("charts", label, png))
         if not entries:
             return None

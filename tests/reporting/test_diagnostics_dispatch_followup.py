@@ -354,3 +354,25 @@ def test_combined_html_orders_weak_slices_before_weak_segments(tmp_path):
     assert out and os.path.exists(out)
     html = open(out, encoding="utf-8").read()
     assert html.index("m_weak_slices") < html.index("m_weak_segments")
+
+
+def test_combined_html_resolves_plotly_suffixed_png(tmp_path):
+    """REPORTING_A-3: a multi-backend plot_outputs (e.g. 'plotly[html,png] + matplotlib[pdf]') makes
+    renderers/save.py write '<base>.plotly.png', not '<base>.png' or '<base>.matplotlib.png' -- the
+    resolver must find it instead of silently embedding a broken <img> link."""
+    base = str(tmp_path / "m")
+    path = base + "_shap"
+    # Minimal-but-real PNG bytes (1x1 transparent pixel), so a resolved-vs-unresolved image
+    # shows up as a non-empty vs. empty base64 payload in the stitched HTML.
+    png_bytes = bytes.fromhex(
+        "89504e470d0a1a0a0000000d49484452000000010000000108020000009077"  # pragma: allowlist secret
+        "53de0000000c4944415478da6360000002000155ad4b2c0000000049454e44ae426082"  # pragma: allowlist secret
+    )
+    with open(path + ".plotly.png", "wb") as f:
+        f.write(png_bytes)
+    md = {}
+    out = build_combined_html_report(base_path=base, chart_paths=[path], plot_outputs=PNG, title="m report", metrics_dict=md)
+    assert out and os.path.exists(out)
+    html = open(out, encoding="utf-8").read()
+    assert "missing image" not in html, "the .plotly.png sibling was not resolved; report shows a broken/missing image placeholder"
+    assert 'src="data:image/png;base64,"' not in html, "resolved to an empty file; base64 payload should be non-empty"
