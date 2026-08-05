@@ -157,6 +157,23 @@ def _signature_of(X, categorical_feature=None) -> tuple:
     return compute_signature(X, extra=(cat_key,))
 
 
+def _reset_weight_to_uniform(dataset: "lgb.Dataset") -> None:
+    """Force ``dataset``'s weight field to true uniform (all-ones) at the C++ side, bypassing
+    ``Dataset.set_weight``'s own all-ones short-circuit.
+
+    LightGBM's ``Dataset.set_weight(weight)`` treats an all-ones array as equivalent to "no weight"
+    (``if np.all(weight == 1): weight = None``) and then SKIPS the ``set_field`` call entirely when
+    ``weight is None`` -- so calling ``set_weight(np.ones(...))`` on a Dataset that already has a
+    REAL (non-uniform) weight set at the C++ side silently does nothing: ``get_weight()`` still
+    returns the stale prior weight (confirmed live). Using the lower-level ``set_field`` directly
+    bypasses that optimization and always performs the write; clearing the Python-side ``self.weight``
+    cache afterward forces the next ``get_weight()`` to re-fetch from C++ instead of returning a
+    stale cached value.
+    """
+    dataset.set_field("weight", np.ones(dataset.num_data(), dtype=np.float32))
+    dataset.weight = None
+
+
 def _is_pair_item(obj: Any) -> bool:
     """True when ``obj`` looks like an X/y array (DataFrame / ndarray / polars / Series), i.e. one element of a bare (X, y[, w]) bundle."""
     if isinstance(obj, (str, bytes)) or isinstance(obj, (list, tuple)):
@@ -555,10 +572,13 @@ class _DatasetReuseMixin:
                 dtrain.set_weight(_w_arr)
             else:
                 # When sample_weight was set previously and now None is
-                # passed, "uniform weights" is the desired semantic. We
-                # set ones to clear any prior weight; LightGBM treats
-                # an all-1 weight identically to no-weight.
-                dtrain.set_weight(np.ones(dtrain.num_data(), dtype=np.float32))
+                # passed, "uniform weights" is the desired semantic. Uses
+                # _reset_weight_to_uniform (set_field, not set_weight) --
+                # plain set_weight(ones) silently NO-OPS when a real prior
+                # weight is already set at the C++ side (see that helper's
+                # docstring), which would otherwise leave the stale weight
+                # in place despite the caller asking for uniform.
+                _reset_weight_to_uniform(dtrain)
             # set_label/set_weight were re-applied above on a cache hit, but set_init_score was
             # not -- a subsequent .fit(X, y, init_score=new_value) call reusing this cached
             # Dataset silently trained against the STALE (or entirely absent) init_score baked in
@@ -665,6 +685,13 @@ class _DatasetReuseMixin:
                     dval.set_label(np.asarray(y_val))
                     if w_val is not None:
                         dval.set_weight(np.asarray(w_val))
+                    else:
+                        # Asymmetric with the train-Dataset cache-hit path above (which explicitly
+                        # resets to uniform ones when sample_weight is omitted): a later call that
+                        # omits the eval-set weight after an earlier call supplied one used to
+                        # silently keep the STALE weight on this cached val Dataset instead of
+                        # resetting to uniform. Mirror the train path's reset here too.
+                        _reset_weight_to_uniform(dval)
                     self._cached_val_datasets[val_key] = dval
                     self._cached_val_datasets.move_to_end(val_key)
                     while len(self._cached_val_datasets) > self._VAL_DATASET_SLOTS_CAP:
