@@ -247,6 +247,9 @@ def visualize_prediction_vs_truth(
     if metrics is None:
         metrics = {}
     fig, axs = plt.subplots(1, len(samples), sharey=False, figsize=(20, 5))
+    # plt.subplots(1, n) returns a bare Axes (not an array) when n==1 -- np.atleast_1d normalizes both
+    # cases so axs[i] indexing below always works.
+    axs = np.atleast_1d(axs)
 
     title_line = title
     if "root_mean_squared_error" in metrics:
