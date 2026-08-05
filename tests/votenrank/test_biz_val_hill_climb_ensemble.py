@@ -62,6 +62,26 @@ def test_hill_climb_ensemble_empty_pool_raises():
         hill_climb_ensemble([], np.array([1.0]), _rmse)
 
 
+def test_hill_climb_ensemble_mismatched_pred_shape_raises():
+    """VOTENRANK-6: a candidate array whose shape doesn't match y_true must raise, not silently broadcast."""
+    import pytest
+
+    y_true = np.array([1.0, 2.0, 3.0, 4.0])
+    good_pred = y_true + 0.1
+    # (1,) broadcasts CLEANLY against (4,) under numpy rules -- no broadcast error, just silent
+    # corruption of every downstream sum/mean, which is exactly the bug this validation targets.
+    wrong_shape_pred = np.array([2.5])
+    with pytest.raises(ValueError, match="shape"):
+        hill_climb_ensemble([good_pred, wrong_shape_pred], y_true, _rmse, maximize=False, max_iterations=10)
+
+
+def test_hill_climb_ensemble_correct_shapes_do_not_raise():
+    """Sanity: every candidate matching y_true's shape must not trigger the new validation."""
+    y_true = np.array([1.0, 2.0, 3.0, 4.0])
+    preds = [y_true + 0.1, y_true - 0.1]
+    hill_climb_ensemble(preds, y_true, _rmse, maximize=False, max_iterations=10)  # must not raise
+
+
 def test_biz_val_hill_climb_beats_equal_weight_average_and_single_best_model():
     """Hill climb beats equal weight average and single best model."""
     y_true, preds = _make_model_pool(n_samples=3000, n_good=5, n_bad=15, seed=42)
