@@ -289,3 +289,33 @@ def test_object_of_arrays_probe_logs_on_failure():
     src = inspect.getsource(compute_label_distribution_drift)
     assert "object-of-arrays probe failed" in src
     assert "logger.debug" in src
+
+
+def test_binary_split_summary_excludes_nan_labels_from_denominator():
+    """TRAINING_LOOSE_C-7: NaN binary labels must not be silently counted as negatives.
+
+    Pre-fix, ``_binary_split_summary``'s denominator was the raw row count -- ``arr == 1`` is False
+    for NaN, so missing labels quietly deflated ``p_positive`` with no signal they were missing
+    (unlike the regression/multiclass/multilabel summarizers in the same module).
+    """
+    from mlframe.training.drift_report import _binary_split_summary
+
+    # 10 rows: 5 positive, 3 negative, 2 missing (NaN). True rate over LABELED rows is 5/8 = 0.625,
+    # not 5/10 = 0.5 (the pre-fix, NaN-counted-as-negative answer).
+    arr = np.array([1, 1, 1, 1, 1, 0, 0, 0, np.nan, np.nan], dtype=np.float64)
+    out = _binary_split_summary(arr)
+    assert out["n"] == 8
+    assert out["n_positive"] == 5
+    assert out["n_missing"] == 2
+    assert abs(out["p_positive"] - 0.625) < 1e-12
+
+
+def test_binary_split_summary_all_missing_returns_nan_rate_not_zero():
+    """An all-NaN split must report n=0/p_positive=NaN, not a misleading n=len/p_positive=0.0."""
+    from mlframe.training.drift_report import _binary_split_summary
+
+    arr = np.array([np.nan, np.nan, np.nan], dtype=np.float64)
+    out = _binary_split_summary(arr)
+    assert out["n"] == 0
+    assert out["n_missing"] == 3
+    assert np.isnan(out["p_positive"])
