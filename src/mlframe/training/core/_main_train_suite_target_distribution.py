@@ -72,10 +72,21 @@ def _maybe_auto_drop_after_feature_analyzer(
                 logger.debug("suppressed: %s", e)
                 continue
             if abs(_c) >= _dup_threshold:
-                # Greedy chain collapse: drop the alphabetically-larger of a fresh pair; once either
-                # side is already in drop_set, add whichever side ISN'T yet dropped instead (so a
-                # correlated chain A-B, B-C collapses to a single survivor A, not left half-dropped).
-                drop_set.add(_b if _a not in drop_set and _b not in drop_set else (_a if _b in drop_set else _b))
+                # Greedy vertex-cover collapse: drop the alphabetically-larger of a pair ONLY when
+                # NEITHER side is already in drop_set. If either side is already dropped, this edge
+                # is already "covered" (at least one of its endpoints is gone) -- do nothing.
+                #
+                # The prior logic instead added whichever side WASN'T yet dropped whenever the OTHER
+                # side already was, which walks a 3+ way mutually-correlated cluster (a triangle A-B,
+                # B-C, A-C in the correlation graph, not just a linear chain) into dropping every
+                # single member: pair (A,B) drops B; pair (B,C) then sees B already dropped and adds
+                # C (instead of no-op'ing since the edge is already covered); pair (A,C) then sees C
+                # already dropped and adds A too -- zero survivors. The fix only drops a NEW column
+                # when the edge isn't already covered, which guarantees at least one member of every
+                # connected correlated cluster always survives (dropping requires BOTH endpoints
+                # alive, so the last alive node touching any edge is never removed).
+                if _a not in drop_set and _b not in drop_set:
+                    drop_set.add(max(_a, _b))
     if not drop_set:
         return train_df, val_df, test_df, []
     # Filter the drop set to columns actually present in train_df.
