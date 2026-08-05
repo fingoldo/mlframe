@@ -59,6 +59,10 @@ ADDITIVE_BASE_TRANSFORMS = frozenset({
     "linear_residual_robust",
     "theilsen_residual",
     "linear_residual_multi",
+    # linear_residual_multi_robust reuses linear_residual_multi's forward/inverse functions verbatim
+    # (registry: "Forward / inverse identical to linear_residual_multi once (alphas, beta) are fitted")
+    # -- same linear-in-base extrapolation, same OOD failure mode, so it needs the same guard.
+    "linear_residual_multi_robust",
     "linear_residual_grouped",
 })
 
