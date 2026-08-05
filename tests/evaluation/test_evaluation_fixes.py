@@ -326,6 +326,33 @@ def test_competition_evaluation_6_empty_frames_return_empty_correctly_columned_f
     assert len(out_scored) == 0
 
 
+def test_competition_evaluation_7_empty_subgroup_cols_returns_empty_ranking():
+    """rank_subpopulation_drift_severity(subgroup_cols=[]) must return an empty ranking instead of
+    raising KeyError: 'drift_severity_score'."""
+    from mlframe.evaluation.subpopulation_drift import rank_subpopulation_drift_severity
+
+    train_df = pd.DataFrame({"grp": ["a", "b", "a"]})
+    test_df = pd.DataFrame({"grp": ["a", "a", "b"]})
+    out = rank_subpopulation_drift_severity(train_df, test_df, subgroup_cols=[])
+    assert list(out.columns) == ["subgroup_col", "drift_severity_score", "max_prevalence_ratio", "any_flagged"]
+    assert len(out) == 0
+
+
+def test_competition_evaluation_8_empty_candidates_returns_empty_ranking():
+    """rank_subgroup_feature_overfit_risk(candidates=[]) must return an empty ranking instead of
+    raising KeyError: 'risk_score'."""
+    from mlframe.evaluation.subgroup_feature_overfit_risk import rank_subgroup_feature_overfit_risk
+
+    train_df = pd.DataFrame({"grp": ["a", "b", "a"]})
+    test_df = pd.DataFrame({"grp": ["a", "a", "b"]})
+    out = rank_subgroup_feature_overfit_risk(train_df, test_df, candidates=[])
+    assert list(out.columns) == [
+        "feature_name", "subgroup_col", "feature_subgroup_value", "cv_delta", "prevalence_ratio",
+        "subgroup_shifted", "overfit_risk_flag", "drift_severity_score", "risk_score",
+    ]
+    assert len(out) == 0
+
+
 # ---------------------------------------------------------------------------
 # F4 / PR4: bootstrap_metrics missing from __all__ and package re-exports
 # ---------------------------------------------------------------------------

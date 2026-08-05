@@ -161,6 +161,10 @@ def rank_subpopulation_drift_severity(
             }
         )
 
+    # pd.DataFrame([]) has no columns for sort_values to find -- an empty subgroup_cols would otherwise
+    # raise KeyError instead of returning an empty ranking.
+    if not rows:
+        return pd.DataFrame(columns=["subgroup_col", "drift_severity_score", "max_prevalence_ratio", "any_flagged"])
     ranking = pd.DataFrame(rows)
     return ranking.sort_values("drift_severity_score", ascending=False).reset_index(drop=True)
 

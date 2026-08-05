@@ -162,6 +162,12 @@ def rank_subgroup_feature_overfit_risk(
             }
         )
 
+    # pd.DataFrame([]) has no columns for sort_values to find -- an empty candidates list would otherwise
+    # raise KeyError instead of returning an empty ranking.
+    if not rows:
+        return pd.DataFrame(
+            columns=["feature_name", "subgroup_col", "feature_subgroup_value", "cv_delta", "prevalence_ratio", "subgroup_shifted", "overfit_risk_flag", "drift_severity_score", "risk_score"]
+        )
     ranking = pd.DataFrame(rows)
     return ranking.sort_values("risk_score", ascending=False).reset_index(drop=True)
 
