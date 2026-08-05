@@ -126,3 +126,17 @@ def test_knn_shapley_regression_target_raises():
     yv = rng.standard_normal(5)
     with pytest.raises(NotImplementedError):
         knn_shapley(X, y, Xv, yv)
+
+
+def test_knn_shapley_nonpositive_k_raises_clear_valueerror():
+    """CORE_INFRA_MISC-3: k<=0 must raise a clear ValueError instead of silently dividing by k inside the
+    fastmath njit recursion and producing inf/nan Shapley values."""
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((30, 3))
+    y = rng.integers(0, 2, 30)
+    Xv = rng.standard_normal((5, 3))
+    yv = rng.integers(0, 2, 5)
+    with pytest.raises(ValueError, match="k must be a positive integer"):
+        knn_shapley(X, y, Xv, yv, k=0)
+    with pytest.raises(ValueError, match="k must be a positive integer"):
+        knn_shapley(X, y, Xv, yv, k=-3)

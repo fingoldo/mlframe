@@ -77,6 +77,11 @@ def knn_shapley(
     Classification only: raises ``NotImplementedError`` for continuous ``y_val`` (the closed form is
     derived for a KNN classification-agreement utility; use ``tmc_shapley`` for regression).
     """
+    if k <= 0:
+        # the recursion divides by k on every step; k<=0 would silently produce inf/nan values instead of
+        # a clear error (fastmath njit doesn't raise on the division itself).
+        raise ValueError(f"knn_shapley: k must be a positive integer, got {k}")
+
     X_train = np.ascontiguousarray(X_train, dtype=np.float64)
     X_val = np.ascontiguousarray(X_val, dtype=np.float64)
     y_train = np.asarray(y_train)
