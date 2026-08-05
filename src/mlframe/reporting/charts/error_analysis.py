@@ -306,6 +306,17 @@ def weak_segment_heatmap(
         )
 
     ja = top[0]
+    # np.digitize sorts NaN after every finite edge, so a NaN feature value would silently land in the
+    # HIGHEST bin instead of being excluded -- corrupting the worst-slice localization with rows that
+    # were never actually binned by value. Exclude rows with NaN in the feature(s) being binned here
+    # (a NaN feature value is still tolerated upstream for the tree fit that CHOSE these features).
+    bin_finite = np.isfinite(mat[:, ja])
+    if len(top) >= 2:
+        bin_finite &= np.isfinite(mat[:, top[1]])
+    if not np.all(bin_finite):
+        err = err[bin_finite]
+        mat = mat[bin_finite]
+
     ea = _bin_edges(mat[:, ja], nbins)
     ia = np.clip(np.digitize(mat[:, ja], ea[1:-1]), 0, len(ea) - 2)
     na = len(ea) - 1

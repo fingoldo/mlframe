@@ -205,6 +205,12 @@ def _calib_grid_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePane
     for k in draw_idx:
         proba_k = y_proba[:, k]
         true_k = y_true[:, k].astype(np.float64)
+        # np.digitize sorts NaN after every finite edge, so a non-finite proba value would silently
+        # land in the LAST bin instead of being excluded from the reliability curve.
+        finite_k = np.isfinite(proba_k)
+        if not np.all(finite_k):
+            proba_k = proba_k[finite_k]
+            true_k = true_k[finite_k]
         bin_idx = np.clip(np.digitize(proba_k, edges[1:-1]), 0, n_bins - 1)
         # Per-bin observed mean via two bincounts (sum / count) instead of an inner n_bins x O(N) mask loop.
         counts = np.bincount(bin_idx, minlength=n_bins)

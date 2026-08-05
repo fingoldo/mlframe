@@ -15,6 +15,7 @@ import pytest
 
 from mlframe.reporting.charts.multilabel import (
     ALLOWED_MULTILABEL_PANEL_TOKENS,
+    _calib_grid_panel,
     compose_multilabel_figure,
 )
 from mlframe.reporting.output import parse_plot_output_dsl
@@ -114,6 +115,25 @@ class TestPanelTypes:
         # K label curves + 1 diagonal
         assert isinstance(panel.y, tuple) and len(panel.y) == 4
         assert panel.series_labels[0] == "perfect"
+
+    def test_calib_grid_panel_excludes_nan_proba_rows(self, synth_3label):
+        """REPORTING_B-1: np.digitize sorts NaN after every finite edge, so a NaN predicted
+        probability would silently land in the LAST reliability-curve bin instead of being
+        excluded. A NaN-row should not move the curve at all vs. dropping those rows outright."""
+        y, p, lbl = synth_3label
+        labels = list(range(len(lbl)))
+
+        p_with_nan = p.copy()
+        nan_rows = np.arange(0, y.shape[0], 7)
+        p_with_nan[nan_rows, 0] = np.nan
+        dirty = _calib_grid_panel(y, p_with_nan, labels)
+
+        # Label 0's curve must match the curve computed after DROPPING the NaN rows outright --
+        # not the curve you'd get if those rows' NaN probability silently landed in the last bin.
+        y_clean = np.delete(y, nan_rows, axis=0)
+        p_clean = np.delete(p, nan_rows, axis=0)
+        reference = _calib_grid_panel(y_clean, p_clean, labels)
+        np.testing.assert_array_equal(dirty.y[1], reference.y[1])
 
     def test_cooccurrence_returns_heatmap(self, synth_3label):
         """Cooccurrence returns heatmap."""
