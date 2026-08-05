@@ -80,6 +80,12 @@ def _get_nunique(vals: np.ndarray, skip_nan: bool = True, skip_vals: Optional[tu
     # Sort once + count distinct in a single njit pass (skipping NaN + skip_vals inline). Bit-identical to the
     # np.unique count for finite-or-NaN float input. Non-float / object paths keep the exact np.unique route.
     if skip_nan and getattr(vals, "dtype", None) is not None and vals.dtype.kind == "f":
+        if skip_vals and len(skip_vals) > 2:
+            # The njit fast-path kernel takes exactly 2 skip sentinels; a 3rd+ element would be silently
+            # dropped (never excluded from the count) if we fell through anyway, diverging from the
+            # np.unique fallback path below (which supports arbitrary-length skip_vals). All current
+            # call sites pass at most 2 -- raise rather than silently miscounting if that ever changes.
+            raise ValueError(f"_get_nunique: the float fast path supports at most 2 skip_vals, got {len(skip_vals)}: {skip_vals!r}.")
         sv = np.sort(vals)
         if not skip_vals:
             skip0 = np.nan
