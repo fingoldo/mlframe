@@ -15,7 +15,7 @@ from typing import Any, Optional, Sequence, Tuple
 
 import numpy as np
 
-from mlframe.reporting.colors import HEATMAP_CMAP, auto_text_color
+from mlframe.reporting.colors import HEATMAP_CMAP, auto_text_colors_batch
 
 # Above this many cells the per-cell annotation turns to unreadable soup; suppress the text (matrix still renders).
 _CELL_TEXT_MAX = 400
@@ -182,14 +182,16 @@ def plot_confusion_matrix(
         finite = display[np.isfinite(display)]
         if finite.size:
             vmin, vmax = float(finite.min()), float(finite.max())
+            # One vectorized colormap sample for the whole grid instead of one matplotlib call per cell
+            # (bit-identical to the per-cell auto_text_color -- same pattern PlotlyRenderer._heatmap uses).
+            text_colors = auto_text_colors_batch(np.where(np.isfinite(display), display, vmin), cmap, vmin=vmin, vmax=vmax)
             for i in range(K):
                 for j in range(K):
                     val = float(display[i, j])
-                    color = auto_text_color(val if np.isfinite(val) else vmin, cmap, vmin=vmin, vmax=vmax)
                     # Raw-count cells format as ints ('d'); the display matrix is float64 either way, so cast the
                     # value to int for an integer format spec (sklearn prints counts as ints too).
                     cell_val = round(val) if values_format.endswith(("d", "n")) else display[i, j]
-                    ax.text(j, i, format(cell_val, values_format), ha="center", va="center", fontsize=8, color=color)
+                    ax.text(j, i, format(cell_val, values_format), ha="center", va="center", fontsize=8, color=text_colors[i, j])
 
     if colorbar:
         fig.colorbar(im, ax=ax)

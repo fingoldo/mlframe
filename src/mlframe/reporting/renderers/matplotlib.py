@@ -427,7 +427,7 @@ class MatplotlibRenderer:
         ax.set_yticklabels([p.row_labels[i] for i in _yt], fontsize=8)
         rng = _finite_range(p.matrix)
         if p.cell_text is not None and rng is not None and p.matrix.size <= _HEATMAP_CELL_TEXT_MAX:
-            from mlframe.reporting.colors import auto_text_color
+            from mlframe.reporting.colors import auto_text_colors_batch
             # Compute global vmin / vmax so each cell's text color reflects
             # its position in the actual color range — naive
             # ``< 0.5`` threshold fails when the matrix range is e.g.
@@ -435,11 +435,12 @@ class MatplotlibRenderer:
             # the colormap and white text becomes invisible).
             mat = p.matrix
             vmin, vmax = rng
+            # One vectorized colormap sample for the whole grid instead of one matplotlib call per cell
+            # (bit-identical to the per-cell auto_text_color -- same pattern PlotlyRenderer._heatmap uses).
+            text_colors = auto_text_colors_batch(np.where(np.isfinite(mat), mat, vmin), cmap_name, vmin=vmin, vmax=vmax)
             for i in range(mat.shape[0]):
                 for j in range(mat.shape[1]):
-                    cell = float(mat[i, j])
-                    text_color = auto_text_color(cell if np.isfinite(cell) else vmin, cmap_name, vmin=vmin, vmax=vmax)
-                    ax.text(j, i, format(p.cell_text[i, j], p.text_format), ha="center", va="center", fontsize=7, color=text_color)
+                    ax.text(j, i, format(p.cell_text[i, j], p.text_format), ha="center", va="center", fontsize=7, color=text_colors[i, j])
         # Iso-value contour overlays at named matrix levels (PSI 0.10 / 0.25 triage lines on the drift heatmap).
         # Contour coords are the imshow cell-center grid (0..ncols-1, 0..nrows-1) so lines land between cells.
         if p.threshold_contours:
@@ -512,13 +513,13 @@ class MatplotlibRenderer:
         ax_hm.set_ylabel(p.ylabel)
         rng = _finite_range(p.matrix)
         if p.cell_text is not None and rng is not None and p.matrix.size <= _HEATMAP_CELL_TEXT_MAX:
-            from mlframe.reporting.colors import auto_text_color
+            from mlframe.reporting.colors import auto_text_colors_batch
             vmin, vmax = rng
+            # One vectorized colormap sample for the whole grid instead of one matplotlib call per cell.
+            text_colors = auto_text_colors_batch(np.where(np.isfinite(p.matrix), p.matrix, vmin), cmap_name, vmin=vmin, vmax=vmax)
             for i in range(K):
                 for j in range(p.matrix.shape[1]):
-                    cell = float(p.matrix[i, j])
-                    tc = auto_text_color(cell if np.isfinite(cell) else vmin, cmap_name, vmin=vmin, vmax=vmax)
-                    ax_hm.text(j, i, format(p.cell_text[i, j], p.text_format), ha="center", va="center", fontsize=7, color=tc)
+                    ax_hm.text(j, i, format(p.cell_text[i, j], p.text_format), ha="center", va="center", fontsize=7, color=text_colors[i, j])
 
         pos = np.arange(K)
         # Top bar: predicted-class volume, aligned to the heatmap columns (shared x, ticks hidden -- the heatmap owns them).
