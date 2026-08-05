@@ -34,7 +34,9 @@ def compute_conformal_locally_adaptive_features(
         validate_numeric_input(X_query, name="X_query", allow_fp16=False)
     X_train_f = np.asarray(X_train, dtype=np.float32)
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
-    n_features_out = 5
+    n_alphas = len(alphas)
+    # width columns (one per alpha) + sigma_hat + pred + width_ratio (first-vs-last alpha).
+    n_features_out = n_alphas + 3
 
     def _local_sigma(Xt_s, residuals, X_target, k):
         """kNN-local MAD of residuals: for each row in ``X_target``, find its ``k`` nearest neighbours in ``Xt_s`` and return the median absolute deviation of their residuals (epsilon-floored to avoid a zero denominator)."""
@@ -59,7 +61,7 @@ def compute_conformal_locally_adaptive_features(
         # then lgb.fit on empty raises opaquely and downstream sigma/quantile produce garbage.
         # Return a zero-feature block matching the expected (Xq_s.shape[0], 5) shape.
         if n < 4:
-            return np.zeros((Xq_s.shape[0], 5), dtype=np.float32)
+            return np.zeros((Xq_s.shape[0], n_features_out), dtype=np.float32)
         rng = np.random.default_rng(int(fold_seed))
         idx = np.arange(n); rng.shuffle(idx)
         h1, h2 = idx[: n // 2], idx[n // 2 :]
@@ -80,16 +82,22 @@ def compute_conformal_locally_adaptive_features(
         for i, a in enumerate(alphas):
             q = float(np.quantile(nonconf_scores, 1.0 - a))
             widths_q[:, i] = q * sigma_q
-        return np.column_stack([widths_q[:, 0], widths_q[:, 1], sigma_q, preds_q, widths_q[:, 0] / (widths_q[:, 1] + 1e-9)])
+        width_ratio = widths_q[:, 0] / (widths_q[:, -1] + 1e-9)
+        return np.column_stack([widths_q, sigma_q, preds_q, width_ratio])
 
     def _make_df(feats):
-        """Label the 5 raw feature columns with ``column_prefix`` and cast to the requested output dtype."""
+        """Label the raw feature columns with ``column_prefix`` and cast to the requested output dtype.
+
+        Column names are derived from the ACTUAL ``alphas`` values (e.g. ``alpha=0.1`` ->
+        ``..._width_a10``), not a hardcoded 2-alpha assumption -- feats has ``len(alphas)`` width
+        columns followed by sigma_hat/pred/width_ratio, matching the shape ``_process`` returns.
+        """
         cols = {}
-        cols[f"{column_prefix}_width_a01"] = feats[:, 0].astype(dtype, copy=False)
-        cols[f"{column_prefix}_width_a02"] = feats[:, 1].astype(dtype, copy=False)
-        cols[f"{column_prefix}_sigma_hat"] = feats[:, 2].astype(dtype, copy=False)
-        cols[f"{column_prefix}_pred"] = feats[:, 3].astype(dtype, copy=False)
-        cols[f"{column_prefix}_width_ratio"] = feats[:, 4].astype(dtype, copy=False)
+        for i, a in enumerate(alphas):
+            cols[f"{column_prefix}_width_a{round(a * 100):02d}"] = feats[:, i].astype(dtype, copy=False)
+        cols[f"{column_prefix}_sigma_hat"] = feats[:, n_alphas].astype(dtype, copy=False)
+        cols[f"{column_prefix}_pred"] = feats[:, n_alphas + 1].astype(dtype, copy=False)
+        cols[f"{column_prefix}_width_ratio"] = feats[:, n_alphas + 2].astype(dtype, copy=False)
         return cols
 
     if X_query is not None:
