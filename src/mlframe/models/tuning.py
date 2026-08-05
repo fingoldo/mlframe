@@ -39,6 +39,27 @@ from sklearn.metrics import check_scoring
 
 from enum import Enum, auto
 
+__all__ = [
+    "MLTaskType",
+    "HashableDict",
+    "trained_models",
+    "check_condition",
+    "value_by_key",
+    "check_rules",
+    "double_check_dist_params",
+    "generate_valid_candidates",
+    "preprocess_df",
+    "prepare_trials_dataset",
+    "normalize_probs",
+    "objective_to_sampling_weights",
+    "favorize_unexplored",
+    "get_model",
+    "justify_estimator",
+    "create_ctr_params",
+    "ParamsOptimizer",
+    "CatboostParamsOptimizer",
+]
+
 # MLTaskType = Enum("MLTaskType", ["Regression", "Multiregression", "Classification", "Multiclassification", "MultilabelClassification", "Ranking"])
 class MLTaskType(Enum):
     """ML task types supported by the params optimizer's loss/eval-metric selection logic (see ``create_ctr_params`` comments)."""
