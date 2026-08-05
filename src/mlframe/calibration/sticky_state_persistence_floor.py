@@ -49,6 +49,8 @@ def apply_sticky_state_persistence_floor(probs: np.ndarray, active_class: np.nda
     floor_arr = np.asarray(floor, dtype=np.float64)
     if np.any(floor_arr < 0.0) or np.any(floor_arr >= 1.0):
         raise ValueError(f"apply_sticky_state_persistence_floor: floor must be in [0, 1), got {floor!r}.")
+    if floor_arr.ndim == 1 and floor_arr.shape[0] != k:
+        raise ValueError(f"apply_sticky_state_persistence_floor: per-class floor vector must have length {k} (k), got shape {floor_arr.shape}.")
     if n and (np.any(active < 0) or np.any(active >= k)):
         raise ValueError(f"apply_sticky_state_persistence_floor: active_class must index into [0, {k}), got {active_class!r}.")
 

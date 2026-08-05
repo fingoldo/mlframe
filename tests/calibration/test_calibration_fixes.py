@@ -243,6 +243,17 @@ def test_f4_floor_out_of_range_raises():
         apply_sticky_state_persistence_floor(probs, active, floor=-0.1)
 
 
+def test_calibration_3_mismatched_per_class_floor_length_raises_clear_valueerror():
+    """CALIBRATION-3: a per-class floor vector whose length != k must raise a clear ValueError,
+    not an opaque IndexError from floor_arr[active] deep inside the function."""
+    from mlframe.calibration.sticky_state_persistence_floor import apply_sticky_state_persistence_floor
+
+    probs = np.array([[0.1, 0.2, 0.7], [0.3, 0.3, 0.4]])
+    active = np.array([2, 1])  # valid indices into k=3, but out of range for a length-2 floor vector
+    with pytest.raises(ValueError, match="per-class floor vector"):
+        apply_sticky_state_persistence_floor(probs, active, floor=np.array([0.1, 0.2]))
+
+
 def test_f4_active_class_out_of_range_raises():
     """F4: active class out of range raises."""
     from mlframe.calibration.sticky_state_persistence_floor import apply_sticky_state_persistence_floor
