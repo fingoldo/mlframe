@@ -82,7 +82,13 @@ def masked_multilabel_logloss_objective(
         y_pred_margin_arr = np.asarray(y_pred_margin, dtype=np.float64)
         y_true_arr = np.asarray(dtrain.get_label(), dtype=np.float64)  # type: ignore[attr-defined]
 
-        care_mask = y_true_arr != sentinel
+        # dtrain.get_label() has round-tripped through XGBoost's internal float32 label storage, so a
+        # sentinel not exactly representable in float32 would compare unequal here even for a genuine
+        # sentinel cell (float64(sentinel) != float64(float32(sentinel)) in general). Quantize the sentinel
+        # through float32 too before comparing, so both sides are compared at the precision the label
+        # array actually survived at -- the default sentinel (2.0) is exactly representable either way, so
+        # this is a no-op for it and only matters for a caller-supplied non-default sentinel.
+        care_mask = y_true_arr != np.float64(np.float32(sentinel))
         prob = 1.0 / (1.0 + np.exp(-y_pred_margin_arr))
 
         grad = np.where(care_mask, prob - y_true_arr, 0.0)
