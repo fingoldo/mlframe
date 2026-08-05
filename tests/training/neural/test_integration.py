@@ -385,9 +385,11 @@ class TestCheckpointingIntegration:
         eval_set = (classification_dataset["X_val"], classification_dataset["y_val"])
         clf.fit(classification_dataset["X_train"], classification_dataset["y_train"], eval_set=eval_set)
 
-        # Model should have best_epoch attribute
-        if hasattr(clf.model, "best_epoch"):
-            assert clf.model.best_epoch is not None
+        # With load_best_weights_on_train_end=True, the model must actually record and restore a
+        # best epoch -- previously this assertion was skipped entirely whenever the attribute was
+        # absent, so the test passed regardless of whether restoration worked.
+        assert hasattr(clf.model, "best_epoch"), "model must expose best_epoch when load_best_weights_on_train_end=True"
+        assert clf.model.best_epoch is not None
 
 
 # ================================================================================================
