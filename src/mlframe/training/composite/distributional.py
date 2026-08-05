@@ -83,6 +83,36 @@ def _interp_rows_shared_x(u: np.ndarray, levels: np.ndarray, qmat: np.ndarray, o
                 out[i, t] = y0 + (y1 - y0) * (x - x0) / (x1 - x0)
     return out
 
+
+@numba.njit(cache=True)
+def _step_cdf_rows(qmat: np.ndarray, levels: np.ndarray, t: np.ndarray, out: np.ndarray) -> np.ndarray:
+    """Per-row step-CDF at a SHARED query grid ``t``, without materializing an (n, K, G) dense array.
+
+    ``qmat`` rows are ascending (non-crossing quantiles), so for each row the count of quantile values
+    ``<= t[j]`` (binary search, since the row is sorted) directly gives the satisfied-level index: the
+    step-CDF value is ``levels[count-1]`` (or 0.0 if no quantile is <= t[j]). One njit dispatch does the
+    whole (n_rows, len(t)) grid in O(n*G*log K) time and O(n*G) output memory instead of the
+    O(n*K*G) broadcast comparison array the plain-numpy form would need.
+    """
+    n_rows, K = qmat.shape
+    G = t.shape[0]
+    for i in range(n_rows):
+        row = qmat[i]
+        for j in range(G):
+            # np.searchsorted(row, t[j], side="right"): count of row entries <= t[j].
+            lo = 0
+            hi = K
+            x = t[j]
+            while lo < hi:
+                mid = (lo + hi) // 2
+                if row[mid] <= x:
+                    lo = mid + 1
+                else:
+                    hi = mid
+            out[i, j] = levels[lo - 1] if lo > 0 else 0.0
+    return out
+
+
 logger = logging.getLogger(__name__)
 
 # Dense default grid: 0.05 .. 0.95 step 0.05 (19 levels). Symmetric, includes the
@@ -224,18 +254,16 @@ class CompositeDistributionEstimator(BaseEstimator, RegressorMixin):
         row), so the returned rows are valid CDFs.
         """
         self._check_fitted()
-        qmat = self._quantile_matrix(X)  # (n, K), ascending per row
-        levels = self.quantiles_  # (K,), ascending
-        t = np.asarray(y_grid, dtype=np.float64).reshape(-1)  # (G,)
-        # For each (row i, query j): count fitted quantiles with value <= t_j, take
-        # the level of the highest such. Vectorised via broadcasting: compare the
-        # (n, K, 1) quantile values against (1, 1, G) queries.
-        leq = qmat[:, :, None] <= t[None, None, :]  # (n, K, G) bool
-        # Level assigned to each satisfied quantile (broadcast), else 0; the max
-        # over K gives the highest satisfied level (= step-CDF value). Below the
-        # lowest quantile no level is satisfied -> max of an all-zero slice = 0.
-        level_if = np.where(leq, levels[None, :, None], 0.0)  # (n, K, G)
-        cdf = level_if.max(axis=1)  # (n, G)
+        qmat = np.ascontiguousarray(self._quantile_matrix(X))  # (n, K), ascending per row
+        levels = np.ascontiguousarray(self.quantiles_, dtype=np.float64)  # (K,), ascending
+        t = np.ascontiguousarray(np.asarray(y_grid, dtype=np.float64).reshape(-1))  # (G,)
+        # For each (row i, query j): count fitted quantiles with value <= t_j (binary search on the
+        # row, since rows are sorted ascending), take the level of the highest such. A dense (n, K, G)
+        # broadcast comparison array (the prior form) is an unguarded O(n*K*G) allocation -- tens of GB
+        # at realistic large-n plus a moderately fine y_grid; the njit kernel does the same computation
+        # in O(n*G) output memory.
+        out = np.empty((qmat.shape[0], t.shape[0]), dtype=np.float64)
+        cdf = _step_cdf_rows(qmat, levels, t, out)
         return np.asarray(cdf)
 
     # ------------------------------------------------------------------
