@@ -45,8 +45,10 @@ class ShortlistTransformerAdapter(BaseEstimator, TransformerMixin):
     ----------
     compute_fn:
         A shortlist transformer with the ``(X_train, y_train, X_query, splitter=None, *, seed, ...)`` signature (e.g. ``compute_rff_features``, ``compute_class_distance_features``, ``compute_local_lift_features``).
+    random_state:
+        Threaded through to ``compute_fn`` (as its own ``seed`` keyword) for reproducibility.
     seed:
-        Threaded through to ``compute_fn`` for reproducibility.
+        Deprecated alias for ``random_state``, kept only for backward compatibility with pre-existing callers.
     needs_y:
         True when ``compute_fn`` requires ``y_train`` (class-distance / local-lift); False for unsupervised transformers (RFF). When False, ``y`` may be omitted at fit.
     passthrough:
@@ -59,12 +61,21 @@ class ShortlistTransformerAdapter(BaseEstimator, TransformerMixin):
         self,
         compute_fn: Callable[..., pl.DataFrame],
         *,
-        seed: int = 42,
+        random_state: int = 42,
         needs_y: bool = True,
         passthrough: bool = True,
         compute_kwargs: Optional[dict] = None,
+        seed: Optional[int] = None,
     ):
         self.compute_fn = compute_fn
+        if seed is not None:
+            # Deprecated back-compat alias: every other BaseEstimator subclass in this codebase names its
+            # RNG param random_state; seed is kept only so pre-existing callers don't get a TypeError.
+            logger.warning(
+                "ShortlistTransformerAdapter: 'seed' is deprecated, use 'random_state' instead. Overriding random_state=%r with seed=%r.", random_state, seed
+            )
+            random_state = seed
+        self.random_state = random_state
         self.seed = seed
         self.needs_y = needs_y
         self.passthrough = passthrough
@@ -96,7 +107,7 @@ class ShortlistTransformerAdapter(BaseEstimator, TransformerMixin):
         check_is_fitted(self, "_X_train_")
         Xq = _to_2d_numeric(X)
         kwargs = dict(self.compute_kwargs or {})
-        kwargs.setdefault("seed", self.seed)
+        kwargs.setdefault("seed", self.random_state)
         # Two shortlist calling conventions:
         #   * supervised kNN-style: ``f(X_train, y_train, X_query, *, seed, ...)`` (class_distance / local_lift).
         #   * RFF-style: ``f(X, *, seed, X_query=..., ...)`` -- single positional + X_query keyword.
@@ -138,7 +149,7 @@ class ShortlistTransformerAdapter(BaseEstimator, TransformerMixin):
 
         n = self._X_train_.shape[0]
         n_splits = int(min(5, max(2, n)))
-        return KFold(n_splits=n_splits, shuffle=True, random_state=self.seed)
+        return KFold(n_splits=n_splits, shuffle=True, random_state=self.random_state)
 
     def fit_transform(self, X, y=None, **fit_params):
         """Mode A: honest OUT-OF-FOLD features for the TRAINING rows (each row's feature comes from a model /
@@ -155,7 +166,7 @@ class ShortlistTransformerAdapter(BaseEstimator, TransformerMixin):
         if "splitter" not in params:
             return self.transform(X)
         kwargs = dict(self.compute_kwargs or {})
-        kwargs.setdefault("seed", self.seed)
+        kwargs.setdefault("seed", self.random_state)
         splitter = self._make_oof_splitter()
         if "y_train" in params or "X_train" in params:
             feats = self.compute_fn(self._X_train_, self._y_train_, None, splitter=splitter, **kwargs)

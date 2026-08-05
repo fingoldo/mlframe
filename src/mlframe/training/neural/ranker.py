@@ -602,11 +602,12 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         hidden_layers: tuple[int, ...] = (64, 64),
         dropout: float = 0.1,
         early_stopping_patience: int | None = 10,
-        seed: int = 42,
+        random_state: int = 42,
         verbose: int = 0,
         enable_checkpointing: bool = False,
         accumulate_grad_batches: int = 1,
         queries_per_batch: int = 32,
+        seed: int | None = None,
     ):
         self.loss_fn = loss_fn
         self.n_estimators = n_estimators
@@ -614,6 +615,12 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         self.hidden_layers = hidden_layers
         self.dropout = dropout
         self.early_stopping_patience = early_stopping_patience
+        if seed is not None:
+            # Deprecated back-compat alias: every other BaseEstimator subclass in this codebase names its
+            # RNG param random_state; seed is kept only so pre-existing callers don't get a TypeError.
+            logger.warning("MLPRanker: 'seed' is deprecated, use 'random_state' instead. Overriding random_state=%r with seed=%r.", random_state, seed)
+            random_state = seed
+        self.random_state = random_state
         self.seed = seed
         self.verbose = verbose
         self.enable_checkpointing = enable_checkpointing
@@ -807,7 +814,7 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         # making THIS estimator's own repeated fit() calls reproducible.
         _prior_torch_rng_state = torch.get_rng_state()
         _prior_cuda_rng_state = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
-        torch.manual_seed(int(self.seed))
+        torch.manual_seed(int(self.random_state))
 
         X_arr = self._x_to_array(X)
         y_arr = np.asarray(y, dtype=np.float32).ravel()
@@ -841,7 +848,7 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         _train_qpb = self.queries_per_batch if (self.loss_fn == "ranknet" and y_arr.ndim == 1) else 1
         train_sampler = GroupBatchSampler(
             group_ids=np.asarray(group_ids), relevance=y_arr,
-            shuffle=True, seed=self.seed,
+            shuffle=True, seed=self.random_state,
             queries_per_batch=_train_qpb,
         )
         if len(train_sampler) == 0:
@@ -878,7 +885,7 @@ class MLPRanker(BaseEstimator, RegressorMixin):
             _val_qpb = self.queries_per_batch if (self.loss_fn == "ranknet" and y_val_arr.ndim == 1) else 1
             val_sampler = GroupBatchSampler(
                 group_ids=np.asarray(group_ids_val), relevance=y_val_arr,
-                shuffle=False, seed=self.seed,
+                shuffle=False, seed=self.random_state,
                 queries_per_batch=_val_qpb,
             )
             if self.loss_fn == "ranknet" and y_val_arr.ndim == 1:
