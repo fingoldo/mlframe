@@ -143,36 +143,17 @@ def _run_sweep_cat_fe_perm_kernel(n_iters: int = 3) -> list[dict]:
     })
     return cast("list[dict]", regions)
 def ensure_cat_fe_perm_kernel_tuning(force: bool = False) -> Optional[list[dict]]:
-    # Lazy import of parent-resident helpers: ``.predict`` re-imports
-    # this sibling at its bottom, so a top-level ``from .predict
-    # import ...`` would create a hard cycle the meta-test flags.
-    from .auto_tune import _shared_cache
-    cache = _shared_cache()
-    if cache is None:
-        return None
-    if not force:
-        regions = cache.get_regions("cat_fe_perm_kernel")
-        if regions:
-            return cast("list[dict]", regions)
-    logger.info("kernel_tuning_cache: cat_fe_perm_kernel sweep starting")
-    t0 = time.perf_counter()
-    try:
-        regions = _run_sweep_cat_fe_perm_kernel(n_iters=3)
-    except Exception as e:
-        logger.warning("kernel_tuning_cache: cat_fe_perm_kernel sweep failed: %s", e)
-        return None
-    logger.info(
-        "kernel_tuning_cache: cat_fe_perm_kernel sweep done in %.2fs",
-        time.perf_counter() - t0,
+    """SUPERSEDED: ``cat_fe_perm_kernel`` has migrated to the ``pyutilz.performance.kernel_tuning``
+    registry (see ``cli.py``'s ``_refresh_via_new_registry`` / ``refresh-cat-fe-perm``). See
+    ``ensure_batch_pair_mi_tuning``'s docstring for why calling this legacy sweep directly is dangerous
+    (same cache-key-shadowing failure mode) -- raises instead of running.
+    """
+    raise RuntimeError(
+        "ensure_cat_fe_perm_kernel_tuning is superseded by the pyutilz.performance.kernel_tuning "
+        "registry (cli.py's _refresh_via_new_registry); calling it directly would write a stale-schema "
+        "region to the same cache key the new registry owns and silently shadow it. Use the CLI or "
+        "pyutilz.performance.kernel_tuning.tune_spec instead."
     )
-    if regions:
-        try:
-            cache.update("cat_fe_perm_kernel", axes=["n_samples", "n_perms"], regions=regions)
-        except OSError as e:
-            logger.warning(
-                "kernel_tuning_cache: cat_fe_perm_kernel save failed: %s", e,
-            )
-    return cast("list[dict]", regions)
 def _run_sweep_rmse_partial_sum(n_iters: int = 5) -> list[dict]:
     """Sweep BLOCK_N in {64, 128, 256, 512, 1024} for the numba.cuda RMSE
     partial-sum kernel. Returns regions of the form
@@ -364,36 +345,17 @@ def _run_sweep_unary_elementwise(n_iters: int = 5) -> list[dict]:
         "min_cells": int(chosen),
     }]
 def ensure_unary_elementwise_tuning(force: bool = False) -> Optional[list[dict]]:
-    # Lazy import of parent-resident helpers: ``.predict`` re-imports
-    # this sibling at its bottom, so a top-level ``from .predict
-    # import ...`` would create a hard cycle the meta-test flags.
-    from .auto_tune import _shared_cache
-    cache = _shared_cache()
-    if cache is None:
-        return None
-    if not force:
-        regions = cache.get_regions("unary_elementwise")
-        if regions:
-            return cast("list[dict]", regions)
-    logger.info("kernel_tuning_cache: unary_elementwise sweep starting")
-    t0 = time.perf_counter()
-    try:
-        regions = _run_sweep_unary_elementwise(n_iters=2)
-    except Exception as e:
-        logger.warning("kernel_tuning_cache: unary_elementwise sweep failed: %s", e)
-        return None
-    logger.info(
-        "kernel_tuning_cache: unary_elementwise sweep done in %.2fs",
-        time.perf_counter() - t0,
+    """SUPERSEDED: ``unary_elementwise`` has migrated to the ``pyutilz.performance.kernel_tuning``
+    registry (see ``cli.py``'s ``_refresh_via_new_registry`` / ``refresh-unary-elementwise``). See
+    ``ensure_batch_pair_mi_tuning``'s docstring for why calling this legacy sweep directly is dangerous
+    (same cache-key-shadowing failure mode) -- raises instead of running.
+    """
+    raise RuntimeError(
+        "ensure_unary_elementwise_tuning is superseded by the pyutilz.performance.kernel_tuning "
+        "registry (cli.py's _refresh_via_new_registry); calling it directly would write a stale-schema "
+        "region to the same cache key the new registry owns and silently shadow it. Use the CLI or "
+        "pyutilz.performance.kernel_tuning.tune_spec instead."
     )
-    if regions:
-        try:
-            cache.update("unary_elementwise", axes=["n_samples"], regions=regions)
-        except OSError as e:
-            logger.warning(
-                "kernel_tuning_cache: unary_elementwise save failed: %s", e,
-            )
-    return cast("list[dict]", regions)
 def _run_sweep_rff_matmul(n_iters: int = 3) -> list[dict]:
     """Find ``work_threshold``: smallest ``work = n * d * n_features`` at
     which the cupy matmul path beats numpy for RFF. Source default
@@ -471,34 +433,17 @@ def _run_sweep_rff_matmul(n_iters: int = 3) -> list[dict]:
         "work_threshold": int(crossover_work),
     }]
 def ensure_rff_matmul_tuning(force: bool = False) -> Optional[list[dict]]:
-    # Lazy import of parent-resident helpers: ``.predict`` re-imports
-    # this sibling at its bottom, so a top-level ``from .predict
-    # import ...`` would create a hard cycle the meta-test flags.
-    from .auto_tune import _shared_cache
-    cache = _shared_cache()
-    if cache is None:
-        return None
-    if not force:
-        regions = cache.get_regions("rff_matmul")
-        if regions:
-            return cast("list[dict]", regions)
-    logger.info("kernel_tuning_cache: rff_matmul sweep starting")
-    t0 = time.perf_counter()
-    try:
-        regions = _run_sweep_rff_matmul(n_iters=3)
-    except Exception as e:
-        logger.warning("kernel_tuning_cache: rff_matmul sweep failed: %s", e)
-        return None
-    logger.info(
-        "kernel_tuning_cache: rff_matmul sweep done in %.2fs",
-        time.perf_counter() - t0,
+    """SUPERSEDED: ``rff_matmul`` has migrated to the ``pyutilz.performance.kernel_tuning`` registry
+    (see ``cli.py``'s ``_refresh_via_new_registry`` / ``refresh-rff-matmul``). See
+    ``ensure_batch_pair_mi_tuning``'s docstring for why calling this legacy sweep directly is dangerous
+    (same cache-key-shadowing failure mode) -- raises instead of running.
+    """
+    raise RuntimeError(
+        "ensure_rff_matmul_tuning is superseded by the pyutilz.performance.kernel_tuning registry "
+        "(cli.py's _refresh_via_new_registry); calling it directly would write a stale-schema region "
+        "to the same cache key the new registry owns and silently shadow it. Use the CLI or "
+        "pyutilz.performance.kernel_tuning.tune_spec instead."
     )
-    if regions:
-        try:
-            cache.update("rff_matmul", axes=["work"], regions=regions)
-        except OSError as e:
-            logger.warning("kernel_tuning_cache: rff_matmul save failed: %s", e)
-    return cast("list[dict]", regions)
 def _run_sweep_knn_hnsw_crossover(n_iters: int = 3) -> list[dict]:
     """Find ``n_threshold``: smallest ``n_subset`` at which hnswlib ANN
     beats sklearn brute/ball_tree kNN for a given d. Requires hnswlib
