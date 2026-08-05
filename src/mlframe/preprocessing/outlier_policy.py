@@ -108,6 +108,14 @@ def apply_outlier_policy(
         For a tree-based model: ``X`` UNCHANGED plus one new ``outlier_score`` column (a naive per-row
         outlier score across ``columns``, values NOT modified). For a non-tree model: ``X`` with
         ``columns`` capped to ``cap_quantiles`` (no new column).
+
+    LEAKAGE CAVEAT: this recomputes cap/outlier-score bounds from whatever ``X`` it is called on every
+    time -- there is no fit/apply split and no persisted state (unlike a fitted-transformer pattern). Bounds
+    computed on a test/holdout frame reflect that frame's OWN distribution, not the train distribution --
+    calling this independently on train and test silently diverges the bounds applied to each. Fit-on-train
+    discipline is the caller's responsibility: compute ``cap_quantiles``' effective bounds once on the train
+    frame and reuse them (e.g. via :func:`mlframe.preprocessing.outlier_capping_or_missing.outlier_cap_or_missing`'s
+    equivalent caveat) if leakage-free train/test bounds are required.
     """
     if columns is None:
         columns = [c for c in X.select_dtypes(include=[np.number]).columns]
