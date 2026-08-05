@@ -812,30 +812,6 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     _train_idx=_train_idx,
                 )
 
-                # After the first model trains, if the pre_pipeline is identity-equivalent (kept all
-                # columns) AND the ordinary branch is in the suite, the remaining models would see
-                # identical data - skip them.
-                if (
-                    _model_idx_in_run == 1
-                    and _pp_name_stripped
-                    and use_ordinary_models
-                    and feature_selection_config.skip_identity_equivalent_pre_pipelines
-                    and getattr(pre_pipeline, "_mlframe_identity_equivalent", False)
-                ):
-                    _skip_remaining = _total_models_in_run - 1
-                    if _skip_remaining > 0:
-                        logger.info(
-                            "[Dedup] pre_pipeline '%s' is "
-                            "identity-equivalent to ordinary (kept "
-                            "all %d columns); skipping remaining "
-                            "%d model(s) for this target.",
-                            _pp_name_stripped,
-                            train_df_transformed.shape[1] if train_df_transformed is not None else 0,
-                            _skip_remaining,
-                        )
-                    _break_model_loop = True
-                    break  # exit weight_schema loop
-
                 # Hand the dataset-reuse cache from cloned_model back to the template so the next
                 # weight-schema iteration's clone() carries it forward (symmetric to the forward-transfer
                 # block above). Without this the cache would be born and die in a single iteration.
@@ -864,6 +840,35 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
 
                 if cached_dfs is None:
                     pipeline_cache.set(cache_key, train_df_transformed, val_df_transformed, test_df_transformed)
+
+                # After the first model trains, if the pre_pipeline is identity-equivalent (kept all
+                # columns) AND the ordinary branch is in the suite, the remaining models would see
+                # identical data - skip them. Checked AFTER _build_and_record_model_schema /
+                # pipeline_cache.set above (not before, as this used to be ordered): the model that
+                # JUST trained and triggered this dedup detection must still get its own schema
+                # recorded and its transformed frames cached like every other model does -- breaking
+                # before those calls silently left it with no metadata['model_schemas'] entry,
+                # disabling predict-time schema-drift hard-fail protection for it specifically.
+                if (
+                    _model_idx_in_run == 1
+                    and _pp_name_stripped
+                    and use_ordinary_models
+                    and feature_selection_config.skip_identity_equivalent_pre_pipelines
+                    and getattr(pre_pipeline, "_mlframe_identity_equivalent", False)
+                ):
+                    _skip_remaining = _total_models_in_run - 1
+                    if _skip_remaining > 0:
+                        logger.info(
+                            "[Dedup] pre_pipeline '%s' is "
+                            "identity-equivalent to ordinary (kept "
+                            "all %d columns); skipping remaining "
+                            "%d model(s) for this target.",
+                            _pp_name_stripped,
+                            train_df_transformed.shape[1] if train_df_transformed is not None else 0,
+                            _skip_remaining,
+                        )
+                    _break_model_loop = True
+                    break  # exit weight_schema loop
 
             # Preserve a fitted feature-selector across same-bucket tree iterations. Tree strategies return
             # just the base_pipeline from build_pipeline(); non-tree strategies wrap it in a full Pipeline
