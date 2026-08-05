@@ -52,10 +52,16 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
     happens not to match across, or imbalanced rare cat levels that
     randomly land in only val/test.
 
-    Fix: compute the UNION of category levels across all three splits
-    per column, then re-cast each split's column to that union. XGBoost
-    now sees val/test as a subset of the train cat universe -- no
-    "unseen category" rejections.
+    Fix: compute the UNION of category levels across train + val ONLY
+    (deliberately excluding test -- test categories must never feed back
+    into the train-time cat universe, that's the canonical leak; val is
+    fair game since it already participates in early-stopping / model
+    selection), then re-cast train/val to that union. A test row carrying
+    a category unseen in train+val gets cast to NaN under pandas'
+    Categorical semantics rather than raising -- XGBoost still requires
+    upfront train+val alignment to avoid its hard "unseen category"
+    rejection, but test intentionally stays OUT of the union so no test-set
+    information ever reaches the fit.
 
     No-op for non-XGB models. CB / HGB / LGB tolerate unseen
     categories natively.

@@ -116,3 +116,22 @@ def test_tc29_alignment_makes_codes_agree():
         assert train2["k"].cat.categories.get_loc(s) == val2["k"].cat.categories.get_loc(s)
     # train2 retains 'a', val2 union retains 'd' -- both present in the shared list.
     assert "a" in train2["k"].cat.categories and "d" in train2["k"].cat.categories
+
+
+def test_tc29_test_categories_excluded_from_union():
+    """TRAINING_LOOSE_A-2: a category present ONLY in test must NOT be folded into the train/val union --
+    the union is deliberately train+val ONLY (leak-safe); a test-only category surfaces as NaN under
+    pandas' Categorical semantics rather than being silently absorbed into the fit-time cat universe."""
+    train = get_pandas_view_of_polars_df(pl.DataFrame({"k": ["a", "b", "c", "a"]}).with_columns(pl.col("k").cast(pl.Categorical)))
+    val = get_pandas_view_of_polars_df(pl.DataFrame({"k": ["b", "c", "a", "b"]}).with_columns(pl.col("k").cast(pl.Categorical)))
+    test = get_pandas_view_of_polars_df(pl.DataFrame({"k": ["z", "a", "z", "b"]}).with_columns(pl.col("k").cast(pl.Categorical)))
+
+    train2, val2, test2 = _align_xgb_cat_categories("XGBClassifier", train, val_df=val, test_df=test)
+
+    assert "z" not in train2["k"].cat.categories
+    assert "z" not in val2["k"].cat.categories
+    # 'z' was never fed back into train/val's fit-time universe -- must not leak into their category lists.
+    assert set(train2["k"].cat.categories) == set(val2["k"].cat.categories) == {"a", "b", "c"}
+    # test2 itself is untouched by the train/val union -- its own 'z' rows still carry their own category,
+    # not silently absorbed into (or rejected against) the train+val universe.
+    assert "z" in test2["k"].cat.categories
