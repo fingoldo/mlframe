@@ -108,7 +108,12 @@ def plot_target_over_time(
                 color="orange", linestyle="-", linewidth=2.0, alpha=0.6,
             )
 
-    ax.set_ylim(-0.02, 1.05)
+    # target_rate is P(y=1) in [0, 1] for classification, but an unbounded mean(y) for regression --
+    # a hardcoded [-0.02, 1.05] y-limit clips or flattens a regression target's actual range into an
+    # unreadable near-horizontal line. Let matplotlib auto-scale to the data for regression; keep the
+    # classification convention (small padding around the valid [0, 1] rate range) unchanged.
+    if result.target_type != "regression":
+        ax.set_ylim(-0.02, 1.05)
     ax.set_xlabel(f"{result.timestamp_col} ({result.granularity})")
     ax.set_ylabel("target rate")
     ax.set_title(f"target_temporal_audit: {result.target_name} " f"({result.granularity}-binned, {len(result.segments)} segments)")

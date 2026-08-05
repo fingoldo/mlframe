@@ -360,6 +360,45 @@ def test_audit_format_report_includes_segments(synthetic_temporal_df):
     assert "ACTIONABLE" in report
 
 
+def test_plot_ylim_not_clipped_for_regression_target():
+    """TRAINING_FEATURE_HANDLING_TARGETS-3: plot_target_over_time must not hardcode the [-0.02, 1.05]
+    classification y-limit for a regression target, whose target_rate (mean(y)) is unbounded."""
+    rng = np.random.default_rng(0)
+    days = pd.date_range("2024-01-01", "2024-12-31", freq="D")
+    rows = []
+    for day in days:
+        target_mean = 100.0 + 50.0 * (day - days[0]).days / (days[-1] - days[0]).days
+        for _ in range(20):
+            rows.append({"ts": day, "y": target_mean + rng.normal(0, 5.0)})
+    df = pd.DataFrame(rows)
+
+    result = audit_target_over_time(df, timestamp_col="ts", target_col="y", target_type="regression", granularity="month")
+    fig = plot_target_over_time(result)
+    try:
+        ax = fig.axes[0]
+        ylo, yhi = ax.get_ylim()
+        assert yhi > 2.0, f"regression target_rate spans ~100-150; y-limit should auto-scale, got ylim=({ylo}, {yhi})"
+    finally:
+        import matplotlib.pyplot as plt
+        plt.close(fig)
+
+
+def test_plot_ylim_still_clipped_for_classification_target(synthetic_temporal_df):
+    """Sanity: classification targets still get the [-0.02, 1.05] rate-range y-limit, unchanged."""
+    result = audit_target_over_time(
+        synthetic_temporal_df, timestamp_col="job_posted_at", target_col="cl_act_total_hired", target_type="binary_classification",
+    )
+    fig = plot_target_over_time(result)
+    try:
+        ax = fig.axes[0]
+        ylo, yhi = ax.get_ylim()
+        assert ylo == pytest.approx(-0.02)
+        assert yhi == pytest.approx(1.05)
+    finally:
+        import matplotlib.pyplot as plt
+        plt.close(fig)
+
+
 def test_audit_plot_saves_to_disk(synthetic_temporal_df, tmp_path):
     """Audit plot saves to disk."""
     result = audit_target_over_time(
