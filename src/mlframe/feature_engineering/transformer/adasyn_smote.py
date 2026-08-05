@@ -47,8 +47,10 @@ def _adasyn_synthesize(X_minority: np.ndarray, X_full: np.ndarray, y_binary_full
     if n_min < 2:
         return X_minority.copy() if n_min > 0 else np.zeros((0, X_minority.shape[1] if n_min > 0 else 1), dtype=np.float32)
     from sklearn.neighbors import NearestNeighbors
-    # Find kNN of each positive in the FULL dataset to compute neg_fraction per positive.
-    nn_full = NearestNeighbors(n_neighbors=k_global + 1).fit(X_full)
+    # Find kNN of each positive in the FULL dataset to compute neg_fraction per positive. Capped to
+    # X_full.shape[0] like every other kNN call in this package -- an uncapped k_global+1 crashes with
+    # sklearn's ValueError on small folds/subsets where the full dataset is smaller than k_global+1.
+    nn_full = NearestNeighbors(n_neighbors=min(k_global + 1, X_full.shape[0])).fit(X_full)
     _d_full, ids_full = nn_full.kneighbors(X_minority)
     neg_fraction = (y_binary_full[ids_full[:, 1:]] <= 0.5).mean(axis=1)
     # ADASYN weight: ∝ neg_fraction (with epsilon to avoid all-zero).
