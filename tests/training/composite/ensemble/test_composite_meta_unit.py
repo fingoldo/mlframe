@@ -94,3 +94,22 @@ def test_predict_before_fit_raises():
 
     with pytest.raises(NotFittedError):
         est.predict(X)
+
+
+def test_fit_raises_clear_error_on_too_few_samples():
+    """TRAINING_COMPOSITE_CORE_B-3: fit with n<2 samples must raise a clear, class-named ValueError, not
+    sklearn's raw internal KFold(n_splits=2) error -- max(2, min(n_splits, n)) still returned 2 for n=0/1."""
+    X = pd.DataFrame({"base": [10.0], "f": [1.0]})
+    y = np.array([11.0])
+    stacker = CompositeOrRawStacker(base_column="base")
+    with pytest.raises(ValueError, match="CompositeOrRawStacker.fit"):
+        stacker.fit(X, y)
+
+
+def test_fit_raises_clear_error_on_zero_samples():
+    """Same as above for n=0."""
+    X = pd.DataFrame({"base": [], "f": []})
+    y = np.array([])
+    stacker = CompositeOrRawStacker(base_column="base")
+    with pytest.raises(ValueError, match="CompositeOrRawStacker.fit"):
+        stacker.fit(X, y)

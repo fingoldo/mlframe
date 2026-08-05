@@ -180,6 +180,11 @@ class CompositeOrRawStacker(BaseEstimator, RegressorMixin):
         """Fit both the composite and raw estimators, computing OOF predictions from each and NNLS-blending them into ``weights_``."""
         y_arr = _as_1d_y(y)
         n = y_arr.shape[0]
+        if n < 2:
+            # max(2, min(self.n_splits, n)) still returns 2 for n=0 or n=1, so KFold(n_splits=2) would
+            # raise sklearn's raw internal ValueError ("Cannot have number of splits n_splits=2 greater
+            # than the number of samples") instead of a clear, class-named error naming the actual cause.
+            raise ValueError(f"CompositeOrRawStacker.fit: need at least 2 samples for a meaningful OOF split, got {n}.")
         w_arr = np.asarray(sample_weight, dtype=np.float64) if sample_weight is not None else None
 
         # Effective split count: cannot exceed n, must be >= 2 for a meaningful OOF.
