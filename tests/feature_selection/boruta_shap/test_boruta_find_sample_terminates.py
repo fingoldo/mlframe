@@ -53,3 +53,43 @@ def test_find_sample_terminates_when_no_subsample_ever_matches(monkeypatch):
     assert isinstance(result, pd.DataFrame)
     assert result.shape[0] > 0
     assert result.shape[0] <= stub.X_boruta.shape[0]
+
+
+def test_find_sample_starts_at_5_percent_not_10_percent():
+    """FS_BORUTA_ROOT-2: find_sample must start its KS-test sample search at the FIRST (~5%) split
+    element, matching its own docstring ("Starts of a 5%") -- starting at element=1 (~10%) skipped
+    the documented first size entirely."""
+    import mlframe.feature_selection.boruta_shap._shadow_stats as ss
+
+    calls = []
+    real_choice = ss.choice
+
+    def _recording_choice(a, size, replace):
+        """Records every requested sample size, then delegates to the real np.random.choice."""
+        calls.append(size)
+        return real_choice(a, size=size, replace=replace)
+
+    orig_choice = ss.choice
+    ss.choice = _recording_choice
+    try:
+        preds = np.linspace(0.0, 1.0, 400)
+        stub = _Stub(preds)
+        expected_sizes = stub.get_5_percent_splits(stub.X.shape[0])
+        stub.find_sample()
+    finally:
+        ss.choice = orig_choice
+
+    assert calls, "find_sample never called choice()"
+    assert calls[0] == expected_sizes[0], f"first sample draw must use the FIRST (~5%) split size {expected_sizes[0]}, got {calls[0]}"
+
+
+def test_find_sample_no_indexerror_on_tiny_frame():
+    """FS_BORUTA_ROOT-2: on a 1-row frame, get_5_percent_splits returns an EMPTY array
+    (np.arange(step, length, step) with step >= length) -- find_sample must not IndexError on
+    size[element] in that case."""
+    preds = np.array([0.5])
+    stub = _Stub(preds)
+    assert stub.get_5_percent_splits(stub.X.shape[0]).size == 0, "sanity: this fixture must exercise the empty-size-array path"
+    result = stub.find_sample()
+    assert isinstance(result, pd.DataFrame)
+    assert result.shape[0] == stub.X_boruta.shape[0]

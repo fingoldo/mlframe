@@ -288,7 +288,12 @@ def find_sample(self):
     """
     iteration = 0
     size = self.get_5_percent_splits(self.X.shape[0])
-    element = 1
+    if size.size == 0:
+        # get_5_percent_splits' np.arange(step, length, step) can come back empty on frames with
+        # <=2 rows (step >= length) -- nothing to sub-sample; return the full boruta frame as-is
+        # instead of raising IndexError on size[element] below.
+        return self.X_boruta
+    element = 0
     # ``iteration`` bounds the search per sample size; on the 20th miss we grow the
     # sample (next ``size`` element). Without incrementing it the bound never fired and a
     # frame where no sub-sample reaches the KS p>0.95 threshold looped forever.
