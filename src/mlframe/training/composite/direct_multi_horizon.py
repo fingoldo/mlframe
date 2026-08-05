@@ -114,14 +114,15 @@ class DirectMultiHorizonEnsemble(BaseEstimator, RegressorMixin):
         candidates = sorted({b for b in (1, 2, 3, 4, 6, 8, 12) if b <= n_horizons} | {n_horizons})
         return candidates
 
-    def _fit_blocks(self, X: Any, Y_arr: np.ndarray, blocks: Sequence[Sequence[int]]) -> list[Any]:
+    def _fit_blocks(self, X: Any, Y_arr: np.ndarray, blocks: Sequence[Sequence[int]], sample_weight: Optional[np.ndarray] = None) -> list[Any]:
         """Fit one fresh estimator clone per block, each on its own horizon columns of ``Y_arr``."""
         models: list[Any] = []
+        fit_kwargs = {"sample_weight": sample_weight} if sample_weight is not None else {}
         for block in blocks:
             model = clone(self.estimator_factory())
             block_idx = list(block)
             Y_block = Y_arr[:, block_idx]
-            model.fit(X, Y_block[:, 0] if Y_block.shape[1] == 1 else Y_block)
+            model.fit(X, Y_block[:, 0] if Y_block.shape[1] == 1 else Y_block, **fit_kwargs)
             models.append(model)
         return models
 
@@ -193,7 +194,7 @@ class DirectMultiHorizonEnsemble(BaseEstimator, RegressorMixin):
             similarities.append(float(np.dot(a, b) / denom) if denom > 0 else None)
         self.block_importance_similarity_ = similarities
 
-    def fit(self, X: Any, Y: np.ndarray) -> "DirectMultiHorizonEnsemble":
+    def fit(self, X: Any, Y: np.ndarray, sample_weight: Optional[np.ndarray] = None) -> "DirectMultiHorizonEnsemble":
         """``Y``: ``(n, n_horizons)`` -- one column per forecast step, all measured from the SAME origin t=0
         (never a previous block's prediction)."""
         Y_arr = np.asarray(Y, dtype=np.float64)
@@ -208,7 +209,7 @@ class DirectMultiHorizonEnsemble(BaseEstimator, RegressorMixin):
         else:
             raise ValueError("horizon_blocks must be given, or auto_block_search=True to discover it via CV grid search.")
 
-        self.block_models_ = self._fit_blocks(X, Y_arr, self.horizon_blocks_)
+        self.block_models_ = self._fit_blocks(X, Y_arr, self.horizon_blocks_, sample_weight=sample_weight)
         self._n_horizons_ = Y_arr.shape[1]
 
         if self.compute_block_diagnostics:

@@ -24,7 +24,7 @@ no new transform math, just orchestration:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -93,7 +93,7 @@ class DualDirectionCompositeEstimator(BaseEstimator, RegressorMixin):
         self.fallback_predict = fallback_predict
         self.random_state = random_state
 
-    def fit(self, X: pd.DataFrame, y: Any, scale_y: Any) -> "DualDirectionCompositeEstimator":
+    def fit(self, X: pd.DataFrame, y: Any, scale_y: Any, sample_weight: Optional[np.ndarray] = None) -> "DualDirectionCompositeEstimator":
         """Fit the two-stage estimator.
 
         Parameters
@@ -112,8 +112,9 @@ class DualDirectionCompositeEstimator(BaseEstimator, RegressorMixin):
         if len(y_arr) != len(X) or len(scale_y_arr) != len(X):
             raise ValueError(f"DualDirectionCompositeEstimator.fit: X has {len(X)} rows but y has {len(y_arr)} and scale_y has {len(scale_y_arr)} -- misaligned inputs.")
 
+        fit_params = {"sample_weight": sample_weight} if sample_weight is not None else None
         cv = KFold(n_splits=self.n_splits, shuffle=True, random_state=self.random_state)
-        oof_scale_pred = np.asarray(cross_val_predict(clone(self.scale_estimator), X, scale_y_arr, cv=cv), dtype=np.float64)
+        oof_scale_pred = np.asarray(cross_val_predict(clone(self.scale_estimator), X, scale_y_arr, cv=cv, params=fit_params), dtype=np.float64)
 
         # Public diagnostic attributes: these are already computed as part of the OOF-then-refit-on-full
         # pipeline above -- exposing them costs O(n) (a division + an r2_score call), not a second CV pass.
@@ -133,13 +134,14 @@ class DualDirectionCompositeEstimator(BaseEstimator, RegressorMixin):
             base_column=_SCALE_PRED_COLUMN,
             fallback_predict=self.fallback_predict,
         )
-        self.shape_estimator_.fit(X_with_scale, y_arr)
+        shape_fit_kwargs = {"sample_weight": sample_weight} if sample_weight is not None else {}
+        self.shape_estimator_.fit(X_with_scale, y_arr, **shape_fit_kwargs)
 
         # Refit the scale estimator on the FULL training data for predict-time use -- the OOF predictions above
         # exist only to keep the shape model's training signal leakage-free; a full-data refit is the best
         # available scale estimator once that purpose is served (standard OOF-then-refit-on-full pattern).
         self.scale_estimator_ = clone(self.scale_estimator)
-        self.scale_estimator_.fit(X, scale_y_arr)
+        self.scale_estimator_.fit(X, scale_y_arr, **shape_fit_kwargs)
         return self
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:

@@ -112,12 +112,13 @@ class SegmentedModelFactory(BaseEstimator, RegressorMixin):
         """Return ``X`` with the segment-key columns removed, leaving only model features."""
         return X.drop(columns=list(self.segment_keys))
 
-    def _fit_one(self, X_segment: Any, y_segment: np.ndarray) -> Any:
+    def _fit_one(self, X_segment: Any, y_segment: np.ndarray, sample_weight: Optional[np.ndarray] = None) -> Any:
         """Fit (or HPO-search) one segment's model on its own rows."""
         if self.hpo_search_fn is not None:
             return self.hpo_search_fn(X_segment, y_segment)
         model = clone(self.estimator_factory())
-        model.fit(X_segment, y_segment)
+        fit_kwargs = {"sample_weight": sample_weight} if sample_weight is not None else {}
+        model.fit(X_segment, y_segment, **fit_kwargs)
         return model
 
     def _parent_key_of(self, seg_key: Tuple[Any, ...]) -> Tuple[Any, ...]:
@@ -126,7 +127,7 @@ class SegmentedModelFactory(BaseEstimator, RegressorMixin):
         idx_map = [list(self.segment_keys).index(k) for k in self.shrinkage_parent_keys]
         return tuple(seg_key[i] for i in idx_map)
 
-    def fit(self, X: pd.DataFrame, y: Any) -> "SegmentedModelFactory":
+    def fit(self, X: pd.DataFrame, y: Any, sample_weight: Optional[np.ndarray] = None) -> "SegmentedModelFactory":
         """Fit one model per segment (skipping too-small segments), optional parent/global pooling models for shrinkage."""
         if not isinstance(X, pd.DataFrame):
             raise TypeError("SegmentedModelFactory: X must be a pandas DataFrame (segment_keys are column names).")
@@ -136,6 +137,7 @@ class SegmentedModelFactory(BaseEstimator, RegressorMixin):
             raise ValueError("SegmentedModelFactory: shrinkage_parent_keys must be a proper subset of segment_keys.")
 
         y_arr = np.asarray(y, dtype=np.float64)
+        w_arr = np.asarray(sample_weight, dtype=np.float64) if sample_weight is not None else None
         self.segment_models_: Dict[Tuple[Any, ...], Any] = {}
         self.parent_models_: Dict[Tuple[Any, ...], Any] = {}
         self.shrinkage_weights_: Dict[Tuple[Any, ...], float] = {}
@@ -146,16 +148,17 @@ class SegmentedModelFactory(BaseEstimator, RegressorMixin):
             if n_rows < self.min_segment_rows:
                 logger.info("SegmentedModelFactory: skipping segment %s (%d rows < min_segment_rows=%d)", seg_key, n_rows, self.min_segment_rows)
                 continue
-            self.segment_models_[seg_key] = self._fit_one(X_features.iloc[idx], y_arr[idx])
+            self.segment_models_[seg_key] = self._fit_one(X_features.iloc[idx], y_arr[idx], sample_weight=None if w_arr is None else w_arr[idx])
             if self.shrinkage_min_rows is not None and n_rows < self.shrinkage_min_rows:
                 self.shrinkage_weights_[seg_key] = n_rows / (n_rows + self.shrinkage_k)
 
         if self.shrinkage_min_rows is not None and self.shrinkage_parent_keys is not None:
             for parent_key, idx in _group_positions(X, self.shrinkage_parent_keys).items():
-                self.parent_models_[parent_key] = self._fit_one(X_features.iloc[idx], y_arr[idx])
+                self.parent_models_[parent_key] = self._fit_one(X_features.iloc[idx], y_arr[idx], sample_weight=None if w_arr is None else w_arr[idx])
 
         self.global_model_ = clone(self.estimator_factory())
-        self.global_model_.fit(X_features, y_arr)
+        global_fit_kwargs = {"sample_weight": w_arr} if w_arr is not None else {}
+        self.global_model_.fit(X_features, y_arr, **global_fit_kwargs)
         return self
 
     def _fallback_predict(self, seg_key: Tuple[Any, ...], X_seg_features: Any) -> np.ndarray:

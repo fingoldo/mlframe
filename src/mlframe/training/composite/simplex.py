@@ -264,7 +264,7 @@ class CompositeSimplexEstimator(BaseEstimator, MultiOutputMixin, RegressorMixin)
 
     # ---- sklearn API -----------------------------------------------------
 
-    def fit(self, X: Any, y: np.ndarray) -> "CompositeSimplexEstimator":
+    def fit(self, X: Any, y: np.ndarray, sample_weight: Optional[np.ndarray] = None) -> "CompositeSimplexEstimator":
         """Close+zero-replace the composition, transform it to K-1 unconstrained coordinates, and fit one independent inner estimator per coordinate on the shared feature matrix ``X``."""
         y = np.asarray(y, dtype=np.float64)
         if y.ndim != 2 or y.shape[1] < 2:
@@ -282,10 +282,11 @@ class CompositeSimplexEstimator(BaseEstimator, MultiOutputMixin, RegressorMixin)
         y_safe = multiplicative_zero_replacement(_close(y), self.zero_delta)
         z = self._forward(y_safe)  # (n, K-1)
 
+        fit_kwargs = {"sample_weight": sample_weight} if sample_weight is not None else {}
         self.estimators_ = []
         for j in range(k - 1):
             inner = self._build_inner(j)
-            inner.fit(X, z[:, j])
+            inner.fit(X, z[:, j], **fit_kwargs)
             self.estimators_.append(inner)
         self.n_outputs_ = k
         cols = getattr(X, "columns", None)

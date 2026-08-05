@@ -94,7 +94,7 @@ def _drop_base_column(X: Any, base_column: str) -> Any:
     return X
 
 
-def _cross_fitted_oof(estimator: Any, X: Any, target: np.ndarray, kf: KFold) -> np.ndarray:
+def _cross_fitted_oof(estimator: Any, X: Any, target: np.ndarray, kf: KFold, sample_weight: Optional[np.ndarray] = None) -> np.ndarray:
     """Out-of-fold predictions of ``E[target | X]`` via KFold cross-fitting.
 
     For each fold the nuisance model is fit on the OTHER folds and predicts the held-out
@@ -110,7 +110,8 @@ def _cross_fitted_oof(estimator: Any, X: Any, target: np.ndarray, kf: KFold) -> 
             X_tr, X_te = X[train_idx], X[test_idx]
         else:
             X_tr, X_te = X.iloc[train_idx], X.iloc[test_idx]
-        model.fit(X_tr, target[train_idx])
+        fit_kwargs = {"sample_weight": sample_weight[train_idx]} if sample_weight is not None else {}
+        model.fit(X_tr, target[train_idx], **fit_kwargs)
         oof[test_idx] = _to_1d_numpy(model.predict(X_te))
     return oof
 
@@ -170,17 +171,31 @@ class OrthogonalizedCompositeEstimator(BaseEstimator, RegressorMixin):
         return clone(attr) if attr is not None else Ridge()
 
     @staticmethod
-    def _ols_coef(base: np.ndarray, y: np.ndarray) -> float:
-        """Simple-regression slope of y on base through a centered fit (intercept-free FWL)."""
-        bc = base - base.mean()
-        yc = y - y.mean()
-        denom = float(bc @ bc)
+    def _ols_coef(base: np.ndarray, y: np.ndarray, sample_weight: Optional[np.ndarray] = None) -> float:
+        """Simple-regression slope of y on base through a centered fit (intercept-free FWL); weighted when
+        ``sample_weight`` is given (weighted mean-center, weighted inner products)."""
+        if sample_weight is None:
+            bc = base - base.mean()
+            yc = y - y.mean()
+            denom = float(bc @ bc)
+            if denom < _DENOM_FLOOR:
+                return 0.0
+            return float((bc @ yc) / denom)
+        w = sample_weight
+        w_sum = float(w.sum())
+        if w_sum <= 0:
+            return 0.0
+        base_mean = float((w * base).sum() / w_sum)
+        y_mean = float((w * y).sum() / w_sum)
+        bc = base - base_mean
+        yc = y - y_mean
+        denom = float((w * bc * bc).sum())
         if denom < _DENOM_FLOOR:
             return 0.0
-        return float((bc @ yc) / denom)
+        return float((w * bc * yc).sum() / denom)
 
     # -- sklearn API -------------------------------------------------------
-    def fit(self, X: Any, y: Any) -> "OrthogonalizedCompositeEstimator":
+    def fit(self, X: Any, y: Any, sample_weight: Optional[np.ndarray] = None) -> "OrthogonalizedCompositeEstimator":
         """Double-ML / FWL fit: cross-fit ``E[base|X]`` and ``E[y|X]`` on the base-dropped features, residualize both,
         recover the debiased ``base_coef_`` from the residualized regression, then fit the inner estimator on
         ``y - base_coef_ * base`` (also base-dropped) so it only models the orthogonal structure in X."""
@@ -190,6 +205,7 @@ class OrthogonalizedCompositeEstimator(BaseEstimator, RegressorMixin):
         base = _extract_base(X, self.base_column)
         if base.shape[0] != y_arr.shape[0]:
             raise ValueError(f"base column and y length mismatch: base has {base.shape[0]} rows, y has {y_arr.shape[0]}.")
+        w = np.asarray(sample_weight, dtype=np.float64) if sample_weight is not None else None
 
         kf = KFold(n_splits=self.n_folds, shuffle=self.shuffle, random_state=self.random_state)
 
@@ -197,30 +213,36 @@ class OrthogonalizedCompositeEstimator(BaseEstimator, RegressorMixin):
         # dropped, otherwise ``E[base|X]`` trivially recovers base (base is a column of X)
         # and ``base_tilde`` collapses to 0, destroying the FWL ratio.
         X_nuis = _drop_base_column(X, self.base_column)
-        m_hat = _cross_fitted_oof(self._resolve_nuisance(self.base_nuisance_estimator), X_nuis, base, kf)
-        g_hat = _cross_fitted_oof(self._resolve_nuisance(self.y_nuisance_estimator), X_nuis, y_arr, kf)
+        m_hat = _cross_fitted_oof(self._resolve_nuisance(self.base_nuisance_estimator), X_nuis, base, kf, sample_weight=w)
+        g_hat = _cross_fitted_oof(self._resolve_nuisance(self.y_nuisance_estimator), X_nuis, y_arr, kf, sample_weight=w)
 
         base_tilde = base - m_hat
         y_tilde = y_arr - g_hat
 
         # FWL: regress residualized y on residualized base (no intercept -- both centered by
         # construction of the residuals, but center again defensively for finite-sample drift).
-        denom = float(base_tilde @ base_tilde)
+        if w is None:
+            denom = float(base_tilde @ base_tilde)
+        else:
+            denom = float((w * base_tilde * base_tilde).sum())
         if denom < _DENOM_FLOOR:
             logger.warning("OrthogonalizedCompositeEstimator: residualized base is near-degenerate " "(base almost fully explained by X); base_coef_ set to 0.")
             self.base_coef_ = 0.0
-        else:
+        elif w is None:
             self.base_coef_ = float((base_tilde @ y_tilde) / denom)
+        else:
+            self.base_coef_ = float((w * base_tilde * y_tilde).sum() / denom)
 
         # Naive comparison: plain OLS slope on the RAW base (the biased baseline).
-        self.naive_base_coef_ = self._ols_coef(base, y_arr)
+        self.naive_base_coef_ = self._ols_coef(base, y_arr, sample_weight=w)
 
         # Inner models the remainder on the base-dropped features. The base coefficient is
         # frozen at theta_hat, so the inner only learns the orthogonal structure in X.
         X_inner = _drop_base_column(X, self.base_column)
         residual = y_arr - self.base_coef_ * base
         self.inner_ = clone(self.inner_estimator)
-        self.inner_.fit(X_inner, residual)
+        inner_fit_kwargs = {"sample_weight": w} if w is not None else {}
+        self.inner_.fit(X_inner, residual, **inner_fit_kwargs)
 
         self.n_features_in_ = _n_features(X)
         return self

@@ -16,7 +16,7 @@ source idea's own critique calls out.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, Optional
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone
@@ -71,12 +71,13 @@ class RegimeSplitEnsemble(BaseEstimator, RegressorMixin):
         self.combine = combine
         self.regime_proba_fn = regime_proba_fn
 
-    def fit(self, X: Any, y: Any) -> "RegimeSplitEnsemble":
+    def fit(self, X: Any, y: Any, sample_weight: Optional[np.ndarray] = None) -> "RegimeSplitEnsemble":
         """Fit one model per detected regime plus a global fallback model on all rows."""
         if self.combine == "blend" and self.regime_proba_fn is None:
             raise ValueError('combine="blend" requires regime_proba_fn')
 
         y_arr = np.asarray(y, dtype=np.float64)
+        w_arr = np.asarray(sample_weight, dtype=np.float64) if sample_weight is not None else None
         regimes = np.asarray(self.regime_fn(X))
         if regimes.shape[0] != y_arr.shape[0]:
             raise ValueError(f"regime_fn returned {regimes.shape[0]} labels, expected {y_arr.shape[0]}")
@@ -86,11 +87,13 @@ class RegimeSplitEnsemble(BaseEstimator, RegressorMixin):
             mask = regimes == regime
             model = clone(self.estimator_factory())
             X_regime = X.loc[mask] if hasattr(X, "loc") else np.asarray(X)[mask]
-            model.fit(X_regime, y_arr[mask])
+            fit_kwargs = {"sample_weight": w_arr[mask]} if w_arr is not None else {}
+            model.fit(X_regime, y_arr[mask], **fit_kwargs)
             self.regime_models_[regime] = model
 
         self.global_model_ = clone(self.estimator_factory())
-        self.global_model_.fit(X, y_arr)
+        global_fit_kwargs = {"sample_weight": w_arr} if w_arr is not None else {}
+        self.global_model_.fit(X, y_arr, **global_fit_kwargs)
         return self
 
     def predict(self, X: Any) -> np.ndarray:
