@@ -123,6 +123,24 @@ def _impute_column(col: np.ndarray) -> np.ndarray:
     return np.asarray(col_f, dtype=np.float64)
 
 
+def _impute_column_fold(col: np.ndarray, tr: np.ndarray) -> np.ndarray:
+    """Float64 copy (full column, all rows) with non-finite entries replaced by the TRAIN-fold median
+    only -- computing the median over the whole screening split before the CV loop (train + that fold's
+    own held-out rows) would leak a summary statistic across the train/val boundary, mildly inflating
+    margin_gain/cv_gain. Mirrors the fit-on-train/apply-to-val discipline the rest of the codebase's
+    leakage-safe preprocessing already follows. ``tr`` need only cover the fold's train rows; a
+    StratifiedKFold fold's train+val rows already partition the full column, so applying the train
+    median to every non-finite entry (train or val) is exactly "impute with the train statistic."
+    """
+    col_f = np.asarray(col, dtype=np.float64).reshape(-1).copy()
+    tr_vals = col_f[tr]
+    tr_finite = tr_vals[np.isfinite(tr_vals)]
+    med = float(np.median(tr_finite)) if tr_finite.size else 0.0
+    bad = ~np.isfinite(col_f)
+    col_f[bad] = med
+    return np.asarray(col_f.reshape(-1, 1), dtype=np.float64)
+
+
 @dataclass
 class ClassificationDiscoveryResult:
     """Everything the screen learned, ranked; ``best`` is None when the plain model won."""
@@ -220,13 +238,14 @@ class CompositeClassificationDiscovery:
 
         rows: list[dict[str, Any]] = []
         for j in cand_idx:
-            col = _impute_column(values[:, j])
+            raw_col = values[:, j]
             lls: list[float] = []
             ok = True
             for tr, va in splits:
                 if np.unique(y[tr]).size < classes.size:
                     ok = False
                     break
+                col = _impute_column_fold(raw_col, tr)
                 lr = self._univariate_margin_model()
                 try:
                     lr.fit(col[tr], y[tr])
@@ -253,13 +272,14 @@ class CompositeClassificationDiscovery:
         skf = StratifiedKFold(n_splits=self.cv_folds, shuffle=True, random_state=self.random_state)
         comp_ll: list[float] = []
         plain_ll: list[float] = []
-        col_full = _impute_column(_extract_named_column(X_screen, col_name))
+        raw_col = _extract_named_column(X_screen, col_name)
         for tr, va in skf.split(np.zeros(y.size), y):
             inner = self.inner_estimator if self.inner_estimator is not None else _default_tiny_inner(self.random_state)
             plain = clone(inner)
             X_tr, X_va = _take_rows(X_screen, tr), _take_rows(X_screen, va)
             plain.fit(X_tr, y[tr])
             plain_ll.append(float(log_loss(y[va], plain.predict_proba(X_va), labels=classes)))
+            col_full = _impute_column_fold(raw_col, tr)
             margin_lr = self._univariate_margin_model().fit(col_full[tr], y[tr])
             est = CompositeClassificationEstimator(
                 base_estimator=clone(inner),
