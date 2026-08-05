@@ -24,6 +24,34 @@ from torch import nn
 from ._mlp_predict_shared import mlp_predict
 
 
+def _validate_field_groups_partition(field_groups: Dict[str, Sequence[int]], n_features: int) -> None:
+    """Raise ValueError unless ``field_groups`` partitions ``range(n_features)`` exactly once each.
+
+    The docstring contract ("Every column index must appear in exactly one field") was never enforced --
+    a missing index silently drops that column's signal from every field encoder, and a duplicated index
+    silently double-counts it in two encoders, both with no error and no signal to the caller.
+    """
+    seen: Dict[int, str] = {}
+    duplicates: list[tuple[int, str, str]] = []
+    out_of_range: list[tuple[str, int]] = []
+    for name, idx in field_groups.items():
+        for i in idx:
+            if i < 0 or i >= n_features:
+                out_of_range.append((name, i))
+                continue
+            if i in seen:
+                duplicates.append((i, seen[i], name))
+            else:
+                seen[i] = name
+    if out_of_range:
+        raise ValueError(f"field_groups: column index out of range [0, {n_features}) -- {out_of_range[:10]}")
+    if duplicates:
+        raise ValueError(f"field_groups: column index(es) assigned to more than one field -- {duplicates[:10]}")
+    missing = sorted(set(range(n_features)) - seen.keys())
+    if missing:
+        raise ValueError(f"field_groups: column index(es) missing from every field -- {missing[:10]}")
+
+
 class _FieldGroupedMLPModule(nn.Module):
     """Torch module: per-field sub-MLP encoders whose outputs are concatenated and fed to a shared head."""
 
@@ -79,6 +107,7 @@ class FieldGroupedMLPRegressor(BaseEstimator, RegressorMixin):
         """Train the field-grouped MLP module with full-batch Adam."""
         X_arr = np.asarray(X, dtype=np.float32)
         y_arr = np.asarray(y, dtype=np.float32).reshape(-1)
+        _validate_field_groups_partition(self.field_groups, X_arr.shape[1])
 
         torch.manual_seed(self.random_state)
         self.model_ = _FieldGroupedMLPModule(self.field_groups, field_hidden=self.field_hidden, head_hidden=self.head_hidden)
