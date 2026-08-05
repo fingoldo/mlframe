@@ -41,7 +41,7 @@ def _fit_3baselines_two(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task: s
             train_preds[:, 2] = m3.predict_proba(Xt)[:, 1]
             query_preds[:, 2] = m3.predict_proba(Xq)[:, 1]
         except Exception as e:
-            logger.debug("LogisticRegression member fit/predict failed, falling back to prior: %s", e)
+            logger.info("ib_baseline_codes: LogisticRegression member fit/predict failed (%s); falling back to constant class prior.", e)
             prior = float(y_t.mean())
             train_preds[:, 2] = prior
             query_preds[:, 2] = prior
