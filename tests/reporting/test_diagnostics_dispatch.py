@@ -147,6 +147,39 @@ class TestSplitErrorDiagnostics:
         assert (n - 1) in set(out["worst_k_indices"].tolist())
         assert (out["worst_k_indices"] < n).all()
 
+    def test_large_n_subsample_preserves_timestamps(self, tmp_path):
+        """REPORTING_B-2: when n > DIAG_ROW_CAP, worst_k_table must still receive the CORRECT
+        per-row timestamps for the subsampled rows (indexed by sample_idx), not None."""
+        rng = np.random.default_rng(2)
+        n = DIAG_ROW_CAP + 20_000
+        df = pd.DataFrame({"f0": rng.uniform(0, 1, n), "f1": rng.uniform(0, 1, n)})
+        y = df["f0"].to_numpy()
+        yp = y.copy()
+        yp[-1] += 100.0  # single worst row -- must survive subsampling
+        # Distinctive timestamps: row i's timestamp encodes i itself, so the surfaced worst-K
+        # timestamp can be checked against the true original row index.
+        ts = np.arange(n, dtype=np.int64)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            out = render_split_error_diagnostics(
+                df=df,
+                y_true=y,
+                y_pred=yp,
+                task="regression",
+                plot_outputs="matplotlib[png]",
+                base_path=str(tmp_path / "big_ts"),
+                metrics_dict={},
+                feature_names=["f0", "f1"],
+                timestamps=ts,
+                worst_k=5,
+            )
+        table = out["worst_k_table"]
+        assert table is not None
+        assert "timestamp" in table.columns
+        # The worst row (n-1) must carry ITS OWN original timestamp (n-1), not None / a wrong subsample-local value.
+        worst_row = table.iloc[0]
+        assert int(worst_row["timestamp"]) == n - 1
+
 
 # ----------------------------------------------------------------------------
 # Per-target drift + adversarial

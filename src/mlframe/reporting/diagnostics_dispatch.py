@@ -197,13 +197,22 @@ def render_split_error_diagnostics(
     # only the K worst rows pull feature values). Surface the table in the caller's metrics dict.
     sample_idx = _bounded_sample_idx(n, loss_finite, seed=seed)
     sub_df, names = _select_feature_columns(_subset_rows(df, sample_idx), feature_names, DIAG_MAX_FEATURES)
+    if timestamps is None:
+        ts_arg = None
+    elif n <= DIAG_ROW_CAP:
+        ts_arg = list(timestamps[:n])
+    else:
+        # Subsampled branch: index timestamps by the SAME sample_idx used for yt/yp/sub_df below, instead
+        # of dropping temporal context entirely -- this is exactly the large-frame (100GB+) case this
+        # subsystem targets, so it must not be the one case where worst-K rows lose their timestamps.
+        ts_arg = list(np.asarray(timestamps)[sample_idx])
     try:
         wk = worst_k_table(
             _select_feature_columns(df, feature_names, DIAG_MAX_FEATURES)[0] if n <= DIAG_ROW_CAP else sub_df,
             yt if n <= DIAG_ROW_CAP else yt[sample_idx],
             yp if n <= DIAG_ROW_CAP else yp[sample_idx],
             task=task, k=worst_k, feature_names=names, feature_importances=feature_importances,
-            timestamps=(list(timestamps[:n]) if timestamps is not None and n <= DIAG_ROW_CAP else None),
+            timestamps=ts_arg,
         )
         out["worst_k_table"] = wk.table
         # Map subsample-local indices back to original positions when subsampled.
