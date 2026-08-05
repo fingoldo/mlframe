@@ -194,6 +194,10 @@ def per_group_recency_weighted_mode(
     """
     if scheme not in SCHEMES:
         raise ValueError(f"scheme must be one of {SCHEMES}, got {scheme!r}.")
+    if n_grid < 2:
+        # the KDE grid-point spacing divides by (n_grid - 1); n_grid=1 would silently divide by zero
+        # inside the njit kernel, producing inf/NaN grid points instead of a clear error.
+        raise ValueError(f"n_grid must be >= 2, got {n_grid}")
     v_sorted, sort_idx, starts, ends, n = _sort_into_groups(values, group_ids, order)
     if n == 0:
         return np.empty(0, dtype=np.float64)
@@ -215,6 +219,10 @@ def per_group_behavioral_stability(
     """Per-entity behavioral-stability score = peak height of the recency-weighted density (higher = more predictable)."""
     if scheme not in SCHEMES:
         raise ValueError(f"scheme must be one of {SCHEMES}, got {scheme!r}.")
+    if n_grid < 2:
+        # the KDE grid-point spacing divides by (n_grid - 1); n_grid=1 would silently divide by zero
+        # inside the njit kernel, producing inf/NaN grid points instead of a clear error.
+        raise ValueError(f"n_grid must be >= 2, got {n_grid}")
     v_sorted, sort_idx, starts, ends, n = _sort_into_groups(values, group_ids, order)
     if n == 0:
         return np.empty(0, dtype=np.float64)
