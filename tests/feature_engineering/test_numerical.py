@@ -529,6 +529,21 @@ class TestEdgeCases:
         # Should return NaNs for most statistics
         assert all(np.isnan(v) for v in result)
 
+    def test_short_input_return_float32_true_matches_normal_path_type(self):
+        """FE_ROOT_B-7: the len(arr)<=1 short-circuit must return an np.float32 ndarray when
+        return_float32=True (the default), matching the normal path's return type -- not a raw Python
+        tuple regardless of the flag."""
+        arr = np.array([1.0], dtype=np.float32)
+        result = compute_numaggs(arr, return_float32=True)
+        assert isinstance(result, np.ndarray)
+        assert result.dtype == np.float32
+
+    def test_short_input_return_float32_false_still_returns_tuple(self):
+        """FE_ROOT_B-7 companion: return_float32=False keeps the tuple return on the short-circuit path too."""
+        arr = np.array([1.0], dtype=np.float32)
+        result = compute_numaggs(arr, return_float32=False)
+        assert isinstance(result, tuple)
+
     def test_two_element_array(self):
         """Test with two element array."""
         arr = np.array([1.0, 2.0], dtype=np.float32)
