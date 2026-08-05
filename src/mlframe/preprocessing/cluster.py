@@ -88,6 +88,12 @@ def clusterize(X:Optional[Any]=None,true_labels:Optional[Sequence]=None,clusteri
             for i in range(len(true_labels)):
                 ax.annotate(true_labels[i], (X[i, 0], X[i, 1]))
         ax.axis("off")
+        # plt.show() actually renders under an interactive backend (blocks until the window is closed) and
+        # is a harmless no-op under a non-interactive backend like Agg (just logs a warning) -- either way
+        # this is what "render a scatter plot" in the docstring means. The figure was previously closed
+        # without ever being shown, saved, or returned, so the default show_plot=True call produced no
+        # visible or persisted output at all. Still close it afterward so repeated calls don't leak figures.
+        plt.show()
         plt.close(fig)
 
         if true_labels is not None:
