@@ -91,6 +91,21 @@ def bench_e7_combinations_vs_triu(p: int = 1500):
     return {"lever": "E7_combinations_vs_triu", "p": p, "n_pairs": n_pairs, "old_ms": t_old * 1e3, "new_ms": t_new * 1e3, "speedup": t_old / t_new}
 
 
+def _tonumeric_fast_path(df: pd.DataFrame) -> np.ndarray:
+    """The 'new' E8 path: asarray(float) + in-place NaN->0.
+
+    np.asarray(df, dtype=float) can return a VIEW into df's own backing buffer for a
+    homogeneous-dtype frame; the in-place NaN scrub below would then mutate df itself, so every
+    call after the first would see no NaNs left to scrub -- a benchmark timing this in a loop
+    would measure an increasingly no-op path instead of the real per-call cost. np.array(...)
+    forces a copy, matching what the 'old' path (apply/fillna) always produces.
+    """
+    a = np.array(df, dtype=float)
+    if np.isnan(a).any():
+        a[np.isnan(a)] = 0.0
+    return a
+
+
 def bench_e8_tonumeric_vs_asarray(n: int = 20_000, p: int = 120, nan_frac: float = 0.02):
     """E8: apply(to_numeric).fillna.to_numpy vs asarray(float) + in-place NaN->0 (all-numeric frame)."""
     rng = np.random.default_rng(2)
@@ -103,10 +118,7 @@ def bench_e8_tonumeric_vs_asarray(n: int = 20_000, p: int = 120, nan_frac: float
         return df.apply(pd.to_numeric, errors="coerce").fillna(0.0).to_numpy(dtype=float)
 
     def new():
-        a = np.asarray(df, dtype=float)
-        if np.isnan(a).any():
-            a[np.isnan(a)] = 0.0
-        return a
+        return _tonumeric_fast_path(df)
 
     assert np.array_equal(old(), new()), "E8: result mismatch"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
     t_old = _best_of(old, 10)
