@@ -255,7 +255,17 @@ def _compute_oof_preds(
         # Group structure takes precedence over the time axis: TimeSeriesSplit has no group-awareness, so a grouped
         # temporal suite keeps whole groups together (the splitter upstream already assigns spanning groups to the
         # later split, preserving temporal honesty at the group granularity).
-        splitter = GroupKFold(n_splits=min(n_splits, len(set(np.asarray(group_ids)))))
+        _n_distinct_groups = len(set(np.asarray(group_ids)))
+        if _n_distinct_groups < 2:
+            # GroupKFold(n_splits=1) raises ValueError at CONSTRUCTION time (sklearn requires
+            # n_splits >= 2), outside the try/except below that only wraps cross_val_predict --
+            # a train fold with only 1 distinct group used to crash the whole per-model training
+            # call after the model already trained, uncaught. No meaningful group-aware OOF is
+            # possible with a single group anyway; skip gracefully like the other "not computable"
+            # branches in this function.
+            logger.info("OOF prediction skipped: only %d distinct group(s) present, need >= 2 for GroupKFold.", _n_distinct_groups)
+            return None, None
+        splitter = GroupKFold(n_splits=min(n_splits, _n_distinct_groups))
         _groups_arg = np.asarray(group_ids)
     else:
         splitter = KFold(n_splits=n_splits, shuffle=True, random_state=random_seed)
