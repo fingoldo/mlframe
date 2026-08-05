@@ -209,8 +209,13 @@ def compute_mdl_binning_pairwise_features(
         # Vectorised np.unique + searchsorted lookup replaces the per-query-row Counter.get() Python loop
         # (5-10x faster at n>=10k); counts are integers so the result is bit-identical to the dict path.
         if d >= 2:
-            train_combo = train_bins[:, 0] * 100 + train_bins[:, 1]
-            query_combo = query_bins[:, 0] * 100 + query_bins[:, 1]
+            # np.digitize against len(edges) edges returns bin indices in [0, len(edges)], so the base
+            # must exceed the largest possible bin1 index -- a hardcoded 100 silently collides distinct
+            # (bin0, bin1) pairs into the same combo code once max_bins_per_feat (caller-settable) allows
+            # >=100 bins for feature 1.
+            combo_base = len(all_edges[1]) + 1
+            train_combo = train_bins[:, 0] * combo_base + train_bins[:, 1]
+            query_combo = query_bins[:, 0] * combo_base + query_bins[:, 1]
             uniq_combo, uniq_counts = np.unique(train_combo, return_counts=True)
             pos = np.searchsorted(uniq_combo, query_combo)
             pos_clipped = np.clip(pos, 0, uniq_combo.shape[0] - 1)
