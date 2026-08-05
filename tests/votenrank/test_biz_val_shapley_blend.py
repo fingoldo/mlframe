@@ -195,8 +195,9 @@ def test_shapley_permutation_incremental_mean_matches_naive_recompute():
                 v_prev = v_curr
         return values_sum / n_permutations
 
+    v_empty = float(_score_fn(y, np.zeros(preds.shape[1])))
     rng_a = np.random.default_rng(11)
-    values_incremental, _n_evals = _permutation_shapley(preds, y, _score_fn, "mean", 50, rng_a)
+    values_incremental, _n_evals = _permutation_shapley(preds, y, _score_fn, "mean", 50, rng_a, v_empty)
     rng_b = np.random.default_rng(11)
     values_naive = _naive_permutation_shapley(preds, y, _score_fn, 50, rng_b)
 
@@ -218,3 +219,31 @@ def test_shapley_model_values_rejects_bad_estimator():
     y = (rng.standard_normal(100) > 0).astype(np.float64)
     with pytest.raises(ValueError):
         shapley_model_values(preds, y, estimator="not_a_real_estimator", n_permutations=10, rng=rng)
+
+
+def test_permutation_shapley_does_not_recompute_empty_coalition_score_per_permutation():
+    """VOTENRANK-2: the empty-coalition score (score_fn(y, zeros)) is a caller-supplied constant --
+    _permutation_shapley must reuse it, not call score_fn on the zero blend once per permutation.
+
+    Pre-fix, every permutation re-called score_fn(y, zeros(...)) as its first "previous" value even
+    though shapley_model_values had already computed the identical v_empty. Spy on score_fn and assert
+    the zero-blend is never scored again inside the estimator loop.
+    """
+    n_models, n = 4, 60
+    rng = np.random.default_rng(14)
+    preds = rng.standard_normal((n_models, n))
+    y = (rng.standard_normal(n) > 0).astype(np.float64)
+    zero_blend_calls = 0
+
+    def _spying_score_fn(yy, blended):
+        """RMSE score that counts calls where the blend is the all-zero empty-coalition blend."""
+        nonlocal zero_blend_calls
+        if np.all(blended == 0.0):
+            zero_blend_calls += 1
+        return float(-np.sqrt(np.mean((yy - blended) ** 2)))
+
+    n_permutations = 20
+    shapley_model_values(preds, y, score_fn=_spying_score_fn, n_permutations=n_permutations, rng=rng, score_subsample=None)
+    # Exactly ONE zero-blend call total: shapley_model_values' own v_empty computation. Pre-fix this
+    # would be 1 + n_permutations (one extra per permutation's redundant re-score).
+    assert zero_blend_calls == 1, f"expected exactly 1 zero-blend score_fn call, got {zero_blend_calls} (pre-fix would be {1 + n_permutations})"

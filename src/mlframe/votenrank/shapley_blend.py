@@ -104,7 +104,7 @@ def shapley_model_values(
     v_full = float(score_fn(y_scored, preds_scored.mean(axis=0) if coalition_blend == "mean" else _blend(preds_scored, np.arange(n_models), coalition_blend)))
 
     if estimator == "permutation":
-        values, n_evals = _permutation_shapley(preds_scored, y_scored, score_fn, coalition_blend, n_permutations, rng)
+        values, n_evals = _permutation_shapley(preds_scored, y_scored, score_fn, coalition_blend, n_permutations, rng, v_empty)
     elif estimator == "msr_banzhaf":
         values, n_evals = _msr_banzhaf(preds_scored, y_scored, score_fn, coalition_blend, n_permutations, rng)
     else:
@@ -115,15 +115,21 @@ def shapley_model_values(
     return values, info
 
 
-def _permutation_shapley(preds, y, score_fn, coalition_blend, n_permutations, rng):
-    """Permutation-sampling Shapley estimator with the incremental running-sum marginal trick (mean blend only)."""
+def _permutation_shapley(preds, y, score_fn, coalition_blend, n_permutations, rng, v_empty):
+    """Permutation-sampling Shapley estimator with the incremental running-sum marginal trick (mean blend only).
+
+    ``v_empty`` is the caller's already-computed empty-coalition score (``score_fn(y, zeros)``) -- every
+    permutation's first marginal step needs this exact constant, so it's passed in rather than
+    recomputed once per permutation (``n_permutations`` redundant ``score_fn`` calls, ~1/n_models of the
+    total call budget for a typical ``n_permutations >= 10 * n_models`` run).
+    """
     n_models = preds.shape[0]
     values_sum = np.zeros(n_models, dtype=np.float64)
     n_evals = 0
     for _ in range(n_permutations):
         order = rng.permutation(n_models)
         running_sum = np.zeros(preds.shape[1], dtype=np.float64)
-        v_prev = float(score_fn(y, np.zeros(preds.shape[1], dtype=np.float64)))
+        v_prev = v_empty
         for step, m in enumerate(order, start=1):
             running_sum = running_sum + preds[m]
             blended = running_sum / step if coalition_blend == "mean" else _blend(preds, order[:step], coalition_blend)
