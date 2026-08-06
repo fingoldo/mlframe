@@ -94,7 +94,7 @@ target `k`.
 
 - **Composite targets (`CompositeTargetEstimator` / discovery)** —
   ⏳ NATURALLY SKIPPED. Composite discovery at
-  `_phase_composite_discovery.py:223` already filters to
+  `_phase_composite_discovery.py:81,187` already filters to
   `TargetTypes.REGRESSION` only — MTR targets are not iterated, so
   no composite generation runs for them. Users mixing the auto-route
   with composite discovery on the same target name should NOT see
