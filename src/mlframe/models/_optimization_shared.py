@@ -212,5 +212,5 @@ def plot_search_state(
     except Exception as e:  # nosec B110 - non-trivial body
         # Headless / Agg backend: show is a no-op, pause may not work
         # without a backend. Failure here must NEVER block training.
-        logger.debug("plt.show/pause failed (likely headless/Agg backend): %s", e)
+        logger.warning("plt.show/pause failed (likely headless/Agg backend): %s", e)
     plt.close(fig)
