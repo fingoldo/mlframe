@@ -192,7 +192,6 @@ def _disable_broken_cupy() -> None:
             type(exc).__name__, exc,
         )
         gpu_disable_errors.append(f"cupy NVRTC probe failed: {type(exc).__name__}: {exc}")
-        gpu_disable_errors.append(f"cupy NVRTC probe raised {type(exc).__name__}: {exc}")
         # Poison the import: ``sys.modules["cupy"] = None`` makes every subsequent ``import cupy``
         # raise ``ImportError`` immediately. CPython's import machinery treats a ``None`` entry as
         # a negative-cache marker -- documented behaviour since Python 2.x, still maintained in 3.12+
