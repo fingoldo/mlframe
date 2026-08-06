@@ -270,6 +270,27 @@ def _try_predict_with_pp_fallback(
         # Both retry on the pre-main-pipeline frame where cat cols are strings.
         _is_encoder_mismatch = ("isnan" in _msg and "supported" in _msg) or ("'<' not supported" in _msg and "'float'" in _msg and "'str'" in _msg)
         if _is_encoder_mismatch and fallback is not None:
+            # The pre-pipeline frame only helps when it actually carries every fit-time feature.
+            # A model whose fit-time input went through the main pipeline's FE-extensions stage
+            # (e.g. row_summary_*/row_extreme_* engineered columns) has a feature_names_in_ the raw
+            # pre-pipeline frame never had -- retrying on it would just trade this TypeError for a
+            # more confusing downstream "columns are missing" ValueError deep inside sklearn. Skip
+            # the retry and let the original TypeError propagate in that case.
+            if expected_list is not None and hasattr(fallback, "columns"):
+                _fb_have_precheck = {str(c) for c in fallback.columns}
+                _fb_still_missing = [c for c in expected_list if c not in _fb_have_precheck]
+                if _fb_still_missing:
+                    logger.warning(
+                        "predict_from_models: %s.%s tripped encoder dtype mismatch (%s), but the "
+                        "pre-pipeline fallback frame is also missing %d fit-time feature(s) %s "
+                        "(likely FE-extensions-stage engineered columns); not retrying on it.",
+                        model_name,
+                        fn.__name__,
+                        _msg.splitlines()[0][:120],
+                        len(_fb_still_missing),
+                        _fb_still_missing[:5],
+                    )
+                    raise
             logger.warning(
                 "predict_from_models: %s.%s on post-pipeline "
                 "frame tripped encoder dtype mismatch (%s); "
