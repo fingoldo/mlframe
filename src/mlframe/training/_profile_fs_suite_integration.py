@@ -74,12 +74,25 @@ def _run_once():
 
 
 def main():
-    """Profile ``_run_once`` under cProfile and print the top-30 cumulative-time and top-20 self-time (tottime) frames -- the standard entry point for rerunning this harness from the command line."""
+    """Profile ``_run_once`` under cProfile, save the raw stats to a ``.prof`` file, and print the top-30
+    cumulative-time and top-20 self-time (tottime) frames -- the standard entry point for rerunning this
+    harness from the command line."""
     pr = cProfile.Profile()
     pr.enable()
     _run_once()
     pr.disable()
     st = pstats.Stats(pr)
+
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    results_dir = Path(__file__).parent / "_results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    prof_path = results_dir / f"profile_fs_suite_integration_{ts}.prof"
+    st.dump_stats(str(prof_path))
+    print(f"Raw stats: {prof_path}")
+
     st.sort_stats("cumulative")
     print("=== top 30 cumulative ===")
     st.print_stats(30)
