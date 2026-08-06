@@ -139,7 +139,9 @@ def test_fs_p2_3_mrmr_fit_emits_no_print_chatter(capsys):
     df = pd.DataFrame({f"f{i}": rng.normal(size=n) for i in range(4)})
     y = (df["f0"].to_numpy() > 0).astype(np.int64)
 
-    sel = MRMR(fe_max_steps=1, fe_unary_preset=None, verbose=1)
+    # fe_unary_preset must be a real preset name (MRMR-6: None is not a valid sentinel for this
+    # param); "minimal" is unrelated to what this test actually exercises (print-chatter routing).
+    sel = MRMR(fe_max_steps=1, fe_unary_preset="minimal", verbose=1)
     sel.fit(df, y)
     captured = capsys.readouterr()
     combined = captured.out + captured.err

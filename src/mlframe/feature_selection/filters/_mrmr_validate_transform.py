@@ -114,7 +114,9 @@ def _validate_string_params(self):
     for _name, _valid in _checks:
         _val = getattr(self, _name, None)
         if _val is None:
-            continue
+            if None in _valid:
+                continue
+            raise ValueError(f"MRMR: {_name} cannot be None. Valid values: {_valid}.")
         if not isinstance(_val, str):
             raise ValueError(f"MRMR: {_name} must be a string; got {type(_val).__name__}={_val!r}. " f"Valid values: {_valid}.")
         if _val not in _valid:

@@ -215,6 +215,26 @@ def test_to_series_rejects_multicolumn_ndarray_y_instead_of_silently_raveling():
     assert list(out_1d) == list(range(10))
 
 
+def test_validate_string_params_rejects_none_for_params_without_none_sentinel():
+    """MRMR-6: quantization_method=None must raise a clear ValueError from _validate_string_params
+    (the allow-list doesn't include None as a sentinel), not silently pass through to become the
+    literal string "None" deep inside the fit-impl discretisation dispatch."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    est = MRMR(quantization_method=None, random_seed=0, n_workers=1, verbose=0)
+    with pytest.raises(ValueError, match="quantization_method cannot be None"):
+        est._validate_string_params()
+
+
+def test_validate_string_params_still_allows_none_where_it_is_a_real_sentinel():
+    """MRMR-6 regression guard: params whose allow-list legitimately contains None (nbins_strategy,
+    redundancy_aggregator) must NOT start raising after the fix -- None stays a valid sentinel there."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    est = MRMR(nbins_strategy=None, redundancy_aggregator=None, random_seed=0, n_workers=1, verbose=0)
+    est._validate_string_params()  # must not raise
+
+
 def test_adaptive_arity_multileg_recipes_freeze_preprocess_params():
     """Adaptive-arity arity>=2 recipes must freeze per-leg preprocess params so transform() replays (never refits) the basis axis."""
     import pandas as pd
