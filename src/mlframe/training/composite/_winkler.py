@@ -35,13 +35,7 @@ from mlframe.metrics.quantile import (
     mean_interval_width,
     winkler_score as _base_winkler,
 )
-
-try:
-    import pandas as pd
-
-    _HAVE_PANDAS = True
-except ImportError:  # pragma: no cover
-    _HAVE_PANDAS = False
+from mlframe.training.composite._composite_report_shared import factorize as _factorize
 
 _NJIT_KW = dict(fastmath=False, cache=True, nogil=True)
 
@@ -223,14 +217,7 @@ def winkler_score_per_group(
     alpha = _check_alpha(alpha)
     y, lo, hi = _prep(y_true, q_lo, q_hi)
     n = y.shape[0]
-    if _HAVE_PANDAS:
-        codes, uniq = pd.factorize(np.asarray(group_ids), sort=False)
-        codes = np.asarray(codes, dtype=np.int64)
-        uniq = list(uniq)
-    else:
-        uniq_arr, codes = np.unique(np.asarray(group_ids), return_inverse=True)
-        codes = np.asarray(codes, dtype=np.int64)
-        uniq = list(uniq_arr)
+    codes, uniq = _factorize(group_ids)
     if codes.shape[0] != n:
         raise ValueError(f"group_ids length {codes.shape[0]} != y length {n}")
     n_groups = len(uniq)
