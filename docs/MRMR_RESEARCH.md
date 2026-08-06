@@ -174,7 +174,7 @@ The MRMR redundancy logic is split across **four independent layers** with **non
 
 3. **Cluster-aggregate FE step** (`filters/_cluster_aggregate.py`, 315 LOC). The **only place** that actually clusters: `_discover_clusters:143-222` builds an edge list gated by `|Pearson corr| >= corr_threshold=0.6` AND `pairwise_mi_edge`, then runs naive union-find connected components (`_connected_components:123-140`). A component is accepted only if PC1 explains >= `homogeneity_tau=0.6` of standardized variance. Members are aggregated (`mean_z` / PCA-PC1 / Bartlett) and the aggregate is **augmented onto the selected set**, not used to deduplicate it.
 
-4. **Operator-supplied `feature_groups` in RFECV** (`wrappers/_rfecv.py:237-499`). All-or-nothing post-fit support expansion over user-declared **disjoint** groups. Completely orthogonal to MRMR; there is **no data-driven equivalent inside MRMR**.
+4. **Operator-supplied `feature_groups` in RFECV** (`wrappers/rfecv/_finalize.py` / `_validate.py` / `_configs.py`). All-or-nothing post-fit support expansion over user-declared **disjoint** groups. Completely orthogonal to MRMR; there is **no data-driven equivalent inside MRMR**.
 
 The friend graph and cluster-aggregate paths share the `pairwise_mi_edge` primitive but **use different thresholds and different decision criteria** for the same underlying question "are these two features redundant?".
 
@@ -239,7 +239,7 @@ The friend graph and cluster-aggregate paths share the `pairwise_mi_edge` primit
 4. Group-additive cluster effects (need majority vote across cluster) get suppressed once one cluster member is in
 5. Pure linear-Gaussian signal in high-D gets out-ranked by lower-MI but discrete signals because of binning bias
 
-### B. RFECV wrapper — `wrappers/_rfecv.py`
+### B. RFECV wrapper — `wrappers/rfecv/`
 **Math.** Model-in-the-loop backward (or MBH heuristic-search) elimination, ranks features by an importance signal from the trained estimator (gain / coef / permutation), CV-votes across folds, picks subset size by averaged CV score. Assumes model importance is monotone in true relevance.
 
 **Strengths.**

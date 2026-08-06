@@ -28,3 +28,14 @@ def test_fleuret_module_confirms_jmim_synergy_mitigation_shipped():
     src = (REPO_ROOT / "src" / "mlframe" / "feature_selection" / "filters" / "fleuret.py").read_text(encoding="utf-8")
     assert "is shipped" in src
     assert "redundancy_aggregator='jmim'" in src
+
+
+def test_doc_does_not_cite_the_deleted_rfecv_monolith_path():
+    """X_OSS_HYGIENE_PACKAGING-5: MRMR_RESEARCH.md must not cite wrappers/_rfecv.py -- RFECV was split
+    into a wrappers/rfecv/ subpackage and that flat-file path no longer exists."""
+    doc = (REPO_ROOT / "docs" / "MRMR_RESEARCH.md").read_text(encoding="utf-8")
+    assert "wrappers/_rfecv.py" not in doc
+    assert not (
+        REPO_ROOT / "src" / "mlframe" / "feature_selection" / "wrappers" / "_rfecv.py"
+    ).exists(), "wrappers/_rfecv.py exists again -- the doc citation may now be valid; re-check this test's premise"
+    assert (REPO_ROOT / "src" / "mlframe" / "feature_selection" / "wrappers" / "rfecv").is_dir()
