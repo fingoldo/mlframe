@@ -95,7 +95,10 @@ EGFDU           median                 val_RMSE=12.50  xgb         val_RMSE=12.4
 ```
 
 To see the full per-baseline × per-split metrics table for one target, raise
-the logger level for `mlframe.training.dummy_baselines` to `DEBUG`.
+the logger level for `mlframe.training.baselines` to `DEBUG` -- the code was
+split into `mlframe.training.baselines.*` submodules, each with its own
+`logging.getLogger(__name__)`, so the parent package name is the level to set,
+not the old pre-split `mlframe.training.dummy_baselines` name.
 
 ## Per-target catalog
 

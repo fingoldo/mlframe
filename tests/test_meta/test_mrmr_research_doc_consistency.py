@@ -39,3 +39,16 @@ def test_doc_does_not_cite_the_deleted_rfecv_monolith_path():
         REPO_ROOT / "src" / "mlframe" / "feature_selection" / "wrappers" / "_rfecv.py"
     ).exists(), "wrappers/_rfecv.py exists again -- the doc citation may now be valid; re-check this test's premise"
     assert (REPO_ROOT / "src" / "mlframe" / "feature_selection" / "wrappers" / "rfecv").is_dir()
+
+
+def test_dummy_baselines_guide_cites_a_real_logger_name():
+    """X_OSS_HYGIENE_PACKAGING-7: dummy_baselines_guide.md must instruct users to raise a logger name
+    that actually exists (mlframe.training.baselines), not the pre-split mlframe.training.dummy_baselines
+    name, which is not a parent of any of the split submodules' loggers and so is a complete no-op."""
+    doc = (REPO_ROOT / "docs" / "dummy_baselines_guide.md").read_text(encoding="utf-8")
+    assert "raise\nthe logger level for `mlframe.training.dummy_baselines`" not in doc
+    assert "raise\nthe logger level for `mlframe.training.baselines`" in doc
+    baselines_dir = REPO_ROOT / "src" / "mlframe" / "training" / "baselines"
+    assert baselines_dir.is_dir()
+    modules_using_dunder_name_logger = [f for f in baselines_dir.glob("*.py") if "logging.getLogger(__name__)" in f.read_text(encoding="utf-8")]
+    assert modules_using_dunder_name_logger, "no baselines submodule uses getLogger(__name__) -- re-check this test's premise"
