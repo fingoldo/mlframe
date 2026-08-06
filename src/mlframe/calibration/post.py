@@ -33,9 +33,6 @@ def _compile_pattern(pattern: str) -> "re.Pattern":
     return re.compile(pattern)
 
 
-# Module-level compiled sentinel so meta-tests can confirm the precompile
-# refactor landed. Real include/skip patterns are cached via _compile_pattern.
-_INCLUDE_RE: "re.Pattern" = re.compile("")
 from timeit import default_timer as timer
 
 
