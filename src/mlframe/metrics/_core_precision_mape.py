@@ -74,8 +74,12 @@ def fast_classification_report(
             else:
                 misses[predicted_class] += 1
 
-    # main calcs
-    accuracy = hits.sum() / len(y_true)
+    # main calcs. Divide by supports.sum() (in-range true labels only), NOT len(y_true): out-of-range
+    # true labels never contribute a hit (see the bounds-check loop above), so dividing by the raw
+    # length under-reports accuracy proportionally to the OOB fraction -- the same fix already applied
+    # to weighted_averages below; support_total is shared by both.
+    support_total = supports.sum()
+    accuracy = hits.sum() / support_total if support_total > 0 else 0.0
 
     # Balanced accuracy: classes absent from y_true (supports==0) are EXCLUDED from
     # the mean rather than contributing zero_division. sklearn.metrics.balanced_accuracy_score
@@ -101,11 +105,9 @@ def fast_classification_report(
         if pr_denom > 0:
             f1s[c] = 2.0 * (precisions[c] * recalls[c]) / pr_denom
 
-    # Weighted averages must divide by supports.sum() (== number of labeled samples with
-    # in-range class ids), NOT len(y_true): out-of-range labels were dropped above, so
-    # dividing by the raw length under-reports the weighted mean proportionally to the
-    # OOB fraction.
-    support_total = supports.sum()
+    # Weighted averages must divide by support_total (computed above alongside accuracy), NOT len(y_true):
+    # out-of-range labels were dropped above, so dividing by the raw length under-reports the weighted
+    # mean proportionally to the OOB fraction.
     weight_denom = support_total if support_total > 0 else 1
 
     # Macro denominator: classes present in y_true OR y_pred (sklearn classification_report semantics) vs the
