@@ -39,7 +39,7 @@ _COLL_KW = dict(min_rows=COLL_MIN_ROWS, min_cols=COLL_MIN_COLS)
 @pytest.fixture
 def no_cache(monkeypatch):
     """Force the cache lookup to report 'no cache' so only the fallback path runs."""
-    monkeypatch.setattr(kd, "_get_cache", lambda: None)
+    monkeypatch.setattr(kd, "get_ktc_cache", lambda: None)
     monkeypatch.delenv(kd._CORR_ENV, raising=False)
     monkeypatch.delenv(kd._COLLINEAR_ENV, raising=False)
 
@@ -101,7 +101,7 @@ def test_cache_exception_falls_back(monkeypatch):
             """Lookup."""
             raise RuntimeError("cache exploded")
 
-    monkeypatch.setattr(kd, "_get_cache", lambda: _Boom())
+    monkeypatch.setattr(kd, "get_ktc_cache", lambda: _Boom())
     monkeypatch.delenv(kd._CORR_ENV, raising=False)
     assert kd.choose_corr_backend(CORR_MIN_ROWS, CORR_MIN_COLS, **_CORR_KW) == "numba"
     assert kd.choose_corr_backend(10, 4, **_CORR_KW) == "numpy"
@@ -119,17 +119,17 @@ def test_cache_backend_choice_is_honoured(monkeypatch):
             """Lookup."""
             return {"backend_choice": self.choice}
 
-    monkeypatch.setattr(kd, "_get_cache", lambda: _Fake("numpy"))
+    monkeypatch.setattr(kd, "get_ktc_cache", lambda: _Fake("numpy"))
     monkeypatch.delenv(kd._CORR_ENV, raising=False)
     # Size gate would say numba, but the cache says numpy -> numpy wins.
     assert kd.choose_corr_backend(CORR_MIN_ROWS, CORR_MIN_COLS, **_CORR_KW) == "numpy"
 
-    monkeypatch.setattr(kd, "_get_cache", lambda: _Fake("numba"))
+    monkeypatch.setattr(kd, "get_ktc_cache", lambda: _Fake("numba"))
     # Size gate would say numpy, but the cache says numba -> numba wins.
     assert kd.choose_corr_backend(10, 4, **_CORR_KW) == "numba"
 
     # Garbage backend_choice from the cache is ignored -> falls back to the gate.
-    monkeypatch.setattr(kd, "_get_cache", lambda: _Fake("garbage"))
+    monkeypatch.setattr(kd, "get_ktc_cache", lambda: _Fake("garbage"))
     assert kd.choose_corr_backend(10, 4, **_CORR_KW) == "numpy"
 
 
@@ -138,7 +138,7 @@ def test_dispatchers_still_bit_identical_through_ktc_path(monkeypatch):
     # identical to forcing each backend via the env override (bit-identity invariant
     # holds regardless of which backend the lookup picks).
     """Dispatchers still bit identical through ktc path."""
-    monkeypatch.setattr(kd, "_get_cache", lambda: None)
+    monkeypatch.setattr(kd, "get_ktc_cache", lambda: None)
     rng = np.random.default_rng(0)
     n, f = max(CORR_MIN_ROWS, 20_000), max(CORR_MIN_COLS, 64)
     X = rng.standard_normal((n, f))
@@ -163,7 +163,7 @@ def test_dispatchers_still_bit_identical_through_ktc_path(monkeypatch):
 
 def test_collinear_dispatch_bit_identical_through_ktc_path(monkeypatch):
     """Collinear dispatch bit identical through ktc path."""
-    monkeypatch.setattr(kd, "_get_cache", lambda: None)
+    monkeypatch.setattr(kd, "get_ktc_cache", lambda: None)
     rng = np.random.default_rng(1)
     n, b = max(COLL_MIN_ROWS, 300), max(COLL_MIN_COLS, 12)
     M = rng.standard_normal((n, b))

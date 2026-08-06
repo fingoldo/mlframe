@@ -21,7 +21,7 @@ from mlframe.training.composite.discovery import _ktc_dispatch as ktc
 def in_memory_cache(monkeypatch):
     """Fresh in-memory KernelTuningCache, patched in as the module's shared singleton."""
     cache = KernelTuningCache(in_memory=True)
-    monkeypatch.setattr(ktc, "_get_cache", lambda: cache)
+    monkeypatch.setattr(ktc, "get_ktc_cache", lambda: cache)
     return cache
 
 
@@ -84,6 +84,6 @@ def test_choose_backend_without_auto_tune_never_sweeps(in_memory_cache, monkeypa
 
 def test_ensure_tuning_returns_none_when_cache_unavailable(monkeypatch):
     """Both ensure_* functions degrade to None (never raise) when the KTC singleton is unavailable."""
-    monkeypatch.setattr(ktc, "_get_cache", lambda: None)
+    monkeypatch.setattr(ktc, "get_ktc_cache", lambda: None)
     assert ktc.ensure_composite_corr_tuning() is None
     assert ktc.ensure_composite_collinear_tuning() is None
