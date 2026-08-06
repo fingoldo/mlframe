@@ -312,20 +312,23 @@ class TestSharedPipelineIntegration:
     """Groups tests covering TestSharedPipelineIntegration."""
     def test_works_in_sklearn_pipeline(self, selector_factory, small_clf_problem):
         """Selector chained with an estimator inside a sklearn Pipeline:
-        Pipeline.fit + .predict + .score must all work."""
+        Pipeline.fit + .predict + .score must all work.
+
+        X_TEST_SUITE_ARCHITECTURE-4: previously wrapped in try/except Exception: pytest.skip(...), which
+        reported a genuine shape-mismatch bug (or any other Pipeline-incompatibility) as an
+        indistinguishable-from-environment-gap skip instead of a failure. Every registered selector
+        passes this cleanly (verified directly) -- assert plainly so a real regression fails loudly.
+        """
         X, y = small_clf_problem
-        try:
-            pipe = Pipeline(
-                [
-                    ("select", selector_factory()),
-                    ("clf", LogisticRegression(max_iter=200, random_state=0)),
-                ]
-            )
-            pipe.fit(X, y)
-            preds = pipe.predict(X)
-            assert preds.shape == y.shape
-        except Exception as exc:
-            pytest.skip(f"selector not sklearn-Pipeline-compatible: {exc}")
+        pipe = Pipeline(
+            [
+                ("select", selector_factory()),
+                ("clf", LogisticRegression(max_iter=200, random_state=0)),
+            ]
+        )
+        pipe.fit(X, y)
+        preds = pipe.predict(X)
+        assert preds.shape == y.shape
 
 
 # ----------------------------------------------------------------------------
