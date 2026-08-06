@@ -92,11 +92,13 @@ def compute_candidates_exploration_scores(search_space: Sequence, known_candidat
     if len(known_candidates) == 0:
         # No checked points yet -> every search-space point is maximally far; the loop below would leave r/lo unbound.
         return distances
-    indices = {el: i for i, el in enumerate(search_space)}
+    # search_space is sorted (per the docstring's assumption), so np.searchsorted resolves each known value to its
+    # LEFTMOST matching index in O(log n) -- unlike a {value: index} dict (the prior approach), which silently
+    # collapses duplicate values to their LAST occurrence's index and gave wrong distances for earlier duplicates.
 
     lo = None
     for i in sorted(known_candidates):
-        r = indices[i]
+        r = int(np.searchsorted(search_space, i, side="left"))
         if lo is None:
             distances[:r] = np.abs(search_space[0:r] - search_space[r])
         else:
