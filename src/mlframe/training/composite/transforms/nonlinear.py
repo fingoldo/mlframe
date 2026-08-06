@@ -143,13 +143,6 @@ else:
     _quantile_assign_bins_kernel = None
 
 
-# Soft-cap MAD floor: when MAD(T_train) is below ``_MAD_FLOOR_FRAC * std(y_train)``, substitute the latter to keep the soft-cap bound numerically meaningful even if the transform produced a degenerate (near-constant) T on train. Without this, logratio's MAD-cap collapses to zero on degenerate train and every prediction inverts to ``base * exp(0) = base`` silently.
-_MAD_FLOOR_FRAC: float = 1e-3
-
-# Multiplier for MAD-soft-cap on T_hat (logratio in particular).
-_MAD_SOFT_CAP_K: float = 10.0
-
-
 logger = logging.getLogger("mlframe.training.composite_transforms")
 
 if TYPE_CHECKING:
