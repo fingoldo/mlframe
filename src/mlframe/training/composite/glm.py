@@ -118,7 +118,7 @@ def _default_inner(family: str, tweedie_power: float):
     """
     try:
         import lightgbm as lgb
-    except Exception as exc:  # pragma: no cover - exercised only without lightgbm
+    except ImportError as exc:  # pragma: no cover - exercised only without lightgbm
         raise ImportError(
             "CompositeGLMEstimator default inner requires lightgbm. Install it " "(`pip install lightgbm`) or pass an explicit base_estimator."
         ) from exc
