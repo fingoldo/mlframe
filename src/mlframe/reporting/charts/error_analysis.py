@@ -302,7 +302,12 @@ def weak_segment_heatmap(
     if not np.all(finite):
         err = err[finite]
         mat = mat[finite]
-    top = _top_split_features(mat, err, names, max_depth=max_depth, n_features=2, seed=seed)
+    # Zero usable rows (empty input, or every row dropped by the finite-mask above e.g. all-NaN error):
+    # binning/quantile-edge logic downstream assumes at least one row, and some sklearn versions raise
+    # a ValueError from DecisionTreeRegressor.fit here that the except-fallback below doesn't itself
+    # guard against re-indexing an empty array. Degenerate-out with the same "no usable features" panel
+    # the all-zero-split-importance case already uses, before ever reaching the tree fit.
+    top = [] if mat.shape[0] == 0 else _top_split_features(mat, err, names, max_depth=max_depth, n_features=2, seed=seed)
     if not top:
         ann = HeatmapPanelSpec(
             matrix=np.zeros((1, 1)), row_labels=("n/a",), col_labels=("n/a",),
