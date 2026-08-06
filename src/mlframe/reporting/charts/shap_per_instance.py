@@ -86,7 +86,10 @@ def _is_binary_score(y_true: np.ndarray, y_score: np.ndarray) -> bool:
     yt = np.asarray(y_true).ravel()
     ys = np.asarray(y_score, dtype=np.float64).ravel()
     finite = ys[np.isfinite(ys)]
-    label_ok = np.all(np.isin(yt[~np_isnan(yt)], (0, 1))) if yt.size else False
+    yt_finite = yt[~np_isnan(yt)]
+    # Guard on the POST-NaN-filter size, not yt.size: for an all-NaN y_true, np.all(np.isin([], (0, 1))) is
+    # vacuously True, which wrongly reported label_ok=True for a target carrying zero real label information.
+    label_ok = bool(yt_finite.size) and np.all(np.isin(yt_finite, (0, 1)))
     score_ok = finite.size > 0 and float(finite.min()) >= -1e-9 and float(finite.max()) <= 1.0 + 1e-9
     return bool(label_ok and score_ok)
 
