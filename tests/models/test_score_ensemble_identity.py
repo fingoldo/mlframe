@@ -101,3 +101,16 @@ def test_dropped_member_decision_consistent_across_flavours():
         a, _, _ = ensemble_probabilistic_predictions(*preds, ensemble_method=fl, verbose=False)
         b, _, _ = ensemble_probabilistic_predictions(*preds, ensemble_method=fl, verbose=False)
         assert np.array_equal(np.asarray(a), np.asarray(b))
+
+
+def test_cached_member_arrays_are_frozen_against_in_place_mutation():
+    """MODELS-12: the gate cache is keyed by id() + thresholds with no content fingerprint, so an in-place
+    mutation of a still-cached member array would otherwise silently serve a stale gate decision for the
+    mutated content. Cached arrays must be marked read-only so the mutation attempt raises loudly instead."""
+    preds = _make_members(with_outlier=True)
+    _compute_outlier_gate(preds, np.asarray(preds, dtype=np.float64), 0.0, 0.0, 2.5, 2.5)
+    assert not preds[0].flags.writeable, "member array 0 must be frozen while its gate decision is cached"
+    with pytest.raises(ValueError, match="read-only"):
+        preds[0][0, 0] = 0.999
+    _clear_gate_cache()
+    assert preds[0].flags.writeable, "clearing the cache must restore writeability"

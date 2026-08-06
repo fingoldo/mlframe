@@ -48,8 +48,23 @@ _gate_cache_order: list = []
 
 def _clear_gate_cache() -> None:
     """Empty the module-level outlier-gate LRU cache and its eviction-order tracker (used by tests / callers that need a clean-slate gate computation)."""
+    for preds, _result in _gate_cache.values():
+        _unfreeze_gate_cache_entry(preds)
     _gate_cache.clear()
     _gate_cache_order.clear()
+
+
+def _unfreeze_gate_cache_entry(preds: list) -> None:
+    """Restore ``writeable=True`` on any ndarray member of ``preds`` that ``_compute_outlier_gate`` froze on cache
+    insert (best-effort: skips anything that isn't an ndarray or is already writeable)."""
+    for p in preds:
+        if isinstance(p, np.ndarray) and not p.flags.writeable:
+            try:
+                p.flags.writeable = True
+            except ValueError:
+                # A view onto a read-only base (e.g. a slice of another frozen array) cannot be unfrozen
+                # independently; leaving it read-only is safe (never re-enables silent staleness).
+                pass
 
 
 def _compute_outlier_gate(
@@ -100,10 +115,22 @@ def _compute_outlier_gate(
         median_mae, median_std, rel_mae_threshold, rel_std_threshold,
         per_member_mae, per_member_std,
     )
+    # Freeze each cached member array: the key is id()-based with no content fingerprint, so an in-place
+    # mutation of a still-cached array between calls would otherwise silently return a stale gate decision.
+    # Marking the arrays read-only turns that into a loud numpy ValueError on the mutation attempt instead.
+    for p in preds:
+        if isinstance(p, np.ndarray):
+            try:
+                p.flags.writeable = False
+            except ValueError:
+                pass  # already a read-only view onto something else; nothing more to do.
     _gate_cache[key] = (preds, result)  # hold ``preds`` so the id()-key stays valid for the entry's lifetime.
     _gate_cache_order.append(key)
     if len(_gate_cache_order) > _GATE_CACHE_MAXSIZE:
-        _gate_cache.pop(_gate_cache_order.pop(0), None)
+        evicted_key = _gate_cache_order.pop(0)
+        evicted = _gate_cache.pop(evicted_key, None)
+        if evicted is not None:
+            _unfreeze_gate_cache_entry(evicted[0])
     return result
 
 
