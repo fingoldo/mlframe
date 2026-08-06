@@ -155,7 +155,6 @@ def run_bed(name, X, y, n_trials_cap=120, seed=0):
     full_accepted = traj[-1][0]
     a45_accepted = traj[a45_stop][0]
     a45_safe_accepted = traj[a45_safe][0]
-    traj[min(n_run - 1, len(traj) - 1)][0]
 
     def jac(a, b_):
         a, b_ = set(a), set(b_)
