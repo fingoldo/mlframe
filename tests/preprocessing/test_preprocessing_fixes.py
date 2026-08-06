@@ -418,3 +418,29 @@ def test_f15_single_option_nan_replacement_handles_numpy_str_subclass():
 
     assert list(result["features_transforms"]["flag"].values()) == ["not yes"]
     assert set(df["flag"].unique()) == {"yes", "not yes"}
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# X_SECURITY_ROBUSTNESS-5 -- UnseenCategoryImputer.fit() clear error on zero-non-null column
+# ---------------------------------------------------------------------------------------------------------------
+
+
+def test_unseen_category_imputer_fit_all_nan_column_raises_clear_error():
+    """X_SECURITY_ROBUSTNESS-5: fit() on a column with zero non-null values must raise a clear ValueError
+    naming the column, not a raw IndexError from reliable.index[0] on an empty Index."""
+    from mlframe.preprocessing.unseen_category_imputer import UnseenCategoryImputer
+
+    df = pd.DataFrame({"all_nan_col": [np.nan, np.nan, np.nan]})
+    imputer = UnseenCategoryImputer(columns=["all_nan_col"])
+    with pytest.raises(ValueError, match="all_nan_col.*zero non-null values"):
+        imputer.fit(df)
+
+
+def test_unseen_category_imputer_fit_empty_dataframe_raises_clear_error():
+    """X_SECURITY_ROBUSTNESS-5: fit() on a zero-row DataFrame must also raise the clear error, not IndexError."""
+    from mlframe.preprocessing.unseen_category_imputer import UnseenCategoryImputer
+
+    df = pd.DataFrame({"empty_col": pd.Series([], dtype=object)})
+    imputer = UnseenCategoryImputer(columns=["empty_col"])
+    with pytest.raises(ValueError, match="empty_col.*zero non-null values"):
+        imputer.fit(df)

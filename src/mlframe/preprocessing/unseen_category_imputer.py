@@ -100,6 +100,11 @@ class UnseenCategoryImputer:
             reliable = counts[counts >= self.min_count]
             if len(reliable) == 0:
                 reliable = counts
+            if len(reliable) == 0:
+                # value_counts() drops NaN by default, so an all-NaN (or genuinely empty) column leaves
+                # `reliable` empty even after the min_count fallback -- `reliable.index[0]` on an empty
+                # Index raised a raw, unhelpful IndexError here; name the actual column and cause instead.
+                raise ValueError(f"UnseenCategoryImputer.fit: column {col!r} has zero non-null values -- cannot learn a fallback mode for it")
             self.known_categories_[col] = set(reliable.index)
             self.mode_[col] = reliable.index[0]
 
