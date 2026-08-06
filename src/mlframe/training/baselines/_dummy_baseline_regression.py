@@ -197,9 +197,12 @@ def _compute_regression_baselines(
             for P in periods:
                 if P < 2 or len(train_y) < P:
                     continue
-                # seasonal_naive: predict y_train[-P + (k mod P)] for val row k
-                val_sn = np.array([train_y[-P + (k % P)] for k in range(n_val)])
-                test_sn = np.array([train_y[-P + (k % P)] for k in range(n_test)])
+                # seasonal_naive: predict y_train[-P + (k mod P)] for val row k. Vectorized: the last P
+                # train values, indexed by (k mod P) -- bit-identical to the per-row Python loop since
+                # train_y[-P:][i] == train_y[-P + i] for i in [0, P).
+                last_p = train_y[-P:]
+                val_sn = last_p[np.arange(n_val) % P]
+                test_sn = last_p[np.arange(n_test) % P]
                 label = f"seasonal_naive_p{P} (ts)"
                 if P in (ts_diag.get("acf_periods") or []):
                     label = f"seasonal_naive_p{P} (ts, ACF-detected)"
