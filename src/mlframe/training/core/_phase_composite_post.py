@@ -18,7 +18,7 @@ from ..composite.transforms import is_composite_target_name
 
 logger = logging.getLogger(__name__)
 
-# T2#10 2026-05-18 Pack G universal watchdog threshold. ``wrapper.predict(X)``
+# Pack G universal watchdog threshold. ``wrapper.predict(X)``
 # is compared against ``transform.inverse(inner.predict(X), base, params)``;
 # divergence beyond this fraction of ``y_std`` fires a WARNING.
 #
@@ -56,10 +56,9 @@ def recover_composite_y_scale_metrics(
     test_df_pd,
     enable_watchdog: bool = True,
 ) -> dict[tuple, np.ndarray]:
-    """T1#7 2026-05-18 lazy recovery of composite-target y-scale metrics.
+    """Lazy recovery of composite-target y-scale metrics.
 
-    When the suite runs with ``skip_wrap_pass_predict=True`` (default since
-    2026-05-18), the wrap step still runs but the y-scale metric block is
+    When the suite runs with ``skip_wrap_pass_predict=True`` (the default), the wrap step still runs but the y-scale metric block is
     bypassed - ``metadata["composite_target_y_scale_metrics"]`` stays empty.
 
     Callers that subsequently need those metrics (notebooks, dashboards,
@@ -177,7 +176,7 @@ def run_composite_post_processing(
     # in prod: EnsARITHM TEST=12.45 vs Ridge alone 11.63 vs
     # lag_predict 11.58).
     #
-    # I2 fix (2026-06-10): the synthesis must be PER-TARGET, not gated on
+    # The synthesis must be PER-TARGET, not gated on
     # the GLOBALLY-empty specs dict. In a mixed suite where one regression
     # target was discovered (specs dict non-empty) and a sibling was
     # AR-skipped (no specs entry), the old ``not composite_specs_by_target_type``

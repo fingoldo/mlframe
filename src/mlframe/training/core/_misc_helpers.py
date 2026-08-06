@@ -657,7 +657,7 @@ def _auto_detect_feature_types(
             _meta_embed_obj = set(pandas_meta.get("embedding_object_cols", []))
         else:
             _columns = list(df.columns)
-            # Wave 54 (2026-05-20): same dupe-column hazard as _phase_helpers.py:1114;
+            # same dupe-column hazard as _phase_helpers.py:1114;
             # silently-collapsing dtype dict would feed a wrong schema-hash downstream.
             if len(set(_columns)) != len(_columns):
                 from collections import Counter as _Counter
@@ -674,9 +674,9 @@ def _auto_detect_feature_types(
         # prefix list missed, silently dropping every high-cardinality
         # text column to the numeric-only path (skills_text -> text=[]):
         #   * ``pd.StringDtype(na_value=nan)`` -> ``'<StringDtype(na_value=nan)>'``
-        #     (observed big machine 2026-05-24)
+        #     (observed big machine)
         #   * ``future.infer_string`` / pandas 3.0 default -> ``'str'``
-        #     (observed big machine 2026-05-27). ``'str'.startswith('string')``
+        #     (observed big machine). ``'str'.startswith('string')``
         #     is False, so a bare ``str`` dtype slipped through.
         # The ``"str"`` token is a prefix of every string spelling
         # (str / string / string[python] / StringDtype...), so it

@@ -203,7 +203,7 @@ def _run_one_weight_iteration(
     # mutate the suite-level models_params template and the next target would inherit
     # this iteration's overrides.
 
-    # F-34 (2026-05-31): MULTI_TARGET_REGRESSION build-time wiring.
+    # MULTI_TARGET_REGRESSION build-time wiring.
     # Two things to do BEFORE the cloned_model lands in
     # current_model_params:
     #   * Native strategies (CatBoost / XGBoost): inject the

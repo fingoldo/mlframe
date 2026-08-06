@@ -21,7 +21,7 @@ try:
 except ImportError:
     pl = None  # type: ignore[assignment]
 
-# 2026-05-21: wave-105 split-out forgot to mirror the parent's imports +
+# The split-out forgot to mirror the parent's imports +
 # NamedTuple defs, so every call into ``_phase_fit_pipeline`` /
 # ``_phase_train_val_test_split`` raised NameError. Mirroring the parent
 # module's imports here so this file is genuinely self-contained.
@@ -333,7 +333,7 @@ def _phase_fit_pipeline(
                         _first = None
                     if _first is not None and (hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))):
                         _embedding_object_cols.append(_c)
-            # Wave 54 (2026-05-20): pandas allows duplicate column names; the prior
+            # pandas allows duplicate column names; the prior
             # {c: ...} comprehension silently collapsed dupes to one entry, so the
             # downstream schema-hash would mis-flag a "matching" schema and drop
             # auto-detect coverage for the duplicate columns. Refuse explicitly.
@@ -672,7 +672,7 @@ def _phase_fit_pipeline(
                     if _new_df_pd.shape[1] == 0:
                         continue
                     try:
-                        # Build polars columns from per-column .to_numpy() views (skips pandas block consolidation). Bench (100k x 30 mixed dtypes, 2026-05-24): 16.0ms -> 1.05ms (15x); per-split (train/val/test) this is ~3x the saving.
+                        # Build polars columns from per-column .to_numpy() views (skips pandas block consolidation). Bench (100k x 30 mixed dtypes): 16.0ms -> 1.05ms (15x); per-split (train/val/test) this is ~3x the saving.
                         _new_pl = pl.DataFrame({c: _new_df_pd[c].to_numpy() for c in _new_df_pd.columns})
                         _merged = _pl_df.hstack(_new_pl)
                         if _label == "train":

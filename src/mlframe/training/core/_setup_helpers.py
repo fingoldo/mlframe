@@ -480,7 +480,7 @@ def _compute_fairness_subgroups(
         if isinstance(df, pl.DataFrame):
             # Arrow-backed split-blocks bridge: ~32x faster than .to_pandas() default on
             # 9M-row frames -- consolidation copy eliminated for numeric / bool columns.
-            # Audit D P1-7 (2026-05-18): the polars->pandas conversion is NEEDED here because
+            # The polars->pandas conversion is NEEDED here because
             # ``create_fairness_subgroups`` from ``mlframe.metrics.core`` consumes a pandas
             # frame (pandas groupby / nunique). The conversion cannot be pushed further. Keep
             # the split-blocks bridge so the hop stays at zero-copy on numeric columns.

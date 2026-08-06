@@ -106,7 +106,7 @@ def _apply_outlier_detection_global(
         logger.info("Fitting outlier detector (once for all targets)...")
 
     # sklearn outlier detectors coerce input via check_array; non-numeric columns (string/categorical/embedding-list) crash fit. Drop non-numeric on each
-    # call so polars and pandas paths stay symmetric. bench-attempt-rejected (2026-05-24): caching the numeric column list across the train + val calls
+    # call so polars and pandas paths stay symmetric. bench-attempt-rejected: caching the numeric column list across the train + val calls
     # would require asserting train+val schemas match, but val can legitimately have different dtypes (e.g. early-rare-category never seen in train);
     # the per-call schema iteration is ~us on typical column counts so the cache adds maintenance burden without measurable wall gain.
     def _numeric_only_view(df_):

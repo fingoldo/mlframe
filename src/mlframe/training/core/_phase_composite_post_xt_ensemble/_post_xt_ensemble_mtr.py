@@ -16,7 +16,7 @@ logger = logging.getLogger("mlframe.training.core._phase_composite_post")
 
 
 class MTRPerColumnEqualMeanEnsemble:
-    """E2 (F-34, 2026-05-31) + E3 (F-34, 2026-05-31): per-column ensemble
+    """E2 (F-34) + E3 (F-34): per-column ensemble
     for MULTI_TARGET_REGRESSION cross-target ensembling.
 
     Wraps a list of K trained component models (each producing (N, K)

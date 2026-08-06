@@ -39,7 +39,7 @@ def run_per_target_diagnostics(
 
     # BASELINE DIAGNOSTICS FIRST -- its ablation deltas are the feature
     # importance source we feed to the feature-drift sensor below. Per the
-    # 2026-05-22 design review: feature drift WITHOUT importance weighting
+    # feature drift WITHOUT importance weighting
     # isn't a grounded harm signal (drift on irrelevant features is harmless;
     # drift on dominant features can be catastrophic). So we always compute
     # FI first, then weight the drift report accordingly.
@@ -93,12 +93,12 @@ def run_per_target_diagnostics(
             cur_target_name, target_type, _bd_err,
         )
 
-    # 2026-05-22: feature-side drift sensor. The actionable layer downstream
+    # feature-side drift sensor. The actionable layer downstream
     # is the K=2 ensemble catastrophic-dropout; this sensor is COMPLEMENTARY
     # observability that (a) stamps per-feature drift stats into metadata for
     # post-mortem correlation and (b) escalates to WARN when the FI-weighted
     # aggregate (drift * dominance) crosses 1.0 -- the grounded harm signal
-    # the design-review of 2026-05-22 demanded.
+    # the design review demanded.
     if filtered_val_df is not None or filtered_test_df is not None:
         try:
             # Build feature_importance from baseline_diagnostics ablation deltas.

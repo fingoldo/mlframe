@@ -227,7 +227,7 @@ def _try_predict_with_pp_fallback(
 ):
     """Call ``fn(primary)`` with two fallback paths for predict-time dtype mismatches.
 
-    Wave 88 (2026-05-21): extracted from the 525-line predict_from_models per-model
+    extracted from the 525-line predict_from_models per-model
     try-block body. Logic identical to the prior nested closure; named-arg surface
     now explicit, lifetime no longer scoped to a single for-loop iteration.
 
@@ -358,7 +358,7 @@ def _apply_pre_pipeline_with_passthrough(
 ):
     """Apply ``model_obj.pre_pipeline.transform`` with text/embedding passthrough stash + feature-subset fallback.
 
-    Wave 90 (2026-05-21): extracted from the predict.py:1372 mega-try body
+    extracted from the predict.py:1372 mega-try body
     (was a 192-line nested ``if hasattr(model_obj, "pre_pipeline") ...``).
     Behaviour preserved bit-for-bit. Returns the (possibly transformed,
     possibly subsetted) input_for_model.

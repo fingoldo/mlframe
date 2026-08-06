@@ -1,5 +1,5 @@
 """``predict_mlframe_models_suite`` carved out of
-``mlframe.training.core._predict_main`` for the 2026-05-22 sub-split that
+``mlframe.training.core._predict_main`` for the sub-split that
 brings _predict_main below 1k LOC.
 """
 from __future__ import annotations
@@ -171,7 +171,7 @@ def predict_mlframe_models_suite(
         metadata = _sload(metadata_file, allow_unverified=True)
     else:
         metadata = joblib.load(metadata_file)
-    # Wave 19 P0 #2: validate the schema_version + composite_target_env_signature
+    # validate the schema_version + composite_target_env_signature
     # fields that the WRITE side has populated since 2026-02 (see
     # _phase_config_setup.py:312 + _phase_helpers.py:253). The READ side never
     # checked them, so an artifact written by code path A could be silently
@@ -422,7 +422,7 @@ def predict_mlframe_models_suite(
                     if probs.shape[1] == 2:
                         preds = (probs[:, 1] >= _bin_thr).astype(int)
                     else:
-                        # Wave 21 P2: nan-safe argmax. Pre-fix np.argmax
+                        # nan-safe argmax. Pre-fix np.argmax
                         # on a NaN-bearing proba row silently classified
                         # as class 0 -> confusion matrix + per-class
                         # P/R/F1 wrong with no upstream signal.

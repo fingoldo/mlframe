@@ -101,7 +101,7 @@ def _persist_ct_ensemble_entries(ctx: "TrainingContext") -> None:
             # the literal directory name we want. (The earlier slice-and-splice was a no-op rewrite of the
             # same string -- the comment about slugify dropping the leading underscore did not match the
             # actual code.)
-            # Wave 46 (2026-05-20): defence-in-depth: a key like "_CT_ENSEMBLE__../../evil" would
+            # defence-in-depth: a key like "_CT_ENSEMBLE__../../evil" would
             # bypass the prefix gate and traverse out of _base; slugify keeps the prefix as a literal
             # marker while neutralising any path separators / parent-dir refs inside the rest.
             _dir_name = "_CT_ENSEMBLE__" + slugify(_tname[len("_CT_ENSEMBLE__") :])

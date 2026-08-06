@@ -292,8 +292,8 @@ def run_dummy_baselines(
                 # this the inverse raises "base has 1 columns but fitted
                 # alphas has K entries" -- caught by the outer try/except as
                 # a WARNING, but the y-scale dummy metric is then missing
-                # from metadata. Reproduced by fuzz c0047 (mode=legacy,
-                # multi-base auto-promoted to linresM-num_1+num_dep).
+                # from metadata. Reproduced with a legacy-mode, multi-base
+                # auto-promoted-to-linresM combo.
                 _extra_bases = tuple(_matching_spec.get("extra_base_columns") or ())
                 _raw_target_col, _raw_y_full = _resolve_spec_raw_target(
                     _matching_spec, target_type, target_by_type, cur_target_name,

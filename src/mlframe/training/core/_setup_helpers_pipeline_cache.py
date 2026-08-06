@@ -57,23 +57,23 @@ def _parent_set(name: str, value) -> None:
         setattr(parent, name, value)
 
 
-# iter193 (2026-05-23): per-process cache for the polars-ds Pipeline
+# Per-process cache for the polars-ds Pipeline
 # from_json() roundtrip validation. ``_finalize_and_save_metadata`` calls
 # ``Pipeline.from_json(_js)`` on EVERY fit to verify the JSON roundtrips;
-# c0141 profile attributed 5.413s wall to this single call. The validation
+# A profile attributed 5.413s wall to this single call. The validation
 # is deterministic in the input JSON (same JSON -> same parse result), so
 # we cache the result keyed by ``hash(_js)``. First-fit pays the 5s, subse-
 # quent fits within the same process do a 1us dict lookup. Mirrors the
-# _PROBE_PRECISION_CACHE (iter181), _CB_GPU_USABLE_CACHE, and
-# _mlframe_callback_cache_installed (iter189) patterns for process-stable
+# _PROBE_PRECISION_CACHE, _CB_GPU_USABLE_CACHE, and
+# _mlframe_callback_cache_installed patterns for process-stable
 # costs. Falls back to live validation on cache miss.
 _PIPELINE_JSON_ROUNDTRIP_CACHE: dict[str, bool] = {}
 
 
-# iter275 (2026-05-23): cross-process file cache. The in-memory cache above
+# Cross-process file cache. The in-memory cache above
 # only helps repeated fits within ONE process. Fresh-process workflows
 # (fuzz combo re-runs, pytest-xdist workers, CI, dev iteration) pay the
-# full 8.5s validation on every first call. c0141 iter275 profile
+# full 8.5s validation on every first call. A profile
 # attributed 8.57s to a single ``from_json`` (20 polars Exprs x 428ms each).
 # Across 150 fuzz combos that's ~21 min wasted on deterministic work.
 #
@@ -217,7 +217,7 @@ class _PolarsDsPipelineJsonProxy:
     encoding over many categories) the polars Rust deserializer can take
     100-200ms PER expression during load; 19 such expressions produced a
     2.21s load wall on the 100k binary_classification x lgb profile
-    (seed=20260522, 2026-05-19). The proxy serialises via the Pipeline's
+    (seed=20260522). The proxy serialises via the Pipeline's
     own ``to_json()`` API on save and reconstructs via ``from_json()`` on
     load -- ~0.2ms regardless of expression complexity, ~5000x faster on
     the worst case. Transparent ``transform()`` + attribute forwarding

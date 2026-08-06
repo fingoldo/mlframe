@@ -1,5 +1,5 @@
 """``predict_from_models`` carved out of
-``mlframe.training.core._predict_main`` for the 2026-05-22 sub-split that
+``mlframe.training.core._predict_main`` for the sub-split that
 brings _predict_main below 1k LOC.
 """
 from __future__ import annotations
@@ -264,7 +264,7 @@ def predict_from_models(
         _ext_new_cols = [c for c in df.columns if c not in set(df_pre_pipeline.columns)]
         if _ext_new_cols and df.shape[0] == df_pre_pipeline.shape[0]:
             try:
-                # ``pl.from_pandas(df[cols])`` pays a full pandas block consolidation copy through Arrow on the predict hot path. Building polars columns directly from per-column ``.to_numpy()`` views skips the pandas block manager round-trip; bench (100k x 30 mixed dtypes, 2026-05-24): 16.0ms -> 1.05ms (15x). ``rechunk=False`` on the from_pandas path showed no measurable gain in the same bench because the underlying copy is the consolidation, not the chunk merge.
+                # ``pl.from_pandas(df[cols])`` pays a full pandas block consolidation copy through Arrow on the predict hot path. Building polars columns directly from per-column ``.to_numpy()`` views skips the pandas block manager round-trip; bench (100k x 30 mixed dtypes): 16.0ms -> 1.05ms (15x). ``rechunk=False`` on the from_pandas path showed no measurable gain in the same bench because the underlying copy is the consolidation, not the chunk merge.
                 _ext_only_pl = pl.DataFrame({c: df[c].to_numpy() for c in _ext_new_cols})
                 df_pre_pipeline = df_pre_pipeline.hstack(_ext_only_pl)
             except Exception as _bm_err:  # best-effort: falls back to raw-only, logged so the cause is visible
@@ -439,7 +439,7 @@ def predict_from_models(
                             else:
                                 input_for_model = input_for_model.drop(columns=_drop_extra)
 
-                    # Wave 90 (2026-05-21): per-model pre_pipeline.transform
+                    # per-model pre_pipeline.transform
                     # (with text/embedding passthrough stashing + feature-
                     # subset fallback on NotFittedError) lifted to the
                     # module-level _apply_pre_pipeline_with_passthrough.
@@ -456,7 +456,7 @@ def predict_from_models(
                         verbose=verbose,
                     )
 
-                    # Wave 89 (2026-05-21): LGB + XGB cat dtype coercion lifted
+                    # LGB + XGB cat dtype coercion lifted
                     # to module-level _coerce_cat_dtype_for_lgb_xgb. Same logic,
                     # one call instead of two adjacent ~40-line blocks.
                     # Thread persisted enum_domains (train-time Enum dictionaries) through so the polars XGB cat-cast lands on pl.Enum (per-Series, no global-string-cache widening). Out-of-domain values cast to null via strict=False (matches training treatment of truly-unseen test categories). Legacy bundles without enum_domains key fall back to pl.Categorical with WARN.
@@ -476,7 +476,7 @@ def predict_from_models(
                     # (correct for LGB / linear / etc.) and fall back to
                     # pre-pipeline on the specific isnan-on-strings TypeError.
                     # Surfaced by fuzz iter#80 (lgb+hgb on Polars+cat).
-                    # Wave 88 (2026-05-21): the 90-line nested _try_predict closure
+                    # the 90-line nested _try_predict closure
                     # was extracted to the module-level _try_predict_with_pp_fallback.
                     # Behaviour identical; the per-iteration def overhead is gone and
                     # the function is now unit-testable in isolation.
@@ -493,7 +493,7 @@ def predict_from_models(
                             verbose=verbose,
                         )
 
-                    # CTE-RAW-X (2026-05-21): CompositeTargetEstimator's predict
+                    # CompositeTargetEstimator's predict
                     # reads the base column directly from X to apply the transform's
                     # inverse (e.g. linear_residual: y = t_hat + alpha*base + beta).
                     # The alpha/beta were fit on the RAW base column at discovery
@@ -535,7 +535,7 @@ def predict_from_models(
                             if probs.shape[1] == 2:
                                 preds = (probs[:, 1] >= _bin_thr).astype(int)
                             else:
-                                # Wave 21 P2: nan-safe argmax (second predict
+                                # nan-safe argmax (second predict
                                 # entry point; symmetric to L964 fix).
                                 from ...utils.nan_safe import argmax_classes_safe
                                 preds = argmax_classes_safe(
@@ -556,7 +556,7 @@ def predict_from_models(
                     results["models_used"].append(model_name)
 
                 except Exception as e:
-                    # Wave 41 (2026-05-20): twin path at line 995 already uses exc_info=True;
+                    # twin path at line 995 already uses exc_info=True;
                     # this site was the asymmetric one - lost the traceback for downstream
                     # ensemble-member triage. Mirror the twin.
                     log_throttle(logger, "predict_error_with_model", logging.ERROR, "Error predicting with model %s", model_name, exc_info=True)

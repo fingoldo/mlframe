@@ -9,7 +9,7 @@ the surface the components were tuned against.
 Bench: ``training/_benchmarks/bench_mtr_nnls_oof.py`` (honest-OOF NNLS beats equal_mean on 8/8 seeds, ~9% lower test
 RMSE, and is leak-free vs val-fit).
 
-cProfile (n=4000, K=3, 4 components, kfold=5; 2026-06-11): ``compute_mtr_oof_nnls_weights`` is ~0.14 s/call, of
+cProfile (n=4000, K=3, 4 components, kfold=5;): ``compute_mtr_oof_nnls_weights`` is ~0.14 s/call, of
 which ~77% is the inner component ``fit`` re-refits (the leak-free K-fold's irreducible cost) and ~2% is the
 wrapper's own work; the NNLS solves, the per-component finite check (``np.isfinite(oof).all(axis=(1,2))``) and the
 exclusion bookkeeping are in the noise. The per-component-exclusion path solves a ``<= n_comp``-wide NNLS submatrix
@@ -63,7 +63,7 @@ def compute_mtr_oof_nnls_weights(
     Each component is cloned and re-fit on K-1 folds to predict the held-out fold, assembling an OOF (n_comp, n,
     K) stack; per target column an independent NNLS solve recovers non-negative weights.
 
-    Per-component exclusion (audit I7, implemented 2026-06-11)
+    Per-component exclusion (audit I7, implemented)
     ----------------------------------------------------------
     A SINGLE bad component (its fold-refit raises, or it emits a non-finite OOF cell) no longer forfeits the
     WHOLE benched ~9% honest-OOF win (``bench_mtr_nnls_oof.py``). The bad component is EXCLUDED -- its row in the

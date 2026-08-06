@@ -218,7 +218,7 @@ def _apply_loss_recommendation_in_place(
                     )
 
     # Linear / Ridge / Lasso protection on heavy-kurt regression
-    # targets (2026-05-26): an additive_residual composite ``y-addres-
+    # An additive_residual composite ``y-addres-
     # base`` on a heavy-tail-target run produced excess_kurt=+16.96 /
     # skew=+2.88 in T-space. Ridge fit with alpha=1e-3 (effectively
     # OLS) chased the outlier rows and predicted -700k on test rows
@@ -514,7 +514,7 @@ def _canonical_dtype_pairs_compute(train_df) -> tuple:
         # Polars Enum / Categorical canonicalise to "c" via isinstance dispatch
         # BEFORE stringifying: a Polars Enum's ``str(dt)`` materialises the full
         # ``Enum(categories=['...', '...', ...])`` repr -- multi-KB for hundreds
-        # of categories. The iter470 polars->pandas bridge promotes every
+        # of categories. The polars->pandas bridge promotes every
         # Categorical to Enum with the column's actual category list, so the
         # bridge-produced frames hit this path every cache-key build. Mapping
         # Enum to "c" (alongside the existing Categorical -> "c") also restores

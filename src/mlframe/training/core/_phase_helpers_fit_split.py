@@ -1,6 +1,6 @@
 """``_phase_fit_pipeline`` + ``_phase_train_val_test_split`` -- the heavy training phases.
 
-Wave 105 (2026-05-21): split out from ``training/core/_phase_helpers.py`` to
+split out from ``training/core/_phase_helpers.py`` to
 keep that file below the 1k-line monolith threshold. Behaviour preserved
 bit-for-bit; both functions are re-exported from ``_phase_helpers`` so
 existing imports continue to work.
@@ -26,7 +26,7 @@ try:
 except ImportError:
     pl = None  # type: ignore[assignment]
 
-# 2026-05-21: wave-105 split-out forgot to mirror the parent's imports +
+# The split-out forgot to mirror the parent's imports +
 # NamedTuple defs, so every call into ``_phase_fit_pipeline`` /
 # ``_phase_train_val_test_split`` raised NameError. Mirroring the parent
 # module's imports here so this file is genuinely self-contained.
@@ -627,7 +627,7 @@ def _phase_auto_detect_feature_types(
 
     # Capture pre-drop column data so dummy_baselines per_group_mean can use these as group
     # keys downstream (tree models drop them to avoid XGB QuantileDMatrix OOM).
-    # Audit D P1-6 (2026-05-18): pre-fix loop ran ``_frame[c].to_numpy()`` per column per
+    # Pre-fix loop ran ``_frame[c].to_numpy()`` per column per
     # split -- N independent Arrow batches per split. Now we do ONE ``_frame.select(cols)``
     # per split, materialise that 2D matrix through ``get_pandas_view_of_polars_df`` (split-
     # blocks Arrow bridge, ~32x faster than naive to_pandas on multi-col selects), then
@@ -705,7 +705,7 @@ def _phase_auto_detect_feature_types(
         _keep_as_string = text_emb_set
         _str_cols = [c for c, dt in zip(train_df.columns, train_df.dtypes) if dt in _string_types and c not in _keep_as_string]
         if _str_cols:
-            # Wave 72 (2026-05-21): build per-column Enum domain from train+val
+            # build per-column Enum domain from train+val
             # uniques (NOT train-only). val is the early-stopping detector --
             # if a val-only categorical value gets cast to null silently, ES is
             # biased away from val-rare-cat-sensitive splits. test stays
@@ -734,7 +734,7 @@ def _phase_auto_detect_feature_types(
                     logger.debug("swallowed exception in _phase_helpers_fit_split.py: %s", e)
                     pass
             if _val_only_diag:
-                # INFO-level. Per Wave 72 contract this widening is intentional (val=ES detector must not silently null-cast); the log only surfaces what was previously invisible.
+                # INFO-level. This widening is intentional (val=ES detector must not silently null-cast); the log only surfaces what was previously invisible.
                 _summary = ", ".join(f"{c}:{n}" for c, (n, _) in _val_only_diag.items())
                 _samples = ", ".join(f"{c}={vs}" for c, (_, vs) in list(_val_only_diag.items())[:3])
                 logger.info(
@@ -758,7 +758,7 @@ def _phase_auto_detect_feature_types(
                     _affected_cols.append(_c)
                 if not _exprs:
                     return df
-                # Wave 72 (2026-05-21): quantify silent OOV-nulling so operators
+                # quantify silent OOV-nulling so operators
                 # can see how many rows got cast-failed (was invisible before).
                 _null_pre = {c: int(df[c].null_count()) for c in _affected_cols}
                 out = df.with_columns(_exprs)

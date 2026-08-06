@@ -5,7 +5,7 @@ Recurrent models are trained AFTER the per-target booster loop; they are integra
 helper added in this module, recurrent models silently never joined the blend: ``score_ensemble`` had already
 run for the target by the time ``train_recurrent_models`` appended them to ``ctx.models[type][target]``.
 
-Wave 66 (2026-05-20): predict-time replay closure.
+predict-time replay closure.
 
 ``core/predict.py`` does NOT re-run score_ensemble at predict time -- it reads the already-blended
 ensemble metadata stamped at train time (rrf_k, chosen flavour, member list) and per-member

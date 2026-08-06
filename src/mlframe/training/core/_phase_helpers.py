@@ -55,8 +55,8 @@ _DEFAULT_LTR_ES = 30
 # Models that consume pandas Categorical via the joint train+val
 # encoding. Linear / MLP / Neural strategies operate on numeric tensors
 # and don't read the Categorical dtype at all; running the joint cat
-# prep for them is pure waste (c0095 iter195 found 865ms wasted on a
-# linear-only multilabel combo at 200k rows). LearningToRank LGB / XGB
+# prep for them is pure waste (865ms wasted on a linear-only
+# multilabel combo at 200k rows, measured). LearningToRank LGB / XGB
 # / CB rankers also consume cat_features through the joint encoding,
 # so they're included here.
 _MODELS_NEEDING_PANDAS_CAT_PREP: frozenset[str] = frozenset({
@@ -275,7 +275,7 @@ def _defensive_copy_and_expand_multilabel_regression(
         if ml_expanded_map:
             metadata.setdefault("multilabel_target_expansion", {})[str(TargetTypes.REGRESSION)] = ml_expanded_map
     elif ml_strategy == "multi_target_regression":
-        # F-34 (2026-05-31): keep (N, K) regression targets as-is, route
+        # Keep (N, K) regression targets as-is, route
         # them to TargetTypes.MULTI_TARGET_REGRESSION. Strategies that
         # support native multi-target (CatBoost MultiRMSE, XGBoost
         # multi_output_tree, MLP K-head, sklearn Linear/Ridge/RF) fit
@@ -467,7 +467,7 @@ def _phase_pandas_conversion_and_cat_prep(
     val_df_polars = val_df_polars_pre
     test_df_polars = test_df_polars_pre
 
-    # Wave 69 (2026-05-20) closure: defer_pandas_conv heuristic landed in wave 4
+    # defer_pandas_conv heuristic landed earlier
     # of the F6 audit (predict-skew closure); it consults ctx.strategy_by_model
     # directly rather than rebuilding the per-model strategy list here. The
     # on-demand build inside the verbose-only log branches below is intentional
@@ -558,7 +558,7 @@ def _phase_pandas_conversion_and_cat_prep(
         # 1. If ``was_polars_input`` already populated ``train_df_size_bytes_cached`` via
         #    ``estimated_size()`` + cat-heavy inflation (lines ~473-483 above), KEEP that value.
         #    On a 4M-row x 25-col object-heavy frame ``memory_usage(deep=True)`` scans every cell
-        #    and takes ~17.6s (measured 2026-05-24); the polars estimate plus the 1.5x cat-heavy
+        #    and takes ~17.6s (); the polars estimate plus the 1.5x cat-heavy
         #    factor is accurate enough for GPU-sizing heuristics that already over-allocate.
         # 2. Otherwise fall back to ``memory_usage(deep=False)`` -- shallow scan returns in <1ms
         #    by reading buffer-block sizes per column. The object-dtype undercount that
@@ -584,9 +584,9 @@ def _phase_pandas_conversion_and_cat_prep(
                     (val_df_size_bytes_cached or 0) / 1e6,
                 )
 
-    # OPT-1 bench-attempt-rejected (2026-05-23): gated joint cat prep on
-    # mlframe_models containing CB/HGB/LGB/XGB/*_rfecv. Verified on c0095
-    # (linear-only multilabel 200k): gate fires correctly (prep call
+    # bench-attempt-rejected: gated joint cat prep on
+    # mlframe_models containing CB/HGB/LGB/XGB/*_rfecv. Verified on a
+    # linear-only multilabel 200k combo: gate fires correctly (prep call
     # eliminated, saving ~865ms cumtime) BUT overall wall went 25.05s ->
     # 32.48s. sklearn.multioutput.fit went 18.7s -> 23.4s (+4.7s); the
     # joint Categorical encoding apparently provides a downstream win for
@@ -654,7 +654,7 @@ def _phase_pandas_conversion_and_cat_prep(
     )
 
 
-# Wave 105 (2026-05-21): _phase_auto_detect_feature_types, _phase_fit_pipeline,
+# _phase_auto_detect_feature_types, _phase_fit_pipeline,
 # and _phase_train_val_test_split moved to sibling _phase_helpers_fit_split.py.
 # Re-exported below so existing callers
 # (`from ._phase_helpers import _phase_fit_pipeline`, etc.) keep working.
@@ -816,7 +816,7 @@ def _maybe_dispatch_to_ltr_ranker_suite(
     _data_dir = _cfg_get(ctx.output_config, "data_dir")
     _models_dir = _cfg_get(ctx.output_config, "models_dir") or "models"
     if _data_dir:
-        # Wave 46 (2026-05-20): raw ctx.model_name plumbed into os.path.join is a path-
+        # raw ctx.model_name plumbed into os.path.join is a path-
         # traversal vector ("../../evil" escapes models dir; an absolute "/foo" or "C:/x"
         # eats the prefix entirely). Slugify mirrors the non-LTR sibling paths at
         # _setup_helpers.py:852 and _phase_finalize.py:71.

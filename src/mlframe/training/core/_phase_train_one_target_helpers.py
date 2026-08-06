@@ -274,7 +274,7 @@ def _maybe_run_feature_handling_apply(
 
     # Propagate ctx.cat_features as the explicit candidate_cat_columns list. Without this
     # the suite-internal call fell into feature_handling_apply's candidate_cat_columns=None
-    # branch which pre-2026-05-20 silently dropped EVERY target_mean / WoE handler the
+    # branch which previously silently dropped EVERY target_mean / WoE handler the
     # FHC was configured for (the by-dtype auto-detect now kicks in as a fallback, but
     # the suite already knows the cat list via the convention at _phase_helpers.py:920-931
     # and should pass it explicitly so the FHC handler chain operates on exactly the same
@@ -308,7 +308,7 @@ def _maybe_run_feature_handling_apply(
     fitted_store = ctx.artifacts.setdefault("feature_handling_fitted", {})
     fitted_store[cur_target_name] = result
 
-    # Wave 63 (2026-05-20): replaced "wave-N" placeholder TODO with concrete tracking
+    # replaced "wave-N" placeholder TODO with concrete tracking
     # comment. Phase F (CB embedding_features) and Phase G (TabularInputEncoder)
     # downstream routing are tracked separately; the current call exists to seed
     # the per-suite FeatureCache and exercise the validate_against_models guard so

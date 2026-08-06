@@ -184,7 +184,7 @@ def setup_configuration(
 
     # None = clear override (auto-detect via __IPYTHON__ / sys.ps1); True/False = explicit.
     # Only import the renderers.save module when the caller actually set a non-None value.
-    # The import triggers the mlframe.reporting -> renderers chain (~12ms on cold-start, measured 2026-05-20)
+    # The import triggers the mlframe.reporting -> renderers chain (~12ms on cold-start)
     # which is pure overhead on suites that never touch charts (plot_outputs='matplotlib[png]'
     # + save_charts=False).
     _inline_display = getattr(reporting_config, "plot_inline_display", None)
@@ -305,7 +305,7 @@ def setup_configuration(
     od_val_set = outlier_detection_config.apply_to_val
     use_mrmr_fs = feature_selection_config.use_mrmr_fs
     mrmr_kwargs = feature_selection_config.mrmr_kwargs
-    # USABILITY-AWARE MULTI-LIST (2026-06-13): the suite-level flag turns on MRMR's usability second pass
+    # The suite-level flag turns on MRMR's usability second pass
     # so transform() materialises the UNION of all three selection lists (pure-MI + linear + universal),
     # putting the linearly-usable engineered interaction in every model's input. An explicit mrmr_kwargs
     # entry wins; the default path (flag off) leaves mrmr_kwargs untouched / byte-identical.
@@ -340,7 +340,7 @@ def setup_configuration(
     # suite N-1, fetch the stale Pool, and feed CatBoost stale binned data + stale labels.
     # The cache is small and rebuilds cheaply, so per-suite reset is the safe default.
     #
-    # 2026-05-20 fix: the train-side _CB_POOL_CACHE lives in mlframe.training._cb_pool, NOT
+    # the train-side _CB_POOL_CACHE lives in mlframe.training._cb_pool, NOT
     # in trainer.py. The pre-fix import resolved trainer._CB_POOL_CACHE (a DEAD stub at
     # trainer.py:217 that nothing else reads or writes), called .clear() on an empty dict,
     # and silently succeeded WITHOUT clearing the live cache. The val-side _CB_VAL_POOL_CACHE
@@ -414,7 +414,7 @@ def setup_configuration(
         # Caller's verbose level. Without this the TrainingContext class default (1) was
         # always used regardless of user-passed value, so every ``if ctx.verbose:`` block
         # across phases fired even on verbose=0 runs (including the _phase_finalize.py:438
-        # plotly-import for kaleido telemetry, ~25ms cold-start). Fixed 2026-05-20.
+        # plotly-import for kaleido telemetry, ~25ms cold-start). Fixed.
         verbose=int(verbose) if verbose is not None else 1,
         data_dir=data_dir,
         models_dir=models_dir,

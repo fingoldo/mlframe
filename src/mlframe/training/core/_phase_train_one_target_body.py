@@ -169,7 +169,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
     if not hasattr(ctx, "_cache_stats") or ctx._cache_stats is None:
         ctx._cache_stats = {}
 
-    # bench-attempt-rejected (2026-05-24): dropping the two outer ``tqdmu_lazy_start`` bars (keeping only the innermost weight-schema bar) saved ~1.1ms
+    # bench-attempt-rejected: dropping the two outer ``tqdmu_lazy_start`` bars (keeping only the innermost weight-schema bar) saved ~1.1ms
     # of the 2.6ms per outer iteration in a synthetic 2x3x4 nested loop. Reverted because the outer bars give users visible per-pre_pipeline + per-model
     # progress on long suites; the small per-iter saving does not offset the diagnostic loss. ``tqdmu_lazy_start`` already suppresses single-item bars.
     for pre_pipeline, pre_pipeline_name in tqdmu_lazy_start(zip(pre_pipelines, pre_pipeline_names), desc="pre_pipeline", total=len(pre_pipelines)):
@@ -623,7 +623,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # mutate the suite-level models_params template and the next target would inherit
                 # this iteration's overrides.
 
-                # F-34 (2026-05-31): MULTI_TARGET_REGRESSION build-time wiring.
+                # MULTI_TARGET_REGRESSION build-time wiring.
                 # Two things to do BEFORE the cloned_model lands in
                 # current_model_params:
                 #   * Native strategies (CatBoost / XGBoost): inject the

@@ -94,7 +94,7 @@ def validate_suite_inputs(
 ) -> Any:
     """Validate the four required positional kwargs of ``train_mlframe_models_suite``.
 
-    Wave 29 P2 fix (2026-05-20): pre-fix rejected ``pathlib.Path`` with a confusing "must be ... path string" message. Path is a natural caller idiom (yaml config + Path / Click + Path); coerce to str at the boundary so the downstream parquet-read path stays unchanged.
+    Pre-fix rejected ``pathlib.Path`` with a confusing "must be ... path string" message. Path is a natural caller idiom (yaml config + Path / Click + Path); coerce to str at the boundary so the downstream parquet-read path stays unchanged.
 
     Returns the (possibly-coerced) ``df`` so callers can rebind their local in one statement.
     """

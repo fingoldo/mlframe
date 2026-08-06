@@ -31,10 +31,10 @@ _CURRENT_SCHEMA_VERSION = 2
 
 
 def _validate_metadata_version_envelope(metadata: dict, models_path: str) -> None:
-    """Wave 19 P0 #2: validate the version-envelope fields the WRITE side
+    """Validate the version-envelope fields the WRITE side
     has been populating but the READ side previously ignored.
 
-    Pre-fix (before 2026-05-20) the load path never checked
+    Pre-fix the load path never checked
     ``metadata["schema_version"]`` or
     ``metadata["composite_target_env_signature"]``, so a bundle written
     by code path A could be silently consumed by code path B that
@@ -280,7 +280,7 @@ def _combine_probs(
 def _coerce_cat_dtype_for_lgb_xgb(input_for_model, *, model, cat_features, enum_domains=None):
     """Cast cat_features to pandas ``category`` (or pl.Enum / pl.Categorical for polars XGB).
 
-    Wave 89 (2026-05-21): extracted from the predict.py:1372 mega-try body.
+    Extracted from the predict.py:1372 mega-try body.
     Combines two adjacent ~40-line blocks (LGB + XGB) that share the same
     "detect-model-family-by-module + iterate cat_features + cast non-category
     to category" structure. Returns the possibly-mutated input_for_model.
@@ -700,7 +700,7 @@ def load_mlframe_suite(models_path: str, trusted_root: str | None = None) -> tup
         metadata = _sload(metadata_file, allow_unverified=True)
     else:
         metadata = joblib.load(metadata_file)
-    # Wave 19 P0 #2: validate version envelope here too (the second predict
+    # Validate version envelope here too (the second predict
     # entry point at predict_from_models had the same dead-stamp blind spot).
     _validate_metadata_version_envelope(metadata, models_path)
 
