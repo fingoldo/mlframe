@@ -739,7 +739,6 @@ class ParamOracle:
         # distance 0 it's effectively an exact match handled earlier, so this
         # path only fires on genuine neighbours.
         nearest = scored[:k]
-        nearest.sort(key=lambda t: t[0])
         return _loads(nearest[0][1]["param_combo_json"])
 
     # ----- the sweep / call machinery -----
