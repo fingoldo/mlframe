@@ -157,8 +157,7 @@ def _treatment_applies(method: str, treatment: str) -> bool:
     if treatment in ("baseline", "mm_on", "ALL_FIXES"):
         return True
     spec = TREATMENTS[treatment]
-    method_key = {"fayyad_irani": "fayyad_irani", "blocks": "blocks"}.get(method, method)
-    return method_key in spec["kwargs_by_method"]
+    return method in spec["kwargs_by_method"]
 
 
 def _run_fold_ab(
@@ -169,10 +168,7 @@ def _run_fold_ab(
     distribution: str, signal_kind: str, n: int, fold_idx: int,
 ) -> Optional[ABFoldResult]:
     spec = TREATMENTS[treatment]
-    method_kwargs = spec["kwargs_by_method"].get(
-        # blocks/mdlp method names in dispatcher
-        {"fayyad_irani": "fayyad_irani", "blocks": "blocks"}.get(method, method), {}
-    )
+    method_kwargs = spec["kwargs_by_method"].get(method, {})
     mm = spec["mm"]
     X_train = x_train.reshape(-1, 1)
     t0 = time.perf_counter()
