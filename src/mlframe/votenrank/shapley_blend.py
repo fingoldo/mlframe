@@ -130,7 +130,7 @@ def shapley_model_values(
     else:
         raise ValueError(f"shapley_model_values: unsupported estimator {estimator!r}, expected 'permutation' or 'msr_banzhaf'")
 
-    stderr = np.full(n_models, np.nan) if n_permutations < 2 else _bootstrap_stderr(values, n_permutations)
+    stderr = np.full(n_models, np.nan) if n_permutations < 2 else _analytic_stderr_proxy(values, n_permutations)
     info = dict(stderr=stderr, n_evals=n_evals, v_full=v_full, v_empty=v_empty)
     return values, info
 
@@ -177,8 +177,8 @@ def _msr_banzhaf(preds, y, score_fn, coalition_blend, n_coalitions, rng):
     return beta, n_coalitions
 
 
-def _bootstrap_stderr(values: np.ndarray, n_permutations: int) -> np.ndarray:
-    """Cheap analytic stderr proxy: values / sqrt(n_permutations), a standard-error-of-the-mean scaling (not a true bootstrap -- documented as an approximation)."""
+def _analytic_stderr_proxy(values: np.ndarray, n_permutations: int) -> np.ndarray:
+    """Cheap analytic stderr proxy: values / sqrt(n_permutations), a standard-error-of-the-mean scaling approximation."""
     return np.asarray(np.abs(values) / np.sqrt(max(n_permutations, 1)) + 1e-12)
 
 
