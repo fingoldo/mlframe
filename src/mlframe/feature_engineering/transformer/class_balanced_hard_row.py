@@ -110,7 +110,7 @@ def compute_class_balanced_hard_row_features(
     """Class-balanced hard-row attention.
 
     Output: 2*n_hard_per_side weights + entropy + per-side agg_y + per-side agg_resid + best_pos + best_neg + min_dist_pos + min_dist_neg
-    = 2*n_hard_per_side + 8 features.
+    = 2*n_hard_per_side + 9 features.
     """
     seed = require_seed(seed)
     validate_numeric_input(X_train, name="X_train", allow_fp16=False)
