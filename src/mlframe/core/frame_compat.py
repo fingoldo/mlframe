@@ -88,7 +88,7 @@ def to_pandas_or_array(
             try:
                 return X.collect().to_pandas()
             except Exception as exc:
-                logger.debug("to_pandas_or_array: polars LazyFrame collect()/to_pandas() failed, falling back to np.asarray: %s", exc)
+                logger.warning("to_pandas_or_array: polars LazyFrame collect()/to_pandas() failed, falling back to np.asarray (dtypes may silently degrade): %s", exc)
                 return np.asarray(X)
         if typename == "Series":
             # Polars Series -> pandas Series. Caller can wrap to DataFrame if
@@ -97,7 +97,7 @@ def to_pandas_or_array(
             try:
                 return X.to_pandas()
             except Exception as exc:
-                logger.debug("to_pandas_or_array: polars Series.to_pandas() failed, falling back to np.asarray: %s", exc)
+                logger.warning("to_pandas_or_array: polars Series.to_pandas() failed, falling back to np.asarray (dtypes may silently degrade): %s", exc)
                 return np.asarray(X)
         # DataFrame (or any future polars frame-like).
         to_pandas = getattr(X, "to_pandas", None)
@@ -105,7 +105,7 @@ def to_pandas_or_array(
             try:
                 return to_pandas()
             except Exception as exc:
-                logger.debug("to_pandas_or_array: polars DataFrame.to_pandas() failed, falling back to np.asarray: %s", exc)
+                logger.warning("to_pandas_or_array: polars DataFrame.to_pandas() failed, falling back to np.asarray (dtypes may silently degrade): %s", exc)
                 return np.asarray(X)
     # Fallback for everything else: ndarray-ify.
     return np.asarray(X)

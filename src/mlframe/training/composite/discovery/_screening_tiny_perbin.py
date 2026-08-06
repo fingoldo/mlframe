@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import TYPE_CHECKING, Any, Sequence
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..transforms import Transform
@@ -33,15 +34,6 @@ import numpy as np
 from ..estimator import _y_train_clip_bounds
 
 logger = logging.getLogger(__name__)
-
-# Shuffled-KFold splits depend ONLY on (n_rows, cv_folds, random_state) -- not on
-# the feature values (KFold.split shuffles np.arange(n) by the seeded RNG). Across
-# all N_SPECS in one rerank sweep that triple is identical, so the fold-index lists
-# repeat; cache them once per sweep (also skips KFold.split's per-call x re-validation).
-# Bounded LRU-ish: cap entries so a long-lived process can't grow it unboundedly.
-_KFOLD_SPLIT_CACHE: dict[tuple[int, int, int], list[tuple[np.ndarray, np.ndarray]]] = {}
-_KFOLD_SPLIT_CACHE_MAX = 256
-
 
 from ._screening_tiny import (
     _build_tiny_model,

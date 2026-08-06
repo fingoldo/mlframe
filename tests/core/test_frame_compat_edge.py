@@ -109,3 +109,30 @@ def test_to_pandas_raises_logs_the_fallback(caplog):
     with caplog.at_level(logging.DEBUG, logger="mlframe.core.frame_compat"):
         to_pandas_or_array(RaisingDF())
     assert any("falling back to np.asarray" in rec.message for rec in caplog.records)
+
+
+def test_to_pandas_raises_logs_fallback_at_warning_level(caplog):
+    """Regression test for audit CORE_INFRA_MISC-9: the to_pandas()-failure fallback must be visible
+    at WARNING (production-default) level, not only DEBUG -- a DEBUG-only log is invisible in
+    production and reintroduces the silent-wrong-dtype failure mode this module exists to prevent.
+    """
+    import logging
+
+    class RaisingDF:
+        """Groups tests covering RaisingDF."""
+
+        __module__ = "polars.x"
+
+        def to_pandas(self):
+            """Always raises ``RuntimeError('boom')``."""
+            raise RuntimeError("boom")
+
+        def __array__(self, dtype=None):
+            return np.array([1, 2, 3])
+
+    RaisingDF.__name__ = "DataFrame"
+    with caplog.at_level(logging.WARNING, logger="mlframe.core.frame_compat"):
+        to_pandas_or_array(RaisingDF())
+    assert any(
+        rec.levelno == logging.WARNING and "falling back to np.asarray" in rec.message for rec in caplog.records
+    ), "polars-conversion fallback must log at WARNING, not DEBUG-only"
