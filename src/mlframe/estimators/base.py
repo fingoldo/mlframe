@@ -56,7 +56,10 @@ class EstimatorWithEarlyStopping(BaseEstimator):
         elif self.test_size is not None:
             n_val = int(self.test_size)
         else:
-            n_val = n
+            # sklearn's train_test_split defaults test_size to 0.25 when both test_size and train_size
+            # are None; using the full n here overestimated the real val fold size and could wrongly
+            # permit stratification that then fails inside train_test_split.
+            n_val = max(1, round(0.25 * n))
         if n_val < classes.size:
             return None
         return y
