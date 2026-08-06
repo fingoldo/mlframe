@@ -391,7 +391,7 @@ class PureRandomClassifier(BaseEstimator, ClassifierMixin):
 
 
 class MyDecorrelator(BaseEstimator, TransformerMixin):
-    """TODO: TEST PROPERLY"""
+    """Drops features that are highly correlated with an already-kept feature, per `threshold`."""
 
     def __init__(self, threshold):
         self.threshold = threshold
