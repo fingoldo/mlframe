@@ -131,7 +131,7 @@ def _sffs_swap_pass(
     if verbose:
         logger.info(
             "SFFS swap pass: %d/%d paired swaps accepted (best score %.*f).",
-            n_swaps_accepted, len(swap_out), ndigits, cur_score,
+            n_swaps_accepted, min(len(swap_out), len(swap_in)), ndigits, cur_score,
         )
 
 # sklearn 1.6 deprecated _get_tags / _more_tags in favour of __sklearn_tags__, which returns a sklearn.utils.Tags dataclass carrying
