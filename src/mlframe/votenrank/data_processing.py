@@ -97,7 +97,7 @@ def preprocess_value(value):
         "HERO 3",
         "HERO 4",
     ]
-    # F3: the hardcoded roster below assumes the source table's row order never changes; verify it
+    # The hardcoded roster below assumes the source table's row order never changes; verify it
     # against the real "Model" column BEFORE overwriting, so a re-scrape with a different row order
     # (new submission inserted mid-table, site re-sorts by score) raises instead of silently mislabeling.
     actual_roster = value["Model"].tolist()
