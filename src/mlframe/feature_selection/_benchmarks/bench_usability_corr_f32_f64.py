@@ -45,15 +45,16 @@ def main(n=250_000, n_calls=500, seed=0):
 
     results = {}
     max_div = 0.0
+    f64_by_index: dict[int, tuple[float, float]] = {}
     for dt in (np.float64, np.float32):
         t0 = time.perf_counter()
-        for y, x0, x1 in pairs:
+        for i, (y, x0, x1) in enumerate(pairs):
             cp, cs = _forms(y, x0, x1, dt)
             if dt is np.float32:
-                cp64, cs64 = _f64_cache[id(y)]
+                cp64, cs64 = f64_by_index[i]
                 max_div = max(max_div, abs(cp - cp64), abs(cs - cs64))
             else:
-                _f64_cache[id(y)] = (cp, cs)
+                f64_by_index[i] = (cp, cs)
         results[dt.__name__] = time.perf_counter() - t0
 
     print(f"\nusability float f32-vs-f64 microbench  (n={n}, calls={n_calls})")
@@ -66,8 +67,6 @@ def main(n=250_000, n_calls=500, seed=0):
     print(f"f32 speedup vs f64 : {speedup:.2f}x")
     print(f"max |corr| f32-vs-f64 divergence : {max_div:.3e}  (selection-safe if < 1e-3)")
 
-
-_f64_cache = {}
 
 if __name__ == "__main__":
     main()
