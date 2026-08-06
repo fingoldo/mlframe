@@ -665,7 +665,7 @@ layer 2 spans only inner-loop boundaries where suite-level strong references kee
   get a zero-copy Arrow view via `pyarrow.Table.to_pandas(zero_copy_only=True)`.
 - **scikit-learn version pinning.** A dedicated
   [sklearn-matrix CI workflow](.github/workflows/sklearn-matrix-ci.yml) tests the
-  composite-target wrapper surface against scikit-learn 1.5 through 1.8 on every PR,
+  composite-target wrapper surface against scikit-learn 1.6 through 1.8 on every PR,
   catching attribute-delegation breakage before users hit it.
 - **Fuzz-tested.** Roughly 150 pairwise and 400 three-wise (IPOG-covering) parameter
   combos run per release. Combo regressions become permanent sensors so they do not
