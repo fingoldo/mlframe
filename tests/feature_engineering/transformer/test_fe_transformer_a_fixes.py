@@ -254,6 +254,7 @@ def test_p8_local_curvature_logs_on_fit_failure(caplog):
 
 def test_p9_apriori_itemsets_logs_on_fpgrowth_failure(monkeypatch, caplog):
     """P9 apriori itemsets logs on fpgrowth failure."""
+    pytest.importorskip("mlxtend")
     import mlframe.feature_engineering.transformer.apriori_itemsets as ai
     import mlxtend.frequent_patterns
 
