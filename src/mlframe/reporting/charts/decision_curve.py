@@ -134,7 +134,7 @@ def build_decision_curve_spec(
 
     The model curve is drawn over treat-all (sloped) and treat-none (flat at 0); where the model line sits above both
     references, acting on its predictions is the better policy at that action threshold. The verdict ``useful`` is True
-    iff the model strictly beats BOTH references somewhere in ``pt_range`` (margin > 1e-4 to ignore FP noise), and
+    iff the model strictly beats BOTH references somewhere in ``pt_range`` (margin > 1e-3 to ignore FP noise), and
     ``best_pt_advantage`` quantifies the largest net-benefit gain over the better reference.
     """
     pt, nb_model, nb_all, nb_none = compute_net_benefit(y_true, y_score, pt_range=pt_range, n_thresholds=n_thresholds)
