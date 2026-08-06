@@ -775,6 +775,10 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
         self.rejected = self.rejected + newly_rejected.tolist()
         self.accepted = self.accepted + newly_accepted.tolist()
+        # Every tentative feature is resolved into accepted or rejected above -- clear self.tentative so
+        # a caller reading it directly (or Subset(tentative=True)) doesn't see already-resolved features
+        # as still undecided.
+        self.tentative = []
 
     def Subset(self, tentative=False):
         """
