@@ -131,7 +131,7 @@ def render_multi_target_panels(
     Authoritative gate: when ``target_type`` is set (caller knows the
     target_type explicitly), only the matching branch fires. When
     ``target_type`` is None, falls back to shape-based heuristics for
-    back-compat — but those heuristics misfire for regression-with-
+    back-compat -- but those heuristics misfire for regression-with-
     ``group_ids`` (a common pattern when ``FTE.group_field`` is set
     for grouped CV splits, NOT for ranking). Always pass ``target_type``
     when available.
@@ -144,7 +144,7 @@ def render_multi_target_panels(
     # Per-target_type gate (when caller provided target_type explicitly).
     # The shape-based heuristics below were ambiguous for regression
     # targets that happen to carry ``group_ids`` (FTE grouped-split
-    # pattern) — the LTR branch's ``group_ids is not None AND scores.ndim
+    # pattern) -- the LTR branch's ``group_ids is not None AND scores.ndim
     # == 1`` condition fired incorrectly + paid 10-30s of NDCG/MRR
     # computation per split. Authoritative target_type fixes this:
     # regression / binary / quantile_regression / multilabel /
@@ -172,7 +172,7 @@ def render_multi_target_panels(
     # LTR: opt-in via group_ids + 1-D score (preds for rankers). When
     # ``target_type`` is provided, gate strictly on it; otherwise the
     # back-compat shape heuristic fires (note: misfires for
-    # regression-with-group_ids — pass target_type to avoid).
+    # regression-with-group_ids -- pass target_type to avoid).
     _ltr_allowed = tt == "" or tt == "learning_to_rank"
     if _ltr_allowed and group_ids is not None and ltr_panels and targets_arr is not None:
         scores = preds if preds is not None else probs

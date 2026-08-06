@@ -1,8 +1,8 @@
 """Reporting backend abstraction (matplotlib + plotly) for mlframe charts.
 
 User-facing entrypoints:
-- ``parse_plot_output_dsl(s)`` — parse DSL like "plotly[html,png] + matplotlib[pdf]"
-- ``render_and_save(spec, output, base_path)`` — render once per backend, save in all formats
+- ``parse_plot_output_dsl(s)`` -- parse DSL like "plotly[html,png] + matplotlib[pdf]"
+- ``render_and_save(spec, output, base_path)`` -- render once per backend, save in all formats
 - ``Renderer`` Protocol + ``MatplotlibRenderer`` / ``PlotlyRenderer`` impls
 
 Spec dataclasses (``ScatterPanelSpec`` / ``HistogramPanelSpec`` / etc.)
