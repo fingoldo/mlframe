@@ -123,6 +123,9 @@ def shapley_model_values(
     if estimator == "permutation":
         values, n_evals = _permutation_shapley(preds_scored, y_scored, score_fn, coalition_blend, n_permutations, rng, v_empty)
     elif estimator == "msr_banzhaf":
+        # n_permutations here means n_coalitions (independent random coalition masks, not orderings) --
+        # see _msr_banzhaf's own signature/docstring; the public parameter name is shared across both
+        # estimator branches (see this function's docstring) and isn't renamed per-branch.
         values, n_evals = _msr_banzhaf(preds_scored, y_scored, score_fn, coalition_blend, n_permutations, rng)
     else:
         raise ValueError(f"shapley_model_values: unsupported estimator {estimator!r}, expected 'permutation' or 'msr_banzhaf'")
