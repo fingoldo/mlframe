@@ -216,6 +216,23 @@ def knn_aggregate(
         compact_indices = np.take_along_axis(indices, keep_idx, axis=1)
         compact_dist = np.take_along_axis(distances, keep_idx, axis=1)
         compact_mask = ~np.take_along_axis(same_group, keep_idx, axis=1)
+        # The overquery cap (q_k = min(ref pool, k*4+1)) is a heuristic sized for "typical" panel data
+        # (1-5 same-group members). A query row whose own group is unusually dense can exhaust the
+        # entire q_k candidate window with same-group hits, silently degrading that row's aggregates to
+        # partial-k / all-NaN with no signal to the caller that the cap (not genuine data sparsity) was
+        # the cause -- surface a count/warning so this is diagnosable instead of silent.
+        n_valid = compact_mask.sum(axis=1)
+        starved = (n_valid < k) & (q_k < ref_coords.shape[0])
+        if starved.any():
+            logger.warning(
+                "knn_aggregate: %d/%d query row(s) got fewer than k=%d valid (different-group) neighbours "
+                "because the overquery cap q_k=%d was exhausted by same-group hits, not because the "
+                "reference pool ran out; consider increasing k*4+1 for denser groups.",
+                int(starved.sum()),
+                q_group_ids.shape[0],
+                k,
+                q_k,
+            )
         # Where mask is False (no valid neighbour for that slot),
         # carry NaN; aggregators below handle NaN via np.nanmean / etc.
         labels_arr = np.where(
