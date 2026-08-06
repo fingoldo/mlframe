@@ -35,7 +35,7 @@ def _run_optimize(n: int, n_classes: int) -> None:
 
 
 def _run_apply_per_class(n: int, n_classes: int, n_calls: int) -> None:
-    """Per-class floor vector path -- new opt-in mode vs. the scalar-floor path benchmarked above."""
+    """Per-class floor vector path - new opt-in mode vs. the scalar-floor path benchmarked above."""
     rng = np.random.default_rng(0)
     probs = rng.dirichlet(np.ones(n_classes), size=n)
     active = rng.integers(0, n_classes, size=n)
@@ -54,7 +54,7 @@ def _run_optimize_per_class(n: int, n_classes: int) -> None:
 
 def _run_apply_common_case(n: int, n_classes: int, n_calls: int) -> None:
     """Realistic case: a peaked distribution where the active class is USUALLY already dominant, so the
-    floor rarely triggers -- the regime the copy-skip optimization targets."""
+    floor rarely triggers - the regime the copy-skip optimization targets."""
     rng = np.random.default_rng(0)
     probs = rng.dirichlet(np.ones(n_classes) * 0.3, size=n)
     active = np.argmax(probs, axis=1)

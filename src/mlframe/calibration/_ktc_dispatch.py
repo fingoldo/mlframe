@@ -18,7 +18,7 @@ immediately while the sweep measures in a background thread and persists the win
 
 Env override: ``MLFRAME_ODDS_COMBINE_BACKEND=njit_single|njit_parallel|cupy``.
 
-This module does NOT also check ``MLFRAME_DISABLE_GPU`` -- that convention (``feature_selection.filters.
+This module does NOT also check ``MLFRAME_DISABLE_GPU`` - that convention (``feature_selection.filters.
 _gpu_policy.gpu_globally_disabled``) is used exclusively via relative imports from within
 ``feature_selection/filters/**`` (verified by grep: every call site lives there), so it is a
 package-internal convention for that subsystem, not a repo-wide contract. A caller who wants CPU-only

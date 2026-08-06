@@ -104,7 +104,7 @@ def generate_probs_from_outcomes(
     Reproducibility / thread-safety: ALL randomness (the row permutation, per-bin offsets, per-row noise) is
     drawn HERE from a per-call ``np.random.default_rng(random_state)`` and passed into the pure-compute njit
     kernel. The previous version called ``np.random.seed(random_state)`` INSIDE the njit body, which mutates
-    numba's njit-GLOBAL RNG stream -- racy under concurrent threaded callers (one thread's seed clobbers
+    numba's njit-GLOBAL RNG stream - racy under concurrent threaded callers (one thread's seed clobbers
     another's mid-flight, so results depended on inter-thread ordering). Threading a per-call Generator makes
     the output a deterministic function of ``random_state`` alone, independent of concurrency, and leaves both
     numpy's and numba's global RNG state untouched.
@@ -249,7 +249,7 @@ def generate_similar_probs_by_ranking(
     """
     Generates a new set of probabilities by shuffling within ranked bins,
     preserving the ranking and (over ``n_iterations`` candidate draws) verifying it stays close to the
-    ORIGINAL Brier Score and ROC AUC against ``true_outcomes`` -- the same closeness-tracking pattern
+    ORIGINAL Brier Score and ROC AUC against ``true_outcomes`` - the same closeness-tracking pattern
     :func:`generate_similar_probs` uses, since a single rank-preserving shuffle+noise draw is only
     APPROXIMATELY metric-preserving, not verified.
 
@@ -319,7 +319,7 @@ def generate_similar_probs_by_ranking(
             abs(original_auc), 1e-12
         )
         # `best_probs is None` keeps the first draw as a fallback even when `score` comes out NaN (degenerate
-        # true_outcomes/predicted_probs, e.g. a single-class fold) -- `nan < best_score` is always False, so
+        # true_outcomes/predicted_probs, e.g. a single-class fold) - `nan < best_score` is always False, so
         # relying on the score comparison alone would leave best_probs unset and return None from a function
         # typed to always return an ndarray.
         if best_probs is None or score < best_score:

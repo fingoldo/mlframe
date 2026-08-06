@@ -14,7 +14,7 @@ real but bounded effect; a redundant/near-duplicate member's logit tracks the co
 tightly because both are measuring (up to noise) the same underlying quantity.
 
 NOTE: naively regressing a member's logit on the consensus and looking at the RESIDUAL correlation
-(an earlier version of this check) does not work -- for a clean near-duplicate case the consensus
+(an earlier version of this check) does not work - for a clean near-duplicate case the consensus
 already explains nearly all of the shared factor, so the residual is left with only the (by
 construction independent) per-member noise and reports near-zero correlation despite the members
 being almost entirely redundant. The member-vs-consensus correlation itself (not its residual) is
@@ -31,7 +31,7 @@ def _member_consensus_correlations(logits: np.ndarray) -> np.ndarray:
     Closed-form via sufficient statistics rather than a per-member O(n) Python loop: the leave-one-out mean
     for member j, ``(row_sum - logits[:, j]) / (k - 1)``, is an affine function of ``logits[:, j]`` and the
     row sum, so its correlation with ``logits[:, j]`` reduces to column sums/sums-of-squares plus a single
-    ``logits.T @ row_sum`` matrix-vector product -- one BLAS-backed O(n*k) pass instead of k separate O(n)
+    ``logits.T @ row_sum`` matrix-vector product - one BLAS-backed O(n*k) pass instead of k separate O(n)
     reductions.
     """
     n, k = logits.shape

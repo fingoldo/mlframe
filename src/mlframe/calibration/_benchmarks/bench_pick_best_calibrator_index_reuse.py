@@ -4,7 +4,7 @@
 ``bootstrap_metric`` per candidate, which regenerated the identical stratified
 resample index matrix (same n / stratify / seed) every time. The NEW path builds
 the index matrix ONCE via ``_build_resample_indices`` and reuses it across all
-candidates through ``_bootstrap_ece_with_indices`` -- bit-identical CIs (same
+candidates through ``_bootstrap_ece_with_indices`` - bit-identical CIs (same
 indices) at lower cost.
 
 Run: python -m mlframe.calibration._benchmarks.bench_pick_best_calibrator_index_reuse
@@ -18,10 +18,12 @@ from __future__ import annotations
 
 import time
 
+from typing import Any, Callable, cast
+
 import numpy as np
 
 
-def _make(n, seed=11):
+def _make(n: int, seed: int = 11) -> "tuple[np.ndarray, np.ndarray]":
     rng = np.random.default_rng(seed)
     raw = rng.uniform(0, 1, n)
     tp = 1.0 / (1.0 + np.exp(-6.0 * (raw - 0.5)))
@@ -29,7 +31,7 @@ def _make(n, seed=11):
     return raw, y
 
 
-def main(n=2000, n_bootstrap=500, reps=20):
+def main(n: int = 2000, n_bootstrap: int = 500, reps: int = 20) -> None:
     from mlframe.calibration import policy
     from mlframe.calibration.policy import pick_best_calibrator
     from mlframe.evaluation.bootstrap import bootstrap_metric
@@ -46,11 +48,19 @@ def main(n=2000, n_bootstrap=500, reps=20):
 
     orig = policy._bootstrap_ece_with_indices
 
-    def legacy(yt, yp, idx, mf, alpha, n_bins=None):
+    def legacy(
+        yt: np.ndarray,
+        yp: np.ndarray,
+        idx: np.ndarray,
+        mf: Callable[[np.ndarray, np.ndarray], float],
+        alpha: float,
+        n_bins: "int | None" = None,
+        method: str = "bca",
+    ) -> "dict[str, Any]":
         ci = bootstrap_metric(yt, yp, metric_fn=mf, n_bootstrap=n_bootstrap, alpha=alpha, stratify=strat, random_state=11)
         return {"point": ci["point"], "lo": ci["lo"], "hi": ci["hi"]}
 
-    policy._bootstrap_ece_with_indices = legacy
+    policy._bootstrap_ece_with_indices = cast(Any, legacy)
     pick_best_calibrator(probs=None, y=None, oof_probs=raw, oof_y=y, n_bootstrap=200, random_state=11)
     t = time.perf_counter()
     for _ in range(reps):

@@ -1,12 +1,12 @@
 """``find_prediction_band_shift``/``apply_prediction_band_correction``: targeted sub-band multiplicative fix.
 
-Source: 4th_home-credit-default-risk.md -- "if you correct your prediction for revolving loan that is over
-0.4 by 0.8, it will boost your auc" -- a targeted post-hoc multiplicative correction applied only to
+Source: 4th_home-credit-default-risk.md - "if you correct your prediction for revolving loan that is over
+0.4 by 0.8, it will boost your auc" - a targeted post-hoc multiplicative correction applied only to
 predictions above a threshold, tied to a discovered train/OOF prevalence mismatch for a subpopulation.
 Distinct from :func:`mlframe.calibration.asymmetric_rescale` (a reciprocal two-sided correction pivoted at 0)
 and from the group-key-based `group_bias_correction`/`apply_smoothed_override`: this targets an arbitrary
 VALUE-RANGE band, gated explicitly on measured OOF evidence (mean(y_true)/mean(y_pred) inside the band) rather
-than blind leaderboard-probing -- production-usable wherever detectable feature/prevalence drift concentrates
+than blind leaderboard-probing - production-usable wherever detectable feature/prevalence drift concentrates
 in a specific prediction sub-range. ``assess_prediction_band_stability`` is an opt-in bootstrap-resample
 reliability check: a band fit on few OOF rows risks the shift factor overfitting sampling noise, so this
 reports how much the factor moves under resampling before a caller trusts and ships it.
@@ -108,7 +108,7 @@ def assess_prediction_band_stability(
 ) -> BandStabilityReport:
     """Bootstrap the ``find_prediction_band_shift`` estimate to gauge how trustworthy it is.
 
-    Opt-in companion to :func:`find_prediction_band_shift` -- does not alter that function or
+    Opt-in companion to :func:`find_prediction_band_shift` - does not alter that function or
     :func:`apply_prediction_band_correction` in any way; call this separately once a candidate band has
     been found, before deciding whether to apply the correction in production.
 

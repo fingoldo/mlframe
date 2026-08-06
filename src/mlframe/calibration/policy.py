@@ -70,7 +70,7 @@ def _resample_matrix_max_bytes() -> int:
 try:
     from numba import njit as _njit
     _HAS_NUMBA = True
-except ImportError:  # pragma: no cover  -- numba is a hard dep, keep guard for static analysers
+except ImportError:  # pragma: no cover  - numba is a hard dep, keep guard for static analysers
     _HAS_NUMBA = False
     def _njit(*args: Any, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """No-op stand-in for ``numba.njit`` when numba is unavailable; the decorated function runs as plain Python."""
@@ -87,7 +87,7 @@ def _ece_score_numba_serial(y: np.ndarray, p: np.ndarray, n_bins: int) -> float:
     Streams ``(p[i], y[i])`` once, computing per-bin counts + sums in
     fixed-size float64 accumulators. Parallel variant exists in
     ``profiling/bench_ece_score_variants.py`` but pays prange overhead
-    that the per-iter scalar work cannot amortise on n<1M -- the serial
+    that the per-iter scalar work cannot amortise on n<1M - the serial
     kernel wins on every size in the bench.
     """
     n = p.size
@@ -164,7 +164,7 @@ def _scan_binary01_f64(a: np.ndarray) -> int:
 
     Fast-path detector for the float64 bootstrap-ECE hot path. honest_diagnostics casts labels to float64 ONCE
     upstream, so every resample's ``y_true_f64[idx]`` reaches ``_normalize_binary_labels`` as float64 and MISSES
-    the integer ``min==0/max==1`` short-circuit -- it fell through to ``np.unique`` (an O(n log n) sort + isfinite
+    the integer ``min==0/max==1`` short-circuit - it fell through to ``np.unique`` (an O(n log n) sort + isfinite
     alloc) on ALL ~6000 resamples. This scan replaces that with one branch-only pass, no allocation. NaN is ignored
     (the ECE kernel skips non-finite rows); a non-0/1 finite value (incl. +-inf) returns 0 so the caller falls back
     to the exact np.unique path (which filters inf via isfinite and handles the remap contract)."""
@@ -190,8 +190,8 @@ def _normalize_binary_labels(y: np.ndarray) -> np.ndarray:
 
     The numba ECE kernel computes per-bin accuracy as ``mean(y in bin)``, valid only for
     ``y in {0, 1}``. Non-0/1 encodings ({-1,+1}, {1,2}, ...) make that accuracy meaningless
-    and the reported ECE silently wrong, so -- mirroring the explicit 0/1 guard
-    ``auc_variance`` / ``delong_test`` enforce -- require exactly two distinct FINITE values
+    and the reported ECE silently wrong, so - mirroring the explicit 0/1 guard
+    ``auc_variance`` / ``delong_test`` enforce - require exactly two distinct FINITE values
     and map the larger to 1, the smaller to 0. Already-{0,1} input is returned as an int
     array unchanged in ordering (max==1 -> positive stays 1). NaNs in ``y`` are ignored for
     the distinct-value check (the kernel skips non-finite rows) but must leave >= 2 finite
@@ -200,10 +200,10 @@ def _normalize_binary_labels(y: np.ndarray) -> np.ndarray:
     arr = np.asarray(y).ravel()
     # Fast path for the overwhelmingly common already-{0,1} integer/bool labels (every bootstrap resample gathers the
     # same 0/1 base vector): an integer array with min == 0 and max == 1 can only hold the values {0, 1}, and both are
-    # present (min hits 0, max hits 1), so it is EXACTLY the two-distinct-0/1 case -- no np.unique sort needed. This skips
+    # present (min hits 0, max hits 1), so it is EXACTLY the two-distinct-0/1 case - no np.unique sort needed. This skips
     # the O(n log n) sort that ran on all ~12k resamples of a bootstrap ECE CI (7x on the normalisation at n=30k).
     if arr.dtype.kind in "iub" and arr.size and arr.min() == 0 and arr.max() == 1:
-        # ``copy=False`` returns the already-int64 array itself (no full-n copy) -- the ECE kernel reads it
+        # ``copy=False`` returns the already-int64 array itself (no full-n copy) - the ECE kernel reads it
         # read-only, and the overwhelmingly common bootstrap resample is an int64 {0,1} gather (2.97x here).
         return arr.astype(np.int64, copy=False)
     # Fast path for the float64 bootstrap-ECE hot path: labels are cast to float64 ONCE upstream
@@ -232,7 +232,7 @@ def _ece_score(y_true: np.ndarray, p_pred: np.ndarray, n_bins: int = DEFAULT_ECE
     ``y_true`` is validated + normalised to {0, 1} (see ``_normalize_binary_labels``): the ECE
     kernel's per-bin accuracy ``mean(y in bin)`` is correct only for 0/1 labels, so non-0/1
     encodings ({-1,+1}, {1,2}, ...) are remapped (larger value -> 1) and inputs without exactly
-    two distinct finite labels raise -- mirroring the 0/1 guard in ``auc_variance``/``delong_test``.
+    two distinct finite labels raise - mirroring the 0/1 guard in ``auc_variance``/``delong_test``.
 
     Standard ECE: ``sum_b (|B_b| / N) * |acc(B_b) - conf(B_b)|`` over equal-width
     confidence bins on ``[0, 1]``. Returns nan when ``p_pred`` is empty or all-nan.
@@ -263,7 +263,7 @@ def _ece_score(y_true: np.ndarray, p_pred: np.ndarray, n_bins: int = DEFAULT_ECE
     """
     # lead-ece-wrapper: skip the asarray/ravel/ascontiguousarray coercion when
     # the caller already passes a contiguous 1-D float64 array (the bootstrap
-    # hot path always does). Guarded -- any other dtype/shape/non-contiguity
+    # hot path always does). Guarded - any other dtype/shape/non-contiguity
     # keeps the full coercion below, so behaviour is unchanged for all callers.
     if (
         isinstance(p_pred, np.ndarray) and p_pred.dtype == np.float64
@@ -407,8 +407,8 @@ def _build_resample_indices(
     if stratify is None:
         # int32 indices: exact for n < 2**31 and bit-identical draws to int64
         # (Generator.integers keys entropy off the range, not the dtype). A single
-        # 2-D draw fills C-contiguous (row-major) order -- the same sequential draw
-        # order as the former per-row loop -- so this is bit-identical, just without
+        # 2-D draw fills C-contiguous (row-major) order - the same sequential draw
+        # order as the former per-row loop - so this is bit-identical, just without
         # the Python-level loop overhead per bootstrap resample.
         return np.asarray(rng.integers(0, n, size=(n_bootstrap, n), dtype=np.int32))
     stratify = np.asarray(stratify).ravel()
@@ -449,10 +449,10 @@ def _bootstrap_ece_with_indices(
     but the resample matrix is generated once outside the candidate loop and shared, removing the per-candidate
     RNG + regen cost. The CI endpoints are reduced through the SAME ``_ci_from_samples`` machinery
     ``bootstrap_metric``/``bootstrap_metrics`` use, so the default bias-corrected accelerated (BCa) interval and its
-    z0 / acceleration jackknife are honoured here too -- not the legacy raw-percentile interval.
+    z0 / acceleration jackknife are honoured here too - not the legacy raw-percentile interval.
 
     When ``n_bins`` is supplied the per-resample metric is the fused idx-aware ECE kernel
-    ``_ece_score_idx_numba_serial``, which gathers ``y[idx]`` / ``p[idx]`` inside the njit bin loop -- removing the
+    ``_ece_score_idx_numba_serial``, which gathers ``y[idx]`` / ``p[idx]`` inside the njit bin loop - removing the
     per-resample Python-level ``y_true[idx]`` / ``y_pred[idx]`` fancy-index copy entirely. ``y_true`` is normalised to
     {0, 1} once (via ``_normalize_binary_labels``, same as ``_ece_score``) before the loop, so the fused path stays
     bit-identical to the slice-based ``metric_fn`` path regardless of the input label encoding (equal-width binning is
@@ -509,11 +509,11 @@ def _stratified_inner_folds(y: np.ndarray, n_splits: int, random_state: Optional
     """Return ``n_splits`` stratified held-out index arrays for BINARY ``y``.
 
     Each candidate is fitted on the complement of a fold and scored on the fold, so the reported ECE reflects
-    generalisation to rows the calibrator never saw -- not the same-data interpolation that lets Isotonic drive
+    generalisation to rows the calibrator never saw - not the same-data interpolation that lets Isotonic drive
     its in-sample ECE to ~0.
 
     Contract: the calibration candidates are binary-only, so ``y`` MUST have exactly two distinct classes.
-    A ``>2``-class input raises ``ValueError`` -- the previous code silently fell through to a GLOBAL (un-stratified)
+    A ``>2``-class input raises ``ValueError`` - the previous code silently fell through to a GLOBAL (un-stratified)
     shuffle despite the ``_stratified_`` name, which could hand a fold a class the fitted calibrator never saw.
     """
     n = y.shape[0]
@@ -541,7 +541,7 @@ def _heldout_ece_inner_cv(
     """Mean held-out ECE for ``name`` plus the per-fold held-out ECEs: fit on each fold's complement, score on the
     held-out fold.
 
-    Returns ``(mean_heldout_ece, per_fold_eces)`` -- the per-fold list lets the caller build a CI from the SAME
+    Returns ``(mean_heldout_ece, per_fold_eces)`` - the per-fold list lets the caller build a CI from the SAME
     held-out resampling that produced the point estimate, instead of an in-sample bootstrap CI that does not bracket
     the held-out number. Returns ``None`` when the candidate cannot be fitted (missing optional dep), so the caller
     drops it; a single failed fold is skipped and the remaining folds still average.
@@ -579,7 +579,7 @@ def _heldout_ece_ci(point: float, fold_eces: Sequence[float], alpha: float) -> t
     Built from the SAME held-out resampling as ``point`` so the interval brackets the reported number (the prior
     code paired this held-out point with an in-sample bootstrap CI that did not). With few folds we use a
     Student-t interval ``mean +- t_{k-1} * SE`` where ``SE = std(fold_eces, ddof=1)/sqrt(k)`` and ``t_{k-1}`` is
-    the Student-t quantile with ``k-1`` degrees of freedom -- the correct small-sample quantile when the SE is
+    the Student-t quantile with ``k-1`` degrees of freedom - the correct small-sample quantile when the SE is
     itself estimated from the same k folds (the prior normal-z quantile understated the interval width at the
     typical k=5). A single fold has no spread so the CI degenerates to the point. The interval is centred on the
     per-fold mean (== ``point``), guaranteeing containment.
@@ -676,9 +676,9 @@ def pick_best_calibrator(
     Selection-optimism fix SHIPPED: the default is now ``selection="inner_cv"`` (see the ``selection`` param
     below), which ranks each candidate by HELD-OUT inner-CV ECE, so a flexible calibrator (Isotonic) can no
     longer interpolate its own reported ECE to ~0 and ``ece_mean`` is honest. The legacy
-    ``selection="same_oof"`` path -- fit AND ECE-score every candidate on the SAME oof rows, which biased the
+    ``selection="same_oof"`` path - fit AND ECE-score every candidate on the SAME oof rows, which biased the
     reported ECE optimistic by ~0.006 and picked Isotonic ~100% of the time
-    (_benchmarks/bench_pick_best_calibrator_selection_bias.py) -- is kept only for replay / A-B comparison.
+    (_benchmarks/bench_pick_best_calibrator_selection_bias.py) - is kept only for replay / A-B comparison.
 
     Parameters
     ----------
@@ -714,8 +714,8 @@ def pick_best_calibrator(
            "secondary_ece": Optional[float]}`` (``secondary_ece`` is None unless ``probs``/``y`` given).
 
     selection
-        ``"inner_cv"`` (default) ranks candidates by HELD-OUT ECE -- each candidate is fitted on
-        ``inner_cv_splits``-1 inner folds and scored on the held-out fold, averaged -- so a flexible
+        ``"inner_cv"`` (default) ranks candidates by HELD-OUT ECE - each candidate is fitted on
+        ``inner_cv_splits``-1 inner folds and scored on the held-out fold, averaged - so a flexible
         calibrator (Isotonic) cannot interpolate its own score to ~0; the chosen calibrator is then refit
         on the full OOF for deployment and the reported ``ece_mean`` is the honest held-out estimate.
         ``"same_oof"`` is the legacy path that fits AND scores every candidate on the same OOF rows

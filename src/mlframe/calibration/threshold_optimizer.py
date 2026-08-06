@@ -1,16 +1,16 @@
 """Decision threshold calibration: sweep the classification cutoff on a validation fold, not just probability shape.
 
 Probability calibration (Platt/isotonic) fixes the SHAPE of predicted probabilities but still leaves the
-default 0.5 decision threshold in place -- for imbalanced problems, 0.5 is rarely the operating point that
+default 0.5 decision threshold in place - for imbalanced problems, 0.5 is rarely the operating point that
 maximizes F1, or minimizes a custom cost matrix. Threshold optimization is a lightweight, often-overlooked
 alternative/complement to resampling: sweep candidate thresholds on a validation fold and pick the one that
 optimizes the metric that actually matters for deployment.
 
 Two opt-in extensions on top of the single global threshold:
     - ``groups``: fit a separate threshold per cohort/segment when the optimal operating point genuinely
-      differs across segments (different class balance or score distribution per segment) -- a single
+      differs across segments (different class balance or score distribution per segment) - a single
       global threshold is a compromise that is suboptimal for every segment individually.
-    - ``cv``: a cross-validated threshold-stability report -- how much the chosen threshold moves across
+    - ``cv``: a cross-validated threshold-stability report - how much the chosen threshold moves across
       folds. A high-variance threshold means the sweep is overfitting the threshold choice to one
       particular validation fold rather than finding a value the deployed model can rely on.
 """
@@ -28,7 +28,7 @@ def _best_threshold_for(
     thresholds: np.ndarray,
     metric_fn: Callable[[np.ndarray, np.ndarray], float],
 ) -> Tuple[float, float]:
-    """Sweep ``thresholds`` and return ``(best_threshold, best_score)`` -- helper shared by the group/cv paths."""
+    """Sweep ``thresholds`` and return ``(best_threshold, best_score)`` - helper shared by the group/cv paths."""
     scores = np.empty(thresholds.shape[0], dtype=np.float64)
     for i, t in enumerate(thresholds):
         y_pred = (y_proba >= t).astype(np.int64)
@@ -73,7 +73,7 @@ def _threshold_stability_report(
     std = float(np.std(valid))
     # abs(mean): a threshold_range spanning negative values can make mean < 0, which would otherwise
     # sign-flip the ratio negative and trivially pass the is_stable <= threshold check regardless of the
-    # true relative spread -- coefficient of variation is meant to be a non-negative dispersion measure.
+    # true relative spread - coefficient of variation is meant to be a non-negative dispersion measure.
     coeff_of_variation = float(std / abs(mean)) if mean != 0 else (0.0 if std < 1e-9 else float("inf"))
     is_stable = coeff_of_variation <= stability_cv_threshold
     return {
@@ -136,7 +136,7 @@ def optimize_decision_threshold(
     -------
     dict
         ``best_threshold``, ``best_score``, ``thresholds`` ``(n_thresholds,)``, ``scores`` ``(n_thresholds,)``
-        (the full sweep, for inspection/plotting) -- unchanged when ``groups``/``cv`` are omitted. Plus,
+        (the full sweep, for inspection/plotting) - unchanged when ``groups``/``cv`` are omitted. Plus,
         opt-in: ``group_thresholds``, ``group_results`` (when ``groups`` given) and ``cv_report`` (when
         ``cv`` given).
     """

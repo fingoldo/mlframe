@@ -4,13 +4,13 @@
 ``apply_smoothed_override`` blends a rule/lookup-derived label into a model's prediction wherever
 ``override_mask`` fires, at a single caller-supplied blend strength ``a``. That mask is usually built
 from some per-row confidence score (e.g. lookup match quality, rule specificity) thresholded by the
-caller -- but nothing in the module previously helped the caller pick that threshold, or told them
+caller - but nothing in the module previously helped the caller pick that threshold, or told them
 whether the override source is trustworthy at all. An override that's excellent at high confidence but
 noisy/wrong at low confidence (the common real-world shape: a fuzzy match degrades gracefully) would
 silently hurt accuracy in the low-confidence tail if the caller thresholds too low.
 
 ``backtest_override`` takes historical ``(y_true, model_pred, override_pred, confidence)`` tuples,
-buckets rows by confidence, and reports blended-vs-model-only error per bucket -- so a caller can see
+buckets rows by confidence, and reports blended-vs-model-only error per bucket - so a caller can see
 exactly where the override source stops paying for itself, and read off a safe confidence threshold to
 feed into ``override_mask = confidence >= safe_threshold`` before calling ``apply_smoothed_override``.
 """
@@ -79,9 +79,9 @@ def backtest_override(
         ``(n,)`` the model's own predictions on those rows.
     override_pred
         ``(n,)`` the override rule/lookup's predicted label on those rows (evaluated everywhere, not
-        just where it would have fired in production -- this is a backtest, so every row is "known").
+        just where it would have fired in production - this is a backtest, so every row is "known").
     confidence
-        ``(n,)`` in ``[0, 1]`` -- the override source's own confidence/match-quality score per row.
+        ``(n,)`` in ``[0, 1]`` - the override source's own confidence/match-quality score per row.
     a
         Blend strength to backtest, passed straight through to ``apply_smoothed_override``.
     n_buckets

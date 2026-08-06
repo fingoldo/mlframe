@@ -71,7 +71,7 @@ def train_postcalibrators(
         ``{"calibrators": {name: fitted_calibrator, ...}, "metrics": {name: calib_set_metrics, ...},
         "failed_calibrators": {name: repr(exception), ...}}``. ``metrics`` is the
         ``compare_postcalibrators`` comparison table on the calib set (evaluated on inner-CV held-out
-        rows by default -- see ``compare_postcalibrators``'s ``selection`` parameter -- so it is no
+        rows by default - see ``compare_postcalibrators``'s ``selection`` parameter - so it is no
         longer the same rows used to fit the winning calibrator); also logged at INFO level.
         ``failed_calibrators`` lists any candidate that raised during fit/predict and was excluded.
     """
@@ -92,7 +92,7 @@ def train_postcalibrators(
 
     # Refuse silent same-set reuse: if ``calib_target``/``calib_probs_per_model`` overlap substantially
     # with any model's ``.test_target``/``.test_probs`` we raise. This is the defence against the
-    # historical "test == calib" bug -- the caller may not realise they have shared the slot. Beyond
+    # historical "test == calib" bug - the caller may not realise they have shared the slot. Beyond
     # the original exact-array-equality check (order-and-shape identical), this also catches: the same
     # rows reshuffled (different order), a strict subset/superset of the same rows (different shape),
     # row-ID/index overlap when an index is available, and probability-row reuse even when the target
@@ -122,7 +122,7 @@ def train_postcalibrators(
                             "honest holdout split (in-sample calibration read-out). Use a "
                             "dedicated calibration split disjoint from test."
                         )
-                    # Same shape, not equal in order -- check whether it's the SAME multiset of values just
+                    # Same shape, not equal in order - check whether it's the SAME multiset of values just
                     # reshuffled (the exact-equality check above is blind to row order).
                     if np.array_equal(np.sort(_tt_np, axis=None), np.sort(_calib_target_np, axis=None)):
                         raise _CalibTestOverlapError(
@@ -133,7 +133,7 @@ def train_postcalibrators(
                 except _CalibTestOverlapError:
                     raise
                 except (TypeError, ValueError):
-                    pass  # Non-comparable dtypes (e.g. mixed-type pandas Series) -- skip the equality check.
+                    pass  # Non-comparable dtypes (e.g. mixed-type pandas Series) - skip the equality check.
 
             # Row-ID/index overlap: catches subset/superset reuse (different shape, so the checks above
             # never ran) and reordering even when dtypes prevent a direct value comparison.
@@ -167,7 +167,7 @@ def train_postcalibrators(
                     )
 
         # Probability-row overlap: cross-checks calib_probs_per_model against model.test_probs directly
-        # (not just the target vector), which the pre-fix guard never did at all -- a caller who
+        # (not just the target vector), which the pre-fix guard never did at all - a caller who
         # reshuffled/relabelled y for the calib call while reusing model.test_probs would slip through
         # every target-only check above.
         _test_probs = getattr(_m, "test_probs", None)
@@ -232,7 +232,7 @@ def train_postcalibrators(
     from mlframe.models.ensembling import ensemble_probabilistic_predictions
 
     # ensemble_probabilistic_predictions returns a 3-tuple (preds, uncertainty, confident_idx).
-    # Pre-fix this site unpacked into TWO names -- raising ValueError on every reachable call.
+    # Pre-fix this site unpacked into TWO names - raising ValueError on every reachable call.
     ensembled_calib_predictions, _uncertainty, _confident_calib_indices = ensemble_probabilistic_predictions(
         *_calib_arrays,
         ensemble_method=_resolved_method,
@@ -298,7 +298,7 @@ def train_postcalibrators(
             )
 
     # Return the fitted calibrator objects, the calib-set comparison metrics that picked them, and any
-    # calibrator names that failed to fit/predict -- so a caller can see WHICH calibrator won on
+    # calibrator names that failed to fit/predict - so a caller can see WHICH calibrator won on
     # calib-set metrics, by how much, and which candidates (if any) did not make it into either dict.
     # No in-repo caller currently unpacks this return value directly (checked), so widening the shape is safe here.
     return {"calibrators": test_calibrators, "metrics": calib_test_metrics, "failed_calibrators": failed_calibrators}

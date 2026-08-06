@@ -7,7 +7,7 @@ interpolates the training calibration), so the ``lowest_ece_ci_separated`` rule 
 it and reports an OPTIMISTIC ECE that does not hold on fresh data.
 
 The shipped default ``selection="inner_cv"`` ranks each candidate by HELD-OUT ECE (fit on inner-train
-folds, score on the held-out fold, averaged), then refits the chosen calibrator on the full OOF -- so
+folds, score on the held-out fold, averaged), then refits the chosen calibrator on the full OOF - so
 the reported ECE is honest (no longer ~0) and the chosen calibrator generalises. This bench reports the
 fresh-holdout ECE of the OLD (same_oof) vs NEW (inner_cv) selections per scenario + seed, plus the
 optimism gap, as the default-flip evidence. Run: ``python -m
@@ -16,18 +16,22 @@ mlframe.calibration._benchmarks.bench_pick_best_calibrator_selection_bias``.
 from __future__ import annotations
 
 import json
+from typing import Any
+
 import numpy as np
 
 from mlframe.calibration.policy import pick_best_calibrator, _fit_calibrator, _ece_score
 
 
-def _gen(rng, n, slope, noise):
+def _gen(rng: np.random.Generator, n: int, slope: float, noise: float) -> "tuple[np.ndarray, np.ndarray]":
     y = (rng.random(n) < 0.5).astype(int)
     p = np.clip(0.5 + (y - 0.5) * slope + rng.normal(0, noise, n), 0.005, 0.995)
     return p, y
 
 
-def _holdout_ece(selection, oof_p, oof_y, ho_p, ho_y, seed):
+def _holdout_ece(
+    selection: str, oof_p: np.ndarray, oof_y: np.ndarray, ho_p: np.ndarray, ho_y: np.ndarray, seed: int
+) -> "tuple[str, float, float]":
     """Pick a calibrator with ``selection``, refit it on full OOF, return (chosen, reported, fresh-holdout ECE)."""
     res = pick_best_calibrator(None, None, oof_p, oof_y, n_bootstrap=200, random_state=seed, selection=selection)
     chosen = res["chosen"]
@@ -36,10 +40,10 @@ def _holdout_ece(selection, oof_p, oof_y, ho_p, ho_y, seed):
     return chosen, float(res["ece_mean"]), holdout
 
 
-def run(seeds=range(8)):
+def run(seeds: "range" = range(8)) -> dict:
     # ``small`` (n=300) is where flexible Isotonic over-fits the OOF: same_oof picks it on a ~0 in-sample
     # ECE that does not survive fresh data, while inner_cv's held-out ranking sees the gap and prefers a
-    # smoother calibrator -- the generalisation win. Larger-n scenarios have enough rows that Isotonic
+    # smoother calibrator - the generalisation win. Larger-n scenarios have enough rows that Isotonic
     # generalises fine, so the two selections agree there (no regression).
     scenarios = {
         "small_overfit": (300, 1.6, 0.25),
@@ -47,7 +51,7 @@ def run(seeds=range(8)):
         "mild": (4000, 0.9, 0.2),
         "noisy": (4000, 0.7, 0.3),
     }
-    rows = []
+    rows: "list[dict[str, Any]]" = []
     for sc, (n, slope, noise) in scenarios.items():
         for seed in seeds:
             rng = np.random.default_rng(seed)

@@ -121,7 +121,7 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
         transform_method_name: str = "transform",
         needs_2d_probs: Optional[bool] = None,
     ) -> None:
-        # postfix="" -- this class reads attributes back by their BARE param name (see the class-level
+        # postfix="" - this class reads attributes back by their BARE param name (see the class-level
         # annotations above); pyutilz's store_params_in_object() now defaults postfix to "_param_" to
         # round-trip with load_object_params_into_func(), which broke every bare-name reader that
         # didn't pin the old convention explicitly.
@@ -132,8 +132,8 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
 
         Uses isinstance checks against the relevant calibrator classes (imported lazily so optional
         deps can be missing) rather than substring-matching on the class name. Any calibrator NOT in
-        the hardcoded ``_NEEDS_2D_CALIBRATORS`` list -- a caller-supplied custom calibrator, or a class
-        added to a supported library in a future release -- silently defaults to the 1D path here, so
+        the hardcoded ``_NEEDS_2D_CALIBRATORS`` list - a caller-supplied custom calibrator, or a class
+        added to a supported library in a future release - silently defaults to the 1D path here, so
         ``self.needs_2d_probs`` (set at construction via ``named_calibrator``) is checked first as an
         explicit caller override; only when it is ``None`` do we fall back to the isinstance/name guess.
         """
@@ -170,7 +170,7 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
 
         ``sample_weight``, when given, is passed through to the wrapped calibrator's own fit method ONLY if
         that method's signature actually accepts a ``sample_weight`` keyword (checked via
-        ``inspect.signature`` -- the calibrator zoo mixes sklearn estimators that support it (e.g.
+        ``inspect.signature`` - the calibrator zoo mixes sklearn estimators that support it (e.g.
         ``IsotonicRegression``, ``LogisticRegression``) with third-party calibrators that don't). When the
         wrapped calibrator does NOT support it, a WARNING is logged (once) so the caller knows their weights
         were silently dropped for this specific calibrator, rather than the previous behavior of having no
@@ -425,7 +425,7 @@ def compare_postcalibrators(
 
     ``sample_weight``, when given, is aligned to ``calib_probs``/``calib_target`` (length == calib set size)
     and threaded through every calibrator fit (full-set refit, and each inner_cv fold's fit, sliced to that
-    fold's train rows) via ``BinaryPostCalibrator.fit``'s own ``sample_weight`` support -- see that method's
+    fold's train rows) via ``BinaryPostCalibrator.fit``'s own ``sample_weight`` support - see that method's
     docstring for which wrapped calibrators actually honor it (a calibrator whose fit signature has no
     ``sample_weight`` keyword is fit unweighted, with a warning). ``None`` (default) preserves the
     pre-existing fully-unweighted behavior bit-for-bit.
@@ -436,7 +436,7 @@ def compare_postcalibrators(
     was filtered out by ``include_patterns``/``skip_patterns`` or every candidate failed); ``fit_calibrators``
     maps calibrator name to the fitted object (deployment-ready, refit on the full calib set even under
     ``inner_cv``); ``failed_calibrators`` maps the name of any calibrator that raised during fit/predict to
-    ``repr(exception)`` -- explicitly surfaced (not silently dropped) so a caller can see which candidates,
+    ``repr(exception)`` - explicitly surfaced (not silently dropped) so a caller can see which candidates,
     if any, did not make it into ``metrics_df``/``fit_calibrators``.
     """
     if include_patterns is None:
@@ -478,10 +478,10 @@ def compare_postcalibrators(
     fit_calibrators = {}
     failed_calibrators: dict[str, str] = {}
 
-    # No separate OOS set (the ONLY current caller, train_postcalibrators, never supplies one -- see
+    # No separate OOS set (the ONLY current caller, train_postcalibrators, never supplies one - see
     # its docstring: calibrator FITTING and honest EVALUATION are deliberately split across different
     # rows/splits). Without an OOS set, prefer honest inner-CV held-out evaluation over same-data
-    # self-eval -- pre-fix, every calibrator was scored on the exact rows it was fit on, which is the
+    # self-eval - pre-fix, every calibrator was scored on the exact rows it was fit on, which is the
     # same "same_oof" selection-optimism bug class policy.py::pick_best_calibrator already diagnosed
     # and fixed (flexible calibrators like Isotonic interpolate their own score toward "perfect").
     calib_probs_np = np.asarray(calib_probs)
@@ -540,7 +540,7 @@ def compare_postcalibrators(
 
         # full_name() collisions (two zoo entries resolving to the same lib.Name[param_str] key,
         # e.g. a caller-added custom calibrator without a distinguishing name/param_str) would
-        # otherwise silently overwrite one calibrator's row in metrics/fit_calibrators -- disambiguate
+        # otherwise silently overwrite one calibrator's row in metrics/fit_calibrators - disambiguate
         # with a numeric suffix and warn, rather than dropping a result with no error.
         if calibrator_name in _seen_names:
             _seen_names[calibrator_name] += 1
@@ -581,7 +581,7 @@ def compare_postcalibrators(
                 start = timer()
 
                 if use_inner_cv and inner_folds is not None:
-                    # Fit on each fold's complement, predict on the held-out fold -- the calibrator
+                    # Fit on each fold's complement, predict on the held-out fold - the calibrator
                     # never sees the rows it is scored on, unlike the same-data self-eval path.
                     oof_calibrated = None
                     for held_idx in inner_folds:
@@ -614,7 +614,7 @@ def compare_postcalibrators(
                     predicting_time = timer() - start
                     _row_eval_target = _eval_target
         except Exception as exc:
-            # Elapsed time up to the point of failure -- a calibrator that hangs/is unusually slow
+            # Elapsed time up to the point of failure - a calibrator that hangs/is unusually slow
             # before crashing otherwise leaves no partial timing signal to diagnose which one.
             _elapsed = timer() - _calibrator_start
             log_throttle(
@@ -658,7 +658,7 @@ def compare_postcalibrators(
 
     metrics_df: Optional[pd.DataFrame]
     if len(metrics) <= 1:
-        # Only the "oos"/baseline row was ever populated -- every calibrator was either skipped by
+        # Only the "oos"/baseline row was ever populated - every calibrator was either skipped by
         # should_run's include/skip patterns or failed during fit/predict.
         metrics_df = None
     else:
@@ -670,7 +670,7 @@ def compare_postcalibrators(
         perf_dict_df = metrics_df[PERF_DICT_COL].apply(pd.Series)
         # report_model_perf's per-calibrator dict shape may vary across task types/configs (e.g. a
         # metric undefined for a degenerate/constant prediction). Taking the UNION of keys means a
-        # calibrator missing a key gets a NaN there instead of raising -- surface that explicitly
+        # calibrator missing a key gets a NaN there instead of raising - surface that explicitly
         # rather than letting it silently rank the calibrator via NaN sort placement.
         _row_key_counts = perf_dict_df.notna().sum(axis=1)
         _expected_keys = perf_dict_df.shape[1]
@@ -700,7 +700,7 @@ def _values_overlap_fraction(a: np.ndarray, b: np.ndarray, max_rows: int = 2_000
 
     Rows are compared as raw value tuples via a Python set, so this catches the same rows present in
     both arrays regardless of order (reordered) or one being a strict subset of the other (different
-    shape) -- both are blind spots of plain ``np.array_equal`` shape-and-order equality. Returns 0.0
+    shape) - both are blind spots of plain ``np.array_equal`` shape-and-order equality. Returns 0.0
     (no detectable overlap) when either array is empty, non-hashable, or larger than ``max_rows``
     (guards against an unbounded hash-set build on a very large array; the exact/reorder/index checks
     still apply in that case).

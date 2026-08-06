@@ -1,12 +1,12 @@
 """Confidence-weighted shrinkage: pull a class/segment's predictions toward neutral when it's weakly discriminative.
 
 A multi-output/multi-segment model (e.g. one probability column per product in a recommender) can have wildly
-different discriminative power per output -- some outputs cleanly separate positive from negative rows, others
+different discriminative power per output - some outputs cleanly separate positive from negative rows, others
 barely do better than chance. Ranking on raw probability lets a weak output's noisy scores compete on equal
 footing with a strong output's genuinely informative ones. A 2nd-place Santander-recommendation team's fix:
 compute each output's OOF ``confidence = mean(prediction | positive) / mean(prediction | negative)`` (how much
 higher predictions run for true positives vs true negatives), then shrink weak-confidence outputs' predictions
-toward a neutral value before ranking -- measurably improving MAP@K.
+toward a neutral value before ranking - measurably improving MAP@K.
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def compute_oof_confidence(
 ) -> Union[float, Dict[Any, float]]:
     """``mean(oof_pred | label==1) / mean(oof_pred | label==0)`` for one output/segment's OOF predictions.
 
-    Returns ``1.0`` (neutral -- no discriminative signal detectable) when either class is empty, both
+    Returns ``1.0`` (neutral - no discriminative signal detectable) when either class is empty, both
     conditional means are non-positive, or the negative-class mean is zero.
 
     Parameters
@@ -30,7 +30,7 @@ def compute_oof_confidence(
     segment_ids
         Optional, opt-in: a ``(n_samples,)`` array of per-row segment/group labels (e.g. region, cohort,
         traffic source). When given, a single global confidence scalar can hide the fact that a model is
-        genuinely reliable for one subpopulation and unreliable for another -- a global ratio averages the
+        genuinely reliable for one subpopulation and unreliable for another - a global ratio averages the
         two away. Returns ``{segment_id: confidence}`` instead, one ratio per distinct value in
         ``segment_ids``, each computed with the exact same formula restricted to that segment's rows.
         Omitting this (the default) is bit-identical to the pre-extension single-segment behavior.
@@ -48,7 +48,7 @@ def _single_oof_confidence(oof_pred: np.ndarray, oof_label: np.ndarray) -> float
     """Shared, non-recursive body of :func:`compute_oof_confidence`'s single-segment computation."""
     oof_pred = np.asarray(oof_pred, dtype=np.float64)
     # a dot-product split (dot(pred, label) for the positive sum, total-sum minus that for the negative sum)
-    # avoids materializing two boolean-mask-indexed copies of ``oof_pred`` -- ~4.3x faster at n=1M, bit-
+    # avoids materializing two boolean-mask-indexed copies of ``oof_pred`` - ~4.3x faster at n=1M, bit-
     # identical to the mask-based computation (see bench_confidence_shrinkage.py).
     label_f = np.asarray(oof_label, dtype=np.float64)
     n_pos = float(label_f.sum())
@@ -93,7 +93,7 @@ def apply_confidence_shrinkage(
     segments
         Optional, opt-in: ``{output_name: (n_samples,) segment_ids}``. A single global confidence scalar
         applies the same shrinkage strength to every row of an output even when the model is reliably
-        discriminative for one subpopulation and near-random for another -- over-shrinking the strong
+        discriminative for one subpopulation and near-random for another - over-shrinking the strong
         segment, under-shrinking the weak one. When an output name is present here, its shrinkage weight is
         computed per-segment (from ``confidences[name]``, a ``{segment_id: confidence}`` dict) and applied
         row-by-row via each row's ``segment_ids`` value; rows whose segment is absent from that dict fall

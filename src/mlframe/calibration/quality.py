@@ -59,7 +59,7 @@ def mutual_information_score(y: np.ndarray, y_preds: np.ndarray) -> float:
     Kraskov/Stoegbauer/Grassberger) with ``n_neighbors=2``. Both inputs are reshaped to column
     vectors; the single scalar MI estimate is returned. Higher is better (more shared information
     between prediction and outcome). This is NOT the Hyvarinen score (a proper scoring rule based on
-    the score function of the density) despite the historical misnomer -- see the deprecated
+    the score function of the density) despite the historical misnomer - see the deprecated
     ``hyvarinen_score`` alias below.
     """
     if np.asarray(y).shape[0] <= 2:
@@ -72,7 +72,7 @@ def mutual_information_score(y: np.ndarray, y_preds: np.ndarray) -> float:
 def hyvarinen_score(y: np.ndarray, y_preds: np.ndarray) -> float:
     """Deprecated alias for :func:`mutual_information_score`.
 
-    Historically misnamed: this never computed the Hyvarinen score -- it returns a kNN mutual-information
+    Historically misnamed: this never computed the Hyvarinen score - it returns a kNN mutual-information
     estimate. Kept as a warning-emitting shim for backward compatibility; use ``mutual_information_score``.
     """
     import warnings
@@ -289,7 +289,7 @@ def estimate_calibration_quality_binned(
     # equal-width-[0,1] ECE in ``calibration/policy._ece_score`` nor the data-adaptive
     # [min,max]-span ECE in ``metrics/calibration/_calibration_metrics.compute_ece_and_brier_decomposition``:
     # the three schemes partition the score axis differently, so their ECE numbers differ on the same
-    # (y_true, y_pred) and must not be cross-compared -- compare only within one scheme.
+    # (y_true, y_pred) and must not be cross-compared - compare only within one scheme.
     if indices is None:
         indices = np.argsort(y_pred)
     # With n_samples < nbins the equal-mass bin_size = s // nbins is 0, so every non-final pocket is an empty
@@ -430,7 +430,7 @@ def show_classifier_calibration(
 # Probability Integral Transform (PIT)
 # ---------------------------------------------------------------------------------------------------------------
 #
-# BINARY PIT CAVEAT (applies to every GoF statistic below -- KS / Cramer-von Mises / Anderson-Darling /
+# BINARY PIT CAVEAT (applies to every GoF statistic below - KS / Cramer-von Mises / Anderson-Darling /
 # chi-square / ECI / MSD / WPD):
 # The PIT construction ``pit = where(y==1, p, 1-p)`` yields a genuinely continuous Uniform(0,1) only for a
 # continuous forecast of a continuous outcome. For a BINARY outcome the PIT is a TWO-ATOM MIXTURE (mass at p
@@ -625,8 +625,8 @@ def chi_square_statistic(pit_values: np.ndarray, bins: int = 10) -> float:
     Returns ONLY the raw Pearson chi-square statistic ``sum (O_i - E_i)^2 / E_i`` over the ``bins``
     equal-width PIT bins against the uniform expectation ``E_i = n / bins``. The associated p-value from
     ``scipy.stats.chisquare`` is deliberately discarded: it assumes ``dof = bins - 1``, but the expected
-    counts here are FIXED (uniform, no parameters estimated from the data), and -- see the binary-PIT caveat
-    above -- a binary PIT is a two-atom mixture, not a continuous uniform, so the chi-square reference
+    counts here are FIXED (uniform, no parameters estimated from the data), and - see the binary-PIT caveat
+    above - a binary PIT is a two-atom mixture, not a continuous uniform, so the chi-square reference
     distribution does not hold. Compare the raw statistic across models/bins as a relative diagnostic; do
     NOT read it as a calibration hypothesis test. (If a p-value is ever needed, recompute it explicitly with
     the correct dof rather than trusting the default here.)
