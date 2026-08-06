@@ -91,6 +91,18 @@ def compute_local_density_gradient_features(
             Xq_s = Xq
         d = Xt_s.shape[1]
         k_eff = min(k_neighbors, Xt_s.shape[0] - 1)
+        if k_eff < 1:
+            # A single-row (or empty) train fold leaves k_eff <= 0: the k-th-neighbour distance is
+            # ill-defined (there is no other row to measure to), and the downstream q_dists[:, k_eff - 1]
+            # negative-index lookup would silently wrap to an unrelated column instead of raising,
+            # producing a numerically-extreme, uninformative log_density with no warning. Return neutral
+            # (all-zero) features instead.
+            logger.warning(
+                "local_density_gradient: train fold has %d row(s), too few for any neighbour " "(k_eff=%d); returning zero features for this fold.",
+                Xt_s.shape[0],
+                k_eff,
+            )
+            return np.zeros((Xq_s.shape[0], n_features), dtype=np.float32)
 
         # Build kNN index on training rows
         nn = NearestNeighbors(n_neighbors=k_eff + 1, n_jobs=-1).fit(Xt_s)
