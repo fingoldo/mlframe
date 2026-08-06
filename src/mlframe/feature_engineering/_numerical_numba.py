@@ -1,9 +1,8 @@
 """Heavy numba-builder functions for numerical aggregates.
 
-Wave 107 (2026-05-21): split out from ``feature_engineering/numerical.py``
-to keep that file below the 1k-line monolith threshold. Behaviour preserved
-bit-for-bit; every moved symbol is re-exported from ``numerical`` so
-existing imports continue to work.
+Split out from ``feature_engineering/numerical.py`` to keep that file below the
+1k-line monolith threshold. Behaviour preserved bit-for-bit; every moved symbol
+is re-exported from ``numerical`` so existing imports continue to work.
 
 (Originally part of the "Numerical feature engineering for ML --
 optimized & rich set of aggregates for 1d vectors" module.)
@@ -263,7 +262,7 @@ def compute_numerical_aggregates_numba(
 
     arithmetic_mean = arithmetic_mean / size
     if weights is not None:
-        # Wave 47 (2026-05-20): zero-sum weights vector (all-zero weight column or
+        # Zero-sum weights vector (all-zero weight column or
         # entirely filtered-out fold) divides by 0 in the njit kernel and aborts.
         if sum_weights == 0.0:
             weighted_arithmetic_mean = np.nan
@@ -310,7 +309,7 @@ def compute_numerical_aggregates_numba(
             harmonic_mean = np.nan
 
         if weights is not None:
-            # Wave 47 (2026-05-20): same sum_weights==0 guard as above.
+            # Same sum_weights==0 guard as above.
             if sum_weights == 0.0:
                 weighted_quadratic_mean = np.nan
                 weighted_qubic_mean = np.nan
@@ -695,7 +694,7 @@ def _make_compute_moments_slope_mi(use_kahan: bool, use_fastmath: bool):
                 weighted_std += weighted_std_c
                 weighted_skew += weighted_skew_c
                 weighted_kurt += weighted_kurt_c
-            # Wave 47 (2026-05-20): sum_weights==0 (all-zero weight column)
+            # sum_weights==0 (all-zero weight column)
             # used to crash the njit kernel here.
             if sum_weights == 0.0:
                 weighted_std = np.nan
@@ -716,7 +715,7 @@ def _make_compute_moments_slope_mi(use_kahan: bool, use_fastmath: bool):
                     kurt = kurt / factor - 3.0
 
             if weights is not None:
-                # Wave 47 (2026-05-20): same sum_weights==0 guard.
+                # Same sum_weights==0 guard.
                 if sum_weights == 0.0:
                     weighted_mad = np.nan
                 else:

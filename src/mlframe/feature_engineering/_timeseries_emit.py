@@ -1,9 +1,8 @@
 """Per-transform emit helpers for `timeseries.create_aggregated_features`.
 
-Wave 96 (2026-05-21): split out from `timeseries.py` to keep that file
-below the 1k-line threshold. Behaviour preserved bit-for-bit; every
-helper is re-exported from `timeseries` so existing
-``from mlframe.feature_engineering.timeseries import _emit_robust``
+Split out from `timeseries.py` to keep that file below the 1k-line threshold.
+Behaviour preserved bit-for-bit; every helper is re-exported from `timeseries`
+so existing ``from mlframe.feature_engineering.timeseries import _emit_robust``
 imports continue to work.
 
 Each helper is responsible for ONE transform (raw numaggs, differences,
