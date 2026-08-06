@@ -178,8 +178,7 @@ SKEW_HIGH: float = 0.8  # tightened from 1.0 -> 0.8
 # is NOT well-behaved Gaussian; calling it so is profanation, the user
 # was right to flag.
 EXCESS_KURT_NEAR_GAUSSIAN: float = 0.5  # < 0.5 -> truly Normal-like
-EXCESS_KURT_MILD: float = 1.5  # 0.5-1.5 -> mild leptokurtosis
-EXCESS_KURT_HEAVY: float = 1.5  # > 1.5 -> heavy tails (was 3.0!)
+EXCESS_KURT_HEAVY: float = 1.5  # 0.5-1.5 -> mild leptokurtosis; > 1.5 -> heavy tails (was 3.0!)
 EXCESS_KURT_EXTREME: float = 10.0  # > 10 -> outlier contamination
 HETERO_SPEARMAN_THRESHOLD: float = 0.30
 """|Spearman corr(|residuals|, y_hat)| above this -> heteroscedasticity
