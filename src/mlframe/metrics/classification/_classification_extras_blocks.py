@@ -312,7 +312,7 @@ def fast_multiclass_confusion_metrics_block(
     # macro_over_present=True convention / sklearn.metrics.classification_report semantics) -- a class
     # declared via n_classes but absent from both arrays would otherwise contribute a zeroed P/R/F1 and
     # DEFLATE the macro averages by n_present/n_classes, the exact bug fast_classification_report's
-    # macro_over_present flag was added to fix, left unfixed in this sibling fused block.
+    # macro_over_present flag was added to fix; this sibling fused block applies the identical fix here.
     present_macro = (row_sums > 0) | (col_sums > 0)
     macro_count = int(present_macro.sum())
     if macro_count > 0:
