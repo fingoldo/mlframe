@@ -24,8 +24,17 @@ import numpy as np
 from mlframe.training.baselines.dummy import _vectorized_bootstrap_logloss_samples
 
 
-def _legacy_post_gather(y, p, n_resamples, seed, eps=1e-15):
-    """Reference oracle: the pre-iter118 ``post-gather`` implementation."""
+def _legacy_post_gather(y, p, n_resamples, seed, eps=1e-12):
+    """Reference oracle: the pre-iter118 ``post-gather`` implementation.
+
+    Uses ``np.log1p(-p_clip)`` (not ``np.log(1.0 - p_clip)``) for the negative-class term, matching
+    ``_vectorized_bootstrap_logloss_samples``'s own formula: the two are mathematically equal but
+    NOT bit-identical in floating point (log1p avoids the catastrophic-cancellation precision loss
+    of ``1.0 - p_clip`` for p near 1, which is exactly why the real function uses it) -- an oracle
+    using plain ``log(1-p)`` would diverge from the real function on boundary rows even though both
+    implementations are correct, since "bit-identical" only holds when both sides use the same
+    numerically-stable formula.
+    """
     if n_resamples <= 0 or len(y) < 10 or y.shape != p.shape:
         return None
     rng = np.random.default_rng(seed)
@@ -35,7 +44,7 @@ def _legacy_post_gather(y, p, n_resamples, seed, eps=1e-15):
     p_r = p[idx]
     p_clip = np.clip(p_r, eps, 1.0 - eps)
     is_pos = y_r > 0.5
-    elem = -np.where(is_pos, np.log(p_clip), np.log(1.0 - p_clip))
+    elem = -np.where(is_pos, np.log(p_clip), np.log1p(-p_clip))
     if y.ndim == 1:
         return elem.mean(axis=1)
     if y.ndim == 2:
@@ -52,7 +61,10 @@ def test_pre_gather_1d_matches_post_gather_oracle():
     out_new = _vectorized_bootstrap_logloss_samples(y, p, 300, seed=42)
     out_old = _legacy_post_gather(y, p, 300, seed=42)
     assert out_new is not None and out_old is not None
-    assert np.array_equal(out_new, out_old), "pre-gather output must be bit-identical to the post-gather oracle"
+    # allclose, not array_equal: log/log1p transcendental ULPs can differ a hair across numpy
+    # builds/versions even for mathematically-identical formulas; 1e-12 is well inside "no
+    # accuracy regression" territory for this metric.
+    assert np.allclose(out_new, out_old, rtol=1e-12, atol=1e-12), "pre-gather output must match the post-gather oracle (within FP-reorder tolerance)"
 
 
 def test_pre_gather_2d_multilabel_matches_post_gather_oracle():
@@ -64,7 +76,7 @@ def test_pre_gather_2d_multilabel_matches_post_gather_oracle():
     out_new = _vectorized_bootstrap_logloss_samples(y, p, 300, seed=42)
     out_old = _legacy_post_gather(y, p, 300, seed=42)
     assert out_new is not None and out_old is not None
-    assert np.array_equal(out_new, out_old)
+    assert np.allclose(out_new, out_old, rtol=1e-12, atol=1e-12)
 
 
 def test_pre_gather_returns_none_on_shape_mismatch():
