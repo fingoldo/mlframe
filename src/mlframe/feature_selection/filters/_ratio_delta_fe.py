@@ -123,7 +123,10 @@ def _map_group_keys(
     if keys.dtype != object:
         keys = keys.astype(str)
     s = pd.Series(keys, copy=False)
-    out = s.map(lookup).to_numpy(dtype=np.float64)
+    # copy=True: some pandas versions return a read-only view from to_numpy() when the
+    # requested dtype already matches the mapped Series' dtype (no-op astype short-circuit),
+    # which then raises "assignment destination is read-only" on the absent-key fill below.
+    out = s.map(lookup).to_numpy(dtype=np.float64, copy=True)
     absent = ~s.isin(lookup.keys()).to_numpy()
     if absent.any():
         out[absent] = global_value
