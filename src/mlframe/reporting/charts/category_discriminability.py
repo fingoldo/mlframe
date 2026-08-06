@@ -116,6 +116,11 @@ def _iter_categorical_columns(X: Any, features: Optional[Sequence[str]]):
             # hashable, raising "TypeError: unhashable type: 'numpy.ndarray'". A single embedding vector isn't
             # a meaningful category anyway, so treat such a column as non-categorical here.
             return not any(isinstance(v, (list, tuple, np.ndarray)) for v in col)
+        # pandas' dedicated string dtype (StringDtype, and the newer numpy-backed "str" dtype some
+        # pandas versions/configs infer by default for plain-string columns instead of object) can
+        # only ever hold actual strings/NA -- no embedding-column hashability concern, unlike object.
+        if pd.api.types.is_string_dtype(dt):
+            return True
         # polars Series carry no pandas dtype object; string-ify the dtype instead of importing polars (X may be
         # pandas-only in most callers -- an unconditional polars import here would be a needless hard dependency).
         return str(dt) in ("Utf8", "String", "Categorical", "Enum", "Object")

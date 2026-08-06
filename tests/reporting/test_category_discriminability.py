@@ -138,6 +138,21 @@ def test_high_cardinality_and_numeric_columns_skipped():
     assert feats == {"cat"}
 
 
+def test_pandas_string_dtype_column_is_detected_as_categorical():
+    """A column explicitly typed as pandas' dedicated StringDtype (not plain object) must still be
+    auto-detected as categorical -- some pandas versions/configs infer this dtype by default for
+    plain-string columns instead of object, and the old is_object_dtype-only check missed it
+    entirely, silently dropping every string column from the table."""
+    rng = np.random.default_rng(3)
+    n = 500
+    X = pd.DataFrame({"cat": pd.array(rng.choice(["x", "y", "z"], size=n), dtype="string")})
+    assert isinstance(X["cat"].dtype, pd.StringDtype)
+    y = (rng.random(n) < 0.5).astype(int)
+    rows = category_discriminability_table(X, y, top_k=10)
+    feats = {feat for feat, *_ in rows}
+    assert feats == {"cat"}, f"StringDtype column was not detected as categorical; rows={rows}"
+
+
 # ----------------------------------------------------------------------------
 # biz_value: strong level surfaces #1; pure noise stays below a small floor
 # ----------------------------------------------------------------------------
