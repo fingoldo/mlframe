@@ -127,3 +127,15 @@ def test_api32_show_classifier_calibration_swallows_expected_valueerror(monkeypa
     # ValueError is expected -> logged + returns None (no propagation).
     out = quality.show_classifier_calibration(y_true, y_pred, title="t", nintervals=1, skip_plotting=True)
     assert out is None
+
+
+# --------------------------------------------------------------------------- X_ARCHITECTURE_API_CONSISTENCY-5
+def test_calibration_package_defines_all_matching_sibling_facades():
+    """calibration/__init__.py must define __all__, matching every sibling package facade
+    (preprocessing, models, data, estimators, inference, utils, core)."""
+    import mlframe.calibration as calibration
+
+    assert hasattr(calibration, "__all__"), "mlframe.calibration must define __all__"
+    assert calibration.__all__, "__all__ must not be empty"
+    for name in calibration.__all__:
+        assert hasattr(calibration, name), f"__all__ lists {name!r} but it does not resolve on the module"
