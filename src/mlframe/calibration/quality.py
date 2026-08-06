@@ -300,6 +300,8 @@ def estimate_calibration_quality_binned(
     if n_samples == 0:
         raise ValueError("estimate_calibration_quality_binned: empty y_pred")
     nbins = min(nbins, n_samples)
+    if nbins < 1:
+        raise ValueError(f"estimate_calibration_quality_binned: nbins must be >= 1 after clamping to n_samples={n_samples}, got {nbins}")
     pockets_predicted, pockets_true, data = bin_predictions(y_true=y_true, y_pred=y_pred, indices=indices, nbins=nbins)
     # r2 = np.corrcoef(pockets_predicted, pockets_true)[0, 1] ** 2
 
