@@ -13,7 +13,7 @@ script enumerates the multiset universe for each Phase-0 scenario size
 Run::
 
     python -m mlframe.feature_selection._benchmarks.collision_census \\
-        [--n-features 100 --max-order 2] [--out _results/collision_census_pre_refactor.json]
+        [--out _results/collision_census_pre_refactor.json]
 """
 from __future__ import annotations
 
