@@ -8,9 +8,9 @@ Run modes (env):
   WELLBORE_MRMR_CPROFILE=1     -- wrap fit in cProfile, dump .prof + top-40 (default off: nsys/ncu prefer no tracer)
 
 Under nsys (kernel/transfer timeline + H2D/D2H audit):
-  nsys profile -o mrmr_gpu_trace --trace=cuda,nvtx,osrt python src/mlframe/feature_selection/_benchmarks/profile_wellbore_mrmr_only.py
+  nsys profile -o mrmr_gpu_trace --trace=cuda,nvtx,osrt python src/mlframe/feature_selection/_benchmarks/profile_wellbore_mrmr_only_100k.py
 Under ncu (per-kernel occupancy/bandwidth; -c caps kernel launches profiled, --set full for all sections):
-  ncu -c 200 --set full -o mrmr_gpu_kernels python src/mlframe/feature_selection/_benchmarks/profile_wellbore_mrmr_only.py
+  ncu -c 200 --set full -o mrmr_gpu_kernels python src/mlframe/feature_selection/_benchmarks/profile_wellbore_mrmr_only_100k.py
 
 The MRMR config mirrors wellbore_train.py's mrmr_kwargs exactly (fe_max_steps=1, cat FE on, medium
 presets) so hotspots found here transfer 1:1 to the production suite run.
