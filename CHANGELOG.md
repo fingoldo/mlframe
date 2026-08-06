@@ -98,5 +98,5 @@ history.
 - `Normalizer_l2` preprocessing helper.
 - `ensure_installed` runtime dependency-installation from library modules.
 
-[Unreleased]: https://github.com/fingoldo/mlframe/compare/v0.9.0...HEAD
-[0.9.0]: https://github.com/fingoldo/mlframe/releases/tag/v0.9.0
+[Unreleased]: https://github.com/fingoldo/mlframe
+<!-- No v0.9.0 git tag/release exists on the remote yet; comparison/release links will be added once one is cut. -->
