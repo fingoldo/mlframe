@@ -357,7 +357,7 @@ def _per_group_rolling(
         seg = arr_sorted[s:e]
         if seg.size < window_K:
             continue
-        seg_finite = np.where(np.isfinite(seg), seg, 0.0).copy()
+        seg_finite = np.where(np.isfinite(seg), seg, 0.0)
         seg_out = np.full(seg.size, np.nan, dtype=np.float64)
         kernel(seg_finite, *kernel_args, seg_out)
         out[sort_idx[s:e]] = seg_out
