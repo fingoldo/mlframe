@@ -479,9 +479,9 @@ def resolve_mlp_train_batch_size(
 ) -> int:
     """Return the train-time MLP batch size for ``batch_size="auto"``.
 
-    The resolver is conservative: it preserves the previous 1024 default as
-    the ceiling for ordinary narrow frames, while shrinking automatically for
-    very wide frames using the same memory probe as predict-time batching.
+    The resolver is conservative: it uses ``_TRAIN_BATCH_MAX`` (65536) as the ceiling for ordinary narrow
+    frames, while shrinking automatically for very wide frames using the same memory probe as predict-time
+    batching.
     """
     if user_override is not None:
         return max(1, int(user_override))
