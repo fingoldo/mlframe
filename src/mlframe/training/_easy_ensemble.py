@@ -56,6 +56,8 @@ def easy_ensemble_fit_predict(
         ``bag_feature_idx`` (list of per-bag column-index arrays used, or ``None`` when
         ``bag_feature_subsample`` is not set).
     """
+    if n_bags <= 0:
+        raise ValueError(f"easy_ensemble_fit_predict: n_bags must be >= 1, got {n_bags}")
     if bag_feature_subsample is not None and not (0.0 < bag_feature_subsample <= 1.0):
         raise ValueError("easy_ensemble_fit_predict: bag_feature_subsample must be in (0, 1]")
 
