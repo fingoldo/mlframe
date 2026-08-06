@@ -87,9 +87,13 @@ def train_test_split_from_generator(gen: Any, X=None, y=None, groups=None):
 def get_predicted_classes(predictions: np.ndarray, thresholds: Optional[np.ndarray] = None):
     """
     Turns scores predicted by regression into class labels, knowing thresholds used to encode labels.
-    >>>_,preds=get_predicted_classes(predictions=np.array([0.83157152, 0.91605568, 0.34691267, 0.01739674]),thresholds=np.array([0.0,0.1,0.5,1.0]));preds
-    >>>preds
-    [3, 3, 2, 0]
+
+    >>> _, preds = get_predicted_classes(
+    ...     predictions=np.array([0.83157152, 0.91605568, 0.34691267, 0.01739674]),
+    ...     thresholds=np.array([0.0, 0.1, 0.5, 1.0]),
+    ... )
+    >>> list(preds)
+    [np.int64(3), np.int64(3), np.int64(2), np.int64(0)]
     """
     if thresholds is None:
         thresholds = np.array([0.0, 0.1, 0.5, 1.0])
