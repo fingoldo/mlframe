@@ -29,7 +29,7 @@ from ._gpu_probe import CUDA_IS_AVAILABLE  # noqa: F401 -- re-exported so `helpe
 # they are private to `_gpu_probe.py` (only used to compute the module-level
 # XGB_GPU_AVAILABLE / LGB_GPU_AVAILABLE booleans imported above), and no other
 # module ever imported them via this re-export. Removing closes the "noqa F401
-# on private name" anti-pattern flagged in the Wave-3 audit.
+# on private name" anti-pattern.
 from ._classif_helpers import (  # noqa: F401
     _canonical_predict_proba_shape,
     _predict_from_probs,
@@ -38,7 +38,7 @@ from ._classif_helpers import (  # noqa: F401
     _compute_chain_orders,
     _ChainEnsemble,
     _build_classifier_chain_ensemble,
-)  # _build_classifier_chain_ensemble kept in helpers.py (line 86)
+)
 from .callbacks import (  # noqa: F401
     UniversalCallback,
     LightGBMCallback,
