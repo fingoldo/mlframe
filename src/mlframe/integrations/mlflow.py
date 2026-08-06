@@ -148,7 +148,19 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: Optional[str] = None,
                         log_throttle(logger, "mlflow_run_already_active_no_handle", logging.WARNING, scrubbed)
                 else:
                     log_throttle(logger, "mlflow_start_run_error", logging.ERROR, scrubbed)
-                    raise
+                    # A bare `raise` here propagates the ORIGINAL (unscrubbed) exception -- any outer
+                    # handler that logs str(e) on it (a common pattern) would leak the tracking-server
+                    # userinfo credential `scrubbed` was computed specifically to hide. Raise a new
+                    # exception carrying the scrubbed message instead; `from e` keeps the real cause
+                    # attached to the traceback for debugging without embedding the raw credential text.
+                    # type(e)(scrubbed) assumes a single-string-arg constructor, true for the vast
+                    # majority of exception types but not guaranteed for an arbitrary third-party class
+                    # mlflow might raise -- fall back to a plain RuntimeError if reconstruction fails.
+                    try:
+                        scrubbed_exc: BaseException = type(e)(scrubbed)
+                    except Exception:
+                        scrubbed_exc = RuntimeError(scrubbed)
+                    raise scrubbed_exc from e
             else:
                 mlflow.end_run()
                 break

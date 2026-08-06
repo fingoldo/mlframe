@@ -222,3 +222,18 @@ def test_get_or_create_mlflow_run_reraises_unrelated_errors():
         mock_mlflow.start_run.side_effect = ValueError("some unrelated failure")
         with pytest.raises(ValueError, match="unrelated failure"):
             get_or_create_mlflow_run("my_run")
+
+
+def test_get_or_create_mlflow_run_reraised_exception_has_scrubbed_message():
+    """X_SECURITY_ROBUSTNESS-4: the RE-RAISED exception's own message must be scrubbed of tracking-server
+    userinfo credentials, not just the log line -- a bare `raise` of the original exception would leak the
+    credential to any outer handler that logs str(e) on the propagated exception."""
+    import pytest
+
+    with patch("mlframe.integrations.mlflow.mlflow") as mock_mlflow:
+        mock_mlflow.search_runs.return_value = []
+        mock_mlflow.start_run.side_effect = ConnectionError("failed to connect to https://user:supersecret@tracking.example.com/api")
+        with pytest.raises(ConnectionError) as exc_info:
+            get_or_create_mlflow_run("my_run")
+    assert "supersecret" not in str(exc_info.value), f"credential leaked in re-raised exception message: {exc_info.value}"
+    assert "***@" in str(exc_info.value)
