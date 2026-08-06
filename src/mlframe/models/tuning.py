@@ -595,6 +595,11 @@ def create_ctr_params(GPU_ENABLED: bool = False, params: Optional[dict] = None, 
                 },
                 random_state=random_state,
             )
+            if not cands:
+                raise ValueError(
+                    f"create_ctr_params: generate_valid_candidates returned no candidates for main_type={main_type!r}; "
+                    "the supplied rule kwargs are too restrictive to satisfy.",
+                )
             line = main_type
             for key, val in next(iter(cands)).items():
                 # "Counter:TargetBorderType=Uniform:TargetBorderCount=1: Target borders options are unsupported for counter ctr
