@@ -217,6 +217,26 @@ For features called per-row on large arrays, default to **Welford**
 (safe across all input regimes). For one-shot dataset-level statistics,
 **Kahan-2pass** is faster and more precise.
 
+## Related instability found elsewhere in the codebase
+
+The same class of bug this report documents for `numerical.py` -- a
+raw-power-sum / textbook-binomial-expansion skew/kurt formula that
+catastrophically cancels once values sit at a large offset relative to
+their spread -- has independently turned up in three other modules,
+all fixed the same way (two-pass centred-moment accumulation instead
+of algebraic expansion of raw power sums):
+
+- `_binned_numeric_agg_fe.py::_global_stats_all` (global fallback
+  stats) -- fixed.
+- `_target_encoding_fe.py::_raw_moment_sums` (per-category skew/kurt)
+  -- fixed.
+- `_binned_numeric_agg_fe.py::_derive_cell_stats` (per-cell skew/kurt)
+  -- still uses the unstable formula; open follow-up.
+
+Any new skew/kurt kernel should default to the two-pass centred-moment
+form (or Welford-Pébay, per the hot-path heuristic above) rather than
+expanding `E[(x-mean)^k]` algebraically in terms of raw power sums.
+
 ## Files
 
 - `mlframe/feature_engineering/_numerical_stable.py` — new reference impls
