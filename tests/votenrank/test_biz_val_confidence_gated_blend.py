@@ -148,6 +148,32 @@ def test_biz_val_confidence_gated_blend_per_sample_gate_calibration_beats_raw_co
     ), f"calibrated gate should beat the pure ensemble: calibrated={loss_calibrated:.4f} pure={loss_pure_ensemble:.4f}"
 
 
+def test_confidence_gated_blend_calibration_reuse_of_blended_rows_warns(caplog):
+    """VOTENRANK-11: passing the SAME confidence array as both auxiliary_confidence and
+    calibration_confidence (the common accidental-reuse mistake, leaking test-set reliability into the
+    gate) must emit a warning."""
+    import logging
+
+    y, ensemble_pred, auxiliary_pred, raw_confidence, _region_b = _make_miscalibrated_gate_data(seed=1)
+    reliability = (np.round(auxiliary_pred) == y).astype(np.float64)
+
+    with caplog.at_level(logging.WARNING, logger="mlframe.votenrank.confidence_gated_blend"):
+        confidence_gated_blend(
+            ensemble_pred,
+            auxiliary_pred,
+            raw_confidence,
+            confidence_threshold=0.6,
+            gated_weight=0.8,
+            default_weight=0.0,
+            per_sample_gate_calibration=True,
+            calibration_confidence=raw_confidence,  # accidental reuse: same array as auxiliary_confidence
+            calibration_reliability=reliability,
+        )
+
+    matches = [r for r in caplog.records if "identical" in r.getMessage() and "held out" in r.getMessage()]
+    assert matches, f"expected a leakage warning when calibration_confidence reuses auxiliary_confidence, got: {[r.getMessage() for r in caplog.records]}"
+
+
 def test_confidence_gated_blend_per_sample_gate_calibration_requires_calibration_data():
     """Confidence gated blend per sample gate calibration requires calibration data."""
     import pytest

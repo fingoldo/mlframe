@@ -164,6 +164,20 @@ def confidence_gated_blend(
         calibration_reliability = np.asarray(calibration_reliability, dtype=np.float64)
         if calibration_confidence.shape != calibration_reliability.shape:
             raise ValueError("confidence_gated_blend: calibration_confidence and calibration_reliability must share the same shape")
+        # Best-effort leakage guard for the common accidental-reuse mistake: the caller must pass a HELD-OUT
+        # calibration sample (disjoint rows from auxiliary_confidence), but that contract is entirely
+        # caller-enforced -- no shape mismatch would catch passing the exact same array twice. Detect the
+        # unambiguous case (identical object, or bit-identical same-length content) and warn; anything less
+        # certain (partial row overlap) cannot be distinguished from a legitimate disjoint sample of similar
+        # values without row-index metadata this function doesn't have.
+        if calibration_confidence.shape == auxiliary_confidence.shape and (
+            calibration_confidence is auxiliary_confidence or np.array_equal(calibration_confidence, auxiliary_confidence)
+        ):
+            logger.warning(
+                "confidence_gated_blend: calibration_confidence is identical to auxiliary_confidence "
+                "(same array or bit-identical content) -- this looks like the calibration sample was NOT "
+                "held out from the rows being blended, which leaks test-set reliability into the gate."
+            )
         calibrator = _fit_gate_calibrator(calibration_confidence, calibration_reliability)
         reliability = np.clip(calibrator.predict(auxiliary_confidence), 0.0, 1.0)
         weight = default_weight + reliability * (gated_weight - default_weight)
