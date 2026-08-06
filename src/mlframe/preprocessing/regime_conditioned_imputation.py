@@ -25,8 +25,7 @@ def fit_regime_conditioned_median(
 
     Fit on train ONCE and replay the returned state on val/test/inference data -- calling
     ``regime_conditioned_median_fill`` (or this function) separately on each split recomputes fill values
-    from EACH split's own distribution (a train/serve statistic mismatch), same architectural gap as F1/F7
-    .
+    from EACH split's own distribution (a train/serve statistic mismatch).
 
     Parameters mirror :func:`regime_conditioned_median_fill` (minus ``min_group_size``, an apply-time
     concern only).
