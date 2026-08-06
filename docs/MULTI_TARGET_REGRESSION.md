@@ -10,7 +10,7 @@ target `k`.
 
 ## Status (2026-05-31)
 
-- **MLP estimator** — ✅ **Native, landed in commit `2d300944`**.
+- **MLP estimator** — ✅ **Native, landed in commit `0a6e60ea7`**.
   `PytorchLightningRegressor` auto-detects `(N, K>=2)` float `y` in
   `_fit_common` and routes `num_classes = K` to `generate_mlp`. MSE
   between `(N, K)` preds and `(N, K)` labels works without loss-shape
@@ -63,7 +63,7 @@ target `k`.
   `metric_name_higher_is_better()` resolves these via the
   registry-fallback path automatically.
 
-- **Regression reporting** — ✅ **Fully landed in commits `d48245de` (D4) + `86504f08` (E1)**.
+- **Regression reporting** — ✅ **Fully landed in commits `d48245de` (D4) + `c9d5067f0` (E1)**.
   `report_regression_model_perf` detects (N, K≥2) targets/preds and:
   * stamps aggregated MTR metrics (rmse_macro / r2_macro / ...)
     into the metrics dict via `iter_extra_metrics(MULTI_TARGET_REGRESSION, ...)`
@@ -77,7 +77,7 @@ target `k`.
   Still skipped on the MTR path: fairness subgroup, MASE,
   prediction-envelope clip — all 1-D-only.
 
-- **CT_ENSEMBLE for MTR** — ✅ **Per-column equal-mean ensemble landed in commit `86504f08` (E2)**.
+- **CT_ENSEMBLE for MTR** — ✅ **Per-column equal-mean ensemble landed in commit `c9d5067f0` (E2)**.
   `_build_cross_target_ensemble_for_target` dispatcher routes MTR
   targets to a new `_build_mtr_per_column_ensemble` helper that:
   * collects components from `models[target_type][target_name]`
@@ -135,7 +135,7 @@ Dependency-ordered outline of the work to wire multi-target regression (MTR) end
 ## References
 
 - F-24 audit entry in `project_mlp_audit_progress.md`
-- Commit `2d300944` (MLP-side native MTR)
+- Commit `0a6e60ea7` (MLP-side native MTR)
 - Sibling doc: `MULTI_OUTPUT.md` (multilabel + multiclass classification)
 - sklearn `MultiOutputRegressor`: https://scikit-learn.org/stable/modules/generated/sklearn.multioutput.MultiOutputRegressor.html
 - CatBoost `MultiRMSE`: https://catboost.ai/en/docs/concepts/loss-functions-multiregression
