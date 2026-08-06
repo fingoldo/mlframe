@@ -10,7 +10,7 @@ Submodules:
     post           - post-hoc calibration methods (isotonic, Platt, beta, Venn-Abers, ...).
     probabilities  - probability transformations and diagnostics.
 
-iter631: ``quality`` is NOT eager-imported. quality.py cascades through
+``quality`` is also NOT eager-imported. quality.py cascades through
 matplotlib + properscoring + sklearn (~2s per process); the suite reaches
 calibration symbols via ``mlframe.calibration.policy`` (the honest-diagnostics
 ECE wrapper) which loads its own narrow deps. PEP 562 ``__getattr__`` lazy-

@@ -249,10 +249,9 @@ def bin_predictions(
             r = s
         else:
             r = lo + bin_size
-        # Wave 21 P2: nanmean so a NaN in y_pred/y_true within a bin doesn't
-        # poison the (avg_x, avg_y) pair -> propagates into ECE/MCE numbers
-        # reported on the calibration chart. Operator may spot the NaN bin
-        # but the numeric metrics would be silently wrong.
+        # nanmean so a NaN in y_pred/y_true within a bin doesn't poison the (avg_x, avg_y) pair -> propagates
+        # into ECE/MCE numbers reported on the calibration chart. Operator may spot the NaN bin but the
+        # numeric metrics would be silently wrong.
         # bench-attempt-rejected (2026-07): fusing these two np.nanmean passes into a single scalar
         # nan-aware loop over indices[lo:r] was bit-identical but SLOWER at typical n: the vectorized
         # y_pred[indices[lo:r]] gather feeds np.nanmean a contiguous SIMD-friendly buffer, whereas the
@@ -611,7 +610,7 @@ def anderson_darling_statistic(pit_values: np.ndarray) -> float:
         float: Anderson-Darling statistic.
     """
     n = len(pit_values)
-    # Wave 47 (2026-05-20): (1/n) on empty pit_values divides by zero.
+    # (1/n) on empty pit_values divides by zero.
     if n == 0:
         return float("nan")
     sorted_pit = np.sort(np.asarray(pit_values, dtype=np.float64))

@@ -281,8 +281,7 @@ def train_postcalibrators(
         ens_name = f"ens_{_resolved_method}"
         calib_fpath = join(final_models_dir, f"{ens_name}_postcalibrator_{slugify(calib_name)}.dump")
         joblib.dump(calibrator, calib_fpath, compress=("lzma", 6))
-        # Wave 19 P1: write the .meta.json sidecar so calibrator-loaders
-        # surface mlframe-version drift. Calibrator classes
+        # Write the .meta.json sidecar so calibrator-loaders surface mlframe-version drift. Calibrator classes
         # (_PerClassIsotonicCalibrator / _PostHocMultiCalibratedModel) carry
         # attributes (n_classes, is_exclusive, _target_type) whose semantics
         # could shift across mlframe versions; predict-time uses getattr

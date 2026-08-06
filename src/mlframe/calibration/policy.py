@@ -244,20 +244,17 @@ def _ece_score(y_true: np.ndarray, p_pred: np.ndarray, n_bins: int = DEFAULT_ECE
     numbers are NOT comparable across schemes on the same inputs (different axis partitions), so
     compare ECE only within one scheme.
 
-    iter309 (2026-05-26): numba single-pass reduction kernel. The
-    iter308 ``np.bincount`` rewrite was 3.38x faster than the per-bin
-    Python loop; this numba kernel is another ~12-15x faster than the
-    bincount path because the per-i computation collapses to one branch
-    + one integer cast + three accumulator updates, all inside a tight
-    numba loop with no temporary arrays. Bench
-    ``profiling/bench_ece_score_variants.py``:
+    A numba single-pass reduction kernel backs this function: ~12-15x faster than an ``np.bincount``-based
+    rewrite (itself 3.38x faster than a per-bin Python loop) because the per-i computation collapses to one
+    branch + one integer cast + three accumulator updates, all inside a tight numba loop with no temporary
+    arrays. Bench ``profiling/bench_ece_score_variants.py``:
       n=2k:    0.115 ms (numpy)   ->  0.008 ms (numba)  14.7x
       n=20k:   0.758 ms           ->  0.064 ms          11.9x
       n=200k:  9.413 ms           ->  0.636 ms          14.8x
       n=1M:   51.530 ms           ->  3.445 ms          15.0x
-    Parallel variant tried and rejected: prange overhead dominates the
-    per-iter scalar work; serial wins on every n in the bench.
-    Numerical equivalence verified to <1e-12 vs the bincount path.
+    A ``prange``-parallel variant was tried and rejected: prange overhead dominates the per-iter scalar
+    work, so serial wins on every n in the bench. Numerical equivalence verified to <1e-12 vs the bincount
+    path.
 
     Equivalence math: ``sum_b (count_b/n) * |conf_b - acc_b|`` with
     ``conf_b = sum_p_b / count_b`` and ``acc_b = sum_y_b / count_b``
@@ -281,12 +278,10 @@ def _ece_score(y_true: np.ndarray, p_pred: np.ndarray, n_bins: int = DEFAULT_ECE
     if p.ndim == 2 and p.shape[1] >= 2:
         p = p[:, 1]
     p = np.ascontiguousarray(p.ravel())
-    # iter598: dropped the unconditional ``dtype=np.float64`` cast on
-    # y_true (same pattern as iter595/596/597). The kernel only uses
-    # ``yi`` in ``sum_y[b] += yi`` where sum_y is float64; mixed-dtype
-    # numba dispatch widens at the accumulator, identical to the upfront
-    # cast result. Bench n=100k: int64 1.40x, int8 1.27x, float64 0.99x
-    # (no harm); n=25k int64 (bootstrap typical) 1.33x. Bit-equivalent.
+    # No unconditional ``dtype=np.float64`` cast on y_true here: the kernel only uses ``yi`` in
+    # ``sum_y[b] += yi`` where sum_y is float64; mixed-dtype numba dispatch widens at the accumulator,
+    # identical to the upfront-cast result. Bench n=100k: int64 1.40x, int8 1.27x, float64 0.99x (no harm);
+    # n=25k int64 (bootstrap typical) 1.33x. Bit-equivalent.
     if p.size == 0:
         return float("nan")
     y = np.ascontiguousarray(_normalize_binary_labels(y_true))

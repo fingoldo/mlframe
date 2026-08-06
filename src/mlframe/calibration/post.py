@@ -541,7 +541,7 @@ def compare_postcalibrators(
         # full_name() collisions (two zoo entries resolving to the same lib.Name[param_str] key,
         # e.g. a caller-added custom calibrator without a distinguishing name/param_str) would
         # otherwise silently overwrite one calibrator's row in metrics/fit_calibrators -- disambiguate
-        # with a numeric suffix and warn, rather than dropping a result with no error (P1-5).
+        # with a numeric suffix and warn, rather than dropping a result with no error.
         if calibrator_name in _seen_names:
             _seen_names[calibrator_name] += 1
             _disambiguated_name = f"{calibrator_name}#{_seen_names[calibrator_name]}"
@@ -615,7 +615,7 @@ def compare_postcalibrators(
                     _row_eval_target = _eval_target
         except Exception as exc:
             # Elapsed time up to the point of failure -- a calibrator that hangs/is unusually slow
-            # before crashing otherwise leaves no partial timing signal to diagnose which one (P2-1).
+            # before crashing otherwise leaves no partial timing signal to diagnose which one.
             _elapsed = timer() - _calibrator_start
             log_throttle(
                 logger,
@@ -671,7 +671,7 @@ def compare_postcalibrators(
         # report_model_perf's per-calibrator dict shape may vary across task types/configs (e.g. a
         # metric undefined for a degenerate/constant prediction). Taking the UNION of keys means a
         # calibrator missing a key gets a NaN there instead of raising -- surface that explicitly
-        # rather than letting it silently rank the calibrator via NaN sort placement (P1-4).
+        # rather than letting it silently rank the calibrator via NaN sort placement.
         _row_key_counts = perf_dict_df.notna().sum(axis=1)
         _expected_keys = perf_dict_df.shape[1]
         _incomplete_rows = _row_key_counts[_row_key_counts < _expected_keys]

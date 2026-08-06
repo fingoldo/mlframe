@@ -13,7 +13,7 @@ libraries pull in torch transitively), so the ~0.3-1s per-worker process-spawn o
 order of magnitude as the serial per-calibrator cost being parallelised. At the zoo sizes actually used
 in this codebase (15-25 calibrators), a process-pool fan-out is not clearly a net win, and it adds real
 correctness risk to a function that also aggregates a shared metrics dict, a shared fit_calibrators
-dict, and a shared full_name-collision counter across calibrators (P1-5) -- all of which would need to
+dict, and a shared full_name-collision counter across calibrators -- all of which would need to
 move to a post-hoc reduce step rather than in-loop mutation under a process pool.
 
 Verdict: no actionable speedup measured at the realistic zoo size; the win is not clearly worth the
