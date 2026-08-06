@@ -31,10 +31,10 @@ def _extremality_matrix_njit(values: np.ndarray, out: np.ndarray) -> None:
     HEAVILY TIED / low-cardinality columns, numba's argsort breaks ties in a different order than numpy's
     quicksort, so the exact per-row rank assignment WITHIN a tied group can differ from the numpy
     reference (each row still gets a mathematically valid extremality score - just possibly a different
-    specific rank among exactly-equal values). This is the SAME precision-vs-speed tradeoff
-    ``_ordinal_rank``'s own docstring already accepts (non-tie-averaged rank; continuous feature columns
-    rarely have enough exact ties to matter) - only the SOURCE of the tie-order variance is different
-    (a second unstable-sort implementation instead of no tie-averaging)."""
+    specific rank among exactly-equal values). This is the same precision-vs-speed tradeoff any
+    non-tie-averaged ordinal rank accepts: continuous feature columns rarely have enough exact ties to
+    matter, and only the SOURCE of the tie-order variance differs here (an unstable-sort implementation
+    instead of no tie-averaging)."""
     n_rows, n_cols = values.shape
     for j in prange(n_cols):
         n_valid = 0
@@ -58,22 +58,6 @@ def _extremality_matrix_njit(values: np.ndarray, out: np.ndarray) -> None:
             orig_i = valid_idx[order[r]]
             frac = (r + 1) / denom
             out[orig_i, j] = abs(frac - 0.5) * 2.0
-
-
-def _ordinal_rank(x: np.ndarray) -> np.ndarray:
-    """1-based ordinal rank via a double argsort -- no tie-averaging.
-
-    ``scipy.stats.rankdata`` computes the statistically-precise tie-averaged rank, but pays real
-    array-api-compat dispatch overhead per call (measured as the dominant cost when called once per column:
-    734s cProfile / 53ms-per-call at n=200000, vs 13.5ms-per-call for this direct numpy version -- a ~4x
-    difference that compounds badly over hundreds of columns). Continuous feature columns rarely have enough
-    exact ties to matter, and this index only needs a monotonic within-column ordering (not exact tie-average
-    precision) to produce a symmetric distance-from-median score, so the precision trade is safe here.
-    """
-    order = np.argsort(x, kind="quicksort")
-    ranks = np.empty_like(order, dtype=np.float64)
-    ranks[order] = np.arange(1, len(x) + 1, dtype=np.float64)
-    return ranks
 
 
 def _compute_extremality_matrix(X: pd.DataFrame, columns: Optional[Sequence[str]]) -> tuple[np.ndarray, list]:
