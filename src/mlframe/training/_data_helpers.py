@@ -653,15 +653,15 @@ def _setup_eval_set(
         if model_category in ("xgb", "lgb", "cb"):
             if sample_weight_val is not None:
                 sw_list: list[Any] = [sample_weight_val]
-                sw_list.extend(shard.sample_weight if shard.sample_weight is not None else None for shard in extra_eval_sets)
+                sw_list.extend(shard.sample_weight for shard in extra_eval_sets)
                 fit_params["sample_weight_eval_set"] = sw_list
             if base_margin_val is not None and model_category == "xgb":
                 bm_list: list[Any] = [base_margin_val]
-                bm_list.extend(shard.base_margin if shard.base_margin is not None else None for shard in extra_eval_sets)
+                bm_list.extend(shard.base_margin for shard in extra_eval_sets)
                 fit_params["base_margin_eval_set"] = bm_list
             if group_ids_val is not None:
                 grp_list: list[Any] = [group_ids_val]
-                grp_list.extend(shard.group_ids if shard.group_ids is not None else None for shard in extra_eval_sets)
+                grp_list.extend(shard.group_ids for shard in extra_eval_sets)
                 if model_category == "xgb":
                     fit_params["eval_qid"] = grp_list
                 elif model_category == "lgb":
