@@ -164,6 +164,13 @@ class RecurrentDataModule(LightningDataModule):
     Lightning DataModule for recurrent models with sequence data.
 
     Handles train/val/test/predict stages with proper sequence handling.
+
+    NOT wired into the production fit path: ``RecurrentClassifierWrapper``/``RecurrentRegressorWrapper``
+    (``_recurrent_wrappers.py``) build their dataloaders directly via ``_RecurrentWrapperBase``'s own
+    ``_create_dataset``/``_create_dataloader``, which independently re-implements the same
+    stratified-sampler logic. Only test files construct this class today. A fix to the sampler logic
+    (label-set construction, weighting, etc.) in one copy is NOT automatically reflected in the other --
+    check both when changing either.
     """
 
     def __init__(
