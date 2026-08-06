@@ -54,6 +54,8 @@ def select_best_iteration_by_aggregate_cv(
     curves = np.asarray(per_fold_metric_curves, dtype=np.float64)
     if curves.ndim != 2:
         raise ValueError(f"select_best_iteration_by_aggregate_cv: expected 2D (n_folds, n_rounds); got shape {curves.shape}")
+    if curves.shape[0] == 0:
+        raise ValueError("select_best_iteration_by_aggregate_cv: need at least 1 fold")
     if curves.shape[1] == 0:
         raise ValueError("select_best_iteration_by_aggregate_cv: need at least 1 round")
 
