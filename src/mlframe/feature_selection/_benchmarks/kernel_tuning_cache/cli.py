@@ -24,6 +24,8 @@ Subcommands::
     refresh-rff-matmul              tune rff_matmul (skip if cached)
     refresh-knn-hnsw-crossover      tune knn_hnsw_crossover (CPU; skip if cached)
     refresh-discretize-2d-array     tune discretize_2d_array (skip if cached)
+    refresh-batch-mi-noise-gate     tune batch_mi_noise_gate (skip if cached)
+    refresh-fe-gpu-pairs-mi         tune fe_gpu_pairs_mi (skip if cached)
     refresh-all                     tune every registered kernel sweep (skip those already cached; --force to re-run)
 
 All refresh-* skip a kernel already validly cached for this host; pass --force to re-benchmark.
