@@ -172,7 +172,11 @@ def fast_logcosh_loss(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 @njit(**_NJIT)
 def _rmspe_kernel(y_true, y_pred):
-    """njit inner loop: sqrt of mean squared relative error, skipping points where y_true == 0 (ratio undefined)."""
+    """njit inner loop: sqrt of mean squared relative error, skipping points where y_true == 0 (ratio undefined).
+
+    Returns ``(rmspe, cnt)`` -- ``cnt`` is the number of points that actually contributed (``y_true != 0``),
+    letting the caller derive and warn on the skipped-row count like its ``fast_mape_mean`` sibling does.
+    """
     n = y_true.shape[0]
     s = 0.0
     cnt = 0
@@ -181,7 +185,10 @@ def _rmspe_kernel(y_true, y_pred):
             r = (y_pred[i] - y_true[i]) / y_true[i]
             s += r * r
             cnt += 1
-    return np.sqrt(s / cnt) if cnt > 0 else np.nan
+    return (np.sqrt(s / cnt) if cnt > 0 else np.nan), cnt
+
+
+_RMSPE_ZERO_WARN_SEEN: set = set()
 
 
 def fast_rmspe(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -196,4 +203,18 @@ def fast_rmspe(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         raise ValueError("fast_rmspe: y_true and y_pred length mismatch.")
     if yt.shape[0] == 0:
         return np.nan
-    return float(_rmspe_kernel(yt, yp))
+    val, cnt = _rmspe_kernel(yt, yp)
+    n_zero = yt.shape[0] - cnt
+    if n_zero > 0:
+        key = (int(n_zero), int(yt.shape[0]))
+        if key not in _RMSPE_ZERO_WARN_SEEN:
+            _RMSPE_ZERO_WARN_SEEN.add(key)
+            import warnings
+
+            warnings.warn(
+                f"fast_rmspe: {n_zero} of {yt.shape[0]} y_true entries are zero and were dropped (ratio undefined); "
+                f"the metric is computed over the remaining {cnt} rows only.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+    return float(val)

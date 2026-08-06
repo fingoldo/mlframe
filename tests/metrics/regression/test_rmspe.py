@@ -36,6 +36,18 @@ def test_all_zero_and_empty_and_mismatch():
         fast_rmspe(np.zeros(3), np.zeros(2))
 
 
+def test_zero_y_true_rows_emit_runtime_warning():
+    """fast_rmspe must warn when dropping y_true==0 rows, matching its siblings fast_mape_mean and
+    maximum_absolute_percentage_error, which both emit a RuntimeWarning for the identical situation."""
+    import mlframe.metrics.regression._regression_benchmark as mod
+
+    mod._RMSPE_ZERO_WARN_SEEN.clear()
+    y = np.array([0.0, 100.0])
+    a = np.array([5.0, 110.0])
+    with pytest.warns(RuntimeWarning, match="fast_rmspe.*zero"):
+        fast_rmspe(y, a)
+
+
 def test_biz_val_rmspe_penalizes_relative_error_scale_invariant():
     """RMSPE is scale-free: the same relative error on small and large targets scores the same, unlike RMSE which
     is dominated by the large-target absolute error. This is why forecasting competitions (Rossmann) use it."""
