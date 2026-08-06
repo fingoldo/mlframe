@@ -410,8 +410,8 @@ def compute_entropy_features(arr: np.ndarray, sampling_frequency: int = 100, spe
     # num_zerocross(arr),
 
     _entropy_funcs = _get_entropy_funcs()
-    nonzero = (~np.isnan(arr)).sum()
-    if nonzero < 10:
+    n_finite = (~np.isnan(arr)).sum()
+    if n_finite < 10:
         return (0.0,) * len(_entropy_funcs)
     else:
         safe_arr = np.nan_to_num(arr[~np.isnan(arr)], posinf=0, neginf=0)
