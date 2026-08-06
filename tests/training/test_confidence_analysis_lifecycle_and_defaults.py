@@ -42,6 +42,24 @@ def _toy_inputs(n=200, seed=0):
     return df, target, probs
 
 
+def test_confidence_model_kwargs_not_mutated_in_place():
+    """TRAINING_LOOSE_A-4: run_confidence_analysis must not mutate a caller-supplied
+    confidence_model_kwargs dict in place -- a caller reusing one shared dict across calls would
+    otherwise see it silently polluted with the injected iterations/early_stopping_rounds defaults."""
+    df, target, probs = _toy_inputs()
+    shared_kwargs = {"depth": 4}
+    before = dict(shared_kwargs)
+    run_confidence_analysis(
+        test_df=df,
+        test_target=target,
+        test_probs=probs,
+        confidence_model_kwargs=shared_kwargs,
+        use_shap=False,
+        verbose=False,
+    )
+    assert shared_kwargs == before, f"caller's confidence_model_kwargs was mutated: {shared_kwargs} != {before}"
+
+
 def test_beeswarm_saved_to_plot_file_and_figure_closed(tmp_path):
     """plot_file must produce an on-disk PNG and leave no open figure (INV-49)."""
     import pytest
