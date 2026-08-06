@@ -113,6 +113,10 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
     transform_method_name: str
     needs_2d_probs: Optional[bool]
     _resolved_transform_method_name: str
+    classes_: np.ndarray
+    n_features_in_: int
+    y_cal: np.ndarray
+    p_cal: np.ndarray
 
     def __init__(
         self,
