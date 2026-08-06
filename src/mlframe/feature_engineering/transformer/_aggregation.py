@@ -308,19 +308,19 @@ def dedupe_by_correlation(
     Z[:, ~nonzero_var] = 0.0
     keep = np.ones(n_cols, dtype=bool)
     keep[~nonzero_var] = False
-    if nonzero_var.any():
-        # Anchor: first non-zero-variance column.
-        first_nz = int(np.argmax(nonzero_var))
-        keep[:first_nz] = False  # only zero-variance cols before first_nz; already removed
-        keep[first_nz] = True
-        for j in range(first_nz + 1, n_cols):
-            if not keep[j]:
-                continue
-            # Correlation with already-kept columns to the left.
-            kept_left = np.flatnonzero(keep[:j])
-            if kept_left.size == 0:
-                continue
-            corrs = (Z[:, kept_left].T @ Z[:, j]) / n_rows
-            if np.any(np.abs(corrs) > threshold):
-                keep[j] = False
+    # Anchor: first non-zero-variance column. nonzero_var.any() is guaranteed here -- the all-zero-variance
+    # case already returned early above.
+    first_nz = int(np.argmax(nonzero_var))
+    keep[:first_nz] = False  # only zero-variance cols before first_nz; already removed
+    keep[first_nz] = True
+    for j in range(first_nz + 1, n_cols):
+        if not keep[j]:
+            continue
+        # Correlation with already-kept columns to the left.
+        kept_left = np.flatnonzero(keep[:j])
+        if kept_left.size == 0:
+            continue
+        corrs = (Z[:, kept_left].T @ Z[:, j]) / n_rows
+        if np.any(np.abs(corrs) > threshold):
+            keep[j] = False
     return keep
