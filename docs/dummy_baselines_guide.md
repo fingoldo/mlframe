@@ -464,9 +464,9 @@ the module.)
 
 ## Profiling + smoke
 
-- `python -m mlframe.training._profile_dummy_baselines` — cProfile harness;
+- `python -m mlframe.training.baselines._profile_dummy_baselines` — cProfile harness;
   prints per-target wall-time + top-30 cumulative-time entries.
-- `python mlframe/training/_smoke_dummy_baselines_e2e.py` — end-to-end
+- `python src/mlframe/training/baselines/_smoke_dummy_baselines_e2e.py` — end-to-end
   smoke through `train_mlframe_models_suite` with one lgb-target.
 
 Wall time: ~1s/target on 1M-row × 1-target after the numba pass; ~0.04s/target

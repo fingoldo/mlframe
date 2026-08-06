@@ -52,3 +52,16 @@ def test_dummy_baselines_guide_cites_a_real_logger_name():
     assert baselines_dir.is_dir()
     modules_using_dunder_name_logger = [f for f in baselines_dir.glob("*.py") if "logging.getLogger(__name__)" in f.read_text(encoding="utf-8")]
     assert modules_using_dunder_name_logger, "no baselines submodule uses getLogger(__name__) -- re-check this test's premise"
+
+
+def test_dummy_baselines_guide_profiling_commands_point_at_real_files():
+    """X_OSS_HYGIENE_PACKAGING-8: the documented profiling/smoke commands must reference files that
+    actually exist under src/mlframe/training/baselines/, not the pre-split mlframe/training/ paths."""
+    doc = (REPO_ROOT / "docs" / "dummy_baselines_guide.md").read_text(encoding="utf-8")
+    assert "python -m mlframe.training._profile_dummy_baselines" not in doc
+    assert "python mlframe/training/_smoke_dummy_baselines_e2e.py" not in doc
+    baselines_dir = REPO_ROOT / "src" / "mlframe" / "training" / "baselines"
+    assert (baselines_dir / "_profile_dummy_baselines.py").exists()
+    assert (baselines_dir / "_smoke_dummy_baselines_e2e.py").exists()
+    assert "python -m mlframe.training.baselines._profile_dummy_baselines" in doc
+    assert "python src/mlframe/training/baselines/_smoke_dummy_baselines_e2e.py" in doc
