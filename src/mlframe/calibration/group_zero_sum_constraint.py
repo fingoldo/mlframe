@@ -72,7 +72,7 @@ def apply_group_zero_sum_constraint_multi(
     max_iterations: int = 10,
     tol: float = 1e-8,
 ) -> np.ndarray:
-    """Satisfy MULTIPLE simultaneous per-group zero-sum constraints via Dykstra-style alternating projection.
+    """Satisfy MULTIPLE simultaneous per-group zero-sum constraints via alternating per-group shifts.
 
     Real conservation-law targets can carry more than one known grouping that each must independently sum
     (weighted) to a target -- e.g. Optiver's target sums to ~0 both within ``(date_id, seconds_in_bucket)``
@@ -80,8 +80,15 @@ def apply_group_zero_sum_constraint_multi(
     :func:`apply_group_zero_sum_constraint` for one grouping alone re-satisfies THAT constraint but generally
     re-breaks any other grouping's constraint (the two group-by partitions overlap, so a per-row shift that
     fixes one recentres rows into different partial sums for the other). Alternating the single-constraint
-    projection across all groupings and iterating converges both (all) constraints simultaneously, exactly
-    like Dykstra's alternating projection algorithm onto multiple convex sets.
+    projection across all groupings and iterating converges all constraints simultaneously (verified
+    empirically -- see the multi-constraint convergence tests).
+
+    This is the same alternating-sweep STRUCTURE as Dykstra's algorithm, but each per-constraint step is a
+    constant per-group additive shift (by design -- it must preserve within-group prediction ordering), not
+    Dykstra's true weighted orthogonal projection onto each constraint set. Under non-uniform ``weights``
+    that distinction matters: Dykstra's convergence-to-the-nearest-feasible-point optimality guarantee does
+    NOT carry over here. What's guaranteed (and verified) is that the sweep converges to *a* point
+    satisfying every constraint, not necessarily the one closest to the input in any particular norm.
 
     Parameters
     ----------
