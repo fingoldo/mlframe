@@ -129,17 +129,29 @@ def _entry_score(entry: Any) -> Optional[np.ndarray]:
 
 
 def _flat_scalar_metrics(metrics: Any) -> Dict[str, float]:
-    """Best-effort flat ``{name: float}`` from a (possibly nested) per-model test-metrics dict for the leaderboard."""
+    """Best-effort flat ``{name: float}`` from a (possibly nested) per-model test-metrics dict for the leaderboard.
+
+    Merge precedence (explicit, documented -- was previously ambiguous: top-level keys overwrote unconditionally
+    while nested-subdict keys used ``setdefault``, silently dropping a later nested sub-dict's value on a name
+    collision with no documented rule): a top-level scalar key ALWAYS wins over a same-named key from any nested
+    sub-dict. Among nested sub-dicts themselves, the LAST one (in ``metrics`` iteration order) wins on a name
+    collision -- consistent with a plain dict's own last-write-wins semantics.
+    """
     out: Dict[str, float] = {}
     if not isinstance(metrics, dict):
         return out
+    top_level_keys: set = set()
     for k, v in metrics.items():
         if isinstance(v, (int, float)) and not isinstance(v, bool):
             out[str(k)] = float(v)
-        elif isinstance(v, dict):
+            top_level_keys.add(str(k))
+    for v in metrics.values():
+        if isinstance(v, dict):
             for k2, v2 in v.items():
+                if str(k2) in top_level_keys:
+                    continue  # a top-level scalar of the same name always wins.
                 if isinstance(v2, (int, float)) and not isinstance(v2, bool):
-                    out.setdefault(str(k2), float(v2))
+                    out[str(k2)] = float(v2)  # last nested sub-dict wins on a nested-vs-nested collision.
     return out
 
 
