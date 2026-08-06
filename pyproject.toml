@@ -431,7 +431,7 @@ dev = [
     # X_SECURITY_API_PACKAGING-5 fix (mrmr_audit_2026-07-22): pinned to a specific commit SHA rather
     # than the floating default branch (see the matching pyutilz note above for the rationale). Bump
     # deliberately (with a CHANGELOG entry) when a new py-ci-shared feature is actually needed.
-    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@5851e65e7582a77ea1d37a2ec3c9940cd46f55a7",
+    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@a49421c79f4262326295ed14ed3859e9b85fdc5b",
 ]
 
 [project.scripts]
