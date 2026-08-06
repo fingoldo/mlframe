@@ -25,6 +25,7 @@ logging.disable(logging.CRITICAL)
 
 def test_b1_b2_dtw_dispatch_falls_back_to_cpu_when_cupy_raises(monkeypatch):
     """A cupy backend raising at call time must fall back to CPU, not propagate."""
+    pytest.importorskip("dtaidistance")
     from mlframe.signal import dtw
 
     monkeypatch.setattr(dtw, "_HAS_CUPY", True)
@@ -44,6 +45,7 @@ def test_b1_b2_dtw_dispatch_falls_back_to_cpu_when_cupy_raises(monkeypatch):
 
 def test_b1_b2_dtw_dispatch_falls_back_to_cpu_when_cuda_raises(monkeypatch):
     """A numba.cuda backend raising at call time must fall back to CPU, not propagate."""
+    pytest.importorskip("dtaidistance")
     from mlframe.signal import dtw
 
     monkeypatch.setattr(dtw, "_HAS_NB_CUDA", True)
@@ -63,6 +65,7 @@ def test_b1_b2_dtw_dispatch_falls_back_to_cpu_when_cuda_raises(monkeypatch):
 
 def test_b1_b2_dtw_dispatch_cpu_choice_unaffected():
     """Baseline: the ordinary CPU-choice path is unaffected by the new try/except wrapping."""
+    pytest.importorskip("dtaidistance")
     from mlframe.signal import dtw
 
     x = np.array([0.0, 1.0, 2.0, 1.0, 0.0])
