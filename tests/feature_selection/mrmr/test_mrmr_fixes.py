@@ -197,6 +197,24 @@ def test_validate_inputs_catches_non_builtin_float_inf_in_object_column():
         est._validate_inputs(df, y)
 
 
+def test_to_series_rejects_multicolumn_ndarray_y_instead_of_silently_raveling():
+    """MRMR-2: partial_fit's ``_to_series`` must reject a 2-D multi-column ndarray ``y_new``
+    (multilabel/multi-target), matching the DataFrame path's explicit rejection, instead of
+    silently ``.ravel()``-flattening it into ``n*k`` bogus single-target rows."""
+    from mlframe.feature_selection.filters._mrmr_partial_fit import _to_series
+
+    y_multi = np.zeros((10, 3))
+    with pytest.raises(ValueError, match="multilabel/multi-target"):
+        _to_series(y_multi)
+
+    # Single-column 2-D and 1-D ndarrays are unaffected (still flatten to a plain Series).
+    y_single_col = np.arange(10).reshape(-1, 1)
+    out = _to_series(y_single_col)
+    assert list(out) == list(range(10))
+    out_1d = _to_series(np.arange(10))
+    assert list(out_1d) == list(range(10))
+
+
 def test_adaptive_arity_multileg_recipes_freeze_preprocess_params():
     """Adaptive-arity arity>=2 recipes must freeze per-leg preprocess params so transform() replays (never refits) the basis axis."""
     import pandas as pd

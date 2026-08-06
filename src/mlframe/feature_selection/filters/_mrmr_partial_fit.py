@@ -81,15 +81,29 @@ def _to_dataframe(X: Any) -> pd.DataFrame:
 
 
 def _to_series(y: Any) -> pd.Series:
-    """Normalise a y input to a pandas Series."""
+    """Normalise a y input to a pandas Series.
+
+    Multilabel/multi-target ``y`` (2-D, >1 column) is not yet supported by the incremental
+    ``partial_fit`` streaming buffer (unlike ``fit``, which dispatches multi-output ``y`` to
+    ``_fit_multioutput``) -- raises explicitly here rather than silently ``.ravel()``-flattening
+    an ``(n, k)`` ndarray into ``n*k`` bogus single-target rows.
+    """
     if isinstance(y, pd.Series):
         return y.reset_index(drop=True)
     if isinstance(y, pd.DataFrame):
         if y.shape[1] != 1:
-            raise ValueError(f"MRMR.partial_fit: y as DataFrame must be single-column; got {y.shape[1]} cols")
+            raise ValueError(
+                f"MRMR.partial_fit: multilabel/multi-target y is not supported by the incremental streaming "
+                f"path; got a {y.shape[1]}-column DataFrame. Use fit() for multilabel/multi-output y."
+            )
         return y.iloc[:, 0].reset_index(drop=True)
-    arr = np.asarray(y).ravel()
-    return pd.Series(arr, name="y")
+    arr = np.asarray(y)
+    if arr.ndim == 2 and arr.shape[1] != 1:
+        raise ValueError(
+            f"MRMR.partial_fit: multilabel/multi-target y is not supported by the incremental streaming "
+            f"path; got a 2-D array with shape {arr.shape}. Use fit() for multilabel/multi-output y."
+        )
+    return pd.Series(arr.ravel(), name="y")
 
 
 def _decay_weights(batch_sizes: list[int], decay: float) -> np.ndarray:
