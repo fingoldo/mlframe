@@ -89,7 +89,13 @@ def smote_synthesize_minority_vectorized(X_minority: np.ndarray, n_synthetic: in
 
 def smote_synthesize_rowloop(X: np.ndarray, n_syn: int, k_neighbors: int, seed: int) -> np.ndarray:
     """Row-loop SMOTE interpolation (the pre-vectorization reference): draws + writes one output row per
-    iteration. See ``smote_synthesize_vectorized`` for the bit-identical, faster gather+lerp variant."""
+    iteration. See ``smote_synthesize_vectorized`` for the bit-identical, faster gather+lerp variant.
+
+    NOT a production entry point -- no transformer calls this directly (use
+    ``smote_synthesize_minority_rowloop``/``smote_synthesize_minority_vectorized`` for that). This pair
+    exists solely as the ground-truth reference ``bench_borderline_smote_synthesize_vectorized.py`` and
+    ``bench_pseudo_smote_synthesize_vectorized.py`` diff their optimized kernels against.
+    """
     n_min = X.shape[0]
     from sklearn.neighbors import NearestNeighbors
 
@@ -113,7 +119,9 @@ def smote_synthesize_rowloop(X: np.ndarray, n_syn: int, k_neighbors: int, seed: 
 def smote_synthesize_vectorized(X: np.ndarray, n_syn: int, k_neighbors: int, seed: int) -> np.ndarray:
     """Draw-then-vectorise SMOTE interpolation: identical (src, nbr, alpha) RNG draw order to
     ``smote_within_cluster``, but the gather+lerp is hoisted out of the per-iteration loop -- bit-identical,
-    ~35% faster (see ``bench_pseudo_smote_synthesize_vectorized.py`` / ``bench_borderline_smote_synthesize_vectorized.py``)."""
+    ~35% faster (see ``bench_pseudo_smote_synthesize_vectorized.py`` / ``bench_borderline_smote_synthesize_vectorized.py``).
+
+    NOT a production entry point (see ``smote_synthesize_rowloop``'s docstring)."""
     n_min = X.shape[0]
     from sklearn.neighbors import NearestNeighbors
 
