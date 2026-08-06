@@ -43,3 +43,12 @@ def test_default_inner_missing_lightgbm_raises_clear_import_error() -> None:
     with patch("builtins.__import__", side_effect=_missing_import):
         with pytest.raises(ImportError, match="CompositeGLMEstimator default inner requires lightgbm"):
             glm_module._default_inner(family="poisson", tweedie_power=1.5)
+
+
+def test_default_inner_pins_random_state() -> None:
+    """TRAINING_COMPOSITE_CORE_B-6: _default_inner must pin random_state=0, matching the sibling
+    default-builder highlevel.py's _default_inner_estimator -- otherwise reproducibility is an implicit,
+    undocumented invariant of LightGBM's own unset default rather than an explicit contract."""
+    pytest.importorskip("lightgbm")
+    model = glm_module._default_inner(family="poisson", tweedie_power=1.5)
+    assert model.get_params()["random_state"] == 0

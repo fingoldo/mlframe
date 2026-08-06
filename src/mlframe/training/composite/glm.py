@@ -127,7 +127,9 @@ def _default_inner(family: str, tweedie_power: float):
     # (plain os.cpu_count(), <1ms) instead of the default's only_physical_cores=True path, which shells out
     # to a subprocess on Windows (loky's WMI-based physical-core detector, measured ~2-5s) -- a one-time-
     # per-process tax on the first LightGBM fit. Same "use all cores" intent, just avoids the slow path.
-    kw: dict[str, Any] = dict(n_estimators=300, objective=objective, verbose=-1, n_jobs=-1)
+    # random_state=0 pins reproducibility, matching the sibling default-builder highlevel.py's
+    # _default_inner_estimator -- otherwise an implicit, undocumented invariant rather than an explicit one.
+    kw: dict[str, Any] = dict(n_estimators=300, objective=objective, verbose=-1, n_jobs=-1, random_state=0)
     if family == "tweedie":
         kw["tweedie_variance_power"] = float(tweedie_power)
     return lgb.LGBMRegressor(**kw)
