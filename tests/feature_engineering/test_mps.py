@@ -6,6 +6,7 @@ from hypothesis import given, strategies as st, settings
 
 from mlframe.feature_engineering.mps import (
     find_maximum_profit_system,
+    find_best_mps_sequence,
     compute_area_profits,
     backfill_zeros,
 )
@@ -86,6 +87,14 @@ def test_mps_shift_parameter(shift):
     prices = np.random.rand(20).astype(np.float64) * 100 + 50
     result = find_maximum_profit_system(prices, shift=shift)
     assert len(result["positions"]) == len(prices) - 1
+
+
+def test_mps_negative_shift_raises():
+    """FE_ROOT_B-14: a negative shift previously silently did nothing (only shift>0 triggers the shift
+    logic) -- must raise a clear ValueError instead of the caller silently getting unshifted positions."""
+    prices = np.random.rand(20).astype(np.float64) * 100 + 50
+    with pytest.raises(ValueError, match="shift"):
+        find_best_mps_sequence(prices, prices, tc=0.0, tc_mode_is_fraction=True, shift=-1)
 
 
 @given(st.booleans())
