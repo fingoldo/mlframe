@@ -195,7 +195,7 @@ class CalibrationReport(NamedTuple):
     A ``typing.NamedTuple`` so it is fully back-compatible with the historical flat 17-element positional tuple: it still
     unpacks positionally (``brier_loss, cal_mae, ... = fast_calibration_report(...)``) and indexes (``result[0]``), while
     also exposing every element as a named attribute (``result.brier_loss``). Field ORDER is load-bearing and MUST NOT
-    change — external callers rely on positional unpacking and indexing.
+    change -- external callers rely on positional unpacking and indexing.
     """
 
     brier_loss: float
@@ -256,7 +256,7 @@ def fast_calibration_report(
     classes (see ``compute_batch_aucs``). When supplied AND
     ``group_ids is None``, the per-call ``fast_aucs_per_group_optimized``
     is skipped and the precomputed values are used. Reserved for use by
-    the multiclass dispatcher in ``report_probabilistic_model_perf`` —
+    the multiclass dispatcher in ``report_probabilistic_model_perf`` --
     other callers should let this default to None.
 
     Title composition is controlled by ``title_metrics_tokens`` (an ordered tuple
@@ -534,8 +534,8 @@ def _batch_per_class_ice_kernel(
     classes to ~10-20 ms total per call.
 
     Inputs:
-        y_true_NK : (N, K) int8 — per-class indicator matrix
-        y_pred_NK : (N, K) float64 — per-class predicted probability
+        y_true_NK : (N, K) int8 -- per-class indicator matrix
+        y_pred_NK : (N, K) float64 -- per-class predicted probability
 
     Returns ice_per_class : (K,) float64.
 
@@ -740,7 +740,7 @@ def fast_ice_only(
     ``fast_calibration_report`` does for its reporting callers.
 
     Bit-exact equivalent of ``fast_calibration_report(...)[6]``. Used by
-    the fairness fan-out hot path — verified 1.1-1.7x faster per call
+    the fairness fan-out hot path -- verified 1.1-1.7x faster per call
     (bench_ice_only.py, 2026-04-19) with ICE drift < 1e-9.
     """
     from ..core import fast_brier_score_loss  # lazy: import-cycle, see module top

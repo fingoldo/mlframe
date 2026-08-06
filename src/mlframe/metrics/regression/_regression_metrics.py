@@ -1,4 +1,4 @@
-"""Regression metrics for ``mlframe.metrics.core`` — numba-accelerated drop-ins for sklearn.
+"""Regression metrics for ``mlframe.metrics.core`` -- numba-accelerated drop-ins for sklearn.
 
 Split out from ``core.py`` to keep that file below the 1k-line monolith
 threshold. Behaviour preserved bit-for-bit; every moved symbol is

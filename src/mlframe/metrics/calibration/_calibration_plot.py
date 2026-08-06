@@ -217,7 +217,7 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     Size-aware dispatcher: the serial njit kernel for n below
     ``_CALIB_BINNING_PRANGE_THRESHOLD``, the parallel prange kernel above it (full-n metrics
     reports at 1M+ rows). Outputs are identical except ``freqs_predicted`` may differ by a
-    FP reduction-order ULP (~1e-14) from the per-thread partial-histogram summation — far
+    FP reduction-order ULP (~1e-14) from the per-thread partial-histogram summation -- far
     below any reliability-diagram / calibration-MAE decision boundary.
     """
     y_true, y_pred = _drop_nonfinite_pairs(y_true, y_pred)
@@ -415,7 +415,7 @@ def calibration_binning(
       binning spreads the mass across all ``nbins`` so the reliability diagram is readable.
     - ``"auto"``: quantile when the positive base rate < 10%, else uniform.
 
-    Returns ``(freqs_predicted, freqs_true, hits)`` — same contract as fast_calibration_binning;
+    Returns ``(freqs_predicted, freqs_true, hits)`` -- same contract as fast_calibration_binning;
     ``freqs_predicted`` is the per-bin mean predicted probability in both strategies.
     """
     if strategy not in ("uniform", "quantile", "auto"):
@@ -693,7 +693,7 @@ def show_calibration_plot(
             ``cbar_ax`` (optional) is the axes list / single ax the
             colorbar attaches to. When the calibration plot stacks
             with a histogram below, pass ``[ax_main, ax_hist]`` so the
-            colorbar spans both — otherwise the colorbar steals
+            colorbar spans both -- otherwise the colorbar steals
             horizontal space from only the calibration axes, making
             the histogram's plot-area visibly wider and breaking the
             shared-X alignment (2026-04-27 user feedback).
@@ -780,7 +780,7 @@ def show_calibration_plot(
                 # Colorbar spans BOTH axes so each subplot loses the
                 # same horizontal slice -> X-axes stay aligned via
                 # sharex (was: colorbar attached only to ax_main,
-                # making ax_hist visually wider — user feedback 2026-04-27).
+                # making ax_hist visually wider -- user feedback 2026-04-27).
                 _draw_calibration_axes(ax_main, fig, draw_xlabel=False, cbar_ax=[ax_main, ax_hist])
                 _draw_histogram_axes(ax_hist)
                 # hide top axes' x tick labels since hist below carries them via sharex
@@ -792,12 +792,12 @@ def show_calibration_plot(
                 _draw_calibration_axes(ax, fig, draw_xlabel=True)
                 if plot_title:
                     ax.set_title(plot_title)
-            # constrained_layout handles spacing automatically — no
+            # constrained_layout handles spacing automatically -- no
             # tight_layout() (which warns + mis-shapes colorbar).
             fig.savefig(plot_file)
             return fig
 
-        # Interactive path (show_plots=True) — keep pyplot so the GUI window is managed.
+        # Interactive path (show_plots=True) -- keep pyplot so the GUI window is managed.
         # 2026-05-11: layout="constrained" -> layout=None (same rationale as the
         # save-only path above: 1.67x faster, visually equivalent on this
         # 12x6 figsize + multi-axis colorbar + 2-line title geometry).
@@ -812,7 +812,7 @@ def show_calibration_plot(
             if dpi is not None:
                 _subplots_kwargs["dpi"] = dpi
             fig, (ax_main, ax_hist) = plt.subplots(**_subplots_kwargs)
-            # Colorbar spans both subplots — see _draw_calibration_axes
+            # Colorbar spans both subplots -- see _draw_calibration_axes
             # docstring for why (X-axis alignment under sharex).
             _draw_calibration_axes(ax_main, fig, draw_xlabel=False, cbar_ax=[ax_main, ax_hist])
             _draw_histogram_axes(ax_hist)

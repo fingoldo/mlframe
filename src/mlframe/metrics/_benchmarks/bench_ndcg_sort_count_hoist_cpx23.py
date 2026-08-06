@@ -1,4 +1,4 @@
-"""CPX23 bench — NDCG per-query double-sort + per-k n_rel_total hoist.
+"""CPX23 bench -- NDCG per-query double-sort + per-k n_rel_total hoist.
 
 Two claims under test against ``ranking.py``:
 
@@ -19,7 +19,7 @@ This bench measures the WIN that hoisting buys, by A/B-ing the current
 production kernel against a deliberately de-optimised "naive" kernel that
 re-sorts and re-counts inside the per-k loop (the shape the prompt feared).
 That quantifies what the existing code already saves, and confirms there is
-no further win to extract — the optimization is already present.
+no further win to extract -- the optimization is already present.
 
 Run:  python -m mlframe.metrics._benchmarks.bench_ndcg_sort_count_hoist_cpx23
 """
