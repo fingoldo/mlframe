@@ -71,7 +71,10 @@ def _threshold_stability_report(
 
     mean = float(np.mean(valid))
     std = float(np.std(valid))
-    coeff_of_variation = float(std / mean) if mean != 0 else (0.0 if std < 1e-9 else float("inf"))
+    # abs(mean): a threshold_range spanning negative values can make mean < 0, which would otherwise
+    # sign-flip the ratio negative and trivially pass the is_stable <= threshold check regardless of the
+    # true relative spread -- coefficient of variation is meant to be a non-negative dispersion measure.
+    coeff_of_variation = float(std / abs(mean)) if mean != 0 else (0.0 if std < 1e-9 else float("inf"))
     is_stable = coeff_of_variation <= stability_cv_threshold
     return {
         "fold_thresholds": fold_thresholds,

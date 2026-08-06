@@ -12,7 +12,7 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score
 
-from mlframe.calibration.threshold_optimizer import apply_decision_threshold, optimize_decision_threshold
+from mlframe.calibration.threshold_optimizer import apply_decision_threshold, optimize_decision_threshold, _threshold_stability_report
 
 
 def test_biz_val_optimize_decision_threshold_beats_naive_half_cutoff_on_imbalanced_data():
@@ -137,3 +137,22 @@ def test_biz_val_optimize_decision_threshold_cv_report_flags_unstable_threshold(
     assert stable_report["cv"] < 0.05
     assert mixed_report["is_stable"] is False
     assert mixed_report["cv"] > stable_report["cv"] * 2
+
+
+def test_threshold_stability_report_cv_nonnegative_with_negative_threshold_range():
+    """CALIBRATION-10: coefficient_of_variation = std/mean must not sign-flip negative when a caller
+    supplies a threshold_range spanning negative values (mean < 0) -- a negative ratio would trivially
+    pass the is_stable <= threshold check regardless of the true relative spread."""
+    rng = np.random.default_rng(3)
+    n_pos, n_neg = 200, 200
+    y_true = np.concatenate([np.ones(n_pos), np.zeros(n_neg)])
+    y_proba = np.concatenate([rng.normal(-0.6, 0.35, n_pos), rng.normal(-0.9, 0.35, n_neg)])
+    idx = rng.permutation(len(y_true))
+    y_true, y_proba = y_true[idx], y_proba[idx]
+
+    thresholds = np.linspace(-1.0, -0.3, 50)  # negative range -> mean of the fitted per-fold thresholds is < 0
+    report = _threshold_stability_report(y_true, y_proba, thresholds, metric_fn=f1_score, n_splits=5, seed=0, stability_cv_threshold=0.15)
+
+    assert report["mean"] < 0
+    assert report["cv"] >= 0.0
+    assert report["cv"] == report["std"] / abs(report["mean"])
