@@ -40,8 +40,14 @@ def spearman_exp(lb, num_repeats, exp_range, top_k=7):
                     size=nan_number,
                     replace=False,
                 )
-                for idx in nan_idxs_prod:
-                    table_nan.iloc[idx % table_nan.shape[0], idx // table_nan.shape[0]] = np.nan
+                # Vectorized single-shot NaN write instead of a per-cell Python-loop .iloc assignment;
+                # idx % n_rows / idx // n_rows is a column-major (Fortran-order) flat index, matching
+                # np.unravel_index(..., order="F"). .mask() (not a .values write) sidesteps any
+                # view-vs-copy ambiguity from the underlying block manager.
+                rows, cols = np.unravel_index(nan_idxs_prod, table_nan.shape, order="F")
+                nan_mask = np.zeros(table_nan.shape, dtype=bool)
+                nan_mask[rows, cols] = True
+                table_nan = table_nan.mask(nan_mask)
 
                 noised_lb = Leaderboard(table_nan, weights=lb.weights.to_dict())
                 tables.append(table_nan)
