@@ -65,8 +65,8 @@ jobs:
       # Persist numba's JIT cache (see the cache step below) so the heavy composite+FE tests (RFECV / MRMR /
       # BorutaShap -> composite) don't pay cold-compilation on top of model training and blow the per-test timeout.
       NUMBA_CACHE_DIR: ${{ github.workspace }}/.numba-cache
-    # Force bash on every OS: the run steps below use bash backslash line-continuations, which the
-    # windows-latest default shell (PowerShell) cannot parse (ParserError). Git Bash ships on the Windows runner.
+    # The run steps below use bash backslash line-continuations; explicit shell: bash keeps that portable
+    # if a non-Linux row is ever added back to the matrix (currently ubuntu-latest only).
     defaults:
       run:
         shell: bash
