@@ -101,6 +101,8 @@ pytest
 | `mlframe.signal`               | DTW alignment and Gaussian-Process smoothing/confidence features for irregularly-sampled series |
 | `mlframe.system`              | GPU import guards and kernel-tuning-cache integration shared across subpackages |
 | `mlframe.votenrank`           | Ensemble-blending strategies beyond `mlframe.models` (confidence-gated, adversarial-stochastic, rank-splice, KNN-fallback blends) |
+| `mlframe.competition`         | Kaggle-only exploratory tricks (data de-anonymization, leak exploitation); not for production, never imported by mlframe itself |
+| `mlframe.data_valuation`      | Per-row Shapley/Banzhaf data valuation (KNN-Shapley, TMC-Shapley) for label-noise detection and sample-weighting |
 
 ## Quick examples
 
