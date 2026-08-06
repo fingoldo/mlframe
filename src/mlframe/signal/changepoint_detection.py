@@ -65,6 +65,9 @@ def detect_regime_changepoints(
         ``breakpoints`` (list of row indices where a new regime starts, after filtering),
         ``n_regimes`` (int), and ``segment_stats`` (only when ``return_segment_stats=True``).
     """
+    if min_segment_length < 1:
+        raise ValueError(f"detect_regime_changepoints: min_segment_length must be >= 1, got {min_segment_length}")
+
     y = np.asarray(y, dtype=np.float64)
     n = y.shape[0]
     if n < 2 * min_segment_length:
