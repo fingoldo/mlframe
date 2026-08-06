@@ -631,7 +631,7 @@ class MatplotlibRenderer:
         if p.band is not None:
             lower, upper = np.asarray(p.band[0]), np.asarray(p.band[1])
             band_color = p.band_color or cols[0]
-            ax.fill_between(_xi(0) if not xs_per_series else p.x[0], lower, upper, color=band_color, alpha=0.2, label=p.band_label, zorder=0)
+            ax.fill_between(_xi(0), lower, upper, color=band_color, alpha=0.2, label=p.band_label, zorder=0)
 
         for i, y in enumerate(ys):
             token = styles[i % len(styles)]
