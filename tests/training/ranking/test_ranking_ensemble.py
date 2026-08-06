@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from mlframe.training.ranking import ensemble_ranker_scores
+from mlframe.training.ranking.ranker_suite import borda_fuse
 
 
 @pytest.fixture
@@ -116,9 +117,11 @@ class TestBorda:
             assert np.argmax(ens_q) == 0
 
     def test_borda_score_increases_with_better_rank(self):
-        """3 models, item 0 always rank 1, item 1 always rank 2, etc.
-        Borda raw sum = N_models * rank. Output is negated so item 0
-        (lowest sum) becomes highest score.
+        """TRAINING_FEATURE_HANDLING_TARGETS-7: borda now computes TRUE Borda count
+        (Σ group_size - rank_i per member), matching ranker_suite.borda_fuse's definition -- not a bare
+        negated rank sum, which only agrees on ORDER within one fixed-size group, not magnitude.
+
+        3 models, item 0 always rank 1, item 1 always rank 2, item 2 always rank 3, one group of size 3.
         """
         gids = np.zeros(3, dtype=int)
         scores_per_model = [
@@ -127,10 +130,38 @@ class TestBorda:
             np.array([0.5, 0.3, 0.1]),
         ]
         out = ensemble_ranker_scores(scores_per_model, gids, method="borda")
-        # Item 0: rank 1 from each -> sum 3 -> negated -3
-        # Item 1: rank 2 -> sum 6 -> negated -6
-        # Item 2: rank 3 -> sum 9 -> negated -9
-        np.testing.assert_array_equal(out, np.array([-3.0, -6.0, -9.0]))
+        # Item 0: rank 1 from each -> (3-1)*3 = 6
+        # Item 1: rank 2 from each -> (3-2)*3 = 3
+        # Item 2: rank 3 from each -> (3-3)*3 = 0
+        np.testing.assert_array_equal(out, np.array([6.0, 3.0, 0.0]))
+
+    def test_matches_ranker_suite_borda_fuse_magnitude(self):
+        """ensemble_ranker_scores(method='borda') and ranker_suite.borda_fuse must agree bit-for-bit --
+        both are meant to be the SAME 'Borda fusion' concept, so their magnitudes must match, not just
+        their within-group ordering."""
+        gids = np.array([0, 0, 0, 1, 1])
+        scores_per_model = [
+            np.array([3.0, 1.0, 2.0, 5.0, 4.0]),
+            np.array([1.0, 3.0, 2.0, 4.0, 5.0]),
+        ]
+        out = ensemble_ranker_scores(scores_per_model, gids, method="borda")
+
+        # borda_fuse expects 1-based dense per-member ranks + per-row group sizes.
+        def _dense_ranks(s, gids):
+            """1-based dense per-group ranks of s (descending), for borda_fuse's expected input contract."""
+            ranks = np.empty_like(s, dtype=np.int64)
+            for g in np.unique(gids):
+                mask = gids == g
+                order = np.argsort(-s[mask], kind="stable")
+                r = np.empty(order.size, dtype=np.int64)
+                r[order] = np.arange(1, order.size + 1)
+                ranks[mask] = r
+            return ranks
+
+        ranks_per_member = [_dense_ranks(s, gids) for s in scores_per_model]
+        group_sizes = np.array([3, 3, 3, 2, 2], dtype=np.float64)
+        expected = borda_fuse(ranks_per_member, group_sizes)
+        np.testing.assert_array_equal(out, expected)
 
 
 class TestScoreMean:
