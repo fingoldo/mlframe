@@ -53,8 +53,7 @@ from .tabular_1dcnn import Tabular1DCNNClassifier, Tabular1DCNNRegressor, correl
 # Trunk-into-every-block residual MLP (standalone, not part of the Lightning estimator infra)
 from .trunk_residual_mlp import TrunkResidualMLPRegressor
 
-# Field-grouped sub-MLP encoders (standalone, not part of the Lightning estimator infra; see its own
-# module docstring for an honest-negative note: the hypothesized generalization win did not reproduce).
+# Field-grouped sub-MLP encoders (standalone, not part of the Lightning estimator infra).
 from .field_grouped_mlp import FieldGroupedMLPRegressor
 
 # Group-aware causal attention mask (simultaneous-events-within-a-group support for TransformerSequenceEncoder)
