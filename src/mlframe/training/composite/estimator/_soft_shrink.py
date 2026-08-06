@@ -54,6 +54,7 @@ logger = logging.getLogger(__name__)
 # byte-identical.
 ADDITIVE_BASE_TRANSFORMS = frozenset({
     "diff",
+    "second_diff",
     "additive_residual",
     "linear_residual",
     "linear_residual_robust",

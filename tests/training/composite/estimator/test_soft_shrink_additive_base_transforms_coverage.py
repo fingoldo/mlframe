@@ -43,3 +43,20 @@ def test_is_enabled_matches_sibling_linear_residual_multi():
     t_multi = get_transform("linear_residual_multi")
     t_robust = get_transform("linear_residual_multi_robust")
     assert is_enabled(self_stub, t_multi, params) == is_enabled(self_stub, t_robust, params) is True
+
+
+def test_second_diff_in_additive_base_transforms():
+    """TRAINING_COMPOSITE_ENSEMBLE_ESTIMATOR_TRANSFORMS-3: second_diff's inverse
+    (y = T_hat + 2*b1 - b2) is purely additive-linear in base, same family as diff
+    (which IS covered), so it must also be in ADDITIVE_BASE_TRANSFORMS."""
+    assert "diff" in ADDITIVE_BASE_TRANSFORMS
+    assert "second_diff" in ADDITIVE_BASE_TRANSFORMS
+
+
+def test_is_enabled_true_for_second_diff_with_fit_range():
+    """is_enabled must return True for second_diff once a fit-range is captured, matching diff."""
+    self_stub = SimpleNamespace(soft_base_shrink=True)
+    params = {BASE_FIT_RANGE_KEY: {"lo": 0.0, "hi": 1.0, "iqr": 0.5}}
+    t_diff = get_transform("diff")
+    t_second_diff = get_transform("second_diff")
+    assert is_enabled(self_stub, t_diff, params) == is_enabled(self_stub, t_second_diff, params) is True
