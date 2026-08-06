@@ -272,7 +272,7 @@ def estimate_calibration_quality_binned(
     y_pred: np.ndarray,
     nbins: int = 20,
     indices: np.ndarray | None = None,
-    metrics_to_show: dict = METRICS_TO_SHOW,
+    metrics_to_show: "dict[str, Any] | None" = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
     """Bin predictions into equal-mass pockets and score calibration-curve fidelity.
 
@@ -290,6 +290,7 @@ def estimate_calibration_quality_binned(
     # [min,max]-span ECE in ``metrics/calibration/_calibration_metrics.compute_ece_and_brier_decomposition``:
     # the three schemes partition the score axis differently, so their ECE numbers differ on the same
     # (y_true, y_pred) and must not be cross-compared - compare only within one scheme.
+    _metrics_to_show: "dict[str, Any]" = METRICS_TO_SHOW if metrics_to_show is None else metrics_to_show
     if indices is None:
         indices = np.argsort(y_pred)
     # With n_samples < nbins the equal-mass bin_size = s // nbins is 0, so every non-final pocket is an empty
@@ -310,7 +311,7 @@ def estimate_calibration_quality_binned(
             # Brier is a per-sample proper scoring rule — compute on raw (y_true, y_pred).
             # All other metrics evaluate calibration curve fidelity — compute on binned pockets.
             fname: (f(y_true, y_pred) if f is fast_brier_score_loss else f(pockets_true, pockets_predicted))
-            for fname, f in metrics_to_show.items()
+            for fname, f in _metrics_to_show.items()
         },
     )
 
@@ -330,7 +331,7 @@ def show_classifier_calibration(
     connected: bool = True,
     legend_label: str | None = None,
     append: bool = False,
-    metrics_to_show: dict = METRICS_TO_SHOW,
+    metrics_to_show: "dict[str, Any] | None" = None,
     skip_plotting: bool = False,
 ) -> dict | list | pd.DataFrame | None:
     """Plot a reliability (calibration) curve for one class and return its calibration metrics.
@@ -342,6 +343,8 @@ def show_classifier_calibration(
     """
     if nintervals < 1:
         raise ValueError(f"show_classifier_calibration: nintervals must be >= 1, got {nintervals}")
+    if metrics_to_show is None:
+        metrics_to_show = METRICS_TO_SHOW
 
     s = len(y_true)
     step = s // nintervals
