@@ -497,7 +497,7 @@ def _column_names(*args, **kwargs):
     return _f(*args, **kwargs)
 
 
-def _ranked_top_features(names, feature_importances, k):
+def _ranked_top_features(names: Sequence[str], feature_importances: Optional[Sequence[float]], k: int) -> list:
     """Top-``k`` feature names ranked by importance when available, else the first ``k`` names (mirrors pdp_ice)."""
     if feature_importances is not None and len(feature_importances) == len(names):
         importances = np.asarray(feature_importances, dtype=np.float64)
@@ -511,7 +511,7 @@ def _ranked_top_features(names, feature_importances, k):
     return list(names)[:k]
 
 
-def _first_group_column(df, names, max_card: int = 50):
+def _first_group_column(df: Any, names: Optional[Sequence[str]], max_card: int = 50) -> Optional[str]:
     """First bounded-cardinality categorical column usable as the class-structure ``group`` axis, else None.
 
     Prefers pandas ``category`` dtype (cardinality is the cheap ``.cat.categories`` length); falls back to an ``object``
@@ -563,10 +563,10 @@ def _first_group_column(df, names, max_card: int = 50):
 
 def render_engineered_separability_diagnostic(
     *,
-    df,
-    y_true,
-    feature_names,
-    feature_importances,
+    df: Any,
+    y_true: Any,
+    feature_names: Optional[Sequence[str]],
+    feature_importances: Optional[Sequence[float]],
     plot_outputs: str,
     base_path: str,
     metrics_dict: Optional[dict] = None,
@@ -604,9 +604,9 @@ def render_engineered_separability_diagnostic(
 
 def render_category_discriminability_diagnostic(
     *,
-    df,
-    y_true,
-    feature_names,
+    df: Any,
+    y_true: Any,
+    feature_names: Optional[Sequence[str]],
     plot_outputs: str,
     base_path: str,
     metrics_dict: Optional[dict] = None,
@@ -648,10 +648,10 @@ def render_category_discriminability_diagnostic(
 
 def render_class_structure_diagnostic(
     *,
-    df,
-    y_true,
-    feature_names,
-    timestamps=None,
+    df: Any,
+    y_true: Any,
+    feature_names: Optional[Sequence[str]],
+    timestamps: Optional[Any] = None,
     plot_outputs: str,
     base_path: str,
     metrics_dict: Optional[dict] = None,

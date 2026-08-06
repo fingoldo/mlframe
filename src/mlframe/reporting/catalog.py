@@ -10,7 +10,7 @@ rather than silently omitting it).
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, TextIO, Tuple
 
 from mlframe.reporting.charts.binary import ALLOWED_BINARY_PANEL_TOKENS
 from mlframe.reporting.charts.ltr import ALLOWED_LTR_PANEL_TOKENS
@@ -132,7 +132,7 @@ def available_panels() -> Dict[str, List[Tuple[str, str]]]:
     return out
 
 
-def describe_available_panels(*, file=None) -> Dict[str, List[Tuple[str, str]]]:
+def describe_available_panels(*, file: Optional[TextIO] = None) -> Dict[str, List[Tuple[str, str]]]:
     """Print the panel-token catalogue per task type and return the same structured mapping.
 
     Each task type's section lists its tokens (alphabetical) with a one-line description. ``file`` defaults to stdout;
