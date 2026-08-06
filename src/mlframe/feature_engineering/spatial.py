@@ -400,6 +400,14 @@ def knn_within_bucket_aggregate(
                 q25 = np.nanpercentile(labels_arr, 25, axis=1) if use_nan else np.percentile(labels_arr, 25, axis=1)
                 q75 = np.nanpercentile(labels_arr, 75, axis=1) if use_nan else np.percentile(labels_arr, 75, axis=1)
                 out_aggs[name][q_idx] = q75 - q25
+            elif name == "min":
+                out_aggs[name][q_idx] = np.nanmin(labels_arr, axis=1) if use_nan else labels_arr.min(axis=1)
+            elif name == "max":
+                out_aggs[name][q_idx] = np.nanmax(labels_arr, axis=1) if use_nan else labels_arr.max(axis=1)
+            elif name == "p10":
+                out_aggs[name][q_idx] = np.nanpercentile(labels_arr, 10, axis=1) if use_nan else np.percentile(labels_arr, 10, axis=1)
+            elif name == "p90":
+                out_aggs[name][q_idx] = np.nanpercentile(labels_arr, 90, axis=1) if use_nan else np.percentile(labels_arr, 90, axis=1)
             else:
                 raise ValueError(f"agg_fn={name!r} not supported in bucket mode")
         out_aggs["_nearest_distance"][q_idx] = compact_dist[:, 0]
