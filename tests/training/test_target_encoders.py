@@ -299,3 +299,76 @@ class TestValidation:
         enc = LeakageSafeEncoder(method="target_mean", cv=2)
         with pytest.raises(RuntimeError, match="before fit"):
             enc.transform(["A", "B"])
+
+
+# =====================================================================
+# 4. X_ML_CORRECTNESS_META-2: target_james_stein is genuinely variance-aware
+# =====================================================================
+
+
+class TestJamesSteinIsVarianceAware:
+    """target_james_stein must NOT be algebraically identical to target_mean -- its shrinkage must
+    depend on the data's actual within/between-category variance structure, not just smoothing."""
+
+    def test_james_stein_differs_from_target_mean_given_identical_smoothing(self):
+        """With the same smoothing, target_james_stein's output must differ from target_mean's -- the
+        pre-fix bug made these two methods produce bit-identical output regardless of the data."""
+        rng = np.random.default_rng(0)
+        n = 400
+        # 4 categories with genuinely different true means (large between-category signal) but noisy
+        # per-row observations (large within-category variance) -- exactly the regime where JS
+        # shrinkage should diverge sharply from the naive smoothed mean.
+        cats = rng.choice(["A", "B", "C", "D"], size=n)
+        true_mean = {"A": 0.0, "B": 5.0, "C": -5.0, "D": 10.0}
+        y = np.array([true_mean[c] + rng.normal(scale=8.0) for c in cats])
+
+        enc_mean = LeakageSafeEncoder(method="target_mean", smoothing=5.0, cv=2, random_state=0)
+        enc_js = LeakageSafeEncoder(method="target_james_stein", smoothing=5.0, cv=2, random_state=0)
+        enc_mean.fit(cats, y)
+        enc_js.fit(cats, y)
+
+        out_mean = enc_mean.transform(["A", "B", "C", "D"])
+        out_js = enc_js.transform(["A", "B", "C", "D"])
+        assert not np.allclose(out_mean, out_js), (
+            f"target_james_stein produced the same output as target_mean ({out_js} vs {out_mean}) -- " f"shrinkage is not actually variance-aware"
+        )
+
+    def test_james_stein_shrinks_harder_under_high_within_category_noise(self):
+        """Two datasets with identical category means/counts but different within-category noise:
+        the noisier one must shrink harder toward the prior (smaller |encoded - prior| spread)."""
+        rng = np.random.default_rng(1)
+        n_per_cat = 50
+        cats = np.repeat(["A", "B", "C"], n_per_cat)
+        true_mean = {"A": 0.0, "B": 3.0, "C": 6.0}
+        base = np.array([true_mean[c] for c in cats])
+
+        y_low_noise = base + rng.normal(scale=0.1, size=n_per_cat * 3)
+        y_high_noise = base + rng.normal(scale=15.0, size=n_per_cat * 3)
+
+        enc_low = LeakageSafeEncoder(method="target_james_stein", cv=2, random_state=0).fit(cats, y_low_noise)
+        enc_high = LeakageSafeEncoder(method="target_james_stein", cv=2, random_state=0).fit(cats, y_high_noise)
+
+        out_low = enc_low.transform(["A", "B", "C"])
+        out_high = enc_high.transform(["A", "B", "C"])
+        spread_low = float(np.std(out_low))
+        spread_high = float(np.std(out_high))
+        assert spread_high < spread_low, (
+            f"high within-category noise should shrink category encodings closer together (toward the "
+            f"prior) than low noise, got spread_low={spread_low:.4f} spread_high={spread_high:.4f}"
+        )
+
+    def test_james_stein_oof_path_also_uses_variance_aware_shrinkage(self):
+        """fit_transform's OOF loop must ALSO use variance-aware JS shrinkage, not just fit()/transform()
+        -- the pre-fix _kfold_encode branch ran the plain m-estimate formula for every method
+        including target_james_stein, silently ignoring the method entirely during OOF encoding."""
+        rng = np.random.default_rng(2)
+        n = 400
+        cats = rng.choice(["A", "B", "C", "D"], size=n)
+        true_mean = {"A": 0.0, "B": 5.0, "C": -5.0, "D": 10.0}
+        y = np.array([true_mean[c] + rng.normal(scale=8.0) for c in cats])
+
+        enc_mean = LeakageSafeEncoder(method="target_mean", smoothing=5.0, cv=3, random_state=0)
+        enc_js = LeakageSafeEncoder(method="target_james_stein", smoothing=5.0, cv=3, random_state=0)
+        oof_mean = enc_mean.fit_transform(cats, y)
+        oof_js = enc_js.fit_transform(cats, y)
+        assert not np.allclose(oof_mean, oof_js), "OOF encodings for target_james_stein matched target_mean exactly -- JS shrinkage was not applied during fit_transform"
