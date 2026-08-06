@@ -708,6 +708,19 @@ def ranked_probability_score(
         raise ValueError(
             f"shape mismatch: y_true={yt.shape}, probs_NK={p.shape}",
         )
+    # Unlike _multiclass_confusion_kernel's sibling, _rps_kernel's cumulative-distribution comparison
+    # (cum_y = 1.0 if ti <= k else 0.0) has no well-defined "drop this row" semantics for an out-of-range
+    # label -- a negative ti is always <= k (wrongly treated as class 0) and a ti >= K is always > every
+    # k (wrongly treated as the last class), silently producing a biased-but-plausible-looking RPS instead
+    # of an error. Validate explicitly rather than let it through.
+    if yt.shape[0] > 0:
+        K = p.shape[1]
+        ymin, ymax = int(yt.min()), int(yt.max())
+        if ymin < 0 or ymax >= K:
+            raise ValueError(
+                f"ranked_probability_score: y_true contains out-of-range class indices "
+                f"(min={ymin}, max={ymax}) for K={K} classes; expected values in [0, {K}).",
+            )
     if yt.shape[0] >= _PARALLEL_REDUCTION_THRESHOLD:
         return float(_rps_kernel_par(yt, p))
     return float(_rps_kernel(yt, p))

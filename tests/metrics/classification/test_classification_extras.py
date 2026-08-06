@@ -721,6 +721,15 @@ def test_rps_reduces_to_brier_for_K2():
     assert rps == pytest.approx(brier, abs=1e-12)
 
 
+def test_rps_out_of_range_label_raises_clear_error():
+    """An out-of-range y_true class index must raise a clear ValueError, not silently produce a wrong RPS."""
+    N, K = 5, 3
+    y = np.array([0, 1, 2, 5, 1], dtype=np.int64)  # 5 is out of range for K=3
+    p = np.full((N, K), 1.0 / K, dtype=np.float64)
+    with pytest.raises(ValueError, match="out-of-range"):
+        ranked_probability_score(y, p)
+
+
 # ----- Fused blocks -----
 
 
