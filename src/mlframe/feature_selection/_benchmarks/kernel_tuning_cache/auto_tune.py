@@ -136,9 +136,8 @@ def _shared_cache():
 
 
 # ============================================================================
-# Wave 24 populators (2026-05-20). Nine consumer sites had cache lookups but
-# no populator -- every lookup fell through to source-code defaults. This
-# block adds one (_run_sweep_X, ensure_X_tuning) pair per consumer site,
+# Populators for consumer sites that had cache lookups but no populator -- every lookup fell through to
+# source-code defaults. This block adds one (_run_sweep_X, ensure_X_tuning) pair per consumer site,
 # mirroring the canonical patterns above:
 #   * block_size sweeps   -> mirror _run_sweep_joint_hist
 #   * backend-choice      -> mirror _run_sweep_mi_classif_dispatch

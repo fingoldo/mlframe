@@ -398,9 +398,8 @@ def _run_sweep_polyeval(n_iters: int = 5) -> list[dict]:
 
     Source-code defaults (50k / 500k, measured ages ago on a 1050 Ti)
     were never re-verified against MKL+numba version drift; the
-    consumer was wired to the cache 2026-05-20 (Wave 23 P2) but no
-    populator existed -- every lookup fell through to the stale source
-    defaults until this sweep registered.
+    consumer was wired to the cache but no populator existed -- every lookup fell through to the stale
+    source defaults until this sweep registered.
     """
     from mlframe.feature_selection.filters.hermite_fe import (
         polyeval_dispatch as _disp,  # noqa: F401  -- import for module init
@@ -526,8 +525,8 @@ def ensure_polyeval_tuning(force: bool = False) -> Optional[list[dict]]:
     via pyutilz KernelTuningCache if missing.
 
     The consumer ``_lookup_polyeval_thresholds`` in
-    ``hermite_fe.py`` was wired to the cache 2026-05-20 (Wave 23 P2)
-    but no populator existed -- this fills the gap. First run
+    ``hermite_fe.py`` was wired to the cache but no populator existed --
+    this fills the gap. First run
     ~20-40s (4 bases x 8 n-points x njit/njit_par/cuda); subsequent
     processes read in ~1ms.
     """
@@ -888,9 +887,8 @@ def _run_sweep_batch_pair_mi(n_iters: int = 3) -> list[dict]:
         return []
 
     # Derive crossover thresholds: smallest measured (n_rows, n_pairs)
-    # where cuda / cupy first wins. The consumer's lookup signature is
-    # buggy (positional dict; see Wave 24 review), but the persisted
-    # threshold fields will work once the consumer kwargs fix lands.
+    # where cuda / cupy first wins. The consumer's lookup signature is buggy (positional dict), but the
+    # persisted threshold fields will work once the consumer kwargs fix lands.
     cuda_min_rows = None
     cuda_min_pairs = None
     cupy_min_rows = None
