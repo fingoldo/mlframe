@@ -93,7 +93,13 @@ def split_into_train_test(
         if features_indices is None:
             X_train = X_estimator[tr_arr, :]
             X_test = X_estimator[te_arr, :]
-        elif col_pos is not None and not isinstance(features_indices[0], (int, np.integer)):
+        elif not isinstance(features_indices[0], (int, np.integer)):
+            if col_pos is None:
+                raise ValueError(
+                    "split_into_train_test: X_estimator was supplied with string features_indices but col_pos=None "
+                    "-- col_pos (name->integer column position) is required to resolve names into X_estimator's "
+                    "numpy column positions."
+                )
             pos = np.fromiter((col_pos[f] for f in features_indices), dtype=np.intp, count=len(features_indices))
             X_train = X_estimator[np.ix_(tr_arr, pos)]
             X_test = X_estimator[np.ix_(te_arr, pos)]
