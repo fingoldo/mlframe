@@ -48,10 +48,10 @@ def _split_train_val(X, y, val_size: float, random_state: int | None):
 def _resolve_metric(metric: str | Callable | None, is_classification: bool) -> tuple[Callable, str, str]:
     """Return (fn, name, mode) where mode is 'min' or 'max' per is_greater_better.
 
-    iter612: route default+"rmse" metric through ``mlframe.metrics.scoring.fast_rmse``
+    Route default+"rmse" metric through ``mlframe.metrics.scoring.fast_rmse``
     instead of the inline ``np.sqrt(np.mean((p - y) ** 2))`` chain. fast_rmse's numba
     single-pass kernel is ~37x faster than the numpy chain at n=100k (889us -> 24us
-    per call per the iter367 microbench). For partial_fit ES this fires once per
+    per call, measured). For partial_fit ES this fires once per
     epoch on the val set; over a typical 20-epoch ES run on n=20k val that's
     140us x 20 = 2.8ms saved per ES wrap. Multi-target / ensemble runs amortise
     this across every wrapped estimator.

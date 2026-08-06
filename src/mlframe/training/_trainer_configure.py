@@ -620,7 +620,7 @@ def configure_training_params(
         # network depth on small datasets where a 4-layer LeakyReLU MLP
         # over-fits the few-thousand-row train split and catastrophically
         # extrapolates on the small test split (regression-collapse-sensor
-        # documented this mode for 6k-row mixed-scale features 2026-05-23).
+        # documented this mode for 6k-row mixed-scale features).
         _n_train_for_mlp = None
         try:
             if train_df is not None:

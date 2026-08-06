@@ -1,5 +1,5 @@
 """``_configure_recurrent_params``, carved out of ``trainer.py`` (X_EFFICIENCY_ARCHITECTURE-1 fix,
-mrmr_audit_2026-07-22) to clear the repo's enforced hard 1000-LOC CI gate (that file was 1001 lines).
+a monolith split) to clear the repo's enforced hard 1000-LOC CI gate (that file was 1001 lines).
 Behaviour preserved bit-for-bit; ``trainer.py`` re-exports this function so every existing import
 keeps working unchanged.
 """

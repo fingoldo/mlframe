@@ -266,7 +266,7 @@ def get_categorical_columns(df: pl.DataFrame | pd.DataFrame, include_string: boo
         if include_string:
             return get_polars_cat_columns(df)
         else:
-            # 2026-04-28: also include pl.Enum (instance-level dtype, doesn't
+            # Also include pl.Enum (instance-level dtype, doesn't
             # compare ``== pl.Categorical``). Without it, CB confidence
             # model receives pl.Enum cat columns as numeric features and
             # raises ``Unsupported data type Enum(...) for a numerical
@@ -319,7 +319,7 @@ def remove_constant_columns(df: pl.DataFrame | pd.DataFrame, verbose: int = 1) -
         # and "all-null" into one check without an OR branch. Same cost as
         # `min == max` alone (~1ms on 600k x 6; eq_missing is actually
         # marginally cheaper than the | null_count variant). Discovered
-        # 2026-04-24 on fuzz c0117 (pandas->parquet->polars + inject_degenerate
+        # Surfaced by a pandas->parquet->polars + inject_degenerate combo
         # -> robust_scale crashed on NoneType-NoneType).
         df = _process_special_values(
             df=df,
@@ -339,9 +339,9 @@ def remove_constant_columns(df: pl.DataFrame | pd.DataFrame, verbose: int = 1) -
         )
     else:
         # Pandas: match Polars semantics (min==max for numeric; n_unique==1 for others).
-        # Per-column loop measured faster than df.agg(['min','max']) -- see audit 2026-04-14.
+        # Per-column loop measured faster than df.agg(['min','max']).
         numeric_cols = df.select_dtypes(include="number").columns  # type: ignore[union-attr]  # is_polars bool flag already excludes the pl.DataFrame arm here
-        # iter (2026-06-23, perf): fuse the per-column min/max into ONE numpy
+        # perf: fuse the per-column min/max into ONE numpy
         # ``nanmin``/``nanmax`` pass over the raw ndarray instead of pandas
         # ``Series.min()`` + ``Series.max()`` (two reductions, each with pandas
         # per-call dispatch + nan-masking overhead) PLUS a third
@@ -410,7 +410,7 @@ def batch_scan_constants_and_inf_polars(
     ``df.select(...)`` that bundles every aggregation. polars' query planner
     can fuse the scans into one data sweep, which materially helps when the
     frame is wide (post-polars-ds-pipeline + polynomial features can push
-    column counts into the thousands). c0140 iter291 attributed 60.7s
+    column counts into the thousands). A profile attributed 60.7s
     cumulative across the three sequential ``_process_special_values``
     calls in ``preprocess_dataframe``; the combined query is ~1.15x faster
     on synthetic 200k x 205 frames and proportionally larger on real-world
@@ -449,7 +449,7 @@ def batch_scan_constants_and_inf_polars(
     _PFX_INF = "__mlf_inf__"
     _PFX_CN = "__mlf_cn__"
     _PFX_CS = "__mlf_cs__"
-    # iter621 (perf): cache ``cs.numeric()`` so it's constructed once
+    # perf: cache ``cs.numeric()`` so it's constructed once
     # instead of up to 3 times across the inf+min+max expressions. The
     # downstream selector ops (is_infinite, sum, min, max, eq_missing)
     # all derive from the cached selector. Saves ~0.5us per call site
@@ -465,7 +465,7 @@ def batch_scan_constants_and_inf_polars(
         assert num_sel is not None  # guaranteed by the ``detect_inf or detect_constant_numeric`` construction above
         exprs.append(num_sel.min().eq_missing(num_sel.max()).name.prefix(_PFX_CN))
     if detect_constant_nonnumeric:
-        # bench-attempt-rejected (iter621, 2026-05-31): tried replacing
+        # bench-attempt-rejected: tried replacing
         # ``n_unique() == 1`` with ``min().eq_missing(max())`` to avoid
         # the hashset build for the constant-string detection. Bench at
         # 100k x 30 (15 num + 15 low-card cats / strings): 0.77x

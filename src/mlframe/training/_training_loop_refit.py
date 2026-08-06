@@ -188,7 +188,7 @@ def _maybe_refit_on_collapsed_predictions(
     recurrent regressors and refit with the bounded output activation
     removed.
 
-    Production failure mode (2026-05-26): the BN-equipped MLP defaults
+    Production failure mode: the BN-equipped MLP defaults
     use ``output_activation='tanh_train_range'`` to hard-cap regression
     outputs. On extreme-AR / extreme-kurt targets the inner pre-
     activation saturates and the destandardised prediction collapses
@@ -283,7 +283,7 @@ def _maybe_refit_on_collapsed_predictions(
     if _ratio >= _COLLAPSED_PRED_STD_FRACTION:
         return False
 
-    # 2026-05-26 LADDER refactor: previous policy stripped the output
+    # LADDER refactor: previous policy stripped the output
     # bound (``output_activation='tanh_train_range' -> 'linear'``), but
     # removing the bound trades collapse for catastrophic
     # extrapolation -- predictions blow far outside y_train range and

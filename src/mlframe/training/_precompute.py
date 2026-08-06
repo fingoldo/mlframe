@@ -1,6 +1,6 @@
 """Train-set feature stats + precompute bundle for suite fast-path.
 
-Wave 95 (2026-05-21): split out from `helpers.py` to keep that file
+split out from `helpers.py` to keep that file
 below the 1k-line threshold. Behaviour preserved bit-for-bit; every
 moved symbol is re-exported from `helpers` so existing
 ``from mlframe.training.helpers import precompute_all`` (and the other

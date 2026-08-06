@@ -366,7 +366,7 @@ class PreprocessingExtensionsConfig(BaseConfig):
     # while dense-only backends densify implicitly on ``.to_numpy()``.
     # At ``max_features=5000`` and 1M rows this is the difference between
     # ~40 GB dense float64 and ~hundreds of MB sparse. Set False to restore
-    # the pre-2026-05-15 unconditional ``.toarray()`` path.
+    # the the prior unconditional ``.toarray()`` path.
     tfidf_keep_sparse: bool = True
     dim_reducer: Optional[Literal[
         "PCA", "KernelPCA", "LDA", "NMF", "TruncatedSVD", "FastICA",
@@ -710,7 +710,7 @@ class FeatureTypesConfig(BaseConfig):
     @model_validator(mode="after")
     def _check_master_toggle_vs_explicit_lists(self):
         """Raise when use_text_features=False but an explicit text_features list is set
-        (same for embedding). Pre-2026-05-20 the master-off silently dropped the
+        (same for embedding). Previously the master-off silently dropped the
         explicit list per the docstring at lines 670-677; operator who composed a preset
         stack (e.g. tfidf_only -> text_features=[...], then lite_mode flipping
         use_text_features=False) lost their text columns to the cat path silently --

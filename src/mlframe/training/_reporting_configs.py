@@ -35,7 +35,7 @@ from .diagnostics import LearningCurveConfig
 _REPORTING_ALLOWED_TITLE_TOKENS: FrozenSet[str] = frozenset({
     "ICE", "BR", "BR_DECOMP", "ECE", "CMAEW",
     "COV", "LL", "ROC_AUC", "PR_AUC", "DENS",
-    # 2026-05-28 audit batch additions (binary classification title tokens).
+    # (binary classification title tokens).
     # Gini deliberately NOT a token: =2*AUC-1, redundant with ROC_AUC for
     # chart-title use; available in metrics dict as "Gini" anyway.
     "KS", "MCC", "BSS",
@@ -114,7 +114,7 @@ class ReportingConfig(BaseConfig):
     show_inline_population_labels: bool = True
 
     # Title-metrics template. Validator parses + populates title_metrics_tokens.
-    # 2026-05-28 audit: added KS / MCC / BSS to the default per user
+    # added KS / MCC / BSS to the default per user
     # preference - the most informative single-number summaries beyond
     # the calibration / AUC family. Gini is available as a token but
     # not in default (it's algebraically derivable from ROC_AUC).
@@ -125,7 +125,7 @@ class ReportingConfig(BaseConfig):
     # at construction.
     title_metrics_tokens: Tuple[str, ...] = ()
 
-    # 2026-05-28 audit: token-based regression chart title. Default keeps
+    # token-based regression chart title. Default keeps
     # the historical 4 tokens (MAE/RMSE/MaxError/R2) and adds RMSLE,
     # Spearman, MBE per user feedback. Empty tokens (e.g. RMSLE on a
     # signed target) gracefully render as empty fragments.
@@ -134,7 +134,7 @@ class ReportingConfig(BaseConfig):
         "RMSLE", "Spearman", "MBE",
     )
 
-    # 2026-05-28 audit batch: MASE seasonality (Hyndman & Koehler 2006).
+    # MASE seasonality (Hyndman & Koehler 2006).
     # The MASE *value* is only computed when the caller plumbs the
     # precomputed train-fold naive-MAE scale into the regression-report
     # signature (``mase_naive_mae=``); this knob sets the seasonality the
@@ -499,7 +499,7 @@ class RegressionCalibrationConfig(BaseConfig):
     # test/val predictions of weakly-discriminative targets toward a neutral value before they ship.
     # Meaningful mainly for multi-target/multi-output suites where per-target confidence genuinely varies;
     # a no-op on a single-target run other than shrinking that one target toward neutral if its OOF
-    # confidence is low. Default ON (2026-07-12): pulling weakly-discriminative targets toward neutral before
+    # confidence is low. Default ON: pulling weakly-discriminative targets toward neutral before
     # they ship is a strict safety improvement (it only ever moves a low-confidence target's predictions
     # closer to neutral, never degrades a genuinely discriminative one), so it is enabled unconditionally
     # rather than requiring every caller to opt in explicitly.

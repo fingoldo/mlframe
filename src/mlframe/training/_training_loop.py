@@ -212,7 +212,7 @@ def _handle_oom_error(model_obj, model_type_name: str) -> bool:
     return True
 
 
-# Wave 94 (2026-05-21): post-hoc calibration wrappers
+# post-hoc calibration wrappers
 # (_SigmoidAdapter, _PostHocCalibratedModel, _PerClassIsotonicCalibrator,
 # _PostHocMultiCalibratedModel, _maybe_apply_posthoc_calibration) moved
 # to sibling file _calibration_models.py to drop this file below the
@@ -846,7 +846,7 @@ def _train_model_with_fallback(
         except (AttributeError, TypeError, ValueError):
             logger.warning("Could not get best iteration", exc_info=True)
 
-    # Loss-fallback retry on degenerate early stopping (2026-05-26).
+    # Loss-fallback retry on degenerate early stopping.
     # Heavy-kurt targets get Huber via ``_apply_loss_recommendation_-
     # in_place``; on EXTREME-kurt (observed +42.67 in prod) the
     # Huber gradient ``delta * sign(residual)`` collapses to ~ 0 when
@@ -867,7 +867,7 @@ def _train_model_with_fallback(
         if _new_best_iter is not None:
             best_iter = _new_best_iter
 
-    # MLP / recurrent collapse detection (2026-05-26 followup): same
+    # MLP / recurrent collapse detection: same
     # failure shape as the booster Huber-collapse path -- network
     # converges to a near-constant prediction (output saturation under
     # tanh_train_range + BN-less LeakyReLU, etc). Architecture-

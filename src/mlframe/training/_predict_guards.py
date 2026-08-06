@@ -1,35 +1,35 @@
 """Prediction-time fallback guards for CatBoost, LGBM, and NaN-intolerant models.
 
-Extracted from ``trainer._predict_with_fallback`` (2026-05-13 refactor).
+Extracted from ``trainer._predict_with_fallback``.
 Each guard handles one predict-time edge case so the main path stays a
 single ``fn(X)`` call. The guards are ordered by cost (cheapest first).
 
 Motivation for each guard (condensed from production incident reports):
 
-1. **LGBM Polars auto-convert** — 2026-04-19: LGB's sklearn wrapper
+1. **LGBM Polars auto-convert** LGB's sklearn wrapper
    ``_LGBMValidateData`` converts ``pd.Categorical`` columns to numpy
    object arrays of strings on Polars input, then crashes on the first
    non-numeric cell. Convert upfront.
 
-2. **CB val Pool cache** — 2026-04-22: CB's sklearn wrapper rebuilds a
+2. **CB val Pool cache** CB's sklearn wrapper rebuilds a
    fresh Pool from the DataFrame on every predict call. On 7.3M rows,
    this cost 53-66 s *per metrics phase* (VAL + TEST + ensembles). The
    fit path already built a Pool; we cache it and reuse at predict time
    via a two-stage lookup (id match → content-fingerprint fallback).
 
-3. **CB sticky-pandas** — 2026-04-24: once a CatBoost model instance
+3. **CB sticky-pandas** once a CatBoost model instance
    has failed a Polars predict call (``TypeError: No matching signature
    found``), every subsequent call re-hits the same Cython dispatch miss
    → 1-2 s wasted per call. Set ``_mlframe_polars_fastpath_broken=True``
    on the model so later calls skip the retry dance.
 
-4. **NaN safety net** — 2026-05-13: when the strategy pre_pipeline
+4. **NaN safety net** when the strategy pre_pipeline
    (SimpleImputer+StandardScaler) is skipped for test_df (cache-hit
    path), raw NaN reaches NaN-intolerant models (LinearRegression,
    Ridge). One-shot impute+scale is a safety net; the root cause is
    in ``_prepare_test_split`` + ``_build_process_model_kwargs``.
 
-5. **CB Polars dispatch-miss fallback** — 2026-04-19: CB 1.2.x's
+5. **CB Polars dispatch-miss fallback** CB 1.2.x's
    Polars fastpath rejects certain nullable-Categorical / Enum dtypes
    with ``TypeError: No matching signature found``. Fall back to
    pandas + ``prepare_df_for_catboost``. This is where the
@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 class NanGuardNotPrimedError(RuntimeError):
     """Raised when ``_apply_nan_guard`` encounters NaN at predict time
     on a model whose imputer/scaler statistics were never primed at
-    fit time. Per audit 2026-05-17 (C10) the legacy fall-through that
+    fit time. Per audit (C10) the legacy fall-through that
     fit imputer+scaler on the current frame was a silent leakage
     vector: test-set statistics ended up persisted on the model and
     applied to every subsequent call. Callers that want that legacy
@@ -83,7 +83,7 @@ def _ensure_lgbm_gets_pandas(model: Any, X: Any, method: str) -> Any:
     """LGBM's sklearn-wrapper crashes on Polars input: it converts
     ``pd.Categorical`` columns to numpy object arrays → non-numeric
     cells trigger ValueError in ``_LGBMValidateData``.  Convert to
-    pandas upfront so LGB takes its native fastpath.  (2026-04-19 prod.)"""
+    pandas upfront so LGB takes its native fastpath.  """
     if not (isinstance(X, _pl_DataFrame()) and "LGBM" in type(model).__name__):
         return X
     from .utils import get_pandas_view_of_polars_df
@@ -120,7 +120,6 @@ def _cb_val_pool_cache_lookup(X: Any, method: str) -> Any | None:
     Stage 1 — exact ``id(X)`` match (fast, common case).
     Stage 2 — content fallback on cols + shape + dtypes (safe for
     predict-only reuse: the Pool's label isn't read at predict time).
-    (2026-04-22 prod, hardened 2026-04-24.)
     """
     try:
         _cols = tuple(X.columns) if hasattr(X, "columns") else None
@@ -280,7 +279,7 @@ def _apply_nan_guard(
 
     Checks a 500-row sample for NaN before invoking expensive full
     imputation. Applies BOTH imputation AND scaling because the model
-    was trained on scaled data (2026-05-13 prod: one-shot SimpleImputer
+    was trained on scaled data (measured: one-shot SimpleImputer
     without scaling produced RMSE=539M vs expected 12).
     """
     # Fast NaN check: sample first 500 rows
@@ -291,7 +290,7 @@ def _apply_nan_guard(
             _has_nan = bool(_sample.isna().any().any())
         elif hasattr(X, "__array__"):
             _arr_check = np.asarray(X[:500]) if hasattr(X, "__getitem__") else np.asarray(X)
-            # Wave 50 (2026-05-20): use np.isnan (not ~np.isfinite) for parity with
+            # use np.isnan (not ~np.isfinite) for parity with
             # the pandas isna() branch above; the prior ~isfinite included +-inf
             # which SimpleImputer(strategy="mean", keep_empty_features=True) does NOT replace, so +-inf rows
             # would pass the gate but then propagate unchanged through imputer+scaler.
@@ -311,7 +310,7 @@ def _apply_nan_guard(
             model, X, fn, n_rows, _persisted_imp, _persisted_scl,
         )
 
-    # No persisted stats. Per audit 2026-05-17 (C10) the legacy
+    # No persisted stats. Per audit (C10) the legacy
     # warn-and-fit-on-predict behaviour was a silent leakage path
     # whenever ``prime_nan_guard_stats`` wasn't called at fit time. We
     # now REFUSE by default: callers that want the legacy semantics
@@ -427,7 +426,7 @@ def _fit_persist_and_transform(
     except ImportError:
         pl = None  # type: ignore[assignment]
 
-    # Cupy GPU acceleration was evaluated for this fastpath (D-Arch-6 audit, 2026-05-19);
+    # Cupy GPU acceleration was evaluated for this fastpath (D-Arch-6 audit);
     # bench at ``_benchmarks/bench_arch_d.bench_predict_guards_cupy`` measured 0.66x-0.79x
     # (cupy SLOWER than polars) on both n_rows=500k / n_cols=50 (25M cells) and n_rows=500k /
     # n_cols=200 (100M cells). The polars fastpath below is already a vectorised single-pass
@@ -483,7 +482,7 @@ def _fit_persist_and_transform(
             model._mlframe_nan_scaler = scaler
         except (AttributeError, TypeError):
             pass
-        # Audit D P1-5 (2026-05-18): this is a 1-hop savings, not zero-copy end-to-end. The
+        # Audit D P1-5: this is a 1-hop savings, not zero-copy end-to-end. The
         # polars-side mean/std + standardisation eliminate the polars->numpy->sklearn->pandas
         # round trip on the COMPUTE side, but ``fn`` downstream is a sklearn pipeline that takes
         # pandas and internally goes pandas->numpy. ``get_pandas_view_of_polars_df`` uses the

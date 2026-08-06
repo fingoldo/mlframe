@@ -361,7 +361,7 @@ def train_and_evaluate_model(
         try:
             model, *_, pre_pipeline = safe_joblib_load(model_file_name)
         except (EOFError, OSError, ModuleNotFoundError, pickle.UnpicklingError, AttributeError):
-            # Wave 41 (2026-05-20): retraining is expensive; preserve traceback so the
+            # retraining is expensive; preserve traceback so the
             # operator can distinguish pickle-version mismatch / torch attribute drift /
             # disk corruption rather than re-investigating after each fallback.
             logger.warning("Failed to load cached model from %s; will retrain instead.", model_file_name, exc_info=True)

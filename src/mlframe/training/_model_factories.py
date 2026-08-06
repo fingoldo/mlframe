@@ -22,7 +22,7 @@ LGBMClassifier = LGBMRegressor = None
 def _patch_lgb_feature_names_in_setter() -> None:
     """Install a no-op setter for ``LGBMModel.feature_names_in_``.
 
-    Fix 4 defense-in-depth (2026-04-21). LightGBM >=4.6.0 exposes
+    Defense-in-depth. LightGBM >=4.6.0 exposes
     ``feature_names_in_`` as a read-only property. sklearn >=1.8's
     ``validate_data`` path (triggered whenever ``fit()`` receives a
     non-pandas input such as a Polars DataFrame or numpy array) calls
@@ -30,7 +30,7 @@ def _patch_lgb_feature_names_in_setter() -> None:
     ``AttributeError: property 'feature_names_in_' of 'LGBMClassifier'
     object has no setter`` -- aborting the run 5 seconds in.
 
-    The primary fix is Fix 1 (ensure LGB receives pandas -> sklearn path
+    The primary fix ensures LGB receives pandas via the sklearn path
     skipped at ``lightgbm/sklearn.py:948``). This setter patch is a
     belt-and-braces guard for cases where a future code path slips a
     non-pandas input past the lazy-conversion hook. Storing the value in
@@ -39,7 +39,7 @@ def _patch_lgb_feature_names_in_setter() -> None:
 
     Idempotent: safe to call multiple times (module re-import).
     """
-    # 2026-05-16 (was 2026-04-21 bug, surfaced by post-migration tests):
+    # (surfaced by post-migration tests):
     # the previous early-return on ``LGBMClassifier is None`` was wrong -
     # ``LGBMClassifier`` is a *lazy* module-level None that only gets
     # populated by ``_lgb_classifier_cls()`` on first call. At module
@@ -75,7 +75,7 @@ def _patch_lgb_feature_names_in_setter() -> None:
     _model_cls._mlframe_feature_names_setter_installed = True
 
 
-# Audit 2026-05-17 (Wave 1.5): the LightGBM feature_names_in_ setter
+# The LightGBM feature_names_in_ setter
 # patch was originally applied at import time as a global side effect.
 # We now expose it via ``apply_third_party_patches_once()`` (idempotent)
 # which the suite entrypoint + the dataset factories below call lazily.
@@ -155,7 +155,7 @@ def make_lgb_dataset(*args, **kwargs):
 def _patch_dataset_constructors_with_logging() -> None:
     """Wrap ``catboost.Pool.__init__`` / ``xgboost.DMatrix.__init__`` /
     ``lightgbm.Dataset.__init__`` so every construction emits one INFO
-    log line with shape + duration + callsite. Fix 9.4.1 (2026-04-21).
+    log line with shape + duration + callsite.
 
     Purpose: make rebuild-vs-reuse visible in the log. Without this the
     sklearn-wrapper rebuilds silently inside ``fit()`` and the operator
@@ -273,15 +273,15 @@ def _patch_dataset_constructors_with_logging() -> None:
                         shape_str = f"{shape[0]}x?"
                     else:
                         shape_str = "?x?"
-                    # I3 fix (2026-05-11): demote internal-diagnostic build events to
+                    # I3 fix: demote internal-diagnostic build events to
                     # DEBUG so per-feature ablation / per-trial discovery loops don't
                     # drown out actually-useful build events on production-size datasets.
-                    # Tightened 2026-05-16: only demote when callsite originates in
+                    # Only demote when callsite originates in
                     # one of the known internal-loop modules (the previous "OR row
                     # count below 50K" half of the heuristic hid every legitimate
                     # small-data build from INFO; caught by
                     # test_fix9_build_logging_fires_on_dmatrix on a 200x5 frame).
-                    # Extended 2026-05-20: BaselineDiagnostics' ablation loop fits a
+                    # BaselineDiagnostics' ablation loop fits a
                     # fresh LGB.Dataset per feature-subset (7-15 builds per training
                     # run on a wide frame) - same nuisance pattern as composite /
                     # screening, demote it too.
@@ -339,7 +339,7 @@ except ImportError:  # pragma: no cover
     XGBClassifier = XGBRegressor = None  # type: ignore[assignment,misc]
     XGBTrainingCallback = object  # type: ignore[assignment,misc]
 
-# DMatrix-reuse shim (2026-04-24). Subclasses XGBClassifier / XGBRegressor
+# DMatrix-reuse shim. Subclasses XGBClassifier / XGBRegressor
 # to cache QuantileDMatrix across consecutive ``.fit()`` calls on the same
 # feature matrix -- saves ~100 s per repeated fit on multi-GB train frames.
 # Toggle via ``USE_XGB_DMATRIX_REUSE_SHIM`` below.
@@ -354,7 +354,7 @@ except ImportError:  # pragma: no cover
     XGBClassifierWithDMatrixReuse = XGBRegressorWithDMatrixReuse = None  # type: ignore[assignment,misc]
     _XGB_SHIM_AVAILABLE = False
 
-# Dataset-reuse shim (2026-05-08). Mirror of the XGB shim above for
+# Dataset-reuse shim. Mirror of the XGB shim above for
 # LightGBM. Subclasses LGBMClassifier / LGBMRegressor to cache the
 # binned ``lightgbm.Dataset`` across consecutive ``.fit()`` calls on
 # the same feature matrix -- mirrors the same weight-schema-loop saving
@@ -376,7 +376,7 @@ except ImportError:  # pragma: no cover
 #
 #   True  -> use the DMatrix-reuse shim. Reuses QuantileDMatrix across
 #           weight-schema iterations and target swaps on the same feature
-#           matrix (the 2026-04-24 prod log saving target -- ~100 s per
+#           matrix (the prod log saving target -- ~100 s per
 #           rebuild eliminated).
 #   False -> fall back to vanilla ``XGBClassifier`` / ``XGBRegressor``.
 #           Use this if the shim regresses behaviour or once XGBoost
@@ -475,7 +475,7 @@ except (ImportError, OSError):  # pragma: no cover
 # module-load (see neural/base.py:32-45 for the chain). On Windows that
 # takes 30-180 s cold and consistently overshoots the per-test timeout
 # of the FIRST test in any pytest run that touches the trainer (fuzz
-# c0000 timeout, observed 2026-04-27). Defer the import to first MLP
+# a cold-start timeout, observed in prod). Defer the import to first MLP
 # fit via ``_get_neural_components()`` so typical users / fuzz tests
 # don't pay the cost. Sentinel ``None`` here; the getter populates the
 # tuple lazily on first call and caches.
@@ -524,7 +524,7 @@ GPU_VRAM_SAFE_FREE_LIMIT_GB: float = 0.1
 # Fairness and feature importance functions from their respective modules
 
 
-# 2026-05-13 refactor: extracted modules
+# Extracted modules
 from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: F401
 from .pipeline import (  # noqa: F401
     _apply_pre_pipeline_transforms,
