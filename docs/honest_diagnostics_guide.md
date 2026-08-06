@@ -105,7 +105,8 @@ The ``WARN`` line is the actionable signal: the ensemble gate will drop this est
 
 ## Sensors
 
-- ``tests/training/test_honest_diagnostics_aggregator.py`` — covers schema, gap-warn threshold, dummy-floor delta, calibration ECE wiring, DeLong invocation.
+- ``tests/training/test_honest_diagnostics_default.py`` — covers schema, gap-warn threshold, dummy-floor delta, calibration ECE wiring.
+- ``tests/training/test_honest_diagnostics_precast_bootstrap.py`` / ``tests/training/test_honest_diagnostics_seed_derivation.py`` — split-off coverage for the bootstrap/DeLong and seed-derivation paths.
 - ``tests/evaluation/test_bootstrap.py`` — covers underlying ``bootstrap_metric`` + ``delong_test``.
 
 ## Commit reference
