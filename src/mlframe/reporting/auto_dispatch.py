@@ -85,7 +85,7 @@ def select_binary_emphasis_panels(
 
 def render_multi_target_panels(
     *,
-    targets: np.ndarray,
+    targets: Optional[np.ndarray],
     probs: Optional[np.ndarray] = None,
     preds: Optional[np.ndarray] = None,
     classes: Optional[Sequence[Any]] = None,
