@@ -269,7 +269,7 @@ def _validate_inputs(self, X, y):
             _obj = X.select_dtypes(include=["object"])
             for _obj_col in _obj.columns:
                 _obj_col_arr = _obj[_obj_col].to_numpy()
-                _obj_floats = np.frompyfunc(lambda v: isinstance(v, float) and np.isinf(v), 1, 1)(_obj_col_arr).astype(bool)
+                _obj_floats = np.frompyfunc(lambda v: isinstance(v, (float, np.floating)) and np.isinf(v), 1, 1)(_obj_col_arr).astype(bool)
                 if _obj_floats.any():
                     raise ValueError(
                         f"MRMR.fit: input X contains +/-inf values in object-dtype column {_obj_col!r}. Replace or drop these rows before fitting; the discretization step produces undefined bins on inf."

@@ -179,6 +179,24 @@ def test_group_aware_polars_bridge_matches_pandas_clustering():
     assert ca[0] == ca[1], f"correlated a,b should cluster together under the polars path; got {ca}"
 
 
+def test_validate_inputs_catches_non_builtin_float_inf_in_object_column():
+    """MRMR-1: the object-dtype +/-inf guard must catch np.float32/np.float16 infinities too, not
+    only Python float / np.float64 (which subclasses float)."""
+    import pandas as pd
+
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    rng = np.random.default_rng(0)
+    n = 20
+    df = pd.DataFrame({"a": rng.normal(size=n), "b": rng.normal(size=n)})
+    df["obj_col"] = pd.array([np.float32(1.0)] * (n - 1) + [np.float32("inf")], dtype=object)
+    y = (df["a"] > 0).astype(int)
+
+    est = MRMR(random_seed=0, n_workers=1, verbose=0)
+    with pytest.raises(ValueError, match="obj_col"):
+        est._validate_inputs(df, y)
+
+
 def test_adaptive_arity_multileg_recipes_freeze_preprocess_params():
     """Adaptive-arity arity>=2 recipes must freeze per-leg preprocess params so transform() replays (never refits) the basis axis."""
     import pandas as pd
