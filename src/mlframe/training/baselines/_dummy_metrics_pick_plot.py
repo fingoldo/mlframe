@@ -514,8 +514,8 @@ def plot_best_dummy_baseline_overlay(
                 # serialised the figure to the kernel display channel,
                 # so the pyplot-registry reference is dead weight.
                 # Leaving it alive causes the inline backend's end-of-
-                # cell auto-flush to re-render the figure (the "толпа
-                # графиков" double-render seen 2026-05-26).
+                # cell auto-flush to re-render the figure (a "crowd of
+                # plots" double-render).
                 _plt.close(fig)
             except Exception as e:
                 logger.debug("IPython inline display failed, falling back to plt.show(): %s", e)
