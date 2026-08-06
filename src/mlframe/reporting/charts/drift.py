@@ -393,7 +393,15 @@ def cusum_residual_drift(
     mask = np.isfinite(yt) & np.isfinite(yp)
     if timestamps is not None:
         ts = np.asarray(timestamps).ravel()
-        mask &= np.isfinite(ts.astype(np.float64)) if np.issubdtype(ts.dtype, np.number) else mask
+        # The prior `else mask` branch for non-numeric timestamps was a no-op (`mask &= mask`), so a
+        # datetime64 NaT timestamp was never filtered and could land at an arbitrary sorted position in the
+        # CUSUM's time-ordered residual sequence (np.argsort sorts NaT to the end, silently shifting every
+        # subsequent row's time-order). Filter NaT explicitly for datetime64; other non-numeric dtypes fall
+        # through unfiltered (unchanged from before -- no known non-finite sentinel for them).
+        if np.issubdtype(ts.dtype, np.number):
+            mask &= np.isfinite(ts.astype(np.float64))
+        elif np.issubdtype(ts.dtype, np.datetime64):
+            mask &= ~np.isnat(ts)
     yt, yp = yt[mask], yp[mask]
     n = yt.size
     if n < 8:

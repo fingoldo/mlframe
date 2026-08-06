@@ -294,6 +294,20 @@ def test_cusum_handles_nan_rows():
     assert isinstance(fig.panels[0][0], LinePanelSpec)
 
 
+def test_cusum_filters_nat_timestamps():
+    """REPORTING_B-8: a NaT datetime64 timestamp row must be filtered like a NaN residual row, not silently
+    kept and sorted to an arbitrary position by np.argsort. With n=20 rows and one NaT injected, the filtered
+    row count must be 19, not 20 (the pre-fix `mask &= mask` no-op for non-numeric dtypes kept it)."""
+    n = 20
+    yt, yp = _resid_series(n, n, 1.0, 3)
+    ts = np.array([np.datetime64("2024-01-01") + np.timedelta64(i, "D") for i in range(n)], dtype="datetime64[ns]")
+    ts[5] = np.datetime64("NaT")
+    fig = drift.cusum_residual_drift(yt, yp, ts, decision_h=1e9)  # huge h -> never crosses, no marker appended
+    panel = fig.panels[0][0]
+    assert isinstance(panel, LinePanelSpec)
+    assert panel.x.size == n - 1, f"expected {n - 1} rows after dropping the NaT row, got {panel.x.size}"
+
+
 def test_cusum_decimates_plotted_points():
     """Cusum decimates plotted points."""
     yt, yp = _resid_series(50000, 25000, 1.0, 10)
