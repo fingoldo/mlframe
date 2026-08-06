@@ -607,7 +607,13 @@ def create_ctr_params(GPU_ENABLED: bool = False, params: Optional[dict] = None, 
                     if "Target" in key:
                         continue
                 if key == "TargetBorderCount":  # Setting TargetBorderCount is not supported for loss function CrossEntropy
-                    if "CrossEntropy" in params.get("loss_function", []):
+                    _loss_function = params.get("loss_function", [])
+                    # A bare string is iterable char-by-char, so "in" on it is a SUBSTRING test rather than a
+                    # membership test -- "CrossEntropy" in "QueryCrossEntropy" would wrongly match. Normalize
+                    # a bare string to a single-element list first so "in" is always exact-value membership.
+                    if isinstance(_loss_function, str):
+                        _loss_function = [_loss_function]
+                    if "CrossEntropy" in _loss_function:
                         continue
                 line += ":" + key + "=" + str(val)
             if line != main_type:
