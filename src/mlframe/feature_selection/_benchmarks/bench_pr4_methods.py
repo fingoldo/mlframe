@@ -64,7 +64,7 @@ def _selected_idx(rfecv, X) -> list:
     return [cols.index(n) for n in sel_names if n in cols]
 
 
-def _bc_threshold(W: dict, q: float = 0.1) -> float:
+def _bc_threshold(W: dict, q: float) -> float:
     """Barber-Candes FDR-controlled threshold:
         tau = min{t : (1 + #{j: W_j <= -t}) / max(1, #{j: W_j >= t}) <= q}
     Features with W_j >= tau are selected; expected FDR <= q.
@@ -77,13 +77,13 @@ def _bc_threshold(W: dict, q: float = 0.1) -> float:
         n_pos = sum(1 for w in W.values() if w >= t)
         ratio = (1 + n_neg) / max(1, n_pos)
         if ratio <= q:
-            return t
+            return float(t)
     return float("inf")
 
 
 def _run_knockoffs(method_name, X, y, informative_idx, seed, fdr_q: float = 0.5) -> BenchResult:
     """Knockoffs adapter: compute W per feature, select with the proper
-    Barber-Candes FDR-controlled threshold (default q=0.2)."""
+    Barber-Candes FDR-controlled threshold (default fdr_q=0.5)."""
     from mlframe.feature_selection.wrappers import knockoff_importance
     t0 = time.perf_counter()
     with warnings.catch_warnings():
