@@ -35,29 +35,29 @@ from mlframe.feature_selection.filters.group_aware import cluster_features_by_co
 
 
 def _make_scenario(kind: str, seed: int, n: int = 2000):
-    rng = np.random.RandomState(seed)
-    z = rng.randn(n)
-    w = rng.randn(n)
+    rng = np.random.default_rng(seed)
+    z = rng.standard_normal(n)
+    w = rng.standard_normal(n)
     cols = {}
     if kind == "linear_redundancy":
         # 3 linear copies of z, 3 of w, 4 noise.
         for i in range(3):
-            cols[f"z{i}"] = z + 0.05 * rng.randn(n)
+            cols[f"z{i}"] = z + 0.05 * rng.standard_normal(n)
         for i in range(3):
-            cols[f"w{i}"] = w + 0.05 * rng.randn(n)
+            cols[f"w{i}"] = w + 0.05 * rng.standard_normal(n)
         for i in range(4):
-            cols[f"n{i}"] = rng.randn(n)
+            cols[f"n{i}"] = rng.standard_normal(n)
     elif kind == "nonmonotone_redundancy":
         cols["z0"] = z
         cols["z1"] = z**2  # Pearson ~0 with z0, SU high
         cols["z2"] = np.abs(z)
         cols["w0"] = w
         for i in range(3):
-            cols[f"n{i}"] = rng.randn(n)
+            cols[f"n{i}"] = rng.standard_normal(n)
     else:
         raise ValueError(kind)
     X = pd.DataFrame(cols)
-    y = (z + 0.5 * w + 0.3 * rng.randn(n) > 0).astype(int)
+    y = (z + 0.5 * w + 0.3 * rng.standard_normal(n) > 0).astype(int)
     return X, y
 
 
