@@ -73,8 +73,27 @@ def reconstruct_pseudo_group_ids(
     # rows / 15 cols, identical resulting partition (verified via adjusted Rand index = 1.0; both are valid
     # relabelings of the same row grouping, so which specific integers land on which group is irrelevant).
     row_hashes = pd.util.hash_pandas_object(rounded, index=False).to_numpy()
-    _, group_ids = np.unique(row_hashes, return_inverse=True)
-    return np.asarray(group_ids, dtype=np.int64)
+    _, group_ids, counts = np.unique(row_hashes, return_inverse=True, return_counts=True)
+    group_ids = np.asarray(group_ids, dtype=np.int64)
+
+    # A 64-bit hash collision is astronomically unlikely at realistic row counts but not impossible; verify
+    # any bucket with >1 member actually shares the same rounded feature vector, splitting it if not. Left
+    # unverified, a collision would silently over-merge two genuinely distinct rows into one pseudo-group --
+    # only makes GroupKFold more conservative for those two rows (never splits a real duplicate pair), but
+    # a real bug class worth closing rather than trusting the hash alone.
+    for bucket_id in np.flatnonzero(counts > 1):
+        member_idx = np.flatnonzero(group_ids == bucket_id)
+        member_rows = rounded.iloc[member_idx]
+        if member_rows.duplicated(keep=False).all():
+            continue  # every row in this bucket is a genuine exact duplicate -- no collision.
+        local_codes, _ = pd.factorize(pd.Index([tuple(r) for r in member_rows.itertuples(index=False, name=None)]))
+        next_group_id = int(group_ids.max()) + 1
+        for local_id in np.unique(local_codes)[1:]:  # first sub-id keeps the original bucket_id
+            extra_idx = member_idx[local_codes == local_id]
+            group_ids[extra_idx] = next_group_id
+            next_group_id += 1
+
+    return group_ids
 
 
 def _reconstruct_fuzzy(values: np.ndarray, radius: float, metric: str) -> np.ndarray:
