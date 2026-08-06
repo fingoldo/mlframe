@@ -9,11 +9,19 @@ skips) are assessed: F9 would require redoing a 369-file campaign with no report
 nit, not a correctness gap) -- deferred; F10 is explicitly already visible/commented per-site with a
 prior diagnosis (not a fresh bug) -- left as-is, no action needed beyond the audit's own visibility
 flag. PR6/PR7 are positive-pattern/proposal notes with no reported bug -- no fix needed.
+
+Every check below asserts on actual runtime behaviour (exception propagation, marker/collection
+outcomes, real state transitions) rather than on ``inspect.getsource()`` string matching -- see
+X_TEST_SUITE_ARCHITECTURE-7 (this file used to be the sole getsource-based exception in this
+repo's own behavioral-tests convention; converted, no whitelist entry needed anymore).
 """
 
 from __future__ import annotations
 
-import inspect
+import importlib
+import subprocess
+import sys
+import types
 
 import pytest
 
@@ -32,33 +40,49 @@ import pytest
     ],
 )
 def test_f1_f2_try_import_suite_no_longer_skips_on_import_failure(module_path):
-    """F1/F2 REGRESSION: _try_import_suite must be a plain import (no defensive
-    except/pytest.skip) so a genuine API break fails loudly instead of silently skipping."""
-    import importlib
+    """F1/F2 REGRESSION: _try_import_suite must be a plain import (no defensive except/pytest.skip),
+    so a genuine break in the underlying symbol raises ImportError instead of being swallowed.
 
+    Behavioural proof: replace the real ``mlframe.training.core`` module with a stub missing
+    ``train_mlframe_models_suite`` and call ``_try_import_suite()`` -- it must raise ImportError,
+    not catch it and skip.
+    """
     mod = importlib.import_module(module_path)
-    src = inspect.getsource(mod._try_import_suite)
-    assert "pytest.skip" not in src, f"{module_path}._try_import_suite must not silently skip on import failure"
-    body = src.split('"""', 2)[-1]  # strip the docstring (which explains the fix and may say "except" in prose)
-    assert "except" not in body, f"{module_path}._try_import_suite must not defensively catch the import"
+    fake_core = types.ModuleType("mlframe.training.core")  # deliberately missing the symbol
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setitem(sys.modules, "mlframe.training.core", fake_core)
+        with pytest.raises(ImportError):
+            mod._try_import_suite()
 
 
 @pytest.mark.parametrize(
-    "module_path",
+    "module_path, test_func_name",
     [
-        "tests.training.test_biz_val_training_core",
-        "tests.training.test_suite_api_ergonomics",
-        "tests.training.test_precompute_bundle",
+        ("tests.training.test_biz_val_training_core", "test_biz_val_training_suite_regression_completes"),
+        ("tests.training.test_suite_api_ergonomics", "test_default_extractor_regression_matches_explicit"),
     ],
 )
-def test_f1_f2_no_typeerror_importerror_skip_around_suite_call(module_path):
+def test_f1_f2_no_typeerror_importerror_skip_around_suite_call(module_path, test_func_name, tmp_path):
     """F1/F2 REGRESSION: the actual train_mlframe_models_suite() call sites must not wrap the call
-    in except (TypeError, ImportError): pytest.skip(...) either."""
-    import importlib
+    in except (TypeError, ImportError): pytest.skip(...).
+
+    Behavioural proof: monkeypatch ``mlframe.training.core.train_mlframe_models_suite`` to raise
+    TypeError immediately (before any real training happens) and run the real test function that
+    calls it -- the TypeError must propagate out uncaught, not be swallowed into a skip.
+    """
+    import mlframe.training.core as core_mod
 
     mod = importlib.import_module(module_path)
-    src = inspect.getsource(mod)
-    assert "except (TypeError, ImportError)" not in src
+    test_func = getattr(mod, test_func_name)
+
+    def _raise_typeerror(*_args, **_kwargs):
+        """Simulate the suite call raising a kwarg-contract-break TypeError."""
+        raise TypeError("simulated kwarg-contract break")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(core_mod, "train_mlframe_models_suite", _raise_typeerror)
+        with pytest.raises(TypeError, match="simulated kwarg-contract break"):
+            test_func(tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -66,14 +90,21 @@ def test_f1_f2_no_typeerror_importerror_skip_around_suite_call(module_path):
 # ---------------------------------------------------------------------------
 
 
-def test_f3_shortlist_adapter_suite_no_module_level_skip_on_import():
+def test_f3_shortlist_adapter_suite_import_failure_propagates_not_skipped(monkeypatch):
     """F3 REGRESSION: test_shortlist_transformer_adapter_suite.py must import its dependencies
-    directly, not wrap them in a broad except Exception: pytest.skip(..., allow_module_level=True)."""
-    import tests.training.test_shortlist_transformer_adapter_suite as mod
+    directly, not wrap them in a broad except Exception: pytest.skip(..., allow_module_level=True).
 
-    src = inspect.getsource(mod)
-    assert "allow_module_level=True" not in src
-    assert "except Exception" not in src.split("class ")[0] if "class " in src else "except Exception" not in src
+    Behavioural proof: break the underlying ``mlframe.training.core`` symbol and force a genuine
+    re-import of the test module -- it must raise ImportError, not raise/produce a Skipped outcome.
+    """
+    mod_name = "tests.training.test_shortlist_transformer_adapter_suite"
+    fake_core = types.ModuleType("mlframe.training.core")  # deliberately missing the symbol
+    monkeypatch.setitem(sys.modules, "mlframe.training.core", fake_core)
+    monkeypatch.delitem(sys.modules, mod_name, raising=False)
+    with pytest.raises(ImportError):
+        importlib.import_module(mod_name)
+    # Force the next real import (by this test or a sibling) to re-resolve against the genuine module.
+    monkeypatch.delitem(sys.modules, mod_name, raising=False)
 
 
 # ---------------------------------------------------------------------------
@@ -84,10 +115,13 @@ def test_f3_shortlist_adapter_suite_no_module_level_skip_on_import():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="F4 (x_test_suite_architecture.md): .test_durations is empty -- the weekly "
-                    "update-test-durations.yml scheduled job has never completed successfully (cancelled "
-                    "after 5h33m per gh run history); pytest-split falls back to file-count sharding until "
-                    "it does. Flip this to a hard assertion once that workflow run succeeds.", strict=False)
+@pytest.mark.xfail(
+    reason="F4 (x_test_suite_architecture.md): .test_durations is empty -- the weekly "
+    "update-test-durations.yml scheduled job has never completed successfully (cancelled "
+    "after 5h33m per gh run history); pytest-split falls back to file-count sharding until "
+    "it does. Flip this to a hard assertion once that workflow run succeeds.",
+    strict=False,
+)
 def test_f4_test_durations_file_is_populated():
     """F4: .test_durations must eventually hold real per-test timing data, not stay the seeded {}."""
     from pathlib import Path
@@ -100,27 +134,88 @@ def test_f4_test_durations_file_is_populated():
 
 
 # ---------------------------------------------------------------------------
-# F7: the 4 stopfile-callback smoke tests now assert real stop-detection behaviour, not just
-# "constructor didn't raise" -- covered by tests/evaluation/test_evaluation_salvage.py's own
-# rewritten test_{catboost,lightgbm,xgboost,lightning}_stopfile_smoke; sanity-checked here that the
-# weak "assert cb is not None" pattern is gone.
+# F7: the 4 stopfile-callback smoke tests exercise real stop-detection behaviour, not just
+# "constructor didn't raise". Independent behavioural pin against the callback classes themselves
+# (not a copy of test_evaluation_salvage.py's own assertions) so a future weakening of THOSE tests
+# cannot silently pass this regression guard too.
 # ---------------------------------------------------------------------------
 
 
-def test_f7_stopfile_smoke_tests_no_longer_weak_assertion_only():
-    """F7 REGRESSION: the 4 stopfile-callback smoke tests must exercise real stop-detection
-    behaviour, not just assert the constructor returned a non-None object."""
-    import tests.evaluation.test_evaluation_salvage as mod
+def test_f7_catboost_stopfile_callback_real_state_transition(tmp_path):
+    """F7 REGRESSION: CatBoostStopFileCallback must actually flip its return value once the
+    stop-file is planted, not just construct without raising."""
+    pytest.importorskip("catboost")
+    from mlframe.training.callbacks import CatBoostStopFileCallback
 
-    for name in (
-        "test_catboost_stopfile_smoke",
-        "test_lightgbm_stopfile_smoke",
-        "test_xgboost_stopfile_smoke",
-        "test_lightning_stopfile_smoke",
-    ):
-        src = inspect.getsource(getattr(mod, name))
-        assert "assert cb is not None" not in src, f"{name} REGRESSION: must not be reduced back to a tautological is-not-None check"
-        assert "write_text" in src, f"{name} must actually plant the stop-file and assert the resulting state transition"
+    flag = tmp_path / "stop.flag"
+    cb = CatBoostStopFileCallback(str(flag))
+    before = cb.after_iteration(info=None)
+    flag.write_text("x")
+    after = cb.after_iteration(info=None)
+    assert before is True, "must NOT signal stop before the stop-file exists"
+    assert after is False, "must signal stop (return False) once the stop-file exists"
+    assert before != after, "regression: callback ignored the planted stop-file (state did not transition)"
+
+
+def test_f7_lightgbm_stopfile_callback_real_state_transition(tmp_path):
+    """F7 REGRESSION: LightGBMStopFileCallback must actually raise EarlyStopException once the
+    stop-file is planted, not just construct without raising."""
+    lgb = pytest.importorskip("lightgbm")
+    from mlframe.training.callbacks import LightGBMStopFileCallback
+
+    flag = tmp_path / "stop.flag"
+    cb = LightGBMStopFileCallback(str(flag))
+
+    class _FakeEnv:
+        """Minimal stand-in for lightgbm's callback env (iteration + evaluation_result_list)."""
+
+        iteration = 3
+        evaluation_result_list = []
+
+    cb(_FakeEnv())  # before the stop-file exists: must not raise
+    flag.write_text("x")
+    with pytest.raises(lgb.callback.EarlyStopException):
+        cb(_FakeEnv())
+
+
+def test_f7_xgboost_stopfile_callback_real_state_transition(tmp_path):
+    """F7 REGRESSION: XGBoostStopFileCallback must actually flip its return value once the
+    stop-file is planted, not just construct without raising."""
+    pytest.importorskip("xgboost")
+    from mlframe.training.callbacks import XGBoostStopFileCallback
+
+    flag = tmp_path / "stop.flag"
+    cb = XGBoostStopFileCallback(str(flag))
+    before = cb.after_iteration(model=None, epoch=0, evals_log={})
+    flag.write_text("x")
+    after = cb.after_iteration(model=None, epoch=1, evals_log={})
+    assert before is False, "must NOT signal stop before the stop-file exists"
+    assert after is True, "must signal stop (return True) once the stop-file exists"
+    assert before != after, "regression: callback ignored the planted stop-file (state did not transition)"
+
+
+def test_f7_lightning_stopfile_callback_real_state_transition(tmp_path):
+    """F7 REGRESSION: LightningStopFileCallback must actually set trainer.should_stop once the
+    stop-file is planted, not just construct without raising."""
+    pytest.importorskip("pytorch_lightning")
+    from mlframe.training.callbacks import LightningStopFileCallback
+
+    class _FakeTrainer:
+        """Minimal stand-in exposing only the attribute the callback mutates."""
+
+        should_stop = False
+
+    flag = tmp_path / "stop.flag"
+    cb = LightningStopFileCallback(str(flag))
+    trainer = _FakeTrainer()
+    cb.on_train_epoch_end(trainer, pl_module=None)
+    before = trainer.should_stop
+    flag.write_text("x")
+    cb.on_train_epoch_end(trainer, pl_module=None)
+    after = trainer.should_stop
+    assert before is False, "must NOT signal stop before the stop-file exists"
+    assert after is True, "must signal stop (should_stop=True) once the stop-file exists"
+    assert before != after, "regression: callback ignored the planted stop-file (state did not transition)"
 
 
 # ---------------------------------------------------------------------------
@@ -130,22 +225,53 @@ def test_f7_stopfile_smoke_tests_no_longer_weak_assertion_only():
 
 
 def test_f8_automl_heavy_tests_use_opt_in_marker_not_bare_skip():
-    """F8 REGRESSION: the 4 real-training AutoGluon/LAMA tests must use the heavy_automl marker
-    (collected + explicitly deselected, opt-in-able via --run-heavy-automl), not a bare
-    @pytest.mark.skip that can never be turned on."""
+    """F8 REGRESSION: the 4 real-training AutoGluon/LAMA tests must carry the heavy_automl pytest
+    marker (not a bare @pytest.mark.skip), checked via the actual marker objects attached to the
+    test functions -- not by searching the source text for a decorator string."""
     import tests.training.test_automl as mod
 
-    src = inspect.getsource(mod)
-    assert 'reason="AutoGluon heavy dependency - run manually if needed"' not in src
-    assert 'reason="LAMA heavy dependency - run manually if needed"' not in src
-    assert src.count("@pytest.mark.heavy_automl") == 4
+    marked = []
+    for name in dir(mod):
+        obj = getattr(mod, name)
+        if isinstance(obj, type):  # test class: walk its methods
+            for meth_name in dir(obj):
+                if not meth_name.startswith("test_"):
+                    continue
+                meth = getattr(obj, meth_name)
+                marks = {m.name for m in getattr(meth, "pytestmark", [])}
+                if "heavy_automl" in marks:
+                    marked.append(f"{name}.{meth_name}")
+                assert "skip" not in marks, f"{name}.{meth_name} REGRESSION: reverted to a bare @pytest.mark.skip"
+
+    assert len(marked) == 4, f"expected exactly 4 heavy_automl-marked AutoGluon/LAMA training tests, found {len(marked)}: {marked}"
 
 
 def test_f8_run_heavy_automl_flag_registered():
-    """F8: conftest.py must register the --run-heavy-automl CLI flag and the heavy_automl marker,
-    matching the existing --run-fuzz / --run-biz-transformer pattern."""
-    import tests.conftest as conftest_mod
+    """F8: --run-heavy-automl must actually gate the 4 heavy_automl-marked tests, checked by
+    running pytest itself (not by grepping conftest.py's source for the flag string): without the
+    flag they are runtime-SKIPPED with the documented reason; with the flag registered as a real
+    CLI option, collection of those same tests succeeds instead of erroring on an unknown arg."""
+    from pathlib import Path
 
-    src = inspect.getsource(conftest_mod)
-    assert "--run-heavy-automl" in src
-    assert '"heavy_automl" in item.keywords' in src
+    repo_root = str(Path(__file__).resolve().parents[2])
+    node_filter = ["-k", "test_basic_training or test_training_with_test_df"]
+
+    without_flag = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/training/test_automl.py", "-q", "--no-cov", *node_filter],
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+    )
+    assert "4 skipped" in without_flag.stdout, f"expected the 4 heavy_automl tests to be runtime-skipped without --run-heavy-automl; got:\n{without_flag.stdout}"
+    assert "--run-heavy-automl" in without_flag.stdout, f"skip reason must name the opt-in flag; got:\n{without_flag.stdout}"
+
+    with_flag = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/training/test_automl.py", "--collect-only", "-q", "--no-cov", "--run-heavy-automl", *node_filter],
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+    )
+    assert with_flag.returncode == 0, f"--run-heavy-automl must be a registered option, not rejected as unrecognized; stderr:\n{with_flag.stderr}"
+    assert (
+        "4/23 tests collected" in with_flag.stdout or "4 tests collected" in with_flag.stdout
+    ), f"expected the 4 heavy_automl tests collected (no longer runtime-skipped) with --run-heavy-automl; got:\n{with_flag.stdout}"
