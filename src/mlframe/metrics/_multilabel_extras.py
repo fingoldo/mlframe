@@ -546,6 +546,9 @@ def fast_multilabel_classification_metrics_block(
         f1_denom = 2 * tp[k] + fp[k] + fn[k]
         f1[k] = 2 * tp[k] / f1_denom if f1_denom > 0 else 0.0
         j_denom = tp[k] + fp[k] + fn[k]
+        # 0.0 for a zero-support label (tp+fp+fn==0), matching sklearn's average='macro' zero_division=0 default.
+        # Not the same axis or convention as _multilabel_metrics.jaccard_score_multilabel, which averages
+        # PER-ROW (average='samples') and uses 1.0 for an empty-union row -- see that function's docstring.
         jaccard[k] = tp[k] / j_denom if j_denom > 0 else 0.0
     supports = tp + fn  # true positives per label
     total_support = supports.sum()
