@@ -228,14 +228,14 @@ def run_outer_loop_iteration(
     # Dispatch _eval_fold sequentially or in parallel. n_jobs>1 uses prefer="threads" so we don't pickle X/y across workers (datasets stay in shared memory) and the closure can keep mutating outer state under the GIL. When n_jobs>1 AND the estimator is multi-threaded AND force_parallel=True, pin inner threads to 1.
     _fold_runner: Callable
     if n_jobs_effective > 1 and _is_multithreaded and self.force_parallel:
-        _orig_eval_fold = _eval_fold
-
-        def _eval_fold_pinned(*args, _orig=_orig_eval_fold):
-            """Wraps ``_eval_fold`` to pin the outer estimator's thread count to 1 before each fold call, since ``force_parallel=True`` runs multiple multithreaded-estimator fits concurrently and each clone inherits the pinned setting."""
-            # The closure clones the estimator inside its body so we can't reach in. Pin once on the OUTER estimator; clone() preserves params so each fold's clone inherits thread_count=1 / n_jobs=1.
-            pin_threads_to_one(estimator)
-            return _orig(*args)
-        _fold_runner = _eval_fold_pinned
+        # Pin ONCE, before dispatch -- not from inside the per-fold closure. joblib's threaded folds would
+        # otherwise all call pin_threads_to_one(estimator) concurrently on the single shared outer estimator;
+        # today every thread writes the identical value so it happens to be harmless, but that's an unguarded
+        # concurrent-mutation pattern with no lock, fragile to any future change that makes the pinned value
+        # fold-dependent. The closure clones the estimator inside its body so we can't reach in; clone()
+        # preserves params so each fold's clone inherits thread_count=1 / n_jobs=1 from this single pin.
+        pin_threads_to_one(estimator)
+        _fold_runner = _eval_fold
     else:
         _fold_runner = _eval_fold
 
