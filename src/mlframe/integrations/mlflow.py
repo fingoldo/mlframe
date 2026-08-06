@@ -76,6 +76,10 @@ def embed_website_to_mlflow(url:str,fname:str="url",extension:str='.html',width:
     ``url`` is embedded verbatim into an ``<iframe>`` with no sanitization -- callers must pass only
     internally-controlled URLs (e.g. a dashboard link the training pipeline itself generated), never
     an untrusted/user-supplied string, since the MLflow UI artifact viewer will render it as-is.
+
+    ``fname`` is likewise used unsanitized as a filesystem path (``open(fname + extension, "w")``) --
+    callers must pass only an internally-controlled filename, never an untrusted/user-supplied string,
+    since a ``fname`` containing ``../`` or an absolute path would write outside the intended directory.
     """
 
     safe_url = html.escape(url, quote=True)
