@@ -68,6 +68,9 @@ def unanimous_permutation_prune(
     """
     if min_fold_agreement_fraction is not None and not (0.0 < min_fold_agreement_fraction <= 1.0):
         raise ValueError(f"unanimous_permutation_prune: min_fold_agreement_fraction must be in (0.0, 1.0], got {min_fold_agreement_fraction}")
+    cv_splits = list(cv_splits)  # materialize (may be a generator) so len() and the fold loop see the same splits
+    if len(cv_splits) == 0:
+        raise ValueError("unanimous_permutation_prune: cv_splits is empty; at least one (train_idx, val_idx) fold is required")
     import pandas as pd
     from sklearn.inspection import permutation_importance
     from sklearn.metrics import make_scorer
