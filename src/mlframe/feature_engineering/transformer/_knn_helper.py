@@ -79,7 +79,9 @@ def knn_search(
     -------
     dists : (n_query, min(k, n_subset)) float32, EUCLIDEAN distances (sqrt of squared L2)
         Compatible with sklearn ``NearestNeighbors(...).kneighbors()`` default output.
+        EXCEPT when n_subset == 0: shape is (n_query, k), see the sentinel-value note below.
     ids : (n_query, min(k, n_subset)) int64, row indices into X_subset
+        Same n_subset == 0 exception as ``dists`` above.
 
     Notes
     -----
