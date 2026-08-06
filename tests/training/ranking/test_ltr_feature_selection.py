@@ -88,6 +88,19 @@ def test_pointwise_mrmr_picks_confounder_group_aware_picks_signal():
     assert conf not in ga_cols, f"group-aware MRMR must REJECT the query-constant confounder; got {ga_cols}"
 
 
+def test_max_features_zero_selects_nothing():
+    """TRAINING_FEATURE_HANDLING_TARGETS-4: max_features=0 must cap the selection at zero features, not be
+    treated as unset (falsy) and silently fall back to selecting all eligible features."""
+    from mlframe.training.ranking._ranker_fs import group_aware_mrmr_select
+
+    df, gcol, signal, conf, _noise = _query_confounded_frame(0)
+    cols = [signal, conf, "noise_0", "noise_1"]
+    X, y, g = df[cols], df["rel"].to_numpy(), df[gcol].to_numpy()
+
+    ga_cols = group_aware_mrmr_select(X, y, g, max_features=0, nbins=8, bins=5)
+    assert ga_cols == [], f"max_features=0 must select nothing, got {ga_cols}"
+
+
 # --- biz_value: group-aware selection wins on NDCG vs the pointwise selection ---------------------
 
 
