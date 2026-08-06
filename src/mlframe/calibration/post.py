@@ -42,7 +42,6 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 import pandas as pd, numpy as np
 
 from pyutilz.system import tqdmu
-from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
 from mlframe.calibration.policy import _stratified_inner_folds
 from mlframe.utils.log_throttle import log_throttle
@@ -122,11 +121,10 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
         transform_method_name: str = "transform",
         needs_2d_probs: Optional[bool] = None,
     ) -> None:
-        # postfix="" - this class reads attributes back by their BARE param name (see the class-level
-        # annotations above); pyutilz's store_params_in_object() now defaults postfix to "_param_" to
-        # round-trip with load_object_params_into_func(), which broke every bare-name reader that
-        # didn't pin the old convention explicitly.
-        store_params_in_object(obj=self, params=get_parent_func_args(), postfix="")
+        self.calibrator = calibrator
+        self.fit_method_name = fit_method_name
+        self.transform_method_name = transform_method_name
+        self.needs_2d_probs = needs_2d_probs
 
     def _calibrator_needs_2d_probs(self, calibrator: object) -> bool:
         """Returns True if the wrapped calibrator expects a 2D (n_samples, n_classes) prob matrix.
