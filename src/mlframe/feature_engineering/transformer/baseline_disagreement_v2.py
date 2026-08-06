@@ -106,7 +106,7 @@ def compute_baseline_disagreement_v2_features(
 ) -> pl.DataFrame:
     """Baseline-disagreement v2 (iter102): iter69 + ExtraTrees.
 
-    Output: 4 baseline preds + mean + std + range + 4 pairwise differences = 12 features.
+    Output: 4 baseline preds + mean + std + range + 4 pairwise differences = 11 features.
     """
     seed = require_seed(seed)
     validate_numeric_input(X_train, name="X_train", allow_fp16=False)
