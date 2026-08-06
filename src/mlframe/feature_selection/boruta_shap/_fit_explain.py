@@ -446,11 +446,10 @@ def fit(self, X, y):
 
         if self.n_trials < 1:
             # range(self.n_trials) never executes the loop body when n_trials<=0, leaving the `trial` loop
-            # variable (read unconditionally below at "if new_ncols != last_ncols or trial % 5 == 0")
-            # unbound -> NameError instead of a clear validation error.
+            # variable (read unconditionally below in the periodic progress log and the post-loop
+            # finalization) unbound -> NameError instead of a clear validation error.
             raise ValueError(f"BorutaShap.fit: n_trials must be >= 1, got {self.n_trials}.")
         pbar = tqdmu(range(self.n_trials), desc="Feature selection", disable=not self.verbose)
-        last_ncols = 0
         for trial in pbar:
             self.remove_features_if_rejected()
             self.columns = self.X.columns.to_numpy()
@@ -478,7 +477,15 @@ def fit(self, X, y):
                 # so the final support_ is identical to running every trial - this is a pure speedup.
                 _acc = set(self.flatten_list(self.accepted_columns))
                 _rej = set(self.flatten_list(self.rejected_columns)) - _acc
-                if len(self.all_columns) - len(_acc) - len(_rej) == 0:
+                _n_tentative_live = len(self.all_columns) - len(_acc) - len(_rej)
+                # Periodic progress log: was dedented out of this loop (ran once, after the last trial,
+                # instead of every 5 trials as the message implies) -- moved back in, using the accepted/
+                # rejected counts already computed above for the early-stop check rather than calling
+                # calculate_rejected_accepted_tentative() mid-loop (which would also emit its own
+                # empty-accepted-set warning on every early trial before anything is decided).
+                if trial % 5 == 0 or _n_tentative_live == 0:
+                    logger.info("Undecided features: %s", f"{_n_tentative_live:_}")
+                if _n_tentative_live == 0:
                     if self.verbose:
                         logger.info("BorutaShap: all features decided after %d/%d trials; stopping early.", trial + 1, self.n_trials)
                     break
@@ -521,10 +528,6 @@ def fit(self, X, y):
         self.store_feature_importance()
         self.calculate_rejected_accepted_tentative(verbose=self.verbose)
         pbar.set_description(f"Undecided features: {len(self.tentative):_}")
-        new_ncols = len(self.columns)
-        if new_ncols != last_ncols or trial % 5 == 0:
-            logger.info("Undecided features: %s", f"{len(self.tentative):_}")
-            last_ncols = new_ncols
 
     # sklearn-style outputs so callers can treat BorutaShap like any other selector: ``support_`` is the boolean mask aligned with the input column order, ``selected_features_`` is the list of kept names (accepted + tentative when ``optimistic``).
     kept = set(self.accepted)
