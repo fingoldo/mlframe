@@ -180,7 +180,7 @@ The friend graph and cluster-aggregate paths share the `pairwise_mi_edge` primit
 
 ## Critical gaps
 
-- **The Fleuret per-Z `min I(X;Y|Z)` criterion is provably brittle on multi-collinear groups.** When `{Z1, Z2, Z3}` are noisy reflections of one latent `z`, each gives `I(X;Y|Z_k) ≈ I(X;Y|z)`, so `min_k` underestimates the true conditional MI exactly when there is **most** redundancy to clean up. Brown et al. 2012 ([JMLR](https://jmlr.org/papers/v13/brown12a.html)) show CMIM (`min_k`) is dominated by **JMI** (`sum_k I(X, Z_k; Y)`) on small samples. The Fleuret docstring (`filters/fleuret.py:4-7`) even acknowledges this as TODO; still unfixed.
+- ~~**The Fleuret per-Z `min I(X;Y|Z)` criterion is provably brittle on multi-collinear groups.**~~ — **shipped**: `MRMR(redundancy_aggregator='jmim')` (Bennasar 2015) and the data-dependent `redundancy_aggregator='auto'` gate (`_synergy_detector.detect_synergy`) address this; see `filters/fleuret.py:4-9` and the benchmarked-decision note there. When `{Z1, Z2, Z3}` are noisy reflections of one latent `z`, each gives `I(X;Y|Z_k) ≈ I(X;Y|z)`, so plain-Fleuret's `min_k` underestimates the true conditional MI exactly when there is **most** redundancy to clean up — Brown et al. 2012 ([JMLR](https://jmlr.org/papers/v13/brown12a.html)) show CMIM (`min_k`) is dominated by **JMI** (`sum_k I(X, Z_k; Y)`) on small samples, motivating the JMIM fix.
 
 - **Two incompatible redundancy thresholds for the same edge.** Friend graph uses an MI **significance** floor only. Cluster-aggregate requires **both** `|corr| >= 0.6` and the same MI floor. A non-linear functional dependency `Y=f(X)` with `corr ~ 0` passes friend-graph but is **rejected** by cluster-aggregate. The "shared primitive" claim hides a semantic split.
 
@@ -188,7 +188,7 @@ The friend graph and cluster-aggregate paths share the `pairwise_mi_edge` primit
 
 - **Threshold values are dev-machine constants.** `corr_threshold=0.6`, `homogeneity_tau=0.6`, `garbage_min_degree=3`, `unique_ratio=1.0` are hardcoded defaults with no data-driven calibration. Per the project memory's `kernel_tuning_cache` rule, these should route through a calibration cache.
 
-- **No protection against synergy destruction.** The Fleuret `min` criterion rejects synergistic pairs (acknowledged in `fleuret.py:4-7`). Brown 2012 reports JMI / JMIM keeps synergies because they sum the joint `I(X,Z;Y)` rather than minimize a conditional.
+- ~~**No protection against synergy destruction.**~~ — **shipped**: plain-Fleuret's `min` criterion does reject synergistic pairs on its own (acknowledged in `fleuret.py:4-7`), but `redundancy_aggregator='jmim'`/`'auto'` (same fix as above) keeps synergies because JMI/JMIM sum the joint `I(X,Z;Y)` rather than minimize a conditional (Brown 2012), and the benchmarked `auto` gate routes to it exactly when synergy is detected.
 
 - **Friend-graph "sink" detection scales O(k²) and skips when k > 200**. For typical MRMR runs that select 100-300 features this is just barely on — it silently degrades to "node stats only" with no clustering output. There is no fallback to a sparse k-NN graph (Roffo 2017 ICCV recommends keeping only top-k edges per node).
 
