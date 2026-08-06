@@ -38,27 +38,13 @@ logger = logging.getLogger(__name__)
 def _validate_trusted_path(path: str, trusted_root: str | None) -> None:
     """Raise ValueError if ``path`` is not inside ``trusted_root`` (absolute commonpath check).
 
-    Matches the convention used in ``mlframe.inference.predict.read_trained_models``. Callers that
-    want to disable the check must pass ``trusted_root=None`` explicitly; that is only
-    appropriate for internally-produced cache files (the default posture refuses silently
-    loading untrusted pickles).
+    Thin re-export of the single shared implementation (``mlframe.core.helpers.validate_trusted_path``)
+    so existing call sites in this module keep working unchanged; see that function's docstring for the
+    fail-closed contract.
     """
-    import os as _os
+    from mlframe.core.helpers import validate_trusted_path as _validate
 
-    if trusted_root is None:
-        raise ValueError(
-            "trusted_root is required for joblib.load() of cached model files. "
-            "Pass an absolute directory under which cached artifacts are stored, "
-            "or set it to the containing directory of the file being loaded."
-        )
-    abs_root = _os.path.abspath(trusted_root)
-    abs_path = _os.path.abspath(path)
-    try:
-        common = _os.path.commonpath([abs_root, abs_path])
-    except ValueError as exc:
-        raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}") from exc
-    if common != abs_root:
-        raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}")
+    _validate(path, trusted_root)
 
 
 logger = logging.getLogger(__name__)

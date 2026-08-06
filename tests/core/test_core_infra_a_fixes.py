@@ -159,8 +159,26 @@ def test_f4_gridsearch_dump_round_trips_through_replay(tmp_path):
     fname = tmp_path / "cv_results-audit_t.dump"
     assert fname.exists()
     assert (tmp_path / (fname.name + ".sha256")).exists(), "write_sidecar was not called after joblib.dump"
-    out = replay_cv_results(str(fname))
+    # X_SECURITY_ROBUSTNESS-3: trusted_root is now required (no silent narrow-to-dirname default, which
+    # made the containment check a no-op) -- pass it explicitly.
+    out = replay_cv_results(str(fname), trusted_root=str(tmp_path))
     assert "results" in out
+
+
+def test_f4c_replay_cv_results_requires_explicit_trusted_root(tmp_path):
+    """X_SECURITY_ROBUSTNESS-3: omitting trusted_root must raise, not silently narrow the containment
+    check to fname's own directory (a no-op that defeated the guard for every caller relying on the
+    old default)."""
+
+    def fake_cv_func(X, Y, title, **constants):
+        """Fake CV function returning canned results for the dump/replay round trip."""
+        return {"results": {"cv_results": {"model_a": {"metrics": {"root_mean_squared_error": [0.1]}}}}}
+
+    optimize_pipeline_by_gridsearch(X=None, Y=None, title="audit_t3", cv_func=fake_cv_func, output_dir=str(tmp_path))
+    fname = tmp_path / "cv_results-audit_t3.dump"
+    assert fname.exists()
+    with pytest.raises(ValueError, match="trusted_root is required"):
+        replay_cv_results(str(fname))
 
 
 def test_f4b_replay_cv_results_explicit_trusted_root_blocks_escape(tmp_path):

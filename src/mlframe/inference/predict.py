@@ -159,17 +159,13 @@ def read_trained_models(
     # Containment check runs ALWAYS: when the caller passes no trusted_root, default it to
     # inference_folder so a malicious featureset ("../.." or an absolute path) cannot escape and make
     # read_trained_models joblib.load an arbitrary pickle. The intended model dir is always inside
-    # inference_folder, so this never rejects a legitimate call.
-    abs_root = os.path.abspath(trusted_root if trusted_root is not None else inference_folder)
-    abs_fpath = os.path.abspath(fpath)
-    try:
-        common = os.path.commonpath([abs_root, abs_fpath])
-    except ValueError as e:
-        # preserve the original ValueError ("Paths don't have the same drive" on Windows) via `from e`
-        # so cross-drive root mismatches don't masquerade as path-traversal.
-        raise ValueError(f"Path {abs_fpath} is not inside trusted_root {abs_root}") from e
-    if common != abs_root:
-        raise ValueError(f"Path {abs_fpath} is not inside trusted_root {abs_root}")
+    # inference_folder, so this never rejects a legitimate call. Delegates the actual commonpath check to
+    # the single shared implementation (mlframe.core.helpers.validate_trusted_path) so this call site
+    # can't independently drift from the other three in the codebase -- only the effective-root
+    # substitution above (inference_folder, a genuinely narrow/safe default) stays local to this function.
+    from mlframe.core.helpers import validate_trusted_path as _validate_trusted_path
+
+    _validate_trusted_path(fpath, trusted_root if trusted_root is not None else inference_folder)
     if not isdir(fpath):
         return models, X
 

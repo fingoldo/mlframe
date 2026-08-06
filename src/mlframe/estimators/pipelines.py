@@ -93,19 +93,15 @@ def replay_cv_results(fname: str, trusted_root: Optional[str] = None):
     """Visualize CV results from stored dump file.
 
     ``fname`` must resolve inside ``trusted_root`` (path-traversal guard ahead of
-    ``joblib.load``). When not provided, ``trusted_root`` defaults to ``fname``'s own
-    containing directory -- matching every sibling ``joblib.load`` call site's
-    fail-closed-by-default convention (e.g. ``training._trainer_train_and_evaluate``),
-    rather than skipping the containment check entirely.
+    ``joblib.load``), via the single shared implementation
+    (``mlframe.core.helpers.validate_trusted_path``) every ``joblib.load``/``dill.load`` call site in the
+    codebase uses. ``trusted_root`` is REQUIRED (no default): a prior default of ``fname``'s own
+    containing directory made the containment check a no-op (a path's own dirname trivially "contains"
+    it), silently defeating the guard for every caller that didn't pass ``trusted_root`` explicitly.
     """
-    abs_fname = os.path.abspath(fname)
-    abs_root = os.path.abspath(trusted_root) if trusted_root is not None else os.path.dirname(abs_fname)
-    try:
-        common = os.path.commonpath([abs_root, abs_fname])
-    except ValueError:
-        raise ValueError(f"Path {abs_fname} is not inside trusted_root {abs_root}")
-    if common != abs_root:
-        raise ValueError(f"Path {abs_fname} is not inside trusted_root {abs_root}")
+    from mlframe.core.helpers import validate_trusted_path as _validate_trusted_path
+
+    _validate_trusted_path(fname, trusted_root)
     if not _verify_sidecar(fname):
         raise ValueError(f"sha256 sidecar mismatch for {fname}; refusing to load")
     # Trusts the sha256 sidecar verified just above: integrity/corruption gate, NOT authenticity (an attacker with dir write access rewrites both).

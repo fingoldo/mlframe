@@ -207,20 +207,13 @@ def _drop_cols_df(df, cols):
 
 
 def _validate_trusted_path(path: str, trusted_root):
-    """Raise ValueError if ``path`` is not inside ``trusted_root``; gates ``joblib.load`` to limit arbitrary-code-execution surface."""
-    import os as _os
-    if trusted_root is None:
-        raise ValueError(
-            "trusted_root is required for joblib.load() of metadata files. Pass an " "absolute directory under which the metadata artifact is stored."
-        )
-    abs_root = _os.path.abspath(trusted_root)
-    abs_path = _os.path.abspath(path)
-    try:
-        common = _os.path.commonpath([abs_root, abs_path])
-    except ValueError:
-        raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}") from None
-    if common != abs_root:
-        raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}")
+    """Raise ValueError if ``path`` is not inside ``trusted_root``; gates ``joblib.load`` to limit arbitrary-code-execution surface.
+
+    Thin re-export of the single shared implementation (``mlframe.core.helpers.validate_trusted_path``).
+    """
+    from mlframe.core.helpers import validate_trusted_path as _validate
+
+    _validate(path, trusted_root)
 
 
 def _df_shape_str(df) -> str:

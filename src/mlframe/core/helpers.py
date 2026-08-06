@@ -11,8 +11,36 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 
 logger = logging.getLogger(__name__)
+
+
+def validate_trusted_path(path: str, trusted_root: "str | None") -> None:
+    """Raise ``ValueError`` unless ``path`` resolves inside ``trusted_root`` (absolute commonpath check).
+
+    Single shared implementation of the path-traversal guard every ``joblib.load``/``dill.load`` call
+    site in the codebase needs ahead of deserializing a pickle from a caller-influenced path. Previously
+    reimplemented independently in four separate files with subtly different fail-open/fail-closed
+    defaults when ``trusted_root`` was omitted -- two raised (fail-closed), one silently narrowed to the
+    file's OWN containing directory (a no-op check: a path's dirname always "contains" the path), making
+    it easy for a future call site to copy the weaker variant. This helper is fail-closed only:
+    ``trusted_root=None`` always raises: callers must pass an explicit trusted directory, or pass the
+    file's own directory explicitly if that's genuinely the intended (weak) boundary -- never an implicit
+    default silently narrows the check.
+    """
+    if trusted_root is None:
+        raise ValueError("trusted_root is required for joblib.load()/dill.load() of a caller-influenced path. Pass an absolute trusted directory.")
+    abs_root = os.path.abspath(trusted_root)
+    abs_path = os.path.abspath(path)
+    try:
+        common = os.path.commonpath([abs_root, abs_path])
+    except ValueError as exc:
+        # e.g. "Paths don't have the same drive" on Windows -- preserve the original cause so a
+        # cross-drive root mismatch doesn't masquerade as a generic path-traversal rejection.
+        raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}") from exc
+    if common != abs_root:
+        raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}")
 
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
