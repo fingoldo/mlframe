@@ -343,7 +343,13 @@ def preprocess_dataframe(
         # Walk dtypes positionally instead so the column-by-name lookup never
         # fires on duplicates - the dedicated dup-column raise downstream
         # handles surfacing the real error to the caller.
-        _string_cols = [c for c, _dt in zip(df.columns, df.dtypes) if isinstance(_dt, pd.StringDtype)]
+        # is_string_dtype (not isinstance(_dt, pd.StringDtype)): some pandas versions/configs infer a
+        # DIFFERENT numpy-backed "str" dtype by default for plain-string columns (not an instance of
+        # the nullable pd.StringDtype class), which the narrower isinstance check silently missed --
+        # is_string_dtype is pandas' own general-purpose test and covers both. Excludes plain object
+        # dtype explicitly since those columns are already what this loop normalises TO (a no-op that
+        # would otherwise re-astype every object-dtype string column for nothing).
+        _string_cols = [c for c, _dt in zip(df.columns, df.dtypes) if pd.api.types.is_string_dtype(_dt) and not pd.api.types.is_object_dtype(_dt)]
         if _string_cols:
             # Shallow copy: only StringDtype columns are recast below; deep-copying a 100+ GB frame to normalise a few columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
             df = df.copy(deep=False)
