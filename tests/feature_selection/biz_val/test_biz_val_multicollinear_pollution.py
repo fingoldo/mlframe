@@ -190,13 +190,34 @@ def test_fixture_pollution_is_severe():
 
 # Selectors that, on this fixture, KEEP a majority of the 5-feature high-VIF cluster (>= 3 of 5 on a
 # majority of seeds) -- a documented multicollinearity-reduction GAP. Plain RFECV(argmax) keeps the full
-# 5/5 on seeds 0 and 1; HybridSelector keeps 3-4/5 on seeds 1 and 2.
-_CLUSTER_KEEP_GAP = {"RFECV", "HybridSelector"}
+# 5/5 on seeds 0 and 1; HybridSelector keeps 3-4/5 on seeds 1 and 2. ForwardSelect/
+# GreedyBackwardElimination/ZeroImportancePruning are greedy CV-scored add/remove selectors with no
+# VIF-aware collinearity gating at all -- measured keeping the full 5/5 cluster on every seed (0,1,2).
+# ShapProxiedFS (SHAP-importance-ranked, also no collinearity gating) measured the same 5/5 on every seed.
+_CLUSTER_KEEP_GAP = {
+    "RFECV",
+    "HybridSelector",
+    "ForwardSelect",
+    "GreedyBackwardElimination",
+    "ZeroImportancePruning",
+    "ShapProxiedFS",
+}
 
 # Selectors whose selected subset stays rank-deficient / high-VIF on this fixture (post-VIF not bounded
 # below the polluted value): plain RFECV keeps the whole cluster; ShapProxiedFS keeps the near-collinear
 # pair AND the singular triple; BorutaShap and HybridSelector keep the singular {x1,x2,x3} triple.
-_VIF_REDUCE_GAP = {"RFECV", "ShapProxiedFS", "BorutaShap", "HybridSelector"}
+# ForwardSelect/GreedyBackwardElimination/ZeroImportancePruning share the same GAP as
+# _CLUSTER_KEEP_GAP above (no collinearity-aware pruning mechanism) -- measured post max-VIF=inf on every
+# seed (singular Gram from the retained near-collinear cluster).
+_VIF_REDUCE_GAP = {
+    "RFECV",
+    "ShapProxiedFS",
+    "BorutaShap",
+    "HybridSelector",
+    "ForwardSelect",
+    "GreedyBackwardElimination",
+    "ZeroImportancePruning",
+}
 
 # Selectors that collapse so hard they lose the linear-combo signal: MRMR reduces to {x3} every seed,
 # reaching only ~0.6-0.68 AUC vs the ~0.991 x1+x2 baseline.

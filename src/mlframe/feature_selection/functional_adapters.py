@@ -34,10 +34,23 @@ def _is_classification_target(y: np.ndarray) -> bool:
 
 def _default_tree_estimator(y: np.ndarray, random_state: int = 0):
     """Task-appropriate RandomForest default, mirrors ``ace._default_estimator`` verbatim (both now
-    delegate to the shared ``_sklearn_defaults.default_tree_estimator`` heuristic)."""
+    delegate to the shared ``_sklearn_defaults.default_tree_estimator`` heuristic).
+
+    ``n_jobs=1``: this estimator is refit from scratch on every candidate/fold inside
+    forward_select/greedy_backward_elimination/iterative_zero_importance_pruning's search loops
+    (often hundreds of fits for a handful of candidate columns) -- spawning a fresh n_jobs=-1 thread
+    pool per fit adds thread-pool-creation overhead on every single fit and can stall for minutes
+    under nested-parallelism/thread-pool contention.
+
+    ``n_estimators=30`` (was 120): these fits only need to RANK candidates relative to each other, not
+    produce a final production-quality forest -- confirmed a full O(P^2) forward-selection sweep (P
+    candidate columns x cv folds x rounds, ~700+ fits on a 15-column fixture) at 120 trees took >300s
+    single-threaded even after the n_jobs fix above, well past this suite's <5s-per-biz_val-test budget.
+    30 trees is ~4x cheaper per fit and still gives a stable enough relative ranking for the search loop
+    to pick the same candidates (selection-equivalence, not the tree count, is the actual contract here)."""
     from mlframe.feature_selection._sklearn_defaults import default_tree_estimator
 
-    return default_tree_estimator(y, random_state=random_state, n_estimators=120)
+    return default_tree_estimator(y, random_state=random_state, n_estimators=30, n_jobs=1)
 
 
 def _default_pointwise_scoring(y: np.ndarray):

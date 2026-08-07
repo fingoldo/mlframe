@@ -17,6 +17,7 @@ import numpy as np
 import polars as pl
 
 from mlframe.feature_engineering.transformer._utils import require_seed, validate_numeric_input
+from mlframe.feature_engineering.transformer.fisher_weighted_residual import _oof_train_predictions
 
 logger = logging.getLogger(__name__)
 
@@ -82,21 +83,25 @@ def compute_fisher_weighted_residual_features(
         if task == "binary":
             model = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
                                        random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t.astype(np.int32))
-            p_train = model.predict_proba(Xt_s)[:, 1].astype(np.float32)
             p_query = model.predict_proba(Xq_s)[:, 1].astype(np.float32)
             is_binary = True
-            # Residual proxy: -log p(y|x) per train row.
-            p_train_c = np.clip(p_train, 1e-6, 1 - 1e-6)
+            # Residual proxy: -log p(y|x) per train row, from OOF predictions (matches the current
+            # production code's leakage fix -- see fisher_weighted_residual._oof_train_predictions;
+            # this baseline snapshot pins the pre-batching PREDICT mechanism only, not the pre-leakage-fix
+            # formula, so both must share this identically or the batching-identity test conflates the two).
+            p_train_oof = _oof_train_predictions(Xt_s, y_t, is_binary, fold_seed)
+            p_train_c = np.clip(p_train_oof, 1e-6, 1 - 1e-6)
             resid_train = (-y_t * np.log(p_train_c) - (1 - y_t) * np.log(1 - p_train_c)).astype(np.float32)
             # Query "residual proxy": entropy of prediction (uncertainty).
             p_query_c = np.clip(p_query, 1e-6, 1 - 1e-6)
             resid_query = (-p_query_c * np.log(p_query_c) - (1 - p_query_c) * np.log(1 - p_query_c)).astype(np.float32)
         else:
             model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
-            p_train = model.predict(Xt_s).astype(np.float32)
             p_query = model.predict(Xq_s).astype(np.float32)
             is_binary = False
-            resid_train = np.abs(y_t - p_train).astype(np.float32)
+            # Residual proxy from OOF predictions -- see note on the classification branch above.
+            p_train_oof = _oof_train_predictions(Xt_s, y_t, is_binary, fold_seed)
+            resid_train = np.abs(y_t - p_train_oof).astype(np.float32)
             # Query residual proxy: prediction variance proxy = |p_query - train_y_median|
             resid_query = np.abs(p_query - float(np.median(y_t))).astype(np.float32)
 

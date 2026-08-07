@@ -78,7 +78,11 @@ def _recovery(sel, signal):
     ceilings were calibrated on); only the recovery credit is widened to honour the
     documented "credits engineered survivors" contract."""
     raw_names = list(selected_names(sel))
-    names_in = set(getattr(sel, "feature_names_in_", []) or [])
+    # feature_names_in_ is a numpy ndarray on a fitted sklearn estimator -- `arr or []`
+    # forces bool() on a multi-element array and raises "truth value... ambiguous"
+    # instead of the intended "fall back to empty when unset" short-circuit.
+    _fni = getattr(sel, "feature_names_in_", None)
+    names_in = set(_fni) if _fni is not None else set()
     engineered = [n for n in sel.get_feature_names_out() if n not in names_in]
     sig = set(int(i) for i in signal)
     got: set = set()

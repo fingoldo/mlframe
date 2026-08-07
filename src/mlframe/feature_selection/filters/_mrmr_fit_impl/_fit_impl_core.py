@@ -3065,10 +3065,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _miss_ind_pre_recipes: dict = {}
     _miss_cnt_pre_recipes: dict = {}
     _miss_pat_pre_recipes: dict = {}
+    # Unlike every other fe_*_enable family, missingness indicator/count/pattern are not a FE SEARCH step
+    # consuming the fe_max_steps budget - each is a deterministic, explicit-opt-in-only static derivation
+    # from the input's own NaN structure (no candidate scan, no round-trip cost the budget was meant to
+    # bound). Deliberately checked directly (not via _fe_family_on, which requires fe_max_steps>0) so
+    # ``fe_max_steps=0`` + an explicit fe_missingness_*_enable=True still emits the requested column(s) -
+    # exactly the "disable the FE search but keep this one explicit static feature" contract callers rely on.
     if (
-        _fe_family_on("fe_missingness_indicator_enable", False)
-        or _fe_family_on("fe_missingness_count_enable", False)
-        or _fe_family_on("fe_missingness_pattern_enable", False)
+        bool(getattr(self, "fe_missingness_indicator_enable", False))
+        or bool(getattr(self, "fe_missingness_count_enable", False))
+        or bool(getattr(self, "fe_missingness_pattern_enable", False))
     ):
         # Missingness indicator/count/pattern read whole-column NaN structure (no closed-form subsample-replay), so they
         # need the full frame: gate the materialisation on size and skip a > ~2 GiB polars frame (CLAUDE.md eager rule).
@@ -3126,7 +3132,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 return [c for c in auto_detect_missing_cols(fe_to_pandas(X)) if c not in _engineered_seen_l37]
 
             # ----- Per-column indicator ------------------------------------
-            if _fe_family_on("fe_missingness_indicator_enable", False):
+            if bool(getattr(self, "fe_missingness_indicator_enable", False)):
                 try:
                     _ind_cols = _resolve_missing_cols(getattr(self, "fe_missingness_indicator_cols", ()))
                     _X_before_ind_cols = list(X.columns)
@@ -3163,7 +3169,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     )
 
             # ----- Per-row missingness count -------------------------------
-            if _fe_family_on("fe_missingness_count_enable", False):
+            if bool(getattr(self, "fe_missingness_count_enable", False)):
                 try:
                     _cnt_cols = _resolve_missing_cols(getattr(self, "fe_missingness_indicator_cols", ()))
                     _X_before_mc_cols = list(X.columns)
@@ -3192,7 +3198,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     )
 
             # ----- Per-row top-K pattern -----------------------------------
-            if _fe_family_on("fe_missingness_pattern_enable", False):
+            if bool(getattr(self, "fe_missingness_pattern_enable", False)):
                 try:
                     _pat_cols = _resolve_missing_cols(getattr(self, "fe_missingness_indicator_cols", ()))
                     _top_k = int(getattr(self, "fe_missingness_pattern_top_k", 5))
