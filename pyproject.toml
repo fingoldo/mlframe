@@ -402,8 +402,8 @@ dev = [
     "coverage>=7.2",
     "hypothesis>=6.80",
     "freezegun>=1.2",             # frozen-time fixtures in tests/perf and tests/training calibration suites
-    "ruff==0.15.22",               # pinned exact, matching .pre-commit-config.yaml's ruff-pre-commit rev AND
-                                    # CI's `uvx ruff==0.15.22` (py-ci-shared's ruff-blocking.yml) -- an open range
+    "ruff==0.16.1",               # pinned exact, matching .pre-commit-config.yaml's ruff-pre-commit rev AND
+                                    # CI's `uvx ruff==0.16.1` (py-ci-shared's ruff-blocking.yml) -- an open range
                                     # here is exactly how the prior v0.8.6 pre-commit-vs-CI drift went unnoticed
                                     # (2026-07-18); this exact stale-pin-drift class recurred once already (this
                                     # pin drifted to 0.16.0 while the other two stayed at 0.15.22, found 2026-08-05).
