@@ -18,7 +18,7 @@ import os
 import threading
 import warnings
 from collections import OrderedDict
-from typing import Any, Callable, ClassVar, Iterable, NoReturn, Optional, Sequence, cast
+from typing import Any, Callable, ClassVar, Iterable, MutableMapping, NoReturn, Optional, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -264,6 +264,13 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
     # (must never appear in ``get_params()``/``clone()``); declared here at class scope only so mypy
     # resolves the attribute.
     _skip_fit_cache: bool = False
+
+    # External provenance-recording hook: not a constructor param (MRMR is a standalone selector with no
+    # suite-level metadata dict of its own), a caller wanting fit provenance tracked sets
+    # ``instance._provenance_sink_ = suite_metadata_dict`` before calling ``fit()``; ``record_provenance``
+    # is a documented no-op when its sink is ``None``. Declared here (default ``None``) purely so
+    # mypy/static-analysis see this as a known attribute, not an undeclared getattr default.
+    _provenance_sink_: Optional[MutableMapping[str, Any]] = None
 
     # Fast-search sub-knob overrides applied for the duration of a fit when ``fe_fast_search=True``.
     # Each entry is (attr, fast_value). The override is applied ONLY when the current attr value still
@@ -1198,6 +1205,10 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         cat_fe_config=None,
         # Bound on the process-wide _FIT_CACHE. Strong refs hold every fitted MRMR; long-lived workers (web services, JupyterHub kernels) leaked memory unboundedly pre-2026-05-15. Default 4 covers a typical model suite (RFECV+MRMR x catboost+linear+mlp) without thrashing.
         fit_cache_max: int = 4,
+        # Byte-size cap on top of fit_cache_max (a 1k-feature suite carrying 4 cached MRMR instances can
+        # exceed 1 GB of process RSS). ``None`` (default) falls back to the ``MLFRAME_MRMR_FIT_CACHE_MAX_MB``
+        # env var (default 1024 MB); set explicitly for a per-instance override.
+        fit_cache_max_mb: Optional[float] = None,
         # #5: adaptive FE threshold relaxation. When the first-pass
         # FE produces 0 engineered features (typically because pair-level MI
         # is near the individual-MI sum on heavily-correlated features and

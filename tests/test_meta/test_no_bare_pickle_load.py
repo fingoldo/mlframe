@@ -42,7 +42,7 @@ WHITELIST_LINES: set[tuple[str, int]] = {
     # pkl.zst metadata loaders verify the on-disk sidecar via verify_sidecar(file, allow_unverified=True)
     # immediately above the loads() of the in-memory zstd-decompressed bytes.
     ("src/mlframe/training/core/predict.py", 697),
-    ("src/mlframe/training/core/_predict_main_suite.py", 167),
+    ("src/mlframe/training/core/_predict_main_suite.py", 168),
 }
 
 # TODO(next-PR): migrate to safe_pickle.safe_load + write_sidecar on writers; tracked by W7 scope-out.

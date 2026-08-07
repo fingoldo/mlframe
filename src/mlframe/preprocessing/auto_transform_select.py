@@ -85,7 +85,7 @@ def _fit_transform_fold(x: np.ndarray, transform_name: str, train_idx: np.ndarra
         f = lambda a: np.asarray(np.sign(a) * np.log1p(np.abs(a)), dtype=np.float64)  # noqa: E731
         return f(x_train), f(x_test)
     if transform_name == "rankgauss":
-        from mlframe.feature_selection.filters._extra_fe_families import apply_rankgauss, engineered_name_rankgauss
+        from mlframe.feature_selection.filters import apply_rankgauss, engineered_name_rankgauss
 
         enc_df, recipes = generate_rankgauss_features(pd.DataFrame({"c": x_train}), ["c"])
         train_out = np.asarray(enc_df.iloc[:, 0].to_numpy(), dtype=np.float64)

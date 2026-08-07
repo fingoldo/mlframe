@@ -93,7 +93,7 @@ repos:
   # rate is near-zero after the de-star cleanup (F821/F822 are genuine bugs).
   # Stylistic rules (format, import order, naming) are WARN-ONLY via format-lint-warn.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.22
+    rev: v0.16.1
     hooks:
       - id: ruff
         name: "ruff (real bugs block)"
@@ -172,7 +172,7 @@ repos:
   # ``format-lint-warn`` hook below. Apply explicitly with
   # ``pre-commit run --hook-stage manual ruff`` / ``... ruff-format`` / ``... black``.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.22
+    rev: v0.16.1
     hooks:
       - id: ruff
         args: ['--fix']
@@ -427,7 +427,7 @@ repos:
   # src/mlframe and tests together to be meaningful (see the vulture-blocking note above) and
   # deptry is whole-project regardless of which subtree changed -- both are already covered.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.22
+    rev: v0.16.1
     hooks:
       - id: ruff
         name: "ruff tests/ (real bugs block)"

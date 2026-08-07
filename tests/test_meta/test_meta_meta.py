@@ -53,6 +53,10 @@ _PERMITTED_PRIVATE_IMPORTS: set[str] = {
     # is part of the test's purpose.
     # log_only_except / baseline-debt wave regression tests touching a private helper directly --
     # each one is a targeted regression test for that exact function, not reachable via the public API.
+    # FS_BENCHMARKS_A-1: regression test pinning that _datasets' consumable bindings (SCENARIOS,
+    # make_scenario_data, ...) are real module-level attributes, not trapped inside an
+    # `if __name__ == "__main__":` guard -- the private module IS the surface under test.
+    "test_benchmarks_datasets_importable::mlframe.feature_selection._benchmarks._datasets",
     "test_broad_except_logging_gpu_ktc_and_composite_models::mlframe.data_valuation._propagate_gpu_ktc",
     "test_broad_except_logging_gpu_ktc_and_composite_models::mlframe.inference._ktc_dispatch",
     "test_broad_except_logging_gpu_ktc_and_composite_models::mlframe.training._eval_helpers._append_split_rate_suffix",

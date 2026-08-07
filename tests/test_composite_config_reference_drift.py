@@ -55,7 +55,10 @@ def test_committed_doc_matches_generated():
     # Compare CONTENT, not line endings: git may check the committed .md out as LF while the generator emits
     # the platform EOL (CRLF on Windows). EOL is git's concern (.gitattributes), so normalise both sides -- this
     # keeps the sensor cross-platform while still catching any real field/text drift.
-    committed = _DOC_PATH.read_text(encoding="utf-8", newline="").replace("\r\n", "\n")
+    # Path.read_text's own newline= param needs py3.13+ (this repo's floor is py39); open() has always
+    # accepted it, so read through that instead.
+    with open(_DOC_PATH, encoding="utf-8", newline="") as _f:
+        committed = _f.read().replace("\r\n", "\n")
     generated = module.render_markdown().replace("\r\n", "\n")
     assert (
         committed == generated

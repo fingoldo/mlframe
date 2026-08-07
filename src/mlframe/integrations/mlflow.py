@@ -160,7 +160,12 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: Optional[str] = None,
                     # mlflow might raise -- fall back to a plain RuntimeError if reconstruction fails.
                     try:
                         scrubbed_exc: BaseException = type(e)(scrubbed)
-                    except Exception:
+                    except Exception as _reconstruct_exc:
+                        logger.debug(
+                            "mlflow start_run: could not reconstruct %s with a single-string arg (%s); " "falling back to RuntimeError.",
+                            type(e).__name__,
+                            _reconstruct_exc,
+                        )
                         scrubbed_exc = RuntimeError(scrubbed)
                     raise scrubbed_exc from e
             else:

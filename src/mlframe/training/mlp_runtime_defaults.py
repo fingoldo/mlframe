@@ -332,6 +332,9 @@ _TRAIN_DTYPE_BYTES: int = 4
 # resolved batch_size (65536 -> 1024 across 8 MLP trainings on identical data shape).
 # Cache the FIRST probe per mode so all subsequent auto-batch resolutions in one process share a
 # stable memory budget. Set ``MLFRAME_FORCE_REPROBE=1`` to bypass.
+# No lock: every access below is a single dict get/set, atomic under the GIL. A concurrent-thread race
+# on a cold cache_key can only cause a benign duplicate probe (both threads compute, last write wins) --
+# never a torn/partial read, since there is no read-modify-write step spanning the check and the write.
 _PROBE_MEM_CACHE: dict[str, int] = {}
 
 

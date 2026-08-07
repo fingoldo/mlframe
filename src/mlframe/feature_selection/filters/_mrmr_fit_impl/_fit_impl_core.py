@@ -7924,12 +7924,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # string/categorical raw can never enter the PC1/Pearson aggregate - it would raise
             # "could not convert string to float" in the swap's combiner - and is not a numeric
             # duplicate cluster anyway), in selection order.
-            _num_cols_dcd = set(getattr(self, "numeric_features_in_", None) or [])
+            # NUMERIC-only is enforced below via the dtype check directly (no `numeric_features_in_`
+            # attribute exists on MRMR to cross-check against - a prior getattr(..., None) here always
+            # silently returned the default and was a dead no-op, per code_audit's getattr_unknown_attribute).
             _sel_raw_dcd = [
-                int(v) for v in selected_vars
-                if 0 <= int(v) < _mask_w0 and cols[int(v)] in _raw_name_set_dcd
-                and (not _num_cols_dcd or cols[int(v)] in _num_cols_dcd)
-                and np.issubdtype(np.asarray(data[:, int(v)]).dtype, np.number)
+                int(v)
+                for v in selected_vars
+                if 0 <= int(v) < _mask_w0 and cols[int(v)] in _raw_name_set_dcd and np.issubdtype(np.asarray(data[:, int(v)]).dtype, np.number)
             ]
             _newly_pruned_dcd: set = set()
             _did_swap_dcd = False
@@ -9740,7 +9741,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 import re as _re_aug
                 _eng_names = []
                 for _r in self._engineered_recipes_ or []:
-                    _nm = getattr(_r, "output_name", None) or getattr(_r, "name", None) or (_r.get("name") if isinstance(_r, dict) else None)
+                    # EngineeredRecipe's real field is `name` (`output_name` is not an attribute of any
+                    # recipe class here); the dict fallback covers plain-dict recipe representations.
+                    _nm = getattr(_r, "name", None) or (_r.get("name") if isinstance(_r, dict) else None)
                     if _nm:
                         _eng_names.append(str(_nm))
                 _eng_tokens = set()

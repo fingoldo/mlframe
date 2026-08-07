@@ -48,7 +48,7 @@ Usage:
 from __future__ import annotations
 
 import os
-from typing import Callable, Iterable, Literal, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Iterable, Literal, Optional, Sequence, Tuple, Union
 
 from hypothesis import HealthCheck, settings, strategies as st
 import polars as pl
@@ -408,7 +408,7 @@ def prod_like_frame_small(
 # example from the same building blocks so simple tests can reuse them too.
 
 
-def constant_series(name: str, dtype: "pl.DataType | pl.datatypes.DataTypeClass", value, *, length: int = 10) -> pl.Series:
+def constant_series(name: str, dtype: "pl.DataType | pl.datatypes.DataTypeClass", value: Any, *, length: int = 10) -> pl.Series:
     """A concrete, deterministic all-``value`` column -- eager counterpart of :func:`constant_column`."""
     return pl.Series(name, [value] * length, dtype=dtype)
 
