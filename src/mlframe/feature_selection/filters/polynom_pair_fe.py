@@ -376,7 +376,16 @@ def run_polynom_pair_fe(
             )
 
         best_res = None
+        from ._fe_deadline import fe_deadline_passed
+
         for seed_offset in range(fe_smart_polynom_iters):
+            # Optional-enrichment wall-clock budget: stop the multi-seed re-optimisation for this pair
+            # once MRMR.fit's deadline passes; keep the best result found so far. No-op without a budget.
+            # Only visible when this runs on the main thread (n_jobs=1, e.g. this project's profiling
+            # harness) - the thread-local deadline does not cross a joblib worker boundary by design (see
+            # _fe_deadline.py's docstring), same documented constraint its other 3 consumers already have.
+            if fe_deadline_passed():
+                break
             res = optimise_hermite_pair(
                 x_a=vals_a_sub, x_b=vals_b_sub, y=classes_y_sub,
                 discrete_target=True,

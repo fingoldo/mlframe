@@ -62,6 +62,35 @@ def test_clear_fe_deadline_resets_state():
     assert fe_deadline_passed() is False
 
 
+def test_mrmr_fit_clears_deadline_after_run():
+    """Regression test (2026-08-05): MRMR.fit's outer fit() wrapper sets a deadline (when
+    max_runtime_mins is not None) inside _fit_impl but historically NOTHING ever called
+    clear_fe_deadline() afterward, despite _fe_deadline.py's own docstring claiming it was "cleared in a
+    finally" - the deadline silently persisted as a stale absolute timestamp for the rest of the
+    process/thread, so once the timestamp elapsed EVERY later fe_deadline_passed() consumer (including an
+    unrelated later MRMR.fit call with max_runtime_mins=None, or any other code on the same thread) saw a
+    spuriously-expired budget. Caught live via cross-test flakiness once more FE families started
+    consulting fe_deadline_passed(). Pins that a fit with a (already-elapsed, to make the assertion fast)
+    max_runtime_mins leaves NO deadline behind once fit() returns."""
+    import numpy as np
+    import pandas as pd
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    clear_fe_deadline()
+    rng = np.random.default_rng(0)
+    n = 200
+    X = pd.DataFrame({f"c{i}": rng.standard_normal(n) for i in range(5)})
+    y = (rng.standard_normal(n) > 0).astype(int)
+
+    # A budget so small it is already exceeded by the time _fit_impl checks it - exercises the
+    # set-a-real-deadline path without slowing the test down.
+    m = MRMR(max_runtime_mins=1e-9)
+    m.fit(X, y)
+
+    assert fe_deadline_passed() is False, "MRMR.fit must clear its FE deadline before returning, not leak it"
+    assert fe_budget_active() is False, "MRMR.fit must clear its FE deadline before returning, not leak it"
+
+
 def test_deadline_isolated_per_thread():
     """The deadline is a THREAD-LOCAL: setting it on the main thread must not be visible on another
     thread (mirrors the module's own documented contract that a future joblib-worker consumer would

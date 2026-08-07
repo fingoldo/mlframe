@@ -1,5 +1,6 @@
 """Thread-local wall-clock deadline for the OPTIONAL pre-FE enrichment generators (orthogonal/extra-basis univariate FE,
-pair-cross FE). MRMR.fit honours ``max_runtime_mins`` at the FE-loop level (between steps) and now also gates each
+pair-cross FE, hermite, wavelet, hinge, binned_numeric_agg, pairwise_modular, conditional_gate, cat_interactions,
+target_encoding). MRMR.fit honours ``max_runtime_mins`` at the FE-loop level (between steps) and now also gates each
 enrichment stage before it starts, but a SINGLE enrichment stage on a wide frame can itself run far past a tiny budget
 (measured: the orthogonal extra-basis + pair-cross pass alone is tens of seconds at p>=120). Those stages run BEFORE the
 budget is spent, so a before-start gate cannot stop them - they need an INTERNAL per-column / per-pair deadline check.
@@ -9,18 +10,26 @@ threading a parameter through every call site. The deadline is advisory and scop
 the core screen / greedy-selection MI is never gated here, so an aborted enrichment pass still leaves screen free to
 produce a usable partial selection (the budget contract: abort early AND expose a non-empty ``support_``).
 
-A thread-local is sufficient because all three ``fe_deadline_passed()`` consumers - the orthogonal univariate / pair-cross /
-extra-basis generators - run INLINE on the MAIN thread inside ``_mrmr_fit_impl._fit_impl_core`` (the same thread that calls
-``set_fe_deadline``), not inside a joblib worker. The joblib ``backend="threading"`` blocks in the FE path (the
-``check_prospective_fe_pairs`` pair-search and the ``_confirm_predictor`` greedy step) do NOT consult this deadline - they
-carry their own budget - so the thread-local never needs to cross a worker boundary. If a future change moves an enrichment
-generator into a joblib worker, the deadline MUST be forwarded as an explicit kwarg and re-published in the worker (mirror
-the ``use_su`` / ``use_jmim`` thread-local re-publish in ``_evaluation_driver._confirm_predictor``), because ``threading.local``
-does not propagate to worker threads.
+A thread-local is sufficient because every ``fe_deadline_passed()`` consumer runs INLINE on the MAIN thread inside
+``_mrmr_fit_impl._fit_impl_core`` (the same thread that calls ``set_fe_deadline``), not inside a joblib worker. The
+joblib ``backend="threading"`` blocks in the FE path (the ``check_prospective_fe_pairs`` pair-search and the
+``_confirm_predictor`` greedy step) do NOT consult this deadline - they carry their own budget - so the thread-local
+never needs to cross a worker boundary. ``polynom_pair_fe.py``'s multi-seed re-optimisation loop is the one exception
+worth flagging explicitly: it DOES consult this deadline, but only takes effect when it runs on the main thread
+(``n_jobs=1`` - e.g. this project's profiling harness); under the default ``n_jobs=-1`` joblib dispatch the check is a
+silent no-op for that specific call site, same documented constraint as below. If a future change moves an enrichment
+generator into a joblib worker, the deadline MUST be forwarded as an explicit kwarg and re-published in the worker
+(mirror the ``use_su`` / ``use_jmim`` thread-local re-publish in ``_evaluation_driver._confirm_predictor``), because
+``threading.local`` does not propagate to worker threads.
 
-``set_fe_deadline`` is called once at the top of MRMR.fit (absolute ``timer()`` value, or None to disable) and cleared
-in a finally. ``fe_deadline_passed`` is a cheap monotonic-clock compare the enrichment loops call to decide whether to
-``break`` and return whatever they engineered so far."""
+``set_fe_deadline`` is called once at the top of MRMR.fit's ``_fit_impl`` (absolute ``timer()`` value, or None to
+disable). It is cleared by the OUTER ``fit()`` wrapper in ``_mrmr_class.py``, in a ``finally`` around the
+``_fit_impl(...)`` call (mirroring that same call site's existing ``_clear_auto_fit_n()`` pattern) - NOT inside
+``_fit_impl`` itself, which has no single exit point. (2026-08-05: this module's docstring previously claimed
+clearing already happened "in a finally" here, but no call to ``clear_fe_deadline`` existed anywhere in the codebase -
+a stale deadline silently persisted across fits in the same process/thread once the timestamp elapsed. Fixed by
+adding the missing call at the actual outer boundary.) ``fe_deadline_passed`` is a cheap monotonic-clock compare the
+enrichment loops call to decide whether to ``break`` and return whatever they engineered so far."""
 from __future__ import annotations
 
 import threading

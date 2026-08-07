@@ -290,7 +290,14 @@ def fit_binned_numeric_agg(
     # recomputed ``np.where(fold_ids == f)`` every pair*fold. Precompute it ONCE per call (bit-identical -
     # same indices, just hoisted out of the pair loops).
     _fold_test = None if recipe_only else [np.where(fold_ids == f)[0] for f in range(int(n_folds))]
+    from ._fe_deadline import fe_deadline_passed
+
     for gcol in group_num_cols:
+        # Optional-enrichment wall-clock budget: stop the (group_col, agg_col) sweep once MRMR.fit's
+        # deadline passes; return whatever columns/recipes were engineered so far. No-op without a budget
+        # (mirrors the orth-univariate/pair-cross/extra-basis generators' internal deadline check).
+        if fe_deadline_passed():
+            break
         gvals = np.asarray(X[gcol].to_numpy(), dtype=np.float64)
         if not np.isfinite(gvals).all():
             continue  # v1 skips NaN-bearing group columns (quantile-edge replay has no NaN bin)

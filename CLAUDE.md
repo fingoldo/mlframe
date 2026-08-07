@@ -473,6 +473,90 @@ alongside the chunked candidate buffers the module's docstring already accounts 
 of wall-clock) to separate the contention-inflated per-call cost from the genuine cache-sizing question
 before touching `_MAX_ENTRIES` or the eviction policy.
 
+**UPDATE (2026-08-05) — reproduced on a SECOND, different combo, but "just raise `_MAX_ENTRIES`" is NOT the
+safe fix it looks like**: combo `c0576` (hgb/lgb/linear/xgb, multilabel, master-seed `2027_12_20`) showed the
+SAME pattern independently — `resident_operand` called 35285 times, `cupy.array` fired 28837 times (~82%
+miss rate, consistent with the earlier ~84%), `cupy.array` costing 1285.0s / ~24% of the 5263s total run.
+Two different combos landing on the same ~82-84% miss rate makes contention-noise a much weaker explanation
+for the CALL-COUNT finding specifically (still plausible for the per-call wall-clock, per the caveat above).
+
+BUT: this same run's log shows `batch_pair_mi_gpu` REJECTING a 0.27GB upload because it "would breach the
+absolute VRAM cushion floor (free=1.25GB, total=4.00GB)" — this GPU is a 4GB card running with as little as
+1.25GB free DURING THIS EXACT WORKLOAD. `_MAX_ENTRIES=192` was explicitly calibrated in the module's own
+docstring to stay "comfortable alongside the chunked candidate buffers" on a 4GB card — blindly raising it
+to fix the miss-rate would shrink that already-thin headroom further and could turn a slow-but-working run
+into a hard OOM crash elsewhere in the SAME fit, trading a perf problem for a correctness/stability one. A
+safe fix needs to be VRAM-aware (e.g. size the cache from `cupy.cuda.Device().mem_info` free bytes at cache-
+init/reset time instead of a fixed entry count) rather than a blind constant bump — a bigger undertaking than
+originally assumed, still not attempted.
+
+## PERF WIN (2026-08-05): integer-lattice's 12-permutation null band batched into one call — the sibling `_pairwise_modular_fe.py` version already had this fix, `_integer_lattice_fe.py`'s near-identical copy never got it
+2M-row cProfile (combo `c0454`, cb/hgb/lgb, multiclass) surfaced `_perm_null_hi` at real tottime in THREE
+sibling files (`_integer_lattice_fe.py` 3.654s/3 calls, `_pairwise_modular_fe.py` 2.647s/3, `_conditional_gate_fe.py`
+1.272s/3) — each independently implementing "upper band (mean + z\*std) of a fixed feature's MI under
+`n_perm=12` y-permutations." `_pairwise_modular_fe.py`'s version already had a documented batching fix (the
+"SF2 :311 collapse" note: joint-reindex invariance `MI(feat; y[perm]) == MI(feat[inv_perm]; y)` lets all 12
+permuted-feature columns score against the SAME y in one `_mi_classif_batch` call instead of 12 separate
+`_mi()` calls) — but `_integer_lattice_fe.py`'s copy, despite its own docstring saying "Mirrors
+`_pairwise_modular_fe._responded`," still ran the original unbatched per-perm Python loop.
+
+Ported the exact same batching to `_integer_lattice_fe.py._perm_null_hi`: build a `(n, n_perm)` matrix of
+`feat[argsort(perm)]` for each of the 12 RNG-drawn permutations (same draw order, same seed sequence — bit-
+identical reproducibility unchanged) and score all 12 in one `_mi_classif_batch` call. Verified bit-identical
+(0 diff, not just tolerance-close) against the original per-perm loop across 30 synthetic scenarios —
+`bench_lattice_perm_null_hi.py` — and 1.95x at n=200k. Added
+`test_perm_null_hi_batched_matches_per_perm_loop` to `test_integer_lattice_njit_identity.py`. Full
+integer-lattice suite (27 tests, run with `CUDA_VISIBLE_DEVICES=""` after an unrelated native access-violation
+crash mid-suite — matches this session's documented GPU-crash contention pattern, unrelated to this change)
+passes. `_conditional_gate_fe.py`'s copy has NOT yet been checked/ported — worth a follow-up look.
+
+## LIVE BUG CAUGHT + ARCHITECTURE (2026-08-05): `_fe_deadline`'s wall-clock budget extended to 8 more FE families, uncovering that `clear_fe_deadline()` was never actually called anywhere — a stale deadline silently persisted across fits
+User-prompted architecture review (prompted by a "would 20M-row profiling be safe?" discussion): `_fe_deadline.py`
+(a thread-local wall-clock deadline `MRMR.fit`'s `max_runtime_mins` publishes so a single enrichment stage can
+abort mid-pass instead of only being gated between FE steps) was consulted by only 3 of ~11 enrichment
+generators (orthogonal-univariate, pair-cross, extra-basis) — hermite (`polynom_pair_fe.py`), wavelet, hinge,
+binned_numeric_agg, pairwise_modular, conditional_gate, cat_interactions (bandit + fixed-budget permutation),
+and target_encoding had NO internal per-candidate deadline check, so a single expensive call inside any of them
+could run past `max_runtime_mins` indefinitely — only the coarse between-step gate would eventually catch it,
+and native model training after FE has NO time budget at all (a real risk when scaling profiling/production
+runs to much larger row counts).
+
+Added a `fe_deadline_passed()` check to each family's main per-candidate/per-column scan loop, mirroring the
+existing 3 generators' pattern exactly (check at the top of the loop body, `break`, return whatever was
+engineered so far). Two of the eight needed extra care beyond "just add the check": `_cat_confirm_bandit.py`'s
+pair-cache-building loop and `_cat_confirm_permutation.py`'s per-pair confirmation loop both pre-size
+`nfailed`/`nshuf`/`kept_mask` arrays against the FULL `selected_idx`, so breaking early would desync those
+arrays from `confidence_dict`/`corrected_conf` and crash downstream — the bandit's cache-building loop was left
+unprotected (its adaptive Phase-2 `while` loop got the check instead, which supports partial-data early exit by
+design), and the permutation confirm loop instead truncates `selected_idx` to the actually-processed prefix
+before building `kept_mask`. `_target_encoding_fe.py`'s `kfold_target_encode_with_recipes` wrapper had the same
+class of downstream-KeyError risk (`raw_recipes[col]` indexed by the ORIGINAL `cat_cols`, not narrowed to what
+an early-exited fit actually produced) — fixed by narrowing `cat_cols` to `raw_recipes.keys()` right after the
+fit call.
+
+While wiring this up, running the affected test suites surfaced 4 test-order-dependent failures (passed in
+isolation, failed under `pytest-randomly`) — root cause: `_fe_deadline.py`'s own docstring claimed the
+deadline was "cleared in a finally" after every `MRMR.fit`, but `grep -rn clear_fe_deadline src/` found **zero
+call sites** for that function outside its own definition. Once ANY test in a pytest-randomly-ordered run
+called `MRMR.fit(max_runtime_mins=...)` and that deadline's timestamp later elapsed, `fe_deadline_passed()`
+returned `True` for the rest of the process/thread — invisible before (only 3 consumers existed, all deep
+inside MRMR's own FE loop, so a stale deadline just made an already-running fit's enrichment stages a bit
+stingier), but now directly breaking unrelated later tests that call the newly-protected functions outside
+an MRMR.fit context entirely. Root-caused by finding `_mrmr_class.py`'s existing `_set_auto_fit_n` /
+`_clear_auto_fit_n` sibling pattern (same file, wraps the same `self._fit_impl(...)` call site in a
+`try`/`finally`) and mirroring it exactly for `_fe_deadline` — `_fit_impl_core.py` itself has no single exit
+point, so the clear belongs at the outer `fit()` wrapper's call-site boundary, not inside `_fit_impl`. Added
+`test_mrmr_fit_clears_deadline_after_run` to `test_fe_deadline.py` (previously had zero coverage of the actual
+MRMR.fit wiring, only the primitive's own unit behaviour) pinning that a real fit leaves no deadline behind.
+Re-ran the full previously-flaky suite (266 tests) after the fix: all pass, 0 failures, confirming the fix
+(not memory locality / VM boot-cache warming from the earlier stray green run) resolved it.
+
+Also worth flagging: `polynom_pair_fe.py`'s multi-seed re-optimisation loop now consults the deadline too, but
+only takes effect when it runs on the main thread (`n_jobs=1`, e.g. this project's profiling harness) — under
+the default `n_jobs=-1` joblib dispatch the thread-local deadline does not cross the worker boundary, matching
+the module's own already-documented constraint for its other consumers. A future fix would need to forward the
+deadline as an explicit kwarg into the joblib worker.
+
 ## PERF WIN (2026-08-02): per_feature_edges' thread-pool threshold was 64x too high for real usage (1.2x-7.2x)
 2M-row cProfile on combo `c0037_c314bb14` (master-seed `2026_04_29`) found `per_feature_edges`/
 `_compute_col_edges` (`_adaptive_nbins.py`) costing 78s wall on a `fayyad_irani` (MDLP) fit with

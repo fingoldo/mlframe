@@ -303,10 +303,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     start_time = timer()
     ran_out_of_time = False
 
-    # Carry an absolute deadline to the OPTIONAL enrichment FE generators (orth / extra-basis / pair-cross) so a single
-    # wide-frame enrichment pass that starts before the budget is spent still aborts its per-column / per-pair loop at the
-    # deadline instead of running tens of seconds past a tiny max_runtime_mins. Enrichment-only: the core screen / greedy
-    # MI is never gated, so an aborted pass still leaves a usable partial selection. Cleared in the finally below.
+    # Carry an absolute deadline to the OPTIONAL enrichment FE generators (orth / extra-basis / pair-cross,
+    # plus hermite / wavelet / hinge / binned_numeric_agg / pairwise_modular / conditional_gate /
+    # cat_interactions / target_encoding) so a single wide-frame enrichment pass that starts before the
+    # budget is spent still aborts its per-column / per-pair loop at the deadline instead of running tens
+    # of seconds past a tiny max_runtime_mins. Enrichment-only: the core screen / greedy MI is never gated,
+    # so an aborted pass still leaves a usable partial selection. Cleared in MRMR.fit's finally (the outer
+    # call-site boundary, in _mrmr_class.py) - NOT here, since this function has no single exit point.
     from .._fe_deadline import set_fe_deadline as _set_fe_deadline
     _set_fe_deadline((start_time + self.max_runtime_mins * 60.0) if self.max_runtime_mins is not None else None)
 

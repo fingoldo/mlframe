@@ -165,7 +165,16 @@ def _confirm_pairs_bandit_ucb1(
     _burst_seed_base = np.uint64(0xDEADBEEF)
     _burst_counter = 0
 
+    from ._fe_deadline import fe_deadline_passed
+
     while used < total_budget:
+        # Optional-enrichment wall-clock budget: stop the adaptive UCB1 allocation once MRMR.fit's
+        # deadline passes; every pair keeps whatever nfailed/nshuf it accumulated so far (the algorithm
+        # already treats a partial shuffle count as valid evidence, same as an early-converged pair via
+        # active_mask). No-op without a budget (mirrors the orth-univariate/pair-cross/extra-basis
+        # generators' internal deadline check).
+        if fe_deadline_passed():
+            break
         # Decide which pair to allocate next shuffle to. UCB1-style: pair with widest CI on current p_estimate, AMONG ACTIVES.
         best_j = -1
         best_score = -np.inf
