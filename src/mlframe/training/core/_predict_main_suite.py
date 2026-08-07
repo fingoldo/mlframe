@@ -374,6 +374,37 @@ def predict_mlframe_models_suite(
                 verbose=verbose,
             )
 
+            # Subset + reorder to the model's own expected feature schema. Without this, a model
+            # trained on a NARROWER feature set than what reaches this point (e.g. a
+            # fairness_features-tracking column like "group" that the training pipeline routes
+            # into fairness reporting but never adds to the actual model's feature matrix) still
+            # carries that extra column here, and CatBoost's positional Pool auto-detection from a
+            # bare DataFrame then misreads a later numeric feature's slot as that extra column --
+            # "Cannot convert 'A' to float" with no indication the real cause is an unsubset frame.
+            # Mirrors predict_from_models's equivalent step in _predict_main_from_models.py.
+            _expected = None
+            if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
+                _expected = getattr(model_obj.pre_pipeline, "feature_names_in_", None)
+            if _expected is None:
+                _expected = getattr(model, "feature_names_in_", None)
+            if _expected is None:
+                _expected = getattr(model, "feature_names_", None)
+            if _expected is not None and hasattr(input_for_model, "columns"):
+                _expected_list = [str(c) for c in _expected]
+                _have = {str(c) for c in input_for_model.columns}
+                _missing = [c for c in _expected_list if c not in _have]
+                if not _missing:
+                    _drop_extra = [c for c in input_for_model.columns if str(c) not in _expected_list]
+                    _cols_str = [str(c) for c in input_for_model.columns]
+                    if _drop_extra or _cols_str != _expected_list:
+                        if isinstance(input_for_model, pl.DataFrame):
+                            input_for_model = input_for_model.select(_expected_list)
+                        else:
+                            input_for_model = input_for_model.loc[:, _expected_list]
+                # A genuine schema mismatch (expected column absent entirely) is left for the
+                # model's own predict call to raise on -- this step only removes/reorders EXTRA
+                # columns, it never invents a missing one.
+
             # CTE-RAW-X: CompositeTargetEstimator.predict() reads its base column directly from X
             # to apply the fitted inverse transform (e.g. linear_residual: y = t_hat + alpha*base +
             # beta); alpha/beta were fit on the RAW base column, but input_for_model is the
