@@ -423,8 +423,12 @@ _count_nfailed_joint_indep_serial = njit(cache=True)(getattr(_count_nfailed_join
 def _perm_kernel_backend_choice(n_samples: int, n_perms: int) -> str:
     """Per-host backend (cpu_serial/cpu_parallel/cupy) via the spec's choose(); maps a
     legacy 'cpu' region (pre serial/parallel split) to cpu_parallel."""
-    from ._cat_confirm_permutation_tuning import _CAT_PERM_SPEC
-    bc = _CAT_PERM_SPEC.choose(n_samples=int(n_samples), n_perms=int(n_perms))
+    from ._cat_confirm_permutation_tuning import _CAT_PERM_SPEC, _perm_kernel_fallback_choice
+
+    if _CAT_PERM_SPEC is None:
+        bc = _perm_kernel_fallback_choice(int(n_samples), int(n_perms))
+    else:
+        bc = _CAT_PERM_SPEC.choose(n_samples=int(n_samples), n_perms=int(n_perms))
     return "cpu_parallel" if bc == "cpu" else bc
 
 

@@ -108,19 +108,24 @@ def test_codep110_fingerprint_cache_attr_on_ctx():
 
 
 def test_codep110_fingerprint_call_outside_weight_loop():
-    """compute_model_input_fingerprint should be invoked at most once per (strategy, pre_pipeline),
+    """compute_cached_model_input_fingerprint should be invoked at most once per (strategy, pre_pipeline),
     BEFORE the weight-schema iteration starts.
 
     We detect this by source-pattern: the call must appear before ``for weight_name, weight_values``.
+    ``_phase_train_one_target.py`` was later split into ``_phase_train_one_target_body.py`` (this
+    invariant's real home now) plus sibling helper modules -- the fingerprint computation itself
+    moved into ``compute_cached_model_input_fingerprint`` (``_phase_train_one_target_cache_helpers.py``),
+    which the body module calls once, threading the raw ``compute_model_input_fingerprint`` callable
+    through as a kwarg rather than calling it directly by name.
     """
-    src = _read("training/core/_phase_train_one_target.py")
+    src = _read("training/core/_phase_train_one_target_body.py")
     # Find the first occurrence of each
-    fp_idx = src.find("compute_model_input_fingerprint(")
+    fp_idx = src.find("compute_cached_model_input_fingerprint(")
     weight_loop_idx = src.find("for weight_name, weight_values")
     assert fp_idx != -1 and weight_loop_idx != -1
-    assert fp_idx < weight_loop_idx, "CODE-P1-10 regression: compute_model_input_fingerprint is still called inside the weight loop"
+    assert fp_idx < weight_loop_idx, "CODE-P1-10 regression: the fingerprint is still computed inside the weight loop"
     # And only once in this module
-    assert src.count("compute_model_input_fingerprint(") == 1, "CODE-P1-10 regression: compute_model_input_fingerprint should be called exactly once"
+    assert src.count("compute_cached_model_input_fingerprint(") == 1, "CODE-P1-10 regression: the fingerprint should be computed exactly once"
 
 
 # ---------- CODE-P1-8: phase-runner namespace consolidation ----------

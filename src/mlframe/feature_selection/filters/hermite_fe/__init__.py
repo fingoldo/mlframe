@@ -816,7 +816,11 @@ def basis_route_by_moments(x: np.ndarray) -> str:
 # ----------------------------------------------------------------------
 # Sibling-module re-exports. Big optimisation + MI clusters live in
 # ``_hermite_fe_optimise.py`` and ``_hermite_fe_mi.py`` so this file
-# stays below the 1k-LOC monolith threshold.
+# stays below the 1k-LOC monolith threshold. No ``__all__`` here by design
+# (barrel/facade convention) -- every name below is meant to be reachable
+# as ``hermite_fe.<name>`` even though this file's own body never uses it
+# by bare name; e.g. ``optimise_pair_multimode`` is consumed exactly this
+# way by tests/feature_selection/biz_val/test_biz_val_filters_hermite_fe.py.
 # ----------------------------------------------------------------------
 from ._hermite_prewarp import (
     _L2_PENALTY_SATURATION_DEFAULT,

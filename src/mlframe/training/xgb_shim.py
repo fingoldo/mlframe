@@ -66,9 +66,11 @@ process).
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
+
+from mlframe.training.utils import get_pandas_view_of_polars_df
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +233,36 @@ def _xgb_cache_clear() -> None:
         _XGB_DMATRIX_CACHE.clear()
 
 
+_XGB_POLARS_DMATRIX_SUPPORT: Optional[bool] = None
+
+
+def _xgb_dmatrix_accepts_polars() -> bool:
+    """True iff the installed XGBoost's data-proxy layer accepts a bare polars DataFrame.
+
+    Verified 2026-04-24 against XGBoost 3.x (pl.Enum + nullable pl.Boolean, no pre-conversion
+    needed) -- but that support isn't universal: XGBoost's own ``pyproject.toml`` floor here is
+    only ``>=2.0``, and an older 2.x resolved on a Python version with tighter dependency
+    constraints (observed: XGBoost 2.x on py3.9 CI) raises ``TypeError: Value type is not
+    supported for data iterator:<class 'polars.dataframe.frame.DataFrame'>`` deep inside
+    ``QuantileDMatrix``'s C++ data iterator, well past any place a clean pre-check could catch
+    it. Cached module-level (checked once per process): tiny polars frame through the real
+    ``QuantileDMatrix`` constructor, not a version-string guess (avoids hardcoding an exact
+    "polars support landed in X.Y.Z" cutoff this shim would need to track forever)."""
+    global _XGB_POLARS_DMATRIX_SUPPORT
+    if _XGB_POLARS_DMATRIX_SUPPORT is None:
+        try:
+            import polars as _pl
+
+            _probe = _pl.DataFrame({"a": [0.0, 1.0]})
+            xgb.QuantileDMatrix(_probe, label=[0, 1])
+            _XGB_POLARS_DMATRIX_SUPPORT = True
+        except ImportError:
+            _XGB_POLARS_DMATRIX_SUPPORT = True  # no polars installed: never see a polars X, moot
+        except (TypeError, ValueError):
+            _XGB_POLARS_DMATRIX_SUPPORT = False
+    return _XGB_POLARS_DMATRIX_SUPPORT
+
+
 def _build_quantile_dmatrix(
     X, y, sample_weight, *, ref_dmatrix=None, enable_categorical: bool = True,
     max_bin=None,
@@ -243,6 +275,11 @@ def _build_quantile_dmatrix(
     Passing the polars frame straight through preserves mlframe's
     polars-fastpath: no extra ``get_pandas_view_of_polars_df`` call gets
     triggered just because the model wrapper is the shim.
+
+    A resolved XGBoost that predates polars support in its data-proxy layer (see
+    ``_xgb_dmatrix_accepts_polars``) falls back to a pandas view via
+    ``get_pandas_view_of_polars_df`` -- only paid on that older-XGBoost path, never on the
+    verified-3.x fast path.
 
     ``ref_dmatrix`` (when given) is passed as the ``ref`` argument so val
     DMatrices share the train DMatrix's quantile cuts — required by
@@ -263,6 +300,13 @@ def _build_quantile_dmatrix(
         kwargs["ref"] = ref_dmatrix
     if max_bin is not None:
         kwargs["max_bin"] = int(max_bin)
+    try:
+        import polars as _pl
+
+        if isinstance(X, _pl.DataFrame) and not _xgb_dmatrix_accepts_polars():
+            X = get_pandas_view_of_polars_df(X)
+    except ImportError:
+        pass
     return xgb.QuantileDMatrix(X, **kwargs)
 
 

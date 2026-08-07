@@ -221,15 +221,15 @@ def test_m_fh_05_fp_cache_key_includes_column_signature() -> None:
         column_dtypes_hash="aa",
         sampled_rows_hash="bb",
     )
-    fp_mod._fp_cache_put(a, fp)
+    fp_mod._fp_cache_put(a, fp, n_sample=len(a))
 
     # If b's id collided with a's (which can happen after `del a` in real
     # code), the pre-fix key (id, n_cols) would return a stale hit.
     # Post-fix the column-name digest prevents that.
     # We can't easily force id collisions, but we can verify the key
     # function returns different tuples for same-id-same-len-different-cols.
-    key_a = fp_mod._fp_cache_key(a)
-    key_b = fp_mod._fp_cache_key(b)
+    key_a = fp_mod._fp_cache_key(a, n_sample=len(a))
+    key_b = fp_mod._fp_cache_key(b, n_sample=len(b))
     assert key_a is not None
     assert key_b is not None
     assert key_a != key_b, f"different-schema frames produced the same fp cache key: {key_a}"

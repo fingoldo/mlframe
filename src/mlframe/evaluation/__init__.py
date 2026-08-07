@@ -31,7 +31,6 @@ from mlframe.evaluation.constant_group_leak_scan import constant_group_target_sc
 from mlframe.evaluation.label_correlation_rerank import (
     detect_correlated_label_groups,
     detect_correlated_label_pairs,
-    label_correlation_rerank,
     optimize_group_blend_weight,
 )
 from mlframe.evaluation.imputation_sensitivity_check import imputation_sensitivity_check

@@ -2322,17 +2322,26 @@ class TestBruteforceAdvancedCoverage:
             "unary_operators": [],
             "procs": 1,
         }
-        model = run_pysr_feature_engineering(
-            df=df,
-            target_col="y",
-            sample_size=n,
-            encode_categoricals=True,
-            leakage_free=True,
-            leakage_free_n_splits=3,
-            random_state=0,
-            pysr_params_override=mini,
-            verbose=0,
-        )
+        # category_encoders 2.6 / sklearn < 1.6 combos (Python 3.9 CI) break the
+        # ``__sklearn_tags__`` super() chain inside CatBoostEncoder.fit; skip
+        # on the upstream-incompat path (same guard as sibling tests, e.g.
+        # test_regression_w2c_dtype_gate.py).
+        try:
+            model = run_pysr_feature_engineering(
+                df=df,
+                target_col="y",
+                sample_size=n,
+                encode_categoricals=True,
+                leakage_free=True,
+                leakage_free_n_splits=3,
+                random_state=0,
+                pysr_params_override=mini,
+                verbose=0,
+            )
+        except AttributeError as exc:
+            if "__sklearn_tags__" in str(exc):
+                pytest.skip(f"category_encoders / sklearn version mismatch on this runner: {exc}.")
+            raise
         assert model.equations_ is not None
 
     def test_run_pysr_drop_categoricals_branch(self):

@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import ast
 import inspect
+import re
 import sys
 import typing
 from pathlib import Path
@@ -59,7 +60,17 @@ def _type_repr(annotation: object) -> str:
     text = str(annotation)
     # Strip the leading ``typing.`` qualifier that ``str(...)`` keeps so the
     # table reads ``Optional[str]`` rather than ``typing.Optional[str]``.
-    return text.replace("typing.", "")
+    text = text.replace("typing.", "")
+    # ``X | None`` (PEP 604, ``types.UnionType``) vs ``Optional[X]`` (``typing.Union``) render
+    # differently depending on Python/pydantic version even for the SAME source annotation
+    # (observed: py3.14 dev -> "Optional[str]", py3.11 CI -> "str | None"), which made the
+    # committed doc's drift test flaky across the CI matrix. Canonicalise the two-arm
+    # "<X> | None" / "None | <X>" form to "Optional[<X>]" so the rendered text is stable
+    # regardless of which internal representation the running interpreter/pydantic produced.
+    m = re.fullmatch(r"(.+) \| None", text) or re.fullmatch(r"None \| (.+)", text)
+    if m:
+        text = f"Optional[{m.group(1)}]"
+    return text
 
 
 def _default_repr(field) -> str:
