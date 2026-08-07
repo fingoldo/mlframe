@@ -12,7 +12,10 @@ from mlframe.models.tuning import create_ctr_params
 
 def test_empty_candidates_raises_clear_error(monkeypatch):
     """generate_valid_candidates returning [] must raise ValueError, not StopIteration."""
-    import mlframe.models.tuning as mod
+    # create_ctr_params and generate_valid_candidates both actually live in tuning_rules.py --
+    # tuning.py is a thin re-export facade (see that module's docstring), so patching the
+    # facade's own generate_valid_candidates binding would not affect the real internal call.
+    import mlframe.models.tuning_rules as mod
 
     monkeypatch.setattr(mod, "generate_valid_candidates", lambda *a, **k: [])
     # stdlib_rng.random() > 0.5 gate must be forced True so generate_valid_candidates is actually called.

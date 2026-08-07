@@ -91,6 +91,7 @@ def test_justify_estimator_expected_score_is_refit_held_out_score_not_cv_mean():
     """
     from catboost import CatBoostRegressor
     import mlframe.models.tuning as tuning_mod
+    import mlframe.models.tuning_rules as tuning_rules_mod
 
     rng = np.random.RandomState(0)
     X = pd.DataFrame(rng.normal(size=(200, 4)), columns=[f"f{i}" for i in range(4)])
@@ -102,8 +103,11 @@ def test_justify_estimator_expected_score_is_refit_held_out_score_not_cv_mean():
         """Helper: Fake check scoring."""
         return lambda est, X_test, y_test: _SENTINEL_REFIT_SCORE
 
-    orig_check_scoring = tuning_mod.check_scoring
-    tuning_mod.check_scoring = _fake_check_scoring
+    # justify_estimator (and its own check_scoring binding) actually live in tuning_rules.py --
+    # tuning.py is a thin re-export facade (see that module's docstring), so patching
+    # tuning_mod.check_scoring alone would not affect the real call site.
+    orig_check_scoring = tuning_rules_mod.check_scoring
+    tuning_rules_mod.check_scoring = _fake_check_scoring
     try:
         est, expected_score = tuning_mod.justify_estimator(
             CatBoostRegressor(iterations=20, verbose=False),
@@ -117,7 +121,7 @@ def test_justify_estimator_expected_score_is_refit_held_out_score_not_cv_mean():
             early_stopping_rounds=5,
         )
     finally:
-        tuning_mod.check_scoring = orig_check_scoring
+        tuning_rules_mod.check_scoring = orig_check_scoring
 
     assert est is not None
     assert expected_score == pytest.approx(_SENTINEL_REFIT_SCORE), (
