@@ -707,6 +707,36 @@ class _DMatrixReuseMixin:
 
         return self
 
+    def _maybe_convert_polars_for_predict(self, X):
+        """Convert a polars ``X`` to pandas before predict when the installed XGBoost's
+        data-proxy layer doesn't accept polars (see ``_xgb_dmatrix_accepts_polars``).
+
+        ``fit()`` above already applies this same conversion (via ``_build_quantile_dmatrix``)
+        before the Booster is trained, so the Booster's stored ``feature_names`` come from the
+        pandas column names on that older-XGBoost path. Predict must match: XGBoost's own
+        ``predict``/``predict_proba`` bypass this shim's ``fit()`` entirely (they build their
+        own internal DMatrix), so a bare polars ``X`` here either hits the same unsupported-type
+        error ``fit()`` used to hit, or -- worse -- silently loses the feature-name metadata and
+        raises ``ValueError: training data did not have the following fields`` deep inside
+        ``Booster._validate_features``. Mirrors ``fit()``'s conversion exactly so predict-time
+        column names match what the Booster was trained with.
+        """
+        try:
+            import polars as _pl
+
+            if isinstance(X, _pl.DataFrame) and not _xgb_dmatrix_accepts_polars():
+                return get_pandas_view_of_polars_df(X)
+        except ImportError:
+            pass
+        return X
+
+    def predict(self, X, **kwargs):
+        """Predict, converting a polars ``X`` to pandas first when the installed XGBoost
+        requires it (see ``_maybe_convert_polars_for_predict``)."""
+        # mypy can't see XGBClassifier/XGBRegressor.predict from this mixin's own base (object) --
+        # it's only present via the concrete subclasses' multiple inheritance.
+        return super().predict(self._maybe_convert_polars_for_predict(X), **kwargs)  # type: ignore[misc]
+
     # ------------------------------------------------------------------
     # Subclass hooks
     # ------------------------------------------------------------------
@@ -779,6 +809,12 @@ if _XGB_AVAILABLE:
             ``np.arange(n_classes_)`` in modern XGBoost — no separate
             assignment needed."""
             self.n_classes_ = len(np.unique(np.asarray(y)))
+
+        def predict_proba(self, X, **kwargs):  # type: ignore[override]
+            """Predict class probabilities, converting a polars ``X`` to pandas first when the
+            installed XGBoost requires it (see ``_maybe_convert_polars_for_predict``) --
+            XGBRegressor has no predict_proba, so this lives here, not on the shared mixin."""
+            return super().predict_proba(self._maybe_convert_polars_for_predict(X), **kwargs)
 
     class XGBRegressorWithDMatrixReuse(_DMatrixReuseMixin, XGBRegressor):
         """XGBRegressor with cached QuantileDMatrix across fits.

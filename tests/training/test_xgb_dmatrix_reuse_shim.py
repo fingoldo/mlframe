@@ -963,7 +963,7 @@ class TestCoreAutoClearsShimCacheAtStrategyEnd:
         """The end-of-strategy auto-clear helper (``_maybe_clear_shim_cache``) must wipe a shim
         estimator's DMatrix cache. We exercise the helper directly on a fitted shim instance and
         verify the cache attribute is reset; preserves Booster (covered separately below)."""
-        from mlframe.training.core._phase_train_one_target import _maybe_clear_shim_cache
+        from mlframe.training.core._misc_helpers import _maybe_clear_shim_cache
 
         X, y = small_classification_data
         m = XGBClassifierWithDMatrixReuse(n_estimators=3, tree_method="hist")
