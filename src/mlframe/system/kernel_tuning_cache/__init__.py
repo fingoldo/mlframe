@@ -9,6 +9,8 @@ Commands:
   mlframe-tune-kernels clear <kernel>   - Evict cache for one spec
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import sys

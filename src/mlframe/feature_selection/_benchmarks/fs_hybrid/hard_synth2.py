@@ -62,11 +62,14 @@ def pure_xor_zeromain(seed: int = 0, n: int = 8000, p: int = 120):
 
     cols, base_names = {}, []
     for i in range(n_base):
-        cols[name := f"inf_{i}"] = z[:, i]; base_names.append(name)
+        name = f"inf_{i}"
+        cols[name] = z[:, i]
+        base_names.append(name)
     noise_names = []
     n_noise = p - n_base
     for i in range(n_noise):
-        cols[name := f"noise_{i}"] = rng.standard_normal(n)
+        name = f"noise_{i}"
+        cols[name] = rng.standard_normal(n)
         noise_names.append(name)
     return _finalize(cols, rng, base_names, [], noise_names, [f"inf_{i}" for i in inter_idx], [], y)
 
@@ -97,10 +100,14 @@ def heavytail_linear(seed: int = 0, n: int = 6000, p: int = 60):
 
     cols, base_names = {}, []
     for i in range(n_lin):
-        cols[name := f"inf_{i}"] = warp[:, i]; base_names.append(name)
+        name = f"inf_{i}"
+        cols[name] = warp[:, i]
+        base_names.append(name)
     noise_names = []
     for i in range(p - n_lin):
-        cols[name := f"noise_{i}"] = np.sign(g := rng.standard_normal(n)) * np.abs(g) ** 3
+        name = f"noise_{i}"
+        g = rng.standard_normal(n)
+        cols[name] = np.sign(g) * np.abs(g) ** 3
         noise_names.append(name)
     return _finalize(cols, rng, base_names, [], noise_names, [], [], y)
 
@@ -141,10 +148,13 @@ def rare_class_imbalance(seed: int = 0, n: int = 12000, p: int = 80, pos_rate: f
 
     cols, base_names = {}, []
     for i in range(n_base):
-        cols[name := f"inf_{i}"] = z[:, i]; base_names.append(name)
+        name = f"inf_{i}"
+        cols[name] = z[:, i]
+        base_names.append(name)
     noise_names = []
     for i in range(p - n_base):
-        cols[name := f"noise_{i}"] = rng.standard_normal(n)
+        name = f"noise_{i}"
+        cols[name] = rng.standard_normal(n)
         noise_names.append(name)
     return _finalize(cols, rng, base_names, [], noise_names, [f"inf_{i}" for i in inter_idx], [], y)
 
@@ -163,17 +173,21 @@ def categorical_highcard(seed: int = 0, n: int = 8000, p: int = 70):
     cardinalities = [50, 100, 150, 200]
     n_cat = len(cardinalities); n_lin = 3
     logit = np.zeros(n)
-    cols, base_names = {}, []
+    cols: dict[str, np.ndarray] = {}
+    base_names: list[str] = []
     for ci, card in enumerate(cardinalities):
         codes = rng.integers(0, card, size=n)
         level_effect = rng.standard_normal(card)  # non-monotone per-level target effect
         logit += 0.9 * level_effect[codes]
-        cols[name := f"inf_cat_{ci}"] = codes.astype(np.int64)
+        name = f"inf_cat_{ci}"
+        cols[name] = codes.astype(np.int64)
         base_names.append(name)
     z = rng.standard_normal((n, n_lin))
     for k in range(n_lin):
         logit += (1.0 - 0.1 * k) * z[:, k]
-        cols[name := f"inf_lin_{k}"] = z[:, k]; base_names.append(name)
+        name = f"inf_lin_{k}"
+        cols[name] = z[:, k]
+        base_names.append(name)
     pr = 1.0 / (1.0 + np.exp(-logit / 1.5))
     y = (rng.random(n) < pr).astype(int)
 
@@ -181,10 +195,11 @@ def categorical_highcard(seed: int = 0, n: int = 8000, p: int = 70):
     n_used = n_cat + n_lin
     n_noise = p - n_used
     for i in range(n_noise):
+        name = f"noise_{i}"
         if i % 2 == 0:  # mix of high-card categorical noise and gaussian noise
-            cols[name := f"noise_{i}"] = rng.integers(0, 120, size=n).astype(np.int64)
+            cols[name] = rng.integers(0, 120, size=n).astype(np.int64)
         else:
-            cols[name := f"noise_{i}"] = rng.standard_normal(n)
+            cols[name] = rng.standard_normal(n)
         noise_names.append(name)
     return _finalize(cols, rng, base_names, [], noise_names, [], [], y)
 
@@ -211,17 +226,22 @@ def synth_pgg_n(seed: int = 0, n: int = 300, p: int = 2000):
 
     cols, base_names = {}, []
     for i in range(n_lin):
-        cols[name := f"inf_{i}"] = z[:, i]; base_names.append(name)
+        name = f"inf_{i}"
+        cols[name] = z[:, i]
+        base_names.append(name)
     # 5 redundant clusters: noisy copies of the first 5 signals
     redundant_names = []
     for parent in range(5):
         for j in range(3):
-            cols[name := f"red_{parent}_{j}"] = z[:, parent] + 0.30 * rng.standard_normal(n)
+            name = f"red_{parent}_{j}"
+            cols[name] = z[:, parent] + 0.30 * rng.standard_normal(n)
             redundant_names.append(name)
     noise_names = []
     n_noise = p - n_lin - len(redundant_names)
     for i in range(n_noise):
-        cols[name := f"noise_{i}"] = rng.standard_normal(n); noise_names.append(name)
+        name = f"noise_{i}"
+        cols[name] = rng.standard_normal(n)
+        noise_names.append(name)
     return _finalize(cols, rng, base_names, redundant_names, noise_names, [], [], y)
 
 
@@ -245,10 +265,14 @@ def noise_dominated_weaksparse(seed: int = 0, n: int = 10000, p: int = 300):
 
     cols, base_names = {}, []
     for i in range(n_lin):
-        cols[name := f"inf_{i}"] = z[:, i]; base_names.append(name)
+        name = f"inf_{i}"
+        cols[name] = z[:, i]
+        base_names.append(name)
     noise_names = []
     for i in range(p - n_lin):
-        cols[name := f"noise_{i}"] = rng.standard_normal(n); noise_names.append(name)
+        name = f"noise_{i}"
+        cols[name] = rng.standard_normal(n)
+        noise_names.append(name)
     return _finalize(cols, rng, base_names, [], noise_names, [], [], y)
 
 

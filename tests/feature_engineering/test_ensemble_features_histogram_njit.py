@@ -61,18 +61,38 @@ def test_top2_mode_gap_bit_identical_to_reference():
     assert np.array_equal(ef.predictor_top2_mode_gap(arr), expected)
 
 
+class _AddSansAt:
+    """Proxy for ``numpy.add`` that forwards every call/attribute except ``.at``, which explodes.
+
+    ``numpy.add`` is a C-level ufunc singleton whose ``.at`` bound method is a read-only attribute on some
+    numpy builds (confirmed on numpy 1.26.4: ``monkeypatch.setattr(np.add, "at", ...)`` itself raises
+    ``AttributeError: 'numpy.ufunc' object attribute 'at' is read-only``) while writable on others (numpy
+    2.3.5 locally) -- patching the ufunc instance directly is not portable across the CI matrix's numpy
+    versions. Patching the always-writable module-level ``numpy.add`` name to this proxy sidesteps that.
+    """
+
+    _real_add = np.add  # captured before np.add is patched -- looking it up live would recurse into this proxy
+
+    def __call__(self, *args, **kwargs):
+        """Delegate every non-``.at`` call to the real ``numpy.add`` ufunc."""
+        return self._real_add(*args, **kwargs)
+
+    def at(self, *_a, **_k):
+        """Trip the sabotage: the histogram fast path must never reach here."""
+        raise AssertionError("np.add.at must not be used on the histogram fast path")
+
+    def __getattr__(self, name):
+        """Forward any other attribute access (e.g. ``reduce``, ``outer``) to the real ufunc."""
+        return getattr(self._real_add, name)
+
+
 def test_functions_no_longer_use_add_at_scatter(monkeypatch):
     """Behavioral pin: make ``np.add.at`` explode, then confirm both functions still run.
 
     The pre-fix scatter loop called ``np.add.at`` per predictor; on post-fix code the fused njit histogram replaces it,
     so the sabotaged ufunc is never touched. A revert to the scatter loop trips the sabotage and fails this sensor.
     """
-
-    def _boom(*_a, **_k):
-        """Helper: Boom."""
-        raise AssertionError("np.add.at must not be used on the histogram fast path")
-
-    monkeypatch.setattr(np.add, "at", _boom)
+    monkeypatch.setattr(np, "add", _AddSansAt())
     rng = np.random.default_rng(17)
     arr = rng.standard_normal((500, 6))
     ef.predictor_consensus_entropy(arr)
