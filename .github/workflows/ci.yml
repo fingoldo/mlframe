@@ -36,7 +36,11 @@ jobs:
     # cold-JIT compilation (now cached across runs+shards via NUMBA_CACHE_DIR) and model-training tests. We
     # shard 8 ways via pytest-split (`--splits 8 --group N`) so even a cold shard (which must populate the
     # cache) finishes under the cap; warm shards are far faster. timeout-minutes is headroom, not a budget.
-    timeout-minutes: 120
+    # Raised 120->240 (2026-08-08): the 2026-08-08 run on 6bb8b05be lost 21/41 shards to this cap mid-suite
+    # (each killed at exactly ~120m16s, confirmed via job started_at/completed_at) -- those shards' real
+    # pass/fail results were never reported, only "cancelled". 240 gives even the slowest cold biz_val-heavy
+    # shard room to actually finish and report its real failures instead of being silently truncated.
+    timeout-minutes: 240
     # Newest-Python rows are marked experimental so a single optional-extra
     # that has not yet published a cp314 wheel does not turn a required check
     # red while the ecosystem finishes catching up. The core stack (numpy /
