@@ -432,7 +432,6 @@
   "getattr_unknown_attribute::training/utils.py:272",
   "getattr_unknown_attribute::training/utils.py:273",
   "getattr_unknown_attribute::training/utils.py:281",
-  "getattr_unknown_attribute::training/xgb_shim.py:357",
   "import_cycle::metrics/classification/_classification_extras.py:1",
   "import_cycle::training/composite/discovery/_screening_tiny.py:1",
   "import_cycle::training/core/_phase_helpers_fit_pipeline.py:1",

@@ -331,6 +331,11 @@ class _DMatrixReuseMixin:
     _cached_train_key: tuple | None
     _cached_val_dmatrix: Any | None
     _cached_val_key: tuple | None
+    # Set by __getstate__ at save time (the xgboost version string, or "unknown" when
+    # unresolvable); read back by __setstate__ to detect a version skew across a pickle
+    # round-trip. Declared here (not set in __init__) so mypy/static-analysis see it as a
+    # known attribute rather than an undeclared getattr default.
+    _saved_xgb_version: Optional[str]
 
     # Names of cache attributes. Listed once so ``__getstate__`` /
     # ``clear_cache`` / the forward-/backward-transfer blocks in
