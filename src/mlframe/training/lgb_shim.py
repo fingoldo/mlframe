@@ -879,12 +879,16 @@ class _DatasetReuseMixin:
 
     def _align_cats_for_predict(self, X):
         """Recast the incoming frame's categorical columns to the train frame's CategoricalDtype so LightGBM's per-frame
-        cat-schema check matches the fit-time one. No-op when the model trained without categoricals or nothing differs;
-        only the incoming frame is rebuilt (assign block-reuse), never the caller's data."""
+        cat-schema check matches the fit-time one. Categorical re-alignment is a no-op when the model trained without
+        categoricals or nothing differs, but the polars->pandas bridge always runs first regardless -- fit() converts X
+        unconditionally (see the "Polars -> pandas" block in fit()), so predict must match or a bare polars X reaches
+        LightGBM's own predict/predict_proba unconverted whenever the model has no trained categorical columns (the
+        same bug class fixed in xgb_shim.py's _maybe_convert_polars_for_predict). Only the incoming frame is rebuilt
+        (assign block-reuse), never the caller's data."""
+        X = _maybe_bridge_polars_to_pandas(X)
         train_cats = getattr(self, "_mlframe_train_cat_dtypes", None)
         if not train_cats:
             return X
-        X = _maybe_bridge_polars_to_pandas(X)
         if not hasattr(X, "columns"):
             return X
         _cols = set(X.columns)

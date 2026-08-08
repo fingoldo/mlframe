@@ -81,20 +81,63 @@ def test_lgb_dataset_from_bridged_polars_keeps_categorical():
 
 
 def test_predict_numerical_equivalence_polars_vs_bridged_pandas():
-    """``model.predict`` output must match (within float epsilon) whether the input is polars or its pre-bridged pandas equivalent."""
+    """``model.predict`` output must match (within float epsilon) whether the input is polars or its pre-bridged pandas equivalent.
+
+    ``deterministic=True``/``force_row_wise=True``/``n_jobs=1`` pin LightGBM's own histogram-building order: without them,
+    two separately-fit models with the same ``random_state`` can still diverge (LightGBM's default multi-threaded histogram
+    build is not float-deterministic across threads), which would fail this test for a reason unrelated to the polars bridge
+    under test.
+    """
     df_pl = _make_mixed_polars(2_000, seed=3)
     y = np.random.default_rng(4).normal(size=df_pl.height)
 
-    model_a = LGBMRegressorWithDatasetReuse(n_estimators=10, random_state=0, verbose=-1)
+    model_a = LGBMRegressorWithDatasetReuse(n_estimators=10, random_state=0, verbose=-1, deterministic=True, force_row_wise=True, n_jobs=1)
     model_a.fit(df_pl, y)
     pred_polars = model_a.predict(_maybe_bridge_polars_to_pandas(df_pl))
 
     df_pd = _maybe_bridge_polars_to_pandas(df_pl)
-    model_b = LGBMRegressorWithDatasetReuse(n_estimators=10, random_state=0, verbose=-1)
+    model_b = LGBMRegressorWithDatasetReuse(n_estimators=10, random_state=0, verbose=-1, deterministic=True, force_row_wise=True, n_jobs=1)
     model_b.fit(df_pd, y)
     pred_pandas = model_b.predict(df_pd)
 
     np.testing.assert_allclose(pred_polars, pred_pandas, rtol=1e-6, atol=1e-6)
+
+
+def test_predict_bridges_polars_when_model_has_no_categoricals():
+    """Regression: the same bug class fixed in xgb_shim.py's predict/predict_proba.
+
+    ``fit()`` converts a polars X to pandas UNCONDITIONALLY (the "Polars -> pandas" block runs
+    before ``_mlframe_train_cat_dtypes`` is even computed). But ``_align_cats_for_predict`` used to
+    early-return the bare, unconverted X whenever the trained model had no categorical columns
+    (``if not train_cats: return X`` ran BEFORE the polars bridge call) -- so a model trained on an
+    all-numeric polars frame received a raw, unconverted polars X at predict time. Spies on the real
+    ``LGBMRegressor.predict`` (not a fake) to see exactly what X type it receives, matching the
+    xgb_shim regression test's technique.
+    """
+    df_pl = pl.DataFrame({"num0": [1.0, 2.0, 3.0, 4.0], "num1": [4.0, 5.0, 6.0, 7.0]})
+    y = np.array([0.1, 0.2, 0.3, 0.4])
+
+    model = LGBMRegressorWithDatasetReuse(n_estimators=3, verbose=-1)
+    model.fit(df_pl, y)
+    assert not model._mlframe_train_cat_dtypes, "fixture must have no categoricals to exercise the early-return path"
+
+    received = {}
+    real_predict = lgb.LGBMRegressor.predict
+
+    def _spy_predict(self, X_arg, *args, **kwargs):
+        """Record X_arg then delegate to the real (pre-monkeypatch) LGBMRegressor.predict."""
+        received["X"] = X_arg
+        return real_predict(self, X_arg, *args, **kwargs)
+
+    orig = lgb.LGBMRegressor.predict
+    lgb.LGBMRegressor.predict = _spy_predict
+    try:
+        model.predict(df_pl)
+    finally:
+        lgb.LGBMRegressor.predict = orig
+
+    assert isinstance(received["X"], pd.DataFrame), "polars X must be converted to pandas before reaching LightGBM's own predict, even with no trained categoricals"
+    assert list(received["X"].columns) == ["num0", "num1"]
 
 
 @pytest.mark.parametrize("n_rows", [200_000])
