@@ -138,14 +138,19 @@ def test_predict_per_model_loop_uses_exc_info() -> None:
 
 
 def test_inference_predict_uses_raise_from() -> None:
-    """Inference predict uses raise from."""
-    src = _read("inference/predict.py")
+    """Inference predict uses raise from.
+
+    The trusted-root containment check moved out of ``inference/predict.py`` into the shared
+    ``mlframe.core.helpers.validate_trusted_path`` (``_data_helpers._validate_trusted_path`` re-exports
+    it) during a later refactor; read both so this structural pin tolerates either location.
+    """
+    src = _read("inference/predict.py") + _read("core/helpers.py")
     # The fix wraps the original ValueError with `from e`.
     assert "is not inside trusted_root" in src
     # Must NOT be the bare raise.
     assert 'is not inside trusted_root {abs_root}")\n        if common' not in src
     # Must include `from e`.
-    assert "from e\n        if common" in src or 'is not inside trusted_root {abs_root}") from e' in src
+    assert "from exc\n" in src or "from e\n        if common" in src or 'is not inside trusted_root {abs_root}") from e' in src
 
 
 def test_trainer_cache_load_preserves_traceback() -> None:

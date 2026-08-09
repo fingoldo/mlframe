@@ -34,7 +34,7 @@ from tests.feature_selection.conftest import fast_subset, is_fast_mode
 # --------------------------------------------------------------------------------------------------------------------
 
 
-pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+pytestmark = pytest.mark.timeout(150)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150 (2026-08-09): CI runners are shared 2-vCPU boxes under -n auto xdist contention -- real (non-hung) fits legitimately exceeded 60s there, causing spurious timeout failures unrelated to any actual hang; 150s still catches a genuine hang well before the 600s global backstop.
 
 
 def _make_heavy_tail_label_noise(seed: int = 0, n: int = 2000, p_noise: int = 7, flip: float = 0.10):

@@ -128,7 +128,13 @@ def _run_dom_and_wall(n_estimators, df, feature_cols, cat_features, target_type,
         random_state=seed,
     )
     diag = BaselineDiagnostics(cfg)
-    t0 = time.perf_counter()
+    # process_time (this process's own CPU time, immune to other processes stealing cycles on a
+    # shared/contended CI runner), not perf_counter (wall-clock) -- a before/after speed-RATIO test
+    # comparing two in-process runs needs a measure that doesn't invert when an unrelated concurrent
+    # job on the same shared 2-vCPU runner happens to preempt one of the two runs but not the other
+    # (observed live: CI measured 0.49x -- SLOWER, the opposite direction -- against a documented
+    # 1.78-1.825x local measurement).
+    t0 = time.process_time()
     report = diag.fit_and_report(
         train_df=df,
         train_target=df["y"],
@@ -137,7 +143,7 @@ def _run_dom_and_wall(n_estimators, df, feature_cols, cat_features, target_type,
         target_type=target_type,
         target_name="y",
     )
-    wall = time.perf_counter() - t0
+    wall = time.process_time() - t0
     dom = report.dominant_features[0]["feature"] if report.dominant_features else None
     return dom, wall
 

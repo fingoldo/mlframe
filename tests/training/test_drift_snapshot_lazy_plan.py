@@ -169,6 +169,10 @@ def test_biz_val_drift_snapshot_lazy_speedup():
     _legacy_drift_snapshot(train, val, test, cols[:2])
     _new_drift_snapshot(train, val, test, cols[:2])
 
+    # perf_counter (wall-clock), NOT process_time: both paths dispatch through polars' own internal
+    # Rust thread pool, so process_time (summing CPU-seconds across every thread) systematically
+    # inflates whichever side does more parallel work internally, independent of which is actually
+    # faster in real (wall-clock) time -- same class of issue as prange numba kernels.
     t0 = time.perf_counter()
     _legacy_drift_snapshot(train, val, test, cols)
     legacy_s = time.perf_counter() - t0

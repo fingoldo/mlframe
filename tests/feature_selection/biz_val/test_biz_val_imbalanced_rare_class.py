@@ -3,7 +3,7 @@
 The existing biz_value suite almost exclusively uses ~balanced binary targets
 (``y`` near 50/50). That hides a whole failure dimension: when the positive
 
-pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+pytestmark = pytest.mark.timeout(150)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150 (2026-08-09): CI runners are shared 2-vCPU boxes under -n auto xdist contention -- real (non-hung) fits legitimately exceeded 60s there, causing spurious timeout failures unrelated to any actual hang; 150s still catches a genuine hang well before the 600s global backstop.
 
 class is TINY (1-10% of rows), univariate relevance / MI signals computed on
 the rare class collapse toward noise, and a selector can silently (a) lose the

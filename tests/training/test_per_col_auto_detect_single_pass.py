@@ -167,6 +167,12 @@ def test_biz_val_auto_detect_polars_speedup():
     _vendored_legacy_polars(df, ftc, cat_features=[])
     _auto_detect_feature_types(df, ftc, cat_features=[], verbose=False)
 
+    # perf_counter (wall-clock), NOT process_time: polars' lazy .collect() dispatches across its OWN
+    # internal Rust thread pool, so process_time (summing CPU-seconds across every thread the process
+    # spawns) systematically inflates whichever side does more PARALLEL work, even when that side is
+    # genuinely faster in real (wall-clock) time -- confirmed live: switching to process_time made
+    # the ratio WORSE (1.14x) than the wall-clock CI failure (1.14x local vs the CI's own reading),
+    # not better, because polars' internal parallelism is exactly the effect process_time hides.
     t0 = time.perf_counter()
     _vendored_legacy_polars(df, ftc, cat_features=[])
     legacy_s = time.perf_counter() - t0

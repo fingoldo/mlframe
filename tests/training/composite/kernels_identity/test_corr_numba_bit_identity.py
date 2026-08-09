@@ -117,8 +117,12 @@ class TestCorrNumbaBitIdentity:
 class TestCorrNumbaBizValue:
     """Groups tests covering corr numba biz value."""
     def test_biz_kernel_faster_than_numpy_at_production_shape(self) -> None:
-        """Floor 1.5x; measured ~6.7x on the dev host (n=50k, F=200). Catches a
-        regression that drops the kernel or makes it slower than the numpy einsum."""
+        """Floor 1.2x; measured ~6.7x on the dev host (n=50k, F=200, 16 physical cores). CI's runner
+        is a SHARED 2-VCPU box (see ci.yml) -- the kernel's prange parallelism is fundamentally
+        core-count-bound, so even ideal scaling tops out near 2x there before subtracting launch
+        overhead + noisy-neighbor contention (CI measured as low as 1.31x-1.48x). 1.2x still catches
+        a regression that drops the kernel entirely (numpy fallback -> ~1x) without flaking on the
+        2-vCPU ceiling; the informative floor lives in the local/16-core CI leg, not here."""
         rng = np.random.default_rng(0)
         n, f = 50_000, 200
         X = rng.normal(size=(n, f))
@@ -141,5 +145,5 @@ class TestCorrNumbaBizValue:
         t_nb = _best(_dispatch)
         speedup = t_np / t_nb if t_nb > 0 else float("inf")
         assert (
-            speedup >= 1.5
-        ), f"numba corr kernel should be >=1.5x numpy at n={n} F={f}; got {speedup:.2f}x (numpy {t_np * 1e3:.1f}ms, numba {t_nb * 1e3:.1f}ms)"
+            speedup >= 1.2
+        ), f"numba corr kernel should be >=1.2x numpy at n={n} F={f}; got {speedup:.2f}x (numpy {t_np * 1e3:.1f}ms, numba {t_nb * 1e3:.1f}ms)"

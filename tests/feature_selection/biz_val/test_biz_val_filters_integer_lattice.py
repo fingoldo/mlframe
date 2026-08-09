@@ -36,7 +36,7 @@ from mlframe.feature_selection.filters._integer_lattice_fe import (
 )
 from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
 
-pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+pytestmark = pytest.mark.timeout(150)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150 (2026-08-09): CI runners are shared 2-vCPU boxes under -n auto xdist contention -- real (non-hung) fits legitimately exceeded 60s there, causing spurious timeout failures unrelated to any actual hang; 150s still catches a genuine hang well before the 600s global backstop.
 
 
 def _build_gcd_target(seed: int, n: int = 4000):

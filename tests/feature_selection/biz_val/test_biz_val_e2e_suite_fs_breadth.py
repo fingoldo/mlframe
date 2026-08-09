@@ -58,7 +58,7 @@ _MRMR_KW = {
 }
 
 
-pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+pytestmark = pytest.mark.timeout(150)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150 (2026-08-09): CI runners are shared 2-vCPU boxes under -n auto xdist contention -- real (non-hung) fits legitimately exceeded 60s there, causing spurious timeout failures unrelated to any actual hang; 150s still catches a genuine hang well before the 600s global backstop.
 
 
 def _signal_noise_frame(n, n_signal=4, n_noise=8, seed=0, kind="binary"):

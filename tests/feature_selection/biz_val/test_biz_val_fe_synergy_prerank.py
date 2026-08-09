@@ -31,7 +31,7 @@ LEAK = 0.05
 OPERANDS = (5, 60, 180, 240)  # two pairs: (5,180) and (60,240)
 
 
-pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+pytestmark = pytest.mark.timeout(150)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150 (2026-08-09): CI runners are shared 2-vCPU boxes under -n auto xdist contention -- real (non-hung) fits legitimately exceeded 60s there, causing spurious timeout failures unrelated to any actual hang; 150s still catches a genuine hang well before the 600s global backstop.
 
 
 def _make_wide_interaction(seed):
