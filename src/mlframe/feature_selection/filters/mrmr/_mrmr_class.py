@@ -3354,6 +3354,20 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         Wrapper / _fit_impl forwarding asymmetry: ``sample_weight`` is CONSUMED at this wrapper level (via ``_maybe_resample_for_sample_weight`` before the ``_fit_impl`` call); ``groups`` is FORWARDED into ``_fit_impl`` which then silently drops them. A future refactor moving ``groups`` consumption into ``_fit_impl`` must also remove or downgrade the wrapper-level warning, otherwise the two ends would emit duplicate / contradictory messages.
 
         Cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``."""
+        # Row-count guard, first thing: no length-validation existed anywhere before the MI/screening
+        # pipeline, so a mismatched (X, y) reached numba-njit kernels (bounds checking compiled OUT for
+        # speed) with an out-of-bounds row index instead of a Python exception. Off the JIT-disabled
+        # fallback path this happened to raise a clean pandas ValueError from an unrelated internal
+        # column assignment deep in the pipeline (accidental, not an intentional guard); WITH jit
+        # enabled the same out-of-bounds read reached compiled code first and corrupted the process --
+        # "Windows fatal exception: access violation", reproduced live via
+        # ``test_selectors_shared.py::TestSharedDegenerateInputs::test_y_length_mismatch_raises[MRMR]``.
+        # Validating here, before anything touches a kernel, makes the failure mode a clean ValueError
+        # unconditionally (JIT on or off) instead of an accident of which code path happens to run first.
+        _n_rows_X = X.shape[0] if hasattr(X, "shape") else len(X)
+        _n_rows_y = len(y)
+        if _n_rows_X != _n_rows_y:
+            raise ValueError(f"MRMR.fit: X has {_n_rows_X} rows but y has {_n_rows_y} -- X and y must have the same length.")
         # groups contract check and polars validate+bridge each moved
         # verbatim to a named helper on _MRMRFitHelpersMixin (see their docstrings for the original
         # rationale) - zero behavior change, pure extraction. The GPU-breaker re-arm now happens in the

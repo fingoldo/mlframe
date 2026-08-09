@@ -203,3 +203,35 @@ class TestCloneBeforeAndAfterFit:
         assert not hasattr(clone_after, "support_")
 
         assert clone_before.get_params() == clone_after.get_params() == m_before.get_params()
+
+
+class TestMismatchedRowCount:
+    """A length-mismatched (X, y) must raise a clean ValueError, never reach a numba kernel."""
+
+    def test_shorter_y_raises_value_error_not_crash(self):
+        """CI regression: X.shape[0] != len(y) reached a numba-njit MI kernel with an out-of-bounds row
+        index (bounds checking compiled out for speed) instead of a Python exception -- the JIT-disabled
+        fallback path happened to raise a clean pandas ValueError from an unrelated internal column
+        assignment (accidental, not an intentional guard), but with JIT enabled the same out-of-bounds
+        read corrupted the process ("Windows fatal exception: access violation", reproduced live via
+        ``tests/feature_selection/stability/test_selectors_shared.py::TestSharedDegenerateInputs::
+        test_y_length_mismatch_raises[MRMR]``). An explicit row-count guard at the top of ``_fit_body``
+        now makes this a clean ValueError unconditionally, before any kernel is ever reached."""
+        rng = np.random.default_rng(0)
+        n = 300
+        X = pd.DataFrame({"a": rng.standard_normal(n), "b": rng.standard_normal(n)})
+        y = pd.Series((X["a"] > 0).astype(int))
+        y_wrong = y.iloc[:-5]  # 295 rows vs X's 300
+        m = MRMR(**_kw())
+        with pytest.raises(ValueError, match="X has 300 rows but y has 295"):
+            m.fit(X, y_wrong)
+
+    def test_longer_y_raises_value_error_not_crash(self):
+        """Same contract, y longer than X (the other direction of the same mismatch class)."""
+        rng = np.random.default_rng(1)
+        n = 300
+        X = pd.DataFrame({"a": rng.standard_normal(n), "b": rng.standard_normal(n)})
+        y_wrong = pd.Series(rng.integers(0, 2, size=n + 5))
+        m = MRMR(**_kw())
+        with pytest.raises(ValueError, match="X has 300 rows but y has 305"):
+            m.fit(X, y_wrong)

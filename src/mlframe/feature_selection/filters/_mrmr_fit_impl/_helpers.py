@@ -188,7 +188,21 @@ def _mrmr_instance_state_size_bytes(instance: Any) -> int:
     """
     total = 0
     try:
-        _attrs = vars(instance)
+        # ``.copy()`` (a single C-level bulk operation that never releases the GIL mid-call), NOT
+        # ``list(vars(instance).values())`` -- the latter still walks the LIVE dict via the normal
+        # iterator protocol (checked against a mutation counter on every ``next()``) and can raise the
+        # exact same ``RuntimeError: dictionary changed size during iteration`` while building the list
+        # that ``.copy()`` avoids by not using that protocol at all. This is a best-effort byte estimate
+        # called from inside the process-wide cache lock while other in-flight fits on OTHER instances
+        # proceed unlocked (the lock only ever serialised the ``_FIT_CACHE`` container itself, never a
+        # stored value's own further attribute writes) -- a cross-thread interleaving that adds/removes
+        # an attribute on THIS instance mid-walk raised the RuntimeError on the live view (reproduced
+        # live via ``test_concurrent_real_fits_no_exception_and_bounded_cache``, intermittent -- not fully
+        # closed by relocating the cache-store site to publish only a fully-finalised instance, since
+        # ``vars()`` gives no atomicity guarantee against ANY concurrent write to this specific object).
+        # Worst case with the snapshot is a slightly stale byte estimate, already the documented
+        # "best-effort" contract.
+        _attrs = vars(instance).copy()
     except TypeError:
         return 0
     for _v in _attrs.values():

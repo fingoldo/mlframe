@@ -9890,63 +9890,6 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         ran_out_of_time = True
     self.ran_out_of_time_ = ran_out_of_time
 
-    # Store self in process-wide cache so cloned MRMR instances fit on the same (X, y) arrays can replay
-    # this fitted state instead of re-running cat-FE + permutation. Bound the LRU by ``fit_cache_max``;
-    # the default (4) covers a typical model suite without thrashing and long-lived workers no longer leak.
-    # ``_skip_fit_cache`` (private, non-BaseEstimator attr set by the stability-selection outer loop on
-    # its throwaway bootstrap-replicate sub-fits): each replicate
-    # fits a DIFFERENT row-subsample every call, so its cache key never repeats and is a guaranteed
-    # future miss - storing it only serves to evict a legitimately-reusable entry from an unrelated
-    # concurrent caller sharing the same process-wide 4-entry LRU. Unlike ``fit_cache_max=0`` (which
-    # clears the WHOLE shared cache as an operator-level opt-out), this skips only THIS instance's own
-    # store, leaving every other entry untouched.
-    if _cache_key is not None and not getattr(self, "_skip_fit_cache", False):
-        # Whole store + LRU/byte-cap eviction held under the cache lock so a concurrent fit cannot interleave its
-        # own ``__setitem__``/``popitem``/``move_to_end`` (KeyError, wrong-entry eviction) or iterate ``.values()``
-        # via ``_mrmr_cache_bytes_total`` while another thread mutates the dict.
-        with _MRMR_FIT_CACHE_LOCK:
-            # concurrency audit (TOCTOU): between this thread's earlier locked miss-check and this
-            # locked store, another thread with the IDENTICAL cache key may have run its own full fit and
-            # already stored its result here. Both instances are independently correct (same X/y/params), but
-            # picking a FIRST-WRITER-WINS policy (``setdefault`` instead of unconditional overwrite) makes the
-            # canonical cached entry deterministic by arrival order at this lock rather than by whichever
-            # thread happened to reach this exact line last - and avoids uselessly replacing an already-valid
-            # entry with an equivalent one. ``self`` remains fully usable to ITS OWN caller either way; only
-            # which instance becomes the shared replay source for FUTURE cache hits is affected.
-            MRMR._FIT_CACHE.setdefault(_cache_key, self)
-            MRMR._FIT_CACHE.move_to_end(_cache_key)
-            # ``fit_cache_max=0`` is the operator-explicit "disable LRU" sentinel
-            # (e.g. for memory-constrained suites where the 4-entry cache pins
-            # too much state). The previous ``or 4`` form silently restored the
-            # default cap, so cache-off was a no-op. ``None`` (unset attr) still
-            # folds to 4.
-            _cap_raw = getattr(self, "fit_cache_max", 4)
-            _cap = int(4 if _cap_raw is None else _cap_raw)
-            if _cap <= 0:
-                MRMR._FIT_CACHE.clear()
-            else:
-                while len(MRMR._FIT_CACHE) > _cap:
-                    MRMR._FIT_CACHE.popitem(last=False)
-            # Byte-size cap on top of entry count: a 1k-feature suite carrying 4 cached MRMR instances each
-            # holding _selectors_ / _engineered_features_ state can exceed 1 GB of process RSS.
-            # ``fit_cache_max_mb`` (default 1024 MB; env override ``MLFRAME_MRMR_FIT_CACHE_MAX_MB``) bounds the
-            # aggregate cache footprint.
-            _mb_cap_raw = getattr(self, "fit_cache_max_mb", None)
-            if _mb_cap_raw is None:
-                _env_mb = os.environ.get("MLFRAME_MRMR_FIT_CACHE_MAX_MB", "1024")
-                try:
-                    _mb_cap = float(_env_mb)
-                except ValueError:
-                    _mb_cap = 1024.0
-            else:
-                try:
-                    _mb_cap = float(_mb_cap_raw)
-                except (TypeError, ValueError):
-                    _mb_cap = 1024.0
-            if _mb_cap > 0 and _cap > 0 and len(MRMR._FIT_CACHE) > 0:
-                _byte_cap = _mb_cap * (1024**2)
-                while len(MRMR._FIT_CACHE) > 1 and _mrmr_cache_bytes_total() > _byte_cap:
-                    MRMR._FIT_CACHE.popitem(last=False)
     # 2026-05-30 Wave 8 — post-fit UAED auto-size. When enabled, replaces the
     # configured ``min_features_fallback`` floor with an automatic elbow on
     # the per-feature MI gain curve. Relevance trace is taken from the
@@ -10108,5 +10051,77 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # not touch mrmr_gains_. Re-run the trim/pad here so the len(mrmr_gains_) == n_features_ contract holds
     # even when the demotion dropped >=1 engineered feature (idempotent no-op otherwise).
     _align_mrmr_gains(self)
+
+    # Store self in process-wide cache so cloned MRMR instances fit on the same (X, y) arrays can replay
+    # this fitted state instead of re-running cat-FE + permutation. Bound the LRU by ``fit_cache_max``;
+    # the default (4) covers a typical model suite without thrashing and long-lived workers no longer leak.
+    # ``_skip_fit_cache`` (private, non-BaseEstimator attr set by the stability-selection outer loop on
+    # its throwaway bootstrap-replicate sub-fits): each replicate
+    # fits a DIFFERENT row-subsample every call, so its cache key never repeats and is a guaranteed
+    # future miss - storing it only serves to evict a legitimately-reusable entry from an unrelated
+    # concurrent caller sharing the same process-wide 4-entry LRU. Unlike ``fit_cache_max=0`` (which
+    # clears the WHOLE shared cache as an operator-level opt-out), this skips only THIS instance's own
+    # store, leaving every other entry untouched.
+    #
+    # Placed at the very end of fit (after every post-fit self-mutation: UAED elbow, mrmr_gains_
+    # alignment, support_nonlinear_ re-sync, group-aware FE demotion) rather than right after the main
+    # selection loop -- a concurrent fit's own byte-cap eviction walks EVERY cached instance's
+    # ``vars(instance)`` via ``_mrmr_cache_bytes_total`` (see below); publishing ``self`` into
+    # ``_FIT_CACHE`` before those later blocks finished ADDING/REASSIGNING instance attributes let another
+    # thread observe ``self.__dict__`` mid-mutation and raise ``RuntimeError: dictionary changed size
+    # during iteration`` (reproduced live via ``test_concurrent_real_fits_no_exception_and_bounded_cache``
+    # -- 6 threads x 12 real fits reliably triggered it within a few runs). The cache lock only ever
+    # serialised the ``_FIT_CACHE`` container itself, not a stored VALUE's own further mutation by its
+    # owning thread; the real fix is publishing ``self`` only once it is fully finalised, not widening the
+    # lock (self's own post-store mutations are single-threaded from this thread's perspective and were
+    # never a race against another thread's SAME instance -- the race was always a torn READ of one
+    # thread's instance by ANOTHER thread's eviction walk).
+    if _cache_key is not None and not getattr(self, "_skip_fit_cache", False):
+        # Whole store + LRU/byte-cap eviction held under the cache lock so a concurrent fit cannot interleave its
+        # own ``__setitem__``/``popitem``/``move_to_end`` (KeyError, wrong-entry eviction) or iterate ``.values()``
+        # via ``_mrmr_cache_bytes_total`` while another thread mutates the dict.
+        with _MRMR_FIT_CACHE_LOCK:
+            # concurrency audit (TOCTOU): between this thread's earlier locked miss-check and this
+            # locked store, another thread with the IDENTICAL cache key may have run its own full fit and
+            # already stored its result here. Both instances are independently correct (same X/y/params), but
+            # picking a FIRST-WRITER-WINS policy (``setdefault`` instead of unconditional overwrite) makes the
+            # canonical cached entry deterministic by arrival order at this lock rather than by whichever
+            # thread happened to reach this exact line last - and avoids uselessly replacing an already-valid
+            # entry with an equivalent one. ``self`` remains fully usable to ITS OWN caller either way; only
+            # which instance becomes the shared replay source for FUTURE cache hits is affected.
+            MRMR._FIT_CACHE.setdefault(_cache_key, self)
+            MRMR._FIT_CACHE.move_to_end(_cache_key)
+            # ``fit_cache_max=0`` is the operator-explicit "disable LRU" sentinel
+            # (e.g. for memory-constrained suites where the 4-entry cache pins
+            # too much state). The previous ``or 4`` form silently restored the
+            # default cap, so cache-off was a no-op. ``None`` (unset attr) still
+            # folds to 4.
+            _cap_raw = getattr(self, "fit_cache_max", 4)
+            _cap = int(4 if _cap_raw is None else _cap_raw)
+            if _cap <= 0:
+                MRMR._FIT_CACHE.clear()
+            else:
+                while len(MRMR._FIT_CACHE) > _cap:
+                    MRMR._FIT_CACHE.popitem(last=False)
+            # Byte-size cap on top of entry count: a 1k-feature suite carrying 4 cached MRMR instances each
+            # holding _selectors_ / _engineered_features_ state can exceed 1 GB of process RSS.
+            # ``fit_cache_max_mb`` (default 1024 MB; env override ``MLFRAME_MRMR_FIT_CACHE_MAX_MB``) bounds the
+            # aggregate cache footprint.
+            _mb_cap_raw = getattr(self, "fit_cache_max_mb", None)
+            if _mb_cap_raw is None:
+                _env_mb = os.environ.get("MLFRAME_MRMR_FIT_CACHE_MAX_MB", "1024")
+                try:
+                    _mb_cap = float(_env_mb)
+                except ValueError:
+                    _mb_cap = 1024.0
+            else:
+                try:
+                    _mb_cap = float(_mb_cap_raw)
+                except (TypeError, ValueError):
+                    _mb_cap = 1024.0
+            if _mb_cap > 0 and _cap > 0 and len(MRMR._FIT_CACHE) > 0:
+                _byte_cap = _mb_cap * (1024**2)
+                while len(MRMR._FIT_CACHE) > 1 and _mrmr_cache_bytes_total() > _byte_cap:
+                    MRMR._FIT_CACHE.popitem(last=False)
 
     return self

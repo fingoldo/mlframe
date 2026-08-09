@@ -157,8 +157,15 @@ def test_e7_triu_pair_build_matches_combinations(p):
 
 @pytest.mark.parametrize("with_inf", [False, True])
 def test_e8_asarray_numeric_matches_tonumeric_on_numeric_frame(with_inf):
-    """E8: the fast ``asarray(float)`` + in-place NaN->0 path is bit-identical to the lenient
-    ``apply(to_numeric).fillna(0.0).to_numpy`` path on an all-numeric frame (incl. NaN and +/-inf)."""
+    """E8: the fast ``np.array(..., dtype=float, copy=True)`` + in-place NaN->0 path is bit-identical to the
+    lenient ``apply(to_numeric).fillna(0.0).to_numpy`` path on an all-numeric frame (incl. NaN and +/-inf).
+
+    ``copy=True`` (not plain ``np.asarray``, which only copies when a dtype conversion forces one) is required:
+    under pandas>=3's Copy-on-Write, ``np.asarray(df, dtype=float)`` on an already-float64 frame returns a
+    READ-ONLY, non-owning view (no conversion needed, so no copy happens) -- the in-place ``new[np.isnan(new)]
+    = 0.0`` then raises ``ValueError: assignment destination is read-only`` (reproduced live on pandas==3.0.5).
+    Mirrors the production fast path in ``_mrmr_tree_rescue._apply_tree_rescue``.
+    """
     rng = np.random.default_rng(0)
     M = rng.standard_normal((500, 12))
     M[rng.random(M.shape) < 0.05] = np.nan
@@ -168,7 +175,7 @@ def test_e8_asarray_numeric_matches_tonumeric_on_numeric_frame(with_inf):
     df = pd.DataFrame(M, columns=[f"c{i}" for i in range(M.shape[1])])
 
     old = df.apply(pd.to_numeric, errors="coerce").fillna(0.0).to_numpy(dtype=float)
-    new = np.asarray(df, dtype=float)
+    new = np.array(df, dtype=float, copy=True)
     if np.isnan(new).any():
         new[np.isnan(new)] = 0.0
     assert np.array_equal(old, new)
