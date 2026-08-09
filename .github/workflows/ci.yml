@@ -130,6 +130,14 @@ jobs:
       - name: Run tests
         env:
           PYTHONUNBUFFERED: "1"
+          # Heavily-parametrised modules (multi-seed sweeps, binning-method grids) collapse to one
+          # representative variant per code path via tests/conftest.py's fast_subset() -- the exhaustive
+          # sweep is meant to run behind this flag being UNSET (a slow/nightly leg), not on every PR.
+          # This was never wired into any workflow, so every push paid the full N-seed matrix; several of
+          # the top-200 slowest CI tests were the same test re-run 3x across seeds with no CI job ever
+          # covering the flag-off (exhaustive) path either. Fast mode still exercises every code path,
+          # just with 1 representative value instead of N.
+          MLFRAME_FAST: "1"
         run: |
           pytest -m "not slow and not gpu and not multigpu" \
             --splits ${{ matrix.splits || '8' }} --group ${{ matrix.group }} \
