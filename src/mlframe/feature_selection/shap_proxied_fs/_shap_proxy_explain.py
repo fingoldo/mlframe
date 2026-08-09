@@ -26,6 +26,7 @@ of scope for v1 because the coalition value is a single scalar margin per row.
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Optional, Union, cast
 
@@ -89,9 +90,6 @@ def _build_oof_fold_fit_disk_key(model_template, X_tr_fold, y_tr_fold, classific
         return None
 
 
-_SHAP_XGB_PATCHED = False
-
-
 def _safe_float(x=0.0):
     """Bracket-aware float coercer for XGBoost 2.x / 3.x base_score serialised as a JSON array string (``"[0.5]"`` / ``"[5.06E-1, ...]"``); coerces to the first scalar, scalars pass through unchanged.
 
@@ -107,6 +105,7 @@ def _safe_float(x=0.0):
     return builtins.float(x)
 
 
+@contextmanager
 def _maybe_patch_shap_xgb_base_score():
     """Workaround for shap<0.52 + xgboost>=2.0 base_score incompatibility (NO-OP on shap>=0.52).
 
@@ -115,17 +114,21 @@ def _maybe_patch_shap_xgb_base_score():
     bracket-aware ``_safe_float`` onto the shap tree module's ``float`` name there. shap >= 0.52 (PR #3530) parses the array natively AND uses ``float`` as a numpy DTYPE
     (``np.asarray(base_score, dtype=float)``) - replacing it would break that - so the patch is a strict NO-OP on >=0.52 (it must not touch ``_shap_tree.float``).
 
-    Idempotent (gated on ``_SHAP_XGB_PATCHED``); a no-op if shap is unavailable.
+    A context manager, NOT a permanent global patch: earlier (idempotent, gated on ``_SHAP_XGB_PATCHED``) versions patched ``shap.explainers._tree.float`` ONCE and left
+    it patched for the rest of the process. ``_safe_float`` is a plain function, not a type, so any LATER ``TreeExplainer`` construction on a DIFFERENT model in the SAME
+    process (e.g. a LightGBM model explained after an earlier XGBoost explain call in the same pytest session) that reaches a ``np.asarray(x, dtype=float)`` call inside
+    shap's shared ``_tree`` module picked up the stale patched name and got ``TypeError``/a corrupted partial ``TreeEnsemble`` construction (observed live:
+    ``AttributeError: 'TreeEnsemble' object has no attribute 'values'`` on a LightGBM explain that ran in the same process as an earlier XGBoost explain -- reproduced by
+    manually installing the patch then constructing a LightGBM ``TreeExplainer``). Scoping the patch to just the ``with`` block around the ``TreeExplainer(...)`` call
+    that actually needs it, and restoring the original name (or removing it if shap's ``_tree`` module never defined one) on exit, closes that cross-call contamination.
+    A no-op (yields without touching anything) if shap is unavailable or resolves >=0.52.
     """
-    global _SHAP_XGB_PATCHED
-    if _SHAP_XGB_PATCHED:
-        return
     try:
         import shap
         from shap.explainers import _tree as _shap_tree
     except ImportError as e:
         logger.debug("shap import failed, skipping the xgboost patch: %s", e)
-        _SHAP_XGB_PATCHED = True
+        yield
         return
 
     try:
@@ -135,11 +138,19 @@ def _maybe_patch_shap_xgb_base_score():
         _shap_ver = (0, 0)
     # shap >= 0.52 handles the array base_score natively and uses ``float`` as a numpy dtype; touching it is harmful + unnecessary -> no-op.
     if _shap_ver >= (0, 52):
-        _SHAP_XGB_PATCHED = True
+        yield
         return
 
+    _had_attr = "float" in _shap_tree.__dict__
+    _saved = _shap_tree.__dict__.get("float")
     _shap_tree.float = _safe_float
-    _SHAP_XGB_PATCHED = True
+    try:
+        yield
+    finally:
+        if _had_attr:
+            _shap_tree.float = _saved
+        else:
+            _shap_tree.__dict__.pop("float", None)
 
 
 # Relative deviation of expected_value from the empirical mean margin above which we warn about a
@@ -272,9 +283,9 @@ def _shap_phi_and_base(explainer_base, X: pd.DataFrame, backend: str = "auto"):
 
     import shap
 
-    _maybe_patch_shap_xgb_base_score()
-    explainer = shap.TreeExplainer(explainer_base, feature_perturbation="tree_path_dependent")
-    phi = explainer.shap_values(X, check_additivity=False)
+    with _maybe_patch_shap_xgb_base_score():
+        explainer = shap.TreeExplainer(explainer_base, feature_perturbation="tree_path_dependent")
+        phi = explainer.shap_values(X, check_additivity=False)
     base = explainer.expected_value
 
     # Binary classifiers: SHAP may return a list [class0, class1] or a 3-D array (n, f, classes).
