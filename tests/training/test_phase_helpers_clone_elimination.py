@@ -52,10 +52,19 @@ def test_phase_fit_pipeline_aliases_polars_pre_when_encoding_enabled(monkeypatch
     Pre-fix: ``train_df.clone()`` produced a different frame object.
     """
     from mlframe.training.core import _phase_helpers as ph
+    # _phase_fit_pipeline's own code resolves ``fit_and_transform_pipeline`` from ITS OWN module's
+    # globals (Python's normal function-global-lookup rule) -- it is DEFINED in
+    # ``_phase_helpers_fit_pipeline.py``, not ``_phase_helpers.py`` (which only re-exports
+    # ``_phase_fit_pipeline`` itself for the call below). Patching ``ph.fit_and_transform_pipeline``
+    # has zero effect on the real call site; the stub must be installed on the defining module (CI
+    # caught this on shard 8/8 across all required Python versions: AttributeError reading
+    # ph.fit_and_transform_pipeline, since ``_phase_helpers`` never even imports that name).
+    from mlframe.training.core import _phase_helpers_fit_pipeline as ph_fit
     from mlframe.training.configs import (
         PreprocessingBackendConfig,
         PreprocessingConfig,
         FeatureTypesConfig,
+        PreprocessingExtensionsConfig,
     )
 
     train_df = _make_toy_polars_df(50)
@@ -77,7 +86,7 @@ def test_phase_fit_pipeline_aliases_polars_pre_when_encoding_enabled(monkeypatch
         """Stub fit and transform."""
         return train_df, val_df, test_df, None, []
 
-    monkeypatch.setattr(ph, "fit_and_transform_pipeline", _stub_fit_and_transform)
+    monkeypatch.setattr(ph_fit, "fit_and_transform_pipeline", _stub_fit_and_transform)
 
     # Build configs that force the pre-fix clone branch to fire.
     pipeline_config = PreprocessingBackendConfig(
@@ -98,7 +107,14 @@ def test_phase_fit_pipeline_aliases_polars_pre_when_encoding_enabled(monkeypatch
         pipeline_config=pipeline_config,
         preprocessing_config=preprocessing_config,
         feature_types_config=feature_types_config,
-        preprocessing_extensions=None,
+        # NOT None: _phase_fit_pipeline replaces preprocessing_extensions=None with a fresh
+        # PreprocessingExtensionsConfig(), whose row_wise_summary_stats_enabled /
+        # row_wise_extreme_columns_enabled default to True (documented, intentional). Those steps
+        # compute extension columns on the pandas side and back-merge them into train_df_polars_pre
+        # (a genuinely new, hstack'd frame) -- a REAL rebinding orthogonal to what this test checks
+        # (the CONV-HIGH-1 clone-vs-alias decision). Explicitly disabling both keeps this test isolated
+        # to that one decision, matching its own docstring's scope.
+        preprocessing_extensions=PreprocessingExtensionsConfig(row_wise_summary_stats_enabled=False, row_wise_extreme_columns_enabled=False),
         metadata=metadata,
         verbose=False,
     )

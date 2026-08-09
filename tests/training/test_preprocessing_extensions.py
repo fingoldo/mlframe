@@ -35,7 +35,11 @@ def test_none_config_is_noop(small_df):
 
 def test_empty_config_is_noop(small_df):
     """Empty config is noop."""
-    cfg = PreprocessingExtensionsConfig()  # all defaults = None
+    # ``row_wise_summary_stats_enabled`` / ``row_wise_extreme_columns_enabled`` default to True on
+    # PreprocessingExtensionsConfig itself (documented, intentional -- generically-safe additive
+    # row-wise FE steps enabled by default; see the class docstring). The bare constructor is NOT an
+    # all-off config, so a genuine "empty config" test must disable them explicitly.
+    cfg = PreprocessingExtensionsConfig(row_wise_summary_stats_enabled=False, row_wise_extreme_columns_enabled=False)
     a, _, _, p = apply_preprocessing_extensions(small_df, None, None, cfg, verbose=0)
     assert p is None
     assert a is small_df
@@ -63,7 +67,10 @@ def test_empty_config_is_noop(small_df):
 )
 def test_scaler_variants_produce_expected_shape(small_df, scaler):
     """Scaler variants produce expected shape."""
-    cfg = PreprocessingExtensionsConfig(scaler=scaler)
+    # Isolate the scaler's own shape effect: row_wise_summary_stats_enabled / row_wise_extreme_columns_enabled
+    # default to True on PreprocessingExtensionsConfig (documented, intentional additive row-wise FE) and
+    # would otherwise add columns unrelated to what this test checks.
+    cfg = PreprocessingExtensionsConfig(scaler=scaler, row_wise_summary_stats_enabled=False, row_wise_extreme_columns_enabled=False)
     out, _, _, pipe = apply_preprocessing_extensions(small_df, None, None, cfg, verbose=0)
     assert out.shape == small_df.shape
     assert pipe is not None
