@@ -256,7 +256,40 @@ class TestCmimAucGteDefault:
     """
 
     def test_cmim_auc_geq_plug_in_on_redundant_pool(self):
-        """CMIM-routed features give AUC >= plug-in features on a redundant fixture."""
+        """CMIM-routed features give AUC >= plug-in features on a redundant fixture.
+
+        KNOWN FAILURE (instrumentation-confirmed root cause, 2026-08-10; NOT xfailed per project convention --
+        a real gap, left visibly failing). CMIM correctly proposes ``x2__He2`` into ``hybrid_orth_candidates_``
+        on 5/6 seeds (verified bit-identical CMIM scoring between an isolated call and the real pipeline call in
+        an earlier session), but it does not survive into ``hybrid_orth_features_``. Two compounding causes were
+        traced end-to-end with print-instrumentation on the real ``_fit_impl_core.py`` path:
+
+        1. (FIXED in a sibling commit, "orth-basis univariate protection was dead whenever hinge FE was
+           disabled") the ORTH-BASIS UNIVARIATE PROTECTION re-add block existed specifically to rescue a
+           single-source basis column DPI-dropped by the greedy MRMR redundancy scan (``I(x2__He2; y | x2)``
+           collapses toward 0 because ``x2__He2`` is a deterministic function of the already-selected raw
+           ``x2`` -- confirmed directly: MI(x2;y)=2.30, MI(He2;y)=1.57, CMI(He2;y|x2)=0.038, ~1.6% retention,
+           the exact "fully-subsumed" signature the codebase's own raw-redundancy docstrings describe), but its
+           held-out-uplift probe closure was accidentally hinge-gated and never ran under this suite's
+           ``fe_hinge_enable=False`` preset. That fix is necessary but NOT sufficient here.
+
+        2. (NOT fixed -- the remaining gap) on this exact multi-signal fixture, the greedy MRMR screen does not
+           select bare raw ``x2`` at all at the point the orth-basis protection block runs: it instead selects
+           ONE fused additive-combination composite from a DIFFERENT FE family (e.g.
+           ``add(add(sqr(x1),abs(x2)),esc_fourier_mul(x_dup_a,x_dup_c))``) that swallows both ``x1`` and ``x2``
+           into a single column. The orth-basis protection's self-limit #1 ("the raw source must have survived
+           the screen") therefore fails -- ``x2`` is not literally in ``selected_vars`` yet. Raw ``x2`` (and
+           ``x1``) DO get re-attached later, but only by the unrelated EMIT-BOTH raw-operand re-attach pass
+           (``_fit_impl_core.py``, ~9040-9100), which runs AFTER the orth-basis protection block and after
+           ``hybrid_orth_features_`` / ``self._engineered_features_`` are already finalised from the screen's
+           own selection -- too late to retroactively unlock ``x2__He2``.
+
+        A real fix requires reordering or re-running the orth-basis protection after EMIT-BOTH (or teaching its
+        self-limit #1 to also credit a raw operand that EMIT-BOTH will independently re-attach on its own
+        marginal-significance test) -- a genuine architectural change to the interaction between several
+        independently-evolved, carefully-ordered rescue/protection passes in this ~9000-line fit body, not a
+        narrow, safely-scoped one-file fix. Deferred; do not paper over with xfail/threshold relaxation/padding.
+        """
         aucs_plug, aucs_cmim = [], []
         for s in (1, 7, 13, 42, 101, 202):
             X, y = _build_redundant_multi(s, n=1800)

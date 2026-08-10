@@ -208,6 +208,51 @@ def test_escalation_noise_control_zero_admissions():
     assert total_admitted == 0, f"noise control violated: {total_admitted} admitted, {total_proposed} proposed"
 
 
+def test_escalation_high_mi_pair_not_starved_by_many_rescue_pairs():
+    """A zero-admission failed pair with FAR higher joint MI than every rescue candidate
+    must still get a budget claim: pre-fix, ``eligible.sort(key=lambda e: (rescue, mi))``
+    gave rescue pairs ABSOLUTE priority over non-rescue ones regardless of MI, so when the
+    rescue set alone reached ``fe_escalation_max_pairs`` (measured live on the
+    ``sin(3.7*x0)*x1`` fixture: 8 low-MI (0.19-0.56) rescue candidates from noise-column
+    cross terms filled the whole default budget of 8) the one pair actually carrying the
+    signal (pair_mi=1.42, the highest of all 15 candidate pairs) was silently dropped from
+    ``eligible_idx`` and never proposed at all."""
+    from mlframe.feature_selection.filters._fe_auto_escalation import run_fe_auto_escalation
+    from mlframe.feature_selection.filters.discretization import discretize_array
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    n, p = 4000, 6
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame(rng.normal(size=(n, p)), columns=[f"x{i}" for i in range(p)])
+    y_cont = rng.normal(size=n)
+    classes_y = discretize_array(arr=y_cont, n_bins=10, method="quantile", dtype=np.int32)
+    sel = MRMR(verbose=0, random_seed=0)
+    sel.feature_names_in_ = list(X.columns)
+    sel.fe_escalation_max_pairs = 8
+
+    # One genuinely high-MI zero-admission pair (0, 1), plus 8 rescue pairs (a la the
+    # prevalence-failed-synergy trigger) all carrying much lower MI than (0, 1) -
+    # exactly the shape the live fixture produced.
+    high_mi_pair = (0, 1)
+    rescue_pair_idx = [(0, 2), (0, 3), (0, 4), (0, 5), (1, 2), (1, 3), (1, 4), (1, 5)]
+    failed = [(high_mi_pair, 1.42)] + [(p_, 0.3) for p_ in rescue_pair_idx]
+    run_fe_auto_escalation(
+        sel,
+        failed_pairs=failed,
+        X=X,
+        cols=list(X.columns),
+        classes_y=classes_y,
+        pair_maxt_floor=0.0,
+        admitted_pool={},
+        verbose=0,
+        rescue_pairs=set(rescue_pair_idx),
+    )
+    info = sel.fe_escalation_info_
+    assert tuple(high_mi_pair) in set(
+        info["eligible_idx"]
+    ), f"the far-higher-MI zero-admission pair must not be starved out of the budget by lower-MI rescue pairs; eligible_idx={info['eligible_idx']}"
+
+
 # ---------------------------------------------------------------------------
 # fourier_adaptive prewarp spec: closed-form replay, fit == transform
 # ---------------------------------------------------------------------------

@@ -111,6 +111,34 @@ def test_sentinel_and_empty():
     assert np.isnan(v2)
 
 
+def test_fine_global_bin_count_does_not_zero_out_within_group_signal():
+    """Regression: MRMR's own adaptive/supervised discretization can pick a MUCH finer global bin count for a
+    column whose relation to y only exists WITHIN each group (looks like noise pooled globally, so an MDLP-style
+    binner chases it) than for a genuinely irrelevant column - reproduced here directly with a 69-bin signal
+    column vs a 5-bin noise column, matching what was observed live in an end-to-end MRMR fit. Fed straight into
+    the per-group joint histogram, that many distinct codes in one `n_g`-row group makes `kx` approach `n_g`
+    itself, so the Miller-Madow debias term swamps the raw plug-in MI and every group's contribution floors to
+    0 - the genuine signal reads as EXACTLY zero, ranking below the coarsely-binned pure-noise column. Pre-fix
+    (no bin-count cap in `group_blocked_mi`) this asserted 0.0 == 0.0 for the signal column; the fix coarsens
+    both axes to a cap derived from the smallest qualifying group size before the per-group histogram, so the
+    signal now clears the noise column by a wide margin."""
+    rng = np.random.default_rng(11)
+    n_groups, per = 160, 40
+    g = np.repeat(np.arange(n_groups), per)
+    slope = np.where((np.arange(n_groups) % 2) == 0, 1.0, -1.0)[g]
+    x_signal = rng.normal(size=g.size)
+    x_noise = rng.normal(size=g.size)
+    y = slope * x_signal + 0.05 * rng.normal(size=g.size)
+    cy = _codes(y, 10)
+    cx_signal = _codes(x_signal, 69)  # the fine bin count an adaptive/MDLP binner picked live for this column
+    cx_noise = _codes(x_noise, 5)  # the coarse bin count the same binner picked for the noise column
+    sort_idx, offsets = prepare_group_segments(g)
+    mi_signal = group_blocked_mi(cx_signal, cy, sort_idx, offsets, 69, 10, min_rows=20, size_weighted=True, use_mm=True)
+    mi_noise = group_blocked_mi(cx_noise, cy, sort_idx, offsets, 5, 10, min_rows=20, size_weighted=True, use_mm=True)
+    assert mi_signal > 0.0, f"a real within-group signal must not floor to exactly 0 under a fine global bin count; got {mi_signal}"
+    assert mi_signal > mi_noise, f"the genuine signal (fine bins) must outrank pure noise (coarse bins); signal={mi_signal} noise={mi_noise}"
+
+
 def test_equal_vs_size_weight_differ_when_groups_unequal():
     """Equal vs size weight differ when groups unequal."""
     rng = np.random.default_rng(4)
