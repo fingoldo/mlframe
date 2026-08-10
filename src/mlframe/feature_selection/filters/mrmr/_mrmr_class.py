@@ -3364,9 +3364,19 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # ``test_selectors_shared.py::TestSharedDegenerateInputs::test_y_length_mismatch_raises[MRMR]``.
         # Validating here, before anything touches a kernel, makes the failure mode a clean ValueError
         # unconditionally (JIT on or off) instead of an accident of which code path happens to run first.
-        _n_rows_X = X.shape[0] if hasattr(X, "shape") else len(X)
+        # A polars LazyFrame has neither .shape nor len() (row count is unknown until materialised) --
+        # duck-typed via .collect (present on LazyFrame, absent on pandas/polars-eager/ndarray) so this
+        # guard skips it without a hard polars import (polars stays an optional dependency throughout
+        # this module). The auto-collect step downstream turns it into an eager frame, and the row-count
+        # check still fires there (this guard's whole point -- reaching the mismatch as a clean
+        # ValueError before any njit kernel -- is preserved, just deferred to after collection).
+        _is_lazyframe = hasattr(X, "collect") and not hasattr(X, "shape")
+        if _is_lazyframe:
+            _n_rows_X = None
+        else:
+            _n_rows_X = X.shape[0] if hasattr(X, "shape") else len(X)
         _n_rows_y = len(y)
-        if _n_rows_X != _n_rows_y:
+        if _n_rows_X is not None and _n_rows_X != _n_rows_y:
             raise ValueError(f"MRMR.fit: X has {_n_rows_X} rows but y has {_n_rows_y} -- X and y must have the same length.")
         # groups contract check and polars validate+bridge each moved
         # verbatim to a named helper on _MRMRFitHelpersMixin (see their docstrings for the original
