@@ -261,6 +261,13 @@ class TestStabilityRanksMatchOrBeatSingleFit:
         stab_hits = 0
         per_seed_hits = []
         noise_in_stable_seeds = []
+        # This test only checks stable_set MEMBERSHIP (>= 0.5 support_threshold),
+        # not an exact frequency value, so it does not need the headline
+        # N_BOOTSTRAPS=10 granularity: with 5 fits x 6 seeds = 30 MRMR fits this
+        # was the single most expensive test in the CI slow list (verified: the
+        # strong/moderate signal saturates at or near 6/6 or 0/6 either way, so
+        # the >= 0.5 threshold verdict is unchanged by the coarser granularity).
+        multi_seed_n_bootstraps = 6
         for seed in MULTI_SEEDS:
             X, y = _make_moderate_signal(seed=seed)
             # Single-fit
@@ -275,7 +282,7 @@ class TestStabilityRanksMatchOrBeatSingleFit:
                 X,
                 y,
                 base_mrmr_params=base,
-                n_bootstraps=N_BOOTSTRAPS,
+                n_bootstraps=multi_seed_n_bootstraps,
                 sample_fraction=SAMPLE_FRACTION,
                 support_threshold=SUPPORT_THRESHOLD,
                 random_state=seed,
