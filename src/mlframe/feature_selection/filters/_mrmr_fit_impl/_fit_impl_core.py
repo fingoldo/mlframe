@@ -9146,8 +9146,22 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # recipe (so the additive term it carries is actually present); byte-identical (empty set) when
     # no fusion fired.
     _fused_subsumed = set(getattr(self, "_fused_subsumed_raws_", None) or set())
-    if _fused_subsumed and getattr(self, "_engineered_recipes_", None):
-        _surv_eng = {getattr(_r, "name", None) for _r in (self._engineered_recipes_ or [])}
+    if _fused_subsumed:
+        # NOTE: ``self._engineered_recipes_`` is not populated until later in this function (the
+        # UAED-trim / group-drop reassignments below), so reading it here (as the block previously
+        # did) silently sees its initial ``[]`` default and the whole strip below no-ops, letting a
+        # provably-subsumed raw (``_fused_subsumed``) ride into ``support_`` beside the compound that
+        # captures it. ``selected_vars`` is not a reliable substitute either -- the fused compound can
+        # legitimately not have reached ``selected_vars`` yet at this exact point in a multi-step fit
+        # (it is registered in the recipe dict the moment the fusion is admitted, but folded into
+        # ``selected_vars`` on the SAME step's re-screen, which this final-assembly code can run ahead
+        # of on some step orderings). ``engineered_recipes`` (the local name -> recipe dict this
+        # function has threaded throughout) is updated the instant a fusion is admitted and is the
+        # authoritative "does this compound exist at all" source regardless of screen timing; a
+        # ``_fused_subsumed`` entry only exists when its compound's OWN admission already passed the
+        # production keep-probe, so trusting the recipe dict here (not gating on selection) does not
+        # widen the strip's blast radius beyond what ``_fused_subsumed`` already vetted.
+        _surv_eng = set(engineered_recipes.keys()) if isinstance(engineered_recipes, dict) else set()
         # Only strip a raw when a SURVIVING engineered compound actually references it (carries its
         # additive term) - otherwise leave it (the fusion that subsumed it did not survive).
         import re as _re_fsr
@@ -9504,9 +9518,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _RR_TOK_SPLIT2
                 _rr_raw_set = set(self.feature_names_in_)
                 # raw name -> surviving engineered recipe names that consume it as an operand.
+                # NOTE: ``self._engineered_recipes_`` is not populated until much later in this
+                # function (the UAED-trim / group-drop reassignments below) -- at THIS point it is
+                # still its initial ``[]`` default, so reading it here silently sees zero recipes and
+                # every raw looks unconsumed (the exclusion below never fires). The CURRENTLY-SELECTED
+                # engineered survivors live in ``selected_vars``/``cols``; look each one's recipe up in
+                # the already-current local ``engineered_recipes`` dict instead.
                 _rr_consumers: dict = {}
-                for _en in getattr(self, "_engineered_recipes_", {}) or {}:
-                    _en_name = getattr(_en, "name", _en)
+                _rr_sel_eng_names = {cols[int(v)] for v in selected_vars if 0 <= int(v) < len(cols) and cols[int(v)] not in _rr_raw_set}
+                for _en_name in _rr_sel_eng_names:
                     for _tok in _RR_TOK_SPLIT2.split(str(_en_name)):
                         if not _tok:
                             continue
