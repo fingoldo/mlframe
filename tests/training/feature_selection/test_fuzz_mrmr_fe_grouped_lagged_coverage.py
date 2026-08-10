@@ -29,6 +29,12 @@ def _combo(kind):
         target_type="binary_classification",
         input_type="pandas",
         mrmr_fe_ratio_delta_diff_cfg=kind,
+        # AXES["mrmr_fe_max_steps_cfg"][0] is 0 -- fe_max_steps=0 is the unconditional "no FE at all"
+        # contract (_fe_family_on requires fe_max_steps>0 for every family, commit 9a154522b), so the
+        # default-first-axis-value picked up here silently made grouped_delta/lagged_diff never fire
+        # regardless of their own enable flag, deterministically across every seed (re-probed 0/1/42, all
+        # emitted []). Explicit override to a real budget.
+        mrmr_fe_max_steps_cfg=1,
     )
     return _build_combo(models=("cb",), axes=axes, seed=42)
 
