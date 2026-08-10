@@ -9518,14 +9518,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _RR_TOK_SPLIT2
                 _rr_raw_set = set(self.feature_names_in_)
                 # raw name -> surviving engineered recipe names that consume it as an operand.
-                # NOTE: ``self._engineered_recipes_`` is not populated until much later in this
-                # function (the UAED-trim / group-drop reassignments below) -- at THIS point it is
-                # still its initial ``[]`` default, so reading it here silently sees zero recipes and
-                # every raw looks unconsumed (the exclusion below never fires). The CURRENTLY-SELECTED
-                # engineered survivors live in ``selected_vars``/``cols``; look each one's recipe up in
-                # the already-current local ``engineered_recipes`` dict instead.
+                # ``selected_vars`` is narrowed to RAW-ONLY indices just above (the ``selected_vars =
+                # original_indices`` rebind, ~line 8527) -- engineered survivors live ONLY in
+                # ``self._engineered_recipes_`` / ``self._engineered_features_`` from that point on, so a
+                # ``cols[int(v)] not in _rr_raw_set`` scan of ``selected_vars`` here always finds nothing
+                # (every ``v`` now indexes a raw column) and this exclusion silently never fires -- the SAME
+                # staleness trap the sibling C2-fusion / usability-retention fixes (2026-08-10) closed for
+                # ``self._engineered_recipes_`` reads made BEFORE that rebind; this read happens AFTER it, so
+                # the freshly (re)populated attribute (set at ~line 8498-8514, above this block) is the
+                # authoritative source here, not the now RAW-only ``selected_vars``.
                 _rr_consumers: dict = {}
-                _rr_sel_eng_names = {cols[int(v)] for v in selected_vars if 0 <= int(v) < len(cols) and cols[int(v)] not in _rr_raw_set}
+                _rr_sel_eng_names = {str(getattr(_r, "name", "")) for _r in (self._engineered_recipes_ or []) if getattr(_r, "name", None)}
+                _rr_sel_eng_names |= {str(_n) for _n in (self._engineered_features_ or [])}
                 for _en_name in _rr_sel_eng_names:
                     for _tok in _RR_TOK_SPLIT2.split(str(_en_name)):
                         if not _tok:
