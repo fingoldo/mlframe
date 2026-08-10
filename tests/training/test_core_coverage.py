@@ -25,6 +25,27 @@ from mlframe.training import (
 )
 from .shared import SimpleFeaturesAndTargetsExtractor, TimestampedFeaturesExtractor
 
+
+@pytest.fixture(autouse=True)
+def _skip_target_drift_diagnostics(monkeypatch):
+    """Skip the per-target adversarial-validation drift diagnostics for every test in this file.
+
+    ``train_mlframe_models_suite`` renders ``render_target_drift_diagnostics`` (distribution overlay +
+    adversarial validation + PSI) once per target whenever charts are saved (``output_config.data_dir`` set),
+    REGARDLESS of ``reporting_config.show_perf_chart``/``show_fi`` -- those only gate the per-model report,
+    not this per-target diagnostics pass. ``adversarial_validation`` fits a real cross-validated classifier
+    (default LightGBM, several CV folds) on the train-vs-test feature frames, which dwarfs the actual
+    training cost of the tiny ridge/lasso models this file's tests care about (this module targets
+    train_mlframe_models_suite's own phases, not the reporting/diagnostics layer -- no test here reads
+    ``metadata["charts"]`` drift/adversarial entries). Patched at the source module
+    (``mlframe.reporting.diagnostics_dispatch``, not the caller's local binding) because
+    ``_render_per_target_diagnostics`` re-imports it fresh from there on every call.
+    """
+    import mlframe.reporting.diagnostics_dispatch as _diagnostics_dispatch
+
+    monkeypatch.setattr(_diagnostics_dispatch, "render_target_drift_diagnostics", lambda *args, **kwargs: None)
+
+
 # ============================================================================
 # Section 0-1: Input Validation + Configuration Setup (Agent 1)
 # ============================================================================
@@ -96,20 +117,41 @@ class TestInputValidation:
                 output_config=OutputConfig(data_dir=temp_data_dir),
             )
 
-    def test_none_extractor_raises_value_error(self, sample_regression_data, temp_data_dir, common_init_params):
-        """None extractor raises value error."""
+    def test_none_extractor_auto_builds_default_and_trains(self, sample_regression_data, temp_data_dir, common_init_params):
+        """``features_and_targets_extractor=None`` auto-builds a default extractor from ``target_name`` and trains.
+
+        Was ``test_none_extractor_raises_value_error`` (asserted ``ValueError: features_and_targets_extractor
+        is required``). ``train_mlframe_models_suite`` (``_main_train_suite.py``) grew an "ergonomic happy
+        path" that substitutes ``_build_default_extractor(df, target_name)`` whenever the caller passes
+        ``None``, BEFORE ``validate_suite_inputs`` ever runs -- so ``validate_suite_inputs``'s own
+        ``if features_and_targets_extractor is None: raise ValueError(...)`` (``_main_train_suite_phases.py``)
+        is unreachable through the public API; the None-rejection contract this test pinned no longer holds.
+        Confirmed by tracing the call site (``_main_train_suite.py``: the default-extractor substitution runs
+        strictly before ``validate_suite_inputs``) and empirically: the old assertion never raised, so the
+        `with pytest.raises` block ran the FULL default suite (every default model family, including an
+        unbounded-epoch MLP) to conclusion before the outer assertion could ever fail -- explaining why this
+        was the single slowest test in the file's CI slice (217s) despite nominally being an instant
+        input-validation check. Re-framed to the real current contract (no revert of the ergonomic-default
+        feature, per the project convention for a validated behavior change that outlives a stale test) and
+        given the same cheap ``mlframe_models``/``hyperparams_config`` override every other test in this file
+        uses, so the happy path is still genuinely exercised without paying for the full model roster.
+        """
         df, _feature_names, _y = sample_regression_data
-        with pytest.raises(ValueError, match="features_and_targets_extractor is required"):
-            train_mlframe_models_suite(
-                df=df,
-                target_name="target",
-                model_name="test_model",
-                features_and_targets_extractor=None,
-                verbose=0,
-                use_mlframe_ensembles=False,
-                reporting_config=common_init_params,
-                output_config=OutputConfig(data_dir=temp_data_dir),
-            )
+        models, _metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="target",
+            model_name="test_model",
+            features_and_targets_extractor=None,
+            mlframe_models=["linear"],
+            verbose=0,
+            use_mlframe_ensembles=False,
+            hyperparams_config={"iterations": 10},
+            reporting_config=common_init_params,
+            output_config=OutputConfig(data_dir=temp_data_dir),
+        )
+        assert isinstance(models, dict)
+        assert TargetTypes.REGRESSION in models
+        assert len(models[TargetTypes.REGRESSION]["target"]) >= 1
 
     def test_int_df_raises_type_error(self, common_init_params):
         """Int df raises type error."""
