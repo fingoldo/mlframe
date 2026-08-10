@@ -136,7 +136,10 @@ def test_canonical_default_finds_both_signal_pairs():
 def test_canonical_transform_replays_engineered_columns_leak_safe():
     """fs.transform(df.head(100)) reproduces engineered columns with NO target (leak-safe)."""
     df, y = _make_fixture()
-    fs = MRMR(verbose=0)
+    # random_seed pinned (MRMR's own internal RNG defaults to None/unseeded, unlike every sibling test in
+    # this file): without it, which (c,d) engineered variant wins the greedy screen is itself
+    # non-deterministic across runs, independent of the transform-replay contract under test.
+    fs = MRMR(verbose=0, random_seed=42)
     fs.fit(df, y)
 
     out_names = list(fs.get_feature_names_out())
@@ -144,21 +147,35 @@ def test_canonical_transform_replays_engineered_columns_leak_safe():
     Xt = np.asarray(fs.transform(head))  # NB: no y passed
     assert Xt.shape == (100, len(out_names)), f"transform shape {Xt.shape} != (100, {len(out_names)})"
 
-    # The mul(log(c),sin(d))-family column, replayed on raw inputs, must be a
+    # The (c,d)-referencing engineered column, replayed on raw inputs, must be a
     # monotone function of the true log(c)*sin(d) signal (discretized -> compare
-    # rank correlation rather than exact values).
+    # rank correlation rather than exact values). MRMR may fuse BOTH structural
+    # halves (the a**2/b term and the log(c)*sin(d) term) into ONE compound
+    # feature rather than keeping an isolated (c,d)-only column -- a legitimate,
+    # even preferred, outcome (see test_mrmr_feature_engineering.py's
+    # single-compound canonical gate). When fused, compare against the FULL
+    # combined signal the column actually represents, not the isolated (c,d) term
+    # alone (which a fused column is only weakly correlated with by construction).
     eng = _engineered_names(fs)
     cd_idx = None
+    cd_name = None
     for i, nm in enumerate(out_names):
         if nm in eng and {"c", "d"} <= _bare_vars(nm):
             cd_idx = i
+            cd_name = nm
             break
     assert cd_idx is not None, f"no (c,d) engineered column in output names {out_names}"
 
     Xt_full = np.asarray(fs.transform(df))
-    direct = np.log(df["c"].values) * np.sin(df["d"].values)
+    is_fused = {"a", "b"} <= _bare_vars(cd_name)
+    if is_fused:
+        direct = df["a"].values ** 2 / df["b"].values + np.log(df["c"].values) * np.sin(df["d"].values)
+    else:
+        direct = np.log(df["c"].values) * np.sin(df["d"].values)
     rho = np.corrcoef(Xt_full[:, cd_idx], direct)[0, 1]
-    assert abs(rho) > 0.5, f"replayed (c,d) engineered col only |rho|={rho:.3f} vs true log(c)*sin(d)"
+    assert abs(rho) > 0.5, (
+        f"replayed engineered col {cd_name!r} only |rho|={rho:.3f} vs true " f"{'a**2/b + log(c)*sin(d) (fused)' if is_fused else 'log(c)*sin(d)'}"
+    )
 
     # EXPLICIT "reaches the consumer AND is non-degenerate" contract: every
     # engineered column the FE step recommended must (1) actually appear as a
