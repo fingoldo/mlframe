@@ -16,6 +16,38 @@ from mlframe.feature_selection.filters._gpu_resident_fe import (
 )
 
 
+def _require_gpu():
+    """Import cupy (skip if the package is missing) AND skip if no real CUDA device is present.
+
+    ``pytest.importorskip("cupy")`` alone only proves the package imports -- it stays green on a
+    host with cupy installed but no CUDA device, so every real-GPU test in this file routes through
+    this helper instead of a bare ``pytest.importorskip("cupy")``."""
+    cp = pytest.importorskip("cupy")
+    try:
+        available = cp.cuda.runtime.getDeviceCount() >= 1
+    except Exception:  # pragma: no cover - no driver / no GPU
+        available = False
+    if not available:
+        pytest.skip("No CUDA device available")
+    return cp
+
+
+def _require_gpu():
+    """Import cupy (skip if the package is missing) AND skip if no real CUDA device is present.
+
+    ``pytest.importorskip("cupy")`` alone only proves the package imports -- it stays green on a
+    host with cupy installed but no CUDA device, so every real-GPU test in this file routes through
+    this helper instead of a bare ``pytest.importorskip("cupy")``."""
+    cp = pytest.importorskip("cupy")
+    try:
+        available = cp.cuda.runtime.getDeviceCount() >= 1
+    except Exception:  # pragma: no cover - no driver / no GPU
+        available = False
+    if not available:
+        pytest.skip("No CUDA device available")
+    return cp
+
+
 def _ab_target(n=20000, seed=0):
     """Ab target."""
     rng = np.random.default_rng(seed)
@@ -47,7 +79,7 @@ def test_cpu_path_recovers_a2_over_b():
 def test_gpu_resident_matches_cpu():
     """On-device generation + single big-k MI must match the CPU path: identical names, same top
     candidate, MI values equal to fp round-off (njit vs cupy plug-in MI are equivalent)."""
-    pytest.importorskip("cupy")
+    _require_gpu()
     from mlframe.feature_selection.filters._gpu_resident_fe import gpu_resident_pair_candidate_mi
 
     a, b, y_codes = _ab_target()
@@ -63,7 +95,7 @@ def test_gpu_resident_matches_cpu():
 def test_gpu_resident_chunked_matches_cpu():
     """Force MULTIPLE VRAM K-chunks (n=100k -> k_chunk < 384) and assert the concatenated chunked MI
     still matches the CPU path -- the chunk boundary must not corrupt per-candidate MI."""
-    pytest.importorskip("cupy")
+    _require_gpu()
     from mlframe.feature_selection.filters._gpu_resident_fe import _gpu_k_chunk, gpu_resident_pair_candidate_mi
 
     a, b, y_codes = _ab_target(n=100_000)
@@ -78,7 +110,7 @@ def test_gpu_resident_chunked_matches_cpu():
 def test_fast_path_preserves_exact_winner():
     """prescreen(sort-free)+refine(exact top-K) must return the SAME top candidate as the pure-exact
     GPU path -- the whole point of refining is bit-exact selection despite the approximate prescreen."""
-    pytest.importorskip("cupy")
+    _require_gpu()
     from mlframe.feature_selection.filters._gpu_resident_fe import (
         gpu_resident_pair_candidate_mi,
         gpu_resident_pair_candidate_mi_fast,
@@ -123,7 +155,7 @@ def test_cpu_path_edge_cases_no_nonfinite_escapes():
 def test_gpu_cpu_agree_heavytail_and_varied_targets():
     """Exact GPU path must match CPU on HEAVY-TAILED operands (the regime the docstring says breaks the
     approximate path) and on NON-a**2/b targets -- the cases the original suite never covered."""
-    pytest.importorskip("cupy")
+    _require_gpu()
     from mlframe.feature_selection.filters._gpu_resident_fe import gpu_resident_pair_candidate_mi
 
     rng = np.random.default_rng(11)
@@ -159,7 +191,7 @@ def test_dispatch_falls_back_to_cpu_on_gpu_error(monkeypatch):
 def test_chunk_invariance(monkeypatch):
     """The VRAM K-chunk boundary must not change the result: forcing k_chunk in {1, 7, 384} on the same
     data yields identical MI vectors (isolates the chunk-stitch logic from whatever VRAM the box has)."""
-    pytest.importorskip("cupy")
+    _require_gpu()
     import mlframe.feature_selection.filters._gpu_resident_fe as G
 
     a, b, y_codes = _ab_target(n=40_000)
@@ -226,7 +258,7 @@ def test_grand_fused_pair_mi_bit_identical_to_cpu():
     the full CPU path (gen -> discretize_2d_quantile_batch -> batch_mi_with_noise_gate). GPU discretize
     is bit-identical to CPU (verified) and the GPU noise-gate is the bit-identical production twin, so the
     fused pair-MI is bit-identical -- at ~20x the speed (CPU 54s vs GPU 2.8s at n=200k K=384)."""
-    pytest.importorskip("cupy")
+    _require_gpu()
     from mlframe.feature_selection.filters._gpu_resident_fe import _build_candidate_matrix, grand_fused_pair_mi
     from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
     from mlframe.feature_selection.filters.info_theory import batch_mi_with_noise_gate
@@ -279,7 +311,7 @@ def test_grand_fusion_fused_bit_identical_to_nonfused():
     MRMR exception (selection-equivalence, not bit-identical MI, is the bar for GPU-resident entropy
     reduction -- see e.g. ``_pairs_dispatch.py``'s resident gate, verified maxdiff ~1e-18 there). Argmax
     match is still required (selection-bearing)."""
-    pytest.importorskip("cupy")
+    _require_gpu()
     from mlframe.feature_selection.filters._gpu_resident_fe import (
         grand_fused_pair_mi,
         grand_fused_pair_mi_fused,
@@ -320,7 +352,7 @@ def test_grand_fused_pair_mi_resident_gate_skips_d2h_then_h2d_round_trip():
     it, per its own docstring): it still D2Hs the codes eagerly through the unchanged fallback path. Counts
     ``cp.asnumpy`` calls on int8 arrays (the disc codes' narrow dtype) to prove the round trip is gone for
     ``use_su=False`` and unchanged (>=1) for ``use_su=True``."""
-    pytest.importorskip("cupy")
+    _require_gpu()
     import cupy as cp
 
     from mlframe.feature_selection.filters._gpu_resident_fe import grand_fused_pair_mi
@@ -376,7 +408,7 @@ def test_grand_fusion_falls_back_when_shared_hist_too_big():
     """When the shared-mem histogram (P1*nbins*K_y int32) exceeds the device per-block limit, the fused
     path must RAISE (so grand_fused_pair_mi catches it and uses the exact non-fused fallback) rather than
     launch an oversized kernel. A huge nperm forces the overflow."""
-    pytest.importorskip("cupy")
+    _require_gpu()
     from mlframe.feature_selection.filters._gpu_resident_fe import grand_fused_pair_mi_fused
 
     rng = np.random.default_rng(2)
@@ -396,7 +428,7 @@ def test_fused_generation_is_bit_equal_to_cupy_loop():
     """The fused RawKernel generation must be BIT-EQUAL (maxdiff 0) to the cupy elementwise loop --
     same ops, safe-div y==0 branch, nan_to_num. This is what lets it replace the loop with no result
     change while being ~15x faster generation."""
-    cp = pytest.importorskip("cupy")
+    cp = _require_gpu()
     from mlframe.feature_selection.filters._gpu_resident_fe import (
         _COMBOS,
         _build_candidate_matrix,
@@ -429,7 +461,7 @@ def test_gpu_discretize_codes_host_f64_bit_identical_to_cpu(monkeypatch):
     """With the EXACT f64 binning fallback (MLFRAME_FE_GPU_BINNING_DTYPE=float64) the GPU codes must be
     BIT-IDENTICAL to the CPU discretize_2d_quantile_batch (maxdiff 0) -- np.percentile upcasts the float32
     FE buffer to float64, so the f64 GPU path matches it exactly. This is the bit-exact fallback contract."""
-    pytest.importorskip("cupy")
+    _require_gpu()
     monkeypatch.setenv("MLFRAME_FE_GPU_BINNING_DTYPE", "float64")
     from mlframe.feature_selection.filters._gpu_resident_fe import (
         _build_candidate_matrix,
@@ -454,7 +486,7 @@ def test_gpu_discretize_codes_host_f32_default_selection_safe():
     not bit-identity: f32 codes must agree with the CPU f64 codes to ~100% (measured 100.000% @ K=384,
     n in {100k,300k,1M} on a GTX 1050 Ti) so the downstream noise-gate MI ranking -- and thus the FE
     selection -- is preserved. Assert >=99.9% code agreement (selection-safe margin)."""
-    pytest.importorskip("cupy")
+    _require_gpu()
     from mlframe.feature_selection.filters._gpu_resident_fe import (
         _build_candidate_matrix,
         gpu_discretize_codes_host,
@@ -478,7 +510,7 @@ def test_gpu_discretize_codes_host_k1_chunk_guard(monkeypatch):
     cp.percentile(axis=0) single-column bug (wrong edges) that would corrupt a K==1 last chunk. Asserted
     against the f64 fallback so it is a clean bit-identity check of the K==1 ravel guard (independent of
     the default f32 edge round-off)."""
-    pytest.importorskip("cupy")
+    _require_gpu()
     monkeypatch.setenv("MLFRAME_FE_GPU_BINNING_DTYPE", "float64")
     from mlframe.feature_selection.filters._gpu_resident_fe import gpu_discretize_codes_host
     from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
@@ -496,7 +528,7 @@ def test_radix_select_edges_codes_bit_identical_to_percentile(monkeypatch):
     (=0), for BOTH binning dtypes and on heavy-tailed candidates -- it only replaces HOW the nbins-1
     interior edges are computed (radix-select of the bracketing order statistics + cupy's exact 'linear'
     interpolation), not the emit contract. This locks the exactness the production gate depends on."""
-    cp = pytest.importorskip("cupy")
+    cp = _require_gpu()
     from mlframe.feature_selection.filters._gpu_resident_fe import _gpu_resident_discretize_codes
 
     rng = np.random.default_rng(3)
@@ -521,7 +553,7 @@ def test_radix_with_extremes_bit_identical_to_separate_minmax(monkeypatch):
     the select kernel) must produce codes BIT-IDENTICAL to the separate Xd.min(axis=0)/Xd.max(axis=0) +
     interior-only concatenate it replaces -- across normal, const, tied, binary, low-cardinality, subnormal,
     and signed-zero columns (the edge-dedup/ndistinct logic is exact-value-sensitive at the extremes)."""
-    cp = pytest.importorskip("cupy")
+    cp = _require_gpu()
     import mlframe.feature_selection.filters._fe_batched_mi as m
     import mlframe.feature_selection.filters._gpu_resident_select as gs
 
@@ -572,7 +604,7 @@ def test_radix_f64_v3_compaction_bit_identical_to_v2(monkeypatch):
     """The candidate-compaction v3 fused f64 select+interp kernel must emit interior edges BIT-IDENTICAL to
     v2 -- including columns that OVERFLOW the candidate cap (heavy ties concentrating a whole column into
     one 16-bit key window force the in-kernel full-scan fallback) and const/binary/subnormal columns."""
-    cp = pytest.importorskip("cupy")
+    cp = _require_gpu()
     import mlframe.feature_selection.filters._gpu_resident_select as gs
 
     rng = np.random.default_rng(11)
@@ -601,7 +633,7 @@ def test_radix_f32_bsearch_variant_bit_identical_to_linear(monkeypatch):
     prefixes), not the order statistics. Stresses the ties/duplicates edge case (binary search must exact-
     match a window prefix, not lower_bound onto a wrong slot) and all-equal columns alongside heavy-tailed
     data. Both variants run via the radix edges path (MLFRAME_FE_GPU_RADIX_EDGES=1)."""
-    cp = pytest.importorskip("cupy")
+    cp = _require_gpu()
     from mlframe.feature_selection.filters import _gpu_resident_select as S
 
     monkeypatch.setenv("MLFRAME_FE_GPU_RADIX_EDGES", "1")
@@ -640,7 +672,7 @@ def test_gpu_pairs_fe_mi_matches_cpu_dispatch_analytic(monkeypatch):
     for the size-gated FE GPU path (MLFRAME_FE_GPU_DISCRETIZE). n is above analytic_null_min_n so the CPU
     dispatch takes the analytic route too. Uses the f64 binning fallback so the GPU codes are bit-identical
     to the CPU discretize and the observed-MI equality is an exact contract (not f32 round-off dependent)."""
-    pytest.importorskip("cupy")
+    _require_gpu()
     monkeypatch.setenv("MLFRAME_FE_GPU_BINNING_DTYPE", "float64")
     from mlframe.feature_selection.filters._gpu_resident_fe import _build_candidate_matrix, gpu_pairs_fe_mi
     from mlframe.feature_selection.filters.info_theory import batch_mi_with_noise_gate
@@ -690,7 +722,7 @@ def test_gpu_pairs_fe_mi_matches_cpu_dispatch_analytic(monkeypatch):
 def test_gpu_pairs_fe_mi_returns_none_for_nonanalytic():
     """gpu_pairs_fe_mi must DEFER (None) when the analytic branch doesn't apply -- SU-normalised,
     npermutations<=0, or small n -- so the caller uses the CPU dispatch (no silent wrong path)."""
-    pytest.importorskip("cupy")
+    _require_gpu()
     from mlframe.feature_selection.filters._gpu_resident_fe import _build_candidate_matrix, gpu_pairs_fe_mi
 
     rng = np.random.default_rng(0)
@@ -712,7 +744,7 @@ def test_fused_bin_codes_bit_identical_to_per_column_searchsorted():
     cp.searchsorted(edges, col, side='right') it replaces -- BIT-IDENTICAL codes (maxdiff 0) at f32 AND
     f64, on the SAME f64 edges. Guards the nvprof-driven fusion that removed the K int64->int32 cast-copies
     + K searchsorted launches (the value is promoted to f64 for the compare, matching cp.searchsorted)."""
-    cp = pytest.importorskip("cupy")
+    cp = _require_gpu()
     from mlframe.feature_selection.filters._gpu_resident_fe import _searchsorted_codes
 
     rng = np.random.default_rng(0)
@@ -736,7 +768,7 @@ def test_deferred_host_codes_bit_identical_to_eager():
     materialise producer leg AND the device-codes==host-codes invariant + fill idempotency. (The
     binning-only gpu_discretize_codes_host leg stays eager -- direct callers read its host return.)
     """
-    pytest.importorskip("cupy")
+    _require_gpu()
     import cupy as cp
     import mlframe.feature_selection.filters._gpu_resident_fe as G
 
@@ -781,7 +813,7 @@ def test_gpu_apply_prewarp_resolves_clenshaw_dict_after_carve():
     A bare-name reference left behind raised ``NameError`` on every Clenshaw-basis prewarp (hermite/
     legendre/chebyshev/laguerre) -- a GPU-only path the parity suite never exercised. Pin that the
     parent resolves the carved dict (qualified via the ``_grb`` re-export) so the NameError can't return."""
-    cp = pytest.importorskip("cupy")
+    cp = _require_gpu()
     from mlframe.feature_selection.filters._gpu_resident_fe import _gpu_apply_prewarp
     from mlframe.feature_selection.filters._gpu_resident_basis import _PREWARP_CLENSHAW_GPU
 
@@ -802,7 +834,7 @@ def test_fe_materialise_cm_bit_identical():
     ``fe_materialise`` kernel and return the SAME (n, K) row-major layout the downstream bin/D2H expect.
     Covers all op-codes (0..8 incl. float64-promoted div/ratio_abs + nan-propagating max/min/signed),
     zeros / negatives / +-inf operands, and K==1. The row-major kernel is the gated fallback."""
-    cp = pytest.importorskip("cupy")
+    cp = _require_gpu()
     import mlframe.feature_selection.filters._gpu_resident_select as M
 
     rng = np.random.RandomState(13)

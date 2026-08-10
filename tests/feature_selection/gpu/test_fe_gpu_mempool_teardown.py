@@ -48,6 +48,14 @@ def test_teardown_runs_even_when_run_fe_step_impl_raises(monkeypatch):
 cp = pytest.importorskip("cupy")
 
 
+def _gpu_available() -> bool:
+    """Gpu available."""
+    try:
+        return cp.cuda.runtime.getDeviceCount() >= 1
+    except Exception:  # pragma: no cover - no driver / no GPU
+        return False
+
+
 def test_helper_inert_without_gpu_flags(monkeypatch):
     """Helper inert without gpu flags."""
     monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
@@ -55,15 +63,23 @@ def test_helper_inert_without_gpu_flags(monkeypatch):
     assert _free_gpu_fe_mempool() is False
 
 
+@pytest.mark.skipif(not _gpu_available(), reason="no real CUDA device on this host")
 def test_helper_issues_free_under_strict(monkeypatch):
-    """Helper issues free under strict."""
+    """Helper issues free under strict.
+
+    ``_free_gpu_fe_mempool`` is best-effort (``cp.get_default_memory_pool().free_all_blocks()`` wrapped in a
+    try/except that returns False on ANY failure, including ``cudaErrorNoDevice`` on a no-GPU host) -- the
+    env flag alone is not enough to make it return True, a real device is required for the free to succeed.
+    """
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
     monkeypatch.delenv("MLFRAME_CMI_GPU", raising=False)
     assert _free_gpu_fe_mempool() is True
 
 
+@pytest.mark.skipif(not _gpu_available(), reason="no real CUDA device on this host")
 def test_helper_issues_free_under_cmi_gpu(monkeypatch):
-    """Helper issues free under cmi gpu."""
+    """Helper issues free under cmi gpu. See ``test_helper_issues_free_under_strict`` for why this needs a
+    real device: the underlying free is best-effort and silently returns False without one."""
     monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
     monkeypatch.setenv("MLFRAME_CMI_GPU", "1")
     assert _free_gpu_fe_mempool() is True

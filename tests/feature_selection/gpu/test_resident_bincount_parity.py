@@ -13,6 +13,18 @@ from mlframe.feature_selection.filters._resident_bincount import resident_bincou
 cp = pytest.importorskip("cupy")
 
 
+def _gpu_available() -> bool:
+    """Gpu available."""
+    try:
+        return cp.cuda.runtime.getDeviceCount() >= 1
+    except Exception:  # pragma: no cover - no driver / no GPU
+        return False
+
+
+if not _gpu_available():  # pragma: no cover - guarded at collection time
+    pytest.skip("No CUDA device available", allow_module_level=True)
+
+
 class TestUnweightedBitIdenticalToCupyBincount:
     """Unweighted resident_bincount must be bit-identical to cupy.bincount(x, minlength=nc)[:nc]."""
 

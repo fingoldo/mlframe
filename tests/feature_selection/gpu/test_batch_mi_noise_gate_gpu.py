@@ -34,6 +34,23 @@ from mlframe.feature_selection.filters.batch_mi_noise_gate_gpu import (
 pytestmark = pytest.mark.gpu
 
 
+def _gpu_available() -> bool:
+    """Gpu available."""
+    try:
+        import cupy as cp
+
+        return cp.cuda.runtime.getDeviceCount() >= 1
+    except Exception:  # pragma: no cover - no driver / no GPU
+        return False
+
+
+# ``_CUPY_AVAIL`` (imported above) only checks that the cupy PACKAGE imports -- it stays True
+# on a host with cupy installed but no CUDA device, so shadow it with a real device probe: every
+# test in this file that runs under the cupy backend allocates a device array, which raises
+# cudaErrorNoDevice rather than skipping.
+_CUPY_AVAIL = _CUPY_AVAIL and _gpu_available()
+
+
 def _make_frame(n, K, nbins, seed):
     """(n, K) int frame mixing informative / pure-noise / tie-heavy / strongly-
     informative columns -- identical construction to the CPU bit-identity test."""

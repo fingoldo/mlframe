@@ -22,6 +22,21 @@ from mlframe.feature_selection.filters.batch_pair_mi_gpu import (
 from mlframe.feature_selection.filters._fe_resident_operands import clear_fe_resident_operands
 
 
+def _gpu_available() -> bool:
+    """Gpu available."""
+    try:
+        import cupy as cp
+
+        return cp.cuda.runtime.getDeviceCount() >= 1
+    except Exception:  # pragma: no cover - no driver / no GPU
+        return False
+
+
+# ``_CUPY_AVAIL`` (imported above) only checks that the cupy PACKAGE imports -- it stays True
+# on a host with cupy installed but no CUDA device, so shadow it with a real device probe.
+_CUPY_AVAIL = _CUPY_AVAIL and _gpu_available()
+
+
 @pytest.fixture(autouse=True)
 def _clear_resident_cache():
     """Clear resident cache."""

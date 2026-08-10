@@ -46,6 +46,16 @@ from mlframe.feature_selection.filters.batch_pair_mi_gpu import (
 )
 
 
+def _gpu_available() -> bool:
+    """Gpu available."""
+    try:
+        import cupy as cp
+
+        return cp.cuda.runtime.getDeviceCount() >= 1
+    except Exception:  # pragma: no cover - no driver / no GPU
+        return False
+
+
 def _build_pair_inputs(n_samples=500, nbins_per_col=(4, 4, 4, 4), n_classes_y=2, seed=0):
     """Build pair inputs."""
     rng = np.random.default_rng(seed)
@@ -271,14 +281,19 @@ def test_cuda_driver_fault_falls_through_row_chunked_then_cpu(monkeypatch):
     assert mi.shape[0] == pair_a.shape[0]
 
 
-@pytest.mark.skipif(not (bpmg._CUDA_AVAIL or bpmg._CUPY_AVAIL), reason="no GPU backend available on this host")
+@pytest.mark.skipif(not _gpu_available(), reason="no real CUDA device on this host")
 def test_real_gpu_upload_fits_rejects_absurd_byte_request():
     """End-to-end sanity check against the REAL device probe (no mocking): an absurd byte request must
-    be rejected by ``_gpu_upload_fits`` on any real GPU, proving the guard actually queries hardware."""
+    be rejected by ``_gpu_upload_fits`` on any real GPU, proving the guard actually queries hardware.
+
+    ``_gpu_upload_fits`` is deliberately permissive (fail-open, returns True) when ``cupy.cuda.runtime.memGetInfo``
+    itself is unavailable -- ``bpmg._CUDA_AVAIL``/``_CUPY_AVAIL`` only prove the numba.cuda/cupy PACKAGES import,
+    not that a device is actually present, so on a no-GPU host this assertion would spuriously fail against the
+    guard's own documented fail-open contract rather than a real regression -- gate on the real device probe."""
     assert bpmg._gpu_upload_fits(999 * 1024**4) is False  # 999 TB -- no real GPU has this much VRAM
 
 
-@pytest.mark.skipif(not (bpmg._CUDA_AVAIL or bpmg._CUPY_AVAIL), reason="no GPU backend available on this host")
+@pytest.mark.skipif(not _gpu_available(), reason="no real CUDA device on this host")
 def test_real_gpu_upload_fits_accepts_tiny_request():
     """Sanity check the real probe is not a blanket rejection: a trivially small request must pass."""
     assert bpmg._gpu_upload_fits(1024) is True
