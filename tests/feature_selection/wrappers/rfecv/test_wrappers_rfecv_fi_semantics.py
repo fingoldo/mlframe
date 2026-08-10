@@ -233,15 +233,18 @@ class TestMultiEstimatorAmGmFallback:
     def test_am_falls_back_to_borda_on_multi(self, caplog):
         """Am falls back to borda on multi."""
         X, y = make_classification(n_samples=200, n_features=8, n_informative=4, random_state=0)
-        rfecv = RFECV(
-            estimators=[LogisticRegression(max_iter=300), RandomForestClassifier(n_estimators=10)],
-            cv=3,
-            max_refits=3,
-            random_state=0,
-            votes_aggregation_method=VotesAggregation.AM,
-            verbose=1,
-        )
+        # The F6 multi-estimator+AM/GM warning fires in RFECV.__init__ (not .fit), so the
+        # constructor call itself must be inside the caplog capture scope -- it was outside it here,
+        # meaning the warning was always emitted before caplog started listening.
         with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers.rfecv"):
+            rfecv = RFECV(
+                estimators=[LogisticRegression(max_iter=300), RandomForestClassifier(n_estimators=10)],
+                cv=3,
+                max_refits=3,
+                random_state=0,
+                votes_aggregation_method=VotesAggregation.AM,
+                verbose=1,
+            )
             rfecv.fit(X, y)
         assert any("Switching to Borda" in rec.getMessage() for rec in caplog.records)
 
