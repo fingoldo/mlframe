@@ -34,3 +34,8 @@ from .predict import (  # noqa: F401
 # 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
 from ._main_train_suite import train_mlframe_models_suite  # noqa: F401
+
+# Re-export the FH session-reset helper the suite entry calls internally so external callers /
+# structural pins can address it as ``core.main.reset_fh_session`` (its home is the fingerprint
+# module; ``_main_train_suite`` imports it under this alias for the suite-entry call site).
+from ._main_train_suite import reset_fh_session  # noqa: F401

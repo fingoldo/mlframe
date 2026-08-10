@@ -174,9 +174,10 @@ def test_median_safe_all_nan_fallback(caplog):
         ("feature_engineering/numerical.py", "np.nanquantile(arr, q"),
         # training/_classif_helpers.py:135 -> nan-safe argmax:
         ("training/_classif_helpers.py", "np.nanargmax(arr, axis=1)"),
-        # calibration/quality.py:200,201 -> nanmean:
-        ("calibration/quality.py", "np.nanmean(y_pred[indices[l:r]])"),
-        ("calibration/quality.py", "np.nanmean(y_true[indices[l:r]])"),
+        # calibration/quality.py:261,262 -> nanmean (loop var renamed l->lo to avoid an
+        # ambiguous-single-letter-name lint, E741 -- same nan-safe migration, different name):
+        ("calibration/quality.py", "np.nanmean(y_pred[indices[lo:r]])"),
+        ("calibration/quality.py", "np.nanmean(y_true[indices[lo:r]])"),
     ],
 )
 def test_wave21_production_site_migrated(rel, must_contain):
