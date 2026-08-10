@@ -67,7 +67,10 @@ def test_ranker_suite_per_flavor_dump_writes_sidecar():
 def test_calibrator_post_dump_writes_sidecar():
     """calibration/post.py joblib.dump for each calibrator now triggers
     the sidecar write."""
-    src = _read_src("calibration/post.py")
+    # calibration/post.py is a facade re-exporting train_postcalibrators from the sibling
+    # _post_train_calibrators.py (a monolith-split, not the flat-module->package split _read_src's
+    # own fallback handles) -- the sidecar wiring itself lives in that sibling.
+    src = _read_src("calibration/post.py") + _read_src("calibration/_post_train_calibrators.py")
     assert (
         "_write_save_meta_sidecar as _wsms" in src
     ), "Wave 19 P1 regression: calibration/post no longer imports the _write_save_meta_sidecar helper; per-calibrator dumps have no version envelope."
