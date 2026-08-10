@@ -404,30 +404,35 @@ def test_gate_is_hw_calibrated_not_magic_constant():
 def test_auto_recall_matches_fused_small_and_second_moment_wide():
     """auto must DELIVER the recall of the criterion it selects: fused recall (~0.92) when it picks fused on a
     small frame, second_moment recall (~0.88) when it picks second_moment on a wide frame. Predictor is
-    monkeypatched to force each branch deterministically (no real wide fit)."""
+    monkeypatched to force each branch deterministically (no real wide fit).
+
+    This pins CODE-PATH equivalence (auto's dispatch reproduces the explicit-criterion selection exactly, on
+    whatever data it's handed) rather than a statistical recall claim -- the property holds by construction
+    for any single seed, so one seed per regime is as conclusive as three; only the seed count was cut (not
+    N/P/top_k, which stay at the file's real recall-bearing scale) to avoid paying for 3 redundant real
+    LightGBM fits (the ``fused`` branch) that don't add coverage.
+    """
     import mlframe.feature_selection.filters._fe_interaction_prerank as m
     import mlframe.feature_selection.filters._fe_interaction_prerank_kernels as k
 
     orig = k.predict_gbm_fit_seconds
     try:
-        # SMALL regime: force fused -> auto top-k must equal fused top-k (same ranking) on each seed.
+        # SMALL regime: force fused -> auto top-k must equal fused top-k (same ranking).
         k.predict_gbm_fit_seconds = lambda n, p: (1.0, 1000.0, "cache")
-        for seed in (0, 1, 2):
-            X, y, _ = _make_frame(P, seed, leak=0.1)
-            cand = list(range(P))
-            a = m.top_k_by_interaction_propensity(X, y, cand, top_k=250)
-            assert m._LAST_AUTO_CHOICE[0] == "fused"
-            f = top_k_by_interaction_propensity(X, y, cand, top_k=250, criterion="fused")
-            assert a == f, "auto(fused) selection must match explicit fused selection"
+        X, y, _ = _make_frame(P, 0, leak=0.1)
+        cand = list(range(P))
+        a = m.top_k_by_interaction_propensity(X, y, cand, top_k=250)
+        assert m._LAST_AUTO_CHOICE[0] == "fused"
+        f = top_k_by_interaction_propensity(X, y, cand, top_k=250, criterion="fused")
+        assert a == f, "auto(fused) selection must match explicit fused selection"
         # WIDE regime: force second_moment -> auto top-k must equal second_moment top-k.
         k.predict_gbm_fit_seconds = lambda n, p: (9.9e4, 1.0, "cache")
-        for seed in (0, 1, 2):
-            X, y, _ = _make_frame(P, seed, leak=0.1)
-            cand = list(range(P))
-            a = m.top_k_by_interaction_propensity(X, y, cand, top_k=250)
-            assert m._LAST_AUTO_CHOICE[0] == "second_moment"
-            sm = top_k_by_interaction_propensity(X, y, cand, top_k=250, criterion="second_moment")
-            assert a == sm, "auto(second_moment) selection must match explicit second_moment selection"
+        X, y, _ = _make_frame(P, 0, leak=0.1)
+        cand = list(range(P))
+        a = m.top_k_by_interaction_propensity(X, y, cand, top_k=250)
+        assert m._LAST_AUTO_CHOICE[0] == "second_moment"
+        sm = top_k_by_interaction_propensity(X, y, cand, top_k=250, criterion="second_moment")
+        assert a == sm, "auto(second_moment) selection must match explicit second_moment selection"
     finally:
         k.predict_gbm_fit_seconds = orig
 

@@ -57,7 +57,10 @@ def test_predict_suite_survives_row_wise_extension_plus_untracked_extra_column(t
         use_mlframe_ensembles=False,
         output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
         verbose=0,
-        hyperparams_config={"iterations": 30},
+        # iterations=10 (down from 30): the bug/contract under test is a column-subset/reorder
+        # mismatch at predict time, not model quality -- any fitted CatBoost model reproduces the
+        # crash if the subset step is missing, so boosting round count is not load-bearing here.
+        hyperparams_config={"iterations": 10},
     )
     models_path = f"{data_dir}/models/test_target/cb_subset_test"
 

@@ -265,7 +265,12 @@ class TestCompositeXMRMRNoFE:
         """Mrmr no fe then composite regression."""
         from mlframe.feature_selection.filters import MRMR
 
-        df, target_col, feature_cols = _composite_friendly_regression()
+        # n=600 (down from the module default of 1500): the DGP's base coefficient (0.95) dominates the
+        # noise features by a wide margin, so `base` stays the clear top pick at this size -- verified this
+        # still reliably keeps `base` in MRMR's support_ (the only structural precondition downstream steps
+        # need) before trimming; MRMR's own permutation counts (full_npermutations=3, baseline_npermutations=2)
+        # are already the minimal setting, so n was the remaining lever.
+        df, target_col, feature_cols = _composite_friendly_regression(n=600)
         train_idx = np.arange(int(0.8 * len(df)))
         # MRMR without FE: zero out fe_* params explicitly.
         mrmr = MRMR(
@@ -341,7 +346,10 @@ class TestCompositeXMRMRWithFE:
         """Mrmr with fe regression."""
         from mlframe.feature_selection.filters import MRMR
 
-        df, target_col, feature_cols = _composite_friendly_regression()
+        # n=600 (down from 1500), same rationale as test_mrmr_no_fe_then_composite_regression above --
+        # `base`'s dominant coefficient keeps it selected at this size; fe_max_steps/fe_npermutations/
+        # fe_ntop_features are already at the minimal setting.
+        df, target_col, feature_cols = _composite_friendly_regression(n=600)
         train_idx = np.arange(int(0.8 * len(df)))
         # MRMR with FE: enable feature engineering on top of the raw
         # features. This exercises the MRMR x FE path that is

@@ -119,8 +119,17 @@ def test_narrow_frame_no_regression():
 
 @pytest.mark.parametrize("p", [500, 2000])
 def test_speedup_mdlp(p):
-    """Speedup mdlp."""
-    n = 20000
+    """Speedup mdlp.
+
+    n=8000 (down from 20000): this test has no numeric speedup floor -- it only pins bit-identity
+    (the hard gate, already covered at n=2000/p=200 by test_parallel_edges_bit_identical) and PRINTS
+    the measured speedup for humans running it with -s. n only needs to be large enough that per-column
+    njit MDLP cost dominates thread-pool dispatch overhead so the printed ratio is still meaningful;
+    verified n=8000/p=2000 still crosses that comfortably (speedup ratio unchanged in kind, only wall
+    time drops) since this test runs BOTH the serial and parallel pass at full size (2x the cost of a
+    single pass) and p=2000 already carries the "wide frame" scale claim on its own.
+    """
+    n = 8000
     X = _make_X(n, p, seed=5)
     y = _make_y(X, seed=5)
     # Warm numba JIT first (excluded from timing).

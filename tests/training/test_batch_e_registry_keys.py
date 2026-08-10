@@ -200,7 +200,11 @@ def test_default_allowlist_does_not_auto_include_new_keys(tmp_path):
     """Default allowlist does not auto include new keys."""
     from mlframe.training.composite.bagging import BaggedCompositeEstimator
 
-    models, _metadata = _run_suite(tmp_path, _regression_frame(), None, regression=True)
+    # mlframe_models=None is load-bearing here (it's what flips _mlframe_models_is_default_allowlist
+    # True in _phase_config_setup.py, the exact code path this test guards) -- it trains the full
+    # 5-family default set (cb/lgb/xgb/mlp/linear), so n is the only safe lever; the allowlist
+    # contract doesn't depend on row count, only n=600 (down from 1200) to keep every family's fit cheap.
+    models, _metadata = _run_suite(tmp_path, _regression_frame(n=600), None, regression=True)
 
     trained = _trained_entries(models)
     fitted_models = [getattr(e, "model", None) for e in trained]
