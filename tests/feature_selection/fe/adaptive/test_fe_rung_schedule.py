@@ -412,7 +412,11 @@ def test_cprofile_rung_screen_negligible():
     import cProfile
     import pstats
 
-    df, y = _make_canonical(n=4000, p_noise=25, seed=42)
+    # p_noise=12 (was 25) is plenty of gate-passing pairs to exercise the rung-0 screen's
+    # sort + dict comprehension against a real fit; the assertion is a RATIO (rung share of
+    # total fit time), not an absolute duration, so a narrower noise pool still proves the
+    # screen stays negligible without paying for the wider pool's synergy-pair search cost.
+    df, y = _make_canonical(n=4000, p_noise=12, seed=42)
     base = dict(verbose=0, random_seed=42, n_jobs=1, **_RELAXED)
 
     pr = cProfile.Profile()
