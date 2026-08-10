@@ -7423,7 +7423,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # remap so the re-added index routes correctly; the recipe is in
     # ``engineered_recipes`` -> transform() replays it byte-for-byte.
     _hinge_feats = getattr(self, "_hinge_features_", None)
-    if _hinge_feats and len(selected_vars):
+    # ``_heldout_incr_over_selected`` (defined below) is also the ORTH-BASIS UNIVARIATE PROTECTION block's
+    # sole held-out-uplift probe (see that block further down) - it was originally written for the hinge
+    # protection only and the orth-basis block was added later, reusing the closure via ``locals()`` instead
+    # of its own copy. That coupling means the closure - and therefore BOTH protections - silently never ran
+    # whenever ``fe_hinge_enable=False`` (the common "lightest config" preset: no hinge legs are generated,
+    # so ``_hinge_feats`` is empty and this whole block was skipped), even though hybrid-orth univariate basis
+    # columns are independently default-on and need the SAME protection. Gate on hybrid_orth_features_ too so
+    # the setup runs whenever either protection has candidates to consider; the hinge-specific re-add loop
+    # below still runs ONLY when ``_hinge_feats`` is non-empty (see its own ``if _hinge_feats:`` guard).
+    if (_hinge_feats or getattr(self, "hybrid_orth_features_", None)) and len(selected_vars):
         _cols_index = {c: i for i, c in enumerate(cols)}
         _sv_set = set(selected_vars)
         _sel_names_now = {cols[i] for i in selected_vars if 0 <= i < len(cols)}
@@ -7531,41 +7540,42 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 return 0.0
             return float(r2_full - r2_base)
 
-        _HINGE_PROTECT_MIN_INCR_R2 = 0.003
-        _readd_hinge = []
-        for _hn in _hinge_feats:
-            _idx = _cols_index.get(_hn)
-            if _idx is None or _idx in _sv_set:
-                continue
-            _rec_h = _hybrid_orth_pre_recipes.get(_hn)
-            _src_h = tuple(getattr(_rec_h, "src_names", ()) or ())
-            # Self-limit #1: source must have survived the screen (real signal).
-            if not (_src_h and _src_h[0] in _sel_names_now):
-                continue
-            # Self-limit #2: the leg must lift a held-out linear fit OVER the
-            # already-selected set + the source and its degree-2 poly (not
-            # subsumed by a surviving composite, and a genuine kink not a smooth
-            # curve a quadratic already fits).
-            _leg_vals = _hinge_deferred_values.get(_hn)
-            if _leg_vals is None and isinstance(X, pd.DataFrame) and _hn in X.columns:
-                _leg_vals = X[_hn].to_numpy()
-            _src_vals_gate = None
-            if isinstance(X, pd.DataFrame) and _src_h and _src_h[0] in X.columns:
-                _src_vals_gate = X[_src_h[0]].to_numpy()
-            if _leg_vals is not None:
-                if _heldout_incr_over_selected(_leg_vals, _src_vals_gate) < _HINGE_PROTECT_MIN_INCR_R2:
+        if _hinge_feats:
+            _HINGE_PROTECT_MIN_INCR_R2 = 0.003
+            _readd_hinge = []
+            for _hn in _hinge_feats:
+                _idx = _cols_index.get(_hn)
+                if _idx is None or _idx in _sv_set:
                     continue
-            _readd_hinge.append(_idx)
-            _sv_set.add(_idx)
-        if _readd_hinge:
-            selected_vars = list(selected_vars) + _readd_hinge
-            if verbose:
-                logger.info(
-                    "MRMR hinge change-point protection: re-added %d held-out-"
-                    "validated hinge leg(s) the MI screen dropped (MI-invariant; "
-                    "value is downstream linear usability): %s",
-                    len(_readd_hinge), [cols[i] for i in _readd_hinge],
-                )
+                _rec_h = _hybrid_orth_pre_recipes.get(_hn)
+                _src_h = tuple(getattr(_rec_h, "src_names", ()) or ())
+                # Self-limit #1: source must have survived the screen (real signal).
+                if not (_src_h and _src_h[0] in _sel_names_now):
+                    continue
+                # Self-limit #2: the leg must lift a held-out linear fit OVER the
+                # already-selected set + the source and its degree-2 poly (not
+                # subsumed by a surviving composite, and a genuine kink not a smooth
+                # curve a quadratic already fits).
+                _leg_vals = _hinge_deferred_values.get(_hn)
+                if _leg_vals is None and isinstance(X, pd.DataFrame) and _hn in X.columns:
+                    _leg_vals = X[_hn].to_numpy()
+                _src_vals_gate = None
+                if isinstance(X, pd.DataFrame) and _src_h and _src_h[0] in X.columns:
+                    _src_vals_gate = X[_src_h[0]].to_numpy()
+                if _leg_vals is not None:
+                    if _heldout_incr_over_selected(_leg_vals, _src_vals_gate) < _HINGE_PROTECT_MIN_INCR_R2:
+                        continue
+                _readd_hinge.append(_idx)
+                _sv_set.add(_idx)
+            if _readd_hinge:
+                selected_vars = list(selected_vars) + _readd_hinge
+                if verbose:
+                    logger.info(
+                        "MRMR hinge change-point protection: re-added %d held-out-"
+                        "validated hinge leg(s) the MI screen dropped (MI-invariant; "
+                        "value is downstream linear usability): %s",
+                        len(_readd_hinge), [cols[i] for i in _readd_hinge],
+                    )
 
     # ORTH-BASIS UNIVARIATE PROTECTION: re-add a single-source orthogonal-basis univariate column
     # (``a__T2`` ~ a**2, ``a__He4`` ~ a Hermite degree-4, ...) the MRMR screen dropped. Like a hinge leg, an
