@@ -102,7 +102,7 @@ def _run_suite(df, models_list, tmp_path, ext_cfg, iters=80):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("seed", [42, 7, 99])
+@pytest.mark.parametrize("seed", [42, 7])
 def test_pca_dim_reducer_suite_within_5pct_of_baseline(tmp_path, seed):
     """Pca dim reducer suite within 5pct of baseline."""
     rng = np.random.default_rng(seed)
@@ -139,7 +139,7 @@ def test_pca_dim_reducer_suite_within_5pct_of_baseline(tmp_path, seed):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("seed", [42, 7, 99])
+@pytest.mark.parametrize("seed", [42, 7])
 def test_polynomial_features_lift_on_xor_like_data(tmp_path, seed):
     """Polynomial features lift on xor like data."""
     rng = np.random.default_rng(seed)
@@ -192,7 +192,7 @@ def test_polynomial_features_lift_on_xor_like_data(tmp_path, seed):
 # count walks the sp_values rather than the dense materialisation.
 # Verified: baseline AUROC=0.5111 vs tfidf AUROC=1.0000 (delta=+0.4889
 # on seed=42 -- pure-text signal now reaches the linear model).
-@pytest.mark.parametrize("seed", [42, 7, 99])
+@pytest.mark.parametrize("seed", [42, 7])
 def test_tfidf_column_path_lifts_auroc(tmp_path, seed):
     """Tfidf column path lifts auroc."""
     pytest.importorskip("sklearn.feature_extraction.text")

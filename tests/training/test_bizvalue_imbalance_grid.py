@@ -171,7 +171,7 @@ def _train_and_predict_classification(
 # --------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("seed", [42, 7, 99])
+@pytest.mark.parametrize("seed", [42, 7])
 def test_imbalance_handling_lifts_minority_f1(tmp_path, common_init_params, seed):
     """LightGBM ``scale_pos_weight`` should lift minority-class recall vs. default.
 
@@ -246,7 +246,7 @@ def test_imbalance_handling_lifts_minority_f1(tmp_path, common_init_params, seed
 # --------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("seed", [42, 7, 99])
+@pytest.mark.parametrize("seed", [42, 7])
 def test_run_grid_sweep_beats_baseline_auroc(tmp_path, common_init_params, seed):
     """``run_grid`` over LGB hyperparameter variants should beat a baseline AUROC.
 

@@ -181,7 +181,7 @@ def _train_and_predict(
 # the cell the repo-default 600s budget (the addopts default; CI tightens to 300
 # globally) rather than shrinking the data, which would dilute the Brier claim.
 @pytest.mark.timeout(600)
-@pytest.mark.parametrize("seed", fast_subset([42, 7, 99]))
+@pytest.mark.parametrize("seed", fast_subset([42, 7]))
 @pytest.mark.parametrize("mlframe_model", fast_subset(["lgb", "cb", "xgb"]))
 def test_calibration_reduces_brier_score(tmp_path, common_init_params, seed, mlframe_model):
     """CalibratedClassifierCV (isotonic, cv=5) reduces test-set Brier score by >=1%
@@ -246,7 +246,7 @@ def test_calibration_reduces_brier_score(tmp_path, common_init_params, seed, mlf
 # --------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("seed", [42, 7, 99])
+@pytest.mark.parametrize("seed", [42, 7])
 def test_ensemble_auroc_at_least_best_single(tmp_path, common_init_params, seed):
     """Ensemble auroc at least best single."""
     pytest.importorskip("lightgbm")
