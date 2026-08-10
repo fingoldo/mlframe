@@ -458,7 +458,12 @@ class TestDefaultDisabledByteIdentical:
             fe_cat_pair_enable=True,
             fe_cat_pair_cat_cols=("cat_a", "cat_b"),
             fe_cat_pair_top_k=3,
-            fe_max_steps=0,
+            # fe_max_steps=0 -> 1 (2026-08-10): commit 9a154522b made fe_max_steps=0 an unconditional
+            # "no FE at all" gate for every family (routed through _fe_family_on), including
+            # fe_cat_pair_enable -- the family could never even PRODUCE a recipe at a zero budget,
+            # regardless of its own flag, so this test's "still produces the recipe even if a sibling
+            # wins selection" contract was vacuously failing (0 recipes produced at all).
+            fe_max_steps=1,
             fe_univariate_basis_enable=False,
             fe_univariate_fourier_enable=False,
         )
