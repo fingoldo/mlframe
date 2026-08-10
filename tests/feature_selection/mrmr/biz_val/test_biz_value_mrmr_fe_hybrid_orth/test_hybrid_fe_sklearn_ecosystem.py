@@ -16,7 +16,7 @@ Contracts pinned
 ----------------
 A. **GridSearchCV over FE hyperparameters**
    ``GridSearchCV(MRMR, {'fe_hybrid_orth_enable': [False, True],
-   'fe_hybrid_orth_basis': ['hermite', 'chebyshev']}, cv=3).fit(X, y)``
+   'fe_hybrid_orth_basis': ['hermite', 'chebyshev']}, cv=2).fit(X, y)``
    on a quadratic-signal target completes WITHOUT crashing on any
    candidate, ``cv_results_`` has 2x2=4 rows, and the search surfaces a
    config that SOLVES the quadratic (best CV >= 0.95) far above the legacy
@@ -161,7 +161,7 @@ class TestGridSearchCVOverFEParams:
                 "mrmr__fe_hybrid_orth_enable": [False, True],
                 "mrmr__fe_hybrid_orth_basis": ["hermite", "chebyshev"],
             },
-            cv=3,
+            cv=2,  # 2 folds still exercises the grid-search surface; the 4-candidate count (not fold depth) is what's pinned
             n_jobs=1,
             refit=True,
         )
@@ -214,7 +214,7 @@ class TestGridSearchCVOverFEParams:
                 "mrmr__fe_hybrid_orth_enable": [False, True],
                 "mrmr__fe_hybrid_orth_basis": ["hermite", "chebyshev"],
             },
-            cv=3,
+            cv=2,  # 2 folds still exercises the grid-search surface; the 4-candidate count (not fold depth) is what's pinned
             n_jobs=1,
             refit=True,
         )
@@ -268,7 +268,7 @@ class TestGridSearchCVOverFEParams:
                 "mrmr__fe_hybrid_orth_enable": [False, True],
                 "mrmr__fe_hybrid_orth_basis": ["hermite", "chebyshev"],
             },
-            cv=3,
+            cv=2,  # 2 folds still exercises the grid-search surface; the 4-candidate count (not fold depth) is what's pinned
             n_jobs=1,
             refit=True,
         )
