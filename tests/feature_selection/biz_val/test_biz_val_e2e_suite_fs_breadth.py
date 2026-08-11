@@ -30,6 +30,7 @@ tests/training/conftest.py. Each test < 50s on a contended box.
 
 from __future__ import annotations
 
+import re
 import tempfile
 
 import numpy as np
@@ -96,6 +97,24 @@ def _signal_noise_frame(n, n_signal=4, n_noise=8, seed=0, kind="binary"):
     signal_cols = [f"s{i}" for i in range(n_signal)]
     noise_cols = [f"noise_{i}" for i in range(n_noise)]
     return pd.DataFrame(cols), signal_cols, noise_cols
+
+
+# Exact column-name token, same convention already used by test_biz_val_real_data_noise_injection.py's
+# _recall_and_rejection: MRMR's own docstring (mrmr/_mrmr_class.py's use_simple_mode note) documents that
+# full (non-simple) mode "prefers the engineered combination over its redundant raw parents" once FE is in
+# the loop -- a raw-index-only membership check "does not credit engineered features" and reads a genuine
+# signal-preserving selection (e.g. ``add(s0,s2)``) as signal LOSS. Crediting the raw operand tokens
+# embedded in an engineered name (not just literal top-level column names) avoids that measurement artifact.
+_TOKEN = re.compile(r"[A-Za-z]+_?\d+")
+
+
+def _credited_signal_kept(used, signal_cols):
+    """Signal columns credited either as a literal selected name OR as a raw operand token embedded
+    inside a selected engineered feature name (e.g. ``s2`` credited by ``add(mul(s3,...),s2)``)."""
+    toks = set()
+    for nm in used:
+        toks.update(_TOKEN.findall(nm))
+    return set(signal_cols) & (set(used) | toks)
 
 
 def _fs_model_used_features(inner_models):
@@ -390,7 +409,12 @@ def test_biz_val_suite_mrmr_fs_isolated_from_other_stages():
     assert used is not None, "no FS-branch model produced with other stages off"
 
     noise_kept = used & set(noise_cols)
-    signal_kept = used & set(signal_cols)
+    # Credit a signal raw operand embedded inside a selected engineered feature name (e.g.
+    # ``add(mul(s3,...),s2)`` credits ``s2``) -- a literal-name-only check misreads MRMR's documented
+    # "prefer the engineered combination over its redundant raw parents" full-mode behavior as signal
+    # loss (see mrmr/_mrmr_class.py's use_simple_mode docstring: this exact "metric artifact" is called
+    # out there by name).
+    signal_kept = _credited_signal_kept(used, signal_cols)
     noise_excl_frac = 1.0 - len(noise_kept) / len(noise_cols)
 
     _assert_suite_predicts(df, _res, _meta, fte)
