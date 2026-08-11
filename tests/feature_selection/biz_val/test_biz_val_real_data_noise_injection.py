@@ -149,7 +149,12 @@ def _make_mrmr(task):
     """Make mrmr."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
-    return MRMR(min_relevance_gain=0.0, cv=3, run_additional_rfecv_minutes=False, full_npermutations=3, random_seed=0, min_features_fallback=1, verbose=False)
+    # n_jobs=1: this fixture (n=569, ~156 augmented cols) is small enough that joblib process-spawn overhead for the
+    # default n_jobs=-1 dominates the actual FE/permutation-null work -- measured identical selection (support,
+    # recall, noise-rejection) at n_jobs=1 vs -1, 2.3x faster per fit (35.5s -> 15.7s, warm, single-fit isolated bench).
+    return MRMR(
+        min_relevance_gain=0.0, cv=3, run_additional_rfecv_minutes=False, full_npermutations=3, random_seed=0, min_features_fallback=1, verbose=False, n_jobs=1
+    )
 
 
 def _make_rfecv(task):
