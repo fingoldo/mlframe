@@ -6,7 +6,7 @@
 [![sklearn-matrix](https://github.com/fingoldo/mlframe/workflows/sklearn-matrix/badge.svg)](https://github.com/fingoldo/mlframe/actions/workflows/sklearn-matrix-ci.yml)
 [![numba coverage](https://github.com/fingoldo/mlframe/actions/workflows/numba-coverage.yml/badge.svg)](https://github.com/fingoldo/mlframe/actions/workflows/numba-coverage.yml)
 [![codecov](https://codecov.io/gh/fingoldo/mlframe/branch/master/graph/badge.svg)](https://codecov.io/gh/fingoldo/mlframe)
-[![codecov-numba](https://codecov.io/gh/fingoldo/mlframe/branch/master/graph/badge.svg?flag=numba-disabled)](https://codecov.io/gh/fingoldo/mlframe/flags)
+[![codecov-numba](https://img.shields.io/codecov/c/github/fingoldo/mlframe?flag=numba-disabled&label=codecov-numba)](https://codecov.io/gh/fingoldo/mlframe/flags)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-mkdocs-blue.svg)](https://fingoldo.github.io/mlframe/)
 
