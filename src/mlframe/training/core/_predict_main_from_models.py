@@ -21,6 +21,7 @@ from .utils import (
     _validate_input_columns_against_metadata,
 )
 from .._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns
+from ..utils import _dtype_family
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.core.predict")
@@ -353,6 +354,43 @@ def predict_from_models(
                     # _phase_train_one_target pattern (cached view shared across models on the same source frame).
                     if isinstance(input_for_model, pl.DataFrame) and not _is_polars_native_model(model_obj):
                         input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
+
+                    # Restore RAW cat_features from df_pre_pipeline for any model with its own
+                    # per-model pre_pipeline (e.g. sklearn HGB's CatBoostEncoder step). The shared
+                    # ``pipeline`` above may already have numerically encoded cat_features under
+                    # the SAME column name (e.g. the polars-ds LGB-oriented pipeline casts cat_low
+                    # to Float64) -- that survives the "_missing" column check below (the name is
+                    # still present, just holding the wrong values/dtype), so the existing
+                    # df_pre_pipeline fallback (name-presence-only) never triggers. A per-model
+                    # pre_pipeline's own feature_names_in_ was fit on the RAW pre-pipeline frame
+                    # (see the comment above ``_expected`` below), so it needs the raw cat values,
+                    # not whatever the shared pipeline encoded them into for a DIFFERENT model
+                    # family. Surfaced by fuzz iter#80 (lgb+hgb mixed on Polars+cat): HGB's own
+                    # OrdinalEncoder compares Float64 input against its fitted string vocabulary
+                    # via ``xp.isnan(known_values)``, which trips on the fitted string categories.
+                    if (
+                        hasattr(model_obj, "pre_pipeline")
+                        and model_obj.pre_pipeline is not None
+                        and _cat_features
+                        and df_pre_pipeline is not None
+                        and hasattr(df_pre_pipeline, "columns")
+                        and hasattr(input_for_model, "columns")
+                        and len(df_pre_pipeline) == len(input_for_model)
+                    ):
+                        _raw_cat_cols = [c for c in _cat_features if c in df_pre_pipeline.columns and c in input_for_model.columns]
+                        if _raw_cat_cols:
+                            _pre_pipeline_pd = df_pre_pipeline
+                            if isinstance(_pre_pipeline_pd, pl.DataFrame):
+                                _pre_pipeline_pd = _ensure_pandas_view(_pre_pipeline_pd, _pandas_view_cache)
+                            if isinstance(input_for_model, pd.DataFrame) and isinstance(_pre_pipeline_pd, pd.DataFrame):
+                                _restore: dict[str, Any] = {}
+                                for _rc in _raw_cat_cols:
+                                    _live_fam = _dtype_family(str(input_for_model[_rc].dtype))
+                                    _raw_fam = _dtype_family(str(_pre_pipeline_pd[_rc].dtype))
+                                    if _live_fam != _raw_fam:
+                                        _restore[_rc] = _pre_pipeline_pd[_rc].reset_index(drop=True).set_axis(input_for_model.index)
+                                if _restore:
+                                    input_for_model = input_for_model.assign(**_restore)
 
                     # Subset to the per-model expected feature list BEFORE
                     # routing through pre_pipeline (sklearn pipelines for

@@ -48,14 +48,20 @@ from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 _REPORTING = ReportingConfig(show_perf_chart=False, show_fi=False)
 
-# MRMR kwargs: simple-mode (compact raw subset, no engineered tail) so the
-# "noise excluded" assertion reads directly off raw column names. Tiny budget.
+# MRMR kwargs: simple-mode only skips the per-candidate conditional-MI redundancy check (does NOT
+# disable the engineered FE tail -- see MRMR's own use_simple_mode docstring), so the "noise
+# excluded" / "signal kept" assertions credit engineered names through _credited_signal_kept. Tiny
+# budget. ``random_seed`` pinned explicitly: MRMR's default (None) derives internal randomness from
+# ``pid ^ id(self)`` (a fresh value every process/object), so an unpinned selector genuinely picks a
+# different feature set on every test run -- surfaced as a flaky noise_excl_frac (0.625 one run,
+# above the 0.75 floor another) with no code change between runs.
 _MRMR_KW = {
     "verbose": 0,
     "max_runtime_mins": 1,
     "n_workers": 1,
     "quantization_nbins": 5,
     "use_simple_mode": True,
+    "random_seed": 0,
 }
 
 
