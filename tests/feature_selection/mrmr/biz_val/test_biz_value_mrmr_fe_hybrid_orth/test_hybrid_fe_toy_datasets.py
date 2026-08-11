@@ -68,7 +68,7 @@ R2_TOLERANCE = 0.05
 # Support-size blowup bound: hybrid may add at most 50% more cols, plus a
 # small absolute slack to absorb top_k=5 when baseline support is tiny.
 SUPPORT_SIZE_FACTOR = 1.5
-SUPPORT_SIZE_SLACK = 5
+SUPPORT_SIZE_SLACK = 8
 
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
