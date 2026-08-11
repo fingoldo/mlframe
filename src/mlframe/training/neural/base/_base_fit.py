@@ -907,7 +907,7 @@ class _FitMixin(_FitPrepMixin):
         # WITHOUT dropping the datamodule shell itself. The full
         # train+val feature / label / sample_weight tensors were the
         # actual save() bloat (1788 MB on disk for a 4M x 323 float32
-        # frame, 2026-05-27 TVT regression log) -- the shell (~few KB
+        # frame, per a TVT regression log) -- the shell (~few KB
         # of config + class refs) is fine to pickle. Keeping the shell
         # lets predict() reuse the configured pre-pipeline /
         # batch_size / dataloader_params without rebuilding the

@@ -3529,7 +3529,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             raise ValueError(f"multioutput_strategy must be None, 'joint', 'union', or 'intersect'; got {_mo_strategy!r}.")
         # 09_error_messages_ux.md: 'joint' is intentionally EQUIVALENT to None here (both fall through to
         # the legacy merged-target path below, per the ctor docstring: "None / 'joint': legacy
-        # merged-target behaviour, byte-identical to pre-2026-06-20") - not a validation-accepts-but-
+        # merged-target behaviour, byte-identical to the prior form") - not a validation-accepts-but-
         # runtime-ignores gap. Only 'union'/'intersect' route through the per-column multioutput path.
         if _mo_strategy in ("union", "intersect") and _mrmr_y_is_multioutput(y):
             return self._fit_multioutput(X, y, groups, sample_weight, _mo_strategy, fit_params)
@@ -3618,7 +3618,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         self._fit_sample_weight_ = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64)
         X, y = self._maybe_resample_for_sample_weight(X, y, self._fit_sample_weight_)
 
-        # INPUT-MUTATION ISOLATION (P1, 2026-06-11): ``_fit_impl`` injects temporary
+        # INPUT-MUTATION ISOLATION (P1): ``_fit_impl`` injects temporary
         # ``targ_*`` columns into the working pandas frame (X.loc[:, target_names] = ...)
         # AND the FE pipeline appends engineered columns in place (X[name]=..., pd.concat
         # rebinds, hinge/cat-FE generators). The targ_* injection is reversed in the finally
@@ -3947,7 +3947,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             # Record the fit's row/column counts so the AUTO (unset MLFRAME_FE_GPU_STRICT) size-gated STRICT
             # default can engage GPU-resident FE on large-n fits (selection-equivalent to CPU by ~50k, ~2.5x
             # faster) OR on a wide-but-under-the-row-threshold fit whose total (n, p) work already clears the
-            # same floor a per-call dispatch would need (2026-07-11 fix - the row-only gate ignored column
+            # same floor a per-call dispatch would need (a fix for when the row-only gate ignored column
             # count entirely), and stay on the exact CPU path otherwise. Cleared in finally so it never leaks
             # to a later fit.
             _fit_shape = getattr(X, "shape", None)

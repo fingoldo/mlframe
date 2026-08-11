@@ -404,7 +404,7 @@ class _ClassifierPredictMixin:
         # ``model.classes_[preds]`` (see _reporting_probabilistic.py:266);
         # any direct ``accuracy_score(y, model.predict(X))`` silently
         # miscalled for any y whose value set was not ``{0..K-1}``. F-01 in
-        # the 2026-05-30 mlp audit. The ``_label_encoder`` branch is the
+        # the mlp audit. The ``_label_encoder`` branch is the
         # canonical path; ``classes_`` direct indexing covers estimators
         # loaded from an older pickle that has classes_ but no encoder; the
         # final ``return idx`` covers multilabel / dropped-state cases.

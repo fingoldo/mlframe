@@ -99,7 +99,7 @@ DEFAULT_RAW_RETAIN_FRAC = 0.15
 # See the KEEP-RULE comment at the call site for the measured evidence this bar is based on.
 _LEAF_PAIR_RETAIN_FRAC = 0.08
 
-# SUPERSET multiple (RETIRED 2026-06-12; formerly "keep leg B", 2026-06-10). Kept
+# SUPERSET multiple (RETIRED; formerly "keep leg B"). Kept
 # as a module constant only for back-compat / provenance. Leg B
 # (``max_anchor <= RAW_SUPERSET_MULT x raw_marg_excess`` -> KEEP) was removed: the
 # DPI-trap consumer filter (step 0) already and correctly protects the case it
@@ -304,7 +304,7 @@ def drop_redundant_raw_operands(
         # multi-source consumer remains, the raw is NOT redundancy-dropped here (the
         # protective retention stands) - this is what restores the genuine ``x_a``/``x_b``
         # (interaction-product operands carrying a private LINEAR term) and ``x0``
-        # (paired with a noise column in ``add(exp(x0),sign(x3))``) the 2026-06-08
+        # (paired with a noise column in ``add(exp(x0),sign(x3))``) an earlier
         # blanket sweep wrongly dropped, while the true ``a**2/b`` ratio operands - whose
         # subsumer ``div(neg(a),sqrt(b))`` is a genuine two-source combination - still drop.
         # GATE / BINAGG / ARGMAX pseudo-remix EXCLUSION. A conditional-gate /
@@ -357,7 +357,7 @@ def drop_redundant_raw_operands(
         z_support_dev = _join_dev(*_cond_bins_dev)
         cmi, floor, excess = _excess_and_floor(rb_cand, y_arr, z_support, seed=seed, z_support_dev=z_support_dev,
                                                kx=(int(rb.max()) + 1 if getattr(rb, "size", 0) else 1), kz=int(_zcard))
-        # SIBLING-OPERAND CONDITIONING (BUG1 non-invertible-fusion subsumer, 2026-06-16). A
+        # SIBLING-OPERAND CONDITIONING (non-invertible-fusion subsumer). A
         # consuming composite can FUSE ``rname`` with a SECOND signal-bearing operand in a
         # form that is not invertible from the composite alone - e.g. ``add(a, sin(c))``
         # carries ``a`` LINEARLY plus a ``sin(c)`` nuisance term. Conditioning ``a`` on the
@@ -450,7 +450,7 @@ def drop_redundant_raw_operands(
         _r_mcmi, _r_mfloor, raw_marg_excess = _raw_marginal(rname)
         # Strongest consuming engineered survivor's own debiased marginal excess.
         max_anchor = max(eng_anchor_excess[ei] for ei in consumers)
-        # KEEP RULE (2026-06-12 simplification of the 2026-06-10 two-leg form). The raw
+        # KEEP RULE (simplification of an earlier two-leg form). The raw
         # survives the redundancy drop iff it carries a SIGNIFICANT INDEPENDENT RESIDUAL
         # given the combination child(ren): its conditional CMI clears the within-stratum
         # permutation floor AND its debiased conditional excess retains >=
@@ -508,7 +508,7 @@ def drop_redundant_raw_operands(
         # adversarial multi-contamination regime this constant was never validated against.
         _retain_frac = _LEAF_PAIR_RETAIN_FRAC if _all_leaf_pair else RAW_SELF_RETAIN_FRAC
         keep = passes_floor and (excess >= _retain_frac * max(0.0, raw_marg_excess))
-        # LINEAR-USABILITY KEEP-LEG (variant-3, 2026-06-20). The CMI legs above DROP a raw whose
+        # LINEAR-USABILITY KEEP-LEG (variant-3). The CMI legs above DROP a raw whose
         # conditional excess collapses given the engineered children - correct in FULL FE mode
         # (the caller opted into replacing subsumed raws with engineered survivors: I4b drops
         # ``a`` in ``a**2/b``), but WRONG in SIMPLE mode where the user wants a robust raw set and

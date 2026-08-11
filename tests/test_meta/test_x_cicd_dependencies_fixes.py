@@ -144,10 +144,10 @@ def test_f5_numba_coverage_workflow_is_valid_yaml():
 def test_f6_nightly_gate_meta_test_exists():
     """F6 nightly gate meta test exists."""
     from tests.test_meta.test_numba_coverage_workflow_exists import (
-        test_numba_coverage_workflow_nightly_gate_is_intentionally_off,
+        test_numba_coverage_workflow_nightly_gate_is_intentionally_on,
     )
 
-    test_numba_coverage_workflow_nightly_gate_is_intentionally_off()
+    test_numba_coverage_workflow_nightly_gate_is_intentionally_on()
 
 
 # ---------------------------------------------------------------------------
