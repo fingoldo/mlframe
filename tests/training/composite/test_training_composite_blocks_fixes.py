@@ -277,6 +277,12 @@ def test_f5_predict_quantile_reports_y_clip_hits():
     X = pd.DataFrame({"base": base})
 
     est = CompositeTargetEstimator(base_estimator=_BlowupQuantileInner(), transform_name="diff", base_column="base")
+    # The soft base-shrink OOD guard (own coverage: test_biz_val_soft_base_shrink.py, commit 1b621c29d)
+    # soft-clips an out-of-range predict-time base toward the fit envelope BEFORE the inverse, so the
+    # deliberately-huge base below would land back inside the y-clip envelope and never exercise the
+    # y-clip counting this test targets. Disable it here to isolate the y-clip-hit-counting arithmetic,
+    # same convention as test_composite_polish_refinement.py's diff_quantile inversion test.
+    est.soft_base_shrink = False
     est.fit(X, y)
 
     # Predict-time base is a huge outlier vs train: y = T_clipped + base stays far outside the

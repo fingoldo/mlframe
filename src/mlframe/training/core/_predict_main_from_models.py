@@ -20,6 +20,7 @@ from .utils import (
     _drop_cols_df,
     _validate_input_columns_against_metadata,
 )
+from .._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.core.predict")
@@ -196,6 +197,15 @@ def predict_from_models(
         # the conversion until AFTER pipeline.transform so each pipeline
         # type sees the format it was fitted on.
         df = pipeline.transform(df)
+        # The pipeline (pre_pipeline / MRMR-FE) may emit engineered interaction column names
+        # embedding JSON-structural characters (e.g. ``mul(log(f2),sin(f3))``) -- fit time renames
+        # these to a GBM-safe form via the same pure deterministic map right after this exact
+        # transform (``_trainer_train_and_evaluate.py``'s ``train_df``/``val_df``/``test_df``
+        # sanitization). Predict skipped this step, so a fitted model's ``feature_names_`` carried
+        # the sanitized (underscore) names while the live predict frame still carried the raw
+        # (comma) names -- CatBoost's Pool build then raised "should be feature with name ...
+        # (found ...)" for any model with a hostile-named engineered feature.
+        df = _sanitize_frame_columns(df)
 
     # Row-wise extension columns (row_summary_*/row_extreme_*, default ON) are stateless per-row
     # functions with no fitted object to persist -- recompute them directly from the frame's own
