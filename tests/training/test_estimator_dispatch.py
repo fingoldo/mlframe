@@ -157,12 +157,15 @@ def test_maybe_inject_appends_estimator_and_updates_ctx():
 
 
 def test_maybe_inject_fires_with_a_real_train_val_test_split():
-    """TRAINING_COMPOSITE_CORE_A-1 (2026-08-05 audit): train_df is the UNFILTERED full frame while
-    y_train (and train_idx) are already sliced to a strict subset -- the sibling test above only ever
-    exercised train_idx=np.arange(n) (the full row range, no real split), so it never caught that
-    _pick_base_column's shape-match guard rejected every column whenever train_idx is a genuine
-    train/val/test subset of train_df's rows, silently disabling this whole feature. Uses a train_idx
-    that is HALF of train_df's rows (a real split) to pin the fix."""
+    """Re-framed for the 2026-08-05 fix (commit following 7b5a3375e's TRAINING_COMPOSITE_CORE_A-1): the
+    real call site (_main_train_suite_phases.run_distribution_analyzer_and_estimator_injection) passes
+    train_df AFTER the split phase has already subset it to train_idx's rows (df.iloc[train_idx]-equivalent,
+    same order) -- train_df is never the unfiltered full frame here. train_idx itself still holds the
+    ORIGINAL full-df row positions (used to slice y_full), so it can legitimately exceed len(train_df).
+    A prior version of this test built train_df as the full unsliced frame, which drove
+    maybe_inject_distribution_driven_estimator to double-subset train_df by train_idx and silently disabled
+    the feature under any real split (train_idx values beyond len(train_df) raise/are rejected). Pin the
+    real contract: train_df pre-sliced to n_train rows, train_idx holding full-df positions."""
     from mlframe.training._configs_base import TargetTypes
     from mlframe.training.composite.extremes import TailCompositeEstimator
 
@@ -170,9 +173,9 @@ def test_maybe_inject_fires_with_a_real_train_val_test_split():
     n_total, n_train = 400, 200
     f0 = rng.normal(size=n_total)
     f1 = rng.normal(size=n_total)
-    train_idx = np.arange(n_train)  # a strict subset: rows [0, n_train) out of n_total
+    train_idx = np.arange(n_train)  # full-df row positions selected for train (a real split, not arange(n_total))
     y_full = 2.0 * f0 + rng.normal(size=n_total)
-    train_df = pd.DataFrame({"f0": f0, "f1": f1})  # full n_total rows, NOT pre-sliced to train_idx
+    train_df = pd.DataFrame({"f0": f0[:n_train], "f1": f1[:n_train]})  # already split-phase-subset to train_idx's rows
 
     ctx = _ctx()
     out = maybe_inject_distribution_driven_estimator(

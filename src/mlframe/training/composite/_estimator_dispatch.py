@@ -180,17 +180,15 @@ def maybe_inject_distribution_driven_estimator(
     else:
         y_train = y_full
 
-    # train_df is the UNFILTERED full frame while y_train was just sliced to train_idx above --
-    # _pick_base_column's own shape-match guard then rejected every column (full-n vs train-idx-n),
-    # silently returning None and disabling this whole feature whenever there is a real train/val/test
-    # split. Subset train_df the same way y_train was subset so the row counts line up.
-    train_df_for_base_col = train_df
-    if train_idx is not None:
-        try:
-            train_df_for_base_col = train_df.iloc[np.asarray(train_idx)] if hasattr(train_df, "iloc") else train_df[np.asarray(train_idx)]
-        except (IndexError, TypeError, KeyError):
-            train_df_for_base_col = train_df
-    base_column = _pick_base_column(train_df_for_base_col, y_train)
+    # train_df here is already the SPLIT-phase train subset (built as df.iloc[train_idx]/equivalent by
+    # _phase_train_val_test_split, same row order as train_idx), not the unfiltered full frame -- so it is
+    # already aligned with y_train (== y_full[train_idx]) row-for-row and needs no further subsetting.
+    # A prior fix (commit 7b5a3375e) assumed train_df was still unfiltered and re-applied train_idx to it,
+    # which double-subsets: train_idx holds full-df row positions (up to len(y_full)-1), but train_df only
+    # has len(train_idx) rows, so indexing it by train_idx again raises an out-of-bounds/index error under
+    # any real train/val/test split (the fix's own test only used train_idx=np.arange(n), which happens to
+    # be a no-op under double-subsetting and never exposed this).
+    base_column = _pick_base_column(train_df, y_train)
     if not base_column:
         return mlframe_models
 
