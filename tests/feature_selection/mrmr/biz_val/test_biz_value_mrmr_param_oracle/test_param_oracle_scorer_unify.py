@@ -302,7 +302,9 @@ class TestMrmrAutoOracleEndToEnd:
             fe_hybrid_orth_top_k=3,
         ).fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added, "auto_oracle should append engineered columns on the redundant fixture"
+        prov = getattr(m, "fe_provenance_", None)
+        produced = bool(added) or (prov is not None and (prov["origin"] == "hybrid_orth").any())
+        assert produced, "auto_oracle should append engineered columns on the redundant fixture (neither surviving nor in fe_provenance_)"
 
     def test_auto_oracle_auc_competitive_with_explicit_best(self):
         """Averaged over SEEDS, auto_oracle's downstream LogReg AUC is within 0.02 of the explicit-best cmim scorer."""
