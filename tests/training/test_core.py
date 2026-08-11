@@ -4455,15 +4455,15 @@ class TestTextAndEmbeddingFeatures:
         pl_df = _make_text_embedding_polars_df()
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-        captured_ncols = {}
+        captured_columns = {}
         import mlframe.training.trainer as trainer_mod
 
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
             """Spy train."""
-            ncols = train_df.shape[1] if hasattr(train_df, "shape") else 0
-            captured_ncols[model_type_name] = ncols
+            cols = list(train_df.columns) if hasattr(train_df, "columns") else []
+            captured_columns[model_type_name] = cols
             return original_train(
                 model=model,
                 model_obj=model_obj,
@@ -4500,12 +4500,17 @@ class TestTextAndEmbeddingFeatures:
             output_config=OutputConfig(data_dir=temp_data_dir),
         )
 
-        # Ridge DF should have 2 fewer columns (text_feat + emb_feat dropped)
-        for name, ncols in captured_ncols.items():
+        # Ridge's tier-trimmed frame must not carry text_feat / emb_feat (or any column
+        # derived from them by name) through to training -- the real "select not drop"
+        # contract this test pins. A raw total-column-count bound (e.g. "< 4") is NOT a
+        # valid proxy: row_wise_summary_stats_enabled / row_wise_extreme_columns_enabled
+        # (both default ON, see PreprocessingExtensionsConfig) additively inject their own
+        # numeric columns on top of num_feat/cat_feat, so the total column count on a tier-
+        # trimmed frame can legitimately exceed the raw pre-trim feature count.
+        for name, cols in captured_columns.items():
             if "Ridge" in name:
-                # Original has num_feat, cat_feat, text_feat, emb_feat = 4 feature columns
-                # After dropping text + emb = 2 feature columns remain
-                assert ncols < 4, f"Ridge should have fewer columns after tier trimming, got {ncols}"
+                leaked = [c for c in cols if "text_feat" in c or "emb_feat" in c]
+                assert not leaked, f"Ridge should not train on text/emb-derived columns after tier trimming, got {leaked} in {cols}"
 
     def test_polars_originals_freed_after_tier1(self, temp_data_dir, common_init_params, monkeypatch):
         """B5: Pre-pipeline Polars originals released after all Polars-native models finish."""
