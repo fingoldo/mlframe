@@ -303,6 +303,26 @@ def _substitute_column(carrier_sample: Any, base_vals: Optional[np.ndarray], col
     return block
 
 
+def _set_column_inplace(block: Any, col_idx: int, value: Any, col_name: Optional[str] = None, categorical_dtype: Any = None) -> Any:
+    """Mutate a pandas ``block``'s single column in place instead of taking the ``_substitute_column`` copy path.
+
+    ``DataFrame.assign``/``.copy()`` walks every column's block manager even when only one column actually
+    changes (profiled: on a 500+-column frame, half the PDP sweep's wall time was these per-grid-step full-frame
+    copies, not the predict calls themselves) -- a direct violation of the project's no-whole-frame-copy-per-step
+    convention. ``block`` here is always a private working copy the caller made once before the sweep loop (never
+    the caller's original frame), so mutating it in place is safe: each grid step's predict reads the column
+    right after this call, and the next step overwrites the same column again, so no restore is needed."""
+    import pandas as pd
+
+    name = col_name if col_name is not None else list(block.columns)[col_idx]
+    if categorical_dtype is not None:
+        arr = ([value] * len(block)) if np.ndim(value) == 0 else list(value)
+        block[name] = pd.Categorical(arr, dtype=categorical_dtype)
+    else:
+        block[name] = value
+    return block
+
+
 def compute_pdp(
     model: Any,
     X: Any,
@@ -349,13 +369,21 @@ def compute_pdp(
     g = grid_vals.shape[0]
     m = base.shape[0]
 
+    # A pandas carrier gets ONE private working copy mutated in place per grid step (see _set_column_inplace) --
+    # avoids g full-frame `.assign()` copies on a wide model-input frame. ndarray/polars keep the existing
+    # per-step _substitute_column path (ndarray's own copy is already O(1)-column; polars' with_columns is
+    # already columnar-cheap for a single column, so there is no equivalent whole-frame-copy cost to avoid there).
+    import pandas as pd
+    _pd_working = carrier_sample.copy() if isinstance(carrier_sample, pd.DataFrame) else None
+
     # ice_full[k] = predictions of all m rows with the feature pinned to grid_vals[k]; one predict per grid value.
     ice_full = np.empty((g, m), dtype=np.float64)
     for k in range(g):
-        if _cat_labels is not None:
-            block = _substitute_column(carrier_sample, base, col_idx, _cat_labels[k], col_name=_col_name, categorical_dtype=_cat_dtype)
+        _value = _cat_labels[k] if _cat_labels is not None else float(grid_vals[k])
+        if _pd_working is not None:
+            block = _set_column_inplace(_pd_working, col_idx, _value, col_name=_col_name, categorical_dtype=_cat_dtype)
         else:
-            block = _substitute_column(carrier_sample, base, col_idx, float(grid_vals[k]), col_name=_col_name)
+            block = _substitute_column(carrier_sample, base, col_idx, _value, col_name=_col_name, categorical_dtype=_cat_dtype)
         ice_full[k] = predict(block)
 
     pdp = ice_full.mean(axis=1)  # PDP mean over ALL sampled rows (not the drawn subset)
@@ -434,11 +462,26 @@ def compute_pdp_2d(
     else:
         carrier_sample = _native_row_subset(carrier, idx)
         tiled_native = _native_row_subset(carrier_sample, np.repeat(np.arange(m), g1))
-        for a in range(g0):
+        # i1's column is CONSTANT across the g0 outer loop (only i0 varies per outer step) -- the prior form
+        # re-substituted it on every iteration anyway, paying a redundant full-frame copy each time on a pandas
+        # carrier. Substitute it once, then (for pandas) mutate i0's column in place per step instead of taking
+        # another full-frame `.assign()` copy (see _set_column_inplace) -- halves the per-step copy count and
+        # removes the O(n_cols) cost from the remaining ones.
+        import pandas as pd
+        if isinstance(tiled_native, pd.DataFrame):
+            block = tiled_native.copy()
+            block = _set_column_inplace(block, i1, inner_values, col_name=name1, categorical_dtype=_cat1_dtype)
+            for a in range(g0):
+                outer_val = _cat0_labels[a] if _cat0_labels is not None else float(grid0[a])
+                block = _set_column_inplace(block, i0, outer_val, col_name=name0, categorical_dtype=_cat0_dtype)
+                surface[a] = np.asarray(predict(block)).reshape(m, g1).mean(axis=0)
+        else:
             block = _substitute_column(tiled_native, None, i1, inner_values, col_name=name1, categorical_dtype=_cat1_dtype)
-            outer_val = _cat0_labels[a] if _cat0_labels is not None else float(grid0[a])
-            block = _substitute_column(block, None, i0, outer_val, col_name=name0, categorical_dtype=_cat0_dtype)
-            surface[a] = np.asarray(predict(block)).reshape(m, g1).mean(axis=0)
+            for a in range(g0):
+                outer_val = _cat0_labels[a] if _cat0_labels is not None else float(grid0[a])
+                surface[a] = np.asarray(
+                    predict(_substitute_column(block, None, i0, outer_val, col_name=name0, categorical_dtype=_cat0_dtype))
+                ).reshape(m, g1).mean(axis=0)
 
     return {"grid0": grid0, "grid1": grid1, "surface": surface, "kind": kind, "feature_index": (i0, i1)}
 
