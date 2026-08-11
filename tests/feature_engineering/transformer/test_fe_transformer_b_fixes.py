@@ -288,6 +288,16 @@ def test_f15_mdl_binning_honours_explicit_binary_task_for_nonstandard_labels():
     assert out_binary.shape[0] == 20
     assert np.isfinite(out_binary.to_numpy()).all()
 
+    # task="binary" must map the caller's label CODES to {0,1} class indices, not use them as
+    # indices directly -- the {0,1}-relabelled target carries the identical partition, so the
+    # binning result must be identical regardless of which two raw values encode the classes.
+    # Regression for a real bug: y_t.astype(np.int32) fed {1,2}-coded labels straight into a
+    # fixed-size (n_classes=2,) count array as an index, silently overrunning it under real JIT
+    # (no bounds check) and raising IndexError only with NUMBA_DISABLE_JIT=1.
+    y_relabelled = np.where(y == 1.0, 0.0, 1.0).astype(np.float32)
+    out_relabelled = compute_mdl_binning_pairwise_features(X, y_relabelled, X_query=X[:20], splitter=None, seed=0, task="binary", max_bins_per_feat=4)
+    np.testing.assert_array_equal(out_binary.to_numpy(), out_relabelled.to_numpy())
+
 
 def test_f17_no_dead_else_branch_remains():
     """F17 no dead else branch remains."""

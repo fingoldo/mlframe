@@ -185,7 +185,13 @@ def compute_mdl_binning_pairwise_features(
         # y_t's values -- a caller passing task="binary" for a {-1,1}- or {1,2}-coded target
         # previously silently got 5-class quantile binning instead of the requested 2-class binning.
         if task == "binary":
-            y_class = y_t.astype(np.int32)
+            # y_t's raw values are the caller's label CODES (e.g. {-1,1} or {1,2}), not necessarily
+            # {0,1} class INDICES -- the downstream njit kernels index fixed-size (n_classes,) count
+            # arrays with y_class directly, so a nonstandard code (e.g. 2) silently overruns the
+            # array under real JIT (no bounds check) or raises IndexError with JIT disabled. Map to
+            # {0,1} via the sorted unique values rather than casting the raw codes.
+            uniq = np.unique(y_t)
+            y_class = np.searchsorted(uniq, y_t).astype(np.int32)
             n_classes = 2
         else:
             qs = np.quantile(y_t, [0.2, 0.4, 0.6, 0.8])
