@@ -589,13 +589,19 @@ class _DatasetReuseMixin:
             # set_init_score(None)) -- explicit all-zeros is LightGBM's own default baseline when
             # no init_score is supplied at all, so that is the correct "no init_score" state to
             # restore to when this fit call omits it.
+            # Multiclass boosters need init_score flattened to num_data() * num_class rows (LightGBM's
+            # C++ side raises "Number of class for initial score error" for anything shorter) -- a
+            # binary/regression booster's init_score is exactly num_data() long. _n_classes is set by
+            # _pre_fit_bookkeeping above (classifier only; absent/<=2 means not multiclass).
+            _ncls_for_init = getattr(self, "_n_classes", None)
+            _expected_init_len = dtrain.num_data() * _ncls_for_init if _ncls_for_init is not None and _ncls_for_init > 2 else dtrain.num_data()
             if init_score is not None:
                 _init_arr = np.asarray(init_score)
-                if _init_arr.shape[0] != dtrain.num_data():
-                    raise ValueError(f"lgb_shim: init_score length " f"{_init_arr.shape[0]} != Dataset.num_data() " f"{dtrain.num_data()}")
+                if _init_arr.shape[0] != _expected_init_len:
+                    raise ValueError(f"lgb_shim: init_score length " f"{_init_arr.shape[0]} != expected " f"{_expected_init_len}")
                 dtrain.set_init_score(_init_arr)
             else:
-                dtrain.set_init_score(np.zeros(dtrain.num_data(), dtype=np.float64))
+                dtrain.set_init_score(np.zeros(_expected_init_len, dtype=np.float64))
 
             # Promote a module-cache hit to instance-level for the next call on this instance.
             self._cached_train_dataset = dtrain
