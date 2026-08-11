@@ -116,19 +116,60 @@ def _read(rel: str) -> str:
 
 
 def test_rff_calibration_bench_module_exists() -> None:
-    """Rff calibration bench module exists."""
+    """Rff calibration bench module exists and exposes the expected CPU/GPU/CLI entry points."""
     bench_path = MLFRAME_ROOT / "feature_engineering" / "_benchmarks" / "bench_rff_matmul.py"
     assert bench_path.exists(), "Wave 65: RFF calibration bench script must exist"
-    text = bench_path.read_text(encoding="utf-8")
-    # The bench writes to kernel_tuning_cache under the "rff_matmul" key (KernelTuningCache's write
-    # method is named `update`, not `store`).
-    assert 'cache.update("rff_matmul"' in text
-    # Both CPU + GPU timing helpers must be present.
-    assert "def _bench_cpu(" in text
-    assert "def _bench_gpu(" in text
-    # CLI entry point.
-    assert "def main(" in text
-    assert "__name__ ==" in text
+
+    from mlframe.feature_engineering._benchmarks import bench_rff_matmul as _mod
+
+    assert callable(_mod._bench_cpu)
+    assert callable(_mod._bench_gpu)
+    assert callable(_mod.main)
+
+
+def test_rff_calibration_main_writes_work_threshold_to_kernel_tuning_cache(monkeypatch) -> None:
+    """``main()`` must actually persist the calibrated crossover under the ``"rff_matmul"`` key that
+    ``random_features._should_use_gpu_rff`` looks up -- not merely mention it in source text. Stubs
+    ``calibrate`` to a deterministic threshold and spies on the real ``KernelTuningCache.update`` call
+    to assert on the runtime side effect."""
+    from mlframe.feature_engineering._benchmarks import bench_rff_matmul as _mod
+
+    calls: list[dict] = []
+
+    class _FakeCache:
+        """Spy standing in for the real ``KernelTuningCache``, recording every ``update()`` call."""
+
+        def update(self, key, axes, regions):
+            """Record the call args instead of touching the real on-disk cache."""
+            calls.append({"key": key, "axes": axes, "regions": regions})
+
+    fake_sweep_row = {
+        "n": 1000,
+        "d": 16,
+        "work": 16000,
+        "cpu_s": 0.01,
+        "gpu_s": 0.005,
+        "speedup": 2.0,
+        "gpu_wins": True,
+    }
+    monkeypatch.setattr(_mod, "calibrate", lambda *a, **k: (12345, [fake_sweep_row]))
+
+    class _FakeKTC:
+        """Spy standing in for the real ``KernelTuningCache`` class, returning the fake instance."""
+
+        @staticmethod
+        def load_or_create():
+            """Return the fake cache instead of loading/creating a real on-disk one."""
+            return _FakeCache()
+
+    monkeypatch.setattr("pyutilz.performance.kernel_tuning.cache.KernelTuningCache", _FakeKTC)
+
+    rc = _mod.main()
+
+    assert rc == 0
+    assert len(calls) == 1
+    assert calls[0]["key"] == "rff_matmul"
+    assert calls[0]["regions"] == [{"work_threshold": 12345}]
 
 
 def test_rff_calibration_module_imports_and_calibrate_returns_tuple() -> None:
