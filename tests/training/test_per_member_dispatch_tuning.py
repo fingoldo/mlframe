@@ -74,7 +74,10 @@ def test_ensure_tuning_populates_cache_and_dispatch_reads_it():
     """Ensure tuning populates cache and dispatch reads it."""
     from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
-    pmt.ensure_per_member_tuning(force=True, observed_elements=50_000, observed_groups=4, repeats=5)
+    # ensure_per_member_tuning has no observed_groups param -- run_per_member_sweep fixes n_groups at the
+    # internal _SWEEP_K constant (see its docstring: "not swept; the crossover is dominated by
+    # elements_per_member"), so there is nothing for a caller to pass here.
+    pmt.ensure_per_member_tuning(force=True, observed_elements=50_000, repeats=5)
     assert KernelTuningCache().has(pmt._PER_MEMBER_KERNEL_NAME)
     # dispatch now reads the persisted region (autotune already ran this process)
     eb._per_member_use_numba.cache_clear()
