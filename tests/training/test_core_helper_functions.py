@@ -289,13 +289,16 @@ def test_auto_detect_polars_categorical_promoted_by_cardinality():
     assert cat_features == ["hc"]
 
 
-def test_auto_detect_polars_enum_promoted_by_cardinality():
-    """``pl.Enum`` is a fixed-domain categorical. Before the 2026-04-19
-    discovery its instance-level dtype object didn't match the
-    class-level ``pl.Categorical`` check, and high-cardinality Enum
-    columns silently stayed in ``cat_features``. Fixed by adding an
-    explicit ``isinstance(dtype, pl.Enum)`` branch; this test is the
-    regression sensor.
+def test_auto_detect_polars_enum_never_promoted_regardless_of_cardinality():
+    """``pl.Enum`` is a CLOSED, already-encoded nominal categorical (its category set is fixed at
+    schema time), so it must stay nominal unconditionally, never promoted to text_features no matter
+    how high its cardinality is -- superseding the original 2026-04-19 fix this test used to pin
+    (which promoted high-cardinality Enum columns to text_features). That promotion turned out to leak
+    the column's physical integer code (not the decoded string label) into CatBoost's text-feature Pool
+    construction, which then raised "text_features must have string type", caught live via a fuzz
+    combo with a high-cardinality polars Enum column. ``_auto_detect_feature_types`` (see its
+    ``is_enum`` branch in ``_misc_helpers.py``) now routes every Enum column to
+    ``honored_user_dtype_cols`` unconditionally, before the cardinality check ever runs.
     """
     enum_t = pl.Enum([f"v_{i:03d}" for i in range(50)])
     df = pl.DataFrame(
@@ -306,7 +309,7 @@ def test_auto_detect_polars_enum_promoted_by_cardinality():
     cfg = FeatureTypesConfig(auto_detect_feature_types=True, cat_text_cardinality_threshold=10)
     cat_features = ["hc"]
     t, _, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
-    assert "hc" in t, "pl.Enum column with high cardinality must be promoted to text_features"
+    assert "hc" not in t, "pl.Enum must stay nominal (never promoted to text_features) regardless of cardinality"
     # Input list must NOT be mutated — caller filters via set-difference.
     assert cat_features == ["hc"]
 
