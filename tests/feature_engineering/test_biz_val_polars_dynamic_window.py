@@ -140,15 +140,27 @@ def test_biz_val_polars_dynamic_window_aggregate_multi_window_beats_per_window_l
     # overhead (schema resolution, lazy-plan build) that periods= amortizes across widths is a smaller
     # fraction of a wall-clock-inflated total than on a quiet dev box, compressing the ratio -- still
     # catches a regression that drops the shared-prep reuse entirely (which would push ratio to ~1.0+).
-    t0 = time.perf_counter()
-    multi = polars_dynamic_window_aggregate(df, "t", ["x"], every="7d", group_col="entity", agg_funcs=["mean", "std"], periods=periods)
-    t_multi = time.perf_counter() - t0
+    # best-of-3 (min), not single-shot: a one-off timing under CI's full-matrix contention (~20 parallel
+    # pytest shards) produced a false failure (multi=0.1499s vs loop*0.92=0.1449s, a single noisy sample);
+    # taking the min across repeats filters transient scheduler noise while a genuine regression still
+    # loses on every repeat.
+    def _run() -> tuple[dict, float]:
+        """One timed call to the periods= multi-window path; returns (result, elapsed)."""
+        t0 = time.perf_counter()
+        result = polars_dynamic_window_aggregate(df, "t", ["x"], every="7d", group_col="entity", agg_funcs=["mean", "std"], periods=periods)
+        return result, time.perf_counter() - t0
+
+    multi, t_multi = min((_run() for _ in range(3)), key=lambda pair: pair[1])
     assert set(multi.keys()) == set(periods)
 
-    t0 = time.perf_counter()
-    for p in periods:
-        polars_dynamic_window_aggregate(df, "t", ["x"], every="7d", period=p, group_col="entity", agg_funcs=["mean", "std"])
-    t_loop = time.perf_counter() - t0
+    def _run_loop() -> float:
+        """One timed pass calling the single-period path once per width; returns elapsed."""
+        t0 = time.perf_counter()
+        for p in periods:
+            polars_dynamic_window_aggregate(df, "t", ["x"], every="7d", period=p, group_col="entity", agg_funcs=["mean", "std"])
+        return time.perf_counter() - t0
+
+    t_loop = min(_run_loop() for _ in range(3))
 
     assert (
         t_multi < t_loop * 0.92

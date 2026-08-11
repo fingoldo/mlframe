@@ -68,7 +68,7 @@ from tests.feature_selection.conftest import fast_subset
 # ---------------------------------------------------------------------------
 
 
-pytestmark = pytest.mark.timeout(150)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150 (2026-08-09): CI runners are shared 2-vCPU boxes under -n auto xdist contention -- real (non-hung) fits legitimately exceeded 60s there, causing spurious timeout failures unrelated to any actual hang; 150s still catches a genuine hang well before the 600s global backstop.
+pytestmark = pytest.mark.timeout(300)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150->300: CI runners are shared 2-vCPU boxes under -n auto xdist contention with up to ~20 pytest shards running concurrently -- real (non-hung) fits legitimately exceeded 150s there under full-matrix load, causing spurious timeout failures unrelated to any actual hang; 300s still catches a genuine hang well before the 600s global backstop.
 
 
 def _build_mcar(seed: int, n: int = 1500, nan_rate: float = 0.2):

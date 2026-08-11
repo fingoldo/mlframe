@@ -279,7 +279,12 @@ def _linear_residual_robust_fit(
     med = float(np.median(resid))
     mad = float(np.median(np.abs(resid - med)))
     sigma_mad = mad * 1.4826
-    if sigma_mad <= 0.0 or not np.isfinite(sigma_mad):
+    # Noise floor, not a literal ==0 check: an exact-plane fit's residuals are only zero up to the
+    # host BLAS's rounding, so sigma_mad can land at a tiny-but-nonzero float value depending on the
+    # backend -- comparing it against 0.0 alone made the trim/no-trim branch (and therefore
+    # is_redundant_with_linres) flip across otherwise-identical runs on different hosts.
+    resid_scale = float(np.median(np.abs(resid))) or 1.0
+    if sigma_mad <= max(1e-12, 1e-9 * resid_scale) or not np.isfinite(sigma_mad):
         # Constant residual or numerical pathology -- OLS already covers it.
         first_pass["is_redundant_with_linres"] = True
         return first_pass

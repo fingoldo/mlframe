@@ -168,12 +168,28 @@ def _prewarm_numba_once():
     if is_xdist_coordinator:
         yield
         return
-    try:
-        from mlframe.metrics.core import prewarm_numba_cache
+    # Run on a daemon thread with a bounded join instead of calling directly: a pathological
+    # LLVM optimizer stall inside one njit(parallel=True) compile (observed on py3.9/ubuntu-latest
+    # CI -- LLVMPY_RunPassManager not returning within pytest-timeout's window) is a blocking C
+    # call that pytest-timeout's thread-interrupt cannot actually unstick, so every later test in
+    # that worker inherits the same wedged state and fails identically. A bounded join lets the
+    # fixture give up and let tests proceed (paying the cold-compile cost on first real use
+    # instead) rather than wedging the whole session; the stuck compile thread is abandoned
+    # (daemon=True) rather than joined indefinitely.
+    import threading
 
-        prewarm_numba_cache()
-    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-        pass
+    def _prewarm() -> None:
+        """Run the real prewarm on the watchdog thread, swallowing any failure (best-effort warmup)."""
+        try:
+            from mlframe.metrics.core import prewarm_numba_cache
+
+            prewarm_numba_cache()
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
+            pass
+
+    _t = threading.Thread(target=_prewarm, daemon=True)
+    _t.start()
+    _t.join(timeout=180)
     yield
 
 
