@@ -9,7 +9,7 @@ submodules" rule) -- these are standalone functions with no dependency on
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -104,7 +104,7 @@ def _is_pair_item(obj: Any) -> bool:
     return bool(hasattr(obj, "shape") or hasattr(obj, "columns") or hasattr(obj, "iloc") or hasattr(obj, "dtypes"))
 
 
-def normalize_eval_set(eval_set: Any) -> Optional[List[tuple]]:
+def normalize_eval_set(eval_set: Any) -> list[tuple] | None:
     """Canonicalize an LGBM ``eval_set`` to a list-of-tuples once at the fit boundary.
 
     Accepts and returns:
