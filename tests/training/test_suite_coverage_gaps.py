@@ -2062,11 +2062,20 @@ def test_polars_to_pandas_does_not_double_peak_memory(tmp_path):
     "we didn't go to 10× input RAM", which is the real failure shape.
     """
     pytest.importorskip("catboost")
+    pytest.importorskip("lightgbm")
     pytest.importorskip("psutil")
     import psutil
 
     df = _make_baseline_polars_utf8(n=5000, seed=0, regression=False)
     estimated_bytes = df.estimated_size()
+
+    # This is the only test in the file combining ("cb", "lgb") -- LightGBM's shared library + its own
+    # dependency chain (numpy internal buffers, joblib worker pools) gets paged in for the FIRST time inside
+    # whatever measurement window runs first, and that one-time load cost (measured ~300MB+) swamps the tiny
+    # 5000-row frame's actual bridge cost this test exists to check. Pay that cost here, before rss_before, so
+    # the measured delta reflects steady-state per-call memory, not cold-start import overhead.
+    _warmup_trained, _ = _train_once(_make_baseline_polars_utf8(n=200, seed=1, regression=False), tmp_path / "_warmup", models=("cb", "lgb"), regression=False)
+    assert _warmup_trained
 
     proc = psutil.Process()
     rss_before = proc.memory_info().rss

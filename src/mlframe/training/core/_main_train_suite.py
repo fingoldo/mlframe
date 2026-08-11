@@ -449,6 +449,7 @@ def train_mlframe_models_suite(
         target_by_type=target_by_type, train_idx=train_idx, group_ids=group_ids, timestamps=timestamps,
         train_df=train_df, val_df=val_df, test_df=test_df, verbose=verbose, metadata=metadata,
         hyperparams_config=hyperparams_config, behavior_config=behavior_config, mlframe_models=mlframe_models, ctx=ctx,
+        preprocessing_config=preprocessing_config,
     )
 
     (

@@ -30,6 +30,7 @@ def _maybe_auto_drop_after_feature_analyzer(
     behavior_config,
     metadata: dict,
     verbose: bool,
+    preprocessing_config=None,
 ):
     """Apply the auto-drop knobs (auto_drop_distribution_analyzer_candidates,
     auto_drop_near_duplicate_threshold) from behavior_config to all three split
@@ -40,6 +41,16 @@ def _maybe_auto_drop_after_feature_analyzer(
     train_df + train-y only. val/test simply lose the same columns to keep
     schemas aligned (no val/test stats touch the drop decision).
 
+    ``preprocessing_config.remove_constant_columns=False`` is a user's explicit "keep degenerate
+    columns" signal for ``preprocess_dataframe``'s own (gated) constant-column removal -- this
+    auto-drop is a SEPARATE mini-HPT mechanism with its own default-True knob, so without this
+    check a user who explicitly opted out of constant-column removal still silently lost those
+    exact columns here (surfaced by test_remove_constant_columns_false_keeps_them: the flag
+    correctly disabled the direct dropper, but analyze_feature_distribution's low-variance /
+    nan-heavy / insufficient-finite candidates still went through this default-on path). Only the
+    constant/all-null-flavoured candidates are exempted; redundant-pair (near-duplicate)
+    candidates are an unrelated correlation-based reason and still drop normally.
+
     Returns ``(train_df, val_df, test_df, dropped_cols)``. When nothing is
     dropped (flags disabled, no candidates, or columns already missing) the
     frames are returned unchanged and ``dropped_cols`` is empty.
@@ -48,9 +59,21 @@ def _maybe_auto_drop_after_feature_analyzer(
         return train_df, val_df, test_df, []
     _do_drop_candidates = bool(getattr(behavior_config, "auto_drop_distribution_analyzer_candidates", False))
     _dup_threshold = float(getattr(behavior_config, "auto_drop_near_duplicate_threshold", 2.0))
+    _keep_constant_cols = not bool(getattr(preprocessing_config, "remove_constant_columns", True))
     drop_set: set = set()
     if _do_drop_candidates:
-        drop_set.update(getattr(fd_report, "drop_candidates", []) or [])
+        _candidates = getattr(fd_report, "drop_candidates", []) or []
+        if _keep_constant_cols:
+            _warnings = getattr(fd_report, "feature_warnings", {}) or {}
+
+            def _is_degenerate_reason(_col: str) -> bool:
+                """True when every warning recorded for ``_col`` is the low-variance / all-null /
+                insufficient-finite-values flavour ``remove_constant_columns`` also targets."""
+                _msgs = _warnings.get(_col) or []
+                return bool(_msgs) and all(m.startswith("low_variance") or m.startswith("nan_fraction") or m == "insufficient_finite_values" for m in _msgs)
+
+            _candidates = [c for c in _candidates if not _is_degenerate_reason(c)]
+        drop_set.update(_candidates)
     if _dup_threshold <= 1.0:
         # Walk the analyzer's diagnostics.redundant_feature_pairs (list of
         # (a, b, |corr|)) and drop the alphabetically-larger of each pair whose
@@ -150,6 +173,7 @@ def _run_target_distribution_analyzer(
     val_df=None,
     test_df=None,
     behavior_config=None,
+    preprocessing_config=None,
 ):
     """Run the target-side and feature-side analyzers; merge recommendations.
 
@@ -431,6 +455,7 @@ def _run_target_distribution_analyzer(
                             behavior_config=behavior_config,
                             metadata=metadata,
                             verbose=verbose,
+                            preprocessing_config=preprocessing_config,
                         )
                         # Mirror drops onto ctx so any later phase reading from ctx
                         # (the in-progress ctx-form migration in main_train_suite) sees
