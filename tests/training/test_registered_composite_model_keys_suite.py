@@ -87,7 +87,13 @@ def test_gated_outlier_string_key_dispatches_and_fits(tmp_path):
 
     import pandas as pd
 
-    cols = list(getattr(fitted, "feature_names_in_", ["f0", "f1", "f2"]))
+    # GatedOutlierEstimator itself never sets feature_names_in_ (its custom fit() skips BaseEstimator's
+    # _validate_data), so getattr(fitted, ...) always misses -- read it off the inner classifier_ it actually
+    # fit instead (same pattern as the sibling registry test, per the 2026-07-13 fix for this exact bug class:
+    # a bare feature-count fallback silently drifts once the suite's preprocessing pipeline transforms/expands
+    # the raw f0/f1/f2 columns before fit).
+    _names = getattr(fitted.classifier_, "feature_names_in_", None)
+    cols = list(_names) if _names is not None else ["f0", "f1", "f2"]
     preds = np.asarray(fitted.predict(pd.DataFrame(np.zeros((5, len(cols)), dtype=np.float64), columns=cols)))
     assert preds.shape[0] == 5
     assert np.all(np.isfinite(preds))
