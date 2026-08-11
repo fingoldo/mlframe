@@ -366,6 +366,12 @@ class CompositeTargetTransformer(TransformerMixin, BaseEstimator):
     # sklearn tag: this transformer is stateless w.r.t. the FEATURE matrix
     # (it transforms the target), so it must not be subjected to the
     # feature-X validation sklearn runs on standard transformers.
-    def _more_tags(self) -> dict[str, Any]:
-        """Tell sklearn's estimator checks this transformer acts on ``y``, not ``X``, so it is exempt from the standard feature-matrix validation."""
-        return {"stateless": True, "requires_y": True, "no_validation": True}
+    # sklearn >=1.6 replaced _more_tags()/_get_tags() with __sklearn_tags__(); the old
+    # dict-returning method above is silently ignored by current sklearn, so mirror its
+    # intent (requires_y, no_validation) on the new Tags dataclass. "stateless" has no
+    # direct equivalent in the new schema and is dropped.
+    def __sklearn_tags__(self):
+        tags = super().__sklearn_tags__()
+        tags.target_tags.required = True
+        tags.no_validation = True
+        return tags
