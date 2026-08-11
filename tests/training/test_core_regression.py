@@ -81,7 +81,12 @@ class TestTrainMLFrameModelsSuiteRegressionSmoke:
             reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
+            # save_charts=False: this smoke test never inspects the saved PNGs, and rendering them
+            # costs ~65s of the ~85s isolated wall (27 matplotlib savefig calls through report_model_perf) --
+            # measured 165s -> 80s (2.06x) with zero assertion change; the short-circuit is a first-class
+            # OutputConfig knob (see ``_phase_config_setup.py``'s "clearing plot_file so chart rendering is
+            # skipped entirely" comment), not a private/undocumented shortcut.
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models", save_charts=False),
             verbose=0,
         )
 
