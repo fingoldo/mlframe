@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 
-from mlframe.utils.log_throttle import log_throttle
+from mlframe.utils.log_throttle import log_throttle, reset_throttle_counts
 
 
 def test_log_throttle_caps_emissions_per_key(caplog):
@@ -30,6 +30,42 @@ def test_log_throttle_keys_are_independent(caplog):
     messages = [r.message for r in caplog.records]
     assert sum(1 for m in messages if m == "from a") == 5
     assert sum(1 for m in messages if m == "from b") == 5
+
+
+def test_reset_throttle_counts_restores_a_single_key(caplog):
+    """reset_throttle_counts(key) re-arms just that key's budget without touching other keys."""
+    logger = logging.getLogger("mlframe.test_log_throttle")
+    key_a = f"test_key_reset_a_{id(object())}"
+    key_b = f"test_key_reset_b_{id(object())}"
+    with caplog.at_level(logging.WARNING, logger=logger.name):
+        for _ in range(3):
+            log_throttle(logger, key_a, logging.WARNING, "a", max_count=3)
+            log_throttle(logger, key_b, logging.WARNING, "b", max_count=3)
+        caplog.clear()
+        reset_throttle_counts(key_a)
+        log_throttle(logger, key_a, logging.WARNING, "a", max_count=3)
+        log_throttle(logger, key_b, logging.WARNING, "b", max_count=3)
+    messages = [r.message for r in caplog.records]
+    assert messages.count("a") == 1, "key_a was reset, so its budget must have a fresh slot"
+    assert messages.count("b") == 0, "key_b was untouched and already exhausted its budget"
+
+
+def test_reset_throttle_counts_none_clears_every_key(caplog):
+    """reset_throttle_counts() with no key clears the whole table."""
+    logger = logging.getLogger("mlframe.test_log_throttle")
+    key_a = f"test_key_reset_all_a_{id(object())}"
+    key_b = f"test_key_reset_all_b_{id(object())}"
+    with caplog.at_level(logging.WARNING, logger=logger.name):
+        for _ in range(3):
+            log_throttle(logger, key_a, logging.WARNING, "a", max_count=3)
+            log_throttle(logger, key_b, logging.WARNING, "b", max_count=3)
+        caplog.clear()
+        reset_throttle_counts()
+        log_throttle(logger, key_a, logging.WARNING, "a", max_count=3)
+        log_throttle(logger, key_b, logging.WARNING, "b", max_count=3)
+    messages = [r.message for r in caplog.records]
+    assert messages.count("a") == 1
+    assert messages.count("b") == 1
 
 
 def test_log_throttle_exc_info_true_keeps_traceback(caplog):

@@ -37,6 +37,7 @@ from mlframe.training.core._misc_helpers import (
     _validate_input_columns_against_metadata,
 )
 from mlframe.training.utils import compute_model_input_fingerprint
+from mlframe.utils.log_throttle import reset_throttle_counts
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -231,6 +232,11 @@ def test_polars_enum_domain_drift_soft_warns_and_accepts(caplog):
             ),
         }
     )
+    # log_throttle's per-key counter is process-global with a fixed key at this call site
+    # ("misc_helpers_input_schema_drift") -- an earlier test in the same worker that already
+    # exhausted this key's max_count budget would silently suppress the warning this test asserts
+    # on. Reset it so this test's assertion reflects the call under test, not prior test-run state.
+    reset_throttle_counts("misc_helpers_input_schema_drift")
     with caplog.at_level(logging.WARNING, logger="mlframe.training.core._misc_helpers"):
         out = _validate_input_columns_against_metadata(drifted_pl, meta)
     # Frame is accepted (graceful coercion-to-NaN is the contracted downstream behaviour).

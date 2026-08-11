@@ -8,6 +8,22 @@ _counts: dict[str, int] = {}
 _lock = threading.Lock()
 
 
+def reset_throttle_counts(key: str | None = None) -> None:
+    """Clear the per-key emission counter (all keys if ``key`` is None).
+
+    Production call sites use a fixed, hardcoded ``key`` per throttled call site, so a test
+    asserting on the *content* of a throttled log message is only reliable for the first
+    ``max_count`` times that key fires across the whole process's lifetime -- any earlier test
+    in the same worker that hit the same call site silently exhausts the budget. Call this before
+    exercising such a call site in a test to reset it to a known (unthrottled) state.
+    """
+    with _lock:
+        if key is None:
+            _counts.clear()
+        else:
+            _counts.pop(key, None)
+
+
 def log_throttle(logger: logging.Logger, key: str, level: int, msg: str, *args: object, max_count: int = 5, exc_info: bool = False) -> None:
     """Log at most ``max_count`` times per distinct ``key``, then stay silent for that key.
 
