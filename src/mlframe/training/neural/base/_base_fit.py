@@ -847,7 +847,16 @@ class _FitMixin(_FitPrepMixin):
 
         from ._cuda_fallback import run_with_cuda_cpu_fallback
 
-        _fit_accelerator = str(trainer_params.get("accelerator", "auto"))
+        # Use the ORIGINALLY-REQUESTED accelerator (``_requested``, captured above BEFORE the
+        # ``safe_accelerator`` downgrade), not ``trainer_params["accelerator"]`` (already overwritten
+        # with the resolved value at "trainer_params["accelerator"] = _resolved" above). On a host
+        # where the CUDA probe legitimately failed, ``_resolved`` is "cpu" -- reading THAT here made
+        # ``is_cuda_runtime_error`` see accelerator="cpu" and refuse to recognize a CUDA-fingerprinted
+        # failure as fallback-worthy, so it re-raised instead of retrying: exactly on the broken/absent-
+        # CUDA hosts this fallback exists to protect. ``_requested`` still reflects what the caller
+        # actually asked for (e.g. a test simulating a CUDA failure via ``trainer_params={"accelerator":
+        # "cuda"}"``), which is what the gate is meant to test against.
+        _fit_accelerator = str(_requested)
         # suppress_lightning_workers_warning() was defined + documented as "wrap the trainer.fit()/
         # predict() invocations" but never actually called anywhere.
         with suppress_lightning_workers_warning():

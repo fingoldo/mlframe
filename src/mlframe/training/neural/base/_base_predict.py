@@ -16,7 +16,7 @@ import lightning as L
 from sklearn.base import ClassifierMixin, RegressorMixin
 from mlframe.metrics.core import accuracy_ratio, fast_r2_score
 
-from .._base_tensor_helpers import to_numpy_safe
+from .._base_tensor_helpers import safe_accelerator, to_numpy_safe
 
 logger = __import__("logging").getLogger("mlframe.training.neural.base")
 
@@ -215,6 +215,27 @@ class _PredictMixin:
         # a mid-suite device/precision flip still rebuilds. ``_prediction_trainer_cache`` is pickle-excluded at
         # __getstate__ (F-73b) since a cached Trainer isn't picklable -- the next predict() after a load()
         # rebuilds it lazily.
+        # CUDA-broken-host guard (mirrors ``_base_fit.py``'s primary-trainer construction): resolve
+        # via ``safe_accelerator`` BEFORE building the Trainer, not after. Without this, a caller/test
+        # that lands "cuda"/"gpu"/"auto" in ``trainer_params["accelerator"]`` (the cached
+        # ``_last_predict_accelerator``, a ``device="cuda"`` override, or a live trainer whose
+        # accelerator reflects a prior GPU fit) went straight into ``L.Trainer(accelerator="cuda")`` on
+        # a host with no usable CUDA device, and Lightning raises
+        # ``MisconfigurationException: CUDAAccelerator can not run on your system`` at CONSTRUCTION
+        # time -- before ``run_with_cuda_cpu_fallback`` below ever gets a chance to catch anything,
+        # since it only wraps the ``.predict()`` call, not building ``prediction_trainer`` itself.
+        # ``_requested_accelerator`` (the pre-downgrade value) is kept for the fallback gate below so a
+        # caller who explicitly asked for CUDA (e.g. these CPU-fallback regression tests) still gets the
+        # CUDA-fingerprint retry semantics even once the probe has downgraded the trainer to "cpu".
+        _requested_accelerator = str(trainer_params.get("accelerator", "auto"))
+        _resolved_accelerator = safe_accelerator(_requested_accelerator)
+        if _resolved_accelerator != _requested_accelerator and _requested_accelerator in ("cuda", "gpu"):
+            logger.warning(
+                "Requested predict accelerator=%r but CUDA probe failed; downgrading to CPU so predict can complete.",
+                _requested_accelerator,
+            )
+        trainer_params["accelerator"] = _resolved_accelerator
+
         _cache_key = (trainer_params.get("accelerator"), trainer_params.get("precision"))
         _trainer_cache = getattr(self, "_prediction_trainer_cache", None)
         if _trainer_cache is None:
@@ -265,7 +286,10 @@ class _PredictMixin:
                     action="predict",
                     primary_trainer=prediction_trainer,
                     model=self.model,
-                    accelerator=str(trainer_params.get("accelerator", "auto")),
+                    # Originally-requested accelerator (pre-``safe_accelerator`` downgrade) -- see the
+                    # comment above the construction of ``prediction_trainer`` for why the resolved
+                    # value would silently defeat this gate on a broken/absent-CUDA host.
+                    accelerator=str(_requested_accelerator),
                     run_fn=lambda t: t.predict(model=self.model, datamodule=datamodule),
                     build_cpu_trainer=_build_cpu_predict_trainer,
                 )
