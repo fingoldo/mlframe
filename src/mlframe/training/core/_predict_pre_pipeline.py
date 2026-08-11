@@ -18,6 +18,7 @@ import polars as pl
 
 from ..cb import _predict_with_fallback
 from ..utils import get_pandas_view_of_polars_df
+from .._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.core.predict")
@@ -469,6 +470,14 @@ def _apply_pre_pipeline_with_passthrough(
 
     try:
         input_for_model = model_obj.pre_pipeline.transform(input_for_model)
+        # Mirror the fit-time GBM-safe rename (_trainer_train_and_evaluate.py's train_df/val_df/test_df
+        # sanitization right after this exact per-model pre_pipeline transform): engineered interaction
+        # names embedding JSON-structural characters (e.g. ``mul(log(f2),sin(f3))``) get remapped to an
+        # underscore form the fitted model's feature_names_ actually carries. Without this, a per-model
+        # pre_pipeline (MRMR-FS branch etc., distinct from the suite-level ``pipeline`` sanitized above)
+        # leaves predict-time columns comma-named while the model expects the sanitized names, and
+        # CatBoost's Pool build raises "should be feature with name ... (found ...)".
+        input_for_model = _sanitize_frame_columns(input_for_model)
         if _stashed_passthrough and isinstance(input_for_model, pd.DataFrame):
             # Reset the frame index ONCE before the loop -- was inside the loop,
             # so an N-column passthrough reset (copied) the whole frame N times.
