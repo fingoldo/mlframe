@@ -295,6 +295,13 @@ def _coerce_cat_dtype_for_lgb_xgb(input_for_model, *, model, cat_features, enum_
         cat cols with "Invalid columns: cat_low: object" (pandas path) or
         "KeyError: DataType(large_string)" (polars path). Cast to pandas
         ``category`` for the pandas path, pl.Categorical for the polars path.
+      - sklearn HGB (``categorical_features="from_dtype"``) fits its internal
+        preprocessor's categorical columns from whatever was pandas ``category``
+        dtype AT FIT TIME. If the same column arrives as object/string at predict
+        time (dtype not re-cast), ``_check_unknown`` takes the "values is numeric"
+        branch on the runtime column's dtype and calls ``xp.isnan()`` on the
+        FITTED (object-dtype) ``categories_`` array, raising ``TypeError: ufunc
+        'isnan' not supported...``. Needs the exact same category re-cast as LGB.
     """
     if not cat_features or not hasattr(input_for_model, "columns"):
         return input_for_model
@@ -302,10 +309,16 @@ def _coerce_cat_dtype_for_lgb_xgb(input_for_model, *, model, cat_features, enum_
     _model_cls_name = type(model).__name__
     _is_lgb = _model_module.startswith("lightgbm") or _model_module.endswith("lgb_shim") or "LGBM" in _model_cls_name
     _is_xgb = _model_module.startswith("xgboost") or _model_module.endswith("xgb_shim") or "XGB" in _model_cls_name
-    if not (_is_lgb or _is_xgb):
+    _is_hgb = "HistGradientBoosting" in _model_cls_name
+    if not _is_hgb and hasattr(model, "steps"):
+        # Pipeline-wrapped estimator: mirror the LGB/XGB detection above by
+        # scanning each step's class name too, in case a caller ever wraps
+        # HGB in a Pipeline (LGB/XGB never are, in this codebase).
+        _is_hgb = any("HistGradientBoosting" in type(_step).__name__ for _, _step in getattr(model, "steps", []))
+    if not (_is_lgb or _is_xgb or _is_hgb):
         return input_for_model
 
-    # Pandas path (LGB + XGB both use the same assign(**dict) pattern --
+    # Pandas path (LGB + XGB + HGB all use the same assign(**dict) pattern --
     # the prior implementation's input_for_model.copy() allocated a fresh
     # copy of every column even when only 1-2 cat cols needed casting; the
     # assign(**) keeps BlockManager-level reuse for un-cast columns on
@@ -321,7 +334,7 @@ def _coerce_cat_dtype_for_lgb_xgb(input_for_model, *, model, cat_features, enum_
             except Exception as _exc:
                 logger.debug(
                     "predict_from_models: %s cat-cast for %r failed (%s); leaving as-is",
-                    "LGB" if _is_lgb else "XGB", _cf, type(_exc).__name__,
+                    "LGB" if _is_lgb else ("XGB" if _is_xgb else "HGB"), _cf, type(_exc).__name__,
                 )
         if _to_cast:
             input_for_model = input_for_model.assign(**_to_cast)
