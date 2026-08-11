@@ -80,14 +80,23 @@ def test_lgb_dataset_from_bridged_polars_keeps_categorical():
         assert isinstance(cached[cat_col].dtype, pd.CategoricalDtype), f"{cat_col} lost Categorical dtype inside the cached Dataset"
 
 
-def test_predict_numerical_equivalence_polars_vs_bridged_pandas():
+def test_predict_numerical_equivalence_polars_vs_bridged_pandas(monkeypatch):
     """``model.predict`` output must match (within float epsilon) whether the input is polars or its pre-bridged pandas equivalent.
 
     ``deterministic=True``/``force_row_wise=True``/``n_jobs=1`` pin LightGBM's own histogram-building order: without them,
     two separately-fit models with the same ``random_state`` can still diverge (LightGBM's default multi-threaded histogram
     build is not float-deterministic across threads), which would fail this test for a reason unrelated to the polars bridge
     under test.
+
+    ``MLFRAME_LGB_CACHE_DISABLE=1`` bypasses ``_LGB_DATASET_CACHE`` (module-level, content-keyed across ALL model
+    instances) for the duration of this test: reusing the SAME cached ``lgb.Dataset`` object across two otherwise-
+    independent ``.fit()`` calls (model_a here, then model_b) was empirically confirmed to make even two fits on the
+    IDENTICAL pandas frame diverge by up to ~2e-3 (verified independently of polars vs pandas by fitting the same
+    bridged frame twice back-to-back) -- a real but SEPARATE nondeterminism concern in the reuse mechanism itself,
+    not something this bridge-equivalence test is meant to characterize. Disabling reuse here isolates the actual
+    contract under test (bridge output equivalence) from that unrelated caching behavior.
     """
+    monkeypatch.setenv("MLFRAME_LGB_CACHE_DISABLE", "1")
     df_pl = _make_mixed_polars(2_000, seed=3)
     y = np.random.default_rng(4).normal(size=df_pl.height)
 
