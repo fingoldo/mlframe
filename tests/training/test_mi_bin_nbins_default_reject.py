@@ -13,9 +13,25 @@ import os
 import numpy as np
 import pytest
 
+_PRIOR_CUDA_ENV = {k: os.environ.get(k) for k in ("CUDA_VISIBLE_DEVICES", "MLFRAME_NO_CUDA_AUTOCONFIG", "MLFRAME_KEEP_BROKEN_CUPY")}
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 os.environ.setdefault("MLFRAME_NO_CUDA_AUTOCONFIG", "1")
 os.environ.setdefault("MLFRAME_KEEP_BROKEN_CUPY", "1")
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _restore_cuda_env_after_module():
+    """Undo this module's CUDA-disable env overrides once its own tests finish -- an unrestored
+    module-level setdefault poisons every later test in the same pytest-xdist worker (see the
+    identical bug fixed in test_biz_val_hybrid_cooccur_clusterrep.py, which caused a ~13-test
+    GPU-dispatch failure cluster in a completely different worker)."""
+    yield
+    for _k, _v in _PRIOR_CUDA_ENV.items():
+        if _v is None:
+            os.environ.pop(_k, None)
+        else:
+            os.environ[_k] = _v
+
 
 from mlframe.training._composite_target_discovery_config import CompositeTargetDiscoveryConfig
 from mlframe.training.composite.discovery.screening import _mi_pair_bin

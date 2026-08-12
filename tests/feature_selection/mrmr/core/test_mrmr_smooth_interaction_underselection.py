@@ -28,9 +28,25 @@ import pytest
 
 pytest.importorskip("pandas")
 
+_PRIOR_CUDA_ENV = {k: os.environ.get(k) for k in ("NUMBA_DISABLE_CUDA", "CUDA_VISIBLE_DEVICES", "MLFRAME_DISABLE_HNSW")}
 os.environ.setdefault("NUMBA_DISABLE_CUDA", "1")
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 os.environ.setdefault("MLFRAME_DISABLE_HNSW", "1")
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _restore_cuda_env_after_module():
+    """Undo this module's CUDA-disable env overrides once its own tests finish -- an unrestored
+    module-level setdefault poisons every later test in the same pytest-xdist worker (see the
+    identical bug fixed in test_biz_val_hybrid_cooccur_clusterrep.py, which caused a ~13-test
+    GPU-dispatch failure cluster in a completely different worker)."""
+    yield
+    for _k, _v in _PRIOR_CUDA_ENV.items():
+        if _v is None:
+            os.environ.pop(_k, None)
+        else:
+            os.environ[_k] = _v
+
 
 _TD = os.path.dirname(os.path.abspath(__file__))
 if _TD not in sys.path:

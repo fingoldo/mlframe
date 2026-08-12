@@ -30,7 +30,22 @@ import pandas as pd
 import pytest
 
 # Keep the RAM-contended CI host on CPU; the rung logic is backend-agnostic.
+_PRIOR_NUMBA_DISABLE_CUDA = os.environ.get("NUMBA_DISABLE_CUDA")
 os.environ.setdefault("NUMBA_DISABLE_CUDA", "1")
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _restore_numba_disable_cuda_after_module():
+    """Undo this module's NUMBA_DISABLE_CUDA override once its own tests finish -- an unrestored
+    module-level setdefault poisons every later test in the same pytest-xdist worker (see the
+    identical bug fixed in test_biz_val_hybrid_cooccur_clusterrep.py, which caused a ~13-test
+    GPU-dispatch failure cluster in a completely different worker)."""
+    yield
+    if _PRIOR_NUMBA_DISABLE_CUDA is None:
+        os.environ.pop("NUMBA_DISABLE_CUDA", None)
+    else:
+        os.environ["NUMBA_DISABLE_CUDA"] = _PRIOR_NUMBA_DISABLE_CUDA
+
 
 from mlframe.feature_selection.filters._fe_rung_schedule import (
     apply_rung_schedule,

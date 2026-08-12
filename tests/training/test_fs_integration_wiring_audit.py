@@ -19,9 +19,24 @@ from __future__ import annotations
 import os
 import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
+_PRIOR_CUDA_ENV = {"CUDA_VISIBLE_DEVICES": os.environ.get("CUDA_VISIBLE_DEVICES")}
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
 import pytest
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _restore_cuda_env_after_module():
+    """Undo this module's CUDA_VISIBLE_DEVICES override once its own tests finish -- an unrestored
+    module-level setdefault poisons every later test in the same pytest-xdist worker (see the
+    identical bug fixed in test_biz_val_hybrid_cooccur_clusterrep.py, which caused a ~13-test
+    GPU-dispatch failure cluster in a completely different worker)."""
+    yield
+    _v = _PRIOR_CUDA_ENV["CUDA_VISIBLE_DEVICES"]
+    if _v is None:
+        os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+    else:
+        os.environ["CUDA_VISIBLE_DEVICES"] = _v
 
 from mlframe.training import FeatureSelectionConfig
 from mlframe.training.core._setup_helpers_pre_pipelines import _NonPicklingCacheView
