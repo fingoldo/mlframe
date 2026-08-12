@@ -415,7 +415,7 @@
   "getattr_unknown_attribute::training/core/_phase_train_one_target_pre_screen.py:70",
   "getattr_unknown_attribute::training/core/_setup_helpers_outliers.py:76",
   "getattr_unknown_attribute::training/evaluation.py:412",
-  "getattr_unknown_attribute::training/lgb_shim.py:428",
+  "getattr_unknown_attribute::training/lgb_shim.py:233",
   "getattr_unknown_attribute::training/models.py:223",
   "getattr_unknown_attribute::training/neural/_flat_torch_module/_flat_torch_loss.py:146",
   "getattr_unknown_attribute::training/neural/_history_recorder.py:107",

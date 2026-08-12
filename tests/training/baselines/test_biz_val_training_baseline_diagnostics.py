@@ -195,8 +195,12 @@ def test_biz_val_baseline_diagnostics_n_estimators_100_is_faster():
     # Warm LightGBM / numba so the first fit's cold cost doesn't skew the ratio.
     _run_dom_and_wall(100, df, feature_cols, [], "regression", 0)
 
-    _, wall_200 = _run_dom_and_wall(200, df, feature_cols, [], "regression", 0)
-    _, wall_100 = _run_dom_and_wall(100, df, feature_cols, [], "regression", 0)
+    # best-of-3 (min) per side, not single-shot: a one-off timing under CI's full-matrix contention
+    # (~20 parallel pytest shards) produced a false failure (measured 1.13x vs the 1.15x floor); taking
+    # the min across repeats filters transient scheduler noise while a genuine regression still loses
+    # on every repeat.
+    wall_200 = min(_run_dom_and_wall(200, df, feature_cols, [], "regression", 0)[1] for _ in range(3))
+    wall_100 = min(_run_dom_and_wall(100, df, feature_cols, [], "regression", 0)[1] for _ in range(3))
     speedup = wall_200 / wall_100 if wall_100 > 0 else 0.0
     assert speedup >= 1.15, f"n_estimators=100 must be >=1.15x faster than 200; got {speedup:.2f}x (200={wall_200:.3f}s, 100={wall_100:.3f}s)"
 

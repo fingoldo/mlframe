@@ -806,8 +806,6 @@
   "training/io.py:239:date-stamp",
   "training/io.py:68:date-stamp",
   "training/io.py:713:date-stamp",
-  "training/lgb_shim.py:398:wave-marker",
-  "training/lgb_shim.py:424:wave-marker",
   "training/logging_transformers.py:64:date-stamp",
   "training/logging_transformers.py:64:wave-marker",
   "training/metrics_registry.py:154:wave-marker",

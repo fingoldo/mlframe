@@ -67,7 +67,7 @@ _MRMR_KW = {
 }
 
 
-pytestmark = pytest.mark.timeout(300)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150->300: CI runners are shared 2-vCPU boxes under -n auto xdist contention with up to ~20 pytest shards running concurrently -- real (non-hung) fits legitimately exceeded 150s there under full-matrix load, causing spurious timeout failures unrelated to any actual hang; 300s still catches a genuine hang well before the 600s global backstop.
+pytestmark = pytest.mark.timeout(450)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150->300->450: CI runners are shared 2-vCPU boxes under -n auto xdist contention with up to ~20 pytest shards running concurrently -- real (non-hung) fits legitimately exceeded even 300s there under full-matrix load (this file's multiclass MRMR sweep is one of the heavier e2e cases), causing spurious timeout failures unrelated to any actual hang; 450s still catches a genuine hang well before the 600s global backstop.
 
 
 def _signal_noise_frame(n, n_signal=4, n_noise=8, seed=0, kind="binary"):

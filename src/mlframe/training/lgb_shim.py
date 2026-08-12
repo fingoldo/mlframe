@@ -200,7 +200,7 @@ class _DatasetReuseMixin:
             state[_attr] = None
         # Val Datasets are the same unpicklable ctypes-pointer objects; strip the whole dict.
         state["_cached_val_datasets"] = _OrderedDict()
-        # Wave 19 P1: stamp the lightgbm version at save time. The booster
+        # Stamp the lightgbm version at save time. The booster
         # JSON inside the unmodified __dict__ is library-version-sensitive;
         # without this stamp the load side has no way to detect a minor
         # upgrade silently changing booster internals.
@@ -226,7 +226,7 @@ class _DatasetReuseMixin:
                 setattr(self, _attr, None)
         if not hasattr(self, "_cached_val_datasets"):
             self._cached_val_datasets = _OrderedDict()
-        # Wave 19 P1: compare the saved lightgbm version against the live
+        # Compare the saved lightgbm version against the live
         # one. WARN-only (booster libs are typically forward-compatible
         # for minor versions) so loads of older artifacts don't fail; the
         # operator just sees the skew before chasing weird predict crashes.
