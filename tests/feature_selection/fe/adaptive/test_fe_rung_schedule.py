@@ -21,7 +21,6 @@ WHERE the operator-search compute goes, not admission.
 from __future__ import annotations
 
 import io
-import os
 import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import time
 
@@ -29,24 +28,17 @@ import numpy as np
 import pandas as pd
 import pytest
 
-# Keep the RAM-contended CI host on CPU; the rung logic is backend-agnostic.
-_PRIOR_NUMBA_DISABLE_CUDA = os.environ.get("NUMBA_DISABLE_CUDA")
-os.environ.setdefault("NUMBA_DISABLE_CUDA", "1")
-
-
-@pytest.fixture(scope="module", autouse=True)
-def _restore_numba_disable_cuda_after_module():
-    """Undo this module's NUMBA_DISABLE_CUDA override once its own tests finish -- an unrestored
-    module-level setdefault poisons every later test in the same pytest-xdist worker (see the
-    identical bug fixed in test_biz_val_hybrid_cooccur_clusterrep.py, which caused a ~13-test
-    GPU-dispatch failure cluster in a completely different worker)."""
-    yield
-    if _PRIOR_NUMBA_DISABLE_CUDA is None:
-        os.environ.pop("NUMBA_DISABLE_CUDA", None)
-    else:
-        os.environ["NUMBA_DISABLE_CUDA"] = _PRIOR_NUMBA_DISABLE_CUDA
-
-
+# NUMBA_DISABLE_CUDA is intentionally NOT force-set here (it used to be, via an unrestored
+# module-level os.environ.setdefault). numba reads it once into an internal config cache the first
+# time `numba.cuda.is_available()` (or anything touching numba.core.config) runs in the process and
+# never re-checks the live env var afterward -- confirmed directly: setting NUMBA_DISABLE_CUDA=1,
+# probing cuda.is_available(), then unsetting the var in the SAME process still returns the cached
+# False. A later-restore fixture (the pattern used for the CUDA_VISIBLE_DEVICES leaks elsewhere this
+# session) cannot undo this: the env var itself gets restored correctly, but numba's own cache stays
+# poisoned for the rest of the pytest-xdist worker, breaking every later test's real/mocked
+# `cuda.is_available()` expectation regardless of what they set. This module's own tests exercise the
+# rung-schedule dispatch logic (which is backend-agnostic per its own docstring) and CI runners have
+# no GPU anyway, so cuda.is_available() already returns False there without forcing the env var.
 from mlframe.feature_selection.filters._fe_rung_schedule import (
     apply_rung_schedule,
     _dispatch_keep_frac,

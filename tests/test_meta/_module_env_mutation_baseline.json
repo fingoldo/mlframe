@@ -1,6 +1,5 @@
 [
   "calibration/test_calibration_plot_layout.py:19:os.environ.setdefault(...)",
-  "feature_selection/fe/adaptive/test_fe_rung_schedule.py:34:os.environ.setdefault(...)",
   "feature_selection/mrmr/biz_val/test_biz_value_mrmr_sufficient_summary.py:33:os.environ.setdefault(...)",
   "feature_selection/mrmr/core/test_mrmr_smooth_interaction_underselection.py:32:os.environ.setdefault(...)",
   "feature_selection/mrmr/core/test_mrmr_smooth_interaction_underselection.py:33:os.environ.setdefault(...)",
