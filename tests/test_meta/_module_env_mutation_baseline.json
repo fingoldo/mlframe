@@ -9,7 +9,7 @@
   "feature_selection/test_wide_data_scalability.py:21:os.environ.setdefault(...)",
   "reporting/test_charts_confusion_margins.py:23:os.environ.setdefault(...)",
   "reporting/test_confusion_matrix_plot.py:16:os.environ.setdefault(...)",
-  "training/test_fs_empty_selection_and_observability.py:39:os.environ.setdefault(...)",
+  "training/test_fs_empty_selection_and_observability.py:38:os.environ.setdefault(...)",
   "training/test_fs_functional_adapters_wiring.py:12:os.environ.setdefault(...)",
   "training/test_fs_integration_rfecv_shap_proxied_wiring.py:23:os.environ.setdefault(...)",
   "training/test_fs_integration_wiring_audit.py:23:os.environ.setdefault(...)",
