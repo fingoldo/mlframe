@@ -55,12 +55,22 @@ dependencies = [
     # Upper cap <2.5: numba 0.65.1 (latest) rejects numpy 2.5 at import ("Numba needs NumPy 2.4 or less").
     # pip honours this (it ignores [tool.uv].override-dependencies, which carries the matching cap for uv).
     "numpy>=1.23,<2.5",
-    "pandas>=1.5",
+    # Upper cap <3.0: pandas 3.0 (PDEP-14) changed the default string-column dtype's str(dtype) to the
+    # bare "str" (was "object"), which broke mlframe's own dtype-detection in
+    # reporting/_diagnostics_dispatch_extra.py (now fixed), and dropped Day from Tick's offset-class
+    # hierarchy, which broke the day-divisor fast-path check in training/evaluation.py (now fixed too) --
+    # but the wider codebase hasn't been audited against 3.0 yet, so cap until that happens.
+    "pandas>=1.5,<3.0",
     "polars>=0.20",
     "scipy>=1.10",
     # >=1.6: category-encoders (a hard dep below) imports ``sklearn.utils.Tags``, which only exists from
     # sklearn 1.6; on older sklearn ``import category_encoders`` fails, so 1.6 is mlframe's effective floor.
-    "scikit-learn>=1.6",
+    # Upper cap <1.9: sklearn 1.9 combined with whatever category-encoders version CI's resolver falls
+    # back to on some legs breaks CatBoostEncoder/TargetEncoder's own __sklearn_tags__ override chain
+    # (AttributeError: 'super' object has no attribute '__sklearn_tags__', inside category_encoders'
+    # code, not mlframe's), cascading into a wide, unrelated-looking test failure cluster. Cap until
+    # category-encoders ships a compatible release and the floor can move up.
+    "scikit-learn>=1.6,<1.9",
     # >=25.0.0: pyarrow 24.0.0's cp314 wheel segfaults (Windows access violation) on import when
     # triggered through pytest's assertion-rewrite loader (reproduces in tests/conftest.py's
     # pyutilz.system -> pyutilz.text.strings -> pandas.compat.pyarrow -> pyarrow import chain; a
