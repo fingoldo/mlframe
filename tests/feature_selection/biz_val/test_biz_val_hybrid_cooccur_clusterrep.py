@@ -168,6 +168,9 @@ def test_cooccur_weight_roundtrips_a_fit(weight):
     assert hasattr(h, "_tree_prod_pairs_")
 
 
+@pytest.mark.timeout(600)  # this specific fit timed out at the file-wide 450s twice under heavy full-matrix
+# contention (its own real fit is the file's slowest); 600s matches the coarse global backstop so it no
+# longer trips before the run-level safety net would anyway.
 def test_gain_mode_ranks_a_true_operand_pair_among_top():
     """The tree member's gain-weighted co-occurrence must surface a real XOR operand pair (one of xa_p/xb_p
     co-occurring) among its proposed pairs -- a structural check the gain aggregation is wired correctly."""
