@@ -16,6 +16,14 @@ Env: heavy mlframe import path is CUDA-disabled so the selector fits CPU-only (h
 from __future__ import annotations
 import os
 
+# Captured BEFORE the setdefault calls below so the module-scoped fixture further down can restore
+# whatever this process had (or hand it back to "unset") once this module's own tests are done --
+# a bare setdefault with no restoration left CUDA_VISIBLE_DEVICES="" poisoned for the rest of the
+# pytest worker's process lifetime, silently defeating unrelated GPU-availability tests collected
+# into the same worker later (observed: 7-13 tests in tests/feature_selection/gpu|discretization|
+# contracts expecting a real/mocked CUDA path all deterministically fell back to CPU on CI).
+_PRIOR_CUDA_ENV = {k: os.environ.get(k) for k in ("CUDA_VISIBLE_DEVICES", "MLFRAME_NO_CUDA_AUTOCONFIG", "MLFRAME_KEEP_BROKEN_CUPY", "TQDM_DISABLE")}
+
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 os.environ.setdefault("MLFRAME_NO_CUDA_AUTOCONFIG", "1")
 os.environ.setdefault("MLFRAME_KEEP_BROKEN_CUPY", "1")
@@ -33,9 +41,24 @@ from sklearn.metrics import roc_auc_score
 
 from tests.conftest import fast_n_estimators
 
+
+@pytest.fixture(scope="module", autouse=True)
+def _restore_cuda_env_after_module():
+    """Undo this module's CUDA-disable env overrides once its own tests finish, so the poisoned
+    CUDA_VISIBLE_DEVICES="" doesn't leak into unrelated GPU-availability tests sharing the worker."""
+    yield
+    for _k, _v in _PRIOR_CUDA_ENV.items():
+        if _v is None:
+            os.environ.pop(_k, None)
+        else:
+            os.environ[_k] = _v
+
+
 # --------------------------------------------------------------------- synthetic beds
 
-pytestmark = pytest.mark.timeout(300)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150->300: CI runners are shared 2-vCPU boxes under -n auto xdist contention with up to ~20 pytest shards running concurrently -- real (non-hung) fits legitimately exceeded 150s there under full-matrix load, causing spurious timeout failures unrelated to any actual hang; 300s still catches a genuine hang well before the 600s global backstop.
+pytestmark = pytest.mark.timeout(
+    300
+)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150->300: CI runners are shared 2-vCPU boxes under -n auto xdist contention with up to ~20 pytest shards running concurrently -- real (non-hung) fits legitimately exceeded 150s there under full-matrix load, causing spurious timeout failures unrelated to any actual hang; 300s still catches a genuine hang well before the 600s global backstop.
 
 
 def _xor_bed(n=2000, seed=0, n_pairs=3, n_noise=24):
