@@ -277,16 +277,27 @@ def test_batch_parallel_faster_than_serial_loop():
     resampler(warm_idx)
     bootstrap_auc_distribution_parallel(y_true, y_score, n_bootstrap=4, random_state=1, chunk_size=4)
 
-    serial_rng = np.random.default_rng(7)
-    t0 = time.perf_counter()
-    for _ in range(n_bootstrap):
-        idx = serial_rng.integers(0, n, size=n, dtype=np.int64)
-        resampler(idx)
-    t_serial = time.perf_counter() - t0
+    def _serial() -> float:
+        """One timed serial-loop pass; returns elapsed seconds."""
+        serial_rng = np.random.default_rng(7)
+        t0 = time.perf_counter()
+        for _ in range(n_bootstrap):
+            idx = serial_rng.integers(0, n, size=n, dtype=np.int64)
+            resampler(idx)
+        return time.perf_counter() - t0
 
-    t0 = time.perf_counter()
-    bootstrap_auc_distribution_parallel(y_true, y_score, n_bootstrap=n_bootstrap, random_state=7, chunk_size=100)
-    t_parallel = time.perf_counter() - t0
+    def _parallel() -> float:
+        """One timed parallel-batch pass; returns elapsed seconds."""
+        t0 = time.perf_counter()
+        bootstrap_auc_distribution_parallel(y_true, y_score, n_bootstrap=n_bootstrap, random_state=7, chunk_size=100)
+        return time.perf_counter() - t0
+
+    # best-of-3 (min) per side, not single-shot: on CI's shared 2-vCPU runner a lone pass can land its
+    # window during a contention spike on one side only (measured speedup dropping to 0.85x on one run,
+    # well below the already-loosened 1.15x floor); taking the min across repeats filters that transient
+    # noise while a genuine regression (kernel silently reverting to serial) still loses on every repeat.
+    t_serial = min(_serial() for _ in range(3))
+    t_parallel = min(_parallel() for _ in range(3))
 
     speedup = t_serial / t_parallel
     assert speedup >= 1.15, f"batch-parallel resampler not faster: {speedup:.2f}x (serial={t_serial * 1e3:.1f}ms parallel={t_parallel * 1e3:.1f}ms)"
