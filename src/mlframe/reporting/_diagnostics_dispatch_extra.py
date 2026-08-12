@@ -543,8 +543,9 @@ def _first_group_column(df: Any, names: Optional[Sequence[str]], max_card: int =
         # `dt is object` compares the dtype INSTANCE by identity against the Python builtin `object`
         # TYPE, which a pandas object-dtype (numpy.dtype('O')) never satisfies -- this branch was
         # unreachable for object-dtype columns. Use equality (numpy defines dtype == object
-        # meaningfully) plus explicit string-dtype coverage for pandas' "string"/polars' "String"/"Utf8".
-        elif dt == object or dt_str.startswith("string") or dt_str in ("Utf8", "String"):  # noqa: E721 -- `is` genuinely does not work here (numpy.dtype('O') is object is False); that was the bug just fixed above.
+        # meaningfully) plus explicit string-dtype coverage for pandas' "string"/polars' "String"/"Utf8"/
+        # pandas>=3's PDEP-14 default string dtype, whose str(dtype) is the bare "str" (not "string").
+        elif dt == object or dt_str.startswith("string") or dt_str in ("Utf8", "String", "str"):  # noqa: E721 -- `is` genuinely does not work here (numpy.dtype('O') is object is False); that was the bug just fixed above.
             try:
                 head = col.head(20_000) if hasattr(col, "head") else col
                 if hasattr(head, "nunique"):

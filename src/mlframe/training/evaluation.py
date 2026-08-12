@@ -683,7 +683,6 @@ def compute_ml_perf_by_time(
     # data, silently turning a *time-resolved* metric report into a *single-bucket* one.
     from .targets import coerce_timestamps_for_audit as _coerce_ts
     from pandas.tseries.frequencies import to_offset
-    from pandas.tseries.offsets import Tick
 
     y_true_arr = np.asarray(y_true)
     y_pred_arr = np.asarray(y_pred, dtype=float)
@@ -707,9 +706,19 @@ def compute_ml_perf_by_time(
     _DAY_NS = 86_400_000_000_000
     # floor() anchors to the epoch grid; that matches Grouper's day-aligned bins only when the offset
     # evenly divides one calendar day. Multi-day / anchored offsets do not align -> exact Grouper path.
-    _floorable = isinstance(_off, Tick) and _off.nanos <= _DAY_NS and _DAY_NS % _off.nanos == 0
+    # `.nanos` (not `isinstance(_off, Tick)`) is the actual fixed-duration test: pandas>=3 dropped `Day`
+    # from `Tick`'s subclass hierarchy (PDEP-14-adjacent offset refactor) while `Day.nanos` still works
+    # identically to pandas<3 -- isinstance(Tick) silently stopped matching the extremely common "D"
+    # freq there, falling through to the slower exact-Grouper path on every daily-binned call. `.nanos`
+    # itself raises (ValueError in both pandas 2.x and 3.x) for genuinely non-fixed offsets (Week,
+    # MonthEnd, ...), so catching that is the correct floorable/non-floorable split either way.
+    try:
+        _nanos = _off.nanos
+        _floorable = _nanos <= _DAY_NS and _DAY_NS % _nanos == 0
+    except ValueError:
+        _floorable = False
     if _floorable:
-        order, bin_labels, starts, ends = _fixed_freq_bin_slices(ts_arr, _off.nanos)
+        order, bin_labels, starts, ends = _fixed_freq_bin_slices(ts_arr, _nanos)
         yt_sorted = y_true_arr[order]
         yp_sorted = y_pred_arr[order]
         for label, s, e in zip(bin_labels, starts, ends):
