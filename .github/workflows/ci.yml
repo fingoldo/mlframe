@@ -175,7 +175,12 @@ jobs:
         # observed as the badge never updating despite runs completing.
         if: matrix.python-version == '3.11' && (success() || failure())
         with:
-          file: ./coverage.xml
+          # codecov-action v5+ renamed the single-file input from `file` to `files` (plural) --
+          # the stale singular name was silently ignored (an "Unexpected input(s) 'file'" warning,
+          # easy to miss in a long log), so every upload queued successfully but attached no actual
+          # coverage report, landing as codecov's own "state": "error" / a permanent 0% badge even
+          # on a run that completed cleanly with no cancellation involved.
+          files: ./coverage.xml
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
