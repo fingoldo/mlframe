@@ -23,7 +23,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-_UPPER_BOUND_RE = re.compile(r'"scikit-learn>=1\.\d+,<(\d+)\.(\d+)"')
+_UPPER_BOUND_RE = re.compile(r'"scikit-learn>=1\.\d+,<(\d+)\.(\d+)(?:;[^"]*)?"')
 _MATRIX_VERSION_RE = re.compile(r'-\s*"(\d+)\.(\d+)\.\d+"\s*(?:#.*)?$')
 
 

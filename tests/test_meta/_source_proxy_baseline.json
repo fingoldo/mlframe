@@ -36,7 +36,6 @@
   "test_meta/test_readme_sklearn_version_claim.py::scikit-learn 1.5, 1.6, 1.7, 1.8",
   "test_meta/test_readme_sklearn_version_claim.py::scikit-learn 1.6 through 1.8",
   "test_meta/test_readme_sklearn_version_claim.py::scikit-learn 1.6, 1.7, 1.8",
-  "test_meta/test_readme_sklearn_version_claim.py::scikit-learn>=1.6",
   "test_meta/test_sklearn_matrix_marker_invariants.py::\"sklearn_matrix:",
   "test_meta/test_sklearn_matrix_marker_invariants.py::-m sklearn_matrix",
   "training/cb/test_cb_pool_cache_clear.py::from mlframe.training.cb import _CB_POOL_CACHE",
