@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import logging
 import os
+import textwrap
+from timeit import default_timer as timer
 
 import numpy as np
 
@@ -324,3 +326,301 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
         logger.warning(_fallback_msg)
         import warnings as _w_iter39
         _w_iter39.warn(_fallback_msg, UserWarning, stacklevel=2)
+
+
+def _finalise_fs_results(
+    self,
+    *,
+    MRMR,
+    X,
+    classes_y,
+    cols,
+    data,
+    nbins,
+    predictors,
+    start_time,
+    verbose,
+    cache_key,
+    signature,
+    ran_out_of_time,
+    hashable_params_signature,
+    mrmr_cache_bytes_total,
+    align_mrmr_gains,
+    fit_cache_lock,
+):
+    """Post-selection finalisation tail: report/logging, ``signature``/``ran_out_of_time_`` bookkeeping,
+    the UAED post-fit auto-size elbow trim, ``mrmr_gains_`` length re-alignment, the
+    ``support_nonlinear_`` alias re-sync, the group-aware FE demotion final choke point, and the
+    process-wide ``MRMR._FIT_CACHE`` store. Carved verbatim out of ``_fit_impl``'s tail (Tier E partial
+    split, same convention as ``_finalise_empty_support_fallback`` above) to shrink the parent below the
+    monolith budget -- byte-for-byte identical to the inlined block. ``MRMR`` (the class), the fit-cache
+    lock/helpers, ``signature``/``ran_out_of_time`` (the fit-body locals this tail finalises onto
+    ``self``), and ``_hashable_params_signature``/``_align_mrmr_gains`` are threaded explicitly because
+    ``_fit_impl`` resolves ``MRMR`` via a LAZY ``from ..mrmr import (MRMR, ...)`` inside its own body (to
+    break the ``mrmr -> _mrmr_fit_impl -> mrmr`` import cycle -- see that function's own docstring); a
+    fresh top-level import here would reintroduce the same cycle, and ``signature``/``ran_out_of_time``
+    are plain fit-body locals with no ``self`` attribute to read them back from before this tail runs.
+    Returns ``self`` (the direct return value of ``_fit_impl`` itself)."""
+    _align_mrmr_gains = align_mrmr_gains
+    _hashable_params_signature = hashable_params_signature
+    _mrmr_cache_bytes_total = mrmr_cache_bytes_total
+    _cache_key = cache_key
+    _MRMR_FIT_CACHE_LOCK = fit_cache_lock
+    if verbose:
+        predictors_str = ", ".join([f"{el['name']}: {el['gain']:.4f}" for el in predictors[:50]])
+        predictors_str = textwrap.shorten(predictors_str, width=300)
+        logger.info("MRMR+ selected %d out of %d features: %s", self.n_features_, self.n_features_in_, predictors_str)
+
+    # Refresh the params slot with POST-fit values before storing: should fit ever resolve/normalise a
+    # param in place (RFECV does this with ``scoring``), the entry-time params fingerprint would never
+    # match the NEXT fit's ``get_params`` and identical refits would never skip. The data slots
+    # (shapes/hashes/columns) stay as computed at fit entry.
+    try:
+        signature = (*signature[:-1], _hashable_params_signature(self.get_params(deep=True)))
+    except Exception as exc:
+        logger.debug("mrmr: final signature hash failed; using a unique sentinel (forces a cache miss / no replay for this fit): %r", exc, exc_info=True)
+        signature = (*signature[:-1], object())  # unique token => next identical fit refits (conservative)
+    self.signature = signature
+    # ran_out_of_time was set only by the outer FE-loop deadline (line ~6714). screen_predictors honours
+    # self.max_runtime_mins on its OWN and can return a truncated selection without the FE loop ever tripping, so a
+    # screen-level timeout was reported as ran_out_of_time_=False - misleading a caller inspecting why selection was
+    # thin. OR-in a total-elapsed-vs-budget check so any stage that pushed the fit past its budget is reflected.
+    if self.max_runtime_mins is not None and (timer() - start_time) / 60.0 >= self.max_runtime_mins:
+        ran_out_of_time = True
+    self.ran_out_of_time_ = ran_out_of_time
+
+    # Post-fit UAED auto-size. When enabled, replaces the
+    # configured ``min_features_fallback`` floor with an automatic elbow on
+    # the per-feature MI gain curve. Relevance trace is taken from the
+    # ``mrmr_gains_`` attribute (Wave-7 audit landed this trace in the
+    # standard fit output); if missing, this step no-ops.
+    if getattr(self, "uaed_auto_size", False):
+        try:
+            from .._cmi_perm_stop import uaed_elbow
+            gains = np.asarray(getattr(self, "mrmr_gains_", []), dtype=np.float64)
+            # UAED runs BEFORE the mrmr_gains_ length-alignment below, so at this point ``gains`` is the
+            # raw GREEDY log (one entry per confirmed greedy round) - often SHORTER than n_features_ when
+            # FE/retention appended features the greedy never scored. The public ``mrmr_gains_`` the caller
+            # sees is the n_features_-aligned (zero-padded) trace, so the elbow must be computed on that SAME
+            # trace; otherwise a frame whose greedy log has <3 rounds but >=3 final features silently skips
+            # the elbow (uaed_elbow_ never set, support never trimmed). Zero-extend to n_features_ to match.
+            _nf_uaed = int(getattr(self, "n_features_", gains.size) or gains.size)
+            if 0 < gains.size < _nf_uaed:
+                gains = np.concatenate([gains, np.zeros(_nf_uaed - gains.size, dtype=np.float64)])
+            if gains.size >= 3:
+                elbow = int(uaed_elbow(gains))
+                if 0 < elbow < gains.size and hasattr(self, "support_"):
+                    # ``gains`` is the COMBINED trace (raw greedy gains + zero-padded engineered tail), matching the
+                    # transform-time feature order [support_ ..., engineered recipes ...]. The elbow index therefore
+                    # lives in COMBINED space, but ``support_`` holds RAW indices only. Slicing raw support by a
+                    # combined elbow (and setting n_features_ = support_.size) dropped the engineered count while the
+                    # recipes still fired in transform - transform emitted MORE columns than n_features_/mrmr_gains_
+                    # claimed (a hard support/output desync). Trim raw support AND engineered recipes in LOCKSTEP so
+                    # the retained feature count is exactly elbow+1 in both the state and the transform output.
+                    _sup = np.asarray(self.support_)
+                    _uaed_recipes = list(getattr(self, "_engineered_recipes_", []) or [])
+                    _uaed_keep = elbow + 1  # combined features to retain
+                    _uaed_raw_keep = min(_uaed_keep, _sup.size)
+                    _uaed_eng_keep = max(0, _uaed_keep - _sup.size)  # <= len(_uaed_recipes): gains was zero-extended to n_features_
+                    self.support_ = _sup[:_uaed_raw_keep]
+                    if _uaed_recipes and _uaed_eng_keep < len(_uaed_recipes):
+                        self._engineered_recipes_ = _uaed_recipes[:_uaed_eng_keep]
+                    self.n_features_ = int(self.support_.size) + min(_uaed_eng_keep, len(_uaed_recipes))
+                    self.uaed_elbow_ = int(elbow)
+        except Exception as e:  # nosec B110 - non-trivial body
+            # UAED is best-effort post-fit; don't break fit() on internal hiccup.
+            logger.debug("UAED post-fit adjustment failed (%s: %s) -- keeping the pre-UAED support", type(e).__name__, e)
+    # Transient FE-escalation fitting target: full-n array, fit-time only.
+    self._fe_escalation_y_rank_ = None
+    # Transient prewarp ALS reconstruction target: full-n continuous y, fit-time only.
+    self._fe_prewarp_y_continuous_ = None
+
+    # MRMR_GAINS LENGTH ALIGNMENT (final form). ``mrmr_gains_`` is the GREEDY selection log;
+    # the FINAL feature count diverges from it - SHORTER on a degenerate-frame collapse / redundancy /
+    # cluster-aggregate exclusion / p>=n cap / UAED elbow trim, LONGER when FE / retention / pseudo-
+    # remix re-add appended features the greedy log never scored. The public contract + downstream
+    # expect ``len(mrmr_gains_) == n_features_`` (TestSupportGainsAlignment). Reconcile HERE, after every
+    # support/n_features_ mutation above is final: keep the top screening gains (descending - what the
+    # UAED elbow already consumed) and pad any FE tail with 0.0. Byte-identical when already aligned.
+    # NB: re-run once more after the group-aware demotion below (the last n_features_ mutation).
+    _align_mrmr_gains(self)
+
+    # SUPPORT_NONLINEAR_ ALIAS RE-SYNC. ``support_nonlinear_`` is set right after the FIRST support_
+    # assignment as an alias of the pure-MI support_, but several later passes (usability-aware RAW
+    # retention, count-floor rescue, UAED elbow trim) REASSIGN self.support_ to a NEW array, leaving the
+    # alias pointing at the stale pre-mutation array. By contract support_nonlinear_ IS the final pure-MI
+    # support_, so re-point it here after every support_ mutation (the separate linear/universal lists,
+    # when present, are untouched).
+    if hasattr(self, "support_nonlinear_"):
+        self.support_nonlinear_ = self.support_
+
+    # GROUP-AWARE FE DEMOTION (final choke point, AFTER every reintroduction pass). Under
+    # ``group_aware_mi=True`` the raw-feature relevance screen (``evaluate_candidate``) already demotes
+    # a between-group-level "leak" raw feature via group-blocked I(X;Y|G) instead of the naive global MI
+    # - but EVERY engineered-feature producer (the unary/binary pair search, the hybrid-orth Hermite
+    # basis, polynom/orthogonal families, ...) scores its candidates with the PLAIN global plug-in MI;
+    # none of them consult ``get_group_mi()``. A pair/basis interaction BUILT FROM a demoted leak raw
+    # feature (e.g. ``mul(leak_raw, unrelated)`` or a Hermite product ``leak_raw__He2 * other__He1``)
+    # still carries the leak's between-group signal and clears every naive-MI acceptance gate. An
+    # EARLIER attempt at this check (right after the initial ``selected_vars``/engineered-recipe build)
+    # was found to be undone by later passes - usability-aware retention (``_retain_extra`` above)
+    # re-attaches recipes it judges linearly-useful by its OWN criterion, independent of any earlier
+    # group-aware verdict - so this MUST run last, after UAED / retention / every other
+    # ``self._engineered_recipes_``/``self._engineered_features_`` mutation, right before returning.
+    # Recipes still materialised in ``data``/``cols`` (the common case) are re-scored directly; a
+    # retention-only recipe (usability-aware retention re-attaches recipes from its own recompute,
+    # independent of ``cols``/``data``) is replayed via ``apply_recipe`` + discretised the SAME way the
+    # retention pass itself does, so it gets the SAME group-aware check either way. Demotes any whose
+    # within-group MI comes back EXACTLY zero (no genuine within-group signal at all - a column with any real, however small, within-group
+    # signal survives). A nan group-MI (misaligned segments) is inconclusive and left alone, mirroring the
+    # raw-feature gate's own fallback. No-op - and therefore byte-identical - when group_aware_mi is off
+    # / no groups were supplied this fit (``get_group_mi()`` returns ``None``).
+    try:
+        from ..info_theory._state_and_dispatch import get_group_mi as _get_group_mi_final
+        _gmi_final_payload = _get_group_mi_final()
+    except Exception as e:
+        logger.debug("get_group_mi_final() failed: %s", e)
+        _gmi_final_payload = None
+    _eng_recipes_final = getattr(self, "_engineered_recipes_", None) or []
+    if _gmi_final_payload is not None and _eng_recipes_final:
+        try:
+            from ..info_theory._group_mi import group_blocked_mi as _group_blocked_mi_final
+            from ..info_theory._group_mi import group_relevance_mi as _group_relevance_mi_final
+
+            _cols_idx_f = {nm: i for i, nm in enumerate(cols)}
+            _gsi_f, _goff_f, _gmr_f, _gsw_f = _gmi_final_payload
+            _classes_y_arr_f = np.asarray(classes_y)
+            _g_n_bins_y_f = int(_classes_y_arr_f.max()) + 1
+            _group_dropped_final: set = set()
+            for _recipe in _eng_recipes_final:
+                _rname = str(getattr(_recipe, "name", ""))
+                _cidx = _cols_idx_f.get(_rname)
+                if _cidx is not None:
+                    # Fast path: the engineered column is still materialised in ``data``/``cols``.
+                    _grp_mi_f = _group_relevance_mi_final(
+                        data, (int(_cidx),), _classes_y_arr_f, np.asarray(nbins), _g_n_bins_y_f,
+                        _gsi_f, _goff_f, min_rows=_gmr_f, size_weighted=_gsw_f, dtype=self.quantization_dtype,
+                    )
+                else:
+                    # Retention-only recipe (usability-aware retention re-attaches it from its OWN
+                    # recompute, bypassing ``cols``/``data`` entirely - see the comment above). Replay
+                    # the SAME recompute + discretise the retention pass itself uses, then group-block
+                    # directly (a single already-discretised column needs no ``merge_vars`` combination).
+                    try:
+                        from ..engineered_recipes._recipe_dispatch import apply_recipe as _apply_recipe_final
+                        from ..discretization import discretize_array as _discretize_array_final
+
+                        _cv_f = np.asarray(_apply_recipe_final(_recipe, X), dtype=np.float64).ravel()
+                        _cv_f = np.nan_to_num(_cv_f, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                        if _cv_f.shape[0] != _classes_y_arr_f.shape[0]:
+                            continue  # can't align - leave this recipe alone
+                        _codes_f = _discretize_array_final(_cv_f, n_bins=int(self.quantization_nbins), method=self.quantization_method, dtype=self.quantization_dtype)
+                        _grp_mi_f = _group_blocked_mi_final(
+                            _codes_f, _classes_y_arr_f, _gsi_f, _goff_f,
+                            n_bins_x=int(self.quantization_nbins), n_bins_y=_g_n_bins_y_f,
+                            min_rows=_gmr_f, size_weighted=_gsw_f, use_mm=True,
+                        )
+                    except Exception as e:
+                        logger.debug("_fit: within-group MI replay/discretise failed for recipe %r, leaving it alone: %s", _rname, e)
+                        continue  # can't replay/discretise - leave this recipe alone (conservative)
+                if _grp_mi_f == _grp_mi_f and _grp_mi_f <= 0.0:  # not nan and exactly zero within-group signal
+                    _group_dropped_final.add(_rname)
+            if _group_dropped_final:
+                self._engineered_recipes_ = [_r for _r in _eng_recipes_final if str(getattr(_r, "name", "")) not in _group_dropped_final]
+                _eng_features_final = getattr(self, "_engineered_features_", None) or []
+                self._engineered_features_ = [_fn for _fn in _eng_features_final if str(_fn) not in _group_dropped_final]
+                self.n_features_ = (
+                    len(self.support_) + len(self._engineered_recipes_)
+                    if hasattr(self, "support_")
+                    else int(getattr(self, "n_features_", 0)) - len(_group_dropped_final)
+                )
+                if verbose:
+                    logger.info(
+                        "MRMR: demoted %d engineered feature(s) with zero within-group relevance MI "
+                        "under group_aware_mi (between-group-only leak signature reaching the final selection): %s",
+                        len(_group_dropped_final), sorted(_group_dropped_final),
+                    )
+        except Exception as _group_final_exc:
+            logger.debug(
+                "MRMR group-aware FE demotion (final choke point) failed (%s: %s); keeping the naive-MI selection.",
+                type(_group_final_exc).__name__, _group_final_exc,
+            )
+
+    # Final re-alignment: the group-aware demotion just above is the LAST n_features_ mutation, and it does
+    # not touch mrmr_gains_. Re-run the trim/pad here so the len(mrmr_gains_) == n_features_ contract holds
+    # even when the demotion dropped >=1 engineered feature (idempotent no-op otherwise).
+    _align_mrmr_gains(self)
+
+    # Store self in process-wide cache so cloned MRMR instances fit on the same (X, y) arrays can replay
+    # this fitted state instead of re-running cat-FE + permutation. Bound the LRU by ``fit_cache_max``;
+    # the default (4) covers a typical model suite without thrashing and long-lived workers no longer leak.
+    # ``_skip_fit_cache`` (private, non-BaseEstimator attr set by the stability-selection outer loop on
+    # its throwaway bootstrap-replicate sub-fits): each replicate
+    # fits a DIFFERENT row-subsample every call, so its cache key never repeats and is a guaranteed
+    # future miss - storing it only serves to evict a legitimately-reusable entry from an unrelated
+    # concurrent caller sharing the same process-wide 4-entry LRU. Unlike ``fit_cache_max=0`` (which
+    # clears the WHOLE shared cache as an operator-level opt-out), this skips only THIS instance's own
+    # store, leaving every other entry untouched.
+    #
+    # Placed at the very end of fit (after every post-fit self-mutation: UAED elbow, mrmr_gains_
+    # alignment, support_nonlinear_ re-sync, group-aware FE demotion) rather than right after the main
+    # selection loop -- a concurrent fit's own byte-cap eviction walks EVERY cached instance's
+    # ``vars(instance)`` via ``_mrmr_cache_bytes_total`` (see below); publishing ``self`` into
+    # ``_FIT_CACHE`` before those later blocks finished ADDING/REASSIGNING instance attributes let another
+    # thread observe ``self.__dict__`` mid-mutation and raise ``RuntimeError: dictionary changed size
+    # during iteration`` (reproduced live via ``test_concurrent_real_fits_no_exception_and_bounded_cache``
+    # -- 6 threads x 12 real fits reliably triggered it within a few runs). The cache lock only ever
+    # serialised the ``_FIT_CACHE`` container itself, not a stored VALUE's own further mutation by its
+    # owning thread; the real fix is publishing ``self`` only once it is fully finalised, not widening the
+    # lock (self's own post-store mutations are single-threaded from this thread's perspective and were
+    # never a race against another thread's SAME instance -- the race was always a torn READ of one
+    # thread's instance by ANOTHER thread's eviction walk).
+    if _cache_key is not None and not getattr(self, "_skip_fit_cache", False):
+        # Whole store + LRU/byte-cap eviction held under the cache lock so a concurrent fit cannot interleave its
+        # own ``__setitem__``/``popitem``/``move_to_end`` (KeyError, wrong-entry eviction) or iterate ``.values()``
+        # via ``_mrmr_cache_bytes_total`` while another thread mutates the dict.
+        with _MRMR_FIT_CACHE_LOCK:
+            # concurrency audit (TOCTOU): between this thread's earlier locked miss-check and this
+            # locked store, another thread with the IDENTICAL cache key may have run its own full fit and
+            # already stored its result here. Both instances are independently correct (same X/y/params), but
+            # picking a FIRST-WRITER-WINS policy (``setdefault`` instead of unconditional overwrite) makes the
+            # canonical cached entry deterministic by arrival order at this lock rather than by whichever
+            # thread happened to reach this exact line last - and avoids uselessly replacing an already-valid
+            # entry with an equivalent one. ``self`` remains fully usable to ITS OWN caller either way; only
+            # which instance becomes the shared replay source for FUTURE cache hits is affected.
+            MRMR._FIT_CACHE.setdefault(_cache_key, self)
+            MRMR._FIT_CACHE.move_to_end(_cache_key)
+            # ``fit_cache_max=0`` is the operator-explicit "disable LRU" sentinel
+            # (e.g. for memory-constrained suites where the 4-entry cache pins
+            # too much state). The previous ``or 4`` form silently restored the
+            # default cap, so cache-off was a no-op. ``None`` (unset attr) still
+            # folds to 4.
+            _cap_raw = getattr(self, "fit_cache_max", 4)
+            _cap = int(4 if _cap_raw is None else _cap_raw)
+            if _cap <= 0:
+                MRMR._FIT_CACHE.clear()
+            else:
+                while len(MRMR._FIT_CACHE) > _cap:
+                    MRMR._FIT_CACHE.popitem(last=False)
+            # Byte-size cap on top of entry count: a 1k-feature suite carrying 4 cached MRMR instances each
+            # holding _selectors_ / _engineered_features_ state can exceed 1 GB of process RSS.
+            # ``fit_cache_max_mb`` (default 1024 MB; env override ``MLFRAME_MRMR_FIT_CACHE_MAX_MB``) bounds the
+            # aggregate cache footprint.
+            _mb_cap_raw = getattr(self, "fit_cache_max_mb", None)
+            if _mb_cap_raw is None:
+                _env_mb = os.environ.get("MLFRAME_MRMR_FIT_CACHE_MAX_MB", "1024")
+                try:
+                    _mb_cap = float(_env_mb)
+                except ValueError:
+                    _mb_cap = 1024.0
+            else:
+                try:
+                    _mb_cap = float(_mb_cap_raw)
+                except (TypeError, ValueError):
+                    _mb_cap = 1024.0
+            if _mb_cap > 0 and _cap > 0 and len(MRMR._FIT_CACHE) > 0:
+                _byte_cap = _mb_cap * (1024**2)
+                while len(MRMR._FIT_CACHE) > 1 and _mrmr_cache_bytes_total() > _byte_cap:
+                    MRMR._FIT_CACHE.popitem(last=False)
+
+    return self
