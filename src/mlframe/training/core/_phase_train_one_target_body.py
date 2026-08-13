@@ -406,8 +406,9 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # within a tier, which would otherwise undo the lazy pandas conversion downstream.
             # See _compute_pipeline_cache_key for the features-digest contract (frozenset, order-invariant).
             # Pass the polars train frame (if present) so dtype changes between targets / runs
-            # invalidate the cache; pandas frames don't reach this branch typed-distinct enough to
-            # need the suffix (handled upstream in split_features), so it's safe to skip there.
+            # invalidate the cache; for a non-polars strategy, train_df_pd is passed instead so the
+            # same dtype/schema discriminator applies to pandas-consuming strategies too (see
+            # compute_model_pipeline_cache_key's docstring for the incident this closes).
             cache_key = compute_model_pipeline_cache_key(
                 strategy=strategy,
                 pre_pipeline_name=pre_pipeline_name,
@@ -415,6 +416,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 text_features=text_features,
                 embedding_features=embedding_features,
                 train_df_polars=train_df_polars,
+                train_df_pd=train_df_pd,
                 cur_target_name=cur_target_name,
                 current_train_target=current_train_target,
                 _compute_pipeline_cache_key=_compute_pipeline_cache_key,

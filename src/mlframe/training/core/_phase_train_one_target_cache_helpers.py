@@ -20,6 +20,7 @@ def compute_model_pipeline_cache_key(
     cur_target_name,
     current_train_target,
     _compute_pipeline_cache_key: Callable[..., str],
+    train_df_pd=None,
 ) -> str:
     """Build the per-(strategy, pre_pipeline, tier, kind, features) pipeline cache key.
 
@@ -40,7 +41,26 @@ def compute_model_pipeline_cache_key(
     # value so two strategies with matching imp+scale+enc share the slot instead of each
     # re-running the pre_pipeline.
     _effective_tier = strategy.feature_tier() if (text_features or embedding_features) else (False, False)
-    _cache_key_train_df = train_df_polars if strategy.supports_polars else None
+    # LIVE BUG (found+fixed together): for a non-polars strategy this used to pass ``train_df=None``
+    # unconditionally ("pandas frames don't reach this branch typed-distinct enough to need the
+    # suffix, handled upstream in split_features" -- that upstream claim doesn't hold for the plain
+    # no-pre_pipeline case). With no pre_pipeline (pre_pipeline_name=None) the target discriminator
+    # inside _compute_pipeline_cache_key is ALSO gated off (by design, to preserve legitimate
+    # same-X-multi-target cache sharing -- see test_pipeline_cache_key_target_discrimination.py), so
+    # the resulting key had ZERO content discriminator at all for a plain pandas tree-model fit:
+    # confirmed live, two ENTIRELY UNRELATED train_mlframe_models_suite calls (different X shape --
+    # 11 cols vs 3 cols, different targets) both produced the identical key
+    # "lgb_tier(False, False)_kindpd_feats69dda5e0bd93b362", and PipelineCache served the first
+    # call's fitted/cached artefacts to the second, producing a Booster trained on the WRONG X that
+    # crashed at predict time with LightGBMError: "number of features in data (3) is not the same as
+    # it was in training data (11)" (test_registered_composite_model_keys_suite.py::
+    # test_lgb_string_key_dispatch_unaffected_by_gated_outlier_registration). Falling back to the
+    # pandas train_df (already available on ctx as train_df_pd) when the strategy isn't polars-native
+    # lets _compute_pipeline_cache_key's existing, already backend-agnostic ``_dtype_suffix`` logic
+    # (_canonical_dtype_pairs_compute handles pandas via a generic hasattr(columns) path) fold a real
+    # schema fingerprint in for pandas paths too -- closing the gap without touching the
+    # pre_pipeline_name-gated target-suffix logic at all.
+    _cache_key_train_df = train_df_polars if strategy.supports_polars else train_df_pd
     return str(
         _compute_pipeline_cache_key(
             _content_key,
