@@ -52,11 +52,20 @@ def test_f1_combine_probs_median_weight_and_none_identical():
 
 
 def test_f1_axis_mismatch_confirmed_in_raw_numpy():
-    """Sanity: confirms the pre-fix failure mode really is a numpy ValueError (shape mismatch), not a hypothetical."""
+    """Sanity: confirms the pre-fix failure mode really is a numpy error tied to weights/axis, not a hypothetical.
+
+    ``np.quantile``'s ``weights`` parameter only exists from numpy 2.0 -- on an older numpy (this
+    project's own floor for python<3.10 is ``numpy<2.0``, see pyproject.toml) the call raises
+    ``TypeError: unexpected keyword argument 'weights'`` before ever reaching the shape-mismatch
+    check ``ValueError`` this sanity pin was written against on numpy>=2.0. Both are the numpy-level
+    confirmation this test exists to pin (the combination is rejected one way or another); which one
+    depends only on which numpy the caller's own interpreter has, not on anything mlframe controls.
+    """
     rng = np.random.default_rng(0)
     stacked = rng.uniform(0.1, 0.9, size=(4, 100))
     sw = rng.uniform(0.5, 2.0, size=100)
-    with pytest.raises(ValueError, match="weights"):
+    expected_exc = ValueError if np.lib.NumpyVersion(np.__version__) >= "2.0.0" else TypeError
+    with pytest.raises(expected_exc, match="weights"):
         np.quantile(stacked, 0.5, axis=0, weights=sw, method="inverted_cdf")
 
 
