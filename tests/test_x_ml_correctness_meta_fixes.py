@@ -16,7 +16,24 @@ import numpy as np
 import pandas as pd
 import pytest
 
-logging.disable(logging.CRITICAL)
+
+@pytest.fixture(autouse=True, scope="module")
+def _suppress_noisy_logging_during_this_module():
+    """Suppress WARNING-and-below logging while this module's tests run, then restore.
+
+    A bare module-level ``logging.disable(logging.CRITICAL)`` used to sit here with no matching
+    ``logging.disable(logging.NOTSET)`` -- ``logging.disable`` is a process-wide, manager-level
+    override (not scoped to one logger), so it fired at IMPORT time and stayed in effect for the
+    rest of this pytest-xdist worker's lifetime, silently swallowing every later test's
+    ``logger.warning(...)`` calls regardless of that test's own handler/level setup. Reproduced
+    live: tests/training/test_schema_drift_perf.py's two tests attach their own StreamHandler and
+    assert on captured WARNING text, and failed with an EMPTY captured stream
+    (``assert 'dtype different' in ''``) whenever this module was imported into the same worker
+    first. Scoping the disable to a fixture restores logging on module teardown instead.
+    """
+    logging.disable(logging.CRITICAL)
+    yield
+    logging.disable(logging.NOTSET)
 
 
 # ---------------------------------------------------------------------------
