@@ -23,7 +23,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-_UPPER_BOUND_RE = re.compile(r'"scikit-learn>=1\.6,<(\d+)\.(\d+)"')
+_UPPER_BOUND_RE = re.compile(r'"scikit-learn>=1\.\d+,<(\d+)\.(\d+)"')
 _MATRIX_VERSION_RE = re.compile(r'-\s*"(\d+)\.(\d+)\.\d+"\s*(?:#.*)?$')
 
 
@@ -33,7 +33,7 @@ def _pyproject_upper_bound() -> tuple[int, int]:
     m = _UPPER_BOUND_RE.search(src)
     assert m is not None, (
         "pyproject.toml's scikit-learn dependency spec no longer matches "
-        "'\"scikit-learn>=1.6,<X.Y\"' -- update this regex (and check test_readme_sklearn_version_claim.py "
+        "'\"scikit-learn>=1.N,<X.Y\"' -- update this regex (and check test_readme_sklearn_version_claim.py "
         "too) alongside whatever changed the spec's shape."
     )
     return int(m.group(1)), int(m.group(2))

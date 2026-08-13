@@ -63,14 +63,17 @@ dependencies = [
     "pandas>=1.5,<3.0",
     "polars>=0.20",
     "scipy>=1.10",
-    # >=1.6: category-encoders (a hard dep below) imports ``sklearn.utils.Tags``, which only exists from
-    # sklearn 1.6; on older sklearn ``import category_encoders`` fails, so 1.6 is mlframe's effective floor.
-    # Upper cap <1.9: sklearn 1.9 combined with whatever category-encoders version CI's resolver falls
-    # back to on some legs breaks CatBoostEncoder/TargetEncoder's own __sklearn_tags__ override chain
-    # (AttributeError: 'super' object has no attribute '__sklearn_tags__', inside category_encoders'
-    # code, not mlframe's), cascading into a wide, unrelated-looking test failure cluster. Cap until
-    # category-encoders ships a compatible release and the floor can move up.
-    "scikit-learn>=1.6,<1.9",
+    # >=1.7 (not just >=1.6): mlframe's own production code depends on two sklearn>=1.7 features, not
+    # just category-encoders' importability floor (sklearn.utils.Tags, present from 1.6) --
+    # HistGradientBoostingClassifier/Regressor.fit(X_val=..., y_val=...) (native external-validation-set
+    # early stopping, used by the "hgb"/"ngb" eval_set path in training/_data_helpers.py) and
+    # KBinsDiscretizer's ``quantile_method`` kwarg (training/pipeline/__init__.py's kbins extension step,
+    # which still guards this specific kwarg at runtime via inspect.signature() since the dedicated
+    # sklearn-matrix CI force-installs 1.6.1 for a narrow composite-target subset regardless of this
+    # floor) were both confirmed live-broken on a CI leg that resolved sklearn==1.6.1 under the old
+    # ">=1.6" floor (TypeError: fit() got an unexpected keyword argument 'X_val';
+    # __init__() got an unexpected keyword argument 'quantile_method').
+    "scikit-learn>=1.7,<1.9",
     # >=25.0.0: pyarrow 24.0.0's cp314 wheel segfaults (Windows access violation) on import when
     # triggered through pytest's assertion-rewrite loader (reproduces in tests/conftest.py's
     # pyutilz.system -> pyutilz.text.strings -> pandas.compat.pyarrow -> pyarrow import chain; a
@@ -108,7 +111,16 @@ dependencies = [
     # in try/except with np.histogram fallback, so removing astropy from core
     # only loses the optional astropy-only bin schemes. Listed in [signal]
     # extras below for callers who want them.
-    "category-encoders>=2.6",
+    # >=2.8.0: category-encoders' BaseEncoder didn't define __sklearn_tags__ until 2.8.0 (confirmed by
+    # inspecting the 2.7.0 vs 2.8.0 wheels directly) -- on sklearn>=1.6, whose tag-resolution machinery
+    # calls it via super(), any earlier category-encoders release (2.6.x/2.7.x, both satisfy the old
+    # ">=2.6" floor) raises AttributeError: 'super' object has no attribute '__sklearn_tags__' from
+    # inside category_encoders' own code on the FIRST fit_transform call, cascading into a wide,
+    # unrelated-looking training-suite failure cluster. Reproduced live on CI (py3.9 leg resolved
+    # sklearn==1.6.1 + category-encoders==2.6.4) even though sklearn was well under the previously-
+    # believed-necessary <1.9 cap above -- the real trigger is category-encoders' own version, not
+    # sklearn's, so the floor here (not a sklearn cap) is the actual fix.
+    "category-encoders>=2.8.0",
     "expiringdict>=1.2",
     "pympler>=1.0",   # used via pyutilz.system; unconditional import in tests/feature_engineering/*
     # 2026-07-17: promoted from an optional/best-effort import to a hard dep. Used directly for fast
@@ -485,7 +497,17 @@ minversion = "7.0"
 testpaths = ["tests"]
 pythonpath = ["src"]
 # -p no:anyio / no:asyncio: the repo has zero async tests, and both transitively-installed async pytest plugins segfault the interpreter during collection on this stack -- anyio under CUDA_VISIBLE_DEVICES="" (CPU-only / CI), asyncio under a visible GPU (their event-loop native init collides with the CUDA/numba context). Unused plugins, so unloading both is pure upside.
-addopts = "-ra -s --no-cov --strict-markers --strict-config --timeout=600 --instafail --ignore=legacy --ignore=benchmarks --ignore=profiling -p no:anyio -p no:asyncio"
+# NOTE: do NOT add --no-cov here. pytest-cov's --no-cov unconditionally disables coverage collection
+# even when --cov=... is passed explicitly on the command line (pytest-cov's own documented precedence:
+# the LAST --cov/--no-cov flag wins across addopts + CLI, and addopts is appended before the CLI args
+# pytest-cov sees). A prior version of this line had --no-cov baked in globally -- meant only as the
+# Windows-local pytest-cov PermissionError workaround (pytest-cov can't write its data file on Windows;
+# pass --no-cov by hand on that platform, see CLAUDE.md) -- which silently zeroed out EVERY coverage
+# collection everywhere, including CI's explicit `--cov=src/mlframe --cov-report=xml` (ci.yml), for as
+# long as this addopts line existed. Confirmed live: CI's own logs show "CovDisabledWarning: Coverage
+# disabled via --no-cov switch!" on every run, and codecov.io showed 0% the entire time regardless of
+# the (separately real, separately fixed) cancelled-run and file/files-typo issues.
+addopts = "-ra -s --strict-markers --strict-config --timeout=600 --instafail --ignore=legacy --ignore=benchmarks --ignore=profiling -p no:anyio -p no:asyncio"
 xfail_strict = true
 doctest_optionflags = "NORMALIZE_WHITESPACE ELLIPSIS"
 markers = [
