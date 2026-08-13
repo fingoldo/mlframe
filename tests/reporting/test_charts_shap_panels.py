@@ -338,7 +338,12 @@ def test_biz_value_f0_ranks_first_and_monotone(tmp_path):
 
     # Dependence sign/monotonicity: SHAP_f0 increases with f0's value. Recompute the same SHAP matrix the
     # dependence plot uses (one explainer reused) and assert a strongly positive rank-like correlation.
-    explainer = shap.TreeExplainer(m)
+    # Raw shap.TreeExplainer construction MUST go through _maybe_patch_shap_xgb_base_score -- see
+    # test_shap_xgb_patch_version_gate.py's docstring for the full incident.
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as _spe
+
+    with _spe._maybe_patch_shap_xgb_base_score():
+        explainer = shap.TreeExplainer(m)
     Xs = X.iloc[:2000]
     shap_mat = sp._shap_values_2d(explainer(Xs, check_additivity=False))
     corr = float(np.corrcoef(Xs["f0"].to_numpy(), shap_mat[:, 0])[0, 1])
@@ -395,7 +400,12 @@ def test_shap_default_max_rows_cap_bounded_and_ranking_stable():
     X = rng.standard_normal((n, nf))
     y = 2.0 * X[:, 0] - 1.5 * X[:, 1] + 0.8 * X[:, 2] * X[:, 3] + rng.standard_normal(n) * 0.5
     model = lgb.LGBMRegressor(n_estimators=200, num_leaves=31, verbosity=-1).fit(X, y)
-    expl = shap.TreeExplainer(model)
+    # Raw shap.TreeExplainer construction MUST go through _maybe_patch_shap_xgb_base_score -- see
+    # test_shap_xgb_patch_version_gate.py's docstring for the full incident.
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as _spe
+
+    with _spe._maybe_patch_shap_xgb_base_score():
+        expl = shap.TreeExplainer(model)
 
     def _topk(nrows, k=sp.DEFAULT_TOP_K):
         """Helper: Topk."""

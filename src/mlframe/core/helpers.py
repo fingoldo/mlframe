@@ -32,7 +32,14 @@ def validate_trusted_path(path: str, trusted_root: "str | None") -> None:
     if trusted_root is None:
         raise ValueError("trusted_root is required for joblib.load()/dill.load() of a caller-influenced path. Pass an absolute trusted directory.")
     abs_root = os.path.abspath(trusted_root)
-    abs_path = os.path.abspath(path)
+    # A backslash-separated traversal segment (e.g. "..\\..\\win") is a real escape on Windows
+    # (os.path treats "\\" as a separator there) but silently becomes ONE inert literal filename
+    # component on POSIX (os.path never treats "\\" as a separator there), so the exact same
+    # caller-influenced string that traverses on Windows stays harmlessly inside trusted_root's
+    # own directory on Linux/macOS -- os.path.commonpath then never rejects it. Normalize "\\" to
+    # "/" before resolving so a backslash-style traversal attempt is caught identically on every
+    # platform, regardless of which OS actually runs the check.
+    abs_path = os.path.abspath(path.replace("\\", "/"))
     try:
         common = os.path.commonpath([abs_root, abs_path])
     except ValueError as exc:

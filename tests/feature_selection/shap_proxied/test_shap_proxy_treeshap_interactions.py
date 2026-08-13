@@ -78,9 +78,14 @@ def test_interaction_kernel_symmetry_rowsum_parity(classification, max_depth):
     # Row-sum identity: interaction rows sum to the main-effect SHAP values from the SAME kernel,
     # and those match the shap library main-effect values.
     np.testing.assert_allclose(Phi.sum(axis=2), phi, rtol=0, atol=1e-10)
-    phi_ref = np.asarray(
-        __import__("shap").TreeExplainer(model, feature_perturbation="tree_path_dependent").shap_values(X, check_additivity=False), dtype=np.float64
-    )
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as _spe
+
+    # Raw shap.TreeExplainer construction MUST go through _maybe_patch_shap_xgb_base_score --
+    # see _shap_interaction_reference's docstring in this file for the full incident writeup.
+    with _spe._maybe_patch_shap_xgb_base_score():
+        phi_ref = np.asarray(
+            __import__("shap").TreeExplainer(model, feature_perturbation="tree_path_dependent").shap_values(X, check_additivity=False), dtype=np.float64
+        )
     if phi_ref.ndim == 3:
         phi_ref = phi_ref[:, :, -1]
     np.testing.assert_allclose(phi, phi_ref, rtol=1e-4, atol=1e-4)
