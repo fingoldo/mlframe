@@ -1,9 +1,8 @@
 [
   "calibration/test_calibration_plot_layout.py:19:os.environ.setdefault(...)",
   "feature_selection/mrmr/biz_val/test_biz_value_mrmr_sufficient_summary.py:33:os.environ.setdefault(...)",
-  "feature_selection/mrmr/core/test_mrmr_smooth_interaction_underselection.py:32:os.environ.setdefault(...)",
-  "feature_selection/mrmr/core/test_mrmr_smooth_interaction_underselection.py:33:os.environ.setdefault(...)",
-  "feature_selection/mrmr/core/test_mrmr_smooth_interaction_underselection.py:34:os.environ.setdefault(...)",
+  "feature_selection/mrmr/core/test_mrmr_smooth_interaction_underselection.py:42:os.environ.setdefault(...)",
+  "feature_selection/mrmr/core/test_mrmr_smooth_interaction_underselection.py:43:os.environ.setdefault(...)",
   "feature_selection/stability/test_hybrid_selector_deep.py:28:os.environ.setdefault(...)",
   "feature_selection/test_wide_data_scalability.py:21:os.environ.setdefault(...)",
   "reporting/test_charts_confusion_margins.py:23:os.environ.setdefault(...)",
