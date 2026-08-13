@@ -32,11 +32,22 @@ def _fit_xgb(X, y, *, classification, n_estimators=40, max_depth=5, seed=0):
 
 
 def _shap_reference(model, X):
-    """phi (n,f) and scalar base from the shap library, normalised to the positive class for binary."""
+    """phi (n,f) and scalar base from the shap library, normalised to the positive class for binary.
+
+    Raw ``shap.TreeExplainer`` construction MUST go through
+    ``_shap_proxy_explain._maybe_patch_shap_xgb_base_score`` on shap<0.52 -- otherwise an
+    unrestored ``shap.explainers._tree.float`` patch leaks into whatever TreeExplainer runs next
+    in the same pytest-xdist worker (a LightGBM one included), crashing it with ``AttributeError:
+    'TreeEnsemble' object has no attribute 'values'``. See that context manager's docstring and
+    test_shap_xgb_patch_version_gate.py for the full incident writeup.
+    """
     import shap
 
-    ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
-    phi = np.asarray(ex.shap_values(X, check_additivity=False), dtype=np.float64)
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as spe
+
+    with spe._maybe_patch_shap_xgb_base_score():
+        ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
+        phi = np.asarray(ex.shap_values(X, check_additivity=False), dtype=np.float64)
     base = ex.expected_value
     if phi.ndim == 3:  # (n, f, classes) -> positive class
         phi = phi[:, :, -1]
@@ -198,8 +209,11 @@ def test_biz_val_treeshap_faster_than_shap_on_wide_data():
     t0 = time.perf_counter()
     import shap
 
-    ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
-    _ = ex.shap_values(X, check_additivity=False)
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as spe
+
+    with spe._maybe_patch_shap_xgb_base_score():
+        ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
+        _ = ex.shap_values(X, check_additivity=False)
     t_shap = time.perf_counter() - t0
 
     speedup = t_shap / max(t_numba, 1e-9)
