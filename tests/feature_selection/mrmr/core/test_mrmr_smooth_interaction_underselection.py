@@ -28,8 +28,17 @@ import pytest
 
 pytest.importorskip("pandas")
 
-_PRIOR_CUDA_ENV = {k: os.environ.get(k) for k in ("NUMBA_DISABLE_CUDA", "CUDA_VISIBLE_DEVICES", "MLFRAME_DISABLE_HNSW")}
-os.environ.setdefault("NUMBA_DISABLE_CUDA", "1")
+# NUMBA_DISABLE_CUDA is intentionally NOT force-set here (a restore-after-module fixture used to
+# set-then-restore it alongside the other two vars below). numba reads NUMBA_DISABLE_CUDA once into
+# an internal config cache the first time anything touches numba.cuda.is_available() in the process
+# and never re-checks the live env var afterward -- a later-restore fixture puts the env var back
+# correctly but cannot undo numba's own cache, which stays poisoned for the rest of this
+# pytest-xdist worker regardless (see the identical bug, and this exact fix, in
+# tests/feature_selection/fe/adaptive/test_fe_rung_schedule.py). CUDA_VISIBLE_DEVICES does not have
+# this problem -- mlframe's own gpu_globally_disabled() re-reads it live via os.environ.get() on
+# every call, with no caching -- so it alone is sufficient to force this fit onto CPU; CI runners
+# also have no GPU anyway.
+_PRIOR_CUDA_ENV = {k: os.environ.get(k) for k in ("CUDA_VISIBLE_DEVICES", "MLFRAME_DISABLE_HNSW")}
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 os.environ.setdefault("MLFRAME_DISABLE_HNSW", "1")
 
