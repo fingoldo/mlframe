@@ -115,16 +115,22 @@ dependencies = [
     # in try/except with np.histogram fallback, so removing astropy from core
     # only loses the optional astropy-only bin schemes. Listed in [signal]
     # extras below for callers who want them.
-    # >=2.8.0: category-encoders' BaseEncoder didn't define __sklearn_tags__ until 2.8.0 (confirmed by
-    # inspecting the 2.7.0 vs 2.8.0 wheels directly) -- on sklearn>=1.6, whose tag-resolution machinery
-    # calls it via super(), any earlier category-encoders release (2.6.x/2.7.x, both satisfy the old
-    # ">=2.6" floor) raises AttributeError: 'super' object has no attribute '__sklearn_tags__' from
-    # inside category_encoders' own code on the FIRST fit_transform call, cascading into a wide,
+    # >=2.8.0 on Python>=3.10: category-encoders' BaseEncoder didn't define __sklearn_tags__ until
+    # 2.8.0 (confirmed by inspecting the 2.7.0 vs 2.8.0 wheels directly) -- on sklearn>=1.6, whose
+    # tag-resolution machinery calls it via super(), any earlier category-encoders release (2.6.x/2.7.x)
+    # raises AttributeError: 'super' object has no attribute '__sklearn_tags__' from inside
+    # category_encoders' own code on the FIRST fit_transform call, cascading into a wide,
     # unrelated-looking training-suite failure cluster. Reproduced live on CI (py3.9 leg resolved
-    # sklearn==1.6.1 + category-encoders==2.6.4) even though sklearn was well under the previously-
-    # believed-necessary <1.9 cap above -- the real trigger is category-encoders' own version, not
-    # sklearn's, so the floor here (not a sklearn cap) is the actual fix.
-    "category-encoders>=2.8.0",
+    # sklearn==1.6.1 + category-encoders==2.6.4). Split by Python version, same as the scikit-learn
+    # floor above, because category-encoders>=2.8.0 ITSELF requires Python>=3.10 (confirmed live: uv's
+    # resolver reports "No solution found" trying to install it on Python 3.9.25) -- so on Python<3.10
+    # the only installable releases are the ones that lack __sklearn_tags__ natively. Covered instead
+    # by ``mlframe.core._category_encoders_compat.ensure_category_encoders_sklearn_tags_shim()``, a
+    # runtime monkeypatch applied at every category_encoders import site that backports the same fix
+    # 2.8.0 shipped, using sklearn's own Tags/TargetTags dataclasses (idempotent, no-op once the
+    # installed category-encoders already has it natively).
+    "category-encoders>=2.8.0; python_version >= '3.10'",
+    "category-encoders>=2.6,<2.8; python_version < '3.10'",
     "expiringdict>=1.2",
     "pympler>=1.0",   # used via pyutilz.system; unconditional import in tests/feature_engineering/*
     # 2026-07-17: promoted from an optional/best-effort import to a hard dep. Used directly for fast

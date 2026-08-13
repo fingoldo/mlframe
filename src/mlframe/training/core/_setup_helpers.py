@@ -28,6 +28,10 @@ from sklearn.preprocessing import StandardScaler
 
 import category_encoders as ce
 
+from mlframe.core._category_encoders_compat import ensure_category_encoders_sklearn_tags_shim
+
+ensure_category_encoders_sklearn_tags_shim()
+
 # Mirrors the BorutaShap pattern below -- MRMR transitively pulls in
 # the entire mlframe.feature_selection package (numba kernels + filter wrappers
 # + sklearn estimators), which adds ~10-25s to first-call import time even when
