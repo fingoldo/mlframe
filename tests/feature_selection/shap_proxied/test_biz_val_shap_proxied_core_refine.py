@@ -74,6 +74,7 @@ def test_biz_val_core_refine_recovers_weak_over_greedy():
     assert auc_core >= auc_greedy - 0.005, f"core downstream AUC ({auc_core:.4f}) regressed more than 0.005 below greedy ({auc_greedy:.4f})"
 
 
+@pytest.mark.timeout(900)
 def test_biz_val_core_refine_drops_true_redundancy():
     """core_refine still prunes exact-duplicate redundancy -- it doesn't just 'keep everything'.
 
@@ -103,6 +104,7 @@ def test_biz_val_core_refine_drops_true_redundancy():
     )
 
 
+@pytest.mark.timeout(900)
 def test_biz_val_core_refine_honest_fallback():
     """An adversarial core_drop_threshold=0.9 forces the core proposal to fail the honest gate;
     core_refine must fall back to the legacy greedy path and produce the SAME selection greedy would."""

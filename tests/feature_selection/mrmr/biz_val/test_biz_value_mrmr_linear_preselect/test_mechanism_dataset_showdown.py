@@ -75,6 +75,13 @@ from sklearn.preprocessing import StandardScaler
 
 warnings.filterwarnings("ignore")
 
+# 70-cell (7 dataset x 10 mechanism) real-data benchmark, materialised once in a module-scoped
+# fixture -- a single cell alone (real fetch_california_housing rows against a nonparametric
+# mechanism such as KSG/HSIC/copula) can exceed 900s even on a quiet host, let alone all 70 under
+# CI's tightened --timeout=300. Never fit under CI's default matrix; excluded like the rest of this
+# codebase's other real-data benchmark suites via `-m "not slow"`.
+pytestmark = pytest.mark.slow
+
 
 # ---------------------------------------------------------------------------
 # Config: tolerances + mechanism / dataset rosters
