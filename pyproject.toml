@@ -63,17 +63,21 @@ dependencies = [
     "pandas>=1.5,<3.0",
     "polars>=0.20",
     "scipy>=1.10",
-    # >=1.7 (not just >=1.6): mlframe's own production code depends on two sklearn>=1.7 features, not
-    # just category-encoders' importability floor (sklearn.utils.Tags, present from 1.6) --
+    # >=1.7 on Python>=3.10 (not just >=1.6): mlframe's own production code depends on two sklearn>=1.7
+    # features, not just category-encoders' importability floor (sklearn.utils.Tags, present from 1.6) --
     # HistGradientBoostingClassifier/Regressor.fit(X_val=..., y_val=...) (native external-validation-set
-    # early stopping, used by the "hgb"/"ngb" eval_set path in training/_data_helpers.py) and
-    # KBinsDiscretizer's ``quantile_method`` kwarg (training/pipeline/__init__.py's kbins extension step,
-    # which still guards this specific kwarg at runtime via inspect.signature() since the dedicated
-    # sklearn-matrix CI force-installs 1.6.1 for a narrow composite-target subset regardless of this
-    # floor) were both confirmed live-broken on a CI leg that resolved sklearn==1.6.1 under the old
-    # ">=1.6" floor (TypeError: fit() got an unexpected keyword argument 'X_val';
-    # __init__() got an unexpected keyword argument 'quantile_method').
-    "scikit-learn>=1.7,<1.9",
+    # early stopping, used by the "hgb"/"ngb" eval_set path in training/_data_helpers.py, guarded at
+    # runtime via inspect.signature() so it degrades gracefully to internal validation_fraction ES when
+    # unavailable) and KBinsDiscretizer's ``quantile_method`` kwarg (training/pipeline/__init__.py's kbins
+    # extension step, same inspect.signature() runtime guard) were both confirmed live-broken on a CI leg
+    # that resolved sklearn==1.6.1 under the old unconditional ">=1.6" floor (TypeError: fit() got an
+    # unexpected keyword argument 'X_val'; __init__() got an unexpected keyword argument 'quantile_method').
+    # Split by Python version because sklearn>=1.7.0 itself requires Python>=3.10 (confirmed live: uv's
+    # resolver reports "No solution found" installing on Python 3.9.25 under a blanket >=1.7 floor) --
+    # 3.9 stays on the >=1.6 floor and relies on the two runtime guards above to degrade gracefully
+    # instead of crashing on the missing kwargs.
+    "scikit-learn>=1.7,<1.9; python_version >= '3.10'",
+    "scikit-learn>=1.6,<1.9; python_version < '3.10'",
     # >=25.0.0: pyarrow 24.0.0's cp314 wheel segfaults (Windows access violation) on import when
     # triggered through pytest's assertion-rewrite loader (reproduces in tests/conftest.py's
     # pyutilz.system -> pyutilz.text.strings -> pandas.compat.pyarrow -> pyarrow import chain; a

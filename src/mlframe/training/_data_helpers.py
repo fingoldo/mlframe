@@ -523,6 +523,21 @@ def _update_model_name_after_training(model_name, train_df_len, train_details, b
     return model_name
 
 
+def _hgb_supports_external_val(model_obj: Any) -> bool:
+    """True if ``model_obj.fit`` accepts ``X_val``/``y_val`` (sklearn>=1.7's native external-validation-set
+    early stopping for HistGradientBoosting*). Absent on sklearn<1.7 (mlframe's floor on Python 3.9, which
+    caps at sklearn<1.7) -- callers must fall back to HGB's own internal validation_fraction-based ES
+    instead of raising ``TypeError: fit() got an unexpected keyword argument 'X_val'``.
+    """
+    fit = getattr(model_obj, "fit", None)
+    if fit is None:
+        return False
+    try:
+        return "X_val" in inspect.signature(fit).parameters
+    except (TypeError, ValueError):
+        return False
+
+
 def _setup_eval_set(
     model_type_name: str,
     fit_params: dict[str, Any],
@@ -644,8 +659,9 @@ def _setup_eval_set(
             # HGB / NGB only support a single (X_val, y_val) pair. Slice-stable ES is not supported
             # for these models via the online multi-eval-set path; the caller should route through
             # ``on_unsupported`` policy (default ``posthoc``). Here we just register the full val.
-            fit_params["X_val"] = val_df
-            fit_params["y_val"] = val_target
+            if _hgb_supports_external_val(model_obj):
+                fit_params["X_val"] = val_df
+                fit_params["y_val"] = val_target
         elif value_format == "separate_Y":
             fit_params["X_val"] = val_df
             fit_params["Y_val"] = val_target
@@ -676,8 +692,9 @@ def _setup_eval_set(
             _val_df_values = val_df.values if hasattr(val_df, "values") else val_df
             fit_params[param_name] = [(_val_df_values, val_target.values if hasattr(val_target, "values") else val_target)]
         elif value_format == "separate":
-            fit_params["X_val"] = val_df
-            fit_params["y_val"] = val_target
+            if _hgb_supports_external_val(model_obj):
+                fit_params["X_val"] = val_df
+                fit_params["y_val"] = val_target
         elif value_format == "separate_Y":
             fit_params["X_val"] = val_df
             fit_params["Y_val"] = val_target
