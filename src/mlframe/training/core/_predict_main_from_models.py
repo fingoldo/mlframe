@@ -415,6 +415,16 @@ def predict_from_models(
                         _expected = getattr(model, "feature_names_in_", None)
                     if _expected is None:
                         _expected = getattr(model, "feature_names_", None)
+                    if _expected is None:
+                        # LightGBM's own sklearn API (LGBMModel) never sets the sklearn-convention
+                        # ``feature_names_in_``/``feature_names_`` -- it exposes its fit-time column
+                        # list as ``feature_name_`` (singular, LGBM-specific). Missing this meant
+                        # ``_expected`` stayed None for every LGB model, so the extra-column drop below
+                        # never ran for LGB: a fit-time column dropped by an upstream filter (e.g. a
+                        # near-constant datetime-derived column pruned only on the TRAIN split) that
+                        # survives replay at predict time reached ``booster.predict()`` unfiltered,
+                        # raising LightGBMError "number of features ... not the same as ... training".
+                        _expected = getattr(model, "feature_name_", None)
                     if _expected is not None and hasattr(input_for_model, "columns"):
                         # Cached per-(input_for_model, _expected) set-diff. Multiple models in one suite often
                         # carry identical feature_names_in_; this reuses the computed missing / drop lists.
