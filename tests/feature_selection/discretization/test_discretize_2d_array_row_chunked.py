@@ -38,6 +38,17 @@ def _cuda_available() -> bool:
         return False
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_gpu_disable(monkeypatch):
+    """Immunize this file's fully-mocked dispatch tests against the host/CI runner's ambient
+    ``CUDA_VISIBLE_DEVICES``/``MLFRAME_DISABLE_GPU`` -- see the identical fixture in
+    ``test_batch_pair_mi_gpu_vram_guard.py`` for the full root-cause writeup (``gpu_globally_disabled()``
+    silently overrides every mock in this file whenever the ambient env carries the off-switch). Does not
+    affect ``TestRealHardware``'s own skip condition, which probes real device presence directly."""
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.delenv("MLFRAME_DISABLE_GPU", raising=False)
+
+
 def test_dispatch_tries_row_chunked_before_cpu_when_vram_insufficient(monkeypatch, caplog):
     """When the VRAM guard rejects the full upload, ``discretize_2d_array`` must try the row-chunked GPU
     path BEFORE giving up on the GPU -- not go straight to CPU prange."""

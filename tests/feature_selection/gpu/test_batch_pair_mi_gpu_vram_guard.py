@@ -56,6 +56,22 @@ def _gpu_available() -> bool:
         return False
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_gpu_disable(monkeypatch):
+    """These tests exercise ``dispatch_batch_pair_mi``'s backend-selection logic under FULLY mocked
+    hardware state (``_CUDA_AVAIL``/``_gpu_upload_fits``/the kernel callables) -- they must be immune to
+    whatever the host/CI runner's ambient ``CUDA_VISIBLE_DEVICES``/``MLFRAME_DISABLE_GPU`` happens to be.
+
+    ``gpu_globally_disabled()`` deliberately overrides even an explicit ``force_backend`` (see
+    ``_gpu_policy.py``'s module docstring) -- correct in production, but it silently defeated every mock
+    in this file whenever the ambient env carried the off-switch, collapsing every branch to ``"njit"``
+    regardless of what was monkeypatched. The dedicated off-switch behaviour itself is already covered by
+    ``test_noise_gate_gpu_optout_regression.py::test_cuda_visible_devices_empty_forces_cpu_kernel``.
+    """
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.delenv("MLFRAME_DISABLE_GPU", raising=False)
+
+
 def _build_pair_inputs(n_samples=500, nbins_per_col=(4, 4, 4, 4), n_classes_y=2, seed=0):
     """Build pair inputs."""
     rng = np.random.default_rng(seed)
