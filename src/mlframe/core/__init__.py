@@ -12,6 +12,8 @@ Submodules:
     binning  - binning-smoothing (replace each value by its bin mean/median/boundary representative).
     composite_similarity - LENKOR: coordinate-descent-tuned deformed combination of per-block similarities.
     helpers  - general-purpose helper utilities used across the package.
+    category_encoders_compat - runtime shim backporting category-encoders>=2.8.0's __sklearn_tags__
+        fix onto older releases (needed on Python<3.10, where category-encoders>=2.8.0 itself doesn't install).
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from mlframe.core.set_similarity import *
 from mlframe.core.binning import *
 from mlframe.core.composite_similarity import *
 from mlframe.core.helpers import *
+from mlframe.core.category_encoders_compat import *
 
 # Curate the star-import surface explicitly (mirrors mlframe.metrics.__init__'s pattern) so a future
 # same-named public helper added to two submodules silently shadowing one another becomes at least
