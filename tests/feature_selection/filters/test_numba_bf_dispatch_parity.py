@@ -28,7 +28,12 @@ def test_bf_dispatch_matches_reference_callable(bf_name):
     b[:8] = [0.0, 1e-12, 0.0, -3.0, -0.0, 1e-300, -0.7, 0.7]
     ref = np.asarray(_DEFAULT_BIN_FUNCS[bf_name](a, b), dtype=np.float64)
     got = np.asarray(_bf_dispatch_njit(_BF_NAME_TO_ID[bf_name], a, b), dtype=np.float64)
-    np.testing.assert_allclose(got, ref, rtol=0, atol=0, err_msg=f"bf={bf_name} diverges from reference")
+    # atol=1e-9 (not the original 0): on py3.9 CI (older numba/LLVM codegen) atan2/logabs showed up to
+    # ~1.8e-15 absolute divergence -- a single-ULP libm difference between the njit-compiled transcendental
+    # and numpy's, not a formula divergence. This tolerance is ~1e6x tighter than the original bug's
+    # signature (BF_LOGABS/BF_DIV using the WRONG formula entirely, which returned None / a completely
+    # different MI, not a few-ULP drift) so it still catches the failure mode this test exists for.
+    np.testing.assert_allclose(got, ref, rtol=0, atol=1e-9, err_msg=f"bf={bf_name} diverges from reference")
 
 
 def test_numba_kernel_recovers_cubic_inner_winner():
