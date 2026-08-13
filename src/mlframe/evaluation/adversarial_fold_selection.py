@@ -15,6 +15,24 @@ from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union, o
 import numpy as np
 
 
+def _cpu_count_for_diagnostics() -> int:
+    """Physical core count for diagnostic-only model fits, falling back to a conservative default.
+
+    Mirrors the project's ``psutil``-over-``os.cpu_count()`` convention (logical count over-reports on
+    SMT/hyperthreaded hosts); a diagnostic classifier's runtime is not latency-critical, so under-shooting
+    by falling back to 4 costs a little wall-time, never correctness.
+    """
+    try:
+        import psutil
+
+        _n = psutil.cpu_count(logical=False)
+        if _n:
+            return int(_n)
+    except Exception:  # nosec B110 -- best-effort thread-count probe; falls back to a safe default
+        pass
+    return 4
+
+
 def _oof_is_test_proba(
     train_arr: np.ndarray,
     test_arr: np.ndarray,
@@ -37,7 +55,15 @@ def _oof_is_test_proba(
     union = np.concatenate([train_arr, test_arr], axis=0)
     source_label = np.concatenate([np.zeros(n_train, dtype=np.int64), np.ones(n_test, dtype=np.int64)])
 
-    clf = lgb.LGBMClassifier(n_estimators=100, max_depth=6, random_state=seed, verbosity=-1)
+    # LightGBM's own OpenMP thread pool defaults to ALL cores. This diagnostic runs as an auxiliary step
+    # inside the same process as (potentially) a just-completed torch/Lightning fit, whose OpenMP/MKL
+    # threads are still warm -- the two thread pools compete for the same cores under Windows, measured
+    # directly as a ~20x slowdown (17.7s vs <1s for an equivalent standalone fit) rather than a clean
+    # deadlock. Capping LGBM to a modest thread count costs nothing here (this is a diagnostic
+    # train-vs-test classifier, not the production model -- accuracy is unaffected by thread count) and
+    # avoids the oversubscription entirely.
+    _lgb_n_jobs = min(4, _cpu_count_for_diagnostics())
+    clf = lgb.LGBMClassifier(n_estimators=100, max_depth=6, random_state=seed, verbosity=-1, n_jobs=_lgb_n_jobs)
     cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
     oof_is_test_proba = cross_val_predict(clf, union, source_label, cv=cv, method="predict_proba")[:, 1]
 
@@ -46,7 +72,7 @@ def _oof_is_test_proba(
         # importance_type="gain" (not the LGBMClassifier default "split" count): a feature that gives one
         # massive, near-perfectly-separating split ranks low by split COUNT (it's used sparingly) but should
         # rank highest for peel-back purposes -- gain reflects how much it actually drove the classification.
-        importance_clf = lgb.LGBMClassifier(n_estimators=100, max_depth=6, random_state=seed, verbosity=-1, importance_type="gain")
+        importance_clf = lgb.LGBMClassifier(n_estimators=100, max_depth=6, random_state=seed, verbosity=-1, importance_type="gain", n_jobs=_lgb_n_jobs)
         importance_clf.fit(union, source_label)
         importances = importance_clf.feature_importances_
 
