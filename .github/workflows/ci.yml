@@ -168,20 +168,14 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
+        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@f50288e5a6f5b7f972efb60f948ce6184c8e9e70  # v1.3.4
         # (success() || failure()): a test failure in this shard (even one unrelated to coverage, e.g. a
         # meta-test) otherwise skips this step by GitHub Actions' default "only if prior steps succeeded"
         # rule, so codecov never sees that shard's coverage.xml and the merged report stays incomplete --
         # observed as the badge never updating despite runs completing.
         if: matrix.python-version == '3.11' && (success() || failure())
         with:
-          # codecov-action v5+ renamed the single-file input from `file` to `files` (plural) --
-          # the stale singular name was silently ignored (an "Unexpected input(s) 'file'" warning,
-          # easy to miss in a long log), so every upload queued successfully but attached no actual
-          # coverage report, landing as codecov's own "state": "error" / a permanent 0% badge even
-          # on a run that completed cleanly with no cancellation involved.
           files: ./coverage.xml
-          fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
   # Folds every shard's freshly-measured `.test_durations` slice (uploaded above) back into one
