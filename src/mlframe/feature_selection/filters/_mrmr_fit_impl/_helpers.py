@@ -460,3 +460,13 @@ def fe_decide_on_subsample(
     # are materialised, never a copy of X.
     X_aug = fe_append_columns(X, _full_cols)
     return (X_aug, *_middle, recipes)
+
+
+def _pgn_raw_budget(ceiling: int, n_engineered: int) -> int:
+    """Raw-feature budget under the p>=n FP-control cap: the total ``ceiling`` (= ``max(20, p//3)``) minus the
+    engineered survivors that already reach the transform output, floored at 0. Engineered features are charged
+    against the ceiling so the p>=n total (raw + engineered) never exceeds it; a higher ``n_engineered`` therefore
+    tightens the raw budget. Pulled out as a pure function so the cap arithmetic is unit-testable in isolation.
+    Shared by ``_assign_support`` and ``_assign_support_tail`` (moved here 2026-08-15 when the latter was split
+    off, to avoid a circular import between the two sibling files)."""
+    return max(0, int(ceiling) - int(n_engineered))

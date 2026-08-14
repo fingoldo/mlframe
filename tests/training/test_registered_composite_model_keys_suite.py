@@ -112,6 +112,15 @@ def test_lgb_string_key_dispatch_unaffected_by_gated_outlier_registration(tmp_pa
     fitted = lgb_entries[0].model
     import pandas as pd
 
-    cols = list(getattr(fitted, "feature_names_in_", ["f0", "f1", "f2"]))
+    # Same bug class as ``test_gated_outlier_string_key_dispatches_and_fits`` above (see its comment):
+    # a bare feature-count fallback silently drifts once the suite's preprocessing pipeline expands
+    # the raw f0/f1/f2 columns before fit. ``feature_names_in_`` is only set by sklearn's own
+    # ``_validate_data`` when ``fit()`` receives a DataFrame with column names -- the pipeline here
+    # passes a bare ndarray, so it stays unset while the booster was genuinely trained on more
+    # columns. LightGBM's own ``feature_name_`` reflects the real post-fit feature count either way.
+    _names = getattr(fitted, "feature_names_in_", None)
+    if _names is None:
+        _names = getattr(fitted, "feature_name_", None)
+    cols = list(_names) if _names is not None else ["f0", "f1", "f2"]
     preds = np.asarray(fitted.predict(pd.DataFrame(np.zeros((5, len(cols)), dtype=np.float64), columns=cols)))
     assert preds.shape[0] == 5

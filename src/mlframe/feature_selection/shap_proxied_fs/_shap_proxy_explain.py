@@ -105,6 +105,27 @@ def _safe_float(x=0.0):
     return builtins.float(x)
 
 
+class _SafeFloatMeta(type):
+    """Metaclass making ``_SafeFloatCallable`` usable as a drop-in for the builtin ``float`` name in shap's ``_tree`` module: calling it coerces (bracket-aware), but ``isinstance(x, _SafeFloatCallable)`` still delegates to the REAL ``float`` via ``__instancecheck__``.
+
+    Needed because ``shap.explainers._tree`` (shap<0.52) uses its module-global ``float`` name for BOTH purposes in the same file: as a coercer (``XGBTreeModelLoader`` parsing ``base_score``) and as an ``isinstance`` type target
+    (``SingleTree``'s LightGBM ``tree_structure`` branch: ``isinstance(vertex["threshold"], (int, float))``). A plain-function replacement (the original ``_safe_float``) breaks the second usage: ``isinstance(x, some_function)`` raises
+    ``TypeError``, which the LightGBM branch's own ``except Exception: self.trees = None`` silently swallows, leaving ``TreeEnsemble.values`` never set -- surfaces downstream as ``AttributeError: 'TreeEnsemble' object has no
+    attribute 'values'`` on the FIRST LightGBM explain in the process, not just via cross-call contamination from an earlier XGBoost call as originally assumed (reproduced with a fresh, isolated process: a bare, unpatched
+    ``shap.TreeExplainer`` on a plain LightGBM model succeeds; the same construction under the (old, plain-function) patch fails identically).
+    """
+
+    def __call__(cls, x=0.0):
+        return _safe_float(x)
+
+    def __instancecheck__(cls, instance):
+        return isinstance(instance, float)
+
+
+class _SafeFloatCallable(metaclass=_SafeFloatMeta):
+    """See ``_SafeFloatMeta``: callable coercer that also satisfies ``isinstance(x, float)`` checks against real floats/ints."""
+
+
 @contextmanager
 def _maybe_patch_shap_xgb_base_score():
     """Workaround for shap<0.52 + xgboost>=2.0 base_score incompatibility (NO-OP on shap>=0.52).
@@ -115,12 +136,15 @@ def _maybe_patch_shap_xgb_base_score():
     (``np.asarray(base_score, dtype=float)``) - replacing it would break that - so the patch is a strict NO-OP on >=0.52 (it must not touch ``_shap_tree.float``).
 
     A context manager, NOT a permanent global patch: earlier (idempotent, gated on ``_SHAP_XGB_PATCHED``) versions patched ``shap.explainers._tree.float`` ONCE and left
-    it patched for the rest of the process. ``_safe_float`` is a plain function, not a type, so any LATER ``TreeExplainer`` construction on a DIFFERENT model in the SAME
-    process (e.g. a LightGBM model explained after an earlier XGBoost explain call in the same pytest session) that reaches a ``np.asarray(x, dtype=float)`` call inside
-    shap's shared ``_tree`` module picked up the stale patched name and got ``TypeError``/a corrupted partial ``TreeEnsemble`` construction (observed live:
-    ``AttributeError: 'TreeEnsemble' object has no attribute 'values'`` on a LightGBM explain that ran in the same process as an earlier XGBoost explain -- reproduced by
-    manually installing the patch then constructing a LightGBM ``TreeExplainer``). Scoping the patch to just the ``with`` block around the ``TreeExplainer(...)`` call
-    that actually needs it, and restoring the original name (or removing it if shap's ``_tree`` module never defined one) on exit, closes that cross-call contamination.
+    it patched for the rest of the process, risking cross-call contamination for any LATER ``TreeExplainer`` construction on a different model in the same process.
+    Scoping the patch to just the ``with`` block around the ``TreeExplainer(...)`` call that actually needs it, and restoring the original name (or removing it if
+    shap's ``_tree`` module never defined one) on exit, avoids that.
+
+    The installed replacement is ``_SafeFloatCallable`` (see its docstring), NOT the plain function ``_safe_float`` directly: shap's ``_tree`` module (shap<0.52) uses
+    its module-global ``float`` name for BOTH coercion (``XGBTreeModelLoader`` parsing ``base_score``) AND as an ``isinstance`` type target (``SingleTree``'s LightGBM
+    ``tree_structure`` branch: ``isinstance(vertex["threshold"], (int, float))``). A plain-function replacement breaks the second usage even for a same-process,
+    freshly-constructed LightGBM explain with NO earlier XGBoost call at all -- confirmed live (``AttributeError: 'TreeEnsemble' object has no attribute 'values'``,
+    reproduced in an isolated process with only this patch + a LightGBM ``TreeExplainer`` construction, no XGBoost call anywhere in the process).
     A no-op (yields without touching anything) if shap is unavailable or resolves >=0.52.
     """
     try:
@@ -143,7 +167,7 @@ def _maybe_patch_shap_xgb_base_score():
 
     _had_attr = "float" in _shap_tree.__dict__
     _saved = _shap_tree.__dict__.get("float")
-    _shap_tree.float = _safe_float
+    _shap_tree.float = _SafeFloatCallable
     try:
         yield
     finally:

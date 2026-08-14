@@ -1,7 +1,7 @@
 name: Update .test_durations
 
 # Regenerates .test_durations (pytest-split's default-path duration file, auto-discovered by
-# ci.yml's `--splits N --group N` invocation with no extra flag needed) so the 8-way shard split
+# ci.yml's `--splits N --group N` invocation with no extra flag needed) so the sharded split
 # balances by measured per-test time instead of file count -- a shard that happens to collect
 # many numba-cold-JIT or model-training-heavy files otherwise runs far longer than its siblings
 # despite an equal file count. Added 2026-07-18 CI/CD architecture review: seeded to an empty
@@ -9,7 +9,17 @@ name: Update .test_durations
 # it wasn't feasible inline in that change), so pytest-split falls back to file-count splitting
 # for any test missing a recorded duration until this job's first successful run fills it in.
 #
-# Runs the FULL suite unsharded, so it's slow (expect close to the sum of all 8 shards' current
+# SUPERSEDED 2026-08-15 by ci.yml's `merge-test-durations` job: every push now merges each
+# shard's own freshly-measured durations directly, so this separate weekly full-suite run is no
+# longer the primary mechanism -- kept as a slow-but-thorough fallback (still catches nodeids no
+# recent push's shard happened to touch). Root cause of `.test_durations` staying `{}` this whole
+# time either way: THIS workflow's own unsharded 2-worker run structurally cannot finish inside
+# any job-timeout ceiling (it does all 16 shards' worth of work with the parallelism of 1), so it
+# never once reached the commit step; ci.yml's shard count was raised 8->16 the same day to break
+# a related bootstrapping deadlock (see ci.yml's own comment) where cancelled shards contributed no
+# duration data either.
+#
+# Runs the FULL suite unsharded, so it's slow (expect close to the sum of all 16 shards' current
 # wall time) -- deliberately off the critical path (scheduled + manual dispatch only, never on
 # push/PR).
 

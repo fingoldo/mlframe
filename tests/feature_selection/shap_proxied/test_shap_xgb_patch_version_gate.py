@@ -64,7 +64,9 @@ def test_patch_restores_shap_tree_float_after_the_with_block():
     try:
         _shap_tree.__dict__.pop("float", None)
         with spe._maybe_patch_shap_xgb_base_score():
-            assert _shap_tree.__dict__.get("float") is spe._safe_float, "patch must install _safe_float inside the with block on shap < 0.52"
+            assert (
+                _shap_tree.__dict__.get("float") is spe._SafeFloatCallable
+            ), "patch must install _SafeFloatCallable (not the plain _safe_float function) inside the with block on shap < 0.52"
         assert "float" not in _shap_tree.__dict__, "patch must remove its own float name after the with block exits (none was present before)"
     finally:
         if had_attr_before:
