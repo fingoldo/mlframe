@@ -70,6 +70,24 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # blocks (compute-and-assign, no early exit, explicit local threading) are verbatim-extractable, and
     # those are drained ONE per wave as the entries above show. Left exempt BY DESIGN, drained incrementally
     # -- not a pending bulk-split debt.
+    # 2026-08-15 (Tier F wave): Layers 23/26/56/60 (hybrid orth + hinge/tri-product basis, generic
+    # MI-greedy, CMI-greedy) carved into ``_fe_stage_cascade_early_a.py``; Layers 33/34/37/38 (k-fold TE,
+    # count/frequency/cat-num encoding, missingness-aware FE, ratio/grouped-delta/lagged-diff) carved
+    # into ``_fe_stage_cascade_early_b.py``. Both take the full fit-body local set each family reads
+    # (~30 ``_*_pre_recipes`` dicts hoisted to the caller and threaded by reference -- a dict mutated
+    # in place propagates without a return, but three genuinely-REASSIGNED locals
+    # (``_raw_input_cols_pre_fe``, ``_hinge_deferred_values``, ``_hinge_deferred_recipes``) do not and
+    # are threaded back out explicitly; verified via a systematic reassignment-vs-mutation grep per
+    # name, not by inspection). Caught and fixed three latent bugs before this landed: a relative-import
+    # depth miss, a `del` cleanup block referencing now-sibling-local temp-frame names (ruff F821), and
+    # (the interesting one) ~30 pre-registered recipe dicts that were declared once, deep inside the
+    # extracted range, and silently needed by code far downstream -- a class of bug invisible to
+    # import-only checks, only caught by an actual forced-execution trigger test with every family flag
+    # enabled plus a caplog assertion (a bare "does it run" smoke test would NOT have caught it, since
+    # every family swallows its own exceptions into a warning log). Parent shrank ~5.5k -> ~4.2k LOC;
+    # still over budget. Remaining carve candidates: Layers 87-104 (grouped-stat aggregators, cat x cat
+    # synergy crosses, periodic/modular decomposition, and the Layer 104 recipe-based families) --
+    # deferred to a future wave given the same entanglement risk this wave's three bugs demonstrate.
     "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_core.py",
     # (de-exempted 2026-06-22: per-candidate scoring block carved to _step_score.py
     # [+ the per-pair rank loop to _step_pairs_rank.py, the batch pair-MI/maxT-floor stage
