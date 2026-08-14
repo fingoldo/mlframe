@@ -10,9 +10,12 @@ fold -- a validation set that's actually representative of what the model will b
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union, overload
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _cpu_count_for_diagnostics() -> int:
@@ -28,8 +31,8 @@ def _cpu_count_for_diagnostics() -> int:
         _n = psutil.cpu_count(logical=False)
         if _n:
             return int(_n)
-    except Exception:  # nosec B110 -- best-effort thread-count probe; falls back to a safe default
-        pass
+    except Exception as e:
+        logger.debug("psutil physical-core probe failed (%s: %s) -- falling back to 4", type(e).__name__, e)
     return 4
 
 
