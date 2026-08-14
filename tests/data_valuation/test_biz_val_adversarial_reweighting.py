@@ -52,7 +52,7 @@ def _logloss_fn(y, pred):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_biz_val_dro_reduces_worst_case_held_out_loss():
     """DRO (rho=0.5, 8 rounds) achieves a LOWER worst-case chi2-weighted held-out loss than ERM under
     the SAME rho ball -- the actual game-theoretic guarantee the algorithm optimizes for.

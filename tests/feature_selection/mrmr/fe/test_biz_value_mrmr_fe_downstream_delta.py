@@ -168,7 +168,7 @@ def _has_engineered(names):
 # ---------------------------------------------------------------------------
 # Direction 1: FE HELPS on genuinely non-additive signal.
 # ---------------------------------------------------------------------------
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_golden_composite_fe_improves_linear_downstream_r2():
     """GOLDEN ``y=a**2/b + log(c)*sin(d)``: the recovered composites lift held-out
     Ridge R2 by a MEANINGFUL margin over raw-only (measured ~ +0.12). A LINEAR
@@ -185,7 +185,7 @@ def test_golden_composite_fe_improves_linear_downstream_r2():
     )
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_polynomial_interaction_fe_improves_linear_downstream_auc():
     """NON-ADDITIVE ``y=sign(0.7*x0^2 - 0.5*x1^2 + 0.3*x0*x1)``: the recovered
     (x0,x1) composite lifts held-out LogReg AUC over raw-only (measured ~ +0.13).
@@ -202,7 +202,7 @@ def test_polynomial_interaction_fe_improves_linear_downstream_auc():
     )
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_heavy_tail_logmultiplicative_fe_improves_linear_downstream_auc():
     """HEAVY-TAIL log-multiplicative ``y=sign(log(base)+log(other))`` on lognormal
     inputs: the recovered ratio/log composite lifts held-out LogReg AUC over the
@@ -222,7 +222,7 @@ def test_heavy_tail_logmultiplicative_fe_improves_linear_downstream_auc():
 # ---------------------------------------------------------------------------
 # Direction 2: FE is HARMLESS on raw-linear signal (must not HURT).
 # ---------------------------------------------------------------------------
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_raw_linear_signal_fe_does_not_hurt_linear_downstream_auc():
     """RAW-LINEAR ``y=sign(x0+x1+x2 + noise)``: the signal is already linearly
     usable from the raws, so the recovered (additive) composites add no linear

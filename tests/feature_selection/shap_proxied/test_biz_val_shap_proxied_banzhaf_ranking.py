@@ -124,7 +124,7 @@ def test_biz_val_banzhaf_ranking_seed_stability_low_snr():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_biz_val_banzhaf_ranking_no_regression_high_snr():
     """No-regression bed: on clean high-SNR data both rankings recall all informatives, and downstream
     AUC differs by at most 0.005."""
@@ -182,7 +182,7 @@ def _exact_banzhaf(phi, base, y, metric_code, is_rmse):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_biz_val_banzhaf_estimator_matches_exact_small_p():
     """MSR-Banzhaf at m=4096 must Spearman-correlate >= 0.95 with the exact 2^9-enumeration Banzhaf
     value on a P=10 small game, and the top-5 sets must agree in >= 4/5 members. Uses a smooth

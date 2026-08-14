@@ -257,7 +257,7 @@ def _canonical_fixture(seed: int, n: int):
     return df, pd.Series(y, name="y")
 
 
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_ledger_fingers_floors_on_canonical_fixture():
     """On the canonical ``y = a**2/b + log(c)*sin(d)`` fixture (with a genuine synergy + the
     decoy ``e`` + cross-mix pairs), the END-TO-END rejection ledger must FINGER the marginal

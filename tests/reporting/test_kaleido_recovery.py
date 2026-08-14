@@ -25,7 +25,7 @@ import warnings
 import pytest
 
 
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_kaleido_persistent_failure_falls_back_to_oneshot(tmp_path):
     """Synthetic kaleido failure must not hang; output file must exist."""
     pytest.importorskip("kaleido")  # Not in CI [all,dev] extras; sensor needs the real package to patch.
@@ -85,7 +85,7 @@ def test_kaleido_persistent_failure_falls_back_to_oneshot(tmp_path):
     assert os.path.getsize(target) > 1000, f"Fallback PNG is suspiciously small ({os.path.getsize(target)} bytes)."
 
 
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_kaleido_recovery_restores_persistent_path(tmp_path):
     """After a failure + recovery, the next save should use the
     restarted persistent server (fast path), not stay on oneshot

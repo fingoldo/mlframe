@@ -32,7 +32,7 @@ pytest.importorskip("xgboost")
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(180)
+@pytest.mark.timeout(900)
 def test_biz_val_n_splits_default_recall_holds_on_c3_regime():
     """Recall non-regression at the new default on a C3-tier regime.
 

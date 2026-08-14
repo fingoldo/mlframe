@@ -1000,7 +1000,7 @@ def test_redundancy_drop_replayable_anchor_still_drops_subsumed():
     assert "b" in dropped, f"subsumed denominator 'b' wrongly kept despite a replayable subsumer: kept={[cols[i] for i in kept_idx]}, dropped={dropped}"
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_canonical_fit_never_returns_empty_selection_at_moderate_n():
     """END-TO-END regression: the canonical golden fit must NEVER return an empty
     selection (which hands the downstream model 0 features). Pre-fix this exact

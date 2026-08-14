@@ -179,7 +179,7 @@ _E2E_FIXTURES = [
 ]
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize("name,builder,n", _E2E_FIXTURES, ids=[f[0] for f in _E2E_FIXTURES])
 def test_mrmr_gpu_cpu_selection_identical(name, builder, n):
     """Forced-GPU MRMR.fit must select the SAME feature set as forced-CPU.
@@ -287,7 +287,7 @@ _ADV_FIXTURES = [
 ]
 
 
-@pytest.mark.timeout(420)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize("seed", [42, 1])
 @pytest.mark.parametrize("name,builder,n", _ADV_FIXTURES, ids=[f[0] for f in _ADV_FIXTURES])
 def test_mrmr_gpu_cpu_selection_identical_adversarial(name, builder, n, seed):

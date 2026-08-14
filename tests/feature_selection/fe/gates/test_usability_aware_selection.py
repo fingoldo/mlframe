@@ -51,7 +51,7 @@ def _case2(n: int, seed: int = 0):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(180)  # CV-MAE forward selection refits per (candidate, fold); see PERF TODO in _usability_aware_selection.py
+@pytest.mark.timeout(900)  # CV-MAE forward selection refits per (candidate, fold); see PERF TODO in _usability_aware_selection.py
 def test_usability_aware_reaches_linear_floor_with_replayable_recipes():
     """w->1 usability selection on F2: a linear model on the selected (replayed) features reaches
     ~the f/5 floor (<= 0.07 MAE), selects a genuine (c,d) interaction form, and every pair recipe

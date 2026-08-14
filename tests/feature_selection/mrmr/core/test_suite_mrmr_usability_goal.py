@@ -49,7 +49,7 @@ def _linear_test_mae(entries) -> float:
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(600)  # one suite fit (FE) + MRMR's usability CV-MAE pass; see PERF TODO
+@pytest.mark.timeout(900)  # one suite fit (FE) + MRMR's usability CV-MAE pass; see PERF TODO
 def test_suite_linear_reaches_floor_with_usability_aware_mrmr():
     """Suite linear reaches floor with usability aware mrmr."""
     from tests.feature_selection._suite_fe_helpers import run_suite

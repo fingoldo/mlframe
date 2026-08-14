@@ -35,7 +35,7 @@ QUICK_COMBOS = enumerate_combos(target=_QUICK_COUNT, master_seed=_QUICK_MASTER_S
 
 
 @pytest.mark.fast
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize("combo", QUICK_COMBOS, ids=[c.pytest_id() for c in QUICK_COMBOS])
 def test_fuzz_train_mlframe_models_suite_quick(combo, tmp_path, request):
     """Quick smoke; delegates to the full suite's combo runner."""

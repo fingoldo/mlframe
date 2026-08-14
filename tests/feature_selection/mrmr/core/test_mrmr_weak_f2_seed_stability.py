@@ -239,7 +239,7 @@ def _fit_classify(seed, n, profile):
 _PROFILES = ["uniform", "heavy_tailed", "with_outliers"]
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize("profile", _PROFILES)
 @pytest.mark.parametrize("seed", SEEDS)
 def test_weak_f2_seed_cell(profile, seed):

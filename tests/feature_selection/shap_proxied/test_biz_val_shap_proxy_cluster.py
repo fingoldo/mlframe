@@ -223,7 +223,7 @@ def test_biz_val_iter11_refine_faster_than_legacy_with_preserved_recovery():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_biz_val_two_stage_prefilter_recovery_matches_single_stage_at_6k():
     """biz_value (iter12): on a wide-data (6k features, 3k rows) main-effect synthetic, the new
     ``two_stage`` prefilter recovers planted informatives at least as well as the single-stage

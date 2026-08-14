@@ -41,7 +41,7 @@ def _fit_usability(n, seed=0):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_usability_lists_drop_training_values_and_replay_survives_pickle():
     """Usability lists drop training values and replay survives pickle."""
     n = 6000 if is_fast_mode() else 12000

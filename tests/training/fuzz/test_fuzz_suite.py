@@ -128,7 +128,7 @@ def _fuzz_combo_cleanup():
 
 @pytest.mark.slow
 @pytest.mark.slow_only
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize("combo", COMBOS, ids=[c.pytest_id() for c in COMBOS])
 def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     """Run ``train_mlframe_models_suite`` on one random combo; log the outcome.

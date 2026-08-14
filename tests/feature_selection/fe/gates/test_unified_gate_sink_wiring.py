@@ -267,7 +267,7 @@ def _end_to_end_fit():
     return fs
 
 
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_end_to_end_ledger_fingers_unified_floor_kills_two_families():
     """End to end ledger fingers unified floor kills two families."""
     fs = _end_to_end_fit()

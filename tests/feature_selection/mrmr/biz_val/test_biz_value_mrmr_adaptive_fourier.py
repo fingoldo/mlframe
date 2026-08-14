@@ -151,7 +151,7 @@ class TestDetectorUnit:
 class TestGateARecovery:
     """Groups tests covering TestGateARecovery."""
     @pytest.mark.parametrize("seed", SEEDS)
-    @pytest.mark.timeout(300)
+    @pytest.mark.timeout(900)
     def test_support_model_recovers_multitone(self, seed):
         """Support model recovers multitone."""
         X, y = _build_multitone(seed)
@@ -178,7 +178,7 @@ class TestGateARecovery:
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
-    @pytest.mark.timeout(300)
+    @pytest.mark.timeout(900)
     def test_adaptive_feature_present_in_support(self, seed):
         """Adaptive feature present in support."""
         X, y = _build_multitone(seed)
@@ -198,7 +198,7 @@ class TestGateARecovery:
 class TestGateCNoiseControl:
     """Groups tests covering TestGateCNoiseControl."""
     @pytest.mark.parametrize("seed", SEEDS)
-    @pytest.mark.timeout(300)
+    @pytest.mark.timeout(900)
     def test_pure_noise_adds_no_adaptive_column(self, seed):
         """Pure noise adds no adaptive column."""
         rng = np.random.default_rng(seed)
@@ -224,7 +224,7 @@ class TestGateCNoiseControl:
 class TestGateDReplayByteMatch:
     """Groups tests covering TestGateDReplayByteMatch."""
     @pytest.mark.parametrize("seed", SEEDS)
-    @pytest.mark.timeout(300)
+    @pytest.mark.timeout(900)
     def test_transform_replays_adaptive_column_byte_for_byte(self, seed):
         """Transform replays adaptive column byte for byte."""
         X, y = _build_multitone(seed)

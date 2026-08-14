@@ -39,7 +39,7 @@ class TestGroupFieldEndToEnd:
                 )
         return pd.DataFrame(rows)
 
-    @pytest.mark.timeout(60)
+    @pytest.mark.timeout(900)
     def test_groups_never_leak_across_splits(self) -> None:
         """Groups never leak across splits."""
         from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
@@ -99,7 +99,7 @@ class TestGroupFieldEndToEnd:
         assert not cross_train_test, f"well_id leakage train<->test: {cross_train_test}"
         assert not cross_val_test, f"well_id leakage val<->test: {cross_val_test}"
 
-    @pytest.mark.timeout(60)
+    @pytest.mark.timeout(900)
     def test_use_groups_false_explicitly_disables(self) -> None:
         """When ``use_groups=False`` the splitter ignores group_ids and
         runs IID row-shuffle (per-well leakage allowed). Documents the

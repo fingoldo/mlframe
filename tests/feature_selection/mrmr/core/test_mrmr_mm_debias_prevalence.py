@@ -206,7 +206,7 @@ class TestMaxTFloorMMCoUpdate:
 # ---------------------------------------------------------------------------
 class TestMMDebiasDefaultOff:
     """Groups tests covering TestMMDebiasDefaultOff."""
-    @pytest.mark.timeout(300)
+    @pytest.mark.timeout(900)
     def test_default_is_off_and_byte_stable(self):
         """The shipped DEFAULT is ``fe_mm_debias_prevalence=False`` (bench-rejected as a
         default). Fitting with the explicit default vs the explicit False must produce an

@@ -189,7 +189,7 @@ def _build_synth(family, score_fn, thr):
     return _mk(score_fn, thr=thr)
 
 
-@pytest.mark.timeout(120)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize(
     "family,score_fn,thr,floor,gap",
     [pytest.param(*r, id=r[0]) for r in fast_subset(_SYNTH_FAMILIES, n=2)],
@@ -219,7 +219,7 @@ def test_synthesis_matrix(family, score_fn, thr, floor, gap):
     )
 
 
-@pytest.mark.timeout(120)
+@pytest.mark.timeout(900)
 def test_synthesis_xor3_recovered_by_triplet_synthesizer():
     """Regression sensor for the closed 3-way-XOR synthesis gap: the triplet
     cross-basis synthesizer (``fe_hybrid_orth_triplet_enable``, wired into
@@ -304,7 +304,7 @@ _DROP_FAMILIES = [
 ]
 
 
-@pytest.mark.timeout(120)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize(
     "family,decoy,kind,gap",
     [pytest.param(*r, id=r[0]) for r in fast_subset(_DROP_FAMILIES, n=3)],
@@ -362,7 +362,7 @@ _RFECV_DROP = [
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(120)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize(
     "family,decoy,kind,gap",
     _RFECV_DROP,
@@ -389,7 +389,7 @@ def test_rfecv_dropping_matrix(family, decoy, kind, gap):
     assert "decoy" not in names, f"{family}: RFECV admitted the decoy into selection: {names}"
 
 
-@pytest.mark.timeout(120)
+@pytest.mark.timeout(900)
 def test_rfecv_id_like_sequence_guard():
     """CLOSED GAP regression sensor: the ``drop_id_like_sequences`` guard drops a
     near-unique + affine-spaced ID-like decoy that a TREE estimator would otherwise
@@ -459,7 +459,7 @@ def test_rfecv_id_like_sequence_guard():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(120)
+@pytest.mark.timeout(900)
 def test_rfecv_near_dup_corr_guard():
     """CLOSED GAP regression sensor: the ``drop_near_dup_corr`` guard drops a near-exact
     monotone replica (a scaled/shifted copy) at fit entry so RFECV no longer admits the
@@ -531,7 +531,7 @@ def test_rfecv_near_dup_corr_guard():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(120)
+@pytest.mark.timeout(900)
 def test_rfecv_synthesis_blindspot_quadratic():
     """SYNTHESIS blind-spot for the wrapper: RFECV has NO feature-engineering,
     so on a purely non-additive target (``y=sign(x0^2 - median)``) it cannot

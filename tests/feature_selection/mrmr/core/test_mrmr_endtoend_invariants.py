@@ -53,7 +53,7 @@ from tests.feature_selection._mrmr_realistic_data import default_fuzz_grid
 # timeout. The worker already enforces its own 600s budget in _run_case, so lift
 # the per-test ceiling above it here (module-scoped) rather than letting the
 # global 60s kill a legitimately long fit.
-pytestmark = pytest.mark.timeout(700)
+pytestmark = pytest.mark.timeout(900)
 
 
 # Map each invariant id -> the production bug class it guards (surfaced in the

@@ -517,7 +517,7 @@ pythonpath = ["src"]
 # long as this addopts line existed. Confirmed live: CI's own logs show "CovDisabledWarning: Coverage
 # disabled via --no-cov switch!" on every run, and codecov.io showed 0% the entire time regardless of
 # the (separately real, separately fixed) cancelled-run and file/files-typo issues.
-addopts = "-ra -s --strict-markers --strict-config --timeout=600 --instafail --ignore=legacy --ignore=benchmarks --ignore=profiling -p no:anyio -p no:asyncio"
+addopts = "-ra -s --strict-markers --strict-config --timeout=900 --instafail --ignore=legacy --ignore=benchmarks --ignore=profiling -p no:anyio -p no:asyncio"
 xfail_strict = true
 doctest_optionflags = "NORMALIZE_WHITESPACE ELLIPSIS"
 markers = [

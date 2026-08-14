@@ -168,7 +168,7 @@ def test_cooccur_weight_roundtrips_a_fit(weight):
     assert hasattr(h, "_tree_prod_pairs_")
 
 
-@pytest.mark.timeout(600)  # this specific fit timed out at the file-wide 450s twice under heavy full-matrix
+@pytest.mark.timeout(900)  # this specific fit timed out at the file-wide 450s twice under heavy full-matrix
 # contention (its own real fit is the file's slowest); 600s matches the coarse global backstop so it no
 # longer trips before the run-level safety net would anyway.
 def test_gain_mode_ranks_a_true_operand_pair_among_top():

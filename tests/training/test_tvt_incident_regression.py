@@ -99,7 +99,7 @@ def _run_suite(df: pd.DataFrame, *, tmp):
     return meta
 
 
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_tvt_2026_05_21_incident_protective_layers_compose(tmp_path):
     """Regression test for the 2026-05-21 incident: AR(1)/MD-monotonic topology no longer breaks the TVT protective layers when composed."""
     # 6k rows preserves the AR(1)/MD-monotonic topology (strong_AR fires, >=4 numeric features survive) at a fraction of

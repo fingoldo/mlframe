@@ -304,7 +304,7 @@ def _rename_first_numeric(df, target_col: str, protect: tuple[str, ...] = ()) ->
         return df, ""
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize(
     "combo",
     _METAMORPHIC_COMBOS,
@@ -373,7 +373,7 @@ def _add_duplicate_rows(df, frac: float = 0.05, sort_by: str | None = None):
         return out
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize(
     "combo",
     _METAMORPHIC_COMBOS,

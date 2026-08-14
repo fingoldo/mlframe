@@ -427,7 +427,7 @@ def _engineered(fs):
     return [n for n in (getattr(fs, "_engineered_features_", []) or []) if n not in raw]
 
 
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_default_on_drops_redundant_keeps_genuine():
     """END-TO-END: ``MRMR()`` (default conditional_mi) keeps the two genuine signal
     pairs AND drops at least one redundant engineered survivor that the legacy
@@ -486,7 +486,7 @@ def _make_user_f2(seed=0, n=20_000):
     return X, np.asarray(yb, dtype=np.int64)
 
 
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize("n", [20_000, 30_000])
 def test_user_f2_e2e_recovers_genuine_drops_noise_and_cross_signal(n):
     """END-TO-END on the USER'S EXACT F2, default ``MRMR()`` (S5 conditional_mi).

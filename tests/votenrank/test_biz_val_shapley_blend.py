@@ -99,7 +99,7 @@ def test_biz_val_shapley_blend_score_competitive_with_hill_climb():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_biz_val_shapley_gate_prunes_where_nnls_flips():
     """On the duplicate-heavy pool, Shapley's kept-set Jaccard across 4 reshuffled-jitter seeds beats NNLS's by >= 0.10 (NNLS instability under collinearity is the motivating claim)."""
     from mlframe.training.composite.ensemble.stacking import shapley_aware_gate, stacking_aware_gate

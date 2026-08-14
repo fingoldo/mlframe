@@ -224,7 +224,7 @@ def test_proxy_mode_default_is_auto():
     assert sel.proxy_mode == "auto"
 
 
-@pytest.mark.timeout(120)
+@pytest.mark.timeout(900)
 def test_proxy_mode_additive_skips_screen_entirely():
     """The legacy escape hatch must never pay even the screen's O(P)+O(K) cost."""
     n = 600

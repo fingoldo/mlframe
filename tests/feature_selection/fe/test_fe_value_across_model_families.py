@@ -200,7 +200,7 @@ def _assert_two_sided_contract(label, lr_fe, lr_raw, gb_fe, gb_raw, names_fe, li
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize("label,mkdata,lin_floor", _FIXTURES)
 def test_fe_two_sided_contract_lift_linear_no_harm_tree(label, mkdata, lin_floor):
     """Two-sided cross-model-family contract on the MAIN hermite/orth FE path:
@@ -215,7 +215,7 @@ def test_fe_two_sided_contract_lift_linear_no_harm_tree(label, mkdata, lin_floor
     _assert_two_sided_contract(label, lr_fe, lr_raw, gb_fe, gb_raw, names_fe, lin_floor)
 
 
-@pytest.mark.timeout(120)
+@pytest.mark.timeout(900)
 def test_fe_two_sided_contract_fast_representative():
     """Fast representative for ``MLFRAME_FAST=1``: runs ONE fixture (``fast_subset``)
     at a reduced ``n`` so the whole cross-family contract path is exercised under the

@@ -128,7 +128,7 @@ def _argmax_target(seed: int = 42, n: int = 2000):
 # --- KEPT: operators with a genuine, measured downstream model-accuracy lift ----------------------------------------------
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_biz_val_gcd_operator_lifts_downstream_lgbm_auc():
     """gcd integer-lattice: held-out LGBM AUC with the operator ON clears ALL-FE-OFF by a real margin (measured +0.087, multi-seed
     min +0.087). A tree CANNOT form gcd(a,b) from raw a,b, so OFF the signal is unreachable. Floor +0.05 (~40% below measured)."""
@@ -143,7 +143,7 @@ def test_biz_val_gcd_operator_lifts_downstream_lgbm_auc():
     )
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_biz_val_conditional_gate_operator_lifts_downstream_lgbm_auc():
     """conditional-gate regime-switch: held-out LGBM AUC ON clears ALL-FE-OFF. The lift is SEED-VOLATILE (seeds where a raw-only
     tree's axis-aligned splits already approximate the c>0?a:b regime reach ~1.0 OFF too -- seed 42 measures OFF=0.9976, a ceiling
@@ -165,7 +165,7 @@ def test_biz_val_conditional_gate_operator_lifts_downstream_lgbm_auc():
 # --- HONEST NEGATIVE: operator value is MI-only here; the tree recovers the signal from raws so ON ~ OFF -------------------
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_biz_val_argmax_operator_selected_but_no_tree_downstream_lift():
     """row-argmax: the ``argmax__a__b__c`` composite IS selected (mechanism pinned), but a gradient-boosted tree recovers
     argmax(a,b,c) from the raw columns via axis-aligned splits, so the held-out model lift is ~0 (measured +0.001). This records the

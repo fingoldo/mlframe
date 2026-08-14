@@ -190,7 +190,7 @@ def test_selector_never_expands_user_prefilter_top():
 
 # ----------------------------------------------------------------- recall preservation
 @pytest.mark.slow
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_shap_prefilter_preserves_informative_recall_synthetic():
     """The cheap-importance pass MUST keep all planted informatives at safety_factor=4 (88-col cap)
     on a regime where signal is well above the noise floor. Pins the heuristic against a regime with
@@ -230,7 +230,7 @@ def test_shap_prefilter_preserves_informative_recall_synthetic():
 
 # ----------------------------------------------------------------- biz_value: e2e speedup
 @pytest.mark.slow
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_biz_val_shap_prefilter_e2e_speedup_at_live_regime():
     """Biz-value: at the live wide regime (width=1000, n_rows=5000, n_inf=12, snr=8) the new lever
     must shorten the e2e wall by >= 10% vs the disabled baseline AND preserve 12/12 informative

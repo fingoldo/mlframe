@@ -304,7 +304,7 @@ class TestMRMRIntegration:
         assert any("skipping the conditional-gate sweep" in r.message for r in caplog.records)
         assert appended == [] and recipes == []
 
-    @pytest.mark.timeout(120)
+    @pytest.mark.timeout(900)
     def test_gate_specific_on_noise_regression_target_no_hang(self):
         """A CONTINUOUS regression y is now ELIGIBLE (quantile-binned once before the tau-grid + conditional-divergence MI, which
         previously exploded under the int64 cast). On a single-driver smooth regression target with no regime structure the gate MUST

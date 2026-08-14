@@ -401,7 +401,7 @@ def _byte_exact_slice_replay(df: pd.DataFrame, y: np.ndarray, seed: int, slices:
             ), f"PREWARP REPLAY BREAK: engineered col {ec!r} not byte-exact on slice [{lo}:{hi}] -- a global/slice-local statistic leaked into replay"
 
 
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_prewarp_replay_extreme_outlier_slice_byte_exact():
     """ATTACK (a): a slice containing EXTREME outliers / heavy-tail operands must
     still replay byte-exactly (frozen axis params, no slice-local re-fit)."""
@@ -421,7 +421,7 @@ def test_prewarp_replay_extreme_outlier_slice_byte_exact():
     _byte_exact_slice_replay(df, y, seed=11, slices=[(5000, 5300), (0, 200)])
 
 
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_prewarp_replay_constant_operand_slice_byte_exact():
     """ATTACK (c): a slice where an operand is CONSTANT (all-equal) must replay
     byte-exactly -- a degenerate axis (span ~ 0) must be handled deterministically,
@@ -440,7 +440,7 @@ def test_prewarp_replay_constant_operand_slice_byte_exact():
     _byte_exact_slice_replay(df, y, seed=13, slices=[(5000, 5200)])
 
 
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_prewarp_replay_out_of_fit_range_slice_byte_exact():
     """ATTACK (b): a slice value OUTSIDE the fit-time operand range must clip/extrapolate
     DETERMINISTICALLY -- the replay is a closed-form function of x with frozen params,

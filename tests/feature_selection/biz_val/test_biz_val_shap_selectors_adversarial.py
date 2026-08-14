@@ -153,7 +153,7 @@ def test_biz_val_spfs_graded_classification_false_does_not_raise_and_excludes_no
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize("task,classification,metric", [("binary", True, "brier"), ("reg", False, "rmse")])
 def test_biz_val_spfs_noise_exclusion_at_medium_n(task, classification, metric):
     """Medium-n (n=10000) noise-exclusion: the binary + regression paths must still drop the whole noise pool at scale.

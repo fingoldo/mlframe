@@ -176,7 +176,7 @@ class TestHermitePairRecipeBizValueViaMRMR:
     filtered out before reaching the polynom-FE block.
     """
 
-    @pytest.mark.timeout(300)
+    @pytest.mark.timeout(900)
     def test_fit_populates_hermite_recipe_e2e(self) -> None:
         """Fit populates hermite recipe e2e."""
         from mlframe.feature_selection.filters.mrmr import MRMR

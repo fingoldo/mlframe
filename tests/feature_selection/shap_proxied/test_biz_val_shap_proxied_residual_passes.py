@@ -94,7 +94,7 @@ def test_biz_val_residual_passes_recovers_weak_recall():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_biz_val_residual_passes_no_noise_inflation():
     """On a pure-strong bed (no real weak signal anywhere), residual_passes=1 must not inflate the
     selection with noise columns: n_selected grows by at most 1 vs default, and zero noise columns

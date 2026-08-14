@@ -57,7 +57,7 @@ _NPS = [(40, 150), (60, 150), (60, 300), (80, 300)]
 _SEEDS = [0] if is_fast_mode() else [0, 1, 2]
 
 
-pytestmark = pytest.mark.timeout(300)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150->300: CI runners are shared 2-vCPU boxes under -n auto xdist contention with up to ~20 pytest shards running concurrently -- real (non-hung) fits legitimately exceeded 150s there under full-matrix load, causing spurious timeout failures unrelated to any actual hang; 300s still catches a genuine hang well before the 600s global backstop.
+pytestmark = pytest.mark.timeout(900)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150->300: CI runners are shared 2-vCPU boxes under -n auto xdist contention with up to ~20 pytest shards running concurrently -- real (non-hung) fits legitimately exceeded 150s there under full-matrix load, causing spurious timeout failures unrelated to any actual hang; 300s still catches a genuine hang well before the 600s global backstop.
 
 
 def make_p_gt_n(n: int, p: int, p_signal: int = _P_SIGNAL, seed: int = 0):

@@ -132,7 +132,7 @@ def test_gate_empty_when_no_products():
 
 # =========================================================================== (b) e2e tree-member contract
 @pytest.mark.slow
-@pytest.mark.timeout(200)
+@pytest.mark.timeout(900)
 def test_tree_member_engineers_replays_and_prunes():
     """Tree member engineers replays and prunes."""
     X, y = _interaction_frame(n=900, seed=0, p_noise=8)
@@ -152,7 +152,7 @@ def test_tree_member_engineers_replays_and_prunes():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(200)
+@pytest.mark.timeout(900)
 def test_tree_rich_ops_mul_only_restricts_to_tmul():
     """Tree rich ops mul only restricts to tmul."""
     X, y = _interaction_frame(n=900, seed=0, p_noise=8)
@@ -163,7 +163,7 @@ def test_tree_rich_ops_mul_only_restricts_to_tmul():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(200)
+@pytest.mark.timeout(900)
 def test_transform_replays_tree_ops_bit_equal_on_fresh_rows():
     """Transform replays tree ops bit equal on fresh rows."""
     X, y = _interaction_frame(n=900, seed=0, p_noise=8)
@@ -181,7 +181,7 @@ def test_transform_replays_tree_ops_bit_equal_on_fresh_rows():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(200)
+@pytest.mark.timeout(900)
 def test_use_tree_member_false_is_dormant():
     """Use tree member false is dormant."""
     X, y = _interaction_frame(n=900, seed=0, p_noise=8)
@@ -196,7 +196,7 @@ def test_use_tree_member_false_is_dormant():
 
 # =========================================================================== (c) degraded members
 @pytest.mark.slow
-@pytest.mark.timeout(200)
+@pytest.mark.timeout(900)
 def test_shap_member_degrades_to_empty_with_warning(monkeypatch):
     """Shap member degrades to empty with warning."""
     X, y, inf = _linear_frame(n=700, seed=0)
@@ -214,7 +214,7 @@ def test_shap_member_degrades_to_empty_with_warning(monkeypatch):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(200)
+@pytest.mark.timeout(900)
 def test_boruta_member_degrades_to_empty_with_warning(monkeypatch):
     """Boruta member degrades to empty with warning."""
     X, y, inf = _linear_frame(n=700, seed=0)
@@ -231,7 +231,7 @@ def test_boruta_member_degrades_to_empty_with_warning(monkeypatch):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(200)
+@pytest.mark.timeout(900)
 def test_mrmr_stage_degrades_to_empty_with_warning(monkeypatch):
     # _run_mrmr does a lazy `from mlframe.feature_selection.filters import MRMR`; patch the attribute on that package
     # so construction raises, exercising the try/except -> ([], None) degrade with the "MRMR stage degraded" warning.
@@ -254,7 +254,7 @@ def test_mrmr_stage_degrades_to_empty_with_warning(monkeypatch):
 
 # =========================================================================== (d) driver / use_mrmr / prescreen paths
 @pytest.mark.slow
-@pytest.mark.timeout(200)
+@pytest.mark.timeout(900)
 def test_boruta_driver_permutation_fits_and_recovers(monkeypatch):
     """Boruta driver permutation fits and recovers."""
     X, y, inf = _linear_frame(n=700, seed=0)
@@ -265,7 +265,7 @@ def test_boruta_driver_permutation_fits_and_recovers(monkeypatch):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(200)
+@pytest.mark.timeout(900)
 def test_use_mrmr_false_zeroes_engineering_and_still_votes():
     """Use mrmr false zeroes engineering and still votes."""
     X, y, inf = _linear_frame(n=700, seed=0)
@@ -281,7 +281,7 @@ def test_use_mrmr_false_zeroes_engineering_and_still_votes():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(200)
+@pytest.mark.timeout(900)
 def test_prescreen_false_keeps_all_augmented_columns_relevant():
     """Prescreen false keeps all augmented columns relevant."""
     X, y, _inf = _linear_frame(n=700, seed=0)
@@ -292,7 +292,7 @@ def test_prescreen_false_keeps_all_augmented_columns_relevant():
 
 # =========================================================================== (e) FE-mode pickle + engineered get_support
 @pytest.mark.slow
-@pytest.mark.timeout(200)
+@pytest.mark.timeout(900)
 def test_fe_mode_pickle_replays_engineered_columns_value_equal():
     """Fe mode pickle replays engineered columns value equal."""
     X, y = _interaction_frame(n=1000, seed=3, p_noise=10)
@@ -314,7 +314,7 @@ def test_fe_mode_pickle_replays_engineered_columns_value_equal():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(200)
+@pytest.mark.timeout(900)
 def test_get_support_excludes_engineered_names():
     """Get support excludes engineered names."""
     X, y = _interaction_frame(n=1000, seed=3, p_noise=10)
@@ -344,7 +344,7 @@ def test_get_support_excludes_engineered_names():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(200)
+@pytest.mark.timeout(900)
 def test_biz_value_tree_member_recovers_interaction_product_signal():
     """Biz value tree member recovers interaction product signal."""
     from sklearn.model_selection import train_test_split

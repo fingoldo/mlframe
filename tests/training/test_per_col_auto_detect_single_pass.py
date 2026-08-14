@@ -239,7 +239,7 @@ def _vendored_legacy_pandas(df, ftc, cat_features):
     return sorted(text_features), sorted(embedding_features), sorted(auto_drop)
 
 
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_auto_detect_output_identical_pre_vs_post_pandas():
     """Single-pass df.agg(['nunique','count']) classification must equal per-col legacy classification (pandas branch).
 

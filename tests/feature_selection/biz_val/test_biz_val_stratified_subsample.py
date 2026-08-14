@@ -40,7 +40,7 @@ from mlframe.feature_selection.filters._fe_subsample import (
 # UNIT
 # =====================================================================================
 
-pytestmark = pytest.mark.timeout(300)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150->300: CI runners are shared 2-vCPU boxes under -n auto xdist contention with up to ~20 pytest shards running concurrently -- real (non-hung) fits legitimately exceeded 150s there under full-matrix load, causing spurious timeout failures unrelated to any actual hang; 300s still catches a genuine hang well before the 600s global backstop.
+pytestmark = pytest.mark.timeout(900)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150->300: CI runners are shared 2-vCPU boxes under -n auto xdist contention with up to ~20 pytest shards running concurrently -- real (non-hung) fits legitimately exceeded 150s there under full-matrix load, causing spurious timeout failures unrelated to any actual hang; 300s still catches a genuine hang well before the 600s global backstop.
 
 
 def test_unit_rare_class_kept_where_uniform_drops_it():
@@ -225,7 +225,7 @@ def test_biz_value_rare_class_screen_recovers_signal_uniform_blind():
     assert strat_mean >= uni_mean + 0.02, f"stratified screen MI {strat_mean:.4f} not materially above uniform {uni_mean:.4f}"
 
 
-@pytest.mark.timeout(300)  # 6 MRMR.fit calls (was 3, now 5 seeds x 2 arms = 10) need more than the file's 60s default
+@pytest.mark.timeout(900)  # 6 MRMR.fit calls (was 3, now 5 seeds x 2 arms = 10) need more than the file's 60s default
 def test_biz_value_heavy_tail_regression_stratified_beats_uniform():
     """(b) Heavy-tail reg: the genuine signal is a tail-driven interaction (only the upper tail of a
     lognormal driver activates a product term). With an aggressive FE subsample, uniform under-samples

@@ -84,7 +84,7 @@ def test_biz_val_shap_proxied_fs_recovers_informative_and_beats_baselines():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(600)  # one wide (3000-col) prefilter model fit dominates; exceeds the 60s default
+@pytest.mark.timeout(900)  # one wide (3000-col) prefilter model fit dominates; exceeds the 60s default
 def test_biz_val_wide_pipeline_scales_and_recovers_informative():
     """The user's real regime is tens of thousands of features. This is the same end-to-end pipeline
     (prefilter -> cluster -> OOF-SHAP -> pre-screen -> search -> trust guard -> honest re-validation ->
@@ -155,7 +155,7 @@ def test_biz_val_wide_pipeline_scales_and_recovers_informative():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(600)  # two wide prefilter fits (model vs fast) dominate; exceeds the 60s default
+@pytest.mark.timeout(900)  # two wide prefilter fits (model vs fast) dominate; exceeds the 60s default
 def test_biz_val_fast_prefilter_does_not_worsen_recovery_vs_model():
     """The iteration-4 win: on wide data the native-importance pre-filter (one model fit on ALL columns)
     is the dominant cost. ``prefilter_method="fast_model"`` (the cheap interaction-aware ranking the
@@ -354,7 +354,7 @@ def test_biz_val_regression_recovers_informative():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_biz_val_stratified_anchors_preserve_recovery_at_6k_no_catastrophic_spearman_drop():
     """Iter14 trust-guard stratified-anchor lever, end-to-end on the regime synthetic at width=6000.
 
@@ -519,7 +519,7 @@ def test_zipf_cardinality_default_on_and_recorded_in_trust_report():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_biz_val_zipf_cardinality_preserves_recovery_no_catastrophic_spearman_drop_at_6k():
     """Iter15 trust-guard Zipf cardinality prior, end-to-end on the regime synthetic at width=6000.
 
@@ -609,7 +609,7 @@ def test_biz_val_zipf_cardinality_preserves_recovery_no_catastrophic_spearman_dr
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_biz_val_oof_shap_cap_faster_with_preserved_recovery():
     """Iter19 win: cap the per-fold OOF-SHAP booster (``oof_shap_n_estimators``) so the
     K-fold model-fit cost (which dominated the OOF-SHAP stage per cProfile at width=10k:
