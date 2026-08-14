@@ -249,8 +249,13 @@ def _friend_graph_and_redundancy_passes_group2(
                     continue
                 _rec_h = _hybrid_orth_pre_recipes.get(_hn)
                 _src_h = tuple(getattr(_rec_h, "src_names", ()) or ())
-                # Self-limit #1: source must have survived the screen (real signal).
-                if not (_src_h and _src_h[0] in _sel_names_now):
+                # Self-limit #1: a source must be resolvable at all (the leg's provenance exists). NOT gated on
+                # "survived the MI screen": that screen runs at the relaxed (float32-under-MLFRAME_CRIT_DTYPE_RELAXED)
+                # criterion dtype, so a borderline-but-genuinely-informative source can fail it on precision alone --
+                # destroying a real signal one hop downstream (see test_f32_nameset_matches_f64's superset contract).
+                # Self-limit #2 below is the honest, full-float64, held-out check for "is this source's leg real";
+                # requiring screen-survival too was a redundant, precision-fragile proxy for the same thing.
+                if not _src_h:
                     continue
                 # Self-limit #2: the leg must lift a held-out linear fit OVER the
                 # already-selected set + the source and its degree-2 poly (not
