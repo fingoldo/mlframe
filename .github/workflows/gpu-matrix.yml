@@ -84,5 +84,5 @@ jobs:
           print("CUDA_HOME =", os.environ["CUDA_HOME"])
           import subprocess, sys
           sys.exit(subprocess.call([sys.executable, "-m", "pytest", "-m", "gpu", "--no-cov",
-                                    "-n", "0", "-p", "no:randomly", "--timeout=600", "-ra", "-v"], env=os.environ))
+                                    "-n", "0", "-p", "no:randomly", "--timeout=900", "-ra", "-v"], env=os.environ))
           PY

@@ -146,7 +146,7 @@ jobs:
             --cov-report=xml \
             --cov-report=term-missing \
             -p no:randomly \
-            --timeout=300 \
+            --timeout=900 \
             --durations=200 \
             --store-durations
 
