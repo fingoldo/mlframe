@@ -248,6 +248,7 @@ def test_generate_kernels_sorted_by_name(tmp_cache):
 # --------------------------------------------------------------------------- #
 
 
+@pytest.mark.xdist_group(name="kernel_tuning_default_cache")
 def test_register_default_cache_loads_and_local_miss_returns_default(tmp_path, tmp_cache, patched_registry, monkeypatch):
     """Register default cache loads and local miss returns default."""
     reg = patched_registry
@@ -279,9 +280,18 @@ def test_register_default_cache_loads_and_local_miss_returns_default(tmp_path, t
     assert bc == "cupy", f"local miss should serve the DEFAULT (cupy), not the hand fallback; got {result!r}"
 
 
+@pytest.mark.xdist_group(name="kernel_tuning_default_cache")
 def test_default_ignored_when_code_version_stale(tmp_path, tmp_cache, patched_registry, monkeypatch):
     """If the live code_version differs from the default file's, the default is
-    treated as stale and the hand fallback is used instead."""
+    treated as stale and the hand fallback is used instead.
+
+    Both tests in this file that call ``register_default_cache()`` are pinned to the same xdist worker
+    (``xdist_group``): that call unconditionally reassigns pyutilz's process-global ``_DEFAULT_CACHE``
+    singleton (``cache_class.py``'s ``register_default_cache``), so if either ran interleaved on a
+    DIFFERENT worker from a concurrent real-registration path (``_kernel_tuning.py``'s module-import-time
+    ``_register_default_tuning_cache()``) the other test's lookup could observe a clobbered/foreign
+    registry. Forcing both onto one worker removes the cross-worker race entirely, regardless of the exact
+    mechanism (CI observed shard-8 flake, 2026-08-14/15, not yet reproduced standalone)."""
     reg = patched_registry
     spec = reg.spec
     out = str(tmp_cache / "default_kernel_tuning.json")

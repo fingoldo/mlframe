@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   test:
-    name: pytest ${{ matrix.python-version }} on ${{ matrix.os }} (shard ${{ matrix.group }}/${{ matrix.splits || '16' }})
+    name: pytest ${{ matrix.python-version }} on ${{ matrix.os }} (shard ${{ matrix.group }}/${{ matrix.splits || '10' }})
     runs-on: ${{ matrix.os }}
     env:
       # Persist numba's on-disk JIT cache across runs AND shards (see the cache step below). Without it numba
@@ -34,7 +34,7 @@ jobs:
       NUMBA_CACHE_DIR: ${{ github.workspace }}/.numba-cache
     # A GitHub-hosted runner has only 2 vCPUs and the suite is large. Two costs dominate per shard: numba
     # cold-JIT compilation (now cached across runs+shards via NUMBA_CACHE_DIR) and model-training tests. We
-    # shard 16 ways via pytest-split (`--splits 16 --group N`) so even a cold shard (which must populate the
+    # shard 10 ways via pytest-split (`--splits 10 --group N`) so even a cold shard (which must populate the
     # cache) finishes under the cap; warm shards are far faster. timeout-minutes is headroom, not a budget.
     # Raised 120->240 (2026-08-08): the 2026-08-08 run on 6bb8b05be lost 21/41 shards to this cap mid-suite
     # (each killed at exactly ~120m16s, confirmed via job started_at/completed_at) -- those shards' real
@@ -55,10 +55,14 @@ jobs:
     # unbalances the worst are the ones that get killed before they can report real durations to fix it).
     # Halving average per-shard workload breaks the deadlock: even badly-imbalanced shards should now
     # finish inside the cap, start reporting real durations, and let `merge-test-durations` self-correct
-    # the balance on every subsequent push. Chose 16 over a more aggressive 32 to avoid ~4x-ing this
-    # matrix's fixed per-job overhead (checkout/setup/install, x5 python versions) -- this repo's own
-    # history already had to drop Windows/macOS legs once over GitHub Actions minute exhaustion. Revisit
-    # a higher split count if shards keep getting cancelled after this change.
+    # the balance on every subsequent push.
+    # 16->10 splits (2026-08-15, same day): 16 shards x 5 required python versions + the 3.14 smoke job
+    # = 86 concurrent jobs, well past this account's free-tier concurrent-runner cap -- run 31839758990
+    # still had ~40 jobs stuck `queued` 1h30m+ in, with py3.13/3.14 never starting. 10 shards keeps the
+    # bootstrapping-deadlock fix (a cold shard still finishes well inside the 360m cap) while cutting
+    # total jobs to 54, small enough to mostly avoid queueing under the same free-tier limit. Revisit
+    # if shards start getting cancelled again (raise back toward 16) or if queueing is still severe at
+    # 10 (drop further, or split the matrix so not every python version runs on every push).
     # silently eating every remaining test in that shard. If shards keep hitting 360 after this bump,
     # the fix is finding and isolating that specific hang (or switching CI's timeout method to
     # `signal` on Linux, which can actually preempt a blocked syscall), not raising the cap further --
@@ -74,12 +78,12 @@ jobs:
       matrix:
         # Linux rows 3.9-3.13 are required (blocking). The [all] extra installs
         # on 3.13 thanks to the tool.uv `ortools>=9.12` override (see pyproject).
-        # Each (os, python) is sharded 16 ways via pytest-split so even a cold
+        # Each (os, python) is sharded 10 ways via pytest-split so even a cold
         # shard (numba JIT not yet cached) finishes inside the cap; once
         # the numba cache is warm each shard is far faster.
         os: [ubuntu-latest]
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
-        group: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"]
+        group: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
         include:
           # Python 3.14 stays non-blocking (experimental): the optbinning->ortools
           # blocker is gone (override above), but the heavy [all] stack (torch /
@@ -163,7 +167,7 @@ jobs:
           MLFRAME_FAST: "1"
         run: |
           pytest -m "not slow and not gpu and not multigpu" \
-            --splits ${{ matrix.splits || '16' }} --group ${{ matrix.group }} \
+            --splits ${{ matrix.splits || '10' }} --group ${{ matrix.group }} \
             -n auto \
             --cov=src/mlframe \
             --cov-report=xml \
