@@ -12,9 +12,21 @@ Threads ``self`` plus every fit-body local this section reads as explicit keywor
 (mirrors the ``_finalise_fs_results`` / ``_assign_support`` carve-outs' own pattern), derived via
 ``pyutilz.dev.freevar_analysis`` rather than by eyeballing 1550 lines by hand. Unlike
 ``_assign_support`` (whose ``selected_vars`` is consumed entirely via ``self.*`` attributes it
-sets), THIS section's ``selected_vars`` mutations feed directly into `_fit_impl``'s own next step
-(the cols-to-original-frame-index remap) -- so ``selected_vars`` is both an incoming parameter AND
-the return value.
+sets), THIS section's ``selected_vars``/``cols``/``data``/``nbins`` mutations feed directly into
+``_fit_impl``'s own next step (the cols-to-original-frame-index remap) -- so all four are BOTH
+incoming parameters AND part of the return value.
+
+BUG FIX (caught post-extraction, before this module's first commit landed): the initial cut only
+threaded ``selected_vars`` and ``X`` back out, on the assumption ``cols``/``data``/``nbins`` were
+read-only in this section (true for ``_assign_support``, false here). In fact the hinge-recipe
+re-add path (``cols = [*cols, _hn]``) and the post-DCD-swap path (``cols = _dref.get("cols",
+cols)`` / same for ``data``/``nbins``) genuinely GROW/replace these locally inside the function --
+a plain list/array reassignment inside a callee never propagates back to the caller. The symptom
+was an ``IndexError`` at ``_fit_impl_core.py``'s very next line (``np.array(cols)[np.array
+(selected_vars, ...)]``): ``selected_vars`` correctly reflected the grown cols-space (returned),
+but the caller's own ``cols`` was silently still the PRE-growth object, one or more columns short.
+Root-caused by comparing ``id(cols)`` immediately before this function's return vs immediately
+after the call site in ``_fit_impl_core.py`` -- different objects, despite no re-entrant call.
 """
 
 from __future__ import annotations
@@ -53,9 +65,9 @@ def _friend_graph_and_redundancy_passes(
     fe_to_pandas,
     _fe_family_on,
 ):
-    """Run every post-screen, pre-remap cols-space pass on ``selected_vars`` and return its final value.
+    """Run every post-screen, pre-remap cols-space pass and return ``(selected_vars, cols, data, nbins)``.
 
-    See the module docstring for the full section this carves out.
+    See the module docstring for the full section this carves out and why all four are returned.
     """
     self.friend_graph_ = None
     # ``len(...)`` not truthiness: by this point ``selected_vars`` may be a numpy array (the empty-screen
@@ -1606,4 +1618,4 @@ def _friend_graph_and_redundancy_passes(
                 _exc_mt,
             )
 
-    return selected_vars
+    return selected_vars, cols, data, nbins
