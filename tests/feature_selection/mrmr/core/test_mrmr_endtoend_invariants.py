@@ -281,7 +281,10 @@ print(json.dumps(result))
 """
 
 
-def _run_case(case: dict, fe_kwargs: dict, timeout: int = 600) -> dict:
+def _run_case(case: dict, fe_kwargs: dict, timeout: int = 900) -> dict:
+    # 600 -> 900 (2026-08-15): the fe2 (fe_max_steps=2, fe_pair_prewarp_enable=True, n=25000) case observed
+    # a subprocess.TimeoutExpired at exactly 600s on a cupy-less host, where hermite-prewarp's GPU-resident
+    # fast path can't engage and falls through to a slower CPU loop; CI runners are GPU-less too.
     """Fit one realistic case in a fresh subprocess; return its diagnostic JSON.
 
     Retries once on an OOM / paging-file style transient (the Windows

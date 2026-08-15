@@ -26,6 +26,12 @@ def _isolate(monkeypatch):
     monkeypatch.delenv("MLFRAME_FE_GPU_DISCRETIZE", raising=False)
     monkeypatch.delenv("MLFRAME_FE_GPU_BINNING", raising=False)
     monkeypatch.delenv("MLFRAME_FE_GATE_RESIDENT_CANDS", raising=False)
+    # gpu_globally_disabled() (consulted downstream of the mocked _cuda_usable by permnull/rescand/
+    # pool_table/shufflegen/discretize/binning) otherwise silently overrides the mock whenever the
+    # ambient CI/host env carries the off-switch -- see the identical fixture in
+    # test_cmi_cuda_ktc_strict_respects_call_shape.py / test_batch_pair_mi_gpu_vram_guard.py.
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.delenv("MLFRAME_DISABLE_GPU", raising=False)
     strict_mod.clear_auto_fit_n()
     yield
     strict_mod.clear_auto_fit_n()

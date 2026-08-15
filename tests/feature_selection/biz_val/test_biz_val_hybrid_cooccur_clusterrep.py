@@ -182,6 +182,9 @@ def test_gain_mode_ranks_a_true_operand_pair_among_top():
 
 
 # ===================================================================== BIZ_VALUE
+@pytest.mark.timeout(1800)  # does 6 full HybridSelector.fit() calls (3 seeds x count/gain) vs the sibling
+# test_gain_mode_ranks_a_true_operand_pair_among_top's 1 -- inherits the same file-wide-contention timeout
+# risk that test's own 900s override already documents, but needs proportionally more headroom for 6x the work.
 def test_biz_val_hybrid_cooccur_gain_beats_count_on_interaction_bed():
     """Floor: gain-weighted honest holdout AUC >= count-weighted - 0.005, averaged over 3 seeds, on XOR beds.
     Gain ranks true interaction operands above shallow high-frequency noise splits."""

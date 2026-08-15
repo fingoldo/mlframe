@@ -639,6 +639,12 @@ def error_bias_per_feature(
             # bias panel isn't meaningful anyway (no spread to bin), so skip it rather than aborting the whole
             # diagnostic (best-effort, matches every other panel in this dispatcher).
             continue
+        if edges.size < 2 or not np.all(np.diff(edges) > 0):
+            # numpy doesn't always raise on a near-constant huge-magnitude column -- it can instead
+            # return edges collapsed to fewer distinct floats than requested (zero-width bins), which
+            # silently produces NaN/inf densities downstream via divide-by-zero in np.histogram's
+            # normalization instead of raising. Skip this feature's panel the same way as above.
+            continue
         centers = (edges[:-1] + edges[1:]) / 2.0
         series: List[np.ndarray] = []
         labels: List[str] = []

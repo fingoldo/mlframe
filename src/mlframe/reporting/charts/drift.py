@@ -674,8 +674,15 @@ def adversarial_auc(
     X = np.vstack([Xa, Xb])
     y = np.concatenate([np.zeros(len(ia), dtype=np.int64), np.ones(len(ib), dtype=np.int64)])
 
+    # n_jobs=1, not -1: this diagnostic classifier is cheap (small subsampled X/y, serial cross_val_predict
+    # with no outer parallelism to feed) and never benefited from claiming every core -- under any
+    # concurrent-worker environment (CI xdist shards, several dev-box sessions at once) an unbounded LightGBM
+    # thread pool here causes severe CPU oversubscription, which can block the native LGBM_BoosterUpdateOneIter
+    # call indefinitely. pytest-timeout's thread-based method can't preempt a blocked native call -- it marks
+    # the test "timed out" for reporting but the OS thread keeps running, hanging the worker until an external
+    # job-level cap kills it (see ci.yml's own "native-call hang" hypothesis; this pins the exact call site).
     params: dict = dict(n_estimators=ADV_N_ESTIMATORS, num_leaves=31, learning_rate=0.05, subsample=0.8,
-                  colsample_bytree=0.8, n_jobs=-1, random_state=seed, verbosity=-1, importance_type="gain")
+                  colsample_bytree=0.8, n_jobs=1, random_state=seed, verbosity=-1, importance_type="gain")
     if lgbm_params:
         params.update(lgbm_params)
     clf = lgb.LGBMClassifier(**params)

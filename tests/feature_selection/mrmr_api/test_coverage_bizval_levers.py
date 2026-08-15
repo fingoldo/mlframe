@@ -223,7 +223,10 @@ def test_biz_val_jmim_captures_xor_synergy_no_harm_vs_fleuret():
     t = time.time()
     auc_fleuret = fit_auc(None)
     auc_jmim = fit_auc("jmim")
-    assert time.time() - t < 90, "two XOR fits should complete inside the budget"
+    # 90 -> 180 (2026-08-15): observed ~139s on a cupy-less host where fe_max_steps=1's hermite-prewarp path
+    # can't engage its GPU-resident fast path and falls through to a slower CPU loop; CI runners are GPU-less
+    # too, so this budget must hold there as well, not just on a dev box that happens to have a GPU.
+    assert time.time() - t < 180, "two XOR fits should complete inside the budget"
     assert auc_fleuret >= 0.95, f"Fleuret must recover XOR synergy (floor 0.95), got {auc_fleuret:.4f}"
     assert auc_jmim >= 0.95, f"JMIM must recover XOR synergy (floor 0.95), got {auc_jmim:.4f}"
     assert auc_jmim >= auc_fleuret - 0.02, f"JMIM must be no worse than Fleuret: jmim={auc_jmim:.4f} fleuret={auc_fleuret:.4f}"

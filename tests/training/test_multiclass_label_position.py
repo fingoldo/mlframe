@@ -211,7 +211,10 @@ def test_classification_report_no_phantom_class_for_non_0_indexed_labels(caplog)
     for i, p in enumerate(preds):
         probs[i, pos[p]] = 1.0
 
-    logger_name = "mlframe.training.reporting._reporting_probabilistic"
+    # _reporting_probabilistic.py binds its module logger to `_reporting_mod.__name__` (an aliased
+    # import of `._reporting`), not its own module name -- listen on the logger production code
+    # actually uses, or `caplog` never observes the info-level report block at all.
+    logger_name = "mlframe.training.reporting._reporting"
     with caplog.at_level(logging.INFO, logger=logger_name):
         report_probabilistic_model_perf(
             targets=targets,

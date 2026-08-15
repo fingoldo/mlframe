@@ -1,11 +1,16 @@
 """Meta-test: every environment variable production code reads via
-``os.environ.get(...)``/``os.getenv(...)`` is documented in README.md.
+``os.environ.get(...)``/``os.getenv(...)`` is documented in
+docs/ENVIRONMENT_VARIABLES.md.
 
 Uses the baseline/grandfather variant of the shared ``py_ci_shared.readme_env_var_parity``
 check: mlframe has no "## Environment variables" section yet, so every var currently
 read is grandfathered on first run -- only a NEW undocumented var (introduced after this
 baseline was captured) fails. Documenting the grandfathered vars is a separate, deliberate
 improvement this check doesn't demand up front.
+
+The table itself lives in docs/ENVIRONMENT_VARIABLES.md (moved out of README.md, which only
+keeps a one-line pointer) -- the shared checker's ``readme_path`` param accepts any markdown
+file with a matching heading, not literally README.md.
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ from py_ci_shared.readme_env_var_parity import assert_no_new_undocumented_env_va
 import mlframe
 
 MLFRAME_DIR = Path(mlframe.__file__).resolve().parent
-README_PATH = Path(mlframe.__file__).resolve().parent.parent.parent / "README.md"
+README_PATH = Path(mlframe.__file__).resolve().parent.parent.parent / "docs" / "ENVIRONMENT_VARIABLES.md"
 _BASELINE_PATH = Path(__file__).resolve().parent / "_readme_env_var_baseline.json"
 
 # Mirrors this repo's pytest addopts (--ignore=legacy --ignore=benchmarks --ignore=profiling).

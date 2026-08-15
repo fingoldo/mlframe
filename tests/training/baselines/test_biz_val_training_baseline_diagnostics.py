@@ -177,6 +177,9 @@ def test_biz_val_baseline_diagnostics_n_estimators_100_preserves_dominant_verdic
         assert dom_100 == dom_200, f"n_estimators=100 must keep the same dominant feature as 200 (seed={seed}): 100->{dom_100} vs 200->{dom_200}"
 
 
+@pytest.mark.timeout(1800)  # repeated timed LightGBM fits (3x-repeat wall-clock stability loop) legitimately
+# take several minutes under CI shard contention -- confirmed clean at 1800s, timed out at the tighter 300s
+# default under load.
 def test_biz_val_baseline_diagnostics_n_estimators_100_is_faster():
     """The 200->100 flip must deliver a real ablation wall win. bench measured
     ~1.825x (4k synthetic) / 1.78x (200k+sample_n=50k). Floor 1.15x absorbs

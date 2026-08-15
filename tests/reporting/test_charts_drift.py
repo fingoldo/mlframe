@@ -495,6 +495,30 @@ def test_adversarial_auc_shapes():
     assert len(names) == 4
 
 
+def test_adversarial_auc_lgbm_n_jobs_not_unbounded(monkeypatch):
+    """adversarial_auc's diagnostic LGBMClassifier must not request n_jobs=-1 -- under any concurrent-
+    worker environment (CI xdist shards, several dev sessions at once) an unbounded thread pool here
+    causes severe CPU oversubscription that can block LightGBM's native booster-update call
+    indefinitely; pytest-timeout's thread-based method can't preempt a blocked native call, so this
+    silently hangs the whole worker instead of failing loudly. Regression test for that hang, pinned
+    at the config level since the symptom itself is an indefinite hang, not a wrong value."""
+    lgb = pytest.importorskip("lightgbm")
+    captured = {}
+    real_init = lgb.LGBMClassifier.__init__
+
+    def _spy_init(self, **kwargs):
+        """Spy init."""
+        captured.update(kwargs)
+        real_init(self, **kwargs)
+
+    monkeypatch.setattr(lgb.LGBMClassifier, "__init__", _spy_init)
+    rng = np.random.default_rng(41)
+    Xa = rng.normal(size=(200, 3))
+    Xb = rng.normal(size=(200, 3))
+    drift.adversarial_auc(Xa, Xb, n_splits=2)
+    assert captured.get("n_jobs") != -1, f"expected a bounded n_jobs, got {captured.get('n_jobs')!r}"
+
+
 def test_adversarial_validation_returns_roc_and_bar():
     """Adversarial validation returns roc and bar."""
     pytest.importorskip("lightgbm")

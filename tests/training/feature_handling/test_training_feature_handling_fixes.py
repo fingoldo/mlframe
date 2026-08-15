@@ -503,6 +503,10 @@ def test_f12_cuda_context_lost_cpu_fallback_uses_real_torch_dtype(monkeypatch):
 
     provider._tokenizer = _fake_tokenizer
     provider._model = _FailingModel()
+    # This venv's torch build is CPU-only, so a real tensor.to("cuda") raises "Torch not compiled
+    # with CUDA enabled" before _FailingModel.__call__ ever runs, preempting the CUDA-context-lost
+    # error this test means to trigger. No-op device movement so only the mocked model call raises.
+    monkeypatch.setattr(torch.Tensor, "to", lambda self, *a, **kw: self)
 
     captured = {}
 

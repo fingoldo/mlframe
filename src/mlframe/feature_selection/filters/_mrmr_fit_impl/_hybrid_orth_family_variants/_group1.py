@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from .._helpers import _orth_fe_numeric_cols, fe_decide_on_subsample
+from ..._fe_frame_ops import fe_append_columns, fe_extract_columns
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ def _hybrid_orth_family_variants_group1(
             from ..._orthogonal_triplet_fe import (
                 hybrid_orth_mi_triplet_fe_with_recipes,
             )
-            from ..._fe_frame_ops import fe_is_numeric_col, fe_append_columns, fe_extract_columns
+            from ..._fe_frame_ops import fe_is_numeric_col
 
             _y_for_triplet = _y_np
             if _y_for_triplet.dtype.kind in "fc":
@@ -148,7 +149,7 @@ def _hybrid_orth_family_variants_group1(
             from ..._orthogonal_quadruplet_fe import (
                 hybrid_orth_mi_quadruplet_fe_with_recipes,
             )
-            from ..._fe_frame_ops import fe_is_numeric_col, fe_append_columns, fe_extract_columns
+            from ..._fe_frame_ops import fe_is_numeric_col
 
             _y_for_quad = _y_np
             if _y_for_quad.dtype.kind in "fc":

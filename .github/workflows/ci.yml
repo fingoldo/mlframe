@@ -185,6 +185,13 @@ jobs:
       # balancing data current on every push instead of relying solely on the separate weekly
       # update-test-durations.yml full-suite run. `if: always()` so a shard that failed or hit
       # its timeout still contributes whatever durations it collected before that point.
+      # `include-hidden-files: true` (2026-08-15): `.test_durations` is a dotfile -- actions/upload-artifact's
+      # glob EXCLUDES hidden files by default, so despite pytest-split's own log confirming it wrote the file
+      # every single time ("[pytest-split] Stored test durations in .../.test_durations"), this step logged
+      # "No files were found with the provided path: .test_durations" on every shard, every run, since this
+      # workflow was written -- root cause of `.test_durations` staying `{}` (seeded empty 2026-07-18) through
+      # every subsequent "chore: refresh .test_durations" commit: merge-test-durations always downloaded 0
+      # real shard artifacts to merge.
       - name: Upload shard test durations
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -192,6 +199,7 @@ jobs:
           name: test-durations-${{ matrix.python-version }}-${{ matrix.group }}
           path: .test_durations
           retention-days: 3
+          include-hidden-files: true
           if-no-files-found: ignore
 
       - name: Upload coverage to Codecov
