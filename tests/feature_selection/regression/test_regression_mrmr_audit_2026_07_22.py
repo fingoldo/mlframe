@@ -2613,15 +2613,42 @@ def test_regression_greedy_cmi_fe_construct_seed_varies_permutation():
     assert not np.array_equal(perm_a, perm_b)
 
 
-def test_regression_fit_impl_core_passes_random_seed_to_cmi_greedy():
-    """Post-fix: _fit_impl_core.py's greedy_cmi_fe_construct_with_recipes call site threads
-    self.random_seed through as the seed= kwarg, instead of leaving the hardcoded default."""
-    import inspect
+def test_regression_fit_impl_core_passes_random_seed_to_cmi_greedy(monkeypatch):
+    """Post-fix: the fe_mi_greedy_cmi_enable call site threads self.random_seed through as the
+    seed= kwarg to greedy_cmi_fe_construct_with_recipes, instead of leaving the hardcoded 0xC011
+    default -- verified behaviorally (captured kwarg across two different random_seed values), not
+    by matching source text (the call site has since moved out of _fit_impl_core.py during an
+    unrelated monolith split, which broke the original inspect.getsource() assertion)."""
+    import mlframe.feature_selection.filters._mi_greedy_cmi_fe as cmi_mod
+    from mlframe.feature_selection.filters.mrmr import MRMR
 
-    from mlframe.feature_selection.filters._mrmr_fit_impl import _fit_impl_core as mod
+    captured_seeds = []
+    _orig = cmi_mod.greedy_cmi_fe_construct_with_recipes
 
-    src = inspect.getsource(mod)
-    assert 'seed=int(getattr(self, "random_seed", 0) or 0),' in src
+    def _spy(*args, **kwargs):
+        """Capture the seed= kwarg the call site passes, then delegate to the real implementation."""
+        captured_seeds.append(kwargs.get("seed"))
+        return _orig(*args, **kwargs)
+
+    monkeypatch.setattr(cmi_mod, "greedy_cmi_fe_construct_with_recipes", _spy)
+
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame({f"x{i}": rng.standard_normal(200) for i in range(6)})
+    y = (X["x0"] + X["x1"] > 0).astype(int).to_numpy()
+
+    for seed in (11, 22):
+        m = MRMR(
+            verbose=0,
+            max_runtime_mins=1,
+            n_workers=1,
+            quantization_nbins=5,
+            use_simple_mode=True,
+            random_seed=seed,
+            fe_mi_greedy_cmi_enable=True,
+        )
+        m.fit(X, y)
+
+    assert captured_seeds == [11, 22], f"seed= kwarg not threaded from self.random_seed at the fe_mi_greedy_cmi_enable call site: {captured_seeds}"
 
 
 # ---------------------------------------------------------------------------

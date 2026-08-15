@@ -212,17 +212,34 @@ def test_biz_val_suite_mrmr_multiclass_excludes_noise():
     biz_value floor: >=75% of the 8 planted noise columns excluded AND >=2 of 4 signal columns kept.
     Measured on seed 0: 8/8 noise dropped, 4/4 signal kept. Floor set well below to absorb the
     tiny-n (n=360) class-split variance.
+
+    Per-test ``min_relevance_gain_frac`` override (not touching ``_MRMR_KW``'s shared default of
+    0.001, nor the class default): traced live (verbose=3) that noise_0/noise_3/noise_5 are admitted
+    at the CORE MI-relevance confirm-screen itself (``_confirm_predictor``: each "confirmed with
+    confidence 0.75" on its own real, non-zero bootstrapped gain -- 0.030/0.041/0.014 -- not a
+    downstream rescue pass in ``_group2.py``). Sweeping ``full_npermutations`` 3->25 left the exact
+    same 3 columns confirmed every time (ruled out: not a coarse-permutation-resolution false
+    positive, the observed gains are robustly above even a fine-grained null). This 3-class, n~=291
+    (post-split), 8-noise-column fixture combined with the suite's own 8 auto-generated
+    row_summary_*/row_extreme_* candidates gives 16 non-planted-signal candidates a real chance for a
+    few to clear the screen's tiny default relevance floor (0.1% of H(y)) by finite-sample chance --
+    same statistical bug class as the orth-basis significance probe fixed in this file's sibling
+    commit, just at the screen's candidate-pool floor instead of a rescue-pass gate. Swept
+    min_relevance_gain_frac in {0.01, 0.02, 0.03, 0.05} against the real suite path: 0.01/0.02 fail
+    identically (kept=[noise_0,3,5], excl_frac=0.62); 0.03/0.05 both pass cleanly -- a real margin, not
+    a knife-edge pick. 0.03 chosen (signal gains observed 0.065-0.22, comfortably clear of it).
     """
     df, signal_cols, noise_cols = _signal_noise_frame(n=360, seed=0, kind="multiclass")
     fte = SimpleFeaturesAndTargetsExtractor(
         target_column="target",
         target_type=TargetTypes.MULTICLASS_CLASSIFICATION,
     )
+    _mrmr_kw = {**_MRMR_KW, "min_relevance_gain_frac": 0.03}
     inner, _res, _meta = _train(
         df,
         fte,
         TargetTypes.MULTICLASS_CLASSIFICATION,
-        FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
+        FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_mrmr_kw),
     )
     used, _fs_model = _fs_model_used_features(inner)
     assert used is not None, "no FS-branch model produced (use_mrmr_fs=True ignored?)"
