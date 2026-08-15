@@ -2049,6 +2049,8 @@ def test_cb_gpu_and_cpu_predictions_match_within_tolerance(tmp_path):
 
 
 # #37 Memory ceiling during polars→pandas conversion
+@pytest.mark.timeout(900)  # fits two real CatBoost fits sequentially (~264s standalone, warm); under
+# CI xdist shard contention the default global timeout leaves too thin a margin for a moderate slowdown.
 def test_polars_to_pandas_does_not_double_peak_memory(tmp_path):
     """``get_pandas_view_of_polars_df`` is documented as zero-copy
     (Arrow-backed). On a moderate frame the peak RSS during a
