@@ -117,6 +117,17 @@ class DiscoveryCache:
         # distinct keys left the loser's entire 20-key run missing from the final ledger.
         self._init_lock = threading.Lock()
 
+    def __getstate__(self) -> Dict[str, Any]:
+        """Drop the unpicklable ``threading.Lock`` from the pickled state; ``__setstate__`` rebuilds it."""
+        state = self.__dict__.copy()
+        del state["_init_lock"]
+        return state
+
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        """Restore instance state and rebuild the lock dropped by ``__getstate__`` (a fresh unlocked lock is always correct -- pickling never happens mid-critical-section)."""
+        self.__dict__.update(state)
+        self._init_lock = threading.Lock()
+
     # LRU sidecar (key -> access timestamp). Plain JSON; tiny so we read / write the whole file on
     # every touch. Atime is too unreliable on NTFS to depend on.
     #

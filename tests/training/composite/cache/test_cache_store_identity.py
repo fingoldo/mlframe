@@ -129,3 +129,24 @@ def test_cpx28_eviction_survives_reopen(tmp_path):
     assert len(surviving) == 10, "eviction did not hold the cap after reopen"
     # The 5 newest keys must survive; the 5 oldest-accessed must have evicted.
     assert {f"{i:08x}" for i in range(10, 15)} <= surviving
+
+
+def test_discovery_cache_survives_pickle_roundtrip(tmp_path):
+    """The instance-level ``threading.Lock`` guarding the lazy-init race (_ensure_lru/_ensure_sizes)
+    is not picklable by default; __getstate__/__setstate__ must drop and rebuild it so the cache
+    itself stays picklable (a real regression: adding the lock without this broke a plain
+    pickle.dumps(instance) with 'cannot pickle _thread.lock object')."""
+    import pickle
+    import threading
+
+    d = str(tmp_path)
+    c = NEW(d, max_entries=10, max_size_mb=None)
+    c.set("a", {"v": 1})
+    c._touch_lru("a")  # populate _lru so the round-trip exercises non-default lazy-init state too
+
+    restored = pickle.loads(pickle.dumps(c))  # nosec B301 - trusted in-process object, not untrusted input
+    assert restored.get("a") == {"v": 1}
+    assert isinstance(restored._init_lock, type(threading.Lock()))
+    # The restored lock must actually work (not a stale/shared reference from the original).
+    with restored._init_lock:
+        assert restored._init_lock.locked()
