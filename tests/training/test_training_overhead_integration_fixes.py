@@ -262,7 +262,12 @@ def test_fix5_upfront_filter_faster_on_skewed_workload():
     # On modern CPU, 200k rows with 95 % single-sample should finish well under 5 s.
     # Pre-Fix-5 it's ~1 s but degrades >5 s once the per-group sort of the valid
     # tail grows; we just assert "not pathologically slow".
-    assert elapsed < 10.0, f"regressed to {elapsed:.2f}s on 200k skewed groups"
+    # 10.0 -> 20.0 (2026-08-16): CI hit 10.27s (just over the old floor) under xdist shard
+    # contention on a shared 2-vCPU runner; a quiet local run consistently finishes in ~1-2s
+    # (confirmed: PASSED in isolation), and a contended local run (many concurrent background
+    # test processes) hit 17.67s with zero code change -- this is a pure wall-clock smoke check,
+    # not a tight regression gate, so real margin against contention matters more than tightness.
+    assert elapsed < 20.0, f"regressed to {elapsed:.2f}s on 200k skewed groups"
 
 
 # ---------------------------------------------------------------------------
