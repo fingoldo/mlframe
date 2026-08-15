@@ -358,8 +358,13 @@ def _prewarm_numba_cache_body():
             _ = _fast_r2_score_weighted_par(_reg_y, _reg_p, _reg_w)
         _ = _fast_r2_variance_seq(_reg_y)
     except Exception as e:  # nosec B110 - non-trivial body
-        # Non-fatal: a bad cache or numba-runtime hiccup; the seq path still works.
-        logger.debug("r2 kernels warmup failed, skipping: %s", e)
+        # Non-fatal: a bad cache or numba-runtime hiccup; the seq path still works. warning, not debug
+        # (2026-08-15): this swallow was consistently eating a real exception on every CI Linux shard
+        # (test_warmup_calls_mape_par_kernel_with_nthr / test_skip_flag_*_warms_both_seq_and_par all fail
+        # with "warmup never reached the mape par kernel" -- the actual raised exception was invisible at
+        # debug level in CI's default log capture). Bumped so the next run's logs show the real cause
+        # instead of requiring a second round-trip to even see what's failing.
+        logger.warning("r2/mape/pr-recall kernels warmup failed partway through, skipping the rest: %s", e, exc_info=True)
 
     # Wrapped in try/except for the same defensive reason as the regression block above: a bad numba
     # cache or runtime hiccup on an exotic build should degrade to seq, not abort the whole prewarm.
