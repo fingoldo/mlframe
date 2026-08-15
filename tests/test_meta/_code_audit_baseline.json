@@ -65,7 +65,7 @@
   "default_via_or::feature_selection/filters/_orth_auto_scorer_fe.py:514",
   "default_via_or::feature_selection/filters/_orthogonal_adaptive_arity_fe.py:544",
   "default_via_or::feature_selection/filters/_orthogonal_bootstrap_mi_fe.py:328",
-  "default_via_or::feature_selection/filters/_orthogonal_cmim_fe.py:530",
+  "default_via_or::feature_selection/filters/_orthogonal_cmim_fe.py:535",
   "default_via_or::feature_selection/filters/_orthogonal_copula_mi_fe.py:370",
   "default_via_or::feature_selection/filters/_orthogonal_dcor_fe.py:378",
   "default_via_or::feature_selection/filters/_orthogonal_elasticnet_fe.py:265",
