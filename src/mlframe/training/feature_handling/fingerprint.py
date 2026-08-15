@@ -32,6 +32,7 @@ import logging
 import os
 import threading
 import uuid
+import weakref
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Optional, Tuple
@@ -121,8 +122,26 @@ def _fp_cache_get(df: Any, n_sample: int) -> "Optional[ContentFingerprint]":
         return val
 
 
+def _fp_cache_evict_id(df_id: int) -> None:
+    """Drop every memo entry keyed on ``df_id`` -- called when the DataFrame that id() belonged to is
+    actually garbage-collected, so a later, different object reusing the same id() can never inherit a
+    stale entry."""
+    with _FP_LOCK:
+        for key in [k for k in _fingerprint_cache if k[0] == df_id]:
+            del _fingerprint_cache[key]
+
+
 def _fp_cache_put(df: Any, fp: "ContentFingerprint", n_sample: int) -> None:
-    """Store ``fp`` under ``df``'s cache key, moving it to MRU position and evicting the LRU entry once over ``_FP_CACHE_MAX``."""
+    """Store ``fp`` under ``df``'s cache key, moving it to MRU position and evicting the LRU entry once over ``_FP_CACHE_MAX``.
+
+    ``id(df)`` alone is not collision-proof across a long-lived process (this module's own docstring
+    claim "safe because we hold a strong ref" applies to the SESSION-scoped ``InMemoryKey``, not to this
+    memo -- ``_fingerprint_cache`` is a module-level dict that holds only the integer id, never a
+    reference to ``df`` itself, so nothing here keeps ``df`` alive or notices when it's collected).
+    A finalizer attached to ``df`` proactively evicts this id()'s entries the moment ``df`` is actually
+    freed, so a later, unrelated object that happens to get the same id() can never see a stale hit --
+    confirmed live: an empty polars frame reused a just-freed 4-row frame's id() and returned its stale
+    ``n_rows=4`` fingerprint before this fix (test_fingerprint_handles_empty_df)."""
     key = _fp_cache_key(df, n_sample)
     if key is None:
         return
@@ -131,6 +150,12 @@ def _fp_cache_put(df: Any, fp: "ContentFingerprint", n_sample: int) -> None:
         _fingerprint_cache.move_to_end(key)
         while len(_fingerprint_cache) > _FP_CACHE_MAX:
             _fingerprint_cache.popitem(last=False)
+    try:
+        weakref.finalize(df, _fp_cache_evict_id, key[0])
+    except TypeError:
+        # Some backends (e.g. certain pandas/polars build configurations) may refuse weakrefs;
+        # degrade to the pre-fix id()-only behavior for that object rather than raising.
+        logger.debug("fingerprint memo: %r does not support weakref, cannot proactively evict on GC", type(df))
 
 
 # =====================================================================
