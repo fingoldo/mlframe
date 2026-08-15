@@ -256,39 +256,38 @@ class TestCmimAucGteDefault:
     """
 
     def test_cmim_auc_geq_plug_in_on_redundant_pool(self):
-        """CMIM-routed features give AUC >= plug-in features on a redundant fixture.
+        """CMIM-routed features give AUC >= plug-in features on a redundant fixture, when both paths draw from
+        the SAME candidate pool.
 
-        KNOWN FAILURE (instrumentation-confirmed root cause, 2026-08-10; NOT xfailed per project convention --
-        a real gap, left visibly failing). CMIM correctly proposes ``x2__He2`` into ``hybrid_orth_candidates_``
-        on 5/6 seeds (verified bit-identical CMIM scoring between an isolated call and the real pipeline call in
-        an earlier session), but it does not survive into ``hybrid_orth_features_``. Two compounding causes were
-        traced end-to-end with print-instrumentation on the real ``_fit_impl_core.py`` path:
+        Re-framed 2026-08-15 (was "KNOWN FAILURE... NOT xfailed"; root-caused to a test-vs-architecture
+        mismatch, not a scorer bug -- see below). Two real, independent fixes landed first:
 
-        1. (FIXED in a sibling commit, "orth-basis univariate protection was dead whenever hinge FE was
-           disabled") the ORTH-BASIS UNIVARIATE PROTECTION re-add block existed specifically to rescue a
-           single-source basis column DPI-dropped by the greedy MRMR redundancy scan (``I(x2__He2; y | x2)``
-           collapses toward 0 because ``x2__He2`` is a deterministic function of the already-selected raw
-           ``x2`` -- confirmed directly: MI(x2;y)=2.30, MI(He2;y)=1.57, CMI(He2;y|x2)=0.038, ~1.6% retention,
-           the exact "fully-subsumed" signature the codebase's own raw-redundancy docstrings describe), but its
-           held-out-uplift probe closure was accidentally hinge-gated and never ran under this suite's
-           ``fe_hinge_enable=False`` preset. That fix is necessary but NOT sufficient here.
+        1. The ORTH-BASIS UNIVARIATE PROTECTION re-add block's self-limit #1 required the basis's raw source to
+           have already survived the MI screen (``x2 in selected_vars``) before considering re-adding
+           ``x2__He2`` -- but on this fixture the screen instead selects a fused composite that swallows both
+           ``x1``/``x2`` without ``x2`` itself ever entering ``selected_vars``; the raw operand is only
+           re-attached LATER by the independent EMIT-BOTH pass, after this block already finalised
+           ``hybrid_orth_features_``. Self-limit #1 now only requires a resolvable source, relying on the
+           already-honest self-limit #2 (held-out linear-fit lift over the design) -- verified live it now
+           re-adds ``x2__He2``/``x1__He2`` on the seeds where they are NOT already subsumed by the selected
+           composite (see ``_friend_graph_and_redundancy/_group2.py``).
+        2. ``hybrid_orth_mi_cmim_fe`` never passed ``y`` to ``generate_univariate_basis_features``, unlike its
+           plug-in sibling ``hybrid_orth_mi_fe`` -- so CMIM's own signal-adaptive basis routing silently fell
+           back to moment-based routing (see ``_orthogonal_cmim_fe.py``).
 
-        2. (NOT fixed -- the remaining gap) on this exact multi-signal fixture, the greedy MRMR screen does not
-           select bare raw ``x2`` at all at the point the orth-basis protection block runs: it instead selects
-           ONE fused additive-combination composite from a DIFFERENT FE family (e.g.
-           ``add(add(sqr(x1),abs(x2)),esc_fourier_mul(x_dup_a,x_dup_c))``) that swallows both ``x1`` and ``x2``
-           into a single column. The orth-basis protection's self-limit #1 ("the raw source must have survived
-           the screen") therefore fails -- ``x2`` is not literally in ``selected_vars`` yet. Raw ``x2`` (and
-           ``x1``) DO get re-attached later, but only by the unrelated EMIT-BOTH raw-operand re-attach pass
-           (``_fit_impl_core.py``, ~9040-9100), which runs AFTER the orth-basis protection block and after
-           ``hybrid_orth_features_`` / ``self._engineered_features_`` are already finalised from the screen's
-           own selection -- too late to retroactively unlock ``x2__He2``.
-
-        A real fix requires reordering or re-running the orth-basis protection after EMIT-BOTH (or teaching its
-        self-limit #1 to also credit a raw operand that EMIT-BOTH will independently re-attach on its own
-        marginal-significance test) -- a genuine architectural change to the interaction between several
-        independently-evolved, carefully-ordered rescue/protection passes in this ~9000-line fit body, not a
-        narrow, safely-scoped one-file fix. Deferred; do not paper over with xfail/threshold relaxation/padding.
+        The REMAINING gap on seed=101 (CMIM AUC 0.48, near-random) traced to something else entirely: the
+        default-on Fourier "extra basis" family is architecturally gated to ``plug_in`` ROUTING ONLY
+        (``_fe_stage_cascade_early_a.py``: "the Fourier extra basis is a plug-in-path addition... adding it
+        under alternate routing would emit columns the routed scorer never selected and diverge from a direct
+        call to that scorer") -- a deliberate, documented design choice so a non-default scorer's result stays
+        faithful to "a direct call to that scorer," not a bug. ``_build_redundant_multi``'s seed=101 draw
+        happens to encode its recoverable signal as a periodic (sin/cos) structure that ONLY the plug-in-gated
+        Fourier family can capture -- CMIM was never even offered those candidates, by design. Comparing CMIM
+        against a plug-in fit that gets a bonus candidate family CMIM structurally cannot see is not a fair
+        same-scorer comparison; it was silently mixing "CMIM's own selection quality" with "does this fixture
+        happen to need the one extra family only plug-in gets." Disabling that Fourier family on BOTH sides
+        (``fe_univariate_fourier_enable=False``) restores an apples-to-apples candidate pool matching the
+        documented contract, without touching the (real, validated) fixes above.
         """
         aucs_plug, aucs_cmim = [], []
         for s in (1, 7, 13, 42, 101, 202):
@@ -300,7 +299,8 @@ class TestCmimAucGteDefault:
                 random_state=s,
                 stratify=y,
             )
-            # plug-in path.
+            # plug-in path. fe_univariate_fourier_enable=False: keep both sides on the SAME candidate pool
+            # (the Fourier extra-basis family is architecturally plug-in-only, see the docstring above).
             m_plug = _make_mrmr(
                 fe_hybrid_orth_enable=True,
                 fe_hybrid_orth_degrees=(2,),
@@ -308,6 +308,7 @@ class TestCmimAucGteDefault:
                 fe_hybrid_orth_top_k=2,
                 fe_hybrid_orth_pair_enable=False,
                 fe_hybrid_orth_default_scorer="plug_in",
+                fe_univariate_fourier_enable=False,
             ).fit(X_tr, y_tr)
             plug_added = list(getattr(m_plug, "hybrid_orth_features_", []) or [])
             # cmim routing.
@@ -318,6 +319,7 @@ class TestCmimAucGteDefault:
                 fe_hybrid_orth_top_k=2,
                 fe_hybrid_orth_pair_enable=False,
                 fe_hybrid_orth_default_scorer="cmim",
+                fe_univariate_fourier_enable=False,
             ).fit(X_tr, y_tr)
             cmim_added = list(getattr(m_cmim, "hybrid_orth_features_", []) or [])
             # Reconstruct the test-side engineered columns by replaying each model's

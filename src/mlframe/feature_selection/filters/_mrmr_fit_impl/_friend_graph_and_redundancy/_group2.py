@@ -301,7 +301,6 @@ def _friend_graph_and_redundancy_passes_group2(
     if _orth_feats and len(selected_vars) and ("_heldout_incr_over_selected" in locals()):
         _cols_index_o = {c: i for i, c in enumerate(cols)}
         _sv_set_o = set(selected_vars)
-        _sel_names_o = {cols[i] for i in selected_vars if 0 <= i < len(cols)}
         _ORTH_PROTECT_MIN_INCR_R2 = 0.01  # wider than hinge 0.003: a genuine single-var basis lifts held-out R^2 by >>0.01 (~0.7 for exp(-a**2)); keeps noise-fit basis out
         _readd_orth = []
         for _on in _orth_feats:
@@ -318,8 +317,17 @@ def _friend_graph_and_redundancy_passes_group2(
             if getattr(_rec_o, "kind", None) == "hinge_basis":
                 continue
             _src_o = tuple(getattr(_rec_o, "src_names", ()) or ())
-            # Self-limit #1: single-source basis whose raw source survived the screen.
-            if len(_src_o) != 1 or _src_o[0] not in _sel_names_o:
+            # Self-limit #1: single-source basis whose raw source is resolvable. NOT gated on "survived the
+            # screen" (see the hinge-protection block's identical fix above): the source may not yet be in
+            # selected_vars here but get re-attached later by the EMIT-BOTH operand pass (_assign_support.py),
+            # which independently validates it via a permutation-significance test on the SAME raw column --
+            # requiring it to already be selected at THIS point only means "screen order" decides whether the
+            # basis survives, not "is the source real" (confirmed live: x2 clears EMIT-BOTH's marginal-MI test
+            # on the CMIM redundant-pool fixture but is not yet in selected_vars when this block runs, so
+            # x2__He2 was dropped despite a real, held-out-validated basis win). Self-limit #2 below is the
+            # honest check -- a held-out linear-fit lift over the already-selected design -- so requiring
+            # screen-survival too was a redundant, ordering-fragile proxy for the same thing.
+            if len(_src_o) != 1:
                 continue
             _basis_vals = _eng_continuous_snapshot.get(_on)
             if _basis_vals is None and isinstance(X, pd.DataFrame) and _on in X.columns:

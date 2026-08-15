@@ -64,5 +64,10 @@ def test_rank_table_plug_in_copula_unchanged():
         ref_mi = _score_plug_in(xv, y, nbins=10)
         ref_cop = _score_copula(xv, y, n_bins=20)
         rowmask = table["engineered_col"] == col
-        assert float(table.loc[rowmask, "score_plug_in"].iloc[0]) == ref_mi
-        assert float(table.loc[rowmask, "score_copula"].iloc[0]) == ref_cop
+        # rtol=1e-14, not exact equality: _compute_per_scorer_rank_table batches through the same
+        # @njit MI/copula kernels _score_plug_in/_score_copula call directly -- numba's LLVM-lowered
+        # codegen for the batched vs per-column call shape isn't guaranteed bit-identical to numpy's
+        # libm across platforms (matches on Windows, diverges by ~1 ULP on CI's ubuntu-latest; same
+        # class already fixed for SafePowEpsilonFloor in test_fe_numeric_hygiene_guards.py).
+        assert float(table.loc[rowmask, "score_plug_in"].iloc[0]) == pytest.approx(ref_mi, rel=1e-14)
+        assert float(table.loc[rowmask, "score_copula"].iloc[0]) == pytest.approx(ref_cop, rel=1e-14)
