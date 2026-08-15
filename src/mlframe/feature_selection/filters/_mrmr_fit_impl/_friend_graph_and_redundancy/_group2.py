@@ -320,18 +320,22 @@ def _friend_graph_and_redundancy_passes_group2(
                 try:
                     from ...permutation import mi_direct as _orth_mi_direct
 
-                    # npermutations=200/alpha=0.02, not the EMIT-BOTH default (32/0.05): at only 32 shuffles
-                    # p can only take values in {0/32, 1/32, ...} -- p<0.05 is satisfied by UP TO ONE shuffle
-                    # beating the observed stat, which measurably let pure-noise sources through on a
-                    # tiny-n (360-row) multiclass fixture with several noise candidates probed
-                    # (test_biz_val_suite_mrmr_multiclass_excludes_noise: kept noise_0/3/5). Finer
-                    # resolution + a tighter alpha needs the observed stat to beat essentially ALL shuffles.
+                    # 2026-08-16: was briefly tightened to npermutations=200/alpha=0.02 (6.25x the EMIT-BOTH
+                    # default 32/0.05) on the theory this probe's coarse resolution let noise sources through
+                    # on test_biz_val_suite_mrmr_multiclass_excludes_noise. That theory did not survive
+                    # direct testing -- swept npermutations 3->25 against the real fixture with ZERO change
+                    # in outcome, proving this probe was never the actual admission mechanism (the real cause
+                    # was the core MI-relevance confirm-screen's floor, fixed via a per-test
+                    # min_relevance_gain_frac override, unrelated to this probe). Keeping the tightened
+                    # value paid a real cost with no correctness benefit: test_all_enabled_fit_under_30s
+                    # regressed to 43-50s (30s budget) purely from this probe's 6.25x cost on fixtures that
+                    # call it often. Reverted to the EMIT-BOTH default (32/0.05).
                     _r = _orth_mi_direct(
                         data, x=(int(_src_idx),), y=target_indices,
-                        factors_nbins=nbins, npermutations=200, min_nonzero_confidence=0.0,
+                        factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
                         return_null_mean=True, parallelism="none", prefer_gpu=False,
                     )
-                    _sig = bool(float(_r[3]) < 0.02)  # p-value below alpha -> genuine marginal signal
+                    _sig = bool(float(_r[3]) < 0.05)  # p-value below alpha -> genuine marginal signal
                 except Exception as e:
                     logger.debug("orth-basis source significance probe failed for %r (%s: %s) -- not silently dropping a possibly-genuine source", _src_name, type(e).__name__, e)
             _orth_sig_cache[_src_name] = _sig
