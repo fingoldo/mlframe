@@ -140,6 +140,18 @@ def test_f3_disk_tier_evicts_when_free_space_below_threshold(tmp_path, monkeypat
     )
     cache = FeatureCache(cfg)
 
+    class _AbundantUsage:
+        """Fake Usage."""
+        free = 500.0 * 1e9  # 500 GB free -- well above disk_min_free_gb, so the setup writes below don't self-evict.
+
+    # _write_to_disk unconditionally calls _maybe_evict_disk, which reads the REAL shutil.disk_usage
+    # until monkeypatched below -- on a dev box with plenty of free space that's a no-op, but CI's
+    # GitHub-hosted runners typically expose well under the unreachable 100GB disk_min_free_gb target
+    # from the start, so every one of the 5 setup writes below immediately self-evicted everything
+    # written so far, leaving 0 files by the time this loop ends (observed: "assert 0 == 5"). Force an
+    # abundant reading for setup; only switch to the low-free-space fake right before the real trigger.
+    monkeypatch.setattr(cache_mod.shutil, "disk_usage", lambda _d: _AbundantUsage())
+
     df = pd.DataFrame({"txt": [f"row{i}" for i in range(20)]})
     fp = fingerprint_df(df)
     for i in range(5):

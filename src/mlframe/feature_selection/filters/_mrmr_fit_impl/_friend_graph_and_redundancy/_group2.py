@@ -301,7 +301,42 @@ def _friend_graph_and_redundancy_passes_group2(
     if _orth_feats and len(selected_vars) and ("_heldout_incr_over_selected" in locals()):
         _cols_index_o = {c: i for i, c in enumerate(cols)}
         _sv_set_o = set(selected_vars)
+        _sel_names_o = {cols[i] for i in selected_vars if 0 <= i < len(cols)}
         _ORTH_PROTECT_MIN_INCR_R2 = 0.01  # wider than hinge 0.003: a genuine single-var basis lifts held-out R^2 by >>0.01 (~0.7 for exp(-a**2)); keeps noise-fit basis out
+        _orth_sig_cache: dict = {}  # per-source-name memo: the permutation-significance probe below is O(32 perms), reused across every basis sharing a source
+
+        def _orth_source_is_signal(_src_name: str) -> bool:
+            """Permutation-significance test (32 perms) on the RAW source column, mirroring EMIT-BOTH's
+            own operand-significance probe (``_assign_support.py``) -- used ONLY as a cheap fallback when
+            the source did NOT already survive the screen, so a basis on a genuinely-real-but-composite-
+            subsumed source (e.g. x2 in the CMIM redundant-pool fixture) still gets a fair shot without
+            reopening the self-limit to EVERY basis regardless of source quality (that regressed both a
+            noise-exclusion floor and this fit's wall-time budget -- see the commit history here)."""
+            if _src_name in _orth_sig_cache:
+                return bool(_orth_sig_cache[_src_name])
+            _sig = True  # estimator error -> do not silently drop a possibly-genuine source
+            _src_idx = _cols_index_o.get(_src_name)
+            if _src_idx is not None:
+                try:
+                    from ...permutation import mi_direct as _orth_mi_direct
+
+                    # npermutations=200/alpha=0.02, not the EMIT-BOTH default (32/0.05): at only 32 shuffles
+                    # p can only take values in {0/32, 1/32, ...} -- p<0.05 is satisfied by UP TO ONE shuffle
+                    # beating the observed stat, which measurably let pure-noise sources through on a
+                    # tiny-n (360-row) multiclass fixture with several noise candidates probed
+                    # (test_biz_val_suite_mrmr_multiclass_excludes_noise: kept noise_0/3/5). Finer
+                    # resolution + a tighter alpha needs the observed stat to beat essentially ALL shuffles.
+                    _r = _orth_mi_direct(
+                        data, x=(int(_src_idx),), y=target_indices,
+                        factors_nbins=nbins, npermutations=200, min_nonzero_confidence=0.0,
+                        return_null_mean=True, parallelism="none", prefer_gpu=False,
+                    )
+                    _sig = bool(float(_r[3]) < 0.02)  # p-value below alpha -> genuine marginal signal
+                except Exception as e:
+                    logger.debug("orth-basis source significance probe failed for %r (%s: %s) -- not silently dropping a possibly-genuine source", _src_name, type(e).__name__, e)
+            _orth_sig_cache[_src_name] = _sig
+            return _sig
+
         _readd_orth = []
         for _on in _orth_feats:
             _oidx = _cols_index_o.get(_on)
@@ -317,17 +352,23 @@ def _friend_graph_and_redundancy_passes_group2(
             if getattr(_rec_o, "kind", None) == "hinge_basis":
                 continue
             _src_o = tuple(getattr(_rec_o, "src_names", ()) or ())
-            # Self-limit #1: single-source basis whose raw source is resolvable. NOT gated on "survived the
-            # screen" (see the hinge-protection block's identical fix above): the source may not yet be in
-            # selected_vars here but get re-attached later by the EMIT-BOTH operand pass (_assign_support.py),
-            # which independently validates it via a permutation-significance test on the SAME raw column --
-            # requiring it to already be selected at THIS point only means "screen order" decides whether the
-            # basis survives, not "is the source real" (confirmed live: x2 clears EMIT-BOTH's marginal-MI test
-            # on the CMIM redundant-pool fixture but is not yet in selected_vars when this block runs, so
-            # x2__He2 was dropped despite a real, held-out-validated basis win). Self-limit #2 below is the
-            # honest check -- a held-out linear-fit lift over the already-selected design -- so requiring
-            # screen-survival too was a redundant, ordering-fragile proxy for the same thing.
+            # Self-limit #1: single-source basis whose raw source EITHER (a) already survived the screen
+            # (the cheap, common-case fast path -- most bases' sources are already selected, so this never
+            # pays the permutation-test cost below), OR (b) independently clears its own marginal-
+            # significance probe, mirroring EMIT-BOTH's own operand-significance check (_assign_support.py).
+            # A blanket drop of (a) -- requiring only a resolvable source -- was tried and reverted: it let
+            # every single-source basis reach the (weaker, held-out-lift) self-limit #2 below regardless of
+            # whether the source carried any real signal, which measurably (a) let 3/8 pure-noise columns'
+            # bases clear self-limit #2 by chance on a small held-out fold (test_biz_val_suite_mrmr_
+            # multiclass_excludes_noise) and (b) nearly doubled this fit's wall time by evaluating the
+            # expensive held-out-lift check for every basis instead of only screen-survivors (test_all_
+            # enabled_fit_under_30s). The permutation probe in (b) is the correct, honest replacement for
+            # the case the blanket drop was actually trying to fix (a real source composite-subsumed out of
+            # selected_vars, e.g. x2 in the CMIM redundant-pool fixture) -- it costs O(32 perms) but ONLY
+            # for the source-not-yet-selected case, not for every candidate.
             if len(_src_o) != 1:
+                continue
+            if _src_o[0] not in _sel_names_o and not _orth_source_is_signal(_src_o[0]):
                 continue
             _basis_vals = _eng_continuous_snapshot.get(_on)
             if _basis_vals is None and isinstance(X, pd.DataFrame) and _on in X.columns:
