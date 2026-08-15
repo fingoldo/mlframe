@@ -12,6 +12,8 @@ shared pyarrow Categorical-cast cost dominates).
 
 from __future__ import annotations
 
+import subprocess  # nosec B404 - used only with a fixed argv (sys.executable + a literal script), no shell
+import sys
 import time
 
 import numpy as np
@@ -60,11 +62,33 @@ def test_raw_lgb_dataset_rejects_polars_proves_bridge_is_required():
 
     The shim's pre-fix docstring claimed polars worked via ``__array__``. It did not on LightGBM 4.x. This test pins the upstream behaviour so a future
     LightGBM release that learns to consume polars natively flips this test red and signals the bridge can be retired.
+
+    Run in an isolated subprocess: newer LightGBM (narwhals-based native dataframe ingestion,
+    ``__init_from_narwhals``) does not always raise a clean ``TypeError`` here anymore -- on a
+    Categorical/dictionary-encoded Arrow column it can instead abort the WHOLE PROCESS (confirmed live
+    via CI crash logs: ``[LightGBM] [Fatal] Unsupported Arrow type: dictionary`` immediately followed by
+    ``terminate called without an active exception`` / ``Fatal Python error: Aborted``, with the C stack
+    showing ``lightgbm.basic.__init_from_narwhals -> _lazy_init -> Dataset.construct()``). A same-process
+    ``pytest.raises`` can never catch a process abort -- it took the whole pytest-xdist worker down with
+    it, silently dropping every other test that worker was mid-running. Isolating the probe means a crash
+    here only fails THIS test (non-zero exit / no success marker), not the whole worker. Either a clean
+    ``TypeError`` OR a native crash proves the raw path is still unsafe without the bridge; only a clean
+    SUCCESS (the marker printed) means LightGBM now handles this natively and the bridge can be retired.
     """
-    df_pl = _make_mixed_polars(100)
-    y = np.zeros(df_pl.height)
-    with pytest.raises(TypeError, match="Cannot initialize Dataset from"):
-        lgb.Dataset(data=df_pl, label=y, free_raw_data=False).construct()
+    script = (
+        "import numpy as np, polars as pl, lightgbm as lgb\n"
+        "from tests.training.test_lgb_shim_polars_via_arrow_bridge import _make_mixed_polars\n"
+        "df_pl = _make_mixed_polars(100)\n"
+        "y = np.zeros(df_pl.height)\n"
+        "lgb.Dataset(data=df_pl, label=y, free_raw_data=False).construct()\n"
+        "print('RAW_LGB_DATASET_CONSTRUCT_SUCCEEDED')\n"
+    )
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=120)  # nosec B603 -- fixed local argv (sys.executable + a literal script), no shell, no untrusted input
+    assert "RAW_LGB_DATASET_CONSTRUCT_SUCCEEDED" not in result.stdout, (
+        "raw lgb.Dataset(polars).construct() now SUCCEEDS -- LightGBM learned to consume polars "
+        "(incl. Categorical) natively; the Arrow split-blocks bridge may be retirable. "
+        f"stdout={result.stdout!r} stderr={result.stderr[-2000:]!r}"
+    )
 
 
 def test_lgb_dataset_from_bridged_polars_keeps_categorical():

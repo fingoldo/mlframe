@@ -298,9 +298,20 @@ def _prewarm_numba_cache_body():
     # any caller that doesn't know or doesn't set this keeps today's behavior (both variants warmed, matching the >=100k-row case where the parallel path genuinely gets used and a mid-fit
     # lazy-compile stall must be avoided).
     _skip_par_prewarm = _os.environ.get("MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL") == "1"
+    _yt_f64 = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.float64)
+    _yp_f64 = np.array([0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6, 0.5, 0.5], dtype=np.float64)
+    # 2026-08-16: this used to be ONE big try/except spanning brier/log_loss/pr_recall/subset_accuracy/
+    # jaccard/logits/mape/prob_separation/mae/mse/r2 -- every CI Linux shard's numba build failed to
+    # compile ONE of the earlier kernels (exact culprit unconfirmed; not reproducible on this dev box's
+    # numba 0.60.0 -- pyproject pins no numba ceiling below py3.13, so CI resolves a materially newer
+    # wheel where a parfor-lowering issue this file's jaccard/hamming block already worked around for a
+    # DIFFERENT call site may still bite here too), silently aborting every kernel AFTER it in the same
+    # block -- including the mae/mse/r2 kernels 3 dedicated tests assert get warmed
+    # (test_warmup_calls_mape_par_kernel_with_nthr, test_skip_flag_*_warms_both_seq_and_par). Isolated
+    # into independent try/except groups, matching this file's own established per-group pattern used
+    # everywhere else (see the calibration/ECE/heavy-lib/GPU blocks above and below) -- one group's
+    # compile failure no longer takes any other group down with it.
     try:
-        _yt_f64 = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.float64)
-        _yp_f64 = np.array([0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6, 0.5, 0.5], dtype=np.float64)
         if not _skip_par_prewarm:
             _ = _fast_brier_score_loss_par(_yt_f64, _yp_f64)
         # iter190 (2026-05-23): also prewarm bool->float64 signature for the
@@ -316,24 +327,44 @@ def _prewarm_numba_cache_body():
             _ = _fast_brier_score_loss_par(_yt_bool, _yp_f64)
             _ = _fast_log_loss_binary_par(_yt_bool, _yp_f64, 1e-15)
             _ = _fast_log_loss_binary_par(_yt_f64, _yp_f64, 1e-15)
+    except Exception as e:  # nosec B110 - non-trivial body
+        logger.warning("brier/log_loss _par kernels warmup failed, skipping the rest of this group: %s", e, exc_info=True)
+
+    try:
         _yt_i64 = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.int64)
         _yp_i64 = np.array([0, 1, 0, 1, 0, 1, 0, 1, 1, 0], dtype=np.int64)
         if not _skip_par_prewarm:
             _ = _compute_pr_recall_f1_metrics_par(_yt_i64, _yp_i64)
+    except Exception as e:  # nosec B110 - non-trivial body
+        logger.warning("pr_recall_f1 _par kernel warmup failed, skipping: %s", e, exc_info=True)
+
+    try:
         _ml_yt = np.zeros((10, 3), dtype=np.uint8); _ml_yt[:5, 0] = 1
         _ml_yp = np.zeros((10, 3), dtype=np.uint8); _ml_yp[:5, 0] = 1
         if not _skip_par_prewarm:
             _ = _fast_subset_accuracy_par(_ml_yt, _ml_yp)
             _ = _fast_jaccard_score_par(_ml_yt, _ml_yp)
+    except Exception as e:  # nosec B110 - non-trivial body
+        logger.warning("subset_accuracy/jaccard _par kernels warmup failed, skipping: %s", e, exc_info=True)
 
+    try:
+        if not _skip_par_prewarm:
             _logits_b = np.array([-1.0, 0.0, 1.0, 2.0, -0.5, 0.5, 1.5, -1.5, 0.25, -0.25], dtype=np.float64)
             _ = _cb_logits_to_probs_binary_par(_logits_b)
             _logits_mc = np.array([[-1.0, 0.0, 1.0], [0.5, -0.5, 0.0], [0.0, 1.0, -1.0]], dtype=np.float64)
             _ = _cb_logits_to_probs_multiclass_par(_logits_mc)
+    except Exception as e:  # nosec B110 - non-trivial body
+        logger.warning("cb_logits_to_probs _par kernels warmup failed, skipping: %s", e, exc_info=True)
+
+    try:
+        if not _skip_par_prewarm:
             _ = _max_abs_pct_error_kernel_par(_yt_f64, _yp_f64, numba.get_num_threads())
             _yt_i64_psep = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.int64)
             _ = _probability_separation_score_par(_yt_i64_psep, _yp_f64, 1, 0.5)
+    except Exception as e:  # nosec B110 - non-trivial body
+        logger.warning("mape/probability_separation _par kernels warmup failed, skipping: %s", e, exc_info=True)
 
+    try:
         _reg_y = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0], dtype=np.float64)
         _reg_p = _reg_y + 0.05
         _reg_w = np.ones_like(_reg_y)
@@ -358,13 +389,7 @@ def _prewarm_numba_cache_body():
             _ = _fast_r2_score_weighted_par(_reg_y, _reg_p, _reg_w)
         _ = _fast_r2_variance_seq(_reg_y)
     except Exception as e:  # nosec B110 - non-trivial body
-        # Non-fatal: a bad cache or numba-runtime hiccup; the seq path still works. warning, not debug
-        # (2026-08-15): this swallow was consistently eating a real exception on every CI Linux shard
-        # (test_warmup_calls_mape_par_kernel_with_nthr / test_skip_flag_*_warms_both_seq_and_par all fail
-        # with "warmup never reached the mape par kernel" -- the actual raised exception was invisible at
-        # debug level in CI's default log capture). Bumped so the next run's logs show the real cause
-        # instead of requiring a second round-trip to even see what's failing.
-        logger.warning("r2/mape/pr-recall kernels warmup failed partway through, skipping the rest: %s", e, exc_info=True)
+        logger.warning("mae/mse/r2 kernels warmup failed partway through, skipping the rest: %s", e, exc_info=True)
 
     # Wrapped in try/except for the same defensive reason as the regression block above: a bad numba
     # cache or runtime hiccup on an exotic build should degrade to seq, not abort the whole prewarm.

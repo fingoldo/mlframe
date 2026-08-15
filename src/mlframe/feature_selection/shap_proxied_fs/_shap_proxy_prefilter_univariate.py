@@ -221,7 +221,17 @@ def f_classif_chunked(
         # variance and silently dropped informative columns. Using the centered cancellation floor
         # keeps such columns while still catching pure-FP-drift constants.
         cancel_floor = eps * np.maximum(np.abs(total_sumsq), np.abs(correction))
-        const_mask = sst <= cancel_floor
+        # OR in an exact, cancellation-free identity check (chunk.max == chunk.min per column):
+        # the sst-vs-cancel_floor test alone is GEMM/legacy-path-dependent -- BLAS dgemm's own
+        # (blocked/threaded) reduction order for `indicators @ chunk` accumulates a literally
+        # bit-for-bit constant column's sums/sumsq differently from the legacy per-class
+        # `.sum(axis=0)`, and that path-dependent roundoff can exceed cancel_floor on one path but
+        # not the other for the SAME data (confirmed: a column of all-1.7s cleared the sst gate via
+        # the legacy path but produced a spurious finite F=0.0 via GEMM). min==max carries no
+        # cancellation risk at all and always agrees between paths for a truly constant column;
+        # keep the sst-based test too since it additionally catches "constant modulo an earlier
+        # operation's ULP-level FP drift" columns that min==max would miss.
+        const_mask = (sst <= cancel_floor) | (chunk.max(axis=0) == chunk.min(axis=0))
         with np.errstate(divide="ignore", invalid="ignore"):
             f = (ssbn / df_between) / (sswn / df_within)
         f64 = f.astype(np.float64, copy=False)

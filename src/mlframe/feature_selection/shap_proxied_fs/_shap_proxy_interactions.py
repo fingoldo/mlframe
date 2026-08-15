@@ -26,7 +26,7 @@ from typing import Any, cast
 
 import numpy as np
 
-from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import _unwrap_estimator, _fit_one
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import _maybe_patch_shap_xgb_base_score, _unwrap_estimator, _fit_one
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import proxy_loss, resolve_metric
 
 logger = logging.getLogger(__name__)
@@ -188,8 +188,14 @@ def compute_interaction_tensor(model_template, X, y, *, classification, rng=None
 
     import shap
 
-    explainer = shap.TreeExplainer(_unwrap_estimator(est), feature_perturbation="tree_path_dependent")
-    Phi = explainer.shap_interaction_values(X)
+    # Same shap<0.52 + xgboost>=2.0 base_score workaround compute_shap_matrix already applies
+    # (_shap_proxy_explain.py) -- this TreeExplainer construction was missing it, so an xgboost
+    # estimator that crashes shap's XGBTreeModelLoader in the main SHAP-matrix path crashed here too,
+    # just later (confirmed live: "ValueError: could not convert string to float: '[5.0166667E-1]'"
+    # from shap's XGBTreeModelLoader.__init__ parsing xgboost's array-wrapped base_score string).
+    with _maybe_patch_shap_xgb_base_score():
+        explainer = shap.TreeExplainer(_unwrap_estimator(est), feature_perturbation="tree_path_dependent")
+        Phi = explainer.shap_interaction_values(X)
     base = explainer.expected_value
     if isinstance(Phi, list):  # binary -> positive class
         was_binary_list = len(Phi) == 2  # capture BEFORE reassigning Phi (len(Phi) below would read n_rows, not class count)
@@ -318,7 +324,7 @@ def _su_bin(col: np.ndarray, n_bins: int) -> np.ndarray:
         uniq, inv = np.unique(col, return_inverse=True)
         if uniq.size <= 1:
             return np.zeros(n, dtype=np.int64)
-        return inv.astype(np.int64)
+        return np.asarray(inv, dtype=np.int64)
     ids = np.clip(np.digitize(col, edges[1:-1]), 0, edges.size - 2).astype(np.int64)
     # densify in case some interior bins are empty
     _, ids = np.unique(ids, return_inverse=True)
@@ -332,7 +338,7 @@ def _su_target_bin(y: np.ndarray, n_bins: int) -> np.ndarray:
     if uniq.size <= 20:
         # dense relabel so class labels are contiguous 0..C-1 (compute_su_from_classes indexes by id)
         _, inv = np.unique(y, return_inverse=True)
-        return inv.astype(np.int64)
+        return np.asarray(inv, dtype=np.int64)
     return _su_bin(y.astype(np.float64), n_bins)
 
 
