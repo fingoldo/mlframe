@@ -168,14 +168,20 @@ def test_cooccur_weight_roundtrips_a_fit(weight):
     assert hasattr(h, "_tree_prod_pairs_")
 
 
-@pytest.mark.timeout(900)  # this specific fit timed out at the file-wide 450s twice under heavy full-matrix
-# contention (its own real fit is the file's slowest); 600s matches the coarse global backstop so it no
-# longer trips before the run-level safety net would anyway.
 def test_gain_mode_ranks_a_true_operand_pair_among_top():
     """The tree member's gain-weighted co-occurrence must surface a real XOR operand pair (one of xa_p/xb_p
-    co-occurring) among its proposed pairs -- a structural check the gain aggregation is wired correctly."""
+    co-occurring) among its proposed pairs -- a structural check the gain aggregation is wired correctly.
+
+    use_shap=False/use_boruta=False: _tree_prod_pairs_ (the only thing this test reads) is fully finalised by
+    HybridSelector._tree_signals + the shared permutation-FI gate, BEFORE the shap/boruta members ever run
+    (verified by reading fit()'s call order) -- their vote never touches it. Profiled: this fit was CI's single
+    slowest test at 717s, almost entirely the SHAP member's exact brute-force coalition search (the 26-candidate
+    frame here sits inside shap_proxied_fs's n<=~26 brute-force routing threshold, C(26, 13)~=10.4M combos at
+    the worst cardinality) plus ~17s more in the Boruta member -- both members whose result this assertion never
+    consults. Disabling them cuts the fit to the tree/MRMR members' own cost with zero change to what is
+    asserted (measured well under a minute locally, no more file-wide-contention timeout risk)."""
     X, y = _xor_bed(n=2000, seed=0, n_pairs=3, n_noise=20)
-    h = _fit(X, y, cooccur_weight="gain")
+    h = _fit(X, y, cooccur_weight="gain", use_shap=False, use_boruta=False)
     pairs = [tuple(sorted(p)) for p in h._tree_prod_pairs_]
     true_pairs = {tuple(sorted((f"xa_{p}", f"xb_{p}"))) for p in range(3)}
     assert any(p in true_pairs for p in pairs), f"no true operand pair among proposed {pairs[:6]}"

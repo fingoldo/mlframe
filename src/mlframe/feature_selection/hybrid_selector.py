@@ -161,6 +161,7 @@ class HybridSelector:
 
     def __init__(self, vote: int = 1, prescreen: bool = True, expand_clusters: bool = False,
                  fi_guard: bool = False, corr_thr: float = 0.92, use_mrmr: bool = True,
+                 use_shap: bool = True, use_boruta: bool = True,
                  use_fe: bool = True, fe_max_steps: int = 1, boruta_driver: str = "gini", anchor_fe: bool = False,
                  use_tree_member: bool = True, tree_top_k: int = 0, tree_cooccur_pairs: int = 12,
                  tree_n_estimators: int = 80, tree_max_depth: int = 3, tree_prod_gate: str = "synergy",
@@ -212,6 +213,15 @@ class HybridSelector:
         self.fi_guard = fi_guard
         self.corr_thr = corr_thr
         self.use_mrmr = use_mrmr
+        # use_shap / use_boruta (default ON, matching use_mrmr/use_tree_member's existing pattern): the SHAP and
+        # Boruta members are each independently gated on/off so a caller who only needs the cheap MRMR/tree
+        # co-occurrence signal (e.g. tests asserting purely on _tree_prod_pairs_, which is fully finalised before
+        # either member runs) is not forced to pay for both - SHAP alone measured ~200s on a 26-candidate frame
+        # (exact brute-force search routes there at n<=~26, see shap_proxied_fs's own n_sub gate) and Boruta ~17s
+        # (see the bench-attempt-rejected comment above on why they cannot be parallelised together). Both default
+        # True so existing callers relying on the full ensemble vote see zero behaviour change.
+        self.use_shap = use_shap
+        self.use_boruta = use_boruta
         # use_tree_member (default ON - MEASURED win on interaction-heavy real data): a cheap shallow-GBM that
         # contributes a signal the MI-filter members structurally MISS. MRMR's marginal-MI greedy collapses on
         # interaction-heavy data (madelon: 3 features, lgbm 0.69) because the informative operands have ~0 marginal
@@ -664,15 +674,21 @@ class HybridSelector:
         # not glue. The hybrid's OWN glue is ~0.05s (<0.15% of wall); see corr_clusters for the one glue micro-opt.
         member_sel = {}
         member_sel["mrmr"] = [c for c in (self.mrmr_selected_ + sorted(engineered)) if c in relevant] or list(relevant)
-        try:
-            member_sel["shap"] = self._run_shap(X_aug, y, relevant, self.artifacts_)
-        except Exception as e:
-            warnings.warn(f"HybridSelector: shap member degraded ({type(e).__name__}: {e})", stacklevel=2)
+        if self.use_shap:
+            try:
+                member_sel["shap"] = self._run_shap(X_aug, y, relevant, self.artifacts_)
+            except Exception as e:
+                warnings.warn(f"HybridSelector: shap member degraded ({type(e).__name__}: {e})", stacklevel=2)
+                member_sel["shap"] = []
+        else:
             member_sel["shap"] = []
-        try:
-            member_sel["boruta"] = self._run_boruta_premerge(X_aug, y, relevant)
-        except Exception as e:
-            warnings.warn(f"HybridSelector: boruta member degraded ({type(e).__name__}: {e})", stacklevel=2)
+        if self.use_boruta:
+            try:
+                member_sel["boruta"] = self._run_boruta_premerge(X_aug, y, relevant)
+            except Exception as e:
+                warnings.warn(f"HybridSelector: boruta member degraded ({type(e).__name__}: {e})", stacklevel=2)
+                member_sel["boruta"] = []
+        else:
             member_sel["boruta"] = []
         # TREE member: votes for its top-k features by split importance, plus the (already gate-admitted, already in
         # the frame) co-occurrence PRODUCT columns. The product gating happened up front (tree_prod_gate), so the
