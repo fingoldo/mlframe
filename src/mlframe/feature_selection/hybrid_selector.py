@@ -299,6 +299,9 @@ class HybridSelector:
         # store the summed-per-repeat importance too (drives cluster_rep="sum_fi"); falls back to mean*n_repeats if the
         # raw per-repeat matrix is unavailable. sum_fi prefers members whose importance is consistently high across
         # repeats, a more stable representative than a single lucky mean.
+        # `importances` is a real key on sklearn's permutation_importance Bunch (the raw (n_features, n_repeats)
+        # matrix, alongside importances_mean/importances_std) -- an external class the first-party-only
+        # code_audit scanner can't see, hence its getattr_unknown_attribute false positive here.
         imp = getattr(pi, "importances", None)
         sums = imp.sum(axis=1) if imp is not None else pi.importances_mean * 4.0
         self._fi_sum_ = {c: float(s) for c, s in zip(X.columns, sums)}
@@ -390,7 +393,7 @@ class HybridSelector:
                 top = [(a, b) for (a, b), _ in _pair_w_sorted if a in cols and b in cols]
                 # expand each co-occurrence pair to one candidate column per rich operator; each column carries its
                 # operand pair (so the synergy gate scores it independently) and its op (so _augment replays it).
-                ops = [o for o in self.tree_rich_ops if o in _TREE_OPS] or ["mul"]
+                ops = [o for o in self.tree_rich_ops if o in _TREE_OPS] or ["mul"]  # empty/all-invalid config -> the one safe default op, not a caller-supplied-empty trap
                 pairs, names = [], []
                 for i, (a, b) in enumerate(top):
                     for op in ops:
@@ -436,7 +439,7 @@ class HybridSelector:
         if rep == "first":
             return members[0]
         if rep == "sum_fi":
-            fsum = getattr(self, "_fi_sum_", None) or self.fi_
+            fsum = getattr(self, "_fi_sum_", None) or self.fi_  # _fi_sum_ unset/empty (pre-fit / degenerate) -> the mean-FI dict is a safe substitute, not a caller-supplied-empty trap
             return max(members, key=lambda f: fsum.get(f, 0.0))
         return max(members, key=lambda f: self.fi_.get(f, 0.0))
 
@@ -601,7 +604,7 @@ class HybridSelector:
         if self.use_tree_member and getattr(self, "_tree_prod_names_", None):
             self.fi_ = fi_full  # _admit_tree_products reads self.fi_
             raw_cols = list(X.columns)
-            survivor_proxy = [c for c in raw_cols if fi_full.get(c, 0.0) > 0.0] or raw_cols  # bar for relevant_median
+            survivor_proxy = [c for c in raw_cols if fi_full.get(c, 0.0) > 0.0] or raw_cols  # bar for relevant_median; all-zero FI (degenerate fit) -> the full raw set, not a caller-supplied-empty trap
             admitted = set(self._admit_tree_products(survivor_proxy, raw_cols))
             rejected = [nm for nm in self._tree_prod_names_ if nm not in admitted]
             if rejected:
@@ -673,7 +676,7 @@ class HybridSelector:
         # So the members stay SEQUENTIAL: the wall is irreducible sub-selector compute (already optimized upstream),
         # not glue. The hybrid's OWN glue is ~0.05s (<0.15% of wall); see corr_clusters for the one glue micro-opt.
         member_sel = {}
-        member_sel["mrmr"] = [c for c in (self.mrmr_selected_ + sorted(engineered)) if c in relevant] or list(relevant)
+        member_sel["mrmr"] = [c for c in (self.mrmr_selected_ + sorted(engineered)) if c in relevant] or list(relevant)  # MRMR selected nothing relevant (degenerate) -> the mrmr member votes for everything rather than abstaining, not a caller-supplied-empty trap
         if self.use_shap:
             try:
                 member_sel["shap"] = self._run_shap(X_aug, y, relevant, self.artifacts_)
@@ -703,7 +706,7 @@ class HybridSelector:
 
         # STAGE 3 - cluster-aware vote over the shared clusters (pure, deterministic; extracted for unit testing)
         selected = self._combine(member_sel, cols)
-        self.raw_selected_ = [c for c in cols if c in set(selected)] or cols[:1]
+        self.raw_selected_ = [c for c in cols if c in set(selected)] or cols[:1]  # zero-vote degenerate case -> keep one column rather than an empty selector output, not a caller-supplied-empty trap
         self.n_engineered_ = sum(1 for c in self.raw_selected_ if c in engineered)
         # sklearn-style fitted attributes (raw_selected_ may include engineered eng_N names from X_aug)
         self.feature_names_in_ = list(X.columns)

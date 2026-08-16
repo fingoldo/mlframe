@@ -30,6 +30,12 @@ from sklearn.linear_model import LinearRegression
 
 from mlframe.reporting.charts import shap_panels as sp
 
+# Every test here asserts an EXACT-EMPTY pyplot figure registry (``plt.get_fignums() == []``), which is
+# only meaningful if the registry actually starts clean -- opt into the conftest-level ``uses_matplotlib``
+# cleanup (``plt.close("all")`` after each test) so THIS file never itself leaks a figure into whatever
+# xdist-worker-shared test runs next.
+pytestmark = pytest.mark.uses_matplotlib
+
 
 def _strong_f0(n: int, n_feat: int = 5, *, coef: float = 3.0, noise: float = 0.1, seed: int = 0):
     """Synthetic where y is a strong monotone-increasing function of f0 alone."""
@@ -46,10 +52,15 @@ def _fit_rf(X, y, *, n_estimators: int = 30, max_depth: int = 6, seed: int = 0) 
 
 @pytest.fixture(autouse=True)
 def _no_leaked_figures():
-    """Every test must leave the pyplot registry as it found it (no figure leak in long sessions)."""
-    before = set(plt.get_fignums())
+    """Every test must leave the pyplot registry EMPTY (this file's own tests assert
+    ``plt.get_fignums() == []`` directly, not just "no new leak"). Close any figures ALREADY open at
+    setup -- an unrelated test running earlier in the same xdist worker (without the ``uses_matplotlib``
+    marker, so conftest's own cleanup skipped it) can leave the pyplot registry non-empty, which would
+    otherwise fail every test in this file's own strict-empty assertion regardless of this file's own
+    behavior."""
+    plt.close("all")
     yield
-    leaked = set(plt.get_fignums()) - before
+    leaked = set(plt.get_fignums())
     for num in leaked:
         plt.close(num)
     assert not leaked, f"test leaked open figures: {sorted(leaked)}"
