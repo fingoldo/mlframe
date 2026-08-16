@@ -295,7 +295,17 @@ class HybridSelector:
         Xtr, Xva, ytr, yva = train_test_split(X, y, test_size=0.3, random_state=self.random_state, stratify=_strat)
         m = lgb.LGBMClassifier(n_estimators=200, num_leaves=31, learning_rate=0.06, n_jobs=-1, verbose=-1, random_state=self.random_state)
         m.fit(Xtr, ytr)
-        pi = permutation_importance(m, Xva, yva, n_repeats=4, random_state=self.random_state, n_jobs=-1)
+        # permutation_importance's n_jobs=-1 spins up a loky PROCESS pool per call; on the small/medium beds most
+        # HybridSelector callers actually use (unit/biz_value fixtures, a few thousand rows x a few dozen columns)
+        # the per-repeat LightGBM predict is so cheap that process-spawn/IPC overhead dominates the wall time --
+        # measured 31.0s (n_jobs=-1) vs 1.8s (n_jobs=1) at n=2000/23 cols/4 repeats (17.5x), the exact shape of
+        # test_gain_mode_ranks_a_true_operand_pair_among_top's XOR bed. At n=100000/150 cols the parallel pool
+        # does pay off (98.2s vs 111.8s, a modest win) -- but the crossover is noisy in between (observed a
+        # pathological 50.2s parallel vs 9.7s serial at n=20000/50 cols, consistent with LightGBM's own internal
+        # OpenMP threading oversubscribing against the outer process pool), so this only flips the clearly-safe
+        # small case and leaves anything ambiguous or large on the untouched default.
+        _n_jobs_pi = 1 if (Xva.shape[0] * Xva.shape[1]) <= 100_000 else -1
+        pi = permutation_importance(m, Xva, yva, n_repeats=4, random_state=self.random_state, n_jobs=_n_jobs_pi)
         # store the summed-per-repeat importance too (drives cluster_rep="sum_fi"); falls back to mean*n_repeats if the
         # raw per-repeat matrix is unavailable. sum_fi prefers members whose importance is consistently high across
         # repeats, a more stable representative than a single lucky mean.
