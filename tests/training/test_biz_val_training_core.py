@@ -64,6 +64,28 @@ def _try_import_suite():
     return train_mlframe_models_suite, OutputConfig, SimpleFeaturesAndTargetsExtractor
 
 
+# These smoke tests assert only "is not None" / "isinstance(dict)" (see the module docstring) -- no chart or
+# diagnostic CONTENT is ever read, yet no reporting_config was ever passed, so every default-ON diagnostic
+# (adversarial_validation, pdp_ice, shap_panels, ...) fired on every run regardless of the tiny (400-row,
+# 5-feature) synthetic data. Profiled 2026-08-16: ~50-60s of "call" time on a fit that itself takes
+# milliseconds. Reuses the exact flag set validated on test_catboost_trains_on_mixed_dtypes (which measured
+# the win directly via cProfile); show_perf_chart/show_fi stay at their True default so the FI + chart path
+# itself still gets minimal exercise.
+_LEAN_REPORTING_KWARGS = dict(
+    adversarial_validation=False,
+    interaction_strength_charts=False,
+    engineered_separability_charts=False,
+    class_structure_charts=False,
+    category_discriminability_charts=False,
+    slice_finder=False,
+    shap_panels=False,
+    decision_curve=False,
+    calibration_drift=False,
+    target_acf=False,
+    model_comparison=False,
+)
+
+
 # ---------------------------------------------------------------------------
 # Smoke: suite runs on regression + classification
 # ---------------------------------------------------------------------------
@@ -73,6 +95,8 @@ def test_biz_val_training_suite_regression_completes(tmp_path):
     """Suite must train a simple regression task and return a 2-tuple
     ``(models, metadata)``."""
     pytest.importorskip("lightgbm")
+    from mlframe.training import ReportingConfig
+
     train_mlframe_models_suite, OutputConfig, FTE = _try_import_suite()
     df = _make_regression_df(n=400, seed=42)
     fte = FTE(target_column="target", regression=True)
@@ -86,6 +110,7 @@ def test_biz_val_training_suite_regression_completes(tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
+        reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
         verbose=0,
         hyperparams_config={"iterations": _DEFAULT_SMOKE_ITERATIONS},
     )
@@ -103,6 +128,8 @@ def test_biz_val_training_suite_regression_completes(tmp_path):
 def test_biz_val_training_suite_classification_completes(tmp_path):
     """Suite must train a simple binary classification task."""
     pytest.importorskip("lightgbm")
+    from mlframe.training import ReportingConfig
+
     train_mlframe_models_suite, OutputConfig, FTE = _try_import_suite()
     df = _make_classification_df(n=400, seed=42)
     fte = FTE(target_column="target", regression=False)
@@ -116,6 +143,7 @@ def test_biz_val_training_suite_classification_completes(tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
+        reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
         verbose=0,
         hyperparams_config={"iterations": _DEFAULT_SMOKE_ITERATIONS},
     )
