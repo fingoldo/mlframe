@@ -461,10 +461,35 @@ def common_init_params():
     Returns a typed ReportingConfig (was a dict pre-2026-04-27). Tests that
     use this fixture should pass it as ``reporting_config=common_init_params``,
     not as the deleted ``init_common_params=`` legacy kwarg.
+
+    ``show_perf_chart=False, show_fi=False`` only gate the per-model report + FI plot --
+    ``render_post_fit_diagnostics`` (PDP/ICE, SHAP, interaction-strength, category/class-structure charts,
+    slice_finder, decision_curve, calibration_drift, target_acf, model_comparison) and the per-target
+    ``render_target_drift_diagnostics`` (adversarial_validation -- its own cross-validated classifier fit,
+    independent of the model(s) under test) still fired regardless, unrelated to what these 15+ consuming
+    test files actually assert on (none reads ``metadata["charts"]`` diagnostic content -- confirmed one
+    file, test_core_coverage.py, had already independently discovered and monkeypatched around the
+    adversarial_validation cost specifically). Profiled 2026-08-16 on test_catboost_trains_on_mixed_dtypes:
+    this exact flag set cut it 825s -> 412s. pdp_ice is left enabled (batched-predict fix landed the same
+    day, so it's no longer the dominant cost) in case any consuming test's own local override still wants it.
     """
     from mlframe.training.configs import ReportingConfig
 
-    return ReportingConfig(show_perf_chart=False, show_fi=False)
+    return ReportingConfig(
+        show_perf_chart=False,
+        show_fi=False,
+        adversarial_validation=False,
+        interaction_strength_charts=False,
+        engineered_separability_charts=False,
+        class_structure_charts=False,
+        category_discriminability_charts=False,
+        slice_finder=False,
+        shap_panels=False,
+        decision_curve=False,
+        calibration_drift=False,
+        target_acf=False,
+        model_comparison=False,
+    )
 
 
 @pytest.fixture(scope="session")

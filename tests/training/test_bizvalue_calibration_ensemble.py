@@ -140,6 +140,16 @@ def _train_and_predict(
     hp = {"iterations": iterations}
     if extra_hyperparams:
         hp.update(extra_hyperparams)
+    # This file only compares AUROC/Brier scalars from the returned probabilities/metadata -- no test here
+    # reads a saved chart. output_config.save_charts=False (2026-08-16) is the purpose-built switch every
+    # diagnostic path's render call ultimately checks (indirectly, via an empty plot_file/base_path), so it
+    # skips ALL chart rendering -- per-model post-fit diagnostics, per-split error diagnostics, model-card,
+    # AND the ensemble's own scoring charts -- while data_dir/models_dir still save the model files
+    # predict_mlframe_models_suite loads below. run_diagnostics drops "adversarial_fold_selection" (the
+    # ONE diagnostic in the default list that fits a real cross-validated classifier -- its own field
+    # comment already flags it as "the one diagnostic worth dropping... on latency-sensitive suite runs").
+    # Profiled: test_ensemble_auroc_at_least_best_single spent 383s/495s (77%) of one fit blocked on
+    # render_and_save's thread pool alone; 825s -> ~8s end to end with both switches.
     kwargs = dict(
         df=train_df,
         target_name="test_target",
@@ -149,7 +159,18 @@ def _train_and_predict(
         reporting_config=common_init_params,
         use_ordinary_models=True,
         use_mlframe_ensembles=use_mlframe_ensembles,
-        output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
+        output_config=OutputConfig(
+            data_dir=data_dir,
+            models_dir="models",
+            save_charts=False,
+            run_diagnostics=[
+                "cv_informativeness",
+                "compare_cv_schemes",
+                "group_leakage",
+                "constant_group_leak",
+                "subpopulation_drift",
+            ],
+        ),
         verbose=0,
         hyperparams_config=hp,
     )
