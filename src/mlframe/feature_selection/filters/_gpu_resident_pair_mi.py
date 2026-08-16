@@ -18,9 +18,12 @@ kernel-source, dispatch-threshold, residency, or selection behavior changed.
 from __future__ import annotations
 
 import os
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, Sequence, cast
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 # Parent-defined names these blocks consume. Imported at module top: the PARENT does
 # ``from ._gpu_resident_pair_mi import *`` at its BOTTOM (after all these names are defined), so re-entering
@@ -47,7 +50,7 @@ from ._gpu_resident_fe import (
 
 def gpu_pairs_fe_mi(cand: np.ndarray, quantization_nbins: int, classes_y: np.ndarray,
                     classes_y_safe: np.ndarray, freqs_y: np.ndarray, npermutations: int,
-                    min_nonzero_confidence: float, use_su: bool):
+                    min_nonzero_confidence: float, use_su: bool) -> Optional[np.ndarray]:
     """Full GPU path for the FE pair-search candidate MI, for the ANALYTIC large-n branch only.
 
     Returns ``fe_mi[K]`` SELECTION-EQUIVALENT to the production ``_dispatch_batch_mi_with_noise_gate``
@@ -76,7 +79,7 @@ def gpu_pairs_fe_mi(cand: np.ndarray, quantization_nbins: int, classes_y: np.nda
         from ._fe_batched_mi import binned_mi_from_codes_gpu
         from ._gpu_resident_discretize import _gpu_resident_discretize_codes
 
-        # DEVICE-RESIDENT observed MI + analytic gate (2026-07-02, kernel-residency): bin the candidate ON the
+        # DEVICE-RESIDENT observed MI + analytic gate (kernel-residency): bin the candidate ON the
         # device (the codes stay RESIDENT - the prior gpu_discretize_codes_host D2H'd the whole (n,K) code matrix
         # and the observed-MI dispatch RE-UPLOADED it), score the observed plug-in MI from the resident codes, and
         # count each column's occupied bins ON the device - so only the (K,) observed MI + occupied counts cross
@@ -211,7 +214,7 @@ def fe_gpu_pairs_mi_backend_choice(n_rows: int, n_cols: int) -> str:
         return _fe_gpu_pairs_mi_fallback_choice(n_rows, n_cols)
 
 
-def ensure_fe_gpu_pairs_mi_tuning(force: bool = False):
+def ensure_fe_gpu_pairs_mi_tuning(force: bool = False) -> list | None:
     """Force-run + persist the FE pair-MI CPU-vs-GPU crossover sweep for this host (CLI refresh hook)."""
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
@@ -362,10 +365,10 @@ def ensure_fe_gpu_binning_tuning(force: bool = False) -> list | None:
 
 
 def grand_fused_pair_mi(
-    a, b, y_codes, classes_y_safe, freqs_y, *,
+    a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, classes_y_safe: np.ndarray, freqs_y: np.ndarray, *,
     nbins: int = 20, npermutations: int = 25, min_nonzero_confidence: float = 0.0, use_su: bool = False,
     random_seed: int = 0,
-):
+) -> tuple[list, np.ndarray]:
     """GRAND FUSION: GPU fused-generate candidates -> RESIDENT GPU discretize -> the EXISTING bit-identical
     GPU noise-gate (``batch_mi_noise_gate_gpu``). Returns the SAME noise-gated fe_mi[K] the production
     pair-search computes, but with generation+discretization+noise-gate all on the GPU. Only the small
@@ -526,7 +529,7 @@ def _grand_fusion_block_counts(ua_cm, ub_cm, block, edges_int, y_all_dev, nbins,
         ua_idx, ub_idx, bop = _cc
     col_off = cp.arange(K, dtype=cp.int64) * (int(nbins) * int(K_y))
     P1 = int(y_all_dev.shape[0])
-    # OOB SCREEN (FIX2, 2026-06-28): the grand-fusion kernel (_gpu_resident_fe.py:744) uses the y code
+    # OOB SCREEN (FIX2): the grand-fusion kernel (_gpu_resident_fe.py:744) uses the y code
     # DIRECTLY as a shared-mem offset (``sh[p*nbky + slot + yp]``); the X side is generated + binned
     # in-kernel (slot bounded by nbins by construction) so only ``y_all`` can drive an illegal address.
     # A y code < 0 or >= K_y indexes outside the (P1,nbins,K_y) shared histogram -> cudaErrorIllegalAddress.
@@ -556,9 +559,9 @@ def _grand_fusion_block_counts(ua_cm, ub_cm, block, edges_int, y_all_dev, nbins,
 
 
 def grand_fused_pair_mi_fused(
-    a, b, y_codes, classes_y_safe, freqs_y, *,
+    a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, classes_y_safe: np.ndarray, freqs_y: np.ndarray, *,
     nbins: int = 20, npermutations: int = 25, min_nonzero_confidence: float = 0.0, use_su: bool = False,
-):
+) -> tuple[list, np.ndarray]:
     """GRAND-FUSION (never materialise (n,K)): the fully-fused twin of :func:`grand_fused_pair_mi`.
 
     Collapses gen -> discretize -> noise-gate-counting into ONE histogram kernel per chunk. Pass 1 (per
@@ -690,15 +693,15 @@ def gpu_resident_pair_recipes(
     *,
     src_a_name: str,
     src_b_name: str,
-    cols_names,
+    cols_names: Sequence[str],
     unary_preset: str = "minimal",
     binary_preset: str = "minimal",
-    quantization_nbins=None,
-    quantization_method=None,
-    quantization_dtype=np.float32,
+    quantization_nbins: Optional[int] = None,
+    quantization_method: Optional[str] = None,
+    quantization_dtype: type = np.float32,
     top_k: int = 1,
     nbins: int = 20,
-):
+) -> list[tuple[str, "EngineeredRecipe", float]]:
     """Score a pair's candidate grid on the GPU and return the top-``top_k`` as STRUCTURED, replayable
     ``EngineeredRecipe`` objects - the bridge from this path's flat (name, MI) to what production FE
     consumes. For each winner it emits, via the SAME builders the CPU path uses
@@ -746,7 +749,7 @@ def gpu_resident_pair_recipes(
     return out
 
 
-def pair_candidate_mi_dispatch(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, *, nbins: int = 20):
+def pair_candidate_mi_dispatch(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, *, nbins: int = 20) -> tuple[list, np.ndarray]:
     """Route a pair's candidate-MI to the measured-fastest backend: GPU-resident in the sweet spot
     (cupy present, n >= the crossover, VRAM-chunked so it can't thrash), CPU njit otherwise. Returns
     ``(names, mi)`` identical in shape/order to both paths. The default FE pipeline does NOT call this
@@ -770,11 +773,11 @@ def pair_candidate_mi_dispatch(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray
             # ``gpu_resident_pair_candidate_mi`` on the parent - the canonical patch target - is honoured
             # after the Tier E carve (the name is defined in the parent; this call lives in the sibling).
             from . import _gpu_resident_fe as _parent
-            return _parent.gpu_resident_pair_candidate_mi(a, b, y_codes, nbins=nbins)
+            return cast("tuple[list, np.ndarray]", _parent.gpu_resident_pair_candidate_mi(a, b, y_codes, nbins=nbins))
         except Exception as e:
             # Log (don't silently swallow) - a GPU OOM/driver error degrading to a slow CPU fallback
             # would otherwise look like "GPU never helped". A chunk-shrink-retry before CPU fallback is
             # a future refinement (the VRAM governor already bounds chunks, so OOM should be rare).
             import logging
             logging.getLogger(__name__).warning("GPU-resident pair MI failed (%s); CPU fallback.", e)
-    return cpu_pair_candidate_mi(a, b, y_codes, nbins=nbins)
+    return cast("tuple[list, np.ndarray]", cpu_pair_candidate_mi(a, b, y_codes, nbins=nbins))

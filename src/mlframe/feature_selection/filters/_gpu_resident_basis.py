@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import numpy as np
 
-# --- GPU port of the per-operand PRE-WARP apply (phase R1, 2026-06-21) ----------------------------------
+# --- GPU port of the per-operand PRE-WARP apply (phase R1) ----------------------------------------------
 # Mirrors hermite_fe.apply_operand_prewarp so the operand-table mirror can BUILD a prewarp operand column on
 # the device (from the resident raw input + the tiny stored spec) instead of COPYING the host-computed column
 # (the 1.68 MB non-plain H2D floor). The preprocess (z-score / min-max / shift, all elementwise + a clip) and
@@ -115,7 +115,7 @@ _PREWARP_CLENSHAW_GPU = {
 
 _BASIS_ID = {"chebyshev": 0, "legendre": 1, "hermite": 2, "laguerre": 3}
 
-# FUSED CLENSHAW BASIS RawKernel (launch-reduction, 2026-06-25): one launch evaluates the one-hot
+# FUSED CLENSHAW BASIS RawKernel (launch-reduction): one launch evaluates the one-hot
 # orthonormal basis polynomial B_d(Z) for EVERY (column, degree) of a preprocessed (n,m) Z block, output
 # (n, m*nd) in the concatenate layout [deg0: all m cols][deg1: ...]. Replaces the per-degree clen() cupy
 # chains (~nd*degree elementwise ops -> the measured #1 launch source _gpu_evaluate_basis_matrix). Each
@@ -188,7 +188,7 @@ def _clenshaw_basis_block_gpu(cp, Zg, basis, degrees):
     _get_clenshaw_kernel()(((total + threads - 1) // threads,), (threads,), (Z, degs, np.int64(n), np.int32(m), np.int32(nd), np.int32(bid), out))
     return out
 
-# --- GPU port of the orth-FE basis-column evaluation (matrix-native, Piece 2, 2026-06-21) -------------
+# --- GPU port of the orth-FE basis-column evaluation (matrix-native, Piece 2) --------------------------
 # Faithful cupy mirror of _orthogonal_univariate_fe._evaluate_basis_column (no-aux, no-replay path):
 # the robust heavy-tail axis detection (_hermite_robust._detect_heavy_tail_numpy/_robust_scale/
 # _robust_lo_hi) + the per-basis preprocess (z-score / min-max / shift, robust + plain branches) + the
@@ -310,7 +310,7 @@ def _gpu_evaluate_basis_column(cp, x, basis, degree, *, robust_axis: bool):
     return clen(cp, z, coef)
 
 
-# --- BATCHED device basis build (matrix-native Piece 3b, 2026-06-21) ---------------------------------
+# --- BATCHED device basis build (matrix-native Piece 3b) -----------------------------------------------
 # Vectorized port of the per-column _gpu_evaluate_basis_column: process ALL columns of a (basis, robust)
 # group in ONE preprocess + ONE Clenshaw call per degree (axis=0 stats over the (n, g) submatrix),
 # killing the per-column cupy launch overhead that made the per-column loop perf-lose at high feature

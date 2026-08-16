@@ -268,7 +268,7 @@ class ReportingConfig(BaseConfig):
     # classifier(s) on the full feature frame, so cost scales with column count independent of the fitted
     # model's own cost -- measured ~275s (163s classifier fit + panel render) on a 549-column / 100k-row frame,
     # dwarfing a 20-iteration CatBoost fit's own ~5s. Unlike every other diagnostic in this file it had no
-    # opt-out until this flag (2026-08-16) -- it always fired whenever train+test/val frames were available.
+    # opt-out until this flag was added -- it always fired whenever train+test/val frames were available.
     # Default ON (unchanged behavior for existing callers); set False for wide-frame hot loops / integration
     # tests that don't need the drift read.
     adversarial_validation: bool = True

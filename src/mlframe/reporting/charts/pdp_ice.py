@@ -340,11 +340,11 @@ def _predict_grid_batched(
         return None
     if cat_labels is not None:
         # A categorical/discrete grid sweep -- NOT batched, ever (falls straight to the per-step loop below).
-        # 2026-08-16: investigating an intermittent "Windows fatal exception: access violation" (stack rooted
+        # Investigating an intermittent "Windows fatal exception: access violation" (stack rooted
         # in catboost's Pool._init, triggered from a PDP predict call) surfaced on
         # tests/training/test_core.py's TestPolarsNativeFastpath / TestTextAndEmbeddingFeatures classes (a
         # polars carrier, CatBoost fit with cat_features=[...]). IMPORTANT: this crash reproduced via BOTH
-        # this batched path AND the original (pre-2026-08-16) per-step loop below -- it is a pre-existing bug
+        # this batched path AND the original (pre-fix) per-step loop below -- it is a pre-existing bug
         # in compute_pdp's CatBoost/polars predict path, not something this batching optimization introduced,
         # and this restriction is NOT proven to fix it (it only narrows this function's own contribution to
         # the risk surface). It reproduced 2/4 times on an identical repro command and did NOT reproduce on

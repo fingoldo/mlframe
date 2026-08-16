@@ -40,7 +40,7 @@ def _safe_code_dtype(n_bins: int, dtype: type, reserve_nan_slot: bool = False) -
     real code ``n_bins-1`` and keeps the tighter default.
     """
     try:
-        info: np.iinfo = np.iinfo(np.dtype(dtype))  # type: ignore[arg-type]  # dtype may be non-integer (e.g. float64); caught below at runtime, mypy can't see that
+        info: np.iinfo = np.iinfo(np.dtype(dtype))  # type: ignore[arg-type]  # dtype may be non-integer (e.g. float64); caught below at runtime
     except (ValueError, TypeError):
         return dtype  # non-integer requested dtype: caller owns the contract
     top_code = n_bins if reserve_nan_slot else n_bins - 1
@@ -147,7 +147,7 @@ def _multi_col_factorize_native(categorical_df: "pd.DataFrame") -> np.ndarray:
             needs_factorize.append((_j, _c))
 
     if needs_factorize:
-        # Threshold raised 1 -> 8 (7-site joblib.Parallel audit, 2026-07-19): isolated/warmed/best-of-3+
+        # Threshold raised 1 -> 8 (7-site joblib.Parallel audit): isolated/warmed/best-of-3+
         # measurement at the realistic column-count range for this branch (2-8 non-Categorical columns)
         # found the joblib threading pool never clearly wins there - 2 cols -> 1.29x (but that case was
         # already serial pre-fix, since the old threshold was ``<= 1``), 8 cols -> 0.52x (loses), 40 cols
@@ -558,7 +558,7 @@ def discretize_uniform_parallel(arr: np.ndarray, n_bins: int, min_value: float, 
     return out
 
 
-# Crossover (measured 2026-06-15, n=10M float64): serial wins <~50k (prange spawn dominates), parallel wins above
+# Crossover (measured at n=10M float64): serial wins <~50k (prange spawn dominates), parallel wins above
 # (2.2x @100k -> 47.9x @1M). Override via MLFRAME_DISCRETIZE_UNIFORM_PAR_THRESHOLD for non-dev hardware.
 _UNIFORM_PAR_THRESHOLD = int(os.environ.get("MLFRAME_DISCRETIZE_UNIFORM_PAR_THRESHOLD", "50000"))
 
@@ -593,7 +593,7 @@ def discretize_array(
             return np.asarray(discretize_uniform_parallel(arr, n_bins, float(min_value), float(max_value), dtype=dtype))
         return np.asarray(discretize_uniform(arr=arr, n_bins=n_bins, min_value=min_value, max_value=max_value, dtype=dtype))
     # quantile path - raw numpy.
-    # Wave 21 P0: nanpercentile so NaN-bearing columns don't collapse to a
+    # nanpercentile so NaN-bearing columns don't collapse to a
     # constant via the all-NaN bin_edges trap. Same finding as the ``edges``
     # helper above.
     quantiles = np.linspace(0, 100, n_bins + 1)
@@ -612,7 +612,7 @@ def discretize_array(
     #   n=10k/nb=10 0.74x, n=10k/nb=20 0.70x, n=100k/nb=10 0.67x, n=100k/nb=20 0.58x.
     # The 2-D batch win came from amortising dispatch over MANY columns + a column ``prange``; a single
     # serial 1-D column has neither, and numpy's vectorised C ``partition`` beats a numba scalar
-    # partition-copy + python-free-but-scalar binary-search loop. Confirms the older 2026-06-14
+    # partition-copy + python-free-but-scalar binary-search loop. Confirms the older
     # np.percentile-swap rejection: the 1-D quantile path is numpy-optimal as-is. Reverted to numpy.
     bins_edges = np.nanpercentile(arr, quantiles)
     return np.searchsorted(bins_edges[1:-1], arr, side="right").astype(dtype)
