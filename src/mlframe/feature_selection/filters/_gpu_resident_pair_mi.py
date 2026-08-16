@@ -1,0 +1,780 @@
+"""GPU-resident FE: pair-candidate MI + grand-fusion dispatch (Tier E carve, carved from ``_gpu_resident_basis.py``).
+
+Carved VERBATIM out of ``_gpu_resident_basis.py`` (itself a Tier E carve of ``_gpu_resident_fe.py``) to
+bring that file under the 1k-LOC ceiling. Contains the analytic ``gpu_pairs_fe_mi`` + its per-host KTC
+sweep, the grand-fusion pair-MI path (``grand_fused_pair_mi`` / ``grand_fused_pair_mi_fused``), the
+structured-recipe emitter (``gpu_resident_pair_recipes``), and the backend dispatcher
+(``pair_candidate_mi_dispatch``). Has ZERO references into ``_gpu_resident_basis.py``'s own
+basis-evaluation block (the Clenshaw kernels / ``_gpu_evaluate_basis_*`` / ``_gpu_route_bases_batched``) -
+only the same parent (``_gpu_resident_fe.py``)-defined names ``_gpu_resident_basis.py`` itself already
+imports.
+
+The grandparent (``_gpu_resident_fe.py``) re-exports every public name from here via its bulk ``globals()``
+re-export loop, so all ``from .._gpu_resident_fe import X`` paths still resolve byte-for-byte. The few
+cross-sibling references (``_gpu_resident_discretize_codes`` / ``gpu_discretize_codes_host`` in
+``_gpu_resident_select``) are LAZY-imported inside the function bodies to avoid an import cycle. No
+kernel-source, dispatch-threshold, residency, or selection behavior changed.
+"""
+from __future__ import annotations
+
+import os
+from typing import Optional, cast
+
+import numpy as np
+
+# Parent-defined names these blocks consume. Imported at module top: the PARENT does
+# ``from ._gpu_resident_pair_mi import *`` at its BOTTOM (after all these names are defined), so re-entering
+# the partially-initialised parent here always finds them - no circular-import hazard.
+from ._gpu_resident_fe import (
+    _BINOP_CODE,
+    _COMBOS,
+    _COMBO_IDX_CACHE,
+    _GPU_RESIDENT_MIN_N,
+    _UNARY_IDX,
+    _binary_apply,
+    _build_candidate_matrix,
+    _candidate_names,
+    _fused_generate_block,
+    _get_fused_gen_bin_hist_kernel,
+    _gpu_k_chunk,
+    _quantile_levels_dev,
+    _unary_apply,
+    _unary_stack_cm,
+    cpu_pair_candidate_mi,
+    fe_gpu_grand_fusion_enabled,
+)
+
+
+def gpu_pairs_fe_mi(cand: np.ndarray, quantization_nbins: int, classes_y: np.ndarray,
+                    classes_y_safe: np.ndarray, freqs_y: np.ndarray, npermutations: int,
+                    min_nonzero_confidence: float, use_su: bool):
+    """Full GPU path for the FE pair-search candidate MI, for the ANALYTIC large-n branch only.
+
+    Returns ``fe_mi[K]`` SELECTION-EQUIVALENT to the production ``_dispatch_batch_mi_with_noise_gate``
+    analytic path, or ``None`` when that branch does not apply (SU-normalised, npermutations<=0, analytic
+    disabled / inapplicable) so the caller falls back to the CPU dispatcher. Selection is preserved by
+    construction:
+      * GPU quantile binning == CPU ``discretize_2d_quantile_batch`` (verified maxdiff 0), and
+      * the GPU observed-MI (npermutations=0) matches the CPU kernel's observed MI to full double precision
+        (the entropy reduction runs ON the device for residency, so it differs only by ULP-level parallel
+        reduction order - ~4e-16, far below anything that could flip the chi2 keep/reject or the argmax),
+    so feeding them through the SAME ``analytic_batch_noise_gate`` (chi2 keep/reject on the observed MI
+    + per-column occupied-bin df) yields the same kept + ranked columns. Moves BOTH the binning and the
+    observed-MI entropy - the dominant large-n per-pair cost - onto the GPU, and the (n,K) codes stay
+    resident (never D2H'd for the gate). Any failure returns None (-> CPU)."""
+    n = int(cand.shape[0])
+    if bool(use_su) or int(npermutations) <= 0:
+        return None  # SU has no chi2 analytic form; npermutations<=0 is already the cheap CPU path
+    try:
+        from ._analytic_mi_null import (
+            analytic_batch_noise_gate, analytic_null_applicable, analytic_null_enabled,
+        )
+        by = int(np.unique(np.asarray(classes_y)).size)
+        if not (analytic_null_enabled() and analytic_null_applicable(n, int(quantization_nbins), by)):
+            return None  # sparse / small-n -> the asymptotic is unreliable; CPU permutation path
+        import cupy as cp
+        from ._fe_batched_mi import binned_mi_from_codes_gpu
+        from ._gpu_resident_discretize import _gpu_resident_discretize_codes
+
+        # DEVICE-RESIDENT observed MI + analytic gate (2026-07-02, kernel-residency): bin the candidate ON the
+        # device (the codes stay RESIDENT - the prior gpu_discretize_codes_host D2H'd the whole (n,K) code matrix
+        # and the observed-MI dispatch RE-UPLOADED it), score the observed plug-in MI from the resident codes, and
+        # count each column's occupied bins ON the device - so only the (K,) observed MI + occupied counts cross
+        # the bus, never the (n,K) codes, and the analytic gate's O(n*K) host njit is replaced by a device
+        # bincount. The binning is the SAME radix-select path gpu_discretize_codes_host used (bit-identical codes,
+        # sort-free); the observed MI + G-test keep/reject are the same estimator + decision. Any cupy fault ->
+        # None -> the CPU dispatcher.
+        _nb = int(quantization_nbins)
+        cand_d = cp.asarray(np.ascontiguousarray(cand, dtype=np.float32))
+        codes_d = _gpu_resident_discretize_codes(cand_d, _nb, out_dtype=cp.int32)  # (n,K) RESIDENT int codes
+        yc = np.ascontiguousarray(classes_y, dtype=np.int64)
+        observed = np.asarray(binned_mi_from_codes_gpu(codes_d, yc, ky=by, codes_trusted=True), dtype=np.float64)
+        # occupied bins per column ON device: one bincount over code*K+col (values < nb*K), reshaped (nb, K).
+        _K = int(codes_d.shape[1])
+        _cnt = cp.bincount((codes_d.astype(cp.int64, copy=False) * _K + cp.arange(_K, dtype=cp.int64)[None, :]).ravel(), minlength=_nb * _K)
+        bx = cp.asnumpy((_cnt.reshape(_nb, _K) > 0).sum(axis=0)).astype(np.int64)
+        # The analytic keep/reject is cheap CPU post-processing on the (K,) observed MI + the device-counted
+        # occupied-bin df (disc_2d unused - bx_per_col is supplied), identical to the host gate's decision.
+        return analytic_batch_noise_gate(None, observed, yc, n, float(min_nonzero_confidence), bx_per_col=bx, by=by)
+    except Exception:
+        # Surface the cause (don't silently degrade to CPU forever): a real logic/shape/numeric bug in
+        # the GPU path would otherwise be invisible - the exact "GPU never helped" failure mode.
+        import logging
+        logging.getLogger(__name__).debug("gpu_pairs_fe_mi failed; CPU fallback", exc_info=True)
+        return None
+
+
+def _fe_gpu_pairs_mi_fallback_choice(n_rows: int, n_cols: int) -> str:
+    """Pre-sweep crossover for the FE pair-MI GPU path: GPU only when the work size ``n_rows * n_cols``
+    is large enough to amortise the per-pair H2D of the candidate matrix; CPU otherwise. Conservative so
+    a small/mid fit stays on the CPU (never a regression) until the per-host sweep refines it. Env
+    override ``MLFRAME_FE_GPU_DISCRETIZE_MIN_NK`` (default 2e6 ~= n=100k x K=20)."""
+    try:
+        min_nk = int(os.environ.get("MLFRAME_FE_GPU_DISCRETIZE_MIN_NK", "2000000"))
+    except ValueError:
+        min_nk = 2_000_000
+    return "gpu" if int(n_rows) * int(n_cols) >= min_nk else "cpu"
+
+
+def _make_fe_gpu_pairs_inputs(dims: dict) -> tuple:
+    """Synthetic (cand_matrix, nbins, classes_y, freqs_y) for the crossover sweep - an a**2/b pair so
+    the analytic branch engages (n >= analytic_null_min_n)."""
+    n = int(dims["n_rows"])
+    rng = np.random.default_rng(0)
+    a = rng.uniform(1.0, 5.0, n); b = rng.uniform(1.0, 5.0, n)
+    cand = np.ascontiguousarray(_build_candidate_matrix(np, a, b)).astype(np.float32)
+    np.nan_to_num(cand, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    y = a**2 / b
+    edges = np.quantile(y, np.linspace(0, 1, 21)[1:-1])
+    yc = np.searchsorted(edges, y).astype(np.int64)
+    fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n
+    return (cand, 20, yc, fy)
+
+
+def _run_fe_gpu_pairs_mi_sweep() -> list:
+    """Per-host CPU-vs-GPU crossover sweep for the FE pair-MI path -> backend_choice regions keyed on
+    n_rows. Both variants take the SAME (cand, nbins, yc, fy) and pay their own discretize (+ the GPU
+    H2D), so the timing is realistic; the GPU variant is bit-identical (verified) so equivalence holds at
+    a tight tol. Skips silently (-> []) when CUDA is unavailable."""
+    try:
+        from ._gpu_policy import cuda_available_for_run
+        if not cuda_available_for_run():
+            return []
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("_run_fe_gpu_pairs_mi_sweep: cuda_available_for_run() check failed, skipping the sweep: %s", e)
+        return []
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+    from .discretization import discretize_2d_quantile_batch
+    from .info_theory import batch_mi_with_noise_gate
+    from ._feature_engineering_pairs._pairs_dispatch import _dispatch_batch_mi_with_noise_gate
+
+    def _cpu(cand, nbins, yc, fy):
+        """CPU-path timing: discretize the candidate then run the pair-MI noise-gate dispatch."""
+        disc = discretize_2d_quantile_batch(cand, n_bins=nbins, dtype=np.int8, assume_finite=True)
+        return _dispatch_batch_mi_with_noise_gate(
+            disc_2d=disc, quantization_nbins=nbins, classes_y=yc, classes_y_safe=yc, freqs_y=fy,
+            npermutations=3, min_nonzero_confidence=0.0, use_su=False, batch_mi_kernel=batch_mi_with_noise_gate,
+        )
+
+    def _gpu(cand, nbins, yc, fy):
+        """GPU-path timing: the resident-basis pair-MI kernel on the same inputs, for crossover comparison against ``_cpu``."""
+        return gpu_pairs_fe_mi(cand, nbins, yc, yc, fy, 3, 0.0, False)
+
+    return cast(list, sweep_backend_grid(
+        {"cpu": _cpu, "gpu": _gpu},
+        {"n_rows": [50_000, 100_000, 300_000]},  # GPU path engages only at n >= analytic_null_min_n
+        _make_fe_gpu_pairs_inputs,
+        reference="cpu", repeats=3, equiv_rtol=1e-9, equiv_atol=1e-12,
+    ))
+
+
+def _fe_gpu_pairs_mi_code_version():
+    """Content-hash of the pair-MI GPU kernel + its discretize dependencies, used as a kernel-tuning-cache invalidation key when any of them changes."""
+    try:
+        from ._gpu_resident_select import _gpu_resident_discretize_codes, gpu_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals(); lazy: cross-sibling
+        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
+        return compute_code_version(gpu_pairs_fe_mi, gpu_discretize_codes_host, _gpu_resident_discretize_codes)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("_fe_gpu_pairs_mi_code_version failed, kernel-tuning cache will treat this as unversioned: %s", e)
+        return None
+
+
+def fe_gpu_pairs_mi_backend_choice(n_rows: int, n_cols: int) -> str:
+    """Per-host 'gpu' or 'cpu' for the FE pair-MI path via the shared get_or_tune orchestrator
+    (per-host cache, code-version checked, background sweep, measurement-backed fallback). Never blocks
+    the fit: async_sweep tunes off the hot path; the conservative fallback routes meanwhile."""
+    try:
+        # Under an explicit max_runtime_mins budget, skip the (blocking-on-first-use, CUDA-detected-regardless-of-
+        # CUDA_VISIBLE_DEVICES) CPU-vs-GPU crossover sweep - it runs the CPU+GPU variants at n up to 300k (tens of
+        # seconds) and would blow a tiny budget. Route via the measurement-backed fallback instead; the sweep still runs
+        # on a normal no-budget fit, so per-host tuning is unaffected.
+        from ._fe_deadline import fe_budget_active
+        if fe_budget_active():
+            return _fe_gpu_pairs_mi_fallback_choice(n_rows, n_cols)
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+        res = KernelTuningCache.load_or_create().get_or_tune(
+            "fe_gpu_pairs_mi",
+            dims={"n_rows": int(n_rows)},
+            tuner=_run_fe_gpu_pairs_mi_sweep,
+            axes=["n_rows"],
+            fallback={"backend_choice": _fe_gpu_pairs_mi_fallback_choice(n_rows, n_cols)},
+            code_version=_fe_gpu_pairs_mi_code_version(),
+            async_sweep=True,
+        )
+        bc = res if isinstance(res, str) else str((res or {}).get("backend_choice", "cpu"))
+        return bc if bc in ("cpu", "gpu") else "cpu"
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("fe_gpu_pairs_mi_backend_choice: kernel_tuning_cache lookup failed, using the measurement-backed fallback: %s", e)
+        return _fe_gpu_pairs_mi_fallback_choice(n_rows, n_cols)
+
+
+def ensure_fe_gpu_pairs_mi_tuning(force: bool = False):
+    """Force-run + persist the FE pair-MI CPU-vs-GPU crossover sweep for this host (CLI refresh hook)."""
+    try:
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+        cache = KernelTuningCache.load_or_create()
+        if not force:
+            existing = cache.get_regions("fe_gpu_pairs_mi")
+            if existing:
+                return cast("list | None", existing)
+        regions = _run_fe_gpu_pairs_mi_sweep()
+        if regions:
+            cache.update("fe_gpu_pairs_mi", axes=["n_rows"], regions=regions, code_version=_fe_gpu_pairs_mi_code_version())
+        return regions
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("ensure_fe_gpu_pairs_mi_tuning: forced sweep/persist failed: %s", e)
+        return None
+
+
+# ------------------------------------------------------------------------------------------------
+# FE BINNING backend - decoupled from the full ``fe_gpu_pairs_mi`` analytic path.
+#
+# The chunk / per-pair FE candidate BINNING (``discretize_2d_quantile_batch`` - _quantile_edges_2d_njit
+# + _searchsorted_2d_right_njit_parallel) is the #1 WALL hotspot of a GPU-mode F2 100k fit: a full-fit
+# cProfile (n=100k, GPU 0% idle) showed ``discretize_2d_quantile_batch`` cumtime 116.5s of a 228s wall
+# (_quantile_edges_2d_njit 72.9s tottime + _searchsorted_2d_right_njit_parallel 43.6s). The GPU binning
+# (``gpu_discretize_codes_host``) is BIT-IDENTICAL (verified maxdiff 0) and 17-24x faster at n=100k
+# (1508ms->63ms at K=256; 27305ms->1531ms at K=3888), so it should run on the GPU at these sizes.
+#
+# WHY IT WAS ON THE CPU: the binning was gated by ``_fe_gpu_discretize_enabled`` -> the
+# ``fe_gpu_pairs_mi`` KTC sweep, which times the FULL analytic pair-MI path (binning + GPU observed-MI +
+# chi2 gate). That full path's per-host crossover cached "cpu" for the n_rows<=100000 region (the extra
+# GPU MI/chi2 overhead lost a noisy A/B at exactly that band), which WRONGLY disabled the cheap,
+# bit-identical GPU BINNING too. The binning is a strictly simpler op than the full MI path; it has its
+# own crossover and must not inherit the full path's verdict. So the chunk + score-phase binning now
+# routes through THIS dedicated binning-only backend choice (its own KTC kernel + per-host sweep that
+# times ONLY discretize), leaving the full ``gpu_pairs_fe_mi`` MI path on its own gate.
+def _fe_gpu_binning_fallback_choice(n_rows: int, n_cols: int) -> str:
+    """Pre-sweep crossover for the GPU FE BINNING path. The GPU binning amortises its H2D once the work
+    size ``n_rows * n_cols`` is large; CPU below. Conservative default so a tiny fit is never regressed
+    until the per-host sweep refines it. Env override ``MLFRAME_FE_GPU_BINNING_MIN_NK`` (default 1e6 -
+    lower than the full MI path's 2e6: the binning is a cheaper op with no GPU-MI/chi2 overhead, so it
+    crosses to a GPU win earlier; at n=100k that is K>=10)."""
+    try:
+        min_nk = int(os.environ.get("MLFRAME_FE_GPU_BINNING_MIN_NK", "1000000"))
+    except ValueError:
+        min_nk = 1_000_000
+    return "gpu" if int(n_rows) * int(n_cols) >= min_nk else "cpu"
+
+
+def _make_fe_gpu_binning_inputs(dims: dict) -> tuple:
+    """Synthetic (cand_matrix, nbins) for the binning crossover sweep - a fixed-width candidate block at
+    the swept n_rows so both backends pay the same realistic discretize work + (GPU) H2D."""
+    n = int(dims["n_rows"])
+    rng = np.random.default_rng(0)
+    cand = np.ascontiguousarray(rng.uniform(0.1, 5.0, (n, 256)).astype(np.float32))
+    np.nan_to_num(cand, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    return (cand, 10)
+
+
+def _run_fe_gpu_binning_sweep() -> list:
+    """Per-host CPU-vs-GPU crossover sweep for the FE candidate BINNING -> backend_choice regions keyed on
+    n_rows. Times ONLY the discretize (the chunk-path op), NOT the downstream MI: ``gpu_discretize_codes_host``
+    (GPU) vs ``discretize_2d_quantile_batch`` (CPU njit). The GPU variant is bit-identical (verified maxdiff
+    0) so equivalence holds at a tight tol. Skips silently (-> []) when CUDA is unavailable."""
+    try:
+        from ._gpu_policy import cuda_available_for_run
+        if not cuda_available_for_run():
+            return []
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("_run_fe_gpu_binning_sweep: cuda_available_for_run() check failed, skipping the sweep: %s", e)
+        return []
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+    from .discretization import discretize_2d_quantile_batch
+    from ._gpu_resident_select import gpu_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals()
+
+    def _cpu(cand, nbins):
+        """CPU-path timing: the njit quantile-discretize kernel."""
+        return discretize_2d_quantile_batch(cand, n_bins=nbins, dtype=np.int8, assume_finite=True)
+
+    def _gpu(cand, nbins):
+        """GPU-path timing: the resident-select discretize kernel, for crossover comparison against ``_cpu``."""
+        return gpu_discretize_codes_host(cand, nbins, dtype=np.int8)
+
+    return cast(list, sweep_backend_grid(
+        {"cpu": _cpu, "gpu": _gpu},
+        {"n_rows": [20_000, 50_000, 100_000, 300_000]},
+        _make_fe_gpu_binning_inputs,
+        reference="cpu", repeats=3, equiv_rtol=0.0, equiv_atol=0.0,  # bit-identical int codes
+    ))
+
+
+def _fe_gpu_binning_code_version():
+    """Content-hash of the binning GPU kernel + its resident-discretize dependency, used as a kernel-tuning-cache invalidation key when either changes."""
+    try:
+        from ._gpu_resident_select import _gpu_resident_discretize_codes, gpu_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals(); lazy: cross-sibling
+        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
+        return compute_code_version(gpu_discretize_codes_host, _gpu_resident_discretize_codes)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("_fe_gpu_binning_code_version failed, kernel-tuning cache will treat this as unversioned: %s", e)
+        return None
+
+
+def fe_gpu_binning_backend_choice(n_rows: int, n_cols: int) -> str:
+    """Per-host 'gpu' or 'cpu' for the FE candidate BINNING via the shared get_or_tune orchestrator
+    (per-host cache, code-version checked, background sweep, measurement-backed fallback). Never blocks
+    the fit: async_sweep tunes off the hot path; the conservative fallback routes meanwhile."""
+    try:
+        from ._fe_deadline import fe_budget_active
+        if fe_budget_active():
+            return _fe_gpu_binning_fallback_choice(n_rows, n_cols)
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+        res = KernelTuningCache.load_or_create().get_or_tune(
+            "fe_gpu_binning",
+            dims={"n_rows": int(n_rows)},
+            tuner=_run_fe_gpu_binning_sweep,
+            axes=["n_rows"],
+            fallback={"backend_choice": _fe_gpu_binning_fallback_choice(n_rows, n_cols)},
+            code_version=_fe_gpu_binning_code_version(),
+            async_sweep=True,
+        )
+        bc = res if isinstance(res, str) else str((res or {}).get("backend_choice", "cpu"))
+        return bc if bc in ("cpu", "gpu") else "cpu"
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("fe_gpu_binning_backend_choice: kernel_tuning_cache lookup failed, using the measurement-backed fallback: %s", e)
+        return _fe_gpu_binning_fallback_choice(n_rows, n_cols)
+
+
+def ensure_fe_gpu_binning_tuning(force: bool = False) -> list | None:
+    """Force-run + persist the FE binning CPU-vs-GPU crossover sweep for this host (CLI refresh hook)."""
+    try:
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+        cache = KernelTuningCache.load_or_create()
+        if not force:
+            existing = cache.get_regions("fe_gpu_binning")
+            if existing:
+                return cast("list | None", existing)
+        regions = _run_fe_gpu_binning_sweep()
+        if regions:
+            cache.update("fe_gpu_binning", axes=["n_rows"], regions=regions, code_version=_fe_gpu_binning_code_version())
+        return regions
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("ensure_fe_gpu_binning_tuning: forced sweep/persist failed: %s", e)
+        return None
+
+
+def grand_fused_pair_mi(
+    a, b, y_codes, classes_y_safe, freqs_y, *,
+    nbins: int = 20, npermutations: int = 25, min_nonzero_confidence: float = 0.0, use_su: bool = False,
+    random_seed: int = 0,
+):
+    """GRAND FUSION: GPU fused-generate candidates -> RESIDENT GPU discretize -> the EXISTING bit-identical
+    GPU noise-gate (``batch_mi_noise_gate_gpu``). Returns the SAME noise-gated fe_mi[K] the production
+    pair-search computes, but with generation+discretization+noise-gate all on the GPU. Only the small
+    int8 disc crosses to host for the existing noise-gate (which does its own resident permutation
+    counting). Bit-identical: GPU discretize == CPU discretize (verified maxdiff 0) and the GPU noise-gate
+    is the production twin. VRAM-chunked. Returns ``(names, fe_mi)``.
+
+    MEASURED (GTX 1050 Ti, K=384, nperm=25, BIT-IDENTICAL to the production ``_dispatch_batch_mi_with_
+    noise_gate`` - bit=True, argmax match):
+      * vs the PRODUCTION dispatch (its analytic large-n gate): n=50k 3169->717ms 4.42x; n=200k
+        13589->2948ms 4.61x. This is the honest, fair speedup.
+      * vs a forced CPU PERMUTATION gate (which production AVOIDS at large n via the analytic shortcut):
+        n=200k 53902->2753ms ~19.6x - do NOT quote this as the production win; it is the permutation-path
+        ceiling, shown only to locate where the time goes (the noise-gate dominates at K=384).
+    The default chooser routes the gate to CPU on this host (a tuner mis-calibration: the GPU gate is
+    ~15x faster on the permutation path); grand_fused forces cupy/cuda so the gate runs on the GPU.
+
+    GRAND FUSION (2026-06-20, default ON via ``MLFRAME_FE_GPU_GRAND_FUSION``): when enabled this delegates
+    to :func:`grand_fused_pair_mi_fused`, which NEVER materialises the (n,K) float candidate matrix, the
+    (n,K) int codes, the (n,K) D2H disc, nor the noise-gate's (n,K) ``d_base`` / (rows*n*K) flat index -
+    it fuses gen+bin+joint-histogram into ONE shared-mem-atomic RawKernel per chunk (recompute-not-store,
+    Option F1 + roadmap #3). MEASURED (GTX 1050 Ti, K=384, nperm=25, BIT-IDENTICAL - maxdiff 0, argmax
+    match, vs this non-fused path): n=100k 2.16x + 3.0x less peak GPU mem; n=300k 2.15x + 2.75x; n=1M
+    3.39x + 2.26x. Selection is EXACT (same percentile edges; only the data movement changes). Falls back
+    to this exact non-fused body if the shared histogram (P1*nbins*K_y int32) exceeds the device's per-block
+    shared-mem limit or any GPU error occurs."""
+    if fe_gpu_grand_fusion_enabled():
+        try:
+            return grand_fused_pair_mi_fused(
+                a, b, y_codes, classes_y_safe, freqs_y, nbins=nbins, npermutations=npermutations,
+                min_nonzero_confidence=min_nonzero_confidence, use_su=use_su,
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).info("grand-fusion fused path unavailable (%s); non-fused fallback", e)
+
+    import cupy as cp
+
+    from ._gpu_resident_select import _gpu_resident_discretize_codes  # type: ignore[attr-defined]  # dynamically re-exported via globals(); lazy: cross-sibling, avoids cycle
+    from . import hermite_fe as _hf  # noqa: F401 - full-init parent before the GPU MI import cycle
+    from .batch_mi_noise_gate_gpu import (
+        batch_mi_with_noise_gate_cuda_resident,
+        dispatch_batch_mi_with_noise_gate_gpu,
+    )
+
+    a_gpu = cp.asarray(a, dtype=cp.float64)
+    b_gpu = cp.asarray(b, dtype=cp.float64)
+    n = int(a_gpu.shape[0])
+    ua_cm = _unary_stack_cm(cp, a_gpu)
+    ub_cm = _unary_stack_cm(cp, b_gpu)
+    y_i64 = np.ascontiguousarray(y_codes, dtype=np.int64)
+    csafe = np.ascontiguousarray(classes_y_safe)
+    fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
+    k_chunk = _gpu_k_chunk(n)
+    parts: list[np.ndarray] = []
+
+    def _ensure_disc_host(cache: list[Optional[np.ndarray]], dev: np.ndarray) -> np.ndarray:
+        """LAZY host materialisation of the resident disc codes ``dev`` - D2H'd (once, cached in
+        ``cache``) only if a host-reading path actually needs them; the resident GPU gate (the common
+        case) never triggers this, so it never touches the host for this data. ``cache`` is a fresh
+        ``[None]`` per block (passed in, not captured, to keep this def loop-variable-safe)."""
+        val = cache[0]
+        if val is None:
+            val = np.asarray(cp.asnumpy(dev))
+            cache[0] = val
+        return val
+
+    for start in range(0, len(_COMBOS), k_chunk):
+        block = _COMBOS[start : start + k_chunk]
+        cand = _fused_generate_block(ua_cm, ub_cm, block)  # GPU gen (resident)
+        disc_dev = _gpu_resident_discretize_codes(cand, nbins).astype(cp.int8)  # GPU disc - KEPT resident
+        del cand
+        fnb = np.full(len(block), int(nbins), dtype=np.int64)
+        _disc_host_cache: list[Optional[np.ndarray]] = [None]
+
+        out = None
+        if not bool(use_su):
+            # RESIDENT noise-gate: feed the on-device disc codes straight into the resident
+            # CUDA kernel via ``d_disc_resident`` - it reads them in place, so the codes never round-trip
+            # GPU -> host -> GPU (the D2H-then-H2D this fix eliminates). ``disc_2d`` below is a metadata-
+            # only placeholder (matching shape/dtype, uninitialised) - the resident kernel only reads its
+            # ``.shape``/``.dtype`` when ``d_disc_resident`` is given (its own OOB-screen skips reading the
+            # host bytes in that branch), so no data ever needs to be D2H'd for the common (successful) case.
+            # ``batch_mi_with_noise_gate_cuda_resident`` does not support ``use_su=True`` (its own docstring
+            # - SU has no GPU-entropy form), so that case is excluded here and falls through unchanged below.
+            try:
+                _placeholder = np.empty(disc_dev.shape, dtype=disc_dev.dtype)
+                out = batch_mi_with_noise_gate_cuda_resident(
+                    disc_2d=_placeholder, factors_nbins=fnb, classes_y=y_i64, classes_y_safe=csafe, freqs_y=fy,
+                    npermutations=int(npermutations), base_seed=np.uint64(random_seed),
+                    min_nonzero_confidence=float(min_nonzero_confidence), use_su=False,
+                    dtype=np.int32, d_disc_resident=disc_dev,
+                )
+            except Exception as _res_exc:
+                import logging
+                logging.getLogger(__name__).debug(
+                    "grand_fused_pair_mi resident noise-gate failed (%s: %s); D2H fallback",
+                    type(_res_exc).__name__, _res_exc,
+                )
+                out = None
+        # FORCE the GPU noise-gate: measured 15x faster than CPU here (K=384 n=200k: cupy 3093ms vs
+        # CPU njit 46176ms - the noise-gate is the REAL bottleneck, not gen/discretize). The default
+        # chooser (_batch_mi_noise_gate_backend_choice) picks CPU on this host - a tuner mis-calibration
+        # (it under-rates the GPU gate, same class as the MI-dispatch issue); force cupy/cuda so the
+        # grand-fused path actually runs the gate on the GPU. Falls back to CPU only if no GPU backend.
+        # Reached when use_su=True (the resident kernel's excluded case, eager D2H below) or when the
+        # resident attempt above failed/was skipped.
+        if out is None:
+            disc_host = _ensure_disc_host(_disc_host_cache, disc_dev)
+            for _fb in ("cupy", "cuda"):
+                out = dispatch_batch_mi_with_noise_gate_gpu(
+                    disc_2d=disc_host, factors_nbins=fnb, classes_y=y_i64, classes_y_safe=csafe, freqs_y=fy,
+                    npermutations=int(npermutations), base_seed=np.uint64(random_seed),
+                    min_nonzero_confidence=float(min_nonzero_confidence), use_su=bool(use_su),
+                    dtype=np.int32, force_backend=_fb,
+                )
+                if out is not None:
+                    break
+        if out is None:  # GPU noise-gate unavailable -> the always-correct CPU kernel on the same disc
+            from ._feature_engineering_pairs._pairs_dispatch import _fe_classes_dtype
+            from .info_theory import batch_mi_with_noise_gate as _cpu_gate
+            disc_host = _ensure_disc_host(_disc_host_cache, disc_dev)
+            fe_mi = _cpu_gate(
+                disc_2d=disc_host, factors_nbins=fnb, classes_y=y_i64, classes_y_safe=csafe, freqs_y=fy,
+                npermutations=int(npermutations), base_seed=np.uint64(random_seed),
+                min_nonzero_confidence=float(min_nonzero_confidence), use_su=bool(use_su),
+                # Widen rather than hardcode int16: a nbins > 32767 column would otherwise trip the kernel's
+                # capacity clamp (or, before it existed, wrap silently into a negative bucket).
+                dtype=np.int32, classes_dtype=_fe_classes_dtype(np.dtype(disc_host.dtype), fnb),
+            )
+        else:
+            fe_mi = out[0] if isinstance(out, tuple) else out
+        parts.append(np.asarray(fe_mi, dtype=np.float64))
+    return _candidate_names(), np.concatenate(parts) if parts else np.empty(0)
+
+
+def _grand_fusion_block_counts(ua_cm, ub_cm, block, edges_int, y_all_dev, nbins, K_y, total_size):
+    """Run the fused gen+bin+histogram kernel for one candidate ``block``, returning the (P1, total_size)
+    int64 joint-count matrix on HOST. ``edges_int`` is the (blk, nbins-1) interior-edge matrix (the exact
+    ``cp.percentile`` edges for this block), ``y_all_dev`` is the (P1, n) int32 device y-vectors. The
+    candidate float matrix is NEVER stored: each cell is regenerated + binned + atomic-histogrammed inline.
+
+    ``col_off[c] = c * nbins * K_y`` (uniform nbins per FE candidate); ``total_size = blk * nbins * K_y``."""
+    import cupy as cp
+
+    n = int(ua_cm.shape[1])
+    K = len(block)
+    # Same fit-invariant index trio as _fused_generate_block (block is a slice of the module constant
+    # _COMBOS); reuse the shared cache to drop the per-chunk-per-pair list-comps + tiny H2D.
+    _ck = tuple(block)
+    _cc = _COMBO_IDX_CACHE.get(_ck)
+    if _cc is None:
+        ua_idx = cp.asarray(np.asarray([_UNARY_IDX[ua] for ua, _, _ in block], dtype=np.int32))
+        ub_idx = cp.asarray(np.asarray([_UNARY_IDX[ub] for _, ub, _ in block], dtype=np.int32))
+        bop = cp.asarray(np.asarray([_BINOP_CODE[bp] for _, _, bp in block], dtype=np.int32))
+        _COMBO_IDX_CACHE[_ck] = (ua_idx, ub_idx, bop)
+    else:
+        ua_idx, ub_idx, bop = _cc
+    col_off = cp.arange(K, dtype=cp.int64) * (int(nbins) * int(K_y))
+    P1 = int(y_all_dev.shape[0])
+    # OOB SCREEN (FIX2, 2026-06-28): the grand-fusion kernel (_gpu_resident_fe.py:744) uses the y code
+    # DIRECTLY as a shared-mem offset (``sh[p*nbky + slot + yp]``); the X side is generated + binned
+    # in-kernel (slot bounded by nbins by construction) so only ``y_all`` can drive an illegal address.
+    # A y code < 0 or >= K_y indexes outside the (P1,nbins,K_y) shared histogram -> cudaErrorIllegalAddress.
+    # One stacked min/max .get() (single blocking sync) so an upstream OOB surfaces as a clear ValueError.
+    if y_all_dev.size:
+        _ymm = cp.stack((y_all_dev.min(), y_all_dev.max())).get()
+        if int(_ymm[0]) < 0 or int(_ymm[1]) >= int(K_y):
+            raise ValueError(
+                "grand-fusion y_all codes out of range (min=%d, max=%d) for K_y=%d; a -1 / over-range "
+                "code would index outside the device histogram (illegal address)." % (int(_ymm[0]), int(_ymm[1]), int(K_y))
+            )
+    counts = cp.zeros((P1, int(total_size)), dtype=cp.int64)
+    # ONE BLOCK PER CANDIDATE: shared-mem histogram is (P1, nbins, K_y) int32. Check it fits this device's
+    # per-block shared-memory limit; if not, the caller must fall back (the host gates on this).
+    hist_bytes = P1 * int(nbins) * int(K_y) * 4
+    threads = 256
+    _get_fused_gen_bin_hist_kernel()(
+        (K,), (threads,),
+        (ua_cm, ub_cm, ua_idx, ub_idx, bop, edges_int, col_off, y_all_dev,
+         np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(int(K_y)),
+         np.int32(P1), np.int64(int(total_size)), counts),
+        shared_mem=hist_bytes,
+    )
+    out = cp.asnumpy(counts)
+    del counts, ua_idx, ub_idx, bop, col_off
+    return out
+
+
+def grand_fused_pair_mi_fused(
+    a, b, y_codes, classes_y_safe, freqs_y, *,
+    nbins: int = 20, npermutations: int = 25, min_nonzero_confidence: float = 0.0, use_su: bool = False,
+):
+    """GRAND-FUSION (never materialise (n,K)): the fully-fused twin of :func:`grand_fused_pair_mi`.
+
+    Collapses gen -> discretize -> noise-gate-counting into ONE histogram kernel per chunk. Pass 1 (per
+    chunk, VRAM-governed) generates the (n, blk) candidate floats ONLY long enough to take the EXACT
+    ``cp.percentile`` interior edges, then DISCARDS them (the edges - (blk, nbins-1) - are the only
+    survivor). Pass 2 launches :func:`_grand_fusion_block_counts`: each (row, candidate) thread RE-generates
+    its value, bins it against those exact edges (identical math -> identical codes -> SAME selection), and
+    atomic-adds into the (P1, total_size) joint histogram for the original-y + every shuffled-y at once.
+    The MI/SU + the noise-gate rejection are reduced from those integer counts on the bit-exact CPU path
+    (``_mi_from_counts_cpu`` + ``_gate_from_mi``) - so the returned fe_mi is BIT-IDENTICAL to
+    ``grand_fused_pair_mi`` / the production gate, while the (n,K) float matrix, the (n,K) int codes, the
+    (n,K) D2H disc, and the noise-gate's (n,K) ``d_base`` + (rows*n*K) flat index are ALL eliminated.
+    Returns ``(names, fe_mi)``. Raises if cupy is unavailable (caller gates)."""
+    import cupy as cp
+
+    from .batch_mi_noise_gate_gpu import (
+        _build_shuffle_matrix, _gate_from_mi, _mi_columns_from_counts_cpu,
+    )
+
+    a_gpu = cp.asarray(a, dtype=cp.float64)
+    b_gpu = cp.asarray(b, dtype=cp.float64)
+    n = int(a_gpu.shape[0])
+    ua_cm = _unary_stack_cm(cp, a_gpu)
+    ub_cm = _unary_stack_cm(cp, b_gpu)
+
+    # y-vectors: row 0 = original y, rows 1.. = the Fisher-Yates shuffles (SAME host LCG the noise-gate
+    # uses -> bit-identical permutation stream). Uploaded ONCE as (P1, n) int32 and shared by every chunk.
+    y_orig = np.ascontiguousarray(y_codes, dtype=np.int64).reshape(1, n)
+    K_y = int(np.asarray(freqs_y).shape[0])
+    fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
+    nperm = int(npermutations) if npermutations and npermutations > 0 else 0
+    if nperm > 0:
+        shuf = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(0), nperm)
+        y_all_host = np.empty((nperm + 1, n), dtype=np.int64)
+        y_all_host[0, :] = y_orig[0, :]
+        y_all_host[1:, :] = shuf.astype(np.int64)
+    else:
+        y_all_host = y_orig
+    P1 = int(y_all_host.shape[0])
+    y_all_dev = cp.asarray(np.ascontiguousarray(y_all_host, dtype=np.int32))
+
+    # The shared-mem histogram is (P1, nbins, K_y) int32 per block; it must fit this device's per-block
+    # shared-memory limit. If not (very high nperm / many y-classes / large nbins), raise so the caller
+    # falls back to the non-fused exact path - correctness over fusion. Reserve a little headroom.
+    hist_bytes = P1 * int(nbins) * K_y * 4
+    try:
+        sm_limit = int(cp.cuda.runtime.getDeviceProperties(cp.cuda.Device().id)["sharedMemPerBlock"])
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("device sharedMemPerBlock probe failed, using the conservative 48KiB default: %s", e)
+        sm_limit = 48 * 1024
+    if hist_bytes > sm_limit - 256:
+        raise RuntimeError(
+            f"grand-fusion shared histogram {hist_bytes}B exceeds device limit {sm_limit}B "
+            f"(P1={P1}, nbins={nbins}, K_y={K_y}); caller falls back to the non-fused path"
+        )
+
+    # Binning working dtype: mirror _gpu_resident_discretize_codes (native f64 here -> bit-identical edges
+    # to the non-fused grand-fusion path; MLFRAME_FE_GPU_BINNING_DTYPE=float32 forces f32 percentile).
+    forced = os.environ.get("MLFRAME_FE_GPU_BINNING_DTYPE", "").strip().lower()
+    work = cp.float32 if forced in ("float32", "f32", "single") else cp.float64
+    qs = _quantile_levels_dev(cp, nbins, work)
+
+    k_chunk = _gpu_k_chunk(n)
+    original_mi_parts: list[np.ndarray] = []
+    perm_mi_parts: list[list[np.ndarray]] = [[] for _ in range(nperm)]
+    for start in range(0, len(_COMBOS), k_chunk):
+        block = _COMBOS[start : start + k_chunk]
+        blk = len(block)
+        # PASS 1: transient generate -> exact percentile edges -> discard the float matrix. Generate directly
+        # COLUMN-MAJOR (blk, n): the ONLY consumer here is the per-candidate percentile, and cp.percentile over
+        # a (blk, n) C-contiguous buffer along the CONTIGUOUS axis=1 sorts each candidate's n values coalesced
+        # - vs axis=0 over the (n, blk) row-major matrix, which sorts the STRIDED axis (cupy copies/transposes
+        # it internally). Same value set per candidate -> BIT-IDENTICAL edges (and the (blk, nbins-1) edges_int
+        # below is unchanged). cand is discarded straight after, so no (n, K) consumer sees the flipped layout.
+        cand = _fused_generate_block(ua_cm, ub_cm, block, column_major=True)  # (blk, n) f64, transient
+        if cand.dtype != work:
+            cand = cand.astype(work, copy=False)
+        if blk == 1:
+            # cupy single-column percentile bug guard (mirror _gpu_resident_discretize_codes).
+            bin_edges = cp.percentile(cand.ravel(), qs).reshape(-1, 1)  # (nbins+1, 1)
+        else:
+            bin_edges = cp.percentile(cand, qs, axis=1)  # (nbins+1, blk) over the (blk, n) plane
+        del cand  # (n,blk) float GONE before the hist pass
+        # interior edges, transposed to (blk, nbins-1) row-major f64 for the kernel's per-candidate scan.
+        edges_int = cp.ascontiguousarray(bin_edges[1:-1, :].T.astype(cp.float64))
+        del bin_edges
+        total_size = blk * int(nbins) * K_y
+        counts = _grand_fusion_block_counts(ua_cm, ub_cm, block, edges_int, y_all_dev, nbins, K_y, total_size)
+        del edges_int
+        # CPU bit-exact reduction (identical to batch_mi_with_noise_gate_cupy). Use the BATCHED njit
+        # _mi_columns_from_counts_cpu (one compiled call over all blk columns) instead of the per-(perm,k)
+        # Python->njit dispatch - bit-identical (same _mi_from_counts_cpu body per column) but removes the
+        # blk*(nperm+1) Python-call overhead. ref_mi reproduces the perm-skip: all-positive for the original
+        # row (compute every column), then `om` for each perm row (compute only where om>0; else stays 0).
+        nb_ky = int(nbins) * K_y
+        _col_off = np.arange(blk, dtype=np.int64) * nb_ky
+        _nbins_arr = np.full(blk, int(nbins), dtype=np.int64)
+        _all_pos = np.ones(blk, dtype=np.float64)
+        om = _mi_columns_from_counts_cpu(
+            np.ascontiguousarray(counts[0]), _col_off, _nbins_arr, K_y, fy, n, bool(use_su), _all_pos,
+        )
+        original_mi_parts.append(om)
+        for p in range(nperm):
+            mp = _mi_columns_from_counts_cpu(
+                np.ascontiguousarray(counts[p + 1]), _col_off, _nbins_arr, K_y, fy, n, bool(use_su), om,
+            )
+            perm_mi_parts[p].append(mp)
+        del counts
+    original_mi = np.concatenate(original_mi_parts) if original_mi_parts else np.empty(0)
+    perm_mis = [np.concatenate(perm_mi_parts[p]) for p in range(nperm)] if original_mi_parts else []
+    fe_mi = _gate_from_mi(original_mi, perm_mis, nperm, float(min_nonzero_confidence))
+    return _candidate_names(), fe_mi
+
+
+def _log_shift_anchor(operand_vals: np.ndarray, unary_name: str):
+    """Frozen smart_log shift for a ``log`` side - ``(1e-5 - nanmin)`` if the FULL column reaches <=0,
+    else 0.0 (mirrors _step_core._ls_anchor exactly so replay is byte-identical). None for non-log."""
+    if unary_name != "log":
+        return None
+    mn = float(np.nanmin(np.asarray(operand_vals, dtype=np.float64)))
+    return (1e-5 - mn) if mn <= 0 else 0.0
+
+
+def gpu_resident_pair_recipes(
+    a_vals: np.ndarray,
+    b_vals: np.ndarray,
+    y_codes: np.ndarray,
+    *,
+    src_a_name: str,
+    src_b_name: str,
+    cols_names,
+    unary_preset: str = "minimal",
+    binary_preset: str = "minimal",
+    quantization_nbins=None,
+    quantization_method=None,
+    quantization_dtype=np.float32,
+    top_k: int = 1,
+    nbins: int = 20,
+):
+    """Score a pair's candidate grid on the GPU and return the top-``top_k`` as STRUCTURED, replayable
+    ``EngineeredRecipe`` objects - the bridge from this path's flat (name, MI) to what production FE
+    consumes. For each winner it emits, via the SAME builders the CPU path uses
+    (``get_new_feature_name`` + ``build_unary_binary_recipe``): the canonical name, the structured
+    (src column names, unary names, binary name), the active presets (frozen for replay-stable semantics),
+    the quantization params with fit-time edges PINNED (``fit_values_for_edges`` -> leak-free transform),
+    and the frozen ``log_shift`` anchor for any ``log`` side. So the GPU result is a first-class recipe
+    that ``transform()`` replays bit-identically on raw inputs - not a string to be re-parsed.
+
+    Returns a list of ``(name, EngineeredRecipe, mi)`` sorted by descending MI. The MI uses the exact
+    GPU-resident path (``gpu_resident_pair_candidate_mi``); the recipe fields are built on CPU (cheap for
+    top_k winners). Combo order is ``_COMBOS`` (kept in sync with the minimal preset)."""
+    from .engineered_recipes import build_unary_binary_recipe
+    from .feature_engineering import get_new_feature_name
+
+    # Route through the dispatcher so this works on ANY backend (GPU-resident in the sweet spot, CPU
+    # otherwise) - recipe emission is backend-agnostic.
+    _names, mi = pair_candidate_mi_dispatch(a_vals, b_vals, y_codes, nbins=nbins)
+    a64 = np.ascontiguousarray(a_vals, dtype=np.float64)
+    b64 = np.ascontiguousarray(b_vals, dtype=np.float64)
+    cols = list(cols_names)
+    idx_a = cols.index(src_a_name)
+    idx_b = cols.index(src_b_name)
+    out = []
+    for ci in np.argsort(mi)[::-1][: int(top_k)]:
+        ua, ub, bop = _COMBOS[int(ci)]
+        fe_tuple = (((idx_a, ua), (idx_b, ub)), bop, 0)
+        name = get_new_feature_name(fe_tuple, cols)
+        # Continuous fit-time engineered column (for edge pinning) - identical op chain as the GPU path.
+        fit_vals = _binary_apply(np, bop, _unary_apply(np, ua, a64), _unary_apply(np, ub, b64))
+        fit_vals = np.nan_to_num(np.asarray(fit_vals, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+        recipe = build_unary_binary_recipe(
+            name=name,
+            src_a_name=src_a_name, src_b_name=src_b_name,
+            unary_a_name=ua, unary_b_name=ub, binary_name=bop,
+            unary_preset=unary_preset, binary_preset=binary_preset,
+            quantization_nbins=quantization_nbins,
+            quantization_method=quantization_method,
+            quantization_dtype=quantization_dtype,
+            fit_values_for_edges=fit_vals,
+            log_shift_a=_log_shift_anchor(a64, ua),
+            log_shift_b=_log_shift_anchor(b64, ub),
+        )
+        out.append((name, recipe, float(mi[int(ci)])))
+    return out
+
+
+def pair_candidate_mi_dispatch(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, *, nbins: int = 20):
+    """Route a pair's candidate-MI to the measured-fastest backend: GPU-resident in the sweet spot
+    (cupy present, n >= the crossover, VRAM-chunked so it can't thrash), CPU njit otherwise. Returns
+    ``(names, mi)`` identical in shape/order to both paths. The default FE pipeline does NOT call this
+    yet (gated prototype); it is the dispatcher the production wiring will use."""
+    n = int(np.asarray(a).shape[0])
+    # Per-host crossover via the shared kernel_tuning_cache (mirrors the FE pair-MI path) rather than the
+    # hardcoded 50k: the per-host CPU-vs-GPU sweep decides, and _GPU_RESIDENT_MIN_N is only the source-code
+    # FALLBACK (inside _fe_gpu_pairs_mi_fallback_choice) when the cache is cold / lookup fails. Honours the
+    # project rule against hardcoded GPU thresholds; the 50k stays as the conservative cold-start default.
+    try:
+        _use_gpu = fe_gpu_pairs_mi_backend_choice(n, len(_COMBOS)) == "gpu"
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("fe_gpu_pairs_mi_backend_choice failed, using the size-based fallback: %s", e)
+        _use_gpu = n >= _GPU_RESIDENT_MIN_N
+    if _use_gpu:
+        try:
+            import cupy  # noqa: F401
+
+            # Resolve via the parent module (where this function is re-exported) so a monkeypatch of
+            # ``gpu_resident_pair_candidate_mi`` on the parent - the canonical patch target - is honoured
+            # after the Tier E carve (the name is defined in the parent; this call lives in the sibling).
+            from . import _gpu_resident_fe as _parent
+            return _parent.gpu_resident_pair_candidate_mi(a, b, y_codes, nbins=nbins)
+        except Exception as e:
+            # Log (don't silently swallow) - a GPU OOM/driver error degrading to a slow CPU fallback
+            # would otherwise look like "GPU never helped". A chunk-shrink-retry before CPU fallback is
+            # a future refinement (the VRAM governor already bounds chunks, so OOM should be rare).
+            import logging
+            logging.getLogger(__name__).warning("GPU-resident pair MI failed (%s); CPU fallback.", e)
+    return cpu_pair_candidate_mi(a, b, y_codes, nbins=nbins)

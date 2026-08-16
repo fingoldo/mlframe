@@ -241,7 +241,7 @@ def _cmd_refresh_batch_mi_noise_gate(args) -> int:
 
 
 def _cmd_refresh_fe_gpu_pairs_mi(args) -> int:
-    from mlframe.feature_selection.filters._gpu_resident_basis import ensure_fe_gpu_pairs_mi_tuning
+    from mlframe.feature_selection.filters._gpu_resident_pair_mi import ensure_fe_gpu_pairs_mi_tuning
     return _refresh_generic("fe_gpu_pairs_mi", ensure_fe_gpu_pairs_mi_tuning, force=args.force)
 
 

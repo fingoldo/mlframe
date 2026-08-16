@@ -801,7 +801,7 @@ def test_regression_grand_fused_pair_mi_threads_random_seed():
     Post-fix: a random_seed kwarg exists and is threaded through to the permutation-null base_seed."""
     import inspect
 
-    from mlframe.feature_selection.filters._gpu_resident_basis import grand_fused_pair_mi
+    from mlframe.feature_selection.filters._gpu_resident_pair_mi import grand_fused_pair_mi
 
     sig = inspect.signature(grand_fused_pair_mi)
     assert "random_seed" in sig.parameters

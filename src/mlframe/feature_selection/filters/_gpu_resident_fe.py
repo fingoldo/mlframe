@@ -1196,15 +1196,17 @@ def gpu_resident_pair_candidate_mi_fast(a, b, y_codes, *, nbins: int = 20, refin
     # (or a fused sort-free EXACT kernel), not just the sort. Kept as a validated option, not the default.
 
 
-# --- Tier E carve re-exports: prewarp/orth-basis + grand-fusion block -> _gpu_resident_basis.py,
-# residency-buffer + radix-select block -> _gpu_resident_select.py (carved VERBATIM under the 1k ceiling).
-# Rebind EVERY moved name (public AND underscore-private) into this namespace so all existing
-# ``from .._gpu_resident_fe import X`` paths still resolve byte-for-byte (production code + tests import
-# several private names by path). At the BOTTOM so the siblings' top-level back-imports resolve.
+# --- Tier E carve re-exports: prewarp/orth-basis block -> _gpu_resident_basis.py, its own further carve
+# (analytic pair-MI + grand-fusion + dispatch) -> _gpu_resident_pair_mi.py, residency-buffer + radix-select
+# block -> _gpu_resident_select.py (all carved VERBATIM under the 1k ceiling). Rebind EVERY moved name
+# (public AND underscore-private) into this namespace so all existing ``from .._gpu_resident_fe import X``
+# paths still resolve byte-for-byte (production code + tests import several private names by path). At the
+# BOTTOM so the siblings' top-level back-imports resolve.
 from . import _gpu_resident_basis as _grb
+from . import _gpu_resident_pair_mi as _gpm
 from . import _gpu_resident_select as _grs
 from . import _gpu_resident_k_chunk_ktc as _grk
-for _m in (_grb, _grs, _grk):
+for _m in (_grb, _gpm, _grs, _grk):
     for _n in dir(_m):
         if not _n.startswith("__") and _n not in globals():
             globals()[_n] = getattr(_m, _n)

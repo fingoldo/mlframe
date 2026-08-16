@@ -126,13 +126,22 @@ def test_edge_differs_from_rank_on_tied():
 # CUDA: CPU edge MI == GPU resident edge MI (the real cross-backend identity).
 # ---------------------------------------------------------------------------
 def _need_cuda() -> bool:
-    """Need cuda."""
+    """True only when BOTH the driver/hardware reports CUDA available AND ``cupy`` (what this test
+    imports directly) is installed -- checking only driver presence lets this run-and-fail with a plain
+    ``ModuleNotFoundError: No module named 'cupy'`` on a box with a CUDA-capable GPU but no cupy in this
+    particular venv, a real skip-guard/dependency mismatch rather than a test or product bug."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
-        return is_cuda_available()
+        if not bool(is_cuda_available()):
+            return False
     except Exception:
         return False
+    try:
+        import cupy  # noqa: F401
+    except ImportError:
+        return False
+    return True
 
 
 @pytest.mark.gpu
