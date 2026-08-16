@@ -29,13 +29,24 @@ pytestmark = pytest.mark.skipif(
 
 
 def _cuda_available() -> bool:
-    """Cuda available."""
+    """True only when BOTH the driver/hardware reports CUDA available AND the ``cupy`` package
+    (what discretize_2d_array_cuda actually imports) is installed in this environment. Checking
+    only ``is_cuda_available()`` (driver/hardware presence) let TestRealHardware run-and-fail with
+    a plain ``RuntimeError: cupy not installed`` on a box with a CUDA-capable GPU but no cupy in
+    this particular venv -- a real, reproducible skip-guard/dependency mismatch, not a hardware
+    or discretize_2d_array_cuda bug."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
-        return bool(is_cuda_available())
+        if not bool(is_cuda_available()):
+            return False
     except Exception:
         return False
+    try:
+        import cupy  # noqa: F401
+    except ImportError:
+        return False
+    return True
 
 
 @pytest.fixture(autouse=True)
