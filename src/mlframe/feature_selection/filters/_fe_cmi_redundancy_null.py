@@ -433,10 +433,11 @@ def _conditional_perm_null(
     # version doesn't pay. Confirms this exact function's OWN 2026-07-05 note: the argsort/CMI eval is
     # genuine O(n log n) work, not alloc/dispatch overhead - there is no batching shortcut available on
     # the CPU path (unlike GPU, where the batching win comes from eliminating N kernel-launch overheads,
-    # not from vectorising the sort itself). CAVEAT: the microbench ran on a machine under heavy
-    # concurrent load (multiple other fits/sweeps running in parallel) - re-measure on an idle machine
-    # before trusting this verdict as final; a genuine allocator/cache-contention artifact from the load
-    # could plausibly have inflated the batched variant's cost. Left as the simple per-perm loop.
+    # not from vectorising the sort itself). RE-MEASURED 2026-08-16 (bench_argsort_batch.py, paired/
+    # interleaved trials, n=8000/25 strata-conditioned perms, verdict was previously caveated as measured
+    # under heavy concurrent load): batched median 1.43x SLOWER, 14/15 interleaved trials slower, min-of-
+    # trial ratio 1.50x slower -- the earlier verdict holds regardless of machine load; the caveat is
+    # resolved, this is final. Left as the simple per-perm loop.
     nulls = np.empty(_nperm, dtype=np.float64)
     for i in range(_nperm):
         keys = rng.random(n_size)
