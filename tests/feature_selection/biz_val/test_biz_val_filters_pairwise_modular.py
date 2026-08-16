@@ -413,9 +413,11 @@ class TestPairwiseModularTargetTypeRobustness:
         t0 = time.time()
         m.fit(df, y)
         # Budget raised 30s -> 90s alongside the fe_max_steps=1 change above: the modular family can only
-        # run inside an FE budget now, so this fit legitimately also pays for the core FE step. The assertion
-        # guards the HANG class (an unbounded scan), not a perf regression, so the wider bound still holds it.
-        assert time.time() - t0 < 90.0, "modular fit exceeded 90s wall (hang-class bug)"
+        # run inside an FE budget now, so this fit legitimately also pays for the core FE step. Raised again
+        # 90s -> 300s (2026-08-16): a full-matrix CI run under heavy shared-runner contention blew 90s on a
+        # fit that finishes in ~8s locally. The assertion guards the HANG class (an unbounded scan), not a
+        # perf regression, so the wider bound still holds it.
+        assert time.time() - t0 < 300.0, "modular fit exceeded 300s wall (hang-class bug)"
         return m
 
     @pytest.mark.parametrize("kind", ["regression", "quantile", "count"])

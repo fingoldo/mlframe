@@ -837,7 +837,11 @@ from .._hermite_fe_optimise import (
     _baseline_mi_pair, _eval_coef_pair, _run_cma_search, _select_diverse_topm, detect_pair_symmetry, optimise_hermite_pair, optimise_pair_multimode, precompute_hermite_pair_basis,
 )
 from .._hermite_fe_mi import (
-    _bind_parent_kernels, _ensure_cuda_kernels, _plugin_mi_classif_batch_cuda, _plugin_mi_classif_batch_cuda_resident, _plugin_mi_classif_njit, _plugin_mi_from_binned_njit, _plugin_mi_regression_njit, plugin_mi_classif_batch_dispatch, plugin_mi_classif_dispatch, plugin_mi_classif_fast,
+    _bind_parent_kernels, _ensure_cuda_kernels, _plugin_mi_classif_batch_cuda, _plugin_mi_classif_batch_cuda_resident, _plugin_mi_classif_njit, _plugin_mi_from_binned_njit, _plugin_mi_regression_njit, plugin_mi_classif_batch_dispatch, plugin_mi_classif_dispatch,
+    # plugin_mi_classif_fast: re-exported public API, consumed via `from mlframe...hermite_fe import
+    # plugin_mi_classif_fast` by tests/feature_selection/gpu/test_plugin_mi_classif_dispatch.py --
+    # code_audit's dead-import scan only covers src/, so it can't see that consumer and flags this as unused.
+    plugin_mi_classif_fast,
 )
 
 # Parent is now fully initialised (``_quantile_bin_njit`` bound at line 77); bind it into the sibling so a

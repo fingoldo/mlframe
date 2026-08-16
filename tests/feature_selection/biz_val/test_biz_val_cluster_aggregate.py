@@ -22,8 +22,8 @@ from tests.feature_selection._biz_val_synth import make_latent_reflections, make
 from sklearn.metrics import roc_auc_score
 
 pytestmark = pytest.mark.timeout(
-    360
-)  # untimed biz_val real-fit tier: hang-detector, not a perf budget. The module-scoped full-mode MRMR fixture fits legitimately run ~75-90s on many-core/contended hosts; 60s killed a progressing fit mid-way. Raised 240->360: under the full CI matrix's ~20 concurrent pytest shards these legitimately exceeded 240s too. 360s stays well under the coarse 600s global backstop while still surfacing a true hang fast.
+    1800
+)  # untimed biz_val real-fit tier: hang-detector, not a perf budget. The module-scoped full-mode MRMR fixture fits legitimately run ~75-90s on many-core/contended hosts; 60s killed a progressing fit mid-way. Raised 240->360, then 360->1800 (2026-08-16): a full-matrix CI run under unusually heavy shared-runner contention (the whole ~54-shard matrix took 2-3x its normal wall time) blew the 360s budget on 4 of this file's tests even though they finish in ~1 minute locally. Matches the 1800s budget test_biz_val_baseline_diagnostics_n_estimators_100_is_faster already uses for the identical contention class -- still a hang-detector (a true infinite hang would blow even 1800s), not a perf budget.
 
 
 def _abs_corr(a, b):
