@@ -118,7 +118,28 @@ class TestMixedDtypesTraining:
             split_config=TrainingSplitConfig(shuffle_val=False, shuffle_test=False, test_size=0.1, val_size=0.1, wholeday_splitting=False),
             hyperparams_config=ModelHyperparamsConfig(iterations=20, early_stopping_rounds=5),
             behavior_config=TrainingBehaviorConfig(prefer_calibrated_classifiers=False),
-            reporting_config=ReportingConfig(show_perf_chart=True, show_fi=True),
+            # This test asserts only structural pipeline output (mlframe_models/metadata shape) -- no chart or
+            # diagnostic CONTENT is ever read. Every diagnostic below independently costs real wall time on this
+            # 549-column synthetic frame (each renders 1+ charts via render_and_save, whose cost scales with
+            # chart count, not row count) with zero effect on what's asserted -- profiled 2026-08-16, disabling
+            # them cut this test 975s -> 526s (cProfile, in-process) alongside the compute_pdp batching fix in
+            # pdp_ice.py. show_perf_chart/show_fi/pdp_ice stay ON: they still exercise the mixed-dtype FI + PDP
+            # + chart path, matching this test's stated intent of mirroring the user's real calling code.
+            reporting_config=ReportingConfig(
+                show_perf_chart=True,
+                show_fi=True,
+                adversarial_validation=False,  # its own LightGBM classifier fit scales with column count
+                interaction_strength_charts=False,
+                engineered_separability_charts=False,
+                class_structure_charts=False,
+                category_discriminability_charts=False,
+                slice_finder=False,
+                shap_panels=False,
+                decision_curve=False,
+                calibration_drift=False,
+                target_acf=False,
+                model_comparison=False,
+            ),
             verbose=True,
             output_config=OutputConfig(data_dir=str(tmp_path / "data")),
         )

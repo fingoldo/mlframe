@@ -286,21 +286,24 @@ def render_target_drift_diagnostics(
     calibration_drift: bool = True,
     target_acf: bool = True,
     cusum_drift: bool = True,
+    adversarial_validation: bool = True,
 ) -> None:
     """Render the per-target temporal-drift + adversarial-validation diagnostics, each accounted.
 
     ``psi_heatmap`` + ``residual_vs_time`` + ``metric_over_time`` fire when ``timestamps`` cover the split (same gate as
     the temporal target audit); ``adversarial_validation`` fires when train + test (or train + val) feature frames are
-    available. When timestamps cover the split, ``calibration_drift`` (classification) + ``target_acf`` also emit
-    default-on (both cheap: O(n) warmed njit / FFT-capped). All builders cap their own compute, so 100GB frames stay
-    safe (column-view histograms, 200k/side fit).
+    available AND ``adversarial_validation`` is True. When timestamps cover the split, ``calibration_drift``
+    (classification) + ``target_acf`` also emit default-on (both cheap: O(n) warmed njit / FFT-capped). All builders
+    cap their own compute, so 100GB frames stay safe (column-view histograms, 200k/side fit) -- EXCEPT
+    ``adversarial_validation``, whose own LightGBM classifier fit cost scales with column count, not just row count
+    (unbounded by any cap here); set the flag False for very wide frames where that cost dominates.
     """
     charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
     if not plot_outputs or not base_path:
         return
 
     from mlframe.reporting.charts.drift import (
-        adversarial_validation,
+        adversarial_validation as _adversarial_validation_fn,
         metric_over_time,
         psi_heatmap,
         residual_vs_time,
@@ -372,9 +375,9 @@ def render_target_drift_diagnostics(
                     plot_outputs=plot_outputs, base_path=base_path, metrics_dict=metrics_dict,
                 )
 
-    if train_frame is not None and (test_frame is not None or val_frame is not None):
+    if adversarial_validation and train_frame is not None and (test_frame is not None or val_frame is not None):
         try:
-            spec = adversarial_validation(
+            spec = _adversarial_validation_fn(
                 train_frame, test_frame if test_frame is not None else val_frame,
                 val_frame=val_frame if test_frame is not None else None,
                 feature_names=feature_names, seed=seed,

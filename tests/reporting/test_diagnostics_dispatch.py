@@ -235,6 +235,33 @@ class TestTargetDriftDiagnostics:
         assert not (tmp_path / "drift_residual_vs_time.png").exists()
         assert os.path.exists(tmp_path / "drift_adversarial.png")
 
+    def test_adversarial_validation_false_skips_the_panel(self, reg_data, tmp_path):
+        """``adversarial_validation=False`` (2026-08-16) must skip the panel even though train+test frames are
+        present -- pins the opt-out this diagnostic had no flag for until now (unlike every sibling diagnostic
+        in this function, which already had one)."""
+        df, y, yp, _bad, ts = reg_data
+        m: dict = {}
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            render_target_drift_diagnostics(
+                train_frame=df.iloc[:2500],
+                test_frame=df.iloc[2500:],
+                y_true=y,
+                y_pred=yp,
+                timestamps=ts,
+                task="regression",
+                plot_outputs="matplotlib[png]",
+                base_path=str(tmp_path / "drift"),
+                metrics_dict=m,
+                feature_names=["f0", "f1", "f2"],
+                adversarial_validation=False,
+            )
+        assert not (tmp_path / "drift_adversarial.png").exists()
+        assert "adversarial" not in m["charts"]["saved"]
+        # The other (unrelated) panels still fire -- the flag is scoped to adversarial_validation only.
+        assert os.path.exists(tmp_path / "drift_psi.png")
+        assert os.path.exists(tmp_path / "drift_metric_over_time.png")
+
     def test_adversarial_identical_vs_shifted(self, tmp_path):
         """biz_value: adversarial AUC ~0.5 on identical train/test, > 0.7 when a feature is shifted.
         Floors 0.6 / 0.7 sit below the measured ~0.5 / ~0.95."""

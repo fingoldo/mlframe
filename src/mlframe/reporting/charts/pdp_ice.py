@@ -303,6 +303,70 @@ def _substitute_column(carrier_sample: Any, base_vals: Optional[np.ndarray], col
     return block
 
 
+# Row cap for the batched grid predict (_predict_grid_batched): bounds the transient (grid*sample, n_cols)
+# stacked block so a pathological caller-supplied grid/sample can't blow up memory on a very wide frame.
+# 200k matches the row-cap convention used elsewhere in this reporting package (e.g. adversarial_validation's
+# ADV_MAX_ROWS_PER_SIDE) -- comfortably above the default grid=20 x sample=2000=40_000.
+_PDP_BATCH_MAX_ROWS = 200_000
+
+
+def _predict_grid_batched(
+    predict: Callable[[Any], np.ndarray],
+    carrier_sample: Any,
+    base: np.ndarray,
+    col_idx: int,
+    grid_vals: np.ndarray,
+    cat_labels: Optional[list],
+    m: int,
+    g: int,
+    col_name: Optional[str],
+    categorical_dtype: Any,
+) -> Optional[np.ndarray]:
+    """Predict all ``g`` grid steps in ONE call instead of ``g`` separate ones.
+
+    Stacks ``g`` row-major copies of the ``m``-row sample into one ``(g*m, n_cols)`` block (row-block ``k``
+    gets the swept column pinned to grid step ``k``, matching the per-step loop's semantics exactly), predicts
+    ONCE, and reshapes to ``(g, m)``. Purely a fusion of the existing per-step substitution logic -- same
+    values fed to the same stateless ``predict`` callable, so the result is bit-identical to the per-step
+    loop; only the number of ``predict``/Pool-construction calls changes (g -> 1). This matters most for
+    tree-model wrappers (CatBoost/LightGBM) whose ``predict`` pays a fixed per-call Pool/Dataset construction
+    cost that dominates at wide (500+ column) frames -- profiled at ~350ms/call fixed overhead, independent
+    of row count, so consolidating g calls into 1 removes (g-1)/g of it.
+
+    Falls back to the per-step loop (returns ``None``) when the stacked block would exceed
+    ``_PDP_BATCH_MAX_ROWS`` rows, or for a carrier type this fusion does not special-case.
+    """
+    if g * m > _PDP_BATCH_MAX_ROWS:
+        return None
+    repeat_vals = np.repeat(cat_labels, m) if cat_labels is not None else np.repeat(grid_vals, m)
+    if isinstance(carrier_sample, np.ndarray):
+        big = np.tile(base, (g, 1))
+        big[:, col_idx] = repeat_vals
+        return np.asarray(predict(big), dtype=np.float64).reshape(g, m)
+    import pandas as pd
+
+    if isinstance(carrier_sample, pd.DataFrame):
+        big = pd.concat([carrier_sample] * g, ignore_index=True)
+        name = col_name if col_name is not None else list(big.columns)[col_idx]
+        if categorical_dtype is not None:
+            big[name] = pd.Categorical(repeat_vals, dtype=categorical_dtype)
+        else:
+            big[name] = repeat_vals
+        return np.asarray(predict(big), dtype=np.float64).reshape(g, m)
+    if type(carrier_sample).__module__.startswith("polars"):
+        import polars as pl
+
+        big = pl.concat([carrier_sample] * g)
+        name = col_name if col_name is not None else carrier_sample.columns[col_idx]
+        if categorical_dtype is not None:
+            expr = pl.Series(name, list(repeat_vals)).cast(categorical_dtype)
+        else:
+            expr = pl.Series(name, repeat_vals)
+        big = big.with_columns(expr.alias(name))
+        return np.asarray(predict(big), dtype=np.float64).reshape(g, m)
+    return None  # unrecognised carrier type -> caller falls back to the per-step loop
+
+
 def _set_column_inplace(block: Any, col_idx: int, value: Any, col_name: Optional[str] = None, categorical_dtype: Any = None) -> Any:
     """Mutate a pandas ``block``'s single column in place instead of taking the ``_substitute_column`` copy path.
 
@@ -369,22 +433,28 @@ def compute_pdp(
     g = grid_vals.shape[0]
     m = base.shape[0]
 
-    # A pandas carrier gets ONE private working copy mutated in place per grid step (see _set_column_inplace) --
-    # avoids g full-frame `.assign()` copies on a wide model-input frame. ndarray/polars keep the existing
-    # per-step _substitute_column path (ndarray's own copy is already O(1)-column; polars' with_columns is
-    # already columnar-cheap for a single column, so there is no equivalent whole-frame-copy cost to avoid there).
-    import pandas as pd
-    _pd_working = carrier_sample.copy() if isinstance(carrier_sample, pd.DataFrame) else None
+    # ice_full[k] = predictions of all m rows with the feature pinned to grid_vals[k]. Tries the ONE-CALL batched
+    # path first (_predict_grid_batched): stacks all g grid steps into one (g*m, n_cols) block and predicts once,
+    # eliminating g-1 of the g fixed-per-call Pool/Dataset construction costs a tree-model wrapper's predict()
+    # otherwise pays on every grid step (dominant at 500+-column frames -- see that function's docstring).
+    ice_full = _predict_grid_batched(predict, carrier_sample, base, col_idx, grid_vals, _cat_labels, m, g, _col_name, _cat_dtype)
+    if ice_full is None:
+        # Fallback: per-step loop (pathological grid*sample size, or an unrecognised carrier type). A pandas
+        # carrier gets ONE private working copy mutated in place per grid step (see _set_column_inplace) --
+        # avoids g full-frame `.assign()` copies on a wide model-input frame. ndarray/polars keep the existing
+        # per-step _substitute_column path (ndarray's own copy is already O(1)-column; polars' with_columns is
+        # already columnar-cheap for a single column, so there is no equivalent whole-frame-copy cost to avoid there).
+        import pandas as pd
+        _pd_working = carrier_sample.copy() if isinstance(carrier_sample, pd.DataFrame) else None
 
-    # ice_full[k] = predictions of all m rows with the feature pinned to grid_vals[k]; one predict per grid value.
-    ice_full = np.empty((g, m), dtype=np.float64)
-    for k in range(g):
-        _value = _cat_labels[k] if _cat_labels is not None else float(grid_vals[k])
-        if _pd_working is not None:
-            block = _set_column_inplace(_pd_working, col_idx, _value, col_name=_col_name, categorical_dtype=_cat_dtype)
-        else:
-            block = _substitute_column(carrier_sample, base, col_idx, _value, col_name=_col_name, categorical_dtype=_cat_dtype)
-        ice_full[k] = predict(block)
+        ice_full = np.empty((g, m), dtype=np.float64)
+        for k in range(g):
+            _value = _cat_labels[k] if _cat_labels is not None else float(grid_vals[k])
+            if _pd_working is not None:
+                block = _set_column_inplace(_pd_working, col_idx, _value, col_name=_col_name, categorical_dtype=_cat_dtype)
+            else:
+                block = _substitute_column(carrier_sample, base, col_idx, _value, col_name=_col_name, categorical_dtype=_cat_dtype)
+            ice_full[k] = predict(block)
 
     pdp = ice_full.mean(axis=1)  # PDP mean over ALL sampled rows (not the drawn subset)
 

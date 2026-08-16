@@ -264,6 +264,14 @@ class ReportingConfig(BaseConfig):
     calibration_drift: bool = True
     # Target ACF/PACF when the split carries timestamps (serial-dependence diagnostic on the target series).
     target_acf: bool = True
+    # Adversarial-validation panel (train-vs-test/val "will my CV transfer?" check): trains its own LightGBM
+    # classifier(s) on the full feature frame, so cost scales with column count independent of the fitted
+    # model's own cost -- measured ~275s (163s classifier fit + panel render) on a 549-column / 100k-row frame,
+    # dwarfing a 20-iteration CatBoost fit's own ~5s. Unlike every other diagnostic in this file it had no
+    # opt-out until this flag (2026-08-16) -- it always fired whenever train+test/val frames were available.
+    # Default ON (unchanged behavior for existing callers); set False for wide-frame hot loops / integration
+    # tests that don't need the drift read.
+    adversarial_validation: bool = True
     # SHAP beeswarm + top-K dependence. Default-ON for TREE models (exact fast TreeExplainer, cost scales with the
     # explained-row cap not n); for NON-tree models the slow KernelExplainer path is OFF unless ``shap_allow_kernel``.
     shap_panels: bool = True

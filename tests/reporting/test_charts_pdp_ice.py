@@ -71,6 +71,62 @@ def test_compute_pdp_shapes_and_keys():
     assert res["feature_index"] == 0
 
 
+def test_compute_pdp_batched_matches_per_step_fallback_ndarray():
+    """The one-call batched grid predict (_predict_grid_batched) must be bit-identical to the per-step loop
+    fallback (forced via a monkeypatched _PDP_BATCH_MAX_ROWS) -- pins the 2026-08-16 perf fix (g predict calls
+    -> 1) as a pure fusion with zero output change."""
+    rng = np.random.default_rng(7)
+    X = rng.normal(size=(3000, 5))
+    model = _LinearModel([1.0, -2.0, 0.5, 0.0, 3.0])
+
+    batched = pdp_ice.compute_pdp(model, X, 2, grid=18, sample=500, ice=True, seed=11)
+
+    orig = pdp_ice._PDP_BATCH_MAX_ROWS
+    pdp_ice._PDP_BATCH_MAX_ROWS = -1
+    try:
+        looped = pdp_ice.compute_pdp(model, X, 2, grid=18, sample=500, ice=True, seed=11)
+    finally:
+        pdp_ice._PDP_BATCH_MAX_ROWS = orig
+
+    np.testing.assert_array_equal(batched["grid"], looped["grid"])
+    np.testing.assert_array_equal(batched["pdp"], looped["pdp"])
+    np.testing.assert_array_equal(batched["ice"], looped["ice"])
+
+
+def test_compute_pdp_batched_matches_per_step_fallback_pandas_categorical():
+    """Same batched-vs-looped identity pin as the ndarray test above, on the pandas + categorical-column path
+    (a distinct code branch in _predict_grid_batched from the ndarray one)."""
+    import pandas as pd
+
+    rng = np.random.default_rng(8)
+    n = 600
+    X = pd.DataFrame({"f0": rng.normal(size=n), "f1": rng.normal(size=n)})
+    X["cat"] = pd.Categorical(rng.choice(["a", "b", "c", "d"], n))
+
+    class _CatAwareModel:
+        """Deterministic scorer reading f0 plus a per-category offset, native-pandas-categorical-in."""
+
+        def predict(self, block):
+            """Predict."""
+            offsets = {"a": 0.0, "b": 1.0, "c": -1.0, "d": 2.0}
+            return np.asarray(block["f0"], dtype=np.float64) + block["cat"].map(offsets).to_numpy(dtype=np.float64)
+
+    model = _CatAwareModel()
+    batched = pdp_ice.compute_pdp(model, X, "cat", grid=20, sample=300, ice=True, seed=5)
+
+    orig = pdp_ice._PDP_BATCH_MAX_ROWS
+    pdp_ice._PDP_BATCH_MAX_ROWS = -1
+    try:
+        looped = pdp_ice.compute_pdp(model, X, "cat", grid=20, sample=300, ice=True, seed=5)
+    finally:
+        pdp_ice._PDP_BATCH_MAX_ROWS = orig
+
+    assert batched["is_discrete"] and looped["is_discrete"]
+    np.testing.assert_array_equal(batched["grid"], looped["grid"])
+    np.testing.assert_array_equal(batched["pdp"], looped["pdp"])
+    np.testing.assert_array_equal(batched["ice"], looped["ice"])
+
+
 def test_compute_pdp_centered_anchors_first_grid_point():
     """Compute pdp centered anchors first grid point."""
     rng = np.random.default_rng(1)
