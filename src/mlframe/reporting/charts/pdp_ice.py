@@ -338,7 +338,30 @@ def _predict_grid_batched(
     """
     if g * m > _PDP_BATCH_MAX_ROWS:
         return None
-    repeat_vals = np.repeat(cat_labels, m) if cat_labels is not None else np.repeat(grid_vals, m)
+    if cat_labels is not None:
+        # A categorical/discrete grid sweep -- NOT batched, ever (falls straight to the per-step loop below).
+        # 2026-08-16: investigating an intermittent "Windows fatal exception: access violation" (stack rooted
+        # in catboost's Pool._init, triggered from a PDP predict call) surfaced on
+        # tests/training/test_core.py's TestPolarsNativeFastpath / TestTextAndEmbeddingFeatures classes (a
+        # polars carrier, CatBoost fit with cat_features=[...]). IMPORTANT: this crash reproduced via BOTH
+        # this batched path AND the original (pre-2026-08-16) per-step loop below -- it is a pre-existing bug
+        # in compute_pdp's CatBoost/polars predict path, not something this batching optimization introduced,
+        # and this restriction is NOT proven to fix it (it only narrows this function's own contribution to
+        # the risk surface). It reproduced 2/4 times on an identical repro command and did NOT reproduce on
+        # isolated raw-catboost/raw-polars minimal repros outside the full mlframe pipeline -- consistent with
+        # a native memory-safety/GC-timing race rather than a deterministic logic bug, and matches the
+        # signature of two prior fixed incidents of the same crash class (d0d7fa7de: PDP/ICE crashed CatBoost
+        # on a text-feature column; c825c0c8b: SHAP crashed CatBoost with embedding_features) -- both were
+        # "downstream code feeds CatBoost a carrier that doesn't match what the model registered at fit time".
+        # The exact trigger for THIS incident is not yet pinned down; kept as an open, tracked issue. Skipping
+        # batching for categorical sweeps still removes the one path (a large multi-thousand-row repeated-
+        # category block predicted in one call) that plausibly amplifies whatever the underlying race is,
+        # while keeping the validated numeric-sweep win (test_catboost_trains_on_mixed_dtypes, 214s -> 93s
+        # PDP time, which swept mostly numeric top-importance features) fully intact.
+        return None
+    # categorical_dtype is always None here (the categorical branch above already returned); every remaining
+    # path is a purely numeric column substitution.
+    repeat_vals = np.repeat(grid_vals, m)
     if isinstance(carrier_sample, np.ndarray):
         big = np.tile(base, (g, 1))
         big[:, col_idx] = repeat_vals
@@ -348,20 +371,14 @@ def _predict_grid_batched(
     if isinstance(carrier_sample, pd.DataFrame):
         big = pd.concat([carrier_sample] * g, ignore_index=True)
         name = col_name if col_name is not None else list(big.columns)[col_idx]
-        if categorical_dtype is not None:
-            big[name] = pd.Categorical(repeat_vals, dtype=categorical_dtype)
-        else:
-            big[name] = repeat_vals
+        big[name] = repeat_vals
         return np.asarray(predict(big), dtype=np.float64).reshape(g, m)
     if type(carrier_sample).__module__.startswith("polars"):
         import polars as pl
 
         big = pl.concat([carrier_sample] * g)
         name = col_name if col_name is not None else carrier_sample.columns[col_idx]
-        if categorical_dtype is not None:
-            expr = pl.Series(name, list(repeat_vals)).cast(categorical_dtype)
-        else:
-            expr = pl.Series(name, repeat_vals)
+        expr = pl.Series(name, repeat_vals)
         big = big.with_columns(expr.alias(name))
         return np.asarray(predict(big), dtype=np.float64).reshape(g, m)
     return None  # unrecognised carrier type -> caller falls back to the per-step loop

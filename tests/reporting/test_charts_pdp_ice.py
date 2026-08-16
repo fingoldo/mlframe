@@ -93,9 +93,42 @@ def test_compute_pdp_batched_matches_per_step_fallback_ndarray():
     np.testing.assert_array_equal(batched["ice"], looped["ice"])
 
 
+def test_predict_grid_batched_never_batches_a_categorical_sweep():
+    """A categorical/discrete grid (``cat_labels is not None``) must always fall back to the per-step loop
+    (``_predict_grid_batched`` returns ``None``), regardless of ``_PDP_BATCH_MAX_ROWS``. Pins the 2026-08-16
+    safety fix for a reproduced, intermittent native crash ("Windows fatal exception: access violation" inside
+    catboost's Pool._init) when batching a wide-cardinality categorical sweep -- see that function's docstring
+    for the full incident writeup. Only the categorical path is restricted; a numeric grid on the identical
+    carrier still batches (checked here too, so this test would also catch an over-broad future restriction)."""
+    import pandas as pd
+
+    rng = np.random.default_rng(8)
+    n = 600
+    X = pd.DataFrame({"f0": rng.normal(size=n), "f1": rng.normal(size=n)})
+    X["cat"] = pd.Categorical(rng.choice(["a", "b", "c", "d"], n))
+    base = X[["f0", "f1"]].to_numpy()
+
+    out = pdp_ice._predict_grid_batched(
+        lambda block: np.zeros(len(block)), X, base, col_idx=2,
+        grid_vals=np.array([0.0, 1.0, 2.0, 3.0]), cat_labels=["a", "b", "c", "d"],
+        m=n, g=4, col_name="cat", categorical_dtype=X["cat"].dtype,
+    )
+    assert out is None, "a categorical grid sweep must never take the batched path"
+
+    out_numeric = pdp_ice._predict_grid_batched(
+        lambda block: np.zeros(len(block)), X, base, col_idx=0,
+        grid_vals=np.linspace(-1.0, 1.0, 10), cat_labels=None,
+        m=n, g=10, col_name="f0", categorical_dtype=None,
+    )
+    assert out_numeric is not None, "a numeric grid sweep on the same carrier must still batch"
+    assert out_numeric.shape == (10, n)
+
+
 def test_compute_pdp_batched_matches_per_step_fallback_pandas_categorical():
     """Same batched-vs-looped identity pin as the ndarray test above, on the pandas + categorical-column path
-    (a distinct code branch in _predict_grid_batched from the ndarray one)."""
+    (a distinct code branch from the ndarray one) -- the two must agree even though the categorical path
+    itself never batches (see test_predict_grid_batched_never_batches_a_categorical_sweep), since compute_pdp
+    must produce the same result whichever path handled the substitution."""
     import pandas as pd
 
     rng = np.random.default_rng(8)
