@@ -241,6 +241,14 @@ def feature_importance(self, normalize):
             X_perm, y_perm = self.X_boruta_test, self.y_test
         else:
             X_perm, y_perm = self.X_boruta, self.y
+        # bench-attempt-rejected: tried the same row*col size-gate that won 17.5x for
+        # HybridSelector._shared_perm_fi's LightGBM-backed call (see that function's docstring), forcing
+        # n_jobs=1 below a size threshold. Measured HERE (this file's own test_boruta_shap_permutation_driver
+        # suite, RandomForest-backed model): net REGRESSION, not a win -- 33.1s/17.8s/4.8s (n_jobs=-1) became
+        # 56.8s/56.0s/13.3s (size-gated) for the top 3 tests. The HybridSelector shape (LightGBM predict) does
+        # not generalise to RandomForest's own internal n_jobs parallelism here; the interaction is caller-
+        # and model-specific, not a property of permutation_importance's process-pool overhead alone. Left as
+        # the original n_jobs=-1.
         pi = permutation_importance(
             self.model_, X_perm, y_perm, n_repeats=self.permutation_n_repeats,
             random_state=self.random_state, n_jobs=-1,
