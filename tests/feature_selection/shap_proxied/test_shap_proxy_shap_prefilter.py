@@ -15,7 +15,20 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import perf_time_budget
+
 pytest.importorskip("xgboost")
+
+# The three large-regime (n_samples=5000, up to 10000 features) biz_value tests below run a full
+# ShapProxiedFS.fit 2-4x each (warmup + per-seed comparisons); their @pytest.mark.timeout budget is
+# evaluated once at collection time, so widen it under detected host contention up front rather than
+# inside the test body (an absolute wall-clock timeout, unlike perf_time_budget's usual in-test
+# ``elapsed <= budget`` use). Reproduced live: this file's largest test measured 566s (0.9x of a
+# nominal 900s budget) on an ALREADY-contended local box (18 concurrent python processes) and timed
+# out outright on a more heavily loaded run of the exact same test/seed -- not a hang (confirmed via
+# a clean rerun), just legitimately slow work that has no slack left once anything else is competing
+# for the same cores.
+_LIVE_REGIME_TIMEOUT_S = int(perf_time_budget(900, contention_factor=2.0))
 
 
 # ----------------------------------------------------------------- resolver math
@@ -190,7 +203,7 @@ def test_selector_never_expands_user_prefilter_top():
 
 # ----------------------------------------------------------------- recall preservation
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(_LIVE_REGIME_TIMEOUT_S)
 def test_shap_prefilter_preserves_informative_recall_synthetic():
     """The cheap-importance pass MUST keep all planted informatives at safety_factor=4 (88-col cap)
     on a regime where signal is well above the noise floor. Pins the heuristic against a regime with
@@ -230,7 +243,7 @@ def test_shap_prefilter_preserves_informative_recall_synthetic():
 
 # ----------------------------------------------------------------- biz_value: e2e speedup
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(_LIVE_REGIME_TIMEOUT_S)
 def test_biz_val_shap_prefilter_e2e_speedup_at_live_regime():
     """Biz-value: at the live wide regime (width=1000, n_rows=5000, n_inf=12, snr=8) the new lever
     must shorten the e2e wall by >= 10% vs the disabled baseline AND preserve 12/12 informative
@@ -438,7 +451,7 @@ def test_selector_lever_disabled_uses_default_stage1_keep():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(_LIVE_REGIME_TIMEOUT_S)
 def test_biz_val_shap_aware_stage1_keep_e2e_speedup_at_target_regime():
     """Biz-value: at the iter33 target regime (width=10000, n_rows=5000, n_inf=20, snr=8) the lever
     must shorten the e2e wall AND preserve >= n_informative-2 / n_informative recall on seed 0.
