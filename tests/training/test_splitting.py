@@ -18,6 +18,28 @@ from pydantic import ValidationError
 from mlframe.training.splitting import make_train_test_split
 
 
+def _lean_reporting_config():
+    """Lean ReportingConfig (no chart/diagnostic rendering) for the train_mlframe_models_suite calls in
+    this file -- none of them read chart output, only the returned model dict / metadata / logs."""
+    from mlframe.training import ReportingConfig
+
+    return ReportingConfig(
+        show_perf_chart=False,
+        show_fi=False,
+        adversarial_validation=False,
+        interaction_strength_charts=False,
+        engineered_separability_charts=False,
+        class_structure_charts=False,
+        category_discriminability_charts=False,
+        slice_finder=False,
+        shap_panels=False,
+        decision_curve=False,
+        calibration_drift=False,
+        target_acf=False,
+        model_comparison=False,
+    )
+
+
 class TestMakeTrainTestSplitBasic:
     """Test basic splitting functionality."""
 
@@ -871,7 +893,8 @@ class TestValPlacementBackwardIntegration:
             preprocessing_config=PreprocessingConfig(drop_columns=[]),
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+            reporting_config=_lean_reporting_config(),
             verbose=0,
         )
         assert models, "suite returned no trained models"
@@ -946,7 +969,8 @@ class TestValPlacementBackwardIntegration:
             preprocessing_config=PreprocessingConfig(drop_columns=[]),
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+            reporting_config=_lean_reporting_config(),
             verbose=0,
         )
         iso = re.compile(r"(\d{4}-\d{2}-\d{2})/(\d{4}-\d{2}-\d{2})")
@@ -1018,7 +1042,8 @@ class TestValPlacementBackwardIntegration:
                 preprocessing_config=PreprocessingConfig(drop_columns=[]),
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+                reporting_config=_lean_reporting_config(),
                 verbose=0,
             )
         except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
@@ -1284,7 +1309,8 @@ class TestTrainMlframeModelsSuiteUseGroups:
                 preprocessing_config=PreprocessingConfig(drop_columns=[]),
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+                reporting_config=_lean_reporting_config(),
                 verbose=0,
             )
         except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
@@ -1331,7 +1357,8 @@ class TestTrainMlframeModelsSuiteUseGroups:
                 preprocessing_config=PreprocessingConfig(drop_columns=[]),
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+                reporting_config=_lean_reporting_config(),
                 verbose=0,
             )
         except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
@@ -1377,7 +1404,8 @@ class TestTrainMlframeModelsSuiteUseGroups:
                 preprocessing_config=PreprocessingConfig(drop_columns=[]),
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+                reporting_config=_lean_reporting_config(),
                 verbose=0,
             )
         except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
