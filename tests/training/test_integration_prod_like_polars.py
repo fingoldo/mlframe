@@ -42,7 +42,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from mlframe.training import FeatureSelectionConfig, OutputConfig, PreprocessingConfig
+from mlframe.training import FeatureSelectionConfig, OutputConfig, PreprocessingConfig, ReportingConfig
 
 from .shared import SimpleFeaturesAndTargetsExtractor
 from tests.conftest import fast_subset
@@ -50,6 +50,38 @@ from tests.conftest import fast_subset
 pytest.importorskip("catboost")  # used in most tests; lgb/xgb importorskipped per-test
 pytestmark = [pytest.mark.requires_cb, pytest.mark.integration]
 logger = logging.getLogger(__name__)
+
+
+def _lean_output_config(tmp_path) -> OutputConfig:
+    """OutputConfig with chart rendering + the one cross-validated-classifier diagnostic disabled.
+
+    None of this file's tests read chart output or a diagnostics-registry entry -- only the
+    returned model dict's structure. Same fix class already validated on test_bizvalue_imbalance_grid.py
+    / test_bizvalue_calibration_ensemble.py / test_pzad_ensemble_knobs_e2e.py this session.
+    """
+    return OutputConfig(
+        data_dir=str(tmp_path),
+        models_dir="models",
+        save_charts=False,
+        run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"],
+    )
+
+
+_LEAN_REPORTING_KWARGS = dict(
+    show_perf_chart=False,
+    show_fi=False,
+    adversarial_validation=False,
+    interaction_strength_charts=False,
+    engineered_separability_charts=False,
+    class_structure_charts=False,
+    category_discriminability_charts=False,
+    slice_finder=False,
+    shap_panels=False,
+    decision_curve=False,
+    calibration_drift=False,
+    target_acf=False,
+    model_comparison=False,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +221,8 @@ def _run_suite(
         preprocessing_config=_common_init_params(),
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=_lean_output_config(tmp_path),
+        reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
         verbose=0,
     )
 
@@ -294,7 +327,8 @@ def test_multi_target_classification_then_regression(model_name, tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=_lean_output_config(tmp_path),
+        reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
     )
     assert models_reg
 
@@ -416,7 +450,8 @@ def _run_combo(models, needs_encoder, tmp_path, label):
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+            output_config=_lean_output_config(tmp_path),
+            reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
         )
     except AttributeError as exc:
         if "__sklearn_tags__" in str(exc):
@@ -470,6 +505,7 @@ def test_polars_multi_weight_schemas(model_name, tmp_path):
 
     class _ExtractorWithWeights(SimpleFeaturesAndTargetsExtractor):
         """Groups tests covering extractor with weights."""
+
         def build_targets(self, df_):
             """Build targets."""
             base = super().build_targets(df_)
@@ -491,7 +527,8 @@ def test_polars_multi_weight_schemas(model_name, tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=_lean_output_config(tmp_path),
+        reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
     )
     assert trained
 
@@ -569,7 +606,8 @@ def test_polars_multi_target_same_type(model_name, tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=_lean_output_config(tmp_path),
+        reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
     )
     assert trained
     # Must have trained under BINARY_CLASSIFICATION for both target names.
@@ -610,7 +648,8 @@ def test_polars_multi_target_types_clf_and_reg(model_name, tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=_lean_output_config(tmp_path),
+        reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
     )
     assert trained
     assert TargetTypes.BINARY_CLASSIFICATION in trained
@@ -645,7 +684,8 @@ def test_polars_enum_with_mrmr_feature_selection(model_name, tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=_lean_output_config(tmp_path),
+        reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
         feature_selection_config=FeatureSelectionConfig(
             use_mrmr_fs=True,
             mrmr_kwargs={
@@ -708,7 +748,8 @@ def test_polars_kitchen_sink_all_trees_mrmr_multi_target_types(tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=_lean_output_config(tmp_path),
+        reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
         feature_selection_config=FeatureSelectionConfig(
             use_mrmr_fs=True,
             mrmr_kwargs={
