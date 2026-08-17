@@ -10,6 +10,7 @@ the parent inside ``evaluate_swap_candidate`` to avoid an import cycle.
 from __future__ import annotations
 
 import logging
+import zlib
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
@@ -83,8 +84,14 @@ def _select_swap_method_auto(
 
     n_samples = Z.shape[0]
     n_folds_eff = max(2, min(int(n_folds), n_samples))
-    # Deterministic shuffle seeded by member_names so repeat runs are stable.
-    seed_material = abs(hash(cache_key)) & 0xFFFFFFFF
+    # Deterministic shuffle seeded by member_names so repeat runs are stable. ``hash()`` on a tuple
+    # of NAME STRINGS is NOT stable across processes -- Python randomises string hashing per-process
+    # by default (``PYTHONHASHSEED``), so the pre-fix ``hash(cache_key)`` seed (and therefore the
+    # fold split, and therefore which combiner method wins the OOF bake-off) silently differed run
+    # to run despite the docstring's "repeat runs are stable" claim (same bug class already fixed
+    # elsewhere in this package, e.g. ``_fe_cmi_redundancy_gate.py``'s ``zlib.crc32`` salts). Use a
+    # CRC32 of the encoded member names instead -- deterministic across processes/platforms.
+    seed_material = zlib.crc32("\x1f".join(cache_key).encode("utf-8")) & 0xFFFFFFFF
     rng = np.random.default_rng(int(seed_material))
     perm = rng.permutation(n_samples)
     fold_sizes = np.full(n_folds_eff, n_samples // n_folds_eff, dtype=np.int64)
