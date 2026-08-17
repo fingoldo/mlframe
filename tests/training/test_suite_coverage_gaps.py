@@ -33,8 +33,28 @@ from mlframe.training import (
     FeatureSelectionConfig,
     OutlierDetectionConfig,
     OutputConfig,
+    ReportingConfig,
 )
 from .shared import SimpleFeaturesAndTargetsExtractor
+
+# None of this file's 46 tests read chart output -- they spy on internals / assert on the returned
+# model dict, metadata, or logs (invariant + edge-case coverage per the module docstring). Same lean
+# reporting_config used across this session's other train_mlframe_models_suite call sites.
+_LEAN_REPORTING_CONFIG = ReportingConfig(
+    show_perf_chart=False,
+    show_fi=False,
+    adversarial_validation=False,
+    interaction_strength_charts=False,
+    engineered_separability_charts=False,
+    class_structure_charts=False,
+    category_discriminability_charts=False,
+    slice_finder=False,
+    shap_panels=False,
+    decision_curve=False,
+    calibration_drift=False,
+    target_acf=False,
+    model_comparison=False,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -143,7 +163,8 @@ def _train_once(
         preprocessing_config=PreprocessingConfig(drop_columns=[]),
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+        reporting_config=_LEAN_REPORTING_CONFIG,
         verbose=0,
     )
     if preprocessing_config is not None:
@@ -282,7 +303,8 @@ def test_sample_weight_correct_length_succeeds(tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+        reporting_config=_LEAN_REPORTING_CONFIG,
     )
     assert trained, "training returned empty dict with valid custom weights"
 
@@ -320,7 +342,8 @@ def test_sample_weight_length_mismatch_documented(tmp_path):
             verbose=0,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+            reporting_config=_LEAN_REPORTING_CONFIG,
         )
     except (ValueError, RuntimeError) as e:
         raised = e
@@ -603,7 +626,8 @@ def test_outlier_detector_filters_training_rows(tmp_path):
         use_mlframe_ensembles=False,
         verbose=0,
         outlier_detection_config=OutlierDetectionConfig(detector=detector),
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+        reporting_config=_LEAN_REPORTING_CONFIG,
     )
     od_meta = (meta or {}).get("outlier_detection") or {}
     # train_size_after_od must be present and less than the original row count.
@@ -659,7 +683,8 @@ def test_rfecv_pipeline_runs_for_each_model_family(tmp_path, caplog):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         feature_selection_config=FeatureSelectionConfig(rfecv_models=["cb_rfecv"]),
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+        reporting_config=_LEAN_REPORTING_CONFIG,
         verbose=1,
     )
     log_text = caplog.text
@@ -712,7 +737,8 @@ def test_ensembles_enabled_produces_ensemble_log(tmp_path, caplog):
         use_ordinary_models=True,
         use_mlframe_ensembles=True,
         verbose=1,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+        reporting_config=_LEAN_REPORTING_CONFIG,
     )
     log_text = caplog.text
     assert any(s in log_text.lower() for s in ("ensemble", "score_ensemble")), "Captured log tail:\n" + log_text[-800:]
@@ -761,7 +787,8 @@ def test_single_class_target_does_not_silently_return_empty(tmp_path):
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+            reporting_config=_LEAN_REPORTING_CONFIG,
         )
     except Exception as e:
         raised = e
@@ -832,7 +859,8 @@ def test_high_cardinality_cat_column_trains_successfully(tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+        reporting_config=_LEAN_REPORTING_CONFIG,
     )
     assert trained, "high-cardinality cat must not crash the suite"
 
@@ -936,7 +964,8 @@ def test_multi_target_regression_trains_all_targets(tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+        reporting_config=_LEAN_REPORTING_CONFIG,
     )
     from mlframe.training.configs import TargetTypes
 
@@ -996,7 +1025,8 @@ def test_more_iterations_do_not_decrease_train_performance(tmp_path):
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,
-            output_config=OutputConfig(data_dir=str(tmp_path / f"iters_{iters}"), models_dir="models"),
+            output_config=OutputConfig(data_dir=str(tmp_path / f"iters_{iters}"), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+            reporting_config=_LEAN_REPORTING_CONFIG,
         )
         assert trained, f"iters={iters} produced no models"
 
@@ -1098,7 +1128,8 @@ def test_prepare_polars_called_once_per_model_per_pipeline(tmp_path, monkeypatch
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+        reporting_config=_LEAN_REPORTING_CONFIG,
     )
     assert trained
     # Inner + cache contract:
@@ -1255,7 +1286,8 @@ def test_continue_on_model_failure_skips_crashed_model(tmp_path, monkeypatch):
         use_mlframe_ensembles=False,
         behavior_config=TrainingBehaviorConfig(continue_on_model_failure=True),
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+        reporting_config=_LEAN_REPORTING_CONFIG,
     )
     failed = (meta or {}).get("failed_models") or []
     assert failed, "continue_on_model_failure=True but no 'failed_models' in metadata"
@@ -1294,7 +1326,8 @@ def test_verbose_zero_suppresses_suite_info_logs(tmp_path, capsys, caplog):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+        reporting_config=_LEAN_REPORTING_CONFIG,
     )
     assert trained
     mlframe_info_records = [r for r in caplog.records if r.name.startswith("mlframe") and r.levelno == logging.INFO]
@@ -1348,7 +1381,8 @@ def test_invalid_df_inputs_raise_clear_error(tmp_path, df_input, error_kw):
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+            reporting_config=_LEAN_REPORTING_CONFIG,
         )
     except Exception as e:
         raised = e
@@ -1382,7 +1416,8 @@ def test_missing_target_column_raises(tmp_path):
             preprocessing_config=PreprocessingConfig(drop_columns=[]),
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+            reporting_config=_LEAN_REPORTING_CONFIG,
             verbose=0,
         )
     except Exception as e:
@@ -1422,7 +1457,8 @@ def test_empty_mlframe_models_handled_gracefully(tmp_path):
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+            reporting_config=_LEAN_REPORTING_CONFIG,
         )
     except Exception as e:
         raised = e
@@ -1468,7 +1504,8 @@ def test_unknown_mlframe_model_name_raises_or_warns(tmp_path):
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+            reporting_config=_LEAN_REPORTING_CONFIG,
         )
     except Exception as e:
         raised = e
@@ -1682,7 +1719,8 @@ def test_duplicate_mlframe_models_handled(tmp_path):
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+            reporting_config=_LEAN_REPORTING_CONFIG,
         )
     except Exception as e:
         raised = e
@@ -1737,7 +1775,8 @@ def test_custom_pre_pipelines_runs_without_crash(tmp_path, caplog):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=1,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+        reporting_config=_LEAN_REPORTING_CONFIG,
         feature_selection_config=FeatureSelectionConfig(custom_pre_pipelines=custom),
     )
     assert trained, "custom_pre_pipelines path returned empty trained dict"
@@ -1785,7 +1824,8 @@ def test_preprocessing_extensions_polynomial_features_run(tmp_path):
         use_mlframe_ensembles=False,
         preprocessing_extensions=ext,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+        reporting_config=_LEAN_REPORTING_CONFIG,
     )
     assert trained, "preprocessing_extensions=poly run produced empty dict"
     cols = meta.get("columns") or []
@@ -1824,7 +1864,8 @@ def test_fairness_features_recorded_in_metadata(tmp_path):
         use_mlframe_ensembles=False,
         behavior_config=behavior,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+        reporting_config=_LEAN_REPORTING_CONFIG,
     )
     assert any(
         "fairness" in k.lower() for k in (meta or {}).keys()
@@ -1858,7 +1899,8 @@ def test_prefer_calibrated_classifiers_runs(tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         behavior_config=behavior,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+        reporting_config=_LEAN_REPORTING_CONFIG,
         verbose=0,
     )
     assert trained, "prefer_calibrated_classifiers=True trained empty dict"
@@ -1890,7 +1932,8 @@ def test_df_as_parquet_path_string_loads_inside_suite(tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+        reporting_config=_LEAN_REPORTING_CONFIG,
     )
     assert trained, "parquet-path-as-df failed to train"
     cols = meta.get("columns") or []
@@ -1988,7 +2031,8 @@ def test_recurrent_lstm_smoke(tmp_path):
             use_ordinary_models=False,
             use_mlframe_ensembles=False,
             verbose=0,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+            reporting_config=_LEAN_REPORTING_CONFIG,
         )
     except (NotImplementedError, ImportError) as e:
         pytest.skip(f"recurrent path not fully wired in this env: {e}")
@@ -2154,7 +2198,8 @@ def test_mrmr_and_rfecv_stack_runs(tmp_path):
             },
         ),
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+        reporting_config=_LEAN_REPORTING_CONFIG,
     )
     assert trained, "MRMR + RFECV stack returned empty trained dict"
 
@@ -2204,7 +2249,8 @@ def test_continue_on_failure_with_ensembles(tmp_path, monkeypatch, caplog):
         use_mlframe_ensembles=True,
         behavior_config=TrainingBehaviorConfig(continue_on_model_failure=True),
         verbose=1,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+        reporting_config=_LEAN_REPORTING_CONFIG,
     )
 
     failed = meta.get("failed_models") or []
@@ -2254,7 +2300,8 @@ def test_uninformative_zero_column_does_not_break_training(tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+        reporting_config=_LEAN_REPORTING_CONFIG,
     )
     assert trained, "all-zero feature broke the training suite"
     # If remove_constant_columns is True (default), num_zero may be
