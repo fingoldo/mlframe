@@ -638,6 +638,25 @@ def check_prospective_fe_pairs(
             return _extval_raw_col_cache[_var]
         if _var in original_cols:
             if isinstance(X, pd.DataFrame):
+                _raw_dtype = X.dtypes.iloc[original_cols[_var]]
+                if not pd.api.types.is_numeric_dtype(_raw_dtype):
+                    # Defense in depth: ``numeric_vars_to_consider`` is built once, upstream, via
+                    # ``_non_numeric_column_indices`` (see that helper's docstring) and is meant to
+                    # already exclude every non-numeric raw column (datetime/object/categorical) from
+                    # ever reaching a var-index here. If a non-numeric index nonetheless reaches this
+                    # point (e.g. a stale/misaligned pool from an earlier FE round), extracting it
+                    # RAW and feeding it straight into ``binary_transformations`` (plain numpy ufuncs
+                    # like ``np.multiply``) crashes with a dtype-resolution error instead of a clean
+                    # skip. Re-validate at the point of use, the same invariant every other operand
+                    # pool touch point already enforces, rather than let a raw datetime/object column
+                    # reach a numeric ufunc.
+                    logger.debug(
+                        "_extval_raw_col: var %r resolved to non-numeric raw column dtype %s; skipping "
+                        "(should have been excluded upstream by _non_numeric_column_indices).",
+                        _var, _raw_dtype,
+                    )
+                    _extval_raw_col_cache[_var] = None
+                    return None
                 _vals = _densify_nullable(X.iloc[:, original_cols[_var]].values)
             else:
                 _vals = X[:, original_cols[_var]].to_numpy()
