@@ -464,14 +464,38 @@ from collections import OrderedDict as _OrderedDict
 
 # (id, width / ncols)-keyed LRU memo for the dtype-pairs stringify. The schema of a pinned train_df is
 # invariant across the (pre_pipeline x model) loop, so this serves the same bit-identical result without
-# re-stringifying. Mirrors the X-side ``_full_x_content_hash`` id-pin doctrine: no full-frame hash, and
-# id-recycling is bounded by also keying on the column count. 32-slot cap bounds memory across targets.
+# re-stringifying. Mirrors the X-side ``_full_x_content_hash`` id-pin doctrine: no full-frame hash.
+#
+# id() ALONE is not enough (pre-fix bug, same class as ``_INIT_SIG_CACHE`` above but not caught here):
+# once a small, short-lived train_df is garbage-collected, CPython can and does hand its freed id() to a
+# later, UNRELATED DataFrame -- and if that later frame happens to share the same column count, the memo
+# would silently return a DIFFERENT frame's stale canonical pairs (observed live: two DataFrames.io.DataFrames
+# both named column "c" with different dtypes, in different tests sharing one xdist worker process, saw each
+# other's cached result). A pandas/polars DataFrame can't be a WeakKeyDictionary key directly (unhashable),
+# so a weakref with an eviction CALLBACK is used instead: the moment the frame is actually collected, its
+# memo entry is removed synchronously, closing the id-reuse window before Python could ever reassign that
+# id() to a new object. 32-slot cap still bounds memory for frames that outlive their own GC (e.g. genuinely
+# pinned suite frames, where this callback never fires during the frame's real lifetime).
 _DTYPE_PAIRS_MEMO: "_OrderedDict[tuple, tuple]" = _OrderedDict()
 _DTYPE_PAIRS_MEMO_MAX = 32
+_DTYPE_PAIRS_MEMO_WEAKREFS: "dict[tuple, _weakref.ref]" = {}
+
+
+def _make_dtype_pairs_evictor(_key: tuple) -> "Any":
+    """Return a weakref-callback (receives the dead weakref, ignored) that drops ``_key``'s memo +
+    weakref-tracking entries the instant its frame is GC'd."""
+
+    def _on_collected(_dead_ref: "_weakref.ref") -> None:
+        """Weakref callback: the frame this closed over ``_key`` for is gone -- drop its memo entries."""
+        _DTYPE_PAIRS_MEMO.pop(_key, None)
+        _DTYPE_PAIRS_MEMO_WEAKREFS.pop(_key, None)
+
+    return _on_collected
 
 
 def _canonical_dtype_pairs(train_df) -> tuple:
-    """Memoising wrapper around ``_canonical_dtype_pairs_compute`` keyed on (id, ncols) of a pinned frame."""
+    """Memoising wrapper around ``_canonical_dtype_pairs_compute`` keyed on (id, ncols) of a pinned frame,
+    with weakref-callback eviction so a GC'd frame's entry can never be inherited by an id()-recycled one."""
     if train_df is None:
         return ()
     _ncols = None
@@ -492,8 +516,15 @@ def _canonical_dtype_pairs(train_df) -> tuple:
         return _cached
     _result = _canonical_dtype_pairs_compute(train_df)
     _DTYPE_PAIRS_MEMO[_key] = _result
+    try:
+        _DTYPE_PAIRS_MEMO_WEAKREFS[_key] = _weakref.ref(train_df, _make_dtype_pairs_evictor(_key))
+    except TypeError:
+        # Some frame-like objects can't be weakref'd (rare). No eviction callback possible for this entry --
+        # the 32-slot LRU cap still bounds it, just without the proactive id-reuse guard.
+        pass
     if len(_DTYPE_PAIRS_MEMO) > _DTYPE_PAIRS_MEMO_MAX:
-        _DTYPE_PAIRS_MEMO.popitem(last=False)
+        _evicted_key, _ = _DTYPE_PAIRS_MEMO.popitem(last=False)
+        _DTYPE_PAIRS_MEMO_WEAKREFS.pop(_evicted_key, None)
     return _result
 
 
