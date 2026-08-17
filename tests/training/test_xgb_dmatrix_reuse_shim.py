@@ -546,7 +546,7 @@ class TestXGBShimIntegrationWithMlframeSuite:
 
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training.configs import TrainingBehaviorConfig
-        from mlframe.training import OutputConfig, PreprocessingConfig
+        from mlframe.training import OutputConfig, PreprocessingConfig, ReportingConfig
         from .shared import TimestampedFeaturesExtractor
 
         rng = np.random.default_rng(0)
@@ -577,6 +577,7 @@ class TestXGBShimIntegrationWithMlframeSuite:
 
         class _Capture(_logging.Handler):
             """Groups tests covering capture."""
+
             def emit(self, record):
                 """Emit."""
                 records.append(record.getMessage())
@@ -598,7 +599,27 @@ class TestXGBShimIntegrationWithMlframeSuite:
                 preprocessing_config=PreprocessingConfig(drop_columns=[]),
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+                output_config=OutputConfig(
+                    data_dir=str(tmp_path),
+                    models_dir="models",
+                    save_charts=False,
+                    run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"],
+                ),
+                reporting_config=ReportingConfig(
+                    show_perf_chart=False,
+                    show_fi=False,
+                    adversarial_validation=False,
+                    interaction_strength_charts=False,
+                    engineered_separability_charts=False,
+                    class_structure_charts=False,
+                    category_discriminability_charts=False,
+                    slice_finder=False,
+                    shap_panels=False,
+                    decision_curve=False,
+                    calibration_drift=False,
+                    target_acf=False,
+                    model_comparison=False,
+                ),
                 verbose=0,
             )
         finally:
