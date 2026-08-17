@@ -26,6 +26,7 @@ of scope for v1 because the coalition value is a single scalar margin per row.
 from __future__ import annotations
 
 import logging
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Optional, Union, cast
@@ -126,6 +127,11 @@ class _SafeFloatCallable(metaclass=_SafeFloatMeta):
     """See ``_SafeFloatMeta``: callable coercer that also satisfies ``isinstance(x, float)`` checks against real floats/ints."""
 
 
+# Serializes ``_maybe_patch_shap_xgb_base_score``'s patch-install/restore window across threads -- see
+# that function's docstring for the race this closes (module-global monkey-patch + threaded fold dispatch).
+_SHAP_XGB_PATCH_LOCK = threading.Lock()
+
+
 @contextmanager
 def _maybe_patch_shap_xgb_base_score():
     """Workaround for shap<0.52 + xgboost>=2.0 base_score incompatibility (NO-OP on shap>=0.52).
@@ -165,16 +171,30 @@ def _maybe_patch_shap_xgb_base_score():
         yield
         return
 
-    _had_attr = "float" in _shap_tree.__dict__
-    _saved = _shap_tree.__dict__.get("float")
-    _shap_tree.float = _SafeFloatCallable
-    try:
-        yield
-    finally:
-        if _had_attr:
-            _shap_tree.float = _saved
-        else:
-            _shap_tree.__dict__.pop("float", None)
+    # ``_shap_tree.float`` is a MODULE-GLOBAL, and compute_shap_matrix's out-of-fold loop dispatches folds
+    # via ``joblib.Parallel(prefer="threads")`` (n_jobs=-1 by default, real threads sharing this process's
+    # module state, not separate processes). Without serializing patch-install/restore, two folds racing
+    # this context manager on different threads can interleave: fold B's ``_had_attr`` snapshot reads
+    # fold A's already-installed patch as "the original", so B's restore leaves A's patch permanently in
+    # place, OR A's restore fires while B's TreeExplainer construction is still mid-flight, yanking the
+    # patch out from under it -- either way a later/concurrent TreeExplainer sees the RAW unpatched
+    # ``float`` and crashes on xgboost's array-string base_score exactly as this patch exists to prevent
+    # (observed live: ``ValueError: could not convert string to float: '[4.72E-1]'`` from a bias-corrector
+    # fit whose default n_jobs=-1 + n_splits=3 triggers this exact threaded fold dispatch). The lock
+    # serializes the whole patch/yield/restore window across threads; each fold's TreeExplainer
+    # construction + shap_values call is fast relative to that fold's own model fit (which happens
+    # earlier, outside this context manager), so the added serialization here is cheap.
+    with _SHAP_XGB_PATCH_LOCK:
+        _had_attr = "float" in _shap_tree.__dict__
+        _saved = _shap_tree.__dict__.get("float")
+        _shap_tree.float = _SafeFloatCallable
+        try:
+            yield
+        finally:
+            if _had_attr:
+                _shap_tree.float = _saved
+            else:
+                _shap_tree.__dict__.pop("float", None)
 
 
 # Relative deviation of expected_value from the empirical mean margin above which we warn about a
