@@ -85,10 +85,17 @@ def test_engineered_unary_binary_transform_is_continuous():
 
     Pre-fix this column was a 10-bin int32 code (nunique==10, Pearson |0.03|);
     post-fix it is the continuous value (nunique==n, |Pearson| ~ 1.0).
+
+    n=40_000 is an undersized fixture for this recovery task, not a flake: a size sweep at
+    seed=0 shows a SHARP (not gradual) transition -- n=40_000 deterministically recovers the
+    WRONG pair (``sub(sqr(a),invcbrt(c))``, |Pearson|~0.01 with the true a**2/b) on every run,
+    while n=60_000 already recovers the correct ``mul(sqr(a),reciproc(b))`` at |Pearson|~1.0,
+    and stays there through n=100_000. 70_000 keeps a safety margin above that boundary while
+    remaining well under full mode's 100_000 (still meaningfully faster than the non-fast size).
     """
     from mlframe.feature_selection.filters import MRMR
 
-    n = 40_000 if is_fast_mode() else 100_000
+    n = 70_000 if is_fast_mode() else 100_000
     df, y, (a, b) = _build_case2(n=n, seed=0)
     true_ab = a**2 / b  # the structural feature the engineered column should equal (up to sign)
 
