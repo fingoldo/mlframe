@@ -341,6 +341,34 @@ def _reset_kernel_tuning_singleton():
 
 
 @pytest.fixture(autouse=True)
+def _snapshot_restore_default_tuning_cache():
+    """Snapshot/restore ``pyutilz``'s process-global ``_DEFAULT_CACHE`` singleton around every test.
+
+    ``register_default_cache()`` unconditionally reassigns this module attribute (used by every
+    ``KernelTuningCache.get_or_tune`` call's on-miss ``_fb()`` layer), and -- unlike
+    ``_DEFAULT_INSTANCE`` above -- nothing was resetting it between tests. mlframe's own
+    ``_register_default_tuning_cache()`` (module-import-time, see ``_kernel_tuning.py``) sets it
+    ONCE per worker process to the real production default; any test that calls
+    ``register_default_cache()`` with test-local data (e.g. ``test_gen_default_tuning.py``) was
+    permanently overwriting that production default for every OTHER test sharing the same xdist
+    worker for the rest of the process's life -- a genuine "never rebind a module singleton without
+    snapshot/restore" test-pollution bug (this session's own standing rule), not a timing flake.
+    Save/restore (not reset-to-None) so tests that don't touch it see no change, and the ambient
+    production default is preserved for everyone else."""
+    try:
+        from pyutilz.performance.kernel_tuning import cache as _ktc_cache
+    except Exception:
+        _ktc_cache = None
+    _prev = getattr(_ktc_cache, "_DEFAULT_CACHE", None) if _ktc_cache is not None else None
+    yield
+    if _ktc_cache is not None:
+        try:
+            _ktc_cache._DEFAULT_CACHE = _prev
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
+            pass
+
+
+@pytest.fixture(autouse=True)
 def _clear_pin_memory_env_override(monkeypatch):
     """Clear MLFRAME_MLP_PIN_MEMORY before every test so an operator's ambient shell-level
     override (set to work around a driver/CUDA-toolkit pinned-memory teardown crash during a
