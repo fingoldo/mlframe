@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from mlframe.feature_engineering.polars_dynamic_window import polars_dynamic_window_aggregate
+from tests.conftest import perf_speedup_floor, skip_if_host_contended
 
 
 def test_polars_dynamic_window_aggregate_matches_hand_computed_windows():
@@ -124,6 +125,9 @@ def test_biz_val_polars_dynamic_window_aggregate_multi_window_beats_per_window_l
     per width, because the pandas->polars conversion, datetime cast, and sort are done once and reused across
     all widths via polars lazy evaluation + ``collect_all``, instead of being repeated K times.
     """
+    # Both arms are sub-200ms here, the shape most sensitive to a single scheduler stall landing on one arm;
+    # skip outright under detected host contention rather than flake on an unmeasurable ratio.
+    skip_if_host_contended("periods= speedup ratio is unmeasurable under detected host contention")
     rng = np.random.default_rng(2)
     n_entities = 3000
     n_days = 90
@@ -162,6 +166,9 @@ def test_biz_val_polars_dynamic_window_aggregate_multi_window_beats_per_window_l
 
     t_loop = min(_run_loop() for _ in range(3))
 
-    assert (
-        t_multi < t_loop * 0.92
-    ), f"periods= multi-window mode should beat a naive per-window loop by reusing the shared lazy prep: multi={t_multi:.4f}s loop={t_loop:.4f}s"
+    speedup = t_loop / t_multi if t_multi > 0 else 0.0
+    floor = perf_speedup_floor(1 / 0.92)
+    assert speedup >= floor, (
+        f"periods= multi-window mode should beat a naive per-window loop by reusing the shared lazy prep: "
+        f"multi={t_multi:.4f}s loop={t_loop:.4f}s (speedup={speedup:.2f}x, floor={floor:.2f}x)"
+    )

@@ -55,7 +55,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tests.conftest import perf_time_budget, perf_speedup_floor, running_under_xdist
+from tests.conftest import perf_time_budget, perf_speedup_floor, running_under_xdist, skip_if_host_contended
 
 warnings.filterwarnings("ignore")
 
@@ -258,6 +258,12 @@ class TestLayer50_SVDCacheSpeedup:
 
     def test_svd_cache_speeds_up_bake_off(self):
         """The per-fold SVD cache speeds up the bake-off by at least the charter floor."""
+        # perf_speedup_floor(1.5) already relaxes to its 1.0x mathematical minimum under xdist (see below) --
+        # 1.0x is the floor for a "must not be slower" claim, so there is nothing left to relax once the
+        # ratio itself reverses under scheduler noise on a contended host. Skip outright rather than flake:
+        # this two-arm back-to-back sub-second measurement is exactly the shape most sensitive to a single
+        # stall landing on one arm.
+        skip_if_host_contended("SVD-cache speedup ratio is unmeasurable under detected host contention")
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             DCDState,
         )

@@ -17,6 +17,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import perf_speedup_floor, skip_if_host_contended
+
 warnings.filterwarnings("ignore")
 
 
@@ -182,11 +184,14 @@ def test_biz_val_baseline_diagnostics_n_estimators_100_preserves_dominant_verdic
 # default under load.
 def test_biz_val_baseline_diagnostics_n_estimators_100_is_faster():
     """The 200->100 flip must deliver a real ablation wall win. bench measured
-    ~1.825x (4k synthetic) / 1.78x (200k+sample_n=50k). Floor 1.15x absorbs
-    timer noise + CI contention while still catching a regression that silently
-    restores the 200-estimator cost.
+    ~1.825x (4k synthetic) / 1.78x (200k+sample_n=50k). Floor 1.15x (relaxed under xdist
+    contention, never below 1.0x) absorbs timer noise + CI contention while still catching
+    a regression that silently restores the 200-estimator cost. A fully-relaxed floor still
+    can't survive a genuinely REVERSED ratio (100 measuring slower than 200) -- skip outright
+    when host contention is detected rather than flake red on an unmeasurable ratio.
     """
     pytest.importorskip("lightgbm")
+    skip_if_host_contended("n_estimators speedup ratio is unmeasurable under detected host contention")
 
     n = 4000
     feature_cols = [f"x{i}" for i in range(8)]
@@ -205,7 +210,8 @@ def test_biz_val_baseline_diagnostics_n_estimators_100_is_faster():
     wall_200 = min(_run_dom_and_wall(200, df, feature_cols, [], "regression", 0)[1] for _ in range(3))
     wall_100 = min(_run_dom_and_wall(100, df, feature_cols, [], "regression", 0)[1] for _ in range(3))
     speedup = wall_200 / wall_100 if wall_100 > 0 else 0.0
-    assert speedup >= 1.15, f"n_estimators=100 must be >=1.15x faster than 200; got {speedup:.2f}x (200={wall_200:.3f}s, 100={wall_100:.3f}s)"
+    floor = perf_speedup_floor(1.15)
+    assert speedup >= floor, f"n_estimators=100 must be >={floor:.2f}x faster than 200; got {speedup:.2f}x (200={wall_200:.3f}s, 100={wall_100:.3f}s)"
 
 
 # ---------------------------------------------------------------------------

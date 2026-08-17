@@ -303,6 +303,23 @@ def perf_speedup_floor(base_ratio: float, *, xdist_factor: float = 0.6) -> float
     return max(1.0, base_ratio * xdist_factor)
 
 
+def skip_if_host_contended(reason: str = "relative-speed assertion is unreliable under detected host contention") -> None:
+    """Skip the calling test outright when running under xdist OR when sibling python processes indicate host
+    contention (see ``_host_cpu_contended``).
+
+    ``perf_speedup_floor`` already relaxes a speedup-ratio floor down to 1.0x under contention -- but 1.0x is
+    the mathematical floor for a "must be faster" claim: a genuinely reversed ratio (the fast arm measuring
+    SLOWER than the baseline under heavy scheduler noise) has no lower floor left to relax to, and a two-arm
+    back-to-back measurement of a small (sub-second) operation is exactly the shape most sensitive to a single
+    scheduling stall landing on one arm and not the other. For that class of test, skipping under detected
+    contention (rather than flaking red) is the honest response: the assertion is un-measurable right now, not
+    failing. Prefer ``perf_speedup_floor``/``perf_time_budget`` (which still assert, just relaxed) wherever the
+    floor has room left; reach for this only once the floor is already pinned at its minimum.
+    """
+    if running_under_xdist() or _host_cpu_contended():
+        pytest.skip(reason)
+
+
 @pytest.fixture(autouse=True)
 def _reset_kernel_tuning_singleton():
     """``KernelTuningCache.load_or_create()`` returns a process singleton that binds its cache dir at first
