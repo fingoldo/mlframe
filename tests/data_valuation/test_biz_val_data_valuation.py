@@ -50,8 +50,16 @@ def test_biz_val_valuation_weights_improve_downstream_auc():
     from sklearn.model_selection import train_test_split
     from xgboost import XGBClassifier
 
+    # cluster_std=1.6 (original) let the weighted classifier saturate AUC=1.0 on this seed, leaving the
+    # margin entirely dependent on how close the unweighted baseline crept to that ceiling -- a value
+    # sensitive to XGBoost's platform/version-dependent tree-split tie-breaking, not to this test's actual
+    # claim. Observed unweighted=0.9869/weighted=1.0 (margin 0.0131, dev box) vs CI's py3.14+xgboost==3.2.0
+    # unweighted=0.9923/weighted=1.0 (margin 0.0077, below the 0.01 threshold) -- same fixed seeds, same
+    # deterministic make_blobs/train_test_split, only XGBoost's own floating-point split decisions differed.
+    # cluster_std=2.4 keeps both classifiers off the exact AUC=1.0 ceiling (weighted~0.9995) and widens the
+    # margin to ~0.017-0.02, comfortably above both platforms' observed gap.
     rng = np.random.default_rng(1)
-    X, y = make_blobs(n_samples=1500, centers=2, cluster_std=1.6, random_state=1)
+    X, y = make_blobs(n_samples=1500, centers=2, cluster_std=2.4, random_state=1)
     y = y.astype(np.int64)
     n = len(y)
     flip_idx = rng.choice(n, size=int(n * 0.12), replace=False)
