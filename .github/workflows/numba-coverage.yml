@@ -10,6 +10,25 @@ name: numba-coverage-nightly
 # conclusion as a permanently red "failing" pill with no way to distinguish it from a real
 # failure. Now runs on the actual nightly cron; workflow_dispatch's `run` input still lets a
 # manual invocation opt OUT (set to false) if the Actions-minutes budget needs relief again.
+#
+# Sharded 8 ways (2026-08-18): this job ran as a SINGLE unsharded job with only intra-job xdist
+# parallelism (`-n 4`, capped below `auto` -- see the "Run kernel-heavy test suites" step comment)
+# on one 2-vCPU runner. Under NUMBA_DISABLE_JIT=1 kernel-heavy tests run 10-1000x slower than
+# under normal JIT (see the job's own timeout-minutes comment below), so this suite needed
+# job-level sharding across multiple runners even MORE than ci.yml's normal-speed matrix does --
+# yet it had none, running the whole subset in one job against the 340m hard-cap headroom on
+# every nightly run. Mirrors ci.yml's proven `--splits N --group M` pattern (10-way there); 8
+# shards here since this job's scope (feature_engineering/feature_selection/metrics/training,
+# --ignore=biz_val) is a narrower subset of the full suite. `-n 4` per shard is unchanged --
+# that limit exists to avoid nested joblib oversubscription within ONE job (each xdist worker's
+# MRMR.fit() spawns its own joblib fan-out), which job-level sharding doesn't affect.
+#
+# Also added `--store-durations`/`--durations=200` with a durations file distinct from the main
+# CI's `.test_durations` (this job's NUMBA_DISABLE_JIT=1 timings are wildly different from
+# normal-JIT timings and would corrupt ci.yml's shard-balancing data if they shared a file) --
+# previously this job had NO durations tracking at all, so pytest-split could only balance new
+# shards by raw file count until this nightly's own `merge-test-durations` job accumulates real
+# per-test timings over a few runs.
 
 on:
   schedule:
@@ -34,18 +53,21 @@ jobs:
     # always empty/falsy regardless of the declared default above, so the schedule leg must be let
     # through explicitly rather than relying on inputs.run alone.
     if: github.event_name != 'workflow_dispatch' || inputs.run
-    name: pytest with NUMBA_DISABLE_JIT=1 (kernel-body coverage)
+    name: pytest with NUMBA_DISABLE_JIT=1 (kernel-body coverage) (shard ${{ matrix.group }}/8)
     runs-on: ubuntu-latest
     # 340 (near the 360min hosted-runner hard ceiling): under NUMBA_DISABLE_JIT=1, kernel-heavy
     # fixtures (permutation-null loops, discretization, orthogonal-basis FE) run 10-1000x slower
     # than under normal JIT, since the whole point of the run is to make @njit bodies visible to
     # coverage.py by NOT compiling them. 120min was consistently insufficient (10 consecutive
-    # nightly failures/cancellations 2026-06-29..2026-07-08 before this fix).
+    # nightly failures/cancellations 2026-06-29..2026-07-08 before this fix). Kept as headroom
+    # after 2026-08-18's 8-way sharding, not lowered -- a cold/imbalanced shard should still have
+    # room to finish and report real failures instead of being truncated.
     timeout-minutes: 340
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11"]
+        group: ["1", "2", "3", "4", "5", "6", "7", "8"]
     env:
       NUMBA_DISABLE_JIT: "1"
       PYTHONUNBUFFERED: "1"
@@ -89,34 +111,110 @@ jobs:
           # matrix; running them here just burns the nightly's time budget on multi-minute
           # full-model fits without adding kernel-BODY coverage the non-biz_val unit tests don't
           # already provide.
+          # --durations-path: kept separate from ci.yml's `.test_durations` -- NUMBA_DISABLE_JIT=1
+          # timings (10-1000x normal-JIT cost) would badly skew that file's shard-balancing data
+          # for the normal-speed main CI matrix if they shared a path.
           pytest -m "not slow and not gpu and not multigpu" \
+            --splits 8 --group ${{ matrix.group }} \
             -n 4 \
             --cov=src/mlframe \
             --cov-report=xml \
             --cov-report=term-missing \
             -p no:randomly \
             --timeout=1200 \
+            --durations=200 \
+            --store-durations \
+            --durations-path=.test_durations_numba_disabled \
             --ignore=tests/feature_selection/biz_val \
             tests/feature_engineering/ \
             tests/feature_selection/ \
             tests/metrics/ \
             tests/training/
 
+      - name: Upload shard test durations
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: test-durations-numba-disabled-${{ matrix.group }}
+          path: .test_durations_numba_disabled
+          retention-days: 3
+          include-hidden-files: true
+          if-no-files-found: ignore
+
       - name: Upload coverage XML as artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         if: always()
         with:
-          name: coverage-numba-disabled
+          name: coverage-numba-disabled-${{ matrix.group }}
           path: coverage.xml
           retention-days: 14
 
       - name: Upload coverage to Codecov (numba-disabled flag)
         uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@f50288e5a6f5b7f972efb60f948ce6184c8e9e70  # v1.3.4
-        if: success()
+        # (success() || failure()): a failure in one shard must not hide the other 7 shards'
+        # coverage from Codecov -- mirrors ci.yml's identical fix for the same reason.
+        if: success() || failure()
         with:
           files: ./coverage.xml
           flags: numba-disabled
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  # Folds every shard's freshly-measured `.test_durations_numba_disabled` slice back into one file
+  # and commits it, mirroring ci.yml's `merge-test-durations` job -- keeps pytest-split's shard
+  # balancing current on every nightly run instead of relying solely on file-count balancing
+  # forever. Runs on both the schedule and an explicit workflow_dispatch (this workflow has no
+  # push trigger to gate on the way ci.yml's merge job does).
+  merge-test-durations:
+    name: Merge + commit .test_durations_numba_disabled
+    runs-on: ubuntu-latest
+    needs: numba-disabled-coverage
+    if: always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run))
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: true
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          pattern: test-durations-numba-disabled-*
+          path: .test_durations_numba_disabled_shards
+          merge-multiple: false
+
+      - name: Merge shard durations
+        run: |
+          python - <<'PY'
+          import json
+          import pathlib
+
+          merged = {}
+          # Sorted for deterministic merge order (last-write-wins on a nodeid two shards both
+          # happened to freshly measure this run -- either value is a valid balancing input,
+          # determinism just keeps output diffs reviewable).
+          for f in sorted(pathlib.Path(".test_durations_numba_disabled_shards").glob("*/.test_durations_numba_disabled")):
+              try:
+                  merged.update(json.loads(f.read_text()))
+              except (json.JSONDecodeError, OSError):
+                  continue
+          pathlib.Path(".test_durations_numba_disabled").write_text(json.dumps(merged, sort_keys=True, indent=4))
+          print(f"[merge-test-durations] merged {len(merged)} entries")
+          PY
+
+      - name: Commit updated .test_durations_numba_disabled
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- .test_durations_numba_disabled; then
+            echo "No change to .test_durations_numba_disabled"
+            exit 0
+          fi
+          git add .test_durations_numba_disabled
+          git commit -m "chore: refresh .test_durations_numba_disabled (post-nightly shard rebalance)"
+          git push origin HEAD:"$REF_NAME"
 
 # Future idea (2026-07-10, not implemented): a re-scoped "codecov-numba" job narrowed to ACTUALLY
 # numba-touching tests via a `@pytest.mark.numba` marker (doesn't exist yet -- would need a triage
