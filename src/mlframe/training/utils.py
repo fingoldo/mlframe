@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import weakref
 from textwrap import shorten
 from typing import Any
 
@@ -425,6 +426,23 @@ def compute_model_input_fingerprint(
 _PD_VIEW_LAST_CACHE: dict = {"id_key": None, "result": None}
 
 
+def _invalidate_pd_view_cache_if_current(id_key: tuple) -> None:
+    """``weakref.finalize`` callback for a polars frame that just got garbage-collected: clears the
+    single-entry memo iff it still refers to THIS frame's id_key (a newer frame may have already
+    overwritten it). Closes the id()-recycling gap the memo's own (id, shape, columns) key can't rule
+    out on its own: CPython can reuse a freed ``pl.DataFrame``'s address for a brand-new, unrelated
+    frame with the same shape/column-names (a realistic coincidence across many small test fixtures
+    that reuse a column name like "k"), and the memo would otherwise return a STALE pandas view for
+    a completely different frame's data -- a live bug caught via
+    test_tc29_test_categories_excluded_from_union flaking on CI with a category ('d') that belonged
+    to an EARLIER, already-collected test's polars frame, not the one actually being converted.
+    Invalidating exactly when the source object dies (rather than only on the next call) means id()
+    can never be reused before the stale entry is gone."""
+    if _PD_VIEW_LAST_CACHE.get("id_key") == id_key:
+        _PD_VIEW_LAST_CACHE["id_key"] = None
+        _PD_VIEW_LAST_CACHE["result"] = None
+
+
 def clear_pandas_view_cache() -> None:
     """Drop the single-entry ``get_pandas_view_of_polars_df`` memo. The cached pandas view is Arrow-backed and shares
     the polars frame's buffers zero-copy, so while it lives it PINS those buffers. Call this when releasing ctx polars
@@ -490,6 +508,23 @@ def get_pandas_view_of_polars_df(
     if pl is None or not isinstance(df, pl.DataFrame):
         raise TypeError(f"Input must be a Polars DataFrame, got {type(df).__name__}")
 
+    # Captured BEFORE any internal rebind (the Categorical->Enum remap below does
+    # ``df = df.with_columns(_exprs)``, pointing the local name ``df`` at a brand-new,
+    # short-lived object): the memo's write-time id_key must be computed against the
+    # CALLER's actual argument, not whatever ``df`` happens to reference by the time
+    # the memo-populate code runs below. Using the post-rebind ``df`` made the memo key
+    # (a) never match on a genuine same-frame repeat call for any Categorical-bearing
+    # frame (the rebound intermediate's id has nothing to do with the caller's object),
+    # and (b) worse, that intermediate's refcount hits zero and its address gets freed
+    # almost immediately once the function returns (nothing else references it) --
+    # CPython's small-object allocator commonly reuses a just-freed address for the
+    # very next similarly-sized allocation, so a LATER call's brand-new polars frame
+    # can land at that exact freed address and false-hit the memo, returning a stale
+    # pandas view from a completely different (and by then garbage) frame. Caught via
+    # test_tc29_test_categories_excluded_from_union flaking on CI with a category that
+    # belonged only to an earlier, unrelated test's frame.
+    _orig_df = df
+
     # iter628 (perf): single-entry "last result" memo. c0008 @100k
     # profile showed 8 calls / 8.08s cumtime to this bridge across
     # multiple callers (_normalise_X dominates at 7.44s; the other 7
@@ -512,12 +547,12 @@ def get_pandas_view_of_polars_df(
     # If a future caller does mutate, the memo here is the first
     # place to look for the bug.
     if not self_destruct:
-        sh = getattr(df, "shape", None)
+        sh = getattr(_orig_df, "shape", None)
         # Co-validate column names alongside id()+shape: id() recycles after GC, so a different frame with
         # the SAME shape could otherwise false-hit and return a stale pandas view; the column tuple is a cheap
         # extra discriminator that catches the common same-shape-different-columns recycle.
-        _cols = tuple(df.columns) if hasattr(df, "columns") else None
-        _id_key = (id(df), sh if sh is not None else (None,), _cols)
+        _cols = tuple(_orig_df.columns) if hasattr(_orig_df, "columns") else None
+        _id_key = (id(_orig_df), sh if sh is not None else (None,), _cols)
         _cached = _PD_VIEW_LAST_CACHE.get("id_key")
         if _cached == _id_key:
             _result = _PD_VIEW_LAST_CACHE.get("result")
@@ -831,12 +866,20 @@ def get_pandas_view_of_polars_df(
     # post-consume id would be unsafe).
     if not self_destruct:
         try:
-            sh = getattr(df, "shape", None)
-            _cols = tuple(df.columns) if hasattr(df, "columns") else None
+            sh = getattr(_orig_df, "shape", None)
+            _cols = tuple(_orig_df.columns) if hasattr(_orig_df, "columns") else None
+            _id_key = (id(_orig_df), sh if sh is not None else (None,), _cols)
             # Publish result BEFORE key so a torn read on this unlocked single-slot memo can only see an OLD key (miss -> recompute), never a NEW id_key
             # paired with a stale pandas view from a prior different df. Key co-validates id()+shape+columns (see the read site).
             _PD_VIEW_LAST_CACHE["result"] = pandas_df
-            _PD_VIEW_LAST_CACHE["id_key"] = (id(df), sh if sh is not None else (None,), _cols)
+            _PD_VIEW_LAST_CACHE["id_key"] = _id_key
+            # Close the id()-recycling gap: invalidate the memo the instant the CALLER's original df is
+            # actually collected, so a later frame's id() can never alias a still-live stale entry. Must
+            # be _orig_df (the caller's argument), not the local ``df`` -- ``df`` may have been rebound
+            # to a short-lived internal Enum-remap intermediate above, whose refcount hits zero (and
+            # whose finalizer would fire) almost immediately, long before the cached entry is stale.
+            # See _invalidate_pd_view_cache_if_current's docstring for the bug this fixes.
+            weakref.finalize(_orig_df, _invalidate_pd_view_cache_if_current, _id_key)
         except Exception as exc:  # nosec B110 - non-trivial body
             # Memo population is best-effort; never fail the conversion
             # because of a cache-write hiccup.
