@@ -114,6 +114,12 @@ jobs:
           # --durations-path: kept separate from ci.yml's `.test_durations` -- NUMBA_DISABLE_JIT=1
           # timings (10-1000x normal-JIT cost) would badly skew that file's shard-balancing data
           # for the normal-speed main CI matrix if they shared a path.
+          # --timeout=3600 (raised from 1200, 2026-08-18): a permutation-null MI test hit the old
+          # 1200s per-test cap mid-kernel (info_theory/_batch_kernels.py's joint_counts accumulation
+          # loop) -- under NUMBA_DISABLE_JIT=1 that kernel runs as a plain Python nested loop, and
+          # this job's own 10-1000x-slower framing means a test that normally finishes in a couple
+          # seconds under JIT can legitimately need north of 1200s here. 3600s gives real headroom;
+          # the 340m job cap still bounds a shard that has several such tests back to back.
           pytest -m "not slow and not gpu and not multigpu" \
             --splits 8 --group ${{ matrix.group }} \
             -n 4 \
@@ -121,7 +127,7 @@ jobs:
             --cov-report=xml \
             --cov-report=term-missing \
             -p no:randomly \
-            --timeout=1200 \
+            --timeout=3600 \
             --durations=200 \
             --store-durations \
             --durations-path=.test_durations_numba_disabled \
