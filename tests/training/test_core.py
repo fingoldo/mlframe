@@ -4366,7 +4366,14 @@ class TestTextAndEmbeddingFeatures:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             reporting_config=common_init_params,
-            hyperparams_config={"iterations": 10},
+            # thread_count capped: CatBoost defaults to os.cpu_count() threads per fit; under
+            # pytest-xdist's "-n auto" (one worker per vCPU) on a 2-vCPU CI runner, N concurrent
+            # workers each spawning an unthrottled CatBoost thread pool oversubscribes the 2 real
+            # cores and has been observed crashing the native xdist worker outright ("node down: Not
+            # properly terminated") -- the same xdist/CatBoost contention class already documented next
+            # to CB_GENERAL_PARAMS's allow_writing_files=False (_helpers_training_configs.py), here on
+            # the threading axis instead of the file-I/O axis.
+            hyperparams_config={"iterations": 10, "cb_kwargs": {"thread_count": 2}},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,
@@ -4559,7 +4566,9 @@ class TestTextAndEmbeddingFeatures:
             mlframe_models=["cb", "ridge"],
             feature_types_config=FeatureTypesConfig(text_features=["text_feat"], embedding_features=["emb_feat"]),
             reporting_config=common_init_params,
-            hyperparams_config={"iterations": 10},
+            # thread_count capped -- see test_no_clone_when_skip_categorical_encoding's identical note
+            # (xdist/CatBoost thread-oversubscription crash class on 2-vCPU CI runners).
+            hyperparams_config={"iterations": 10, "cb_kwargs": {"thread_count": 2}},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,
