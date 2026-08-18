@@ -293,6 +293,21 @@ def perf_time_budget(base_seconds: float, *, xdist_factor: float = 4.0, contenti
     return base_seconds
 
 
+def numba_disabled_timeout(base_seconds: int, *, factor: int = 4) -> int:
+    """Widen a ``@pytest.mark.timeout(...)`` value when running under ``NUMBA_DISABLE_JIT=1``.
+
+    The nightly ``numba-coverage.yml`` job runs these same test files with numba JIT compilation
+    disabled (so coverage.py can see inside ``@njit`` bodies) -- kernel-heavy tests run 10-1000x
+    slower there than under normal JIT (see that workflow's own comments), so a tight explicit
+    timeout override tuned for the fast (JIT-enabled) path can time out a test that is otherwise
+    completely healthy. Evaluated once at collection time (module import), matching how
+    ``@pytest.mark.timeout`` itself consumes a module-level constant.
+    """
+    if os.environ.get("NUMBA_DISABLE_JIT") == "1":
+        return base_seconds * factor
+    return base_seconds
+
+
 def perf_speedup_floor(base_ratio: float, *, xdist_factor: float = 0.6) -> float:
     """Speedup-ratio floors compress under ``-n`` contention. A ratio is measured from two arms run back-to-back in the
     same process, so contention hits both and the ratio is more load-robust than an absolute time -- but small absolute
