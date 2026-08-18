@@ -63,6 +63,10 @@ jobs:
     # total jobs to 54, small enough to mostly avoid queueing under the same free-tier limit. Revisit
     # if shards start getting cancelled again (raise back toward 16) or if queueing is still severe at
     # 10 (drop further, or split the matrix so not every python version runs on every push).
+    # 3.14 sharded 10 ways (2026-08-18, see the `include` block below): raises the matrix from 51 to 60
+    # jobs (5 required versions x 10 + 3.14 x 10, vs. 5x10 + 1 unsharded). Still well under the ~86-job
+    # threshold that caused the queueing incident above; revisit together with the note above if queueing
+    # reappears.
     # silently eating every remaining test in that shard. If shards keep hitting 360 after this bump,
     # the fix is finding and isolating that specific hang (or switching CI's timeout method to
     # `signal` on Linux, which can actually preempt a blocked syscall), not raising the cap further --
@@ -87,11 +91,24 @@ jobs:
         include:
           # Python 3.14 stays non-blocking (experimental): the optbinning->ortools
           # blocker is gone (override above), but the heavy [all] stack (torch /
-          # numba / ...) does not yet reliably ship cp314 wheels. Run it as a
-          # single unsharded full-suite smoke (splits=1) so a partial shard never
-          # masks a 3.14-specific break; flip to required + sharded once cp314
-          # wheels are universal.
-          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "1", group: "1" }
+          # numba / ...) does not yet reliably ship cp314 wheels.
+          # Sharded 10 ways (2026-08-18), same as the required 3.9-3.13 legs: it was originally left
+          # unsharded (splits=1, single job for the WHOLE suite) so "a partial shard never masks a
+          # 3.14-specific break" -- but an unsharded run does ~10x the work of one shard on the same
+          # 360m cap / 2-vCPU runner that the required legs need full sharding just to fit inside, so
+          # it timed out on effectively every push and reported NO real pass/fail signal at all (worse
+          # than a partial one). Sharding it the same way the required legs already proved out gives 10
+          # real per-shard results instead of one perpetual timeout.
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "1" }
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "2" }
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "3" }
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "4" }
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "5" }
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "6" }
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "7" }
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "8" }
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "9" }
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "10" }
           # Windows/macOS legs dropped 2026-07-09: GitHub Actions bills macOS at 10x and Windows
           # at 2x the free Linux-minute allowance, and this repo's sharded matrix made them
           # the dominant cost (2,123 macOS-min + 5,675 Windows-min in a single day = ~23K Linux-
