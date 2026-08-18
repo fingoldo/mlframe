@@ -205,8 +205,14 @@ def _persist_pipeline_disk_cache() -> None:
             with open(tmp_path, "w", encoding="utf-8") as fh:
                 _json.dump(payload, fh)
         os.replace(tmp_path, path)
-    except Exception as e:  # nosec B110 - optional dependency import guard
-        logger.debug("pipeline-cache metadata write failed for %s: %s", path, e)
+    except Exception as e:  # nosec B110 - best-effort persistence, must never break the live training path
+        # Promoted from DEBUG (invisible by default) to WARNING with a traceback: a CI-only failure of
+        # this exact persist call (test_pipeline_json_disk_cache_roundtrip found no file on disk right
+        # after calling this function, not reproducible locally) was previously undiagnosable -- any
+        # cause (missing dir, a serialization edge case, a permissions/race issue on that runner) was
+        # silently swallowed with zero signal. The function's contract (best-effort, never raise) is
+        # unchanged; only the visibility of a genuine failure improves.
+        logger.warning("pipeline-cache metadata write failed for %s: %s", path, e, exc_info=True)
 
 
 class _PolarsDsPipelineJsonProxy:
