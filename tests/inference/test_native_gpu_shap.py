@@ -121,12 +121,20 @@ def test_native_gpu_shap_additivity_holds_on_gpu():
 
 
 def test_shap_explainer_additivity_holds_on_cpu():
-    """Same additivity property, CPU path (``shap.Explainer``), as the other half of the GPU-vs-CPU pin."""
+    """Same additivity property, CPU path, as the other half of the GPU-vs-CPU pin.
+
+    ``shap.TreeExplainer`` (not the auto-detecting ``shap.Explainer``): a raw XGBClassifier is not
+    directly callable, and the generic ``shap.Explainer(model)`` entry point's tree-model
+    auto-detection failed on at least one CI leg ("The passed model is not callable and cannot be
+    analyzed directly with the given masker!", not reproducible locally) -- apparently version-
+    sensitive across the shap/xgboost combinations the CI matrix resolves. ``TreeExplainer`` is the
+    explicit, version-stable entry point for exactly this model class and needs no masker/auto-detect
+    step at all."""
     X, y = _make_data(n=5000, f=15, seed=5)
     model = xgboost.XGBClassifier(n_estimators=120, max_depth=5, device="cpu", tree_method="hist")
     model.fit(X, y)
 
-    explainer = shap.Explainer(model)
+    explainer = shap.TreeExplainer(model)
     cpu_shap = explainer(X)
     margin = model.get_booster().predict(xgboost.DMatrix(X), output_margin=True)
 
