@@ -122,7 +122,7 @@ jobs:
         # forces thinc>=8.3.12 which requires Python>=3.10.
         run: |
           git clone https://github.com/fingoldo/pyutilz.git
-          git -C pyutilz checkout 39eb5416d43c69bdb57aece636d7da9c5f08cd7c  # pinned 2026-08-04, see X_CICD_DEPENDENCIES-1
+          git -C pyutilz checkout 0ebbdc23472a3a0827731588c5fe36a63dc393ad  # pinned 2026-08-19, see X_CICD_DEPENDENCIES-1 -- register_default_cache DEFAULT-cache-fallback diagnostics
           pip install "./pyutilz[system,pandas,polars,database]"
 
       - name: Install mlframe with runtime extras needed for composite tests
