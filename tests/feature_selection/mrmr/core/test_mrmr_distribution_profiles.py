@@ -44,13 +44,19 @@ import pytest
 
 import mlframe
 from mlframe.feature_selection.filters.mrmr import MRMR
+from tests.conftest import perf_time_budget
 from tests.feature_selection import _synthetic_distributions as sd
 
 # Reuse the battle-tested tolerant matcher from the uniform suite (no duplication).
 from tests.feature_selection.mrmr.core.test_mrmr_create_keep_drop import _artifact_path, _covers, _operand_tokens
 
 SEED = 42
-FIT_TIMEOUT = 360
+# perf_time_budget (2026-08-18): a raw 360s cap isn't enough once the shared 2-vCPU CI runners are
+# themselves contended (observed: a Timeout(>360.0s) failure on a run where the whole ~57-job matrix
+# ran several times its normal wall-clock). Widen under detected xdist/host contention via the same
+# mechanism already used for other wall-clock-sensitive assertions in this suite. Evaluated once at
+# collection time (module import), which is when @pytest.mark.timeout consumes it.
+FIT_TIMEOUT = int(perf_time_budget(360))
 _PROGRESS = _artifact_path("distros_progress.txt")
 _LEDGER = []
 
