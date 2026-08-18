@@ -63,11 +63,24 @@ def _causal_rolling_median_impl(y_sorted: np.ndarray, window: int) -> np.ndarray
     """Trailing median over ``y[i-window .. i-1]``. Same O(n*window) algorithm as the plain-Python
     version, just JIT-compiled -- a true O(1)-amortized sliding-window median needs a balanced-heap
     structure numba can't easily express; this keeps the numerics identical while cutting the
-    per-window Python/np.median call overhead."""
+    per-window Python/np.median call overhead.
+
+    Computes the median via ``np.sort`` + explicit even/odd midpoint averaging instead of calling
+    ``np.median`` directly: numba's nopython support for ``np.median`` on a sliced array varies across
+    numba versions (a materially newer wheel resolved on some CI legs raises a TypingError, "Use of
+    unsupported NumPy function 'numpy.median'", not reproducible on this dev box's numba). ``np.sort``
+    has universal nopython support, so this sidesteps the version-dependent gap entirely rather than
+    depending on which numba wheel happens to be installed. Same sort-then-average-the-two-middle-
+    elements definition ``np.median`` itself uses, so the output is unchanged."""
     n = y_sorted.shape[0]
     out = np.full(n, np.nan, dtype=np.float64)
     for i in range(window, n):
-        out[i] = np.median(y_sorted[i - window : i])
+        w = np.sort(y_sorted[i - window : i])
+        mid = window // 2
+        if window % 2 == 1:
+            out[i] = w[mid]
+        else:
+            out[i] = 0.5 * (w[mid - 1] + w[mid])
     return out
 
 
