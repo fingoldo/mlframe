@@ -191,17 +191,16 @@ def _prewarm_numba_cache_body():
         logger.debug("suppressed: %s", e)
         pass
 
-    # Numba compiles for each dtype separately. Isolated per-dtype try/except (2026-08-18): this
-    # loop -- including the base (non-`_par`) maximum_absolute_percentage_error warmup -- had NO
-    # exception protection at all, unlike every later block in this function (see the "isolated
-    # into independent try/except groups" fix a few dozen lines below, 2026-08-16). A single kernel
-    # in here failing to compile on a numba wheel this dev box doesn't reproduce (CI resolves a
-    # materially newer wheel per that same fix's own comment) would silently abort the ENTIRE
-    # prewarm from this point on -- including every later isolated group -- reproducing exactly the
-    # "warmup never reached kernel X" symptom those groups were split out to prevent, just one level
-    # up. Same defensive philosophy already established in this file: a bad numba cache / runtime
-    # hiccup on an exotic build should degrade later kernels to lazy (first-real-call) compilation,
-    # not abort every kernel that comes after it in this function.
+    # Numba compiles for each dtype separately. Isolated per-dtype try/except: this loop -- including
+    # the base (non-`_par`) maximum_absolute_percentage_error warmup -- had NO exception protection at
+    # all, unlike every later block in this function (see the "isolated into independent try/except
+    # groups" fix a few dozen lines below). A single kernel in here failing to compile on a numba wheel
+    # this dev box doesn't reproduce (CI resolves a materially newer wheel per that same fix's own
+    # comment) would silently abort the ENTIRE prewarm from this point on -- including every later
+    # isolated group -- reproducing exactly the "warmup never reached kernel X" symptom those groups
+    # were split out to prevent, just one level up. Same defensive philosophy already established in
+    # this file: a bad numba cache / runtime hiccup on an exotic build should degrade later kernels to
+    # lazy (first-real-call) compilation, not abort every kernel that comes after it in this function.
     for dtype in [np.float32, np.float64]:
         try:
             y_true = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=dtype)
@@ -235,7 +234,7 @@ def _prewarm_numba_cache_body():
                 nbins=10, use_weights=True,
             )
         except Exception as e:  # nosec B110 - non-trivial body  # noqa: PERF203 - per-dtype isolation is the point: one dtype's failure must not skip the other's warmup
-            logger.warning("roc_auc/calibration/brier/log_loss/mape kernels warmup failed for dtype=%s, skipping the rest of this dtype: %s", dtype, e, exc_info=True)
+            log_throttle(logger, "warmup_roc_auc_calibration_mape_dtype", logging.WARNING, "roc_auc/calibration/brier/log_loss/mape kernels warmup failed for dtype=%s, skipping the rest of this dtype: %s", dtype, e, exc_info=True)
 
     for int_dtype in (np.int32, np.int64):
         try:
@@ -245,7 +244,7 @@ def _prewarm_numba_cache_body():
             _ = fast_precision(y_true_int, y_pred_int, nclasses=2)
             _ = compute_pr_recall_f1_metrics(y_true_int, y_pred_int)
         except Exception as e:  # nosec B110 - non-trivial body  # noqa: PERF203 - per-dtype isolation is the point: one dtype's failure must not skip the other's warmup
-            logger.warning("classification_report/precision/pr_recall_f1 kernels warmup failed for int_dtype=%s, skipping the rest of this dtype: %s", int_dtype, e, exc_info=True)
+            log_throttle(logger, "warmup_classification_report_int_dtype", logging.WARNING, "classification_report/precision/pr_recall_f1 kernels warmup failed for int_dtype=%s, skipping the rest of this dtype: %s", int_dtype, e, exc_info=True)
 
     try:
         _ = integral_calibration_error_from_metrics(0.01, 0.01, 0.9, 0.25, 0.7, 0.7)
@@ -303,7 +302,7 @@ def _prewarm_numba_cache_body():
         logger.debug("suppressed: %s", e)
         pass
 
-    # Isolated (2026-08-18): this pair had NO exception protection, unlike every other block in this
+    # Isolated: this pair had NO exception protection, unlike every other block in this
     # function -- confirmed via test_warmup_calls_mape_par_kernel_with_nthr/test_warmup_skip_flag_*
     # failing under the full tests/metrics/ suite (order-dependent, not reproducible calling these two
     # functions standalone) even after every OTHER gap in this function had already been isolated: a
