@@ -26,9 +26,15 @@ name: numba-coverage-nightly
 # Also added `--store-durations`/`--durations=200` with a durations file distinct from the main
 # CI's `.test_durations` (this job's NUMBA_DISABLE_JIT=1 timings are wildly different from
 # normal-JIT timings and would corrupt ci.yml's shard-balancing data if they shared a file) --
-# previously this job had NO durations tracking at all, so pytest-split could only balance new
-# shards by raw file count until this nightly's own `merge-test-durations` job accumulates real
-# per-test timings over a few runs.
+# previously this job had NO durations tracking at all, so pytest-split would otherwise balance
+# the FIRST sharded run by raw file count alone. Seeded `.test_durations_numba_disabled` instead
+# from ci.yml's own `.test_durations` (25489 overlapping node IDs, filtered to this job's scope:
+# feature_engineering/feature_selection-minus-biz_val/metrics/training), unscaled -- pytest-split's
+# duration_based_chunks only balances on RELATIVE proportions between tests, so a uniform (if
+# individually wrong, given the 10-1000x/test-dependent slowdown) scale factor doesn't change the
+# split at all; a normal-JIT-derived seed already correlates far better with real relative cost
+# than pure file-count would. This nightly's own `merge-test-durations` job overwrites it with
+# real NUMBA_DISABLE_JIT=1 timings after the first run, so the seed only matters once.
 
 on:
   schedule:
