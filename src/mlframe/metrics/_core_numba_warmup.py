@@ -191,47 +191,66 @@ def _prewarm_numba_cache_body():
         logger.debug("suppressed: %s", e)
         pass
 
-    # Numba compiles for each dtype separately.
+    # Numba compiles for each dtype separately. Isolated per-dtype try/except (2026-08-18): this
+    # loop -- including the base (non-`_par`) maximum_absolute_percentage_error warmup -- had NO
+    # exception protection at all, unlike every later block in this function (see the "isolated
+    # into independent try/except groups" fix a few dozen lines below, 2026-08-16). A single kernel
+    # in here failing to compile on a numba wheel this dev box doesn't reproduce (CI resolves a
+    # materially newer wheel per that same fix's own comment) would silently abort the ENTIRE
+    # prewarm from this point on -- including every later isolated group -- reproducing exactly the
+    # "warmup never reached kernel X" symptom those groups were split out to prevent, just one level
+    # up. Same defensive philosophy already established in this file: a bad numba cache / runtime
+    # hiccup on an exotic build should degrade later kernels to lazy (first-real-call) compilation,
+    # not abort every kernel that comes after it in this function.
     for dtype in [np.float32, np.float64]:
-        y_true = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=dtype)
-        y_pred = np.array([0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6, 0.5, 0.5], dtype=dtype)
+        try:
+            y_true = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=dtype)
+            y_pred = np.array([0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6, 0.5, 0.5], dtype=dtype)
 
-        _ = fast_roc_auc(y_true, y_pred)
-        _ = fast_aucs(y_true, y_pred)
+            _ = fast_roc_auc(y_true, y_pred)
+            _ = fast_aucs(y_true, y_pred)
 
-        _ = fast_calibration_binning(y_true, y_pred, nbins=10)
-        from mlframe.metrics.calibration import _fast_calibration_binning_prange
-        _ = _fast_calibration_binning_prange(y_true, y_pred, nbins=10)
-        _ = fast_calibration_metrics(y_true, y_pred, nbins=10)
+            _ = fast_calibration_binning(y_true, y_pred, nbins=10)
+            from mlframe.metrics.calibration import _fast_calibration_binning_prange
+            _ = _fast_calibration_binning_prange(y_true, y_pred, nbins=10)
+            _ = fast_calibration_metrics(y_true, y_pred, nbins=10)
 
-        _ = brier_score_loss(y_true, y_pred)
-        _ = fast_brier_score_loss(y_true, y_pred)
-        _ = fast_log_loss(y_true, y_pred)
-        # MAPE warmup needs a NON-ZERO y_true vector: the classifier-style {0,1}
-        # array used above would trigger the rate-limited "N of M y_true entries
-        # are zero" warning at import time, scaring users with a 5-of-10-zero
-        # message that has nothing to do with their actual training data. The
-        # numba kernel compiles on dtype, not on values, so any non-zero vector
-        # works.
-        _y_mape = np.array([1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 4.0, 4.0, 5.0, 5.0], dtype=dtype)
-        _p_mape = np.array([1.1, 0.9, 2.2, 1.8, 3.3, 2.7, 4.4, 3.6, 5.5, 4.5], dtype=dtype)
-        _ = maximum_absolute_percentage_error(_y_mape, _p_mape)
-        _ = probability_separation_score(y_true, y_pred)
+            _ = brier_score_loss(y_true, y_pred)
+            _ = fast_brier_score_loss(y_true, y_pred)
+            _ = fast_log_loss(y_true, y_pred)
+            # MAPE warmup needs a NON-ZERO y_true vector: the classifier-style {0,1}
+            # array used above would trigger the rate-limited "N of M y_true entries
+            # are zero" warning at import time, scaring users with a 5-of-10-zero
+            # message that has nothing to do with their actual training data. The
+            # numba kernel compiles on dtype, not on values, so any non-zero vector
+            # works.
+            _y_mape = np.array([1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 4.0, 4.0, 5.0, 5.0], dtype=dtype)
+            _p_mape = np.array([1.1, 0.9, 2.2, 1.8, 3.3, 2.7, 4.4, 3.6, 5.5, 4.5], dtype=dtype)
+            _ = maximum_absolute_percentage_error(_y_mape, _p_mape)
+            _ = probability_separation_score(y_true, y_pred)
 
-        freqs_p, freqs_t, hits = fast_calibration_binning(y_true, y_pred, nbins=10)
-        _ = calibration_metrics_from_freqs(
-            freqs_predicted=freqs_p, freqs_true=freqs_t, hits=hits,
-            nbins=10, use_weights=True,
-        )
+            freqs_p, freqs_t, hits = fast_calibration_binning(y_true, y_pred, nbins=10)
+            _ = calibration_metrics_from_freqs(
+                freqs_predicted=freqs_p, freqs_true=freqs_t, hits=hits,
+                nbins=10, use_weights=True,
+            )
+        except Exception as e:  # nosec B110 - non-trivial body  # noqa: PERF203 - per-dtype isolation is the point: one dtype's failure must not skip the other's warmup
+            logger.warning("roc_auc/calibration/brier/log_loss/mape kernels warmup failed for dtype=%s, skipping the rest of this dtype: %s", dtype, e, exc_info=True)
 
     for int_dtype in (np.int32, np.int64):
-        y_true_int = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=int_dtype)
-        y_pred_int = np.array([0, 1, 0, 1, 0, 1, 0, 1, 1, 0], dtype=int_dtype)
-        _ = fast_classification_report(y_true_int, y_pred_int, nclasses=2)
-        _ = fast_precision(y_true_int, y_pred_int, nclasses=2)
-        _ = compute_pr_recall_f1_metrics(y_true_int, y_pred_int)
+        try:
+            y_true_int = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=int_dtype)
+            y_pred_int = np.array([0, 1, 0, 1, 0, 1, 0, 1, 1, 0], dtype=int_dtype)
+            _ = fast_classification_report(y_true_int, y_pred_int, nclasses=2)
+            _ = fast_precision(y_true_int, y_pred_int, nclasses=2)
+            _ = compute_pr_recall_f1_metrics(y_true_int, y_pred_int)
+        except Exception as e:  # nosec B110 - non-trivial body  # noqa: PERF203 - per-dtype isolation is the point: one dtype's failure must not skip the other's warmup
+            logger.warning("classification_report/precision/pr_recall_f1 kernels warmup failed for int_dtype=%s, skipping the rest of this dtype: %s", int_dtype, e, exc_info=True)
 
-    _ = integral_calibration_error_from_metrics(0.01, 0.01, 0.9, 0.25, 0.7, 0.7)
+    try:
+        _ = integral_calibration_error_from_metrics(0.01, 0.01, 0.9, 0.25, 0.7, 0.7)
+    except Exception as e:  # nosec B110 - non-trivial body
+        logger.warning("integral_calibration_error_from_metrics warmup failed, skipping: %s", e, exc_info=True)
 
     # Prewarm calibration-report inner kernels using the dominant suite dtype combo. In the per-class loop of report_probabilistic_model_perf, y_true arrives as numpy bool (``targets == class_name``) and y_pred as float64; prewarming additional dtype-pairs costs ~5-10s each in JIT compile time.
     _yt_bool = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.bool_)
@@ -284,11 +303,20 @@ def _prewarm_numba_cache_body():
         logger.debug("suppressed: %s", e)
         pass
 
-    logits_binary = np.array([-1.0, 0.0, 1.0, 2.0, -0.5, 0.5, 1.5, -1.5, 0.25, -0.25], dtype=np.float64)
-    _ = cb_logits_to_probs_binary(logits_binary)
+    # Isolated (2026-08-18): this pair had NO exception protection, unlike every other block in this
+    # function -- confirmed via test_warmup_calls_mape_par_kernel_with_nthr/test_warmup_skip_flag_*
+    # failing under the full tests/metrics/ suite (order-dependent, not reproducible calling these two
+    # functions standalone) even after every OTHER gap in this function had already been isolated: a
+    # failure here would abort everything after it, including the `_skip_par_prewarm`-gated block just
+    # below whose kernels those tests spy on. Same defensive philosophy as the rest of this file.
+    try:
+        logits_binary = np.array([-1.0, 0.0, 1.0, 2.0, -0.5, 0.5, 1.5, -1.5, 0.25, -0.25], dtype=np.float64)
+        _ = cb_logits_to_probs_binary(logits_binary)
 
-    logits_multi = np.array([[-1.0, 0.0, 1.0], [0.5, -0.5, 0.0], [0.0, 1.0, -1.0]], dtype=np.float64)
-    _ = cb_logits_to_probs_multiclass(logits_multi)
+        logits_multi = np.array([[-1.0, 0.0, 1.0], [0.5, -0.5, 0.0], [0.0, 1.0, -1.0]], dtype=np.float64)
+        _ = cb_logits_to_probs_multiclass(logits_multi)
+    except Exception as e:  # nosec B110 - non-trivial body
+        logger.warning("cb_logits_to_probs kernels warmup failed, skipping: %s", e, exc_info=True)
 
     # Prewarm parallel-numba variants. Each `_par` variant is a separate numba compilation; the `parallel=True` IR adds ~1-3s per kernel on first call from a fresh process -- ~22 kernels in
     # this block + the hamming/jaccard block below account for most of prewarm's total cost (measured ~50s of a 100k-row wellbore run's wall time). Every `_par` kernel here is dispatched to
