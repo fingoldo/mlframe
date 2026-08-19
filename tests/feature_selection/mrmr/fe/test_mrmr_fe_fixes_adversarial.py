@@ -87,7 +87,16 @@ def _fit_in_subprocess(body: str, *, timeout: int = 850) -> dict:
                 vf = np.asarray(out_full[ec].values)[lo:hi]
                 vs = np.asarray(out_slice[ec].values)
                 bn = np.isnan(vf) & np.isnan(vs)
-                if not np.array_equal(np.where(bn, 0.0, vf), np.where(bn, 0.0, vs)):
+                # allclose, not array_equal: several basis builders (hermite/legendre/chebyshev/
+                # laguerre recurrences in _hermite_basis_eval.py) are @njit(fastmath=True,
+                # parallel=True) -- fastmath explicitly permits FP-reordering/FMA optimizations
+                # that LLVM may resolve differently per CPU target, and the full (40000-row) vs
+                # slice (300-row) arrays can vectorize into different-sized batches. This is the
+                # SAME ~1e-9 FP-reorder class the codebase already accepts elsewhere (never a
+                # selection-altering divergence); a genuine replay bug (recomputed bin edges,
+                # non-deterministic recipe) produces a far larger, non-noise-floor divergence and
+                # still trips this.
+                if not np.allclose(np.where(bn, 0.0, vf), np.where(bn, 0.0, vs), rtol=1e-9, atol=1e-9, equal_nan=False):
                     replay_break.append(ec)
         except Exception as _e:
             replay_break.append('TRANSFORM_ERROR:' + repr(_e)[:200])
