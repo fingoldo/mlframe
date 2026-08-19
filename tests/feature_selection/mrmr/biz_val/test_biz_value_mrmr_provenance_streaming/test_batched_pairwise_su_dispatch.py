@@ -51,6 +51,8 @@ import warnings
 import numpy as np
 import pandas as pd
 
+from tests.conftest import perf_time_budget
+
 warnings.filterwarnings("ignore")
 
 
@@ -310,7 +312,8 @@ class TestLayer51_PerfBudget:
             seed=0,
         )
         elapsed = time.perf_counter() - t0
-        assert elapsed <= 5.0, f"tau-auto calibration at p=300 must finish <= 5s; got {elapsed:.3f}s"
+        budget = perf_time_budget(5.0)
+        assert elapsed <= budget, f"tau-auto calibration at p=300 must finish <= {budget:.1f}s; got {elapsed:.3f}s"
         # Tau is a finite value in the valid auto-tau window or the fallback.
         assert 0.0 < tau <= 1.0
         assert diag["mode"] in ("bimodal", "unimodal", "degenerate")
@@ -348,7 +351,8 @@ class TestLayer51_PerfBudget:
             distance="su",
         )
         elapsed = time.perf_counter() - t0
-        assert elapsed <= 2.0, f"hierarchy at 20 anchors must finish <= 2s; got {elapsed:.3f}s"
+        budget = perf_time_budget(2.0)
+        assert elapsed <= budget, f"hierarchy at 20 anchors must finish <= {budget:.1f}s; got {elapsed:.3f}s"
         # Hierarchy is a (possibly empty) dict; we don't assert content
         # here -- structural shape is covered by Layer 48 tests.
         assert isinstance(hierarchy, dict)

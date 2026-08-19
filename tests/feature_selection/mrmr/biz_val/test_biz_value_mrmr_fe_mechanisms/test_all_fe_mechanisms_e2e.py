@@ -88,6 +88,8 @@ import pytest
 
 from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression
+
+from tests.conftest import perf_time_budget
 from sklearn.metrics import roc_auc_score
 
 warnings.filterwarnings("ignore")
@@ -634,7 +636,8 @@ class TestFitTimeBudget:
     def test_all_enabled_fit_under_30s(self):
         """All-FE-enabled fit on (n=3000, p=12) completes in <= 30s."""
         X_tr, _y_tr, _X_ho, _y_ho, _m, elapsed = _kitchen_sink_all_fe_fit()
-        assert elapsed <= 30.0, f"All-FE-enabled fit on (n={len(X_tr)}, p={X_tr.shape[1]}) took {elapsed:.2f}s, exceeding the 30s budget"
+        budget = perf_time_budget(30.0)
+        assert elapsed <= budget, f"All-FE-enabled fit on (n={len(X_tr)}, p={X_tr.shape[1]}) took {elapsed:.2f}s, exceeding the {budget:.0f}s budget"
 
 
 # ---------------------------------------------------------------------------

@@ -279,18 +279,27 @@ def _host_cpu_contended(min_other_python_procs: int = 5) -> bool:
         return False
 
 
-def perf_time_budget(base_seconds: float, *, xdist_factor: float = 4.0, contention_factor: float = 4.0) -> float:
+def perf_time_budget(base_seconds: float, *, xdist_factor: float = 4.0, contention_factor: float = 4.0, numba_disabled_factor: float = 10.0) -> float:
     """Wall-clock time budgets are unreliable under parallel contention: a 2h full-suite run can starve any one
     worker for seconds, so a quiet-box budget that is correct standalone flakes under load. Multiply the budget when
     running under xdist, OR when system-wide CPU load indicates other concurrent processes (e.g. sibling worktree
     sessions on this shared machine) are contending for the same cores, so it still trips on a gross
     (order-of-magnitude) regression without flaking on transient scheduler stalls; a genuinely quiet box keeps the
-    tight budget. Use for absolute ``elapsed <= budget`` assertions."""
+    tight budget. Use for absolute ``elapsed <= budget`` assertions.
+
+    Also widens under ``NUMBA_DISABLE_JIT=1`` (the nightly numba-coverage.yml job, which disables JIT so coverage.py
+    can see inside @njit bodies): kernel-heavy code runs 10-1000x slower interpreted, per that workflow's own
+    comments and ``numba_disabled_timeout``'s docstring above -- a tight budget tuned for the compiled path
+    otherwise fails every kernel-heavy perf test on every nightly run regardless of a real regression. Multiplies
+    on top of (not instead of) the xdist/contention widening -- both slowdowns are real and independent."""
+    budget = base_seconds
     if running_under_xdist():
-        return base_seconds * xdist_factor
-    if _host_cpu_contended():
-        return base_seconds * contention_factor
-    return base_seconds
+        budget *= xdist_factor
+    elif _host_cpu_contended():
+        budget *= contention_factor
+    if os.environ.get("NUMBA_DISABLE_JIT") == "1":
+        budget *= numba_disabled_factor
+    return budget
 
 
 def numba_disabled_timeout(base_seconds: int, *, factor: int = 4) -> int:

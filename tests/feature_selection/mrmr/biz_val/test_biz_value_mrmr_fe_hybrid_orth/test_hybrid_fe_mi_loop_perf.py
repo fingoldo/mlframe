@@ -71,7 +71,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tests.conftest import running_under_xdist
+from tests.conftest import perf_time_budget, running_under_xdist
 
 warnings.filterwarnings("ignore")
 
@@ -274,7 +274,8 @@ class TestPerfBudgets:
             top_k=5,
         )
         elapsed = time.perf_counter() - t0
-        assert elapsed <= PERF_BUDGET_P500_SECS, f"hybrid_orth_mi_fe at p=500 n=2000 took {elapsed:.3f}s, budget is {PERF_BUDGET_P500_SECS:.1f}s."
+        budget = perf_time_budget(PERF_BUDGET_P500_SECS)
+        assert elapsed <= budget, f"hybrid_orth_mi_fe at p=500 n=2000 took {elapsed:.3f}s, budget is {budget:.1f}s."
 
 
 # ---------------------------------------------------------------------------
