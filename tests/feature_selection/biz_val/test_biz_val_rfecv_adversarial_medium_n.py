@@ -166,12 +166,19 @@ def test_selection_rule_knob_synergy(rule):
 # ---------------------------------------------------------------------------
 def test_large_p_small_n():
     # n=300, p=50. argmax: signals 4/4 (measured seed 0,2); RFE over 50 cols is the budget hog, so one seed here.
+    # max_iter=12 (halved from the _fit_select default of 25, 2026-08-19): measured 85s locally
+    # (many-core box) at max_iter=25 but CI's 2-vCPU runner hit the 900s pytest-timeout wall --
+    # over 10x slower there, consistent with this RFE-over-50-cols loop being CPU-bound and the
+    # 2-vCPU runner offering far less headroom than a local multi-core box. Halving the per-fold
+    # HGB boosting budget cuts wall time roughly proportionally without weakening the assertions
+    # below (feature-importance ranking for RFE elimination doesn't need full boosting
+    # convergence) -- verified locally: same PASS outcome (4/4 signal recovery, prune below p=50).
     """Large p small n."""
     rule = "argmax"
     n_kept_list, sig_kept_list = [], []
     for seed in (0,):
         Xdf, y = _make_large_p(seed)
-        kept = _fit_select(Xdf, y, rule=rule)
+        kept = _fit_select(Xdf, y, rule=rule, max_iter=12)
         n_sig = sum(int(c[1:]) < 4 for c in kept)
         assert n_sig >= 3, f"rule={rule} seed={seed}: signals lost {n_sig}/4 (measured >=3)"
         n_kept_list.append(len(kept))
