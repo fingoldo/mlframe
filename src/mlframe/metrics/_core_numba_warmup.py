@@ -159,9 +159,8 @@ def _prewarm_numba_cache_body():
                 logger.debug("_kick_cpu_count: prefetch failed", exc_info=True)
 
         threading.Thread(target=_kick_cpu_count, daemon=True).start()
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
+    except Exception as e:  # nosec B110 - non-trivial body
+        logger.warning("cpu_count-prefetch thread launch failed, skipping: %s", e, exc_info=True)
 
     # iter199 (2026-05-23): pre-warm polars group_by + agg path. c0042 binary
     # profile attributed 2.557s to a single group_by(...).agg(...) call in
@@ -187,9 +186,8 @@ def _prewarm_numba_cache_body():
         )
         # Also warm the join path (used in _per_group_predict_polars._predict):
         _ = _warm_df.select("cat").join(_warm_df, on="cat", how="left")
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
+    except Exception as e:  # nosec B110 - non-trivial body
+        logger.warning("polars group_by/join warmup failed, skipping: %s", e, exc_info=True)
 
     # Numba compiles for each dtype separately. Isolated per-dtype try/except: this loop -- including
     # the base (non-`_par`) maximum_absolute_percentage_error warmup -- had NO exception protection at
@@ -264,9 +262,8 @@ def _prewarm_numba_cache_body():
         _ = fast_aucs_per_group_optimized(y_true=_yt_bool, y_score=_yp_f64, group_ids=None, return_order=True, return_ks=True)
         _ = fast_log_loss(_yt_bool, _yp_f64)
         _ = fast_ice_only(_yt_bool, _yp_f64, nbins=10, use_weights=True)
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
+    except Exception as e:  # nosec B110 - non-trivial body
+        logger.warning("ece/brier-decomposition/ice kernels warmup failed, skipping: %s", e, exc_info=True)
 
     # iter192 (2026-05-23): also prewarm fast_aucs_per_group_optimized with
     # group_ids supplied (different numba signature than group_ids=None) and
@@ -281,9 +278,8 @@ def _prewarm_numba_cache_body():
         # Short array -> dispatches to _fast_brier_score_loss_seq, distinct
         # numba signature per dtype combo.
         _ = fast_brier_score_loss(_yt_bool, _yp_f64)
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
+    except Exception as e:  # nosec B110 - non-trivial body
+        logger.warning("grouped-auc/brier-seq kernels warmup failed, skipping: %s", e, exc_info=True)
 
     # iter198 (2026-05-23) bench-attempt-rejected: tried prewarming
     # ``fast_aucs(bool, float64)`` to eliminate the 667ms _compile_for_args
@@ -298,9 +294,8 @@ def _prewarm_numba_cache_body():
     _ypi = np.array([0, 1, 0, 0, 1, 1], dtype=np.int64)
     try:
         _ = format_classification_report(_yti, _ypi, nclasses=2)
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
+    except Exception as e:  # nosec B110 - non-trivial body
+        logger.warning("format_classification_report warmup failed, skipping: %s", e, exc_info=True)
 
     # Isolated: this pair had NO exception protection, unlike every other block in this
     # function -- confirmed via test_warmup_calls_mape_par_kernel_with_nthr/test_warmup_skip_flag_*
@@ -460,9 +455,8 @@ def _prewarm_numba_cache_body():
             _yt_nk4_pw, _yp_nk4_pw, _di_nk4_pw, 10, True,
             3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0, 0.0,
         )
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
+    except Exception as e:  # nosec B110 - non-trivial body
+        logger.warning("_batch_per_class_ice_kernel warmup failed, skipping: %s", e, exc_info=True)
 
     # Warm feature_selection numba kernels. Without this, the first MRMR.fit call pays ~60s of cumulative JIT compile. Lazy import keeps this module's import cost unchanged.
     try:
@@ -572,9 +566,8 @@ def _prewarm_numba_cache_body():
             # `gpu_multiple_rmse_scores` has separate cupy kernels for the 2-D fallback and the 1-D fastpath; each path's first call compiles a fresh NVRTC kernel.
             _yt_rmse = _yp_gpu[:, 0]
             _ = gpu_multiple_rmse_scores(_yt_rmse, _yp_gpu)
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
-            pass
+        except Exception as e:  # nosec B110 - non-trivial body
+            logger.warning("GPU roc_auc/pr_auc/rmse kernels warmup failed, skipping: %s", e, exc_info=True)
 
     # Warm `ranking_metrics._summary_batched_kernel` (parallel njit). On LTR combos `compute_ranking_summary` is called once per dummy baseline; the first call eats the entire JIT-compile budget. Compile with the canonical dtype combo used by `compute_ranking_summary` itself.
     try:
@@ -584,6 +577,5 @@ def _prewarm_numba_cache_body():
         _gs_rank = np.array([0, 3, 6], dtype=np.int64)
         _ks_rank = np.array([1, 5, 10], dtype=np.int64)
         _ = _summary_batched_kernel(_yt_rank, _ys_rank, _gs_rank, _ks_rank)
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
+    except Exception as e:  # nosec B110 - non-trivial body
+        logger.warning("ranking _summary_batched_kernel warmup failed, skipping: %s", e, exc_info=True)
