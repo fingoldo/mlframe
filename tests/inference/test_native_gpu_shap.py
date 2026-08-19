@@ -130,12 +130,15 @@ def test_shap_explainer_additivity_holds_on_cpu():
     sensitive across the shap/xgboost combinations the CI matrix resolves. ``TreeExplainer`` is the
     explicit, version-stable entry point for exactly this model class and needs no masker/auto-detect
     step at all."""
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import _maybe_patch_shap_xgb_base_score
+
     X, y = _make_data(n=5000, f=15, seed=5)
     model = xgboost.XGBClassifier(n_estimators=120, max_depth=5, device="cpu", tree_method="hist")
     model.fit(X, y)
 
-    explainer = shap.TreeExplainer(model)
-    cpu_shap = explainer(X)
+    with _maybe_patch_shap_xgb_base_score():
+        explainer = shap.TreeExplainer(model)
+        cpu_shap = explainer(X)
     margin = model.get_booster().predict(xgboost.DMatrix(X), output_margin=True)
 
     reconstructed = np.asarray(cpu_shap.values).sum(axis=1) + np.asarray(cpu_shap.base_values)
