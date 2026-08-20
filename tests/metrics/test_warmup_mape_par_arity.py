@@ -22,6 +22,10 @@ def test_warmup_calls_mape_par_kernel_with_nthr(monkeypatch):
     # The warmup body does `from .core import ... _max_abs_pct_error_kernel_par`, so the
     # name resolves from the core module at call time -> patching core catches it.
     monkeypatch.setattr(core, "_max_abs_pct_error_kernel_par", _spy)
+    # Pins the not-yet-root-caused CI-only flake this test guards against (see
+    # _core_numba_warmup.py's own diagnostic comment at the mape block) -- surfaces which
+    # branch actually ran on the next real occurrence instead of another blind guess.
+    monkeypatch.setenv("MLFRAME_WARMUP_MAPE_DIAG", "1")
 
     warmup._prewarm_numba_cache_body()
 
