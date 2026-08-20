@@ -17,6 +17,7 @@ from timeit import default_timer as timer
 import numpy as np
 import pytest
 
+from tests.conftest import skip_under_numba_disabled_jit
 from mlframe.training.composite.discovery.screening import (
     _HAS_NUMBA,
     _mi_from_binned_pair,
@@ -133,6 +134,7 @@ def test_wrapper_does_not_copy_strided_input() -> None:
 
 
 @pytest.mark.skipif(not _HAS_NUMBA, reason="numba unavailable")
+@skip_under_numba_disabled_jit
 def test_njit_perf_sentinel_not_slower_than_numpy() -> None:
     """Warm multi-iter wall: njit must be at least as fast as numpy at the production size.
 

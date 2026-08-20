@@ -317,6 +317,15 @@ def numba_disabled_timeout(base_seconds: int, *, factor: int = 4) -> int:
     return base_seconds
 
 
+skip_under_numba_disabled_jit = pytest.mark.skipif(
+    os.environ.get("NUMBA_DISABLE_JIT") == "1",
+    reason="meaningless under NUMBA_DISABLE_JIT=1: numba-vs-numpy speedup ratios and JIT-cache-artifact "
+    "checks have no valid answer once compilation itself is disabled -- widening (perf_time_budget's "
+    "own approach for wall-clock budgets) doesn't apply here since there is no amount of extra time "
+    "that makes an uncompiled loop faster than numpy or produces a .nbi/.nbc cache file.",
+)
+
+
 def perf_speedup_floor(base_ratio: float, *, xdist_factor: float = 0.6) -> float:
     """Speedup-ratio floors compress under ``-n`` contention. A ratio is measured from two arms run back-to-back in the
     same process, so contention hits both and the ratio is more load-robust than an absolute time -- but small absolute

@@ -21,6 +21,7 @@ import time
 import numpy as np
 import pytest
 
+from tests.conftest import skip_under_numba_disabled_jit
 from mlframe.training.composite.discovery._corr_numba import (
     _HAS_NUMBA,
     _MIN_COLS,
@@ -116,6 +117,7 @@ class TestCorrNumbaBitIdentity:
 @pytest.mark.skipif(not _HAS_NUMBA, reason="numba required for the dispatched kernel")
 class TestCorrNumbaBizValue:
     """Groups tests covering corr numba biz value."""
+    @skip_under_numba_disabled_jit
     def test_biz_kernel_faster_than_numpy_at_production_shape(self) -> None:
         """Floor 1.2x; measured ~6.7x on the dev host (n=50k, F=200, 16 physical cores). CI's runner
         is a SHARED 2-VCPU box (see ci.yml) -- the kernel's prange parallelism is fundamentally
