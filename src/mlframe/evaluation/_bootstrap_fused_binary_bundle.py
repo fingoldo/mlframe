@@ -86,11 +86,11 @@ def _bootstrap_batch_auc_brier_ll_ece(
             rk = base_rank[idx[k]]
             counts[rk] += 1
             ones[rk] += y_by_rank[rk]
-        last_fps = 0
-        last_tps = 0
-        tps = 0
-        fps = 0
-        auc = 0
+        last_fps = np.int64(0)
+        last_tps = np.int64(0)
+        tps = np.int64(0)
+        fps = np.int64(0)
+        auc = np.int64(0)
         for rk in range(n - 1, -1, -1):
             c = counts[rk]
             if c == 0:
@@ -148,11 +148,11 @@ def _bootstrap_batch_auc_brier_ll_ece_grouped(
             g = group_of_base[bi]
             counts[g] += 1
             ones[g] += y_base[bi]
-        last_fps = 0
-        last_tps = 0
-        tps = 0
-        fps = 0
-        auc = 0
+        last_fps = np.int64(0)
+        last_tps = np.int64(0)
+        tps = np.int64(0)
+        fps = np.int64(0)
+        auc = np.int64(0)
         for g in range(ngroups - 1, -1, -1):
             c = counts[g]
             if c == 0:

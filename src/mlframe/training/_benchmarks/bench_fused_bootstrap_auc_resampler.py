@@ -58,11 +58,11 @@ def _fused_resample_auc(idx, base_rank, y_by_rank, n):
         r = base_rank[idx[k]]
         counts[r] += 1
         ones[r] += y_by_rank[r]
-    last_fps = 0
-    last_tps = 0
-    tps = 0
-    fps = 0
-    auc = 0
+    last_fps = np.int64(0)
+    last_tps = np.int64(0)
+    tps = np.int64(0)
+    fps = np.int64(0)
+    auc = np.int64(0)
     for r in range(n - 1, -1, -1):
         c = counts[r]
         if c == 0:
