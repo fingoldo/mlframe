@@ -58,10 +58,16 @@ def test_bootstrap_block_precast_ci_unchanged():
     legacy = _legacy_brier_ll_cis(y, raw, rng_seed=42, n_bootstrap=1000)
 
     for m in ("brier", "log_loss"):
-        # Point is untouched by the jackknife -> exactly equal. CI bounds match to FP precision: the O(n) algebraic
-        # BCa jackknife differs from the gather jackknife only by sum-reduction order (~1e-15 per LOO value, <=~1e-13
-        # on the bound) -- far below any decision-relevant scale (see module docstring).
-        assert out[m]["point"] == legacy[m]["point"], m
+        # Point is untouched by the jackknife, so it's normally exactly equal -- except under
+        # NUMBA_DISABLE_JIT=1 (nightly kernel-body coverage), where the production _bootstrap_block
+        # path and this test's manually-reconstructed legacy path can each pick a different
+        # summation order for the SAME underlying numba kernel once it runs interpreted instead of
+        # compiled (compiled mode's type inference/vectorization forces one order; interpreted mode
+        # doesn't), landing a handful of ULPs apart (~4e-16 relative, machine epsilon). CI bounds
+        # match to FP precision: the O(n) algebraic BCa jackknife differs from the gather jackknife
+        # only by sum-reduction order (~1e-15 per LOO value, <=~1e-13 on the bound) -- far below any
+        # decision-relevant scale (see module docstring).
+        assert np.isclose(out[m]["point"], legacy[m]["point"], rtol=1e-9, atol=0.0), (m, out[m]["point"], legacy[m]["point"])
         assert np.isclose(out[m]["ci_lo"], legacy[m]["lo"], rtol=1e-9, atol=0.0), (m, out[m]["ci_lo"], legacy[m]["lo"])
         assert np.isclose(out[m]["ci_hi"], legacy[m]["hi"], rtol=1e-9, atol=0.0), (m, out[m]["ci_hi"], legacy[m]["hi"])
 
