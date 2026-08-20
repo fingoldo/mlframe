@@ -11,6 +11,18 @@ import pytest
 from mlframe.models.ensembling import base as eb
 from mlframe.models.ensembling import per_member_tuning as pmt
 
+# Pinned to the same xdist worker as tests/feature_selection/test_gen_default_tuning.py's
+# register_default_cache tests (2026-08-21): this file's autotune-on-miss sweep
+# (MLFRAME_PER_MEMBER_AUTOTUNE=1) can spawn a background daemon thread
+# (KernelTuningCache._spawn_async_sweep) that outlives its own test and touches pyutilz's
+# process-global _TUNED_THIS_PROCESS/_tuned_guard_lock state -- a plausible source of the
+# unreproduced-locally CI-only race in test_register_default_cache_loads_and_local_miss_returns_default
+# (reproduced once locally under a wide -n 4 tests/feature_selection/ run, never isolated to a
+# specific interacting file). Forcing both files onto one worker removes any chance of that
+# thread still running when the OTHER file's local-miss assertion executes, regardless of the
+# exact mechanism -- same rationale as test_gen_default_tuning.py's existing xdist_group use.
+pytestmark = pytest.mark.xdist_group(name="kernel_tuning_default_cache")
+
 
 @pytest.fixture(autouse=True)
 def _isolated_cache(tmp_path, monkeypatch):
