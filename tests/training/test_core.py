@@ -3695,6 +3695,16 @@ def _make_text_embedding_polars_df(n=200, n_cat_unique=5, n_text_unique=100):
     )
 
 
+# Pinned to one xdist worker (2026-08-21): CI (both ci.yml and numba-coverage-nightly, multiple
+# shards) repeatedly showed several of these tests' workers dying mid-fit with "node down: Not
+# properly terminated" and no Python traceback -- the signature of an OOM-kill, not a real bug in
+# this file. Each test here fits real CatBoost models with text_features/embedding_features
+# (CatBoost's own text tokenizer/dictionary build is memory-heavy), and under -n auto several of
+# these can land on DIFFERENT workers and run concurrently on the same 2-vCPU/7GB hosted runner
+# alongside the rest of the suite. Forcing them onto one worker caps the peak concurrent CatBoost-
+# text-fit memory at 1x instead of up to 7x. Mirrors the existing xdist_group(name="gpu") pattern
+# in tests/conftest.py.
+@pytest.mark.xdist_group(name="catboost_text_embedding_heavy")
 class TestTextAndEmbeddingFeatures:
     """Tests for text_features and embedding_features support (CatBoost)."""
 
