@@ -290,3 +290,32 @@ def test_f11_fast_concordance_index_raises_clean_error_on_length_mismatch():
 
     with pytest.raises(ValueError):
         fast_concordance_index([1, 2, 3], [1, 2])
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# F12 -- _batch_per_class_ice_kernel's ROC/PR accumulators narrowed to int8, overflowing past 127 positives
+# ---------------------------------------------------------------------------------------------------------------
+
+
+def test_f12_ice_kernel_roc_pr_accumulators_survive_more_than_127_positives():
+    """F12: total_pos/tps/fps accumulate int8 y_true elements starting from the bare literal 0, which numpy's
+    runtime value-based casting narrows the running total to int8 -- silently wraps under normal numba JIT,
+    but raises OverflowError under NUMBA_DISABLE_JIT=1 (pure Python/numpy, used to measure @njit body coverage)
+    once a class has more than 127 positives. Fixed by seeding the accumulators from np.int64(0). Uses N=200
+    with 150 positives (> int8's 127 max) -- the sibling F8 out-of-range test at N=200/100 positives predates
+    this fix and never had enough positives to trip it."""
+    from mlframe.metrics.classification._classification_report import _batch_per_class_ice_kernel
+
+    N = 200
+    y_true = np.zeros((N, 1), dtype=np.int8)
+    y_true[:150, 0] = 1
+    rng = np.random.default_rng(0)
+    y_pred = rng.random((N, 1))
+    desc_idx = np.ascontiguousarray(np.argsort(-y_pred, axis=0).astype(np.int64))
+
+    ice = _batch_per_class_ice_kernel(
+        y_true, y_pred, desc_idx, nbins=10, use_weights=True,
+        mae_weight=3.0, std_weight=2.0, brier_loss_weight=0.8,
+        roc_auc_weight=1.5, pr_auc_weight=0.1, min_roc_auc=0.54, roc_auc_penalty=0.0,
+    )
+    assert np.isfinite(ice).all()

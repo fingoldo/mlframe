@@ -673,7 +673,15 @@ def _batch_per_class_ice_kernel(
         desc_idx = desc_idx_NK[:, k]
         y_t_sorted = y_t[desc_idx]
         y_p_sorted = y_p[desc_idx]
-        total_pos = 0
+        # int64 accumulator, not the bare Python literal 0: `y_t_sorted[i]` is an int8 array element
+        # (``y_true_NK`` is int8 per this kernel's own docstring), and a plain `0 + int8_scalar` narrows
+        # the running total to int8 under numpy's runtime value-based casting -- silently wraps around
+        # under normal numba JIT (numba's type inference widens differently and never surfaced this),
+        # but raises `OverflowError: Python integer N out of bounds for int8` under NUMBA_DISABLE_JIT=1
+        # (pure Python/numpy execution, used to measure @njit body coverage) once a class has >127
+        # positives. Any per-class positive count above 127 was a genuine, silent correctness risk in
+        # compiled mode too, not just a NUMBA_DISABLE_JIT-only artifact.
+        total_pos = np.int64(0)
         for i in range(N):
             total_pos += y_t_sorted[i]
         total_neg = N - total_pos
@@ -681,10 +689,12 @@ def _batch_per_class_ice_kernel(
             roc_auc = np.nan
             pr_auc = np.nan
         else:
-            last_fps = 0
-            last_tps = 0
-            tps = 0
-            fps = 0
+            # int64, same reason as total_pos above: fps/tps accumulate int8 elements (`yi`/`1 - yi`)
+            # and `denom_roc = tps * fps * 2` below would also risk int8 overflow on wide classes.
+            last_fps = np.int64(0)
+            last_tps = np.int64(0)
+            tps = np.int64(0)
+            fps = np.int64(0)
             roc_acc = 0.0
             pr_acc = 0.0
             prev_recall = 0.0
