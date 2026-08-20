@@ -202,6 +202,7 @@ Every environment variable read anywhere in `src/mlframe/` via `os.environ.get(.
 | `MLFRAME_PER_MEMBER_AUTOTUNE` | `'1'` | [src/mlframe/models/ensembling/member_metrics.py](../src/mlframe/models/ensembling/member_metrics.py#L68) |
 | `MLFRAME_PER_MEMBER_BACKEND` | `''` | [src/mlframe/models/ensembling/member_metrics.py](../src/mlframe/models/ensembling/member_metrics.py#L62) |
 | `MLFRAME_PIPELINE_CACHE_BYTES_LIMIT` | — | [src/mlframe/training/core/_phase_config_setup.py](../src/mlframe/training/core/_phase_config_setup.py#L169) |
+| `MLFRAME_PIPELINE_CACHE_DIAG` | — | [src/mlframe/training/core/_setup_helpers_pipeline_cache.py](../src/mlframe/training/core/_setup_helpers_pipeline_cache.py#L179) |
 | `MLFRAME_PIPELINE_CACHE_RAM_FRACTION` | — | [src/mlframe/training/core/_phase_config_setup.py](../src/mlframe/training/core/_phase_config_setup.py#L169) |
 | `MLFRAME_PLOT_INLINE_DISPLAY` | — | [src/mlframe/reporting/renderers/save.py](../src/mlframe/reporting/renderers/save.py#L102) |
 | `MLFRAME_POLYEVAL_BACKEND` | `''` | [src/mlframe/feature_selection/filters/hermite_fe/__init__.py](../src/mlframe/feature_selection/filters/hermite_fe/__init__.py#L388) |

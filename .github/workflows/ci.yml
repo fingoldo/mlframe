@@ -236,6 +236,23 @@ jobs:
           files: ./coverage.xml
           token: ${{ secrets.CODECOV_TOKEN }}
 
+      # Raw sqlite `.coverage` (not the derived coverage.xml above) so codecov-full.yml can
+      # `coverage combine` this shard's data with numba-coverage-nightly's shards into one
+      # genuinely unioned line-coverage report -- summing the two flags' already-published
+      # percentages double-counts every line both jobs happen to exercise, which is most of the
+      # codebase (see the "codecov" + "codecov-numba" badges' own docs for why they can't just be
+      # added together). `.coverage` is a dotfile -- same upload-artifact hidden-file gotcha as
+      # `.test_durations` above.
+      - name: Upload raw coverage data (for the cross-workflow merged report)
+        if: matrix.python-version == '3.11' && (success() || failure())
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: raw-coverage-ci-${{ matrix.group }}
+          path: .coverage
+          retention-days: 3
+          include-hidden-files: true
+          if-no-files-found: ignore
+
   # Folds every shard's freshly-measured `.test_durations` slice (uploaded above) back into one
   # file and commits it to master, so pytest-split's shard balancing stays current on every
   # push instead of drifting stale between the separate weekly full-suite update-test-durations.yml
