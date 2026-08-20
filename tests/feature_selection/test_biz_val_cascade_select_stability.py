@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.ensemble import RandomForestRegressor
 
 from mlframe.feature_selection import cascade_select, cascade_select_stable
@@ -33,6 +34,7 @@ def _make_borderline_dataset(n: int, seed: int):
     return X, y
 
 
+@pytest.mark.timeout(1800)
 def test_biz_val_cascade_select_stable_reduces_selection_variance_vs_single_run():
     """Biz val cascade select stable reduces selection variance vs single run."""
     X, y = _make_borderline_dataset(n=200, seed=7)
@@ -74,7 +76,14 @@ def test_biz_val_cascade_select_stable_reduces_selection_variance_vs_single_run(
         f"({noise_contaminated_runs}/{n_repeats} runs) -- no noise-leak jitter to guard against"
     )
 
-    stable_result = cascade_select_stable(X, y, make_estimator, n_bootstrap=n_repeats, stability_threshold=0.6, bootstrap_random_state=123, **cascade_kwargs)
+    # n_bootstrap=20 (production default, NOT n_repeats=8): CI (Linux) reproducibly admitted a single
+    # noise feature into stable_selected at n_bootstrap=8 -- a coarse bootstrap count makes the 0.6
+    # threshold border-fragile (5/8=62.5% is a one-draw flip away from the bar), an artifact of shrinking
+    # n_bootstrap to match n_repeats purely to keep this test's own single-run loop above cheap, not a
+    # real production usage pattern (cascade_select_stable's own default is 20 specifically for finer
+    # threshold resolution). Decoupling restores the statistical robustness the stability wrapper exists
+    # to provide, matching how a real caller would actually use it.
+    stable_result = cascade_select_stable(X, y, make_estimator, n_bootstrap=20, stability_threshold=0.6, bootstrap_random_state=123, **cascade_kwargs)
     stable_freq = stable_result["selection_frequency"]
     stable_selected = set(stable_result["stable_selected"])
 
