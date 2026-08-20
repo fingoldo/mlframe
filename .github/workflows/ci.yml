@@ -197,7 +197,8 @@ jobs:
             -p no:randomly \
             --timeout=900 \
             --durations=200 \
-            --store-durations
+            --store-durations \
+            --show-progress
 
       # `--store-durations` (above) merges this shard's freshly-measured durations into the
       # `.test_durations` this job's checkout started from (pytest-split reads+writes the same

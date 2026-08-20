@@ -142,6 +142,7 @@ jobs:
             --timeout=3600 \
             --durations=200 \
             --store-durations \
+            --show-progress \
             --durations-path=.test_durations_numba_disabled \
             --ignore=tests/feature_selection/biz_val \
             tests/feature_engineering/ \
