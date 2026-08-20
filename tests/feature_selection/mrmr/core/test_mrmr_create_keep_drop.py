@@ -62,6 +62,7 @@ import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
+from tests.conftest import numba_disabled_timeout
 
 # A focused, RAM-tight broad-coverage size: big enough for the redundancy /
 # prevalence gates to behave like production, small enough for an 8GB box to run
@@ -71,7 +72,12 @@ BROAD_N = 25_000
 SEED = 42
 # Per-fit wall budget. A cold n=50k fit measured ~50s incl. numba warmup; 300s is
 # generous slack so a slow first-JIT case never trips the global 60s timeout.
-FIT_TIMEOUT = 300
+# Widened 8x under NUMBA_DISABLE_JIT=1: this formula's fit routes through a wide
+# conditional-gate FE scan that calls the njit quantile-binning kernel (hermite_fe's
+# _quantile_bin_njit) thousands of times per candidate column -- interpreted (no-JIT)
+# execution of that hot inner loop alone measured well past 300s on CI (numba-coverage-nightly
+# shard 4/8, 2026-08-20), unlike this file's other, lighter formulas.
+FIT_TIMEOUT = numba_disabled_timeout(300, factor=8)
 
 
 def _artifact_path(name: str) -> str:
