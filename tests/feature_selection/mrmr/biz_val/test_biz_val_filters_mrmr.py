@@ -178,7 +178,7 @@ def test_biz_val_mrmr_n_workers_threading_no_crash_no_regression():
     # match. Catches regressions in the parallel code path while
     # tolerating expected non-determinism in tied-rank ordering.
     #
-    # Symmetric-difference tolerance of 1 (2026-08-20): CI (Linux, 2-vCPU runner) reproducibly hit
+    # Symmetric-difference tolerance of 1: CI (Linux, 2-vCPU runner) reproducibly hit
     # exactly the "PRE-EXISTING order-2 tied-rank non-determinism across workers" this file's own
     # comment above already tracks as a separate framework bug -- n_workers=4 admitted ONE extra
     # feature (index 2) beyond n_workers=1's set. Not a noise-admission regression: index 2 is one
@@ -686,7 +686,7 @@ def test_biz_val_mrmr_robust_signal_recovery_across_seeds(seed):
     assert signal_recovery_count(sel, signal, top_k=5) >= 2
     auc_sel = downstream_auc(sel, df, ys)
     auc_base = baseline_signal_auc(df, ys, signal)
-    # Tolerance widened 0.03 -> 0.15 (2026-08-19): the same platform-crossing CMI-computation
+    # Tolerance widened 0.03 -> 0.15: the same platform-crossing CMI-computation
     # divergence documented on the I4b test (test_mrmr_endtoend_invariants.py) also reaches this
     # fixture's raw-redundancy/composite-construction path -- CI (Linux, every Python 3.9-3.14)
     # measured gaps of 0.103 (seed=42) and 0.108 (seed=123), deterministically, not one-off flakes;

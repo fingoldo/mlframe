@@ -533,7 +533,7 @@ def test_I4b_subsumed_raw_not_kept_alongside_capturing_engineered(case_idx, case
             f"conservatively keeps 0-uplift redundant raws (cosmetic, no functional "
             f"cost) -- the functional no-harm leg above is the binding contract here."
         )
-    # PLATFORM-CROSSING CMI DIVERGENCE (2026-08-19): (ratio_plus_trig, uniform, regression, s101) drops
+    # PLATFORM-CROSSING CMI DIVERGENCE: (ratio_plus_trig, uniform, regression, s101) drops
     # 'a' cleanly on Windows (verified: passes deterministically across 20+ local runs, incl. with
     # NUMBA_NUM_THREADS forced to 1 and 2 -- not a local thread-count/RNG-order effect) but keeps it on
     # every CI Python version (3.9-3.14) on Linux -- a genuine, reproducible-only-on-Linux numeric

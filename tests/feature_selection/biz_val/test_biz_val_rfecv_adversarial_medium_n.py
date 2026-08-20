@@ -166,7 +166,7 @@ def test_selection_rule_knob_synergy(rule):
 # ---------------------------------------------------------------------------
 def test_large_p_small_n():
     # n=300, p=50. argmax: signals 4/4 (measured seed 0,2); RFE over 50 cols is the budget hog, so one seed here.
-    # max_iter=12 (halved from the _fit_select default of 25, 2026-08-19): measured 85s locally
+    # max_iter=12 (halved from the _fit_select default of 25): measured 85s locally
     # (many-core box) at max_iter=25 but CI's 2-vCPU runner hit the 900s pytest-timeout wall --
     # over 10x slower there, consistent with this RFE-over-50-cols loop being CPU-bound and the
     # 2-vCPU runner offering far less headroom than a local multi-core box. Halving the per-fold
