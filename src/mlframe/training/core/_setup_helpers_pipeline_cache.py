@@ -176,6 +176,14 @@ def _persist_pipeline_disk_cache() -> None:
     """
     try:
         path = _pipeline_disk_cache_path()
+        if os.environ.get("MLFRAME_PIPELINE_CACHE_DIAG") == "1":
+            logger.warning(
+                "pipeline-cache persist: resolved path=%s parent_attr_override=%r sibling_global=%r parent_module_in_sys_modules=%s",
+                path,
+                _parent_attr("_PIPELINE_JSON_DISK_CACHE_PATH", None),
+                _PIPELINE_JSON_DISK_CACHE_PATH,
+                _PARENT_MODULE in sys.modules,
+            )
         # Defensive: monkeypatched paths in tests (and prod first-fit on a
         # fresh box) may point at a directory the producer hasn't created yet.
         # ``os.replace`` raises ``FileNotFoundError`` when the dir is missing,

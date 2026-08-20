@@ -131,6 +131,12 @@ def test_pipeline_json_disk_cache_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_PATH", cache_file)
     monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_LOADED", False)
     sh._PIPELINE_JSON_ROUNDTRIP_CACHE.clear()
+    # Diagnostic (see _setup_helpers_pipeline_cache.py's _persist_pipeline_disk_cache): this test
+    # reproducibly fails on CI (Linux) with no exception and no file on disk, not reproducible
+    # locally despite the split-module monkeypatch bridge (_parent_attr/_parent_set) looking
+    # structurally correct on read -- surfaces the resolved path vs. the monkeypatched override on
+    # the next CI occurrence instead of guessing further.
+    monkeypatch.setenv("MLFRAME_PIPELINE_CACHE_DIAG", "1")
 
     # Seed the in-memory cache + persist to disk. Keys are the production cache-key
     # form -- a content-only blake2b hexdigest string (PYTHONHASHSEED-stable), NOT a
