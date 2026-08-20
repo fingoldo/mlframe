@@ -91,11 +91,24 @@ _PIPELINE_JSON_DISK_CACHE_MAX_ENTRIES: int = 1000
 def _pipeline_disk_cache_path() -> str:
     """Resolve the per-version disk cache path on first use.
 
-    Honour an out-of-band override set on the parent facade
-    (tests / debug tooling do ``monkeypatch.setattr(parent,
-    "_PIPELINE_JSON_DISK_CACHE_PATH", path)``); otherwise initialise the
-    sibling global lazily under the system temp dir.
+    Checks, in order: the ``MLFRAME_PIPELINE_DISK_CACHE_PATH`` env var, then an
+    out-of-band override set on the parent facade (tests / debug tooling do
+    ``monkeypatch.setattr(parent, "_PIPELINE_JSON_DISK_CACHE_PATH", path)``),
+    then the sibling global initialised lazily under the system temp dir.
+
+    The env var exists because the facade-monkeypatch route above has an
+    unconfirmed CI-only failure mode (test_pipeline_json_disk_cache_roundtrip:
+    _persist_pipeline_disk_cache resolves the DEFAULT path instead of the
+    monkeypatched one, despite the ``_parent_attr``/``_parent_set`` bridge
+    reading correctly by inspection and the failure being unreproducible
+    locally) -- ``monkeypatch.setenv`` is a strictly simpler mechanism (no
+    cross-module attribute-bridge indirection) and gives tests an unambiguous
+    way to redirect this path regardless of whatever that root cause turns
+    out to be.
     """
+    env_override = os.environ.get("MLFRAME_PIPELINE_DISK_CACHE_PATH")
+    if env_override:
+        return env_override
     override = _parent_attr("_PIPELINE_JSON_DISK_CACHE_PATH", None)
     if override is not None:
         return str(override)

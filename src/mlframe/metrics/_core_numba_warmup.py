@@ -378,7 +378,7 @@ def _prewarm_numba_cache_body():
     except Exception as e:  # nosec B110 - non-trivial body
         logger.warning("cb_logits_to_probs _par kernels warmup failed, skipping: %s", e, exc_info=True)
 
-    # Diagnostic (2026-08-21, MLFRAME_WARMUP_MAPE_DIAG): CI (both ci.yml and numba-coverage-nightly,
+    # Diagnostic (MLFRAME_WARMUP_MAPE_DIAG): CI (both ci.yml and numba-coverage-nightly,
     # every shard so far) shows the 3 dedicated tests for this block failing with the _par kernel
     # simply never called -- yet no exception has ever been logged here (nor in any sibling group),
     # ruling out the except below actually firing, and MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL has no
@@ -399,7 +399,7 @@ def _prewarm_numba_cache_body():
             _yt_i64_psep = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.int64)
             _ = _probability_separation_score_par(_yt_i64_psep, _yp_f64, 1, 0.5)
     except Exception as e:  # nosec B110 - non-trivial body
-        # The warning call itself is guarded (2026-08-21): if formatting/logging THIS exception
+        # The warning call itself is guarded: if formatting/logging THIS exception
         # somehow raises (unconfirmed but not yet ruled out as the cause of the CI-only symptom
         # documented above -- every group AFTER this one silently never running, with no warning
         # from this handler ever observed in any CI log), that secondary exception must not escape
@@ -407,8 +407,11 @@ def _prewarm_numba_cache_body():
         # mode this file's per-group isolation exists to prevent in the first place.
         try:
             logger.warning("mape/probability_separation _par kernels warmup failed, skipping: %s", e, exc_info=True)
-        except Exception:  # nosec B110 - logging-the-failure must never itself become a failure
-            pass
+        except Exception:
+            # Deliberately unconditional (not verbose-gated) fallback with a static message and no
+            # exception interpolation: the primary warning above just failed to format/log ITS OWN
+            # exception, so this one must not repeat that mistake by touching `e` again.
+            logger.debug("mape warmup group: primary failure-logging call itself raised")
 
     try:
         _reg_y = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0], dtype=np.float64)
