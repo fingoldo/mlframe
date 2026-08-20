@@ -77,6 +77,12 @@ jobs:
     env:
       NUMBA_DISABLE_JIT: "1"
       PYTHONUNBUFFERED: "1"
+      # ci.yml sets this for its normal-speed matrix (see that job's own comment: runs every
+      # parametrized case with 1 representative value instead of the full N-seed sweep, still
+      # exercising every code path). This job never had it, so it was paying the full N-seed
+      # matrix on TOP of the already-documented 10-1000x NUMBA_DISABLE_JIT=1 slowdown per test --
+      # plausible root cause of shards running for hours with no visible progress in the log.
+      MLFRAME_FAST: "1"
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
