@@ -203,6 +203,7 @@ Every environment variable read anywhere in `src/mlframe/` via `os.environ.get(.
 | `MLFRAME_PER_MEMBER_BACKEND` | `''` | [src/mlframe/models/ensembling/member_metrics.py](../src/mlframe/models/ensembling/member_metrics.py#L62) |
 | `MLFRAME_PIPELINE_CACHE_BYTES_LIMIT` | — | [src/mlframe/training/core/_phase_config_setup.py](../src/mlframe/training/core/_phase_config_setup.py#L169) |
 | `MLFRAME_PIPELINE_CACHE_DIAG` | — | [src/mlframe/training/core/_setup_helpers_pipeline_cache.py](../src/mlframe/training/core/_setup_helpers_pipeline_cache.py#L192) |
+| `MLFRAME_PIPELINE_CACHE_FORCE_RELOAD` | — | [src/mlframe/training/core/_setup_helpers_pipeline_cache.py](../src/mlframe/training/core/_setup_helpers_pipeline_cache.py#L158) |
 | `MLFRAME_PIPELINE_CACHE_RAM_FRACTION` | — | [src/mlframe/training/core/_phase_config_setup.py](../src/mlframe/training/core/_phase_config_setup.py#L169) |
 | `MLFRAME_PIPELINE_DISK_CACHE_PATH` | — | [src/mlframe/training/core/_setup_helpers_pipeline_cache.py](../src/mlframe/training/core/_setup_helpers_pipeline_cache.py#L109) |
 | `MLFRAME_PLOT_INLINE_DISPLAY` | — | [src/mlframe/reporting/renderers/save.py](../src/mlframe/reporting/renderers/save.py#L102) |

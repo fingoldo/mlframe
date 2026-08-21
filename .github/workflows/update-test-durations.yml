@@ -78,6 +78,7 @@ jobs:
           pytest -m "not slow and not gpu and not multigpu" \
             --store-durations \
             -n auto \
+            --dist=loadgroup \
             -p no:randomly \
             --timeout=900 \
             || true

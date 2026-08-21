@@ -188,9 +188,16 @@ jobs:
           # just with 1 representative value instead of N.
           MLFRAME_FAST: "1"
         run: |
+          # --dist=loadgroup: plain `-n auto` defaults to `--dist=load`, which does NOT honor
+          # `@pytest.mark.xdist_group(...)` -- every group pin in the suite (GPU tests, the
+          # kernel-tuning-cache singleton tests, the CatBoost-fit OOM-avoidance pins) was silently a
+          # no-op under the old distmode, confirmed by grouped tests still landing on different
+          # workers/crashing concurrently despite the marker. loadgroup keeps `-n auto`'s worker count
+          # and load-balancing, it only additionally pins same-group tests to one worker.
           pytest -m "not slow and not gpu and not multigpu" \
             --splits ${{ matrix.splits || '10' }} --group ${{ matrix.group }} \
             -n auto \
+            --dist=loadgroup \
             --cov=src/mlframe \
             --cov-report=xml \
             --cov-report=term-missing \

@@ -145,10 +145,20 @@ def _pipeline_disk_cache_version_tag() -> str:
 
 
 def _load_pipeline_disk_cache_into_memory() -> None:
-    """One-shot disk -> in-memory rehydrate; safe to call repeatedly."""
+    """One-shot disk -> in-memory rehydrate; safe to call repeatedly.
+
+    ``MLFRAME_PIPELINE_CACHE_FORCE_RELOAD=1`` bypasses the once-per-process guard below
+    unconditionally -- see ``_pipeline_disk_cache_path``'s own docstring for why an env var exists
+    alongside the facade-monkeypatch route: the same unconfirmed CI-only failure mode (a
+    monkeypatch.setattr(parent, ...) not being observed here) affected this flag too
+    (test_pipeline_json_disk_cache_roundtrip: rehydrate silently no-op'd because this guard saw the
+    flag as already True despite the test's monkeypatch setting it False moments earlier).
+    """
     global _PIPELINE_JSON_DISK_CACHE_LOADED
+    if os.environ.get("MLFRAME_PIPELINE_CACHE_FORCE_RELOAD") == "1":
+        _PIPELINE_JSON_DISK_CACHE_LOADED = False
     # Re-read the loaded flag from the parent facade in case a test reset it via monkeypatch.
-    if _parent_attr("_PIPELINE_JSON_DISK_CACHE_LOADED", _PIPELINE_JSON_DISK_CACHE_LOADED):
+    elif _parent_attr("_PIPELINE_JSON_DISK_CACHE_LOADED", _PIPELINE_JSON_DISK_CACHE_LOADED):
         _PIPELINE_JSON_DISK_CACHE_LOADED = True
         return
     _PIPELINE_JSON_DISK_CACHE_LOADED = True  # set early so partial failures don't retry
