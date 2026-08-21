@@ -2464,6 +2464,13 @@ class TestCustomPrePipelines:
         _assert_trained_target_entries(models[TargetTypes.BINARY_CLASSIFICATION]["target"], target_type_label="BINARY_CLASSIFICATION")
 
 
+# Pinned to the same xdist worker as TestTextAndEmbeddingFeatures below (2026-08-21): this class
+# also fits real CatBoost models (Polars-native fastpath) and hit the identical "node down: Not
+# properly terminated" OOM-kill signature on CI once TestTextAndEmbeddingFeatures's own pin removed
+# it from the concurrent mix -- confirming the crash isn't specific to text/embedding features, just
+# to running multiple real CatBoost fits concurrently on the 2-vCPU/7GB hosted runner. See that
+# class's own comment for the full rationale.
+@pytest.mark.xdist_group(name="catboost_text_embedding_heavy")
 class TestPolarsNativeFastpath:
     """Tests for CatBoost Polars native fastpath — no pandas conversion."""
 
