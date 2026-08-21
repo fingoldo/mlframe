@@ -595,7 +595,6 @@
   "metrics/_core_numba_warmup.py:268:date-stamp",
   "metrics/_core_numba_warmup.py:325:date-stamp",
   "metrics/_core_numba_warmup.py:339:date-stamp",
-  "metrics/_core_numba_warmup.py:581:date-stamp",
   "metrics/_multilabel_extras.py:397:date-stamp",
   "metrics/_multilabel_extras.py:465:date-stamp",
   "metrics/calibration/_calibration_plot.py:122:date-stamp",

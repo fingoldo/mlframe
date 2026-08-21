@@ -581,9 +581,9 @@ def _prewarm_numba_cache_body():
     # via an NVRTC compile, so it returns False on broken cupy / mismatched
     # CUDA installs). The try/except below only catches Python exceptions -
     # without the gate, a broken cupy install can HANG inside cp.argsort()
-    # rather than raising, leaving the prewarm phase wedged (observed
-    # 2026-05-20 on D: with cupy CUDA-Devices-Unavailable: prewarm timed
-    # out at 180s before any test ran).
+    # rather than raising, leaving the prewarm phase wedged (observed on a
+    # box with cupy CUDA-Devices-Unavailable: prewarm timed out at 180s
+    # before any test ran).
     if is_gpu_metrics_available():
         try:
             from mlframe.metrics.core import (
