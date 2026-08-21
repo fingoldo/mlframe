@@ -17,7 +17,7 @@ _SEEDS = [0, 1, 7]
 _KINDS = ["regression", "binary", "multiclass", "count", "ordinal"]
 
 
-pytestmark = pytest.mark.timeout(900)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150->300->450: CI runners are shared 2-vCPU boxes under -n auto xdist contention with up to ~20 pytest shards running concurrently -- real (non-hung) fits legitimately exceeded even 300s there under full-matrix load (test_rfecv_nan_heavy_recovers_signal timed out at 300s on a heavily-loaded run), causing spurious timeout failures unrelated to any actual hang; 450s still catches a genuine hang well before the 600s global backstop.
+pytestmark = pytest.mark.timeout(1800)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150->300->450->900->1800: CI runners are shared 2-vCPU boxes under -n auto xdist contention with up to ~20 pytest shards running concurrently -- real (non-hung) fits legitimately exceeded even 900s there under exceptionally heavy load (test_rfecv_nan_heavy_recovers_signal timed out at 900s on a run with BOTH ci.yml's full 66-job matrix and numba-coverage-nightly's 8-shard matrix running concurrently on the same account), causing spurious timeout failures unrelated to any actual hang; 1800s still catches a genuine hang well before the job's own hard cap.
 
 
 def _make(kind, n, seed, *, nan_frac=0.0, with_cat=False):
