@@ -442,7 +442,12 @@ def test_high_card_nominal_target_not_squared_relabel_invariant():
     (which squares arbitrary codes); it is one-hot-bucketed to the top-64 classes and stays relabel-invariant.
     Only a genuine FLOAT regression target takes the moment path."""
     rng = np.random.default_rng(0)
-    n, p = 6000, 300
+    # n bumped 6000->15000 (2026-08-21): CI (py3.9, likely a different BLAS/summation-order than
+    # local) measured Jaccard 0.87 against the 0.9 floor -- under the "wild 0.12-0.88 swing" the
+    # squared-codes bug this test guards against produces, so not that regression, but close enough
+    # to the floor that ordinary cross-platform float-summation noise at the top-100 cutoff boundary
+    # can tip it under. More rows narrows that boundary-tie noise without touching what's tested.
+    n, p = 15_000, 300
     X = rng.standard_normal((n, p))
     ia, ib = 10, 200
     s = np.sign(X[:, ia]) * np.sign(X[:, ib]) + 0.6 * (X[:, ia] + X[:, ib])

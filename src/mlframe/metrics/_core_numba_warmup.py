@@ -388,10 +388,14 @@ def _prewarm_numba_cache_body():
     # log_throttle'd, not inside the except) so the next real CI occurrence pins which branch is
     # actually taken instead of extending the blind-guess list further.
     if _os.environ.get("MLFRAME_WARMUP_MAPE_DIAG") == "1":
+        _core_mod = __import__("mlframe.metrics.core", fromlist=["_max_abs_pct_error_kernel_par"])
+        _core_attr = getattr(_core_mod, "_max_abs_pct_error_kernel_par", None)
         logger.warning(
-            "mape warmup diag: skip_par_prewarm=%r kernel_is_core_attr=%r",
+            "mape warmup diag: skip_par_prewarm=%r kernel_is_core_attr=%r local_type=%s core_attr_type=%s",
             _skip_par_prewarm,
-            _max_abs_pct_error_kernel_par is getattr(__import__("mlframe.metrics.core", fromlist=["_max_abs_pct_error_kernel_par"]), "_max_abs_pct_error_kernel_par", None),
+            _max_abs_pct_error_kernel_par is _core_attr,
+            type(_max_abs_pct_error_kernel_par).__name__,
+            type(_core_attr).__name__,
         )
     try:
         if not _skip_par_prewarm:

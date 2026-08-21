@@ -27,7 +27,15 @@ def test_warmup_calls_mape_par_kernel_with_nthr(monkeypatch):
     # branch actually ran on the next real occurrence instead of another blind guess.
     monkeypatch.setenv("MLFRAME_WARMUP_MAPE_DIAG", "1")
 
-    warmup._prewarm_numba_cache_body()
+    # CI-only (2026-08-21): calling the unguarded `_prewarm_numba_cache_body()` directly (as this
+    # test used to) bypasses `prewarm_numba_cache()`'s re-entrancy guard -- the "Warm dummy_baselines
+    # kernels" block partway through calls BACK into `prewarm_numba_cache()` (see that function's own
+    # docstring: mutual forward/reverse recursion with training.baselines._warmup_numba_kernels), and
+    # with the guard flag never set (never entered via the guarded wrapper), that reentry runs the
+    # ENTIRE body a second time. The diagnostic above confirmed this fires twice per test call on CI.
+    # Going through the guarded wrapper makes this a single, deterministic pass like every real
+    # production call site already gets.
+    warmup.prewarm_numba_cache()
 
     assert seen["called"], "warmup never reached the mape par kernel (earlier kernel aborted the block?)"
     assert seen["nargs"] == 3, f"warmup must pass (y_true, y_pred, nthr); got {seen['nargs']} args"

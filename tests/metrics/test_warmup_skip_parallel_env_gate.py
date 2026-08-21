@@ -65,7 +65,12 @@ def _run_warmup_and_track_par_calls(monkeypatch, skip: bool):
     _orig_mae_seq = core._fast_mae_seq
     monkeypatch.setattr(core, "_fast_mae_seq", _make_seq_spy("_fast_mae_seq", _orig_mae_seq))
 
-    warmup._prewarm_numba_cache_body()
+    # Guarded wrapper, not the raw _prewarm_numba_cache_body() (2026-08-21): the body's own
+    # "Warm dummy_baselines kernels" block calls back into prewarm_numba_cache() (mutual
+    # forward/reverse recursion, see that function's docstring) -- calling the unguarded body
+    # directly means the re-entrancy guard's flag was never set, so that reentry re-runs the
+    # WHOLE body a second time, confirmed on CI via _core_numba_warmup.py's own diagnostic.
+    warmup.prewarm_numba_cache()
     return called, seq_called
 
 
@@ -94,7 +99,8 @@ def test_skipped_par_kernel_still_works_correctly_via_lazy_compile(monkeypatch):
     from mlframe.metrics import _core_numba_warmup as warmup
     from mlframe.metrics.regression._regression_metrics import _fast_mae_seq, _fast_mae_par
 
-    warmup._prewarm_numba_cache_body()
+    # Guarded wrapper, not the raw body function -- see _run_warmup_and_track_par_calls's identical note above.
+    warmup.prewarm_numba_cache()
 
     y = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
     p = np.array([1.1, 2.2, 2.9, 4.1, 4.8], dtype=np.float64)
