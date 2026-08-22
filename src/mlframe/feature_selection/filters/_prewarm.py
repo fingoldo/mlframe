@@ -241,6 +241,19 @@ def _prewarm_fs_numba_cache_impl(verbose: bool = False) -> None:
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
         logger.debug("suppressed: %s", e)
         pass
+    # Serial twin -- both are live dispatch targets of _mi_prange_dispatch (see permutation.py's
+    # _MI_PRANGE_PARALLEL_MIN_WORK), the serial kernel is what small n*npermutations calls actually hit.
+    try:
+        from .permutation import _parallel_mi_prange_serial
+        _ = _parallel_mi_prange_serial(
+            classes_x=classes_pair, freqs_x=freqs_pair,
+            classes_y=classes_y, freqs_y=freqs_y,
+            npermutations=2, original_mi=0.0,
+            base_seed=np.uint64(7), dtype=dtype,
+        )
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed: %s", e)
+        pass
     try:
         _ = parallel_mi(
             classes_x=classes_pair, freqs_x=freqs_pair,
