@@ -25,7 +25,9 @@ import logging
 from typing import Any, cast
 
 import numpy as np
+from numba import njit
 
+from mlframe.feature_selection.filters.info_theory import compute_su_from_classes
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import _maybe_patch_shap_xgb_base_score, _unwrap_estimator, _fit_one
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import proxy_loss, resolve_metric
 
@@ -349,6 +351,34 @@ def _su_marginals(ids: np.ndarray):
     return _column_marginal(ids)
 
 
+@njit(nogil=True, cache=True)
+def _pair_synergy_bins_njit(bins_a: np.ndarray, bins_b: np.ndarray, nb_a: int, nb_b: int, target_cls: np.ndarray, target_freq: np.ndarray, marg_su_a: float, marg_su_b: float):
+    """Fused njit twin of ``_joint_marg`` + ``_column_marginal`` + ``compute_su_from_classes`` for one pair.
+
+    The pool-scan loop in ``su_synergy_screen`` calls the Python chain this replaces once per column
+    pair (up to C(max_screen_cols, 2) times per fit) purely to bincount the pair's joint bin ids and
+    score them against an already-``@njit`` SU kernel -- a GIL-bound Python-dispatch loop wrapping an
+    already-compiled kernel, the exact pattern CLAUDE.md's dispatch-loop-fusion rule targets. Builds the
+    Cantor joint id (``bins_a * nb_b + bins_b``) and its bincount-derived probability vector inline, then
+    calls ``compute_su_from_classes`` directly (njit calling njit, no Python round-trip per pair).
+    """
+    n = bins_a.shape[0]
+    raw = np.empty(n, dtype=np.int64)
+    for k in range(n):
+        raw[k] = bins_a[k] * nb_b + bins_b[k]
+    nb_joint = nb_a * nb_b
+    counts = np.bincount(raw, minlength=nb_joint).astype(np.float64)
+    total = counts.sum()
+    if total <= 0.0:
+        return 0.0, 0.0
+    jfreq = counts / total
+    if jfreq.shape[0] <= 1:
+        return 0.0, 0.0
+    joint_su = compute_su_from_classes(raw, jfreq, target_cls, target_freq)
+    marg = marg_su_a if marg_su_a > marg_su_b else marg_su_b
+    return joint_su - marg, joint_su
+
+
 def su_synergy_screen(
     X,
     y,
@@ -449,12 +479,8 @@ def su_synergy_screen(
 
     def _pair_synergy(col_a, col_b, target_cls, target_freq):
         """Symmetric uncertainty synergy of the pair ``(col_a, col_b)`` against the target: ``joint_SU - max(marginal SU_a, marginal SU_b)``; positive means the pair jointly informs the target more than either feature alone. Returns ``(synergy, joint_su)``, both 0.0 when the joint has at most one occupied cell."""
-        jcls, jfreq = _joint_marg(col_a, col_b)
-        if jfreq.size <= 1:
-            return 0.0, 0.0
-        joint_su = float(compute_su_from_classes(jcls, jfreq, target_cls, target_freq))
-        syn = joint_su - max(marg_su[col_a], marg_su[col_b])
-        return syn, joint_su
+        syn, joint_su = _pair_synergy_bins_njit(bins[col_a], bins[col_b], nb[col_a], nb[col_b], target_cls, target_freq, marg_su[col_a], marg_su[col_b])
+        return float(syn), float(joint_su)
 
     pairs = []
     for col_a, col_b in itertools.combinations(pool, 2):
