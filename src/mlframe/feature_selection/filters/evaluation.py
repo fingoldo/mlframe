@@ -173,7 +173,12 @@ def evaluate_gain(
         # from this @njit context in nopython mode - numba reports "Untyped global name" on any cold
         # compile (a warm on-disk cache from before pyutilz's wrapper regressed to plain Python can mask
         # this). r = interactions_order + 1 is always >= 1 here, so the wrapper's r<0 validation is moot.
-        combs = _generate_combinations_recursive_njit_core(np.array(selected_vars, dtype=np.int32), interactions_order + 1)[::-1]
+        # .astype(np.int32), not np.array(selected_vars, dtype=np.int32): now that every caller passes
+        # a real ndarray (see the call site's own comment on why the reflected-list-typed np.array()
+        # call this replaced existed at all), nopython mode's np.array() no longer accepts an ndarray
+        # input ("not allowed in a homogeneous sequence") -- .astype() is the correct nopython-mode
+        # array-to-array dtype cast and works for both an int64 and an already-int32 input.
+        combs = _generate_combinations_recursive_njit_core(selected_vars.astype(np.int32), interactions_order + 1)[::-1]
 
         for Z in combs:
 
@@ -625,7 +630,16 @@ def evaluate_candidate(
                 best_gain=best_gain,
                 factors_data=factors_data,
                 factors_nbins=factors_nbins,
-                selected_vars=selected_vars,
+                # np.array(...), not the raw list: evaluate_gain is @njit and this function's own
+                # docstring/type hint already say `selected_vars: np.ndarray` -- a plain Python
+                # list slipping through here as-is gets numba's "reflected list" typing (silently
+                # accepted, no error, since numba infers from the runtime value not the type hint),
+                # which fires a NumbaPendingDeprecationWarning on every call (152 occurrences in one
+                # CI run's warning summary) and will stop working once numba removes reflected-list
+                # support. `selected_vars` (the plain list) is still used unconverted below for its
+                # own O(1)-membership-set/iteration needs -- this only converts the copy fed to the
+                # njit kernel.
+                selected_vars=np.array(selected_vars, dtype=np.int64) if selected_vars else np.empty(0, dtype=np.int64),
                 mrmr_relevance_algo=mrmr_relevance_algo,
                 mrmr_redundancy_algo=mrmr_redundancy_algo,
                 max_veteranes_interactions_order=max_veteranes_interactions_order,
