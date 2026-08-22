@@ -17,11 +17,12 @@ What lives here:
 from __future__ import annotations
 
 import logging
-from typing import Any, NamedTuple, Optional, Sequence, Tuple
+from typing import Any, NamedTuple, Optional, Sequence, Tuple, cast
 
 import numpy as np
 import pandas as pd
 import numba
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
 from ..calibration._calibration_plot import (
@@ -913,12 +914,61 @@ def _batch_per_class_ice_kernel_serial(
     return ice_per_class
 
 
-# N*K=2_000_000 sits in the measured dead zone between the confirmed-loss region (N*K<=500k,
-# parallel 1.05-1.32x SLOWER) and the confirmed-win region (N*K~=4M, parallel 1.5-2.3x faster) --
-# picked deliberately closer to the loss side: an unnecessary serial call at N*K~=1-2M costs at
-# most a few ms, while an unnecessary parallel call at small N*K costs 10-955x per the measured
-# ratios, so the asymmetric downside favours a conservative (serial-biased) cutover.
-_ICE_KERNEL_PARALLEL_MIN_TOTAL_WORK = 2_000_000
+# Per-host serial/parallel crossover via the canonical kernel_tuning_cache (NO hardcoded threshold --
+# feedback_use_kernel_tuning_cache_for_gpu / feedback_fastest_default_with_dispatch). Dev-box measurement
+# found the confirmed-loss region at N*K<=500k (parallel 1.05-1.32x SLOWER) and the confirmed-win region
+# at N*K~=4M (parallel 1.5-2.3x faster) -- the fallback threshold below (used only pre-sweep / on tuner
+# failure) is deliberately close to the loss side for that reason, but the REAL per-host decision comes
+# from the tuner's measured sweep, not this constant.
+_ICE_KERNEL_SWEEP_N = [1_000, 100_000, 2_000_000]
+_ICE_KERNEL_SWEEP_K = [1, 8, 20]
+_ICE_KERNEL_SALT = 1
+_ICE_KWARGS_TUPLE = (10, True, 3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0, 0.0)
+
+
+def _make_ice_kernel_inputs(dims: dict) -> tuple:
+    """(y_true_NK, y_pred_NK, desc_idx_NK, *_ICE_KWARGS_TUPLE) at the sweep's (n, k) cell, with realistic
+    tied-score density (quantized model outputs)."""
+    n, k = int(dims["n"]), int(dims["k"])
+    rng = np.random.default_rng(0)
+    y_true = (rng.random((n, k)) > 0.5).astype(np.int8)
+    y_pred = np.round(rng.random((n, k)), 3)
+    desc_idx = np.ascontiguousarray(np.argsort(-y_pred, axis=0).astype(np.int64))
+    return (y_true, y_pred, desc_idx, *_ICE_KWARGS_TUPLE)
+
+
+def _run_ice_kernel_sweep() -> list:
+    """Serial-vs-parallel wall-clock sweep over the (n, k) grid -> kernel_tuning_cache regions."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+
+    variants = {
+        "serial": lambda *a: _batch_per_class_ice_kernel_serial(*a),
+        "parallel": lambda *a: _batch_per_class_ice_kernel(*a),
+    }
+    return cast(list, sweep_backend_grid(
+        variants,
+        {"n": _ICE_KERNEL_SWEEP_N, "k": _ICE_KERNEL_SWEEP_K},
+        _make_ice_kernel_inputs,
+        reference="serial", repeats=5, equiv_atol=0.0, equiv_rtol=0.0,
+    ))
+
+
+def _ice_kernel_fallback_choice(n: int, k: int) -> str:
+    """Pre-sweep / tuner-failure fallback: parallel above the dev-box-measured N*K crossover (see the
+    module comment above for the confirmed-loss/confirmed-win bracket)."""
+    return "parallel" if int(n) * int(k) >= 2_000_000 else "serial"
+
+
+_ICE_KERNEL_PARALLELISM_SPEC = kernel_tuner(
+    kernel_name="ice_kernel_parallelism",
+    variant_fns=(_batch_per_class_ice_kernel_serial, _batch_per_class_ice_kernel),
+    tuner=_run_ice_kernel_sweep,
+    axes={"n": _ICE_KERNEL_SWEEP_N, "k": _ICE_KERNEL_SWEEP_K},
+    fallback=_ice_kernel_fallback_choice,
+    gpu_capable=False,
+    salt=_ICE_KERNEL_SALT,
+    cli_label="ice_kernel_parallelism",
+)
 
 
 def _ice_kernel_dispatch(
@@ -936,11 +986,16 @@ def _ice_kernel_dispatch(
     roc_auc_penalty: float,
     coverage_weight: float = 0.0,
 ) -> np.ndarray:
-    """Dispatch to the serial or parallel ``_batch_per_class_ice_kernel*`` variant by total work (N*K) --
-    see ``_ICE_KERNEL_PARALLEL_MIN_TOTAL_WORK``'s comment for the measured crossover. Bit-identical output
-    either way: each class's ICE is computed independently of which thread (if any) runs it."""
+    """Dispatch to the serial or parallel ``_batch_per_class_ice_kernel*`` variant via the per-host
+    kernel_tuning_cache (``_ICE_KERNEL_PARALLELISM_SPEC``). Bit-identical output either way: each class's
+    ICE is computed independently of which thread (if any) runs it."""
     n, k = y_true_NK.shape[0], y_true_NK.shape[1]
-    fn = _batch_per_class_ice_kernel if n * k >= _ICE_KERNEL_PARALLEL_MIN_TOTAL_WORK else _batch_per_class_ice_kernel_serial
+    try:
+        choice = _ICE_KERNEL_PARALLELISM_SPEC.choose(n=int(n), k=int(k))
+    except Exception as e:
+        logger.debug("ice_kernel_parallelism choose() failed, using the size-based fallback: %s", e)
+        choice = _ice_kernel_fallback_choice(int(n), int(k))
+    fn = _batch_per_class_ice_kernel if choice == "parallel" else _batch_per_class_ice_kernel_serial
     return np.asarray(
         fn(
             y_true_NK, y_pred_NK, desc_idx_NK, nbins, use_weights,

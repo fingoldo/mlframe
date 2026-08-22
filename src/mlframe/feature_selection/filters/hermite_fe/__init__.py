@@ -33,13 +33,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import numpy as np
 from numpy.polynomial.hermite_e import hermeval  # probabilist's Hermite
 from numpy.polynomial.legendre import legval
 from numpy.polynomial.chebyshev import chebval
 from numpy.polynomial.laguerre import lagval
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 try:
     from numba import njit, prange
@@ -595,10 +596,55 @@ def _apply_minmax_njit_serial(x: np.ndarray, lo: float, span: float, has_clip: b
     return out
 
 
-# Crossover measured between n=5M (parallel 2.41x SLOWER) and n=20M (parallel 1.56x faster) -- picked
-# conservatively close to the loss side (matches _HAAR_LEG_PARALLEL_MIN_N's reasoning): an unnecessary
-# serial call at n~5-20M costs at most tens of ms, an unnecessary parallel call below it costs up to 28x.
-_MINMAX_PARALLEL_MIN_N = 10_000_000
+# Per-host serial/parallel crossover via the canonical kernel_tuning_cache (NO hardcoded threshold --
+# feedback_use_kernel_tuning_cache_for_gpu / feedback_fastest_default_with_dispatch). Dev-box measurement
+# found the crossover between n=5M (parallel 2.41x SLOWER) and n=20M (parallel 1.56x faster) -- the
+# fallback threshold below (used only pre-sweep / on tuner failure) is deliberately close to the loss
+# side for that reason, but the REAL per-host decision comes from the tuner's measured sweep.
+_MINMAX_SWEEP_N = [1_000, 1_000_000, 15_000_000]
+_MINMAX_SALT = 1
+
+
+def _make_minmax_inputs(dims: dict) -> tuple:
+    """(x, lo, span, has_clip, clip_val) at the sweep's n cell."""
+    n = int(dims["n"])
+    rng = np.random.default_rng(0)
+    x = np.ascontiguousarray(rng.random(n) * 10.0, dtype=np.float64)
+    return (x, 0.0, 10.0, True, 1.0)
+
+
+def _run_minmax_sweep() -> list:
+    """Serial-vs-parallel wall-clock sweep over the n grid -> kernel_tuning_cache regions."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+
+    variants = {
+        "serial": lambda *a: _apply_minmax_njit_serial(*a),
+        "parallel": lambda *a: _apply_minmax_njit(*a),
+    }
+    return cast(list, sweep_backend_grid(
+        variants,
+        {"n": _MINMAX_SWEEP_N},
+        _make_minmax_inputs,
+        reference="serial", repeats=5, equiv_atol=0.0, equiv_rtol=0.0,
+    ))
+
+
+def _minmax_fallback_choice(n: int) -> str:
+    """Pre-sweep / tuner-failure fallback: parallel above the dev-box-measured n crossover (see the
+    module comment above for the confirmed-loss/confirmed-win bracket)."""
+    return "parallel" if int(n) >= 10_000_000 else "serial"
+
+
+_MINMAX_PARALLELISM_SPEC = kernel_tuner(
+    kernel_name="hermite_minmax_kernel_parallelism",
+    variant_fns=(_apply_minmax_njit_serial, _apply_minmax_njit),
+    tuner=_run_minmax_sweep,
+    axes={"n": _MINMAX_SWEEP_N},
+    fallback=_minmax_fallback_choice,
+    gpu_capable=False,
+    salt=_MINMAX_SALT,
+    cli_label="hermite_minmax_kernel_parallelism",
+)
 
 
 def _apply_minmax(x, params):
@@ -607,7 +653,12 @@ def _apply_minmax(x, params):
     clip = params.get("clip")
     if _NUMBA_AVAILABLE:
         xf = np.ascontiguousarray(x, dtype=np.float64)
-        fn = _apply_minmax_njit if xf.shape[0] >= _MINMAX_PARALLEL_MIN_N else _apply_minmax_njit_serial
+        try:
+            choice = _MINMAX_PARALLELISM_SPEC.choose(n=int(xf.shape[0]))
+        except Exception as e:
+            logger.debug("hermite_minmax_kernel_parallelism choose() failed, using the size-based fallback: %s", e)
+            choice = _minmax_fallback_choice(int(xf.shape[0]))
+        fn = _apply_minmax_njit if choice == "parallel" else _apply_minmax_njit_serial
         return fn(xf, float(params["lo"]), float(span), clip is not None, float(clip) if clip is not None else 0.0)
     z = 2 * (x - params["lo"]) / span - 1
     if clip is not None:

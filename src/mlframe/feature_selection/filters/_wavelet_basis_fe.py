@@ -73,10 +73,11 @@ for leak-safe transform-time replay.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Optional, cast
 
 import numpy as np
 from numba import njit, prange
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 logger = logging.getLogger(__name__)
 
@@ -200,11 +201,63 @@ def _dyadic_haar_leg_njit_serial(z: np.ndarray, left: float, mid: float, right: 
             out[i] = 0.0
 
 
-# Crossover measured between n=20M (parallel 1.18x) and n=50M (parallel 1.33x) -- picked conservatively
-# close to the loss side (matches _ICE_KERNEL_PARALLEL_MIN_TOTAL_WORK's reasoning): an unnecessary
-# serial call at n~20-50M costs at most tens of ms, an unnecessary parallel call below it costs up to
-# 12681x per the measured ratios.
-_HAAR_LEG_PARALLEL_MIN_N = 20_000_000
+# Per-host serial/parallel crossover via the canonical kernel_tuning_cache (NO hardcoded threshold --
+# feedback_use_kernel_tuning_cache_for_gpu / feedback_fastest_default_with_dispatch). Dev-box measurement
+# found the crossover between n=20M (parallel 1.18x) and n=50M (parallel 1.33x) -- the fallback threshold
+# below (used only pre-sweep / on tuner failure) is deliberately close to the loss side for that reason,
+# but the REAL per-host decision comes from the tuner's measured sweep, not this constant.
+_HAAR_LEG_SWEEP_N = [1_000, 1_000_000, 30_000_000]
+_HAAR_LEG_SALT = 1
+
+
+def _make_haar_leg_inputs(dims: dict) -> tuple:
+    """(z, left, mid, right) at the sweep's n cell -- a fixed (j=1, k=0) scale/offset is enough since
+    the kernel's per-element cost doesn't depend on which dyadic cell is tested."""
+    n = int(dims["n"])
+    rng = np.random.default_rng(0)
+    z = np.ascontiguousarray(rng.random(n), dtype=np.float64)
+    return (z, 0.0, 0.25, 0.5)
+
+
+def _run_haar_leg_sweep() -> list:
+    """Serial-vs-parallel wall-clock sweep over the n grid -> kernel_tuning_cache regions."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+
+    def _call(fn, z, left, mid, right):
+        """Allocate the output buffer and run the in-place kernel ``fn``, returning ``out`` so
+        ``sweep_backend_grid`` has a value to compare for equivalence."""
+        out = np.empty(z.shape[0], dtype=np.float32)
+        fn(z, left, mid, right, out)
+        return out
+
+    variants = {
+        "serial": lambda *a: _call(_dyadic_haar_leg_njit_serial, *a),
+        "parallel": lambda *a: _call(_dyadic_haar_leg_njit, *a),
+    }
+    return cast(list, sweep_backend_grid(
+        variants,
+        {"n": _HAAR_LEG_SWEEP_N},
+        _make_haar_leg_inputs,
+        reference="serial", repeats=5, equiv_atol=0.0, equiv_rtol=0.0,
+    ))
+
+
+def _haar_leg_fallback_choice(n: int) -> str:
+    """Pre-sweep / tuner-failure fallback: parallel above the dev-box-measured n crossover (see the
+    module comment above for the confirmed-loss/confirmed-win bracket)."""
+    return "parallel" if int(n) >= 20_000_000 else "serial"
+
+
+_HAAR_LEG_PARALLELISM_SPEC = kernel_tuner(
+    kernel_name="haar_leg_kernel_parallelism",
+    variant_fns=(_dyadic_haar_leg_njit_serial, _dyadic_haar_leg_njit),
+    tuner=_run_haar_leg_sweep,
+    axes={"n": _HAAR_LEG_SWEEP_N},
+    fallback=_haar_leg_fallback_choice,
+    gpu_capable=False,
+    salt=_HAAR_LEG_SALT,
+    cli_label="haar_leg_kernel_parallelism",
+)
 
 
 def _dyadic_haar_leg(z: np.ndarray, j: int, k: int, dtype=np.float32) -> np.ndarray:
@@ -238,7 +291,12 @@ def _dyadic_haar_leg(z: np.ndarray, j: int, k: int, dtype=np.float32) -> np.ndar
     right = left + width
     leg = np.empty_like(z, dtype=dtype)
     zc = np.ascontiguousarray(z, dtype=np.float64)
-    fn = _dyadic_haar_leg_njit if zc.shape[0] >= _HAAR_LEG_PARALLEL_MIN_N else _dyadic_haar_leg_njit_serial
+    try:
+        choice = _HAAR_LEG_PARALLELISM_SPEC.choose(n=int(zc.shape[0]))
+    except Exception as e:
+        logger.debug("haar_leg_kernel_parallelism choose() failed, using the size-based fallback: %s", e)
+        choice = _haar_leg_fallback_choice(int(zc.shape[0]))
+    fn = _dyadic_haar_leg_njit if choice == "parallel" else _dyadic_haar_leg_njit_serial
     fn(zc, left, mid, right, leg)
     return leg
 

@@ -20,10 +20,12 @@ Measured here (same-process A/B, warm, best-of-20-200):
     N= 5_000_000 K=8: parallel/serial   ~0.26x (3.8x FASTER)
     N= 2_000_000 K=20: parallel/serial  ~0.18x (5.5x FASTER)
 
-``_ICE_KERNEL_PARALLEL_MIN_TOTAL_WORK = 2_000_000`` (N*K) sits in the dead zone between the
-confirmed-loss region (N*K<=500k) and the confirmed-win region (N*K~=4M), biased toward the serial
-side since the downside is asymmetric: an unnecessary serial call at N*K~=1-2M costs a few ms, an
-unnecessary parallel call at small N*K costs 10-955x per the ratios above.
+Dispatch is via the per-host kernel_tuning_cache (``_ICE_KERNEL_PARALLELISM_SPEC``, no hardcoded
+threshold) -- ``_ice_kernel_fallback_choice`` (used pre-sweep / on tuner failure) routes at
+N*K=2_000_000, in the dead zone between the confirmed-loss region (N*K<=500k) and the confirmed-win
+region (N*K~=4M), biased toward the serial side since the downside is asymmetric: an unnecessary
+serial call at N*K~=1-2M costs a few ms, an unnecessary parallel call at small N*K costs 10-955x per
+the ratios above.
 
 Run: ``python profiling/bench_ice_kernel_parallel_vs_serial.py``
 """
@@ -38,7 +40,7 @@ from mlframe.metrics.classification._classification_report import (
     _batch_per_class_ice_kernel,
     _batch_per_class_ice_kernel_serial,
     _ice_kernel_dispatch,
-    _ICE_KERNEL_PARALLEL_MIN_TOTAL_WORK,
+    _ice_kernel_fallback_choice,
 )
 
 _KWARGS = (10, True, 3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0, 0.0)
@@ -88,9 +90,10 @@ def _check_bit_identity() -> None:
                 assert d == 0.0 or np.isnan(out_par).all(), f"n={n} k={k} seed={seed}: diff={d}"
     print(f"bit-identity sweep OK (5x5x3 = 75 scenarios), max diff = {max_seen}")
 
-    # Dispatch threshold sanity: below the cutoff routes to serial, at/above routes to parallel.
+    # Dispatch threshold sanity (fallback path, used when the kernel_tuning_cache has no region yet):
+    # below the cutoff routes to serial, at/above routes to parallel.
     below_n, below_k = 100, 1  # N*K = 100 << threshold
-    above_n, above_k = _ICE_KERNEL_PARALLEL_MIN_TOTAL_WORK, 1  # N*K == threshold exactly
+    above_n, above_k = 2_000_000, 1  # N*K == fallback threshold exactly
     y_true, y_pred, desc_idx = _make_inputs(below_n, below_k, seed=0)
     out_dispatch_below = _ice_kernel_dispatch(y_true, y_pred, desc_idx, *_KWARGS)
     out_serial_below = _batch_per_class_ice_kernel_serial(y_true, y_pred, desc_idx, *_KWARGS)

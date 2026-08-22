@@ -16,9 +16,11 @@ warm, best-of-30-200):
     n=20_000_000: parallel/serial   ~1.2x SLOWER (near breakeven)
     n=50_000_000: parallel/serial   ~0.75x (1.33x FASTER)
 
-``_HAAR_LEG_PARALLEL_MIN_N = 20_000_000`` sits at the near-breakeven point, biased toward the serial
-side: an unnecessary serial call at n~20-50M costs at most tens of ms, an unnecessary parallel call
-below it costs up to 12681x per the ratios above.
+Dispatch is via the per-host kernel_tuning_cache (``_HAAR_LEG_PARALLELISM_SPEC``, no hardcoded
+threshold) -- ``_haar_leg_fallback_choice`` (used pre-sweep / on tuner failure) routes at
+n=20_000_000, the near-breakeven point, biased toward the serial side: an unnecessary serial call at
+n~20-50M costs at most tens of ms, an unnecessary parallel call below it costs up to 12681x per the
+ratios above.
 
 Run: ``python profiling/bench_dyadic_haar_leg_parallel_vs_serial.py``
 """
@@ -33,7 +35,7 @@ from mlframe.feature_selection.filters._wavelet_basis_fe import (
     _dyadic_haar_leg,
     _dyadic_haar_leg_njit,
     _dyadic_haar_leg_njit_serial,
-    _HAAR_LEG_PARALLEL_MIN_N,
+    _haar_leg_fallback_choice,
 )
 
 _LEFT, _MID, _RIGHT = 0.0, 0.125, 0.25
@@ -95,7 +97,9 @@ def _check_bit_identity() -> None:
     right = left + width
     _dyadic_haar_leg_njit_serial(z_small, left, mid, right, out_ref)
     assert np.array_equal(leg_wrapper, out_ref), "wrapper (below threshold) should route to the serial kernel"
-    print(f"wrapper dispatch OK (threshold={_HAAR_LEG_PARALLEL_MIN_N:_})")
+    print(f"wrapper dispatch OK (fallback threshold={20_000_000:_})")
+    assert _haar_leg_fallback_choice(19_999_999) == "serial"
+    assert _haar_leg_fallback_choice(20_000_000) == "parallel"
 
 
 if __name__ == "__main__":

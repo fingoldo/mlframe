@@ -16,9 +16,11 @@ realistically reaches. Measured here (same-process A/B, warm, best-of-50):
     n=20_000_000: parallel/serial 0.64x (1.56x FASTER)
     n=50_000_000: parallel/serial 0.60x (1.67x FASTER)
 
-``_MINMAX_PARALLEL_MIN_N = 10_000_000`` sits between the measured-loss (n=5M) and measured-win (n=20M)
-points, biased toward the serial side: an unnecessary serial call at n~5-20M costs at most tens of ms
-while an unnecessary parallel call below it costs up to 28x per the ratios above.
+Dispatch is via the per-host kernel_tuning_cache (``_MINMAX_PARALLELISM_SPEC``, no hardcoded
+threshold) -- ``_minmax_fallback_choice`` (used pre-sweep / on tuner failure) routes at
+n=10_000_000, between the measured-loss (n=5M) and measured-win (n=20M) points, biased toward the
+serial side: an unnecessary serial call at n~5-20M costs at most tens of ms while an unnecessary
+parallel call below it costs up to 28x per the ratios above.
 
 Run: ``python profiling/bench_apply_minmax_parallel_vs_serial.py``
 """
@@ -33,7 +35,7 @@ from mlframe.feature_selection.filters.hermite_fe import (
     _apply_minmax,
     _apply_minmax_njit,
     _apply_minmax_njit_serial,
-    _MINMAX_PARALLEL_MIN_N,
+    _minmax_fallback_choice,
 )
 
 
@@ -86,7 +88,9 @@ def _check_bit_identity() -> None:
     span = params["hi"] - params["lo"] + 1e-12
     out_ref = _apply_minmax_njit_serial(np.ascontiguousarray(x_small, dtype=np.float64), params["lo"], span, True, 1.0)
     assert np.array_equal(out_wrapper, out_ref), "wrapper (below threshold) should route to the serial kernel"
-    print(f"wrapper dispatch OK (threshold={_MINMAX_PARALLEL_MIN_N:_})")
+    print(f"wrapper dispatch OK (fallback threshold={10_000_000:_})")
+    assert _minmax_fallback_choice(9_999_999) == "serial"
+    assert _minmax_fallback_choice(10_000_000) == "parallel"
 
 
 if __name__ == "__main__":
