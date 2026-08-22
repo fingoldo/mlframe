@@ -77,6 +77,7 @@ def usability_greedy_gpu_resident(
     n_folds: int = 4,
     mae_improve_rel: float = 0.01,
     shortlist: int = 40,
+    shortlist_diversity_corr: float = 0.97,
     classification: bool = False,
 ) -> Optional[list]:
     """Resident twin of :func:`_usability_aware_selection.usability_greedy` (regression only).
@@ -102,7 +103,7 @@ def usability_greedy_gpu_resident(
             return None
         return usability_greedy_clf_gpu_resident(
             pool, y_cont, w=w, K=K, seed=seed, n_folds=n_folds,
-            mae_improve_rel=mae_improve_rel, shortlist=shortlist,
+            mae_improve_rel=mae_improve_rel, shortlist=shortlist, shortlist_diversity_corr=shortlist_diversity_corr,
         )
     if not pool:
         return None
@@ -236,7 +237,22 @@ def usability_greedy_gpu_resident(
                 use = float(uses_host[i])
                 scored.append((i, (1.0 - w) * (mi_host[i] / mi_max) + w * use))
             scored.sort(key=lambda t: t[1], reverse=True)
-            return [i for i, _ in scored[: max(1, shortlist)]]
+            # Diversity filter (mirrors the CPU usability_greedy._shortlist): several top-scored
+            # candidates can be near-duplicate views of the SAME underlying signal and would
+            # otherwise occupy multiple shortlist slots, starving room for a genuinely different
+            # candidate. Reuses _abscorr_batch_resident (one GEMV per KEPT candidate, computing every
+            # remaining candidate's |corr| against it in one device pass) rather than a per-pair CPU
+            # loop, to stay resident. Bounded cost: at most `shortlist` GEMVs per greedy round.
+            out_idx: list[int] = []
+            corr_vs_kept: list[np.ndarray] = []
+            for i, _s in scored:
+                if any(float(cvk[i]) > shortlist_diversity_corr for cvk in corr_vs_kept):
+                    continue
+                out_idx.append(i)
+                if len(out_idx) >= max(1, shortlist):
+                    break
+                corr_vs_kept.append(_abscorr_batch_resident(Vdev[:, i], None))
+            return out_idx
 
         def _fit_selected(sel_idx, tr_mask):
             """Centered-OLS fit of the SELECTED set on ``tr_mask`` rows. Returns (beta (k,), ybar, mu (k,))

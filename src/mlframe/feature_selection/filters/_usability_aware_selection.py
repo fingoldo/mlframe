@@ -493,6 +493,7 @@ def usability_greedy(
     n_folds: int = 4,
     mae_improve_rel: float = 0.01,
     shortlist: int = 40,
+    shortlist_diversity_corr: float = 0.97,
     classification: bool = False,
 ) -> list[UsableCandidate]:
     """CROSS-VALIDATED forward selection for the LINEAR downstream: greedily add the candidate that
@@ -508,6 +509,18 @@ def usability_greedy(
     A cheap usability pre-rank (``MI + |corr with the post-dominant residual|``) shortlists the pool
     to ``shortlist`` candidates so the per-step CV cost is bounded; ``w`` weights the MI vs the
     residual-corr in that pre-rank only (the COMMIT decision is always the CV-MAE improvement).
+    The shortlist ranking applies the SAME near-duplicate diversity filter (``shortlist_diversity_corr``,
+    default matches ``build_usability_candidate_pool``'s ``diversity_corr``) that pool construction
+    already uses: multiple candidates sharing one true underlying signal but differing only in an
+    algebraically-equivalent secondary transform (e.g. ``div(log(c),rint(d))`` /
+    ``div(invcbrt(c),rint(d))`` / ``div(invsqrt(c),rint(d))`` -- three near-identical views of the
+    SAME coarse rint(d)-driven relationship) can otherwise crowd several of the ``shortlist`` slots
+    with redundant near-duplicates, starving room for a genuinely DIFFERENT-signal candidate that
+    the CV-MAE commit stage would have correctly preferred had it been given the chance to compete
+    (root-caused 2026-08-22: a smooth mul(log(c),sqrt(d))-class candidate measured at CV-MAE 0.024 --
+    near the true floor -- never reached the greedy's CV evaluation at all because three
+    algebraically-redundant rint(d)-based candidates, each individually weak (CV-MAE ~0.077, barely
+    better than no candidate), occupied 3 of the shortlist's slots ahead of it).
 
     GPU-RESIDENT DISPATCH (``MLFRAME_FE_GPU_STRICT`` + ``MLFRAME_FE_GPU_STRICT_RESIDENT``, default OFF):
     under the resident flag the REGRESSION greedy is computed by the resident twin
@@ -523,7 +536,8 @@ def usability_greedy(
             from ._usability_greedy_gpu_resident import usability_greedy_gpu_resident
             _res = usability_greedy_gpu_resident(
                 pool, y_cont, w=w, K=K, seed=seed, n_folds=n_folds,
-                mae_improve_rel=mae_improve_rel, shortlist=shortlist, classification=classification,
+                mae_improve_rel=mae_improve_rel, shortlist=shortlist, shortlist_diversity_corr=shortlist_diversity_corr,
+                classification=classification,
             )
             if _res is not None:
                 return _res
@@ -817,9 +831,29 @@ def usability_greedy(
         scored = []
         for k, i in enumerate(cand_ids):
             use = float(uses[k]) if uses is not None else _abscorr(pool[i].values[rows], resid)
-            scored.append((i, (1.0 - w) * (pool[i].mi / mi_max) + w * use))
+            scored.append((i, (1.0 - w) * (pool[i].mi / mi_max) + w * use, pool[i].mi, use))
         scored.sort(key=lambda t: t[1], reverse=True)
-        return [i for i, _ in scored[: max(1, shortlist)]]
+        if logger.isEnabledFor(logging.DEBUG):
+            top = ", ".join(f"{pool[i].name}(score={s:.4f},mi={m:.4f},use={u:.4f})" for i, s, m, u in scored[:10])
+            logger.debug("usability_greedy._shortlist(sel=%r): top10=[%s]", [pool[j].name for j in sel_idx], top)
+        # Greedy diversity filter (mirrors build_usability_candidate_pool's per-pair dedup): several
+        # top-scored candidates can be near-duplicate views of the SAME underlying signal (e.g. one
+        # coarse rint(d)-driven relationship expressed via 3+ algebraically-different c-side wraps),
+        # which would otherwise occupy multiple `shortlist` slots and starve room for a genuinely
+        # different-signal candidate the CV-MAE commit stage never gets a chance to evaluate. Walk the
+        # score-sorted list, keep a candidate only if it is NOT a near-duplicate (|corr| >
+        # shortlist_diversity_corr) of an already-kept one.
+        out: list[int] = []
+        kept_vals: list[np.ndarray] = []
+        for i, _s, _m, _u in scored:
+            v = pool[i].values[rows]
+            if any(_abscorr(v, kv) > shortlist_diversity_corr for kv in kept_vals):
+                continue
+            out.append(i)
+            kept_vals.append(v)
+            if len(out) >= max(1, shortlist):
+                break
+        return out
 
     import math
     # a committed feature must improve a MAJORITY of folds (>=75%), not just the mean - a noise-

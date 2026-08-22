@@ -74,6 +74,7 @@ def usability_greedy_clf_gpu_resident(
     n_folds: int = 4,
     mae_improve_rel: float = 0.01,
     shortlist: int = 40,
+    shortlist_diversity_corr: float = 0.97,
 ) -> Optional[list]:
     """Resident twin of the CLASSIFICATION branch of :func:`usability_greedy`.
 
@@ -380,7 +381,20 @@ def usability_greedy_clf_gpu_resident(
                     continue
                 scored.append((i, (1.0 - w) * (mi_host[i] / mi_max) + w * float(uses[i])))
             scored.sort(key=lambda t: t[1], reverse=True)
-            return [i for i, _ in scored[: max(1, shortlist)]]
+            # Diversity filter (mirrors the CPU usability_greedy._shortlist and the regression resident
+            # twin): reject a candidate near-duplicate (|corr| > shortlist_diversity_corr) of one already
+            # kept, so several algebraically-redundant views of the same signal cannot crowd out a
+            # genuinely different candidate. One GEMV per kept candidate via _abscorr_batch, resident.
+            out_idx: list[int] = []
+            corr_vs_kept: list[np.ndarray] = []
+            for i, _s in scored:
+                if any(float(cvk[i]) > shortlist_diversity_corr for cvk in corr_vs_kept):
+                    continue
+                out_idx.append(i)
+                if len(out_idx) >= max(1, shortlist):
+                    break
+                corr_vs_kept.append(_abscorr_batch(Vdev[:, i], None))
+            return out_idx
 
         # ---------------- per-fold CV-logloss, fully resident ----------------
         def _cv_baseline() -> np.ndarray:
