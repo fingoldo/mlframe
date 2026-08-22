@@ -28,6 +28,18 @@ except ImportError:  # pragma: no cover
         return list(values)
 
 
+# Every test in this file exercises train_mlframe_models_suite end-to-end, which routes through
+# mlframe's reporting pipeline (report_model_perf alone builds 5+ matplotlib figures per call, see
+# tests/conftest.py's cleanup_memory fixture -- the SAME leak this marker exists to prevent). None
+# of this file's 104 tests carried uses_matplotlib, so cleanup_memory took its fast path (a single
+# gc.collect(), no plt.close('all')) after every one of them -- figures accumulated monotonically
+# across the whole file instead of being released, a plausible contributor to CI (both ci.yml and
+# numba-coverage-nightly, --dist=loadgroup-serialized, single-worker) OOM-killing the worker on this
+# file's later, heavier integration tests ("node down: Not properly terminated", no other diagnostic
+# available -- 2026-08-22).
+pytestmark = pytest.mark.uses_matplotlib
+
+
 # In --fast mode, the model-name sweep collapses to ``ridge`` (smallest, fastest fit).
 _MODEL_NAMES_FAST = fast_subset(["ridge", "xgb", "cb", "lgb", "mlp"], representative="ridge")
 _TREE_MODEL_NAMES_FAST = fast_subset(["hgb", "cb", "xgb"], representative="cb")
