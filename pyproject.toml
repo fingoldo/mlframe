@@ -680,6 +680,27 @@ exclude = ["tests", "scripts", "docs", "build", "dist", "**/_benchmarks/**", "**
 verbose = 1
 
 # ---------------------------------------------------------------------------
+# pydoclint (docstring-vs-signature consistency, run via `pydoclint src/mlframe`, wired as the
+# advisory-only lint-advisory CI job -- never blocking). Added 2026-08-23: the stock defaults
+# (Google-style, full Args/Returns/Raises/class-attrs completeness) fired ~886 findings, but the
+# overwhelming majority were a structural clash with this codebase's own documented convention
+# (CLAUDE.md "Comment style": terse one-liners, explain only the non-obvious WHY, never restate
+# self-evident Args/Returns/Raises) rather than genuine documentation bugs -- confirmed by hand-
+# auditing a sample: e.g. a function documenting only its non-obvious return SHAPE while skipping
+# fully-typed, self-explanatory Args is correct per our style, not incomplete. Disabling the
+# checks below cuts ~886 -> ~200 findings and, more importantly, stops false-flagging correct
+# terse docstrings so the check stays USEFUL for what's left. A hand-audit of the ~200 residual
+# findings DID surface 4 genuinely stale docstrings (boruta_shap: explain/create_shadow_features/
+# test_features/TentativeRoughFix all claimed a return value when the method actually mutates
+# `self.*` in place, two of them also documenting a parameter name from a since-refactored
+# signature) -- fixed the same day this section was added, not deferred.
+[tool.pydoclint]
+arg-type-hints-in-docstring = false  # our style never repeats a param's type hint in prose -- it's already in the signature (~421 of the original 886 findings: DOC105/109/110).
+check-return-types = false           # ditto for return types (~149 findings: DOC203).
+skip-checking-raises = true          # our style doesn't require a "Raises" section for every raise statement (~112 findings: DOC501/DOC503).
+check-class-attributes = false       # ditto for dataclass/NamedTuple attribute docs (~11 findings: DOC601/DOC603/DOC605).
+
+# ---------------------------------------------------------------------------
 # import-linter (architectural-boundary contracts). Added 2026-07-18 CI/CD architecture review --
 # advisory only (see .github/workflows/lint-advisory.yml / lint-advisory-warn pre-commit hook),
 # not blocking: only 1 contract exists so far, chosen because it's genuinely safe (verified 0

@@ -98,8 +98,7 @@ def create_shadow_features(self):
     and biases the shadow MI low on tied columns - the failure class ``_column_tie_fraction`` /
     ``SHADOW_TIE_GATE_FRACTION`` guard, should anyone replace this with such a fast path.)
 
-    Returns:
-        Datframe with random permutations of the original columns.
+    Sets ``self.X_shadow`` in place; does not return a value.
     """
     # Private rng (set in __init__) keeps shadow-feature permutations seeded
     # without mutating the global np.random stream that other suite stages rely on.
@@ -364,13 +363,8 @@ def test_features(self, iteration):
     For each feature with an undetermined importance perform a two-sided test of equality
     with the maximum shadow value to determine if it is statistically better
 
-    Parameters
-    ----------
-    hits: an array which holds the history of the number times
-          this feature was better than the maximum shadow
-
-    Returns:
-        Two arrays of the names of the accepted and rejected columns at that instance
+    Appends this trial's accepted/rejected column names to ``self.accepted_columns`` /
+    ``self.rejected_columns`` and sets ``self.features_to_remove`` in place; does not return a value.
     """
 
     # ``self.hits`` is full-length (indexed by ``all_columns``), so this re-tests already-removed features every

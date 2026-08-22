@@ -740,13 +740,9 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         accepted. This method is used in this case to make a decision on a tentative feature
         by comparing its median importance value with the median max shadow value.
 
-        Parameters
-        ----------
-        tentative: an array which holds the names of the tentative attiributes.
-
-        Returns:
-            Two arrays of the names of the final decision of the accepted and rejected columns.
-
+        Reads ``self.tentative`` (the pending features) and appends the resulting decisions to
+        ``self.accepted`` / ``self.rejected`` in place, clearing ``self.tentative``; does not
+        return a value.
         """
 
         # history_x is promoted from ndarray to DataFrame by run() before TentativeRoughFix is ever called.

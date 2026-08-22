@@ -558,8 +558,7 @@ def explain(self):
     The shap package has numerous variants of explainers which use different assumptions depending on the model
     type this function allows the user to choose explainer
 
-    Returns:
-        shap values
+    Sets ``self.shap_values`` in place; does not return a value.
 
     Raise
     ----------
