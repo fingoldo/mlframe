@@ -40,6 +40,7 @@ def numba_warmup() -> None:
         _cb_logits_to_probs_multiclass_seq, _cb_logits_to_probs_multiclass_par,
         _batch_per_class_ice_kernel,
     )
+    from .classification._classification_report import _batch_per_class_ice_kernel_serial
     # Tiny inputs that exercise the same dtype signatures the real
     # eval-metric callbacks hit (float64 N x K, int8 indicator).
     _logits1 = _np.array([0.0, 0.5, 1.0], dtype=_np.float32)
@@ -52,7 +53,13 @@ def numba_warmup() -> None:
         _cb_logits_to_probs_binary_par(_logits1)
         _cb_logits_to_probs_multiclass_seq(_logits2)
         _cb_logits_to_probs_multiclass_par(_logits2)
+        # Both dispatch targets of _ice_kernel_dispatch need a warm compile -- the serial variant
+        # is what small/realistic (N, K) calls actually hit (see _ICE_KERNEL_PARALLEL_MIN_TOTAL_WORK).
         _batch_per_class_ice_kernel(
+            _y_true_NK, _y_pred_NK, _desc_idx_NK, 10, True,
+            3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0, 0.0,
+        )
+        _batch_per_class_ice_kernel_serial(
             _y_true_NK, _y_pred_NK, _desc_idx_NK, 10, True,
             3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0, 0.0,
         )
@@ -475,14 +482,23 @@ def _prewarm_numba_cache_body():
     # Verify nogil=True actually stuck; silent fallback would make parallel val/test metric evaluation secretly sequential.
     _assert_numba_nogil_active()
 
-    # Prewarm `_batch_per_class_ice_kernel`, the per-class parallel kernel inside `compute_probabilistic_multiclass_error`. Compiles separately from the sequential `fast_ice_only` variant prewarmed above; use the dtype combo the suite always sends (int8 indicator + float64 probs + K=3).
+    # Prewarm `_batch_per_class_ice_kernel` (parallel) and its serial twin -- both are live dispatch
+    # targets of `_ice_kernel_dispatch` inside `compute_probabilistic_multiclass_error` (see
+    # `_ICE_KERNEL_PARALLEL_MIN_TOTAL_WORK`: the serial kernel is what small/realistic (N, K) calls
+    # actually hit). Compiles separately from the sequential `fast_ice_only` variant prewarmed above;
+    # use the dtype combo the suite always sends (int8 indicator + float64 probs + K=3).
     try:
         from mlframe.metrics.core import _batch_per_class_ice_kernel
+        from mlframe.metrics.classification._classification_report import _batch_per_class_ice_kernel_serial
         _yt_nk4_pw = np.zeros((10, 3), dtype=np.int8)
         _yt_nk4_pw[0, 0] = 1; _yt_nk4_pw[1, 1] = 1; _yt_nk4_pw[2, 2] = 1
         _yp_nk4_pw = np.random.RandomState(0).rand(10, 3).astype(np.float64)
         _di_nk4_pw = np.ascontiguousarray(np.argsort(-_yp_nk4_pw, axis=0).astype(np.int64))
         _ = _batch_per_class_ice_kernel(
+            _yt_nk4_pw, _yp_nk4_pw, _di_nk4_pw, 10, True,
+            3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0, 0.0,
+        )
+        _ = _batch_per_class_ice_kernel_serial(
             _yt_nk4_pw, _yp_nk4_pw, _di_nk4_pw, 10, True,
             3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0, 0.0,
         )

@@ -738,6 +738,218 @@ def _batch_per_class_ice_kernel(
     return ice_per_class
 
 
+# Serial twin of ``_batch_per_class_ice_kernel`` -- identical body, ``range(K)`` instead of
+# ``numba.prange(K)``. ``parallel=True`` only pays off when there is enough TOTAL work (N*K) to
+# amortize numba's fixed per-call thread-pool dispatch cost (~10-40ms, independent of how much
+# work each thread actually does); K itself is almost always small in real callers (1 for binary,
+# rarely above ~10 for multiclass), so the trip count of ``prange(K)`` alone was never the amortizing
+# factor the original design assumed. Measured (same-process A/B, warm, best-of-20-200,
+# bench_ice_kernel_parallel_vs_serial.py): serial is 10-955x FASTER than parallel at every N<=100k
+# tested (any K), and stays faster up to N*K~=500k (ratio ~1.05-1.32x parallel/serial, i.e. parallel
+# still loses). Parallel only starts winning once N*K reaches ~4M (0.43-0.66x, i.e. 1.5-2.3x
+# speedup) -- see ``_ice_kernel_dispatch`` below for the threshold this calibrates.
+@numba.njit(fastmath=False, cache=True, nogil=True, parallel=False)
+def _batch_per_class_ice_kernel_serial(
+    y_true_NK: np.ndarray,
+    y_pred_NK: np.ndarray,
+    desc_idx_NK: np.ndarray,
+    nbins: int,
+    use_weights: bool,
+    mae_weight: float,
+    std_weight: float,
+    brier_loss_weight: float,
+    roc_auc_weight: float,
+    pr_auc_weight: float,
+    min_roc_auc: float,
+    roc_auc_penalty: float,
+    coverage_weight: float = 0.0,
+) -> np.ndarray:
+    """Serial twin of ``_batch_per_class_ice_kernel`` -- see that function's docstring for the algorithm; see this
+    module's ``_ice_kernel_dispatch`` for why a serial variant exists and when it is selected."""
+    N = y_true_NK.shape[0]
+    K = y_true_NK.shape[1]
+    ice_per_class = np.empty(K, dtype=np.float64)
+
+    for k in range(K):
+        y_t = y_true_NK[:, k]
+        y_p = y_pred_NK[:, k]
+
+        # ---- Brier loss (mean squared error vs indicator) ----
+        s = 0.0
+        for i in range(N):
+            d = float(y_t[i]) - y_p[i]
+            s += d * d
+        brier = s / N if N > 0 else 1.0
+
+        # ---- Calibration binning (uniform-strategy, fixed nbins) ----
+        min_val = y_p[0]
+        max_val = y_p[0]
+        for i in range(N):
+            v = y_p[i]
+            if v > max_val:
+                max_val = v
+            if v < min_val:
+                min_val = v
+        span = max_val - min_val
+        pockets_pred = np.zeros(nbins, dtype=np.int64)
+        pockets_true = np.zeros(nbins, dtype=np.int64)
+        if span > 0:
+            multiplier = (nbins - 1) / span
+            for i in range(N):
+                ind = int(np.floor((y_p[i] - min_val) * multiplier))
+                if ind < 0:
+                    ind = 0
+                elif ind >= nbins:
+                    ind = nbins - 1
+                pockets_pred[ind] += 1
+                pockets_true[ind] += y_t[i]
+        else:
+            for i in range(N):
+                pockets_pred[0] += 1
+                pockets_true[0] += y_t[i]
+
+        n_nonempty = 0
+        for b in range(nbins):
+            if pockets_pred[b] > 0:
+                n_nonempty += 1
+        freqs_pred = np.empty(n_nonempty, dtype=np.float64)
+        freqs_true = np.empty(n_nonempty, dtype=np.float64)
+        hits = np.empty(n_nonempty, dtype=np.int64)
+        ptr = 0
+        for b in range(nbins):
+            if pockets_pred[b] > 0:
+                freqs_pred[ptr] = min_val + (b + 0.5) * span / nbins
+                freqs_true[ptr] = pockets_true[b] / pockets_pred[b]
+                hits[ptr] = pockets_pred[b]
+                ptr += 1
+
+        if n_nonempty > 0:
+            if use_weights:
+                weights = np.empty(n_nonempty, dtype=np.float64)
+                for b in range(n_nonempty):
+                    weights[b] = hits[b] ** 0.8
+                w_sum = 0.0
+                for b in range(n_nonempty):
+                    w_sum += weights[b]
+                if w_sum > 0:
+                    for b in range(n_nonempty):
+                        weights[b] /= w_sum
+                cal_mae = 0.0
+                for b in range(n_nonempty):
+                    cal_mae += abs(freqs_pred[b] - freqs_true[b]) * weights[b]
+                cal_var = 0.0
+                for b in range(n_nonempty):
+                    d = abs(freqs_pred[b] - freqs_true[b]) - cal_mae
+                    cal_var += d * d * weights[b]
+                cal_std = np.sqrt(cal_var)
+            else:
+                cal_mae = 0.0
+                for b in range(n_nonempty):
+                    cal_mae += abs(freqs_pred[b] - freqs_true[b])
+                cal_mae /= n_nonempty
+                cal_var = 0.0
+                for b in range(n_nonempty):
+                    d = abs(freqs_pred[b] - freqs_true[b]) - cal_mae
+                    cal_var += d * d
+                cal_std = np.sqrt(cal_var / n_nonempty)
+        else:
+            cal_mae = 1.0
+            cal_std = 1.0
+
+        desc_idx = desc_idx_NK[:, k]
+        y_t_sorted = y_t[desc_idx]
+        y_p_sorted = y_p[desc_idx]
+        total_pos = np.int64(0)
+        for i in range(N):
+            total_pos += y_t_sorted[i]
+        total_neg = N - total_pos
+        if total_pos == 0 or total_neg == 0:
+            roc_auc = np.nan
+            pr_auc = np.nan
+        else:
+            last_fps = np.int64(0)
+            last_tps = np.int64(0)
+            tps = np.int64(0)
+            fps = np.int64(0)
+            roc_acc = 0.0
+            pr_acc = 0.0
+            prev_recall = 0.0
+            for i in range(N):
+                yi = y_t_sorted[i]
+                tps += yi
+                fps += 1 - yi
+                if i == N - 1 or y_p_sorted[i + 1] != y_p_sorted[i]:
+                    delta_fps = fps - last_fps
+                    sum_tps = last_tps + tps
+                    roc_acc += delta_fps * sum_tps
+                    last_fps = fps
+                    last_tps = tps
+                    current_precision = tps / (tps + fps) if (tps + fps) > 0 else 0.0
+                    current_recall = tps / total_pos
+                    delta_recall = current_recall - prev_recall
+                    pr_acc += delta_recall * current_precision
+                    prev_recall = current_recall
+            denom_roc = tps * fps * 2
+            if denom_roc > 0:
+                roc_auc = roc_acc / denom_roc
+            else:
+                roc_auc = np.nan
+            pr_auc = pr_acc
+
+        coverage = n_nonempty / nbins if nbins > 0 else 1.0
+        cov_term = (1.0 - coverage) * coverage_weight
+        base_loss = brier * brier_loss_weight + cal_mae * mae_weight + cal_std * std_weight + cov_term
+        roc_term = 0.0 if np.isnan(roc_auc) else np.abs(roc_auc - 0.5) * roc_auc_weight
+        pr_term = 0.0 if np.isnan(pr_auc) else pr_auc * pr_auc_weight
+        ice = base_loss - roc_term - pr_term
+        threshold_width = min_roc_auc - 0.5
+        if threshold_width > 0.0 and not np.isnan(roc_auc):
+            deficit = threshold_width - np.abs(roc_auc - 0.5)
+            if deficit > 0.0:
+                ice += (deficit / threshold_width) * roc_auc_penalty
+
+        ice_per_class[k] = ice
+
+    return ice_per_class
+
+
+# N*K=2_000_000 sits in the measured dead zone between the confirmed-loss region (N*K<=500k,
+# parallel 1.05-1.32x SLOWER) and the confirmed-win region (N*K~=4M, parallel 1.5-2.3x faster) --
+# picked deliberately closer to the loss side: an unnecessary serial call at N*K~=1-2M costs at
+# most a few ms, while an unnecessary parallel call at small N*K costs 10-955x per the measured
+# ratios, so the asymmetric downside favours a conservative (serial-biased) cutover.
+_ICE_KERNEL_PARALLEL_MIN_TOTAL_WORK = 2_000_000
+
+
+def _ice_kernel_dispatch(
+    y_true_NK: np.ndarray,
+    y_pred_NK: np.ndarray,
+    desc_idx_NK: np.ndarray,
+    nbins: int,
+    use_weights: bool,
+    mae_weight: float,
+    std_weight: float,
+    brier_loss_weight: float,
+    roc_auc_weight: float,
+    pr_auc_weight: float,
+    min_roc_auc: float,
+    roc_auc_penalty: float,
+    coverage_weight: float = 0.0,
+) -> np.ndarray:
+    """Dispatch to the serial or parallel ``_batch_per_class_ice_kernel*`` variant by total work (N*K) --
+    see ``_ICE_KERNEL_PARALLEL_MIN_TOTAL_WORK``'s comment for the measured crossover. Bit-identical output
+    either way: each class's ICE is computed independently of which thread (if any) runs it."""
+    n, k = y_true_NK.shape[0], y_true_NK.shape[1]
+    fn = _batch_per_class_ice_kernel if n * k >= _ICE_KERNEL_PARALLEL_MIN_TOTAL_WORK else _batch_per_class_ice_kernel_serial
+    return np.asarray(
+        fn(
+            y_true_NK, y_pred_NK, desc_idx_NK, nbins, use_weights,
+            mae_weight, std_weight, brier_loss_weight, roc_auc_weight, pr_auc_weight,
+            min_roc_auc, roc_auc_penalty, coverage_weight,
+        )
+    )
+
+
 def fast_ice_only(
     y_true: np.ndarray,
     y_pred: np.ndarray,

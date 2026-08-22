@@ -33,7 +33,7 @@ from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 # (and that ``tests/test_meta/test_no_import_cycles.py`` flags as a hard fail).
 from .classification._classification_report import (
     fast_calibration_report,
-    _batch_per_class_ice_kernel,
+    _ice_kernel_dispatch,
     fast_ice_only,
 )
 
@@ -228,7 +228,7 @@ def compute_probabilistic_multiclass_error(
             # bit-identical.
             _desc_idx_NK = np.ascontiguousarray(np.argsort(-_y_pred_NK, axis=0).astype(np.int64))
             # Single-dispatch batched kernel
-            ice_per_class = _batch_per_class_ice_kernel(
+            ice_per_class = _ice_kernel_dispatch(
                 _y_true_NK, _y_pred_NK, _desc_idx_NK, nbins,
                 bool(use_weighted_calibration),
                 float(mae_weight), float(std_weight), float(brier_loss_weight),
