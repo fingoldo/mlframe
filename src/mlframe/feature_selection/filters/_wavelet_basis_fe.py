@@ -163,7 +163,11 @@ def _dyadic_haar_leg_njit(z: np.ndarray, left: float, mid: float, right: float, 
     zeros-alloc + two separate boolean-mask + fancy-index numpy passes (4 full array traversals) with one
     prange loop doing the 2 comparisons and the write per element in one visit - the whole op is
     memory-bandwidth-bound, so collapsing traversals is the entire win. Bit-identical (same {-1,0,+1}
-    membership test, evaluated per-element in the same order)."""
+    membership test, evaluated per-element in the same order).
+
+    Only wins over the serial twin (:func:`_dyadic_haar_leg_njit_serial`) at extreme n (>~20-50M) --
+    see :func:`_dyadic_haar_leg`'s dispatch threshold for the measured crossover; this variant stays for
+    that regime, but is NOT the default entry point any more."""
     n = z.shape[0]
     for i in prange(n):
         v = z[i]
@@ -173,6 +177,34 @@ def _dyadic_haar_leg_njit(z: np.ndarray, left: float, mid: float, right: float, 
             out[i] = -1.0
         else:
             out[i] = 0.0
+
+
+@njit(cache=True, parallel=False)
+def _dyadic_haar_leg_njit_serial(z: np.ndarray, left: float, mid: float, right: float, out: np.ndarray) -> None:
+    """Serial twin of :func:`_dyadic_haar_leg_njit` -- identical body, ``range`` instead of ``prange``.
+
+    ``parallel=True`` pays a fixed per-call thread-pool dispatch cost that a 3-way compare-and-write
+    (trivial per-element work) cannot amortize at any n this codebase's FE search realistically reaches
+    (test/production data: hundreds to a few million rows). Measured (same-process A/B, warm,
+    best-of-30-200, ``bench_dyadic_haar_leg_parallel_vs_serial.py``): serial is 16x-12681x FASTER at
+    n<=1,000,000, still 4.55x faster at n=5,000,000; the crossover only appears between n=20M (parallel
+    1.18x) and n=50M (parallel 1.33x) -- see :func:`_dyadic_haar_leg`'s threshold for where this is used."""
+    n = z.shape[0]
+    for i in range(n):
+        v = z[i]
+        if left <= v < mid:
+            out[i] = 1.0
+        elif mid <= v < right:
+            out[i] = -1.0
+        else:
+            out[i] = 0.0
+
+
+# Crossover measured between n=20M (parallel 1.18x) and n=50M (parallel 1.33x) -- picked conservatively
+# close to the loss side (matches _ICE_KERNEL_PARALLEL_MIN_TOTAL_WORK's reasoning): an unnecessary
+# serial call at n~20-50M costs at most tens of ms, an unnecessary parallel call below it costs up to
+# 12681x per the measured ratios.
+_HAAR_LEG_PARALLEL_MIN_N = 20_000_000
 
 
 def _dyadic_haar_leg(z: np.ndarray, j: int, k: int, dtype=np.float32) -> np.ndarray:
@@ -190,15 +222,24 @@ def _dyadic_haar_leg(z: np.ndarray, j: int, k: int, dtype=np.float32) -> np.ndar
     boolean masks are computed against the float64 ``z`` axis, so the cell
     membership (and hence the leg) does not depend on the output dtype.
 
-    PERF (2026-08-03, incidental to a profiling cycle): fused into one njit prange pass
-    (:func:`_dyadic_haar_leg_njit`) - the prior form allocated a zeros array then wrote it via two
-    separate boolean-mask + fancy-index passes (4 full traversals of a memory-bandwidth-bound op)."""
+    PERF (2026-08-03, incidental to a profiling cycle): fused into one njit pass (originally
+    :func:`_dyadic_haar_leg_njit`) - the prior form allocated a zeros array then wrote it via two
+    separate boolean-mask + fancy-index passes (4 full traversals of a memory-bandwidth-bound op).
+
+    PERF (2026-08-23): that fused pass was ``parallel=True``, which turned out to cost 16x-12681x
+    MORE than a serial pass at every n this codebase's FE search realistically reaches (a 3-way
+    compare-and-write is too trivial per-element to amortize numba's fixed per-call thread-pool
+    dispatch cost) -- see :func:`_dyadic_haar_leg_njit_serial` and ``_HAAR_LEG_PARALLEL_MIN_N`` for
+    the measured crossover. Dispatches by n now; bit-identical either way (same per-element test,
+    independent of which thread -- if any -- runs it)."""
     width = 1.0 / (2 ** int(j))
     left = int(k) * width
     mid = left + width / 2.0
     right = left + width
     leg = np.empty_like(z, dtype=dtype)
-    _dyadic_haar_leg_njit(np.ascontiguousarray(z, dtype=np.float64), left, mid, right, leg)
+    zc = np.ascontiguousarray(z, dtype=np.float64)
+    fn = _dyadic_haar_leg_njit if zc.shape[0] >= _HAAR_LEG_PARALLEL_MIN_N else _dyadic_haar_leg_njit_serial
+    fn(zc, left, mid, right, leg)
     return leg
 
 
