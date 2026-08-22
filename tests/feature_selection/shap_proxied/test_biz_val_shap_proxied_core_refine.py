@@ -117,18 +117,35 @@ def test_biz_val_core_refine_drops_true_redundancy():
     )
 
 
-@pytest.mark.timeout(1800)  # raised 900->1800 (2026-08-16): fits 2 full ShapProxiedFS selectors (n=800,
-# p=200) sequentially; local runs finish in ~97s but a full-matrix CI run under heavy shared-runner
-# contention (the whole ~54-shard matrix ran 2-3x its normal wall time that day) blew the 900s cap.
-# Still a hang-detector, not a perf budget -- matches the 1800s budget other tests in this same
-# contention-hit run already use.
+@pytest.mark.timeout(900)  # lowered back 1800->900 (2026-08-22, perf): cProfile showed this test's
+# ~83s local wall (was ~1267s in a contended CI run) almost entirely inside native XGBoost fit/update
+# calls across 5 internal stages (prefilter, oof_shap, refine, revalidation, trust_guard), each fit at
+# the library's own default n_estimators (100, trust_guard 25) -- no first-party Python-level cost to
+# fuse. ShapProxiedFS already exposes each stage's estimator count as a constructor kwarg specifically
+# so callers can trade fit quality for speed; the honest-gate fallback this test pins is a LOGIC branch
+# (adversarial core_drop_threshold=0.9 rejects the core proposal -> falls back to greedy, byte-for-byte
+# match), not an accuracy claim about any one stage's model quality, so cutting every stage's estimator
+# count ~3-5x cannot weaken what the test actually asserts. Verified directly: fallback still trips and
+# sel_core_adversarial still equals sel_greedy exactly across seeds 0-2 at these reduced counts (was
+# only checked at the default seed=0 before). 900s keeps a wide contention margin over the new ~25s
+# local wall (was cutting it close against 900s at the old ~83s local wall under real CI contention).
 def test_biz_val_core_refine_honest_fallback():
     """An adversarial core_drop_threshold=0.9 forces the core proposal to fail the honest gate;
     core_refine must fall back to the legacy greedy path and produce the SAME selection greedy would."""
     X, y, _strong, _weak = _make_mixed_strength_fixture(n=800, p=200, n_strong=4, n_weak=2)
 
-    sel_greedy, _ = _fit_selected(X, y, refine_mode="greedy")
-    sel_core_adversarial, fs_core = _fit_selected(X, y, refine_mode="core", core_drop_threshold=0.9)
+    # Reduced n_estimators across every internal stage (default 100/25) -- see the perf comment above
+    # the test for the empirical validation that this doesn't weaken the fallback-logic assertion.
+    fast_kw = dict(
+        prefilter_n_estimators=20,
+        oof_shap_n_estimators=20,
+        refine_n_estimators=20,
+        revalidation_n_estimators=20,
+        trust_guard_n_estimators=10,
+    )
+
+    sel_greedy, _ = _fit_selected(X, y, refine_mode="greedy", **fast_kw)
+    sel_core_adversarial, fs_core = _fit_selected(X, y, refine_mode="core", core_drop_threshold=0.9, **fast_kw)
 
     refine_report = fs_core.shap_proxy_report_["within_cluster_refine"]
     assert refine_report.get("fallback") is True, "adversarial core_drop_threshold=0.9 should have tripped the honest-gate fallback"
