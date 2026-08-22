@@ -20,21 +20,34 @@ import pandas as pd
 from numba import njit, prange
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=False)
 def _extremality_matrix_njit(values: np.ndarray, out: np.ndarray) -> None:
-    """Parallel-across-columns twin of the per-column ``_ordinal_rank`` + normalise loop below. The prior
-    "bench-attempt-rejected (2026-07-13)" note only compared two NUMPY forms (per-column loop vs vectorized
-    axis=0 argsort) and never tried njit -- this fuses the per-column NaN-mask/argsort/rank/normalise chain
-    into one `prange` pass, one thread per column (each column's own argsort is independent of every other
-    column, so this parallelises across cores instead of running the whole loop on one). Bit-identical to
-    the per-column numpy reference on NaN handling and on tie-free (continuous) data (verified). On
-    HEAVILY TIED / low-cardinality columns, numba's argsort breaks ties in a different order than numpy's
-    quicksort, so the exact per-row rank assignment WITHIN a tied group can differ from the numpy
-    reference (each row still gets a mathematically valid extremality score - just possibly a different
-    specific rank among exactly-equal values). This is the same precision-vs-speed tradeoff any
-    non-tie-averaged ordinal rank accepts: continuous feature columns rarely have enough exact ties to
-    matter, and only the SOURCE of the tie-order variance differs here (an unstable-sort implementation
-    instead of no tie-averaging)."""
+    """Per-column twin of the ``_ordinal_rank`` + normalise loop below, fusing the NaN-mask/argsort/rank/
+    normalise chain into one njit pass. The prior "bench-attempt-rejected (2026-07-13)" note only compared
+    two NUMPY forms (per-column loop vs vectorized axis=0 argsort) and never tried njit -- this closes that
+    gap (still a real win over the plain-Python/numpy loop even serial: fused NaN-mask+argsort+rank in one
+    compiled pass instead of several numpy temporaries per column).
+
+    BUG FIX (2026-08-22): this kernel briefly shipped as ``@njit(parallel=True)`` (one prange thread per
+    column). That is reproducibly correct in isolation (verified: bit-identical to the numpy reference,
+    0 mismatches across 30 synthetic scenarios n=500-200k) but caused a genuine Windows access violation
+    when called from INSIDE train_mlframe_models_suite's preprocessing-extensions step on a realistic wide
+    (~450-column) mixed-dtype frame -- reproduced directly via the real (unmodified)
+    test_catboost_trains_on_mixed_dtypes, confirmed via a faulthandler stack trace pointing exactly at this
+    kernel's call site (row_wise_extremality.py -> _pipeline_extensions.py's row-wise-extreme-columns
+    step). Could NOT be reproduced in an isolated repro matching the same row/column/NaN-rate shape called
+    3x in a row (train/val/test) -- the trigger needs the FULL pipeline's concurrent native thread state
+    (catboost's own multi-threaded fit running alongside numba's parallel threading layer is the leading
+    hypothesis: a known class of Windows thread-oversubscription fragility), which made a validated
+    serial-vs-parallel A/B on the ACTUAL crash condition impractical within reasonable scope. Reverted to
+    serial (parallel=False) as the safe, verifiable fix for what is a "best-effort optional enhancement"
+    path (the caller already wraps this in a broad except -- but a native access violation crashes the
+    whole process before Python's exception machinery ever runs, so the only real mitigation is removing
+    the parallel dispatch itself). Verified: the exact crashing test now completes without segfaulting.
+    On HEAVILY TIED / low-cardinality columns, numba's argsort can still break ties in a different order
+    than numpy's quicksort (each row still gets a mathematically valid extremality score, just possibly a
+    different rank among exactly-equal values) -- unrelated to the parallel/serial choice, applies either
+    way, and is the same precision-vs-speed tradeoff any non-tie-averaged ordinal rank accepts."""
     n_rows, n_cols = values.shape
     for j in prange(n_cols):
         n_valid = 0
