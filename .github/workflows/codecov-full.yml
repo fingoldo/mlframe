@@ -75,15 +75,22 @@ jobs:
           run-id: ${{ steps.find_numba_run.outputs.run_id }}
           repository: ${{ github.repository }}
 
-      - name: Find the latest successful ci.yml run on master
+      - name: Find the latest completed ci.yml run on master
         id: find_ci_run
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # `--status success` requires the WHOLE 66-job matrix run to conclude success, which
+          # with a matrix this wide practically never happens even when most/all shards' own
+          # coverage data is fine -- that made this step find zero runs and silently combine 0
+          # ci.yml shards every time. Use `--status completed` (any conclusion) instead, same as
+          # the numba-coverage-nightly lookup above: a per-shard raw-coverage-ci-* artifact only
+          # exists if that shard's own "Upload raw coverage data" step ran (py3.11,
+          # success-or-failure), so partial-failure runs still contribute real, valid data.
           run_id=$(gh run list --repo "${{ github.repository }}" --workflow ci.yml --branch master \
-            --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+            --status completed --limit 1 --json databaseId --jq '.[0].databaseId')
           if [ -z "$run_id" ]; then
-            echo "No successful ci.yml run found on master -- skipping the combined upload this time."
+            echo "No completed ci.yml run found on master -- skipping the combined upload this time."
             echo "run_id=" >> "$GITHUB_OUTPUT"
           else
             echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
