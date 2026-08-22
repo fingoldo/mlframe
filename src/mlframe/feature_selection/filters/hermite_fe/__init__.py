@@ -555,7 +555,11 @@ def _apply_minmax_njit(x: np.ndarray, lo: float, span: float, has_clip: bool, cl
     """Fused single-pass replay of ``2*(x-lo)/span - 1`` (+ optional symmetric clip), one prange pass instead
     of the numpy form's separate subtract/multiply/divide/subtract (+ clip) temp-array passes. Op order
     matches the numpy expression exactly (``2*(x-lo)/span - 1``, not a reciprocal-multiply rewrite) for
-    bit-identical FP rounding."""
+    bit-identical FP rounding.
+
+    Only wins over the serial twin (:func:`_apply_minmax_njit_serial`) at extreme n (>~10-20M) -- see
+    :func:`_apply_minmax`'s dispatch threshold for the measured crossover; this variant stays for that
+    regime, but is NOT the default entry point any more."""
     n = x.shape[0]
     out = np.empty(n, dtype=np.float64)
     for i in prange(n):
@@ -569,13 +573,42 @@ def _apply_minmax_njit(x: np.ndarray, lo: float, span: float, has_clip: bool, cl
     return out
 
 
+@njit(cache=True, parallel=False)
+def _apply_minmax_njit_serial(x: np.ndarray, lo: float, span: float, has_clip: bool, clip_val: float) -> np.ndarray:
+    """Serial twin of :func:`_apply_minmax_njit` -- identical body, ``range`` instead of ``prange``.
+
+    ``parallel=True`` pays a fixed per-call thread-pool dispatch cost that a 2-flop-plus-optional-clip
+    elementwise op cannot amortize at any n this codebase's FE search realistically reaches. Measured
+    (same-process A/B, warm, best-of-50, ``bench_apply_minmax_parallel_vs_serial.py``): serial is
+    2.4x-28x FASTER at n<=5,000,000; the crossover only appears between n=5M (parallel 2.41x SLOWER)
+    and n=20M (parallel 1.56x faster) -- see :func:`_apply_minmax`'s threshold for where this is used."""
+    n = x.shape[0]
+    out = np.empty(n, dtype=np.float64)
+    for i in range(n):
+        z = 2 * (x[i] - lo) / span - 1
+        if has_clip:
+            if z > clip_val:
+                z = clip_val
+            elif z < -clip_val:
+                z = -clip_val
+        out[i] = z
+    return out
+
+
+# Crossover measured between n=5M (parallel 2.41x SLOWER) and n=20M (parallel 1.56x faster) -- picked
+# conservatively close to the loss side (matches _HAAR_LEG_PARALLEL_MIN_N's reasoning): an unnecessary
+# serial call at n~5-20M costs at most tens of ms, an unnecessary parallel call below it costs up to 28x.
+_MINMAX_PARALLEL_MIN_N = 10_000_000
+
+
 def _apply_minmax(x, params):
     """Replay a fitted ``_preprocess_minmax_neg1_1`` transform onto new data from its stored ``lo``/``hi``/(optional)``clip`` params."""
     span = params["hi"] - params["lo"] + 1e-12
     clip = params.get("clip")
     if _NUMBA_AVAILABLE:
         xf = np.ascontiguousarray(x, dtype=np.float64)
-        return _apply_minmax_njit(xf, float(params["lo"]), float(span), clip is not None, float(clip) if clip is not None else 0.0)
+        fn = _apply_minmax_njit if xf.shape[0] >= _MINMAX_PARALLEL_MIN_N else _apply_minmax_njit_serial
+        return fn(xf, float(params["lo"]), float(span), clip is not None, float(clip) if clip is not None else 0.0)
     z = 2 * (x - params["lo"]) / span - 1
     if clip is not None:
         z = np.clip(z, -float(clip), float(clip))
