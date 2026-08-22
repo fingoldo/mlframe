@@ -311,15 +311,22 @@ class TestStabilityRanksMatchOrBeatSingleFit:
 class TestPickleAndCloneAllParamsPreserved:
     """Contract 4: pickle/clone round-trips preserve every constructor param and fitted state."""
 
-    def _build(self):
-        """Build an unfitted StabilityFESelector with the layer-36 default params."""
+    def _build(self, n_bootstraps=N_BOOTSTRAPS):
+        """Build an unfitted StabilityFESelector with the layer-36 default params.
+
+        ``n_bootstraps`` defaults to the shared module constant (used by every quality-threshold
+        test in this file, e.g. the x__He2 frequency>=0.8 support check) but can be overridden by a
+        caller whose assertions do not depend on stable_set_ CONTENT -- see
+        test_pickle_roundtrip_preserves_fitted_state, which only checks that pickling preserves
+        whatever pre-pickle state was, not which features that state contains.
+        """
         from mlframe.feature_selection.filters._stability_fe import (
             StabilityFESelector,
         )
 
         return StabilityFESelector(
             base_mrmr_params=_base_mrmr_params(),
-            n_bootstraps=N_BOOTSTRAPS,
+            n_bootstraps=n_bootstraps,
             sample_fraction=SAMPLE_FRACTION,
             support_threshold=SUPPORT_THRESHOLD,
             random_state=HEADLINE_SEED,
@@ -345,9 +352,16 @@ class TestPickleAndCloneAllParamsPreserved:
         assert not hasattr(m2, "full_mrmr_")
 
     def test_pickle_roundtrip_preserves_fitted_state(self):
-        """pickle.loads(pickle.dumps(m)) preserves fitted state and transform output bit-for-bit."""
+        """pickle.loads(pickle.dumps(m)) preserves fitted state and transform output bit-for-bit.
+
+        n_bootstraps=3 (not the shared N_BOOTSTRAPS=10) -- this test only checks that pickling
+        preserves whatever pre-pickle state was (frequencies_/stable_set_/transform output
+        IDENTICAL pre vs post), never which features stable_set_ actually contains, so fewer
+        bootstrap resamples cannot change what this test asserts. Measured 5.51x (58.9s -> 10.7s,
+        warm) on an isolated repro reproducing this exact fixture/assertions.
+        """
         X, y = _make_strong_signal(seed=HEADLINE_SEED)
-        m = self._build()
+        m = self._build(n_bootstraps=3)
         m.fit(X, y)
         pre_freq = m.frequencies_.copy()
         pre_stable = list(m.stable_set_)
