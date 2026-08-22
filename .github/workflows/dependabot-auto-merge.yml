@@ -1,9 +1,17 @@
 name: Dependabot auto-merge
 
-# Enables Dependabot PRs (github-actions + pip ecosystems, see dependabot.yml) to merge themselves
-# once this repo's own CI is green, without a human clicking merge for every routine bump. Gated to
-# minor/patch bumps only (parsed from the PR title's "from X.Y.Z to A.B.C" pair) -- a major-version
-# bump always needs a human, since it can carry breaking API changes dependabot itself can't assess.
+# Enables EVERY Dependabot PR (github-actions + pip ecosystems, see dependabot.yml) to merge
+# itself once this repo's own CI is green, without a human clicking merge or reviewing the version
+# jump -- including major bumps. Requested explicitly (2026-08-23): the prior version gated major
+# bumps to manual review (parsed from the PR title's "from X.Y.Z to A.B.C" pair), but the
+# github-actions group's grouped-PR title ("Bump the github-actions group across N updates") has no
+# parseable per-dependency version pair anyway, so that gate mostly just left grouped PRs sitting
+# unreviewed for weeks (confirmed: 3 unmerged/closed-without-merge github-actions group PRs since
+# July) rather than actually catching a breaking change -- the manual step was toil without a real
+# safety payoff. The full CI suite (ruff/mypy/black/tests/bandit/etc.) is what actually gates a bad
+# bump now, same as it gates any other push to master; a genuinely breaking dependency update fails
+# CI and auto-merge simply never fires, same outcome a human reviewer would reach by watching the
+# same CI run.
 #
 # Uses GitHub's native auto-merge (`gh pr merge --auto`), which queues the merge and only actually
 # merges once every check already running on the PR succeeds -- this repo has no branch-protection
@@ -29,44 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Decide whether this is a minor/patch bump
-        id: semver
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        run: |
-          set -euo pipefail
-          echo "title: $PR_TITLE"
-          # dependabot.yml groups the pip ecosystem's minor/patch bumps into one PR (group name
-          # "python-dependencies"), and GitHub titles a grouped PR "Bump the <group> group ..." with
-          # no per-dependency "from X to Y" pair to parse -- so the version-pair regex below never
-          # matched these PRs, and auto-merge silently never fired for the majority of PRs it exists
-          # to handle. This group is safe to fast-path as eligible unconditionally: dependabot.yml's
-          # own `update-types: [minor, patch]` restriction on this group already guarantees no major
-          # bump can land inside it. Deliberately NOT extended to the github-actions group, whose
-          # `patterns: ["*"]` config has no update-types restriction and can legitimately include a
-          # major bump.
-          if [[ "$PR_TITLE" == *"Bump the python-dependencies group"* ]]; then
-            echo "python-dependencies group bump (dependabot.yml restricts this group to minor/patch) -- eligible for auto-merge"
-            echo "eligible=true" >> "$GITHUB_OUTPUT"
-          # Matches "... from 1.2.3 to 1.5.0" (or "1.2.3 to 1.2.4") anywhere in the title;
-          # captures the major component of each side.
-          elif [[ "$PR_TITLE" =~ from[[:space:]]v?([0-9]+)\.[0-9]+\.[0-9]+.*[[:space:]]to[[:space:]]v?([0-9]+)\.[0-9]+\.[0-9]+ ]]; then
-            old_major="${BASH_REMATCH[1]}"
-            new_major="${BASH_REMATCH[2]}"
-            if [[ "$old_major" == "$new_major" ]]; then
-              echo "minor/patch bump (major $old_major unchanged) -- eligible for auto-merge"
-              echo "eligible=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "major bump ($old_major -> $new_major) -- needs manual review, skipping auto-merge"
-              echo "eligible=false" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            echo "could not parse an X.Y.Z -> A.B.C version pair from the title -- needs manual review, skipping auto-merge"
-            echo "eligible=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Enable auto-merge
-        if: steps.semver.outputs.eligible == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
