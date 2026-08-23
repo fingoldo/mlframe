@@ -282,23 +282,27 @@ jobs:
   # mitigations, because -n auto's SECOND worker (running the rest of that shard) still stacks its
   # own memory use against the pinned group's on the same 2-vCPU/7GB runner. Running the whole file
   # with no second worker at all removes that stacking entirely.
-  # Split into 2 groups via pytest-split (--group matrix axis below): even with -n 1 (zero worker
+  # Split into 4 groups via pytest-split (--group matrix axis below): even with -n 1 (zero worker
   # stacking), running all ~128 tests in ONE long-lived process still crashed with "worker 'gw0'
   # crashed" (real OOM, not a stacking artifact -- confirmed 2026-08-23, python 3.10/3.11, failing
   # near the END of a 35min/115-tests-passed run) from cumulative per-process memory growth across
-  # that many CatBoost/polars fits, not any single test's footprint. Two groups means two separate
-  # runner processes, each with its own fresh 7GB budget, instead of one process accumulating state
-  # across the whole file. 3.14 is excluded from the python-version axis (experimental leg, same
-  # reasoning as the main matrix's own 3.14 rows).
+  # that many CatBoost/polars fits, not any single test's footprint. A first fix (2 groups, ~60
+  # tests each) was STILL insufficient -- confirmed 2026-08-23 on python 3.12, group 2/2 crashed
+  # TWICE in one run (TestTextAndEmbeddingFeatures again both times), proving the recurring offender
+  # class's per-test memory footprint alone is large enough that even a 60-test subset accumulates
+  # past the 7GB budget, not just a slow leak across the WHOLE file. Four groups (~26 tests each)
+  # gives every runner process a smaller cumulative-growth ceiling before hitting the budget. 3.14
+  # is excluded from the python-version axis (experimental leg, same reasoning as the main matrix's
+  # own 3.14 rows).
   test-heavy-serial:
-    name: pytest ${{ matrix.python-version }} on ubuntu-latest (test_core.py, serial, group ${{ matrix.group }}/2)
+    name: pytest ${{ matrix.python-version }} on ubuntu-latest (test_core.py, serial, group ${{ matrix.group }}/4)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
-        group: [1, 2]
+        group: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -329,7 +333,7 @@ jobs:
           restore-keys: |
             numba-${{ runner.os }}-py${{ matrix.python-version }}-
 
-      - name: Run tests/training/test_core.py (serial, group ${{ matrix.group }}/2)
+      - name: Run tests/training/test_core.py (serial, group ${{ matrix.group }}/4)
         env:
           PYTHONUNBUFFERED: "1"
           NUMBA_CACHE_DIR: ${{ github.workspace }}/.numba-cache
@@ -337,7 +341,7 @@ jobs:
         run: |
           pytest tests/training/test_core.py \
             -m "not slow and not gpu and not multigpu" \
-            --splits 2 --group ${{ matrix.group }} \
+            --splits 4 --group ${{ matrix.group }} \
             -n 1 \
             -p no:randomly \
             --timeout=900 \
@@ -545,6 +549,7 @@ jobs:
     name: CI required checks
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [test, test-heavy-serial, ruff-blocking, lint-blocking, tests-ruff-blocking, tests-black-filtered, tests-lint-blocking, build]
     steps:
       - name: Check all required jobs succeeded
