@@ -58,6 +58,40 @@ def _per_cell_raw_moments_njit(codes, v, n_cells):
         s4[c] += x2 * x2
     return cnt, s1, s2, s3, s4
 
+@njit(cache=True)
+def _per_cell_centered_moments_njit(codes, v, cell_mean, n_cells):
+    """One-pass per-cell CENTERED moment accumulator: given each cell's already-computed mean (indexed
+    by cell id), returns ``(cm2, cm3, cm4)`` each ``(n_cells,)`` -- ``sum((x-mean_c)^k)`` per cell for
+    k=2,3,4. Numerically stable (no raw-power cancellation) -- the whole-array analog of
+    :func:`_centered_moments_njit`, whose own docstring documents the measured catastrophic failure of
+    the raw-moment binomial-expansion form this replaces in :func:`_derive_cell_stats`."""
+    n_cells = int(n_cells)
+    cm2 = np.zeros(n_cells, dtype=np.float64)
+    cm3 = np.zeros(n_cells, dtype=np.float64)
+    cm4 = np.zeros(n_cells, dtype=np.float64)
+    for i in range(codes.shape[0]):
+        c = codes[i]
+        d = v[i] - cell_mean[c]
+        d2 = d * d
+        cm2[c] += d2
+        cm3[c] += d2 * d
+        cm4[c] += d2 * d2
+    return cm2, cm3, cm4
+
+
+def _per_cell_moments_stable(codes: np.ndarray, v: np.ndarray, n_cells: int) -> tuple:
+    """Per-cell ``(cnt, mean, cm2, cm3, cm4)`` via the numerically-stable two-pass scheme: pass 1
+    (:func:`_per_cell_raw_moments_njit`, cnt/s1 only used) gets each cell's mean -- a plain additive sum,
+    safe from cancellation; pass 2 (:func:`_per_cell_centered_moments_njit`) accumulates CENTERED powers
+    directly. Feeds :func:`_derive_cell_stats`."""
+    codes_i = np.ascontiguousarray(codes, dtype=np.int64)
+    v_f = np.ascontiguousarray(v, dtype=np.float64)
+    cnt, s1, _, _, _ = _per_cell_raw_moments_njit(codes_i, v_f, int(n_cells))
+    mean = s1 / np.maximum(cnt, 1.0)
+    cm2, cm3, cm4 = _per_cell_centered_moments_njit(codes_i, v_f, mean, int(n_cells))
+    return cnt, mean, cm2, cm3, cm4
+
+
 SUPPORTED_STATS = ("mean", "std", "skew", "kurt")
 # Minimum rows-per-cell for a stable estimate of each moment order (rule-of-thumb, used by the moment cap).
 _N_MIN = {"mean": 5, "std": 12, "skew": 30, "kurt": 100}
@@ -100,37 +134,36 @@ def resolve_nbins_and_stats(n: int, stats: Sequence[str], nbins_base: int, k: in
     return 2, ["mean"]  # degenerate fallback
 
 
-def _raw_moments(codes: np.ndarray, v: np.ndarray, n_cells: int) -> tuple:
-    """One-pass njit raw-moment accumulation ``(cnt, s1, s2, s3, s4)`` of ``v`` per cell of ``codes`` (see
-    :func:`_per_cell_raw_moments_njit`). Each is a pure additive per-row partition sum, so
-    ``moments(A) + moments(B) == moments(A union B)`` elementwise for disjoint row sets A/B - exploited by
-    ``fit_binned_numeric_agg`` to derive a fold's TRAIN-only moments as ``full - test`` instead of rescanning
-    the ``(n_folds-1)/n_folds`` of rows that make up that fold's training split."""
-    return _per_cell_raw_moments_njit(np.ascontiguousarray(codes).astype(np.int64), np.ascontiguousarray(v).astype(np.float64), int(n_cells))  # type: ignore[no-any-return]  # njit kernel returns the declared (cnt, s1, s2, s3, s4) tuple
+def _derive_cell_stats(cnt: np.ndarray, mean: np.ndarray, cm2: np.ndarray, cm3: np.ndarray, cm4: np.ndarray, stats: Sequence[str]) -> dict:
+    """Derive per-cell statistics from ``(cnt, mean, cm2, cm3, cm4)`` -- CENTERED moment sums (see
+    :func:`_per_cell_moments_stable` / :func:`_per_cell_centered_moments_njit`), not the raw-power form this
+    replaced (2026-08-23): the raw-power binomial-expansion derivation (``s3/n - 3*mean*s2/n + 2*mean**3``)
+    is catastrophically unstable on large-offset/small-scale columns -- the exact bug class already fixed for
+    the whole-column global stats (:func:`_global_stats_all`) and target-encoding's per-category moments
+    (``_target_encoding_fe.py``), confirmed live here too via a 1e13-scale skew/kurt error on synthetic data
+    with a large per-cell offset. No ``+1e-12`` epsilon pad on the skew/kurt denominators either (that pad
+    corrupts an already-small-but-correctly-computed denominator by ~30-100% once cancellation itself is
+    fixed -- see the target-encoding fix's own docstring for the same finding); the ``std > 1e-9`` /
+    ``m2 > 1e-12`` guards already bound the denominator away from true zero.
 
-
-def _derive_cell_stats(cnt: np.ndarray, s1: np.ndarray, s2: np.ndarray, s3: np.ndarray, s4: np.ndarray, stats: Sequence[str]) -> dict:
-    """Derive per-cell statistics from additive raw moments (see :func:`_raw_moments`). Empty cells get NaN
-    (caller substitutes the global value). Pure function of the moments - callable on either a direct
-    accumulation or a ``full - test`` subtraction result."""
+    Empty cells get NaN (caller substitutes the global value)."""
     safe = np.maximum(cnt, 1.0)
-    mean = s1 / safe
     out: dict = {}
     need_hi = any(s in ("std", "skew", "kurt") for s in stats)
     if need_hi:
-        m2 = np.maximum(s2 / safe - mean * mean, 0.0)
-        std = np.sqrt(m2)
+        m2 = cm2 / safe
+        std = np.sqrt(np.maximum(m2, 0.0))
     for stat in stats:
         if stat == "mean":
             raw = mean
         elif stat == "std":
             raw = std
         elif stat == "skew":
-            m3 = s3 / safe - 3.0 * mean * (s2 / safe) + 2.0 * mean**3
-            raw = np.where(std > 1e-9, m3 / (std**3 + 1e-12), 0.0)
+            m3 = cm3 / safe
+            raw = np.where(std > 1e-9, m3 / std**3, 0.0)
         elif stat == "kurt":
-            m4 = s4 / safe - 4.0 * mean * (s3 / safe) + 6.0 * mean**2 * (s2 / safe) - 3.0 * mean**4
-            raw = np.where(m2 > 1e-12, m4 / (m2 * m2 + 1e-12) - 3.0, 0.0)
+            m4 = cm4 / safe
+            raw = np.where(m2 > 1e-12, m4 / (m2 * m2) - 3.0, 0.0)
         else:
             raise ValueError(f"binned_numeric_agg stat {stat!r} not in {SUPPORTED_STATS}")
         out[stat] = np.where(cnt > 0, raw, np.nan)
@@ -138,13 +171,12 @@ def _derive_cell_stats(cnt: np.ndarray, s1: np.ndarray, s2: np.ndarray, s3: np.n
 
 
 def per_cell_stats_bincount(codes: np.ndarray, v: np.ndarray, n_cells: int, stats: Sequence[str]) -> dict:
-    """Vectorised per-cell statistics of ``v`` via raw-moment ``np.bincount`` (O(n), no Python per-row loop).
-    Returns ``{stat: np.ndarray(n_cells)}``. Empty cells get NaN (caller substitutes the global value).
-    One-pass njit raw-moment accumulation (cnt, s1..s4) replaces up to FOUR np.bincount passes + full-array
-    power ops - ~30x faster at n=100k (0.59 vs 18 ms). s2 (x*x) matches np.bincount(v*v) exactly; s3/s4
-    differ from numpy v**3/v**4 only at the last ULP, far below the bin resolution."""
-    cnt, s1, s2, s3, s4 = _raw_moments(codes, v, n_cells)
-    return _derive_cell_stats(cnt, s1, s2, s3, s4, stats)
+    """Vectorised per-cell statistics of ``v`` via one-pass njit centered-moment accumulation (O(n), no
+    Python per-row loop, no ``np.bincount``). Returns ``{stat: np.ndarray(n_cells)}``. Empty cells get NaN
+    (caller substitutes the global value). Two njit passes (mean, then centered powers) -- numerically
+    stable, see :func:`_derive_cell_stats`."""
+    cnt, mean, cm2, cm3, cm4 = _per_cell_moments_stable(codes, v, n_cells)
+    return _derive_cell_stats(cnt, mean, cm2, cm3, cm4, stats)
 
 
 def _global_stat(v: np.ndarray, stat: str) -> float:
@@ -327,11 +359,8 @@ def fit_binned_numeric_agg(
             if globals_ is None:
                 globals_ = _global_stats_all(av[finite], kept_stats)
                 _globals_cache[_gk] = globals_
-            # Full-data raw moments, needed anyway for the ``full``/``lut`` recipe lookup below. cnt/s1..s4 are
-            # additive partition sums over the finite rows, so a fold's TRAIN-only moments equal full - test
-            # (both finite & fold==f); an O(n_test) TEST-only pass + subtraction replaces the O(n_train) rescan
-            # per fold, cutting total row-visits from ~(n_folds-1)*n to ~2*n over the whole OOF loop.
-            full_cnt, full_s1, full_s2, full_s3, full_s4 = _raw_moments(codes[finite], av[finite], n_cells)
+            # Full-data moments, needed anyway for the ``full``/``lut`` recipe lookup below.
+            full_cnt, full_mean, full_cm2, full_cm3, full_cm4 = _per_cell_moments_stable(codes[finite], av[finite], n_cells)
             if not recipe_only:
                 # RECIPE_ONLY (device-born binagg, 2026-07-02) skips the 5-fold OOF feat-column build - the
                 # per-fold gather + np.where over the full n rows, the FE scan's single largest GPU-idle host
@@ -341,6 +370,8 @@ def fit_binned_numeric_agg(
                 # fields) are cheap 1-pass njit and are always built.
                 assert _fold_test is not None and _ct_by_fold is not None  # populated whenever recipe_only is False
                 oof = {s: np.full(n, globals_[s], dtype=np.float64) for s in kept_stats}
+                finite_idx = np.where(finite)[0]
+                fold_of_finite = fold_ids[finite_idx]
                 for f in range(int(n_folds)):
                     test = _fold_test[f]
                     ct = _ct_by_fold[f]
@@ -352,12 +383,18 @@ def fit_binned_numeric_agg(
                     # finite row.
                     if test_fin.size == finite_count:
                         continue
-                    t_cnt, t_s1, t_s2, t_s3, t_s4 = _raw_moments(codes[test_fin], av[test_fin], n_cells)
-                    per = _derive_cell_stats(full_cnt - t_cnt, full_s1 - t_s1, full_s2 - t_s2, full_s3 - t_s3, full_s4 - t_s4, kept_stats)
+                    # CENTERED moments are NOT additive across row subsets (a subset's own mean differs
+                    # from the full-data mean, so full - test is invalid for cm2/cm3/cm4, unlike the old
+                    # raw-power form) -- compute TRAIN directly on its own rows instead of full-minus-test
+                    # (mirrors the same correctness-over-the-old-buggy-optimization tradeoff already made
+                    # for target-encoding's per-category moments, 2026-08-22 -- see _target_encoding_fe.py).
+                    train_fin_idx = finite_idx[fold_of_finite != f]
+                    t_cnt, t_mean, t_cm2, t_cm3, t_cm4 = _per_cell_moments_stable(codes[train_fin_idx], av[train_fin_idx], n_cells)
+                    per = _derive_cell_stats(t_cnt, t_mean, t_cm2, t_cm3, t_cm4, kept_stats)
                     for s in kept_stats:
                         vals = per[s][ct]
                         oof[s][test] = np.where(np.isfinite(vals), vals, globals_[s])
-            full = _derive_cell_stats(full_cnt, full_s1, full_s2, full_s3, full_s4, kept_stats)
+            full = _derive_cell_stats(full_cnt, full_mean, full_cm2, full_cm3, full_cm4, kept_stats)
             for s in kept_stats:
                 name = engineered_name_binned_agg(acol, gcol, s)
                 if not recipe_only:
