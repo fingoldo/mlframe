@@ -205,14 +205,23 @@ jobs:
   # this workflow's --ignore=tests/training/test_core.py line above for the full root-cause
   # rationale (a second xdist worker's memory stacking against this file's pinned CatBoost classes
   # on the same 2-vCPU/7GB runner, confirmed via this workflow's own "node down" job logs).
-  # timeout-minutes is generous (180, vs ci.yml's 60) since NUMBA_DISABLE_JIT=1 makes any njit-body
-  # work inside train_mlframe_models_suite's FE stage 10-1000x slower than normal JIT -- untested
-  # at this scale, so headroom is deliberately wide rather than guessed tight.
+  # Split into 2 groups via pytest-split (mirrors ci.yml's own test-heavy-serial, see that job's
+  # comment): even -n 1 (zero worker stacking) still crashed on ci.yml's plain-JIT run from
+  # cumulative per-process memory growth across ~128 tests in one long-lived process, not a
+  # single test's footprint -- expected to be at least as real here given NUMBA_DISABLE_JIT=1's
+  # extra Python-side allocation per njit call site. timeout-minutes is generous (180, vs ci.yml's
+  # 60) since NUMBA_DISABLE_JIT=1 makes any njit-body work inside train_mlframe_models_suite's FE
+  # stage 10-1000x slower than normal JIT -- untested at this scale, so headroom is deliberately
+  # wide rather than guessed tight.
   test-heavy-serial-numba-disabled:
     if: github.event_name != 'workflow_dispatch' || inputs.run
-    name: pytest with NUMBA_DISABLE_JIT=1 (test_core.py, serial)
+    name: pytest with NUMBA_DISABLE_JIT=1 (test_core.py, serial, group ${{ matrix.group }}/2)
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2]
     env:
       NUMBA_DISABLE_JIT: "1"
       PYTHONUNBUFFERED: "1"
@@ -240,10 +249,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[all,dev]"
 
-      - name: Run tests/training/test_core.py (serial) with NUMBA_DISABLE_JIT=1
+      - name: Run tests/training/test_core.py (serial, group ${{ matrix.group }}/2) with NUMBA_DISABLE_JIT=1
         run: |
           pytest tests/training/test_core.py \
             -m "not slow and not gpu and not multigpu" \
+            --splits 2 --group ${{ matrix.group }} \
             -n 1 \
             -p no:randomly \
             --timeout=3600 \
