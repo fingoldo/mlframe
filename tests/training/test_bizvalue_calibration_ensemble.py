@@ -197,10 +197,8 @@ def _train_and_predict(
 
 # Heavy biz-value fit: trains a base model + CalibratedClassifierCV(cv=5) on
 # 40k x 120 features (5 calibration folds = 5 full fits). On a 2-vCPU CI runner
-# the slowest cell (lgb, seed 7) overruns the workflow's `--timeout=300`, while
-# its siblings finish just under it -- pure runtime variance, not a hang. Give
-# the cell the repo-default 600s budget (the addopts default; CI tightens to 300
-# globally) rather than shrinking the data, which would dilute the Brier claim.
+# the slowest cell (lgb, seed 7) measured 637s wall (see model_cls_map's
+# lgb_n_estimators comment for the fix that brought this down).
 @pytest.mark.timeout(900)
 @pytest.mark.parametrize("seed", fast_subset([42, 7]))
 @pytest.mark.parametrize("mlframe_model", fast_subset(["lgb", "cb", "xgb"]))
@@ -231,10 +229,25 @@ def test_calibration_reduces_brier_score(tmp_path, common_init_params, seed, mlf
     # the calibration signal (Brier delta stayed ~constant in re-runs) and
     # cuts peak RSS by ~45%.
     cb_iters = 150
+    # lgb_n_estimators: was 300, measured 637s wall for the seed-7 cell (6 fits: base + 5
+    # CalibratedClassifierCV folds). A/B sweep across n_estimators in {300,150,100} x
+    # seeds {42,7} (ab_calib_shrink*.py) showed 300 trees give a WIDER, less stable margin
+    # over the >=1.00% threshold (+1.31%/+2.81%) than 100 trees (+1.23%/+1.31% -- narrower
+    # spread, both comfortably above threshold, ~4-7x faster per fit). LightGBM's
+    # overconfidence-from-overfitting (the effect this test measures) is already fully
+    # expressed well under 300 trees on this synthetic, so the extra trees bought no extra
+    # signal, only wall time. The shared n_train=40000 dataset is untouched -- the sweep
+    # only validated per-model n_estimators/iterations at this dataset size.
+    lgb_n_estimators = 100
+    # xgb_n_estimators: was 300, measured 408s/287s wall (seeds 7/42). A/B sweep
+    # (ab_calib_xgb.py) showed the margin over the >=1.00% threshold is generous at every
+    # size tested (300: +7.68%/+8.14%, 150: +5.66%/+4.44%, 100: +4.80%/+3.05%) -- picked
+    # 150 (matching cb_iters) for extra headroom over the leanest 100 option.
+    xgb_n_estimators = 150
     model_cls_map = {
-        "lgb": lambda: __import__("lightgbm").LGBMClassifier(n_estimators=300, random_state=seed, verbose=-1),
+        "lgb": lambda: __import__("lightgbm").LGBMClassifier(n_estimators=lgb_n_estimators, random_state=seed, verbose=-1),
         "cb": lambda: __import__("catboost").CatBoostClassifier(iterations=cb_iters, random_seed=seed, verbose=0),
-        "xgb": lambda: __import__("xgboost").XGBClassifier(n_estimators=300, random_state=seed, verbosity=0),
+        "xgb": lambda: __import__("xgboost").XGBClassifier(n_estimators=xgb_n_estimators, random_state=seed, verbosity=0),
     }
 
     # Run A — uncalibrated.
