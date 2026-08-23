@@ -196,10 +196,12 @@ class TestMissingCategoryEncoders:
                 """Always raise -- this finder only ever claims the module it intends to block."""
                 raise ImportError("simulated absence")
 
-        sys.modules.pop("category_encoders.utils", None)
+        _saved_ce_utils = sys.modules.pop("category_encoders.utils", None)
         sys.meta_path.insert(0, _BlockCEUtils())
         try:
             cec.ensure_category_encoders_sklearn_tags_shim()  # must not raise
         finally:
             sys.meta_path.pop(0)
+            if _saved_ce_utils is not None:
+                sys.modules["category_encoders.utils"] = _saved_ce_utils
         assert cec._PATCHED is True
