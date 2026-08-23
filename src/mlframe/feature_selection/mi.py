@@ -19,6 +19,16 @@ from numba import njit, prange
 # and uses them directly as histogram offsets. fastmath=True additionally tells LLVM the inputs are finite, so a NaN/inf or out-of-range code is undefined behaviour
 # (out-of-bounds write), not a handled case. The chatgpt path validates the [0,127] int8 range before its cast; the grok/deepseek paths do NOT - callers feeding those
 # kernels MUST pre-bin to int8 themselves. A constant column collapses to a single histogram bin and correctly yields MI=0; empty data (n_samples==0) is guarded per-kernel.
+#
+# cache=False (deliberately, on every kernel here): CI recurrently failed test_mi_kernels_agree_cross_implementation
+# with a real cross-kernel numerical divergence (0.0017 absolute / 44% relative on a deterministic fixed-seed
+# fixture) that never reproduced locally. The failing job logs show "Cache hit for restore-key" (a
+# restore-keys PREFIX fallback, not an exact primary-key hit) immediately before the failure -- the same
+# confirmed root cause as evaluation.py's evaluate_gain fix: NUMBA_CACHE_DIR was restored from a different
+# source-tree state than the checked-out one, and numba's own per-function cache invalidation evidently
+# isn't 100% reliable for these kernels under that fallback. These kernels also become the LIVE production
+# MI backend (the fastest of the three is picked at import time), so disk-cache staleness here has real
+# production risk, not just a diagnostic-test annoyance.
 
 USE_FASTMATH: bool = True
 
@@ -27,7 +37,7 @@ USE_FASTMATH: bool = True
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-@njit(fastmath=USE_FASTMATH, cache=True)
+@njit(fastmath=USE_FASTMATH, cache=False)
 def grok_compute_joint_hist(a: np.ndarray, b: np.ndarray, n_bins: int, dtype: type = np.int64):
     """Scatter-increment joint histogram of two pre-binned integer-coded arrays."""
     hist: np.ndarray = np.zeros((n_bins, n_bins), dtype=dtype)
@@ -39,7 +49,7 @@ def grok_compute_joint_hist(a: np.ndarray, b: np.ndarray, n_bins: int, dtype: ty
 # Superseded by grok_mutual_information; retained on the
 # tests/test_meta/test_dead_helpers.py allowlist as a historical reference
 # point for the kernel-evolution audit trail. Not called from production paths.
-@njit(fastmath=USE_FASTMATH, cache=True)
+@njit(fastmath=USE_FASTMATH, cache=False)
 def grok_mutual_information_old(a: np.ndarray, b: np.ndarray, n_bins: int = 15, hist_dtype: type = np.int64):
     """Plug-in MI from a joint histogram via the naive per-cell probability ratio (superseded by ``grok_mutual_information``'s log-space form)."""
     joint_hist = grok_compute_joint_hist(a=a, b=b, n_bins=n_bins, dtype=hist_dtype)
@@ -57,7 +67,7 @@ def grok_mutual_information_old(a: np.ndarray, b: np.ndarray, n_bins: int = 15, 
     return mi
 
 
-@njit(cache=True)
+@njit(cache=False)
 def grok_mutual_information(a: np.ndarray, b: np.ndarray, inv_n_samples: float, log_n_samples: float, n_bins: int = 15, hist_dtype: type = np.int64):
     """Plug-in MI from a joint histogram, computed in log-space with precomputed ``1/n``/``log(n)`` constants to avoid repeated division across cells."""
     joint_hist = grok_compute_joint_hist(a=a, b=b, n_bins=n_bins, dtype=hist_dtype)
@@ -96,7 +106,7 @@ def _validate_bin_codes(data: np.ndarray, fn_name: str) -> np.ndarray:
     return data
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=False)
 def _grok_compute_mutual_information_kernel(
     data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64
 ) -> np.ndarray:
@@ -151,7 +161,7 @@ def grok_compute_mutual_information(
 
 
 # Single-pair MI (15 discrete bins, natural-log base)
-@njit(fastmath=USE_FASTMATH, cache=True)
+@njit(fastmath=USE_FASTMATH, cache=False)
 def _chatgpt_mi_pair(x: np.ndarray, y: np.ndarray, n_bins: int = 15, hist_dtype=np.int64) -> float:
     """Mutual information between two 1-D int8 vectors already binned to 0..n_bins-1."""
 
@@ -190,7 +200,7 @@ def _chatgpt_mi_pair(x: np.ndarray, y: np.ndarray, n_bins: int = 15, hist_dtype=
 
 
 # All features vs. one target (parallel over the wide axis)
-@njit(parallel=True, fastmath=USE_FASTMATH, cache=True)
+@njit(parallel=True, fastmath=USE_FASTMATH, cache=False)
 def _chatgpt_mi_one_target(
     data: np.ndarray, target_idx: int, n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64
 ) -> np.ndarray:  # shape (n_samples, n_cols), int8
@@ -243,7 +253,7 @@ def chatgpt_compute_mutual_information(
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-@njit(parallel=True, fastmath=USE_FASTMATH, cache=True)
+@njit(parallel=True, fastmath=USE_FASTMATH, cache=False)
 def _deepseek_compute_mutual_information_kernel(
     data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64
 ) -> np.ndarray:
