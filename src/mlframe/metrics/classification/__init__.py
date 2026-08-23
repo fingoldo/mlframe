@@ -18,6 +18,7 @@ from ._classification_report import (
     compute_pr_recall_f1_metrics,
     fast_calibration_report,
     _batch_per_class_ice_kernel,
+    _batch_per_class_ice_kernel_serial,
     fast_ice_only,
     predictions_time_instability,
 )

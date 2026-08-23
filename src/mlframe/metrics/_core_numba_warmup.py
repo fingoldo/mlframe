@@ -39,8 +39,8 @@ def numba_warmup() -> None:
         _cb_logits_to_probs_binary_seq, _cb_logits_to_probs_binary_par,
         _cb_logits_to_probs_multiclass_seq, _cb_logits_to_probs_multiclass_par,
         _batch_per_class_ice_kernel,
+        _batch_per_class_ice_kernel_serial,
     )
-    from .classification._classification_report import _batch_per_class_ice_kernel_serial
     # Tiny inputs that exercise the same dtype signatures the real
     # eval-metric callbacks hit (float64 N x K, int8 indicator).
     _logits1 = _np.array([0.0, 0.5, 1.0], dtype=_np.float32)
@@ -488,8 +488,7 @@ def _prewarm_numba_cache_body():
     # actually hit). Compiles separately from the sequential `fast_ice_only` variant prewarmed above;
     # use the dtype combo the suite always sends (int8 indicator + float64 probs + K=3).
     try:
-        from mlframe.metrics.core import _batch_per_class_ice_kernel
-        from mlframe.metrics.classification._classification_report import _batch_per_class_ice_kernel_serial
+        from mlframe.metrics.core import _batch_per_class_ice_kernel, _batch_per_class_ice_kernel_serial
         _yt_nk4_pw = np.zeros((10, 3), dtype=np.int8)
         _yt_nk4_pw[0, 0] = 1; _yt_nk4_pw[1, 1] = 1; _yt_nk4_pw[2, 2] = 1
         _yp_nk4_pw = np.random.RandomState(0).rand(10, 3).astype(np.float64)

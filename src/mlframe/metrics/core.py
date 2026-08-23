@@ -159,6 +159,7 @@ from .classification._classification_report import (  # noqa: F401
     CalibrationReport,
     fast_calibration_report,
     _batch_per_class_ice_kernel,
+    _batch_per_class_ice_kernel_serial,
     fast_ice_only,
     predictions_time_instability,
 )
