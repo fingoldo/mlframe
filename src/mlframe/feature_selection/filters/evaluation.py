@@ -122,7 +122,17 @@ def _su_normalize_relevance(direct_gain: float, X, y, factors_data, factors_nbin
 from ._evaluation_candidate import get_candidate_name, handle_best_candidate, should_skip_candidate  # noqa: F401  (re-export for external callers)
 
 
-@njit(cache=True)
+@njit(cache=False)  # Disk caching disabled for THIS kernel only: CI recurrently failed with a numba
+# TypingError ("Unknown attribute 'astype' of type reflected list(int64)" on the
+# selected_vars.astype call below) even though every real call site (fleuret.py, this file's own
+# recursive call) converts selected_vars to a real ndarray before calling in -- confirmed by
+# grepping every call site, not assumed. Never reproduced locally; the CI job logs show
+# "Cache hit for restore-key" (GitHub Actions' own wording for a restore-keys PREFIX fallback, not
+# an exact primary-key hit) immediately before the failure -- NUMBA_CACHE_DIR was restored from a
+# DIFFERENT source-tree state than the checked-out one, and numba's own per-function source-hash
+# cache invalidation evidently didn't catch it for this kernel under that fallback. Still gets
+# in-process compile caching within one Python process; only cross-process disk persistence is
+# affected, so the fix is scoped to this kernel rather than the CI-wide caching strategy.
 def evaluate_gain(
     current_gain: float,
     last_checked_k: int,
@@ -225,7 +235,7 @@ def evaluate_gain(
 
                         if not key_found:
 
-                            # 2026-05-30 Wave 8 — JMIM aggregator (Bennasar 2015).
+                            # JMIM aggregator (Bennasar 2015).
                             # When the thread-local JMIM toggle is on, replace
                             # Fleuret's conditional MI ``I(X; Y | Z)`` with the
                             # joint MI ``I({X, Z}; Y)``. Both feed the same
@@ -407,7 +417,7 @@ def evaluate_candidate(
         # cached_confident_MIs stores (bootstrapped_gain, confidence) tuples (see confirm_candidate); take the gain.
         # WITHIN one screen_predictors() round, a candidate only lands in cached_confident_MIs AFTER permutation
         # confirmation, at which point its cand_idx is in added_/failed_candidates and should_skip_candidate filters it
-        # out before re-entry here. ACROSS rounds this branch is legitimately reachable (2026-07-09, seed_caches
+        # out before re-entry here. ACROSS rounds this branch is legitimately reachable (seed_caches
         # cross-round threading): added_/failed_candidates are round-local (their cand_idx indexing is not stable
         # across rounds, since the candidate pool changes shape), so a candidate confirmed in an earlier round is
         # correctly re-scored here on a later round rather than treated as already-decided. This is proven
@@ -440,7 +450,7 @@ def evaluate_candidate(
         elif X in cached_MIs:  # type: ignore[operator]
             direct_gain = cached_MIs[X]  # type: ignore[index]
         else:
-            # 2026-05-30 Wave 9.1 fix (XOR-synergy regression):
+            # XOR-synergy regression fix:
             # use UNANIMOUS-rejection baseline (require ALL perms to
             # beat observed before rejecting). The prior
             # ``min_nonzero_confidence=1.0`` hardcode + the
@@ -669,7 +679,7 @@ def evaluate_candidate(
         # exactly 0.0, which now routes a non-synergy candidate through this branch.
         current_gain = 0.0
 
-    # 2026-05-30 Wave 8 — BUR additive bonus (Gao 2022). Off by default
+    # BUR additive bonus (Gao 2022). Off by default
     # (``bur_lambda`` thread-local = 0.0). When enabled, adds
     # ``lambda * (I(X; Y) - max_j I(X; X_j))`` to the post-Fleuret score.
     # ``direct_gain`` already holds ``I(X; Y)``; max-correlation to selected
