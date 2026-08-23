@@ -80,6 +80,47 @@ SEED = 42
 FIT_TIMEOUT = numba_disabled_timeout(300, factor=8)
 
 
+def _warm_up_numba_kernels() -> None:
+    """One-time, untimed numba JIT warmup so FIT_TIMEOUT only budgets real compute.
+
+    F6_hard_nested_ratio_three_engineered_atoms (BROAD_N=25000, fe_max_steps=2) was
+    measured timing out at >300s under normal JIT in CI. Root-caused via cProfile: a
+    cold run costs ~100-120s almost entirely inside numba's ``_compile_for_args``
+    (first-time JIT compilation of the njit kernels this formula's wide FE scan
+    touches), while a SECOND, warm-cache call to the identical fit measured 0.045s --
+    the algorithm itself is cheap, the timeout was tripping on compile time. Whichever
+    BROAD case happens to run first on a given xdist worker pays that cold tax alone
+    inside its own FIT_TIMEOUT window; under CI compile-contention (many workers
+    JIT-compiling concurrently) that tax can exceed the quiet-machine measurement.
+    Runs at collection time (module import has no pytest-timeout attached) with a
+    throwaway small-n fit exercising the same fe_max_steps=2 kernel signatures, so the
+    cost is paid once per worker process, untimed, before any BROAD case's clock starts.
+    """
+    if os.environ.get("NUMBA_DISABLE_JIT") == "1":
+        # Interpreted execution has no compile cost to amortize; warming here would
+        # just add dead weight (the widened factor=8 FIT_TIMEOUT already covers it).
+        return
+    rng = np.random.default_rng(0)
+    n = 300
+    df = pd.DataFrame(
+        {
+            "a": rng.uniform(1, 5, n),
+            "b": rng.uniform(1, 5, n),
+            "c": rng.uniform(1, 5, n),
+            "d": rng.uniform(0, 2 * np.pi, n),
+            "e": rng.normal(0, 1, n),
+        }
+    )
+    y = pd.Series((df["a"] ** 2 / df["b"] + np.log(df["c"])) / (1.0 + np.sin(df["d"]) ** 2) + 0.3 * df["e"], name="y")
+    try:
+        MRMR(verbose=0, random_seed=0, fe_max_steps=2, redundancy_policy="drop").fit(df, y)
+    except Exception:
+        pass
+
+
+_warm_up_numba_kernels()
+
+
 def _artifact_path(name: str) -> str:
     """In-repo (env-overridable) path for liveness/ledger artifacts. The previous
     hardcoded ``D:/Temp/...`` silently vanished on any box without a D: drive
