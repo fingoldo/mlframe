@@ -213,7 +213,7 @@ def _plugin_mi_classif_cuda(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> f
     return float(res[0])
 
 
-# MI dispatcher backend choice. The 2026-05-20 fix routes through the
+# MI dispatcher backend choice. Routes through the
 # ``pyutilz.performance.kernel_tuning.cache`` infrastructure (already used for
 # joint_hist_batched) instead of hardcoded global thresholds. The KTC
 # pipeline:
@@ -223,7 +223,7 @@ def _plugin_mi_classif_cuda(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> f
 #   2. On cache miss: auto-tune sweep (~10-30s once per host) measures
 #      the (n_samples, k) grid and persists.
 #   3. Fallback (no pyutilz / no cuda): hand-coded measurements per HW
-#      fingerprint - on GTX 1050 Ti cc 6.1 (2026-05-20 sweep):
+#      fingerprint - on GTX 1050 Ti cc 6.1 (measured sweep):
 #      single-col cuda from n>=75k, batch (k>=5) cuda from n>=10k.
 # Env-var ``MLFRAME_MI_BACKEND`` (``njit`` / ``cuda``) still force-
 # overrides regardless of cache.

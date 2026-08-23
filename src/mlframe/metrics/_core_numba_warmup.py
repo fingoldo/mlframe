@@ -159,7 +159,7 @@ def _prewarm_numba_cache_body():
                 from joblib.parallel import cpu_count as _cc
                 _cc()
             except Exception:
-                # Wave 43 (2026-05-20): daemon thread is fire-and-forget; without
+                # daemon thread is fire-and-forget; without
                 # this debug log a failure of the perf prefetch would be completely
                 # invisible. Keep the swallow (failure has no semantic effect, the
                 # main path calls cpu_count again later) but at least surface it.
@@ -169,7 +169,7 @@ def _prewarm_numba_cache_body():
     except Exception as e:  # nosec B110 - non-trivial body
         logger.warning("cpu_count-prefetch thread launch failed, skipping: %s", e, exc_info=True)
 
-    # iter199 (2026-05-23): pre-warm polars group_by + agg path. c0042 binary
+    # Pre-warm polars group_by + agg path. c0042 binary
     # profile attributed 2.557s to a single group_by(...).agg(...) call in
     # _per_group_predict_polars on the first invocation per process. polars'
     # query optimizer / Rust hash-aggregate kernel has a ~2-3s cold-start cost
@@ -272,7 +272,7 @@ def _prewarm_numba_cache_body():
     except Exception as e:  # nosec B110 - non-trivial body
         logger.warning("ece/brier-decomposition/ice kernels warmup failed, skipping: %s", e, exc_info=True)
 
-    # iter192 (2026-05-23): also prewarm fast_aucs_per_group_optimized with
+    # Also prewarm fast_aucs_per_group_optimized with
     # group_ids supplied (different numba signature than group_ids=None) and
     # the (bool, float64) brier through the public wrapper to hit BOTH _seq
     # and _par branches. c0037 binary profile attributed 693ms compile to
@@ -329,7 +329,7 @@ def _prewarm_numba_cache_body():
     _skip_par_prewarm = _os.environ.get("MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL") == "1"
     _yt_f64 = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.float64)
     _yp_f64 = np.array([0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6, 0.5, 0.5], dtype=np.float64)
-    # 2026-08-16: this used to be ONE big try/except spanning brier/log_loss/pr_recall/subset_accuracy/
+    # This used to be ONE big try/except spanning brier/log_loss/pr_recall/subset_accuracy/
     # jaccard/logits/mape/prob_separation/mae/mse/r2 -- every CI Linux shard's numba build failed to
     # compile ONE of the earlier kernels (exact culprit unconfirmed; not reproducible on this dev box's
     # numba 0.60.0 -- pyproject pins no numba ceiling below py3.13, so CI resolves a materially newer
@@ -343,7 +343,7 @@ def _prewarm_numba_cache_body():
     try:
         if not _skip_par_prewarm:
             _ = _fast_brier_score_loss_par(_yt_f64, _yp_f64)
-        # iter190 (2026-05-23): also prewarm bool->float64 signature for the
+        # Also prewarm bool->float64 signature for the
         # _par reductions. c0023 profile attributed 4.156s of
         # _compile_for_args to fast_brier_score_loss across 2 fresh compiles
         # -- the (bool, float64) signature emitted by multilabel per-class

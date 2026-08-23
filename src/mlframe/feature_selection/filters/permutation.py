@@ -618,7 +618,7 @@ def parallel_mi(
     dtype: type = np.int32,
     base_seed: np.uint64 = _DEFAULT_BASE_SEED,
     use_su: bool = False,  # SU normalization toggle threaded from mi_direct.
-    perm_offset: int = 0,  # 2026-05-30 Wave 9.1 iter 18: cumulative permutation index offset for n_workers-independent seeding.
+    perm_offset: int = 0,  # cumulative permutation index offset for n_workers-independent seeding.
 ) -> tuple[int, int]:
     """Worker for the joblib pool used by ``mi_direct``. Returns ``(n_failed, n_checked)`` so the caller can aggregate across pool members. ``npermutations=0`` returns ``(0, 0)`` cleanly.
 
@@ -808,7 +808,7 @@ def mi_direct(
         assert freqs_y is not None  # the None branch above always sets classes_y/freqs_y together
         _n_rows = int(factors_data.shape[0])
         _by = int(freqs_y.shape[0])
-        # FUSED single-var fast path (wasted-per-call-work audit, 2026-07-05): the analytic branch
+        # FUSED single-var fast path (wasted-per-call-work audit): the analytic branch
         # needs only the MI scalar + the occupied-x-bin count - it DISCARDS the length-n classes_x
         # that merge_vars(x) builds. For the single-variable relevance x (every MRMR/FE caller passes
         # x=(var,) / x=[0]), ``_relevance_mi_1var_fused`` builds the joint histogram + MI + bx in ONE
@@ -1086,7 +1086,7 @@ def mi_direct(
         #     if nfailed >= max_failed:
         #         original_mi = 0.0
         else:
-            # 2026-05-30 iter573: route to ``parallel_mi_prange`` (the
+            # Route to ``parallel_mi_prange`` (the
             # njit @njit(parallel=True) kernel) for the n_workers<=1 /
             # parallelism="outer" fallback. The kernel was previously
             # gated by ``parallelism == "inner" AND npermutations >
@@ -1099,9 +1099,9 @@ def mi_direct(
             # MRMR.fit). ``parallel_mi_prange`` implements the SAME
             # per-iter LCG (Knuth multiplicative hash + PCG step) so
             # the (nfailed, n_checked) output is bit-equivalent to what
-            # the legacy Python loop produced - the Wave 9.1 iter-18
-            # fix (PRESERVED in this routing) aligned the seeding
-            # schemes for exactly this reason. Below the kernel call
+            # the legacy Python loop produced - the two seeding schemes
+            # were deliberately aligned (PRESERVED in this routing) for
+            # exactly this reason. Below the kernel call
             # the early-stop ``if nfailed >= max_failed: original_mi = 0``
             # branch is preserved because ``parallel_mi_prange`` runs
             # the full budget (no early exit - prange iterations are

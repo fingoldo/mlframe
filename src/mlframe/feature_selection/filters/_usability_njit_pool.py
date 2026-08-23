@@ -791,7 +791,7 @@ def score_pair_combos(x1, x2, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_co
         choice = _usability_fallback_choice(n_rows, nc)
 
     # CPU path: use the UNARY-TABLE kernels (precompute each operand's distinct unary transforms once;
-    # bit-identical to the recompute-per-combo twins, ~1.4x faster - 2026-06-21). ``nu_tab`` = highest
+    # bit-identical to the recompute-per-combo twins, ~1.4x faster). ``nu_tab`` = highest
     # op-code present + 1 so the table is indexed directly by the op-codes in ua_arr/ub_arr. The
     # recompute-per-combo originals (_pair_combo_mi_njit[_parallel]) are kept as the tuner's measured
     # CPU bodies + an instant rollback (feedback_keep_all_kernel_versions).

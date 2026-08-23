@@ -456,7 +456,7 @@ def fast_calibration_report(
         if rendered:
             fragments.append(rendered)
 
-    # 2026-04-27 Session 7 batch 8 (user feedback): insert a hard line
+    # Per user feedback: insert a hard line
     # break after the ``LL=`` fragment so the metrics-string doesn't
     # render as one ~200-char wall. Two-line layout reads naturally:
     # line 1 = calibration / loss family (ICE / BR / ECE / CMAEW / LL),

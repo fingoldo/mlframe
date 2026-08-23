@@ -617,7 +617,7 @@ def usability_greedy(
         logger.debug("shortlist auto-sizing failed, keeping the caller-provided shortlist: %s", e)
 
     rng = np.random.default_rng(int(seed))
-    # BALANCED PARTITION (audit fix, 2026-06-13): a random ``rng.integers(0, n_folds)`` multinomial
+    # BALANCED PARTITION (audit fix): a random ``rng.integers(0, n_folds)`` multinomial
     # assignment can leave a fold EMPTY at small n / large n_folds -> an empty TRAIN fold crashes
     # ``fit`` and an empty TEST fold yields a NaN MAE that poisons the per-fold consistency gate. A
     # shuffled ``arange(n) % k`` partition guarantees every fold has floor/ceil(n/k) >= 1 rows.
@@ -626,7 +626,7 @@ def usability_greedy(
     rng.shuffle(folds)
     mi_max = max((c.mi for c in pool), default=1.0) or 1.0
 
-    # INCREMENTAL CV (2026-06-18, was PERF TODO 2026-06-13): the regression scorer no longer refits a
+    # INCREMENTAL CV (was a PERF TODO): the regression scorer no longer refits a
     # StandardScaler+LinearRegression for every (candidate, fold). ``StandardScaler -> LinearRegression
     # (fit_intercept=True)`` predictions are INVARIANT to per-column affine scaling, so they equal a raw
     # mean-CENTERED OLS-with-intercept fit; that lets us work with the centered normal equations directly.
@@ -769,7 +769,7 @@ def usability_greedy(
         indicator minus its predicted probability; with no prior selection it falls back to the (train-fold) mean/
         prior-centered residual over all rows. This pre-rank only bounds the candidate pool the greedy's expensive
         per-step CV evaluates - the actual commit decision is always the CV-MAE/logloss improvement."""
-        # HELD-OUT residual (audit fix, 2026-06-13): fit on the fold-0-out train rows but score the
+        # HELD-OUT residual (audit fix): fit on the fold-0-out train rows but score the
         # candidate correlation on the HELD-OUT fold-0 residual only - the prior code predicted over
         # ALL rows (in-sample for the ~(k-1)/k training rows), which is the leakage the module's
         # "held-out residual" design explicitly avoids. The no-selection case uses the mean residual

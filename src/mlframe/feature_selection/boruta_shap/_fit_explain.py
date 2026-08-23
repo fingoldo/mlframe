@@ -620,7 +620,7 @@ def explain(self):
     _y_multi = hasattr(self.y, "shape") and getattr(self.y, "ndim", 1) >= 2 and self.y.shape[1] > 1
     if self.classification or _y_multi:
         # for some reason shap returns values wrapped in a list of length 1
-        # Wave 29 P1 fix: pre-fix wrapped the raw return
+        # pre-fix wrapped the raw return
         # in ``np.array(...)`` BEFORE the ``isinstance(..., list)``
         # check, which made the list branch unreachable on modern
         # SHAP that returns ``list[ndarray]`` for multi-class. As a

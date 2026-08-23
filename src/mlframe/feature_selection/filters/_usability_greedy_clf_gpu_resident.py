@@ -113,7 +113,7 @@ def usability_greedy_clf_gpu_resident(
             # LogisticRegression ALWAYS fits multinomial (softmax) for >2 classes via lbfgs, in the
             # SYMMETRIC (over-parametrised, full C-class) coefficient space, applying the L2 penalty
             # (C=1.0) to those symmetric coefficients with the intercept UNPENALISED. Two roads, both
-            # re-measured with fresh evidence (2026-06-28, sklearn 1.8.0, GTX 1050 Ti / cupy 13.6):
+            # re-measured with fresh evidence (sklearn 1.8.0, GTX 1050 Ti / cupy 13.6):
             #
             #   (1) A resident Newton in sklearn's OWN symmetric basis is structurally SINGULAR. The
             #       per-class block Hessian has the softmax sum-to-zero null direction; the L2 penalty

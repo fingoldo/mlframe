@@ -92,7 +92,7 @@ def _compute_extremality_matrix(X: pd.DataFrame, columns: Optional[Sequence[str]
     # either C- or F-ordered -- both measured, neither helps) and isn't internally batched the way a
     # loop of per-column 1-D argsort calls effectively is.
     #
-    # PERF WIN (2026-08-04, incidental to a profiling cycle): the note above only ever compared two NUMPY
+    # PERF WIN (incidental to a profiling cycle): the note above only ever compared two NUMPY
     # forms and never tried njit. Replaced the per-column Python loop with `_extremality_matrix_njit`
     # (parallel njit, one thread per column) -- parallelises across cores instead of running serially.
     extremality = np.full((n_rows, n_cols), np.nan, dtype=np.float64)

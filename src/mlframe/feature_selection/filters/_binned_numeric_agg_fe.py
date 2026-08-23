@@ -678,7 +678,7 @@ def binned_numeric_agg_with_recipes(
     if not gsel or not asel:
         return X, [], []
 
-    # PRE-CAP (2026-06-17 perf): the OOF fit below previously computed all gsel x asel pairs and only
+    # PRE-CAP (perf): the OOF fit below previously computed all gsel x asel pairs and only
     # then capped to top-``max_pairs`` by ``pair_rank`` (group MI, then agg variance) - both already
     # known here, BEFORE any OOF work. Rank + cap the (group, agg) pairs up front and compute OOF for
     # only those, so per_cell_stats_bincount runs ``max_pairs`` times instead of |gsel|*|asel| (e.g.
@@ -801,7 +801,7 @@ def binned_numeric_agg_with_recipes(
         # Keep it only when its observed CMI clears BOTH the absolute floor AND that ceiling - genuine cell-conditional
         # signal sits far above the null, redundant re-encodings sit at it.
         #
-        # 2026-06-22 FWER fix: the ceiling was the raw MAX over only 15 permutations. With ~1/(n_perm+1) effective
+        # FWER fix: the ceiling was the raw MAX over only 15 permutations. With ~1/(n_perm+1) effective
         # alpha per candidate and many (group, agg, stat) candidates over many fits, a high-variance noise stat
         # (kurt sits at the top of the moment ladder) eventually clears the noisy max by luck - measured on the
         # all-noise null frame (seed=6, clf): binagg_kurt(n2|qbin(n4)) cmi=0.02507 vs max-of-15=0.02279 (PASS by
