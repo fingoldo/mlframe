@@ -446,6 +446,12 @@ dev = [
     "black==26.5.1 ; python_version >= '3.10'",  # pinned exact, matching CI's `BLACK_CMD: uvx black==26.5.1` (black-filtered.yml)
                                     # -- same rationale as ruff above; verified 2026-07-18 this exact version is
                                     # already filtered-Black-clean across the whole src/mlframe tree (no reformat).
+    "dtaidistance>=2.3 ; python_version >= '3.10'",  # mlframe.signal.dtw's dtw_cpu backend + tests/signal_tests/test_dtw.py's
+                                    # CPU-path tests (pytest.importorskip("dtaidistance")) -- never installed anywhere before
+                                    # (deptry's own ignore list even names it "known optional"), so every one of that file's
+                                    # CPU tests silently skipped in CI, leaving dtw.py at a genuine 0% coverage despite the
+                                    # test file existing and passing locally. No manylinux wheel for 3.9 at the pinned floor
+                                    # (2.4.0) -- gated the same way black is, above; importorskip already handles the 3.9 leg.
     "mypy>=1.0",
     "bandit>=1.7",
     "pre-commit>=3.3",
