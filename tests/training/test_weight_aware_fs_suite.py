@@ -125,6 +125,11 @@ def _mrmr_fs_config(use_sample_weights_in_fs: bool) -> FeatureSelectionConfig:
             "quantization_nbins": 5,
             "use_simple_mode": True,
             "random_seed": _SEED,
+            "nbins_strategy_kwargs": {"mdlp_fast_mode": True},  # 20-80x faster per column; not testing MDLP accuracy here
+            "fe_max_steps": 0,  # this test only checks sample_weight forwarding + target types, not FE quality --
+            # the FE stage's joblib.Parallel dispatch doesn't inherit max_runtime_mins (thread-local deadline,
+            # documented gap: doesn't cross the joblib worker boundary), so it stayed the dominant cost even
+            # after mdlp_fast_mode (313s -> 301s, barely moved) under NUMBA_DISABLE_JIT=1.
         },
     )
 

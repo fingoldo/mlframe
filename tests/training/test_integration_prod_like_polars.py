@@ -697,6 +697,14 @@ def test_polars_enum_with_mrmr_feature_selection(model_name, tmp_path):
                 "min_nonzero_confidence": 0.9,
                 "max_consec_unconfirmed": 3,
                 "full_npermutations": 3,
+                "nbins_strategy_kwargs": {"mdlp_fast_mode": True},  # 20-80x faster per column; not testing MDLP accuracy here
+                "fe_max_steps": 0,  # this test verifies the polars->pandas->multi-model pipeline with MRMR in the
+                # middle, not FE candidate quality -- the FE stage's joblib.Parallel dispatch doesn't inherit
+                # max_runtime_mins (thread-local deadline, documented gap: doesn't cross the joblib worker
+                # boundary), so under NUMBA_DISABLE_JIT=1 it can hang past pytest-timeout regardless of the
+                # deadline setting above. Disabling FE entirely (core MRMR selection over raw features still
+                # runs) sidesteps the gap without weakening this test's actual assertions (trained + target
+                # types present, no feature-quality checks).
             },
         ),
     )
@@ -761,6 +769,14 @@ def test_polars_kitchen_sink_all_trees_mrmr_multi_target_types(tmp_path):
                 "min_nonzero_confidence": 0.9,
                 "max_consec_unconfirmed": 3,
                 "full_npermutations": 3,
+                "nbins_strategy_kwargs": {"mdlp_fast_mode": True},  # 20-80x faster per column; not testing MDLP accuracy here
+                "fe_max_steps": 0,  # this test verifies the polars->pandas->multi-model pipeline with MRMR in the
+                # middle, not FE candidate quality -- the FE stage's joblib.Parallel dispatch doesn't inherit
+                # max_runtime_mins (thread-local deadline, documented gap: doesn't cross the joblib worker
+                # boundary), so under NUMBA_DISABLE_JIT=1 it can hang past pytest-timeout regardless of the
+                # deadline setting above. Disabling FE entirely (core MRMR selection over raw features still
+                # runs) sidesteps the gap without weakening this test's actual assertions (trained + target
+                # types present, no feature-quality checks).
             },
         ),
     )
