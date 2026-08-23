@@ -40,6 +40,10 @@ class TestMRMRFeatureSelection:
             verbose=0,
             max_runtime_mins=1,
             quantization_nbins=5,
+            nbins_strategy_kwargs={"mdlp_fast_mode": True},  # smoke-tests MRMR mechanics, not MDLP accuracy -- the
+            # validated-split default (20-80x slower per column, see supervised_binning.py's own docstring) turns
+            # this into a multi-minute test for no benefit; confirmed live under NUMBA_DISABLE_JIT=1 (1.24M
+            # _entropy_from_counts_njit calls, ~670s under cProfile) that this was crashing/timing out slow CI legs.
             use_simple_mode=True,
             n_workers=1,
         )
@@ -60,6 +64,10 @@ class TestMRMRFeatureSelection:
             verbose=0,
             max_runtime_mins=1,
             quantization_nbins=5,
+            nbins_strategy_kwargs={"mdlp_fast_mode": True},  # smoke-tests MRMR mechanics, not MDLP accuracy -- the
+            # validated-split default (20-80x slower per column, see supervised_binning.py's own docstring) turns
+            # this into a multi-minute test for no benefit; confirmed live under NUMBA_DISABLE_JIT=1 (1.24M
+            # _entropy_from_counts_njit calls, ~670s under cProfile) that this was crashing/timing out slow CI legs.
             use_simple_mode=True,
             n_workers=1,
         )
@@ -81,6 +89,10 @@ class TestMRMRFeatureSelection:
             verbose=0,
             max_runtime_mins=1,
             quantization_nbins=5,
+            nbins_strategy_kwargs={"mdlp_fast_mode": True},  # smoke-tests MRMR mechanics, not MDLP accuracy -- the
+            # validated-split default (20-80x slower per column, see supervised_binning.py's own docstring) turns
+            # this into a multi-minute test for no benefit; confirmed live under NUMBA_DISABLE_JIT=1 (1.24M
+            # _entropy_from_counts_njit calls, ~670s under cProfile) that this was crashing/timing out slow CI legs.
             use_simple_mode=True,
             n_workers=1,
         )
@@ -101,6 +113,10 @@ class TestMRMRFeatureSelection:
             verbose=0,
             max_runtime_mins=1,
             quantization_nbins=5,
+            nbins_strategy_kwargs={"mdlp_fast_mode": True},  # smoke-tests MRMR mechanics, not MDLP accuracy -- the
+            # validated-split default (20-80x slower per column, see supervised_binning.py's own docstring) turns
+            # this into a multi-minute test for no benefit; confirmed live under NUMBA_DISABLE_JIT=1 (1.24M
+            # _entropy_from_counts_njit calls, ~670s under cProfile) that this was crashing/timing out slow CI legs.
             use_simple_mode=True,
             n_workers=1,
         )
@@ -118,6 +134,10 @@ class TestMRMRFeatureSelection:
             verbose=0,
             max_runtime_mins=1,
             quantization_nbins=5,
+            nbins_strategy_kwargs={"mdlp_fast_mode": True},  # smoke-tests MRMR mechanics, not MDLP accuracy -- the
+            # validated-split default (20-80x slower per column, see supervised_binning.py's own docstring) turns
+            # this into a multi-minute test for no benefit; confirmed live under NUMBA_DISABLE_JIT=1 (1.24M
+            # _entropy_from_counts_njit calls, ~670s under cProfile) that this was crashing/timing out slow CI legs.
             skip_retraining_on_same_content=True,
             n_workers=1,
         )
@@ -145,6 +165,10 @@ class TestMRMRFeatureSelection:
             max_runtime_mins=0.5,
             quantization_method=method,
             quantization_nbins=5,
+            nbins_strategy_kwargs={"mdlp_fast_mode": True},  # smoke-tests MRMR mechanics, not MDLP accuracy -- the
+            # validated-split default (20-80x slower per column, see supervised_binning.py's own docstring) turns
+            # this into a multi-minute test for no benefit; confirmed live under NUMBA_DISABLE_JIT=1 (1.24M
+            # _entropy_from_counts_njit calls, ~670s under cProfile) that this was crashing/timing out slow CI legs.
             use_simple_mode=True,
             n_workers=1,
         )
@@ -393,6 +417,7 @@ class TestFeatureSelectionIntegration:
                     "n_workers": 1,
                     "quantization_nbins": 5,
                     "use_simple_mode": True,
+                    "nbins_strategy_kwargs": {"mdlp_fast_mode": True},  # 20-80x faster per column; not testing MDLP accuracy here
                 },
             ),
         )
@@ -421,7 +446,14 @@ class TestFeatureSelectionIntegration:
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
             feature_selection_config=FeatureSelectionConfig(
-                use_mrmr_fs=True, mrmr_kwargs={"verbose": 0, "max_runtime_mins": 1, "n_workers": 1, "quantization_nbins": 5}
+                use_mrmr_fs=True,
+                mrmr_kwargs={
+                    "verbose": 0,
+                    "max_runtime_mins": 1,
+                    "n_workers": 1,
+                    "quantization_nbins": 5,
+                    "nbins_strategy_kwargs": {"mdlp_fast_mode": True},
+                },
             ),
         )
 
@@ -464,6 +496,7 @@ class TestCombinedPipelines:
                     "n_workers": 1,
                     "quantization_nbins": 5,
                     "use_simple_mode": True,
+                    "nbins_strategy_kwargs": {"mdlp_fast_mode": True},  # 20-80x faster per column; not testing MDLP accuracy here
                 },
             ),
         )
@@ -503,7 +536,10 @@ class TestCombinedPipelines:
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
-            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"verbose": 0, "max_runtime_mins": 1, "n_workers": 1}),
+            feature_selection_config=FeatureSelectionConfig(
+                use_mrmr_fs=True,
+                mrmr_kwargs={"verbose": 0, "max_runtime_mins": 1, "n_workers": 1, "nbins_strategy_kwargs": {"mdlp_fast_mode": True}},
+            ),
         )
 
         assert TargetTypes.REGRESSION in models
@@ -548,7 +584,10 @@ class TestCombinedPipelines:
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
-            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"verbose": 0, "max_runtime_mins": 1, "n_workers": 1}),
+            feature_selection_config=FeatureSelectionConfig(
+                use_mrmr_fs=True,
+                mrmr_kwargs={"verbose": 0, "max_runtime_mins": 1, "n_workers": 1, "nbins_strategy_kwargs": {"mdlp_fast_mode": True}},
+            ),
         )
 
         assert TargetTypes.REGRESSION in models
