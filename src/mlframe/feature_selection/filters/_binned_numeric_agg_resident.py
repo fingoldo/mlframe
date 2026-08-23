@@ -78,7 +78,7 @@ def _per_cell_moments_stable_gpu(cp, codes_g, v_g, n_cells: int):
     (a plain additive sum, safe from cancellation); pass 2 scatter-adds CENTERED powers
     ``(x-mean_c)**2/3/4`` directly, gathering each row's cell mean via ``mean[codes_g]`` (a known-size,
     sync-free gather -- same pattern as the OOF fold loop's existing ``per_s[codes_g]`` row lookup).
-    Replaces the old raw-power ``(cnt, s1, s2, s3, s4)`` form (2026-08-23): that form's skew/kurt derivation
+    Replaces the old raw-power ``(cnt, s1, s2, s3, s4)`` form: that form's skew/kurt derivation
     is catastrophically unstable on large-offset/small-scale columns -- see :func:`_derive_cell_stats`
     (host) for the confirmed failure mode this device twin shared (same arithmetic FORM, by design, for
     bit-parity -- which meant the same bug)."""

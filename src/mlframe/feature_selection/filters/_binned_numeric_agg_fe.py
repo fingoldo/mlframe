@@ -137,7 +137,7 @@ def resolve_nbins_and_stats(n: int, stats: Sequence[str], nbins_base: int, k: in
 def _derive_cell_stats(cnt: np.ndarray, mean: np.ndarray, cm2: np.ndarray, cm3: np.ndarray, cm4: np.ndarray, stats: Sequence[str]) -> dict:
     """Derive per-cell statistics from ``(cnt, mean, cm2, cm3, cm4)`` -- CENTERED moment sums (see
     :func:`_per_cell_moments_stable` / :func:`_per_cell_centered_moments_njit`), not the raw-power form this
-    replaced (2026-08-23): the raw-power binomial-expansion derivation (``s3/n - 3*mean*s2/n + 2*mean**3``)
+    replaced: the raw-power binomial-expansion derivation (``s3/n - 3*mean*s2/n + 2*mean**3``)
     is catastrophically unstable on large-offset/small-scale columns -- the exact bug class already fixed for
     the whole-column global stats (:func:`_global_stats_all`) and target-encoding's per-category moments
     (``_target_encoding_fe.py``), confirmed live here too via a 1e13-scale skew/kurt error on synthetic data
@@ -387,7 +387,7 @@ def fit_binned_numeric_agg(
                     # from the full-data mean, so full - test is invalid for cm2/cm3/cm4, unlike the old
                     # raw-power form) -- compute TRAIN directly on its own rows instead of full-minus-test
                     # (mirrors the same correctness-over-the-old-buggy-optimization tradeoff already made
-                    # for target-encoding's per-category moments, 2026-08-22 -- see _target_encoding_fe.py).
+                    # for target-encoding's per-category moments -- see _target_encoding_fe.py).
                     train_fin_idx = finite_idx[fold_of_finite != f]
                     t_cnt, t_mean, t_cm2, t_cm3, t_cm4 = _per_cell_moments_stable(codes[train_fin_idx], av[train_fin_idx], n_cells)
                     per = _derive_cell_stats(t_cnt, t_mean, t_cm2, t_cm3, t_cm4, kept_stats)
