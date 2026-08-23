@@ -132,6 +132,13 @@ jobs:
           # this job's own 10-1000x-slower framing means a test that normally finishes in a couple
           # seconds under JIT can legitimately need north of 1200s here. 3600s gives real headroom;
           # the 340m job cap still bounds a shard that has several such tests back to back.
+          # --ignore=tests/training/test_core.py: mirrors ci.yml's identical exclusion (see that
+          # workflow's own comment on the same line) -- this file's xdist_group-pinned CatBoost
+          # classes repeatedly OOM-killed the runner ("node down: Not properly terminated") here
+          # too, confirmed directly in this workflow's own job logs (worker crashed while running
+          # TestTextAndEmbeddingFeatures tests), for the identical root cause: a second xdist
+          # worker's own memory stacks against the pinned group's on the same 7GB host. Run
+          # separately by test-heavy-serial-numba-disabled below.
           pytest -m "not slow and not gpu and not multigpu" \
             --splits 8 --group ${{ matrix.group }} \
             -n 4 \
@@ -146,6 +153,7 @@ jobs:
             --show-progress \
             --durations-path=.test_durations_numba_disabled \
             --ignore=tests/feature_selection/biz_val \
+            --ignore=tests/training/test_core.py \
             tests/feature_engineering/ \
             tests/feature_selection/ \
             tests/metrics/ \
@@ -191,6 +199,57 @@ jobs:
           retention-days: 3
           include-hidden-files: true
           if-no-files-found: ignore
+
+  # Dedicated, always-serial (-n 1, no second worker) home for tests/training/test_core.py under
+  # NUMBA_DISABLE_JIT=1 -- mirrors ci.yml's test-heavy-serial job; see that job's own comment and
+  # this workflow's --ignore=tests/training/test_core.py line above for the full root-cause
+  # rationale (a second xdist worker's memory stacking against this file's pinned CatBoost classes
+  # on the same 2-vCPU/7GB runner, confirmed via this workflow's own "node down" job logs).
+  # timeout-minutes is generous (180, vs ci.yml's 60) since NUMBA_DISABLE_JIT=1 makes any njit-body
+  # work inside train_mlframe_models_suite's FE stage 10-1000x slower than normal JIT -- untested
+  # at this scale, so headroom is deliberately wide rather than guessed tight.
+  test-heavy-serial-numba-disabled:
+    if: github.event_name != 'workflow_dispatch' || inputs.run
+    name: pytest with NUMBA_DISABLE_JIT=1 (test_core.py, serial)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      NUMBA_DISABLE_JIT: "1"
+      PYTHONUNBUFFERED: "1"
+      MLFRAME_FAST: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Clone & install pyutilz (sibling dependency)
+        run: |
+          git clone https://github.com/fingoldo/pyutilz.git
+          git -C pyutilz checkout 0ebbdc23472a3a0827731588c5fe36a63dc393ad  # pinned 2026-08-19, see X_CICD_DEPENDENCIES-1 -- register_default_cache DEFAULT-cache-fallback diagnostics
+          pip install "./pyutilz[system,pandas,polars,database]"
+
+      - name: Install mlframe with all runtime extras + dev tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[all,dev]"
+
+      - name: Run tests/training/test_core.py (serial) with NUMBA_DISABLE_JIT=1
+        run: |
+          pytest tests/training/test_core.py \
+            -m "not slow and not gpu and not multigpu" \
+            -n 1 \
+            -p no:randomly \
+            --timeout=3600 \
+            --durations=200 \
+            --no-cov \
+            --show-progress
 
   # Folds every shard's freshly-measured `.test_durations_numba_disabled` slice back into one file
   # and commits it, mirroring ci.yml's `merge-test-durations` job -- keeps pytest-split's shard
