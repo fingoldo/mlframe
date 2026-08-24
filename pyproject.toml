@@ -546,6 +546,7 @@ markers = [
     "sklearn_matrix: include in the multi-sklearn-version CI matrix (.github/workflows/sklearn-matrix-ci.yml); tests pin scikit-learn surface contracts across the supported version range (1.6-1.8) and must NOT depend on private internals. See tests/test_meta/test_sklearn_matrix_marker_invariants.py for the convention.",
     "strict_cpu_only: test requires a CPU-only run (CUDA_VISIBLE_DEVICES=\"\") and must be skipped/fail fast otherwise; see tests/feature_selection/biz_val/conftest.py.",
     "xdist_group(name): pytest-xdist builtin -- pins a test to a single xdist worker. Normally auto-registered by the xdist plugin itself, but --strict-markers has been observed to reject it as unregistered on at least one CI shard; registered explicitly here so --strict-markers never depends on plugin load order.",
+    "flaky(reruns=N, reruns_delay=N, only_rerun=[...]): pytest-rerunfailures builtin -- reruns a test on failure instead of a one-shot FAILED. Normally auto-registered by the plugin itself, but --strict-markers has been observed to reject builtin plugin markers as unregistered on at least one CI shard (see xdist_group above for the same pattern); registered explicitly here so --strict-markers never depends on plugin load order. Scope only_rerun to a known transient-noise signature (e.g. AssertionError on a timing threshold) so a genuine deterministic bug is never silently retried into passing.",
 ]
 filterwarnings = [
     "error::DeprecationWarning:mlframe",

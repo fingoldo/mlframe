@@ -12,7 +12,7 @@
   "feature_selection/_benchmarks/wide_data_scaling/test_progress_shared.py::first",
   "feature_selection/_benchmarks/wide_data_scaling/test_progress_shared.py::second",
   "feature_selection/regression/test_regression_mrmr_audit_2026_07_22.py::datou30/InfoNet",
-  "feature_selection/regression/test_regression_mrmr_audit_2026_07_22.py::py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@",
+  "feature_selection/regression/test_regression_mrmr_audit_2026_07_22.py::pyutilz @ git+https://github.com/fingoldo/pyutilz.git@",
   "integrations/test_mlflow.py::%22",
   "integrations/test_mlflow.py::&#x27;",
   "integrations/test_mlflow.py::&amp;",
