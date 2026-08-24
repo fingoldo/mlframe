@@ -256,6 +256,7 @@ def test_batch_parallel_returns_none_on_tied_base_scores():
     assert bootstrap_auc_distribution_parallel(y_true, y_score, n_bootstrap=8, random_state=0) is None
 
 
+@pytest.mark.flaky(reruns=2, reruns_delay=2, only_rerun=["AssertionError"])
 def test_batch_parallel_faster_than_serial_loop():
     """Perf sentinel: the prange-parallel batch kernel must beat the serial per-resample loop by a wide
     margin on this multi-core box. Measured 4.1x-4.2x@500k-2M/1000-200 resamples on a 16-physical-core

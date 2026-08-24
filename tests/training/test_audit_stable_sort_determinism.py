@@ -179,14 +179,17 @@ def test_metrics_core_uses_stable_argsort() -> None:
     # (the fast_roc_auc / fast_aucs kernels + the central
     # ``_argsort_desc_for_metrics`` dispatcher), per-group AUC scans live
     # in ``_auc_per_group.py``, the ``-y_p`` argsort lives in the
-    # classification-report binning helper in
-    # ``_classification_report.py``. Concatenate all module sources so
-    # the count assertions still pin the post-fix totals.
+    # classification-report binning helper in ``_classification_report.py``.
+    # The batch ICE/AUC kernel's ``-y_pred_NK`` argsort was later carved out
+    # of ``_classification_report.py`` into its own sibling, ``_ice_kernel.py``.
+    # Concatenate all module sources so the count assertions still pin the
+    # post-fix totals.
     src = (
         _read("metrics/core.py")
         + _read("metrics/_core_auc_brier.py")
         + _read("metrics/_auc_per_group.py")
         + _read("metrics/classification/_classification_report.py")
+        + _read("metrics/classification/_ice_kernel.py")
     )
     # The pre-fix shape was 3 inline ``np.argsort(y_score, kind="stable")``
     # call-sites; the refactor consolidated them into ONE stable-sort

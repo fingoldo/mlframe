@@ -3462,9 +3462,14 @@ def test_regression_group_aware_mrmr_default_params_still_fit():
 # ---------------------------------------------------------------------------
 
 
-def test_regression_pyproject_pins_py_ci_shared_commit():
-    """Regression: pyutilz/py-ci-shared were declared as bare git URLs with no pinned commit SHA -- pip install resolved to whatever the default branch
-    happened to be.
+def test_regression_pyproject_pins_pyutilz_commit():
+    """Regression: pyutilz was declared as a bare git URL with no pinned commit SHA -- pip install resolved to
+    whatever the default branch happened to be.
+
+    py-ci-shared was deliberately UNPINNED later (commit 5526d8250, 2026-08-23): it is first-party CI tooling
+    that never reaches a PyPI consumer of mlframe, and a moved ref there needs an attacker who could already
+    push to this account -- see that commit's message for the full rationale. Only pyutilz's pin is still a
+    real regression risk (a third-party-consumable runtime dependency), so only it is asserted here.
     """
     from pathlib import Path
 
@@ -3472,7 +3477,7 @@ def test_regression_pyproject_pins_py_ci_shared_commit():
     if not pyproject_path.exists():
         pytest.skip("pyproject.toml not found at expected repo-root-relative path")
     text = pyproject_path.read_text(encoding="utf-8")
-    assert "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@" in text
+    assert "pyutilz @ git+https://github.com/fingoldo/pyutilz.git@" in text
 
 
 # ---------------------------------------------------------------------------

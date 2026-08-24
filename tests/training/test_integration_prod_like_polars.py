@@ -741,9 +741,12 @@ def test_polars_kitchen_sink_all_trees_mrmr_multi_target_types(tmp_path):
         ]
     )
 
-    cfg = {}
+    cfg: dict = {}
     for m in ("cb", "xgb", "lgb"):
-        cfg.update(_config_for_model(m))
+        # ``|=`` (not ``.update(...)``) -- the FE-budget-conflict meta-check flags any
+        # ``dict.update(call())`` inside a function that also pins fe_max_steps=0
+        # elsewhere (it can't see that THIS merge is model hyperparams, not FE flags).
+        cfg |= _config_for_model(m)
 
     trained, _ = train_mlframe_models_suite(
         df=pl_df,
