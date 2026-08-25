@@ -101,9 +101,19 @@ def test_cache_thread_safety_and_hit_behavior(tmp_path):
     _assert_edges_identical(ref, warm, "cache-warm")
 
 
+@skip_under_numba_disabled_jit
 def test_narrow_frame_no_regression():
     # p=50 < threshold -> must use serial path, no thread overhead, identical edges.
-    """Narrow frame no regression."""
+    """Narrow frame no regression.
+
+    Skipped under NUMBA_DISABLE_JIT=1: same class as test_speedup_mdlp -- this is fundamentally a
+    wall-clock timing assertion (t_par < t_serial * 2.0 + 0.5), meaningless once the per_feature_edges
+    dispatcher forces serial-only execution under disabled JIT (see per_feature_edges's own
+    numba.config.DISABLE_JIT gate) regardless of n_jobs, AND n=20000/p=50 interpreted MDLP is slow
+    enough to risk the workflow's per-test timeout on its own. Bit-identity correctness at this
+    n_jobs>1-forced-to-serial config is already covered at smaller/faster scale by
+    test_parallel_edges_bit_identical and test_low_card_and_sparse_branches_identical.
+    """
     X = _make_X(20000, 50, seed=2)
     y = _make_y(X, seed=2)
     t0 = time.perf_counter()

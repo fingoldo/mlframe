@@ -196,7 +196,20 @@ def evaluate_gain(
                 if confidence_mode and count_cand_nbins(Z, factors_nbins) > max_confirmation_cand_nbins:
                     additional_knowledge = 0.0  # this is needed to skip checking against hi cardinality approved factors
                 else:
-                    if mrmr_relevance_algo == "fleuret":
+                    # Gated on mrmr_redundancy_algo, not mrmr_relevance_algo: the conditional-MI machinery
+                    # below is the REDUNDANCY mechanism (I(X;Y|Z) checked against every already-selected Z),
+                    # independent of how relevance itself was scored (direct_gain, computed by the caller
+                    # before entering evaluate_gain at all). Gating on mrmr_relevance_algo instead left
+                    # `additional_knowledge` completely unset -- UnboundLocalError -- for the entirely valid
+                    # mrmr_relevance_algo="pld" + mrmr_redundancy_algo="fleuret" (the redundancy default)
+                    # combination, since neither branch of the original condition ever ran for it. The `or
+                    # mrmr_relevance_algo == "fleuret"` disjunct preserves every previously-reachable
+                    # combination byte-for-byte (relevance="fleuret" always entered this branch before,
+                    # regardless of redundancy_algo, so it still does). mrmr_redundancy_algo in
+                    # {"pld_max", "pld_mean"} is a separate, still-unimplemented gap (see
+                    # _screen_predictors.py's docstring) -- not addressed here, and not newly broken by this
+                    # fix (that combination never worked either way).
+                    if mrmr_redundancy_algo == "fleuret" or mrmr_relevance_algo == "fleuret":
                         # additional_knowledge = I(X; Y | Z) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z); I(X, Z) = entropy_x + entropy_z - entropy_xz.
                         key_found = False
                         if not confidence_mode:

@@ -27,6 +27,8 @@ import warnings
 import numpy as np
 import pandas as pd
 
+from tests.conftest import skip_under_numba_disabled_jit
+
 warnings.filterwarnings("ignore")
 
 
@@ -60,8 +62,18 @@ def _fit_jmim_order2():
     return sel
 
 
+@skip_under_numba_disabled_jit
 def test_jmim_cache_parity_and_hits():
-    """Cache ON vs a forced-MISS kill path -> identical selection; cache must HIT."""
+    """Cache ON vs a forced-MISS kill path -> identical selection; cache must HIT.
+
+    Skipped under NUMBA_DISABLE_JIT=1: proving cache engagement here requires enough order-2
+    greedy rounds to actually recur within ``max_runtime_mins=2`` -- under interpreted execution
+    (10-1000x slower per the workflow's own documented slowdown) the fit doesn't get far enough
+    within that budget to generate any hits, an interpreted-speed artifact unrelated to whether
+    the cache mechanism itself is correct (confirmed live via numba-coverage-nightly: cache
+    populated 311 entries, 0 hits, vs. the JIT-mode-verified ~117k hits this test's own docstring
+    documents for the identical n=4000/p=40 order-2 configuration).
+    """
     from mlframe.feature_selection.filters import evaluation as ev
     from mlframe.feature_selection.filters import _confirm_predictor as cp
     import numba

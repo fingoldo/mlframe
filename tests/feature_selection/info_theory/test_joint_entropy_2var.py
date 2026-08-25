@@ -19,6 +19,7 @@ from mlframe.feature_selection.filters.info_theory import (
     joint_entropy_2var,
     entropy,
 )
+from tests.conftest import skip_under_numba_disabled_jit
 
 
 def _ref_merge_entropy(fd, a, b, fn_arr, dtype=np.int32):
@@ -46,12 +47,23 @@ def _make(kind, n, k, nbins, seed=0):
     raise ValueError(kind)
 
 
+@skip_under_numba_disabled_jit
 @pytest.mark.parametrize("kind", ["uniform", "sparse", "skew", "const"])
 @pytest.mark.parametrize("n", [37, 600, 2407])
 def test_joint_entropy_2var_byte_identical(kind, n):
     """Fused joint entropy is EXACTLY (abs-diff 0.0) ``entropy(joint_freqs_2var(...))`` AND
     ``entropy(merge_vars(...)[1])`` across data shapes/distributions -- so the DCD SU score is
-    bit-identical to the two-call form it replaces."""
+    bit-identical to the two-call form it replaces.
+
+    Skipped under NUMBA_DISABLE_JIT=1: this pins bit-identity between two COMPILED code paths --
+    under real njit both the fused and two-call forms compile to the same deterministic op order,
+    but interpreted (plain numpy) execution of the same source can genuinely reorder floating-point
+    accumulation differently between the two, landing 1-2 ULPs (~2.2e-15, ~10x float64 epsilon)
+    apart -- confirmed live via numba-coverage-nightly across all 12 parametrizations. Not a real
+    divergence (mathematically negligible, and the compiled contract this test exists to gate is
+    inapplicable once compilation itself is off), matching skip_under_numba_disabled_jit's own
+    documented reasoning.
+    """
     nbins = 10
     k = 40
     fd = _make(kind, n, k, nbins, seed=hash((kind, n)) % 2**31)
@@ -72,9 +84,14 @@ def test_joint_entropy_2var_byte_identical(kind, n):
     assert max_vs_merge == 0.0, f"fused != entropy(merge_vars): max diff {max_vs_merge}"
 
 
+@skip_under_numba_disabled_jit
 def test_joint_entropy_2var_unequal_nbins():
     """Columns with DIFFERENT bin counts: class id ``ca + cb*nb_a`` -> same entropy as the
-    two-call form (which inherits merge_vars' encoding)."""
+    two-call form (which inherits merge_vars' encoding).
+
+    Skipped under NUMBA_DISABLE_JIT=1: same compiled-vs-interpreted FP-reorder class as
+    test_joint_entropy_2var_byte_identical above (confirmed live: 4.4e-16, ~2x float64 epsilon).
+    """
     rng = np.random.default_rng(7)
     n = 500
     fd = np.empty((n, 2), dtype=np.int32)
