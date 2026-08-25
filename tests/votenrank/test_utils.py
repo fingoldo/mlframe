@@ -28,6 +28,73 @@ def test_ranking2top_returns_max_indices():
 
 
 @pytest.mark.fast
+def test_kendall_tau_identical_rankings_is_one():
+    """kendall_tau between AM and an identical ranking is 1.0; each non-AM column gets its own entry."""
+    from mlframe.votenrank.utils import kendall_tau
+
+    df = pd.DataFrame(
+        {
+            "AM": ["1: a", "2: b", "3: c", "4: d"],
+            "method1": ["1: a", "2: b", "3: c", "4: d"],
+            "method2": ["1: d", "2: c", "3: b", "4: a"],  # fully reversed vs AM
+        }
+    )
+    out = kendall_tau(df)
+    assert set(out) == {"method1", "method2"}
+    assert out["method1"] == pytest.approx(1.0)
+    assert out["method2"] == pytest.approx(-1.0)
+
+
+@pytest.mark.fast
+def test_agreement_rate_top_k_full_overlap():
+    """agreement_rate: a method whose top-k models exactly match AM's top-k scores 1.0."""
+    from mlframe.votenrank.utils import agreement_rate
+
+    df = pd.DataFrame(
+        {
+            "AM": ["1: a", "2: b", "3: c", "4: d"],
+            "method1": ["1: b", "2: a", "3: d", "4: c"],  # same top-2 set {a,b}, different order
+        }
+    )
+    out = agreement_rate(df, k=2, top_k=True)
+    assert out == {"method1": 1.0}
+
+
+@pytest.mark.fast
+def test_agreement_rate_no_overlap():
+    """agreement_rate: a method whose top-k models share nothing with AM's top-k scores 0.0."""
+    from mlframe.votenrank.utils import agreement_rate
+
+    df = pd.DataFrame(
+        {
+            "AM": ["1: a", "2: b", "3: c", "4: d"],
+            "method1": ["1: d", "2: c", "3: b", "4: a"],  # top-1 is "d", AM top-1 is "a"
+        }
+    )
+    out = agreement_rate(df, k=1, top_k=True)
+    assert out == {"method1": 0.0}
+
+
+@pytest.mark.fast
+def test_agreement_rate_bottom_k_and_clamping():
+    """agreement_rate: bottom_k mode reads from the tail; k larger than the subset clamps instead of inflating the denominator."""
+    from mlframe.votenrank.utils import agreement_rate
+
+    df = pd.DataFrame(
+        {
+            "AM": ["1: a", "2: b", "3: c"],
+            "method1": ["1: c", "2: b", "3: a"],
+        }
+    )
+    # bottom-1: AM's last row is "c", method1's last row is "a" -> no overlap.
+    out_bottom = agreement_rate(df, k=1, top_k=False)
+    assert out_bottom == {"method1": 0.0}
+    # k=10 clamped to the actual subset size (3), not divided by the raw k=10.
+    out_clamped = agreement_rate(df, k=10, top_k=True)
+    assert out_clamped == {"method1": 1.0}
+
+
+@pytest.mark.fast
 def test_tracker_filename_format():
     """tracker_filename composes model/task/dirpath into expected pattern."""
     from mlframe.votenrank.utils import tracker_filename
