@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 
 from mlframe.metrics.core import compute_probabilistic_multiclass_error
+from tests.conftest import perf_speedup_floor
 
 
 def _softmax_probs(rng, n, k):
@@ -159,7 +160,8 @@ def test_perf_sentinel_index_faster_than_recompute():
     # the other. min-of-N already absorbs brief spikes but not sustained contention through the window.
     to = min(timeit.repeat(old, number=2, repeat=4, timer=time.process_time)) / 2
     tn = min(timeit.repeat(new, number=2, repeat=4, timer=time.process_time)) / 2
-    assert to / tn >= 1.5, f"fast route should be >=1.5x; got {to / tn:.2f}x (old={to * 1e3:.1f}ms new={tn * 1e3:.1f}ms)"
+    floor = perf_speedup_floor(1.5)
+    assert to / tn >= floor, f"fast route should be >={floor:.2f}x; got {to / tn:.2f}x (old={to * 1e3:.1f}ms new={tn * 1e3:.1f}ms)"
 
 
 def test_report_non_arange_labels_fall_back_safely():
