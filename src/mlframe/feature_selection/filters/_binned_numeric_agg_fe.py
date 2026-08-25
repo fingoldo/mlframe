@@ -160,10 +160,16 @@ def _derive_cell_stats(cnt: np.ndarray, mean: np.ndarray, cm2: np.ndarray, cm3: 
             raw = std
         elif stat == "skew":
             m3 = cm3 / safe
-            raw = np.where(std > 1e-9, m3 / std**3, 0.0)
+            # np.where evaluates BOTH branches elementwise before selecting, so m3/std**3 still runs
+            # (and warns) on the std<=1e-9 cells even though their result is discarded -- suppress the
+            # resulting divide/invalid RuntimeWarning locally rather than at every one of this
+            # function's callers; the discarded values are never read.
+            with np.errstate(divide="ignore", invalid="ignore"):
+                raw = np.where(std > 1e-9, m3 / std**3, 0.0)
         elif stat == "kurt":
             m4 = cm4 / safe
-            raw = np.where(m2 > 1e-12, m4 / (m2 * m2) - 3.0, 0.0)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                raw = np.where(m2 > 1e-12, m4 / (m2 * m2) - 3.0, 0.0)
         else:
             raise ValueError(f"binned_numeric_agg stat {stat!r} not in {SUPPORTED_STATS}")
         out[stat] = np.where(cnt > 0, raw, np.nan)

@@ -39,7 +39,12 @@ def _scrub(v: np.ndarray, dtype: Any = np.float64) -> np.ndarray:
     # machinery): 764us -> 269us on a 100k float32 column. _scrub is called ~17k+/retention fit on full-n
     # columns, so this is a direct cut to the pool-build cost. Verified bit-identical over float32/float64 +
     # nan/inf fuzz.
-    a = np.asarray(v, dtype=dtype)
+    # A cast to a narrower dtype (e.g. float64 -> float32) can overflow to +-inf on an extreme
+    # input value -- numpy warns "overflow encountered in cast" even though that's exactly the
+    # non-finite case this function's whole job is to zero out right below. Harmless, suppressed
+    # locally rather than at every caller.
+    with np.errstate(over="ignore"):
+        a = np.asarray(v, dtype=dtype)
     return np.where(np.isfinite(a), a, 0)
 
 
