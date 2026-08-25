@@ -13,12 +13,21 @@ def ranking2top(ranking):
 
 
 def kendall_tau(df):
-    """Kendall tau rank correlation between the arithmetic-mean ("AM") ranking and every other ranking method in ``df``."""
+    """Kendall tau rank correlation between the arithmetic-mean ("AM") ranking and every other ranking method in ``df``.
+
+    scipy>=1.18's array-api promotion rejects raw string labels (``ValueError: could not convert string to
+    float``), so labels are mapped to AM's own integer rank codes before scoring -- only relative order
+    matters for Kendall tau, and every method column is a permutation of the same label set as AM.
+    """
     res_d = {}
     for method, subset in df.items():
         res_d[method] = subset.apply(lambda x: x.split(":")[1].strip()).tolist()
 
-    return {method: round(stats.kendalltau(res_d["AM"], method_top_k)[0], 3) for method, method_top_k in res_d.items() if method != "AM"}
+    am_codes = {label: idx for idx, label in enumerate(res_d["AM"])}
+    am_ranks = [am_codes[label] for label in res_d["AM"]]
+    return {
+        method: round(stats.kendalltau(am_ranks, [am_codes[label] for label in method_top_k])[0], 3) for method, method_top_k in res_d.items() if method != "AM"
+    }
 
 
 def agreement_rate(df, k, top_k=True):

@@ -81,6 +81,7 @@ encode_categoricals  # test_pysr_column_names_collision_free.py / test_pysr_y_tr
 train_texts  # test_provider_registry.py fit(self, train_texts) -- provider Protocol signature parity
 evals_log  # test_trainer.py after_iteration -- LightGBM/CatBoost callback signature parity
 ntree_end  # test_cb_iteration_metrics_target_type.py _RankerModel/_ClassifierModel stubs -- CatBoost predict/predict_proba(pool, ntree_end) signature parity
+tokenizer  # test_fairness_computation.py _fake_scorer -- naive_*_score(model, tokenizer, sentence) real scorer signature parity
 y_i8  # test_split_njit_fallback_logs.py _boom -- real _iterative_stratification_njit(y_i8, r, seed_int) signature parity
 seed_int
 

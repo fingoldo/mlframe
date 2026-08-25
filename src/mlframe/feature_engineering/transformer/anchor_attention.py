@@ -171,7 +171,7 @@ def compute_anchor_attention(
         anchors = _fit_anchors(Xt_std, n_anchors=n_anchors, seed=seed)
         # Hard assignment of train rows to nearest anchor for aggregate computation.
         train_dists = _squared_dists(Xt_std, anchors)
-        # Wave 21 P1: np.argmin returns 0 on all-NaN rows (numpy>=1.18),
+        # np.argmin returns 0 on all-NaN rows (numpy>=1.18),
         # silently bucketing NaN-bearing rows under anchor 0 and
         # contaminating anchor 0's per-row aggregate. Use np.nanargmin,
         # which raises only when an entire row is all-NaN; that case is
