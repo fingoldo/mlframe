@@ -39,6 +39,17 @@ name: numba-coverage-nightly
 on:
   schedule:
     - cron: "0 3 * * *"
+  # Auto-fires on every completed run of the main CI workflow on master (push and merged PRs
+  # alike) -- kept alongside the nightly cron as a fallback in case a given day's last CI run
+  # somehow doesn't fire this (e.g. workflow_run itself failing to deliver). Deliberately
+  # unthrottled per explicit user decision: this workflow already burned the account's whole
+  # monthly GH Actions minutes budget once (2026-07-10, see the block comment above) from running
+  # too often, and firing after every CI-triggering push (which can be many times a day during an
+  # active session) reintroduces that exact risk -- accepted knowingly, not overlooked.
+  workflow_run:
+    workflows: ["CI"]
+    branches: [master]
+    types: [completed]
   workflow_dispatch:
     inputs:
       run:
@@ -57,8 +68,18 @@ jobs:
   numba-disabled-coverage:
     # inputs.run is only populated for a workflow_dispatch event -- for the schedule trigger it's
     # always empty/falsy regardless of the declared default above, so the schedule leg must be let
-    # through explicitly rather than relying on inputs.run alone.
-    if: github.event_name != 'workflow_dispatch' || inputs.run
+    # through explicitly rather than relying on inputs.run alone. workflow_run fires on EVERY
+    # completion of the CI workflow regardless of outcome (success/failure/cancelled) -- only
+    # chain off a genuinely green main CI run, not a red one. Also gated on
+    # workflow_run.event == 'push': this repo is public and CI.yml also triggers on
+    # pull_request, so an unfiltered workflow_run would let an external fork's PR trigger this
+    # job with checkout/write access to the base repo (the classic "pwn request" pattern --
+    # zizmor's dangerous-triggers audit flags bare workflow_run for exactly this). A push to
+    # master already requires write access, so this leg is no more exposed than the schedule/
+    # workflow_dispatch legs.
+    if: |
+      (github.event_name != 'workflow_dispatch' || inputs.run) &&
+      (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
     name: pytest with NUMBA_DISABLE_JIT=1 (kernel-body coverage) (shard ${{ matrix.group }}/8)
     runs-on: ubuntu-latest
     # 340 (near the 360min hosted-runner hard ceiling): under NUMBA_DISABLE_JIT=1, kernel-heavy
@@ -88,6 +109,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -231,6 +253,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Python 3.11
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -265,13 +288,18 @@ jobs:
   # Folds every shard's freshly-measured `.test_durations_numba_disabled` slice back into one file
   # and commits it, mirroring ci.yml's `merge-test-durations` job -- keeps pytest-split's shard
   # balancing current on every nightly run instead of relying solely on file-count balancing
-  # forever. Runs on both the schedule and an explicit workflow_dispatch (this workflow has no
-  # push trigger to gate on the way ci.yml's merge job does).
+  # forever. Runs on the schedule, an explicit workflow_dispatch, or a successful workflow_run
+  # chain-trigger off the main CI workflow.
   merge-test-durations:
     name: Merge + commit .test_durations_numba_disabled
     runs-on: ubuntu-latest
     needs: numba-disabled-coverage
-    if: always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run))
+    if: |
+      always() && (
+        github.event_name == 'schedule' ||
+        (github.event_name == 'workflow_dispatch' && inputs.run) ||
+        (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+      )
     timeout-minutes: 15
     permissions:
       contents: write
