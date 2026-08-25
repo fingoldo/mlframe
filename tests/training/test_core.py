@@ -3776,7 +3776,12 @@ class TestTextAndEmbeddingFeatures:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             feature_types_config=FeatureTypesConfig(text_features=["text_feat"]),
-            reporting_config=common_init_params,
+            # pdp_ice disabled: CatBoost's predict_proba on a text-feature model, called from PDP-ICE's
+            # grid-batched-predict path, has native-crashed the CI worker (segfault, not a Python
+            # exception) on 3.9/3.11/3.13 shards. This test only asserts on fit_params plumbing, not
+            # diagnostic chart content -- see common_init_params' own docstring: pdp_ice is left ON by
+            # default "in case any consuming test's own local override still wants it".
+            reporting_config=common_init_params.model_copy(update={"pdp_ice": False}),
             hyperparams_config={"iterations": 10, "cb_kwargs": {"thread_count": 2}},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -3834,7 +3839,9 @@ class TestTextAndEmbeddingFeatures:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             feature_types_config=FeatureTypesConfig(embedding_features=["emb_feat"]),
-            reporting_config=common_init_params,
+            # pdp_ice disabled: same native-crash risk as the sibling text_features test above
+            # (CatBoost predict_proba on a non-plain-numeric feature model, called from PDP-ICE).
+            reporting_config=common_init_params.model_copy(update={"pdp_ice": False}),
             hyperparams_config={"iterations": 10, "cb_kwargs": {"thread_count": 2}},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
