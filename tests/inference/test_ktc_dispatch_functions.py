@@ -1,11 +1,13 @@
-"""Coverage for two previously-untested KTC-backed backend dispatchers that share the same
-``_ktc_dispatch_shared`` helper contract (env-var override -> KTC measured region -> caller
-fallback): ``inference._ktc_dispatch.choose_logical_constraints_backend`` and
-``votenrank._confidence_gated_blend_ktc_dispatch.choose_confidence_blend_backend``. Their
-``_make_tuner`` closures do real backend timing (njit/cupy) and are exercised indirectly via
-the cache's ``get_or_tune``, not called directly here -- this test targets the DISPATCH
-decision logic (env override / cache-absent / cache-exception fallback), which is what every
-caller actually depends on."""
+"""Coverage for three previously-untested KTC-backed backend dispatchers that share the same
+env-var-override -> KTC-measured-region -> caller-fallback contract:
+``inference._ktc_dispatch.choose_logical_constraints_backend``,
+``votenrank._confidence_gated_blend_ktc_dispatch.choose_confidence_blend_backend``, and
+``calibration._ktc_dispatch.choose_odds_combine_backend`` (the first two route through the
+shared ``_ktc_dispatch_shared`` helper; the third has its own local ``_get_cache``, same
+contract). Their ``_make_tuner`` closures do real backend timing (njit/cupy) and are
+exercised indirectly via the cache's ``get_or_tune``, not called directly here -- this test
+targets the DISPATCH decision logic (env override / cache-absent / cache-exception
+fallback), which is what every caller actually depends on."""
 
 from __future__ import annotations
 
@@ -13,6 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from mlframe.calibration._ktc_dispatch import choose_odds_combine_backend
 from mlframe.inference._ktc_dispatch import choose_logical_constraints_backend
 from mlframe.votenrank._confidence_gated_blend_ktc_dispatch import choose_confidence_blend_backend
 
@@ -119,3 +122,54 @@ class TestChooseConfidenceBlendBackend:
         monkeypatch.setattr("mlframe.votenrank._confidence_gated_blend_ktc_dispatch.get_ktc_cache", lambda: cache)
         out = choose_confidence_blend_backend(1000, fallback="numpy")
         assert out == "numpy"
+
+
+class TestChooseOddsCombineBackend:
+    """choose_odds_combine_backend (calibration._ktc_dispatch) -- has its own local _get_cache, same contract."""
+
+    def test_env_override_wins(self, monkeypatch):
+        """A valid env-var value short-circuits before ever touching the KTC cache."""
+        monkeypatch.setenv("MLFRAME_ODDS_COMBINE_BACKEND", "njit_parallel")
+        out = choose_odds_combine_backend(1000, 3, fallback="njit_single")
+        assert out == "njit_parallel"
+
+    def test_invalid_env_value_is_ignored(self, monkeypatch):
+        """An env value outside the valid backend set is treated as unset."""
+        monkeypatch.setenv("MLFRAME_ODDS_COMBINE_BACKEND", "bogus")
+        monkeypatch.setattr("mlframe.calibration._ktc_dispatch._get_cache", lambda: None)
+        out = choose_odds_combine_backend(1000, 3, fallback="njit_single")
+        assert out == "njit_single"
+
+    def test_cache_unavailable_returns_fallback(self, monkeypatch):
+        """_get_cache() returning None falls straight to the caller's fallback."""
+        monkeypatch.delenv("MLFRAME_ODDS_COMBINE_BACKEND", raising=False)
+        monkeypatch.setattr("mlframe.calibration._ktc_dispatch._get_cache", lambda: None)
+        out = choose_odds_combine_backend(500, 2, fallback="njit_parallel")
+        assert out == "njit_parallel"
+
+    def test_cache_returns_dict_with_backend_choice(self, monkeypatch):
+        """A cache hit returning a {'backend_choice': ...} dict is unpacked."""
+        monkeypatch.delenv("MLFRAME_ODDS_COMBINE_BACKEND", raising=False)
+        cache = MagicMock()
+        cache.get_or_tune.return_value = {"backend_choice": "cupy"}
+        monkeypatch.setattr("mlframe.calibration._ktc_dispatch._get_cache", lambda: cache)
+        out = choose_odds_combine_backend(1_000_000, 5, fallback="njit_single")
+        assert out == "cupy"
+
+    def test_cache_returns_unrecognized_backend_falls_back(self, monkeypatch):
+        """A cache result naming a backend outside the valid set is discarded, not trusted verbatim."""
+        monkeypatch.delenv("MLFRAME_ODDS_COMBINE_BACKEND", raising=False)
+        cache = MagicMock()
+        cache.get_or_tune.return_value = {"backend_choice": "gibberish"}
+        monkeypatch.setattr("mlframe.calibration._ktc_dispatch._get_cache", lambda: cache)
+        out = choose_odds_combine_backend(1000, 3, fallback="njit_single")
+        assert out == "njit_single"
+
+    def test_cache_lookup_exception_falls_back_silently(self, monkeypatch):
+        """A cache.get_or_tune exception never propagates -- falls back to the caller's default."""
+        monkeypatch.delenv("MLFRAME_ODDS_COMBINE_BACKEND", raising=False)
+        cache = MagicMock()
+        cache.get_or_tune.side_effect = RuntimeError("boom")
+        monkeypatch.setattr("mlframe.calibration._ktc_dispatch._get_cache", lambda: cache)
+        out = choose_odds_combine_backend(1000, 3, fallback="njit_single")
+        assert out == "njit_single"
