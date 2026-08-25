@@ -376,7 +376,17 @@ def _predict_grid_batched(
     if type(carrier_sample).__module__.startswith("polars"):
         import polars as pl
 
-        big = pl.concat([carrier_sample] * g)
+        # pl.concat defaults to rechunk=False: concatenating the SAME frame g times produces a
+        # multi-chunk column whose g chunks all alias the identical underlying Arrow buffer. Every
+        # native segfault caught chasing this crash (4 independent CI failures, 3.9/3.11/3.13,
+        # TestTextAndEmbeddingFeatures) traced to this exact line -- consistent with CatBoost's
+        # native embedding/text-column extraction not being safe against multi-chunk (let alone
+        # buffer-aliased) Arrow input, matching two prior fixed incidents of the same class
+        # (d0d7fa7de, c825c0c8b: CatBoost fed a carrier that doesn't match what it registered at
+        # fit time). rechunk=True materialises ONE contiguous, non-aliased buffer before the
+        # column substitution below, at the cost of one extra copy of an already-small
+        # (g*sample, n_cols) block -- negligible next to the predict call it feeds.
+        big = pl.concat([carrier_sample] * g, rechunk=True)
         name = col_name if col_name is not None else carrier_sample.columns[col_idx]
         expr = pl.Series(name, repeat_vals)
         big = big.with_columns(expr.alias(name))
