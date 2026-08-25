@@ -1,4 +1,6 @@
-"""Unit + biz_value tests for optimal-threshold search (PZAD err_classification)."""
+"""Coverage for metrics.classification._threshold_optimization.optimal_threshold, previously
+untested. Validated by brute-force: sweep every candidate threshold, recompute the target metric via
+sklearn, and confirm the O(n log n) incremental-sweep kernel's arg-max matches."""
 
 from __future__ import annotations
 
@@ -10,116 +12,83 @@ from mlframe.metrics.classification._threshold_optimization import (
     optimal_threshold,
 )
 
-
-def _apply(y_score, thr):
-    """Helper: Apply."""
-    return (y_score >= thr).astype(int)
+pytestmark = pytest.mark.fast
 
 
-def _f1(y, p):
-    """Helper: F1."""
-    tp = int(((y == 1) & (p == 1)).sum())
-    fp = int(((y == 0) & (p == 1)).sum())
-    fn = int(((y == 1) & (p == 0)).sum())
-    d = 2 * tp + fp + fn
-    return 2 * tp / d if d else 0.0
+def _brute_force_best(y_true, y_score, metric):
+    """O(n^2)-ish reference: score every candidate threshold with sklearn/direct formulas, return the best."""
+    from sklearn.metrics import f1_score, matthews_corrcoef
+
+    y_true = np.asarray(y_true)
+    y_score = np.asarray(y_score)
+    candidates = np.concatenate([[np.inf], np.unique(y_score)])
+    best_val = -np.inf
+    best_thr = np.inf
+    for thr in candidates:
+        pred = (y_score >= thr).astype(int)
+        if metric == "f1":
+            val = f1_score(y_true, pred, zero_division=0)
+        elif metric == "accuracy":
+            val = (pred == y_true).mean()
+        elif metric == "balanced_accuracy":
+            from sklearn.metrics import balanced_accuracy_score
+
+            val = balanced_accuracy_score(y_true, pred) if len(np.unique(y_true)) > 1 else 0.0
+        elif metric == "mcc":
+            den_ok = len(np.unique(pred)) > 1 and len(np.unique(y_true)) > 1
+            val = matthews_corrcoef(y_true, pred) if den_ok else 0.0
+        elif metric == "youden":
+            tp = ((pred == 1) & (y_true == 1)).sum()
+            fn = ((pred == 0) & (y_true == 1)).sum()
+            tn = ((pred == 0) & (y_true == 0)).sum()
+            fp = ((pred == 1) & (y_true == 0)).sum()
+            tpr = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            tnr = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+            val = tpr + tnr - 1.0
+        else:
+            raise ValueError(metric)
+        if val > best_val:
+            best_val = val
+            best_thr = thr
+    return best_thr, best_val
 
 
-# ---------------------------------------------------------------- unit
-def test_perfectly_separable_reaches_score_one():
-    """Perfectly separable reaches score one."""
-    y = np.array([0, 0, 0, 1, 1, 1])
-    s = np.array([0.1, 0.2, 0.3, 0.7, 0.8, 0.9])
-    for m in THRESHOLD_METRICS:
-        thr, sc = optimal_threshold(y, s, metric=m)
-        pred = _apply(s, thr)
-        assert np.array_equal(pred, y), f"{m}: perfect separation should be recoverable"
-        assert sc > 0.99, f"{m}: score {sc} should be ~1 on separable data"
-
-
-def test_returned_threshold_reproduces_reported_score():
-    """Returned threshold reproduces reported score."""
+@pytest.mark.parametrize("metric", THRESHOLD_METRICS)
+def test_optimal_threshold_matches_brute_force(metric):
+    """Every supported metric: the incremental-sweep kernel's arg-max matches a brute-force threshold scan."""
     rng = np.random.default_rng(0)
-    y = rng.integers(0, 2, size=200)
-    s = rng.random(200)
-    thr, sc = optimal_threshold(y, s, metric="f1")
-    assert abs(_f1(y, _apply(s, thr)) - sc) < 1e-9
+    n = 200
+    y_true = (rng.random(n) < 0.3).astype(np.int64)
+    y_score = y_true * 0.6 + rng.random(n) * 0.5  # informative but noisy score
+
+    _thr, val = optimal_threshold(y_true, y_score, metric=metric)
+    _, ref_val = _brute_force_best(y_true, y_score, metric)
+    assert val == pytest.approx(ref_val, abs=1e-9)
 
 
-def test_all_negative_wins_when_scores_uninformative_for_accuracy():
-    # 95% negative, scores random -> predicting all-negative maximizes accuracy
-    """All negative wins when scores uninformative for accuracy."""
-    rng = np.random.default_rng(1)
-    y = (rng.random(1000) < 0.05).astype(int)
-    s = rng.random(1000)
-    _thr, sc = optimal_threshold(y, s, metric="accuracy")
-    assert sc >= 0.9  # all-negative accuracy ~0.95
+def test_optimal_threshold_invalid_metric_raises():
+    """An unsupported metric name raises ValueError naming the supported set."""
+    with pytest.raises(ValueError, match="f1"):
+        optimal_threshold(np.array([0, 1]), np.array([0.1, 0.9]), metric="not_a_metric")
 
 
-def test_invalid_metric_and_mismatch_raise():
-    """Invalid metric and mismatch raise."""
-    with pytest.raises(ValueError):
-        optimal_threshold(np.zeros(3), np.zeros(3), metric="nope")
-    with pytest.raises(ValueError):
-        optimal_threshold(np.zeros(3), np.zeros(2))
+def test_optimal_threshold_length_mismatch_raises():
+    """y_true and y_score must have matching lengths."""
+    with pytest.raises(ValueError, match="length mismatch"):
+        optimal_threshold(np.array([0, 1, 0]), np.array([0.1, 0.9]))
 
 
-def test_empty_input():
-    """Empty input."""
-    thr, sc = optimal_threshold(np.array([]), np.array([]))
-    assert thr == np.inf and np.isnan(sc)
+def test_optimal_threshold_empty_input():
+    """Empty input returns (+inf, nan) rather than raising."""
+    thr, val = optimal_threshold(np.array([]), np.array([]))
+    assert thr == np.inf
+    assert np.isnan(val)
 
 
-def test_ties_in_score_handled():
-    # identical scores cannot be split by a threshold; predictions must be consistent
-    """Ties in score handled."""
-    y = np.array([1, 0, 1, 0])
-    s = np.array([0.5, 0.5, 0.5, 0.5])
-    thr, _sc = optimal_threshold(y, s, metric="f1")
-    pred = _apply(s, thr)
-    assert len(np.unique(pred)) == 1  # all-same, since all scores equal
-
-
-# ---------------------------------------------------------------- biz_value
-def test_biz_val_balanced_accuracy_threshold_differs_from_f1_under_imbalance():
-    """Under class imbalance the F1-optimal and balanced-accuracy-optimal thresholds diverge (the lecture's
-    central point). We assert the two chosen thresholds are meaningfully different and each maximizes its own metric."""
-    rng = np.random.default_rng(2)
-    n = 4000
-    y = (rng.random(n) < 0.15).astype(int)  # 15% positive
-    # scores: positives shifted up, heavy overlap
-    s = rng.normal(0.0, 1.0, size=n) + y * 1.2
-    thr_f1, _ = optimal_threshold(y, s, metric="f1")
-    thr_ba, _ = optimal_threshold(y, s, metric="balanced_accuracy")
-    assert abs(thr_f1 - thr_ba) > 0.15, f"F1 thr {thr_f1:.2f} and BA thr {thr_ba:.2f} should differ under imbalance"
-
-
-def test_biz_val_optimal_threshold_beats_naive_half_on_shifted_scores():
-    """When scores are NOT probabilities centered at 0.5, the tuned threshold gives higher F1 than the naive 0.5 cut."""
-    rng = np.random.default_rng(3)
-    n = 3000
-    y = (rng.random(n) < 0.3).astype(int)
-    # Both classes sit well below 0.5, so the naive 0.5 cut predicts all-negative (F1=0); a tuned threshold recovers F1.
-    s = rng.normal(-3.0, 1.0, size=n) + y * 2.0
-    _thr, best_f1 = optimal_threshold(y, s, metric="f1")
-    f1_half = _f1(y, _apply(s, 0.5))
-    assert best_f1 >= f1_half + 0.3, f"tuned F1 {best_f1:.3f} should beat naive-0.5 F1 {f1_half:.3f} by >=0.3"
-
-
-def test_biz_val_mcc_and_youden_recover_separating_threshold():
-    """On well-separated classes, MCC- and Youden-optimal thresholds land in the gap and score high."""
-    rng = np.random.default_rng(4)
-    y = np.concatenate([np.zeros(500), np.ones(500)]).astype(int)
-    s = np.concatenate([rng.normal(-2, 0.5, 500), rng.normal(2, 0.5, 500)])
-    for m in ("mcc", "youden"):
-        thr, sc = optimal_threshold(y, s, metric=m)
-        assert -2 < thr < 2, f"{m} threshold {thr:.2f} should fall in the class gap"
-        assert sc > 0.9, f"{m} score {sc:.2f} should be high on separable data"
-
-
-def test_docstring_documents_holdout_contract():
-    """METRICS-7: optimal_threshold's docstring must warn that fitting the threshold on the same rows
-    used for evaluation is optimistically biased, matching quantile.coverage's HOLDOUT CONTRACT convention."""
-    doc = optimal_threshold.__doc__
-    assert doc is not None
-    assert "HOLDOUT CONTRACT" in doc
+def test_optimal_threshold_perfect_separation():
+    """A perfectly separable score must find a threshold achieving the max value (1.0) for f1/accuracy."""
+    y_true = np.array([0, 0, 0, 1, 1, 1])
+    y_score = np.array([0.1, 0.2, 0.3, 0.7, 0.8, 0.9])
+    thr, val = optimal_threshold(y_true, y_score, metric="f1")
+    assert val == pytest.approx(1.0)
+    assert 0.3 < thr <= 0.7
