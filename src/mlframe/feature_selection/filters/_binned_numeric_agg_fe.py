@@ -368,7 +368,7 @@ def fit_binned_numeric_agg(
             # Full-data moments, needed anyway for the ``full``/``lut`` recipe lookup below.
             full_cnt, full_mean, full_cm2, full_cm3, full_cm4 = _per_cell_moments_stable(codes[finite], av[finite], n_cells)
             if not recipe_only:
-                # RECIPE_ONLY (device-born binagg, 2026-07-02) skips the 5-fold OOF feat-column build - the
+                # RECIPE_ONLY (device-born binagg) skips the 5-fold OOF feat-column build - the
                 # per-fold gather + np.where over the full n rows, the FE scan's single largest GPU-idle host
                 # stage. The device-born path (binned_numeric_agg_with_recipes) fits recipes-only, gates on the
                 # device from those recipes, then builds the OOF for the FEW survivors - so the OOF of the

@@ -232,7 +232,7 @@ def build_usability_candidate_pool(
             then combines their quantile codes into one joint code (``code_a * nbins + code_b``) before scoring."""
             return float(marginal_mi_binned_fixed_y(_pj_codes[p[0]] * _nb + _pj_codes[p[1]], *y_terms))
 
-        # DEVICE-BATCHED pair ranking (kernel-residency, 2026-07-02): under the resident strict path score ALL
+        # DEVICE-BATCHED pair ranking (kernel-residency): under the resident strict path score ALL
         # pair joint MIs in ONE fused device call (binned_mi_from_codes_gpu computes the SAME plain plug-in MI,
         # no MM bias) instead of the per-pair host loop. The per-base codes are already the device binner's
         # partition (host copies of the strict _quantile_bin route), so the joint codes are identical; the MI
@@ -261,7 +261,7 @@ def build_usability_candidate_pool(
         pairs.sort(key=lambda p: marg[p[0]] + marg[p[1]], reverse=True)
         pairs = pairs[:max_pairs]
 
-    # FUSED njit PER-PAIR ENUMERATION (retention path only, 2026-06-18). On the retention path
+    # FUSED njit PER-PAIR ENUMERATION (retention path only). On the retention path
     # (``rank_pairs_by_joint_mi=True``) the per-pair ``|unary|^2*|binary|`` value+quantile-bin+MI triple
     # is Python-dispatched per combo (~3.5s/pair at n=10000, ~62s of a structured fit). When every
     # preset op is njit-coded, score ALL combos for a pair in ONE njit(parallel) kernel

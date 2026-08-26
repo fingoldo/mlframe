@@ -674,8 +674,7 @@ def per_feature_edges(
             logger.debug("per_feature_edges: cache disabled (%s)", exc)
             _cache = None
 
-    # 2026-05-30 Wave 9.1 fix (synergy-detection regression): if a
-    # column has few unique finite values (e.g. binary target, small
+    # If a column has few unique finite values (e.g. binary target, small
     # categorical, ordinal already pre-encoded), quantile-based
     # binning collapses to 1-bin because ``_edges_from_quantiles``
     # returns empty edges after ``np.unique`` dedup. Detect these
@@ -783,8 +782,7 @@ def per_feature_edges(
             )
         else:
             raise NotImplementedError(method_resolved)
-        # 2026-05-30 Wave 9.1 fix (synergy-detection regression): when a
-        # supervised binning method (MDLP / Mah / optimal_joint /
+        # When a supervised binning method (MDLP / Mah / optimal_joint /
         # fayyad_irani) returns zero inner edges - meaning the feature
         # was collapsed to a single bin because individually it has no
         # MI with y - the joint MI on any tuple containing this feature
@@ -903,7 +901,7 @@ def per_feature_edges(
     # order is preserved (results written by column index), so edges are deterministic
     # and bit-identical regardless of n_jobs / thread scheduling.
     #
-    # Bench (MDLP, n=20000, default njit backend, 2026-06-19, this machine):
+    # Bench (MDLP, n=20000, default njit backend, this machine):
     #   p=500 : serial 2.45s -> parallel 0.78s  (3.14x)
     #   p=2000: serial 10.10s -> parallel 3.20s (3.16x)
     #   p=50  : serial 0.28s -> parallel 0.22s  (gated to serial, no regression)
