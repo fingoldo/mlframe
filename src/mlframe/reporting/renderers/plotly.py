@@ -572,15 +572,36 @@ class PlotlyRenderer:
             # One vectorized colormap sample for the whole grid instead of one matplotlib call per cell
             # (bit-identical to the per-cell auto_text_color -- verified in bench_auto_text_colors_batch.py).
             text_colors = auto_text_colors_batch(np.where(np.isfinite(mat), mat, vmin), cmap_name, vmin=vmin, vmax=vmax)
-            for i in range(mat.shape[0]):
-                for j in range(mat.shape[1]):
-                    fig.add_annotation(
+            # ``fig.add_annotation`` re-validates the WHOLE growing ``layout.annotations`` tuple on every
+            # call (plotly's own O(n) per-mutation cost), so a per-cell loop is O(cells^2) -- measured
+            # 534x at 400 cells (bench_annotation.py). The first call is kept as-is to let plotly resolve
+            # this subplot's xref/yref (row/col -> axis-reference mapping is plotly-internal, not worth
+            # reimplementing); every remaining cell reuses that SAME xref/yref (constant for a fixed
+            # row/col) and is appended in ONE batched tuple assignment instead of N individual calls.
+            cells = [(i, j) for i in range(mat.shape[0]) for j in range(mat.shape[1])]
+            if cells:
+                i0, j0 = cells[0]
+                fig.add_annotation(
+                    text=format(p.cell_text[i0, j0], p.text_format),
+                    x=p.col_labels[j0], y=p.row_labels[i0],
+                    showarrow=False,
+                    font=dict(color=text_colors[i0, j0], size=10),
+                    row=row, col=col,
+                )
+                last = fig.layout.annotations[-1]
+                xref, yref = last.xref, last.yref
+                rest = [
+                    go.layout.Annotation(
                         text=format(p.cell_text[i, j], p.text_format),
                         x=p.col_labels[j], y=p.row_labels[i],
+                        xref=xref, yref=yref,
                         showarrow=False,
                         font=dict(color=text_colors[i, j], size=10),
-                        row=row, col=col,
                     )
+                    for i, j in cells[1:]
+                ]
+                if rest:
+                    fig.layout.annotations = fig.layout.annotations + tuple(rest)
         # Iso-value contour overlays at named matrix levels (PSI 0.10 / 0.25 triage lines). Drawn as a line-only
         # go.Contour over the categorical axes: plotly maps category positions to 0..n-1, so the numeric contour
         # x/y (the label lists) line up cell-for-cell with the heatmap.
@@ -917,15 +938,23 @@ class PlotlyRenderer:
                     idx = (row - 1) * n_cols + col
                     suffix = "" if idx == 1 else str(idx)
                     xref, yref = f"x{suffix}", f"y{suffix}"
-                    for a, d, dirn in zip(e_src, e_dst, directed):
-                        if dirn:
-                            fig.add_annotation(
-                                x=node_x[d], y=node_y[d], ax=node_x[a], ay=node_y[a],
-                                xref=xref, yref=yref, axref=xref, ayref=yref,
-                                showarrow=True, arrowhead=2, arrowsize=1.2,
-                                arrowwidth=1.0, arrowcolor="rgba(80,80,80,0.6)",
-                                standoff=6, startstandoff=6,
-                            )
+                    # ``fig.add_annotation`` re-validates the whole growing ``layout.annotations`` tuple per
+                    # call (O(n) per mutation -> O(n^2) over a loop, measured 534x at 400 calls in
+                    # bench_annotation.py / the sibling heatmap fix above); xref/yref are already resolved
+                    # here (constant for this subplot), so batch every arrow into ONE tuple assignment.
+                    arrows = [
+                        go.layout.Annotation(
+                            x=node_x[d], y=node_y[d], ax=node_x[a], ay=node_y[a],
+                            xref=xref, yref=yref, axref=xref, ayref=yref,
+                            showarrow=True, arrowhead=2, arrowsize=1.2,
+                            arrowwidth=1.0, arrowcolor="rgba(80,80,80,0.6)",
+                            standoff=6, startstandoff=6,
+                        )
+                        for a, d, dirn in zip(e_src, e_dst, directed)
+                        if dirn
+                    ]
+                    if arrows:
+                        fig.layout.annotations = fig.layout.annotations + tuple(arrows)
                 except Exception:
                     logger.debug("network arrows skipped (subplot axis-ref resolution failed)", exc_info=True)
 
