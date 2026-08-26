@@ -67,16 +67,33 @@ jobs:
       - name: Install coverage
         run: pip install "coverage[toml]>=7.0"
 
-      - name: Find the latest completed numba-coverage-nightly run
+      - name: Find the latest completed numba-coverage-nightly run with real data
         id: find_numba_run
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          run_id=$(gh run list --repo "${{ github.repository }}" --workflow numba-coverage.yml \
-            --status completed --limit 1 --json databaseId --jq '.[0].databaseId')
+          # The single most-recent "completed" run (any conclusion) can be one that got
+          # cancelled (e.g. a rapid follow-up push's cancel-in-progress) before any shard reached
+          # its raw-coverage upload step -- still "completed", but zero matching artifacts.
+          # Confirmed live: codecov-full run 32923232739 picked exactly such a run (32910618774,
+          # conclusion "cancelled") and failed with "No raw coverage data downloaded". Walk back
+          # through the last 10 completed runs and pick the first that actually has a
+          # raw-coverage-numba-* artifact, instead of trusting "latest" blindly.
+          run_id=""
+          for candidate in $(gh run list --repo "${{ github.repository }}" --workflow numba-coverage.yml \
+              --status completed --limit 10 --json databaseId --jq '.[].databaseId'); do
+            count=$(gh api "repos/${{ github.repository }}/actions/runs/$candidate/artifacts" \
+              --jq '[.artifacts[] | select(.name | startswith("raw-coverage-numba-"))] | length')
+            if [ "$count" -gt 0 ]; then
+              run_id="$candidate"
+              echo "Using run $run_id ($count raw-coverage-numba-* artifact(s))"
+              break
+            fi
+            echo "Skipping run $candidate (0 raw-coverage-numba-* artifacts)"
+          done
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
           if [ -z "$run_id" ]; then
-            echo "No completed numba-coverage-nightly run found."
+            echo "No completed numba-coverage-nightly run with real data found in the last 10 runs."
           fi
 
       - name: Download numba-coverage-nightly's raw shard data
@@ -93,7 +110,7 @@ jobs:
           run-id: ${{ steps.find_numba_run.outputs.run_id }}
           repository: ${{ github.repository }}
 
-      - name: Find the latest completed ci.yml run on master
+      - name: Find the latest completed ci.yml run on master with real data
         id: find_ci_run
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -101,14 +118,27 @@ jobs:
           # `--status success` requires the WHOLE 66-job matrix run to conclude success, which
           # with a matrix this wide practically never happens even when most/all shards' own
           # coverage data is fine -- that made this step find zero runs and silently combine 0
-          # ci.yml shards every time. Use `--status completed` (any conclusion) instead, same as
-          # the numba-coverage-nightly lookup above: a per-shard raw-coverage-ci-* artifact only
-          # exists if that shard's own "Upload raw coverage data" step ran (py3.11,
-          # success-or-failure), so partial-failure runs still contribute real, valid data.
-          run_id=$(gh run list --repo "${{ github.repository }}" --workflow ci.yml --branch master \
-            --status completed --limit 1 --json databaseId --jq '.[0].databaseId')
+          # ci.yml shards every time. `--status completed` (any conclusion) is the right filter,
+          # but the single most-recent completed run can be one that got CANCELLED (e.g. a rapid
+          # follow-up push's cancel-in-progress) before any python-3.11 shard reached its
+          # raw-coverage upload step -- still "completed", zero matching artifacts. Confirmed
+          # live: codecov-full run 32923232739 picked exactly such a run (32910618774, conclusion
+          # "cancelled"). Walk back through the last 10 completed runs and pick the first that
+          # actually has a raw-coverage-ci-* artifact.
+          run_id=""
+          for candidate in $(gh run list --repo "${{ github.repository }}" --workflow ci.yml --branch master \
+              --status completed --limit 10 --json databaseId --jq '.[].databaseId'); do
+            count=$(gh api "repos/${{ github.repository }}/actions/runs/$candidate/artifacts" \
+              --jq '[.artifacts[] | select(.name | startswith("raw-coverage-ci-"))] | length')
+            if [ "$count" -gt 0 ]; then
+              run_id="$candidate"
+              echo "Using run $run_id ($count raw-coverage-ci-* artifact(s))"
+              break
+            fi
+            echo "Skipping run $candidate (0 raw-coverage-ci-* artifacts)"
+          done
           if [ -z "$run_id" ]; then
-            echo "No completed ci.yml run found on master -- skipping the combined upload this time."
+            echo "No completed ci.yml run with real data found in the last 10 runs -- skipping the combined upload this time."
             echo "run_id=" >> "$GITHUB_OUTPUT"
           else
             echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
