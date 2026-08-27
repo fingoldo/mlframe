@@ -57,16 +57,20 @@ def _oof_is_test_proba(
 
     n_train = train_arr.shape[0]
     n_test = test_arr.shape[0]
-    union = np.concatenate([train_arr, test_arr], axis=0)
-    # Hand LightGBM a NAMED frame rather than the bare ndarray. Fitting on an ndarray makes LightGBM
-    # fabricate its own names ("Column_0", "Column_1", ...) and expose them via ``feature_names_in_``;
-    # sklearn >=1.8 then sees an estimator "fitted with feature names" being predicted on nameless
-    # arrays and emits a UserWarning per fold. That warning is pure noise here (the fabricated names
-    # match positionally on every call), but it fires once per CV fold on a multi-million-row
-    # diagnostic and reads, in a training log, like a real feature-misalignment bug. Passing the real
-    # column names removes the fabrication at its source and makes ``importances`` below attributable.
-    if feature_names is not None and len(feature_names) == union.shape[1]:
-        union = pd.DataFrame(union, columns=list(feature_names))
+    # LightGBM must receive a NAMED table. Fitting on a bare ndarray makes it fabricate its own names
+    # ("Column_0", "Column_1", ...) and expose them via ``feature_names_in_``; sklearn >=1.8 then sees an
+    # estimator "fitted with feature names" being predicted on nameless arrays and emits a UserWarning per
+    # CV fold. That warning is pure noise (the fabricated names match positionally every time), but on a
+    # multi-million-row diagnostic it repeats per fold and reads, in a training log, like a real
+    # feature-misalignment bug. Real names also make ``importances`` below attributable to actual columns.
+    if isinstance(train_arr, pd.DataFrame):
+        # Frames arrive already named and already the right dtype -- concatenating them directly avoids the
+        # float64 materialisation the ndarray route pays (see build_test_like_validation_fold's note).
+        union: Any = pd.concat([train_arr, test_arr], axis=0, ignore_index=True)
+    else:
+        union = np.concatenate([train_arr, test_arr], axis=0)
+        if feature_names is not None and len(feature_names) == union.shape[1]:
+            union = pd.DataFrame(union, columns=list(feature_names))
     source_label = np.concatenate([np.zeros(n_train, dtype=np.int64), np.ones(n_test, dtype=np.int64)])
 
     # LightGBM's own OpenMP thread pool defaults to ALL cores. This diagnostic runs as an auxiliary step
@@ -175,14 +179,26 @@ def build_test_like_validation_fold(
     """
     from ..metrics.core import fast_roc_auc
 
-    if hasattr(X_train, "to_numpy"):
+    # A pandas input stays a pandas frame all the way to LightGBM. The former ``to_numpy(dtype=np.float64)``
+    # was never required -- ``.iloc[:, cols]`` selects columns positionally just as well as ndarray fancy
+    # indexing, which is the only thing the peel-back loop needs -- and it cost real time and memory: the
+    # forced float64 upcast DOUBLES a float32 frame (production frames here are largely Float32), then
+    # ``np.concatenate`` copies the doubled result again. Measured on 450k x 68 float32: 0.09 s / 245 MB for
+    # the numpy route vs 0.04 s / 122 MB keeping the frame. LightGBM consumes a DataFrame natively (and gets
+    # real column names from it for free). Non-pandas inputs keep the ndarray route unchanged.
+    _is_frame = hasattr(X_train, "iloc") and hasattr(X_train, "columns")
+    if _is_frame:
         cols = list(X_train.columns) if feature_names is None else list(feature_names)
-        train_full = X_train[cols].to_numpy(dtype=np.float64)
-        test_full = X_test[cols].to_numpy(dtype=np.float64)
+        train_full = X_train[cols]
+        test_full = X_test[cols]
+    elif hasattr(X_train, "to_numpy"):  # polars and other non-pandas frames: no .iloc, keep the array route
+        cols = list(X_train.columns) if feature_names is None else list(feature_names)
+        train_full = X_train[cols].to_numpy()
+        test_full = X_test[cols].to_numpy()
     else:
         cols = list(feature_names) if feature_names is not None else [str(i) for i in range(np.asarray(X_train).shape[1])]
-        train_full = np.asarray(X_train, dtype=np.float64)
-        test_full = np.asarray(X_test, dtype=np.float64)
+        train_full = np.asarray(X_train)
+        test_full = np.asarray(X_test)
 
     n_train = train_full.shape[0]
     n_test = test_full.shape[0]
@@ -196,8 +212,19 @@ def build_test_like_validation_fold(
 
     oof_is_test_proba = np.empty(0)
     for it in range(n_effective_iterations):
-        train_arr = train_full[:, active_cols]
-        test_arr = test_full[:, active_cols]
+        # ``active_cols`` starts as the full range and only ever has entries DELETED (never reordered),
+        # so a full-length list is exactly the identity selection. Fancy-indexing with it still allocates
+        # and copies the whole matrix -- on a 2.4M x 68 float64 frame that is ~1.3 GB of pure waste, paid
+        # on the DEFAULT one-shot path (n_iterations=1) where the peel-back loop never narrows anything.
+        # Take the arrays as-is in that case; the copy is only genuinely needed once columns are dropped.
+        if len(active_cols) == train_full.shape[1]:
+            train_arr, test_arr = train_full, test_full
+        elif _is_frame:
+            train_arr = train_full.iloc[:, active_cols]
+            test_arr = test_full.iloc[:, active_cols]
+        else:
+            train_arr = train_full[:, active_cols]
+            test_arr = test_full[:, active_cols]
         is_last_iteration = it == n_effective_iterations - 1
         can_drop = not is_last_iteration and top_k_drop_per_iteration > 0 and len(active_cols) > top_k_drop_per_iteration
         oof_is_test_proba, importances = _oof_is_test_proba(

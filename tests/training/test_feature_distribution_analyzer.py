@@ -147,18 +147,45 @@ class TestLowVariance:
 
 class TestNanHeavy:
     """Groups tests covering nan heavy."""
-    def test_50_percent_nan_feature_flagged(self):
-        """50 percent nan feature flagged."""
+    def test_essentially_empty_feature_flagged(self):
+        """A column that is essentially all-NaN cannot carry information and is still flagged."""
         rng = np.random.default_rng(20)
         X = rng.standard_normal((500, 4))
-        # Make f2 60% NaN
-        nan_idx = rng.choice(500, size=300, replace=False)
+        nan_idx = rng.choice(500, size=499, replace=False)  # 99.8% NaN
         X[nan_idx, 2] = np.nan
         df = pd.DataFrame(X, columns=[f"f{i}" for i in range(4)])
         rep = analyze_feature_distribution(df)
         assert any("nan_heavy_features" in p for p in rep.pathologies), rep.pathologies
         assert "f2" in rep.drop_candidates
         assert rep.knob_overrides.get("preprocessing_config", {}).get("review_nan_strategy") is True
+
+    def test_partially_missing_feature_is_not_flagged(self):
+        """A 60%-NaN column must NOT be flagged at the default threshold.
+
+        Missingness at that level is typically STRUCTURAL -- the feature only applies to a subset of rows
+        (an hourly-rate field on fixed-price jobs, AI-prompt stats on non-AI posts) -- so its
+        presence/absence is itself predictive and tree models consume the NaNs natively. The former 0.5
+        default made this rule a de-facto feature selector: on a production run it discarded 35 of 118
+        columns, every one of them for this rule and nothing else.
+        """
+        rng = np.random.default_rng(20)
+        X = rng.standard_normal((500, 4))
+        nan_idx = rng.choice(500, size=300, replace=False)  # 60% NaN
+        X[nan_idx, 2] = np.nan
+        df = pd.DataFrame(X, columns=[f"f{i}" for i in range(4)])
+        rep = analyze_feature_distribution(df)
+        assert "f2" not in rep.drop_candidates, rep.drop_candidates
+        assert not any("nan_heavy_features" in p for p in rep.pathologies), rep.pathologies
+
+    def test_explicit_threshold_still_honoured(self):
+        """The default moved, but a caller passing an explicit threshold still gets exactly that."""
+        rng = np.random.default_rng(20)
+        X = rng.standard_normal((500, 4))
+        nan_idx = rng.choice(500, size=300, replace=False)
+        X[nan_idx, 2] = np.nan
+        df = pd.DataFrame(X, columns=[f"f{i}" for i in range(4)])
+        rep = analyze_feature_distribution(df, nan_fraction_threshold=0.5)
+        assert "f2" in rep.drop_candidates, rep.drop_candidates
 
     def test_low_nan_fraction_not_flagged(self):
         """Low nan fraction not flagged."""

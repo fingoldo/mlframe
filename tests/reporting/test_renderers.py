@@ -295,3 +295,62 @@ class TestRendererFactory:
     def test_case_insensitive(self):
         """Case insensitive."""
         assert get_renderer("PLOTLY").backend == "plotly"
+
+
+_LONG_METRIC_TITLE = (
+    "VAL (DUMMY) DummyBaseline:oracle_prior cl_act_total_hired_above_1 MTTR=0.43 "
+    "[68F/242.4K rows] ICE=0.15, BR=24.4%(RL0.0%+U24.4%-RS-0.0%), ECE=0.0%, "
+    "CMAEW=0.0%, LL=0.68 ROC AUC=0.50, PR AUC=0.42, KS=0.00, MCC=0.00, BSS=-0.00"
+)
+
+
+def _one_panel_spec(figsize):
+    """Single-panel FigureSpec carrying the long diagnostic-metric title."""
+    return FigureSpec(
+        panels=[[LinePanelSpec(x=np.arange(10), y=np.arange(10), title=_LONG_METRIC_TITLE)]],
+        figsize=figsize,
+    )
+
+
+def test_plotly_panel_title_fills_a_wide_panel_instead_of_a_narrow_column():
+    """A wide panel must pack its title to the panel's real width.
+
+    The wrap budget was a flat 46 chars/line calibrated for a ~6-inch panel but applied at any width, so
+    a wide single-panel figure folded a long metric title into a tall ragged column using a fraction of
+    the space. Asserting the LINE COUNT drops as the panel widens: a width-agnostic implementation
+    produces the same number of lines for both figure sizes.
+    """
+    from mlframe.reporting.renderers._shared_helpers import panel_title_wrap_chars
+
+    narrow = panel_title_wrap_chars((6, 4), 1)
+    wide = panel_title_wrap_chars((15, 6), 1)
+    assert narrow == 46, narrow  # unchanged for the width it was calibrated against
+    assert wide > 2 * narrow, (narrow, wide)
+
+    # Per-column split: two panels on a 15-inch figure each get roughly half the single-panel budget.
+    assert panel_title_wrap_chars((15, 6), 2) < wide
+    # Degenerate/missing figsize must not raise.
+    assert panel_title_wrap_chars(None, 1) == 46
+
+
+def test_plotly_panel_title_preserves_explicit_line_breaks():
+    """Explicit ``\n`` breaks in a caller-supplied title are deliberate and must survive wrapping."""
+    pytest.importorskip("plotly")
+    from mlframe.reporting.renderers.plotly import _wrap_text
+
+    out = _wrap_text("alpha\nbeta\ngamma", 200)
+    assert out == "alpha<br>beta<br>gamma", out
+
+
+def test_matplotlib_panel_title_preserves_explicit_line_breaks():
+    """``textwrap.wrap`` treats a newline as ordinary whitespace, so the pre-fix matplotlib title path
+    silently collapsed and re-flowed any explicit break the caller wrote."""
+    fig = get_renderer("matplotlib").render(FigureSpec(panels=[[LinePanelSpec(x=np.arange(5), y=np.arange(5), title="alpha\nbeta\ngamma")]], figsize=(12, 4)))
+    assert fig.axes[0].get_title() == "alpha\nbeta\ngamma"
+
+
+def test_matplotlib_wide_panel_title_uses_fewer_lines_than_a_narrow_one():
+    """Same width-scaling contract as the plotly twin, asserted through the real rendered title."""
+    narrow_title = get_renderer("matplotlib").render(_one_panel_spec((6, 4))).axes[0].get_title()
+    wide_title = get_renderer("matplotlib").render(_one_panel_spec((18, 6))).axes[0].get_title()
+    assert wide_title.count("\n") < narrow_title.count("\n"), (narrow_title, wide_title)

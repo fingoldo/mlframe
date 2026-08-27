@@ -78,7 +78,15 @@ _LOW_VAR_REL_STD: float = 1e-3  # std / (|mean|+eps) below this -> near-constant
 _LOW_VAR_NUNIQUE: int = 2  # binary features with imbalance flagged separately
 _REDUNDANT_CORR_THRESHOLD: float = 0.95  # |Pearson| above this -> redundant pair
 _HIGH_CARDINALITY_MAX: int = 100  # categorical features above this -> recommend encoder
-_NAN_FRACTION_THRESHOLD: float = 0.5  # 50%+ NaN rate -> structural issue, not random missingness
+# Feature NaN rate at/above which a column is reported as nan-heavy (and, when auto-drop is on, removed).
+# 0.99, not the former 0.5: at 50% this rule alone discarded whole feature families whose missingness is
+# STRUCTURAL rather than random -- a field that only applies to a subset of rows (hourly rate on
+# fixed-price jobs, AI-prompt stats on non-AI posts) is missing by construction, and its presence/absence
+# is itself predictive. Observed on a production run: 35 of 118 columns (30%) dropped, every one of them
+# for this rule and nothing else. Tree models consume NaN natively, so dropping such a column removes
+# signal rather than noise. At 0.99 the rule keeps its genuine purpose -- catching a column that is
+# essentially empty and cannot carry information -- without acting as a de-facto feature selector.
+_NAN_FRACTION_THRESHOLD: float = 0.99
 _LEAKAGE_CORR_THRESHOLD: float = 0.99  # feature-target |corr| (regression/binary) or per-class AUC (multiclass) above this -> suspected leakage
 _LEAKAGE_MAX_CLASSES_FOR_AUC: int = 20  # multiclass leakage detector cap: avoids an O(n_features * n_classes) AUC sweep on high-cardinality integer-coded columns
 # Computing the full correlation matrix is O(n_features^2). Cap to keep the analyzer
@@ -132,7 +140,7 @@ class TargetDistributionReport:
 
 
 # ---------------------------------------------------------------------------
-# Feature-side detectors (mini-HPT v2, 2026-05-21).
+# Feature-side detectors (mini-HPT v2).
 #
 # Inspect the FEATURE matrix for pathologies that distort downstream training:
 #

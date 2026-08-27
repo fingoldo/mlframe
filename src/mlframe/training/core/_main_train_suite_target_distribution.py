@@ -148,13 +148,47 @@ def _maybe_auto_drop_after_feature_analyzer(
     test_df = _drop(test_df, drop_list)
     metadata.setdefault("feature_distribution_report", {})["auto_dropped_columns"] = list(drop_list)
     if verbose:
-        _preview = ", ".join(drop_list[:8])
-        if len(drop_list) > 8:
-            _preview += f", ... (+{len(drop_list) - 8} more)"
+        # Report WHICH RULE removed each column, not just how many went. The pre-fix line named a count
+        # and 8 sample names, so a run that discarded 30% of its features looked identical whether the
+        # cause was one aggressive rule or a broad spread -- and the single most consequential case
+        # (a whole feature family dropped for >=50% NaN, where the missingness is STRUCTURAL rather than
+        # random, i.e. the feature only applies to a subset of rows and its absence is itself signal)
+        # was indistinguishable from the benign ones. Group by reason so an over-aggressive rule is
+        # visible at a glance and can be retargeted via BaselineDiagnostics/analyzer thresholds.
+        _warn_map = getattr(fd_report, "feature_warnings", {}) or {}
+
+        def _reason_for(_col: str) -> str:
+            """Coarse rule label for ``_col``: the analyzer's own warning prefix, else the near-duplicate path."""
+            _msgs = _warn_map.get(_col) or []
+            for _m in _msgs:
+                if _m.startswith("nan_fraction"):
+                    return "nan_heavy (>=50% missing)"
+                if _m.startswith("low_variance"):
+                    return "low_variance"
+                if _m == "insufficient_finite_values":
+                    return "insufficient_finite_values"
+            return f"near_duplicate (|corr|>={_dup_threshold:.4f})" if _msgs == [] else "other"
+
+        _by_reason: dict[str, list[str]] = {}
+        for _c in drop_list:
+            _by_reason.setdefault(_reason_for(_c), []).append(_c)
         logger.info(
-            "[mini-HPT] auto-drop applied: %d column(s) removed from train/val/test (analyzer candidates + |corr|>=%.4f duplicates): %s",
-            len(drop_list), _dup_threshold, _preview,
+            "[mini-HPT] auto-drop applied: %d of %d column(s) removed from train/val/test. Breakdown by rule: %s",
+            len(drop_list), len(train_cols), "; ".join(f"{_r}: {len(_cs)}" for _r, _cs in sorted(_by_reason.items())),
         )
+        for _r, _cs in sorted(_by_reason.items()):
+            _preview = ", ".join(_cs[:8]) + (f", ... (+{len(_cs) - 8} more)" if len(_cs) > 8 else "")
+            logger.info("[mini-HPT]   %s -> %s", _r, _preview)
+        _nan_dropped = _by_reason.get("nan_heavy (>=50% missing)") or []
+        if len(_nan_dropped) >= 5:
+            logger.warning(
+                "[mini-HPT] %d column(s) were dropped for >=50%% missing values alone. When missingness is "
+                "STRUCTURAL (the feature only applies to a subset of rows, e.g. an hourly-rate field on "
+                "fixed-price jobs) its presence/absence is itself predictive, and dropping discards that "
+                "signal rather than noise -- tree models handle NaN natively. Set "
+                "behavior_config.auto_drop_distribution_analyzer_candidates=False to keep them.",
+                len(_nan_dropped),
+            )
     return train_df, val_df, test_df, drop_list
 
 

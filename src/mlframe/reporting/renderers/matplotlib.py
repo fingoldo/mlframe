@@ -19,26 +19,39 @@ from mlframe.reporting.spec import (
     ScatterPanelSpec, ViolinPanelSpec,
 )
 
-from ._shared_helpers import _HEATMAP_MAX_TICKS, _finite_range, _per_series_flags, _thin_tick_positions  # noqa: F401 -- re-exported for callers importing the tick-thinning constant from this module
+from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
+    _HEATMAP_MAX_TICKS, _finite_range, _per_series_flags, _thin_tick_positions, panel_title_wrap_chars, wrap_title_lines,
+)
 
 logger = logging.getLogger(__name__)
 
-# Panel-title rendering: wrap long titles onto multiple lines (so a verbose diagnostic title doesn't
-# overflow a narrow panel) and cap the font so it can't dwarf the panel. ~46 chars/line is a good fit
-# for the default ~6-inch panel width.
-_TITLE_WRAP_CHARS = 46
+# Panel-title font cap so a verbose diagnostic title can't dwarf the panel. The chars-per-line budget is
+# width-scaled and shared with the plotly renderer (``_shared_helpers.panel_title_wrap_chars``).
 _TITLE_FONTSIZE = 10
 
 
 def _set_panel_title(ax, title) -> None:
-    """Set an axes title, wrapping long titles to ``_TITLE_WRAP_CHARS``/line and capping the font size so a verbose diagnostic title can't overflow or dwarf a narrow panel. No-op when ``title`` is falsy."""
+    """Set an axes title, wrapping each line to a width-scaled chars/line budget and capping the font size.
+
+    Two behaviours the flat ``textwrap.wrap(s, _TITLE_WRAP_CHARS)`` form got wrong:
+
+    * ``textwrap.wrap`` treats ``\\n`` as ordinary whitespace, so any explicit line break the CALLER put in
+      the title was silently collapsed and re-flowed. Each line is now wrapped independently, so deliberate
+      breaks survive.
+    * ``_TITLE_WRAP_CHARS`` is calibrated for a ~6-inch panel but was applied at any panel width, so a wide
+      panel folded its title into a narrow ragged column with most of the width left empty. The budget now
+      scales with the axes' real width.
+    """
     if not title:
         return
-    import textwrap
-    s = str(title)
-    if len(s) > _TITLE_WRAP_CHARS:
-        s = "\n".join(textwrap.wrap(s, width=_TITLE_WRAP_CHARS, break_long_words=False))
-    ax.set_title(s, fontsize=_TITLE_FONTSIZE)
+    # ``ax.get_position().width`` is the axes' width as a FRACTION of the figure, so multiplying by the
+    # figure width yields this panel's real width in inches -- the quantity the budget is calibrated on.
+    try:
+        panel_w = float(ax.get_position().width) * float(ax.figure.get_size_inches()[0])
+    except Exception:
+        panel_w = None
+    width = panel_title_wrap_chars((panel_w, 0), 1) if panel_w else panel_title_wrap_chars(None, 1)
+    ax.set_title("\n".join(wrap_title_lines(title, width)), fontsize=_TITLE_FONTSIZE)
 
 
 # Above this many raw scatter points, cap (downsample preserving extremes) and rasterize so the saved vector
@@ -73,7 +86,7 @@ class MatplotlibRenderer:
         # static_legend is a plotly-only concept (see PlotlyRenderer.render); matplotlib legends
         # are always static, so this backend accepts and ignores the flag to satisfy the Renderer Protocol.
         del static_legend
-        # 2026-05-11: REMOVED ``matplotlib.use("Agg", force=False)``
+        # REMOVED ``matplotlib.use("Agg", force=False)``
         # here. The renderer creates its own ``FigureCanvasAgg(fig)``
         # explicitly below, so the global-backend mutation is
         # redundant -- AND it broke inline FI display in Jupyter

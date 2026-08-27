@@ -41,7 +41,9 @@ from ._kaleido import (
 )
 from ._plotly_interactivity import apply_interactivity, html_config
 from ._plotly_color import _axis_ref, _rgba, _mpl_to_plotly_cmap
-from ._shared_helpers import _HEATMAP_MAX_TICKS, _finite_range, _per_series_flags, _thin_tick_positions  # noqa: F401 -- re-exported for callers importing the tick-thinning constant from this module
+from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
+    _HEATMAP_MAX_TICKS, _finite_range, _per_series_flags, _thin_tick_positions, panel_title_wrap_chars, wrap_title_lines,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +63,6 @@ def _go():
 
 # Text-wrap budgets mirror the matplotlib renderer (~90 chars/line for the full-width suptitle, ~46 for one panel); plotly annotations need ``<br>`` (not ``\n``). Wrappers live inline because strict file-ownership scopes this fix to plotly.py.
 _SUPTITLE_WRAP_CHARS = 90
-_PANEL_TITLE_WRAP_CHARS = 46
 # Past this many bar categories thin x-tick labels to ~20 evenly-spaced (matches matplotlib); truncate labels over _BAR_XTICK_MAXLEN chars so long feature names don't crowd.
 _BAR_XTICK_THIN_THRESHOLD = 25
 _BAR_XTICK_KEEP = 20
@@ -70,11 +71,7 @@ _BAR_XTICK_MAXLEN = 24
 
 def _wrap_text(text: str, width: int, *, sep: str = "<br>") -> str:
     """Wrap ``text`` to ``width`` chars/line (each ``\n``-delimited line independently, preserving explicit breaks), folded with ``sep``."""
-    import textwrap
-    out: List[str] = []
-    for line in str(text).split("\n"):
-        out.extend(textwrap.wrap(line, width=width, break_long_words=False) or [""])
-    return sep.join(out)
+    return sep.join(wrap_title_lines(text, width))
 
 
 def _truncate_label(label: str, maxlen: int = _BAR_XTICK_MAXLEN) -> str:
@@ -164,13 +161,14 @@ class PlotlyRenderer:
             sub_specs.append(row_specs)
 
         # Subplot titles are HTML annotations: wrap long panel titles (~46 chars/line, matching matplotlib) so they fold instead of bleeding into the adjacent subplot, and convert ``\n`` -> ``<br>`` (plotly drops a raw newline).
+        _panel_wrap = panel_title_wrap_chars(spec.figsize, cols)
         subplot_titles = []
         for row in spec.panels:
             for c in range(cols):
                 if c >= len(row) or row[c] is None:
                     subplot_titles.append("")
                 else:
-                    subplot_titles.append(_wrap_text(getattr(row[c], "title", "") or "", _PANEL_TITLE_WRAP_CHARS))
+                    subplot_titles.append(_wrap_text(getattr(row[c], "title", "") or "", _panel_wrap))
 
         subplots_kwargs = dict(
             rows=rows, cols=cols,
@@ -557,7 +555,7 @@ class PlotlyRenderer:
                        showscale=True),
             row=row, col=col,
         )
-        # 2026-05-09: per-cell text via add_annotation instead of
+        # Per-cell text via add_annotation instead of
         # plotly's built-in ``text`` + ``texttemplate`` (which uses
         # one global font color and produces white-on-yellow
         # invisibility on viridis high-end / RdYlBu high-end). Per-cell

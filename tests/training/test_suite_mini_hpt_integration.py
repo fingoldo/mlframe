@@ -82,8 +82,11 @@ class TestMiniHPTSuiteWiring:
         rng = np.random.default_rng(7)
         n = 2000
         X = rng.normal(0, 1, (n, 6)).astype(np.float64)
-        # f1 = NaN-heavy (60%), f2 = leaks target
-        nan_idx = rng.choice(n, size=int(n * 0.6), replace=False)
+        # f1 = essentially empty, f2 = leaks target. ``n - 6`` rather than a fraction just over the 0.99
+        # nan_fraction_threshold: the analyzer sees the TRAIN SPLIT, whose own NaN fraction varies around
+        # the full frame's, so a value hugging the threshold flakes. (The default moved 0.5 -> 0.99 because
+        # partial missingness is usually structural, and therefore informative, rather than noise.)
+        nan_idx = rng.choice(n, size=n - 6, replace=False)
         X[nan_idx, 1] = np.nan
         y = X[:, 3].astype(np.float32)
         X[:, 2] = y + 0.001 * rng.normal(0, 1, n)
