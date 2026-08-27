@@ -407,3 +407,52 @@ def test_plotly_does_not_truncate_ordinary_feature_names():
     assert _truncate_label("job_posted_at_day_of_year_cos") == "job_posted_at_day_of_year_cos"
     # The cap survives as a safety valve for a pathological generated name.
     assert _truncate_label("x" * 200).endswith("...")
+
+
+def _time_axis_spec():
+    """Single line panel whose x carries epoch nanoseconds and declares ``x_is_time``."""
+    import pandas as pd
+
+    x = pd.date_range("2021-07-01", "2026-07-31", periods=120).values.astype("datetime64[ns]").astype(np.int64).astype(float)
+    return FigureSpec(
+        panels=((LinePanelSpec(x=x, y=np.linspace(0.95, 0.70, 120), series_labels=("roc_auc",), title="roc_auc over time", xlabel="time", ylabel="roc_auc", x_is_time=True),),),
+        figsize=(10, 4),
+    )
+
+
+def test_time_axis_renders_dates_not_epoch_nanoseconds_plotly():
+    """``x_is_time`` must format the axis as dates, not merely rotate the labels.
+
+    Spec builders pass epoch NANOSECONDS as a numeric x (so vspans/regime shading share one coordinate
+    space) and set ``x_is_time`` to mean "these are timestamps". That flag only rotated the labels, so a
+    five-year metric-over-time chart rendered its axis as ``1.62e18 ... 1.78e18`` -- no usable information.
+    """
+    pytest.importorskip("plotly")
+    fig = get_renderer("plotly").render(_time_axis_spec())
+
+    ticktext = list(fig.layout.xaxis.ticktext or [])
+    assert ticktext, "time axis left unformatted"
+    assert all("e+" not in t and "e18" not in t for t in ticktext), ticktext
+    assert ticktext[0].startswith("2021"), ticktext
+
+
+def test_time_axis_renders_dates_not_epoch_nanoseconds_matplotlib():
+    """matplotlib twin of the time-axis contract: ``autofmt_xdate`` alone cannot convert a float axis."""
+    fig = get_renderer("matplotlib").render(_time_axis_spec())
+    fig.canvas.draw()
+
+    labels = [t.get_text() for t in fig.axes[0].get_xticklabels() if t.get_text()]
+    assert labels, "time axis left unformatted"
+    assert all("e+" not in lab and "1e18" not in lab for lab in labels), labels
+    assert any(lab.startswith("2021") for lab in labels), labels
+
+
+def test_epoch_ns_ticks_is_safe_on_degenerate_input():
+    """Empty / all-NaN input must leave the axis alone rather than raising inside a renderer."""
+    from mlframe.reporting.renderers._shared_helpers import epoch_ns_ticks
+
+    assert epoch_ns_ticks([]) == (None, None)
+    assert epoch_ns_ticks([np.nan, np.nan]) == (None, None)
+    # A single-instant series still yields usable ticks rather than a zero-width range.
+    tickvals, ticktext = epoch_ns_ticks([1.7e18])
+    assert tickvals is not None and len(ticktext) >= 2

@@ -79,3 +79,44 @@ def wrap_title_lines(text, width: int) -> list:
     for line in str(text).split("\n"):
         out.extend(textwrap.wrap(line, width=width, break_long_words=False) or [""])
     return out
+
+
+def epoch_ns_ticks(x_values, n_ticks: int = 6):
+    """``(tickvals, ticktext)`` rendering an epoch-NANOSECOND x axis as human-readable dates.
+
+    Spec builders that plot a metric against time hand the renderers ``int64`` nanoseconds (a numeric x is
+    what lets vspans / regime shading share the same coordinate space) and set ``x_is_time`` to say "these
+    are timestamps". Before this helper existed, ``x_is_time`` only ROTATED the tick labels -- nothing ever
+    converted the numbers back -- so a time axis rendered as ``1.62e18 ... 1.78e18``, which carries no
+    usable information for a reader.
+
+    Returns ``(None, None)`` when there is nothing to format, so callers leave the axis untouched. That
+    includes the case where x is ALREADY datetime-like: ``x_is_time`` marks both representations (builders
+    may pass real ``datetime`` objects instead of epoch integers), and both renderers format genuine
+    datetime axes natively -- only the numeric-epoch form needs help.
+    """
+    try:
+        arr = np.asarray(x_values, dtype=np.float64).ravel()
+    except (TypeError, ValueError):
+        return None, None  # datetime objects / strings: the backend's own date axis handles these
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        return None, None
+    lo, hi = float(arr.min()), float(arr.max())
+    if hi <= lo:
+        hi = lo + 1.0
+    span_days = (hi - lo) / 8.64e13  # ns per day
+    # Pick the coarsest format that still separates adjacent ticks, so labels stay short and unambiguous.
+    if span_days > 730:
+        fmt = "%Y-%m"
+    elif span_days > 2:
+        fmt = "%Y-%m-%d"
+    else:
+        fmt = "%m-%d %H:%M"
+    tickvals = np.linspace(lo, hi, max(2, int(n_ticks)))
+    import datetime as _dt
+
+    # Explicit UTC rather than the deprecated naive ``utcfromtimestamp``; these axes are wall-clock labels,
+    # so a fixed reference zone keeps them stable regardless of the machine rendering the figure.
+    ticktext = [_dt.datetime.fromtimestamp(v / 1e9, tz=_dt.timezone.utc).strftime(fmt) for v in tickvals]
+    return tickvals, ticktext

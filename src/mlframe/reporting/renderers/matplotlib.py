@@ -20,7 +20,7 @@ from mlframe.reporting.spec import (
 )
 
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
-    _HEATMAP_MAX_TICKS, _finite_range, _per_series_flags, _thin_tick_positions, panel_title_wrap_chars, wrap_title_lines,
+    _HEATMAP_MAX_TICKS, _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks, panel_title_wrap_chars, wrap_title_lines,
 )
 
 logger = logging.getLogger(__name__)
@@ -700,8 +700,16 @@ class MatplotlibRenderer:
         _set_panel_title(ax, p.title)
         if p.grid:
             ax.grid(True, alpha=0.3)
-        if p.x_is_time and fig is not None:
-            fig.autofmt_xdate()
+        if p.x_is_time:
+            # The numeric x carries epoch NANOSECONDS. ``autofmt_xdate`` (all this used to do) only rotates
+            # the labels -- it cannot convert a plain float axis -- so the axis read "1.62e18", which is
+            # not usable information. Format the ticks as dates, then rotate.
+            _tickvals, _ticktext = epoch_ns_ticks(_xi(0))
+            if _tickvals is not None:
+                ax.set_xticks(_tickvals)
+                ax.set_xticklabels(_ticktext)
+            if fig is not None:
+                fig.autofmt_xdate()
 
     def _violin(self, ax, p: ViolinPanelSpec) -> None:
         """Render a per-group violin panel (medians shown when ``show_box``, extrema and mean markers suppressed)."""

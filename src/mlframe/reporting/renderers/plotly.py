@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any, List
+from typing import Any, ClassVar, List
 
 import numpy as np
 
@@ -42,7 +42,7 @@ from ._kaleido import (
 from ._plotly_interactivity import apply_interactivity, html_config
 from ._plotly_color import _axis_ref, _rgba, _mpl_to_plotly_cmap
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
-    _HEATMAP_MAX_TICKS, _finite_range, _per_series_flags, _thin_tick_positions, panel_title_wrap_chars, wrap_title_lines,
+    _HEATMAP_MAX_TICKS, _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks, panel_title_wrap_chars, wrap_title_lines,
 )
 
 logger = logging.getLogger(__name__)
@@ -139,6 +139,12 @@ class PlotlyRenderer:
     """
 
     backend = "plotly"
+
+    # Bound at this module's bottom from ``._plotly_network`` (that panel was carved out to keep this file
+    # under the 1000-LOC house limit). Declared here so the dynamic assignment is visible to type-checkers
+    # and to anyone reading the class surface.
+    _NETWORK_MAX_ARROWS: ClassVar[int]
+    _network: ClassVar[Any]
 
     def render(self, spec: FigureSpec, *, static_legend: bool = False) -> Any:
         """Build a plotly figure from the spec.
@@ -827,7 +833,13 @@ class PlotlyRenderer:
                 row=row, col=col,
             )
 
-        fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid, tickangle=-30 if p.x_is_time else 0)
+        # ``x_is_time`` with a NUMERIC x means epoch nanoseconds; rotating the labels (all this used to do)
+        # leaves them reading "1.62e18". ``epoch_ns_ticks`` no-ops on an already-datetime axis.
+        _xkw: dict = dict(title_text=p.xlabel, row=row, col=col, showgrid=p.grid, tickangle=-30 if p.x_is_time else 0)
+        _tv, _tt = epoch_ns_ticks(_xi(0)) if p.x_is_time else (None, None)
+        if _tv is not None:
+            _xkw.update(tickmode="array", tickvals=_tv, ticktext=_tt)
+        fig.update_xaxes(**_xkw)
         fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid, secondary_y=False)
         if has_secondary:
             fig.update_yaxes(title_text=p.secondary_ylabel, row=row, col=col, secondary_y=True, showgrid=False)
@@ -882,116 +894,13 @@ class PlotlyRenderer:
         fig.update_xaxes(title_text=p.xlabel, row=row, col=col, tickangle=-30)
         fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
 
-    # Cap on directed-edge arrow annotations. Each arrow is one layout
-    # annotation; beyond this the topology still renders (lines + nodes) but
-    # arrowheads are skipped so a large opt-in graph doesn't bloat the layout.
-    _NETWORK_MAX_ARROWS = 500
-
-    def _network(self, fig, p: NetworkPanelSpec, row: int, col: int) -> None:
-        """Render a network/graph panel: edges are binned by weight into a handful of width/color buckets and drawn as one ``Scattergl`` line trace per bucket (keeps trace count O(bins) regardless of edge count), plus an invisible edge-midpoint marker trace carrying the continuous weight colorbar and hover text, optional directed-edge arrowheads as data-space annotations (capped at ``_NETWORK_MAX_ARROWS``, silently skipped on axis-ref resolution failure), and a node marker trace with mpl-style area-based sizing."""
-        go = _go()
-
-        node_x = np.asarray(p.node_x, dtype=float)
-        node_y = np.asarray(p.node_y, dtype=float)
-        e_src = np.asarray(p.edge_src, dtype=np.int64)
-        e_dst = np.asarray(p.edge_dst, dtype=np.int64)
-        weights = np.asarray(p.edge_weight, dtype=float)
-
-        if e_src.size:
-            wmin, wmax = float(weights.min()), float(weights.max())
-            wspan = (wmax - wmin) or 1.0
-            lo, hi = p.edge_width_range
-            colorscale = _mpl_to_plotly_cmap(p.colormap)
-            # Bin edges by MI into a handful of width/color buckets: one Scattergl
-            # line trace per non-empty bucket keeps trace count O(bins) regardless
-            # of edge count (a single line trace can't vary width/color per segment).
-            n_bins = min(8, max(1, e_src.size))
-            bin_idx = np.minimum(((weights - wmin) / wspan * n_bins).astype(int), n_bins - 1)
-            from plotly.colors import sample_colorscale
-            for b in range(n_bins):
-                mask = bin_idx == b
-                if not mask.any():
-                    continue
-                frac = (b + 0.5) / n_bins
-                width = lo + frac * (hi - lo)
-                color = sample_colorscale(colorscale, [frac])[0]
-                xs: List = []
-                ys: List = []
-                for a, d in zip(e_src[mask], e_dst[mask]):
-                    xs.extend([node_x[a], node_x[d], None])
-                    ys.extend([node_y[a], node_y[d], None])
-                fig.add_trace(
-                    go.Scattergl(x=xs, y=ys, mode="lines", line=dict(width=width, color=color), hoverinfo="skip", showlegend=False),
-                    row=row,
-                    col=col,
-                )
-
-            # Invisible marker trace at edge midpoints carries the continuous MI
-            # colorbar and a per-edge hover readout without cluttering the plot.
-            mid_x = (node_x[e_src] + node_x[e_dst]) / 2.0
-            mid_y = (node_y[e_src] + node_y[e_dst]) / 2.0
-            fig.add_trace(
-                go.Scattergl(
-                    x=mid_x.tolist(), y=mid_y.tolist(), mode="markers",
-                    marker=dict(size=0.1, color=weights.tolist(), colorscale=colorscale,
-                                showscale=True,
-                                colorbar=dict(title=p.colorbar_label) if p.colorbar_label else None),
-                    text=[f"MI={w:.4f}" for w in weights],
-                    hoverinfo="text", showlegend=False),
-                row=row, col=col,
-            )
-
-            # Directed-edge arrowheads via data-space annotations. Axis refs are
-            # derived from the subplot grid so multi-panel figures stay correct;
-            # any failure falls back to no arrows (lines already convey topology).
-            directed = p.edge_directed
-            if np.isscalar(directed):
-                directed = np.full(e_src.shape, bool(directed))
-            else:
-                directed = np.asarray(directed, dtype=bool)
-            if directed.any() and int(directed.sum()) <= self._NETWORK_MAX_ARROWS:
-                try:
-                    n_cols = len(fig._grid_ref[0])
-                    idx = (row - 1) * n_cols + col
-                    suffix = "" if idx == 1 else str(idx)
-                    xref, yref = f"x{suffix}", f"y{suffix}"
-                    # ``fig.add_annotation`` re-validates the whole growing ``layout.annotations`` tuple per
-                    # call (O(n) per mutation -> O(n^2) over a loop, measured 534x at 400 calls in
-                    # bench_annotation.py / the sibling heatmap fix above); xref/yref are already resolved
-                    # here (constant for this subplot), so batch every arrow into ONE tuple assignment.
-                    arrows = [
-                        go.layout.Annotation(
-                            x=node_x[d], y=node_y[d], ax=node_x[a], ay=node_y[a],
-                            xref=xref, yref=yref, axref=xref, ayref=yref,
-                            showarrow=True, arrowhead=2, arrowsize=1.2,
-                            arrowwidth=1.0, arrowcolor="rgba(80,80,80,0.6)",
-                            standoff=6, startstandoff=6,
-                        )
-                        for a, d, dirn in zip(e_src, e_dst, directed)
-                        if dirn
-                    ]
-                    if arrows:
-                        fig.layout.annotations = fig.layout.annotations + tuple(arrows)
-                except Exception:
-                    logger.debug("network arrows skipped (subplot axis-ref resolution failed)", exc_info=True)
-
-        # Nodes: one marker trace. size follows matplotlib ``scatter(s=)`` area
-        # semantics; convert to plotly's pixel diameter (sqrt(area) * 1.33).
-        sizes = np.sqrt(np.maximum(np.asarray(p.node_size, dtype=float), 0.0)) * 1.33
-        hovertext = list(p.node_hovertext) if p.node_hovertext else list(p.node_label)
-        fig.add_trace(
-            go.Scattergl(
-                x=node_x.tolist(), y=node_y.tolist(),
-                mode="markers+text",
-                marker=dict(size=sizes.tolist(), color=list(p.node_color),
-                            line=dict(width=0.5, color="black")),
-                text=list(p.node_label), textposition="top center", textfont=dict(size=8),
-                hovertext=hovertext, hoverinfo="text", showlegend=False),
-            row=row, col=col,
-        )
-
-        fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=False, zeroline=False, showticklabels=False)
-        fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=False, zeroline=False, showticklabels=False)
-
 
 __all__ = ["PlotlyRenderer"]
+
+
+# ``_network`` lives in a sibling module (this file was over the 1000-LOC house limit); bound back onto the
+# class here so ``PlotlyRenderer._network`` and the ``_render_panel`` dispatch keep resolving unchanged.
+from ._plotly_network import _NETWORK_MAX_ARROWS, _network as _network_impl
+
+PlotlyRenderer._NETWORK_MAX_ARROWS = _NETWORK_MAX_ARROWS
+PlotlyRenderer._network = _network_impl

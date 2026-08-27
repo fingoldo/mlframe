@@ -13,6 +13,8 @@ history.
 
 ### Fixed
 
+- Time axes now show dates instead of raw epoch nanoseconds in both renderers: spec builders pass numeric nanoseconds and set `x_is_time`, but that flag only ROTATED the tick labels -- nothing converted them back -- so a metric-over-time chart rendered its x axis as `1.62e18 ... 1.78e18`.
+
 - plotly figures are no longer 20% smaller than their matplotlib twins built from the same spec: `figsize` is in matplotlib inches and matplotlib renders at 100 dpi, but the plotly renderer used 80 px/inch.
 - plotly panel titles no longer collide with the figure suptitle: plotly stamps each subplot title as an annotation inside the top margin, which was sized from the suptitle alone.
 - plotly no longer truncates ordinary feature names on bar-chart tick axes (`job_posted_at_day_of_year_cos` was rendering as `job_posted_at_day_of_ye...`); the matplotlib renderer never truncated, and both backends already rotate these labels. The cap survives only as a safety valve for pathological generated names.
