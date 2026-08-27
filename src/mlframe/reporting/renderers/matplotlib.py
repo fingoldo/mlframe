@@ -49,6 +49,7 @@ def _set_panel_title(ax, title) -> None:
     try:
         panel_w = float(ax.get_position().width) * float(ax.figure.get_size_inches()[0])
     except Exception:
+        logger.debug("could not measure panel width for title wrapping; falling back to the unscaled budget", exc_info=True)
         panel_w = None
     width = panel_title_wrap_chars((panel_w, 0), 1) if panel_w else panel_title_wrap_chars(None, 1)
     ax.set_title("\n".join(wrap_title_lines(title, width)), fontsize=_TITLE_FONTSIZE)

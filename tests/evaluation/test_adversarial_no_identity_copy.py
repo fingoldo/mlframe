@@ -43,6 +43,7 @@ def _capture_fitter_inputs(X_train, X_test, **kwargs):
     def _fake_oof(train_arr, test_arr, n_splits, seed, need_importance, feature_names=None):
         """Record what the fitter receives, then return a valid-shaped dummy OOF."""
         captured["train"], captured["test"], captured["names"] = train_arr, test_arr, feature_names
+        captured["need_importance"] = need_importance
         n = train_arr.shape[0] + test_arr.shape[0]
         return np.linspace(0.0, 1.0, n), np.arange(train_arr.shape[1], dtype=float)
 

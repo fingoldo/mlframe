@@ -6,6 +6,8 @@ implementation lives here so the two backends can't drift.
 """
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 # A density heatmap bins into ~80x80 cells, so one tick per cell-label overlaps into unreadable soup. Above this
@@ -50,7 +52,7 @@ _PANEL_TITLE_WRAP_CHARS = 46
 _TITLE_REF_WIDTH_IN = 6.0
 
 
-def panel_title_wrap_chars(figsize, cols: int = 1) -> int:
+def panel_title_wrap_chars(figsize: Any, cols: int = 1) -> int:
     """Chars-per-line budget for a panel title, scaled to that panel's actual width.
 
     ``figsize`` is the whole figure's (width, height) in inches; ``cols`` the grid's column count, so the
@@ -66,7 +68,7 @@ def panel_title_wrap_chars(figsize, cols: int = 1) -> int:
     return max(20, round(_PANEL_TITLE_WRAP_CHARS * panel_w / _TITLE_REF_WIDTH_IN))
 
 
-def wrap_title_lines(text, width: int) -> list:
+def wrap_title_lines(text: Any, width: int) -> list[str]:
     """Wrap ``text`` to ``width`` chars/line, wrapping each ``\n``-delimited segment INDEPENDENTLY.
 
     Preserving explicit breaks matters: ``textwrap.wrap`` treats a newline as ordinary whitespace, so
@@ -81,7 +83,7 @@ def wrap_title_lines(text, width: int) -> list:
     return out
 
 
-def epoch_ns_ticks(x_values, n_ticks: int = 6):
+def epoch_ns_ticks(x_values: Any, n_ticks: int = 6) -> tuple[np.ndarray, list[str]] | tuple[None, None]:
     """``(tickvals, ticktext)`` rendering an epoch-NANOSECOND x axis as human-readable dates.
 
     Spec builders that plot a metric against time hand the renderers ``int64`` nanoseconds (a numeric x is

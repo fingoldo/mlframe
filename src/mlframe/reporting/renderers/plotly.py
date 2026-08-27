@@ -497,7 +497,7 @@ class PlotlyRenderer:
         if bin_centers is not None:
             if heights is None:
                 heights = np.asarray(p.values)
-                width = float(p.bin_width or ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
+                width = float(p.bin_width if p.bin_width is not None else ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
             else:
                 width = float(width0)
             colors_kw: dict[str, Any] = dict(color=p.color)
@@ -539,7 +539,7 @@ class PlotlyRenderer:
                 assert overlay_x_hi is not None
                 x_grid = np.linspace(overlay_x_lo, overlay_x_hi, 200)
                 normal_pdf = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((x_grid - mu) / sigma) ** 2)
-                label = p.overlay_label or f"Normal(mu={mu:.2g}, sigma={sigma:.2g})"
+                label = p.overlay_label if p.overlay_label is not None else f"Normal(mu={mu:.2g}, sigma={sigma:.2g})"
                 fig.add_trace(
                     go.Scatter(x=x_grid, y=normal_pdf, mode="lines", line=dict(color="red", dash="dash", width=1.4), name=label, showlegend=True),
                     row=row,
@@ -745,9 +745,9 @@ class PlotlyRenderer:
 
         ys = p.y if isinstance(p.y, tuple) else (p.y,)
         xs_per_series = isinstance(p.x, tuple)
-        labels = p.series_labels or (None,) * len(ys)
-        styles = p.line_styles or ("-",) * len(ys)
-        cols = p.colors or tuple(line_color(i) for i in range(len(ys)))
+        labels = p.series_labels if p.series_labels is not None else (None,) * len(ys)
+        styles = p.line_styles if p.line_styles is not None else ("-",) * len(ys)
+        cols = p.colors if p.colors is not None else tuple(line_color(i) for i in range(len(ys)))
         sec = _per_series_flags(p.secondary_y, len(ys))
         fills = _per_series_flags(p.fill_to_baseline, len(ys))
         has_secondary = any(sec)
@@ -762,13 +762,13 @@ class PlotlyRenderer:
         if p.band is not None:
             x0 = _xi(0)
             lower, upper = np.asarray(p.band[0]), np.asarray(p.band[1])
-            band_color = p.band_color or cols[0]
+            band_color = p.band_color if p.band_color is not None else cols[0]
             fig.add_trace(
                 go.Scatter(x=np.concatenate([x0, x0[::-1]]),
                            y=np.concatenate([upper, lower[::-1]]),
                            fill="toself", fillcolor=_rgba(band_color, 0.2),
                            line=dict(width=0), hoverinfo="skip",
-                           name=p.band_label or "band", showlegend=bool(p.band_label)),
+                           name=p.band_label if p.band_label is not None else "band", showlegend=bool(p.band_label)),
                 row=row, col=col,
             )
 
