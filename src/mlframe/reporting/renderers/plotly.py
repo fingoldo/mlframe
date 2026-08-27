@@ -63,10 +63,21 @@ def _go():
 
 # Text-wrap budgets mirror the matplotlib renderer (~90 chars/line for the full-width suptitle, ~46 for one panel); plotly annotations need ``<br>`` (not ``\n``). Wrappers live inline because strict file-ownership scopes this fix to plotly.py.
 _SUPTITLE_WRAP_CHARS = 90
+# Subplot-title font. plotly's own default (16) overflows horizontally into the adjacent subplot at a
+# typical 3-column figsize; 11 matches matplotlib's panel titles.
+_PANEL_TITLE_FONTSIZE = 11
+# matplotlib's default figure dpi; ``FigureSpec.figsize`` is in matplotlib inches, so both backends must
+# use the same px-per-inch or the same spec yields two differently-sized figures.
+_PX_PER_INCH = 100
 # Past this many bar categories thin x-tick labels to ~20 evenly-spaced (matches matplotlib); truncate labels over _BAR_XTICK_MAXLEN chars so long feature names don't crowd.
 _BAR_XTICK_THIN_THRESHOLD = 25
 _BAR_XTICK_KEEP = 20
-_BAR_XTICK_MAXLEN = 24
+# 60, not 24: the matplotlib renderer truncates nothing at all and stays readable at the same figsize
+# because both backends already rotate these labels -- so a 24-char cap only made the plotly twin LESS
+# informative than its matplotlib counterpart, turning e.g. "job_posted_at_day_of_year_cos" into
+# "job_posted_at_day_of_ye...". The cap is kept purely as a safety valve against a pathological name
+# (a 200-char generated column) blowing out the bottom margin; ordinary feature names now render in full.
+_BAR_XTICK_MAXLEN = 60
 
 
 def _wrap_text(text: str, width: int, *, sep: str = "<br>") -> str:
@@ -189,9 +200,8 @@ class PlotlyRenderer:
 
         fig = make_subplots(**subplots_kwargs)
 
-        # Shrink subplot-title font to matplotlib's ~11; plotly's default 16 overflows horizontally into adjacent subplots at the typical 3-column figsize.
         for ann in fig.layout.annotations:
-            ann.font = dict(size=11)
+            ann.font = dict(size=_PANEL_TITLE_FONTSIZE)
 
         for r, row in enumerate(spec.panels, start=1):
             for c in range(1, cols + 1):
@@ -210,7 +220,13 @@ class PlotlyRenderer:
                 x=0.5, xanchor="center", yanchor="top",
             ))
 
-        top_margin = (40 + n_suptitle_lines * (spec.suptitle_fontsize + 8)) if spec.suptitle else 50  # base band + ~(fontsize+8)px/line clears row-1 subplot titles
+        # The top band has to hold BOTH the suptitle and the first row's subplot titles: plotly stamps a
+        # subplot title as an annotation just ABOVE its subplot domain, i.e. inside this margin. Sizing the
+        # band from the suptitle alone made a multi-line panel title land on top of the suptitle -- the
+        # overlap seen on every wide multi-panel diagnostic figure. Reserve for the tallest row-1 title too.
+        _row1_title_lines = max((t.count("<br>") + 1) for t in subplot_titles[:cols] if t) if any(subplot_titles[:cols]) else 0
+        _panel_title_band = _row1_title_lines * (_PANEL_TITLE_FONTSIZE + 4)
+        top_margin = (40 + n_suptitle_lines * (spec.suptitle_fontsize + 8) if spec.suptitle else 30) + _panel_title_band
 
         # How-to-read footnote pinned to the bottom edge (paper coords), small + dim. Grows the bottom margin so it
         # never overlaps the axes or the below-figure legend.
@@ -225,8 +241,11 @@ class PlotlyRenderer:
         bottom_margin = (90 if static_legend else 50) + n_caption_lines * 16
 
         fig.update_layout(
-            width=int(spec.figsize[0] * 80),  # ~80px per matplotlib inch
-            height=int(spec.figsize[1] * 80) + (top_margin if spec.suptitle else 0) + n_caption_lines * 16,
+            # ``figsize`` is in matplotlib inches and matplotlib renders at 100 dpi by default, so 80 px/in
+            # rendered every plotly figure 20% smaller than its matplotlib twin built from the SAME spec --
+            # the "plotly version looks cramped" difference. Match the backends at 100 px/in.
+            width=int(spec.figsize[0] * _PX_PER_INCH),
+            height=int(spec.figsize[1] * _PX_PER_INCH) + top_margin + n_caption_lines * 16,
             # Bottom margin grows when the legend is shown so the below-figure legend has room.
             margin=dict(l=60, r=40, t=top_margin, b=bottom_margin),
             # Interactive HTML identifies series via hover tooltips, so the legend defaults off there to avoid

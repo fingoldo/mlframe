@@ -13,6 +13,9 @@ history.
 
 ### Fixed
 
+- plotly figures are no longer 20% smaller than their matplotlib twins built from the same spec: `figsize` is in matplotlib inches and matplotlib renders at 100 dpi, but the plotly renderer used 80 px/inch.
+- plotly panel titles no longer collide with the figure suptitle: plotly stamps each subplot title as an annotation inside the top margin, which was sized from the suptitle alone.
+- plotly no longer truncates ordinary feature names on bar-chart tick axes (`job_posted_at_day_of_year_cos` was rendering as `job_posted_at_day_of_ye...`); the matplotlib renderer never truncated, and both backends already rotate these labels. The cap survives only as a safety valve for pathological generated names.
 - Cyclical date features (`*_sin` / `*_cos`) are no longer emitted for date parts the caller did not request: `create_date_features(methods={"hour", "day", "weekday"})` used to also produce `month_sin/cos` and `day_of_year_sin/cos`, which the suite's own redundancy analyzer then flagged as near-duplicates and auto-dropped. Pass `cyclical_periods=` to request any set explicitly; `methods=None` still yields the full default set.
 - The mini-HPT auto-drop now logs which RULE removed each column (`nan_heavy` / `low_variance` / `insufficient_finite_values` / `near_duplicate`) instead of only a count and 8 sample names, and warns when 5+ columns go for `>=50% missing` alone -- structural missingness (a feature that only applies to a subset of rows) is itself predictive, and tree models handle NaN natively.
 - Panel titles now wrap to the panel's real width in both renderers instead of a flat 46 chars/line calibrated for a ~6-inch panel, so a wide figure no longer folds a long metric title into a narrow ragged column. The matplotlib path additionally stopped collapsing explicit `\n` breaks in caller-supplied titles (`textwrap.wrap` treats a newline as ordinary whitespace).

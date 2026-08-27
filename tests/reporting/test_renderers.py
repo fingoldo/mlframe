@@ -354,3 +354,56 @@ def test_matplotlib_wide_panel_title_uses_fewer_lines_than_a_narrow_one():
     narrow_title = get_renderer("matplotlib").render(_one_panel_spec((6, 4))).axes[0].get_title()
     wide_title = get_renderer("matplotlib").render(_one_panel_spec((18, 6))).axes[0].get_title()
     assert wide_title.count("\n") < narrow_title.count("\n"), (narrow_title, wide_title)
+
+
+def test_plotly_figure_size_matches_the_matplotlib_twin():
+    """The same FigureSpec must yield the same figure size in both backends.
+
+    ``figsize`` is in matplotlib inches and matplotlib renders at 100 dpi, so plotly's former 80 px/inch
+    made every plotly figure 20% smaller than its matplotlib counterpart built from the identical spec --
+    the "the plotly version looks cramped" difference. Plot-area width is compared directly; plotly's
+    height additionally carries the reserved title band, so the check is >= the matplotlib height.
+    """
+    pytest.importorskip("plotly")
+    spec = FigureSpec(panels=((LinePanelSpec(x=np.arange(5), y=np.arange(5), title="t"),),), figsize=(12, 6))
+
+    pf = get_renderer("plotly").render(spec)
+    mf = get_renderer("matplotlib").render(spec)
+    mpl_w, mpl_h = (int(v * mf.get_dpi()) for v in mf.get_size_inches())
+
+    assert pf.layout.width == mpl_w, (pf.layout.width, mpl_w)
+    assert pf.layout.height >= mpl_h, (pf.layout.height, mpl_h)
+
+
+def test_plotly_top_margin_reserves_room_for_row1_panel_titles():
+    """A multi-line panel title must not land on the suptitle.
+
+    plotly stamps each subplot title as an annotation just ABOVE its subplot domain -- i.e. inside the top
+    margin. Sizing that margin from the suptitle alone let the two collide, which is what produced the
+    overlapping title text on every wide multi-panel diagnostic figure.
+    """
+    pytest.importorskip("plotly")
+    long_panel_title = "Adversarial validation: train-vs-test AUC=1.000 (shift => CV may NOT transfer)"
+    suptitle = "line one of the run identity\nline two\nline three"
+
+    with_titles = get_renderer("plotly").render(
+        FigureSpec(suptitle=suptitle, panels=((LinePanelSpec(x=np.arange(5), y=np.arange(5), title=long_panel_title),),), figsize=(6, 4))
+    )
+    without_titles = get_renderer("plotly").render(
+        FigureSpec(suptitle=suptitle, panels=((LinePanelSpec(x=np.arange(5), y=np.arange(5), title=""),),), figsize=(6, 4))
+    )
+    assert with_titles.layout.margin.t > without_titles.layout.margin.t, (with_titles.layout.margin.t, without_titles.layout.margin.t)
+
+
+def test_plotly_does_not_truncate_ordinary_feature_names():
+    """Long-but-ordinary feature names must render in full, as the matplotlib renderer already does.
+
+    The 24-char cap turned "job_posted_at_day_of_year_cos" into "job_posted_at_day_of_ye...", making the
+    plotly twin strictly less informative than its matplotlib counterpart at the same figure size.
+    """
+    pytest.importorskip("plotly")
+    from mlframe.reporting.renderers.plotly import _truncate_label
+
+    assert _truncate_label("job_posted_at_day_of_year_cos") == "job_posted_at_day_of_year_cos"
+    # The cap survives as a safety valve for a pathological generated name.
+    assert _truncate_label("x" * 200).endswith("...")
