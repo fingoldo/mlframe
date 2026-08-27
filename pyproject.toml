@@ -587,7 +587,14 @@ source = ["src/mlframe"]
 omit = [
     "tests/*",
     "legacy/*",
-    "benchmarks/*",
+    # Was "benchmarks/*" -- a literal top-level match that never hit any real directory: every
+    # actual benchmark dir in this tree is nested and underscore-prefixed (e.g.
+    # feature_selection/_benchmarks/, hermite_fe/_benchmarks/), so this exclusion had been
+    # silently dead since it was added. Confirmed live: 20+ _benchmarks/ dirs, ~8700 lines,
+    # all counting as uncovered against coverage this whole time. These are cProfile/bench
+    # harnesses saved in-package for manual use (CLAUDE.md convention), never meant to run
+    # under the test suite.
+    "*/_benchmarks/*",
     "profiling/*",
     "*/__pycache__/*",
     "*/site-packages/*",
