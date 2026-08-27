@@ -522,6 +522,11 @@ def train_mlframe_models_suite(
             text_features=text_features,
             embedding_features=embedding_features,
             ctx=ctx,
+            # ``train_df`` here can be the post-extensions numeric-only frame; the categoricals this
+            # diagnostic reports on live on the polars-pre frames. See the callee's fallback note.
+            train_df_polars_pre=train_df_polars_pre,
+            val_df_polars_pre=val_df_polars_pre,
+            test_df_polars_pre=test_df_polars_pre,
         )
 
     metadata["text_features"] = text_features

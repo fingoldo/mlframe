@@ -538,17 +538,30 @@ def _phase_pandas_conversion_and_cat_prep(
                 )
     else:
         if verbose:
+            # These must mirror the ``defer_pandas_conv`` gate above TERM FOR TERM. They previously did
+            # not: the gate gives up deferral when ``polars_pipeline_applied`` is False, but that term was
+            # missing from the list, while ``all_models_polars_native`` -- which the gate never consults --
+            # was in it. So the one genuinely common case (a caller passing
+            # PreprocessingBackendConfig(prefer_polarsds=False), which leaves the polars-ds pipeline
+            # unapplied) matched no listed reason and printed "unknown", leaving a multi-GB conversion with
+            # no stated cause.
             reasons = []
             if not was_polars_input:
                 reasons.append("input is not a Polars DataFrame")
-            if not all_models_polars_native:
-                _strats = _strategies_for(mlframe_models or [])
-                non_native = [m for m, s in zip(mlframe_models or [], _strats) if not s.supports_polars]
-                reasons.append(f"non-Polars-native models requested: {non_native}" if non_native else "all_models_polars_native=False (no strategies)")
+            if not polars_pipeline_applied:
+                reasons.append(
+                    "the polars-ds pipeline was not applied (e.g. PreprocessingBackendConfig(prefer_polarsds=False), "
+                    "or no polars-native pipeline was built for this input)"
+                )
             if recurrent_models:
                 reasons.append(f"recurrent_models={recurrent_models}")
             if _has_rfecv:
                 reasons.append(f"rfecv_models={rfecv_models}")
+            if not all_models_polars_native:
+                _strats = _strategies_for(mlframe_models or [])
+                non_native = [m for m, s in zip(mlframe_models or [], _strats) if not s.supports_polars]
+                if non_native:
+                    reasons.append(f"non-Polars-native models requested: {non_native}")
             logger.info(
                 "  polars->pandas conversion needed because: %s",
                 "; ".join(reasons) or "unknown",

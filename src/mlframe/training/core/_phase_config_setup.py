@@ -256,7 +256,15 @@ def setup_configuration(
         output_config.plot_file = ""
 
     if verbose:
-        _plot_dir = f"{data_dir}/{models_dir}/{model_name}" if data_dir and save_charts else "(no save)"
+        # Must match ``_setup_helpers.setup_directories``, which writes charts to
+        # ``<data_dir>/charts/<target_name>/<model_name>/<target_type>/<cur_target_name>/`` (every segment
+        # slugified). The previous string named ``<data_dir>/<models_dir>/<model_name>`` -- the MODELS
+        # directory, unslugified, missing the target_name segment entirely -- so anyone who followed this
+        # log line looked in a directory charts are never written to and concluded rendering had failed.
+        # target_type / cur_target_name are only known inside the per-target loop, hence the trailing "...".
+        from mlframe.training.core._setup_helpers import slugify as _slugify
+
+        _plot_dir = f"{data_dir}/charts/{_slugify(target_name)}/{_slugify(model_name)}/..." if data_dir and save_charts else "(no save)"
         if _short_circuit_active:
             logger.info(
                 "[reporting] save_charts=%s, interactive=%s -- " "cal-plot short-circuit ACTIVE: clearing plot_file so " "chart rendering is skipped entirely",

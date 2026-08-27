@@ -152,3 +152,99 @@ def test_val_and_test_follow_train(small_df):
     assert tr.shape == (60, 2)
     assert va.shape == (20, 2)
     assert te.shape == (10, 2)
+
+
+def _polars_frame_with_wide_categoricals(n_rows: int = 300, n_cat: int = 8):
+    """Polars frame mixing numeric/bool/duration columns with many Categorical ones."""
+    pl = pytest.importorskip("polars")
+    import datetime
+
+    rng = np.random.default_rng(0)
+    data: dict = {f"num{i}": rng.standard_normal(n_rows) for i in range(4)}
+    data["flag"] = rng.integers(0, 2, n_rows).astype(bool)
+    data["dur"] = [datetime.timedelta(days=int(v)) for v in rng.integers(0, 5, n_rows)]
+    for c in range(n_cat):
+        data[f"cat{c}"] = pl.Series([f"v{v}" for v in rng.integers(0, 20, n_rows)], dtype=pl.Categorical)
+    return pl.DataFrame(data)
+
+
+def test_polars_categoricals_are_not_converted_before_being_dropped():
+    """Categorical/Enum columns no extension stage reads must never reach the polars->pandas bridge.
+
+    ``to_pandas`` materialises them as pandas ``object`` -- one Python ``str`` per cell -- and the numeric
+    gate then drops every one of them. On a production 2.7M-row frame that round trip cost 3.9 minutes for
+    23 columns whose values were never read. Pinning the behaviour by asserting the bridge is handed only
+    the relevant subset: a pure output-shape assertion would pass just as well on the wasteful path.
+    """
+    pl = pytest.importorskip("polars")
+    df = _polars_frame_with_wide_categoricals()
+    cfg = PreprocessingExtensionsConfig(scaler="StandardScaler", row_wise_summary_stats_enabled=False, row_wise_extreme_columns_enabled=False)
+
+    seen_widths = []
+    _orig = pl.DataFrame.to_pandas
+
+    def _spy(self, *a, **kw):
+        """Record the frame width handed to the bridge, then delegate to the real to_pandas."""
+        seen_widths.append(self.width)
+        return _orig(self, *a, **kw)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(pl.DataFrame, "to_pandas", _spy)
+        tr, _va, _te, _pipe = apply_preprocessing_extensions(df, None, None, cfg, verbose=0)
+
+    assert seen_widths, "expected the polars->pandas bridge to be exercised"
+    # Only the 4 numeric columns + the bool cross the bridge. The 8 Categoricals and the Duration are
+    # preselected away; without the fix all 14 columns were converted and then dropped.
+    assert max(seen_widths) == 5, f"irrelevant columns still crossed the bridge: widths={seen_widths}"
+    assert not [c for c in tr.columns if c.startswith("cat")]
+
+
+def test_timedelta_column_is_dropped_instead_of_crashing_the_sklearn_bridge():
+    """A timedelta column must take the documented "non-numeric -> drop with a WARN" path.
+
+    ``select_dtypes(include="number")`` selects timedelta64, but every sklearn step downstream then calls
+    ``np.result_type`` across the frame and timedelta64 has no common dtype with float64 -- raising a
+    ``DTypePromotionError`` from inside ``sklearn.utils.validation`` that names neither the offending column
+    nor this pipeline. Passing the numeric gate never made a timedelta column usable, it only swapped a
+    clean drop for an opaque crash.
+    """
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({f"num{i}": rng.standard_normal(100) for i in range(3)})
+    df["dur"] = pd.to_timedelta(rng.integers(0, 5, 100), unit="D")
+    cfg = PreprocessingExtensionsConfig(scaler="StandardScaler", row_wise_summary_stats_enabled=False, row_wise_extreme_columns_enabled=False)
+
+    tr, _va, _te, _pipe = apply_preprocessing_extensions(df, None, None, cfg, verbose=0)
+
+    assert "dur" not in tr.columns
+    assert tr.shape[1] == 3
+
+
+def test_polars_duration_column_is_dropped_not_crashed():
+    """Polars-input twin of the timedelta drop above (polars Duration -> pandas timedelta64)."""
+    pytest.importorskip("polars")
+    df = _polars_frame_with_wide_categoricals()
+    cfg = PreprocessingExtensionsConfig(row_wise_summary_stats_enabled=False, row_wise_extreme_columns_enabled=False, scaler="StandardScaler")
+    tr, _va, _te, _pipe = apply_preprocessing_extensions(df, None, None, cfg, verbose=0)
+    # 4 numeric + bool reach the scaler; the Duration and all 8 Categoricals are dropped.
+    assert "dur" not in tr.columns
+    assert tr.shape[1] == 5, f"expected bool+4 numeric to survive, got {list(tr.columns)}"
+
+
+def test_tfidf_column_survives_the_preselect():
+    """A declared ``tfidf_columns`` text column is consumed AFTER the bridge, so it must not be
+    preselected away as "non-numeric" -- otherwise TF-IDF silently finds nothing to vectorise."""
+    pl = pytest.importorskip("polars")
+    rng = np.random.default_rng(0)
+    df = pl.DataFrame(
+        {
+            "num0": rng.standard_normal(200),
+            "txt": [f"word{v} common" for v in rng.integers(0, 10, 200)],
+            "cat0": pl.Series([f"v{v}" for v in rng.integers(0, 5, 200)], dtype=pl.Categorical),
+        }
+    )
+    cfg = PreprocessingExtensionsConfig(
+        tfidf_columns=["txt"], tfidf_max_features=8, row_wise_summary_stats_enabled=False, row_wise_extreme_columns_enabled=False
+    )
+    tr, _va, _te, _pipe = apply_preprocessing_extensions(df, None, None, cfg, verbose=0)
+    assert [c for c in tr.columns if c.startswith("txt__tfidf_")], f"TF-IDF produced no features: {list(tr.columns)}"
+    assert "cat0" not in tr.columns

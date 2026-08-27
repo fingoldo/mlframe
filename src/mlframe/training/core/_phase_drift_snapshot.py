@@ -30,6 +30,9 @@ def _log_cardinality_and_drift_snapshot(
     text_features: list[str],
     embedding_features: list[str],
     ctx: Any | None = None,
+    train_df_polars_pre: Any | None = None,
+    val_df_polars_pre: Any | None = None,
+    test_df_polars_pre: Any | None = None,
 ) -> None:
     """Pre-train cardinality + val/test drift logging (pure side-effect).
 
@@ -42,6 +45,14 @@ def _log_cardinality_and_drift_snapshot(
     all_cat_cols = list(cat_features or []) + list(text_features or []) + list(embedding_features or [])
     if not (all_cat_cols and train_df is not None):
         return
+    # The live ``train_df`` may be the post-extensions frame, which is numeric-only: the sklearn-bridge's
+    # numeric gate drops every categorical/text column before it gets here. The categoricals survive on
+    # the ``*_polars_pre`` frames (the ones the CB/XGB polars fastpath actually consumes), so fall back to
+    # those when the live frame carries none of the declared columns. Without this the whole diagnostic
+    # silently no-ops: it logged an EMPTY cardinality line and, worse, skipped the val/test unseen-category
+    # drift warning it exists to emit -- the one that preempts the native XGB/CB IterativeDMatrix crash.
+    if train_df_polars_pre is not None and not any(c in train_df.columns for c in all_cat_cols):
+        train_df, val_df, test_df = train_df_polars_pre, val_df_polars_pre, test_df_polars_pre
     try:
         is_polars = isinstance(train_df, pl.DataFrame)
         # Single lazy collect for ALL train cardinalities (was: N eager n_unique() calls -> N kernel launches).
@@ -57,6 +68,17 @@ def _log_cardinality_and_drift_snapshot(
         else:
             pairs = [(c, int(train_df[c].nunique(dropna=False))) for c in cols_present]  # type: ignore[union-attr]  # is_polars bool flag already excludes the pl.DataFrame arm here
         pairs.sort(key=lambda x: -x[1])
+        if not pairs:
+            # Declared categorical/text columns exist but none are on any frame reachable here -- the
+            # diagnostic cannot run. Say so: the pre-fix shape emitted a bare header with an empty list,
+            # which reads like "no categoricals" rather than "this check silently did not happen".
+            logger.warning(
+                "  Categorical cardinality/drift snapshot SKIPPED: none of the %d declared categorical/text "
+                "column(s) are present on the frames passed here (checked the live frame and the polars-pre "
+                "fallback). The val/test unseen-category drift warning will not be emitted for this run.",
+                len(all_cat_cols),
+            )
+            return
         summary = ", ".join(f"{c}:{n:_}" for c, n in pairs)
         logger.info("  Categorical cardinalities (train, n_unique, desc): %s", summary)
 

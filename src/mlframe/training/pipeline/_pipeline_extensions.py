@@ -334,6 +334,40 @@ def _has_active_extension_stage(config) -> bool:
     )
 
 
+def _extension_relevant_polars_cols(df, config) -> Optional[list]:
+    """Column subset of a POLARS frame that any extension stage can actually consume, or None if ``df`` isn't polars.
+
+    Every stage downstream of the polars->pandas bridge either needs a numeric column (the sklearn-bridge
+    steps and the row-wise aggregates, which run strictly after ``_filter_to_numeric`` has dropped
+    everything else) or is a declared ``tfidf_columns`` text column (vectorised into numeric features, then
+    dropped). A Categorical / Enum / String column that is neither is converted at full cost and discarded
+    a few steps later without ever being read.
+
+    That waste is not marginal: ``to_pandas(split_blocks=True)`` materialises pl.Enum / pl.Categorical as
+    pandas ``object``, i.e. one Python ``str`` per cell. Measured on a production 2.7M-row frame, converting
+    23 such columns cost 3.9 minutes -- 80% of the whole pipeline phase -- and every one of those columns
+    was dropped by ``_filter_to_numeric`` immediately afterwards, with the drop's own WARN naming all 23.
+    Selecting the relevant subset in polars first is a cheap schema-level operation and skips the
+    materialisation entirely.
+    """
+    if pl is None or not isinstance(df, pl.DataFrame):
+        return None
+    # The preselect must not drop anything ``_filter_to_numeric`` keeps, so it mirrors that function's
+    # post-bridge pandas gate rather than a plain "is this numeric in polars" test. Boolean is the one
+    # dtype that disagrees in a way that matters: not ``is_numeric()`` in polars, but ``_filter_to_numeric``
+    # promotes bool -> int8 BEFORE its numeric gate, so bools survive there and must survive here.
+    # (Decimal is the harmless opposite: kept here, dropped by the pandas gate exactly as before. Duration
+    # is excluded on BOTH sides -- see ``_filter_to_numeric``'s timedelta note for why.)
+    keep = [name for name, dtype in df.schema.items() if dtype.is_numeric() or dtype == pl.Boolean]
+    _kept = set(keep)
+    # TF-IDF consumes its text columns after the bridge, so they must survive the preselect.
+    for _col in getattr(config, "tfidf_columns", None) or ():
+        if _col in df.columns and _col not in _kept:
+            keep.append(_col)
+            _kept.add(_col)
+    return keep
+
+
 def _filter_to_numeric(_df, keep_cols=None):
     """Drop non-numeric columns and bool-to-int8 promote in place, returning ``(filtered_view, dropped_names)``.
 
@@ -371,7 +405,13 @@ def _filter_to_numeric(_df, keep_cols=None):
     _bool_cols = _df.select_dtypes(include="bool").columns.tolist()
     for _c in _bool_cols:
         _df[_c] = _df[_c].astype(_np_local.int8)
-    _num_cols = _df.select_dtypes(include="number").columns.tolist()
+    # ``select_dtypes(include="number")`` SELECTS timedelta64 (verified, pandas 2.3), but every downstream
+    # sklearn step then dies on it: the scaler/imputer stack calls ``np.result_type`` across the frame's
+    # dtypes and timedelta64 has no common dtype with float64, raising a DTypePromotionError from deep
+    # inside ``sklearn.utils.validation`` that names neither the column nor this pipeline. So a timedelta
+    # column never actually worked here -- it only chose between two failure modes. Exclude it explicitly
+    # so it takes the documented non-numeric path instead: dropped, with the WARN that names it.
+    _num_cols = [c for c in _df.select_dtypes(include="number").columns if not pd.api.types.is_timedelta64_dtype(_df[c])]
     _dropped = [c for c in _df.columns if c not in set(_num_cols)]
     return _df[_num_cols], _dropped
 
@@ -452,6 +492,30 @@ def apply_preprocessing_extensions(
         return df
 
     t0_to_pandas = timer()
+    # Narrow to the columns some stage can actually consume BEFORE paying the bridge (see
+    # ``_extension_relevant_polars_cols``): converting a Categorical/Enum column materialises one Python
+    # str per cell and every such column is dropped by ``_filter_to_numeric`` a few steps later anyway.
+    # Pinned from TRAIN's schema and reused for val/test so all three keep an identical column set --
+    # a per-split recompute could diverge exactly the way ``_filter_to_numeric``'s ``keep_cols`` guards against.
+    _keep_polars_cols = _extension_relevant_polars_cols(train_df, config)
+    if _keep_polars_cols is not None:
+        _n_skipped = train_df.width - len(_keep_polars_cols)
+        if _n_skipped > 0:
+
+            def _preselect(_df):
+                """Select the train-pinned relevant columns from a polars split before the pandas bridge."""
+                if pl is None or not isinstance(_df, pl.DataFrame):
+                    return _df
+                return _df.select([c for c in _keep_polars_cols if c in _df.columns])
+
+            train_df, val_df, test_df = _preselect(train_df), _preselect(val_df), _preselect(test_df)
+            if verbose:
+                logger.info(
+                    "    apply_preprocessing_extensions: skipping polars->pandas conversion of %d column(s) "
+                    "no extension stage reads (non-numeric and not a tfidf_column); they would be dropped "
+                    "by the numeric gate below regardless.",
+                    _n_skipped,
+                )
     train = _to_pandas(train_df)
     val = _to_pandas(val_df)
     test = _to_pandas(test_df)

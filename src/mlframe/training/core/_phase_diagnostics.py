@@ -74,6 +74,23 @@ def run_per_target_diagnostics(
             )
             _bd_report_dict = _existing_bd
         elif baseline_diagnostics_config.enabled and (str(target_type) in baseline_diagnostics_config.apply_to_target_types):
+            # Announce the pass BEFORE it runs. It fits a throwaway LightGBM once per ablated feature,
+            # so a log read top-to-bottom otherwise shows a burst of LightGBM fits (plus sklearn's
+            # feature-name warnings) with no indication of what they are -- routinely misread as "the
+            # suite is training LightGBM" even when mlframe_models never asked for it. The proxy family
+            # is fixed and deliberately unrelated to the models being trained: this measures the DATA,
+            # not any candidate model.
+            logger.info(
+                "[BaselineDiagnostics] target='%s' (%s): starting feature-ablation diagnostic -- fits a "
+                "throwaway %s model (n_estimators=%s) on a %s-row sample, once per ablated feature, to rank "
+                "which features carry the signal. Independent of mlframe_models=; nothing fitted here is kept "
+                "or scored. Disable via BaselineDiagnosticsConfig(enabled=False).",
+                cur_target_name,
+                target_type,
+                baseline_diagnostics_config.quick_model_family,
+                baseline_diagnostics_config.quick_model_n_estimators,
+                baseline_diagnostics_config.sample_n if baseline_diagnostics_config.sample_n else "all",
+            )
             _bd = BaselineDiagnostics(baseline_diagnostics_config)
             _bd_report = _bd.fit_and_report(
                 train_df=filtered_train_df,

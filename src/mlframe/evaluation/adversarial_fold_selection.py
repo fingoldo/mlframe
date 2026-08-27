@@ -14,6 +14,7 @@ import logging
 from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union, overload
 
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ def _oof_is_test_proba(
     n_splits: int,
     seed: int,
     need_importance: bool,
+    feature_names: Optional[Sequence[str]] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """Fit the OOF train-vs-test classifier on the given feature columns and return (oof_proba, importances).
 
@@ -56,6 +58,15 @@ def _oof_is_test_proba(
     n_train = train_arr.shape[0]
     n_test = test_arr.shape[0]
     union = np.concatenate([train_arr, test_arr], axis=0)
+    # Hand LightGBM a NAMED frame rather than the bare ndarray. Fitting on an ndarray makes LightGBM
+    # fabricate its own names ("Column_0", "Column_1", ...) and expose them via ``feature_names_in_``;
+    # sklearn >=1.8 then sees an estimator "fitted with feature names" being predicted on nameless
+    # arrays and emits a UserWarning per fold. That warning is pure noise here (the fabricated names
+    # match positionally on every call), but it fires once per CV fold on a multi-million-row
+    # diagnostic and reads, in a training log, like a real feature-misalignment bug. Passing the real
+    # column names removes the fabrication at its source and makes ``importances`` below attributable.
+    if feature_names is not None and len(feature_names) == union.shape[1]:
+        union = pd.DataFrame(union, columns=list(feature_names))
     source_label = np.concatenate([np.zeros(n_train, dtype=np.int64), np.ones(n_test, dtype=np.int64)])
 
     # LightGBM's own OpenMP thread pool defaults to ALL cores. This diagnostic runs as an auxiliary step
@@ -189,7 +200,9 @@ def build_test_like_validation_fold(
         test_arr = test_full[:, active_cols]
         is_last_iteration = it == n_effective_iterations - 1
         can_drop = not is_last_iteration and top_k_drop_per_iteration > 0 and len(active_cols) > top_k_drop_per_iteration
-        oof_is_test_proba, importances = _oof_is_test_proba(train_arr, test_arr, n_splits, seed, need_importance=can_drop)
+        oof_is_test_proba, importances = _oof_is_test_proba(
+            train_arr, test_arr, n_splits, seed, need_importance=can_drop, feature_names=[cols[i] for i in active_cols]
+        )
         auc = float(fast_roc_auc(source_label, oof_is_test_proba))
 
         dropped_names: List[str] = []

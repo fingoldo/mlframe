@@ -192,3 +192,57 @@ def test_biz_val_drift_snapshot_lazy_speedup():
     assert (
         ratio <= 0.85
     ), f"drift-snapshot lazy plan regressed: new={new_s * 1000:.1f}ms legacy={legacy_s * 1000:.1f}ms ratio={ratio:.2f} (target<=0.85 under CI contention; bench-of-record ~0.28 on a quiet machine)"
+
+
+def test_falls_back_to_polars_pre_when_live_frame_is_numeric_only(caplog):
+    """The categorical cardinality/drift snapshot must survive a numeric-only live frame.
+
+    ``train_df`` reaching this helper can be the post-extensions frame, whose sklearn-bridge numeric gate
+    has already dropped every categorical column. Pre-fix the helper then found zero declared columns
+    present, logged a bare header with an EMPTY list (reading as "no categoricals" rather than "this check
+    did not run"), and silently skipped the val/test unseen-category drift warning it exists to emit --
+    the one that preempts the native XGB/CB IterativeDMatrix crash. It must use the polars-pre frames,
+    which still carry those columns.
+    """
+    import logging
+
+    import pandas as pd
+
+    tr = pl.DataFrame({"c": ["a", "b", "a", "c"], "n": [1.0, 2.0, 3.0, 4.0]})
+    va = pl.DataFrame({"c": ["a", "b", "b", "a"], "n": [1.0, 2.0, 3.0, 4.0]})
+    te = pl.DataFrame({"c": ["a", "a", "b", "b"], "n": [1.0, 2.0, 3.0, 4.0]})
+    numeric_only_live = pd.DataFrame({"n": [1.0, 2.0, 3.0, 4.0]})
+
+    with caplog.at_level(logging.INFO):
+        _log_cardinality_and_drift_snapshot(
+            train_df=numeric_only_live, val_df=numeric_only_live, test_df=numeric_only_live,
+            cat_features=["c"], text_features=[], embedding_features=[],
+            train_df_polars_pre=tr, val_df_polars_pre=va, test_df_polars_pre=te,
+        )
+
+    card_lines = [r.message for r in caplog.records if "Categorical cardinalities" in r.message]
+    assert card_lines, "cardinality line missing entirely"
+    # The real report, not an empty list: 'c' has 3 distinct values on the polars-pre train frame.
+    assert "c:3" in card_lines[0], card_lines[0]
+
+
+def test_warns_instead_of_logging_an_empty_cardinality_list(caplog):
+    """When no reachable frame carries the declared categoricals, say the check was skipped.
+
+    An empty ``Categorical cardinalities ...:`` line is indistinguishable from "this dataset has no
+    categorical columns", so a silently-disabled diagnostic looked like a clean result.
+    """
+    import logging
+
+    import pandas as pd
+
+    numeric_only = pd.DataFrame({"n": [1.0, 2.0, 3.0]})
+
+    with caplog.at_level(logging.INFO):
+        _log_cardinality_and_drift_snapshot(
+            train_df=numeric_only, val_df=numeric_only, test_df=numeric_only,
+            cat_features=["absent_col"], text_features=[], embedding_features=[],
+        )
+
+    assert not [r for r in caplog.records if "Categorical cardinalities" in r.message], "emitted an empty cardinality report"
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING and "SKIPPED" in r.message], [r.message for r in caplog.records]
