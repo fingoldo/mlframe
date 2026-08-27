@@ -121,7 +121,7 @@ jobs:
       - name: Clone & install pyutilz (sibling dependency)
         run: |
           git clone https://github.com/fingoldo/pyutilz.git
-          git -C pyutilz checkout 0ebbdc23472a3a0827731588c5fe36a63dc393ad  # pinned 2026-08-19, see X_CICD_DEPENDENCIES-1 -- register_default_cache DEFAULT-cache-fallback diagnostics
+          git -C pyutilz checkout 691a6ce16ba0abeb3647f17c1057464c895473ea  # pinned 2026-08-19, see X_CICD_DEPENDENCIES-1 -- register_default_cache DEFAULT-cache-fallback diagnostics
           pip install "./pyutilz[system,pandas,polars,database]"
 
       - name: Install mlframe with all runtime extras + dev tooling
@@ -265,7 +265,7 @@ jobs:
       - name: Clone & install pyutilz (sibling dependency)
         run: |
           git clone https://github.com/fingoldo/pyutilz.git
-          git -C pyutilz checkout 0ebbdc23472a3a0827731588c5fe36a63dc393ad  # pinned 2026-08-19, see X_CICD_DEPENDENCIES-1 -- register_default_cache DEFAULT-cache-fallback diagnostics
+          git -C pyutilz checkout 691a6ce16ba0abeb3647f17c1057464c895473ea  # pinned 2026-08-19, see X_CICD_DEPENDENCIES-1 -- register_default_cache DEFAULT-cache-fallback diagnostics
           pip install "./pyutilz[system,pandas,polars,database]"
 
       - name: Install mlframe with all runtime extras + dev tooling

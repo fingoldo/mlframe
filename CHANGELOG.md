@@ -13,6 +13,7 @@ history.
 
 ### Fixed
 
+- Bumped the pinned `pyutilz` commit: its `code_audit` dead-import scan no longer misattributes a finding to a same-block why-comment on Python 3.9 (pre-3.10 lacks `ast.alias.lineno`), which had been intermittently failing CI's static-analysis baseline check on that leg only.
 - MRMR's raw-feature floor-drop protection is ~20x faster (QR-decomposition reuse instead of a fresh `lstsq` solve per candidate); `MRMR.transform`'s chained-recipe replay is separately ~58x faster via a single upfront frame copy instead of one per recipe.
 - Several GPU-resident MRMR pair-MI/discretization kernels no longer risk a VRAM-oversubscription hang or silent process kill on Windows/WDDM (missing budget checks, an unbounded chunk-count blowup, and a host-side zero-fill that doubled transient memory pressure are all now guarded); a shared-memory histogram kernel variant and device-side buffer zeroing bring large speedups (up to ~60x) on the affected kernel, and a row-chunked GPU fallback now engages before dropping all the way to CPU when a full upload wouldn't fit.
 - `wellbore_train.py`'s hardware-usage sampler no longer polls GPU/NVML by default, fixing a rare native access-violation crash from racing CUDA calls on its own thread; opt back in via `WELLBORE_HW_SAMPLE_GPU=1`.
