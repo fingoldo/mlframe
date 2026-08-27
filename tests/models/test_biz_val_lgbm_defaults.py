@@ -62,13 +62,16 @@ def test_biz_val_extra_trees_reduces_holdout_rmse_at_large_tree_count():
     for seed in range(n_seeds):
         X_train, y_train, X_test, y_test = _make_correlated_noisy_regression(1500, 1500, seed=seed)
 
-        params_extra = default_lgbm_params(n_estimators=600, extra_trees=True, random_state=seed)
+        # n_jobs=1: default_lgbm_params' own n_jobs=-1 default fights every other CI xdist worker's
+        # own n_jobs=-1 LightGBM fit for the same handful of runner cores -- confirmed as the cause
+        # of an intermittent 900s pytest-timeout on this test (2026-08-27, py3.14 CI leg).
+        params_extra = default_lgbm_params(n_estimators=600, extra_trees=True, random_state=seed, n_jobs=1)
         model_extra = lgb.LGBMRegressor(**params_extra)
         model_extra.fit(X_train, y_train)
         pred_extra = model_extra.predict(X_test)
         rmse_extra.append(float(np.sqrt(np.mean((pred_extra - y_test) ** 2))))
 
-        params_default = default_lgbm_params(n_estimators=600, extra_trees=False, random_state=seed)
+        params_default = default_lgbm_params(n_estimators=600, extra_trees=False, random_state=seed, n_jobs=1)
         model_default = lgb.LGBMRegressor(**params_default)
         model_default.fit(X_train, y_train)
         pred_default = model_default.predict(X_test)
@@ -110,10 +113,11 @@ def test_biz_val_default_lgbm_params_auto_extra_trees_adapts_to_tree_count():
             pred = model.predict(X_test)  # noqa: B023 -- closure invoked 4x below, same iteration, never stored
             return float(np.sqrt(np.mean((pred - y_test) ** 2)))  # noqa: B023 -- closure invoked 4x below, same iteration, never stored
 
-        rmse_small_auto.append(_rmse(default_lgbm_params(n_estimators=small_n_estimators, auto_extra_trees=True, random_state=seed)))
-        rmse_small_off.append(_rmse(default_lgbm_params(n_estimators=small_n_estimators, extra_trees=True, random_state=seed)))
-        rmse_large_auto.append(_rmse(default_lgbm_params(n_estimators=large_n_estimators, auto_extra_trees=True, random_state=seed)))
-        rmse_large_static_off.append(_rmse(default_lgbm_params(n_estimators=large_n_estimators, extra_trees=False, random_state=seed)))
+        # n_jobs=1 -- see the sibling test above for why (avoids xdist-worker core contention).
+        rmse_small_auto.append(_rmse(default_lgbm_params(n_estimators=small_n_estimators, auto_extra_trees=True, random_state=seed, n_jobs=1)))
+        rmse_small_off.append(_rmse(default_lgbm_params(n_estimators=small_n_estimators, extra_trees=True, random_state=seed, n_jobs=1)))
+        rmse_large_auto.append(_rmse(default_lgbm_params(n_estimators=large_n_estimators, auto_extra_trees=True, random_state=seed, n_jobs=1)))
+        rmse_large_static_off.append(_rmse(default_lgbm_params(n_estimators=large_n_estimators, extra_trees=False, random_state=seed, n_jobs=1)))
 
     mean_small_auto = float(np.mean(rmse_small_auto))
     mean_small_off = float(np.mean(rmse_small_off))
