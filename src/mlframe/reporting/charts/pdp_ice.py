@@ -678,7 +678,45 @@ def pdp_2d_panel(
         ylabel=lab0,
         colormap="viridis",
         colorbar_label=cbar,
+        cell_hovertext=_pdp_2d_support_text(X, i0, i1, grid0, grid1),
     )
+
+
+def _pdp_2d_support_text(X: Any, i0: int, i1: int, grid0: np.ndarray, grid1: np.ndarray) -> Optional[np.ndarray]:
+    """Per-cell ``"N rows (P%)"`` support strings for a 2-D PDP surface, or ``None`` if it can't be computed.
+
+    A partial-dependence surface is evaluated on a REGULAR grid, so it reports a value for every cell --
+    including combinations the training data barely contains or never contains at all. Those cells are pure
+    model extrapolation and read exactly like well-supported ones. Putting the real row count behind the
+    tooltip lets a reader tell "this interaction is real" from "this corner of the grid has 3 rows in it".
+
+    Counting assigns each row to the nearest grid value on each axis (the grid is what the surface was
+    evaluated on), which matches how a reader interprets a cell: the region the cell stands for.
+    """
+    try:
+        arr, _, _ = _as_2d(X)
+        v0 = np.asarray(arr[:, i0], dtype=np.float64)
+        v1 = np.asarray(arr[:, i1], dtype=np.float64)
+        finite = np.isfinite(v0) & np.isfinite(v1)
+        v0, v1 = v0[finite], v1[finite]
+        n_total = int(v0.size)
+        if n_total == 0:
+            return None
+        # Nearest grid point per axis: midpoints between consecutive grid values are the bin edges.
+        e0 = (np.asarray(grid0, dtype=np.float64)[1:] + np.asarray(grid0, dtype=np.float64)[:-1]) / 2.0
+        e1 = (np.asarray(grid1, dtype=np.float64)[1:] + np.asarray(grid1, dtype=np.float64)[:-1]) / 2.0
+        r = np.searchsorted(e0, v0)
+        c = np.searchsorted(e1, v1)
+        counts = np.zeros((len(grid0), len(grid1)), dtype=np.int64)
+        np.add.at(counts, (r, c), 1)
+        pct = counts / float(n_total) * 100.0
+        return np.array(
+            [[f"{counts[i, j]:,} rows ({pct[i, j]:.1f}% of {n_total:,})" for j in range(counts.shape[1])] for i in range(counts.shape[0])],
+            dtype=object,
+        )
+    except Exception as exc:  # best-effort enrichment: a tooltip must never break the chart
+        logger.debug("pdp_2d support-text computation failed (%s: %s); tooltip falls back to axes+value", type(exc).__name__, exc)
+        return None
 
 
 def compose_pdp_figure(

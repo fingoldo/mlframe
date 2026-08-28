@@ -124,7 +124,12 @@ def _select_feature_columns(frame: Any, feature_names: Optional[Sequence[str]], 
     if len(names) <= cap:
         return frame, names
     keep = names[:cap]
-    if hasattr(frame, "loc") and not isinstance(frame, np.ndarray):
+    # Probe the CAPABILITY (can this object select a list of columns?), not a pandas-only attribute. The
+    # previous ``hasattr(frame, "loc")`` gate is False for polars -- which has neither ``.loc`` nor ``.iloc``
+    # -- so the cap silently no-opped on every polars frame and the dense-matrix builders downstream
+    # received ALL columns, exactly the "thousands-of-columns engineered frame blows the matrix up" case
+    # this cap exists to prevent. ndarray is excluded because ``arr[list]`` selects ROWS there, not columns.
+    if not isinstance(frame, np.ndarray) and hasattr(frame, "columns"):
         try:
             return frame[keep], keep
         except Exception as exc:

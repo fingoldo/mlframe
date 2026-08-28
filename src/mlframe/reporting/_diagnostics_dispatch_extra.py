@@ -20,6 +20,7 @@ real suite run -- no actionable speedup in this wiring layer; the orchestration 
 from __future__ import annotations
 
 import logging
+import numbers
 import os
 from typing import Any, Dict, Optional, Sequence
 
@@ -128,6 +129,17 @@ def _entry_score(entry: Any) -> Optional[np.ndarray]:
     return None
 
 
+def _is_real_scalar(v) -> bool:
+    """True for a real numeric scalar, including numpy's -- and excluding bools.
+
+    ``isinstance(v, (int, float))`` misses every numpy scalar except ``np.float64``: ``np.float32`` does not
+    inherit from ``float`` and ``np.int64`` does not inherit from ``int``. LightGBM and XGBoost routinely
+    hand back ``float32`` metrics, so that test silently DROPPED those models' AUC/logloss from the
+    leaderboard -- an omission with no warning, indistinguishable from "the model did not report it".
+    """
+    return isinstance(v, (numbers.Real, np.number)) and not isinstance(v, (bool, np.bool_))
+
+
 def _flat_scalar_metrics(metrics: Any) -> Dict[str, float]:
     """Best-effort flat ``{name: float}`` from a (possibly nested) per-model test-metrics dict for the leaderboard.
 
@@ -142,7 +154,7 @@ def _flat_scalar_metrics(metrics: Any) -> Dict[str, float]:
         return out
     top_level_keys: set = set()
     for k, v in metrics.items():
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
+        if _is_real_scalar(v):
             out[str(k)] = float(v)
             top_level_keys.add(str(k))
     for v in metrics.values():
@@ -150,7 +162,7 @@ def _flat_scalar_metrics(metrics: Any) -> Dict[str, float]:
             for k2, v2 in v.items():
                 if str(k2) in top_level_keys:
                     continue  # a top-level scalar of the same name always wins.
-                if isinstance(v2, (int, float)) and not isinstance(v2, bool):
+                if _is_real_scalar(v2):
                     out[str(k2)] = float(v2)  # last nested sub-dict wins on a nested-vs-nested collision.
     return out
 

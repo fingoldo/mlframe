@@ -140,6 +140,14 @@ class HeatmapPanelSpec:
     trend_line: Optional[Literal["theil-sen", "huber"]] = None
     # (x, y) point arrays the trend line is fit on; required when ``trend_line`` is set on a heatmap.
     trend_xy: Optional[Tuple[np.ndarray, np.ndarray]] = None
+    # Per-cell tooltip text, same shape as ``matrix`` (plotly only -- matplotlib has no hover layer).
+    #
+    # The default plotly tooltip on a heatmap reads "x: 1, y: 13, z: 0.684, trace 804": grid INDICES, an
+    # unlabelled value, and an internal trace id. That tells a reader neither which feature bin they are on
+    # nor -- the question that decides whether a cell is worth believing -- how many rows support it. A PDP
+    # surface interpolates over regions that may hold almost no data, so per-cell support belongs in the
+    # tooltip (e.g. "100 rows (15%)"). Builders that know their support put it here.
+    cell_hovertext: Optional[np.ndarray] = None
 
 
 @dataclass(frozen=True)

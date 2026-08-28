@@ -700,16 +700,22 @@ class MatplotlibRenderer:
         _set_panel_title(ax, p.title)
         if p.grid:
             ax.grid(True, alpha=0.3)
+        # LinePanelSpec carries ylim and builders set it deliberately (decision_curve clips the y-window so
+        # a steeply-diving reference cannot crush the informative band near 0), but only _scatter ever read
+        # it -- a line panel's window was silently discarded on BOTH backends.
+        if p.ylim is not None:
+            ax.set_ylim(*p.ylim)
         if p.x_is_time:
-            # The numeric x carries epoch NANOSECONDS. ``autofmt_xdate`` (all this used to do) only rotates
-            # the labels -- it cannot convert a plain float axis -- so the axis read "1.62e18", which is
-            # not usable information. Format the ticks as dates, then rotate.
+            # The numeric x carries epoch NANOSECONDS, which read as "1.62e18" unless converted.
             _tickvals, _ticktext = epoch_ns_ticks(_xi(0))
             if _tickvals is not None:
                 ax.set_xticks(_tickvals)
                 ax.set_xticklabels(_ticktext)
-            if fig is not None:
-                fig.autofmt_xdate()
+            # Rotate THIS axes only. ``fig.autofmt_xdate()`` is a FIGURE-level call: it hides the x tick
+            # labels of every non-last-row axes and clears their xlabel, so on a multi-row grid it erased
+            # the date ticks just computed here AND stripped the labels off unrelated panels sharing the
+            # row. Its sole remaining contribution was rotation, which this does per-axes instead.
+            ax.tick_params(axis="x", rotation=30)
 
     def _violin(self, ax, p: ViolinPanelSpec) -> None:
         """Render a per-group violin panel (medians shown when ``show_box``, extrema and mean markers suppressed)."""

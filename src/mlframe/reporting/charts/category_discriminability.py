@@ -28,7 +28,7 @@ from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from mlframe.reporting.spec import BarPanelSpec, FigureSpec
+from mlframe.reporting.spec import AnnotationPanelSpec, BarPanelSpec, FigureSpec, PanelSpec
 
 logger = logging.getLogger(__name__)
 
@@ -219,15 +219,28 @@ def category_discriminability_panel(
     min_support: int = 30,
     alpha: float = 0.5,
     seed: int = 0,
-) -> BarPanelSpec:
+) -> PanelSpec:
     """Horizontal signed-WoE bar of the top_k ``feature=level`` cells (green => tilts to y=1, red => to y=0), zero line at WoE=0."""
     rows = category_discriminability_table(X, y, features, top_k=top_k, min_support=min_support, alpha=alpha, seed=seed)
     if not rows:
-        return BarPanelSpec(
-            categories=("(no level above min_support)",),
-            values=np.array([0.0]),
-            title="Category discriminability (|WoE|)",
-            orientation="horizontal",
+        # Say WHY the chart is empty, in a text panel. A single zero-height bar labelled
+        # "(no level above min_support)" rendered as full-size EMPTY axes spanning a meaningless
+        # -0.04..0.04 range, and repeated the figure's own suptitle as its panel title -- three ways of
+        # showing nothing. The reader needs the reason and the knob to turn, not a blank grid.
+        return AnnotationPanelSpec(
+            text=(
+                f"No categorical level cleared min_support={min_support:,} rows.\n\n"
+                "Weight of Evidence compares P(y=1 | level) against the base rate, so a level seen only a\n"
+                "handful of times produces a large but meaningless value -- min_support exists to suppress\n"
+                "exactly that. An empty chart therefore means one of:\n"
+                "  - the categorical features are high-cardinality (many rare levels, none frequent), or\n"
+                "  - no categorical features were passed at all, or\n"
+                f"  - the dataset is smaller than {min_support:,} rows per level.\n\n"
+                "Lower min_support to inspect rarer levels (accepting noisier WoE), or group rare levels\n"
+                "into an 'other' bucket upstream."
+            ),
+            title="Category discriminability (|WoE|) -- nothing to show",
+            fontsize=10,
         )
     cats = tuple(f"{feat}={lbl}  (n={support:_}, p={p_rate:.2f})" for feat, lbl, _woe, support, p_rate in rows)
     vals = np.array([r[2] for r in rows], dtype=np.float64)
@@ -259,7 +272,19 @@ def compose_category_discriminability_figure(
 ) -> FigureSpec:
     """One-panel FigureSpec wrapping :func:`category_discriminability_panel`."""
     panel = category_discriminability_panel(X, y, features, top_k=top_k, min_support=min_support, alpha=alpha, seed=seed)
-    return FigureSpec(suptitle=suptitle, panels=((panel,),), figsize=(10.0, max(5.0, 0.5 * len(panel.categories) + 2.0)))
+    # Height grows with the bar count; the degenerate branch returns a TEXT panel with no ``categories``, and
+    # a tall figure would only stretch a short message over empty space.
+    _cats = getattr(panel, "categories", None)
+    height = max(5.0, 0.5 * len(_cats) + 2.0) if _cats else 3.5
+    how_to_read = (
+        "Weight of Evidence per feature=level: ln[ odds(y=1 | level) / odds(y=1 | overall) ]. Positive (green) "
+        "means the level tilts toward y=1, negative (red) toward y=0, and 0 means the level carries no signal "
+        "beyond the base rate. Bar LENGTH is effect size in log-odds -- roughly additive, so +0.7 is about a "
+        "2x odds shift. Each label carries the level's support n and its raw P(y=1|level); a long bar on a small "
+        "n is the one to distrust, which is what min_support screens for. Levels are ranked by |WoE|, so this "
+        "shows the strongest tilts, not every level."
+    )
+    return FigureSpec(suptitle=suptitle, panels=((panel,),), figsize=(10.0, height), caption=how_to_read if _cats else "")
 
 
 __all__ = [

@@ -122,6 +122,21 @@ def _line_uses_secondary_y(p) -> bool:
     return any(_per_series_flags(p.secondary_y, n))
 
 
+def _single_panel_has_labelled_series(spec: FigureSpec) -> bool:
+    """True for a one-panel figure whose sole panel names its series.
+
+    Gates the interactive-HTML legend: with one panel there is no cross-panel legend soup to avoid, and
+    explicit ``series_labels`` are the author saying these lines need telling apart.
+    """
+    panels = [p for row in spec.panels for p in row if p is not None]
+    if len(panels) != 1:
+        return False
+    labels = getattr(panels[0], "series_labels", None)
+    if not labels:
+        return False
+    return any(bool(lab) for lab in labels)
+
+
 def _err_to_plotly(err):
     """Spec error-bar field -> plotly ``error_y`` / ``error_x`` dict (data mode, asymmetric where a pair is given)."""
     if err is None:
@@ -254,10 +269,12 @@ class PlotlyRenderer:
             height=int(spec.figsize[1] * _PX_PER_INCH) + top_margin + n_caption_lines * 16,
             # Bottom margin grows when the legend is shown so the below-figure legend has room.
             margin=dict(l=60, r=40, t=top_margin, b=bottom_margin),
-            # Interactive HTML identifies series via hover tooltips, so the legend defaults off there to avoid
-            # the multi-subplot soup (precision/recall/F1 mixed with reliability lines). A static export has no
-            # hover; the caller flips ``static_legend`` when a png/svg/pdf is in the save set so it stays readable.
-            showlegend=static_legend,
+            # Interactive HTML identifies series via hover, so the legend stays off on MULTI-panel figures to
+            # avoid the legend soup (every panel's series pooled into one list: precision/recall/F1 mixed with
+            # reliability lines). That reasoning does not hold for a SINGLE labelled panel -- there is no soup,
+            # and without a legend a chart like the decision curve renders three unlabelled lines that a reader
+            # cannot tell apart at a glance. A static export has no hover at all, so it always gets the legend.
+            showlegend=static_legend or _single_panel_has_labelled_series(spec),
         )
         if static_legend:
             # Park the legend BELOW the plot area (horizontal, centred) so it never overlaps subplot titles / the suptitle the way a default top-right in-plot legend does on multi-panel figures.
@@ -572,9 +589,21 @@ class PlotlyRenderer:
         from mlframe.reporting.colors import resolve_heatmap_cmap
         cmap_name = resolve_heatmap_cmap(p.colormap)
 
+        # Name the axes and the value in the tooltip instead of accepting plotly's default
+        # "x: 1 / y: 13 / z: 0.684 / trace 804" -- grid indices, an unlabelled number and an internal trace
+        # id, none of which a reader can act on. ``xlabel`` / ``ylabel`` / ``colorbar_label`` already carry
+        # the human names, so reuse them; ``cell_hovertext`` (when a builder supplies it) adds per-cell
+        # support, which is what decides whether a cell is worth believing.
+        _zname = p.colorbar_label or "value"
+        _xname = p.xlabel or "x"
+        _yname = p.ylabel or "y"
+        _hover_extra = "<br>%{text}" if p.cell_hovertext is not None else ""
         fig.add_trace(
             go.Heatmap(z=p.matrix.tolist(),
                        x=list(p.col_labels), y=list(p.row_labels),
+                       text=p.cell_hovertext.tolist() if p.cell_hovertext is not None else None,
+                       # ``<extra></extra>`` suppresses the trace-name box ("trace 804").
+                       hovertemplate=(f"{_xname}: %{{x}}<br>{_yname}: %{{y}}<br>{_zname}: %{{z:.4g}}" f"{_hover_extra}<extra></extra>"),
                        colorscale=_mpl_to_plotly_cmap(cmap_name),
                        colorbar=dict(title=p.colorbar_label) if p.colorbar_label else None,
                        showscale=True),
@@ -835,6 +864,10 @@ class PlotlyRenderer:
 
         # ``x_is_time`` with a NUMERIC x means epoch nanoseconds; rotating the labels (all this used to do)
         # leaves them reading "1.62e18". ``epoch_ns_ticks`` no-ops on an already-datetime axis.
+        # See the matplotlib twin: builders set ylim deliberately and no line-panel path honoured it.
+        _ylim = getattr(p, "ylim", None)
+        if _ylim is not None:
+            fig.update_yaxes(range=[float(_ylim[0]), float(_ylim[1])], row=row, col=col, secondary_y=False)
         _xkw: dict = dict(title_text=p.xlabel, row=row, col=col, showgrid=p.grid, tickangle=-30 if p.x_is_time else 0)
         _tv, _tt = epoch_ns_ticks(_xi(0)) if p.x_is_time else (None, None)
         if _tv is not None:
