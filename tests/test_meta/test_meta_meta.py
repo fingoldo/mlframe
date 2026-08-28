@@ -57,6 +57,11 @@ _PERMITTED_PRIVATE_IMPORTS: set[str] = {
     # make_scenario_data, ...) are real module-level attributes, not trapped inside an
     # `if __name__ == "__main__":` guard -- the private module IS the surface under test.
     "test_benchmarks_datasets_importable::mlframe.feature_selection._benchmarks._datasets",
+    # The best-effort marker audit counts `# best-effort:` sites across the preprocessing-extension stages.
+    # One of the three (the PySR symbolic-FE stage) was carved into its own private sibling, taking its marker
+    # with it, so the audit has to read BOTH modules or it under-counts. The private modules are the surface
+    # under audit here, exactly like the parent module already whitelisted for this test.
+    "test_log_only_except_reports_and_phase_composite_best_effort::mlframe.training.pipeline._pipeline_extensions_pysr",
     "test_broad_except_logging_gpu_ktc_and_composite_models::mlframe.data_valuation._propagate_gpu_ktc",
     "test_broad_except_logging_gpu_ktc_and_composite_models::mlframe.inference._ktc_dispatch",
     "test_broad_except_logging_gpu_ktc_and_composite_models::mlframe.training._eval_helpers._append_split_rate_suffix",
