@@ -681,25 +681,53 @@ class PlotlyRenderer:
                     )
         if p.trend_line is not None and p.trend_xy is not None:
             from mlframe.reporting.renderers._trend import robust_fit_endpoints
-            ends = robust_fit_endpoints(p.trend_xy[0], p.trend_xy[1], p.trend_line)
-            if ends is not None:
-                (tx0, ty0), (tx1, ty1) = ends
-                fig.add_trace(
-                    go.Scatter(x=[tx0, tx1], y=[ty0, ty1], mode="lines",
-                               line=dict(color="darkorange", width=2),
-                               name=f"robust fit ({p.trend_line})", showlegend=True),
-                    row=row, col=col,
-                )
+            # The heatmap axes are CATEGORY axes (one position per bin label), but robust_fit_endpoints and the
+            # y=x diagonal come back in VALUE space. Plotting those directly put the fit thousands of positions
+            # off a 10-category axis (observed endpoints ~3113..6533 on a 10-bin grid), so the line was simply
+            # not on the chart. matplotlib already maps value -> bin index for exactly this reason; this is the
+            # same mapping, against the same (lo, hi) the panel binned on.
+            _xv = np.asarray(p.trend_xy[0], dtype=np.float64).ravel()
+            _yv = np.asarray(p.trend_xy[1], dtype=np.float64).ravel()
+            _fin = np.isfinite(_xv) & np.isfinite(_yv)
+            _nb = len(p.col_labels)
+            if int(_fin.sum()) >= 2 and _nb >= 2:
+                _lo = float(min(_xv[_fin].min(), _yv[_fin].min()))
+                _hi = float(max(_xv[_fin].max(), _yv[_fin].max()))
+                if _hi > _lo:
+                    def _to_cat(v: float):
+                        """Map a value-space coordinate onto this panel's category axis via its own (lo, hi) range."""
+                        _idx = (float(v) - _lo) / (_hi - _lo) * (_nb - 1)
+                        return p.col_labels[round(min(max(_idx, 0.0), _nb - 1.0))]
+
+                    fig.add_trace(
+                        go.Scatter(x=[p.col_labels[0], p.col_labels[_nb - 1]],
+                                   y=[p.row_labels[0], p.row_labels[len(p.row_labels) - 1]],
+                                   mode="lines", line=dict(color="#666666", width=1, dash="dot"),
+                                   name="y=x", showlegend=True),
+                        row=row, col=col,
+                    )
+                    ends = robust_fit_endpoints(_xv, _yv, p.trend_line)
+                    if ends is not None:
+                        (tx0, ty0), (tx1, ty1) = ends
+                        fig.add_trace(
+                            go.Scatter(x=[_to_cat(tx0), _to_cat(tx1)], y=[_to_cat(ty0), _to_cat(ty1)],
+                                       mode="lines", line=dict(color="darkorange", width=2),
+                                       name=f"robust fit ({p.trend_line})", showlegend=True),
+                            row=row, col=col,
+                        )
 
         # A density heatmap has ~80 cell labels per axis; one tick each overlaps into soup. Thin to <= _HEATMAP_MAX_TICKS
         # evenly-spaced category ticks (the full grid is still drawn).
         _xt = _thin_tick_positions(len(p.col_labels))
         _yt = _thin_tick_positions(len(p.row_labels))
-        fig.update_xaxes(title_text=p.xlabel, row=row, col=col, tickangle=-45,
-                         tickmode="array", tickvals=[p.col_labels[i] for i in _xt])
-        fig.update_yaxes(title_text=p.ylabel, row=row, col=col,
-                         autorange="reversed",  # match matplotlib top-to-bottom row order
-                         tickmode="array", tickvals=[p.row_labels[i] for i in _yt])
+        fig.update_xaxes(title_text=p.xlabel, row=row, col=col, tickangle=-45, tickmode="array", tickvals=[p.col_labels[i] for i in _xt])
+        # Row order must match matplotlib, which switches to origin="lower" for a density panel carrying
+        # `trend_xy` (it reads bottom-up, row 0 = lowest value) and keeps the top-down matrix order otherwise.
+        # Reversing unconditionally rendered the pred-vs-actual density heatmap VERTICALLY MIRRORED between the
+        # two backends -- the same figure, with the trend running the opposite way.
+        _reversed = p.trend_xy is None
+        _y_kw = {"autorange": "reversed"} if _reversed else {}
+        fig.update_yaxes(title_text=p.ylabel, row=row, col=col, tickmode="array", tickvals=[p.row_labels[i] for i in _yt], **_y_kw)
 
     def _bar(self, fig, p: BarPanelSpec, row: int, col: int) -> None:
         """Render a bar panel (grouped when ``p.values`` is a tuple of series), with an optional reference line perpendicular to the bars and long category-label truncation/thinning/rotation on the value-orthogonal axis."""
@@ -817,10 +845,29 @@ class PlotlyRenderer:
             else:
                 mode, dash = "lines", _STYLE_MAP.get(token, "solid")
             yv = np.asarray(y) if isinstance(y, np.ndarray) else y
-            # Area fill under the curve to the panel baseline; "tozeroy" when baseline is 0, else explicit.
+            # Area fill under the curve down to the panel baseline. plotly has no "fill to an arbitrary y", and
+            # "tonexty" fills to the PREVIOUS TRACE -- so with a non-zero baseline it shaded the gap to whatever
+            # series happened to precede this one, a region that encodes nothing, while matplotlib shaded the gap
+            # to `fill_baseline`. Lay down an invisible constant-baseline trace first so "tonexty" has the right
+            # thing to fill against and both backends shade the same region.
             trace_kw = {}
             if fills[i]:
-                trace_kw["fill"] = "tozeroy" if p.fill_baseline == 0.0 else "tonexty"
+                if p.fill_baseline == 0.0:
+                    trace_kw["fill"] = "tozeroy"
+                else:
+                    _bx = _xi(i)
+                    fig.add_trace(
+                        go.Scatter(
+                            x=_bx,
+                            y=np.full(len(_bx), float(p.fill_baseline)),
+                            mode="lines",
+                            line=dict(width=0),
+                            hoverinfo="skip",
+                            showlegend=False,
+                        ),
+                        row=row, col=col, **({"secondary_y": sec[i]} if has_secondary else {}),
+                    )
+                    trace_kw["fill"] = "tonexty"
                 trace_kw["fillcolor"] = _rgba(cols[i % len(cols)], 0.2)
                 if p.step_fill:
                     trace_kw["line_shape"] = "hv"
