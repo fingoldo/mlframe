@@ -23,6 +23,8 @@ from typing import Mapping, Optional, Sequence, Tuple
 import numpy as np
 
 from mlframe.reporting.charts._calibration_chart_shared import is_single_class, reliability_points
+from mlframe.metrics.calibration import compute_ece_debiased
+from mlframe.reporting.charts._calibration_chart_shared import null_ece_scale
 from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, LinePanelSpec, PanelSpec
 
 # Below this many finite rows OR with a single class present a feature-bin's reliability curve / ECE is meaningless
@@ -45,13 +47,18 @@ _is_single_class = is_single_class
 _reliability_points = reliability_points
 
 
-def _het_traffic_light(gap: float) -> str:
-    """green/amber/red verdict on the MAX-MIN ECE heterogeneity across feature-bins."""
+def _het_traffic_light(gap: float, noise_floor: float = 0.0) -> str:
+    """green/amber/red on the MAX-MIN ECE spread across feature bins, graded against this data's own noise floor.
+
+    Feature bins are equal-population by construction, but a caller can supply their own edges and the last bin of
+    a skewed feature is routinely far thinner than the rest. A gap inside the floor that the thinnest bin imposes
+    says nothing about whether calibration actually varies with the feature.
+    """
     if not np.isfinite(gap):
         return "n/a"
-    if gap < _HET_GREEN:
+    if gap < max(_HET_GREEN, noise_floor):
         return "green"
-    if gap < _HET_RED:
+    if gap < max(_HET_RED, 2.0 * noise_floor):
         return "amber"
     return "red"
 
@@ -125,7 +132,13 @@ def _per_bin_ece(
         if pts is None:
             skipped.append(f"{label} (degenerate)")
             continue
-        fp, ft, ece = pts
+        fp, ft, _plugin_ece = pts
+        # The plug-in binned ECE is POSITIVELY biased: acc_b is a noisy Bernoulli rate, and Jensen on the absolute
+        # value inflates E|conf_b - acc_b| by the per-bin sampling noise. Feature bins differ in size, so that bias
+        # differs per bin and the heterogeneity headline below ends up reading sample size rather than calibration.
+        # The sibling calibration_drift module already switched to the debiased estimator; this was the call site
+        # it missed.
+        ece = float(compute_ece_debiased(by.astype(np.float64), bs, n_prob_bins))
         records.append({
             "label": label, "center": center, "n": bn,
             "fp": fp, "ft": ft, "ece": float(ece), "color": _BIN_COLORS[bi % len(_BIN_COLORS)],
@@ -158,7 +171,18 @@ def compute_calibration_by_feature_heterogeneity(
         return {"per_bin_ece": per_bin, "bin_centers": centers, "heterogeneity": float("nan"), "traffic_light": "n/a", "skipped": skipped}
     eces = np.asarray([r["ece"] for r in records], dtype=np.float64)
     gap = float(eces.max() - eces.min())
-    return {"per_bin_ece": per_bin, "bin_centers": centers, "heterogeneity": gap, "traffic_light": _het_traffic_light(gap), "skipped": skipped}
+    # Debiasing removes the systematic inflation, but the per-bin ECE still has sampling SPREAD that falls as
+    # 1/sqrt(bin rows). The smallest bin therefore sets the largest gap that carries no information about the model.
+    prevalence = float(np.mean(np.asarray(y_true, dtype=np.float64).ravel()))
+    noise_floor = max(null_ece_scale(int(r["n"]), prevalence, n_prob_bins) for r in records)
+    return {
+        "per_bin_ece": per_bin,
+        "bin_centers": centers,
+        "heterogeneity": gap,
+        "noise_floor": noise_floor,
+        "traffic_light": _het_traffic_light(gap, noise_floor),
+        "skipped": skipped,
+    }
 
 
 def compose_calibration_by_feature_figure(

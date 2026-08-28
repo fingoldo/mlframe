@@ -33,6 +33,7 @@ speedup: the lone sort is irreducible for rank-threshold curves.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -533,14 +534,30 @@ def _gain_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: 
 
 
 def _pit_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: float, cost_ratio=None) -> PanelSpec:
-    """Probability-integral-transform histogram for the binary score; uniform = perfect calibration.
+    """Randomised probability-integral-transform histogram; uniform = perfect calibration.
 
-    PIT value = score when y=1 else (1 - score). A well-calibrated model makes PIT ~ Uniform(0,1), so a
-    flat histogram at density 1 is the target; humps reveal over/under-confidence. KS-vs-uniform in the title.
+    The PIT is only uniform when the outcome is CONTINUOUS. A binary outcome makes the predictive CDF a step
+    function, so the plain transform ``score if y==1 else 1 - score`` is not uniform even for a perfectly
+    calibrated model: it yields a triangular density rising from 0.10 to 1.90 across the deciles, and a
+    KS-vs-uniform of 0.247 (measured on 200k rows drawn as ``y ~ Bernoulli(p)``, i.e. calibrated by
+    construction). The panel therefore condemned exactly the models it was built to certify.
+
+    Czado/Gneiting-Held randomisation restores uniformity for a discrete outcome by drawing within the CDF's
+    jump at the realised value: ``U ~ Uniform(F(y-1), F(y))``, which for Bernoulli(p) is ``Uniform(0, 1-p)``
+    when y=0 and ``Uniform(1-p, 1)`` when y=1. On the same calibrated sample that gives KS 0.002 and a flat
+    density, while genuine over/under-confidence still shows as the same humps it always did. The draw is
+    seeded so a re-render of the same data reproduces the same figure.
     """
     if sort.n == 0:
         return AnnotationPanelSpec(text="PIT undefined\n(no finite pairs)", title="PIT diagram")
-    pit = np.where(yt == 1, ys, 1.0 - ys)
+    p = np.clip(ys, 0.0, 1.0)
+    # Seed from the DATA, not a fixed constant. A constant seed is reproducible but can silently reproduce the
+    # caller's own stream: a test generating scores from default_rng(0) and a panel drawing from default_rng(0)
+    # get u == p exactly, the randomisation cancels, and the KS jumps back to the 0.25 this fix exists to remove.
+    # Hashing the scores keeps the figure reproducible for a given dataset while making that collision impossible.
+    _digest = hashlib.blake2b(np.ascontiguousarray(p).tobytes(), digest_size=8).digest()
+    u = np.random.default_rng(int.from_bytes(_digest, "little")).random(p.shape[0])
+    pit = np.where(yt == 1, (1.0 - p) + u * p, u * (1.0 - p))
     pit = np.clip(pit, 0.0, 1.0)
     edges = np.linspace(0.0, 1.0, _PIT_BINS + 1)
     heights, _ = np.histogram(pit, bins=edges, density=True)

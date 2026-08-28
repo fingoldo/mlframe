@@ -20,7 +20,7 @@ from typing import Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
-from mlframe.reporting.charts._calibration_chart_shared import is_single_class, reliability_points
+from mlframe.reporting.charts._calibration_chart_shared import is_single_class, null_ece_scale, reliability_points
 from mlframe.reporting.spec import AnnotationPanelSpec, BarPanelSpec, FigureSpec, LinePanelSpec, PanelSpec
 
 # Below this many finite rows OR with a single class present a group's reliability curve / ECE is meaningless noise;
@@ -41,22 +41,11 @@ _is_single_class = is_single_class
 _reliability_points = reliability_points
 
 
-def null_ece_scale(n_rows: int, prevalence: float, n_bins: int) -> float:
-    """ECE a PERFECTLY calibrated group of this size would still show from sampling noise alone.
-
-    ECE is a mean absolute deviation, so it is bounded away from zero at finite n and shrinks only as 1/sqrt(n).
-    With roughly equal bin occupancy the per-bin observed rate has standard error ``sqrt(p(1-p)/(n/B))`` and the
-    expected absolute deviation of a near-normal quantity is ``sqrt(2/pi)`` times its standard error; averaging
-    that over bins leaves the same expression, hence ``sqrt(2*p*(1-p)*B/(pi*n))``.
-
-    This is why the ECE gap cannot be graded against a constant. A perfectly calibrated model with identical
-    mechanisms in both groups, 200000 rows in one and 30 in the other, produces ECEs of 0.002 and 0.193 -- a gap
-    of 0.19 that the fixed 0.10 bar called a red fairness failure when the only difference was sample size.
-    """
-    if n_rows <= 0 or n_bins <= 0:
-        return float("inf")
-    var = max(prevalence * (1.0 - prevalence), 0.0)
-    return float(np.sqrt(2.0 * var * n_bins / (np.pi * n_rows)))
+# Re-exported: the ECE noise floor lives in the shared calibration module because every ECE consumer in this
+# package needs it. Here it grades the GAP between two groups -- a perfectly calibrated model with identical
+# mechanisms in both, 200000 rows in one and 30 in the other, produces ECEs of 0.002 and 0.193, and the fixed
+# 0.10 bar called that 0.19 gap a red fairness failure when the only difference was sample size.
+_null_ece_scale = null_ece_scale
 
 
 def _gap_traffic_light(gap: float, noise_floor: float = 0.0) -> str:

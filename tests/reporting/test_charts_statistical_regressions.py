@@ -8,6 +8,9 @@ several of these classes recur across builders and this file is where the next i
 import numpy as np
 import pytest
 
+from mlframe.reporting.charts.binary import _ScoreSort, _pit_panel
+from mlframe.reporting.charts.calibration_by_feature import compute_calibration_by_feature_heterogeneity
+from mlframe.reporting.charts.calibration_heatmap_2d import compute_calibration_heatmap_2d
 from mlframe.reporting.charts.decision_curve import build_decision_curve_spec, effective_binary_n
 from mlframe.reporting.charts.drift import (
     CUSUM_DECISION_H,
@@ -171,3 +174,100 @@ class TestAdversarialVerdictScalesWithRowCount:
         assert bars == sorted(bars, reverse=True)
         assert bars[0] > 0.05  # a 0.55 AUC on 200 rows/side says nothing
         assert bars[-1] < 0.01  # a 0.52 AUC on 200k rows/side is a real, reproducible shift
+
+
+class TestPitIsUniformForACalibratedBinaryModel:
+    """The plain PIT is only uniform for a CONTINUOUS outcome; a binary one needs the randomised transform."""
+
+    def test_calibrated_model_reads_as_uniform(self):
+        """A model calibrated by construction must not be condemned by its own PIT panel."""
+        rng = np.random.default_rng(0)
+        n = 200_000
+        p = rng.random(n)
+        y = (rng.random(n) < p).astype(int)  # y ~ Bernoulli(p): perfectly calibrated
+        panel = _pit_panel(y, p, sort=_ScoreSort(y, p), threshold=0.5)
+        # Pre-fix this was 0.247, with a triangular density rising 0.10 -> 1.90 across the deciles.
+        ks = float(panel.title.split("=")[1].rstrip(")"))
+        assert ks < 0.02
+
+    def test_the_randomising_draw_cannot_collide_with_the_callers_stream(self):
+        """Seeding from the data, not a constant, keeps a caller using default_rng(0) from cancelling the fix."""
+        n = 50_000
+        for seed in (0, 7, 12345):
+            rng = np.random.default_rng(seed)
+            p = rng.random(n)
+            y = (rng.random(n) < p).astype(int)
+            panel = _pit_panel(y, p, sort=_ScoreSort(y, p), threshold=0.5)
+            assert float(panel.title.split("=")[1].rstrip(")")) < 0.02
+
+    def test_real_miscalibration_is_still_detected(self):
+        """Restoring uniformity must not cost the detection the panel exists for."""
+        rng = np.random.default_rng(0)
+        n = 200_000
+        p = rng.random(n)
+        over = (rng.random(n) < np.clip(0.5 + (p - 0.5) * 0.4, 0.0, 1.0)).astype(int)
+        panel = _pit_panel(over, p, sort=_ScoreSort(over, p), threshold=0.5)
+        assert float(panel.title.split("=")[1].rstrip(")")) > 0.02
+
+
+class TestPerCellCalibrationCannotCancelOrTrackResolution:
+    """A per-cell 'ECE' that is really a mean gap hides the worst cells; a fixed bar grades the grid, not the model."""
+
+    def test_a_cell_whose_miscalibration_cancels_is_still_flagged(self):
+        """Half the rows at score 0.9/target 0 and half at 0.1/target 1 is maximally miscalibrated."""
+        rng = np.random.default_rng(0)
+        n = 20_000
+        score = np.where(rng.random(n) < 0.5, 0.9, 0.1)
+        y = np.where(score > 0.5, 0.0, 1.0)
+        grid = compute_calibration_heatmap_2d(y, score, rng.random(n), rng.random(n), n_bins=3)
+        # Pre-fix both means were 0.5, the gap was 0.000 and the panel painted green.
+        assert grid["worst_ece"] > 0.5
+        assert grid["traffic_light"] == "red"
+
+    @pytest.mark.parametrize("n_bins", [3, 5, 8, 16])
+    def test_a_calibrated_model_reads_green_at_every_grid_resolution(self, n_bins):
+        """The verdict must describe the model, not how finely the grid happens to be cut."""
+        rng = np.random.default_rng(0)
+        n = 20_000
+        p = rng.random(n)
+        y = (rng.random(n) < p).astype(float)
+        grid = compute_calibration_heatmap_2d(y, p, rng.random(n), rng.random(n), n_bins=n_bins)
+        # Pre-fix the same calibrated model read red at 40 rows/cell and green at 4,000.
+        assert grid["traffic_light"] == "green"
+
+    def test_a_real_miscalibrated_pocket_is_still_caught(self):
+        """Scaling the bar to the grid must not silence a genuine pocket."""
+        rng = np.random.default_rng(0)
+        n = 20_000
+        p = rng.random(n)
+        feat = rng.random(n)
+        y = (rng.random(n) < p).astype(float)
+        bad = feat > 0.9
+        y[bad] = (rng.random(int(bad.sum())) < np.clip(p[bad] * 0.15, 0.0, 1.0)).astype(float)
+        grid = compute_calibration_heatmap_2d(y, p, feat, rng.random(n), n_bins=5)
+        assert grid["traffic_light"] == "red"
+
+
+class TestPerBinEceIsDebiased:
+    """The plug-in binned ECE is positively biased, and the bias differs per bin because bins differ in size."""
+
+    def test_heterogeneity_of_a_calibrated_model_stays_inside_its_noise_floor(self):
+        """Calibration that does not vary with the feature must not read as heterogeneous."""
+        rng = np.random.default_rng(0)
+        n = 200_000
+        p = rng.random(n)
+        y = (rng.random(n) < p).astype(float)
+        res = compute_calibration_by_feature_heterogeneity(y, p, rng.random(n))
+        assert res["heterogeneity"] < res["noise_floor"]
+        assert res["traffic_light"] == "green"
+
+    def test_feature_dependent_miscalibration_is_still_flagged(self):
+        """A genuine pocket where the model is wrong about one feature range must read red."""
+        rng = np.random.default_rng(0)
+        n = 200_000
+        p = rng.random(n)
+        feat = rng.random(n)
+        y = (rng.random(n) < p).astype(float)
+        bad = feat > 0.8
+        y[bad] = (rng.random(int(bad.sum())) < np.clip(p[bad] * 0.2, 0.0, 1.0)).astype(float)
+        assert compute_calibration_by_feature_heterogeneity(y, p, feat)["traffic_light"] == "red"
