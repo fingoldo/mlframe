@@ -63,10 +63,16 @@ def test_phase_train_one_target_schema_sites_marked_best_effort():
 
 
 def test_pipeline_extensions_sites_marked_best_effort():
-    """Every optional preprocessing-extension except handler carries a marker."""
-    import mlframe.training.pipeline._pipeline_extensions as ext
+    """Every optional preprocessing-extension except handler carries a marker.
 
-    src = inspect.getsource(ext)
+    One of the 3 original sites (the PySR symbolic-FE stage) was carved out into
+    ``_pipeline_extensions_pysr.py`` after this test was written, taking its marker with it -- scan both
+    modules, not just the parent.
+    """
+    import mlframe.training.pipeline._pipeline_extensions as ext
+    import mlframe.training.pipeline._pipeline_extensions_pysr as ext_pysr
+
+    src = inspect.getsource(ext) + inspect.getsource(ext_pysr)
     assert src.count("# best-effort:") == 3
 
 

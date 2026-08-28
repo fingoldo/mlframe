@@ -22,7 +22,7 @@ logger = logging.getLogger("mlframe.training.pipeline")
 
 def _apply_pysr_fe(
     *,
-    train_df: "pd.DataFrame",
+    train_df: pd.DataFrame,
     val_df,
     test_df,
     y_train,

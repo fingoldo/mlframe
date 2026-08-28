@@ -42,7 +42,11 @@ def _network(self, fig, p: NetworkPanelSpec, row: int, col: int) -> None:
 
     if e_src.size:
         wmin, wmax = float(weights.min()), float(weights.max())
-        wspan = (wmax - wmin) or 1.0
+        raw_wspan = wmax - wmin
+        # All edges carry the same weight: span is 0, not a caller-supplied falsy value, and dividing by
+        # it below would raise. Substitute 1.0 explicitly rather than via `or`, which a falsy-but-legitimate
+        # span could never actually pass here since it's always >= 0.
+        wspan = raw_wspan if raw_wspan else 1.0
         lo, hi = p.edge_width_range
         colorscale = _mpl_to_plotly_cmap(p.colormap)
         # Bin edges by MI into a handful of width/color buckets: one Scattergl
