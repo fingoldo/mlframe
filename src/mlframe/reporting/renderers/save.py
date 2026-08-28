@@ -6,7 +6,7 @@ matplotlib is written to disk but never rendered into the cell.
 
 File-naming policy:
 - Single backend × single format: ``<base_path>.<fmt>`` (e.g. ``plot.png``).
-  Mirrors the pre-2026-05-08 single-output convention.
+  Mirrors the historical single-output convention, kept working for existing callers.
 - Otherwise: ``<base_path>.<backend>.<fmt>`` so the operator sees which
   backend produced which file (e.g. ``plot.plotly.html`` +
   ``plot.matplotlib.pdf``).
@@ -248,7 +248,7 @@ def render_and_save(
         """Render ``spec`` once on ``backend`` and save it to every format in ``fmts``; runs on a worker thread so multiple backends render+save concurrently (see the note above on GIL release during Agg/write_html)."""
         renderer = get_renderer(backend)
         # plotly legends default off (hover identifies series interactively); enable them when a static format
-        # is in this backend's save set since a png/svg/pdf export has no hover (INV-28).
+        # is in this backend's save set since a png/svg/pdf export has no hover.
         if backend == "plotly" and (set(fmts) & _STATIC_FORMATS):
             fig = renderer.render(spec, static_legend=True)
         else:

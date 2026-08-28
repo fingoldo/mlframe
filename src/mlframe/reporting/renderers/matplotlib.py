@@ -20,10 +20,12 @@ from mlframe.reporting.spec import (
 )
 
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
-    _HEATMAP_MAX_TICKS, _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
+    _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS,
+    _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
     panel_title_wrap_chars, wrap_annotation_text, wrap_title_lines,
 )
 
+from mlframe.reporting.colors import OVERLAY_LINE, TREND_LINE
 logger = logging.getLogger(__name__)
 
 # Panel-title font cap so a verbose diagnostic title can't dwarf the panel. The chars-per-line budget is
@@ -56,14 +58,28 @@ def _set_panel_title(ax, title) -> None:
     ax.set_title("\n".join(wrap_title_lines(title, width)), fontsize=_TITLE_FONTSIZE)
 
 
+# Wrap budgets, mirroring the plotly renderer: ~90 chars for the full-figure suptitle, ~110 for the
+# wider caption band beneath it.
+_SUPTITLE_WRAP_CHARS = 90
+_CAPTION_WRAP_CHARS = 110
+# Bar-category label policy, matching the plotly renderer: past this many categories show ~_BAR_TICK_KEEP
+# evenly-spaced labels, and cap any single label so a long generated feature name cannot run off the axis.
+_BAR_TICK_THIN_THRESHOLD = 25
+_BAR_TICK_KEEP = 20
+_BAR_LABEL_MAXLEN = 60
+
+
+def _truncate_bar_label(label, maxlen: int = _BAR_LABEL_MAXLEN) -> str:
+    """Cap one bar-category label, mirroring the plotly renderer's identical safety valve."""
+    s = str(label)
+    return s if len(s) <= maxlen else s[: maxlen - 1] + "..."
+
+
 # Above this many raw scatter points, cap (downsample preserving extremes) and rasterize so the saved vector
 # file (pdf/svg) doesn't embed millions of DOM nodes (3.2s + bloat at 2M).
-_SCATTER_MAX_POINTS = 50_000
 # Pre-bin a raw histogram above this n with np.histogram + ax.bar instead of letting ax.hist re-scan full n.
-_HIST_PREBIN_THRESHOLD = 50_000
 # Above this many heatmap cells the per-cell text turns to unreadable soup; skip it (also keeps the plotly
 # per-annotation O(cells) loop from stalling on a degenerate huge-K grid).
-_HEATMAP_CELL_TEXT_MAX = 400
 
 
 def _err_to_mpl(err):
@@ -155,16 +171,16 @@ class MatplotlibRenderer:
             # like "TEST LGBMRegressor TVT basic_new ... trained on 4.1M rows @iter=298 training curves"
             # ran off the right edge). Wrap each author-supplied line independently so explicit newlines
             # are preserved; ~90 chars suits the full figure width (vs ~46 for a single panel).
-            import textwrap
-            _sup_lines = []
-            for _ln in str(spec.suptitle).split("\n"):
-                _sup_lines.extend(textwrap.wrap(_ln, width=90, break_long_words=False) or [""])
+            _sup_lines = wrap_title_lines(spec.suptitle, _SUPTITLE_WRAP_CHARS)
             fig.suptitle("\n".join(_sup_lines), fontsize=spec.suptitle_fontsize)
         if spec.caption:
             # How-to-read footnote, small + dim, in a reserved bottom band so it never overlaps the x-axis label.
             # constrained_layout (forced on above when a caption is present) is told to leave the band free via rect.
-            import textwrap
-            _cap_lines = textwrap.wrap(str(spec.caption), width=110, break_long_words=False) or [""]
+            # Wrap through the shared helper so an author-supplied line break in a caption SURVIVES.
+            # ``textwrap.wrap`` treats a newline as ordinary whitespace and re-flows it away, silently
+            # collapsing the deliberate structure captions are written with (one clause per line, a VERDICT
+            # sentence on its own). The suptitle above already used the per-line form; the caption did not.
+            _cap_lines = wrap_title_lines(spec.caption, _CAPTION_WRAP_CHARS)
             _cap = "\n".join(_cap_lines)
             _h_px = fig.get_size_inches()[1] * (fig.get_dpi() or 100.0)
             _band = min(0.30, (len(_cap_lines) * 11.0 + 12.0) / _h_px)  # bottom fraction reserved for the caption
@@ -320,15 +336,15 @@ class MatplotlibRenderer:
             ends = robust_fit_endpoints(np.asarray(p.x), np.asarray(p.y), p.trend_line)
             if ends is not None:
                 (tx0, ty0), (tx1, ty1) = ends
-                ax.plot([tx0, tx1], [ty0, ty1], color="darkorange", linestyle="-", linewidth=1.6, zorder=4, label=f"robust fit ({p.trend_line})")
+                ax.plot([tx0, tx1], [ty0, ty1], color=TREND_LINE, linestyle="-", linewidth=1.6, zorder=4, label=f"robust fit ({p.trend_line})")
 
         if p.overlay_band is not None:
             bx, blo, bhi = (np.asarray(a) for a in p.overlay_band)
-            ax.fill_between(bx, blo, bhi, color="purple", alpha=0.18, zorder=3, linewidth=0, label="curve 95% band")
+            ax.fill_between(bx, blo, bhi, color=OVERLAY_LINE, alpha=0.18, zorder=3, linewidth=0, label="curve 95% band")
 
         if p.overlay_line is not None:
             ox_grid, oy_grid, olabel = p.overlay_line
-            ax.plot(np.asarray(ox_grid), np.asarray(oy_grid), color="purple", linestyle="-", linewidth=1.8, zorder=4, label=olabel)
+            ax.plot(np.asarray(ox_grid), np.asarray(oy_grid), color=OVERLAY_LINE, linestyle="-", linewidth=1.8, zorder=4, label=olabel)
 
         if p.perfect_fit_line and n > 0:
             # Span y=x over the UNION of both axes (so it stays the diagonal even when prediction collapse makes
@@ -472,8 +488,11 @@ class MatplotlibRenderer:
             mat = np.asarray(p.matrix, dtype=float)
             if mat.ndim == 2 and mat.shape[0] >= 2 and mat.shape[1] >= 2:
                 gx, gy = np.meshgrid(np.arange(mat.shape[1]), np.arange(mat.shape[0]))
+                # Hoisted out of the loop: both are full-matrix reductions over the same unchanged matrix,
+                # so recomputing them per contour level was O(levels * cells) for an O(cells) answer. The
+                # plotly twin already hoists them.
+                lo, hi = float(np.nanmin(mat)), float(np.nanmax(mat))
                 for level, color in p.threshold_contours:
-                    lo, hi = float(np.nanmin(mat)), float(np.nanmax(mat))
                     if lo < level < hi:  # contour only exists when the level is crossed
                         ax.contour(gx, gy, mat, levels=[level], colors=[color], linewidths=1.4)
         if p.trend_line is not None and p.trend_xy is not None:
@@ -500,7 +519,7 @@ class MatplotlibRenderer:
                         (tx0, ty0), (tx1, ty1) = ends
                         ax.plot(
                             [_to_idx(tx0), _to_idx(tx1)], [_to_idx(ty0), _to_idx(ty1)],
-                            color="darkorange", linestyle="-", linewidth=1.6,
+                            color=TREND_LINE, linestyle="-", linewidth=1.6,
                             label=f"robust fit ({p.trend_line})",
                         )
                     ax.set_xlim(-0.5, _nb - 0.5)
@@ -530,10 +549,15 @@ class MatplotlibRenderer:
         ax_right = fig.add_subplot(gs[1, 1])
 
         im = ax_hm.imshow(p.matrix, cmap=cm, aspect="auto")
-        ax_hm.set_xticks(range(len(p.col_labels)))
-        ax_hm.set_xticklabels(p.col_labels, rotation=45, ha="right", fontsize=8)
-        ax_hm.set_yticks(range(len(p.row_labels)))
-        ax_hm.set_yticklabels(p.row_labels, fontsize=8)
+        # Thin to the shared ceiling on BOTH axes. One tick per class smears past ~30 classes, and the plotly
+        # twin already thins to _HEATMAP_MAX_TICKS -- so a large-K confusion matrix rendered with a readable
+        # axis on one backend and an unreadable band on the other, from the same spec.
+        _xt = _thin_tick_positions(len(p.col_labels))
+        _yt = _thin_tick_positions(len(p.row_labels))
+        ax_hm.set_xticks(_xt)
+        ax_hm.set_xticklabels([p.col_labels[i] for i in _xt], rotation=45, ha="right", fontsize=8)
+        ax_hm.set_yticks(_yt)
+        ax_hm.set_yticklabels([p.row_labels[i] for i in _yt], fontsize=8)
         ax_hm.set_xlabel(p.xlabel)
         ax_hm.set_ylabel(p.ylabel)
         rng = _finite_range(p.matrix)
@@ -606,8 +630,20 @@ class MatplotlibRenderer:
                 ax.legend(loc="best", fontsize=8, framealpha=0.7)
 
         if horizontal:
-            ax.set_yticks(pos)
-            ax.set_yticklabels(p.categories, fontsize=8)
+            # Thin AND truncate, mirroring what the vertical branch below already does and what plotly does
+            # on both orientations. A 200-category horizontal feature-importance chart otherwise smears its
+            # y axis into an unreadable band of overlapping text, and a long generated feature name runs off
+            # the left edge. The bars stay 1-per-category; only the LABELS are subsampled.
+            n_cat = len(p.categories)
+            _cats = [_truncate_bar_label(c) for c in p.categories]
+            if n_cat > _BAR_TICK_THIN_THRESHOLD:
+                step = int(np.ceil(n_cat / _BAR_TICK_KEEP))
+                sel = np.arange(0, n_cat, step)
+                ax.set_yticks(pos[sel])
+                ax.set_yticklabels([_cats[i] for i in sel], fontsize=8)
+            else:
+                ax.set_yticks(pos)
+                ax.set_yticklabels(_cats, fontsize=8)
             ax.invert_yaxis()  # first category on top -> worst-first ranking reads top-down
         else:
             # Thin the x-tick labels when there are many categories so they don't overlap into an

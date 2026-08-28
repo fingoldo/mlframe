@@ -25,10 +25,10 @@ _KALEIDO_STATE_LOCK = threading.RLock()
 
 # Process-singleton: track whether the persistent kaleido sync server
 # is up so we don't pay the ~10-15s Chromium-spawn cost on every PNG /
-# SVG / PDF write. Verified empirically (2026-05-08) that kaleido 1.x
+# SVG / PDF write. Verified empirically that kaleido 1.x
 # default ``fig.write_image()`` calls spawn a fresh Chromium process
 # per call (~13s each); persistent server reuses one process and drops
-# subsequent calls to ~0.13s. On c0114 (lgb+xgb multiclass, 100k rows,
+# subsequent calls to ~0.13s. On a multi-model multiclass run at 100k rows,
 # 32 PNG calls), this saved 32 * ~13s = ~7 minutes of wall time.
 _KALEIDO_SERVER_STARTED = False
 
@@ -39,7 +39,7 @@ _KALEIDO_SERVER_STARTED = False
 _KALEIDO_PERSISTENT_BURNED = False
 
 # Count of consecutive timeouts/errors. Burn after this many. Single-burn-on-first-failure paid
-# 12 x 30s timeouts in c0031 because each timeout fires once before "burning" via the next-call
+# 12 x 30s timeouts on a hanging server, because each timeout fires once before "burning" via the next-call
 # path; cap at 2 consecutive failures (~60s wasted before HTML fallback takes over).
 _KALEIDO_PERSISTENT_FAIL_COUNT = 0
 _KALEIDO_PERSISTENT_FAIL_THRESHOLD = 2
@@ -81,7 +81,7 @@ def record_kaleido_oneshot_call(wall_s: float) -> None:
 # Hard ceiling on a single persistent write_fig_sync call. Beyond this the call is treated as
 # hung; we leave the worker thread to die on process exit (the kaleido server holds an asyncio
 # loop so we can't safely cancel it from outside). Normal cost after warmup: 0.13s/call; cold
-# persistent warmup: ~8s. 30s bounds c0031-style hangs to 30s instead of infinity.
+# persistent warmup: ~8s. 30s bounds a hung server to 30s instead of infinity.
 _KALEIDO_PERSISTENT_TIMEOUT_S = 30.0
 
 
@@ -210,7 +210,7 @@ def write_image_via_kaleido(fig: Any, path: str, fmt: str) -> None:
     """Write ``fig`` to ``path`` as png/svg/pdf via kaleido.
 
     Persistent-server fast path reuses one Chromium subprocess across all calls in the process,
-    dropping per-call cost from ~13s (oneshot) to ~0.13s. Recovery ladder for the c0031-class
+    dropping per-call cost from ~13s (oneshot) to ~0.13s. Recovery ladder for the hung-server
     hang (a JS error inside kaleido cancels the persistent server's async task chain and leaves
     ``write_fig_sync`` blocked forever):
       1. Try the persistent server in a worker thread with a hard timeout.

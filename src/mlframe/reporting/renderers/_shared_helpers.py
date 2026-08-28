@@ -13,6 +13,16 @@ import numpy as np
 # A density heatmap bins into ~80x80 cells, so one tick per cell-label overlaps into unreadable soup. Above this
 # many labels, show at most this many evenly-spaced ticks (the rest of the grid is still drawn).
 _HEATMAP_MAX_TICKS = 8
+# Renderer-level safety nets for a spec carrying raw large-n data. Builders are expected to pre-sample /
+# pre-bin, but a renderer is public API and must not embed n values into an output file.
+#
+# These three were declared INDEPENDENTLY in both renderers with identical values. Two copies of a number
+# whose whole purpose is that both backends behave the same is a drift waiting to happen: changing one and
+# not the other yields two different charts from one spec, and nothing anywhere would flag it. Single
+# definition here; both backends import it.
+_SCATTER_MAX_POINTS = 50_000
+_HIST_PREBIN_THRESHOLD = 50_000
+_HEATMAP_CELL_TEXT_MAX = 400
 
 
 def _thin_tick_positions(n: int, max_ticks: int = _HEATMAP_MAX_TICKS):

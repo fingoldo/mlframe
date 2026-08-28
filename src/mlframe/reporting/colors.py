@@ -38,6 +38,11 @@ DIVERGING_CMAP = "RdBu_r"
 HEATMAP_GENERIC = "Blues"
 
 BAR_PRIMARY = "steelblue"
+# Overlay colours shared by BOTH renderers. These were hardcoded as literals at nine call sites across the
+# two backends, so a palette change had to be made nine times consistently or the backends drifted apart.
+TREND_LINE = "darkorange"
+OVERLAY_LINE = "purple"
+OVERLAY_BAND = "purple"
 PERFECT_FIT_LINE = "green"
 NORMAL_OVERLAY = "red"
 ZERO_LINE = "green"
@@ -194,6 +199,7 @@ def auto_text_colors_batch(values: np.ndarray, colormap: str, vmin: float = 0.0,
 __all__ = [
     "CALIBRATION", "CONFUSION", "HEATMAP_GENERIC", "HEATMAP_CMAP", "DIVERGING_CMAP",
     "BAR_PRIMARY", "PERFECT_FIT_LINE", "NORMAL_OVERLAY", "ZERO_LINE",
+    "TREND_LINE", "OVERLAY_LINE", "OVERLAY_BAND",
     "LINE_PALETTE", "line_color", "line_style", "auto_text_color", "auto_text_colors_batch", "resolve_heatmap_cmap",
     "FRIEND_GRAPH_NODE_COLORS", "FRIEND_GRAPH_EDGE_CMAP", "friend_graph_node_color",
 ]
