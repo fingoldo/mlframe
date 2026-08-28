@@ -66,6 +66,30 @@ def panel_title_wrap_chars(figsize, cols: int = 1) -> int:
     return max(20, round(_PANEL_TITLE_WRAP_CHARS * panel_w / _TITLE_REF_WIDTH_IN))
 
 
+def wrap_annotation_text(text, panel_width_in: float, fontsize: float) -> str:
+    """Wrap free-text panel content to the panel's own character budget, breaking over-long tokens.
+
+    Neither backend wraps this correctly on its own. matplotlib's ``wrap=True`` measures against the FIGURE box, not
+    the axes -- for centred text it allows ``2 * min(dist_to_fig_left, dist_to_fig_right)``, measured at 643.8 px
+    inside a 532.9 px panel, 21% too wide -- and it only ever breaks at spaces, so a single long token
+    (``DummyClassifier(strategy=prior)``, a file path, a metric dict) is never broken at all and runs straight into
+    the neighbouring panel. plotly does not wrap free text whatsoever, and paints annotations ABOVE traces, so the
+    overflow lands visually on top of whatever sits beside it.
+
+    The character budget assumes an average glyph advance of ~0.6 em, which is close enough for the sans-serif faces
+    both backends default to; the point is to bound the line, not to typeset it exactly.
+    """
+    import textwrap
+
+    usable_in = max(float(panel_width_in) * 0.92, 0.5)  # leave a small margin inside the panel
+    char_w_in = max(float(fontsize), 1.0) * 0.6 / 72.0
+    width = max(12, int(usable_in / char_w_in))
+    out: list = []
+    for line in str(text).split("\n"):
+        out.extend(textwrap.wrap(line, width=width, break_long_words=True, break_on_hyphens=True) or [""])
+    return "\n".join(out)
+
+
 def wrap_title_lines(text, width: int) -> list:
     """Wrap ``text`` to ``width`` chars/line, wrapping each ``\n``-delimited segment INDEPENDENTLY.
 

@@ -42,7 +42,8 @@ from ._kaleido import (
 from ._plotly_interactivity import apply_interactivity, html_config
 from ._plotly_color import _axis_ref, _rgba, _mpl_to_plotly_cmap
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
-    _HEATMAP_MAX_TICKS, _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks, panel_title_wrap_chars, wrap_title_lines,
+    _HEATMAP_MAX_TICKS, _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
+    panel_title_wrap_chars, wrap_annotation_text, wrap_title_lines,
 )
 
 logger = logging.getLogger(__name__)
@@ -341,7 +342,13 @@ class PlotlyRenderer:
 
     def _annotation(self, fig, p: AnnotationPanelSpec, row: int, col: int) -> None:
         """Render a text-only panel (no axes): centers ``p.text`` in the subplot cell and hides both axes so the cell reads as a plain note/caption."""
-        fig.add_annotation(text=p.text.replace("\n", "<br>"), x=0.5, y=0.5,
+        # plotly does not wrap free text at all, and paints annotations above traces, so an unwrapped line lands
+        # visually on top of the neighbouring panel. Wrap to this subplot's own width before handing it over.
+        _grid = getattr(fig, "_grid_ref", None)
+        _cols = max(1, len(_grid[0])) if _grid else 1
+        _panel_w_in = max(float(fig.layout.width or (_PX_PER_INCH * 8)) / _PX_PER_INCH / _cols, 1.0)
+        _text = wrap_annotation_text(p.text, _panel_w_in, p.fontsize)
+        fig.add_annotation(text=_text.replace("\n", "<br>"), x=0.5, y=0.5,
                            xref="x domain", yref="y domain", showarrow=False,
                            font=dict(size=p.fontsize), align="center",
                            row=row, col=col)

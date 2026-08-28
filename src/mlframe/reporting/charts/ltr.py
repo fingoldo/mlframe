@@ -110,8 +110,11 @@ def bootstrap_ndcg_ci(
     Returns ``(mean, lower, upper)`` of the per-query NDCG over the ``1-alpha`` percentile bootstrap. Resampling is the
     correct unit here -- queries, not rows -- because rows within a query are dependent. Fully vectorised: one
     ``(n_boot, n_eff)`` integer gather of resampled query indices, ``mean(axis=1)``, then two percentiles; no python
-    bootstrap loop. ``n_eff`` is capped at ``_BOOTSTRAP_QUERY_CAP`` so a huge query count subsamples per resample
-    (the CI narrows with the true query count, which the cap preserves up to its bound). NaN-bracket when no valid query.
+    bootstrap loop. ``n_eff`` is capped at ``_BOOTSTRAP_QUERY_CAP`` so a huge query count does not need a
+    ``(n_boot, 1e6)`` gather. Resampling only ``n_eff`` of ``nq`` queries estimates the standard error of a MEAN OF
+    n_eff, which is ``sqrt(nq / n_eff)`` times too wide -- at nq = 1e6 that is a 4.5x overstated interval, and the
+    old docstring's claim that the cap "preserves" the narrowing was simply wrong. The half-width is therefore
+    rescaled by ``sqrt(n_eff / nq)`` back onto the full query count. NaN-bracket when no valid query.
     """
     vals = np.asarray(per_query_ndcg, dtype=np.float64)
     vals = vals[~np.isnan(vals)]
@@ -127,7 +130,12 @@ def bootstrap_ndcg_ci(
     boot_means = vals[idx].mean(axis=1)
     lo = float(np.percentile(boot_means, 100.0 * alpha / 2.0))
     hi = float(np.percentile(boot_means, 100.0 * (1.0 - alpha / 2.0)))
-    return float(vals.mean()), lo, hi
+    mean = float(vals.mean())
+    if n_eff < nq:
+        shrink = float(np.sqrt(n_eff / nq))
+        lo = mean + (lo - mean) * shrink
+        hi = mean + (hi - mean) * shrink
+    return mean, lo, hi
 
 
 def _ndcg_k_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> PanelSpec:
@@ -504,6 +512,14 @@ def compose_ltr_figure(
         suptitle=suptitle,
         panels=grid,
         figsize=figsize_for_grid(n_rows, n_cols, cell_width=cell_width, cell_height=cell_height),
+        caption=(
+            "Every panel is computed PER QUERY and then averaged across queries -- the independent unit here is the "
+            "query, not the row, so a single huge query cannot dominate the headline. NDCG@k is 1 when the ranking "
+            "matches the ideal ordering of that query's relevance grades. A SMALL query is trivially easy (a "
+            "one-document query scores 1.0), which is exactly what the by-query-size panel exposes: if the overall "
+            "mean is carried by the small-query bins, it is inflated and will not survive contact with real traffic. "
+            "Queries with no relevant document are excluded rather than scored zero."
+        ),
     )
 
 

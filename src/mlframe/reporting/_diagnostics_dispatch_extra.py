@@ -690,7 +690,7 @@ def render_class_structure_diagnostic(
 
         spec = compose_class_structure_figure(
             df, np.asarray(y_true).ravel(), group=group, timestamps=timestamps,
-            max_groups=max_groups, n_time_bins=n_time_bins, seed=seed,
+            max_groups=max_groups, n_time_bins=n_time_bins,
         )
         ok = _save_spec(spec, plot_outputs, base_path + "_class_structure")
         _record(charts, "class_structure", ok)

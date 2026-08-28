@@ -74,12 +74,19 @@ def _per_row_error(
 
     Regression: absolute residual. Classification: log-loss when ``y_pred`` is a probability/score in [0,1]
     (richer than 0/1, so the tree sees *how* wrong), else 0/1 incorrectness when ``y_pred`` is a hard label.
+
+    The log-loss branch is BINARY, so it only applies when ``y_true`` is in {0, 1}. It was previously chosen off
+    ``y_pred``'s range alone, so a multiclass label reached it too: for ``y_true=2, p=0.9`` the binary formula
+    returns -2.09, a NEGATIVE "error" that then trained the weak-segment tree and coloured a "darker = worse"
+    heatmap. Multiclass labels now take the 0/1 incorrectness branch, which is well defined for any label set.
     """
     yt = _as_float_1d(y_true)
     yp = _as_float_1d(y_pred)
     if task == "regression":
         return np.asarray(np.abs(yt - yp))
-    looks_proba = yp.size > 0 and float(np.nanmin(yp)) >= 0.0 and float(np.nanmax(yp)) <= 1.0
+    finite_yt = yt[np.isfinite(yt)]
+    is_binary_label = finite_yt.size == 0 or bool(np.isin(finite_yt, (0.0, 1.0)).all())
+    looks_proba = is_binary_label and yp.size > 0 and float(np.nanmin(yp)) >= 0.0 and float(np.nanmax(yp)) <= 1.0
     if looks_proba:
         eps = 1e-12
         p = np.clip(yp, eps, 1.0 - eps)
@@ -422,7 +429,17 @@ def weak_segment_heatmap(
         colorbar_label="mean error (darker = worse); cell number = rows in cell",
     )
     return WeakSegmentResult(
-        FigureSpec(panels=((heat,),), figsize=(8.0, 6.0)),
+        FigureSpec(
+            panels=((heat,),),
+            figsize=(8.0, 6.0),
+            caption=(
+                "A shallow tree fitted on PER-ROW error picked the most error-discriminating features; the grid bins "
+                "them into equal-population slices. Colour = mean error (darker = worse); the number printed in each "
+                f"cell is that cell's ROW COUNT, not the error. Cells under {support_floor:,} rows are excluded from "
+                "the worst-slice ranking -- a dark cell backed by a handful of rows is an outlier, not a weak "
+                "segment. Use the worst slice named in the title as the place to look first, then check its count."
+            ),
+        ),
         split_features, worst_cell, cell_error, cell_count,
     )
 
@@ -487,7 +504,12 @@ def segments_bar(
         xtick_rotation=45.0,
         hline=(float(global_value), "darkorange", f"global = {global_value:.3g}"),
     )
-    return FigureSpec(suptitle="", panels=((bar,),), figsize=(max(8.0, len(cats) * 0.5), 5.0))
+    caption = (
+        "One bar per subgroup, sorted worst-first, against the global reference drawn in orange. The bars are raw "
+        "point estimates with NO uncertainty attached, so a short bar over a small subgroup may be sample size "
+        "rather than a real weakness -- read each bar together with its group size before acting on it."
+    )
+    return FigureSpec(suptitle="", panels=((bar,),), figsize=(max(8.0, len(cats) * 0.5), 5.0), caption=caption)
 
 
 @dataclass(frozen=True)
@@ -588,8 +610,13 @@ class ErrorBiasResult:
 
 
 def _signed_error(y_true: np.ndarray, y_pred: np.ndarray) -> np.ndarray:
-    """Signed prediction error y_pred - y_true: positive => OVER-estimate, negative => UNDER-estimate."""
-    return np.asarray(_as_float_1d(y_pred) - _as_float_1d(y_true))
+    """Signed residual y_true - y_pred: positive => the model UNDER-predicts here, negative => it OVER-predicts.
+
+    ONE convention for the whole figure. Group tagging previously used ``y_pred - y_true`` while the per-segment
+    bias readout in the same figure used ``y_true - y_pred``, so the two halves disagreed about which sign meant
+    "over" and a comment existed solely to reconcile them. The suptitle already declares this one.
+    """
+    return np.asarray(_as_float_1d(y_true) - _as_float_1d(y_pred))
 
 
 def _tag_error_groups(
@@ -605,8 +632,13 @@ def _tag_error_groups(
     finite = np.isfinite(signed_err)
     hi_cut = np.quantile(signed_err[finite], 1.0 - tail_fraction) if finite.any() else np.inf
     lo_cut = np.quantile(signed_err[finite], tail_fraction) if finite.any() else -np.inf
-    over = finite & (signed_err >= hi_cut)
-    under = finite & (signed_err <= lo_cut)
+    if hi_cut == lo_cut:
+        # A constant signed error makes both tail tests true for every row, so OVER and UNDER each held ALL rows and
+        # MAJORITY held none -- three identical densities, which reads as "no error bias" rather than "no variation".
+        return {"OVER": np.zeros_like(finite), "UNDER": np.zeros_like(finite), "MAJORITY": finite}
+    # `signed_err` is y_true - y_pred, so the MOST NEGATIVE tail is where the model over-predicts.
+    over = finite & (signed_err <= lo_cut)
+    under = finite & (signed_err >= hi_cut)
     majority = finite & ~over & ~under
     return {"OVER": over, "UNDER": under, "MAJORITY": majority}
 
@@ -636,11 +668,7 @@ def error_bias_per_feature(
     names = _resolve_feature_names(X, feature_names)
     signed = _signed_error(y_true, y_pred)
     masks = _tag_error_groups(signed, tail_fraction)
-    # Signed residual on the y_true - y_pred convention: > 0 in a segment => model UNDER-predicts there (truth above
-    # prediction), < 0 => OVER-predicts. This is the per-segment bias direction the title/annotations report. (Note the
-    # OVER/UNDER GROUP tagging above uses y_pred - y_true; the segment-bias readout below uses the residual convention so
-    # the "positive => UNDER-predict" rule the user asked for holds.)
-    resid_signed = _as_float_1d(y_true) - _as_float_1d(y_pred)
+    resid_signed = signed
 
     missing_features: List[str] = []
     if features is not None:
@@ -746,6 +774,13 @@ def error_bias_per_feature(
         suptitle=suptitle,
         panels=grid,
         figsize=figsize_for_grid(max(n_rows, 1), 2, cell_width=6.0, cell_height=4.0),
+        caption=(
+            f"Rows are split by signed residual (y_true - y_pred) into the bottom {tail_fraction:.0%} where the model "
+            f"OVER-predicts, the top {tail_fraction:.0%} where it UNDER-predicts, and the middle MAJORITY. Each panel "
+            "overlays those three groups' value distributions for one feature: wherever the tail curves pull away "
+            "from the majority, that feature's values are what drive the extreme errors. y is a density, so each "
+            "curve integrates to 1 and the three groups' heights are NOT comparable as counts."
+        ),
     )
     return ErrorBiasResult(fig, group_means, masks)
 
@@ -971,6 +1006,12 @@ def target_dist_overlay(
         suptitle=f"{title}\n{drift_line}",
         panels=grid,
         figsize=figsize_for_grid(1, max(len(panels), 1), cell_width=7.0, cell_height=4.5),
+        caption=(
+            "Overlaid per-split distributions of the target and of the predictions. Curves that separate mean the "
+            "splits are not exchangeable, so a holdout metric may not transfer to the next period. The grey band is "
+            "the train p01-p99 envelope: prediction mass outside it is extrapolation, where the model has never "
+            "seen a comparable example. The shift line above states the verdict for this data."
+        ),
     )
 
 

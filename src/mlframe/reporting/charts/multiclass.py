@@ -41,6 +41,9 @@ from mlframe.reporting.spec import (
 _CURVE_SUBSAMPLE_CAP: int = 200_000
 # Above this K the confusion heatmap K^2 cell-text turns to unreadable soup.
 _CONFUSION_TEXT_MAX_K: int = 15
+# A confusion RATE needs a denominator: below this many true samples a single misrouted row produces a 50-100% cell
+# that outranks every genuine, well-measured confusion on the chart.
+_CONFUSED_PAIRS_MIN_SUPPORT: int = 20
 
 # matplotlib tab20: extends the 10-color LINE_PALETTE so two classes never share
 # a color until K > 20 (per-class ROC / PR / calib overlays go well past 10).
@@ -275,10 +278,15 @@ def _confused_pairs_panel(y_true, y_proba, classes, *, y_pred=None, top_n: int =
     Ranks off-diagonal cells of the ROW-NORMALISED confusion matrix (so a 40%
     misroute of a rare class outranks a 2% leak of a frequent one). Bars read
     "A -> B: x%" with the highest-confusion pair on top.
+
+    Rows below :data:`_CONFUSED_PAIRS_MIN_SUPPORT` true samples are excluded, and every surviving bar carries its
+    true-class support. A rate is meaningless without its denominator here: 1 of 2 rows misrouted topped the chart
+    at "50%", outranking a 12% leak measured over 40000 rows.
     """
     K = len(classes)
     matrix = _confusion_counts(y_true, _resolve_pred(y_pred, y_proba), K)
-    row_sums = matrix.sum(axis=1, keepdims=True)
+    row_totals = matrix.sum(axis=1)
+    row_sums = row_totals.reshape(-1, 1).copy()
     row_sums[row_sums == 0] = 1.0
     norm = matrix / row_sums
     off = norm.copy()
@@ -291,13 +299,19 @@ def _confused_pairs_panel(y_true, y_proba, classes, *, y_pred=None, top_n: int =
         if v <= 0.0:
             break
         i, j = divmod(int(code), K)
-        pairs.append(f"{classes[i]} -> {classes[j]}")
+        support = int(row_totals[i])
+        if support < _CONFUSED_PAIRS_MIN_SUPPORT:
+            continue
+        pairs.append(f"{classes[i]} -> {classes[j]} (n={support:,} true)")
         vals.append(v)
         if len(pairs) >= top_n:
             break
     if not pairs:
         return AnnotationPanelSpec(
-            text="No off-diagonal confusion\n(perfect or single-class predictions)",
+            text=(
+                "No off-diagonal confusion to rank: predictions are perfect, single-class, or every misrouted class "
+                f"has fewer than {_CONFUSED_PAIRS_MIN_SUPPORT} true samples."
+            ),
             title="Most-confused class pairs",
         )
     # Horizontal bars: long "A -> B" labels read cleanly on the y-axis and the highest-confusion pair sits on top.
@@ -306,7 +320,7 @@ def _confused_pairs_panel(y_true, y_proba, classes, *, y_pred=None, top_n: int =
     return BarPanelSpec(
         categories=categories,
         values=values,
-        title=f"Most-confused class pairs (top {len(pairs)})",
+        title=f"Most-confused class pairs (top {len(pairs)}; classes under {_CONFUSED_PAIRS_MIN_SUPPORT} true rows excluded)",
         xlabel="P(pred | true)",
         ylabel="true -> pred",
         orientation="horizontal",
@@ -543,6 +557,8 @@ def _calib_grid_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_
         sub = _stratified_subsample(yt, _CURVE_SUBSAMPLE_CAP, seed=0)
     yt_s = yt[sub]
     proba_s = y_proba[sub]
+    pooled_sums = np.zeros(n_bins, dtype=np.float64)
+    pooled_counts = np.zeros(n_bins, dtype=np.float64)
     for k in draw_idx:
         proba_k = proba_s[:, k]
         true_k = (yt_s == k).astype(np.float64)
@@ -561,6 +577,8 @@ def _calib_grid_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_
         nz = counts > 0
         observed[nz] = sums[nz] / counts[nz]
         series.append(observed)
+        pooled_sums += sums
+        pooled_counts += counts
         labels.append(str(classes[k]))
         colors.append(_class_color(k))
     diag = x_grid.copy()
@@ -569,11 +587,13 @@ def _calib_grid_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_
     styles = [":"] + ["-"] * len(series)
     all_colors = ["green", *colors]
     if class_subset is not None:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)  # a bin empty in every drawn class -> all-NaN column is fine
-            macro = np.nanmean(np.vstack(series), axis=0) if series else np.full(n_bins, np.nan)
+        # Pool the per-bin sums and counts rather than averaging the per-class RATES: an unweighted nanmean gave a
+        # 3-row bin the same say as a 300k-row bin, and the counts were computed two lines above and thrown away.
+        macro = np.full(n_bins, np.nan)
+        nz_pool = pooled_counts > 0
+        macro[nz_pool] = pooled_sums[nz_pool] / pooled_counts[nz_pool]
         all_series.append(macro)
-        all_labels.append("macro-avg")
+        all_labels.append("pooled avg (weighted by bin support)")
         styles.append("--")
         all_colors.append("black")
     title = "Per-class reliability curves"
@@ -829,6 +849,13 @@ def compose_multiclass_figure(
         suptitle=suptitle,
         panels=grid,
         figsize=figsize_for_grid(n_rows, n_cols, cell_width=eff_cell_width, cell_height=cell_height),
+        caption=(
+            "All per-class panels are ONE-VS-REST: class k's positives against every other class pooled. Confusion "
+            "rows are normalised so each reads as P(pred | true) and sums to 1, which is why a rare class can show a "
+            "large off-diagonal cell on very few rows -- check its support before acting. Reliability x is the mean "
+            "predicted P(y=k) within a bin and y the rate observed there, so the diagonal is perfect calibration. "
+            f"Top-k accuracy is the chance the true class is among the k highest-scored; chance level is k/{K:g}."
+        ),
     )
 
 

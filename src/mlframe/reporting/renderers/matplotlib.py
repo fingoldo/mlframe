@@ -20,7 +20,8 @@ from mlframe.reporting.spec import (
 )
 
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
-    _HEATMAP_MAX_TICKS, _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks, panel_title_wrap_chars, wrap_title_lines,
+    _HEATMAP_MAX_TICKS, _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
+    panel_title_wrap_chars, wrap_annotation_text, wrap_title_lines,
 )
 
 logger = logging.getLogger(__name__)
@@ -248,8 +249,13 @@ class MatplotlibRenderer:
             raise TypeError(f"unknown panel type: {type(panel).__name__}")
 
     def _annotation(self, ax, p: AnnotationPanelSpec) -> None:
-        """Render a free-text panel (no axes/data): centered wrapped text, no ticks, no spines."""
-        ax.text(0.5, 0.5, p.text, ha="center", va="center", fontsize=p.fontsize, transform=ax.transAxes, wrap=True)
+        """Render a free-text panel (no axes/data): centered text wrapped to the panel's own width, no ticks/spines."""
+        # Wrap here rather than via matplotlib's `wrap=True`, which measures against the FIGURE box and never breaks
+        # long tokens -- see wrap_annotation_text for the measured numbers.
+        bbox = ax.get_window_extent()
+        panel_w_in = float(bbox.width) / float(ax.figure.dpi or 100.0)
+        text = wrap_annotation_text(p.text, panel_w_in, p.fontsize)
+        ax.text(0.5, 0.5, text, ha="center", va="center", fontsize=p.fontsize, transform=ax.transAxes)
         _set_panel_title(ax, p.title)
         ax.set_xticks([])
         ax.set_yticks([])

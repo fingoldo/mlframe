@@ -25,7 +25,6 @@ Token catalogue (all 7):
 
 from __future__ import annotations
 
-import warnings
 from typing import Callable, Dict, List, Sequence
 
 import numpy as np
@@ -110,13 +109,13 @@ def _per_label_prf1(y_true: np.ndarray, y_pred: np.ndarray):
 
 def _pr_f1_panel(y_true, y_proba, labels) -> BarPanelSpec:
     """Per-label precision / recall / F1 bar."""
-    y_pred = (y_proba >= 0.5).astype(np.int8)
+    y_pred = (y_proba >= _COOCCURRENCE_THRESHOLD).astype(np.int8)
     p_arr, r_arr, f_arr = _per_label_prf1(y_true, y_pred)
     return BarPanelSpec(
         categories=tuple(str(lo) for lo in labels),
         values=(p_arr, r_arr, f_arr),
         series_labels=("precision", "recall", "F1"),
-        title="Per-label P / R / F1",
+        title=f"Per-label P / R / F1 (at t={_COOCCURRENCE_THRESHOLD:g})",
         xlabel="Label",
         ylabel="Score",
         xtick_rotation=30.0,
@@ -202,6 +201,8 @@ def _calib_grid_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePane
     series: List[np.ndarray] = []
     series_labels: List[str] = []
     colors: List[str] = []
+    pooled_sums = np.zeros(n_bins, dtype=np.float64)
+    pooled_counts = np.zeros(n_bins, dtype=np.float64)
     for k in draw_idx:
         proba_k = y_proba[:, k]
         true_k = y_true[:, k].astype(np.float64)
@@ -219,6 +220,8 @@ def _calib_grid_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePane
         nz = counts > 0
         observed[nz] = sums[nz] / counts[nz]
         series.append(observed)
+        pooled_sums += sums
+        pooled_counts += counts
         series_labels.append(str(labels[k]))
         colors.append(line_color(k))
     diag = x_grid.copy()
@@ -227,16 +230,18 @@ def _calib_grid_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePane
     styles = [":"] + ["-"] * len(series)
     all_colors = ["green", *colors]
     if label_subset is not None:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)  # a bin empty in every drawn label -> all-NaN column is fine
-            macro = np.nanmean(np.vstack(series), axis=0) if series else np.full(n_bins, np.nan)
+        # Pool per-bin sums and counts rather than averaging per-label RATES: an unweighted nanmean let a 3-row bin
+        # weigh as much as a 300k-row bin, while the counts needed to do it right were computed and discarded.
+        macro = np.full(n_bins, np.nan)
+        nz_pool = pooled_counts > 0
+        macro[nz_pool] = pooled_sums[nz_pool] / pooled_counts[nz_pool]
         all_series.append(macro)
-        all_labels.append("macro-avg")
+        all_labels.append("pooled avg (weighted by bin support)")
         styles.append("--")
         all_colors.append("black")
     title = "Per-label reliability"
     if label_subset is not None:
-        title = f"Per-label reliability: {len(draw_idx)} of {K} labels (worst by AUC) + macro-avg"
+        title = f"Per-label reliability: {len(draw_idx)} of {K} labels (worst by AUC) + pooled avg"
     return LinePanelSpec(
         x=x_grid,
         y=tuple(all_series),
@@ -257,11 +262,12 @@ def _cooccurrence_panel(y_true, y_proba, labels) -> HeatmapPanelSpec:
     # counts[i, j] = #rows where label i is true AND label j is predicted
     # = (true^T @ pred)[i, j]; a single GEMM replaces the K x K x O(N) double
     # loop (5x on 200k rows / K=10). Rows with no true samples stay zero.
-    # Counts are integers <= N (exactly representable in float32, N << 2**24), so the cast +
-    # GEMM run in float32 -- ~1.55x vs float64 by halving (N, K) memory traffic; bit-identical
-    # result (the K x K ratio divide is promoted back to float64 for an exact P(pred|true)).
-    y_pred = (y_proba >= 0.5).astype(np.float32)
-    yt = (y_true == 1).astype(np.float32)
+    # Counts are integers <= N, exactly representable in float32 only while N < 2**24; the cast halves the (N, K)
+    # memory traffic for ~1.55x. Above 16.7M rows float32 starts skipping integers and P(pred|true) goes silently
+    # wrong, so the bound the old comment merely ASSERTED is now enforced -- this codebase targets 100+ GB frames.
+    _gemm_dtype = np.float32 if y_true.shape[0] < 2**24 else np.float64
+    y_pred = (y_proba >= _COOCCURRENCE_THRESHOLD).astype(_gemm_dtype)
+    yt = (y_true == 1).astype(_gemm_dtype)
     counts = (yt.T @ y_pred).astype(np.float64)
     n_true = yt.sum(axis=0, dtype=np.float64)
     matrix = np.zeros((K, K), dtype=np.float64)
@@ -272,7 +278,7 @@ def _cooccurrence_panel(y_true, y_proba, labels) -> HeatmapPanelSpec:
         matrix=matrix,
         row_labels=label_strs,
         col_labels=label_strs,
-        title="Label co-occurrence (true → predicted)",
+        title=f"Label co-occurrence (true -> predicted, at t={_COOCCURRENCE_THRESHOLD:g})",
         xlabel="Predicted label",
         ylabel="True label",
         colormap=HEATMAP_CMAP,
@@ -285,7 +291,7 @@ def _cooccurrence_panel(y_true, y_proba, labels) -> HeatmapPanelSpec:
 def _cardinality_panel(y_true, y_proba, labels) -> BarPanelSpec:
     """Bar plot of label cardinality distribution: how many labels per
     row, predicted vs true. Reveals over- / under-prediction."""
-    y_pred = (y_proba >= 0.5).astype(np.int8)
+    y_pred = (y_proba >= _COOCCURRENCE_THRESHOLD).astype(np.int8)
     K = y_true.shape[1]
     # Cardinality (#labels per row) is in 0..K by construction, so bincount
     # tallies both histograms directly -- replaces two O(N) Python loops (14x).
@@ -297,7 +303,7 @@ def _cardinality_panel(y_true, y_proba, labels) -> BarPanelSpec:
         categories=tuple(str(c) for c in range(K + 1)),
         values=(true_counts.astype(np.float64), pred_counts.astype(np.float64)),
         series_labels=("true", "predicted"),
-        title="Label cardinality distribution",
+        title=f"Label cardinality distribution (predictions at t={_COOCCURRENCE_THRESHOLD:g})",
         xlabel="# labels per row",
         ylabel="Row count",
     )
@@ -335,7 +341,7 @@ def _hamming_dist_panel(y_true, y_proba, labels) -> HistogramPanelSpec:
     """Per-row Hamming distance distribution."""
     from ._sampling import prebin_histogram
 
-    y_pred = (y_proba >= 0.5).astype(np.int8)
+    y_pred = (y_proba >= _COOCCURRENCE_THRESHOLD).astype(np.int8)
     hamming = (y_true != y_pred).sum(axis=1).astype(np.float64)
     mean = float(hamming.mean()) if hamming.size else 0.0
     n_bins = int(y_true.shape[1]) + 1
@@ -355,6 +361,10 @@ def _hamming_dist_panel(y_true, y_proba, labels) -> HistogramPanelSpec:
 # Shared threshold-grid resolution for the per-label sweep. 200 points reads as a smooth heatmap row and
 # is the cap the diagnostic guidance specifies; the optimum-finding is over this grid (not exhaustive).
 _SWEEP_N_THRESHOLDS: int = 200
+# The operating point the fixed-threshold panels binarise at. Named, and stated in every title that depends on it:
+# the THRESHOLD_SWEEP panel in the same figure exists precisely to show the F1-optimal cutoff is rarely 0.5, so a
+# panel silently pinned to 0.5 contradicts its own neighbour unless it says which point it is showing.
+_COOCCURRENCE_THRESHOLD: float = 0.5
 
 
 def _uniform_unit_grid(thresholds: np.ndarray) -> bool:
@@ -466,11 +476,15 @@ def _threshold_sweep_panel(y_true, y_proba, labels) -> PanelSpec:
     best_col = np.argmax(f1, axis=1)
     best_t = thresholds[best_col]
     best_f1 = f1[np.arange(K), best_col]
-    row_labels = tuple(f"{labels[k]} @t*={best_t[k]:.2f} (F1={best_f1[k]:.2f})" for k in range(K))
+    # A label with no positives has F1 = 0 at every threshold; argmax then returns index 0 and the row read
+    # "@t*=0.00 (F1=0.00)" -- an actionable-looking operating point for a label that has none.
+    row_labels = tuple(
+        f"{labels[k]} @t*={best_t[k]:.2f} (F1={best_f1[k]:.2f})" if best_f1[k] > 0.0 else f"{labels[k]} @t*=n/a (no positives)" for k in range(K)
+    )
     # Column labels: a sparse subset of the grid so the axis stays readable at 200 thresholds.
     n_ticks = min(11, _SWEEP_N_THRESHOLDS)
-    tick_pos = np.linspace(0, _SWEEP_N_THRESHOLDS - 1, n_ticks).astype(int)
-    col_labels = tuple(f"{thresholds[j]:.2f}" if j in set(tick_pos.tolist()) else "" for j in range(_SWEEP_N_THRESHOLDS))
+    tick_pos = set(np.linspace(0, _SWEEP_N_THRESHOLDS - 1, n_ticks).astype(int).tolist())
+    col_labels = tuple(f"{thresholds[j]:.2f}" if j in tick_pos else "" for j in range(_SWEEP_N_THRESHOLDS))
     return HeatmapPanelSpec(
         matrix=f1,
         row_labels=row_labels,
@@ -553,6 +567,14 @@ def compose_multilabel_figure(
         suptitle=suptitle,
         panels=grid,
         figsize=figsize_for_grid(n_rows, n_cols, cell_width=cell_width, cell_height=cell_height),
+        caption=(
+            f"Labels are independent binary problems over the same rows. Panels marked 'at t={_COOCCURRENCE_THRESHOLD:g}' "
+            "binarise the probabilities at that one operating point, while the threshold-sweep panel shows the "
+            "F1-optimal cutoff PER LABEL -- which differs from the fixed point whenever base rates differ, so read "
+            "the fixed-threshold panels as one operating point rather than the best one. Co-occurrence cells are "
+            "P(label j predicted | label i true), so its diagonal is per-label recall. Cardinality compares how many "
+            "labels the model emits per row against how many the truth carries."
+        ),
     )
 
 

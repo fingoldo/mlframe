@@ -76,8 +76,11 @@ def _normalize_matrix(matrix: np.ndarray, normalize: Optional[str]) -> np.ndarra
             denom = m.sum()
         else:
             raise ValueError(f"normalize must be one of None, 'true', 'pred', 'all'; got {normalize!r}")
-        denom = np.where(denom == 0, 1.0, denom)
-        return np.asarray(m / denom)
+        # A zero denominator means the class has no samples at all in that direction. Substituting 1.0 turned the
+        # whole row into a confident 0.00, indistinguishable from a class the model never once predicted correctly.
+        # NaN renders blank, which is the honest reading: nothing was measured here.
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return np.asarray(np.where(denom == 0, np.nan, m / np.where(denom == 0, 1.0, denom)))
 
 
 def plot_confusion_matrix(
@@ -145,6 +148,28 @@ def plot_confusion_matrix(
     if values_format is None:
         values_format = "d" if normalize is None else ".2f"
 
+    if K == 0:
+        # imshow on a (0, 0) array draws an empty box with no axis ticks and no indication of why.
+        from matplotlib.figure import Figure
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+        if ax is None:
+            fig = Figure(figsize=(5.0, 3.0), layout="constrained")
+            FigureCanvasAgg(fig)
+            ax = fig.add_subplot(1, 1, 1)
+        ax.set_axis_off()
+        ax.text(
+            0.5,
+            0.5,
+            "Confusion matrix unavailable: no class labels.\nNeither y_true nor y_pred holds a usable label.",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
+        if title:
+            ax.set_title(title, fontsize=10)
+        return ax.figure, ax
+
     if ax is None:
         from matplotlib.figure import Figure
         from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -156,7 +181,8 @@ def plot_confusion_matrix(
         fig = ax.figure
 
     cm = matplotlib.colormaps[cmap]
-    im = ax.imshow(display, cmap=cm, aspect="auto")
+    # A confusion matrix is a square relation; "auto" stretches cells to the axes box and distorts it.
+    im = ax.imshow(display, cmap=cm, aspect="equal")
 
     _rotation: Any
     if xticks_rotation == "vertical":
@@ -172,6 +198,9 @@ def plot_confusion_matrix(
     ax.set_yticklabels(tick_labels, fontsize=8)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
+    if include_values and K and display.size > _CELL_TEXT_MAX:
+        # Silently dropping the annotations reads as "this matrix has no numbers", not "there were too many to show".
+        title = f"{title}\n(per-cell values hidden: {display.size:,} cells exceeds the {_CELL_TEXT_MAX} readable limit)"
     if title:
         ax.set_title(title, fontsize=10)
 

@@ -403,10 +403,21 @@ def compose_model_card_figure(
         header = _header_panel(model_name, split, verdict, metric_fmt)
         bar = _headline_bar(bar_fmt, verdict.color)
         minis = [_mini_roc(sort), _mini_score_dist(sort, yt, ys), _mini_gain(sort)]
+        # The top row's third cell is permanently empty, so give the two occupied cells its width rather than
+        # leaving a third of the figure blank while the header squeezes its text into one column.
         grid = ((header, bar, None), tuple(minis))
+        col_ratios = (1.5, 1.5, 0.0001)
         return FigureSpec(
             suptitle=f"Model card -- {'[DUMMY] ' if _is_dummy_name(model_name) else ''}{model_name} ({split}) -- {verdict.label}",
-            panels=grid, figsize=figsize, row_height_ratios=(1.2, 1.0),
+            panels=grid, figsize=figsize, row_height_ratios=(1.2, 1.0), col_width_ratios=col_ratios,
+            caption=(
+                "Every headline bar is rescaled so LONGER = BETTER on [0, 1]: higher-is-better metrics are shown "
+                "directly and error metrics as 1 - metric, which is what makes otherwise incomparable quantities "
+                "readable side by side. The grey line at 0.5 is the midpoint of that scale, not a pass mark -- for "
+                "ROC_AUC 0.5 does mean no discrimination, but for a rescaled error metric it means nothing in "
+                "particular. The mini panels below carry the distributional detail the single bars cannot. "
+                f"VERDICT: {verdict.reason}"
+            ),
         )
 
     if t == "regression":
@@ -435,10 +446,21 @@ def compose_model_card_figure(
         header = _header_panel(model_name, split, verdict, metric_fmt)
         bar = _headline_bar(bar_fmt, verdict.color)
         minis = [_mini_resid_vs_pred(yt, yp), _mini_resid_hist(yt, yp), _mini_pred_vs_actual(yt, yp)]
+        # The top row's third cell is permanently empty, so give the two occupied cells its width rather than
+        # leaving a third of the figure blank while the header squeezes its text into one column.
         grid = ((header, bar, None), tuple(minis))
+        col_ratios = (1.5, 1.5, 0.0001)
         return FigureSpec(
             suptitle=f"Model card -- {'[DUMMY] ' if _is_dummy_name(model_name) else ''}{model_name} ({split}) -- {verdict.label}",
-            panels=grid, figsize=figsize, row_height_ratios=(1.2, 1.0),
+            panels=grid, figsize=figsize, row_height_ratios=(1.2, 1.0), col_width_ratios=col_ratios,
+            caption=(
+                "Every headline bar is rescaled so LONGER = BETTER on [0, 1]: higher-is-better metrics are shown "
+                "directly and error metrics as 1 - metric, which is what makes otherwise incomparable quantities "
+                "readable side by side. The grey line at 0.5 is the midpoint of that scale, not a pass mark -- for "
+                "ROC_AUC 0.5 does mean no discrimination, but for a rescaled error metric it means nothing in "
+                "particular. The mini panels below carry the distributional detail the single bars cannot. "
+                f"VERDICT: {verdict.reason}"
+            ),
         )
 
     raise ValueError(f"unknown task {task!r}; expected 'classification'/'binary'/'regression'")

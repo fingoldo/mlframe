@@ -57,7 +57,18 @@ def compose_interaction_strength_figure(
     """One-panel FigureSpec wrapping :func:`interaction_strength_panel`, keeping the FIRST ``max_features`` entries of ``features`` (the caller controls the ranking)."""
     top = list(features)[: max(2, int(max_features))]
     panel = interaction_strength_panel(model, X, top, grid=grid, sample=sample, seed=seed)
-    return FigureSpec(suptitle=suptitle, panels=((panel,),), figsize=(6.0, 5.0))
+    return FigureSpec(
+        suptitle=suptitle,
+        panels=((panel,),),
+        figsize=(6.0, 5.0),
+        caption=(
+            "Friedman-Popescu H per feature pair: the share of the pair's JOINT effect on the model that is NOT "
+            "explained by simply adding their separate effects. 0 means purely additive, so an explicit interaction "
+            f"feature would buy nothing; 1 means pure interaction. Estimated on up to {sample:,} rows over a "
+            f"{grid}-point partial-dependence grid, so small values sit inside the estimation noise and only the "
+            "clearly-separated top pairs are worth acting on."
+        ),
+    )
 
 
 __all__ = [

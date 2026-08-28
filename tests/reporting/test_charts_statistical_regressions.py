@@ -9,7 +9,13 @@ import numpy as np
 import pytest
 
 from mlframe.reporting.charts.decision_curve import build_decision_curve_spec, effective_binary_n
-from mlframe.reporting.charts.drift import residual_vs_time
+from mlframe.reporting.charts.drift import (
+    CUSUM_DECISION_H,
+    _adversarial_auc_bar,
+    _cusum_tabular_loop,
+    cusum_h_for_length,
+    residual_vs_time,
+)
 from mlframe.reporting.charts.error_analysis import _resolve_feature_matrix, _target_drift_verdict
 from mlframe.reporting.charts.model_comparison import _spearman_corr_matrix
 from mlframe.reporting.charts.multiclass import _top_k_acc_panel
@@ -128,3 +134,40 @@ class TestColumnNameMismatchIsLoud:
         # Pre-fix a bare zip() truncated to one column and every downstream diagnostic ran on a subset.
         with pytest.raises(ValueError, match="one-to-one"):
             _resolve_feature_matrix(frame, ["only_one"])
+
+
+class TestCusumStaysQuietOnDriftFreeSeries:
+    """A fixed decision interval cannot hold a false-alarm rate as the series gets longer."""
+
+    def test_pure_noise_does_not_raise_a_change_point(self):
+        """A drift-free series of the length this chart targets must not report a structural break."""
+        h = cusum_h_for_length(6000)
+        # At the previous fixed h=8 this crossed on 3 of these 4 seeds; Siegmund puts the two-sided ARL_0 there
+        # near 9,500, so a 6000-row series false-alarmed about half the time.
+        for seed in range(4):
+            z = np.random.default_rng(seed).normal(0.0, 1.0, 6000)
+            assert _cusum_tabular_loop(z, 0.5, h)[2] == -1
+
+    def test_a_real_sustained_shift_is_still_detected_promptly(self):
+        """Raising h to control false alarms must not cost the detection it exists for."""
+        h = cusum_h_for_length(6000)
+        z = np.random.default_rng(0).normal(0.0, 1.0, 6000)
+        z[4000:] += 1.5
+        cross = _cusum_tabular_loop(z, 0.5, h)[2]
+        assert 4000 <= cross < 4100
+
+    def test_h_grows_with_series_length(self):
+        """The decision interval is solved from the length, and never drops below the old fixed default."""
+        assert cusum_h_for_length(500) < cusum_h_for_length(6000) < cusum_h_for_length(50_000)
+        assert cusum_h_for_length(10) >= CUSUM_DECISION_H
+
+
+class TestAdversarialVerdictScalesWithRowCount:
+    """AUC 0.6 is noise on a few hundred rows per side and a real shift on two hundred thousand."""
+
+    def test_no_shift_bar_shrinks_as_the_sets_grow(self):
+        """The bar above 0.5 is the AUC's own null standard error, so it must fall as 1/sqrt(n)."""
+        bars = [_adversarial_auc_bar(n, n) for n in (200, 2000, 50_000, 200_000)]
+        assert bars == sorted(bars, reverse=True)
+        assert bars[0] > 0.05  # a 0.55 AUC on 200 rows/side says nothing
+        assert bars[-1] < 0.01  # a 0.52 AUC on 200k rows/side is a real, reproducible shift

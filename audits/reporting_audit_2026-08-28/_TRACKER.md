@@ -15,7 +15,7 @@ A cluster file moves to `implemented/` only once EVERY finding in it carries a f
 | reporting_core | `spec.py`, `output.py`, `colors.py`, `catalog.py`, `auto_dispatch.py`, `diagnostics_dispatch.py`, `report_html.py`, `_benchmarks/` | [reporting_core.md](reporting_core.md) | 30 (0/0/8/22) | IN PROGRESS (2 RESOLVED) |
 | reporting_renderers | `renderers/**` (matplotlib, plotly, kaleido, save dispatch, shared helpers) | [reporting_renderers.md](reporting_renderers.md) | 29 (0/5/9/15) | IN PROGRESS (2 RESOLVED) |
 | reporting_charts_a | `charts/` shared kernels + binary/calibration family | [reporting_charts_a.md](reporting_charts_a.md) | 36 (0/4/15/17) | TODO |
-| reporting_charts_b | `charts/` class-structure through multilabel (incl. `model_card`, `decision_curve`) | [reporting_charts_b.md](reporting_charts_b.md) | 68 (0/11/34/23) | IN PROGRESS (31 RESOLVED, 1 FUTURE) |
+| reporting_charts_b | `charts/` class-structure through multilabel (incl. `model_card`, `decision_curve`) | [implemented/reporting_charts_b.md](implemented/reporting_charts_b.md) | 68 (0/11/34/23) | **COMPLETE** (61 RESOLVED, 6 FUTURE, 1 DOC) -> [implemented/](implemented/reporting_charts_b.md) |
 | reporting_charts_c | `charts/` pdp through training_curve (incl. `risk_coverage`, `slice_finder`) | [reporting_charts_c.md](reporting_charts_c.md) | 40 (0/2/22/16) | TODO |
 | reporting_ux_crosscutting | repo-wide caption inventory, verdict surfacing, degenerate cases, tooltips, colour accessibility, backend parity | [reporting_ux_crosscutting.md](reporting_ux_crosscutting.md) | 74 (0/4/41/29) | IN PROGRESS (1 RESOLVED) |
 
@@ -57,3 +57,9 @@ Recorded here so the audit does not re-report them and so the tracker is a compl
 | REPORTING_CORE-2 | The metric flattener accepted only built-in int/float, so `np.float32` and `np.int64` metrics were silently dropped from the leaderboard — the dtypes LightGBM and XGBoost routinely emit. | Test against the numeric ABCs plus numpy's scalar base, excluding bools. |
 | REPORTING_RENDERERS-1 / RUX-62 | `LinePanelSpec.ylim` was read by neither backend, so the decision curve's deliberately clipped y-window was discarded — the very readability fix its author wrote. Found independently by two agents. | Apply the limit in both line renderers. Verified on both backends. |
 | REPORTING_RENDERERS-2 | `fig.autofmt_xdate()` is a FIGURE-level call: it hid the x tick labels of every non-last-row axes and cleared their labels, erasing the epoch-date ticks the recent time-axis fix had just computed and stripping labels off unrelated panels in the same row. | Rotate per-axes instead; the rotation was that call's only remaining contribution. |
+
+## Found while fixing, not by the audit
+
+| What | Where | Detail |
+|---|---|---|
+| The CUSUM drift chart raised a change-point on roughly half of all DRIFT-FREE series of the length it targets. | `charts/drift.py` | Chasing CHARTS_B-23 (the change-point reported as an internal row index) meant rendering a real series, which showed a crossing at row 1,109 on data with no injected shift. The fixed `h=8` gives a two-sided ARL_0 near 9,500 by Siegmund's approximation, so a 6,000-row series false-alarms about 47% of the time — measured, 3 of 4 pure-noise seeds crossed — directly contradicting the constant's own comment ("h=8 sigma pushes ARL_0 into the tens of thousands so a no-drift series stays quiet"). `h` is now solved from the series length for a 5% whole-series false-alarm probability and floored at the old 8.0, so it can only ever be quieter. 8/8 pure-noise seeds now stay silent; an injected 1.5-sigma shift is still caught 8 steps later. |

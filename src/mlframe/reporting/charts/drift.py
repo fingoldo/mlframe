@@ -270,6 +270,41 @@ def psi_heatmap(
     return FigureSpec(suptitle="", panels=((heat,),), figsize=fs, caption=caption)
 
 
+def _format_x(v: float) -> str:
+    """Render an x-axis position as a date when the axis carries epoch nanoseconds, else as a plain number."""
+    # Epoch-ns timestamps are the only values reaching this module at ~1e18; anything smaller is a real number.
+    if np.isfinite(v) and abs(v) > 1e15:
+        import datetime as _dt
+
+        return _dt.datetime.fromtimestamp(v / 1e9, tz=_dt.timezone.utc).strftime("%Y-%m-%d")
+    return f"{v:.6g}"
+
+
+# Two-sided 95% normal quantile for the adversarial AUC's no-shift bar.
+_ADV_Z: float = 1.96
+
+
+def _frame_rows(frame: Any) -> int:
+    """Row count of a 2-D ndarray / pandas / polars frame without materialising it."""
+    if hasattr(frame, "shape"):
+        return int(frame.shape[0])
+    return len(frame)
+
+
+def _adversarial_auc_bar(n_a: int, n_b: int) -> float:
+    """How far above 0.5 an adversarial AUC must sit before it means anything, at these per-side row counts.
+
+    Under the null of identical distributions the AUC (a Mann-Whitney statistic) has variance
+    ``(n_a + n_b + 1) / (12 * n_a * n_b)``; scaling its standard error by z gives a bar that shrinks as the sets
+    grow. The old fixed 0.6 line called ordinary small-sample noise a distribution shift, and simultaneously missed
+    genuine, reproducible shifts on large sets where 0.55 is far outside anything the null can produce.
+    """
+    if n_a <= 0 or n_b <= 0:
+        return 0.5
+    se = float(np.sqrt((n_a + n_b + 1.0) / (12.0 * n_a * n_b)))
+    return _ADV_Z * se
+
+
 def _time_bucket_edges(ts: np.ndarray, n_buckets: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Equal-count time buckets by sorted timestamp order.
 
@@ -351,7 +386,13 @@ def residual_vs_time(
         band_color="steelblue",
         band_label="+/- 1 std",
     )
-    return FigureSpec(suptitle="", panels=((line,),), figsize=figsize)
+    caption = (
+        "Line = mean residual (y_true - y_pred) per equal-count time bucket; the band is plus/minus one standard "
+        "deviation of the residuals IN that bucket -- the spread of the errors, not a confidence interval on the "
+        "mean, so it does not narrow as the bucket grows. The mean drifting off the green zero line is bias drift; "
+        f"the band widening is variance drift. Buckets hold about {int(n // max(nb, 1)):,} rows each."
+    )
+    return FigureSpec(suptitle="", panels=((line,),), figsize=figsize, caption=caption)
 
 
 # Two-sided tabular CUSUM defaults (Page 1954 / Montgomery SPC): slack k=0.5 sigma is tuned to detect a 1-sigma
@@ -361,6 +402,28 @@ def residual_vs_time(
 # standardized first so k/h are in sigma units regardless of the residual scale.
 CUSUM_SLACK_K: float = 0.5
 CUSUM_DECISION_H: float = 8.0
+# Target probability that a genuinely drift-free series raises a change-point anywhere along its length. h=8 was
+# chosen for "ARL_0 in the tens of thousands", but Siegmund's approximation puts the TWO-SIDED ARL_0 at h=8, k=0.5
+# near 9,500, so a 6000-row series false-alarms about 47% of the time -- measured: 3 of 4 pure-noise seeds crossed.
+# Series length is what decides whether a fixed h is quiet, so h is solved from the length instead of fixed.
+CUSUM_FALSE_ALARM_TARGET: float = 0.05
+
+
+def cusum_h_for_length(n: int, k: float = CUSUM_SLACK_K, alpha: float = CUSUM_FALSE_ALARM_TARGET) -> float:
+    """Decision interval h (in sigma) holding the whole-series false-alarm probability near ``alpha`` at length ``n``.
+
+    Inverts Siegmund's ARL_0 approximation ``(exp(u) - u - 1) / (2k^2)`` with ``u = 2k(h + 1.166)``, targeting a
+    two-sided ARL_0 of ``n / alpha``. Never returns less than :data:`CUSUM_DECISION_H`, so this only ever makes the
+    chart QUIETER than the previous fixed default -- it cannot cause a real shift to be missed that was caught before.
+    """
+    if n <= 0 or k <= 0:
+        return CUSUM_DECISION_H
+    target_one_arm = 2.0 * n / max(alpha, 1e-6)  # two arms each get half the alarm budget
+    rhs = 2.0 * k * k * target_one_arm
+    u = np.log(rhs + 1.0)
+    for _ in range(60):  # exp(u) - u - 1 = rhs, converging from below
+        u = np.log(rhs + u + 1.0)
+    return float(max(CUSUM_DECISION_H, u / (2.0 * k) - 1.166))
 # Robust in-control mean/std from the FIRST in_control_frac of the time-ordered residuals (the period assumed drift-
 # free); median + MAD (scaled to sigma by 1.4826) resist the very mean-shift we are trying to detect downstream.
 CUSUM_IN_CONTROL_FRAC: float = 0.25
@@ -409,7 +472,7 @@ def cusum_residual_drift(
     timestamps: Optional[np.ndarray] = None,
     *,
     slack_k: float = CUSUM_SLACK_K,
-    decision_h: float = CUSUM_DECISION_H,
+    decision_h: Optional[float] = None,
     in_control_frac: float = CUSUM_IN_CONTROL_FRAC,
     max_vertices: int = 2000,
     x_is_time: bool = True,
@@ -476,6 +539,9 @@ def cusum_residual_drift(
         return FigureSpec(suptitle="", panels=((ann,),), figsize=figsize)
 
     z = (resid - center) / sigma
+    # Solve h from the series length unless the caller pinned one, so the whole-series false-alarm probability stays
+    # near CUSUM_FALSE_ALARM_TARGET instead of growing with n.
+    decision_h = cusum_h_for_length(n, float(slack_k)) if decision_h is None else float(decision_h)
     sp, sm, cross = _cusum_tabular(z, float(slack_k), float(decision_h))
     # Signed CUSUM for a readable single curve: positive arm minus negative arm. Both arms are >= 0 and only one is
     # active at a time once drift sets in, so the difference shows direction (up-shift positive, down-shift negative).
@@ -502,9 +568,13 @@ def cusum_residual_drift(
         direction = "up" if sp[cross] > sm[cross] else "down"
         vlines = ((cx, "red", f"change-point @ {direction}-shift"),)
         vspans = ((cx, float(x_full[-1]), "red", 0.07, "post-change"),)
-        subtitle = f"\nchange-point detected at ordered-row {cross} ({direction}-shift); h={decision_h:g}, k={slack_k:g} sigma"
+        # "ordered-row 4173" is an internal index nobody can act on; report WHEN it happened.
+        subtitle = f"\nchange-point detected at {_format_x(cx)} ({direction}-shift, ordered row {cross:,} of {n:,});" f" h={decision_h:g}, k={slack_k:g} sigma"
     else:
         subtitle = f"\nno sustained shift detected (CUSUM stayed within +/-{decision_h:g} sigma); k={slack_k:g}"
+    # The in-control window is an ASSUMPTION, not a measurement: if the model was already drifting there, sigma is
+    # inflated and no alarm can ever fire. Stating the span is what lets a reader check that assumption.
+    subtitle += f"; in-control baseline = first {in_control_frac:.0%}" f" ({_format_x(float(x_full[0]))} .. {_format_x(float(x_full[n_ic - 1]))})"
 
     line = LinePanelSpec(
         x=x_plot,
@@ -519,7 +589,14 @@ def cusum_residual_drift(
         vlines=vlines,
         vspans=vspans,
     )
-    return FigureSpec(suptitle="", panels=((line,),), figsize=figsize)
+    caption = (
+        "Two-sided tabular CUSUM of residuals standardised by a robust median/MAD estimated from the FIRST part of "
+        "the series, which is ASSUMED drift-free -- if the model was already drifting there, sigma is inflated and "
+        "no alarm will ever fire. S+ accumulates sustained over-prediction, S- sustained under-prediction; either "
+        "crossing the control limit signals a structural break that a per-bucket mean chart is too noisy to catch, "
+        "because a small persistent bias accumulates long before any single bucket's mean looks abnormal."
+    )
+    return FigureSpec(suptitle="", panels=((line,),), figsize=figsize, caption=caption)
 
 
 def metric_over_time(
@@ -583,7 +660,13 @@ def metric_over_time(
         x_is_time=x_is_time,
         vspans=vspans,
     )
-    return FigureSpec(suptitle="", panels=((line,),), figsize=figsize)
+    caption = (
+        f"One point per '{freq}' time bucket, computed only on buckets holding at least {min_samples} rows -- a "
+        "bucket below that is left blank rather than plotted as a low score. A step DOWN that persists across "
+        "several buckets is staleness (the world moved); a single low bucket is usually just sample size. Shaded "
+        "spans mark the split / regime boundaries passed in by the caller."
+    )
+    return FigureSpec(suptitle="", panels=((line,),), figsize=figsize, caption=caption)
 
 
 def _is_datetime_index(idx: Any) -> bool:
@@ -809,7 +892,17 @@ def adversarial_validation(
     # Each ROC curve has its own fpr grid (different per train-vs-test / train-vs-val pair); LinePanelSpec carries a
     # tuple of per-series x arrays so every curve keeps its native vertices instead of being resampled onto a shared grid.
     series_x = [np.asarray(fx, dtype=np.float64) for fx in series_x]
-    verdict = "shift => CV may NOT transfer" if auc_tt >= 0.6 else "indistinguishable => CV transfers"
+    # A fixed AUC >= 0.6 bar ignores how many rows produced the AUC. Under the null (identical distributions) the
+    # AUC's standard error is sqrt((n_a + n_b + 1) / (12 * n_a * n_b)), so on a few hundred rows per side an AUC of
+    # 0.60 is ordinary noise while on 200k rows per side 0.52 is a real, reproducible shift.
+    _n_a = min(_frame_rows(train_frame), max_rows_per_side)
+    _n_b = min(_frame_rows(test_frame), max_rows_per_side)
+    adv_bar = 0.5 + _adversarial_auc_bar(_n_a, _n_b)
+    verdict = (
+        f"AUC {auc_tt:.3f} > {adv_bar:.3f} (the no-shift noise bar at {_n_a:,} vs {_n_b:,} rows/side) " "=> shift, CV may NOT transfer"
+        if auc_tt > adv_bar
+        else f"AUC {auc_tt:.3f} within the no-shift noise bar of {adv_bar:.3f} at {_n_a:,} vs {_n_b:,} rows/side " "=> indistinguishable, CV transfers"
+    )
     roc = LinePanelSpec(
         x=tuple(series_x),
         y=tuple(series_y),
@@ -831,7 +924,14 @@ def adversarial_validation(
         colors=("crimson",),
         xtick_rotation=60.0,
     )
-    return FigureSpec(suptitle="", panels=((roc, bar),), figsize=figsize)
+    caption = (
+        "A classifier is trained to tell TRAIN rows from TEST rows. If the two sets share a distribution it cannot, "
+        "and the out-of-fold ROC hugs the diagonal at AUC 0.5. An AUC well above 0.5 means they genuinely differ, "
+        "and the bars rank the features carrying that difference by gain importance -- those are the drift drivers "
+        f"to investigate first. Measured AUC = {auc_tt:.3f} on out-of-fold predictions over {n_splits} folds. Read "
+        "the AUC as a distance from 0.5, not as a model-quality score: higher is WORSE here."
+    )
+    return FigureSpec(suptitle="", panels=((roc, bar),), figsize=figsize, caption=caption)
 
 
 __all__ = [

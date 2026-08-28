@@ -221,11 +221,15 @@ def _resid_series(n, r, delta, seed):
 
 
 def _cusum_cross_row(fig):
-    """Detected change-point ordered-row parsed from the panel title, or None if none detected."""
+    """Detected change-point ordered-row parsed from the panel title, or None if none detected.
+
+    The title now leads with WHEN the break happened (a date on a real time axis) because "ordered-row 4173" is an
+    internal index a reader cannot act on; the row is still carried alongside it for exactly this kind of lookup.
+    """
     import re
 
-    m = re.search(r"ordered-row (\d+)", fig.panels[0][0].title)
-    return int(m.group(1)) if m else None
+    m = re.search(r"ordered row ([\d,]+) of", fig.panels[0][0].title)
+    return int(m.group(1).replace(",", "")) if m else None
 
 
 def test_cusum_returns_line_panel_with_arms_and_limits():

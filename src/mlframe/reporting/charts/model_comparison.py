@@ -203,16 +203,28 @@ def _leaderboard_panel(
     if missing_names:
         # A subset (not all) of models lack the metric; surface which ones so the shorter bar chart is not mistaken for a complete one.
         title += f"\nN/A for: {', '.join(missing_names)}"
+    # Colour each bar like that model's ROC curve. A single flat colour meant a bar could not be matched to its
+    # curve in the panel beside it, which is the whole point of putting them in one figure.
+    bar_colors = tuple(_MODEL_COLORS[names.index(names[i]) % len(_MODEL_COLORS)] for i in order_list)
+    if len(bar_vals) >= 2:
+        gap = abs(float(bar_vals[0]) - float(bar_vals[1]))
+        if gap < _LEADERBOARD_TIE_EPS:
+            title += f"\nTop two differ by {gap:.4g} on this metric -- too close to call a winner without a paired " "interval; treat them as tied."
     return BarPanelSpec(
         categories=cats,
         values=bar_vals,
         title=title,
         xlabel=metric,
         ylabel="model",
-        colors=("#4c78a8",),
+        colors=bar_colors,
         orientation="horizontal",
         hline=(float(ref), "red", ref_label),
     )
+
+
+# Two models whose headline metric differs by less than this are not distinguishable by eye on a bar chart and are
+# rarely distinguishable statistically either; the leaderboard says so rather than implying an ordering.
+_LEADERBOARD_TIE_EPS: float = 5e-3
 
 
 def _spearman_corr_matrix(scores: np.ndarray) -> np.ndarray:
@@ -294,7 +306,14 @@ def _corr_heatmap_panel(per_model: Mapping[str, Mapping[str, Any]], subsample: i
     # model order otherwise hides them); apply the SAME permutation to rows, cols and labels.
     from mlframe.core.matrix_seriation import seriate
 
-    corr, perm = seriate(corr)
+    # A constant-prediction model has no defined rank correlation, so its row/col is NaN. Seriation is an ORDERING
+    # step and rejects non-finite input, so it gets a zeroed stand-in -- an undefined correlation carries no
+    # clustering information and 0 is exactly "tells us nothing". The DISPLAYED matrix keeps its NaNs, which render
+    # blank rather than as a confident number.
+    orderable = np.nan_to_num(corr, nan=0.0, posinf=0.0, neginf=0.0)
+    np.fill_diagonal(orderable, 1.0)
+    _, perm = seriate(orderable)
+    corr = corr[np.ix_(perm, perm)]
     names = [names[int(i)] for i in perm]
     return HeatmapPanelSpec(
         matrix=corr,
@@ -361,6 +380,14 @@ def compose_model_comparison_figure(
         suptitle=suptitle,
         panels=packed,
         figsize=figsize_for_grid(n_rows, n_cols, cell_width=cell_width, cell_height=cell_height),
+        caption=(
+            "ROC overlay: every model scored on the same rows, AUC in the legend. Leaderboard: the models ranked on "
+            "the chosen metric against the reference line. Correlation heatmap: Spearman correlation between the "
+            "models' PER-ROW predictions -- a cell near 1.0 means two models rank the rows almost identically, so "
+            "there is little to gain from ensembling them, while a low cell marks genuine diversity. Blank cells "
+            "mean a model's predictions are constant, so no ranking correlation is defined. The leaderboard shows "
+            "point estimates: two models within a few thousandths on a few hundred rows are not actually ranked."
+        ),
     )
 
 

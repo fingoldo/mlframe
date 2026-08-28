@@ -203,17 +203,24 @@ def test_f4_fairness_calibration_compute_raises_on_length_mismatch():
 # ---------------------------------------------------------------------------
 
 
-def test_f5_corr_heatmap_panel_raises_on_mismatched_model_lengths():
-    """F5 corr heatmap panel raises on mismatched model lengths."""
+def test_f5_corr_heatmap_panel_refuses_mismatched_model_lengths():
+    """Mismatched row counts must not be silently truncated -- but the refusal stays inside its own panel.
+
+    Refusing to correlate is right: truncating would pair unrelated rows. Raising was not, because this panel is
+    one of three in a shared figure and the exception took the ROC overlay and leaderboard down with it. Every
+    sibling panel degrades to an annotation, and this one now does too -- the message is unchanged.
+    """
     from mlframe.reporting.charts.model_comparison import _corr_heatmap_panel
+    from mlframe.reporting.spec import AnnotationPanelSpec
 
     rng = np.random.default_rng(0)
     per_model = {
         "a": {"y_score": rng.uniform(size=100)},
         "b": {"y_score": rng.uniform(size=50)},  # different length -> would silently misalign rows
     }
-    with pytest.raises(ValueError, match="mismatched row counts"):
-        _corr_heatmap_panel(per_model, subsample=1000, seed=0)
+    panel = _corr_heatmap_panel(per_model, subsample=1000, seed=0)
+    assert isinstance(panel, AnnotationPanelSpec)
+    assert "mismatched row counts" in panel.text
 
 
 # ---------------------------------------------------------------------------

@@ -95,7 +95,10 @@ class TestConfusedPairs:
         panel = _confused_pairs_panel(y_true, proba, list(range(K)), y_pred=y_pred, top_n=10)
         top_cat = panel.categories[0]
         top_val = panel.values[0]
-        assert top_cat == "0 -> 1", f"expected dominant 0->1 pair on top, got {top_cat}"
+        # The category now carries the true-class support: a confusion RATE is unreadable without its denominator,
+        # and an unfloored ranking put "1 of 2 rows misrouted = 50%" above a 12% leak measured over 40000 rows.
+        assert top_cat.startswith("0 -> 1"), f"expected dominant 0->1 pair on top, got {top_cat}"
+        assert "n=" in top_cat
         # Measured leak ~0.60; floor 0.51 (15% below) catches a regression that mis-ranks/mis-scales.
         assert top_val >= 0.51, f"top confused-pair fraction {top_val} below planted 0.60"
 

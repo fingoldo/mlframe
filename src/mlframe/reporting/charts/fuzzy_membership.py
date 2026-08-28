@@ -18,7 +18,7 @@ from typing import Tuple
 import numpy as np
 
 from mlframe.feature_engineering.fuzzy_features import fuzzy_partition_fit, fuzzy_partition_names, fuzzy_partition_transform
-from mlframe.reporting.spec import FigureSpec, LinePanelSpec
+from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, LinePanelSpec, PanelSpec
 
 # Cap the length-n fit backing so the quantile sort stays bounded on 100+ GB frames; a random subsample leaves the centre
 # quantiles statistically unchanged and never copies the caller's frame (only <=200k floats are pulled).
@@ -41,17 +41,28 @@ def fuzzy_membership_curves(x, *, n_partitions: int = 5, kind: str = "triangular
     recipe = fuzzy_partition_fit(finite, n_sets=n_partitions, kind=kind)
     lo, hi = float(finite.min()), float(finite.max())
     if hi <= lo:
-        hi = lo + 1.0
+        # A constant column has no range to partition. Widening it by an arbitrary 1.0 fabricated a plausible-looking
+        # spread of curves over values the feature never takes; the caller is told instead.
+        raise ValueError(f"the column is constant at {lo:.6g}, so there is no range over which to place fuzzy sets.")
     grid_x = np.linspace(lo, hi, int(grid))
     memberships = fuzzy_partition_transform(grid_x, recipe)  # (grid, n_sets)
     return grid_x, np.ascontiguousarray(memberships.T)
 
 
-def fuzzy_membership_panel(x, *, n_partitions: int = 5, kind: str = "triangular", grid: int = 200, seed: int = 0) -> LinePanelSpec:
-    """Multi-series ``LinePanelSpec`` of the fuzzy-partition membership curves (one series per set)."""
-    grid_x, memberships = fuzzy_membership_curves(x, n_partitions=n_partitions, kind=kind, grid=grid, seed=seed)
+def fuzzy_membership_panel(x, *, n_partitions: int = 5, kind: str = "triangular", grid: int = 200, seed: int = 0, feature_name: str = "x") -> PanelSpec:
+    """Multi-series ``LinePanelSpec`` of the fuzzy-partition membership curves (one series per set).
+
+    ``feature_name`` names the sets in the legend. It used to be hardcoded to "x", so every chart in a report read
+    ``x_low`` / ``x_high`` regardless of which feature was partitioned.
+    """
+    try:
+        grid_x, memberships = fuzzy_membership_curves(x, n_partitions=n_partitions, kind=kind, grid=grid, seed=seed)
+    except ValueError as exc:
+        # Every sibling builder degrades to an annotation on empty input; this one alone propagated the exception
+        # and took the caller's whole figure down with it.
+        return AnnotationPanelSpec(text=f"Fuzzy partition unavailable: {exc}", title="Fuzzy partition")
     n_sets = memberships.shape[0]
-    labels = tuple(fuzzy_partition_names("x", n_sets))
+    labels = tuple(fuzzy_partition_names(feature_name, n_sets))
     return LinePanelSpec(
         x=grid_x,
         y=tuple(memberships[j] for j in range(n_sets)),
@@ -68,7 +79,18 @@ def compose_fuzzy_membership_figure(
 ) -> FigureSpec:
     """One-panel ``FigureSpec`` wrapping :func:`fuzzy_membership_panel`."""
     panel = fuzzy_membership_panel(x, n_partitions=n_partitions, kind=kind, grid=grid, seed=seed)
-    return FigureSpec(suptitle=suptitle, panels=((panel,),), figsize=(7.0, 4.5))
+    return FigureSpec(
+        suptitle=suptitle,
+        panels=((panel,),),
+        figsize=(7.0, 4.5),
+        caption=(
+            "Each curve is one fuzzy set's membership function over the feature's range. A triangular (Ruspini) "
+            "partition is a partition of unity: at every x the memberships sum to 1, so no mass is lost between "
+            "sets. That is the smooth alternative to hard one-hot binning, and the OVERLAP between neighbouring "
+            "curves is exactly the smoothing you buy -- wider overlap means a row near a bin edge contributes to "
+            "both sets instead of flipping discontinuously from one to the other."
+        ),
+    )
 
 
 __all__ = [

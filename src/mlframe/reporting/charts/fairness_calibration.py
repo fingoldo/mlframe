@@ -235,6 +235,14 @@ def compose_fairness_calibration_figure(
         panels=((overlay,), (bar,)),
         figsize=figsize or (8.0, 9.0),
         row_height_ratios=(3.0, 2.0),
+        caption=(
+            "Top: one reliability curve per subgroup against the perfect-calibration diagonal -- x is the predicted "
+            "probability in a bin, y the frequency actually observed in it. Bottom: each group's ECE (its mean gap "
+            "to the diagonal, lower is better), worst-first. The headline is the GAP between groups, not the level: "
+            "a model can rank equally well everywhere yet be systematically over-confident about one group. ECE is "
+            f"noisy at small group sizes, so the gap is graded against a noise floor of {noise_floor:.3f} computed "
+            "from the smallest group here -- a gap inside that floor says nothing about fairness."
+        ),
     )
 
 
