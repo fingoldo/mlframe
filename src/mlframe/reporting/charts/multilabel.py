@@ -306,12 +306,6 @@ def _cardinality_panel(y_true, y_proba, labels) -> BarPanelSpec:
 def _jaccard_dist_panel(y_true, y_proba, labels) -> HistogramPanelSpec:
     """Per-row Jaccard score distribution.
 
-    History:
-    - v1: Python row-loop over N. ~15 s / panel on N=1M K=10.
-    - v2: numpy vectorised AND/OR + axis-1 sum + ``np.where``. ~80 ms.
-    - v3 (current): numba parallel kernel. ~8 ms on a 6-core box
-      (bit-exact equivalent of v2; A/B/C benched on 1M K=10).
-
     The numba path materialises one ``out`` buffer and walks rows in
     parallel via ``prange``; ``y_true`` is coerced to int8 and
     ``y_proba`` to float32 (matches the input dtypes already produced

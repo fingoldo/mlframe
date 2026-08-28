@@ -208,7 +208,7 @@ def _headline_bar(metric_fmt: List[Tuple[str, float, bool]], verdict_color: str)
     return BarPanelSpec(
         categories=tuple(cats),
         values=np.asarray(vals, dtype=np.float64),
-        title="Headline quality (taller = better, [0,1])",
+        title="Headline quality (longer = better, [0,1])",
         xlabel="quality",
         ylabel="",
         orientation="horizontal",
@@ -359,6 +359,29 @@ def compose_model_card_figure(
     if t in ("classification", "binary"):
         if y_score is None:
             raise ValueError("classification model card requires y_score")
+        # `_finite_binary` keeps only labels in {0, 1}, so a 3-class target silently became a one-vs-rest card on an
+        # undocumented binarisation: it rendered a full, confident set of metrics for a question nobody asked.
+        _labels_seen = np.unique(np.asarray(y_true, dtype=np.float64).ravel())
+        _extra = [v for v in _labels_seen.tolist() if np.isfinite(v) and v not in (0.0, 1.0)]
+        if _extra:
+            raise ValueError(
+                f"model card task='{task}' is BINARY but y_true also holds {_extra!r}. Use the multiclass composer "
+                "(mlframe.reporting.charts.multiclass) or binarise explicitly -- silently treating class 1 as the "
+                "positive and everything else as negative would report metrics for a question you did not ask."
+            )
+        # Out-of-[0,1] scores (decision_function margins) make Brier NaN and ECE > 1, and the headline bar then
+        # clips a NaN into a vanished bar while the traffic light grades an impossible ECE.
+        _score_arr = np.asarray(y_score, dtype=np.float64).ravel()
+        _finite_scores = _score_arr[np.isfinite(_score_arr)]
+        if _finite_scores.size and (_finite_scores.min() < 0.0 or _finite_scores.max() > 1.0):
+            return _degenerate_card(
+                model_name,
+                split,
+                f"y_score spans [{_finite_scores.min():.3g}, {_finite_scores.max():.3g}], not [0, 1]: this card's "
+                "calibration metrics (ECE, Brier) are only defined for probabilities. Pass predict_proba output, or "
+                "squash decision_function margins first.",
+                figsize,
+            )
         yt, ys = _finite_binary(y_true, y_score)
         if yt.size == 0:
             return _degenerate_card(model_name, split, "no finite (label, score) pairs", figsize)

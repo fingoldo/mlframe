@@ -35,7 +35,10 @@ def test_psi_matrix_shape_and_labels():
     matrix, rows, cols = drift.compute_psi_matrix(X, ts, n_time_buckets=8)
     assert matrix.shape == (5, 8)
     assert len(rows) == 5 and len(cols) == 8
-    assert cols[0] == "t0" and cols[-1] == "t7"
+    # Bucket identity, then its support on a second line: PSI's noise floor scales as 1/n_bucket, so a cell value
+    # is unreadable without the count that produced it.
+    assert cols[0].startswith("t0") and cols[-1].startswith("t7")
+    assert cols[0].splitlines()[1] == "(n=5,000)"
     # No drift in an iid frame: 10-bin PSI is bounded by finite-sample noise (~0.03 at 5k/bucket); stays under the
     # moderate-drift line. (Baseline bucket==t0 is exactly self-compared => 0.)
     assert float(matrix[0, 0]) == 0.0

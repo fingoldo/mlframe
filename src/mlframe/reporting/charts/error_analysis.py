@@ -51,6 +51,8 @@ DEFAULT_TREE_DEPTH: int = 3
 DEFAULT_TREE_FIT_CAP: int = 50_000
 # Histogram resolution for per-feature / target overlays; >~60 turns density curves into noisy combs at the row counts we see.
 DEFAULT_OVERLAY_BINS: int = 40
+# Two-sided 95% normal quantile, used to size the target-drift bar from each split's own sampling error.
+_DRIFT_Z: float = 1.96
 # Default worst-K rows surfaced; 20 fits a screen and red-highlights without swamping the scatter.
 DEFAULT_WORST_K: int = 20
 # Over/under tail fraction for error-bias tagging (Evidently's signature 5% tails).
@@ -101,6 +103,14 @@ def _resolve_feature_matrix(
     if hasattr(X, "columns") and hasattr(X, "__getitem__") and not isinstance(X, np.ndarray):
         cols = list(X.columns)
         all_names = list(feature_names) if feature_names is not None else [str(c) for c in cols]
+        if len(all_names) != len(cols):
+            # A bare zip() silently truncated to the shorter side, so a short `feature_names` dropped real columns
+            # from every weak-segment and error-bias diagnostic with no signal at all -- the caller saw a plausible
+            # chart built on a subset it never asked for.
+            raise ValueError(
+                f"_resolve_feature_matrix: feature_names has {len(all_names)} entries but X has {len(cols)} columns; "
+                "they must correspond one-to-one, otherwise columns are silently dropped from the diagnostics."
+            )
         mats: List[np.ndarray] = []
         names: List[str] = []
         for c, name in zip(cols, all_names):
@@ -121,6 +131,29 @@ def _resolve_feature_matrix(
         mat = mat.reshape(-1, 1)
     names = list(feature_names) if feature_names is not None else [f"f{i}" for i in range(mat.shape[1])]
     return mat, names
+
+
+def _support_floor(n_rows: int) -> int:
+    """Rows a grid cell needs before its mean error may be ranked as the worst segment.
+
+    ``nanargmax`` over per-cell means with no floor picks whichever cell happens to hold the most extreme few rows:
+    on near-collinear features the observed count matrices carry off-diagonal cells with 5-14 rows sitting beside
+    650-row cells, and one unlucky outlier in a 5-row cell wins every time. The chosen cell is printed in the title
+    as the actionable finding, so this is a wrong answer, not a cosmetic one.
+    """
+    return max(20, round(0.005 * max(int(n_rows), 0)))
+
+
+def _worst_supported_cell(mean_err: np.ndarray, counts: np.ndarray, floor: int) -> int:
+    """Flat index of the highest-mean-error cell holding at least ``floor`` rows.
+
+    Falls back to the unfiltered argmax when the floor excludes everything, so a small dataset still gets an answer
+    rather than an exception -- the title states the floor either way.
+    """
+    scored = np.where(np.isfinite(mean_err) & (counts >= floor), mean_err, -np.inf)
+    if not np.isfinite(scored).any():
+        scored = np.where(np.isfinite(mean_err), mean_err, -np.inf)
+    return int(np.nanargmax(scored))
 
 
 def _row_count(X: Any) -> int:
@@ -347,7 +380,8 @@ def weak_segment_heatmap(
             mean_err = np.where(counts > 0, sums / np.where(counts > 0, counts, 1.0), np.nan)
         cell_error = mean_err.reshape(na, nb)
         cell_count = counts.reshape(na, nb)
-        worst = int(np.nanargmax(np.where(np.isfinite(mean_err), mean_err, -np.inf)))
+        support_floor = _support_floor(err.size)
+        worst = _worst_supported_cell(mean_err, counts, support_floor)
         wa, wb = worst // nb, worst % nb
         worst_cell = (float(ea[wa]), float(ea[wa + 1]), float(eb[wb]), float(eb[wb + 1]), float(mean_err[worst]))
         row_labels = tuple(f"{ea[i]:.3g}..{ea[i + 1]:.3g}" for i in range(na))
@@ -361,7 +395,8 @@ def weak_segment_heatmap(
             mean_err = np.where(counts > 0, sums / np.where(counts > 0, counts, 1.0), np.nan)
         cell_error = mean_err.reshape(na, 1)
         cell_count = counts.reshape(na, 1)
-        worst = int(np.nanargmax(np.where(np.isfinite(mean_err), mean_err, -np.inf)))
+        support_floor = _support_floor(err.size)
+        worst = _worst_supported_cell(mean_err, counts, support_floor)
         worst_cell = (float(ea[worst]), float(ea[worst + 1]), float("nan"), float("nan"), float(mean_err[worst]))
         row_labels = tuple(f"{ea[i]:.3g}..{ea[i + 1]:.3g}" for i in range(na))
         col_labels = tuple(["error"])
@@ -372,13 +407,19 @@ def weak_segment_heatmap(
         matrix=cell_error,
         row_labels=row_labels,
         col_labels=col_labels,
-        title=title + f"\nworst slice: {split_features} mean_err={worst_cell[4]:.3g}",
+        title=(
+            title
+            + f"\nworst slice: {split_features} mean_err={worst_cell[4]:.3g} over {int(counts[worst]):,} rows"
+            + f" (global mean {float(np.nanmean(err)):.3g}; cells under {support_floor:,} rows excluded from the ranking)"
+        ),
         xlabel=xlabel,
         ylabel=ylabel,
         colormap="Reds",
         cell_text=cell_count,
         text_format=".0f",
-        colorbar_label="mean error (darker = worse)",
+        # The colour and the colorbar encode MEAN ERROR; the number printed in each cell is that cell's ROW COUNT.
+        # Naming both is what stops a reader taking the annotation for the quantity on the scale.
+        colorbar_label="mean error (darker = worse); cell number = rows in cell",
     )
     return WeakSegmentResult(
         FigureSpec(panels=((heat,),), figsize=(8.0, 6.0)),
@@ -427,11 +468,10 @@ def segments_bar(
         else:
             global_value = float(np.nanmean(metric))
 
+    # Worst-first: ascending for a higher-is-better metric (accuracy / NDCG), descending for an error rate.
     order = np.argsort(metric)
-    if not higher_is_worse:
-        order = order  # lowest metric = worst (e.g. accuracy / NDCG) -> leftmost
-    else:
-        order = order[::-1]  # highest metric = worst (e.g. error rate) -> leftmost
+    if higher_is_worse:
+        order = order[::-1]
     order = order[:max_groups]
 
     cats = tuple(groups[order])
@@ -833,8 +873,12 @@ def _target_drift_verdict(
 ) -> str:
     """One-line distribution-shift verdict: how far each non-train split's target mean drifts from train.
 
-    Material drift is flagged when |mean(split) - mean(train)| exceeds 0.25 * train_std (a quarter of a standard
-    deviation -- a conventional "small but real" effect size). Classification means are class-1 rates (base-rate drift).
+    The bar is per-split and scales with sample size. For CLASSIFICATION the quantity is a class-1 rate, and the old
+    fixed ``0.25 * train_std`` bar hardcoded ``train_std = 1.0``, so a rate had to move 0.25 ABSOLUTE to be flagged:
+    a base rate going 0.5% -> 2.0% (four times as many positives, a serious shift) reported "No material drift from
+    train". A rate difference is now compared against its two-proportion standard error. For REGRESSION the shift must
+    clear both the two-sample standard error of the mean difference (so a 30-row split stops firing on noise) and the
+    existing quarter-of-a-standard-deviation effect-size bar (so a huge n stops flagging a shift nobody would act on).
     Returns a reader-facing sentence appended to the figure title so a train/val/test target shift is called out, not
     just drawn.
     """
@@ -845,8 +889,10 @@ def _target_drift_verdict(
     if tr.size == 0:
         return "Distribution-shift check: train split empty -> cannot compare drift."
     tr_mean = float(tr.mean())
-    tr_std = float(tr.std()) if task != "classification" else 1.0
-    thr = 0.25 * tr_std if tr_std > 0 else 0.0
+    is_clf = task == "classification"
+    tr_var = float(tr.var())
+    tr_std = float(np.sqrt(tr_var))
+    effect_thr = 0.25 * tr_std  # regression-only "materiality" floor, unchanged
     parts: List[str] = []
     flagged: List[str] = []
     excluded: List[str] = []
@@ -859,15 +905,27 @@ def _target_drift_verdict(
             excluded.append(lab)
             continue
         shift = float(a.mean()) - tr_mean
-        parts.append(f"{lab} {shift:+.3g}")
-        if thr > 0 and abs(shift) > thr:
-            flagged.append(lab)
+        parts.append(f"{lab} {shift:+.3g} (n={a.size:,})")
+        if is_clf:
+            # Two-proportion SE under the pooled rate; a 30-row split needs a far bigger move than a 200k-row one.
+            pooled = (tr.sum() + a.sum()) / float(tr.size + a.size)
+            se = float(np.sqrt(max(pooled * (1.0 - pooled), 0.0) * (1.0 / tr.size + 1.0 / a.size)))
+            if se > 0 and abs(shift) > _DRIFT_Z * se:
+                flagged.append(lab)
+        else:
+            se = float(np.sqrt(tr_var / tr.size + float(a.var()) / a.size))
+            if abs(shift) > max(_DRIFT_Z * se, effect_thr) > 0:
+                flagged.append(lab)
     excluded_note = f" (split(s) empty/all-NaN, excluded from drift check: {', '.join(excluded)})" if excluded else ""
     if not parts:
         if excluded:
             return f"Distribution-shift check: no usable non-train split{excluded_note} -> cannot compare drift."
         return "Distribution-shift check: only the train split present -> no drift to assess."
-    scale = " (vs train, in target units; >0.25*train_std flagged)" if task != "classification" else " (class-1 rate shift vs train)"
+    scale = (
+        " (class-1 rate shift vs train; flagged when it clears 1.96 two-proportion SE)"
+        if is_clf
+        else " (vs train, in target units; flagged when it clears both 1.96 SE and 0.25*train_std)"
+    )
     head = f"Mean shift{scale}: " + ", ".join(parts) + f"; train mean={tr_mean:.3g}.{excluded_note}"
     if flagged:
         return head + f" WARNING: {', '.join(flagged)} drift materially from train -> distribution-shift risk; holdout metrics may not transfer."
@@ -883,7 +941,7 @@ def target_dist_overlay(
     train_key: str = "train",
     title: str = "Target & prediction distribution by split",
 ) -> FigureSpec:
-    """Overlaid per-split distributions of y AND of predictions (R-3 / INV-11).
+    """Overlaid per-split distributions of y AND of predictions.
 
     ``y_true_by_split`` / ``pred_by_split`` map a split name ("train"/"val"/"test"/"oof") to its value array. For
     regression each panel overlays per-split density histograms with the train p01/p99 vlines + a shaded train

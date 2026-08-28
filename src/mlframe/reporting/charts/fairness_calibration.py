@@ -41,13 +41,35 @@ _is_single_class = is_single_class
 _reliability_points = reliability_points
 
 
-def _gap_traffic_light(gap: float) -> str:
-    """green/amber/red verdict on the MAX-MIN ECE gap across groups."""
+def null_ece_scale(n_rows: int, prevalence: float, n_bins: int) -> float:
+    """ECE a PERFECTLY calibrated group of this size would still show from sampling noise alone.
+
+    ECE is a mean absolute deviation, so it is bounded away from zero at finite n and shrinks only as 1/sqrt(n).
+    With roughly equal bin occupancy the per-bin observed rate has standard error ``sqrt(p(1-p)/(n/B))`` and the
+    expected absolute deviation of a near-normal quantity is ``sqrt(2/pi)`` times its standard error; averaging
+    that over bins leaves the same expression, hence ``sqrt(2*p*(1-p)*B/(pi*n))``.
+
+    This is why the ECE gap cannot be graded against a constant. A perfectly calibrated model with identical
+    mechanisms in both groups, 200000 rows in one and 30 in the other, produces ECEs of 0.002 and 0.193 -- a gap
+    of 0.19 that the fixed 0.10 bar called a red fairness failure when the only difference was sample size.
+    """
+    if n_rows <= 0 or n_bins <= 0:
+        return float("inf")
+    var = max(prevalence * (1.0 - prevalence), 0.0)
+    return float(np.sqrt(2.0 * var * n_bins / (np.pi * n_rows)))
+
+
+def _gap_traffic_light(gap: float, noise_floor: float = 0.0) -> str:
+    """green/amber/red verdict on the MAX-MIN ECE gap, graded against the larger of a fixed bar and this data's noise.
+
+    ``noise_floor`` is the gap the SMALLEST compared group would show even under perfect calibration; a gap inside
+    it carries no information about fairness, only about how many rows that group has.
+    """
     if not np.isfinite(gap):
         return "n/a"
-    if gap < _GAP_GREEN:
+    if gap < max(_GAP_GREEN, noise_floor):
         return "green"
-    if gap < _GAP_RED:
+    if gap < max(_GAP_RED, 2.0 * noise_floor):
         return "amber"
     return "red"
 
@@ -92,9 +114,10 @@ def compose_fairness_calibration_figure(
     For each value of ``subgroups`` (a sensitive/group feature, capped to the top ``max_groups`` by support; the rest
     folded into one 'other' bucket) a reliability curve and a standard ECE are computed over that group's rows. The
     overlay panel shows every group's curve over the shared perfect-calibration diagonal; the bar panel ranks the
-    per-group ECE worst-first and annotates the MAX-MIN gap + a traffic-light (gap < {green} green, < {red} amber, else
-    red). A large gap means the model is calibrated UNEQUALLY across groups -- a recognised fairness failure that
-    equal-accuracy diagnostics miss. Degenerate groups (single-class / fewer than the row floor) are listed in the
+    per-group ECE worst-first and annotates the MAX-MIN gap + a traffic-light. The light grades the gap against the
+    LARGER of a fixed bar (0.05 green / 0.10 amber) and this data's own noise floor, so a small group's sampling
+    error cannot masquerade as a fairness failure -- see :func:`null_ece_scale`. A large gap means the model is
+    calibrated UNEQUALLY across groups -- a recognised fairness failure that equal-accuracy diagnostics miss. Degenerate groups (single-class / fewer than the row floor) are listed in the
     title and excluded from both panels.
 
     O(n): groups via one ``np.unique`` + a vectorised code remap, each kept group binned by the shared njit path.
@@ -127,6 +150,7 @@ def compose_fairness_calibration_figure(
     bar_labels: list[str] = []
     bar_eces: list[float] = []
     bar_colors: list[str] = []
+    bar_ns: list[int] = []
     skipped: list[str] = []
 
     for gi, label in enumerate(labels):
@@ -150,6 +174,7 @@ def compose_fairness_calibration_figure(
         bar_labels.append(label)
         bar_eces.append(float(ece))
         bar_colors.append(color)
+        bar_ns.append(gn)
 
     skipped_note = ("  skipped: " + ", ".join(skipped)) if skipped else ""
 
@@ -173,10 +198,14 @@ def compose_fairness_calibration_figure(
 
     eces = np.asarray(bar_eces, dtype=np.float64)
     gap = float(eces.max() - eces.min())
-    light = _gap_traffic_light(gap)
+    # The smallest compared group sets the floor: its own sampling noise is the largest a gap can be while still
+    # saying nothing about fairness. Reported on the panel so a real disparity is distinguishable from a small group.
+    prevalence = float(yt.mean()) if yt.size else 0.0
+    noise_floor = max(null_ece_scale(gn_i, prevalence, n_bins) for gn_i in bar_ns)
+    light = _gap_traffic_light(gap, noise_floor)
 
     sort_idx = np.argsort(eces)[::-1]  # worst-first
-    bar_cats = tuple(bar_labels[i] for i in sort_idx)
+    bar_cats = tuple(f"{bar_labels[i]} (n={bar_ns[i]:,})" for i in sort_idx)
     bar_vals = eces[sort_idx]
     bar_cols = tuple(bar_colors[i] for i in sort_idx)
 
@@ -194,9 +223,10 @@ def compose_fairness_calibration_figure(
         categories=bar_cats,
         values=bar_vals,
         colors=bar_cols,
-        title=f"per-subgroup ECE  |  disparity gap (max-min)={gap:.3f}  [{light}]",
-        xlabel="subgroup",
-        ylabel="ECE (lower = better calibrated)",
+        title=(f"per-subgroup ECE  |  disparity gap (max-min)={gap:.3f}  [{light}]" f"  |  noise floor at the smallest group={noise_floor:.3f}"),
+        # For a horizontal bar the VALUE axis is x and the CATEGORY axis is y, matching every other builder.
+        xlabel="ECE (lower = better calibrated)",
+        ylabel="subgroup",
         orientation="horizontal",
         hline=(float(eces.min()), "#2ca02c", "best-group ECE"),
     )
@@ -259,4 +289,5 @@ def compute_subgroup_ece_disparity(
 __all__ = [
     "compose_fairness_calibration_figure",
     "compute_subgroup_ece_disparity",
+    "null_ece_scale",
 ]

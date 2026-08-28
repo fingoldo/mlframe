@@ -36,7 +36,7 @@ from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels, parse_panel_template,
 )
 from mlframe.reporting.spec import (
-    BarPanelSpec, FigureSpec, HistogramPanelSpec, LinePanelSpec, PanelSpec,
+    AnnotationPanelSpec, BarPanelSpec, FigureSpec, HistogramPanelSpec, LinePanelSpec, PanelSpec,
     ViolinPanelSpec,
 )
 
@@ -130,7 +130,7 @@ def bootstrap_ndcg_ci(
     return float(vals.mean()), lo, hi
 
 
-def _ndcg_k_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> LinePanelSpec:
+def _ndcg_k_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> PanelSpec:
     """Mean NDCG@k across queries, k=1..max_per_query.
 
     One batched kernel pass with ``eval_ks=1..max_k`` replaces the prior
@@ -141,7 +141,11 @@ def _ndcg_k_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> 
     sorted_y_true, sorted_y_score, group_starts, sizes = _sorted_layout(y_true, y_score, group_ids, shared)
     n_groups = len(group_starts) - 1
     if n_groups == 0 or int(sizes.max(initial=0)) < 1:
-        return LinePanelSpec(x=np.array([1]), y=np.array([0.0]), title="NDCG@k", xlabel="k", ylabel="Mean NDCG@k")
+        # A single plotted (1, 0.0) point reads as "this ranker scores zero"; say there was nothing to rank instead.
+        return AnnotationPanelSpec(
+            text="NDCG@k unavailable: no query group has any document. Check that group_ids partitions the rows.",
+            title="NDCG@k",
+        )
     max_k = min(int(sizes.max()), 50)  # cap for plot readability
     eval_ks = np.arange(1, max_k + 1, dtype=np.int64)
     ndcg_sums, ndcg_counts, _, _, _, _ = _summary_batched_kernel(sorted_y_true, sorted_y_score, group_starts, eval_ks)
@@ -155,7 +159,7 @@ def _ndcg_k_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> 
     )
 
 
-def _ndcg_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> ViolinPanelSpec:
+def _ndcg_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> PanelSpec:
     """Per-query NDCG@10 (or full-query) distribution as a single violin.
 
     Tail at low NDCG = query types where the model is failing.
@@ -165,7 +169,16 @@ def _ndcg_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) 
     ndcg10 = _per_query_ndcg10(y_true, y_score, group_ids, shared)
     per_q = ndcg10[(sizes >= 2) & ~np.isnan(ndcg10)]
     if per_q.size == 0:
-        per_q = np.array([0.0])
+        # A placeholder [0.0] fed the bootstrap and printed "mean=0.000, 95% CI [0.000, 0.000]" -- a confidently
+        # bracketed number entirely manufactured by the placeholder, indistinguishable from a real measurement.
+        return AnnotationPanelSpec(
+            text=(
+                "Per-query NDCG@10 unavailable: no query has at least 2 documents AND a defined NDCG (a query needs "
+                "at least one relevant document). Singleton queries are excluded here by design -- see the "
+                "by-query-size panel, which includes them."
+            ),
+            title="Per-query NDCG@10",
+        )
     # Bootstrap-over-queries 95% CI on the mean: the violin shows the spread, this brackets how well the MEAN is pinned.
     mean, lo, hi = bootstrap_ndcg_ci(per_q)
     return ViolinPanelSpec(
@@ -177,7 +190,7 @@ def _ndcg_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) 
     )
 
 
-def _ndcg_by_qsize_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> BarPanelSpec:
+def _ndcg_by_qsize_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> PanelSpec:
     """Mean NDCG@10 binned by query size (log2-spaced bins) with per-bin query counts.
 
     Tiny groups score trivially high NDCG (a 1-doc query with any positive item is a guaranteed 1.0), so a high overall mean can be pure
@@ -188,11 +201,9 @@ def _ndcg_by_qsize_panel(y_true, y_score, group_ids, shared: Optional[dict] = No
     ndcg10 = _per_query_ndcg10(y_true, y_score, group_ids, shared)
     valid = ~np.isnan(ndcg10)
     if sizes.size == 0 or not valid.any():
-        return BarPanelSpec(
-            categories=("(no data)",), values=np.array([0.0]),
+        return AnnotationPanelSpec(
+            text="Mean NDCG@10 by query size unavailable: no query has a defined NDCG (none has a relevant document).",
             title="Mean NDCG@10 by query size",
-            xlabel="Query size (docs per query, log2 bins)",
-            ylabel="Mean NDCG@10",
         )
     sizes_v = sizes[valid].astype(np.int64)
     vals_v = ndcg10[valid]
@@ -241,7 +252,7 @@ def _lift_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> Li
     )
 
 
-def _mrr_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> HistogramPanelSpec:
+def _mrr_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> PanelSpec:
     """Per-query reciprocal rank distribution.
 
     For each query, reciprocal of the 1-indexed rank of the first relevant doc in the score-sorted order; queries with no relevant doc
@@ -253,24 +264,32 @@ def _mrr_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -
 
     sorted_y_true, sorted_y_score, group_starts, _ = _sorted_layout(y_true, y_score, group_ids, shared)
     rrs_raw = _per_query_mrr_kernel(sorted_y_true, sorted_y_score, group_starts)
-    rrs = np.where(np.isnan(rrs_raw), 0.0, rrs_raw)
+    # The kernel returns NaN for a query with NO relevant document. Mapping that to 0.0 conflated "the ranker buried
+    # the answer" with "there was no answer to find", and silently dragged MRR down in proportion to how many such
+    # queries the evaluation set happened to contain.
+    undefined = int(np.isnan(rrs_raw).sum())
+    rrs = rrs_raw[~np.isnan(rrs_raw)]
     if rrs.size == 0:
-        rrs = np.array([0.0])
+        return AnnotationPanelSpec(
+            text=(f"MRR unavailable: none of the {undefined:,} queries has a relevant document, so reciprocal rank is " "undefined for every one of them."),
+            title="Reciprocal rank distribution",
+        )
     mrr = float(np.mean(rrs))
+    excluded_note = f"; {undefined:,} queries with no relevant doc excluded" if undefined else ""
     heights, centers, width = prebin_histogram(rrs, 20, True)
     return HistogramPanelSpec(
         values=heights if centers is not None else rrs,
         bins=20,
         bin_centers=centers,
         bin_width=width,
-        title=f"Per-query Reciprocal Rank (MRR={mrr:.3f})",
+        title=f"Per-query Reciprocal Rank (MRR={mrr:.3f} over {rrs.size:,} queries{excluded_note})",
         xlabel="Reciprocal rank (1 = first hit at top)",
         ylabel="Density",
         density=True,
     )
 
 
-def _score_by_rel_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> ViolinPanelSpec:
+def _score_by_rel_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> PanelSpec:
     """Predicted-score distribution per relevance grade.
 
     Well-separated violins = ranker correctly orders grades. Heavily
@@ -358,8 +377,10 @@ def _score_by_rel_panel(y_true, y_score, group_ids, shared: Optional[dict] = Non
                 labels.append(f"rel={g} (n={int(mask.sum()):_})")
 
     if not groups:
-        groups = [np.array([0.0])]
-        labels = ["(no data)"]
+        return AnnotationPanelSpec(
+            text="Predicted score by relevance grade unavailable: no row carries both a finite score and a relevance grade.",
+            title="Predicted score by relevance grade",
+        )
 
     return ViolinPanelSpec(
         groups=tuple(groups),
@@ -391,7 +412,7 @@ def _top1_by_qsize_panel(y_true, y_score, group_ids, shared: Optional[dict] = No
         scores_q = y_score[q_idx]
         if rels_q.max() <= 0:
             continue  # no relevant doc -> degenerate query
-        # Wave 21 P2: nan-safe argmax. NaN score picked as top would
+        # nan-safe argmax: a NaN score picked as top would
         # under-report correct@1 silently.
         _finite = np.isfinite(scores_q)
         if not _finite.any():

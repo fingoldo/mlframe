@@ -54,7 +54,7 @@ def compose_interaction_strength_figure(
     seed: int = 0,
     suptitle: str = "Feature interaction strength",
 ) -> FigureSpec:
-    """One-panel FigureSpec wrapping :func:`interaction_strength_panel`, capping to the top ``max_features`` features."""
+    """One-panel FigureSpec wrapping :func:`interaction_strength_panel`, keeping the FIRST ``max_features`` entries of ``features`` (the caller controls the ranking)."""
     top = list(features)[: max(2, int(max_features))]
     panel = interaction_strength_panel(model, X, top, grid=grid, sample=sample, seed=seed)
     return FigureSpec(suptitle=suptitle, panels=((panel,),), figsize=(6.0, 5.0))

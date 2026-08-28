@@ -96,7 +96,9 @@ def _roc_overlay_panel(per_model: Mapping[str, Mapping[str, Any]]) -> PanelSpec:
         score = _model_score(entry)
         if score is None:
             continue
-        yt, ys = _finite_binary(entry["y_true"], score)
+        if (y_true_entry := entry.get("y_true")) is None:
+            continue  # every sibling panel skips an incomplete entry rather than raising KeyError on the whole figure
+        yt, ys = _finite_binary(y_true_entry, score)
         sort = _ScoreSort(yt, ys)
         if sort.n_pos == 0 or sort.n_neg == 0:
             continue
@@ -216,27 +218,45 @@ def _leaderboard_panel(
 def _spearman_corr_matrix(scores: np.ndarray) -> np.ndarray:
     """Spearman correlation between the columns of ``scores`` (n_sub x K) via one vectorized double-argsort.
 
-    Spearman = Pearson on ranks. Ranks are obtained by ``argsort(argsort(col))`` applied across all columns at once
-    (average ranks for ties are not used -- ordinal ranks suffice for a diagnostic and avoid a per-column scipy
-    ``rankdata`` python loop). Returns a K x K matrix with 1.0 on the diagonal; columns with zero variance correlate
-    as NaN, replaced by 0 off-diagonal / 1 on-diagonal.
+    Spearman = Pearson on ranks. Ranks are obtained by ``argsort(argsort(col))`` applied across all columns at once,
+    then averaged within each tied block. Tie averaging is not optional here: without it a CONSTANT column receives
+    ranks ``0..n-1`` in row order rather than a single repeated rank, so it has full rank-variance and the
+    zero-variance guard below never fires -- two models sharing no information at all then correlated at exactly
+    1.000 on a heatmap whose stated purpose is flagging redundant models. Columns that are genuinely constant now
+    yield NaN off-diagonal, which renders blank rather than as a confident number.
     """
     n, k = scores.shape
     if n < 2 or k == 0:
         return np.eye(k, dtype=np.float64)
-    # Single argsort + scatter per column instead of double argsort (bit-identical, ~1.7-1.9x faster).
-    _order = np.argsort(scores, axis=0)
-    ranks = np.empty_like(_order)
-    np.put_along_axis(ranks, _order, np.broadcast_to(np.arange(n)[:, None], _order.shape), axis=0)
-    ranks = ranks.astype(np.float64)
+    _order = np.argsort(scores, axis=0, kind="stable")
+    ordered = np.take_along_axis(scores, _order, axis=0)
+    # Mid-rank per tied block: for each run of equal values, every member gets the mean of the ordinal ranks in it.
+    # `starts` marks the first row of each run; a cumulative-sum lookup converts run bounds to the shared mid-rank.
+    idx = np.arange(n, dtype=np.float64)[:, None]
+    is_new = np.empty(ordered.shape, dtype=bool)
+    is_new[0, :] = True
+    np.not_equal(ordered[1:], ordered[:-1], out=is_new[1:])
+    group = np.cumsum(is_new, axis=0) - 1
+    ngroups = int(group[-1].max()) + 1
+    sums = np.zeros((ngroups, k), dtype=np.float64)
+    cnts = np.zeros((ngroups, k), dtype=np.float64)
+    for j in range(k):
+        sums[:, j] = np.bincount(group[:, j], weights=idx[:, 0], minlength=ngroups)
+        cnts[:, j] = np.bincount(group[:, j], minlength=ngroups)
+    mid = sums / np.where(cnts > 0, cnts, 1.0)
+    ordered_ranks = np.take_along_axis(mid, group, axis=0)
+    ranks = np.empty((n, k), dtype=np.float64)
+    np.put_along_axis(ranks, _order, ordered_ranks, axis=0)
     ranks -= ranks.mean(axis=0, keepdims=True)
     std = np.sqrt((ranks * ranks).sum(axis=0))
-    std_safe = np.where(std > 0, std, 1.0)
-    normed = ranks / std_safe
-    corr = normed.T @ normed
-    # Zero-variance columns produce a degenerate row/col; force diag to 1 and clip FP overshoot.
+    degenerate = std <= 0
+    normed = ranks / np.where(degenerate, 1.0, std)
+    corr = np.asarray(np.clip(normed.T @ normed, -1.0, 1.0))
+    if degenerate.any():
+        corr[degenerate, :] = np.nan
+        corr[:, degenerate] = np.nan
     np.fill_diagonal(corr, 1.0)
-    return np.asarray(np.clip(corr, -1.0, 1.0))
+    return corr
 
 
 def _corr_heatmap_panel(per_model: Mapping[str, Mapping[str, Any]], subsample: int, seed: int) -> PanelSpec:
@@ -251,10 +271,15 @@ def _corr_heatmap_panel(per_model: Mapping[str, Mapping[str, Any]], subsample: i
     cols: List[np.ndarray] = [c for n in names if (c := _model_score(per_model[n])) is not None]
     lengths = {c.shape[0] for c in cols}
     if len(lengths) > 1:
-        raise ValueError(
-            f"_corr_heatmap_panel: models have mismatched row counts {dict(zip(names, (c.shape[0] for c in cols)))} "
-            "-- row i of each model's predictions must refer to the same underlying sample for a correlation "
-            "heatmap to be meaningful; truncating would silently pair unrelated rows."
+        # Refusing to correlate is right -- truncating would pair unrelated rows -- but raising took the ROC and
+        # leaderboard panels down with it. Every sibling panel degrades to an annotation; this one now does too.
+        return AnnotationPanelSpec(
+            text=(
+                "Prediction correlation unavailable: models have mismatched row counts "
+                f"{dict(zip(names, (c.shape[0] for c in cols)))}.\nRow i of every model's predictions must refer to "
+                "the same sample; truncating would silently pair unrelated rows."
+            ),
+            title="Prediction correlation",
         )
     mat = np.column_stack(cols)
     finite_rows = np.isfinite(mat).all(axis=1)

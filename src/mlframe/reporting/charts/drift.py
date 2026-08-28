@@ -47,6 +47,9 @@ PSI_DEFAULT_BINS: int = 10
 # Floor every bucket-bin proportion at this fraction before the log ratio so an empty bucket bin does not blow PSI to
 # +inf (the standard PSI epsilon; 1e-4 corresponds to "<1 in 10k" which is below any actionable per-bucket mass).
 PSI_EPS: float = 1e-4
+# Past this many cells, per-cell numeric annotations overlap into an unreadable smear; the confusion-matrix and
+# multiclass heatmaps apply the same ceiling.
+_HEATMAP_CELL_TEXT_MAX: int = 400
 
 
 def _quantile_edges(baseline: np.ndarray, nbins: int) -> np.ndarray:
@@ -138,13 +141,25 @@ def compute_psi_matrix(
     peak: List[float] = []
     for col in cols:
         col = np.asarray(col, dtype=np.float64)
-        edges = _quantile_edges(col[base_sel], nbins)
-        base_props = _binned_proportions(col[base_sel], edges)
+        base_vals = col[base_sel]
+        edges = _quantile_edges(base_vals, nbins)
         per_bucket = np.empty(n_buckets, dtype=np.float64)
-        for b in range(n_buckets):
-            per_bucket[b] = _psi_one(base_props, _binned_proportions(col[bucket_of == b], edges))
+        if edges.size < 3:
+            # A baseline with fewer than two distinct finite values has no distribution to compare against: every
+            # later value falls in the single [-inf, +inf] bin and PSI is identically 0. Reporting 0 there said
+            # "stable" about a feature that was constant during the baseline and exploded afterwards -- the exact
+            # case this chart exists to catch. NaN renders blank, which is the honest answer.
+            per_bucket[:] = np.nan
+        else:
+            base_props = _binned_proportions(base_vals, edges)
+            # One contiguous sweep over the time-sorted column instead of a full-n boolean mask + copy per bucket:
+            # the `order` permutation and `bucket_bounds` above already describe every bucket as a slice.
+            col_sorted = col[order]
+            for b in range(n_buckets):
+                block = col_sorted[bucket_bounds[b] : bucket_bounds[b + 1]]
+                per_bucket[b] = _psi_one(base_props, _binned_proportions(block, edges))
         rows.append(per_bucket)
-        peak.append(float(np.nanmax(per_bucket)) if per_bucket.size else 0.0)
+        peak.append(float(np.nanmax(per_bucket)) if per_bucket.size and np.isfinite(per_bucket).any() else 0.0)
 
     matrix = np.vstack(rows) if rows else np.zeros((0, n_buckets), dtype=np.float64)
     if matrix.shape[0] > max_features:
@@ -153,7 +168,9 @@ def compute_psi_matrix(
         matrix = matrix[keep]
         names = [names[i] for i in keep]
 
-    col_labels = tuple(f"t{b}" for b in range(n_buckets))
+    # Bucket size belongs on the axis: PSI's null expectation is ~(nbins-1)/n_bucket, so the same cell value means
+    # "drifted" at 5000 rows and "pure noise" at 50. Without the count on the label the reader cannot tell which.
+    col_labels = tuple(f"t{b}\n(n={int(bucket_bounds[b + 1] - bucket_bounds[b]):,})" for b in range(n_buckets))
     return matrix, tuple(names), col_labels
 
 
@@ -192,7 +209,7 @@ def psi_heatmap(
     title: str = "Feature drift (PSI vs baseline)",
     figsize: Optional[Tuple[float, float]] = None,
 ) -> FigureSpec:
-    """PSI feature x time-bucket drift heatmap (R-12).
+    """PSI feature x time-bucket drift heatmap.
 
     Each cell is the 10-bin PSI of a feature's distribution in that time bucket vs the baseline slice. Color is the raw
     PSI on an RdYlGn_r scale (green = stable, red = drifted); the 0.10 / 0.25 triage thresholds are noted in the title
@@ -209,13 +226,25 @@ def psi_heatmap(
         return FigureSpec(suptitle="", panels=((panel,),), figsize=figsize or (8.0, 3.0))
 
     n_feat, n_buckets = matrix.shape
-    # cell_text shows the PSI numerically so an operator can read the exact value past the color (red cells matter).
-    cell_text = matrix.copy()
+    n_rows_total = int(np.asarray(timestamps).shape[0])
+    n_per_bucket = max(1, n_rows_total // max(1, n_buckets))
+    # PSI is a chi-square-like statistic: under NO drift its expectation is about (bins-1)/n_bucket. At 50 rows per
+    # bucket that floor is ~0.18, well past the "moderate" line, so i.i.d. data painted the grid orange.
+    psi_noise_floor = (max(1, int(nbins)) - 1) / float(n_per_bucket)
+    # cell_text shows the PSI numerically so an operator can read the exact value past the color (red cells matter),
+    # but past a few hundred cells the numbers overlap into an unreadable smear -- the same ceiling the confusion
+    # matrix and multiclass heatmaps already apply.
+    cell_text = matrix.copy() if matrix.size <= _HEATMAP_CELL_TEXT_MAX else None
+    suppressed = "" if cell_text is not None else f"; per-cell values hidden above {_HEATMAP_CELL_TEXT_MAX} cells"
     heat = HeatmapPanelSpec(
         matrix=matrix,
         row_labels=row_labels,
         col_labels=col_labels,
-        title=f"{title}\n(stable < {PSI_MODERATE:g}; moderate {PSI_MODERATE:g}-{PSI_SIGNIFICANT:g}; drift > {PSI_SIGNIFICANT:g})",
+        title=(
+            f"{title}\n(stable < {PSI_MODERATE:g}; moderate {PSI_MODERATE:g}-{PSI_SIGNIFICANT:g}; "
+            f"drift > {PSI_SIGNIFICANT:g}; no-drift noise floor at {n_per_bucket:,} rows/bucket "
+            f"= {psi_noise_floor:.3f}{suppressed})"
+        ),
         xlabel="time bucket (earliest -> latest)",
         ylabel="feature",
         colormap="RdYlGn_r",
@@ -227,7 +256,18 @@ def psi_heatmap(
         threshold_contours=((PSI_MODERATE, "orange"), (PSI_SIGNIFICANT, "red")),
     )
     fs = figsize or (max(8.0, 0.6 * n_buckets + 4.0), max(3.0, 0.32 * n_feat + 1.5))
-    return FigureSpec(suptitle="", panels=((heat,),), figsize=fs)
+    n_flagged = int(np.nansum(matrix > PSI_SIGNIFICANT))
+    n_blank = int(np.isnan(matrix).sum())
+    caption = (
+        f"PSI compares each feature's distribution in a time bucket against its baseline-period distribution using "
+        f"{nbins} equal-frequency baseline bins: 0 = identical, > {PSI_MODERATE:g} moderate, "
+        f"> {PSI_SIGNIFICANT:g} significant. PSI is INFLATED at small bucket sizes -- its no-drift expectation is "
+        f"about (bins-1)/rows-per-bucket, which is {psi_noise_floor:.3f} here, so read any cell below that as noise. "
+        f"Column t0 is the baseline compared against itself and is 0 by construction. "
+        f"{n_flagged} feature-buckets exceed {PSI_SIGNIFICANT:g}"
+        + (f"; {n_blank} cells are blank (baseline constant, so PSI is undefined for that feature)." if n_blank else ".")
+    )
+    return FigureSpec(suptitle="", panels=((heat,),), figsize=fs, caption=caption)
 
 
 def _time_bucket_edges(ts: np.ndarray, n_buckets: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -261,7 +301,7 @@ def residual_vs_time(
     title: str = "Regression residual drift over time",
     figsize: Tuple[float, float] = (10.0, 4.0),
 ) -> FigureSpec:
-    """Regression residual mean +- std per time bin (INV-26).
+    """Regression residual mean +- std per time bin.
 
     Residual = y_true - y_pred is bucketed into equal-count time bins; the line is the per-bin mean residual and the
     band is mean +- std. A mean drifting off zero is bias drift (model goes stale); a band that widens over time is
@@ -285,9 +325,13 @@ def residual_vs_time(
     counts = np.bincount(bucket_of, minlength=nb).astype(np.float64)
     counts_safe = np.where(counts > 0, counts, 1.0)
     mean = np.bincount(bucket_of, weights=resid, minlength=nb) / counts_safe
-    mean_sq = np.bincount(bucket_of, weights=resid * resid, minlength=nb) / counts_safe
-    var = np.clip(mean_sq - mean * mean, 0.0, None)
-    std = np.sqrt(var)
+    # Two-pass centred variance, NOT E[x^2]-E[x]^2. Residuals of a price/revenue model sit far from zero relative to
+    # their spread, and the raw-moment form then subtracts two nearly-equal large numbers: at centre 1e8 / true std
+    # 0.01 it returned per-bucket stds of [5.1, 0, 0, 0, 7.6]. The clip to zero made that silent -- a negative computed
+    # variance became a zero-width band, which reads as "this bucket's errors are perfectly consistent".
+    centred = resid - mean[bucket_of]
+    var = np.bincount(bucket_of, weights=centred * centred, minlength=nb) / counts_safe
+    std = np.sqrt(np.clip(var, 0.0, None))
     empty = counts == 0
     mean[empty] = np.nan
     std[empty] = np.nan
@@ -372,7 +416,7 @@ def cusum_residual_drift(
     title: str = "Residual drift CUSUM (sustained mean shift)",
     figsize: Tuple[float, float] = (11.0, 4.0),
 ) -> FigureSpec:
-    """Two-sided tabular CUSUM of standardized regression residuals -- detects a SUSTAINED mean shift (INV-).
+    """Two-sided tabular CUSUM of standardized regression residuals -- detects a SUSTAINED mean shift.
 
     Residual = y_true - y_pred is standardized by a robust in-control mean/std (median + MAD over the first
     ``in_control_frac`` of the time-ordered rows, the period assumed drift-free), then run through the classic
@@ -494,7 +538,7 @@ def metric_over_time(
     figsize: Tuple[float, float] = (11.0, 4.0),
     max_vertices: int = 2000,
 ) -> FigureSpec:
-    """Rolling metric per time bucket as a LinePanelSpec with split / regime shading (INV-9).
+    """Rolling metric per time bucket as a LinePanelSpec with split / regime shading.
 
     Wraps ``training.evaluation.compute_ml_perf_by_time`` (numpy-fast, byte-identical day-divisor path) to compute the
     chosen metric per ``freq`` time bucket, then renders it as a single line with optional shaded ``regimes`` (e.g.
@@ -714,7 +758,7 @@ def adversarial_validation(
     lgbm_params: Optional[dict] = None,
     figsize: Tuple[float, float] = (12.0, 5.0),
 ) -> FigureSpec:
-    """Adversarial-validation panel (R-1): "will my CV transfer?".
+    """Adversarial-validation panel: "will my CV transfer?".
 
     Trains a LightGBM classifier to separate train (label 0) from test (label 1) -- and, when ``val_frame`` is given,
     train-vs-val too -- on a shuffled union, reports the out-of-fold ROC + AUC, and ranks the top-``top_features``

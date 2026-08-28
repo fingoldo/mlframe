@@ -35,7 +35,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from mlframe.reporting.spec import FigureSpec, LinePanelSpec
+from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, LinePanelSpec, PanelSpec
 
 # DCA is read over a plausible action-threshold WINDOW, not the full [0,1]: above ~0.6 the odds factor explodes and every
 # curve collapses to noise, below a few percent treat-all trivially dominates. 200 points resolve the window smoothly.
@@ -67,6 +67,15 @@ def _finite_binary(y_true, y_score) -> Tuple[np.ndarray, np.ndarray]:
     ys = np.asarray(y_score, dtype=np.float64).ravel()
     mask = np.isfinite(ys) & np.isfinite(yt) & ((yt == 0.0) | (yt == 1.0))
     return yt[mask].astype(np.int8), ys[mask]
+
+
+def effective_binary_n(y_true, y_score) -> int:
+    """Rows ``compute_net_benefit`` actually scores: finite score, finite label, label in {0,1}.
+
+    Exposed because every sample-size-scaled threshold on this chart must be fed THIS count, not
+    ``len(y_true)``. Feeding the raw length made a 150-usable-row sample inherit a 200000-row noise bar.
+    """
+    return int(_finite_binary(y_true, y_score)[0].size)
 
 
 def compute_net_benefit(
@@ -163,13 +172,27 @@ def build_decision_curve_spec(
     ``best_pt_advantage`` quantifies the largest net-benefit gain over the better reference.
     """
     pt, nb_model, nb_all, nb_none = compute_net_benefit(y_true, y_score, pt_range=pt_range, n_thresholds=n_thresholds)
+    n_eff = effective_binary_n(y_true, y_score)
+    n_raw = int(np.size(np.asarray(y_true).ravel()))
+    n_dropped = max(0, n_raw - n_eff)
+    if n_eff == 0:
+        panel: PanelSpec = AnnotationPanelSpec(
+            text=(
+                f"Decision curve unavailable: none of the {n_raw:,} supplied rows carry both a finite score and a "
+                "label in {0, 1}. DCA is defined for binary outcomes only -- for multiclass, build one curve per "
+                "one-vs-rest binarisation."
+            ),
+            title=title,
+        )
+        empty = np.zeros_like(pt)
+        return DecisionCurveResult(FigureSpec(suptitle="", panels=((panel,),), figsize=figsize), pt, empty, empty, empty, float("nan"), False)
 
     # A useless model coincides with treat-all at low pt and treat-none at high pt but never rises above the UPPER
     # ENVELOPE of the two references; usefulness is "clears that envelope by a non-noise margin somewhere in pt_range".
     ref_best = np.maximum(nb_all, nb_none)
     advantage = nb_model - ref_best
     best_pt_advantage = float(np.nanmax(advantage)) if advantage.size else float("nan")
-    useful_margin = _usefulness_margin(int(np.size(y_true)))
+    useful_margin = _usefulness_margin(n_eff)
     useful = bool(advantage.size and np.nanmax(advantage) > useful_margin)
 
     # y-axis floor: treat-all dives steeply negative at high pt and would crush the informative region near 0; clip the
@@ -201,13 +224,13 @@ def build_decision_curve_spec(
     # is a COMPARISON against two reference policies rather than the curve's own shape. Spelling out the
     # decision rule -- and, when the model loses, saying so in the operator's terms -- is what turns this from
     # a plot into an answer. The verdict sentence is data-dependent, so it reports THIS model, not the generic case.
-    _pt_lo, _pt_hi = float(pt[0]), float(pt[-1]) if pt.size else (0.0, 1.0)
+    _pt_lo, _pt_hi = (float(pt[0]), float(pt[-1])) if pt.size else (0.0, 1.0)
     if useful:
         _best_pt = float(pt[int(np.nanargmax(advantage))]) if advantage.size else float("nan")
         _verdict = (
             f"VERDICT: acting on this model beats both trivial policies, best at p_t={_best_pt:.2f} "
-            f"(+{best_pt_advantage:.3g} net benefit -- i.e. that many extra true positives per patient treated, "
-            f"net of false positives, per 1 unit of population)."
+            f"(+{best_pt_advantage:.3g} net benefit -- i.e. {best_pt_advantage * 100:.2f} extra true positives, "
+            f"net of false positives, per 100 cases screened)."
         )
     else:
         _verdict = (
@@ -222,7 +245,9 @@ def build_decision_curve_spec(
         f"y = net benefit, true positives minus false positives weighted by that ratio, per unit of population -- "
         f"higher is better, and only the VERTICAL GAP to the reference lines is meaningful. Compare against 'treat all' "
         f"(act on everyone) and 'treat none' (act on no one, flat at 0): use the model only at thresholds where its "
-        f"line sits ABOVE both. Scanned p_t in [{_pt_lo:.2f}, {_pt_hi:.2f}]. {_verdict}"
+        f"line sits ABOVE both. Scanned p_t in [{_pt_lo:.2f}, {_pt_hi:.2f}] on {n_eff:,} usable rows"
+        + (f" ({n_dropped:,} of {n_raw:,} dropped: non-finite score or a label outside {{0, 1}})" if n_dropped else "")
+        + f". {_verdict}"
     )
     fig = FigureSpec(suptitle="", panels=((line,),), figsize=figsize, caption=how_to_read)
     return DecisionCurveResult(fig, pt, nb_model, nb_all, nb_none, best_pt_advantage, useful)
@@ -231,6 +256,7 @@ def build_decision_curve_spec(
 __all__ = [
     "DecisionCurveResult",
     "compute_net_benefit",
+    "effective_binary_n",
     "build_decision_curve_spec",
     "DEFAULT_N_THRESHOLDS",
     "DEFAULT_PT_RANGE",

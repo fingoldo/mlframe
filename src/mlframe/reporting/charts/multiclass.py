@@ -644,7 +644,7 @@ def _prob_dist_panel(y_true, y_proba, classes, *, y_pred=None, sub=None) -> Pane
     )
 
 
-def _top_k_acc_panel(y_true, y_proba, classes, *, y_pred=None) -> LinePanelSpec:
+def _top_k_acc_panel(y_true, y_proba, classes, *, y_pred=None) -> PanelSpec:
     """Top-k accuracy curve: probability that the true class is in
     the top-k predicted classes (by score), for k=1..K.
 
@@ -659,23 +659,34 @@ def _top_k_acc_panel(y_true, y_proba, classes, *, y_pred=None) -> LinePanelSpec:
     proba = y_proba[valid]
     n = len(y_arr)
     if n == 0:
-        x = np.arange(1, K + 1)
-        return LinePanelSpec(x=x, y=np.zeros(K), title="Top-k accuracy", xlabel="k", ylabel="Top-k accuracy")
+        # A line of zeros is indistinguishable from a model that gets every row wrong; say WHY instead.
+        return AnnotationPanelSpec(
+            text="Top-k accuracy unavailable: no row's true label matched any of the supplied class labels.",
+            title="Top-k accuracy",
+        )
     if n > _CURVE_SUBSAMPLE_CAP:
         rng = np.random.default_rng(0)
         sub = rng.choice(n, size=_CURVE_SUBSAMPLE_CAP, replace=False)
         y_arr = y_arr[sub]
         proba = proba[sub]
-    # For each row, rank classes by descending probability.
-    sorted_idx = np.argsort(-proba, axis=1)
-    accs = np.zeros(K)
+    # Rank the true class by how many classes STRICTLY outscore it, and split the tied block fairly instead of
+    # letting argsort break ties by class index. A collapsed model emitting a uniform row is pure chance, but under
+    # index tie-breaking it scored the lowest-indexed class every time: at prevalences [0.8, 0.1, 0.1] that reported
+    # top-1 accuracy 0.798, and reordering the same classes to [0.1, 0.1, 0.8] reported 0.100 -- both should be 1/K.
+    # Averaging over tie permutations (the closed form below) is exact and needs no RNG, and the whole loop is now
+    # O(n*K) rather than the O(n*K^2) the per-k membership scan cost.
+    p_true = np.take_along_axis(proba, y_arr[:, None], axis=1)
+    strictly_greater = (proba > p_true).sum(axis=1).astype(np.float64)
+    n_tied = np.maximum((proba == p_true).sum(axis=1), 1).astype(np.float64)
+    accs = np.empty(K)
     for k in range(1, K + 1):
-        in_top_k = (sorted_idx[:, :k] == y_arr[:, None]).any(axis=1)
-        accs[k - 1] = float(in_top_k.mean())
+        accs[k - 1] = float(np.clip((k - strictly_greater) / n_tied, 0.0, 1.0).mean())
+    tied_frac = float((n_tied > 1).mean())
+    tie_note = f" -- {tied_frac:.0%} of rows tie at the true class (averaged over tie orderings)" if tied_frac else ""
     return LinePanelSpec(
         x=np.arange(1, K + 1),
         y=accs,
-        title="Top-k accuracy",
+        title=f"Top-k accuracy (chance = k/{K}){tie_note}",
         xlabel="k",
         ylabel="Top-k accuracy",
     )

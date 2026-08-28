@@ -456,3 +456,39 @@ def test_epoch_ns_ticks_is_safe_on_degenerate_input():
     # A single-instant series still yields usable ticks rather than a zero-width range.
     tickvals, ticktext = epoch_ns_ticks([1.7e18])
     assert tickvals is not None and len(ticktext) >= 2
+
+
+def test_plotly_single_labelled_panel_keeps_its_legend():
+    """A one-panel figure whose series are named must show a legend even in interactive HTML.
+
+    The legend was suppressed for every non-static export to avoid multi-panel legend soup (all panels'
+    series pooled into one list). With a single panel there is no soup, and without the legend a chart like
+    the decision curve renders three unlabelled lines a reader cannot tell apart -- the model, "treat all"
+    and "treat none" look identical at a glance.
+    """
+    pytest.importorskip("plotly")
+    x = np.linspace(0, 0.6, 40)
+    panel = LinePanelSpec(
+        x=x, y=(0.4 - x, 0.4 - 2 * x, np.zeros_like(x)),
+        series_labels=("model", "treat all", "treat none"), title="Decision-curve analysis",
+    )
+    fig = get_renderer("plotly").render(FigureSpec(panels=((panel,),), figsize=(8, 4)))
+    assert fig.layout.showlegend is True
+
+
+def test_plotly_multi_panel_still_suppresses_the_interactive_legend():
+    """The soup-avoidance rule is unchanged where it actually applies."""
+    pytest.importorskip("plotly")
+    x = np.linspace(0, 0.6, 40)
+    panel = LinePanelSpec(x=x, y=(0.4 - x,), series_labels=("model",), title="p")
+    fig = get_renderer("plotly").render(FigureSpec(panels=((panel, panel),), figsize=(12, 4)))
+    assert not fig.layout.showlegend
+
+
+def test_plotly_single_unlabelled_panel_gets_no_legend():
+    """Without ``series_labels`` a legend would only show plotly's auto names (trace 0, trace 1, ...)."""
+    pytest.importorskip("plotly")
+    x = np.linspace(0, 0.6, 40)
+    panel = LinePanelSpec(x=x, y=(0.4 - x,), title="p")
+    fig = get_renderer("plotly").render(FigureSpec(panels=((panel,),), figsize=(8, 4)))
+    assert not fig.layout.showlegend

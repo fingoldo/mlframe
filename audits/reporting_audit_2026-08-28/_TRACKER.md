@@ -15,7 +15,7 @@ A cluster file moves to `implemented/` only once EVERY finding in it carries a f
 | reporting_core | `spec.py`, `output.py`, `colors.py`, `catalog.py`, `auto_dispatch.py`, `diagnostics_dispatch.py`, `report_html.py`, `_benchmarks/` | [reporting_core.md](reporting_core.md) | 30 (0/0/8/22) | IN PROGRESS (2 RESOLVED) |
 | reporting_renderers | `renderers/**` (matplotlib, plotly, kaleido, save dispatch, shared helpers) | [reporting_renderers.md](reporting_renderers.md) | 29 (0/5/9/15) | IN PROGRESS (2 RESOLVED) |
 | reporting_charts_a | `charts/` shared kernels + binary/calibration family | [reporting_charts_a.md](reporting_charts_a.md) | 36 (0/4/15/17) | TODO |
-| reporting_charts_b | `charts/` class-structure through multilabel (incl. `model_card`, `decision_curve`) | [reporting_charts_b.md](reporting_charts_b.md) | 68 (0/11/34/23) | TODO |
+| reporting_charts_b | `charts/` class-structure through multilabel (incl. `model_card`, `decision_curve`) | [reporting_charts_b.md](reporting_charts_b.md) | 68 (0/11/34/23) | IN PROGRESS (31 RESOLVED, 1 FUTURE) |
 | reporting_charts_c | `charts/` pdp through training_curve (incl. `risk_coverage`, `slice_finder`) | [reporting_charts_c.md](reporting_charts_c.md) | 40 (0/2/22/16) | TODO |
 | reporting_ux_crosscutting | repo-wide caption inventory, verdict surfacing, degenerate cases, tooltips, colour accessibility, backend parity | [reporting_ux_crosscutting.md](reporting_ux_crosscutting.md) | 74 (0/4/41/29) | IN PROGRESS (1 RESOLVED) |
 
