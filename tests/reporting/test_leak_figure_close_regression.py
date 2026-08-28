@@ -26,14 +26,19 @@ def _open_fig_count() -> int:
 
 
 def test_save_figure_closes_on_non_png_path():
-    """Non-png ``plot_outputs`` returns early WITHOUT a savefig but must still close the handed-in figure."""
+    """Non-png ``plot_outputs`` returns early WITHOUT a savefig but must still close the handed-in figure.
+
+    The return value is ``None``, not ``False``: "png was never requested" is not a failure to save one, and
+    callers file a ``False`` straight into the charts dict under "failed". A ``plotly[html]``-only run used to
+    report these charts as FAILED. The contract THIS test exists for -- no leaked figure -- is unchanged.
+    """
     plt.close("all")
     before = _open_fig_count()
     fig = plt.figure()
     assert _open_fig_count() == before + 1
-    # "svg" (no png) -> the function returns False before any savefig; the figure must not leak.
+    # "svg" (no png) -> the function returns None before any savefig; the figure must not leak.
     ok = _save_figure(fig, plot_outputs="svg", base_path="unused")
-    assert ok is False
+    assert ok is None
     assert _open_fig_count() == before, "non-png path leaked a figure"
 
 

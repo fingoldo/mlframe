@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any, ClassVar, List
+from typing import Any, ClassVar, List, Optional
 
 import numpy as np
 
@@ -180,12 +180,15 @@ class PlotlyRenderer:
         # Per-panel subplot spec: heatmap needs no shared axes; default ``xy`` works for everything else. A line
         # panel that requests a secondary y-axis must declare ``secondary_y=True`` at subplot-creation time (plotly
         # can't add a right axis after the grid is built), so detect that here.
-        sub_specs: List[List[dict]] = []
+        sub_specs: List[List[Optional[dict]]] = []
         for _r, row in enumerate(spec.panels):
-            row_specs: List[dict] = []
+            row_specs: List[Optional[dict]] = []  # None means "no subplot in this cell"
             for c in range(cols):
                 if c >= len(row) or row[c] is None:
-                    row_specs.append({})  # empty cell
+                    # ``None`` means "no subplot here". An empty dict is NOT that -- plotly reads it as a
+                    # default ``xy`` cell, so a 2x2 grid with one None produced 4 axes for 3 traces and drew
+                    # an empty framed panel where matplotlib draws nothing at all.
+                    row_specs.append(None)
                 else:
                     cell: dict = {"type": "xy"}
                     if isinstance(row[c], LinePanelSpec) and _line_uses_secondary_y(row[c]):
@@ -267,7 +270,11 @@ class PlotlyRenderer:
             # rendered every plotly figure 20% smaller than its matplotlib twin built from the SAME spec --
             # the "plotly version looks cramped" difference. Match the backends at 100 px/in.
             width=int(spec.figsize[0] * _PX_PER_INCH),
-            height=int(spec.figsize[1] * _PX_PER_INCH) + top_margin + n_caption_lines * 16,
+            # BOTH margins are added on top of the requested figure height. Adding only the top one made the
+            # plot AREA come out short of figsize -- measured 550px interactive / 510px static against
+            # matplotlib's 600px for the same spec -- which is the same "plotly twin looks cramped" class of
+            # bug as the px/in mismatch above, just from the other direction.
+            height=int(spec.figsize[1] * _PX_PER_INCH) + top_margin + bottom_margin,
             # Bottom margin grows when the legend is shown so the below-figure legend has room.
             margin=dict(l=60, r=40, t=top_margin, b=bottom_margin),
             # Interactive HTML identifies series via hover, so the legend stays off on MULTI-panel figures to

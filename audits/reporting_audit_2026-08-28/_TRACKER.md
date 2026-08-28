@@ -12,7 +12,7 @@ A cluster file moves to `implemented/` only once EVERY finding in it carries a f
 
 | Cluster | Scope | Report | Findings | Status |
 |---|---|---|---|---|
-| reporting_core | `spec.py`, `output.py`, `colors.py`, `catalog.py`, `auto_dispatch.py`, `diagnostics_dispatch.py`, `report_html.py`, `_benchmarks/` | [reporting_core.md](reporting_core.md) | 30 (0/0/8/22) | IN PROGRESS (2 RESOLVED) |
+| reporting_core | `spec.py`, `output.py`, `colors.py`, `catalog.py`, `auto_dispatch.py`, `diagnostics_dispatch.py`, `report_html.py`, `_benchmarks/` | [implemented/reporting_core.md](implemented/reporting_core.md) | 30 (0/0/8/22) | **COMPLETE** (22 RESOLVED, 6 FUTURE, 1 DOC, 1 REJECTED) |
 | reporting_renderers | `renderers/**` (matplotlib, plotly, kaleido, save dispatch, shared helpers) | [reporting_renderers.md](reporting_renderers.md) | 29 (0/5/9/15) | IN PROGRESS (all 5 P1 RESOLVED) |
 | reporting_charts_a | `charts/` shared kernels + binary/calibration family | [reporting_charts_a.md](reporting_charts_a.md) | 36 (0/4/15/17) | IN PROGRESS (all 4 P1 RESOLVED) |
 | reporting_charts_b | `charts/` class-structure through multilabel (incl. `model_card`, `decision_curve`) | [implemented/reporting_charts_b.md](implemented/reporting_charts_b.md) | 68 (0/11/34/23) | **COMPLETE** (61 RESOLVED, 6 FUTURE, 1 DOC) -> [implemented/](implemented/reporting_charts_b.md) |

@@ -66,7 +66,13 @@ def select_binary_emphasis_panels(
     n = finite.shape[0]
     if n < _EMPHASIS_MIN_ROWS:
         return requested_panels
-    n_pos = int(np.count_nonzero(finite))
+    # Positives are labels EQUAL TO THE POSITIVE CLASS, not merely nonzero. `count_nonzero` made a {-1,+1}
+    # or {1,2} encoding report n_pos == n, so `n_pos == n` short-circuited and the data-aware panel emphasis
+    # silently never applied -- on exactly the encodings where imbalance emphasis matters most.
+    classes = np.unique(finite)
+    if classes.shape[0] != 2:
+        return requested_panels  # emphasis is a binary-only heuristic; anything else is out of scope
+    n_pos = int(np.count_nonzero(finite == classes[-1]))  # the larger label is the positive class
     if n_pos == 0 or n_pos == n:
         return requested_panels
     base_rate = n_pos / n
@@ -112,10 +118,9 @@ def render_multi_target_panels(
 ) -> Optional[str]:
     """Pick the right composer for the input shapes and render.
 
-    Returns the chosen target_type tag (``"multiclass"`` /
+    Returns the chosen target_type tag (``"binary"`` / ``"multiclass"`` /
     ``"multilabel"`` / ``"ltr"`` / ``"quantile"``) or ``None`` if nothing
-    was rendered (binary, regression, missing inputs, or all panel
-    templates empty).
+    was rendered (regression, missing inputs, or all panel templates empty).
 
     No-op short-circuits (silent):
     - ``base_path`` empty -> nothing to write to.

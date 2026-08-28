@@ -338,7 +338,10 @@ def test_combined_html_stitches_rendered_charts(tmp_path, binary_frame):
     assert out and os.path.exists(out)
     assert md["charts"].get("combined_report") == out
     html = open(out, encoding="utf-8").read()
-    assert "m report" in html and "decision_curve" in html
+    # Entries are grouped into named sections and labelled in words now, not filed under one section
+    # literally called "charts" and labelled by raw filename basename.
+    assert "m report" in html and "decision curve" in html
+    assert "Decision quality" in html
 
 
 def test_combined_html_orders_weak_slices_before_weak_segments(tmp_path):
@@ -353,7 +356,9 @@ def test_combined_html_orders_weak_slices_before_weak_segments(tmp_path):
     out = build_combined_html_report(base_path=base, chart_paths=paths, plot_outputs=PNG, title="m report", metrics_dict=md)
     assert out and os.path.exists(out)
     html = open(out, encoding="utf-8").read()
-    assert html.index("m_weak_slices") < html.index("m_weak_segments")
+    # Match the per-entry alt text, not bare words: the section heading is itself "Errors and weak
+    # segments", so a substring search for "weak segments" finds the heading rather than the entry.
+    assert html.index('alt="m weak slices"') < html.index('alt="m weak segments"')
 
 
 def test_combined_html_resolves_plotly_suffixed_png(tmp_path):

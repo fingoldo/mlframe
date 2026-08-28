@@ -209,6 +209,63 @@ def render_model_comparison_from_suite(
     )
 
 
+# Chart-name -> (report section, human label). The combined report used to file EVERY chart under one
+# section literally named "charts", labelled by raw filename basename, so a 40-chart report was one
+# undifferentiated list of strings like "MRMR LGBMClassifier_val_weak_segments". Grouping by what the chart
+# answers, and naming it in words, is the difference between an index and a directory listing.
+_CHART_SECTIONS: tuple = (
+    ("Calibration", ("calib", "reliability", "decile_table", "fairness")),
+    ("Discrimination", ("binary_panels", "multiclass", "multilabel", "roc", "model_card", "model_comparison")),
+    ("Errors and weak segments", ("weak_seg", "weak_slices", "error_bias", "segments", "worst_k")),
+    ("Explainability", ("shap", "pdp", "interaction", "feature")),
+    ("Drift and stability", ("psi", "drift", "cusum", "over_time", "acf", "stability", "adversarial")),
+    ("Decision quality", ("decision_curve", "risk_coverage", "gain", "threshold")),
+    ("Training", ("training_curve", "learning_curve")),
+)
+
+
+def _classify_chart(basename: str) -> tuple:
+    """Map a chart's file basename to ``(section, human label)`` for the combined report's navigation.
+
+    Unrecognised names fall into "Other" and keep their basename, so a new chart is never dropped or
+    mislabelled -- it just does not get a curated home until it is added above.
+    """
+    low = basename.lower()
+    section = "Other"
+    for name, keys in _CHART_SECTIONS:
+        if any(k in low for k in keys):
+            section = name
+            break
+    # The suite prefixes every artifact with "<model> <split>_", so the chart's own name is whatever follows
+    # the LAST split marker. Splitting on the final underscore instead would keep only the last word and turn
+    # "weak_segments" into "segments" and "decision_curve" into "curve".
+    label = basename
+    for marker in ("_val_", "_test_", "_train_", "_oof_", "_calib_"):
+        pos = low.rfind(marker)
+        if pos != -1:
+            label = basename[pos + len(marker) :]
+            break
+    return section, label.replace("_", " ").strip() or basename
+
+
+def _find_html_fragment(base: str) -> Optional[str]:
+    """Return an interactive plotly fragment for ``base`` when one was written, else ``None``.
+
+    Lets a ``plotly[html]``-only run still produce a combined index: the report builder embeds a fragment
+    exactly as happily as a PNG, so there is no reason for the html-only configuration to get no report.
+    """
+    from mlframe.reporting.output import BACKEND_FORMATS
+
+    for cand in (base + ".html", *(f"{base}.{b}.html" for b in BACKEND_FORMATS)):
+        if os.path.exists(cand):
+            try:
+                with open(cand, encoding="utf-8") as fh:
+                    return fh.read()
+            except OSError:
+                return None
+    return None
+
+
 def build_combined_html_report(
     *,
     base_path: str,
@@ -223,7 +280,12 @@ def build_combined_html_report(
     artifacts are noted inline by the builder, never crash. Records the combined path in ``metrics_dict["charts"]``.
     """
     charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
-    if not base_path or not chart_paths or "png" not in (plot_outputs or "").lower():
+    # The report builder embeds a plotly HTML fragment just as happily as a PNG, so gating the WHOLE report on
+    # "png in plot_outputs" meant a `plotly[html]`-only run -- the interactive-first configuration -- produced
+    # no combined index at all. Any renderable output is enough; the per-entry lookup below picks whichever
+    # artifact actually exists on disk.
+    _outputs = (plot_outputs or "").lower()
+    if not base_path or not chart_paths or not _outputs:
         return None
     try:
         from mlframe.reporting.output import BACKEND_FORMATS
@@ -244,7 +306,9 @@ def build_combined_html_report(
                 if p == anchor:
                     ordered.extend(segs)
 
-        entries = []
+        # Heterogeneous by design: a PNG entry is (section, label, png) and an interactive one is
+        # (section, label, None, fragment); build_combined_report accepts both tuple arities.
+        entries: list = []
         seen = set()
         for p in ordered:
             if not p or p in seen:
@@ -253,6 +317,13 @@ def build_combined_html_report(
             label = os.path.basename(p)
             png = p if p.lower().endswith(".png") else p + ".png"
             if not os.path.exists(png):
+                # No PNG (e.g. a plotly[html]-only run): fall back to the interactive fragment so the entry
+                # still appears in the index instead of being dropped.
+                _frag = _find_html_fragment(p)
+                if _frag is not None:
+                    section, nice = _classify_chart(os.path.basename(p))
+                    entries.append((section, nice, None, _frag))
+                    continue
                 # A multi-backend/multi-format plot_outputs (renderers/save.py's naming policy)
                 # suffixes the backend name, e.g. ``_pdp_ice.matplotlib.png`` or
                 # ``_pdp_ice.plotly.png`` -- try every registered backend, not just matplotlib.
@@ -261,14 +332,18 @@ def build_combined_html_report(
                     if os.path.exists(alt):
                         png = alt
                         break
-            entries.append(("charts", label, png))
+            section, nice = _classify_chart(label)
+            entries.append((section, nice, png))
         if not entries:
             return None
         out_path = base_path + "_report.html"
         build_combined_report(entries, title=title, out_path=out_path)
         _record(charts, "combined_html", True)
         if isinstance(metrics_dict, dict) and charts is not None:
-            charts.setdefault("combined_report", out_path)
+            # Assign, do not setdefault: `setdefault` kept the FIRST path, so rebuilding a report (a
+            # re-render into a new directory, or a second call in the same run) left the metrics dict
+            # pointing at the previous, now-stale document.
+            charts["combined_report"] = out_path
         return out_path
     except Exception:
         logger.exception("diagnostics_dispatch: combined HTML report failed; continuing.")
@@ -303,6 +378,8 @@ def render_decile_table_diagnostic(
         fig = binary_decile_table_figure(yt[:m], ys[:m], n_deciles=n_deciles)
         out = base_path + "_decile_table"
         ok = _save_figure(fig, plot_outputs, out)
+        if ok is None:
+            return False  # png not requested; nothing rendered, nothing to record either way
         _record(charts, "decile_table", ok)
         if ok:
             _record_path(charts, out)
@@ -485,7 +562,7 @@ def render_target_dist_overlay(
     base_path: str,
     metrics_dict: Optional[dict] = None,
 ) -> bool:
-    """Render the per-target y / prediction distribution overlay (R-3 / INV-11) once per target. Returns success."""
+    """Render the per-target y / prediction distribution overlay once per target. Returns success."""
     charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
     if not plot_outputs or not base_path or not y_true_by_split:
         return False

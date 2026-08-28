@@ -58,17 +58,22 @@ def _save_spec(spec, plot_outputs: str, base_path: str) -> bool:
         return False
 
 
-def _save_figure(fig, plot_outputs: str, base_path: str) -> bool:
+def _save_figure(fig, plot_outputs: str, base_path: str) -> Optional[bool]:
     """Save a raw matplotlib Figure (builders that emit a Figure, not a FigureSpec) to ``base_path.png`` when png is requested.
 
-    Mirrors the matplotlib renderer's on-disk name so ``build_combined_html_report`` can stitch it. Returns True on success.
+    Mirrors the matplotlib renderer's on-disk name so ``build_combined_html_report`` can stitch it.
+
+    Tri-state on purpose: ``True`` saved, ``False`` genuinely FAILED to save, ``None`` png was never requested
+    so there was nothing to do. It used to return ``False`` for that last case, and callers fed the result
+    straight into ``_record``, so a ``plotly[html]``-only run reported these charts as FAILED -- an alarming
+    and wrong signal for a backend that simply does not write PNGs.
     """
     # ``plt.close`` MUST run on every exit (early non-png return, savefig failure, success); otherwise a builder that
     # hands us a Figure on a non-png run -- or whose savefig raises -- leaks it into matplotlib's global registry,
     # which grows unbounded across the per-split/per-target hot path. Hence the close lives in ``finally``.
     try:
         if "png" not in (plot_outputs or "").lower():
-            return False
+            return None  # not requested, not a failure
         try:
             fig.savefig(base_path + ".png", bbox_inches="tight")
             return True
@@ -201,7 +206,12 @@ def render_split_error_diagnostics(
     # Worst-K table on the FULL arrays so the highlight indices map onto the caller's data (no frame densify needed --
     # only the K worst rows pull feature values). Surface the table in the caller's metrics dict.
     sample_idx = _bounded_sample_idx(n, loss_finite, seed=seed)
-    sub_df, names = _select_feature_columns(_subset_rows(df, sample_idx), feature_names, DIAG_MAX_FEATURES)
+    # Cap COLUMNS first, then subset rows. Doing it the other way materialised DIAG_ROW_CAP rows x ALL
+    # columns before throwing most of them away -- on a 5,000-row cap against a 500-column frame that is a
+    # ~25x wider intermediate than the diagnostic ever reads. Column selection is a view/projection, so
+    # narrowing first makes the row gather proportional to what is actually used.
+    _capped_df, names = _select_feature_columns(df, feature_names, DIAG_MAX_FEATURES)
+    sub_df = _subset_rows(_capped_df, sample_idx)
     if timestamps is None:
         ts_arg = None
     elif n <= DIAG_ROW_CAP:
@@ -222,6 +232,10 @@ def render_split_error_diagnostics(
         out["worst_k_table"] = wk.table
         # Map subsample-local indices back to original positions when subsampled.
         out["worst_k_indices"] = (wk.indices if n <= DIAG_ROW_CAP else sample_idx[wk.indices]).astype(np.int64)
+        # Record the SUCCESS side too. Every other call site here records both outcomes; this one recorded
+        # only failure, so worst_k_table could never appear as saved and a run asserting chart presence saw
+        # a permanently absent diagnostic that had in fact been produced.
+        _record(charts, "worst_k_table", True)
     except Exception:
         logger.exception("diagnostics_dispatch: worst_k_table failed; continuing.")
         _record(charts, "worst_k_table", False)
@@ -359,7 +373,16 @@ def render_target_drift_diagnostics(
                 # higher-is-better and inverted the "over time" trend annotation.
                 from mlframe.training.metrics_registry import metric_name_higher_is_better
                 _dir = metric_name_higher_is_better(metric)
-                higher_is_better = True if _dir is None else _dir
+                if _dir is None:
+                    # Defaulting an UNKNOWN metric to higher-is-better silently inverts this panel's trend
+                    # annotation for every custom error metric, which is the common case for a custom name.
+                    # Warn and pick the safer default: most bespoke metric names in this codebase are losses.
+                    logger.warning(
+                        "metric_over_time: optimisation direction for metric=%r is unknown; assuming "
+                        "lower-is-better. Register it via mlframe.training.metrics_registry.register_metric "
+                        "to silence this and get the trend annotation right.", metric,
+                    )
+                higher_is_better = False if _dir is None else _dir
                 spec = metric_over_time(yt[:m], yp[:m], ts[:m], metric=metric, higher_is_better=higher_is_better)
                 ok = _save_spec(spec, plot_outputs, base_path + "_metric_over_time")
                 _record(charts, "metric_over_time", ok)
@@ -488,6 +511,8 @@ def render_pdp_2d_diagnostic(
 
         fig = compose_pdp_2d_figure(model, df, feat_x, feat_y, grid=grid, sample_rows=sample, seed=seed)
         ok = _save_figure(fig, plot_outputs, base_path + "_pdp_2d")
+        if ok is None:
+            return False  # png not requested; nothing rendered, nothing to record either way
         _record(charts, "pdp_2d", ok)
         if ok:
             _record_path(charts, base_path + "_pdp_2d")
@@ -619,7 +644,9 @@ def render_slice_finder_diagnostic(
     loss = _per_row_error(yt, yp, task=task)
     loss_finite = np.where(np.isfinite(loss), loss, -np.inf)
     idx = _bounded_sample_idx(n, loss_finite, seed=seed)
-    sub_df, names = _select_feature_columns(_subset_rows(df, idx), feature_names, DIAG_MAX_FEATURES)
+    # Column cap before the row gather -- see the identical note in the split-error path above.
+    _capped_df, names = _select_feature_columns(df, feature_names, DIAG_MAX_FEATURES)
+    sub_df = _subset_rows(_capped_df, idx)
     try:
         res = find_weak_slices(
             sub_df, yt[idx], yp[idx], task=task, feature_names=names, seed=seed,
@@ -728,12 +755,18 @@ def render_target_acf_diagnostic(
         return False
     yt = np.asarray(y_true).ravel()
     ts = np.asarray(timestamps)
-    if yt.size < 8 or len(ts) < yt.size:
+    # Align to the common prefix instead of refusing outright. Every other entry point in this module trims
+    # y / timestamps to their shared length; this one alone dropped the diagnostic entirely whenever the
+    # caller's timestamp vector was shorter, which is the ordinary shape when a split carries partial
+    # temporal coverage. Only a genuinely too-short series (< 8 points, where an ACF says nothing) still skips.
+    m = min(yt.size, ts.shape[0])
+    if m < 8:
         return False
+    yt = yt[:m]
     try:
         from mlframe.reporting.charts.temporal import compose_target_acf_figure
 
-        order = np.argsort(ts[: yt.size], kind="stable")
+        order = np.argsort(ts[:m], kind="stable")
         spec = compose_target_acf_figure(yt[order], suptitle="Target ACF / PACF")
         ok = _save_spec(spec, plot_outputs, base_path + "_target_acf")
         _record(charts, "target_acf", ok)

@@ -291,7 +291,12 @@ class MatplotlibRenderer:
             xerr = _err_to_mpl(p.x_err)
             ax.errorbar(x, y, yerr=yerr, xerr=xerr, fmt="none", ecolor="gray", elinewidth=1.0, capsize=3, alpha=0.7, zorder=1)
 
+        # plotly names the scatter trace from `legend_label`; matplotlib never passed it to `ax.scatter`, so
+        # the label was dropped AND the legend call below drew an empty box (matplotlib warns about it) on
+        # every scatter that set one. Passing it makes the two backends agree and gives the legend content.
         kw: dict[str, Any] = {"alpha": p.point_alpha, "rasterized": rasterized}
+        if p.legend_label:
+            kw["label"] = p.legend_label
         kw["s"] = size_arr if size_arr is not None else float(p.point_size)
         if color_arr is not None:
             kw["c"] = color_arr
@@ -725,13 +730,39 @@ class MatplotlibRenderer:
             ax.tick_params(axis="x", rotation=30)
 
     def _violin(self, ax, p: ViolinPanelSpec) -> None:
-        """Render a per-group violin panel (medians shown when ``show_box``, extrema and mean markers suppressed)."""
-        ax.violinplot(p.groups, showmeans=False, showextrema=False, showmedians=p.show_box)
-        ax.set_xticks(range(1, len(p.group_labels) + 1))
-        ax.set_xticklabels(p.group_labels, rotation=30, ha="right", fontsize=8)
+        """Render a per-group violin panel (medians shown when ``show_box``, extrema and mean markers suppressed).
+
+        Groups are coloured from the shared palette so they match the plotly twin, which already cycles a
+        colour per group -- matplotlib drew every violin in one default blue, losing the group identity the
+        chart exists to show.
+        """
+        from mlframe.reporting.colors import line_color
+
+        # ``ax.violinplot`` raises on an EMPTY group (it computes a kernel over no points), so a spec with one
+        # empty group crashed matplotlib while plotly rendered the rest happily. Drop empty groups and mark
+        # them in the tick label rather than failing the whole figure.
+        kept = [(np.asarray(g, dtype=float), lab) for g, lab in zip(p.groups, p.group_labels)]
+        kept = [(g[np.isfinite(g)], lab) for g, lab in kept]
+        drawable = [(g, lab) for g, lab in kept if g.size > 0]
+        if not drawable:
+            ax.set_axis_off()
+            ax.text(0.5, 0.5, "no finite values in any group", ha="center", va="center", transform=ax.transAxes)
+            _set_panel_title(ax, p.title)
+            return
+        parts = ax.violinplot([g for g, _ in drawable], showmeans=False, showextrema=False, showmedians=p.show_box)
+        for i, body in enumerate(parts.get("bodies", [])):
+            body.set_facecolor(line_color(i))
+            body.set_alpha(0.6)
+        labels = [lab for _, lab in drawable]
+        empty = [str(lab) for g, lab in kept if g.size == 0]
+        # Name the dropped groups in the title: a violin that silently vanishes reads as "this group has no
+        # spread", which is a different statement from "this group has no data".
+        _violin_title = f"{p.title} (no data: {', '.join(empty)})" if (empty and p.title) else p.title
+        ax.set_xticks(range(1, len(labels) + 1))
+        ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=8)
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
-        _set_panel_title(ax, p.title)
+        _set_panel_title(ax, _violin_title)
         if p.grid:
             ax.grid(True, alpha=0.3, axis="y")
 

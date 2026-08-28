@@ -4,7 +4,15 @@ NEW side imports the in-tree (F-order) module; OLD side loads HEAD:slice_finder.
 module object so both run in ONE process against identical inputs. Paired, warm, best-of-N. Prints identity + speedup.
 
 Run: python -m mlframe.reporting._benchmarks._e2e_slice_finder_ab_iter71
+     python -m mlframe.reporting._benchmarks._e2e_slice_finder_ab_iter71 <pre-optimisation-commit>
+
+SELF-COMPARISON HAZARD: the OLD side is whatever ``HEAD`` currently holds. That was correct exactly once --
+while the optimisation was still uncommitted. Once it landed, ``HEAD`` IS the new code, so re-running this
+bench compares the new implementation against itself and reports ~1.00x, which reads identically to "the
+optimisation was reverted". Pass the pre-optimisation commit as argv[1] to pin the real baseline; with no
+argument the bench prints a warning saying the number it is about to produce may be new-vs-new.
 """
+_OLD_REF_DEFAULT = "HEAD"
 import importlib.util
 import os
 import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
@@ -17,14 +25,27 @@ import numpy as np
 import mlframe.reporting.charts.slice_finder as NEW
 
 
-def _load_old():
+def _load_old(ref: str = _OLD_REF_DEFAULT):
+    """Load the baseline ``slice_finder`` from git ``ref`` as a separate module object.
+
+    ``ref`` defaults to ``HEAD``, which is only a real baseline while the optimisation is uncommitted -- see
+    the module docstring. The warning below fires whenever the default is used so a stale ~1.00x result is
+    never mistaken for a regression.
+    """
+    if ref == "HEAD":
+        print(
+            "WARNING: comparing against HEAD. If the optimisation under test is already committed, HEAD is the "
+            "NEW code and this run measures it against itself (expect ~1.00x, which is NOT a regression). "
+            "Pass the pre-optimisation commit as the first argument to pin a real baseline.",
+            file=sys.stderr,
+        )
     here = os.path.dirname(os.path.abspath(NEW.__file__))
     repo = here
     for _ in range(6):
         repo = os.path.dirname(repo)
         if os.path.isdir(os.path.join(repo, ".git")) or os.path.isfile(os.path.join(repo, "pyproject.toml")):
             break
-    src = subprocess.check_output(["git", "show", "HEAD:src/mlframe/reporting/charts/slice_finder.py"], cwd=repo)  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
+    src = subprocess.check_output(["git", "show", f"{ref}:src/mlframe/reporting/charts/slice_finder.py"], cwd=repo)  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
     path = os.path.join(tempfile.gettempdir(), "_old_slice_finder_iter71.py")
     with open(path, "wb") as f:
         f.write(src)
@@ -36,7 +57,7 @@ def _load_old():
 
 
 def main():
-    OLD = _load_old()
+    OLD = _load_old(sys.argv[1] if len(sys.argv) > 1 else _OLD_REF_DEFAULT)
     rng = np.random.default_rng(0)
     n, p = 100_000, 30
     X = rng.standard_normal((n, p))
