@@ -51,6 +51,18 @@ class TrainingBehaviorConfig(BaseConfig):
         Custom regression scoring configuration.
     callback_params : dict, optional
         Parameters for training callbacks (patience, verbose).
+    live_trainperf_plot : bool
+        Draw the live per-iteration training-performance widget in a notebook (per-metric tabs, one curve per
+        eval split, RAM on a secondary axis, a star on the running optimum, and a two-step stop button).
+        Default True; self-disables to a hard no-op headless / without plotly+ipywidgets, so it is safe to
+        leave on in code that also runs in CI. The curves are recorded either way -- see
+        ``live_trainperf_report`` for the log side.
+    live_trainperf_report : bool
+        Also emit the periodic per-iteration progress LINE to the log
+        (``iter=126, validation ICE: current=..., best=... @126. RAM usage 57.2GB.``). Default False: on a long
+        fit that line is pure noise once the same trajectory is on a chart and in the run metadata, and it
+        crowds out the messages an operator actually needs to see. Turning it off does NOT suppress the
+        start / auto-selected-metric / early-stop-reason messages, and does not affect what is recorded.
     prefer_cpu_for_xgboost : bool
         Force XGBoost to CPU even when GPU is available.
     cont_nbins : int
@@ -97,6 +109,11 @@ class TrainingBehaviorConfig(BaseConfig):
     default_classification_scoring: Optional[Dict[str, Any]] = None
     default_regression_scoring: Optional[Dict[str, Any]] = None
     callback_params: Optional[Dict[str, Any]] = None
+    # Live training-performance surfaces. The trajectory is ALWAYS recorded onto the callback (and harvested
+    # into the run metadata); these two only choose how it is surfaced while the fit runs -- as a chart
+    # (default on) and/or as periodic log lines (default off, because they bury everything else on a long fit).
+    live_trainperf_plot: bool = True
+    live_trainperf_report: bool = False
     cb_fit_params: Optional[Dict[str, Any]] = None
     # Default True: faulthandler + Windows WER suppression are pure diagnostics -- they don't change training behavior, only replace the "Python has stopped working" modal with a Python traceback. Users who rely on the WER popup (rare) can opt out.
     enable_crash_reporting: bool = True

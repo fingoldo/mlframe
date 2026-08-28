@@ -972,3 +972,18 @@ def _setup_early_stopping_callback(model_category, fit_params, callback_params, 
         callbacks = [cb for cb in existing_callbacks if isinstance(cb, XGBTrainingCallback) and not isinstance(cb, XGBoostCallback)]
         callbacks.append(es_callback)
         model_obj.set_params(callbacks=callbacks)
+    if model_obj is not None:
+        # Expose the per-iteration trajectory on the estimator for the run metadata. The containers are bound
+        # BY REFERENCE at wiring time (the same idiom ``_build_cb_iteration_metrics_callback`` uses for
+        # ``iteration_metrics_``) so they fill during fit with no post-fit harvest step. Recorded regardless
+        # of whether the widget drew it or the log printed it, which is what makes ``live_trainperf_report``
+        # default to False without losing anything.
+        try:
+            model_obj._mlframe_es_callback = es_callback
+            model_obj.training_curves_ = {
+                "iterations": es_callback.iter_history,
+                "metrics": es_callback.metric_history,
+                "ram_gb": es_callback.ram_history,
+            }
+        except AttributeError:
+            pass  # best-effort: an estimator with __slots__ simply does not carry the trajectory

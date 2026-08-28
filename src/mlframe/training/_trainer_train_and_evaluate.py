@@ -243,6 +243,19 @@ def train_and_evaluate_model(
             fit_params = {}
         fit_params.setdefault("monotonic_decline_patience", _mono_patience_cfg)
 
+    # Thread the live training-performance surfaces to the boosters' shared UniversalCallback. Same behavior-config
+    # plumbing as monotonic_decline_patience above. These only choose how the per-iteration trajectory is SURFACED
+    # while the fit runs -- the trajectory itself is recorded on the callback either way and harvested into the run
+    # metadata, so turning the log line off costs no information.
+    #   live_trainperf_plot   -> progress_widget          (default True; a hard no-op outside a notebook)
+    #   live_trainperf_report -> report_progress_to_log   (default False; the periodic "iter=..., best=..." line)
+    if model_category == "cb" or callback_params:
+        _live_plot = _mono_beh.get("live_trainperf_plot", True) if _mono_beh is not None else getattr(control, "live_trainperf_plot", True)
+        _live_report = _mono_beh.get("live_trainperf_report", False) if _mono_beh is not None else getattr(control, "live_trainperf_report", False)
+        callback_params = dict(callback_params or {})
+        callback_params.setdefault("progress_widget", bool(_live_plot))
+        callback_params.setdefault("report_progress_to_log", bool(_live_report))
+
     # Thread per-iteration metric-capture knobs to the boosters (meta-learning / HPO-from-early-observation). Same
     # behavior-config plumbing as monotonic_decline_patience: cb via callback_params, lgb / xgb via fit_params.
     # ``capture_iteration_metrics`` defaults to None in the config -> resolve to the family default (OFF for
