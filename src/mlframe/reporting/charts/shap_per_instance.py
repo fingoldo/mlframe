@@ -142,15 +142,24 @@ def shap_worst_errors_explanation(
 
     severity = _error_severity(yt, ys)
     binary = _is_binary_score(yt, ys)
+    # A row with a missing label or score has NO severity, and `argsort(...)[::-1]` puts NaN FIRST -- so the
+    # "most-confident-wrong" panel led with rows carrying no label information at all, and the binary title then
+    # raised on `int(nan)`. Rank only rows whose severity is defined, and say how many were set aside.
+    finite_sev = np.isfinite(severity)
+    n_dropped = int((~finite_sev).sum())
+    if not finite_sev.any():
+        return _skip(f"no row has both a finite label and a finite score ({n:,} rows, all unusable)")
     # A "no misclassification" panel is informative on its own: annotate rather than silently emit nothing.
     no_errors = binary and float(np.nanmax(severity)) < 0.5
 
     k_eff = max(int(k), 1)
-    order = np.argsort(severity)[::-1]  # worst first
-    worst_idx = order[: min(k_eff, n)]
+    rankable = np.flatnonzero(finite_sev)
+    order = rankable[np.argsort(severity[rankable])[::-1]]  # worst first, defined severities only
+    worst_idx = order[: min(k_eff, rankable.size)]
     severities = severity[worst_idx]
 
     explain_idx = _background_index(order, n, max_explain_rows, worst_idx, seed)
+    dropped_note = f" ({n_dropped:,} rows had no finite label/score and were not ranked)" if n_dropped else ""
     X_explain = _row_subset(carrier, explain_idx)
     explainer = shap.TreeExplainer(model)
     sv = explainer(X_explain, check_additivity=False)
@@ -168,7 +177,7 @@ def shap_worst_errors_explanation(
         return ShapPerInstanceResult(None, [], worst_idx, severities, contributions, skipped="matplotlib unavailable")
 
     fig, paths = _render(
-        worst_idx, severities, contributions, yt, ys, binary, no_errors, plot_file, plot_outputs,
+        worst_idx, severities, contributions, yt, ys, binary, no_errors, plot_file, plot_outputs, dropped_note,
     )
     return ShapPerInstanceResult(fig, paths, worst_idx, severities, contributions, n_background=len(explain_idx))
 
@@ -204,8 +213,13 @@ def _render(
     no_errors: bool,
     plot_file: Optional[str],
     plot_outputs: Optional[str],
+    dropped_note: str = "",
 ) -> Tuple[Any, List[str]]:
-    """Small-multiples: one signed-SHAP horizontal bar per worst-error instance."""
+    """Small-multiples: one signed-SHAP horizontal bar per worst-error instance.
+
+    ``dropped_note`` names how many rows had no finite label or score and so could not be ranked at all; stating it
+    on the figure is what keeps "top-K worst" from being read as "top-K of every row".
+    """
     k = len(worst_idx)
     ncol = min(k, 2) if k > 1 else 1
     nrow = int(np.ceil(k / ncol))
@@ -237,9 +251,12 @@ def _render(
             ax.set_title(title, fontsize=9)
 
         if no_errors:
-            fig.suptitle("Per-instance SHAP -- worst predictions (NOTE: no misclassifications; showing largest residuals)", fontsize=11)
+            fig.suptitle(
+                "Per-instance SHAP -- worst predictions (NOTE: no misclassifications; showing largest residuals)" + dropped_note,
+                fontsize=11,
+            )
         else:
-            fig.suptitle("Per-instance SHAP attribution -- top-K most-confident-wrong predictions", fontsize=11)
+            fig.suptitle("Per-instance SHAP attribution -- top-K most-confident-wrong predictions" + dropped_note, fontsize=11)
         fig.tight_layout(rect=(0, 0, 1, 0.97))
 
         paths: List[str] = []

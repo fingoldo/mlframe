@@ -623,23 +623,27 @@ def _fan_chart_panel(y_true, preds_NK, alphas) -> PanelSpec:
         q_bucketed[:, k] = np.bincount(which, weights=P[:, k], minlength=n_buckets) / counts_safe
     y_bucketed = np.bincount(which, weights=y, minlength=n_buckets) / counts_safe
 
-    # LinePanelSpec carries a single ``band`` (lower, upper); nested bands need one band per symmetric
-    # pair. We draw the OUTERMOST pair as the spec band (widest envelope) and overlay the inner quantile
-    # edges as faint lines so the nesting reads -- darkest at the median, lightening outward.
+    # LinePanelSpec carries a single ``band`` (lower, upper); nested bands need one band per symmetric pair. The
+    # OUTERMOST pair becomes the spec band (the widest envelope, so the shaded region is the full predictive
+    # range), and the inner quantile edges overlay as faint lines so the nesting reads -- darkest at the median,
+    # lightening outward.
     pairs = _symmetric_interval_pairs(alphas)
     median_path = q_bucketed[:, median_col]
     series: List[np.ndarray] = [median_path, y_bucketed]
     labels: List[str] = [f"median (tau={a_arr[median_col]:g})", "y_true (bucket mean)"]
     styles: List[str] = ["-", "markers"]
     series_colors: List[str] = ["darkblue", "black"]
-    # Inner pair edges as faint lines (skip the outermost, which becomes the filled band). Darker shade
-    # for pairs closer to the median communicates the nesting on backends without per-band fills.
-    inner = pairs[:-1] if len(pairs) >= 2 else []
+    # `_symmetric_interval_pairs` returns widest-first, so pairs[0] is the OUTERMOST envelope and pairs[-1] the
+    # narrowest. The filled band must be the outermost one -- taking pairs[-1] made the shaded region the NARROWEST
+    # interval while the outermost edges were relegated to faint dotted lines, the exact inverse of the comment
+    # above, and the band label then advertised "50%" for an alpha grid spanning 90%. A reader sizing risk off the
+    # shaded envelope was reading an interval far tighter than the model actually predicts.
+    inner = pairs[1:] if len(pairs) >= 2 else []
     for depth, (lo, hi, _nom) in enumerate(inner):
-        # Darker gray for pairs nearer the median (smaller depth) communicates the band nesting on
-        # backends that draw only the single outermost filled band. Hex grayscale so both matplotlib
-        # and plotly accept it (plotly rejects matplotlib's bare "0.25" fractional-gray string).
-        level = round(min(0.7, 0.25 + 0.12 * depth) * 255)
+        # Darker gray for pairs nearer the median communicates the band nesting on backends that draw only the
+        # single outermost filled band. `inner` runs outward-in, so nearer the median is a LARGER depth. Hex
+        # grayscale so both backends accept it (plotly rejects matplotlib's bare "0.25" fractional-gray string).
+        level = round(min(0.7, 0.25 + 0.12 * (len(inner) - 1 - depth)) * 255)
         gray = f"#{level:02x}{level:02x}{level:02x}"
         for c_idx in (lo, hi):
             series.append(q_bucketed[:, c_idx])
@@ -647,7 +651,7 @@ def _fan_chart_panel(y_true, preds_NK, alphas) -> PanelSpec:
             styles.append(":")
             series_colors.append(gray)
 
-    lo_col, hi_col, nom = pairs[-1]
+    lo_col, hi_col, nom = pairs[0]
     return LinePanelSpec(
         x=x_axis,
         y=tuple(series),

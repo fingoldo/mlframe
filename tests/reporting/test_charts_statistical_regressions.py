@@ -12,6 +12,7 @@ from mlframe.reporting.charts.binary import _ScoreSort, _pit_panel
 from mlframe.reporting.charts.calibration_by_feature import compute_calibration_by_feature_heterogeneity
 from mlframe.reporting.charts.calibration_heatmap_2d import compute_calibration_heatmap_2d
 from mlframe.reporting.charts.decision_curve import build_decision_curve_spec, effective_binary_n
+from mlframe.reporting.charts.quantile import _fan_chart_panel
 from mlframe.reporting.charts.drift import (
     CUSUM_DECISION_H,
     _adversarial_auc_bar,
@@ -271,3 +272,36 @@ class TestPerBinEceIsDebiased:
         bad = feat > 0.8
         y[bad] = (rng.random(int(bad.sum())) < np.clip(p[bad] * 0.2, 0.0, 1.0)).astype(float)
         assert compute_calibration_by_feature_heterogeneity(y, p, feat)["traffic_light"] == "red"
+
+
+class TestFanChartShadesTheOutermostInterval:
+    """The shaded envelope is what a reader sizes risk off, so it must be the widest interval, not the narrowest."""
+
+    def test_filled_band_is_the_widest_symmetric_pair(self):
+        """The band spans the full alpha grid, and its label says so."""
+        from scipy.stats import norm
+
+        rng = np.random.default_rng(0)
+        alphas = np.array([0.05, 0.15, 0.25, 0.5, 0.75, 0.85, 0.95])
+        z = rng.normal(0.0, 1.0, 4000)
+        preds = np.column_stack([z + norm.ppf(a) for a in alphas])
+        panel = _fan_chart_panel(z, preds, alphas)
+        lo, hi = panel.band
+        # Pre-fix the band was the INNERMOST pair: label "50%" and a mean width of 1.349 for a 90% grid.
+        assert "(90%)" in panel.band_label
+        assert np.mean(hi - lo) == pytest.approx(norm.ppf(0.95) - norm.ppf(0.05), rel=0.05)
+
+
+class TestNaNSeverityRowsAreNotRankedWorst:
+    """`argsort(...)[::-1]` sorts NaN FIRST, so rows with no label information led a 'worst predictions' panel."""
+
+    def test_rows_without_a_finite_label_are_excluded_from_the_ranking(self):
+        """A missing label carries no severity, so it cannot be the most-confident-wrong row."""
+        severity = np.array([0.9, np.nan, 0.8, 0.05])
+        finite = np.isfinite(severity)
+        rankable = np.flatnonzero(finite)
+        order = rankable[np.argsort(severity[rankable])[::-1]]
+        # Pre-fix `np.argsort(severity)[::-1]` returned [1, 0, 2, 3] -- the NaN row first, which then raised on
+        # `int(nan)` when the binary title tried to print its true label.
+        assert order.tolist() == [0, 2, 3]
+        assert 1 not in order
