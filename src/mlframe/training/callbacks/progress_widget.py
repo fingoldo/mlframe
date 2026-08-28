@@ -157,11 +157,25 @@ class TrainingProgressWidget:
             return False
         try:
             import ipywidgets  # noqa: F401
-            import plotly.graph_objects  # noqa: F401
+            import plotly.graph_objects as go
         except ImportError:
             logger.info(
                 "TrainingProgressWidget disabled: plotly and ipywidgets are both required "
                 "(pip install 'plotly>=5.15' 'ipywidgets>=8.0'). Training is unaffected."
+            )
+            return False
+        try:
+            # CONSTRUCT one rather than trusting that the import succeeded. plotly >= 6 moved FigureWidget
+            # behind ``anywidget`` and raises "Please install anywidget to use the FigureWidget class" only
+            # at construction time, so an import-only probe reports the widget as usable and then the
+            # ImportError lands mid-training instead. Everything else here is already best-effort; this is
+            # the one call that decides whether any of it can run at all.
+            go.FigureWidget()
+        except Exception as exc:
+            logger.info(
+                "TrainingProgressWidget disabled: this plotly build cannot construct a FigureWidget (%s). "
+                "plotly >= 6 requires the 'anywidget' package for it (pip install anywidget). Training is "
+                "unaffected -- the per-iteration trajectory is still recorded on the callback.", exc,
             )
             return False
         return True

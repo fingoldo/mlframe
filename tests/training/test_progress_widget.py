@@ -14,6 +14,29 @@ from mlframe.training.callbacks import LightGBMCallback, TrainingProgressWidget
 from mlframe.training.callbacks.progress_widget import _dataset_color, in_notebook
 
 
+def _figurewidget_available() -> bool:
+    """Whether this plotly build can actually CONSTRUCT a FigureWidget.
+
+    plotly >= 6 moved FigureWidget behind ``anywidget`` and raises only at construction time, so an
+    environment can import plotly fine and still be unable to render this widget. The production code
+    probes the same way (see ``TrainingProgressWidget._resolve_enabled``) and self-disables; the tests that
+    exercise the drawing path have nothing to assert there, so they skip.
+    """
+    try:
+        import plotly.graph_objects as go
+
+        go.FigureWidget()
+    except Exception:
+        return False
+    return True
+
+
+_NEEDS_FIGUREWIDGET = pytest.mark.skipif(
+    not _figurewidget_available(),
+    reason="plotly build cannot construct a FigureWidget (plotly >= 6 needs the anywidget package)",
+)
+
+
 def _notebook():
     """Patch the kernel detection so the widget builds without a real frontend attached."""
     return patch("mlframe.training.callbacks.progress_widget.in_notebook", return_value=True)
@@ -90,6 +113,7 @@ class TestIterationAxisIsTheBoostersOwn:
         assert cb.iter_history == [0, 1, 2, 3]
 
 
+@_NEEDS_FIGUREWIDGET
 class TestTabsAndCurves:
     """One tab per metric, one curve per dataset, discovered from whatever the booster reports."""
 
@@ -129,6 +153,7 @@ class TestTabsAndCurves:
         assert list(w._figures) == ["ICE", "AUC"]
 
 
+@_NEEDS_FIGUREWIDGET
 class TestOptimumStar:
     """The star is the one number an operator reads off this widget, so it must be on the right point."""
 
@@ -168,6 +193,7 @@ class TestOptimumStar:
         assert star.y[0] > -1.0
 
 
+@_NEEDS_FIGUREWIDGET
 class TestRamSeries:
     """RAM shares the iteration axis but not the metric's units, and is sampled sparsely on purpose."""
 
@@ -228,8 +254,14 @@ class TestStopButton:
         assert w.stop_requested() is False
         assert row.layout.display == "none"
 
+    @_NEEDS_FIGUREWIDGET
     def test_stop_goes_through_the_callbacks_existing_stop_flag(self):
-        """The widget must not get its own path into the training loop."""
+        """The widget must not get its own path into the training loop.
+
+        Needs a genuinely ENABLED widget: the callback discards a self-disabled one at construction, which
+        is the whole point of that design, so there is no stop_flag composition to assert without one. The
+        button behaviour itself is covered by the tests above, which do not need a live figure.
+        """
         with _notebook():
             w = TrainingProgressWidget()
             cb = LightGBMCallback(progress_widget=w)
@@ -249,6 +281,7 @@ class TestStopButton:
             assert cb.stop_flag() is True
 
 
+@_NEEDS_FIGUREWIDGET
 class TestRefreshThrottle:
     """A repaint per iteration would cost more than the fit it is watching."""
 
@@ -291,6 +324,7 @@ class TestDatasetColors:
         assert _dataset_color("shard_7", 0) == first  # stable for the same ordinal
 
 
+@_NEEDS_FIGUREWIDGET
 class TestRefreshCostDoesNotScaleWithHistory:
     """A live plot that re-validates its whole history per repaint costs more than the fit it is watching."""
 
@@ -353,6 +387,7 @@ class TestRefreshCostDoesNotScaleWithHistory:
         assert buf_after is buf_before  # same object: the tail was written in place, not rebuilt
 
 
+@_NEEDS_FIGUREWIDGET
 class TestCallbackIntegration:
     """The callback must feed the widget without changing anything about how it already trains."""
 
