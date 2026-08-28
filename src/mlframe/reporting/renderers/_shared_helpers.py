@@ -23,6 +23,20 @@ _HEATMAP_MAX_TICKS = 8
 _SCATTER_MAX_POINTS = 50_000
 _HIST_PREBIN_THRESHOLD = 50_000
 _HEATMAP_CELL_TEXT_MAX = 400
+# Cap for ONE bar-category label. Both backends rotate these labels already, so the cap is a safety valve
+# against a pathological generated name (a 200-char column) blowing out the axis, not routine shortening.
+_BAR_LABEL_MAXLEN = 60
+
+
+def truncate_bar_label(label: Any, maxlen: int = _BAR_LABEL_MAXLEN) -> str:
+    """Shorten one bar-category label to ``maxlen`` chars, ellipsis-suffixed.
+
+    Single definition on purpose: both renderers need byte-identical label text or the same spec yields two
+    differently-labelled charts, and two copies of a truncation rule is exactly the drift this module exists
+    to prevent (see the shared threshold constants above).
+    """
+    s = str(label)
+    return s if len(s) <= maxlen else s[: maxlen - 1] + "..."
 
 
 def _thin_tick_positions(n: int, max_ticks: int = _HEATMAP_MAX_TICKS):

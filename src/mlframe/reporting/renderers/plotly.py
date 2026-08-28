@@ -44,7 +44,7 @@ from ._plotly_color import _axis_ref, _rgba, _mpl_to_plotly_cmap
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
     _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS,
     _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
-    panel_title_wrap_chars, wrap_annotation_text, wrap_title_lines,
+    panel_title_wrap_chars, truncate_bar_label, wrap_annotation_text, wrap_title_lines,
 )
 
 from mlframe.reporting.colors import NORMAL_OVERLAY, OVERLAY_LINE, PERFECT_FIT_LINE, TREND_LINE
@@ -115,10 +115,8 @@ def _marker_symbol(msym: str) -> str:
     return "star"
 
 
-def _truncate_label(label: str, maxlen: int = _BAR_XTICK_MAXLEN) -> str:
-    """Shorten a bar-category label to ``maxlen`` chars (ellipsis-suffixed) so long feature names don't crowd bar-chart tick axes."""
-    s = str(label)
-    return s if len(s) <= maxlen else s[: maxlen - 1] + "..."
+# ``_truncate_label`` is ``truncate_bar_label`` from ._shared_helpers -- one definition, both backends.
+_truncate_label = truncate_bar_label
 
 # Renderer-level safety nets for specs carrying raw large-n data. Builders are expected to
 # pre-sample / pre-bin, but the renderer is public API: above these thresholds a raw spec would

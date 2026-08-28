@@ -31,7 +31,7 @@ length-n arrays.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import numpy as np
 
@@ -69,7 +69,7 @@ def _finite_binary(y_true, y_score) -> Tuple[np.ndarray, np.ndarray]:
     return yt[mask].astype(np.int8), ys[mask]
 
 
-def effective_binary_n(y_true, y_score) -> int:
+def effective_binary_n(y_true: Any, y_score: Any) -> int:
     """Rows ``compute_net_benefit`` actually scores: finite score, finite label, label in {0,1}.
 
     Exposed because every sample-size-scaled threshold on this chart must be fed THIS count, not

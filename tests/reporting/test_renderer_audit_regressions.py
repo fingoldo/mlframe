@@ -123,7 +123,7 @@ class TestTickThinningMatchesAcrossBackends:
         ax = MatplotlibRenderer().render(FigureSpec(panels=((panel,),), figsize=(8.0, 10.0))).get_axes()[0]
         drawn = [t.get_text() for t in ax.get_yticklabels()]
         assert len(drawn) <= mpl_mod._BAR_TICK_KEEP + 1
-        assert max(len(s) for s in drawn) <= mpl_mod._BAR_LABEL_MAXLEN + 2  # +2 for the ellipsis, as plotly
+        assert max(len(s) for s in drawn) <= shared._BAR_LABEL_MAXLEN + 2  # +2 for the ellipsis, as plotly
 
 
 class TestSharedConstantsHaveOneDefinition:

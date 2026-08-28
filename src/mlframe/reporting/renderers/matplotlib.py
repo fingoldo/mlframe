@@ -22,7 +22,7 @@ from mlframe.reporting.spec import (
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
     _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS,
     _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
-    panel_title_wrap_chars, wrap_annotation_text, wrap_title_lines,
+    panel_title_wrap_chars, truncate_bar_label, wrap_annotation_text, wrap_title_lines,
 )
 
 from mlframe.reporting.colors import OVERLAY_LINE, TREND_LINE
@@ -66,13 +66,7 @@ _CAPTION_WRAP_CHARS = 110
 # evenly-spaced labels, and cap any single label so a long generated feature name cannot run off the axis.
 _BAR_TICK_THIN_THRESHOLD = 25
 _BAR_TICK_KEEP = 20
-_BAR_LABEL_MAXLEN = 60
-
-
-def _truncate_bar_label(label, maxlen: int = _BAR_LABEL_MAXLEN) -> str:
-    """Cap one bar-category label, mirroring the plotly renderer's identical safety valve."""
-    s = str(label)
-    return s if len(s) <= maxlen else s[: maxlen - 1] + "..."
+# _BAR_LABEL_MAXLEN / truncate_bar_label come from ._shared_helpers (one definition, both backends).
 
 
 # Above this many raw scatter points, cap (downsample preserving extremes) and rasterize so the saved vector
@@ -635,7 +629,7 @@ class MatplotlibRenderer:
             # y axis into an unreadable band of overlapping text, and a long generated feature name runs off
             # the left edge. The bars stay 1-per-category; only the LABELS are subsampled.
             n_cat = len(p.categories)
-            _cats = [_truncate_bar_label(c) for c in p.categories]
+            _cats = [truncate_bar_label(c) for c in p.categories]
             if n_cat > _BAR_TICK_THIN_THRESHOLD:
                 step = int(np.ceil(n_cat / _BAR_TICK_KEEP))
                 sel = np.arange(0, n_cat, step)
