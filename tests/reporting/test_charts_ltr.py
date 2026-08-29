@@ -20,6 +20,7 @@ from mlframe.reporting.charts.ltr import (
 from mlframe.reporting.output import parse_plot_output_dsl
 from mlframe.reporting.renderers import render_and_save
 from mlframe.reporting.spec import (
+    BarPanelSpec,
     HistogramPanelSpec,
     LinePanelSpec,
     ViolinPanelSpec,
@@ -153,17 +154,21 @@ class TestPanelTypes:
         # Group labels carry per-grade N.
         assert all("(n=" in lbl for lbl in panel.group_labels)
 
-    def test_top1_by_qsize_returns_line(self, synth_ltr_large):
-        """Top1 by qsize returns line."""
+    def test_top1_by_qsize_returns_categorical_bars(self, synth_ltr_large):
+        """A BAR over the bucket labels, not a line against fabricated midpoints.
+
+        REPORTING_CHARTS_B-40: the line was drawn against invented x positions (the ``16+`` bucket became 21) and
+        interpolated between buckets that have no meaningful distance between them. Only POPULATED buckets are
+        shown now, each label carrying its own query count.
+        """
         y, s, g = synth_ltr_large
         spec = compose_ltr_figure(y, s, g, panels_template="TOP1_BY_QSIZE")
         panel = spec.panels[0][0]
-        assert isinstance(panel, LinePanelSpec)
-        # 5 buckets per the implementation contract.
-        assert len(panel.x) == 5
-        # Top-1 acc in [0, 1] (or NaN for empty buckets).
-        y_arr = panel.y if not isinstance(panel.y, tuple) else panel.y[0]
-        finite = y_arr[~np.isnan(y_arr)]
+        assert isinstance(panel, BarPanelSpec)
+        assert 1 <= len(panel.categories) <= 5  # at most the five buckets, empty ones dropped
+        assert all("queries" in cat for cat in panel.categories)  # each carries its own denominator
+        # Top-1 acc in [0, 1] (or NaN for a bucket with no scoreable query).
+        finite = panel.values[~np.isnan(panel.values)]
         assert np.all((finite >= 0.0) & (finite <= 1.0))
 
 

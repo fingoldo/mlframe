@@ -35,7 +35,7 @@ from typing import Literal, Optional, Tuple
 import numpy as np
 
 from mlframe.metrics import trapezoid
-from mlframe.reporting.spec import FigureSpec, LinePanelSpec
+from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, LinePanelSpec
 
 MAX_PLOT_POINTS: int = 2000
 
@@ -177,6 +177,24 @@ def build_risk_coverage_spec(
     marked. Headline = AURC vs random AURC + accuracy@80% vs @100%.
     """
     coverage, accuracy, risk, aurc, full_risk, has_signal = compute_risk_coverage(y_true, y_score, task=task, confidence=confidence)
+    if coverage.size == 0 or not np.any(np.isfinite(risk)):
+        # On no usable row the curve is all-NaN (empty axes) while the title still asserted "constant confidence:
+        # no ranking signal" -- a verdict about the MODEL where the cause is the absence of data.
+        n_in = int(np.asarray(y_true).shape[0])
+        return RiskCoverageResult(
+            figure=FigureSpec(
+                suptitle="",
+                panels=((AnnotationPanelSpec(
+                    text=(f"Risk-coverage unavailable: none of the {n_in:,} supplied rows survives the finite "
+                          "y_true/score mask, so there is no confidence ordering to abstain along."),
+                    title=title,
+                ),),),
+                figsize=figsize,
+            ),
+            coverage=coverage, accuracy=accuracy, risk=risk,
+            aurc=float("nan"), aurc_random=float("nan"), metric_at_80=float("nan"), metric_at_100=float("nan"),
+            selective_gain=float("nan"), has_ranking_signal=False, task=str(task),
+        )
     is_regression = task == "regression"
 
     # Plain-language explainer wired into the title so a reader who has never seen a risk-coverage curve knows what it
@@ -274,7 +292,7 @@ def build_risk_coverage_spec(
             line_styles=("-", "--", ":"),
             colors=("#2ca02c", "#7f7f7f", "#d62728"),
             secondary_y=(False, False, True),
-            secondary_ylabel="Risk (1 - accuracy)",
+            secondary_ylabel="Risk = 1 - accuracy (lower is better)",
             title=title_full,
             xlabel="Coverage (fraction retained, most-confident first)",
             ylabel="Accuracy on retained",

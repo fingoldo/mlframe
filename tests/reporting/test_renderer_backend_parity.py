@@ -57,7 +57,10 @@ class TestHeatmapTrendLandsOnTheCategoryAxis:
 
     def test_trend_endpoints_are_valid_category_labels(self):
         """Every plotted x/y must be a label the axis actually has, or the line is simply not on the chart."""
-        panel, labels = _density_panel(trend_line="theil-sen", trend_xy=None)
+        # The throwaway panel is only a convenient source of ``matrix`` and ``labels``; setting trend_line on it
+        # without a point cloud is now rejected at construction (REPORTING_CORE-14 -- the renderers silently drew
+        # nothing in that case), and it was never what this test is about.
+        panel, labels = _density_panel()
         rng = np.random.default_rng(0)
         xs = rng.uniform(3000.0, 6600.0, 4000)
         panel = HeatmapPanelSpec(

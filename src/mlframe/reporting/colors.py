@@ -6,11 +6,11 @@ directly; plotly uses ``plotly.colors.sample_colorscale`` with a
 matplotlib-compatible name.
 
 Conventions:
-- ``CALIBRATION``: ``RdYlBu`` (blue=high population, red=low) — used in
+- ``CALIBRATION``: sequential ``viridis`` (bright = high population) -- used in
   the calibration scatter + bin-population histogram so both panels
   read against the same colorbar.
-- ``CONFUSION``: ``RdBu_r`` (sequential, red diagonal = confusion good)
-- ``HEATMAP_GENERIC``: ``viridis`` for non-confusion heatmaps
+- ``CONFUSION``: ``RdBu_r`` (diverging, centred on zero; red diagonal = confusion good)
+- ``HEATMAP_GENERIC``: the "no preference" sentinel; resolves to ``HEATMAP_CMAP`` (viridis)
 - ``BAR_PRIMARY``: ``"steelblue"`` (single-series bar default)
 - ``LINE_PALETTE``: discrete categorical palette for overlaid line
   plots (per-class ROC, multi-line NDCG@k etc.)
@@ -25,7 +25,9 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-CALIBRATION = "RdYlBu"
+# Population is an unsigned count, so this is sequential: a diverging map would imply a meaningful midpoint that a
+# count does not have. Both calibration panels share it so the scatter and the population histogram read together.
+CALIBRATION = "viridis"
 CONFUSION = "RdBu_r"
 # CB-safe heatmap defaults. ``HEATMAP_CMAP`` (viridis) is perceptually uniform and colourblind-safe for
 # unsigned magnitude heatmaps (confusion / PSI drift / weak-segment / co-occurrence / per-label threshold /
@@ -35,7 +37,11 @@ HEATMAP_CMAP = "viridis"
 DIVERGING_CMAP = "RdBu_r"
 # Generic-heatmap placeholder kept as the spec-field default; renderers resolve it to ``HEATMAP_CMAP`` so an
 # un-overridden HeatmapPanelSpec renders CB-safe on both backends. Builders that want a specific map pass it.
-HEATMAP_GENERIC = "Blues"
+# A sentinel meaning "the caller expressed no preference", NOT a colormap name. It used to be the literal string
+# "Blues", which made it indistinguishable from a builder genuinely asking for matplotlib's Blues -- the resolver
+# below silently turned that request into viridis with no way to express the difference. The token is deliberately
+# not a valid colormap name so the two can never be confused again.
+HEATMAP_GENERIC = "__mlframe_default_heatmap__"
 
 BAR_PRIMARY = "steelblue"
 # Overlay colours shared by BOTH renderers. These were hardcoded as literals at nine call sites across the
@@ -47,9 +53,11 @@ PERFECT_FIT_LINE = "green"
 NORMAL_OVERLAY = "red"
 ZERO_LINE = "green"
 
-# Discrete categorical palette. First 10 are matplotlib tab10 (kept stable so existing snapshots don't shift); the next
-# 10 extend to the full tab20 set so classes stop colliding before K=20. Plotly aliases tab10 via ``qualitative.Plotly``
-# (visually similar, not identical) -- cross-backend renderings won't pixel-match here.
+# Discrete categorical palette: matplotlib tab10. The tab20 lightness variants that used to extend it are gone --
+# under simulated deuteranopia/protanopia a hue and its lighter twin separate by as little as 2.8 (against 14.6 for
+# the worst tab10 pair), so they read as one colour to a red-green colourblind viewer. Past 10 series the dash cycle
+# in ``line_style`` distinguishes the wrap instead, which survives any colour vision. Plotly aliases tab10 via
+# ``qualitative.Plotly`` (visually similar, not identical) -- cross-backend renderings won't pixel-match here.
 LINE_PALETTE: Tuple[str, ...] = (
     "#1f77b4",  # tab:blue
     "#ff7f0e",  # tab:orange
@@ -61,16 +69,6 @@ LINE_PALETTE: Tuple[str, ...] = (
     "#7f7f7f",  # tab:gray
     "#bcbd22",  # tab:olive
     "#17becf",  # tab:cyan
-    "#aec7e8",  # tab20 light blue
-    "#ffbb78",  # tab20 light orange
-    "#98df8a",  # tab20 light green
-    "#ff9896",  # tab20 light red
-    "#c5b0d5",  # tab20 light purple
-    "#c49c94",  # tab20 light brown
-    "#f7b6d2",  # tab20 light pink
-    "#c7c7c7",  # tab20 light gray
-    "#dbdb8d",  # tab20 light olive
-    "#9edae5",  # tab20 light cyan
 )
 
 
@@ -100,12 +98,7 @@ def resolve_heatmap_cmap(colormap: Optional[str]) -> str:
     An un-overridden ``HeatmapPanelSpec.colormap`` is ``HEATMAP_GENERIC``; mapping it to ``HEATMAP_CMAP`` here
     means both renderers default heatmaps to perceptually-uniform viridis while an explicit override is honoured.
 
-    KNOWN LIMITATION, deliberately not fixed here: ``HEATMAP_GENERIC`` is the string "Blues", so a builder that
-    genuinely wants matplotlib's Blues cannot express it -- the sentinel and a real colormap share a name and
-    this function cannot tell them apart. Changing the sentinel to a non-colormap token (e.g. ``"__default__"``)
-    is the real fix, but ``HEATMAP_GENERIC`` is part of the public ``colors`` surface and is compared against
-    directly by external callers, so it is an API break rather than an internal rename. Callers needing Blues
-    today can pass ``"Blues_r"`` or the equivalent ``matplotlib.colormaps["Blues"]`` name variant.
+    ``HEATMAP_GENERIC`` is a sentinel token, not a colormap: passing ``"Blues"`` now means Blues and gets Blues.
     """
     if colormap is None or colormap == HEATMAP_GENERIC:
         return HEATMAP_CMAP

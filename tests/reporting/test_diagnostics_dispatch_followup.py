@@ -32,7 +32,13 @@ PNG = "matplotlib[png]"
 
 def _png_exists(base: str) -> bool:
     """Helper: Png exists."""
-    return os.path.exists(base + ".png") or os.path.exists(base + ".matplotlib.png")
+    # Charts land in a per-format subfolder by default (``png/name.png``); these tests care that the chart was
+    # PRODUCED, not which layout the run used.
+    directory, name = os.path.split(base)
+    return any(os.path.exists(c) for c in (
+        base + ".png", base + ".matplotlib.png",
+        os.path.join(directory, "png", name + ".png"), os.path.join(directory, "png", name + ".matplotlib.png"),
+    ))
 
 
 @pytest.fixture

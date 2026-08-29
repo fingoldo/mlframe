@@ -206,6 +206,8 @@ Every environment variable read anywhere in `src/mlframe/` via `os.environ.get(.
 | `MLFRAME_PIPELINE_CACHE_FORCE_RELOAD` | — | [src/mlframe/training/core/_setup_helpers_pipeline_cache.py](../src/mlframe/training/core/_setup_helpers_pipeline_cache.py#L158) |
 | `MLFRAME_PIPELINE_CACHE_RAM_FRACTION` | — | [src/mlframe/training/core/_phase_config_setup.py](../src/mlframe/training/core/_phase_config_setup.py#L169) |
 | `MLFRAME_PIPELINE_DISK_CACHE_PATH` | — | [src/mlframe/training/core/_setup_helpers_pipeline_cache.py](../src/mlframe/training/core/_setup_helpers_pipeline_cache.py#L109) |
+| `MLFRAME_PLOTLY_JS` | `'cdn'` | [src/mlframe/reporting/renderers/plotly.py](../src/mlframe/reporting/renderers/plotly.py#L107) |
+| `MLFRAME_PLOT_FORMAT_SUBFOLDERS` | — | [src/mlframe/reporting/renderers/save.py](../src/mlframe/reporting/renderers/save.py#L88) |
 | `MLFRAME_PLOT_INLINE_DISPLAY` | — | [src/mlframe/reporting/renderers/save.py](../src/mlframe/reporting/renderers/save.py#L102) |
 | `MLFRAME_POLYEVAL_BACKEND` | `''` | [src/mlframe/feature_selection/filters/hermite_fe/__init__.py](../src/mlframe/feature_selection/filters/hermite_fe/__init__.py#L388) |
 | `MLFRAME_POLYEVAL_CUDA_THRESHOLD` | `'500000'` | [src/mlframe/feature_selection/filters/hermite_fe/_hermite_oracle.py](../src/mlframe/feature_selection/filters/hermite_fe/_hermite_oracle.py#L18) |

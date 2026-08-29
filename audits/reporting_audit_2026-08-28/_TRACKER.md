@@ -12,14 +12,25 @@ A cluster file moves to `implemented/` only once EVERY finding in it carries a f
 
 | Cluster | Scope | Report | Findings | Status |
 |---|---|---|---|---|
-| reporting_core | `spec.py`, `output.py`, `colors.py`, `catalog.py`, `auto_dispatch.py`, `diagnostics_dispatch.py`, `report_html.py`, `_benchmarks/` | [implemented/reporting_core.md](implemented/reporting_core.md) | 30 (0/0/8/22) | **COMPLETE** (22 RESOLVED, 6 FUTURE, 1 DOC, 1 REJECTED) |
-| reporting_renderers | `renderers/**` (matplotlib, plotly, kaleido, save dispatch, shared helpers) | [implemented/reporting_renderers.md](implemented/reporting_renderers.md) | 29 (0/5/9/15) | **COMPLETE** (22 RESOLVED, 7 FUTURE) |
-| reporting_charts_a | `charts/` shared kernels + binary/calibration family | [reporting_charts_a.md](reporting_charts_a.md) | 36 (0/4/15/17) | IN PROGRESS (all 4 P1 RESOLVED) |
-| reporting_charts_b | `charts/` class-structure through multilabel (incl. `model_card`, `decision_curve`) | [implemented/reporting_charts_b.md](implemented/reporting_charts_b.md) | 68 (0/11/34/23) | **COMPLETE** (61 RESOLVED, 6 FUTURE, 1 DOC) -> [implemented/](implemented/reporting_charts_b.md) |
-| reporting_charts_c | `charts/` pdp through training_curve (incl. `risk_coverage`, `slice_finder`) | [reporting_charts_c.md](reporting_charts_c.md) | 40 (0/2/22/16) | IN PROGRESS (both P1 RESOLVED) |
-| reporting_ux_crosscutting | repo-wide caption inventory, verdict surfacing, degenerate cases, tooltips, colour accessibility, backend parity | [reporting_ux_crosscutting.md](reporting_ux_crosscutting.md) | 74 (0/4/41/29) | IN PROGRESS (1 RESOLVED) |
+| reporting_core | `spec.py`, `output.py`, `colors.py`, `catalog.py`, `auto_dispatch.py`, `diagnostics_dispatch.py`, `report_html.py`, `_benchmarks/` | [implemented/reporting_core.md](implemented/reporting_core.md) | 30 (0/0/8/22) | **COMPLETE** (26 RESOLVED, 2 FUTURE, 1 DOC, 1 REJECTED) |
+| reporting_renderers | `renderers/**` (matplotlib, plotly, kaleido, save dispatch, shared helpers) | [implemented/reporting_renderers.md](implemented/reporting_renderers.md) | 29 (0/5/9/15) | **COMPLETE** (28 RESOLVED, 1 FUTURE) |
+| reporting_charts_a | `charts/` shared kernels + binary/calibration family | [implemented/reporting_charts_a.md](implemented/reporting_charts_a.md) | 36 (0/4/15/17) | **COMPLETE** (29 RESOLVED, 4 FUTURE, 3 DOC) |
+| reporting_charts_b | `charts/` class-structure through multilabel (incl. `model_card`, `decision_curve`) | [implemented/reporting_charts_b.md](implemented/reporting_charts_b.md) | 68 (0/11/34/23) | **COMPLETE** (66 RESOLVED, 1 FUTURE, 1 DOC) -> [implemented/](implemented/reporting_charts_b.md) |
+| reporting_charts_c | `charts/` pdp through training_curve (incl. `risk_coverage`, `slice_finder`) | [implemented/reporting_charts_c.md](implemented/reporting_charts_c.md) | 40 (0/2/22/16) | **COMPLETE** (37 RESOLVED, 3 FUTURE) |
+| reporting_ux_crosscutting | repo-wide caption inventory, verdict surfacing, degenerate cases, tooltips, colour accessibility, backend parity | [implemented/reporting_ux_crosscutting.md](implemented/reporting_ux_crosscutting.md) | 74 (0/4/41/29) | **COMPLETE** (69 RESOLVED, 2 FUTURE, 3 REJECTED) |
 
-**Every P1 in the campaign is now RESOLVED (26 of 26).** The remaining work is P2/P3.
+**Every finding in the campaign carries a final disposition (277 of 277), and every cluster file has moved to `implemented/`.** Counted from the disposition cells: 268 RESOLVED, 3 FUTURE, 2 DOC, 4 REJECTED.
+
+A correction worth recording, because it is the kind of bookkeeping error an audit is supposed to make impossible: the Disposition column was written in an earlier round and not revisited when the work landed, so 34 rows read FUTURE while their OWN fix cell recorded a RESOLVED with measurements next to it. The two columns have been reconciled against the code, row by row. What that reconciliation exposed is that most of the remaining FUTUREs were deferrals to a blocker that had since been cleared, and they were implemented rather than re-deferred:
+
+- **CHARTS_C-12 / A-18** (four builders reading row order as time) turned out to rest on a wrong framing. The defect is not an irregular grid needing a resampling convention; it is that the ACF DELETED non-finite rows and closed the gaps. Keeping the holes and normalising by the observed pair count per lag needs no convention at all, and is exact.
+- **CHARTS_A-20** (a pointwise band supporting a whole-range claim) became a simultaneous sup-t band.
+- **CHARTS_A-36** (per-series finiteness masks making the compared curves incomparable) became one shared mask.
+- **CORE-21** was an API break, taken deliberately with the owner's approval rather than documented around.
+- **RUX-2** (49 per-token caption fragments) and **RUX-67** (nested plotly subplot domains) were the two largest pieces of deferred work and are both done.
+- **CORE-30** split into a real fix and a MEASURED reject, with the number written at the function -- reusing the probe's output would save 1 batch in 11,360.
+
+The three surviving FUTUREs are all the same thing: **CHARTS_A-19**, **B-59** and **C-28** are file carves, scheduled as their own commits because carving a file in the same change that alters its behaviour makes both undiffable. The two DOCs (**A-29**, **B-57**) are design decisions that were examined and kept, not work avoided. Two of the four rejections are findings a fix earlier in this same campaign had already closed; the disproof (both call sites read, byte-identical guards) is written next to each.
 
 **Total: 277 findings — 0 P0, 26 P1, 138 P2, 113 P3.** Counts are `(P0/P1/P2/P3)`.
 

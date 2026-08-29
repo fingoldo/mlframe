@@ -156,12 +156,24 @@ class TestUnmappedMarkerIsAudible:
         assert _marker_symbol("D") == "diamond"
 
     def test_an_unknown_marker_warns_once_then_falls_back(self, caplog):
-        """Silently turning a deliberate marker into a star made the backends disagree with no signal."""
-        plotly_mod._MARKER_WARNED.discard("v")
+        """Silently turning a deliberate marker into a star made the backends disagree with no signal.
+
+        ``v`` used to be the example of an unmapped token; RUX-71 extended the map to the 20 matplotlib markers
+        with a real plotly equivalent (``v`` is triangle-down now), so this uses a token that genuinely has none.
+        """
+        unmapped = "$custom$"
+        assert unmapped not in plotly_mod._MARKER_MAP
+        plotly_mod._MARKER_WARNED.discard(unmapped)
         with caplog.at_level("WARNING"):
-            assert _marker_symbol("v") == "star"
-            assert _marker_symbol("v") == "star"
+            assert _marker_symbol(unmapped) == "star"
+            assert _marker_symbol(unmapped) == "star"
         assert sum("no plotly equivalent" in r.message for r in caplog.records) == 1
+
+    def test_the_common_matplotlib_markers_now_map(self):
+        """Several distinct markers all silently became stars before the map was extended."""
+        assert _marker_symbol("v") == "triangle-down"
+        assert _marker_symbol("x") == "x-thin"
+        assert _marker_symbol("P") == "cross"
 
 
 class TestCaptionKeepsAuthorLineBreaks:

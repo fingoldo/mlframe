@@ -247,6 +247,8 @@ def render_split_error_diagnostics(
         res = weak_segment_heatmap(sub_df, yt_s, yp_s, task=task, feature_names=names, seed=seed)
         ok = _save_spec(res.figure, plot_outputs, base_path + "_weak_segments")
         _record(charts, "weak_segments", ok)
+        if ok:
+            _record_path(charts, base_path + "_weak_segments")
     except Exception:
         logger.exception("diagnostics_dispatch: weak_segment_heatmap failed; continuing.")
         _record(charts, "weak_segments", False)
@@ -255,6 +257,8 @@ def render_split_error_diagnostics(
         eb_res = error_bias_per_feature(sub_df, yt_s, yp_s, feature_names=names)
         ok = _save_spec(eb_res.figure, plot_outputs, base_path + "_error_bias")
         _record(charts, "error_bias", ok)
+        if ok:
+            _record_path(charts, base_path + "_error_bias")
     except Exception:
         logger.exception("diagnostics_dispatch: error_bias_per_feature failed; continuing.")
         _record(charts, "error_bias", False)
@@ -280,6 +284,8 @@ def render_split_error_diagnostics(
                 )
                 ok = _save_spec(spec, plot_outputs, base_path + "_segments")
                 _record(charts, "segments", ok)
+                if ok:
+                    _record_path(charts, base_path + "_segments")
         except Exception:
             logger.exception("diagnostics_dispatch: segments_bar failed; continuing.")
             _record(charts, "segments", False)
@@ -336,6 +342,8 @@ def render_target_drift_diagnostics(
             spec = psi_heatmap(test_frame, ts[: _row_count(test_frame)], feature_names=feature_names)
             ok = _save_spec(spec, plot_outputs, base_path + "_psi")
             _record(charts, "psi_heatmap", ok)
+            if ok:
+                _record_path(charts, base_path + "_psi")
         except Exception:
             logger.exception("diagnostics_dispatch: psi_heatmap failed; continuing.")
             _record(charts, "psi_heatmap", False)
@@ -351,6 +359,8 @@ def render_target_drift_diagnostics(
                     spec = residual_vs_time(yt[:m], yp[:m], ts[:m])
                     ok = _save_spec(spec, plot_outputs, base_path + "_residual_vs_time")
                     _record(charts, "residual_vs_time", ok)
+                    if ok:
+                        _record_path(charts, base_path + "_residual_vs_time")
                 except Exception:
                     logger.exception("diagnostics_dispatch: residual_vs_time failed; continuing.")
                     _record(charts, "residual_vs_time", False)
@@ -386,6 +396,8 @@ def render_target_drift_diagnostics(
                 spec = metric_over_time(yt[:m], yp[:m], ts[:m], metric=metric, higher_is_better=higher_is_better)
                 ok = _save_spec(spec, plot_outputs, base_path + "_metric_over_time")
                 _record(charts, "metric_over_time", ok)
+                if ok:
+                    _record_path(charts, base_path + "_metric_over_time")
             except Exception:
                 logger.exception("diagnostics_dispatch: metric_over_time failed; continuing.")
                 _record(charts, "metric_over_time", False)
@@ -412,6 +424,8 @@ def render_target_drift_diagnostics(
             )
             ok = _save_spec(spec, plot_outputs, base_path + "_adversarial")
             _record(charts, "adversarial", ok)
+            if ok:
+                _record_path(charts, base_path + "_adversarial")
         except Exception:
             logger.exception("diagnostics_dispatch: adversarial_validation failed; continuing.")
             _record(charts, "adversarial", False)
@@ -528,8 +542,16 @@ def _interaction_cost_within_budget(model: Any, df: Any, k: int, grid: int, samp
 
     The dominant work is ``C(k,2)`` 2-D PDP surfaces at ``grid^2`` predict-batches of ``sample`` rows each, plus ``k``
     1-D PDPs at ``grid`` batches. One predict on the sample gives the per-batch latency; the projection is model-agnostic
-    (a slow deep net self-skips, a fast tree runs). On any probe failure we allow the render (fail-open) -- the render
-    itself is best-effort and swallows errors.
+    (a slow deep net self-skips, a fast tree runs).
+
+    A failure inside the probe INFRASTRUCTURE (row count, subsetting) allows the render, because the render is
+    best-effort and swallows its own errors. A failure of the model's own ``predict`` does not: a model that cannot
+    predict on a clean sample cannot produce a single PDP surface either, so charging it the full budget only buys a
+    slow walk to the same failure.
+
+    The probe's OUTPUT is deliberately discarded rather than threaded into the composer. Reusing it would save one
+    batch out of ``n_pairs*grid^2 + k*grid`` -- at the defaults (k=8, grid=20) that is 1 of 11,360, under 0.01% of
+    the projected work -- which does not justify widening the composer's signature to accept a precomputed batch.
     """
     import time as _time
 
@@ -541,15 +563,23 @@ def _interaction_cost_within_budget(model: Any, df: Any, k: int, grid: int, samp
         fn = getattr(model, "predict_proba", None) or getattr(model, "predict", None)
         if fn is None:
             return True
+    except Exception:
+        logger.debug("interaction_strength: cost probe setup failed; allowing render.", exc_info=True)
+        return True
+    try:
         t0 = _time.perf_counter()
         fn(probe)
         t_batch = _time.perf_counter() - t0
-        n_pairs = k * (k - 1) // 2
-        projected = (n_pairs * grid * grid + k * grid) * t_batch
-        return projected <= float(max_seconds)
     except Exception:
-        logger.debug("interaction_strength: cost probe failed; allowing render.", exc_info=True)
-        return True
+        logger.info(
+            "[diagnostics] interaction_strength: the model raised on a %d-row probe predict, so no PDP surface can "
+            "be built -- skipping rather than spending the budget reaching the same failure.",
+            min(sample, n),
+        )
+        return False
+    n_pairs = k * (k - 1) // 2
+    projected = (n_pairs * grid * grid + k * grid) * t_batch
+    return projected <= float(max_seconds)
 
 
 def render_interaction_strength_diagnostic(

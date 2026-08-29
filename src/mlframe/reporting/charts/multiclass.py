@@ -23,14 +23,17 @@ Token catalogue (all 9):
 from __future__ import annotations
 
 import warnings
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence
 
 import numpy as np
+
+from ._captions import caption_for_tokens
 
 from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels, parse_panel_template,
 )
-from mlframe.reporting.colors import HEATMAP_CMAP
+from mlframe.reporting.charts._rank_stats import ovr_rank_auc
+from mlframe.reporting.colors import HEATMAP_CMAP, line_color, line_style
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, ConfusionMarginsPanelSpec, FigureSpec,
     HeatmapPanelSpec, LinePanelSpec, PanelSpec, ViolinPanelSpec,
@@ -45,19 +48,9 @@ _CONFUSION_TEXT_MAX_K: int = 15
 # that outranks every genuine, well-measured confusion on the chart.
 _CONFUSED_PAIRS_MIN_SUPPORT: int = 20
 
-# matplotlib tab20: extends the 10-color LINE_PALETTE so two classes never share
-# a color until K > 20 (per-class ROC / PR / calib overlays go well past 10).
-_TAB20: Tuple[str, ...] = (
-    "#1f77b4", "#aec7e8", "#ff7f0e", "#ffbb78", "#2ca02c", "#98df8a",
-    "#d62728", "#ff9896", "#9467bd", "#c5b0d5", "#8c564b", "#c49c94",
-    "#e377c2", "#f7b6d2", "#7f7f7f", "#c7c7c7", "#bcbd22", "#dbdb8d",
-    "#17becf", "#9edae5",
-)
-
-
 def _class_color(idx: int) -> str:
-    """Per-class line color; uses tab20 before recycling so up to 20 classes are distinct."""
-    return _TAB20[idx % len(_TAB20)]
+    """Per-class line colour from the shared palette (paired with ``line_style``'s per-wrap dash past 10 classes)."""
+    return line_color(idx)
 
 
 # Above this K the per-class ROC/PR/reliability overlays put K curves in one panel: slow to compute (K sklearn fits)
@@ -70,52 +63,11 @@ def _ova_auc_all_classes(yt_pos: np.ndarray, proba: np.ndarray) -> np.ndarray:
     """One-vs-rest AUC for every class at once via the rank (Mann-Whitney) identity -- one argsort per column.
 
     Selecting the worst-N classes needs an AUC for all K, but K separate sklearn ``roc_auc_score`` calls are the very
-    cost the top-N switch exists to avoid. The rank-sum AUC over the shared subsample is a single vectorised pass that
-    matches sklearn within display precision; classes with no positives/negatives return NaN (sorted last as "best").
+    cost the top-N switch exists to avoid. The rank-sum AUC over the shared subsample is a single vectorised pass
+    that matches sklearn within display precision; classes with no positives/negatives return NaN (sorted last as
+    "best").
     """
-    K = proba.shape[1]
-    n = yt_pos.shape[0]
-    out = np.full(K, np.nan, dtype=np.float64)
-    if n == 0:
-        return out
-    valid = yt_pos >= 0
-    for k in range(K):
-        col = proba[:, k]
-        finite = np.isfinite(col) & valid
-        scores = col[finite]
-        pos = yt_pos[finite] == k
-        n_pos = int(pos.sum())
-        n_neg = scores.shape[0] - n_pos
-        if n_pos == 0 or n_neg == 0:
-            continue
-        ranks = _avg_ranks(scores)  # tie-averaged ranks, fully vectorised
-        rank_sum_pos = ranks[pos].sum()
-        out[k] = (rank_sum_pos - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg)
-    return out
-
-
-def _avg_ranks(scores: np.ndarray) -> np.ndarray:
-    """Tie-averaged ranks (1-based) of ``scores``, fully vectorised (the ``scipy.stats.rankdata`` 'average' method).
-
-    Sort once; rank ties get the mean rank of their run so the rank-sum AUC matches sklearn on discrete / clipped
-    (0/1-saturated) probability columns. No Python per-run loop -- the run boundaries are found with a single diff.
-    """
-    n = scores.shape[0]
-    # Within-tie ordering is irrelevant (tied runs all collapse to one average rank), so the faster quicksort is fine.
-    order = np.argsort(scores)
-    sorted_scores = scores[order]
-    dense = np.empty(n, dtype=np.intp)
-    dense[0] = 0
-    if n > 1:
-        np.cumsum(sorted_scores[1:] != sorted_scores[:-1], out=dense[1:])
-    # For each distinct value, the average of its 1-based ordinal ranks is (first_ord + last_ord + 2)/2.
-    counts = np.bincount(dense)
-    last_ord = np.cumsum(counts)  # 1-based last ordinal per group
-    first_ord = last_ord - counts + 1  # 1-based first ordinal per group
-    group_avg = (first_ord + last_ord) / 2.0
-    ranks = np.empty(n, dtype=np.float64)
-    ranks[order] = group_avg[dense]
-    return ranks
+    return ovr_rank_auc(np.asarray(yt_pos), proba, int(proba.shape[1]))
 
 
 def _select_overlay_classes(yt_pos: np.ndarray, proba: np.ndarray, top_n: int) -> np.ndarray:
@@ -345,7 +297,7 @@ def _pr_f1_panel(y_true, y_proba, classes, *, y_pred=None) -> BarPanelSpec:
         categories=tuple(str(c) for c in classes),
         values=(np.asarray(precision), np.asarray(recall), np.asarray(f1)),
         series_labels=("precision", "recall", "F1"),
-        title="Per-class P / R / F1",
+        title=f"Per-class P / R / F1 (macro-F1={float(np.mean(f1)):.3f} over {K} classes)",
         xlabel="Class",
         ylabel="Score",
     )
@@ -421,7 +373,9 @@ def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: 
     chance = x_grid.copy()
     series = [chance, *interpolated]
     series_labels = ["chance", *labels]
-    styles = [":"] + ["-"] * len(interpolated)
+    # Past the palette's 10 hues the colour repeats, so the dash pattern is what keeps class 0 and class 10 apart --
+    # and it is the only separation that survives a red-green colour vision deficiency at any K.
+    styles = [":"] + [line_style(int(k)) for k in draw_idx]
     line_colors = ["gray", *colors]
     if class_subset is not None:
         # Macro-average TPR over the drawn classes anchors the truncated overlay to a population-level summary.
@@ -488,7 +442,7 @@ def _pr_curves_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_s
             labels.append(f"{classes[k]} (n/a)")
             baselines.append(np.full_like(x_grid, np.nan))
             baseline_labels.append("")
-            continue
+            continue  # no curve, so no baseline to label either
         bin_yf, colf = bin_y[finite], col[finite]
         ap = average_precision_score(bin_yf, colf)  # stratified-subsample AP
         precision, recall, _ = precision_recall_curve(bin_yf, colf)
@@ -501,7 +455,9 @@ def _pr_curves_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_s
         # subsample), otherwise AP-vs-baseline compares inconsistent prevalences.
         prevalence = float(int(bin_yf.sum())) / max(1, bin_yf.size)
         baselines.append(np.full_like(x_grid, prevalence))
-        baseline_labels.append("")
+        # An empty label put K unexplained dotted lines on the panel. Each one is the no-skill precision for ONE
+        # class -- its prevalence -- so it has to name the class and the number it draws.
+        baseline_labels.append(f"{classes[k]} no-skill ({prevalence:.3f})")
     n_drawn = len(draw_idx)
     series = list(interpolated)
     series_labels = list(labels)
@@ -731,6 +687,31 @@ _TOKEN_BUILDERS: Dict[str, Callable] = {
 
 ALLOWED_MULTICLASS_PANEL_TOKENS = frozenset(_TOKEN_BUILDERS)
 
+# One sentence per token, joined for the tokens ACTUALLY rendered (see ``_captions.caption_for_tokens``). The
+# figure-level caption used to describe the DEFAULT template, so a caller asking for a narrower mix read about
+# panels that were not on their figure.
+_TOKEN_CAPTIONS: Dict[str, str] = {
+    "CONFUSION": ("The confusion matrix reads row-wise: each row is a true class and shows where its rows actually landed."),
+    "CONFUSION_MARGINS": (
+        "The margins beside the matrix give each true class its support and each predicted class its volume, so a dense-looking row can be told from a well-populated one."
+    ),
+    "CONFUSED_PAIRS": (
+        "The confused-pairs panel ranks the specific class pairs the model mixes up, which is the actionable form of the same information the matrix holds."
+    ),
+    "ROC": ("The one-vs-rest ROC curves answer ranking per class; a class with few rows produces a jagged curve that is noise, not structure."),
+    "PR_CURVES": (
+        "The one-vs-rest PR curves each carry their own class prevalence as a baseline, so they can be compared to that line rather than to each other."
+    ),
+    "PR_F1": ("Per-class precision, recall and F1 turn the matrix into the three numbers a threshold decision actually uses."),
+    "PROB_DIST": (
+        "The predicted-probability distributions show how confident the model is per class; mass piled at the extremes with a poor calibration curve is over-confidence."
+    ),
+    "CALIB_GRID": ("The calibration grid asks, per class, whether a predicted 0.7 happens 70% of the time -- a question ranking metrics never answer."),
+    "TOP_K_ACC": (
+        "Top-k accuracy credits a prediction when the true class is anywhere in the k highest-scoring classes, which is the right metric when the output is a shortlist."
+    ),
+}
+
 
 def compose_multiclass_figure(
     y_true,
@@ -762,6 +743,19 @@ def compose_multiclass_figure(
         K <= this threshold every class still renders (no behaviour change for typical K).
     overlay_top_n : number of worst-by-AUC classes drawn on the overlay panels when K exceeds the threshold.
     """
+    if np.asarray(y_true).shape[0] == 0:
+        # Four of the six panels draw an empty or zero surface on no rows; only two annotate. One figure-level
+        # guard states the cause once rather than leaving four panels to each imply a measurement.
+        return FigureSpec(
+            suptitle=suptitle,
+            panels=((AnnotationPanelSpec(
+                text=(f"Multiclass report unavailable: 0 rows were supplied for {len(classes)} classes, so no "
+                      "confusion matrix, curve or calibration can be computed."),
+                title="Multiclass quality",
+            ),),),
+            figsize=(cell_width, cell_height),
+        )
+
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
     if unknown:
@@ -849,12 +843,10 @@ def compose_multiclass_figure(
         suptitle=suptitle,
         panels=grid,
         figsize=figsize_for_grid(n_rows, n_cols, cell_width=eff_cell_width, cell_height=cell_height),
-        caption=(
-            "All per-class panels are ONE-VS-REST: class k's positives against every other class pooled. Confusion "
-            "rows are normalised so each reads as P(pred | true) and sums to 1, which is why a rare class can show a "
-            "large off-diagonal cell on very few rows -- check its support before acting. Reliability x is the mean "
-            "predicted P(y=k) within a bin and y the rate observed there, so the diagonal is perfect calibration. "
-            f"Top-k accuracy is the chance the true class is among the k highest-scored; chance level is k/{K:g}."
+        caption=caption_for_tokens(
+            "How to read: the panels split into where the errors LAND and how well the scores rank and calibrate per class.",
+            tokens,
+            _TOKEN_CAPTIONS,
         ),
     )
 

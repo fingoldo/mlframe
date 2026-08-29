@@ -149,7 +149,7 @@ def test_single_member_figure_is_annotation():
     panels = [p for row in fig.panels for p in row if p is not None]
     assert len(panels) == 1
     assert isinstance(panels[0], AnnotationPanelSpec)
-    assert "Need >=2" in panels[0].text
+    assert "at least 2 ensemble members" in panels[0].text
 
 
 def test_tiny_n_calibration_annotates():
@@ -293,7 +293,11 @@ def test_spearman_njit_path_bit_identical_to_numpy_reference(monkeypatch):
     ):
         njit_val = ps._spearman(a, b)
         # Force the pure-numpy reference path (the pre-iter83 behaviour) by lifting the threshold above any input.
-        monkeypatch.setattr(ps, "_SPEARMAN_NJIT_MIN_N", 10**12)
+        # The dispatch threshold moved into the shared _rank_stats helper when the two panels' duplicate Spearmans
+        # were unified, so that is the module the patch has to land on.
+        from mlframe.reporting.charts import _rank_stats
+
+        monkeypatch.setattr(_rank_stats, "SPEARMAN_NJIT_MIN_N", 10**12)
         ref_val = ps._spearman(a, b)
         monkeypatch.undo()
         assert njit_val == ref_val, f"njit Spearman {njit_val!r} != numpy reference {ref_val!r}"

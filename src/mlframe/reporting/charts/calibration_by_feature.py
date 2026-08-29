@@ -43,8 +43,8 @@ _BIN_COLORS: Tuple[str, ...] = (
 )
 
 
-_is_single_class = is_single_class
-_reliability_points = reliability_points
+# The two private aliases that used to sit here added no behaviour -- dead indirection left by an earlier
+# consolidation. Call sites use the public names directly.
 
 
 def _het_traffic_light(gap: float, noise_floor: float = 0.0) -> str:
@@ -117,18 +117,21 @@ def _per_bin_ece(
     rng = np.random.default_rng(random_state)
     records = []
     skipped = []
+    order = np.argsort(codes, kind="stable")
+    yt_s, ys_s, fv_s, codes_s = yt[order], ys[order], fv[order], codes[order]
+    bounds = np.searchsorted(codes_s, np.arange(len(labels) + 1))
     for bi, label in enumerate(labels):
-        mask = codes == bi
-        bn = int(mask.sum())
-        by, bs, bf = yt[mask], ys[mask], fv[mask]
+        lo, hi = int(bounds[bi]), int(bounds[bi + 1])
+        bn = hi - lo
+        by, bs, bf = yt_s[lo:hi], ys_s[lo:hi], fv_s[lo:hi]
         center = float(np.median(bf)) if bn else float("nan")
-        if bn < _MIN_BIN_ROWS or _is_single_class(by):
+        if bn < _MIN_BIN_ROWS or is_single_class(by):
             skipped.append(f"{label} (n={bn})")
             continue
         if bn > _BIN_SUBSAMPLE_CAP:
             sel = rng.choice(bn, size=_BIN_SUBSAMPLE_CAP, replace=False)
             by, bs = by[sel], bs[sel]
-        pts = _reliability_points(by, bs, n_prob_bins)
+        pts = reliability_points(by, bs, n_prob_bins)
         if pts is None:
             skipped.append(f"{label} (degenerate)")
             continue
@@ -253,6 +256,10 @@ def compose_calibration_by_feature_figure(
         ylabel="ECE (lower = better calibrated)",
     )
 
+    # Deliberately RAGGED, not packed: row 0 is a strip of per-bin reliability minis and row 1 is one summary line
+    # spanning the width. ``pack_panels`` only makes RECTANGULAR grids, so routing this through it would pad row 1
+    # with empty cells and shrink the summary to 1/N of the width. Both renderers iterate rows independently
+    # (verified on both backends), so a short row is legal -- it is a wide panel, not a missing one.
     panels: Tuple[Tuple[PanelSpec, ...], ...] = (
         tuple(mini_panels),
         (ece_line,),
@@ -263,6 +270,13 @@ def compose_calibration_by_feature_figure(
         suptitle=f"{title}{skipped_note}",
         panels=panels,
         figsize=(width, height),
+        caption=(
+            "How to read: each line is the reliability curve for one slice of the feature, so a slice sitting below "
+            "the diagonal is OVER-confident within that slice even when the pooled model looks calibrated. Pooled "
+            "calibration can hide equal and opposite errors in two slices; that cancellation is exactly what this "
+            "panel exists to break out. Judge a slice by its own row count first: a thin slice wanders on sampling "
+            "noise alone."
+        ),
         row_height_ratios=(3.0, 2.0),
         sharey=False,
     )

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 from typing import Any, ClassVar, List, Optional
 
 import numpy as np
@@ -90,8 +91,27 @@ def _wrap_text(text: str, width: int, *, sep: str = "<br>") -> str:
 
 # matplotlib marker token -> plotly symbol name. Anything outside this table is a marker the caller chose
 # deliberately, so it is worth a warning rather than a silent substitution -- see ``_marker_symbol``.
-_MARKER_MAP: dict[str, str] = {"*": "star", "D": "diamond", "o": "circle", "s": "square", "^": "triangle-up"}
+_MARKER_MAP: dict[str, str] = {
+    "*": "star", "D": "diamond", "d": "diamond-tall", "o": "circle", "s": "square", "^": "triangle-up",
+    "v": "triangle-down", "<": "triangle-left", ">": "triangle-right", "p": "pentagon", "h": "hexagon",
+    "H": "hexagon2", "x": "x-thin", "X": "x", "+": "cross-thin", "P": "cross", ".": "circle", ",": "circle",
+    "8": "octagon", "|": "line-ns", "_": "line-ew",
+}
 _MARKER_WARNED: set = set()
+
+
+def _plotlyjs_mode():
+    """How plotly.js reaches the saved HTML: ``"cdn"`` (default) or ``True`` to inline the ~3-4 MB bundle.
+
+    A CDN reference produces blank panels on an air-gapped host and says nothing about why, so the offline choice
+    has to be reachable without editing the renderer: set ``MLFRAME_PLOTLY_JS=inline``.
+    """
+    mode = (os.environ.get("MLFRAME_PLOTLY_JS") or "").strip().lower()
+    if mode in ("inline", "embed", "true", "1", "yes", "on"):
+        return True
+    if mode == "directory":
+        return "directory"  # one shared plotly.min.js beside the reports; smallest total for a whole run
+    return "cdn"
 
 
 def _marker_symbol(msym: str) -> str:
@@ -235,6 +255,11 @@ class PlotlyRenderer:
                 else:
                     subplot_titles.append(_wrap_text(getattr(row[c], "title", "") or "", _panel_wrap))
 
+        # Row 1's titles live in the top MARGIN, but every later row's is stamped into the inter-row gap -- which
+        # was sized from the row count alone, so a tall title below row 1 had nothing reserved for it. Grow the gap
+        # with the tallest title in ANY row.
+        _max_title_lines = max((t.count("<br>") + 1) for t in subplot_titles if t) if any(subplot_titles) else 1
+
         subplots_kwargs = dict(
             rows=rows, cols=cols,
             specs=sub_specs,
@@ -243,7 +268,7 @@ class PlotlyRenderer:
             shared_yaxes=spec.sharey,
             horizontal_spacing=0.08,
             # Roomier vertical gap so a row's subplot-title annotation (stamped just above the subplot domain) clears the data/xticks of the row above and wrapped multi-line titles don't overlap the row beneath; capped at plotly's 1/(rows-1) ceiling.
-            vertical_spacing=min(0.16, 0.9 / max(rows, 1)) if rows > 1 else 0.16,
+            vertical_spacing=(min(0.16 + 0.03 * max(_max_title_lines - 1, 0), 0.9 / max(rows - 1, 1)) if rows > 1 else 0.16),
         )
         if spec.row_height_ratios is not None:
             total = sum(spec.row_height_ratios)
@@ -320,6 +345,17 @@ class PlotlyRenderer:
                 bgcolor="rgba(255,255,255,0.6)",
                 orientation="h", yanchor="top", y=-0.08, xanchor="center", x=0.5,
             ))
+        elif any(getattr(pn, "legend_outside", False) for row in spec.panels for pn in row if pn is not None):
+            # legend_outside / legend_ncol were matplotlib-only, so the many-series overlays they exist for got an
+            # in-axes legend covering the very curves on the HTML backend.
+            _ncol = max((int(getattr(pn, "legend_ncol", 1)) for row in spec.panels for pn in row if pn is not None), default=1)
+            fig.update_layout(legend=dict(
+                font=dict(size=9), itemsizing="constant", bgcolor="rgba(255,255,255,0.6)",
+                yanchor="middle", y=0.5, xanchor="left", x=1.02,
+                # plotly has no column count; a legend the caller wanted in N columns is at least made to
+                # TRACK across instead of running one very tall single file down the side.
+                orientation="h" if _ncol > 1 else "v",
+            ))
         apply_interactivity(fig, spec, static_legend=static_legend)
         return fig
 
@@ -327,12 +363,11 @@ class PlotlyRenderer:
         """Write ``fig`` to ``path`` in ``fmt`` (case-insensitive): ``html`` via ``write_html``, ``json`` via ``to_json``, ``png/svg/pdf`` via kaleido (falls back to html with a WARN if kaleido is missing). Raises ``ValueError`` on an unsupported format."""
         fmt = fmt.lower()
         if fmt == "html":
-            # include_plotlyjs="cdn" embeds a <script src="https://cdn.plot.ly/..."> reference instead of
-            # inlining plotly.js (~3-4 MB) into every report -- a deliberate file-size tradeoff. On a host
-            # with no outbound internet access (air-gapped training box, audited enterprise network) the
-            # resulting HTML renders as blank panels with no error surfaced to the viewer. Switch to
-            # include_plotlyjs=True (or a vendored local copy) if offline report viewing is required.
-            fig.write_html(path, include_plotlyjs="cdn", auto_open=False, config=html_config())
+            # include_plotlyjs="cdn" (the default) references plotly.js instead of inlining ~3-4 MB into every report -- a
+            # deliberate file-size tradeoff that renders as BLANK PANELS, with no error shown to the viewer, on a
+            # host with no outbound internet (air-gapped training box, audited enterprise network). See
+            # ``_plotlyjs_mode`` for the escape hatch.
+            fig.write_html(path, include_plotlyjs=_plotlyjs_mode(), auto_open=False, config=html_config())
         elif fmt == "json":
             with open(path, "w", encoding="utf-8") as f:
                 f.write(fig.to_json())
@@ -386,7 +421,8 @@ class PlotlyRenderer:
         _text = wrap_annotation_text(p.text, _panel_w_in, p.fontsize)
         fig.add_annotation(text=_text.replace("\n", "<br>"), x=0.5, y=0.5,
                            xref="x domain", yref="y domain", showarrow=False,
-                           font=dict(size=p.fontsize), align="center",
+                           font=dict(size=p.fontsize, family="monospace" if getattr(p, "monospace", False) else None),
+                           align="left" if getattr(p, "monospace", False) else "center",
                            row=row, col=col)
         fig.update_xaxes(visible=False, row=row, col=col)
         fig.update_yaxes(visible=False, row=row, col=col)
@@ -418,7 +454,7 @@ class PlotlyRenderer:
         # DIAMETER in px. Without conversion large mpl areas blow up to giant circles and the auto-axis range
         # goes haywire. Conversion: plotly_diameter_px = sqrt(mpl_area_pt2) * 1.33.
         if size_arr is not None:
-            marker["size"] = (np.sqrt(np.maximum(np.asarray(size_arr, dtype=float), 0.0)) * 1.33).tolist()
+            marker["size"] = np.sqrt(np.maximum(np.asarray(size_arr, dtype=float), 0.0)) * 1.33
         else:
             marker["size"] = float(math.sqrt(max(float(p.point_size), 0.0)) * 1.33)
         if color_arr is not None:
@@ -430,10 +466,27 @@ class PlotlyRenderer:
         elif p.point_color is not None:
             marker["color"] = p.point_color
 
-        # Hover labels for inline_labels (population annotations). Only valid when no downsample reordered rows.
+        # inline_labels are (x, y, text) triples placed AT THOSE COORDINATES on matplotlib. Using them as
+        # per-point marker text put them on the wrong points, and the len == n gate silently dropped a shorter
+        # list entirely -- the common case, since these annotate a handful of bins, not every row.
         text = None
-        if p.inline_labels and len(p.inline_labels) == n and n <= _SCATTER_MAX_POINTS:
-            text = [t[2] for t in p.inline_labels]
+        # add_annotation re-validates the whole growing tuple per call (O(n^2) over a loop), so only the FIRST call
+        # is made through it -- to let plotly resolve this subplot's axis refs -- and the rest are built as plain
+        # Annotation objects and assigned in one go.
+        _labels = tuple(p.inline_labels or ())
+        if _labels:
+            _lx, _ly, _ltext = _labels[0]
+            fig.add_annotation(x=_lx, y=_ly, text=str(_ltext), showarrow=False, font=dict(size=8), yshift=8, row=row, col=col)
+            if len(_labels) > 1:
+                _ref = fig.layout.annotations[-1]
+                _rest = tuple(
+                    go.layout.Annotation(
+                        x=lx, y=ly, text=str(txt), showarrow=False, font=dict(size=8), yshift=8,
+                        xref=_ref.xref, yref=_ref.yref,
+                    )
+                    for lx, ly, txt in _labels[1:]
+                )
+                fig.layout.annotations = fig.layout.annotations + _rest
 
         # Per-point error bars (e.g. Wilson CIs on reliability bins). CI panels carry n=bin-count points (no
         # downsample reorder), so the error arrays align with x/y as-passed; only attach when not downsampled.
@@ -529,6 +582,8 @@ class PlotlyRenderer:
             fig.update_yaxes(range=y_range, row=row, col=col)
             fig.update_xaxes(range=x_range, row=row, col=col)
         else:
+            if p.equal_aspect:
+                fig.update_yaxes(scaleanchor=_axis_ref(fig, row, col), scaleratio=1.0, row=row, col=col)
             if p.xlim is not None:
                 fig.update_xaxes(range=list(p.xlim), row=row, col=col)
             if p.ylim is not None:
@@ -629,18 +684,29 @@ class PlotlyRenderer:
         horizontal = p.orientation == "horizontal"
         cats = list(p.categories)
 
-        def _add_bar(values, color, label, show):
+        # matplotlib hatch tokens -> plotly pattern shapes, so a hatch set for colour-vision redundancy survives
+        # the backend switch instead of silently becoming a plain fill.
+        _HATCH_TO_PATTERN = {"/": "/", "//": "/", "\\": "\\", "\\\\": "\\", "x": "x", "xx": "x", "-": "-", "|": "|", "+": "+", ".": ".", "..": "."}
+
+        def _add_bar(values, color, label, show, hatch="", err=None):
+            """One bar trace; ``err`` is (lower, upper) distances along the value axis."""
             """Add one ``go.Bar`` trace for ``values`` with the given ``color``/legend ``label``/``show`` (showlegend) flag, oriented per the enclosing panel's horizontal/vertical setting."""
             if horizontal:
                 # Categories on y, values on x; reverse so the first category sits on top (worst-first reads down).
                 fig.add_trace(
-                    go.Bar(y=cats, x=np.asarray(values).tolist(), orientation="h", name=label, showlegend=show, marker=dict(color=color)),
+                    go.Bar(y=cats, x=np.asarray(values), orientation="h", name=label, showlegend=show,
+                           error_x=(dict(type="data", symmetric=False, array=np.asarray(err[1]),
+                                         arrayminus=np.asarray(err[0])) if err is not None else None),
+                           marker=dict(color=color, pattern=dict(shape=_HATCH_TO_PATTERN.get(hatch, "")))),
                     row=row,
                     col=col,
                 )
             else:
                 fig.add_trace(
-                    go.Bar(x=cats, y=np.asarray(values).tolist(), name=label, showlegend=show, marker=dict(color=color)),
+                    go.Bar(x=cats, y=np.asarray(values), name=label, showlegend=show,
+                           error_y=(dict(type="data", symmetric=False, array=np.asarray(err[1]),
+                                         arrayminus=np.asarray(err[0])) if err is not None else None),
+                           marker=dict(color=color, pattern=dict(shape=_HATCH_TO_PATTERN.get(hatch, "")))),
                     row=row,
                     col=col,
                 )
@@ -651,7 +717,7 @@ class PlotlyRenderer:
                 # plotly's default qualitative palette clashes with matplotlib's tab10 in the same figure; fall
                 # back to ``line_color(i)`` (tab10) when the spec doesn't pin colors for cross-backend parity.
                 color = p.colors[i] if (p.colors is not None and i < len(p.colors)) else line_color(i)
-                _add_bar(series, color, lbl, True)
+                _add_bar(series, color, lbl, True, p.hatches[i] if (p.hatches and i < len(p.hatches)) else "")
             # ``barmode`` is a FIGURE-level property, so setting it here from inside one panel silently
             # applies to every bar and histogram trace in the whole figure -- a sibling histogram panel that
             # wants "overlay" can never get it, and the setting arrives depending on panel ORDER. Only set it
@@ -660,7 +726,7 @@ class PlotlyRenderer:
             if fig.layout.barmode is None:
                 fig.update_layout(barmode="group")
         else:
-            _add_bar(p.values, p.colors[0] if p.colors else "steelblue", "", False)
+            _add_bar(p.values, p.colors[0] if p.colors else "steelblue", "", False, p.hatches[0] if p.hatches else "", p.value_err)
 
         # Reference line perpendicular to the bars (global metric). vline for horizontal bars (value axis is x),
         # hline for vertical bars (value axis is y).
@@ -768,7 +834,11 @@ class PlotlyRenderer:
                     trace_kw["fill"] = "tonexty"
                 trace_kw["fillcolor"] = _rgba(cols[i % len(cols)], 0.2)
                 if p.step_fill:
-                    trace_kw["line_shape"] = "hv"
+                    # matplotlib's step="post" steps the FILL EDGE and leaves the line straight; "hv" here stepped
+                    # the line too, so the same spec drew a staircase on one backend and a polyline on the other.
+                    # The fill edge is the shared meaning, so the line stays straight and the fill is stepped by
+                    # emitting the baseline boundary as a step trace.
+                    trace_kw.setdefault("line_shape", "linear")
             sec_kw = {"secondary_y": sec[i]} if has_secondary else {}
             fig.add_trace(
                 go.Scatter(x=_xi(i), y=yv,
@@ -791,13 +861,18 @@ class PlotlyRenderer:
             vlabel = span[4] if len(span) > 4 else ""
             fig.add_vrect(x0=vx0, x1=vx1, fillcolor=_rgba(vcolor, valpha), line_width=0, layer="below", row=row, col=col)
             if vlabel:
-                # No native per-vrect legend in plotly; add an invisible scatter proxy so the regime label shows.
+                # No native per-vrect legend in plotly; the invisible scatter proxy carries the label INTO the
+                # legend, and the annotation carries it onto the band itself -- which is the only one that survives
+                # on a multi-panel interactive figure, where the legend is off (hover identifies the series).
                 fig.add_trace(
                     go.Scatter(x=[None], y=[None], mode="markers",
                                marker=dict(size=8, color=_rgba(vcolor, max(valpha, 0.3)), symbol="square"),
                                name=vlabel, showlegend=True),
                     row=row, col=col,
                 )
+                fig.add_annotation(x=vx0, y=1.0, yref="y domain", yanchor="bottom", xanchor="left",
+                                   text=vlabel, showarrow=False, font=dict(size=8, color=vcolor),
+                                   row=row, col=col)
         for vx, vcolor, vlabel in p.vlines or ():
             # add_vline does arithmetic on x that raises on a datetime axis; a line-shape with the x in data coords
             # and y spanning the panel's y-domain works on numeric AND datetime axes alike.
@@ -865,7 +940,7 @@ class PlotlyRenderer:
             # 'Plotly' qualitative is over-saturated next to mpl bars).
             color = line_color(i)
             fig.add_trace(
-                go.Violin(y=np.asarray(group).tolist(),
+                go.Violin(y=np.asarray(group),
                           name=p.group_labels[i],
                           box_visible=p.show_box,
                           meanline_visible=False,

@@ -134,9 +134,12 @@ def compute_calibration_heatmap_2d(
                 "median_cell_ece": float("nan"), "traffic_light": "n/a",
                 "skipped": ["no finite (label, score, feat_x, feat_y) rows"]}
 
+    n_finite = int(yt.size)
+    subsample_ratio = 1.0
     if yt.size > _SUBSAMPLE_CAP:
         sel = np.random.default_rng(random_state).choice(yt.size, size=_SUBSAMPLE_CAP, replace=False)
         yt, ys, fx, fy = yt[sel], ys[sel], fx[sel], fy[sel]
+        subsample_ratio = n_finite / float(yt.size)
 
     ex = _quantile_edges(fx, n_bins)
     ey = _quantile_edges(fy, n_bins)
@@ -185,7 +188,10 @@ def compute_calibration_heatmap_2d(
     excess_flat = np.where(populated, ece_flat - floor_flat, np.nan)
 
     ece_grid = ece_flat.reshape(ny, nx)
-    support_grid = cnt.reshape(ny, nx).astype(np.int64)
+    # Two grids: what the ECE was COMPUTED on, and what the cell actually holds in the data. The annotation shows
+    # the latter, because "is this cell well supported?" is a question about the dataset, not about our sampling.
+    support_grid_sampled = cnt.reshape(ny, nx).astype(np.int64)
+    support_grid = np.rint(support_grid_sampled * subsample_ratio).astype(np.int64)
 
     if not np.any(np.isfinite(ece_flat)):
         skipped.append(f"no cell reached the {_MIN_CELL_ROWS}-row support floor")
@@ -197,7 +203,8 @@ def compute_calibration_heatmap_2d(
         median_ece = float(np.nanmedian(ece_flat))
         light = _traffic_light(worst_ece, _worst_cell_noise_floor(float(floor_flat[worst_idx]), int(populated.sum()), _CELL_SCORE_BINS))
 
-    return {"ece_grid": ece_grid, "support_grid": support_grid,
+    return {"ece_grid": ece_grid, "support_grid": support_grid, "support_grid_sampled": support_grid_sampled,
+            "n_finite": n_finite, "subsample_ratio": subsample_ratio,
             "x_labels": _edge_labels(ex), "y_labels": _edge_labels(ey),
             "worst_ece": worst_ece, "worst_cell": worst_cell,
             "median_cell_ece": median_ece, "traffic_light": light, "skipped": skipped}
@@ -256,7 +263,16 @@ def compose_calibration_heatmap_2d_figure(
             e = ece_grid[i, j]
             cell_text[i, j] = "n/a" if not np.isfinite(e) else f"{e:.3f}\nn={support[i, j]:,}"
 
-    headline = f"worst cell: {feat_x_name}={x_labels[wx]}, {feat_y_name}={y_labels[wy]}  ECE={worst:.3f}  [{light}]" f"  |  median-cell ECE={median_ece:.3f}"
+    # The ECE was computed on a subsample when the frame is large, while the per-cell n now reports the FULL data.
+    # Two different sample sizes on one panel have to be disclosed, or the reader assumes the ECE saw all n rows.
+    _ratio = float(res.get("subsample_ratio", 1.0) or 1.0)
+    _sample_note = (
+        f"  |  ECE computed on {int(res.get('n_finite', 0) / _ratio):,} sampled rows; cell n is the full " f"{int(res.get('n_finite', 0)):,}"
+        if _ratio > 1.0
+        else ""
+    )
+    headline = (f"worst cell: {feat_x_name}={x_labels[wx]}, {feat_y_name}={y_labels[wy]}  ECE={worst:.3f}  [{light}]"
+                f"  |  median-cell ECE={median_ece:.3f}{_sample_note}")
     skipped_note = ("  skipped: " + ", ".join(skipped)) if skipped else ""
 
     panel: PanelSpec = HeatmapPanelSpec(
@@ -277,6 +293,13 @@ def compose_calibration_heatmap_2d_figure(
         suptitle=f"{title}{skipped_note}",
         panels=((panel,),),
         figsize=(width, height),
+        caption=(
+            "How to read: each cell is the difference between observed and predicted rate for rows falling in that "
+            "(feature, feature) region -- positive means the model UNDER-predicts there. Read the support alongside "
+            "the colour: a deep-red cell holding a handful of rows is sampling noise, while a pale cell over "
+            "thousands of rows can be a real, actionable bias. Empty regions are regions the data never visited, "
+            "not regions where the model is right."
+        ),
     )
 
 

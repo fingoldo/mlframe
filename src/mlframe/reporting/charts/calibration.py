@@ -13,6 +13,8 @@ wrapper).
 
 from __future__ import annotations
 
+import logging
+
 from typing import Literal, Optional, Tuple, cast
 
 import numpy as np
@@ -21,6 +23,8 @@ from mlframe.reporting.colors import HEATMAP_CMAP
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, FigureSpec, HistogramPanelSpec, LinePanelSpec, ScatterPanelSpec,
 )
+
+logger = logging.getLogger(__name__)
 
 # Cap on per-point bubble area so a single dominant bin can't occlude its
 # neighbours; populations above the cap are sqrt-compressed instead of clipped
@@ -101,7 +105,9 @@ def bootstrap_reliability_band(
     """Bootstrap 95% confidence band around the smoothed isotonic reliability curve.
 
     Resamples the ``(score, label)`` rows with replacement ``n_boot`` times, refits isotonic each time, evaluates every
-    refit on the SHARED ``[score_min, score_max]`` grid, then takes the 2.5/97.5 percentiles per grid point. Returns
+    refit on the SHARED ``[score_min, score_max]`` grid, then builds a SIMULTANEOUS (sup-t) 95% band from those
+    curves -- the pointwise percentile band it replaced under-covered the whole range, which is what the reported
+    fraction is a claim about. Returns
     ``(grid, lower, upper, significant_fraction)`` where ``significant_fraction`` is the share of the grid on which the
     band EXCLUDES the perfect-fit diagonal (``y == score``) -- i.e. where the miscalibration is statistically real
     rather than sampling noise. The point Wilson CIs answer this per bin; this band answers it for the whole curve.
@@ -118,7 +124,10 @@ def bootstrap_reliability_band(
     s, t = s[finite], t[finite]
     if s.size < _SMOOTHED_MIN_ROWS:
         return None
-    if np.unique(t).size < 2:
+    # Linear min==max, matching both inner loops: this is the same "< 2 distinct values" predicate, and it runs
+    # on the FULL row count before the subsample below, so np.unique made an unsorted large frame pay an
+    # O(n log n) sort purely to answer a boolean.
+    if t.min() == t.max():
         return None
     smin, smax = float(s.min()), float(s.max())
     if not (smax > smin):
@@ -129,7 +138,14 @@ def bootstrap_reliability_band(
     n = s.size
     grid = np.linspace(smin, smax, n_grid)
     curves = np.empty((n_boot, n_grid), dtype=np.float64)
-    idx = rng.integers(0, n, size=(n_boot, n))  # one vectorised draw of all B resample index rows
+    # Drawn in chunks rather than as one (n_boot, n) block: the consumer reads one row at a time, so the full
+    # matrix (60 MB at n=100k / B=150) was live for no reason. Same RNG call order, so the draws are identical.
+    _CHUNK = 32
+
+    def _idx_rows():
+        """Yield each resample's index row, materialising at most ``_CHUNK`` rows at a time."""
+        for _start in range(0, n_boot, _CHUNK):
+            yield from rng.integers(0, n, size=(min(_CHUNK, n_boot - _start), n))
 
     # Fast path: when the base scores are all DISTINCT, a with-replacement resample is exactly the base with per-row
     # integer multiplicity, so every one of the B isotonic fits reduces to ``isotonic_regression`` on the base sorted
@@ -146,16 +162,16 @@ def bootstrap_reliability_band(
         xs, ts = s[order], t[order]
         rank = np.empty(n, dtype=np.int64)
         rank[order] = np.arange(n)  # sorted position of each original row
-        for b in range(n_boot):
-            counts = np.bincount(rank[idx[b]], minlength=n).astype(np.float64)
+        for _row in _idx_rows():
+            counts = np.bincount(rank[_row], minlength=n).astype(np.float64)
             m = counts > 0
             mc = int(m.sum())
             if mc < 2:
                 continue
-            tm = ts[m]  # gathered once, reused below -- was re-gathered a 2nd time via ts[m] in the isotonic_regression call
-            # "< 2 distinct values" via min==max is the same predicate np.unique(tm).size<2 tests, O(n) two-reductions
-            # vs np.unique's O(n log n) sort -- line_profiler showed this check alone at ~18% of the function's self
-            # time (150 resamples/call, called per bootstrap band). Same fix applied to the fallback branch below.
+            tm = ts[m]  # gathered once and reused: the isotonic fit below needs the same rows
+            # "< 2 distinct values" via min==max: two O(n) reductions rather than np.unique's O(n log n) sort.
+            # This runs once per bootstrap resample (150 per call), where the sort measured ~18% of this
+            # function's self time.
             if tm.min() == tm.max():
                 continue
             # Same degenerate-resample skip as the fallback: a single-class label set has no monotone signal ->
@@ -166,8 +182,7 @@ def bootstrap_reliability_band(
     else:
         from sklearn.isotonic import IsotonicRegression
         iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
-        for b in range(n_boot):
-            sel = idx[b]
+        for sel in _idx_rows():
             sb, tb = s[sel], t[sel]
             # An all-one-class or all-equal-score resample has no monotone signal. EXCLUDE such draws from the band
             # rather than substituting the full-sample fit: substituting injected the (tight, true-curve) full-sample
@@ -183,8 +198,21 @@ def bootstrap_reliability_band(
         # spuriously tight one. (Happens only on tiny / near-degenerate inputs the point curve already strains on.)
         return None
     curves = curves[:n_valid]
-    lower = np.percentile(curves, 2.5, axis=0)
-    upper = np.percentile(curves, 97.5, axis=0)
+    # SIMULTANEOUS (sup-t) band, not the pointwise 2.5/97.5 percentiles. A pointwise band covers the true curve at
+    # each grid point separately, so across a 100-point grid the chance that the curve leaves it SOMEWHERE is far
+    # above 5% -- and "significant on X% of the range" is exactly a statement about somewhere, so the pointwise band
+    # made noise read as miscalibration. The sup-t construction scales the pointwise width by the smallest constant
+    # that keeps 95% of the bootstrap curves entirely inside, which is a 95% claim about the WHOLE range.
+    center = np.median(curves, axis=0)
+    scale = 0.5 * (np.percentile(curves, 97.5, axis=0) - np.percentile(curves, 2.5, axis=0))
+    scale = np.where(scale > 0, scale, np.nan)  # a grid point with no spread cannot be exceeded; ignore it
+    with np.errstate(invalid="ignore"):
+        z_sup = np.nanmax(np.abs(curves - center) / scale, axis=1)
+    z_sup = z_sup[np.isfinite(z_sup)]
+    crit = float(np.percentile(z_sup, 95.0)) if z_sup.size else 1.0
+    half = np.where(np.isfinite(scale), scale, 0.0) * crit
+    lower = center - half
+    upper = center + half
     # Significant where the whole band lies off the diagonal: either entirely above (lower > grid) or entirely below
     # (upper < grid). Anywhere the band straddles ``y == score`` the deviation is within sampling noise.
     excludes = (lower > grid) | (upper < grid)
@@ -398,14 +426,24 @@ def build_calibration_spec(
         empty_ann = AnnotationPanelSpec(text=(plot_title + "\n" if plot_title else "") + "calibration unavailable: no finite bins", title=plot_title or "Calibration")
         return FigureSpec(suptitle="", panels=((empty_ann,),), figsize=figsize)
 
-    if len(freqs_predicted) > 1:
-        bar_width = float(np.mean(np.diff(np.sort(freqs_predicted))))
+    # NaN-safe: a single non-finite bin centre made `np.mean(np.diff(...))` NaN, which matplotlib and plotly
+    # both render as NO BARS AT ALL -- the histogram silently disappeared rather than dropping one bin.
+    _finite_centres = np.sort(np.asarray(freqs_predicted, dtype=np.float64))
+    _finite_centres = _finite_centres[np.isfinite(_finite_centres)]
+    if _finite_centres.size > 1:
+        _gaps = np.diff(_finite_centres)
+        _gaps = _gaps[np.isfinite(_gaps) & (_gaps > 0)]
+        bar_width = float(_gaps.mean()) if _gaps.size else 0.05
     else:
         bar_width = 0.05
 
     inline_labels: Optional[Tuple[Tuple[float, float, str], ...]] = None
     if show_inline_population_labels and len(hits) > 0 and len(freqs_predicted) <= INLINE_LABEL_MAX_BINS:
-        inline_labels = tuple((float(x), float(y), _format_population(float(h))) for x, y, h in zip(freqs_predicted, freqs_true, hits))
+        # Skip non-finite points: a label emitted at NaN coordinates is a ghost -- invisible on matplotlib and
+        # an off-canvas annotation on plotly -- so a NaN bin used to leave a stray, unplaceable label behind.
+        inline_labels = tuple(
+            (float(x), float(y), _format_population(float(h))) for x, y, h in zip(freqs_predicted, freqs_true, hits) if np.isfinite(x) and np.isfinite(y)
+        )
 
     point_size = _bubble_point_size(hits)
 
@@ -421,7 +459,7 @@ def build_calibration_spec(
                 if band is not None:
                     bgrid, blo, bhi, sig_frac = band
                     overlay_band = (bgrid, blo, bhi)
-                    band_annotation = f"miscal. significant on {sig_frac*100:.0f}% of range"
+                    band_annotation = f"miscal. significant on {sig_frac*100:.0f}% of range (simultaneous 95% band)"
 
     # Wilson CI band on the observed frequency per bin: ``freqs_true`` is the per-bin positive rate, ``hits`` its
     # count, so the binomial interval reflects sampling uncertainty (wide where a bin holds few points). The spec
@@ -447,6 +485,8 @@ def build_calibration_spec(
         x=freqs_predicted,
         y=freqs_true,
         title=scatter_title,
+        # Empty ON PURPOSE when the population histogram is drawn: it shares this x axis and carries the label,
+        # so repeating it here would print the same axis name twice in one stacked figure.
         xlabel=label_prob if not show_prob_histogram else "",
         ylabel=label_freq,
         perfect_fit_line=True,
@@ -493,15 +533,37 @@ def build_calibration_spec(
         suptitle="",
         panels=((scatter,), (hist,)),
         figsize=figsize,
+        caption=(
+            "How to read: points on the diagonal mean a predicted probability of p is right about p of the time. "
+            "Below the diagonal is OVER-confidence, above it under-confidence. Read the score histogram underneath "
+            "before believing any part of the curve: a bin holding a handful of rows swings on noise, and most of "
+            "the visual span of a calibration curve is usually carried by very few rows."
+        ),
         row_height_ratios=(3.0, 1.0),
         sharex=True,
     )
 
 
-def _reliability_curve(p: np.ndarray, y: np.ndarray, edges: np.ndarray) -> np.ndarray:
-    """Observed positive rate per uniform bin (nan for empty bins). Vectorized via bincount."""
-    finite = np.isfinite(p) & np.isfinite(y)
+def _reliability_curve(p: np.ndarray, y: np.ndarray, edges: np.ndarray, *, keep: Optional[np.ndarray] = None) -> np.ndarray:
+    """Observed positive rate per uniform bin (nan for empty bins). Vectorized via bincount.
+
+    ``keep`` is a row mask decided by the CALLER. An overlay compares its curves against each other, so every curve
+    has to rest on the same rows; a per-curve finiteness mask silently gives each series its own subset and the
+    comparison stops meaning anything. A single-curve caller can leave it None and get the per-curve mask.
+    """
+    finite = np.isfinite(p) & np.isfinite(y) if keep is None else keep
     p, y = p[finite], y[finite]
+    lo, hi = float(edges[0]), float(edges[-1])
+    in_range = (p >= lo) & (p <= hi)
+    if not np.all(in_range):
+        n_out = int((~in_range).sum())
+        logger.warning(
+            "reliability curve: %d of %d scores fall outside the [%.3g, %.3g] bin range (min %.4g, max %.4g) and "
+            "are EXCLUDED. Folding them into the edge bins (the previous behaviour) made an out-of-range score "
+            "look like a confident, well-calibrated one.",
+            n_out, int(p.size), lo, hi, float(p.min()), float(p.max()),
+        )
+        p, y = p[in_range], y[in_range]
     nbins = len(edges) - 1
     bin_ids = np.clip(np.digitize(p, edges, right=False) - 1, 0, nbins - 1)
     counts = np.bincount(bin_ids, minlength=nbins).astype(np.float64)
@@ -533,17 +595,29 @@ def build_reliability_overlay_spec(
     edges = np.linspace(0.0, 1.0, n_bins + 1)
     centers = 0.5 * (edges[:-1] + edges[1:])
 
+    calibrated_probs = calibrated_probs or {}
+    series_labels = series_labels or {}
+    # One mask over the target and EVERY series, so the curves are comparable. Masking per curve let a calibrator
+    # that produced a NaN on some rows be judged on a different subset of the data than the raw curve it is drawn
+    # against, which is the one comparison this figure exists to support.
+    keep = np.isfinite(y) & np.isfinite(raw_probs)
+    for cal_p in calibrated_probs.values():
+        arr = np.asarray(cal_p, dtype=np.float64).ravel()
+        if arr.shape == keep.shape:
+            keep &= np.isfinite(arr)
+    n_keep = int(keep.sum())
+    n_dropped = int(keep.size - n_keep)
+
     series = [centers.copy()]  # perfect diagonal as the first series
     labels = ["perfect"]
     styles = [":"]
-    series.append(_reliability_curve(raw_probs, y, edges))
-    labels.append("raw OOF")
+    series.append(_reliability_curve(raw_probs, y, edges, keep=keep))
+    labels.append(f"raw OOF (n={n_keep:,})")
     styles.append("lines+markers")
 
-    calibrated_probs = calibrated_probs or {}
-    series_labels = series_labels or {}
     for name, cal_p in calibrated_probs.items():
-        series.append(_reliability_curve(np.asarray(cal_p, dtype=np.float64).ravel(), y, edges))
+        arr = np.asarray(cal_p, dtype=np.float64).ravel()
+        series.append(_reliability_curve(arr, y, edges, keep=keep if arr.shape == keep.shape else None))
         labels.append(series_labels.get(name, str(name)))
         styles.append("lines+markers")
 
@@ -556,7 +630,22 @@ def build_reliability_overlay_spec(
         xlabel="predicted probability",
         ylabel="empirical frequency",
     )
-    return FigureSpec(suptitle="", panels=((line,),), figsize=figsize)
+    return FigureSpec(
+        suptitle="",
+        panels=((line,),),
+        figsize=figsize,
+        caption=(
+            "How to read: the curve maps predicted probability to observed frequency; the diagonal is perfect "
+            "calibration. A monotone S-shape is the usual tree-ensemble signature and is fixable by a post-hoc "
+            "isotonic or Platt fit, which changes calibration without changing the ranking (so AUC is unaffected). "
+            + (
+                f"All curves are drawn on the same {n_keep:,} rows ({n_dropped:,} dropped as non-finite in the "
+                "target or in any series), so they are comparable against each other."
+                if n_dropped
+                else f"All curves are drawn on the same {n_keep:,} rows."
+            )
+        ),
+    )
 
 
 def _midrank(x: np.ndarray) -> np.ndarray:
@@ -593,6 +682,24 @@ def delong_auc_variance(y_true: np.ndarray, y_score: np.ndarray) -> Tuple[float,
     """
     yt = np.asarray(y_true).ravel()
     ys = np.asarray(y_score, dtype=np.float64).ravel()
+    # NaN never compares equal to itself, so a non-finite score's tie block is empty and its midrank is meaningless
+    # -- and the AUC built from it is silently wrong rather than undefined. Drop those rows and say how many.
+    finite = np.isfinite(ys)
+    if not np.all(finite):
+        logger.warning(
+            "delong_auc_variance: dropping %d of %d rows with a non-finite score; a NaN has no rank, so leaving it "
+            "in produces a midrank from an empty tie block and an AUC that is wrong rather than undefined.",
+            int((~finite).sum()), int(ys.size),
+        )
+        yt, ys = yt[finite], ys[finite]
+    labels = np.unique(yt)
+    off_domain = [v for v in labels.tolist() if v not in (0, 1, True, False)]
+    if off_domain:
+        logger.warning(
+            "delong_auc_variance: y_true carries %d label(s) outside {0, 1} (%s); those rows are treated as the "
+            "NEGATIVE class, which is a one-vs-rest reading of a target that may not be binary.",
+            len(off_domain), off_domain[:5],
+        )
     pos = ys[yt == 1]
     neg = ys[yt == 0]
     m = pos.size

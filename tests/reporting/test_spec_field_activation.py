@@ -291,7 +291,9 @@ def test_psi_heatmap_has_threshold_contours():
     heats = _panels_of_type(spec, HeatmapPanelSpec)
     assert heats, "psi_heatmap must build a HeatmapPanelSpec"
     assert heats[0].threshold_contours is not None
-    levels = [v for v, _c in heats[0].threshold_contours]
+    # Entries carry (value, colour, dash, label) now: two triage lines separated by colour alone are
+    # indistinguishable under protanopia (RUX-60), so the dash and label are part of the field.
+    levels = [entry[0] for entry in heats[0].threshold_contours]
     assert 0.10 in levels and 0.25 in levels
 
 

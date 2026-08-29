@@ -244,14 +244,14 @@ def target_dist_overlay(
             ))
     grid = pack_panels(panels, max_cols=2)
     return FigureSpec(
-        suptitle=f"{title}\n{drift_line}",
+        suptitle=title,
         panels=grid,
         figsize=figsize_for_grid(1, max(len(panels), 1), cell_width=7.0, cell_height=4.5),
         caption=(
             "Overlaid per-split distributions of the target and of the predictions. Curves that separate mean the "
             "splits are not exchangeable, so a holdout metric may not transfer to the next period. The grey band is "
             "the train p01-p99 envelope: prediction mass outside it is extrapolation, where the model has never "
-            "seen a comparable example. The shift line above states the verdict for this data."
+            f"seen a comparable example. VERDICT: {drift_line}"
         ),
     )
 

@@ -72,6 +72,17 @@ def _network(self, fig, p: NetworkPanelSpec, row: int, col: int) -> None:
                 row=row,
                 col=col,
             )
+            _label = p.colorbar_label if p.colorbar_label else "edge weight"
+            fig.add_trace(
+                go.Scattergl(
+                    x=[(node_x[a] + node_x[d]) / 2.0 for a, d in zip(e_src[mask], e_dst[mask])],
+                    y=[(node_y[a] + node_y[d]) / 2.0 for a, d in zip(e_src[mask], e_dst[mask])],
+                    mode="markers", marker=dict(size=6, color=color, opacity=0.01),
+                    hovertext=[f"{p.node_label[a]} - {p.node_label[d]}<br>{_label}={w:.4g}"
+                               for a, d, w in zip(e_src[mask], e_dst[mask], weights[mask])],
+                    hoverinfo="text", showlegend=False),
+                row=row, col=col,
+            )
 
         # Invisible marker trace at edge midpoints carries the continuous MI
         # colorbar and a per-edge hover readout without cluttering the plot.
@@ -79,8 +90,8 @@ def _network(self, fig, p: NetworkPanelSpec, row: int, col: int) -> None:
         mid_y = (node_y[e_src] + node_y[e_dst]) / 2.0
         fig.add_trace(
             go.Scattergl(
-                x=mid_x.tolist(), y=mid_y.tolist(), mode="markers",
-                marker=dict(size=0.1, color=weights.tolist(), colorscale=colorscale,
+                x=mid_x, y=mid_y, mode="markers",
+                marker=dict(size=0.1, color=weights, colorscale=colorscale,
                             showscale=True,
                             colorbar=dict(title=p.colorbar_label) if p.colorbar_label else None),
                 text=[f"MI={w:.4f}" for w in weights],
@@ -128,14 +139,23 @@ def _network(self, fig, p: NetworkPanelSpec, row: int, col: int) -> None:
     hovertext = list(p.node_hovertext) if p.node_hovertext else list(p.node_label)
     fig.add_trace(
         go.Scattergl(
-            x=node_x.tolist(), y=node_y.tolist(),
+            x=node_x, y=node_y,
             mode="markers+text",
-            marker=dict(size=sizes.tolist(), color=list(p.node_color),
+            marker=dict(size=sizes, color=list(p.node_color),
                         line=dict(width=0.5, color="black")),
             text=list(p.node_label), textposition="top center", textfont=dict(size=8),
             hovertext=hovertext, hoverinfo="text", showlegend=False),
         row=row, col=col,
     )
+
+    for _lbl, _col in p.node_legend or ():
+        fig.add_trace(
+            go.Scattergl(x=[None], y=[None], mode="markers", marker=dict(size=9, color=_col), name=_lbl, showlegend=True, hoverinfo="skip"),
+            row=row,
+            col=col,
+        )
+    if p.node_legend:
+        fig.update_layout(showlegend=True)
 
     fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=False, zeroline=False, showticklabels=False)
     fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=False, zeroline=False, showticklabels=False)

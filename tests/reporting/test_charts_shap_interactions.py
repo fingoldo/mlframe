@@ -86,7 +86,7 @@ def test_fewer_than_two_features_skipped():
     y = (X[:, 0] > 0).astype(int)
     model = _fit_tree(X, y)
     res = si.shap_interaction_summary(model, X, feature_names=["f0"])
-    assert res.skipped is not None and ">=2 features" in res.skipped
+    assert res.skipped is not None and ">= 2 features" in res.skipped
 
 
 def test_biz_value_planted_interaction_ranks_first():

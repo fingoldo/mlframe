@@ -33,10 +33,16 @@ speedup: the lone sort is irreducible for rank-threshold curves.
 
 from __future__ import annotations
 
+import logging
+
 import hashlib
 from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
+
+from ._captions import caption_for_tokens
+
+logger = logging.getLogger(__name__)
 
 from mlframe.metrics import trapezoid
 from mlframe.reporting.charts._layout import (
@@ -62,6 +68,9 @@ _AP_BOOTSTRAP_B: int = 500
 _AP_BOOTSTRAP_ROW_CAP: int = 50_000
 # Below this many rows (or positives) a bootstrap AP CI is too noisy to be informative; annotate AP only.
 _AP_BOOTSTRAP_MIN_N: int = 30
+# Resample-index rows drawn at a time. One (B, m) matrix is 200 MB at B=500 / m=50k for a buffer consumed one
+# row at a time; chunking keeps the peak small without changing the draw order (so the interval is unchanged).
+_AP_BOOTSTRAP_IDX_CHUNK: int = 32
 
 
 # ----------------------------------------------------------------------------
@@ -79,7 +88,19 @@ def _finite_binary(y_true, y_score) -> Tuple[np.ndarray, np.ndarray]:
     ys = np.asarray(y_score, dtype=np.float64).ravel()
     mask = np.isfinite(ys)
     yt_f = np.asarray(yt, dtype=np.float64)
-    mask &= np.isfinite(yt_f) & ((yt_f == 0.0) | (yt_f == 1.0))
+    label_ok = np.isfinite(yt_f) & ((yt_f == 0.0) | (yt_f == 1.0))
+    mask &= label_ok
+    # Dropping an off-{0,1} label silently means a multiclass target passed here by mistake yields confident
+    # binary curves computed on whatever subset happened to be 0 or 1 -- a plausible-looking chart about a
+    # question nobody asked. Say how many went, and name the offending labels.
+    n_bad_label = int(np.count_nonzero(np.isfinite(yt_f) & ~label_ok))
+    if n_bad_label:
+        offenders = np.unique(yt_f[np.isfinite(yt_f) & ~label_ok])[:5].tolist()
+        logger.warning(
+            "binary charts: dropped %d of %d rows whose label is outside {0, 1} (saw %s). These panels are "
+            "one-vs-rest on the positive class; pass a binarised target, or use the multiclass composer.",
+            n_bad_label, yt_f.size, offenders,
+        )
     return yt_f[mask].astype(np.int8), ys[mask]
 
 
@@ -223,6 +244,7 @@ def bootstrap_ap_ci(
     n_boot: int = _AP_BOOTSTRAP_B,
     alpha: float = 0.05,
     seed: int = 0,
+    sort: Optional["_ScoreSort"] = None,
 ) -> Tuple[float, float, float]:
     """Bootstrap percentile CI for PR-AUC (average precision), resampling rows with replacement.
 
@@ -235,6 +257,10 @@ def bootstrap_ap_ci(
 
     Deterministic given ``seed``. Returns ``(ap, nan, nan)`` when n < ``_AP_BOOTSTRAP_MIN_N`` or one class is absent
     (AP undefined / CI uninformative); the caller annotates AP without an interval there.
+
+    ``sort``: the caller's existing ``_ScoreSort`` over the SAME rows. The full-data AP needs the labels in
+    descending-score order, which that object already holds, so passing it skips a second full-n argsort on the
+    default-on path. Optional and keyword-only -- callers that do not have one are unaffected.
     """
     yt = np.asarray(y_true).ravel().astype(np.int8)
     ys = np.asarray(y_score, dtype=np.float64).ravel()
@@ -242,7 +268,13 @@ def bootstrap_ap_ci(
     n_pos_full = int(yt.sum())
     if n == 0 or n_pos_full == 0 or n_pos_full == n:
         return float("nan"), float("nan"), float("nan")
-    full_ap = _ap_from_labels_desc(yt[np.argsort(ys, kind="stable")[::-1]])
+    if sort is not None and sort.n == n:
+        # cum_tp is the 1-based prefix count of positives in descending-score order, so its first difference IS the
+        # descending label sequence -- the same array the argsort below would produce, without the sort.
+        labels_desc = np.diff(np.concatenate(([0], sort.cum_tp)))
+    else:
+        labels_desc = yt[np.argsort(ys, kind="stable")[::-1]]
+    full_ap = _ap_from_labels_desc(labels_desc)
     if n < _AP_BOOTSTRAP_MIN_N:
         return full_ap, float("nan"), float("nan")
     rng = np.random.default_rng(seed)
@@ -253,12 +285,18 @@ def bootstrap_ap_ci(
     # Sort the subsample by score ONCE (descending); resamples then index into this fixed rank order.
     order = np.argsort(ys, kind="stable")[::-1]
     yt_desc = yt[order].astype(np.int64)
-    idx = rng.integers(0, m, size=(n_boot, m))
+    # Draw the resample indices in CHUNKS. One ``(n_boot, m)`` matrix is 200 MB at B=500 / m=50k, allocated up
+    # front and then consumed one row at a time -- against the house RAM rule for a buffer nothing needs whole.
+    # Chunking keeps the peak at ``_AP_BOOTSTRAP_IDX_CHUNK`` rows while drawing from the SAME rng in the same
+    # order, so the interval is unchanged.
     boot_ap = np.empty(n_boot, dtype=np.float64)
     pos_desc = yt_desc.astype(np.float64)
+    idx_chunk: np.ndarray = np.empty((0, 0), dtype=np.int64)
     for b in range(n_boot):
+        if b % _AP_BOOTSTRAP_IDX_CHUNK == 0:
+            idx_chunk = rng.integers(0, m, size=(min(_AP_BOOTSTRAP_IDX_CHUNK, n_boot - b), m))
         # Multiplicity of each fixed-rank row in resample b (a row can be drawn 0..k times); scatter-add to its rank.
-        mult = np.bincount(idx[b], minlength=m).astype(np.float64)
+        mult = np.bincount(idx_chunk[b % _AP_BOOTSTRAP_IDX_CHUNK], minlength=m).astype(np.float64)
         tp = np.cumsum(mult * pos_desc)
         total = np.cumsum(mult)
         n_pos = tp[-1]
@@ -274,6 +312,15 @@ def bootstrap_ap_ci(
         return full_ap, float("nan"), float("nan")
     lo = float(np.percentile(boot_ap, 100.0 * alpha / 2.0))
     hi = float(np.percentile(boot_ap, 100.0 * (1.0 - alpha / 2.0)))
+    if m < n:
+        # The point estimate is computed on all n rows but the interval was bootstrapped from m of them, so the
+        # title paired a full-n AP with the uncertainty of an m-row study -- about 6x too wide at n=2M against
+        # the 50k cap. A bootstrap standard error scales as 1/sqrt(rows), so rescale the half-width back onto
+        # the real row count. The interval stays centred on the point estimate the title actually reports.
+        shrink = float(np.sqrt(m / n))
+        centre = float(np.median(boot_ap))
+        lo = full_ap + (lo - centre) * shrink
+        hi = full_ap + (hi - centre) * shrink
     return full_ap, lo, hi
 
 
@@ -317,7 +364,7 @@ def _pr_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: fl
     baseline = np.full_like(x_thin, prevalence)
     title = f"Precision-Recall (AP={ap:.3f})"
     if ap_ci:
-        _, lo, hi = bootstrap_ap_ci(yt, ys, seed=ap_ci_seed)
+        _, lo, hi = bootstrap_ap_ci(yt, ys, seed=ap_ci_seed, sort=sort)
         if np.isfinite(lo) and np.isfinite(hi):
             title = f"Precision-Recall (AP={ap:.3f} [{lo:.3f}, {hi:.3f}], 95% CI)"
     markers = None
@@ -359,8 +406,14 @@ def _score_dist_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, thres
     return LinePanelSpec(
         x=centers,
         y=(h_neg, h_pos),
-        series_labels=("y=0", "y=1"),
-        title="Score distribution by class",
+        # Densities each integrate to 1, so a 1000:1 imbalance draws two equally tall humps and the reader
+        # cannot see it at all. The shape comparison is still what the panel is FOR, so keep the density and
+        # put the counts and shares in the labels, where the imbalance becomes readable.
+        series_labels=(
+            f"y=0 (n={neg.size:,}, {neg.size / max(sort.n, 1):.1%})",
+            f"y=1 (n={pos.size:,}, {pos.size / max(sort.n, 1):.1%})",
+        ),
+        title="Score distribution by class (density: each curve integrates to 1, so heights are NOT counts)",
         xlabel="Predicted score",
         ylabel="Density",
         line_styles=("-", "-"),
@@ -380,12 +433,19 @@ def _ks_curve(sort: _ScoreSort) -> Tuple[np.ndarray, np.ndarray, np.ndarray, flo
     fraction of each class with score <= grid value (ascending), ks_stat = max |cdf_neg - cdf_pos|,
     and ks_score is the score at which that maximum occurs. O(n) given the precomputed descending cumsums.
     """
-    # cum_tp / cum_fp are descending-prefix counts (score >= rank); reverse to ascending CDFs (score <= rank).
-    pos_le = sort.n_pos - np.concatenate(([0], sort.cum_tp[:-1]))[::-1]
-    neg_le = sort.n_neg - np.concatenate(([0], sort.cum_fp[:-1]))[::-1]
-    grid = sort.scores_desc[::-1]
-    cdf_pos = pos_le / max(1, sort.n_pos)
-    cdf_neg = neg_le / max(1, sort.n_neg)
+    # Evaluate at DISTINCT scores only. The per-ROW form below stepped the ECDFs through the interior of a
+    # tied block, i.e. at cut points no threshold can actually realise, which biases KS upward on quantised
+    # scores -- exactly the shape a tree ensemble emits. Measured on 20-level scores: 0.494441 against a
+    # 0.493870 reference computed over realisable thresholds only. `distinct_threshold_counts` already
+    # collapses ties and is memoised, so this is also strictly less work.
+    tps, fps, thr = sort.distinct_threshold_counts()
+    # tps[i] counts positives with score >= thr[i] (thr descending), so positives with score <= thr[i] is
+    # n_pos minus those strictly ABOVE it, which is tps at the previous (higher) distinct threshold.
+    pos_gt = np.concatenate(([0.0], tps[:-1]))
+    neg_gt = np.concatenate(([0.0], fps[:-1]))
+    grid = thr[::-1]
+    cdf_pos = (sort.n_pos - pos_gt)[::-1] / max(1, sort.n_pos)
+    cdf_neg = (sort.n_neg - neg_gt)[::-1] / max(1, sort.n_neg)
     gap = np.abs(cdf_neg - cdf_pos)
     j = int(np.argmax(gap))
     return grid, cdf_pos, cdf_neg, float(gap[j]), float(grid[j])
@@ -470,6 +530,12 @@ def _threshold_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, thresh
         cap=_THRESHOLD_PLOT_CAP,
     )
     prec, rec, f1, queue = ys_list
+    markers: List[tuple] = []
+    _f1_full = sweep["f1"]
+    if _f1_full.size and np.isfinite(_f1_full).any():
+        _bi = int(np.nanargmax(_f1_full))
+        markers.append((float(sweep["thresholds"][_bi]), float(_f1_full[_bi]),
+                        f"F1 optimum @ {sweep['thresholds'][_bi]:.3f} (F1={_f1_full[_bi]:.3f})", "#9467bd", "*"))
     series: List[np.ndarray] = [prec, rec, f1, queue]
     labels: List[str] = ["precision", "recall", "F1", "queue-rate"]
     styles: List[str] = ["-", "-", "-", "--"]
@@ -483,10 +549,19 @@ def _threshold_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, thresh
         else:
             c_fp, c_fn = float(cost_ratio), 1.0
         cost = c_fp * sweep["fp"] + c_fn * sweep["fn"]
-        cmax = float(cost.max()) if cost.size and cost.max() > 0 else 1.0
-        _, (cost_thin,) = _decimate(sweep["thresholds"], cost / cmax, cap=_THRESHOLD_PLOT_CAP)
+        # Min-max, not max-only: a cost that never comes near zero (both error types always present) compressed into
+        # a flat band near the top of an axis it shares with [0,1] metrics, hiding the minimum this series exists to
+        # show. Normalising to its own range puts that minimum on the axis.
+        cmin = float(cost.min()) if cost.size else 0.0
+        cmax = float(cost.max()) if cost.size else 1.0
+        span = (cmax - cmin) if cmax > cmin else 1.0
+        cost_norm = (cost - cmin) / span
+        _, (cost_thin,) = _decimate(sweep["thresholds"], cost_norm, cap=_THRESHOLD_PLOT_CAP)
+        if cost.size:
+            _ci = int(np.argmin(cost))
+            markers.append((float(sweep["thresholds"][_ci]), float(cost_norm[_ci]), f"min cost @ {sweep['thresholds'][_ci]:.3f}", "#d62728", "D"))
         series.append(cost_thin)
-        labels.append(f"cost (c_fp={c_fp:g}, c_fn={c_fn:g}, norm)")
+        labels.append(f"cost (c_fp={c_fp:g}, c_fn={c_fn:g}, min-max normalised)")
         styles.append(":")
         colors.append("#d62728")
         secondary.append(False)
@@ -501,6 +576,7 @@ def _threshold_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, thresh
         colors=tuple(colors),
         secondary_y=tuple(secondary),
         secondary_ylabel="Queue rate (fraction flagged)",
+        point_markers=tuple(markers) or None,
     )
 
 
@@ -772,6 +848,28 @@ _TOKEN_BUILDERS: Dict[str, Callable] = {
 
 ALLOWED_BINARY_PANEL_TOKENS = frozenset(_TOKEN_BUILDERS)
 
+# One sentence per token, joined for the tokens ACTUALLY rendered (see ``_captions.caption_for_tokens``). The
+# figure-level caption used to describe the DEFAULT template, so a caller asking for a narrower mix read about
+# panels that were not on their figure.
+_TOKEN_CAPTIONS: Dict[str, str] = {
+    "ROC": (
+        "ROC plots the true-positive rate against the false-positive rate over every threshold: it answers RANKING, not calibration, and its negative-heavy denominator flatters a model at a low base rate."
+    ),
+    "PR": (
+        "The PR curve trades precision against recall and, unlike ROC, its baseline moves with the positive rate, which makes it the honest curve on rare positives."
+    ),
+    "KS": (
+        "The KS statistic is the widest vertical gap between the two class score distributions; it summarises separation as one number and says nothing about where to cut."
+    ),
+    "GAIN": ("The gain curve reads bottom-up: how much of the positive mass you capture by contacting the top X% of the ranking."),
+    "SCORE_DIST": ("The score distributions show the two classes separately; overlap here is exactly what the ranking metrics are summarising."),
+    "PIT": ("The PIT histogram is flat when the predicted probabilities are calibrated; a U shape means over-confidence and a hump means under-confidence."),
+    "THRESHOLD": (
+        "The threshold panel answers OPERATION -- where to cut -- and a model can rank well while being badly calibrated, so a strong AUC is not permission to use the scores as probabilities."
+    ),
+}
+
+
 DEFAULT_BINARY_PANELS: str = "ROC PR SCORE_DIST KS THRESHOLD GAIN"
 
 
@@ -827,10 +925,23 @@ def compose_binary_figure(
     grid = pack_panels(panels, max_cols=max_cols)
     n_rows = len(grid)
     n_cols = max_cols if grid else 0
+    # RUX-21 class: a constant score column still produces real-looking panels (KS 1.000, AUC 0.500) with nothing
+    # saying the score never varies -- the one fact that explains every number on the figure.
+    n_unique = int(np.unique(ys).size) if ys.size else 0
+    degenerate_note = (
+        f"  |  WARNING: the score has a single distinct value ({ys[0]:.6g}) over {ys.size:,} rows, so every "
+        "ranking metric here is the degenerate no-ordering case, not a measurement of this model."
+        if n_unique == 1 else ""
+    )
     return FigureSpec(
-        suptitle=suptitle,
+        suptitle=suptitle + degenerate_note,
         panels=grid,
         figsize=figsize_for_grid(n_rows, n_cols, cell_width=cell_width, cell_height=cell_height),
+        caption=caption_for_tokens(
+            "How to read: each panel answers one of three separate questions -- ranking, calibration, or operation -- and a model can be strong at one while failing another.",
+            tokens,
+            _TOKEN_CAPTIONS,
+        ),
     )
 
 

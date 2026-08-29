@@ -30,6 +30,19 @@ import pytest
 # ----------------------------------------------------------------------------
 
 
+def _saved(tmp_path, name: str):
+    """Path of a chart written through the DSL, under either output layout.
+
+    Charts land in a per-format subfolder by default (``png/dsl.png``); these tests care that the file was
+    written and how big it is, not which layout the run used.
+    """
+    import os as _os
+
+    ext = _os.path.splitext(name)[1]
+    nested = tmp_path / ext.lstrip(".") / name
+    return nested if nested.exists() else tmp_path / name
+
+
 @pytest.fixture
 def calib_inputs():
     """Calib inputs."""
@@ -59,7 +72,7 @@ class TestShowCalibrationPlot:
                 plot_file=str(tmp_path / "legacy.png"),
             )
         assert fig is not None
-        assert os.path.exists(tmp_path / "legacy.png")
+        assert os.path.exists(_saved(tmp_path, "legacy.png"))
 
     def test_dsl_optin_matplotlib(self, calib_inputs, tmp_path):
         """Dsl option matplotlib."""
@@ -78,8 +91,8 @@ class TestShowCalibrationPlot:
             )
         # Opt-in path returns None (delegates to render_and_save).
         assert result is None
-        assert os.path.exists(tmp_path / "dsl.png")
-        assert os.path.getsize(tmp_path / "dsl.png") > 5000
+        assert os.path.exists(_saved(tmp_path, "dsl.png"))
+        assert os.path.getsize(_saved(tmp_path, "dsl.png")) > 5000
 
     def test_dsl_optin_plotly(self, calib_inputs, tmp_path):
         """Dsl option plotly."""
@@ -96,7 +109,7 @@ class TestShowCalibrationPlot:
                 plot_outputs="plotly[html]",
                 base_path=str(tmp_path / "dsl"),
             )
-        assert os.path.exists(tmp_path / "dsl.html")
+        assert os.path.exists(_saved(tmp_path, "dsl.html"))
 
     def test_dsl_dual_backend(self, calib_inputs, tmp_path):
         """Dsl dual backend."""
@@ -113,8 +126,8 @@ class TestShowCalibrationPlot:
                 plot_outputs="matplotlib[png] + plotly[html]",
                 base_path=str(tmp_path / "dsl"),
             )
-        assert (tmp_path / "dsl.matplotlib.png").exists()
-        assert (tmp_path / "dsl.plotly.html").exists()
+        assert _saved(tmp_path, "dsl.matplotlib.png").exists()
+        assert _saved(tmp_path, "dsl.plotly.html").exists()
 
 
 # ----------------------------------------------------------------------------
@@ -172,8 +185,8 @@ class TestPlotResidualDiagnostics:
             )
         # Opt-in path returns the audit (computed lazily if not supplied).
         assert audit is not None
-        assert os.path.exists(tmp_path / "resid.png")
-        assert os.path.getsize(tmp_path / "resid.png") > 5000
+        assert os.path.exists(_saved(tmp_path, "resid.png"))
+        assert os.path.getsize(_saved(tmp_path, "resid.png")) > 5000
 
     def test_dsl_optin_plotly(self, reg_inputs, tmp_path):
         """Dsl option plotly."""
@@ -188,7 +201,7 @@ class TestPlotResidualDiagnostics:
                 plot_outputs="plotly[html]",
                 base_path=str(tmp_path / "resid"),
             )
-        assert os.path.exists(tmp_path / "resid.html")
+        assert os.path.exists(_saved(tmp_path, "resid.html"))
 
     def test_degenerate_input_returns_audit_no_crash(self, tmp_path):
         """Degenerate input returns audit no crash."""
@@ -246,7 +259,7 @@ class TestPlotTargetOverTime:
                 save_path=str(tmp_path / "legacy.png"),
             )
         # Legacy path side-effects: file written.
-        assert os.path.exists(tmp_path / "legacy.png")
+        assert os.path.exists(_saved(tmp_path, "legacy.png"))
 
     def test_dsl_optin_matplotlib(self, temporal_audit_result, tmp_path):
         """Dsl option matplotlib."""
@@ -260,7 +273,7 @@ class TestPlotTargetOverTime:
                 base_path=str(tmp_path / "dsl"),
             )
         assert result is None
-        assert os.path.exists(tmp_path / "dsl.png")
+        assert os.path.exists(_saved(tmp_path, "dsl.png"))
 
     def test_dsl_optin_plotly(self, temporal_audit_result, tmp_path):
         """Dsl option plotly."""
@@ -273,4 +286,4 @@ class TestPlotTargetOverTime:
                 plot_outputs="plotly[html]",
                 base_path=str(tmp_path / "dsl"),
             )
-        assert os.path.exists(tmp_path / "dsl.html")
+        assert os.path.exists(_saved(tmp_path, "dsl.html"))

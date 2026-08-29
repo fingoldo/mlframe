@@ -29,11 +29,13 @@ from typing import Callable, Dict, List, Sequence
 
 import numpy as np
 
+from ._captions import caption_for_tokens
+
 from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels, parse_panel_template,
 )
-from mlframe.reporting.charts.multiclass import _avg_ranks
-from mlframe.reporting.colors import HEATMAP_CMAP, line_color
+from mlframe.reporting.charts._rank_stats import rankdata as _avg_ranks
+from mlframe.reporting.colors import HEATMAP_CMAP, line_color, line_style
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
     HistogramPanelSpec, LinePanelSpec, PanelSpec,
@@ -162,7 +164,8 @@ def _roc_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePanelSpec:
     chance = x_grid.copy()
     all_series = [chance, *series]
     all_labels = ["chance", *series_labels]
-    styles = [":"] + ["-"] * len(series)
+    # Dash varies with the palette wrap: past 10 labels the colour repeats, so it can no longer separate them alone.
+    styles = [":"] + [line_style(int(k)) for k in draw_idx]
     all_colors = ["gray", *colors]
     if label_subset is not None:
         macro = np.nanmean(np.vstack(valid_curves), axis=0) if valid_curves else np.full_like(x_grid, np.nan)
@@ -222,12 +225,18 @@ def _calib_grid_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePane
         series.append(observed)
         pooled_sums += sums
         pooled_counts += counts
-        series_labels.append(str(labels[k]))
+        # Support-weighted ECE from the same per-bin counts, so each curve's label carries how far it sits from the
+        # diagonal AND how many rows drew it.
+        _n_k = float(counts.sum())
+        _ece_k = float(np.sum(counts[nz] * np.abs(observed[nz] - x_grid[nz])) / _n_k) if _n_k else float("nan")
+        series_labels.append(f"{labels[k]} (ECE={_ece_k:.3f}, n={int(_n_k):,})")
         colors.append(line_color(k))
     diag = x_grid.copy()
     all_series = [diag, *series]
     all_labels = ["perfect", *series_labels]
-    styles = [":"] + ["-"] * len(series)
+    # Dash varies with the palette WRAP, so label 0 and label 10 stay distinguishable once the 10 colour-vision-safe
+    # hues repeat -- the colour alone no longer carries that.
+    styles = [":"] + [line_style(int(k)) for k in draw_idx]
     all_colors = ["green", *colors]
     if label_subset is not None:
         # Pool per-bin sums and counts rather than averaging per-label RATES: an unweighted nanmean let a 3-row bin
@@ -236,7 +245,9 @@ def _calib_grid_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePane
         nz_pool = pooled_counts > 0
         macro[nz_pool] = pooled_sums[nz_pool] / pooled_counts[nz_pool]
         all_series.append(macro)
-        all_labels.append("pooled avg (weighted by bin support)")
+        _n_pool = float(pooled_counts.sum())
+        _ece_pool = float(np.sum(pooled_counts[nz_pool] * np.abs(macro[nz_pool] - x_grid[nz_pool])) / _n_pool) if _n_pool else float("nan")
+        all_labels.append(f"pooled avg (weighted by bin support; ECE={_ece_pool:.3f}, n={int(_n_pool):,})")
         styles.append("--")
         all_colors.append("black")
     title = "Per-label reliability"
@@ -515,6 +526,26 @@ _TOKEN_BUILDERS: Dict[str, Callable] = {
 
 ALLOWED_MULTILABEL_PANEL_TOKENS = frozenset(_TOKEN_BUILDERS)
 
+# One sentence per token, joined for the tokens ACTUALLY rendered (see ``_captions.caption_for_tokens``). The
+# figure-level caption used to describe the DEFAULT template, so a caller asking for a narrower mix read about
+# panels that were not on their figure.
+_TOKEN_CAPTIONS: Dict[str, str] = {
+    "ROC": ("The per-label ROC curves answer ranking one label at a time; labels differ enormously in prevalence, so they are not comparable by eye."),
+    "PR_F1": ("Per-label precision, recall and F1 expose the labels the model simply never predicts, which a macro average hides."),
+    "JACCARD_DIST": (
+        "The per-row Jaccard distribution measures SET overlap between predicted and true label sets, so it penalises both misses and spurious extra labels."
+    ),
+    "HAMMING_DIST": ("Hamming distance counts individual label flips, so it is dominated by the many labels that are usually absent."),
+    "CARDINALITY": (
+        "The cardinality panel compares how many labels the model assigns per row against how many are truly present; a systematic gap is a threshold problem, not a ranking one."
+    ),
+    "COOCCURRENCE": ("The co-occurrence matrix shows which labels travel together in the data, which is the structure a per-label model cannot exploit."),
+    "THRESHOLD_SWEEP": (
+        "The threshold sweep is per label, because one global cut is rarely right for labels that differ by an order of magnitude in prevalence."
+    ),
+    "CALIB_GRID": ("The calibration grid asks, per label, whether a predicted 0.7 happens 70% of the time."),
+}
+
 
 def compose_multilabel_figure(
     y_true: np.ndarray,
@@ -545,6 +576,20 @@ def compose_multilabel_figure(
     if y_true.shape != y_proba.shape:
         raise ValueError(f"y_true {y_true.shape} != y_proba {y_proba.shape}")
 
+    if y_true.shape[0] == 0:
+        # Every panel below fabricates its own zero on an empty matrix (a per-row Jaccard of 0.000 among them),
+        # so the guard belongs at the figure level where the shape can be named once.
+        return FigureSpec(
+            suptitle=suptitle,
+            panels=((AnnotationPanelSpec(
+                text=(f"Multilabel report unavailable: 0 rows were supplied for {y_true.shape[1]} labels. "
+                      "None of these panels has anything to measure; the zeros they would otherwise print are "
+                      "artefacts of the empty input, not results."),
+                title="Multilabel quality",
+            ),),),
+            figsize=(cell_width, cell_height),
+        )
+
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
     if unknown:
@@ -567,13 +612,10 @@ def compose_multilabel_figure(
         suptitle=suptitle,
         panels=grid,
         figsize=figsize_for_grid(n_rows, n_cols, cell_width=cell_width, cell_height=cell_height),
-        caption=(
-            f"Labels are independent binary problems over the same rows. Panels marked 'at t={_COOCCURRENCE_THRESHOLD:g}' "
-            "binarise the probabilities at that one operating point, while the threshold-sweep panel shows the "
-            "F1-optimal cutoff PER LABEL -- which differs from the fixed point whenever base rates differ, so read "
-            "the fixed-threshold panels as one operating point rather than the best one. Co-occurrence cells are "
-            "P(label j predicted | label i true), so its diagonal is per-label recall. Cardinality compares how many "
-            "labels the model emits per row against how many the truth carries."
+        caption=caption_for_tokens(
+            "How to read: every panel treats the labels as a SET per row, so a metric that looks strong label-by-label can still be weak on whole-row agreement.",
+            tokens,
+            _TOKEN_CAPTIONS,
         ),
     )
 

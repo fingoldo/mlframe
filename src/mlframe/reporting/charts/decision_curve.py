@@ -215,7 +215,7 @@ def build_decision_curve_spec(
         colors=("#1f77b4", "#d62728", "#7f7f7f"),
         title=title + (" -- USEFUL" if useful else " -- not better than trivial policies"),
         xlabel="Threshold probability p_t",
-        ylabel="Net benefit",
+        ylabel="Net benefit (higher is better)",
         fill_to_baseline=(False, False, False),
         ylim=ylim,
     )

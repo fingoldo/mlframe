@@ -148,6 +148,13 @@ class ReportingConfig(BaseConfig):
     # Default keeps interactive plotly HTML (for sharing / jupyter) + matplotlib PNG (10-20x faster, no Chromium). Routing PNG export through kaleido spends 12-15s per figure on a Chromium ``page.reload()``; on a 4-model x VAL+TEST x N-ensemble suite this ballooned to MINUTES of pure chart-export wall-time. Users who need plotly PNG explicitly set ``"plotly[html,png]"``.
     plot_outputs: str = "plotly[html] + matplotlib[png]"
 
+    # Per-format output subfolders. With the default ``plot_outputs`` every figure is written twice -- an interactive
+    # HTML and a static PNG -- into ONE directory, so a multi-model suite leaves hundreds of files of two kinds
+    # interleaved and "give me the PNGs" becomes a manual filter. True (default) writes each format into its own
+    # subfolder of the report directory (``png/...png``, ``html/...html``); the file NAMES are unchanged, so a caller
+    # that knows the flat name finds the file by prepending the format directory. False restores the flat layout.
+    plot_format_subfolders: bool = True
+
     # Opt-out for jupyter inline plot display.
     # ``None`` (default): auto-detect via ``__IPYTHON__`` / ``sys.ps1`` in ``render_and_save`` - inside a notebook kernel, figures render inline in the cell output AFTER on-disk save (the saved file is the artifact; the inline render is the operator-feedback path).
     # ``True``: force inline display (useful for non-standard runtimes where auto-detection misfires).

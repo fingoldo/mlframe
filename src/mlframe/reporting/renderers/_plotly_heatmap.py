@@ -25,23 +25,118 @@ from mlframe.reporting.colors import TREND_LINE
 from ._plotly_color import _mpl_to_plotly_cmap
 from ._shared_helpers import _HEATMAP_CELL_TEXT_MAX, _finite_range, _thin_tick_positions
 
+# Share of the subplot cell each marginal strip takes, and the gap between a strip and the grid it annotates.
+_MARGIN_STRIP_FRAC = 0.18
+_MARGIN_STRIP_GAP = 0.02
+
+
+def _cell_domains(fig, row: int, col: int):
+    """``(x_domain, y_domain, x_axis_name, y_axis_name)`` of one subplot cell, or ``None`` when unreadable."""
+    grid = getattr(fig, "_grid_ref", None)
+    if not grid:
+        return None
+    try:
+        axis_pair = grid[row - 1][col - 1][0]
+        x_name, y_name = axis_pair.layout_keys[0], axis_pair.layout_keys[1]
+        x_dom, y_dom = fig.layout[x_name].domain, fig.layout[y_name].domain
+    except (IndexError, KeyError, AttributeError, TypeError):
+        return None
+    if not x_dom or not y_dom:
+        return None
+    return tuple(x_dom), tuple(y_dom), x_name, y_name
+
+
+def _next_axis_names(fig):
+    """The next free ``('xaxisN', 'yaxisN')`` pair in the layout, for a manually-domained nested axis."""
+    used = [k for k in fig.layout if isinstance(k, str) and k.startswith("xaxis")]
+    idx = max((int(k[5:]) if k[5:] else 1) for k in used) if used else 1
+    return f"xaxis{idx + 1}", f"yaxis{idx + 1}"
+
 
 def _confusion_margins(self, fig, p: ConfusionMarginsPanelSpec, row: int, col: int) -> None:
-    """Render a confusion matrix with row/column margins folded into the axis tick labels (predicted-class columns get volume, true-class rows get support), then delegates the actual grid to ``_heatmap``."""
-    # Plotly subplot cells cannot host nested marginal axes the way the matplotlib subgridspec does, so the
-    # margins are folded into the axis tick labels: each predicted-class column header carries its volume and
-    # each true-class row header its support. The heatmap itself reuses the HeatmapPanelSpec renderer.
-    col_labels = tuple(f"{lab}<br>(vol={int(v)})" for lab, v in zip(p.col_labels, np.asarray(p.col_margin)))
-    row_labels = tuple(f"{lab} (n={int(v)})" for lab, v in zip(p.row_labels, np.asarray(p.row_margin)))
+    """Confusion matrix with TRUE marginal bar axes (row support on the right, column volume on top).
+
+    matplotlib draws these as real bar axes via a subgridspec; plotly used to fold the same numbers into the tick
+    label strings, so one spec produced two visibly different figures and only one of them let a reader compare two
+    class supports by length. Plotly has no nested-subplot primitive, but a subplot cell is only a pair of axis
+    DOMAINS -- so the cell is split by hand: the heatmap's own axes shrink to the lower-left block and two extra
+    axis pairs are created over the remaining strips, each matching the heatmap's categorical axis so the bars stay
+    aligned with the rows and columns they measure. When the cell's domains cannot be read (a figure built outside
+    ``make_subplots``), the tick-label fallback still applies, so the margins are never silently lost.
+    """
+    dom = _cell_domains(fig, row, col)
     # Newline, matching matplotlib: the note is a SECOND line of the title, not a clause appended to the
     # first. Joining with a dash pair also put that pair into rendered user-facing text.
     title = p.title if not p.note else f"{p.title}\n{p.note}"
+    row_margin = np.asarray(p.row_margin, dtype=np.float64)
+    col_margin = np.asarray(p.col_margin, dtype=np.float64)
+
+    if dom is None:
+        col_labels = tuple(f"{lab}<br>(vol={int(v)})" for lab, v in zip(p.col_labels, col_margin))
+        row_labels_folded = tuple(f"{lab} (n={int(v)})" for lab, v in zip(p.row_labels, row_margin))
+        heat = HeatmapPanelSpec(
+            matrix=p.matrix, row_labels=row_labels_folded, col_labels=col_labels,
+            title=title, xlabel=p.xlabel, ylabel=p.ylabel, colormap=p.colormap,
+            cell_text=p.cell_text, text_format=p.text_format, colorbar_label=p.colorbar_label,
+        )
+        self._heatmap(fig, heat, row, col)
+        return
+
     heat = HeatmapPanelSpec(
-        matrix=p.matrix, row_labels=row_labels, col_labels=col_labels,
+        matrix=p.matrix, row_labels=tuple(p.row_labels), col_labels=tuple(p.col_labels),
         title=title, xlabel=p.xlabel, ylabel=p.ylabel, colormap=p.colormap,
         cell_text=p.cell_text, text_format=p.text_format, colorbar_label=p.colorbar_label,
     )
     self._heatmap(fig, heat, row, col)
+
+    # Deferred like the sibling below: plotly.py imports THIS module, so a module-level import would cycle.
+    from .plotly import _go
+
+    go = _go()
+    (x0, x1), (y0, y1), x_name, y_name = dom
+    w, h = float(x1) - float(x0), float(y1) - float(y0)
+    grid_x1 = float(x1) - w * _MARGIN_STRIP_FRAC
+    grid_y1 = float(y1) - h * _MARGIN_STRIP_FRAC
+    # Shrink the heatmap onto the lower-left block; the strips take what is left.
+    fig.layout[x_name].domain = (float(x0), grid_x1)
+    fig.layout[y_name].domain = (float(y0), grid_y1)
+
+    heat_x, heat_y = x_name.replace("axis", ""), y_name.replace("axis", "")
+    bar_row_labels = [str(lab) for lab in p.row_labels]
+    bar_col_labels = [str(lab) for lab in p.col_labels]
+
+    # Right strip: one horizontal bar per TRUE class, matching the heatmap's categorical y so the bars line up
+    # with the rows they measure.
+    rx, ry = _next_axis_names(fig)
+    fig.layout[rx] = dict(
+        domain=(min(1.0, grid_x1 + w * _MARGIN_STRIP_GAP), float(x1)), anchor=ry.replace("axis", ""),
+        title=dict(text=p.row_margin_label, font=dict(size=9)), tickfont=dict(size=8),
+        showgrid=False, zeroline=False,
+    )
+    fig.layout[ry] = dict(
+        domain=(float(y0), grid_y1), anchor=rx.replace("axis", ""), matches=heat_y, showticklabels=False, showgrid=False,
+    )
+    fig.add_trace(go.Bar(
+        x=row_margin, y=bar_row_labels, orientation="h", marker=dict(color=TREND_LINE), showlegend=False,
+        hovertemplate="%{y}<br>" + str(p.row_margin_label) + "=%{x}<extra></extra>",
+        xaxis=rx.replace("axis", ""), yaxis=ry.replace("axis", ""),
+    ))
+
+    # Top strip: one vertical bar per PREDICTED class, matching the heatmap's categorical x.
+    tx, ty = _next_axis_names(fig)
+    fig.layout[tx] = dict(
+        domain=(float(x0), grid_x1), anchor=ty.replace("axis", ""), matches=heat_x, showticklabels=False, showgrid=False,
+    )
+    fig.layout[ty] = dict(
+        domain=(min(1.0, grid_y1 + h * _MARGIN_STRIP_GAP), float(y1)), anchor=tx.replace("axis", ""),
+        title=dict(text=p.col_margin_label, font=dict(size=9)), tickfont=dict(size=8),
+        showgrid=False, zeroline=False,
+    )
+    fig.add_trace(go.Bar(
+        x=bar_col_labels, y=col_margin, marker=dict(color=TREND_LINE), showlegend=False,
+        hovertemplate="%{x}<br>" + str(p.col_margin_label) + "=%{y}<extra></extra>",
+        xaxis=tx.replace("axis", ""), yaxis=ty.replace("axis", ""),
+    ))
 
 def _colorbar_placement(fig, row: int, col: int, label) -> dict:
     """Pin a heatmap's colorbar beside ITS OWN subplot instead of plotly's default paper position.
@@ -157,14 +252,16 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
         mat = np.asarray(p.matrix, dtype=float)
         if mat.ndim == 2 and mat.shape[0] >= 2 and mat.shape[1] >= 2:
             lo, hi = float(np.nanmin(mat)), float(np.nanmax(mat))
-            for level, color in p.threshold_contours:
+            for _entry in p.threshold_contours:
+                level, color = _entry[0], _entry[1]
+                _dash = _entry[2] if len(_entry) > 2 else "solid"
                 if not (lo < level < hi):  # contour only exists when the level is crossed
                     continue
                 fig.add_trace(
                     go.Contour(z=mat.tolist(), x=list(p.col_labels), y=list(p.row_labels),
                                contours=dict(start=level, end=level, size=1,
                                              coloring="none", showlabels=False),
-                               line=dict(color=color, width=1.6),
+                               line=dict(color=color, width=1.6, dash=_dash),
                                showscale=False, hoverinfo="skip"),
                     row=row, col=col,
                 )

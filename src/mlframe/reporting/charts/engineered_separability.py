@@ -20,7 +20,7 @@ from typing import Any, List, Optional, Sequence
 
 import numpy as np
 
-from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, ScatterPanelSpec
+from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, PanelSpec, ScatterPanelSpec
 
 # Bounded scatter cap: matplotlib per-point primitives scale poorly past ~5k points and the Fisher ratio has converged
 # on far fewer, so both the plot and the score run on the same seeded subsample.
@@ -179,7 +179,7 @@ def _column_names(X: Any) -> List[Any]:
     return list(range(np.asarray(X).shape[1]))
 
 
-def separability_panel(X: Any, y: np.ndarray, features: Sequence[Any], *, sample: int = DEFAULT_SAMPLE, seed: int = 0) -> ScatterPanelSpec:
+def separability_panel(X: Any, y: np.ndarray, features: Sequence[Any], *, sample: int = DEFAULT_SAMPLE, seed: int = 0) -> PanelSpec:
     """ScatterPanelSpec of the two named ``features`` coloured by ``y``, titled with the 2-D Fisher separability score.
 
     Both features are pulled as narrow float64 views and seeded-subsampled to ``sample`` rows; the score is computed on
@@ -192,6 +192,15 @@ def separability_panel(X: Any, y: np.ndarray, features: Sequence[Any], *, sample
     if z0.shape[0] != yv.shape[0]:
         raise ValueError(f"separability_panel: length mismatch X={z0.shape[0]} y={yv.shape[0]}")
     n = z0.shape[0]
+    if n == 0 or np.unique(yv[np.isfinite(yv)]).size < 2:
+        # One point at the origin with "Fisher ratio 0.00" is a measurement-shaped rendering of no data; the ratio
+        # is a BETWEEN-class quantity, so it needs two classes with rows in them before it means anything.
+        return AnnotationPanelSpec(
+            text=(f"Separability of ({f0}, {f1}) not measurable: {n:,} rows carrying "
+                  f"{int(np.unique(yv[np.isfinite(yv)]).size)} distinct class label(s). The Fisher ratio compares two "
+                  "class means, so it needs at least two populated classes."),
+            title=f"Separability: {f0} vs {f1}",
+        )
     if n > sample:
         rng = np.random.default_rng(seed)
         idx = np.sort(rng.choice(n, size=sample, replace=False))

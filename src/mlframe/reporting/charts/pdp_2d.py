@@ -22,11 +22,18 @@ from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
 
+from mlframe.reporting.charts._catboost_guards import catboost_pool_rebuild_risk
 from mlframe.reporting.charts.pdp_ice import (
-    DEFAULT_PDP_GRID, DEFAULT_PDP_SAMPLE, _as_2d, _feat_label, compute_pdp_2d,
+    DEFAULT_PDP_GRID, DEFAULT_PDP_SAMPLE, _as_2d, _feat_label, compute_pdp_2d, pdp_2d_support_counts,
 )
 
 logger = logging.getLogger(__name__)
+
+# A grid cell holding fewer rows than this is model extrapolation rather than measured behaviour. Both an absolute
+# floor and a share of the data: on a small frame a fixed 20 would hatch everything, on a huge one it would hatch
+# nothing.
+_SUPPORT_FLOOR_MIN_ROWS: int = 5
+_SUPPORT_FLOOR_FRACTION: float = 0.001
 
 Feature = Union[int, str]
 
@@ -114,6 +121,12 @@ def compose_pdp_2d_figure(
     import matplotlib.pyplot as plt
 
     _, _, names = _as_2d(X)
+    risk = catboost_pool_rebuild_risk(model)
+    if risk:
+        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+        ax.axis("off")
+        ax.text(0.5, 0.5, "2-D PDP not computed:\n" + risk, ha="center", va="center", fontsize=10, wrap=True)
+        return fig
     n_cols = len(names) if names is not None else (np.asarray(X).reshape(len(X), -1).shape[1])
 
     if feat_x is None or feat_y is None:
@@ -153,9 +166,22 @@ def compose_pdp_2d_figure(
     cbar.set_label(cbar_label)
 
     metr = interaction_residual(surface)
+    support_note = ""
+    got = pdp_2d_support_counts(X, i_x, i_y, gx, gy)
+    if got is not None:
+        counts, n_total = got
+        floor = max(_SUPPORT_FLOOR_MIN_ROWS, int(_SUPPORT_FLOOR_FRACTION * n_total))
+        thin = counts.T < floor  # counts is (gx, gy); the plotted surface is transposed to (gy, gx)
+        if thin.any():
+            # Hatch, not blank: the surface still has a value there, it just is not one the DATA supports.
+            ax.contourf(GX, GY, thin.astype(float), levels=[0.5, 1.5], colors="none", hatches=["////"])
+            support_note = (
+                "\n" + f"hatched: {int(thin.sum()):,} of {thin.size:,} grid cells hold < {floor:,} rows "
+                f"(of {n_total:,}) -- model extrapolation, not measured behaviour"
+            )
     ax.set_xlabel(lab_x)
     ax.set_ylabel(lab_y)
-    ax.set_title(f"{lab_x} x {lab_y}  (interaction residual ratio = {metr['residual_ratio']:.2f})")
+    ax.set_title(f"{lab_x} x {lab_y}  (interaction residual ratio = {metr['residual_ratio']:.2f}){support_note}", fontsize=10)
     fig.suptitle(suptitle)
     fig.tight_layout()
     return fig

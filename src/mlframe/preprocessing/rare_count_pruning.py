@@ -41,7 +41,7 @@ def _target_aware_collapse_mask(codes: np.ndarray, uniques: np.ndarray, y_arr: n
     tot = np.bincount(codes64[keep], minlength=n_levels).astype(np.float64)
     pos = np.bincount(codes64[keep], weights=y_arr[keep], minlength=n_levels)
     base_rate = float(y_arr[keep].mean()) if keep.any() else 0.5
-    woe, _ = level_woe(codes64, y_arr, n_levels, base_rate=base_rate, alpha=alpha)
+    woe, _, _ = level_woe(codes64, y_arr, n_levels, base_rate=base_rate, alpha=alpha)
 
     total_pos = float(pos.sum())
     total_tot = float(tot.sum())

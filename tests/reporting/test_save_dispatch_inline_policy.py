@@ -69,7 +69,9 @@ def test_matplotlib_is_not_shown_inline_but_is_still_saved(shown, tmp_path):
 
     assert "plotly" in shown, shown
     assert "matplotlib" not in shown, shown
-    # The save side is untouched by the display policy.
+    # The save side is untouched by the display policy. A direct ``render_and_save`` caller keeps the FLAT layout:
+    # per-format subfolders are opt-in for the library and are turned on by the training suite's config, so a library
+    # upgrade cannot move a direct caller's files (test_save_format_subfolders.py covers the on case).
     assert (tmp_path / "chart.matplotlib.png").exists()
     assert (tmp_path / "chart.plotly.html").exists()
 

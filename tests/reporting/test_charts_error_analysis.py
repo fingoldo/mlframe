@@ -564,16 +564,17 @@ def test_target_dist_overlay_all_nan_split_is_surfaced_as_excluded():
         "test": np.full(500, np.nan),
     }
     fig = target_dist_overlay(y, task="regression")
-    assert "test" in fig.suptitle
-    assert "excluded" in fig.suptitle
+    # The verdict moved out of the suptitle and into the caption, where the rest of the figure's prose lives.
+    assert "test" in fig.caption
+    assert "excluded" in fig.caption
 
 
 def test_target_dist_overlay_no_usable_nontrain_split():
     """Target dist overlay no usable nontrain split."""
     y = {"train": np.random.default_rng(4).normal(0, 1, 500), "test": np.full(200, np.nan)}
     fig = target_dist_overlay(y, task="regression")
-    assert "excluded" in fig.suptitle
-    assert "cannot compare drift" in fig.suptitle
+    assert "excluded" in fig.caption
+    assert "cannot compare drift" in fig.caption
 
 
 def test_biz_val_target_dist_overlay_detects_train_test_shift():

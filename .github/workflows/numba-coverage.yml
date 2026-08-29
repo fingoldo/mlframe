@@ -58,7 +58,13 @@ on:
         default: true
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Keyed on the EVENT as well as the ref. The scheduled run's 8 kernel-coverage shards take up to 340 minutes,
+  # while a workflow_run-triggered run fires after EVERY CI completion on master (several a day). Under one shared
+  # group those short runs cancelled the long scheduled one mid-flight -- and the scheduled run is the one that
+  # actually reaches the codecov upload, so the numba-disabled flag stayed empty and its badge grey. Observed on
+  # 2026-08-27 and 2026-08-28: both scheduled runs cancelled, with kernel shards 2/8 and 3/8 killed part-way.
+  # Cancel-in-progress still collapses two rapid runs of the SAME trigger kind, which is what it was there for.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 permissions:

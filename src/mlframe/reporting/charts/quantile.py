@@ -59,6 +59,8 @@ from typing import Callable, Dict, List, Sequence
 
 import numpy as np
 
+from ._captions import caption_for_tokens
+
 from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels, parse_panel_template,
 )
@@ -96,17 +98,28 @@ def _model_diagnostics_decompose():
 # ----------------------------------------------------------------------------
 
 
-def _reliability_panel(y_true, preds_NK, alphas) -> LinePanelSpec:
+def _no_rows_annotation(what: str, n_in: int) -> AnnotationPanelSpec:
+    """Annotation for a panel left with no usable row, naming how many were supplied and what disqualified them."""
+    return AnnotationPanelSpec(
+        text=(
+            f"{what} unavailable: none of the {n_in:,} supplied rows has a finite y_true and a finite prediction at "
+            "every alpha, so there is nothing to measure. A zero here would read as a measured zero."
+        ),
+        title=what,
+    )
+
+
+def _reliability_panel(y_true, preds_NK, alphas) -> PanelSpec:
     """Empirical coverage vs nominal alpha.
 
     For each alpha_k, the empirical coverage is the fraction of rows
     where y <= q_k (the cumulative coverage at that quantile level).
     Perfect calibration draws on the diagonal (y = x).
     """
-    from mlframe.metrics.quantile import _fast_coverage  # noqa: F401 (import for jit warmup)
-
     y = np.asarray(y_true, dtype=np.float64).ravel()
     P = np.asarray(preds_NK, dtype=np.float64)
+    if P.shape[0] == 0 or not np.any(_finite_rows(np.asarray(y_true, dtype=np.float64).ravel(), P)):
+        return _no_rows_annotation("Empirical vs nominal coverage", int(P.shape[0]))
     row_ok = _finite_rows(y, P)
     y, P = y[row_ok], P[row_ok]
     a_arr = np.asarray(alphas, dtype=np.float64)
@@ -115,11 +128,13 @@ def _reliability_panel(y_true, preds_NK, alphas) -> LinePanelSpec:
     for k in range(K):
         emp[k] = float(np.mean(y <= P[:, k])) if y.size else float("nan")
     diag = a_arr.copy()
+    dev = emp - a_arr
+    w = int(np.nanargmax(np.abs(dev))) if np.any(np.isfinite(dev)) else 0
     return LinePanelSpec(
         x=a_arr,
         y=tuple([diag, emp]),
         series_labels=("perfect", "empirical"),
-        title="Reliability: empirical vs nominal coverage",
+        title=(f"Reliability: empirical vs nominal coverage (max deviation {dev[w]:+.3f} at alpha={a_arr[w]:g}, " f"empirical {emp[w]:.3f})"),
         xlabel="Nominal alpha",
         ylabel="Empirical P(y <= q_alpha)",
         line_styles=(":", "-"),
@@ -127,9 +142,12 @@ def _reliability_panel(y_true, preds_NK, alphas) -> LinePanelSpec:
     )
 
 
-def _pinball_by_alpha_panel(y_true, preds_NK, alphas) -> LinePanelSpec:
+def _pinball_by_alpha_panel(y_true, preds_NK, alphas) -> PanelSpec:
     """Pinball loss per alpha as a line plot. Lower = better."""
     from mlframe.metrics.quantile import pinball_loss_per_alpha
+    P = np.asarray(preds_NK, dtype=np.float64)
+    if P.shape[0] == 0 or not np.any(_finite_rows(np.asarray(y_true, dtype=np.float64).ravel(), P)):
+        return _no_rows_annotation("Pinball loss by alpha", int(P.shape[0]))
     losses_dict = pinball_loss_per_alpha(y_true, preds_NK, alphas)
     a_arr = np.asarray(alphas, dtype=np.float64)
     # Index losses by column position: pinball_loss_per_alpha keys by float(alpha), so a
@@ -140,13 +158,13 @@ def _pinball_by_alpha_panel(y_true, preds_NK, alphas) -> LinePanelSpec:
         y=losses,
         title=f"Pinball loss by alpha (mean={losses.mean():.4f})",
         xlabel="Alpha",
-        ylabel="Pinball loss",
+        ylabel="Pinball loss (lower is better)",
         line_styles=("-",),
         colors=("crimson",),
     )
 
 
-def _interval_band_panel(y_true, preds_NK, alphas) -> LinePanelSpec:
+def _interval_band_panel(y_true, preds_NK, alphas) -> PanelSpec:
     """Per-row prediction band: median line + filled lo..hi band, y_true as markers.
 
     Sorts the plotted rows by predicted median so the band reads left-to-right in
@@ -158,6 +176,10 @@ def _interval_band_panel(y_true, preds_NK, alphas) -> LinePanelSpec:
     """
     y = np.asarray(y_true, dtype=np.float64).ravel()
     P = np.asarray(preds_NK, dtype=np.float64)
+    if P.shape[0] == 0 or not np.any(_finite_rows(np.asarray(y_true, dtype=np.float64).ravel(), P)):
+        return _no_rows_annotation("Prediction intervals", int(P.shape[0]))
+    if P.shape[0] == 0 or not np.any(_finite_rows(np.asarray(y_true, dtype=np.float64).ravel(), P)):
+        return _no_rows_annotation("Pinball loss by alpha", int(P.shape[0]))
     a_arr = list(alphas)
     K = len(a_arr)
 
@@ -201,7 +223,7 @@ def _interval_band_panel(y_true, preds_NK, alphas) -> LinePanelSpec:
     )
 
 
-def _width_dist_panel(y_true, preds_NK, alphas) -> HistogramPanelSpec:
+def _width_dist_panel(y_true, preds_NK, alphas) -> PanelSpec:
     """Histogram of interval widths (q_hi - q_lo).
 
     Uses the OUTERMOST alpha pair (first vs last column) for the width;
@@ -212,19 +234,26 @@ def _width_dist_panel(y_true, preds_NK, alphas) -> HistogramPanelSpec:
     from mlframe.reporting.charts._sampling import prebin_histogram
 
     P = np.asarray(preds_NK, dtype=np.float64)
+    if P.shape[0] == 0 or not np.any(_finite_rows(np.asarray(y_true, dtype=np.float64).ravel(), P)):
+        return _no_rows_annotation("Interval width distribution", int(P.shape[0]))
     # Use the column-wise span (max - min across all alpha columns) rather than last-minus-first: under quantile
     # crossing the alphas are not monotone, so P[:, -1] - P[:, 0] can go negative and report nonsense widths.
-    if P.ndim == 2 and P.shape[1] > 1:
-        widths = np.nanmax(P, axis=1) - np.nanmin(P, axis=1)
-    else:
-        widths = np.abs(P[:, -1] - P[:, 0])
+    if P.ndim != 2 or P.shape[1] < 2:
+        # With one level there is no interval: the "width" is a column minus itself, and the panel drew a spike at
+        # zero that reads as a perfectly sharp model.
+        return AnnotationPanelSpec(
+            text=("Interval width undefined: an interval needs at least two quantile levels, and only " f"{P.shape[1] if P.ndim == 2 else 1} was supplied."),
+            title="Interval width distribution",
+        )
+    widths = np.nanmax(P, axis=1) - np.nanmin(P, axis=1)
     # Degenerate: all rows have the same width (e.g. linear quantile
     # regressor that just adds a constant offset per alpha). numpy
     # raises ``Too many bins for data range`` when bins>=2 and
     # max==min. Clamp bins to a safe value -- numpy still emits a 1-bin
     # histogram which renders as a single bar (faithful representation).
-    n_unique = int(np.unique(widths).size)
-    bins = min(30, max(1, n_unique))
+    bins = int(min(30, max(1, np.ceil(np.log2(max(widths.size, 1)) + 1))))
+    if widths.size and float(np.nanmax(widths)) == float(np.nanmin(widths)):
+        bins = 1
     a_hi = f"{float(alphas[-1]):g}"
     a_lo = f"{float(alphas[0]):g}"
     mean_w = float(np.nanmean(widths)) if widths.size and np.isfinite(widths).any() else 0.0
@@ -235,8 +264,8 @@ def _width_dist_panel(y_true, preds_NK, alphas) -> HistogramPanelSpec:
         bins=bins,
         bin_centers=centers,
         bin_width=width,
-        title=(f"Width(q_{a_hi} - q_{a_lo}) " f"(mean={mean_w:.3f}, max={max_w:.3f})"),
-        xlabel=f"Interval width (q_{a_hi} - q_{a_lo})",
+        title=(f"Interval width (span across all {P.shape[1]} alpha columns, q_{a_lo}..q_{a_hi}) " f"(mean={mean_w:.3f}, max={max_w:.3f})"),
+        xlabel=f"max - min across the alpha columns (q_{a_lo}..q_{a_hi})",
         ylabel="Density",
         density=True,
     )
@@ -289,6 +318,8 @@ def _coverage_panel(y_true, preds_NK, alphas) -> PanelSpec:
     row_ok = _finite_rows(y, P)
     y, P = y[row_ok], P[row_ok]
     n = y.shape[0]
+    if n == 0:
+        return _no_rows_annotation("Interval coverage", int(np.asarray(preds_NK).shape[0]))
     pairs = _symmetric_interval_pairs(alphas)
     if not pairs:
         return AnnotationPanelSpec(
@@ -317,11 +348,21 @@ def _coverage_panel(y_true, preds_NK, alphas) -> PanelSpec:
     ci_hi = ci_hi[order]
     widths = widths[order]
     diag = nominal.copy()
+    inside_ci = (nominal >= ci_lo) & (nominal <= ci_hi)
+    dev = empirical - nominal
+    w = int(np.argmax(np.abs(dev)))
+    direction = "over-covers (intervals too wide)" if dev[w] > 0 else "under-covers (intervals too narrow)"
+    verdict = (
+        f"every nominal level sits inside its 95% CI (n={n:,})"
+        if bool(np.all(inside_ci))
+        else f"{int((~inside_ci).sum())} of {inside_ci.size} levels miss their 95% CI; worst at nominal "
+        f"{nominal[w]:.2f}, empirical {empirical[w]:.3f} -- {direction}"
+    )
     return LinePanelSpec(
         x=nominal,
         y=tuple([diag, empirical, widths]),
         series_labels=("perfect", "empirical", "mean interval width"),
-        title="Interval coverage (empirical vs nominal)",
+        title=f"Interval coverage (empirical vs nominal): {verdict}",
         xlabel="Nominal coverage (alpha_hi - alpha_lo)",
         ylabel="Empirical coverage",
         line_styles=(":", "lines+markers", "lines+markers"),
@@ -349,14 +390,19 @@ def _pit_hist_panel(y_true, preds_NK, alphas) -> PanelSpec:
             title="PIT histogram",
         )
     pit = pit_values(y_true, preds_NK, alphas)
-    mean = float(pit.mean()) if pit.size else 0.0
+    pit = pit[np.isfinite(pit)]
+    if pit.size == 0:
+        return _no_rows_annotation("PIT histogram", int(np.asarray(preds_NK).shape[0]))
+    mean = float(pit.mean())
+    from mlframe.calibration.quality import kolmogorov_smirnov_statistic
+    ks = float(kolmogorov_smirnov_statistic(pit))
     heights, centers, width = prebin_histogram(pit, 20, True)
     return HistogramPanelSpec(
         values=heights if centers is not None else pit,
         bins=20,
         bin_centers=centers,
         bin_width=width,
-        title=(f"PIT histogram (uniform = calibrated; " f"mean={mean:.3f})"),
+        title=(f"PIT histogram (uniform = calibrated; mean={mean:.3f}, KS-vs-uniform={ks:.4f} over {pit.size:,} rows)"),
         xlabel="PIT value",
         ylabel="Density",
         density=True,
@@ -404,6 +450,8 @@ def _quantile_reliability_panel(y_true, preds_NK, alphas) -> PanelSpec:
     """
     y = np.asarray(y_true, dtype=np.float64).ravel()
     P = np.asarray(preds_NK, dtype=np.float64)
+    if P.shape[0] == 0 or not np.any(_finite_rows(np.asarray(y_true, dtype=np.float64).ravel(), P)):
+        return _no_rows_annotation("Quantile reliability", int(P.shape[0]))
     a_arr = np.asarray(alphas, dtype=np.float64)
     K = a_arr.shape[0]
 
@@ -424,7 +472,7 @@ def _quantile_reliability_panel(y_true, preds_NK, alphas) -> PanelSpec:
         y = y[sub]
         P = P[sub]
 
-    from mlframe.reporting.colors import line_color
+    from mlframe.reporting.colors import line_color, line_style
 
     quantile_grid = np.linspace(0.02, 0.98, _RELIABILITY_GRID)
     curves: List[np.ndarray] = []
@@ -440,7 +488,8 @@ def _quantile_reliability_panel(y_true, preds_NK, alphas) -> PanelSpec:
         curves.append(recall)
         nominal.append(np.full(_RELIABILITY_GRID, float(a_arr[k])))
         labels.append(f"tau={a_arr[k]:g} (obs)")
-        styles.append("lines+markers")
+        # Dash varies with the palette wrap so tau 0 and tau 10 stay separable once the colour repeats.
+        styles.append("lines+markers" if line_style(k) == "-" else line_style(k))
         colors.append(line_color(k))
     # The per-tau nominal lines are reference levels sharing each obs curve's color; labelling all K floods the
     # legend (~2K entries cover the plot at K>=7). Label one as the dotted-reference key and blank the rest.
@@ -472,6 +521,8 @@ def _pinball_decomp_panel(y_true, preds_NK, alphas) -> PanelSpec:
     """
     y = np.asarray(y_true, dtype=np.float64).ravel()
     P = np.asarray(preds_NK, dtype=np.float64)
+    if P.shape[0] == 0 or not np.any(_finite_rows(np.asarray(y_true, dtype=np.float64).ravel(), P)):
+        return _no_rows_annotation("Pinball loss decomposition", int(P.shape[0]))
     a_arr = np.asarray(alphas, dtype=np.float64)
     K = a_arr.shape[0]
     cats = tuple(f"{a_arr[k]:g}" for k in range(K))
@@ -496,7 +547,7 @@ def _pinball_decomp_panel(y_true, preds_NK, alphas) -> PanelSpec:
             values=losses,
             title=f"Mean pinball by tau (mean={losses.mean():.4f})",
             xlabel="tau",
-            ylabel="Pinball loss",
+            ylabel="Pinball loss (lower is better)",
             colors=("crimson",),
         )
 
@@ -555,8 +606,21 @@ def _quantile_crossing_panel(y_true, preds_NK, alphas) -> PanelSpec:
             title="Quantile crossing (adjacent-pair violation rate)",
         )
     row_ok = np.all(np.isfinite(P), axis=1) if P.shape[0] else np.zeros(0, dtype=bool)
+    n_dropped = int(P.shape[0] - int(row_ok.sum()))
     P = P[row_ok]
     n = P.shape[0]
+    if n == 0:
+        # Rate 0.0 over zero rows rendered as "0 rows, 0.000%" -- a clean bill of health issued from no data,
+        # which is the single most misleading thing this panel can say. It exists to report crossings; with
+        # nothing left to check it must say so.
+        return AnnotationPanelSpec(
+            text=(
+                "Quantile crossing not checked: none of the "
+                f"{n_dropped:,} supplied rows has a finite prediction at every tau, so there is no row on "
+                "which adjacent quantiles could be compared."
+            ),
+            title="Quantile crossing (adjacent-pair violation rate)",
+        )
     cats: List[str] = []
     rates = np.empty(K - 1, dtype=np.float64)
     counts = np.empty(K - 1, dtype=np.int64)
@@ -567,7 +631,8 @@ def _quantile_crossing_panel(y_true, preds_NK, alphas) -> PanelSpec:
         rates[j] = (c / n) if n else 0.0
         cats.append(f"{a_arr[j]:g}>{a_arr[j + 1]:g}")
     worst = int(np.argmax(counts))
-    title = f"Quantile crossing rate (worst {cats[worst]}: " f"{counts[worst]} rows, {rates[worst]:.3%})"
+    dropped_note = f"; {n_dropped:,} rows dropped as non-finite" if n_dropped else ""
+    title = f"Quantile crossing rate (worst {cats[worst]}: {counts[worst]:,} of {n:,} rows, " f"{rates[worst]:.3%}{dropped_note})"
     return BarPanelSpec(
         categories=tuple(cats),
         values=rates,
@@ -688,6 +753,28 @@ _TOKEN_BUILDERS: Dict[str, Callable] = {
 
 ALLOWED_QUANTILE_PANEL_TOKENS = frozenset(_TOKEN_BUILDERS)
 
+# One sentence per token, joined for the tokens ACTUALLY rendered (see ``_captions.caption_for_tokens``). The
+# figure-level caption used to describe the DEFAULT template, so a caller asking for a narrower mix read about
+# panels that were not on their figure.
+_TOKEN_CAPTIONS: Dict[str, str] = {
+    "COVERAGE": ("The coverage panel checks the promise a quantile makes: the share of outcomes at or below the predicted q-th quantile should be q."),
+    "FAN_CHART": ("The fan chart stacks the predicted quantiles over the observations, so widening bands mark where the model itself is uncertain."),
+    "INTERVAL_BAND": (
+        "The interval band shows one central prediction interval against the realised values; points outside it are the misses its nominal level allows."
+    ),
+    "PINBALL_BY_ALPHA": ("Pinball loss per alpha is the proper scoring rule for a quantile, so it, not coverage alone, is what ranks two quantile models."),
+    "PINBALL_DECOMP": (
+        "The pinball decomposition splits the loss into the part paid for being too low and the part paid for being too high, which names the direction of the miss."
+    ),
+    "PIT_HIST": ("The PIT histogram is flat when the whole predicted distribution is calibrated, not just one quantile of it."),
+    "QUANTILE_CROSSING": (
+        "Quantile crossing is a structural defect: a higher quantile predicted below a lower one is not a distribution, and no amount of accuracy elsewhere excuses it."
+    ),
+    "QUANTILE_RELIABILITY": ("Quantile reliability plots nominal against empirical coverage; the diagonal is the promise and distance from it is the breach."),
+    "RELIABILITY": ("The reliability curve maps predicted level to observed frequency; the diagonal is perfect."),
+    "WIDTH_DIST": ("The interval-width distribution is the cost side of coverage: an interval wide enough to always contain the truth tells a reader nothing."),
+}
+
 
 DEFAULT_QUANTILE_PANELS: str = (
     "RELIABILITY COVERAGE PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST " "QUANTILE_RELIABILITY PINBALL_DECOMP QUANTILE_CROSSING"
@@ -720,6 +807,13 @@ def compose_quantile_figure(
         raise ValueError(f"preds_NK.shape[0]={P.shape[0]} != len(y_true)={y.shape[0]}")
     if P.shape[1] != len(alphas):
         raise ValueError(f"preds_NK.shape[1]={P.shape[1]} != len(alphas)={len(alphas)}")
+    a_arr = np.asarray(alphas, dtype=np.float64)
+    if not np.all(np.isfinite(a_arr)) or (a_arr.size and (a_arr[0] <= 0.0 or a_arr[-1] >= 1.0)):
+        raise ValueError(f"alphas must be finite and strictly inside (0, 1); got {list(alphas)}")
+    if a_arr.size > 1 and not np.all(np.diff(a_arr) > 0.0):
+        # Every interval-pairing, band and coverage helper below reads the grid positionally as ascending.
+        # An unsorted grid does not fail there; it produces inverted bands and negative nominal coverages.
+        raise ValueError(f"alphas must be strictly increasing; got {list(alphas)}")
 
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
@@ -734,6 +828,11 @@ def compose_quantile_figure(
         panels=grid,
         figsize=figsize_for_grid(
             n_rows, n_cols, cell_width=cell_width, cell_height=cell_height,
+        ),
+        caption=caption_for_tokens(
+            "How to read: a quantile model makes a promise about frequency, so these panels check the promise and the cost of keeping it together.",
+            tokens,
+            _TOKEN_CAPTIONS,
         ),
     )
 

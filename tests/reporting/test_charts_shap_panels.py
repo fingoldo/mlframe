@@ -202,7 +202,8 @@ def test_empty_input_skips():
     """Zero rows / zero columns is a best-effort skip, not a crash."""
     m = _fit_rf(*_strong_f0(200, seed=0))
     res = sp.shap_summary_and_dependence(m, np.empty((0, 5)), feature_names=[f"f{i}" for i in range(5)])
-    assert res.skipped == "empty input"
+    # The bare reason named no cause; it now says WHICH of the two degeneracies applied.
+    assert res.skipped is not None and res.skipped.startswith("empty input")
     assert res.figures == []
 
 

@@ -158,7 +158,9 @@ def shap_worst_errors_explanation(
     worst_idx = order[: min(k_eff, rankable.size)]
     severities = severity[worst_idx]
 
-    explain_idx = _background_index(order, n, max_explain_rows, worst_idx, seed)
+    # Only the worst rows' SHAP values are ever read below, and TreeExplainer's base value comes from the model,
+    # not from the rows passed in -- so explaining a wider "background" set was pure work whose output was discarded.
+    explain_idx = worst_idx[: max(int(max_explain_rows), 1)]
     dropped_note = f" ({n_dropped:,} rows had no finite label/score and were not ranked)" if n_dropped else ""
     X_explain = _row_subset(carrier, explain_idx)
     explainer = shap.TreeExplainer(model)
@@ -183,24 +185,16 @@ def shap_worst_errors_explanation(
 
 
 def _skip(reason: str) -> ShapPerInstanceResult:
-    """Build an empty ``ShapPerInstanceResult`` carrying ``reason`` so callers can distinguish a deliberate skip from a genuine explanation."""
-    return ShapPerInstanceResult(None, [], np.empty(0, dtype=int), np.empty(0), [], skipped=reason)
+    """Build a ``ShapPerInstanceResult`` whose figure STATES ``reason``, so the skip is visible in the report itself.
 
-
-def _background_index(order: np.ndarray, n: int, max_rows: int, worst_idx: np.ndarray, seed: int) -> np.ndarray:
-    """Bounded background row index: the K worst rows (always) plus a random fill to ``max_rows``.
-
-    The K worst rows MUST be in the explained set (we need their per-row SHAP); the rest are a random
-    background so the TreeExplainer base value reflects the population, not just the tail.
+    The reason used to live only on the dataclass, readable by a caller inspecting it and by nobody looking at the
+    rendered report -- where the panel simply was not there, indistinguishable from a panel nobody asked for.
     """
-    cap = min(max(int(max_rows), len(worst_idx)), n)
-    keep = set(int(i) for i in worst_idx)
-    rng = np.random.default_rng(seed)
-    pool = np.array([i for i in order if int(i) not in keep], dtype=int)
-    rng.shuffle(pool)
-    fill = pool[: max(cap - len(keep), 0)]
-    idx = np.concatenate([np.asarray(worst_idx, dtype=int), fill]) if fill.size else np.asarray(worst_idx, dtype=int)
-    return idx
+    fig = None
+    if plt is not None:
+        fig = plt.figure(figsize=(8.0, 2.5))
+        fig.text(0.5, 0.5, "Per-instance SHAP not produced:\n" + reason, ha="center", va="center", fontsize=11, wrap=True)
+    return ShapPerInstanceResult(fig, [], np.empty(0, dtype=int), np.empty(0), [], skipped=reason)
 
 
 def _render(

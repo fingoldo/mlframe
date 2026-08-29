@@ -145,7 +145,9 @@ class MatplotlibRenderer:
                 if panel is None:
                     row_axes.append(None)
                     continue
-                ax = fig.add_subplot(gs[r, c])
+                share_x = axes_grid[0][c] if (spec.sharex and r > 0 and c < len(axes_grid[0]) and axes_grid[0][c] is not None) else None
+                share_y = row_axes[0] if (spec.sharey and c > 0 and row_axes and row_axes[0] is not None) else None
+                ax = fig.add_subplot(gs[r, c], sharex=share_x, sharey=share_y)
                 row_axes.append(ax)
                 col_axes.setdefault(c, []).append(ax)
             axes_grid.append(row_axes)
@@ -266,7 +268,8 @@ class MatplotlibRenderer:
         bbox = ax.get_window_extent()
         panel_w_in = float(bbox.width) / float(ax.figure.dpi or 100.0)
         text = wrap_annotation_text(p.text, panel_w_in, p.fontsize)
-        ax.text(0.5, 0.5, text, ha="center", va="center", fontsize=p.fontsize, transform=ax.transAxes)
+        family = "monospace" if getattr(p, "monospace", False) else None
+        ax.text(0.5, 0.5, text, ha="center", va="center", fontsize=p.fontsize, transform=ax.transAxes, family=family)
         _set_panel_title(ax, p.title)
         ax.set_xticks([])
         ax.set_yticks([])
@@ -361,6 +364,10 @@ class MatplotlibRenderer:
                 ax.set_xlim(lo, hi)
                 ax.set_ylim(lo, hi)
                 ax.set_aspect("equal", "box")
+        elif p.equal_aspect:
+            # The flag used to be read only inside the perfect-fit branch, so asking for a square panel
+            # without that diagonal silently did nothing.
+            ax.set_aspect("equal", "box")
         if p.xlim is not None:
             ax.set_xlim(*p.xlim)
         if p.ylim is not None:
@@ -486,9 +493,15 @@ class MatplotlibRenderer:
                 # so recomputing them per contour level was O(levels * cells) for an O(cells) answer. The
                 # plotly twin already hoists them.
                 lo, hi = float(np.nanmin(mat)), float(np.nanmax(mat))
-                for level, color in p.threshold_contours:
+                for _entry in p.threshold_contours:
+                    level, color = _entry[0], _entry[1]
+                    dash = _entry[2] if len(_entry) > 2 else "solid"
+                    label = _entry[3] if len(_entry) > 3 else ""
                     if lo < level < hi:  # contour only exists when the level is crossed
-                        ax.contour(gx, gy, mat, levels=[level], colors=[color], linewidths=1.4)
+                        cs = ax.contour(gx, gy, mat, levels=[level], colors=[color], linewidths=1.4,
+                                        linestyles={"solid": "-", "dash": "--", "dot": ":", "dashdot": "-."}.get(dash, "-"))
+                        if label:
+                            ax.clabel(cs, fmt={level: label}, fontsize=7)
         if p.trend_line is not None and p.trend_xy is not None:
             from mlframe.reporting.renderers._trend import robust_fit_endpoints
             # The imshow axes live in BIN-INDEX space (0..nbins-1); robust_fit_endpoints + the y=x
@@ -583,7 +596,7 @@ class MatplotlibRenderer:
         if p.colorbar_label:
             cbar.set_label(p.colorbar_label, fontsize=8)
         title = p.title if not p.note else f"{p.title}\n{p.note}"
-        ax_top.set_title(title, fontsize=10)
+        _set_panel_title(ax_top, title)
 
     def _bar(self, ax, p: BarPanelSpec) -> None:
         """Render a bar panel: grouped bars when ``values`` is a tuple of series, single-series otherwise; supports a perpendicular reference line and thins x-tick labels above 25 categories so they don't overlap."""
@@ -595,9 +608,11 @@ class MatplotlibRenderer:
             thickness = 0.8 / n_series
             for i, series in enumerate(p.values):
                 offset = (i - (n_series - 1) / 2) * thickness
-                kw = {}
+                kw: dict = {}
                 if p.colors is not None and i < len(p.colors):
                     kw["color"] = p.colors[i]
+                if p.hatches is not None and i < len(p.hatches) and p.hatches[i]:
+                    kw["hatch"] = p.hatches[i]
                 lbl = p.series_labels[i] if p.series_labels else None
                 if horizontal:
                     ax.barh(pos + offset, series, height=thickness, label=lbl, **kw)
@@ -607,6 +622,11 @@ class MatplotlibRenderer:
                 ax.legend(loc="best", fontsize=8, framealpha=0.7)
         else:
             kw = {"color": p.colors[0] if p.colors else "steelblue"}
+            if p.hatches and p.hatches[0]:
+                kw["hatch"] = p.hatches[0]
+            if p.value_err is not None:
+                kw["xerr" if horizontal else "yerr"] = np.vstack(p.value_err)
+                kw["error_kw"] = dict(ecolor="black", elinewidth=0.9, capsize=2)
             if horizontal:
                 ax.barh(pos, p.values, **kw)
             else:
@@ -779,7 +799,15 @@ class MatplotlibRenderer:
             ax.text(0.5, 0.5, "no finite values in any group", ha="center", va="center", transform=ax.transAxes)
             _set_panel_title(ax, p.title)
             return
-        parts = ax.violinplot([g for g, _ in drawable], showmeans=False, showextrema=False, showmedians=p.show_box)
+        parts = ax.violinplot([g for g, _ in drawable], showmeans=False, showextrema=False, showmedians=False)
+        if p.show_box:
+            # A median LINE here against a full quartile box on plotly meant one spec produced two different amounts
+            # of information. Both backends now show the quartile box.
+            ax.boxplot([g for g, _ in drawable], widths=0.12, showfliers=False, whis=(5, 95),
+                       medianprops=dict(color="black", linewidth=1.2),
+                       boxprops=dict(color="black", linewidth=0.9),
+                       whiskerprops=dict(color="black", linewidth=0.9),
+                       capprops=dict(color="black", linewidth=0.9))
         for i, body in enumerate(parts.get("bodies", [])):
             body.set_facecolor(line_color(i))
             body.set_alpha(0.6)

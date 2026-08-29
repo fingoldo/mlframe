@@ -10,7 +10,9 @@ from __future__ import annotations
 
 from typing import Any, Sequence, Union
 
-from mlframe.reporting.spec import FigureSpec, HeatmapPanelSpec
+import numpy as np
+
+from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, HeatmapPanelSpec, PanelSpec
 
 # H-statistic is O(F^2) 2-D PDP surfaces; cap the feature count so the panel stays bounded on wide frames.
 DEFAULT_MAX_INTERACTION_FEATURES: int = 8
@@ -24,18 +26,33 @@ def interaction_strength_panel(
     grid: int = 20,
     sample: int = 2000,
     seed: int = 0,
-) -> HeatmapPanelSpec:
+) -> PanelSpec:
     """HeatmapPanelSpec of the pairwise Friedman-Popescu H-statistic (interaction strength in [0, 1]) over ``features``."""
     from mlframe.inspection import pairwise_interaction_strength
 
     feats = list(features)
+    if len(feats) < 2:
+        return AnnotationPanelSpec(
+            text=(f"Pairwise interaction strength needs at least two features; {len(feats)} was supplied. H is "
+                  "defined on a PAIR, so there is nothing to compute here."),
+            title="Pairwise interaction strength (Friedman-Popescu H)",
+        )
     M = pairwise_interaction_strength(model, X, feats, grid=grid, sample=sample, seed=seed)
     labels = tuple(str(f) for f in feats)
+    off = M.copy()
+    np.fill_diagonal(off, 0.0)
+    _i, _j = np.unravel_index(int(np.nanargmax(off)), off.shape)
+    _h = float(off[_i, _j])
+    verdict = (
+        f"additive-dominated (max H {_h:.2f} between {labels[_i]} and {labels[_j]})"
+        if _h < 0.10
+        else f"interaction-dominated: max H {_h:.2f} between {labels[_i]} and {labels[_j]}"
+    )
     return HeatmapPanelSpec(
         matrix=M,
         row_labels=labels,
         col_labels=labels,
-        title="Pairwise interaction strength (Friedman-Popescu H)",
+        title=f"Pairwise interaction strength (Friedman-Popescu H) -- {verdict}",
         colormap="magma",
         cell_text=M,
         text_format=".2f",

@@ -28,8 +28,11 @@ from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
 
+
+from ._captions import caption_for_tokens
+
 from mlframe.reporting.charts._acf import (
-    MAX_ACF_LAGS, acf_fft, pacf_levinson, significance_band,
+    MAX_ACF_LAGS, acf_fft, lag_tick_labels, pacf_levinson, significance_band,
 )
 from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels, parse_panel_template,
@@ -37,6 +40,15 @@ from mlframe.reporting.charts._layout import (
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, LinePanelSpec, PanelSpec,
 )
+
+
+def _wilson_bounds(rates: np.ndarray, counts: np.ndarray, z: float = 1.959963984540054):
+    """Per-bin 95% Wilson interval for a binomial rate, NaN where the bin holds no rows or has no rate."""
+    n = np.where(counts > 0, counts, np.nan)
+    denom = 1.0 + (z * z) / n
+    centre = (rates + (z * z) / (2.0 * n)) / denom
+    half = (z * np.sqrt(rates * (1.0 - rates) / n + (z * z) / (4.0 * n * n))) / denom
+    return np.clip(centre - half, 0.0, 1.0), np.clip(centre + half, 0.0, 1.0)
 
 
 def _median_gap(x_axis: np.ndarray) -> Any:
@@ -83,7 +95,10 @@ def build_temporal_audit_spec(
             title=f"Target rate over time: {target_name} (no bins)",
             xlabel="Time", ylabel="mean(y)", line_styles=("-",),
         )
-        return FigureSpec(suptitle="", panels=((line,),), figsize=figsize)
+        return FigureSpec(
+            suptitle="", panels=((line,),), figsize=figsize,
+            caption="No time bin survived the audit's minimum-support filter, so there is no timeline to read.",
+        )
 
     # Full timeline (kept + dropped), sorted by bin_start so the x-axis is monotone.
     all_bins = sorted(bins, key=lambda b: b.bin_start)
@@ -95,15 +110,18 @@ def build_temporal_audit_spec(
         x_axis = _pd.DatetimeIndex(_starts).to_numpy()
     else:
         x_axis = np.asarray(_starts)
-    pos = {id(b): i for i, b in enumerate(all_bins)}
+    order_of = {i: k for k, i in enumerate(np.argsort([b.bin_start for b in bins], kind="stable"))}
+    pos = {i: order_of[i] for i in range(len(bins))}
+    kept_pos = [pos[i] for i, b in enumerate(bins) if getattr(b, "kept", True)]
+    dropped_pos = [pos[i] for i, b in enumerate(bins) if not getattr(b, "kept", True)]
 
     kept_y = np.full(len(all_bins), np.nan, dtype=np.float64)
-    for b in kept:
-        kept_y[pos[id(b)]] = float(b.target_rate)
+    for b, k in zip(kept, kept_pos):
+        kept_y[k] = float(b.target_rate)
 
     dropped_y = np.full(len(all_bins), np.nan, dtype=np.float64)
-    for b in dropped:
-        dropped_y[pos[id(b)]] = float(b.target_rate)
+    for b, k in zip(dropped, dropped_pos):
+        dropped_y[k] = float(b.target_rate)
 
     # Per-segment mean as a step series over the full timeline. Each kept bin inherits its segment's mean_rate; the
     # value holds flat across the segment and steps at boundaries -- the visual "is the rate stable within a regime".
@@ -113,7 +131,7 @@ def build_temporal_audit_spec(
         end_idx = int(s.get("end_idx", 0))  # exclusive into kept[]
         mean_rate = float(s.get("mean_rate", np.nan))
         for ki in range(start_idx, min(end_idx, len(kept))):
-            seg_step[pos[id(kept[ki])]] = mean_rate
+            seg_step[kept_pos[ki]] = mean_rate
 
     # Change-points (indices into kept[]) -> thin shaded vertical spans at the corresponding timeline positions.
     # vspans (add_vrect / axvspan) rather than vlines: plotly's add_vline does annotation-position arithmetic on the
@@ -123,7 +141,7 @@ def build_temporal_audit_spec(
     vspans: List[Tuple[Any, Any, str, float]] = []
     for ci in change_points:
         if 0 <= ci < len(kept):
-            cx = x_axis[pos[id(kept[ci])]]
+            cx = x_axis[kept_pos[ci]]
             vspans.append((cx - half_w, cx + half_w, "red", 0.5))
 
     ylabel = "P(y=1)" if "binary" in target_type_str.lower() else "mean(y)"
@@ -134,9 +152,27 @@ def build_temporal_audit_spec(
         f"{len(change_points)} change-point(s), {len(dropped)} sparse bin(s))"
     )
 
+    # Wilson band per kept bin: a binary rate from 12 rows swings across most of [0,1] on sampling alone, so the
+    # band is what separates a real regime change from a thin bin. Only defined for a binary target (a mean of a
+    # continuous target has no binomial interval), and drawn from each bin's OWN n rather than a pooled count.
+    counts = np.array([float(getattr(b, "n_obs", 0) or 0) for b in all_bins], dtype=np.float64)
+    band = None
+    if "binary" in target_type_str.lower():
+        with np.errstate(invalid="ignore", divide="ignore"):
+            _lo, _hi = _wilson_bounds(kept_y, counts)
+        band = (_lo, _hi)
+    hover = tuple(
+        f"{lbl}: rate={rate:.4g} over {int(c):,} rows" if np.isfinite(rate) else f"{lbl}: no rate ({int(c):,} rows)"
+        for lbl, rate, c in zip([str(getattr(b, "bin_label", "")) for b in all_bins], kept_y, counts)
+    )
+
     line = LinePanelSpec(
         x=x_axis,
         y=(kept_y, seg_step, dropped_y),
+        band=band,
+        band_color="steelblue",
+        band_label="95% Wilson interval on each bin's own n",
+        hovertext=hover,
         series_labels=(target_name, "segment mean", f"sparse (filtered, n={len(dropped)})"),
         title=title,
         xlabel=f"{timestamp_col} ({granularity})",
@@ -151,6 +187,9 @@ def build_temporal_audit_spec(
         suptitle="",
         panels=((line,),),
         figsize=figsize,
+        caption=(
+            "How to read: each point is one time bin's mean target, so a drift here means the relationship the model was fitted on is not the one it will be scored against. Shaded spans are the detected segments and the vertical marks their change points; a bin's own row count decides how much of its movement is real, which is why sparse bins are drawn separately rather than silently merged."
+        ),
     )
 
 
@@ -173,10 +212,9 @@ def _target_acf_panel(y: np.ndarray, *, nlags: int = MAX_ACF_LAGS) -> PanelSpec:
             title="Target autocorrelation (Bartlett band)",
         )
     band = significance_band(n_used)
-    lags = np.arange(1, acf_lags.size + 1)
     sig = int(np.sum(np.abs(acf_lags) > band))
     return BarPanelSpec(
-        categories=tuple(str(int(lo)) for lo in lags),
+        categories=lag_tick_labels(int(acf_lags.size)),
         values=acf_lags.astype(np.float64),
         title=f"Target ACF (n={n_used:,}; {sig} of {acf_lags.size} lags beyond +-{band:.3f})",
         xlabel="Lag",
@@ -200,10 +238,9 @@ def _target_pacf_panel(y: np.ndarray, *, nlags: int = MAX_ACF_LAGS) -> PanelSpec
             title="Target partial autocorrelation (Bartlett band)",
         )
     band = significance_band(n_used)
-    lags = np.arange(1, pacf_lags.size + 1)
     sig = int(np.sum(np.abs(pacf_lags) > band))
     return BarPanelSpec(
-        categories=tuple(str(int(lo)) for lo in lags),
+        categories=lag_tick_labels(int(pacf_lags.size)),
         values=pacf_lags.astype(np.float64),
         title=f"Target PACF (n={n_used:,}; {sig} of {pacf_lags.size} lags beyond +-{band:.3f})",
         xlabel="Lag",
@@ -219,6 +256,19 @@ _TOKEN_BUILDERS: Dict[str, Callable] = {
 }
 
 ALLOWED_TEMPORAL_PANEL_TOKENS = frozenset(_TOKEN_BUILDERS)
+
+# One sentence per token, joined for the tokens ACTUALLY rendered (see ``_captions.caption_for_tokens``). The
+# figure-level caption used to describe the DEFAULT template, so a caller asking for a narrower mix read about
+# panels that were not on their figure.
+_TOKEN_CAPTIONS: Dict[str, str] = {
+    "TARGET_ACF": (
+        "The target ACF asks whether the target predicts its own future. Row order is read as time, and non-finite rows stay as gaps rather than being closed up, so lag k means k steps of that grid."
+    ),
+    "TARGET_PACF": (
+        "The PACF strips out the correlation already explained by shorter lags, which is what names the ORDER of the dependence rather than just its presence."
+    ),
+}
+
 
 DEFAULT_TEMPORAL_TARGET_PANELS = "TARGET_ACF TARGET_PACF"
 
@@ -252,6 +302,11 @@ def compose_target_acf_figure(
         suptitle=suptitle,
         panels=grid,
         figsize=figsize_for_grid(n_rows, n_cols, cell_width=cell_width, cell_height=cell_height),
+        caption=caption_for_tokens(
+            "How to read: these panels look for structure in the target over time; a bar outside the shaded band is correlation the white-noise null does not explain.",
+            tokens,
+            _TOKEN_CAPTIONS,
+        ),
     )
 
 

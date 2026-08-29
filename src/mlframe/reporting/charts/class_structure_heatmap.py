@@ -20,7 +20,8 @@ from typing import Any, List, Optional, Tuple
 
 import numpy as np
 
-from mlframe.reporting.spec import FigureSpec, HeatmapPanelSpec
+from mlframe.reporting.charts._group_codes import group_codes_capped
+from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, HeatmapPanelSpec, PanelSpec
 
 # Default cap on the number of distinct group rows; the rest fold into a single "other" row so a high-cardinality group
 # column (thousands of ids) still yields a readable heatmap rather than an unrenderable wall of rows.
@@ -169,26 +170,14 @@ def _time_bin_labels(
 
 
 def _group_codes_capped(group_arr: np.ndarray, max_groups: int) -> Tuple[np.ndarray, List[str], int]:
-    """Map raw group values to row codes, keeping the ``max_groups`` largest groups and folding the rest into "other"."""
-    encodable = group_arr if group_arr.dtype.kind in "iuf" else group_arr.astype(str)
-    labels, inv = np.unique(encodable, return_inverse=True)
-    inv = inv.astype(np.int64)
-    n_unique = labels.shape[0]
-    if n_unique <= max_groups:
-        row_labels = [str(v) for v in labels]
-        return inv, row_labels, n_unique
-    counts = np.bincount(inv, minlength=n_unique)
-    order = np.argsort(counts)[::-1]
-    keep = order[:max_groups]
-    new_code = np.full(n_unique, max_groups, dtype=np.int64)  # default row = the "other" bucket
-    new_code[keep] = np.arange(max_groups, dtype=np.int64)
-    row_labels = [str(labels[gi]) for gi in keep] + ["other"]
-    return new_code[inv], row_labels, max_groups + 1
+    """Group codes in natural label order (stable heatmap rows across runs) plus the resulting row count."""
+    codes, labels, _supports = group_codes_capped(group_arr, max_groups, sort_by_support=False)
+    return codes, labels, len(labels)
 
 
 def class_structure_panel(df: Any, y: np.ndarray, *, group: Any, timestamps: Optional[np.ndarray] = None,
                           time_col: Optional[Any] = None, max_groups: int = DEFAULT_MAX_GROUPS,
-                          n_time_bins: int = DEFAULT_N_TIME_BINS) -> HeatmapPanelSpec:
+                          n_time_bins: int = DEFAULT_N_TIME_BINS) -> PanelSpec:
     """HeatmapPanelSpec of the per-(group, time-bin) positive-class rate / mean target over ``df`` and ``y``.
 
     ``group`` is a column key into ``df``; ``timestamps`` (or an integer ``time_col``, else row order) is binned into
@@ -204,6 +193,12 @@ def class_structure_panel(df: Any, y: np.ndarray, *, group: Any, timestamps: Opt
     group_arr = _pull_column(df, group)
     group_codes, row_labels, n_rows = _group_codes_capped(group_arr, int(max_groups))
     time_codes = _time_codes(df, n, timestamps, time_col, int(n_time_bins))
+    if n == 0 or n_rows < 2:
+        return AnnotationPanelSpec(
+            text=(f"Class structure by group needs at least two groups over a non-empty frame; got {n:,} rows in "
+                  f"{n_rows} group(s). With one group there is nothing to compare across rows of the heatmap."),
+            title="Class structure by group x time",
+        )
     rate, counts = class_structure_matrix(group_codes, time_codes, yv, n_rows, int(n_time_bins))
     low_support = counts < _CELL_SUPPORT_FLOOR
     rate = np.where(low_support, np.nan, rate)
@@ -216,8 +211,8 @@ def class_structure_panel(df: Any, y: np.ndarray, *, group: Any, timestamps: Opt
         row_labels=tuple(row_labels),
         col_labels=col_labels,
         title=(
-            "Class structure by group x time"
-            + (f"\n({n_blank} of {counts.size} cells hold under {_CELL_SUPPORT_FLOOR} rows and are blanked)" if n_blank else "")
+            f"{rate.shape[0]} groups x {rate.shape[1]} equal-population time bins"
+            + (f"; {n_blank} of {counts.size} cells hold under {_CELL_SUPPORT_FLOOR} rows and are blanked" if n_blank else "")
         ),
         xlabel="time bin (equal population, so unequal in time)",
         ylabel="group",

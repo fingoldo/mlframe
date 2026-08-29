@@ -205,6 +205,22 @@ def setup_configuration(
             _set_idm(_inline_display)
         except ImportError:
             pass
+    # Same set-and-restore shape as the inline-display override above, and the same reason for the thread-local:
+    # two suites running concurrently must not flip each other's output layout mid-run.
+    _subfolders = getattr(reporting_config, "plot_format_subfolders", None)
+    _subfolders_prior_set = False
+    _subfolders_prior = None
+    if _subfolders is not None:
+        try:
+            from mlframe.reporting.renderers.save import (
+                get_format_subfolders as _get_fsf,
+                set_format_subfolders as _set_fsf,
+            )
+            _subfolders_prior = _get_fsf()
+            _subfolders_prior_set = True
+            _set_fsf(_subfolders)
+        except (ImportError, AttributeError):
+            pass
     _step_done("inline_display setup (import mlframe.reporting.renderers.save)")
 
     # Process-wide; None keeps the user's pre-suite matplotlib/plotly settings intact.
@@ -456,4 +472,6 @@ def setup_configuration(
     ctx.artifacts["_process_flag_prior_residual_audit"] = _residual_audit_prior
     if _inline_display_prior_set:
         ctx.artifacts["_process_flag_prior_inline_display"] = _inline_display_prior
+    if _subfolders_prior_set:
+        ctx.artifacts["_process_flag_prior_format_subfolders"] = _subfolders_prior
     return ctx

@@ -31,6 +31,7 @@ import numpy as np
 
 from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels
 from mlframe.reporting.charts._coerce_shared import coerce_float_2d as _coerce_float_2d
+from mlframe.reporting.charts._catboost_guards import catboost_pool_rebuild_risk
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec, PanelSpec,
 )
@@ -611,6 +612,12 @@ def pdp_panel(
     feature) returns an AnnotationPanelSpec.
     """
     _, _, names = _as_2d(X)
+    risk = catboost_pool_rebuild_risk(model)
+    if risk:
+        return AnnotationPanelSpec(
+            text=f"PDP / ICE not computed: {risk}",
+            title="PDP / ICE",
+        )
     res = compute_pdp(model, X, feature, grid=grid, sample=sample, ice=ice, centered=centered, seed=seed)
     label = _feat_label(feature, names, res["feature_index"])
     gv = res["grid"]
@@ -619,7 +626,7 @@ def pdp_panel(
 
     ylab = "predicted P(y=1)" if res["kind"] == "proba" else "prediction"
     ice_draw = res["ice_centered"] if (centered and res["ice_centered"] is not None) else res["ice"]
-    pdp_curve = res["pdp"] - res["pdp"][0] if (centered and ice_draw is not None) else res["pdp"]
+    pdp_curve = res["pdp"] - res["pdp"][0] if centered else res["pdp"]
 
     series: List[np.ndarray] = []
     styles: List[str] = []
@@ -640,11 +647,26 @@ def pdp_panel(
     if style_for_discrete is not None:
         styles = [style_for_discrete if s == "-" else s for s in styles]
 
+    support_note = ""
+    try:
+        _arr, _, _ = _as_2d(X)
+        _vals = np.asarray(_arr[:, res["feature_index"]], dtype=np.float64)
+        _vals = _vals[np.isfinite(_vals)]
+        if _vals.size and gv.shape[0] > 1:
+            _edges = (gv[1:] + gv[:-1]) / 2.0
+            _counts = np.bincount(np.searchsorted(_edges, _vals), minlength=gv.shape[0])
+            _empty = int(np.sum(_counts == 0))
+            _thinnest = int(_counts.min())
+            support_note = (f"; grid support: thinnest point holds {_thinnest:,} of {_vals.size:,} rows"
+                            + (f", {_empty} of {gv.shape[0]} grid points hold none" if _empty else ""))
+    except Exception as exc:  # best-effort enrichment: a caveat must never break the panel
+        logger.debug("pdp support note failed (%s: %s)", type(exc).__name__, exc)
+
     return LinePanelSpec(
         x=gv,
         y=tuple(series),
         series_labels=tuple(labels),
-        title=f"PDP / ICE: {label}",
+        title=f"PDP / ICE: {label}{support_note}",
         xlabel=label,
         ylabel=ylab + (" (centered)" if centered else ""),
         line_styles=tuple(styles),
@@ -663,6 +685,9 @@ def pdp_2d_panel(
 ) -> PanelSpec:
     """HeatmapPanelSpec of the two-feature partial-dependence interaction surface (rows = f0, cols = f1)."""
     _, _, names = _as_2d(X)
+    risk = catboost_pool_rebuild_risk(model)
+    if risk:
+        return AnnotationPanelSpec(text=f"2-D PDP not computed: {risk}", title="2-D partial dependence")
     res = compute_pdp_2d(model, X, features, grid=grid, sample=sample, seed=seed)
     i0, i1 = res["feature_index"]
     lab0 = _feat_label(features[0], names, i0)
@@ -682,6 +707,33 @@ def pdp_2d_panel(
     )
 
 
+def pdp_2d_support_counts(X: Any, i0: int, i1: int, grid0: np.ndarray, grid1: np.ndarray) -> Optional[Tuple[np.ndarray, int]]:
+    """``(counts, n_total)`` of rows falling in each 2-D PDP grid cell, or ``None`` when it cannot be computed.
+
+    Each row is assigned to the NEAREST grid value on each axis (midpoints between consecutive grid values are the
+    bin edges), which matches how a reader interprets a cell: the region the cell stands for.
+    """
+    try:
+        arr, _, _ = _as_2d(X)
+        v0 = np.asarray(arr[:, i0], dtype=np.float64)
+        v1 = np.asarray(arr[:, i1], dtype=np.float64)
+        finite = np.isfinite(v0) & np.isfinite(v1)
+        v0, v1 = v0[finite], v1[finite]
+        n_total = int(v0.size)
+        if n_total == 0:
+            return None
+        e0 = (np.asarray(grid0, dtype=np.float64)[1:] + np.asarray(grid0, dtype=np.float64)[:-1]) / 2.0
+        e1 = (np.asarray(grid1, dtype=np.float64)[1:] + np.asarray(grid1, dtype=np.float64)[:-1]) / 2.0
+        r = np.searchsorted(e0, v0)
+        c = np.searchsorted(e1, v1)
+        counts = np.zeros((len(grid0), len(grid1)), dtype=np.int64)
+        np.add.at(counts, (r, c), 1)
+        return counts, n_total
+    except Exception as exc:  # best-effort: a support overlay must never break the chart
+        logger.debug("pdp_2d support counting failed (%s: %s)", type(exc).__name__, exc)
+        return None
+
+
 def _pdp_2d_support_text(X: Any, i0: int, i1: int, grid0: np.ndarray, grid1: np.ndarray) -> Optional[np.ndarray]:
     """Per-cell ``"N rows (P%)"`` support strings for a 2-D PDP surface, or ``None`` if it can't be computed.
 
@@ -694,21 +746,10 @@ def _pdp_2d_support_text(X: Any, i0: int, i1: int, grid0: np.ndarray, grid1: np.
     evaluated on), which matches how a reader interprets a cell: the region the cell stands for.
     """
     try:
-        arr, _, _ = _as_2d(X)
-        v0 = np.asarray(arr[:, i0], dtype=np.float64)
-        v1 = np.asarray(arr[:, i1], dtype=np.float64)
-        finite = np.isfinite(v0) & np.isfinite(v1)
-        v0, v1 = v0[finite], v1[finite]
-        n_total = int(v0.size)
-        if n_total == 0:
+        got = pdp_2d_support_counts(X, i0, i1, grid0, grid1)
+        if got is None:
             return None
-        # Nearest grid point per axis: midpoints between consecutive grid values are the bin edges.
-        e0 = (np.asarray(grid0, dtype=np.float64)[1:] + np.asarray(grid0, dtype=np.float64)[:-1]) / 2.0
-        e1 = (np.asarray(grid1, dtype=np.float64)[1:] + np.asarray(grid1, dtype=np.float64)[:-1]) / 2.0
-        r = np.searchsorted(e0, v0)
-        c = np.searchsorted(e1, v1)
-        counts = np.zeros((len(grid0), len(grid1)), dtype=np.int64)
-        np.add.at(counts, (r, c), 1)
+        counts, n_total = got
         pct = counts / float(n_total) * 100.0
         return np.array(
             [[f"{counts[i, j]:,} rows ({pct[i, j]:.1f}% of {n_total:,})" for j in range(counts.shape[1])] for i in range(counts.shape[0])],
@@ -769,6 +810,13 @@ def compose_pdp_figure(
         suptitle=suptitle,
         panels=packed,
         figsize=figsize_for_grid(n_rows, n_cols, cell_width=cell_width, cell_height=cell_height),
+        caption=(
+            "How to read: the bold line is the average predicted response as ONE feature is swept with the others "
+            "held at their observed values; the faint lines are individual rows. Fanning ICE lines mean the effect "
+            "depends on the rest of the row, so the average curve hides as much as it shows. These are model "
+            "behaviour, not causal effects, and the sweep manufactures feature combinations the data may never "
+            "contain -- treat the far ends of the grid with suspicion."
+        ),
     )
 
 

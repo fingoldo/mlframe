@@ -21,6 +21,7 @@ from typing import Mapping, Optional, Sequence, Tuple
 import numpy as np
 
 from mlframe.reporting.charts._calibration_chart_shared import is_single_class, null_ece_scale, reliability_points
+from mlframe.reporting.charts._group_codes import group_codes_capped
 from mlframe.reporting.spec import AnnotationPanelSpec, BarPanelSpec, FigureSpec, LinePanelSpec, PanelSpec
 
 # Below this many finite rows OR with a single class present a group's reliability curve / ECE is meaningless noise;
@@ -64,28 +65,8 @@ def _gap_traffic_light(gap: float, noise_floor: float = 0.0) -> str:
 
 
 def _prepare_group_codes(subgroups: np.ndarray, max_groups: int):
-    """Map raw group labels to top-N-by-support codes + one folded 'other' bucket. Returns (codes, labels, supports).
-
-    ``codes`` is an int array parallel to ``subgroups`` indexing into ``labels``; the rare tail (beyond the top
-    ``max_groups``) is remapped to a single trailing 'other' code. Vectorised: one unique + one boolean remap, no loop.
-    """
-    raw = np.asarray(subgroups).ravel()
-    uniq, inv, counts = np.unique(raw, return_inverse=True, return_counts=True)
-    order = np.argsort(counts)[::-1]
-    if uniq.size <= max_groups:
-        labels = [str(uniq[i]) for i in order]
-        remap = np.empty(uniq.size, dtype=np.int64)
-        remap[order] = np.arange(uniq.size)
-        return remap[inv], labels, [int(counts[i]) for i in order]
-
-    keep = order[:max_groups]
-    labels = [str(uniq[i]) for i in keep] + [_OTHER_LABEL]
-    other_code = max_groups
-    remap = np.full(uniq.size, other_code, dtype=np.int64)
-    remap[keep] = np.arange(max_groups)
-    codes = remap[inv]
-    supports = [int(counts[i]) for i in keep] + [int(counts[order[max_groups:]].sum())]
-    return codes, labels, supports
+    """Top-N-by-support group codes, support-ordered (biggest group first), via the shared helper."""
+    return group_codes_capped(subgroups, max_groups, sort_by_support=True)
 
 
 def compose_fairness_calibration_figure(

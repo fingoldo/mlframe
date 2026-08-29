@@ -100,7 +100,10 @@ def test_score_dist_panel_is_line_two_classes_with_threshold_vline():
     y, s = _separable()
     (panel,) = _flat(compose_binary_figure(y, s, panels_template="SCORE_DIST", threshold=0.4))
     assert isinstance(panel, LinePanelSpec)
-    assert panel.series_labels == ("y=0", "y=1")
+    # Labels now carry each class's count and share. The curves are DENSITIES (each integrates to 1), so a
+    # 1000:1 imbalance draws two equally tall humps -- the counts are the only place that becomes visible.
+    assert [lab.split(" (")[0] for lab in panel.series_labels] == ["y=0", "y=1"]
+    assert all("n=" in lab for lab in panel.series_labels)
     assert panel.vlines is not None and abs(panel.vlines[0][0] - 0.4) < 1e-12
 
 

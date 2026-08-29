@@ -68,8 +68,16 @@ def _jaccard_rows_numpy(y_true: np.ndarray, y_proba: np.ndarray) -> np.ndarray:
 
 
 def jaccard_rows(y_true: np.ndarray, y_proba: np.ndarray) -> np.ndarray:
-    """Per-row Jaccard score with numba-parallel fast path."""
-    if _NUMBA_AVAILABLE:
+    """Per-row Jaccard score with numba-parallel fast path, gated on the probabilities being finite.
+
+    The kernel is compiled with ``fastmath=True``, which lets the compiler assume no NaN -- so the ``>= 0.5``
+    threshold on a NaN probability is UNSPECIFIED and can disagree with the numpy reference this module documents
+    as equivalent. Dropping fastmath would cost the vectorised reduction the kernel exists for, so the finiteness
+    is checked here instead (one O(n*K) pass against the kernel's own O(n*K), and it short-circuits): finite input
+    takes the fast path, anything else takes the numpy form, where a NaN compares False under IEEE rules and the
+    row is scored as a non-prediction.
+    """
+    if _NUMBA_AVAILABLE and np.isfinite(y_proba).all():
         return np.asarray(_jaccard_rows_numba(y_true, y_proba))
     return _jaccard_rows_numpy(y_true, y_proba)
 

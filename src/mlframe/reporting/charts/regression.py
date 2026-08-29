@@ -49,10 +49,15 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 
 import numpy as np
 
+
+from ._captions import caption_for_tokens
+
 from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels, parse_panel_template,
 )
-from mlframe.reporting.charts._acf import MAX_ACF_LAGS, acf_fft, significance_band
+from mlframe.reporting.charts._acf import (
+    MAX_ACF_LAGS, acf_fft, lag_tick_labels, significance_band,
+)
 from mlframe.reporting.charts._sampling import subsample_preserving_extremes
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec,
@@ -74,6 +79,17 @@ def _finite_pair(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[np.ndarray, np
     yp = np.asarray(y_pred, dtype=np.float64).ravel()
     mask = np.isfinite(yt) & np.isfinite(yp)
     return yt[mask], yp[mask]
+
+
+def _empty_annotation(what: str, n_in: int) -> AnnotationPanelSpec:
+    """Annotation for a panel with no finite (y_true, y_pred) pair left, naming the count that was supplied."""
+    return AnnotationPanelSpec(
+        text=(
+            f"{what} unavailable: none of the {n_in:,} supplied rows has a finite value for BOTH y_true and "
+            "y_pred, so there is no residual to compute. Check for NaN predictions or an all-missing target."
+        ),
+        title=what,
+    )
 
 
 def _uniform_bin_index(v: np.ndarray, edges: np.ndarray, nbins: int) -> np.ndarray:
@@ -150,10 +166,21 @@ def _append_missing_worst_k(s_pred, s_true, yp_finite, yt_finite, wk_finite):
         return s_pred, s_true, None
     wk_pred = yp_finite[wk_finite]
     wk_true = yt_finite[wk_finite]
+    # A worst-K row the extremes-preserving subsample already kept must not be appended again: it would be drawn
+    # twice and inflate the plotted count past the "showing N of M" caption. Match on the (pred, true) pair, which
+    # is what the panel actually plots.
+    present = set(zip(s_pred.tolist(), s_true.tolist()))
+    fresh = [i for i in range(wk_finite.size) if (wk_pred[i], wk_true[i]) not in present]
     base = len(s_pred)
-    s_pred = np.concatenate([s_pred, wk_pred])
-    s_true = np.concatenate([s_true, wk_true])
-    highlight = np.arange(base, base + wk_finite.size, dtype=np.int64)
+    if fresh:
+        s_pred = np.concatenate([s_pred, wk_pred[fresh]])
+        s_true = np.concatenate([s_true, wk_true[fresh]])
+    already = [
+        int(np.flatnonzero((s_pred[:base] == wk_pred[i]) & (s_true[:base] == wk_true[i]))[0])
+        for i in range(wk_finite.size)
+        if (wk_pred[i], wk_true[i]) in present
+    ]
+    highlight = np.concatenate([np.array(already, dtype=np.int64), np.arange(base, base + len(fresh), dtype=np.int64)])
     return s_pred, s_true, highlight
 
 
@@ -171,7 +198,7 @@ def _scatter_panel(
 ) -> PanelSpec:
     """Predictions-vs-true panel.
 
-    Above ``hexbin_threshold`` points: a log-density 2-D histogram (HeatmapPanelSpec) — a hexbin/hist2d analogue that
+    Above ``hexbin_threshold`` points: a log-density 2-D histogram (HeatmapPanelSpec), a hexbin/hist2d analogue that
     stays readable at millions of rows; the robust trend line is fit on the full cloud and drawn beside y=x. Below it:
     a raw scatter with an extremes-preserving subsample so the headline MaxError point (and the axis-anchoring range
     endpoints) are always drawn, with the worst-K residual rows highlighted red. The y=x diagonal is always present.
@@ -183,8 +210,9 @@ def _scatter_panel(
     visible even when the cloud hugs the diagonal.
     """
     yt, yp = _finite_pair(y_true, y_pred)
+    if yt.size == 0:
+        return _empty_annotation("Predictions vs true", int(np.asarray(y_true).size))
     n = yt.size
-    showing = min(sample_size, n)
     # Map original-array worst-K positions onto the finite-filtered index space the panel x/y live in.
     wk_finite = _worst_k_into_finite(y_true, y_pred, worst_k_indices)
 
@@ -218,11 +246,11 @@ def _scatter_panel(
         resid = yt - yp
         idx = subsample_preserving_extremes(yp, yt, sample_size=sample_size, extreme_values=resid, rng=seed)
         s_pred, s_true = yp[idx], yt[idx]
-        showing_note = f"(showing {showing:,} / {n:,} sampled)"
-        scatter_title = f"{title}\n{showing_note}" if title else showing_note
         # The subsample may not contain every worst-K row; the renderer resolves highlight_indices against the FULL
         # panel x/y, so pass the panel's own (subsampled) data plus the worst-K rows guaranteed present via extremes.
         s_pred, s_true, wk_panel = _append_missing_worst_k(s_pred, s_true, yp, yt, wk_finite)
+        showing_note = f"(showing {len(s_pred):,} / {n:,} sampled)"
+        scatter_title = f"{title}\n{showing_note}" if title else showing_note
     else:
         order = np.argsort(yp)
         s_pred, s_true = yp[order], yt[order]
@@ -255,20 +283,24 @@ def _resid_hist_panel(
 ) -> PanelSpec:
     """Residual histogram + fitted-Normal overlay. Hypothesis + suggested loss ride in the title."""
     yt, yp = _finite_pair(y_true, y_pred)
+    if yt.size == 0:
+        return _empty_annotation("Residual distribution", int(np.asarray(y_true).size))
     resid = yt - yp
+    n_full = int(resid.size)
     if resid.size > sample_size:
         rng = np.random.default_rng(seed)
         resid = resid[rng.choice(resid.size, size=sample_size, replace=False)]
+    sampled_note = f"\nbars: {resid.size:,} sampled rows; statistics: all {n_full:,} rows" if resid.size < n_full else ""
     n_bins = max(20, min(80, int(math.sqrt(resid.size)) if resid.size > 0 else 20))
     if audit is not None:
         suggested = audit.suggested_loss.split("(")[0].strip() if getattr(audit, "suggested_loss", None) else ""
         hyp_line = f"hypothesis: {audit.hypothesis}"
         if suggested:
             hyp_line += f" (suggested: {suggested})"
-        title = f"Residuals (skew={audit.skew:+.2f}, excess_kurt={audit.excess_kurt:+.2f})" + ("\n" + hyp_line if hyp_line else "")
+        title = f"Residuals (skew={audit.skew:+.2f}, excess_kurt={audit.excess_kurt:+.2f})" + ("\n" + hyp_line if hyp_line else "") + sampled_note
         overlay = (audit.mean, audit.std) if audit.std > 0 else None
     else:
-        title = "Residuals"
+        title = "Residuals" + sampled_note
         overlay = None
     from mlframe.reporting.spec import HistogramPanelSpec
     return HistogramPanelSpec(
@@ -288,7 +320,7 @@ def _resid_vs_pred_panel(
     *,
     audit: Any = None,
     n_pred_bins: int = 20,
-) -> LinePanelSpec:
+) -> PanelSpec:
     """Residuals vs predicted with a running-median + IQR band.
 
     Rather than a raw point cloud, the residual structure is summarised as a per-prediction-bin running median (the
@@ -296,6 +328,8 @@ def _resid_vs_pred_panel(
     sloped median line flags prediction-dependent bias. Robust to the extreme-error points kept by the scatter.
     """
     yt, yp = _finite_pair(y_true, y_pred)
+    if yt.size == 0:
+        return _empty_annotation("Residuals vs predicted", int(np.asarray(y_true).size))
     resid = yt - yp
     n = resid.size
     if n == 0:
@@ -362,10 +396,10 @@ def _err_by_decile_panel(
     y_pred: np.ndarray,
     *,
     n_deciles: int = 10,
-) -> BarPanelSpec:
+) -> PanelSpec:
     """Per-target-decile error breakdown: mean |residual| + mean signed residual.
 
-    y_true is binned into ``n_deciles`` equal-frequency buckets; each bucket gets two bars — mean absolute residual
+    y_true is binned into ``n_deciles`` equal-frequency buckets; each bucket gets two bars: mean absolute residual
     (magnitude) and mean signed residual (bias direction). The signed bar exposes the GBM extreme-compression
     pathology: trees under-predict the top target decile, so its signed residual (y_true - y_pred) is large positive.
     """
@@ -373,11 +407,7 @@ def _err_by_decile_panel(
     resid = yt - yp
     n = yt.size
     if n == 0:
-        return BarPanelSpec(
-            categories=("D1",), values=np.array([0.0]),
-            title="Error by target decile (no finite data)",
-            xlabel="Target decile (low -> high)", ylabel="Residual",
-        )
+        return _empty_annotation("Error by target decile", int(np.asarray(y_true).size))
     # Equal-frequency deciles via quantile cut-points + searchsorted: a full argsort over n=2M is the chart's single
     # biggest cost (~0.4s); np.quantile does only a k-way partial sort, then searchsorted is O(n). Ties land in one
     # bucket consistently (acceptable -- ranks split ties arbitrarily anyway), so decile populations stay ~equal.
@@ -390,15 +420,22 @@ def _err_by_decile_panel(
     counts_safe = np.where(counts > 0, counts, 1.0)
     mean_signed = np.bincount(which, weights=resid, minlength=k) / counts_safe
     mean_abs = np.bincount(which, weights=np.abs(resid), minlength=k) / counts_safe
-    cats = tuple(f"D{b + 1}" for b in range(k))
+    # Ties collapse whole deciles into one bucket (the cut-points are quantiles, so a 45%-tied target can leave
+    # several deciles with no rows at all). An empty decile has no mean error; drawing it as a zero bar claims the
+    # model is perfect there. Drop the empty ones and carry each surviving decile's own denominator.
+    nonempty = np.flatnonzero(counts > 0)
+    mean_abs, mean_signed = mean_abs[nonempty], mean_signed[nonempty]
+    cats = tuple(f"D{b + 1}\n(n={int(counts[b]):,})" for b in nonempty)
+    empty_note = f"; {k - nonempty.size} of {k} deciles empty (ties)" if nonempty.size < k else ""
     return BarPanelSpec(
         categories=cats,
         values=(mean_abs, mean_signed),
         series_labels=("mean |resid|", "mean signed resid (y_true - y_pred)"),
-        title="Error by target decile (signed > 0 in top decile => under-prediction / compression)",
+        title=f"Error by target decile (signed > 0 in top decile => under-prediction / compression{empty_note})",
         xlabel="Target decile (low -> high)",
-        ylabel="Residual",
+        ylabel="Residual (y_true - y_pred, target units)",
         colors=("steelblue", "darkorange"),
+        hovertext=tuple(f"D{b + 1}: {int(counts[b]):,} rows" for b in nonempty),
     )
 
 
@@ -533,14 +570,20 @@ def _resid_acf_panel(
             text="Residual ACF skipped: residuals are constant (zero variance)",
             title="Residual autocorrelation (Bartlett band)",
         )
+    # Row order is read as time here, and dropping non-finite rows CLOSES the gaps -- so lag k spans a
+    # variable amount of real time. State how much was closed up rather than implying an even grid.
+    # Measured on the ORIGINAL rows: ``resid`` is already the finite-filtered pair, so the rows that were
+    # dropped -- the ones that make the lag spacing uneven -- are exactly the ones no longer visible here.
+    _n_in = int(np.asarray(y_true).size)
+    _gap = (1.0 - resid.size / _n_in) if _n_in else 0.0
+    _gap_note = f"; {_gap:.1%} of rows were non-finite and closed up, so lag spacing is uneven" if _gap > 0 else ""
     band = significance_band(n_used)
-    lags = np.arange(1, acf_lags.size + 1)
-    cats = tuple(str(int(lo)) for lo in lags)
+    cats = lag_tick_labels(int(acf_lags.size))
     sig = int(np.sum(np.abs(acf_lags) > band))
     return BarPanelSpec(
         categories=cats,
         values=acf_lags.astype(np.float64),
-        title=(f"Residual ACF (n={n_used:,}; {sig} of {acf_lags.size} lags beyond " f"+-{band:.3f} Bartlett band => serial structure)"),
+        title=(f"Residual ACF (n={n_used:,}; {sig} of {acf_lags.size} lags beyond +-{band:.3f} Bartlett band " f"=> serial structure{_gap_note})"),
         xlabel="Lag",
         ylabel="Autocorrelation",
         colors=("steelblue",),
@@ -558,6 +601,23 @@ _TOKEN_BUILDERS: Dict[str, Callable] = {
 }
 
 ALLOWED_REGRESSION_PANEL_TOKENS = frozenset(_TOKEN_BUILDERS)
+
+# One sentence per token, joined for the tokens ACTUALLY rendered (see ``_captions.caption_for_tokens``). The
+# figure-level caption used to describe the DEFAULT template, so a caller asking for a narrower mix read about
+# panels that were not on their figure.
+_TOKEN_CAPTIONS: Dict[str, str] = {
+    "SCATTER": (
+        "The predicted-versus-actual scatter puts the identity line where a perfect model would sit; curvature away from it is bias the residual panels then localise."
+    ),
+    "RESID_VS_PRED": ("Residuals against the prediction should be a structureless band: a funnel is heteroscedasticity and a curve is unmodelled shape."),
+    "RESID_HIST": ("The residual histogram shows the error distribution's centre and tails; a shifted centre is systematic bias, not noise."),
+    "RESID_ACF": (
+        "The residual ACF asks whether an error predicts the next error. Row order is read as time here, and non-finite rows are kept as gaps rather than closed up, so lag k means k steps of that grid."
+    ),
+    "ERR_BY_DECILE": ("Error by predicted decile shows WHERE in the range the model is weak, which a single RMSE averages away."),
+    "WORM": ("The worm plot is a detrended QQ plot: the closer the worm stays inside its band, the better the residuals match the reference distribution."),
+}
+
 
 DEFAULT_REGRESSION_PANELS = "SCATTER RESID_HIST RESID_VS_PRED ERR_BY_DECILE"
 
@@ -586,7 +646,7 @@ def compose_regression_figure(
     + optional Spearman) becomes the SCATTER panel title. ``worst_k_indices`` (original-array positions of the worst
     residual rows, from the error-analysis pass) highlights those points red on the pred-vs-actual scatter. ``trend_line``
     overlays a robust fit (Theil-Sen / Huber, None to disable) beside y=x. The default template restores the
-    residuals-vs-predicted panel dropped in 2026-05 and adds the per-decile error breakdown.
+    residuals-vs-predicted panel and the per-decile error breakdown.
     """
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
@@ -632,6 +692,11 @@ def compose_regression_figure(
         panels=grid,
         figsize=fig_size,
         suptitle_fontsize=11,
+        caption=caption_for_tokens(
+            "How to read: the panels move from the fit as a whole to WHERE it fails -- the residual views localise what the scatter only summarises.",
+            tokens,
+            _TOKEN_CAPTIONS,
+        ),
     )
 
 

@@ -18,7 +18,7 @@ import pytest
 
 from mlframe.reporting.charts.multiclass import compose_multiclass_figure
 from mlframe.reporting.renderers.base import get_renderer
-from mlframe.reporting.spec import ConfusionMarginsPanelSpec
+from mlframe.reporting.spec import AnnotationPanelSpec, ConfusionMarginsPanelSpec
 
 os.environ.setdefault("MPLBACKEND", "Agg")
 
@@ -128,9 +128,12 @@ class TestEdgeCases:
 
     def test_empty_annotates_and_renders(self):
         """Empty annotates and renders."""
+        # The composer now short-circuits the WHOLE figure on zero rows: a noted confusion panel still drew a matrix
+        # of zeros, which reads as a measured (perfectly wrong) result. The annotation states the cause instead.
         spec = compose_multiclass_figure(np.array([], dtype=int), np.zeros((0, 3)), [0, 1, 2], panels_template="CONFUSION_MARGINS")
         panel = spec.panels[0][0]
-        assert panel.note == "no in-range samples"
+        assert isinstance(panel, AnnotationPanelSpec)
+        assert "0 rows" in panel.text and "3 classes" in panel.text
         get_renderer("matplotlib").render(spec)  # must not raise
 
     def test_tiny_n_annotates_but_renders(self):

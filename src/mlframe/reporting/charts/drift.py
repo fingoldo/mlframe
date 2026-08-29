@@ -93,6 +93,21 @@ def _psi_one(baseline_props: np.ndarray, bucket_props: np.ndarray, eps: float = 
     return float(np.sum((b - e) * np.log(b / e)))
 
 
+def _psi_verdict(matrix, noise_floor: float, row_labels) -> str:
+    """One-line pass/fail over the whole PSI grid: how many features drift, and which is worst."""
+    per_feature = np.nanmax(matrix, axis=1) if matrix.size else np.empty(0)
+    real = per_feature[np.isfinite(per_feature)]
+    if real.size == 0:
+        return " -- no feature has a computable PSI"
+    bar = max(PSI_SIGNIFICANT, noise_floor)
+    drifting = int(np.sum(real > bar))
+    w = int(np.nanargmax(per_feature))
+    worst = f"{row_labels[w]} (peak PSI {per_feature[w]:.2f})" if w < len(row_labels) else f"peak PSI {per_feature[w]:.2f}"
+    if drifting == 0:
+        return f" -- no feature drifts past {bar:.2f}; worst is {worst}"
+    return f" -- {drifting} of {real.size} features drift past {bar:.2f}; worst is {worst}"
+
+
 def compute_psi_matrix(
     feature_frame: Any,
     timestamps: np.ndarray,
@@ -241,7 +256,7 @@ def psi_heatmap(
         row_labels=row_labels,
         col_labels=col_labels,
         title=(
-            f"{title}\n(stable < {PSI_MODERATE:g}; moderate {PSI_MODERATE:g}-{PSI_SIGNIFICANT:g}; "
+            f"{title}{_psi_verdict(matrix, psi_noise_floor, row_labels)}\n(stable < {PSI_MODERATE:g}; moderate {PSI_MODERATE:g}-{PSI_SIGNIFICANT:g}; "
             f"drift > {PSI_SIGNIFICANT:g}; no-drift noise floor at {n_per_bucket:,} rows/bucket "
             f"= {psi_noise_floor:.3f}{suppressed})"
         ),
@@ -253,7 +268,10 @@ def psi_heatmap(
         colorbar_label="PSI",
         # Iso-PSI triage contours: the renderer draws a line only where the heatmap crosses 0.10 / 0.25, so the
         # moderate / significant drift boundaries are visible directly on the grid rather than read off the colorbar.
-        threshold_contours=((PSI_MODERATE, "orange"), (PSI_SIGNIFICANT, "red")),
+        threshold_contours=(
+            (PSI_MODERATE, "orange", "dash", f"moderate {PSI_MODERATE:g}"),
+            (PSI_SIGNIFICANT, "red", "solid", f"significant {PSI_SIGNIFICANT:g}"),
+        ),
     )
     fs = figsize or (max(8.0, 0.6 * n_buckets + 4.0), max(3.0, 0.32 * n_feat + 1.5))
     n_flagged = int(np.nansum(matrix > PSI_SIGNIFICANT))
@@ -372,11 +390,21 @@ def residual_vs_time(
     std[empty] = np.nan
 
     zero = np.zeros_like(centers)
+    # The docstring names both failure modes (bias drift and spread drift) but the title was the caller's static
+    # string, so the reader had to eyeball the very comparison the per-bucket statistics already answer.
+    third = max(1, nb // 3)
+    first_ok, last_ok = np.isfinite(mean[:third]), np.isfinite(mean[-third:])
+    if first_ok.any() and last_ok.any():
+        d_bias = float(np.nanmean(mean[-third:]) - np.nanmean(mean[:third]))
+        d_spread = float(np.nanmean(std[-third:]) - np.nanmean(std[:third]))
+        drift_note = f" (last third vs first: bias {d_bias:+.3g}, spread {d_spread:+.3g})"
+    else:
+        drift_note = " (too few populated buckets to compare the ends of the timeline)"
     line = LinePanelSpec(
         x=centers,
         y=(mean, zero),
         series_labels=("mean residual", "zero"),
-        title=title,
+        title=title + drift_note,
         xlabel="time",
         ylabel="residual (y_true - y_pred)",
         line_styles=("lines+markers", "--"),
@@ -876,6 +904,7 @@ def adversarial_validation(
     styles = ["-", "--"]
     colors = ["crimson", "gray"]
     title_bits = [f"train-vs-test AUC={auc_tt:.3f}"]
+    auc_tv: Optional[float] = None  # stays None when no val frame was supplied; the verdict below reads it
 
     if val_frame is not None:
         auc_tv, fpr_tv, tpr_tv, _, _ = adversarial_auc(
@@ -898,10 +927,16 @@ def adversarial_validation(
     _n_a = min(_frame_rows(train_frame), max_rows_per_side)
     _n_b = min(_frame_rows(test_frame), max_rows_per_side)
     adv_bar = 0.5 + _adversarial_auc_bar(_n_a, _n_b)
+    _pairs = [("train-vs-test", float(auc_tt))]
+    if auc_tv is not None and np.isfinite(auc_tv):
+        _pairs.append(("train-vs-val", float(auc_tv)))
+    _worst_name, _worst_auc = max(_pairs, key=lambda kv: kv[1])
     verdict = (
-        f"AUC {auc_tt:.3f} > {adv_bar:.3f} (the no-shift noise bar at {_n_a:,} vs {_n_b:,} rows/side) " "=> shift, CV may NOT transfer"
-        if auc_tt > adv_bar
-        else f"AUC {auc_tt:.3f} within the no-shift noise bar of {adv_bar:.3f} at {_n_a:,} vs {_n_b:,} rows/side " "=> indistinguishable, CV transfers"
+        f"worst pair {_worst_name}: AUC {_worst_auc:.3f} > {adv_bar:.3f} (the no-shift noise bar at {_n_a:,} vs "
+        f"{_n_b:,} rows/side) => shift, CV may NOT transfer"
+        if _worst_auc > adv_bar
+        else f"worst pair {_worst_name}: AUC {_worst_auc:.3f} within the no-shift noise bar of {adv_bar:.3f} at "
+        f"{_n_a:,} vs {_n_b:,} rows/side => indistinguishable, CV transfers"
     )
     roc = LinePanelSpec(
         x=tuple(series_x),

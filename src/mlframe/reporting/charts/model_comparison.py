@@ -202,7 +202,9 @@ def _leaderboard_panel(
     missing_names = [names[i] for i in range(len(names)) if not finite[i]]
     if missing_names:
         # A subset (not all) of models lack the metric; surface which ones so the shorter bar chart is not mistaken for a complete one.
-        title += f"\nN/A for: {', '.join(missing_names)}"
+        _shown = ", ".join(missing_names[:3])
+        _more = f" (+{len(missing_names) - 3} more)" if len(missing_names) > 3 else ""
+        title += f"\nN/A for: {_shown}{_more}"
     # Colour each bar like that model's ROC curve. A single flat colour meant a bar could not be matched to its
     # curve in the panel beside it, which is the whole point of putting them in one figure.
     bar_colors = tuple(_MODEL_COLORS[names.index(names[i]) % len(_MODEL_COLORS)] for i in order_list)

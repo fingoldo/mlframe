@@ -14,6 +14,8 @@ KernelExplainer interaction approximation -- it is prohibitively slow and not wh
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import logging
+
 from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -57,17 +59,35 @@ class ShapInteractionResult:
     skipped: Optional[str] = None
 
 
+logger = logging.getLogger(__name__)
+
+
+def _skipped_interactions(reason: str, plot_file: Optional[str], plot_outputs: Optional[str]) -> "ShapInteractionResult":
+    """A skipped ``ShapInteractionResult`` that also WRITES the reason to the requested path, so the report shows it."""
+    paths: List[str] = []
+    if plot_file and plt is not None:
+        try:
+            fig = plt.figure(figsize=(9.0, 2.2))
+            fig.text(0.5, 0.5, "SHAP interaction panels not produced:" + chr(10) + reason, ha="center", va="center", fontsize=10, wrap=True)
+            paths = _save_figure(fig, _base_for(plot_file, "interaction_skipped"), plot_outputs)
+            plt.close(fig)
+        except Exception as exc:  # a notice must never be the thing that breaks a report
+            logger.debug("shap-interaction skip-notice write failed (%s: %s)", type(exc).__name__, exc)
+    return ShapInteractionResult(paths=paths, skipped=reason)
+
+
 def _mean_abs_interaction(model: Any, X_sample: Any) -> np.ndarray:
     """Mean over rows of |interaction matrix|; returns a (F, F) array. ONE TreeExplainer pass."""
     import shap
 
     explainer = shap.TreeExplainer(model)
     iv = explainer.shap_interaction_values(X_sample)
-    arr = np.asarray(getattr(iv, "values", iv), dtype=np.float64)
-    if arr.ndim == 4:  # (rows, F, F, classes) under the new API for a multiclass/binary model
-        arr = arr[..., -1]
     if isinstance(iv, list):  # legacy list-of-(rows,F,F) per class
         arr = np.asarray(iv[-1], dtype=np.float64)
+    else:
+        arr = np.asarray(getattr(iv, "values", iv), dtype=np.float64)
+        if arr.ndim == 4:  # (rows, F, F, classes) under the new API for a multiclass/binary model
+            arr = arr[..., -1]
     return np.asarray(np.abs(arr).mean(axis=0))
 
 
@@ -105,9 +125,15 @@ def shap_interaction_summary(
     carrier, vals, names = _as_frame_and_names(X, feature_names)
     n, f = vals.shape
     if n == 0 or f < 2:
-        return ShapInteractionResult(skipped="need >=2 features and >=1 row for pair interactions")
+        return _skipped_interactions(
+            f"pair interactions need >= 2 features and >= 1 row; got {n:,} rows and {f} features",
+            plot_file, plot_outputs,
+        )
     if not is_tree_model(model):
-        return ShapInteractionResult(skipped="non-tree model; interaction values need TreeExplainer (KernelExplainer interactions are too slow)")
+        return _skipped_interactions(
+            "non-tree model; interaction values need TreeExplainer (KernelExplainer interactions are too slow)",
+            plot_file, plot_outputs,
+        )
 
     cap = min(int(max_rows), n)
     proxy = _score_proxy(model, carrier, n)
@@ -150,9 +176,14 @@ def _render_top_pairs_bar(pair_names: Sequence[str], strengths: np.ndarray) -> A
     ax.set_yticks(y)
     ax.set_yticklabels(list(pair_names))
     ax.set_xlabel("mean |SHAP interaction value|")
-    ax.set_title("Top feature-pair interactions")
+    ax.set_ylabel("feature pair")
+    _top = f" -- strongest: {pair_names[0]} ({strengths[0]:.4g})" if len(pair_names) else ""
+    ax.set_title("Top feature-pair interactions" + _top)
     fig.tight_layout()
     return fig
+
+
+_HEATMAP_MAX_FEATURES: int = 40
 
 
 def _render_heatmap(mat: np.ndarray, names: Sequence[str]) -> Any:
@@ -160,14 +191,25 @@ def _render_heatmap(mat: np.ndarray, names: Sequence[str]) -> Any:
     # Zero the diagonal so the colour scale is driven by interaction (off-diagonal), not main effects.
     off = mat.copy()
     np.fill_diagonal(off, 0.0)
+    title_suffix = ""
+    if len(names) > _HEATMAP_MAX_FEATURES:
+        # 0.5 inch per feature is unbounded: 200 features asks matplotlib for a 102-inch square (over 100 megapixels)
+        # whose labels are unreadable anyway. Show the strongest interactors and say so rather than emitting a wall.
+        keep = np.argsort(off.max(axis=1))[::-1][:_HEATMAP_MAX_FEATURES]
+        keep.sort()
+        off = off[np.ix_(keep, keep)]
+        title_suffix = f" (top {_HEATMAP_MAX_FEATURES} of {len(names)} features by peak interaction)"
+        names = [names[i] for i in keep]
     fig, ax = plt.subplots(figsize=(max(4.0, 0.5 * len(names) + 2.0),) * 2)
     im = ax.imshow(off, cmap="viridis", aspect="auto")
     ax.set_xticks(np.arange(len(names)))
     ax.set_yticks(np.arange(len(names)))
     ax.set_xticklabels(list(names), rotation=90, fontsize=8)
     ax.set_yticklabels(list(names), fontsize=8)
-    ax.set_title("Interaction strength (off-diagonal)")
-    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="mean |interaction|")
+    ax.set_title("Interaction strength (off-diagonal)" + title_suffix)
+    ax.set_xlabel("feature")
+    ax.set_ylabel("feature")
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="mean |SHAP interaction value| (off-diagonal)")
     fig.tight_layout()
     return fig
 

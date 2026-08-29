@@ -51,7 +51,7 @@ def test_level_woe_matches_bruteforce_groupby():
     rates = np.linspace(0.1, 0.9, n_levels)
     y = (rng.random(n) < rates[codes]).astype(np.float64)
     base = float(y.mean())
-    woe, counts = level_woe(codes, y, n_levels, base, alpha=0.5)
+    woe, counts, _pos = level_woe(codes, y, n_levels, base, alpha=0.5)
     ref = _brute_woe(codes, y, n_levels, base, alpha=0.5)
     assert np.allclose(woe, ref, atol=1e-12)
     assert np.array_equal(counts, np.bincount(codes, minlength=n_levels).astype(np.float64))
@@ -61,7 +61,7 @@ def test_level_woe_skips_missing_codes():
     """Level woe skips missing codes."""
     y = np.array([1.0, 0.0, 1.0, 0.0])
     codes = np.array([-1, 0, 0, -1], dtype=np.int64)  # two missing rows must not contribute
-    _woe, counts = level_woe(codes, y, 1, base_rate=0.5, alpha=0.5)
+    _woe, counts, _pos = level_woe(codes, y, 1, base_rate=0.5, alpha=0.5)
     assert counts[0] == 2.0  # only the two non-missing rows counted
 
 
@@ -172,7 +172,7 @@ def test_biz_val_strong_level_ranks_first():
 
     # Measured reference for the floor.
     codes = pd.Categorical(col, categories=["A", "B", "C", "D"]).codes.astype(np.int64)
-    measured, _ = level_woe(codes, y.astype(float), 4, float(y.mean()))
+    measured, _counts, _pos = level_woe(codes, y.astype(float), 4, float(y.mean()))
     measured_A = abs(measured[0])
 
     rows = category_discriminability_table(X, y, top_k=10, min_support=30)

@@ -137,7 +137,7 @@ class TestDispatcherEmphasis:
                 target_type="binary_classification",
             )
         assert tag == "binary"
-        assert os.path.exists(tmp_path / "bin_binary_panels.png")
+        assert os.path.exists(tmp_path / "bin_binary_panels.png"), _render_debug(tmp_path)
 
     def test_data_aware_applies_only_when_default(self, monkeypatch):
         """Emphasis fires only when binary_panels_is_default=True; a custom
@@ -357,3 +357,21 @@ def test_cprofile_emphasis_is_trivial():
     total = pstats.Stats(pr).total_tt
     # 20 calls over 1M rows -> well under 0.5s even with profiler overhead.
     assert total < 0.5, s.getvalue()
+
+
+def _render_debug(root) -> str:
+    """Everything on disk under ``root``, plus the counters render_and_save bumps when it drops a chart."""
+    import os
+
+    from mlframe.reporting.renderers.save import get_render_failure_stats
+
+    found = []
+    for dirpath, _dirnames, filenames in os.walk(str(root)):
+        for name in sorted(filenames):
+            found.append(os.path.relpath(os.path.join(dirpath, name), str(root)))
+    from mlframe.reporting.renderers.save import _use_format_subfolders, get_format_subfolders
+    state = (
+        f"; effective_subfolders={_use_format_subfolders()}, thread_override={get_format_subfolders()!r}, "
+        f"env={os.environ.get('MLFRAME_PLOT_FORMAT_SUBFOLDERS')!r}, thread={__import__('threading').current_thread().name!r}"
+    )
+    return f"files under {root}: {found or '<none>'}; render failure stats: {get_render_failure_stats()}" + state

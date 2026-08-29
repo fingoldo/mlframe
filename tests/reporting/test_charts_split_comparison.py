@@ -26,6 +26,15 @@ from mlframe.reporting.charts.split_comparison import (
 from mlframe.reporting.spec import AnnotationPanelSpec, BarPanelSpec, FigureSpec
 
 
+def _split_names(bar):
+    """Split names from the bar series labels, dropping the per-split row count each one now carries.
+
+    REPORTING_CHARTS_C-3 put n on every label (a train-test gap read without the row counts behind it is
+    unreadable). These tests assert split identity and ORDER, so they read through the count.
+    """
+    return tuple(lab.split(" (")[0] for lab in bar.series_labels)
+
+
 def _flat(fig: FigureSpec):
     """Helper: Flat."""
     return [p for row in fig.panels for p in row if p is not None]
@@ -106,7 +115,7 @@ def test_figure_structure_classification():
     table = next(p for p in panels if isinstance(p, AnnotationPanelSpec))
     # Grouped bars: one series per split, one category per headline metric.
     assert isinstance(bar.values, tuple) and len(bar.values) == 3
-    assert bar.series_labels == ("train", "val", "test")
+    assert _split_names(bar) == ("train", "val", "test")
     assert "ROC_AUC" in bar.categories and "ECE" in bar.categories
     assert ("ROC_AUC" in table.text and "OVERFIT" in table.text) or "GENERALIZES" in table.text
 
@@ -130,7 +139,7 @@ def test_split_order_canonical():
     }
     fig = compose_split_comparison_figure(per_split, task="classification")
     bar = next(p for p in _flat(fig) if isinstance(p, BarPanelSpec))
-    assert bar.series_labels == ("train", "val", "test", "oof")
+    assert _split_names(bar) == ("train", "val", "test", "oof")
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +226,7 @@ def test_missing_split_shows_what_is_present():
     per_split = {"train": _clf_split(3000, 2.0, 0), "test": _clf_split(2000, 1.3, 2)}
     fig = compose_split_comparison_figure(per_split, task="classification")
     bar = next(p for p in _flat(fig) if isinstance(p, BarPanelSpec))
-    assert bar.series_labels == ("train", "test")
+    assert _split_names(bar) == ("train", "test")
 
 
 def test_single_class_split_annotated_and_excluded():
@@ -230,7 +239,11 @@ def test_single_class_split_annotated_and_excluded():
     }
     fig = compose_split_comparison_figure(per_split, task="classification")
     bar = next(p for p in _flat(fig) if isinstance(p, BarPanelSpec))
-    assert bar.series_labels == ("train", "test")  # val excluded
+    # Each label carries its own row count now (REPORTING_CHARTS_C-3: a train-test gap read without the n behind
+    # it is unreadable, and the fixed AMBER line fired on pure noise at a few hundred rows). What this test is
+    # actually about is WHICH splits survive, so assert the split identity and let the label carry its n.
+    assert tuple(lab.split(" (")[0] for lab in bar.series_labels) == ("train", "test")  # val excluded
+    assert all("n=" in lab for lab in bar.series_labels)
     table = next(p for p in _flat(fig) if isinstance(p, AnnotationPanelSpec))
     assert "skipped" in table.text and "val" in table.text
 
@@ -261,7 +274,7 @@ def test_precomputed_metrics_short_circuit():
     fig = compose_split_comparison_figure(per_split, task="classification")
     assert isinstance(fig, FigureSpec)
     bar = next(p for p in _flat(fig) if isinstance(p, BarPanelSpec))
-    assert bar.series_labels == ("train", "test")
+    assert _split_names(bar) == ("train", "test")
 
 
 def test_overfit_verdict_raises_on_single_split():

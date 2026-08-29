@@ -343,9 +343,14 @@ def weak_segment_heatmap(
     # the all-zero-split-importance case already uses, before ever reaching the tree fit.
     top = [] if mat.shape[0] == 0 else _top_split_features(mat, err, names, max_depth=max_depth, n_features=2, seed=seed)
     if not top:
-        ann = HeatmapPanelSpec(
-            matrix=np.zeros((1, 1)), row_labels=("n/a",), col_labels=("n/a",),
-            title=title + " (no usable features)", colorbar_label="mean error",
+        # A one-by-one zero matrix labelled "n/a" renders as a single black CELL -- a picture where a sentence
+        # belongs. Two siblings in this same module already annotate this case.
+        ann = AnnotationPanelSpec(
+            text=(f"No feature discriminates the error: over {mat.shape[0]:,} rows and {len(names)} features, no "
+                  f"split at depth <= {max_depth} separates high-error rows from the rest. Either the error is "
+                  "spread evenly (nothing to localise), the prediction is near-constant, or the features that "
+                  "would explain it are not in this frame."),
+            title=title,
         )
         return WeakSegmentResult(
             FigureSpec(panels=((ann,),), figsize=(7.0, 5.0)),
@@ -491,7 +496,7 @@ def segments_bar(
         categories=cats,
         values=vals,
         series_labels=(metric_name,),
-        title=title + f"\n(worst-first; global reference = {global_value:.3g})",
+        title=title + f"\n(worst-first; global reference = {global_value:.3g}; worst segment {cats[0]} is {vals[0] / global_value:.2f}x the global)" if (vals.size and global_value) else title,
         xlabel=str(group_col),
         ylabel=metric_name,
         colors=("steelblue",),
@@ -758,7 +763,7 @@ def error_bias_per_feature(
     )
     if not panels:
         # No usable feature (all-NaN columns, zero features, or none selected); an empty grid would crash the renderer.
-        ann = AnnotationPanelSpec(text=f"{title}\n(no usable feature columns){missing_note}", title=title)
+        ann = AnnotationPanelSpec(text=f"No usable feature column: every candidate is all-NaN, or none was selected.{missing_note}", title="")
         return ErrorBiasResult(FigureSpec(suptitle=title + missing_note, panels=((ann,),), figsize=(8.0, 3.0)), group_means, masks)
     grid = pack_panels(panels, max_cols=2)
     n_rows = len(grid)
@@ -783,13 +788,11 @@ def error_bias_per_feature(
 # ``._error_analysis_splits`` and is re-exported below. Carved out to keep this file under the house
 # 1000-LOC limit; it is the most self-contained group here, sharing only the small array helpers above.
 
-# ``from ...error_analysis import target_dist_overlay`` import site keeps resolving after the carve.
+# ``from ...error_analysis import target_dist_overlay`` import site keeps resolving after the carve. Only the names
+# with a REAL import site are re-exported: the carve moved five private helpers, and re-exporting the four nobody
+# imports is a fiction that vulture correctly flags as dead. They live in ``_error_analysis_splits`` alone.
 from ._error_analysis_splits import (
-    _classrate_panel,  # noqa: F401 -- re-exported for import sites predating the carve
-    _common_edges,  # noqa: F401 -- re-exported for import sites predating the carve
-    _density_overlay_panel,  # noqa: F401 -- re-exported for import sites predating the carve
-    _split_arrays,  # noqa: F401 -- re-exported for import sites predating the carve
-    _target_drift_verdict,  # noqa: F401 -- re-exported for import sites predating the carve
+    _target_drift_verdict,  # noqa: F401 -- imported from HERE by tests/reporting/test_charts_statistical_regressions
     target_dist_overlay,  # in __all__, so no noqa needed
 )
 

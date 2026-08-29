@@ -19,7 +19,7 @@ import logging
 import numpy as np
 
 from mlframe.reporting.colors import LINE_PALETTE, line_color
-from mlframe.reporting.spec import FigureSpec, NetworkPanelSpec
+from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, NetworkPanelSpec
 
 logger = logging.getLogger(__name__)
 
@@ -28,28 +28,42 @@ logger = logging.getLogger(__name__)
 _DENSE_MAX_NODES: int = 500
 
 
+# An eigenvalue below this counts as zero when counting connected components: the Laplacian's zero eigenvalue has
+# multiplicity equal to the component count, and ARPACK returns it as a small positive/negative number.
+_ZERO_EIGENVALUE_TOL: float = 1e-8
+
+
 def _laplacian_smallest_eigenvectors(n_nodes: int, edges, k: int = 3):
     """Return ``(eigvals, eigvecs)`` for the ``k`` smallest eigenvalues of the combinatorial Laplacian ``diag(deg) - A``.
 
     Reuses the FE module's ``_dense_adjacency`` so the graph is built identically to ``graph_spectral_features``.
     """
+    kk = min(k, n_nodes)
+    if n_nodes > _DENSE_MAX_NODES:
+        try:
+            from scipy.sparse import coo_matrix, diags
+            from scipy.sparse.linalg import eigsh
+
+            e = np.asarray(edges, dtype=np.int64).reshape(-1, 2)
+            src, dst = e[:, 0], e[:, 1]
+            ones = np.ones(src.size, dtype=np.float64)
+            # Symmetric adjacency straight from the edge list -- the dense (n, n) intermediate this branch used to
+            # allocate is what it exists to avoid.
+            adj = coo_matrix((np.concatenate([ones, ones]), (np.concatenate([src, dst]), np.concatenate([dst, src]))), shape=(n_nodes, n_nodes)).tocsr()
+            deg_sp = np.asarray(adj.sum(axis=1)).ravel()
+            lap = (diags(deg_sp) - adj).tocsr()
+            vals, vecs = eigsh(lap, k=min(kk, n_nodes - 1), which="SA")  # k smallest-algebraic (L is PSD)
+            order = np.argsort(vals)
+            return vals[order], vecs[:, order]
+        except Exception as e:  # SciPy absent or ARPACK non-convergence -> dense fallback keeps the layout available  # nosec B110
+            logger.debug("sparse ARPACK eigsh failed, falling back to dense eigh: %s", e)
+
     from mlframe.feature_engineering.graph_spectral_features import _dense_adjacency
 
     A = _dense_adjacency(n_nodes, np.asarray(edges), None)
     deg = A.sum(axis=1)
     L = np.diag(deg) - A
     L = 0.5 * (L + L.T)  # symmetrize against FP drift so eigh/eigsh see an exactly-symmetric operator
-    kk = min(k, n_nodes)
-    if n_nodes > _DENSE_MAX_NODES:
-        try:
-            from scipy.sparse import csr_matrix
-            from scipy.sparse.linalg import eigsh
-
-            vals, vecs = eigsh(csr_matrix(L), k=min(kk, n_nodes - 1), which="SA")  # k smallest-algebraic (L is PSD)
-            order = np.argsort(vals)
-            return vals[order], vecs[:, order]
-        except Exception as e:  # SciPy absent or ARPACK non-convergence -> dense fallback keeps the layout available  # nosec B110
-            logger.debug("sparse ARPACK eigsh failed, falling back to dense eigh: %s", e)
     vals, vecs = np.linalg.eigh(L)
     return vals[:kk], vecs[:, :kk]
 
@@ -63,12 +77,26 @@ def spectral_layout(n_nodes: int, edges, *, seed: int = 0) -> np.ndarray:
     """
     if n_nodes < 1:
         raise ValueError("spectral_layout: require n_nodes >= 1.")
-    _, vecs = _laplacian_smallest_eigenvectors(n_nodes, edges, k=3)
+    vals, vecs = _laplacian_smallest_eigenvectors(n_nodes, edges, k=3)
+    n_components = int(np.sum(np.asarray(vals) < _ZERO_EIGENVALUE_TOL))
+    if n_components > 1:
+        logger.warning(
+            "spectral_layout: the graph has %d connected components (algebraic connectivity %.3g), so the zero "
+            "eigenvalue is %d-fold degenerate and eigenvectors 2-3 are an ARBITRARY basis of that null space -- "
+            "the layout separates the components but carries no within-component meaning.",
+            n_components, float(vals[1]) if len(vals) > 1 else float("nan"), n_components,
+        )
     coords = np.zeros((n_nodes, 2), dtype=np.float64)
     if vecs.shape[1] >= 2:
         coords[:, 0] = vecs[:, 1]
     if vecs.shape[1] >= 3:
         coords[:, 1] = vecs[:, 2]
+    # Eigenvector SIGN is solver-dependent, so the dense and sparse paths could render mirrored pictures of the
+    # same graph. Fix it deterministically: make the largest-magnitude entry of each axis positive.
+    for axis in range(coords.shape[1]):
+        col = coords[:, axis]
+        if col.size and col[int(np.argmax(np.abs(col)))] < 0.0:
+            coords[:, axis] = -col
     if float(coords.std()) < 1e-12:  # degenerate layout (edgeless / single-node): jitter so nodes don't stack
         rng = np.random.default_rng(seed)
         coords = rng.standard_normal((n_nodes, 2)) * 1e-3
@@ -91,6 +119,7 @@ def spectral_embedding_panel(n_nodes: int, edges, *, node_color=None, node_size=
     e = np.asarray(edges, dtype=np.int64).reshape(-1, 2)
     edge_src = np.ascontiguousarray(e[:, 0])
     edge_dst = np.ascontiguousarray(e[:, 1])
+    deg = np.bincount(np.concatenate([edge_src, edge_dst]), minlength=n_nodes)
     colors = _resolve_node_colors(node_color, n_nodes)
     if node_size is None:
         sizes = np.full(n_nodes, 120.0, dtype=np.float64)
@@ -102,6 +131,7 @@ def spectral_embedding_panel(n_nodes: int, edges, *, node_color=None, node_size=
         node_size=sizes,
         node_color=colors,
         node_label=tuple(str(i) for i in range(n_nodes)),
+        node_hovertext=tuple(f"node {i}<br>degree={int(deg[i])}" for i in range(n_nodes)),
         edge_src=edge_src,
         edge_dst=edge_dst,
         edge_weight=np.ones(edge_src.shape[0], dtype=np.float64),
@@ -116,8 +146,29 @@ def compose_spectral_embedding_figure(
     suptitle: str = "Spectral graph embedding",
 ) -> FigureSpec:
     """One-panel ``FigureSpec`` wrapping :func:`spectral_embedding_panel`."""
+    n_edges = int(np.asarray(edges, dtype=np.int64).reshape(-1, 2).shape[0])
+    if int(n_nodes) < 1 or n_edges == 0:
+        # An empty graph propagated a ValueError out of the whole report, and an EDGELESS one returned a real-looking
+        # panel whose coordinates carry no information at all: the layout is driven entirely by the edge set.
+        panel_ann = AnnotationPanelSpec(
+            text=(f"Spectral embedding unavailable: the graph has {int(n_nodes):,} nodes and {n_edges:,} edges. "
+                  "The layout is derived from the graph Laplacian, so with no edge the coordinates would be "
+                  "arbitrary rather than a picture of any structure."),
+            title=suptitle,
+        )
+        return FigureSpec(suptitle=suptitle, panels=((panel_ann,),), figsize=(7.0, 6.0))
     panel = spectral_embedding_panel(n_nodes, edges, node_color=node_color, node_size=node_size, seed=seed)
-    return FigureSpec(suptitle=suptitle, panels=((panel,),), figsize=(7.0, 6.0))
+    return FigureSpec(
+        suptitle=suptitle,
+        panels=((panel,),),
+        figsize=(7.0, 6.0),
+        caption=(
+            "How to read: coordinates come from the graph Laplacian's low eigenvectors, so nodes drawn near each "
+            "other are strongly connected THROUGH the graph. Only relative position carries meaning -- the axes have "
+            "no units, and rotations or reflections of the whole picture are equivalent layouts. Distinct clusters "
+            "mean the graph nearly separates; one diffuse blob means it does not."
+        ),
+    )
 
 
 __all__ = [

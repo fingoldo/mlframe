@@ -10,7 +10,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from mlframe.reporting.spec import HeatmapPanelSpec, LinePanelSpec
+from mlframe.reporting.spec import (
+    BarPanelSpec, HeatmapPanelSpec, HistogramPanelSpec, LinePanelSpec, ScatterPanelSpec, ViolinPanelSpec,
+)
 
 # Rarely-used buttons dropped from the modebar; zoom/pan/reset/download stay. lasso/select only make sense
 # for point selection on scatter and confuse on line/heatmap panels, so they go for the whole figure.
@@ -24,6 +26,16 @@ _KEY_PANEL_TEMPLATES = (
     (("predicted", "observed"), "Predicted=%{x:.3f}<br>Observed=%{y:.3f}<extra>%{fullData.name}</extra>"),
     (("predicted", "fraction"), "Predicted=%{x:.3f}<br>Observed=%{y:.3f}<extra>%{fullData.name}</extra>"),
 )
+
+
+def _trace_axis(tr) -> str:
+    """The x-axis id a plotly trace is bound to; the FIRST subplot leaves it unset, which means ``"x"``.
+
+    Written out rather than ``getattr(tr, "xaxis", None) or "x"``: that idiom also swallows a legitimately falsy
+    value, and it was repeated at three call sites here.
+    """
+    axis = getattr(tr, "xaxis", None)
+    return "x" if axis is None else str(axis)
 
 
 def _line_is_temporal(p: LinePanelSpec) -> bool:
@@ -68,6 +80,14 @@ def apply_interactivity(fig: Any, spec, *, static_legend: bool = False) -> None:
     # on a mixed line+heatmap figure unified hover spills wrong readouts onto the heatmap cells.
     if has_line and not has_heatmap:
         fig.update_layout(hovermode="x unified")
+    elif has_line and has_heatmap:
+        cols = max((len(r) for r in spec.panels), default=0)
+        for r, row in enumerate(spec.panels):
+            for c in range(cols):
+                if not isinstance(row[c] if c < len(row) else None, LinePanelSpec):
+                    continue
+                idx = r * cols + c + 1
+                fig.update_layout(**{f"xaxis{'' if idx == 1 else idx}": dict(showspikes=True, spikemode="across")})
 
     # Clickable legend: single-click hides a series, double-click isolates it. Only meaningful when a legend
     # is actually drawn (static export, or any multi-trace legend); harmless no-op otherwise.
@@ -78,6 +98,7 @@ def apply_interactivity(fig: Any, spec, *, static_legend: bool = False) -> None:
     fig.update_layout(modebar=dict(remove=list(_MODEBAR_REMOVE)))
 
     _apply_line_traces(fig, spec)
+    _apply_nonline_traces(fig, spec)
 
     if has_temporal:
         _apply_rangeslider(fig, spec)
@@ -97,7 +118,8 @@ def _apply_line_traces(fig, spec) -> None:
             suffix = "" if idx == 1 else str(idx)
             tmpl = _key_template(panel)
             if tmpl is None:
-                tmpl = "%{xaxis.title.text}=%{x}<br>%{yaxis.title.text}=%{y}<extra>%{fullData.name}</extra>"
+                x_fmt = "|%Y-%m-%d %H:%M" if _line_is_temporal(panel) else ":.6g"
+                tmpl = "%{xaxis.title.text}=%{x" + x_fmt + "}<br>%{yaxis.title.text}=%{y:.6g}" "<extra>%{fullData.name}</extra>"
             line_axes[f"x{suffix}"] = tmpl
 
     for tr in fig.data:
@@ -105,9 +127,72 @@ def _apply_line_traces(fig, spec) -> None:
             continue
         if "lines" not in (tr.mode or ""):
             continue
-        xax = getattr(tr, "xaxis", None) or "x"
+        xax = _trace_axis(tr)
         tmpl = line_axes.get(xax)
         if tmpl is not None and tr.hovertemplate is None and tr.hoverinfo != "skip":
+            tr.hovertemplate = tmpl
+
+
+_NONLINE_TEMPLATES = {
+    ScatterPanelSpec: "{x}=%{{x}}<br>{y}=%{{y}}<extra>%{{fullData.name}}</extra>",
+    HistogramPanelSpec: "{x}=%{{x}}<br>{y}=%{{y}}<extra></extra>",
+    BarPanelSpec: "{x}=%{{x}}<br>{y}=%{{y}}<extra>%{{fullData.name}}</extra>",
+    ViolinPanelSpec: "{x}=%{{x}}<br>{y}=%{{y}}<extra></extra>",
+}
+
+
+def _axis_names(panel) -> tuple:
+    """Human axis names for a hover readout, falling back to plain x/y when the panel set no label."""
+    return (getattr(panel, "xlabel", "") or "x", getattr(panel, "ylabel", "") or "y")
+
+
+def _apply_nonline_traces(fig, spec) -> None:
+    """Hovertemplate for the scatter / histogram / bar / violin panels, which otherwise keep plotly's raw default."""
+    cols = max((len(r) for r in spec.panels), default=0)
+    axis_templates: dict[str, str] = {}
+    for r, row in enumerate(spec.panels):
+        for c in range(cols):
+            panel = row[c] if c < len(row) else None
+            tmpl = _NONLINE_TEMPLATES.get(type(panel))
+            if tmpl is None:
+                continue
+            idx = r * cols + c + 1
+            suffix = "" if idx == 1 else str(idx)
+            xn, yn = _axis_names(panel)
+            axis_templates[f"x{suffix}"] = tmpl.format(x=xn, y=yn)
+
+    # A builder that attached per-point support text wins over the generic axis-name template: the denominator is
+    # the thing a reader most needs and least often has.
+    supports: dict[str, tuple] = {}
+    for r, row in enumerate(spec.panels):
+        for c in range(cols):
+            panel = row[c] if c < len(row) else None
+            ht = getattr(panel, "hovertext", None)
+            if ht:
+                idx = r * cols + c + 1
+                supports[f"x{'' if idx == 1 else idx}"] = tuple(ht)
+
+    for tr in fig.data:
+        if tr.type not in ("scatter", "scattergl", "bar", "histogram", "violin"):
+            continue
+        sup = supports.get(_trace_axis(tr))
+        if sup and tr.hovertext is None and tr.hoverinfo != "skip":
+            # ``arr or ()`` evaluates an ndarray's truth value, which raises for size > 1 -- and the trace x IS an
+            # ndarray now that the renderers pass arrays to plotly natively.
+            _tx = getattr(tr, "x", None)
+            n_pts = 0 if _tx is None else len(_tx)
+            if n_pts == len(sup):
+                tr.hovertext = list(sup)
+                tr.hoverinfo = "text"
+                continue
+        if tr.type in ("scatter", "scattergl") and "lines" in (tr.mode or ""):
+            continue  # handled by _apply_line_traces, which knows the metric-pair templates
+        # The old gate skipped every marker-only trace, which is exactly the chosen-threshold operating point on a
+        # ROC/PR panel -- the single most-hovered mark on the figure.
+        if tr.hovertemplate is not None or tr.hoverinfo == "skip":
+            continue
+        tmpl = axis_templates.get(_trace_axis(tr))
+        if tmpl is not None:
             tr.hovertemplate = tmpl
 
 

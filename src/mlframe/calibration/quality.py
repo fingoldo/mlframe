@@ -450,7 +450,7 @@ def show_classifier_calibration(
 def build_pit_diagram_spec(
     pit_values: np.ndarray,
     *,
-    caption: str = "",
+    title_prefix: str = "",
     bins: int = 20,
     figsize: tuple = (15, 5),
 ) -> "FigureSpec":
@@ -466,7 +466,7 @@ def build_pit_diagram_spec(
     edges = np.linspace(0.0, 1.0, bins + 1)
     heights, _ = np.histogram(pit_values, bins=edges, density=True)
     centers = 0.5 * (edges[:-1] + edges[1:])
-    title = (caption + " " if caption else "") + f"PIT Diagram (KS-vs-uniform={ks_stat:.4f})"
+    title = (title_prefix + " " if title_prefix else "") + f"PIT Diagram (KS-vs-uniform={ks_stat:.4f})"
     panel = HistogramPanelSpec(
         values=heights,
         bin_centers=centers,
@@ -476,14 +476,24 @@ def build_pit_diagram_spec(
         ylabel="Density",
         density=False,
     )
-    return FigureSpec(suptitle="", panels=((panel,),), figsize=figsize)
+    return FigureSpec(
+        suptitle="",
+        panels=((panel,),),
+        figsize=figsize,
+        caption=(
+            "How to read: the PIT value of a row is the predicted probability it assigned to what actually "
+            "happened, so a well-calibrated model spreads them UNIFORMLY -- a flat histogram. A hump in the middle "
+            "means the model is under-confident, mass piled at both ends means over-confident, and a tilt means a "
+            "systematic bias toward one class. The KS statistic in the title is the largest gap from uniform."
+        ),
+    )
 
 
 def plot_pit_diagram(
     predicted_probs: np.ndarray | None = None,
     true_labels: np.ndarray | None = None,
     pit_values: np.ndarray | None = None,
-    caption: str = "",
+    title_prefix: str = "",
     bins: int = 20,
     figsize: tuple = (15, 5),
     plot_file: str = "",
@@ -497,7 +507,7 @@ def plot_pit_diagram(
         true_labels (array-like): Binary true labels (0 or 1).
         pit_values (array-like): Precomputed PIT values, used directly instead of deriving them
             from ``predicted_probs``/``true_labels`` when supplied.
-        caption (str): Optional prefix prepended to the figure title.
+        title_prefix (str): Optional prefix prepended to the figure TITLE (the how-to-read caption is fixed).
         bins (int): Number of bins for the histogram.
         figsize (tuple): Figure size passed through to the underlying FigureSpec.
         plot_file (str): when set, save the figure here (``.png`` appended if no extension).
@@ -516,7 +526,7 @@ def plot_pit_diagram(
     from mlframe.reporting.output import parse_plot_output_dsl
     from mlframe.reporting.renderers import render_and_save
 
-    spec = build_pit_diagram_spec(pit_values, caption=caption, bins=bins, figsize=figsize)
+    spec = build_pit_diagram_spec(pit_values, title_prefix=title_prefix, bins=bins, figsize=figsize)
 
     if plot_outputs:
         outputs = parse_plot_output_dsl(plot_outputs)

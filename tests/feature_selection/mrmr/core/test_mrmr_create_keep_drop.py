@@ -62,7 +62,7 @@ import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
-from tests.conftest import numba_disabled_timeout
+from tests.conftest import perf_time_budget
 
 # A focused, RAM-tight broad-coverage size: big enough for the redundancy /
 # prevalence gates to behave like production, small enough for an 8GB box to run
@@ -72,12 +72,15 @@ BROAD_N = 25_000
 SEED = 42
 # Per-fit wall budget. A cold n=50k fit measured ~50s incl. numba warmup; 300s is
 # generous slack so a slow first-JIT case never trips the global 60s timeout.
-# Widened 8x under NUMBA_DISABLE_JIT=1: this formula's fit routes through a wide
-# conditional-gate FE scan that calls the njit quantile-binning kernel (hermite_fe's
-# _quantile_bin_njit) thousands of times per candidate column -- interpreted (no-JIT)
-# execution of that hot inner loop alone measured well past 300s on CI (numba-coverage-nightly
-# shard 4/8, 2026-08-20), unlike this file's other, lighter formulas.
-FIT_TIMEOUT = numba_disabled_timeout(300, factor=8)
+# ``perf_time_budget`` rather than ``numba_disabled_timeout``: the same helper the sibling MRMR file already
+# uses, and the only one that also widens for XDIST CONTENTION -- the nightly runs these under -n auto, where a
+# worker can be starved for minutes at a time. The flat 8x widening it replaces was measured to be too small:
+# ``test_create_keep_drop_broad[MS_ratio_n_floor]`` timed out at >2400s on numba-coverage-nightly shard 4/8, and
+# a local NUMBA_DISABLE_JIT=1 run on a quiet, faster-than-CI box was still going at 37 minutes -- so the test is
+# slow, not hung. Profiled cause: MDLP's permutation-null validation calls ``_mdlp_best_split_njit`` 931 times
+# per feature (against ~30 for the plain recursion), which is 1.7M interpreted ``_entropy_from_counts_njit``
+# calls once JIT is off -- 97% of the wall time, and exactly the kernel body the nightly exists to cover.
+FIT_TIMEOUT = int(perf_time_budget(300))
 
 
 def _warm_up_numba_kernels() -> None:
@@ -1108,6 +1111,20 @@ def _maybe_xfail(formula, n, failures):
 # ---------------------------------------------------------------------------
 # Broad-coverage parametrization: every formula once at BROAD_N.
 # ---------------------------------------------------------------------------
+@pytest.mark.skipif(
+    os.environ.get("NUMBA_DISABLE_JIT") == "1",
+    reason=(
+        "Cost, not correctness: a local NUMBA_DISABLE_JIT=1 run of MS_ratio_n_floor at BROAD_N=25000 was still "
+        "running at the 2-HOUR mark, stuck in _mdlp_permutation_batch_njit -> _mdlp_best_split_njit -> "
+        "_entropy_from_counts_njit (profiled: 931 split calls per feature against ~30 for the plain recursion, "
+        "1.7M interpreted entropy calls, 97% of wall). One parametrisation alone would consume most of the "
+        "nightly job's 340-minute budget, and there are 39 tests in this file. Nothing is lost: the nightly "
+        "exists to make @njit BODIES visible to coverage.py, and those same MDLP/entropy kernels are exercised "
+        "directly and cheaply by 26 other test files (test_mdlp_validated_split_fast covers the permutation-null "
+        "path itself). What this test uniquely asserts -- that the SELECTOR picks the right features -- is a "
+        "statistical claim about mlframe, not about numba, and the JIT-enabled CI run makes it on every push."
+    ),
+)
 @pytest.mark.timeout(FIT_TIMEOUT)
 @pytest.mark.parametrize("formula", sorted(FORMULAS.keys()))
 def test_create_keep_drop_broad(formula):

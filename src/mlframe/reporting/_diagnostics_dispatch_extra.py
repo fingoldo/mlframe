@@ -143,11 +143,9 @@ def _is_real_scalar(v) -> bool:
 def _flat_scalar_metrics(metrics: Any) -> Dict[str, float]:
     """Best-effort flat ``{name: float}`` from a (possibly nested) per-model test-metrics dict for the leaderboard.
 
-    Merge precedence (explicit, documented -- was previously ambiguous: top-level keys overwrote unconditionally
-    while nested-subdict keys used ``setdefault``, silently dropping a later nested sub-dict's value on a name
-    collision with no documented rule): a top-level scalar key ALWAYS wins over a same-named key from any nested
-    sub-dict. Among nested sub-dicts themselves, the LAST one (in ``metrics`` iteration order) wins on a name
-    collision -- consistent with a plain dict's own last-write-wins semantics.
+    Merge precedence: a top-level scalar key ALWAYS wins over a same-named key from any nested sub-dict. Among
+    nested sub-dicts themselves, the LAST one (in ``metrics`` iteration order) wins on a name collision --
+    consistent with a plain dict's own last-write-wins semantics.
     """
     out: Dict[str, float] = {}
     if not isinstance(metrics, dict):
@@ -248,6 +246,21 @@ def _classify_chart(basename: str) -> tuple:
     return section, label.replace("_", " ").strip() or basename
 
 
+def _candidate_paths(base: str, fmt: str, backends) -> list:
+    """Every place ``render_and_save`` could have written ``base`` in ``fmt``, most likely first.
+
+    The report builder LOOKS UP files it did not write, so it has to know both layouts: the per-format subfolder
+    (the default) and the flat one, each with and without the backend infix a multi-output run adds. Reconstructing
+    only one of them silently drops the image from the report rather than failing.
+    """
+    out: list = []
+    for stem in (f"{base}.{fmt}", *(f"{base}.{b}.{fmt}" for b in backends)):
+        directory, name = os.path.split(stem)
+        out.append(os.path.join(directory, fmt, name))
+        out.append(stem)
+    return out
+
+
 def _find_html_fragment(base: str) -> Optional[str]:
     """Return an interactive plotly fragment for ``base`` when one was written, else ``None``.
 
@@ -256,7 +269,7 @@ def _find_html_fragment(base: str) -> Optional[str]:
     """
     from mlframe.reporting.output import BACKEND_FORMATS
 
-    for cand in (base + ".html", *(f"{base}.{b}.html" for b in BACKEND_FORMATS)):
+    for cand in _candidate_paths(base, "html", BACKEND_FORMATS):
         if os.path.exists(cand):
             try:
                 with open(cand, encoding="utf-8") as fh:
@@ -315,7 +328,9 @@ def build_combined_html_report(
                 continue
             seen.add(p)
             label = os.path.basename(p)
-            png = p if p.lower().endswith(".png") else p + ".png"
+            png = p if p.lower().endswith(".png") else ""
+            if not png:
+                png = next((c for c in _candidate_paths(p, "png", BACKEND_FORMATS) if os.path.exists(c)), p + ".png")
             if not os.path.exists(png):
                 # No PNG (e.g. a plotly[html]-only run): fall back to the interactive fragment so the entry
                 # still appears in the index instead of being dropped.
@@ -324,14 +339,6 @@ def build_combined_html_report(
                     section, nice = _classify_chart(os.path.basename(p))
                     entries.append((section, nice, None, _frag))
                     continue
-                # A multi-backend/multi-format plot_outputs (renderers/save.py's naming policy)
-                # suffixes the backend name, e.g. ``_pdp_ice.matplotlib.png`` or
-                # ``_pdp_ice.plotly.png`` -- try every registered backend, not just matplotlib.
-                for backend in BACKEND_FORMATS:
-                    alt = f"{p}.{backend}.png"
-                    if os.path.exists(alt):
-                        png = alt
-                        break
             section, nice = _classify_chart(label)
             entries.append((section, nice, png))
         if not entries:
@@ -457,10 +464,8 @@ def render_prediction_stability_diagnostic(
 
         yt = None if y_true is None else np.asarray(y_true, dtype=np.float64).ravel()
         # member_test_preds and test_target can come from different upstream slices (e.g. a coarse ensemble
-        # re-scoring pass over more rows than the target was subsampled to) -- the old one-sided
-        # ``yt[:mp.shape[0]]`` only ever shrank yt, so a SHORTER yt than mp left them mismatched and
-        # ``abs_error = yt - res.ensemble_mean`` raised a raw broadcast ValueError downstream. Align both to
-        # the shorter length instead of assuming mp is never the shorter side.
+        # re-scoring pass over more rows than the target was subsampled to), and EITHER can be the shorter one,
+        # so both are aligned to the shorter length before ``abs_error`` broadcasts them together.
         if yt is not None and yt.shape[0] != mp.shape[0]:
             n = min(yt.shape[0], mp.shape[0])
             yt = yt[:n]
@@ -573,6 +578,8 @@ def render_target_dist_overlay(
         spec = target_dist_overlay(y_true_by_split, pred_by_split=pred_by_split, task=overlay_task)
         ok = _save_spec(spec, plot_outputs, base_path + "_target_dist")
         _record(charts, "target_dist", ok)
+        if ok:
+            _record_path(charts, base_path + "_target_dist")
         return bool(ok)
     except Exception:
         logger.exception("diagnostics_dispatch: target_dist_overlay failed; continuing.")

@@ -63,7 +63,7 @@ class ScatterPanelSpec:
     x_err: Optional[Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]] = None
     # Emphasised subset (e.g. worst-K regression errors): integer indices into x/y drawn on top, larger + colored.
     highlight_indices: Optional[np.ndarray] = None
-    highlight_color: str = "red"
+    highlight_color: str = "#d62728"  # tab:red, which separates from TREND_LINE's dark orange far better than pure red
     # Robust fit-line overlay drawn beside any y=x line: "theil-sen" or "huber" (None = no trend line).
     trend_line: Optional[Literal["theil-sen", "huber"]] = None
     # Precomputed line overlay drawn on the same axes as the scatter (e.g. a binning-free smoothed reliability
@@ -76,6 +76,11 @@ class ScatterPanelSpec:
     # Explicit axis limits ``(lo, hi)``. When set they override the data-driven limits a perfect-fit panel computes.
     xlim: Optional[Tuple[float, float]] = None
     ylim: Optional[Tuple[float, float]] = None
+    # Per-point / per-bar tooltip text (plotly only -- matplotlib has no hover layer). This is where a builder
+    # attaches the DENOMINATOR behind an aggregate: without it a rate computed from 3 rows renders identically to
+    # one from 300k, and the count is usually already in hand at the point the bar is built.
+    hovertext: Optional[Tuple[str, ...]] = None
+
     # Force a square panel (equal data->display scaling) so the y=x line is a true 45-degree diagonal. Regression
     # pred-vs-true needs this (both axes share the target's units). A calibration reliability scatter does NOT: both
     # axes are probabilities on [0,1], so the y=x diagonal spans corner-to-corner at any aspect -- set False there to
@@ -110,9 +115,18 @@ class HistogramPanelSpec:
     # x-axis bin centers here. Renderers then draw a bar plot at those
     # centers instead of computing histogram bins.
     bin_centers: Optional[np.ndarray] = None
-    bin_width: Optional[float] = None  # required when bin_centers given
+    # OPTIONAL alongside ``bin_centers``: when unset, both renderers derive the bar width from the centre spacing
+    # (and fall back to 1.0 for a single centre), which is pinned by
+    # tests/reporting/test_matplotlib_histogram_bin_width_precedence.py. Supply it to override that derivation --
+    # the single-bin case in particular cannot be derived. The old "required when bin_centers given" comment
+    # described a co-requirement the renderers never enforced.
+    bin_width: Optional[float] = None
     # Explicit x-axis range ``(lo, hi)``; lets a shared-x calibration histogram align to the scatter's probability range.
     xlim: Optional[Tuple[float, float]] = None
+    # Per-point / per-bar tooltip text (plotly only -- matplotlib has no hover layer). This is where a builder
+    # attaches the DENOMINATOR behind an aggregate: without it a rate computed from 3 rows renders identically to
+    # one from 300k, and the count is usually already in hand at the point the bar is built.
+    hovertext: Optional[Tuple[str, ...]] = None
 
 
 @dataclass(frozen=True)
@@ -133,8 +147,9 @@ class HeatmapPanelSpec:
     text_format: str = ".2f"
     colorbar_label: Optional[str] = None
     # Contour overlays at named matrix levels (e.g. PSI 0.10 / 0.25 triage lines on a drift heatmap):
-    # tuple of (value, color). Renderers draw an iso-value contour through the cell grid at each level.
-    threshold_contours: Optional[Tuple[Tuple[float, str], ...]] = None
+    # (value, color) or (value, color, dash, label). Two levels separated by colour alone are indistinguishable
+    # under protanopia, which is why the dash is part of the field rather than a renderer default.
+    threshold_contours: Optional[Tuple[Tuple, ...]] = None
     # Robust fit-line overlay for hexbin/2D-density pred-vs-actual heatmaps (drawn beside the y=x diagonal):
     # "theil-sen" or "huber". The renderer needs the underlying point cloud, supplied via ``trend_xy``.
     trend_line: Optional[Literal["theil-sen", "huber"]] = None
@@ -148,6 +163,24 @@ class HeatmapPanelSpec:
     # surface interpolates over regions that may hold almost no data, so per-cell support belongs in the
     # tooltip (e.g. "100 rows (15%)"). Builders that know their support put it here.
     cell_hovertext: Optional[np.ndarray] = None
+
+    def __post_init__(self) -> None:
+        """Reject a trend line with no point cloud to fit it on, and cell text that does not match the matrix.
+
+        Both are documented co-requirements that were enforced nowhere, so a builder that set one and forgot the
+        other produced a chart missing the overlay it asked for -- silently, and far from the builder at fault.
+        """
+        if self.trend_line is not None and self.trend_xy is None:
+            raise ValueError(
+                "HeatmapPanelSpec: trend_xy is required when trend_line is set -- the fit needs the underlying "
+                "point cloud, which a binned matrix no longer carries."
+            )
+        for name in ("cell_text", "cell_hovertext"):
+            val = getattr(self, name)
+            if val is not None and np.asarray(val).shape != np.asarray(self.matrix).shape:
+                raise ValueError(
+                    f"HeatmapPanelSpec: {name} must have the same shape as matrix " f"({np.asarray(val).shape} != {np.asarray(self.matrix).shape})."
+                )
 
 
 @dataclass(frozen=True)
@@ -202,9 +235,21 @@ class BarPanelSpec:
     # "vertical" (default) or "horizontal": horizontal bars suit long category labels (CONFUSED_PAIRS "A->B: x%")
     # and worst-first segment rankings (longest bar = worst segment reads top-down).
     orientation: Literal["vertical", "horizontal"] = "vertical"
+    # Per-bar interval, as (lower_distance, upper_distance) from the bar value, along the VALUE axis. A bar chart
+    # of estimates needs the uncertainty channel a scatter of estimates already has, or a bar selected for being
+    # extreme reads as a precise measurement.
+    value_err: Optional[Tuple[np.ndarray, np.ndarray]] = None
+    # Per-series fill pattern ("/", "x", "-", ...), one per series. Colour alone separates series on a bar chart,
+    # which fails under a colour vision deficiency and in a greyscale print; a pattern survives both. Matplotlib
+    # hatch tokens; the plotly renderer maps them to marker.pattern.shape.
+    hatches: Optional[Tuple[str, ...]] = None
     # Reference line across the value axis (e.g. global metric on a per-segment bar): (value, color, label).
     # Drawn horizontally for vertical bars / vertically for horizontal bars (always perpendicular to the bars).
     hline: Optional[Tuple[float, str, str]] = None
+    # Per-point / per-bar tooltip text (plotly only -- matplotlib has no hover layer). This is where a builder
+    # attaches the DENOMINATOR behind an aggregate: without it a rate computed from 3 rows renders identically to
+    # one from 300k, and the count is usually already in hand at the point the bar is built.
+    hovertext: Optional[Tuple[str, ...]] = None
 
 
 @dataclass(frozen=True)
@@ -232,9 +277,13 @@ class LinePanelSpec:
     fill_to_baseline: Optional[Union[bool, Tuple[bool, ...]]] = None
     step_fill: bool = False
     fill_baseline: float = 0.0
-    # Per-series draw style. matplotlib linestyle tokens ('-', '--', ':', '-.') plus two extra
-    # tokens: "markers" (marker-only series, e.g. y_true as points under a fitted line) and
-    # "lines+markers". Cycled when shorter than the series tuple.
+    # Per-series draw style, from ONE closed vocabulary that both backends map from -- not a mix of each backend's
+    # native spelling. Two kinds of token, deliberately:
+    #   DASH PATTERN: "-", "--", ":", "-." (matplotlib linestyle spellings, mapped to plotly dash names)
+    #   DRAW MODE:    "markers" (marker-only, e.g. y_true as points under a fitted line), "lines+markers"
+    # The mode tokens read like plotly, which is why this looked backend-mixed; they are OUR vocabulary and both
+    # renderers translate them. A token outside this set is a caller bug, not a backend passthrough.
+    # Cycled when shorter than the series tuple.
     line_styles: Optional[Tuple[str, ...]] = None
     colors: Optional[Tuple[str, ...]] = None
     grid: bool = True
@@ -262,6 +311,10 @@ class LinePanelSpec:
     # Explicit y-axis limits (lo, hi); overrides autoscale (e.g. clipping a net-benefit panel's floor
     # below a steeply-diving treat-all reference so the informative region near 0 stays readable).
     ylim: Optional[Tuple[float, float]] = None
+    # Per-point / per-bar tooltip text (plotly only -- matplotlib has no hover layer). This is where a builder
+    # attaches the DENOMINATOR behind an aggregate: without it a rate computed from 3 rows renders identically to
+    # one from 300k, and the count is usually already in hand at the point the bar is built.
+    hovertext: Optional[Tuple[str, ...]] = None
 
 
 @dataclass(frozen=True)
@@ -275,6 +328,10 @@ class ViolinPanelSpec:
     ylabel: str = ""
     show_box: bool = True
     grid: bool = True
+    # Per-point / per-bar tooltip text (plotly only -- matplotlib has no hover layer). This is where a builder
+    # attaches the DENOMINATOR behind an aggregate: without it a rate computed from 3 rows renders identically to
+    # one from 300k, and the count is usually already in hand at the point the bar is built.
+    hovertext: Optional[Tuple[str, ...]] = None
 
 
 @dataclass(frozen=True)
@@ -330,6 +387,9 @@ class AnnotationPanelSpec:
     text: str
     title: str = ""
     fontsize: int = 10
+    # Column-padded text (a delta table, an aligned metric list) only lines up in a fixed-width face; in the default
+    # proportional font the columns align by luck.
+    monospace: bool = False
 
 
 # Type alias: union of all panel specs (renderers dispatch on isinstance).
@@ -363,12 +423,14 @@ class FigureSpec:
     """
 
     suptitle: str = ""
-    panels: Tuple[Tuple[PanelSpec, ...], ...] = field(default_factory=tuple)
+    # Optional because a partial last row is padded with ``None`` (see ``pack_panels``); every renderer skips those.
+    panels: Tuple[Tuple[Optional[PanelSpec], ...], ...] = field(default_factory=tuple)
     figsize: Tuple[float, float] = (12.0, 4.0)
     # Per-figure DPI for saved PNG. None defers to matplotlib's default; set
     # via ReportingConfig.plot_dpi to control globally (~30% chart wall savings
     # at dpi=80 vs default 100).
     dpi: Optional[int] = None
+    # MATPLOTLIB ONLY -- plotly computes its own margins and ignores this entirely.
     # constrained_layout default False: the iterative tight-bbox solver adds
     # ~700-800 ms per multi-panel figure (~2x slowdown vs default geometry)
     # without visible benefit on standard panel layouts. Override per-spec
