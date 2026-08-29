@@ -179,7 +179,9 @@ def test_pdp_ice_text_feature_indices_logs_on_failure(caplog):
             """Always raises ``RuntimeError('boom')`` on call."""
             raise RuntimeError("boom")
 
-    with caplog.at_level(logging.DEBUG, logger="mlframe.reporting.charts.pdp_ice"):
+    # The probe moved to the carrier-plumbing sibling when pdp_ice was carved, so it logs under THAT module.
+    # The name is still reachable through pdp_ice (a re-export), which is what this test calls it by.
+    with caplog.at_level(logging.DEBUG, logger="mlframe.reporting.charts._pdp_carrier"):
         out = pdp_ice._model_text_feature_names(_RaisingModel(), [])
     assert out == set()
     assert any("text-feature index probe failed" in rec.message for rec in caplog.records)

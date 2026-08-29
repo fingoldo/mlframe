@@ -40,6 +40,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from ._binary_shared import _finite_binary
 from ._captions import caption_for_tokens
 
 logger = logging.getLogger(__name__)
@@ -76,32 +77,6 @@ _AP_BOOTSTRAP_IDX_CHUNK: int = 32
 # ----------------------------------------------------------------------------
 # Shared data prep
 # ----------------------------------------------------------------------------
-
-
-def _finite_binary(y_true, y_score) -> Tuple[np.ndarray, np.ndarray]:
-    """Return finite (y_true in {0,1}, y_score) pairs as float64 / int8 arrays.
-
-    Non-finite scores and labels outside {0, 1} are dropped (the binary panels are one-vs-rest
-    on the positive class), mirroring how the regression panels drop non-finite pairs up front.
-    """
-    yt = np.asarray(y_true).ravel()
-    ys = np.asarray(y_score, dtype=np.float64).ravel()
-    mask = np.isfinite(ys)
-    yt_f = np.asarray(yt, dtype=np.float64)
-    label_ok = np.isfinite(yt_f) & ((yt_f == 0.0) | (yt_f == 1.0))
-    mask &= label_ok
-    # Dropping an off-{0,1} label silently means a multiclass target passed here by mistake yields confident
-    # binary curves computed on whatever subset happened to be 0 or 1 -- a plausible-looking chart about a
-    # question nobody asked. Say how many went, and name the offending labels.
-    n_bad_label = int(np.count_nonzero(np.isfinite(yt_f) & ~label_ok))
-    if n_bad_label:
-        offenders = np.unique(yt_f[np.isfinite(yt_f) & ~label_ok])[:5].tolist()
-        logger.warning(
-            "binary charts: dropped %d of %d rows whose label is outside {0, 1} (saw %s). These panels are "
-            "one-vs-rest on the positive class; pass a binarised target, or use the multiclass composer.",
-            n_bad_label, yt_f.size, offenders,
-        )
-    return yt_f[mask].astype(np.int8), ys[mask]
 
 
 def _decimate(x: np.ndarray, *ys: np.ndarray, cap: int = _CURVE_VERTEX_CAP):
@@ -662,176 +637,6 @@ def _ks_vs_uniform(pit: np.ndarray) -> float:
 
 
 # ----------------------------------------------------------------------------
-# Decile table (data the integrator surfaces in metrics, not a panel)
-# ----------------------------------------------------------------------------
-
-
-def binary_decile_table(y_true, y_score, *, n_deciles: int = 10) -> Dict[str, np.ndarray]:
-    """Per-decile gains/lift/KS table for a binary scorer (score-sorted, decile 1 = highest scores).
-
-    Returns a dict of length-``n_deciles`` arrays:
-        decile        : 1..n_deciles (1 = top-scored group)
-        count         : rows in the decile
-        positives     : positive rows in the decile
-        response_rate : positives / count
-        gain          : cumulative fraction of all positives captured by deciles 1..d
-        lift          : (cumulative positive rate through decile d) / overall prevalence
-        cum_ks        : cumulative |%positives - %negatives| captured through decile d (the decile-resolution KS)
-
-    The gains/lift toolkit that completes the existing lift curve; the integrator surfaces this
-    as a metrics table rather than a chart panel.
-    """
-    yt, ys = _finite_binary(y_true, y_score)
-    n = len(yt)
-    out = {
-        "decile": np.arange(1, n_deciles + 1, dtype=np.int64),
-        "count": np.zeros(n_deciles, dtype=np.int64),
-        "positives": np.zeros(n_deciles, dtype=np.int64),
-        "response_rate": np.full(n_deciles, np.nan),
-        "gain": np.full(n_deciles, np.nan),
-        "lift": np.full(n_deciles, np.nan),
-        "cum_ks": np.full(n_deciles, np.nan),
-    }
-    if n == 0:
-        return out
-    order = np.argsort(ys, kind="stable")[::-1]
-    y_desc = yt[order].astype(np.int64)
-    # Split the score-sorted rows into ~equal deciles via integer boundaries (handles n not divisible by n_deciles).
-    bounds = (np.arange(n_deciles + 1) * n / n_deciles).round().astype(np.int64)
-    n_pos_total = int(y_desc.sum())
-    n_neg_total = n - n_pos_total
-    prevalence = n_pos_total / n if n else 0.0
-    cum_pos = 0
-    cum_neg = 0
-    cum_count = 0
-    for d in range(n_deciles):
-        lo, hi = bounds[d], bounds[d + 1]
-        seg = y_desc[lo:hi]
-        cnt = len(seg)
-        pos = int(seg.sum())
-        out["count"][d] = cnt
-        out["positives"][d] = pos
-        if cnt > 0:
-            out["response_rate"][d] = pos / cnt
-        cum_pos += pos
-        cum_neg += cnt - pos
-        cum_count += cnt
-        if n_pos_total > 0:
-            out["gain"][d] = cum_pos / n_pos_total
-        if prevalence > 0 and cum_count > 0:
-            out["lift"][d] = (cum_pos / cum_count) / prevalence
-        frac_pos = cum_pos / n_pos_total if n_pos_total > 0 else 0.0
-        frac_neg = cum_neg / n_neg_total if n_neg_total > 0 else 0.0
-        out["cum_ks"][d] = abs(frac_pos - frac_neg)
-    return out
-
-
-# Columns drawn in the decile table, in order: (table-header, source-key-or-None, value-formatter).
-_DECILE_TABLE_COLUMNS: Tuple[Tuple[str, str, Callable], ...] = (
-    ("decile", "decile", lambda v: f"{int(v)}"),
-    ("n", "count", lambda v: f"{int(v):,}"),
-    ("positives", "positives", lambda v: f"{int(v):,}"),
-    ("response", "response_rate", lambda v: "-" if not np.isfinite(v) else f"{v:.1%}"),
-    ("cum gain", "gain", lambda v: "-" if not np.isfinite(v) else f"{v:.1%}"),
-    ("lift", "lift", lambda v: "-" if not np.isfinite(v) else f"{v:.2f}"),
-    ("cum KS", "cum_ks", lambda v: "-" if not np.isfinite(v) else f"{v:.3f}"),
-)
-
-
-def binary_decile_table_figure(
-    y_true,
-    y_score,
-    *,
-    n_deciles: int = 10,
-    highlight_top: int = 3,
-    title: str = "Decile gain / lift table",
-    figsize: Optional[Tuple[float, float]] = None,
-):
-    """Render the score-sorted decile gain/lift/KS table (decile 1 = top scores) as a styled matplotlib table figure.
-
-    The tabular complement to the GAIN curve: stakeholders read the exact per-decile capture / lift / cumulative-KS
-    numbers a curve only shows graphically. All numbers come from ONE call to ``binary_decile_table`` (a single
-    O(n log n) score sort) -- no per-decile rescans. The top ``highlight_top`` deciles are tinted, the cumulative-gain
-    column carries a light value-proportional shade, and a TOTAL row sums n / positives with the overall response rate.
-
-    Edge cases mirror the iter-1 guard style: a single-class target (gain/lift undefined) or fewer than ``n_deciles``
-    finite rows renders a centered annotation instead of a misleading table. Returns a matplotlib ``Figure`` (the
-    SHAP-style direct-matplotlib path; the heavy aggregation stays spec-pure in ``binary_decile_table``).
-    """
-    from matplotlib.figure import Figure
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-
-    yt, ys = _finite_binary(y_true, y_score)
-    n = len(yt)
-    n_pos = int(yt.sum()) if n else 0
-
-    def _annotated(msg: str):
-        """Render a bare, title-only figure carrying a centered explanatory message in place of a table (degenerate-input fallback)."""
-        fig = Figure(figsize=figsize or (8.0, 2.4))
-        FigureCanvasAgg(fig)
-        ax = fig.add_subplot(111)
-        ax.axis("off")
-        ax.set_title(title, fontsize=11)
-        ax.text(0.5, 0.5, msg, ha="center", va="center", fontsize=11, transform=ax.transAxes)
-        return fig
-
-    if n == 0:
-        return _annotated("Decile table undefined\n(no finite (label, score) pairs)")
-    if n_pos == 0 or n_pos == n:
-        return _annotated("Decile gain / lift undefined\n(only one class present)")
-    # With fewer rows than deciles every decile would hold <=1 row -- the per-decile rates are noise; bin to n rows.
-    eff_deciles = n_deciles if n >= n_deciles else max(1, n)
-    note = "" if n >= n_deciles else f" (n={n} < {n_deciles}: {eff_deciles} bins)"
-
-    tbl = binary_decile_table(yt, ys, n_deciles=eff_deciles)
-    n_rows = len(tbl["decile"])
-
-    col_headers = [c[0] for c in _DECILE_TABLE_COLUMNS]
-    cells: List[List[str]] = [[fmt(tbl[key][d]) for _, key, fmt in _DECILE_TABLE_COLUMNS] for d in range(n_rows)]
-    total_pos = int(tbl["positives"].sum())
-    total_n = int(tbl["count"].sum())
-    total_resp = total_pos / total_n if total_n else float("nan")
-    # TOTAL row: cumulative gain/KS are 100% / 0 by construction at the full population; lift is 1.0 (the baseline).
-    total_row = ["TOTAL", f"{total_n:,}", f"{total_pos:,}", "-" if not np.isfinite(total_resp) else f"{total_resp:.1%}", "100.0%", "1.00", "0.000"]
-    cells.append(total_row)
-
-    fig = Figure(figsize=figsize or (8.0, 0.42 * (n_rows + 3)))
-    FigureCanvasAgg(fig)
-    ax = fig.add_subplot(111)
-    ax.axis("off")
-    ax.set_title(title + note, fontsize=11)
-    table = ax.table(cellText=cells, colLabels=col_headers, loc="center", cellLoc="center")
-    table.auto_set_font_size(False)
-    table.set_fontsize(9)
-    table.scale(1.0, 1.35)
-
-    gain_col = col_headers.index("cum gain")
-    gain_vals = tbl["gain"]
-    header_color = "#34495e"
-    highlight = "#fff3cd"
-    total_color = "#d6eaf8"
-    gain_shade = (0.66, 0.78, 0.91)
-    for (row, col), cell in table.get_celld().items():
-        cell.set_edgecolor("#cccccc")
-        if row == 0:
-            cell.set_facecolor(header_color)
-            cell.set_text_props(color="white", fontweight="bold")
-        elif row == n_rows + 1:
-            cell.set_facecolor(total_color)
-            cell.set_text_props(fontweight="bold")
-        else:
-            d = row - 1
-            if col == gain_col and np.isfinite(gain_vals[d]):
-                a = 0.18 + 0.55 * float(gain_vals[d])
-                cell.set_facecolor((gain_shade[0], gain_shade[1], gain_shade[2], a))
-            elif d < highlight_top:
-                cell.set_facecolor(highlight)
-            else:
-                cell.set_facecolor("white")
-    return fig
-
-
-# ----------------------------------------------------------------------------
 # Token registry + composer
 # ----------------------------------------------------------------------------
 
@@ -944,6 +749,11 @@ def compose_binary_figure(
         ),
     )
 
+
+# Re-exported so ``from mlframe.reporting.charts.binary import binary_decile_table`` keeps working: the table moved
+# to its own module because it is the one builder here that bypasses the spec layer, not because callers should
+# start importing it from somewhere else. Imported at the BOTTOM because the sibling imports _finite_binary back.
+from ._binary_decile_table import binary_decile_table, binary_decile_table_figure
 
 __all__ = [
     "ALLOWED_BINARY_PANEL_TOKENS",
