@@ -30,6 +30,7 @@ from sklearn.inspection import permutation_importance
 from pyutilz.system import ensure_dir_exists
 
 import shap
+from mlframe._output_paths import ensure_parent_dir
 
 # Precompile once; strips anything that could turn ``model_name`` into a path
 # traversal, a hidden file, or a Windows-reserved character when interpolated
@@ -274,7 +275,7 @@ def plot_feature_importance(
         if plot_file:
             # bbox_inches="tight" so long ytick labels (feature names) and
             # the title don't get cropped by the default figure bbox.
-            fig_top.savefig(plot_file, bbox_inches="tight", pad_inches=0.15)
+            fig_top.savefig(ensure_parent_dir(plot_file), bbox_inches="tight", pad_inches=0.15)
 
         if show_plots:
             # Prefer explicit ``IPython.display.display(fig)``
@@ -378,4 +379,4 @@ def explain_top_feature_importances(
     if save_chart:
         ensure_dir_exists("reports")
         safe_name = _sanitize_for_filename(fi_name)
-        fig.savefig(join("reports", f"{safe_name}_shap_beeswarm.png"), bbox_inches="tight", dpi=400)
+        fig.savefig(ensure_parent_dir(join("reports", f"{safe_name}_shap_beeswarm.png")), bbox_inches="tight", dpi=400)

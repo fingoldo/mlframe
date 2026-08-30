@@ -320,7 +320,10 @@ def find_weak_slices(
     if max_arity >= 2:
         if len(combos) + len(pairs) > max_combos:
             keep = max(0, max_combos - len(combos))
-            capped.append(f"pair enumeration truncated at {max_combos} combos ({len(pairs)} pairs, kept {keep})")
+            capped.append(
+                f"pair enumeration truncated: the {max_combos} combo budget minus {len(combos)} single-feature "
+                f"slices leaves room for {keep} of {len(pairs)} pairs"
+            )
             pairs = pairs[:keep]
         combos.extend(pairs)
     if max_arity >= 3 and p > 3:

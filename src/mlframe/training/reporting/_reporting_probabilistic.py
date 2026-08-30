@@ -533,8 +533,11 @@ def report_probabilistic_model_perf(
             ) = fast_calibration_report(**_fcr_kwargs)
 
         if print_report:
+            # A partial-coverage calibration figure describes only the covered slice: a constant dummy baseline
+            # reported "MAEW=0.00%, COV=10%", which reads as perfect calibration unless the caveat travels along.
+            _cov_note = "" if calibration_coverage >= 0.999 else " (over the covered slice only)"
             calibs.append(
-                f"\t{str_class_name}: MAE{'W' if use_weights else ''}={calibration_mae * 100:.{calib_report_ndigits}f}%, STD={calibration_std * 100:.{calib_report_ndigits}f}%, COV={calibration_coverage * 100:.0f}%"
+                f"\t{str_class_name}: MAE{'W' if use_weights else ''}={calibration_mae * 100:.{calib_report_ndigits}f}%, STD={calibration_std * 100:.{calib_report_ndigits}f}%, COV={calibration_coverage * 100:.0f}%{_cov_note}"
             )
             pr_aucs.append(f"{str_class_name}={'N/A' if np.isnan(pr_auc) else f'{pr_auc:.{report_ndigits}f}'}")
             roc_aucs.append(f"{str_class_name}={'N/A' if np.isnan(roc_auc) else f'{roc_auc:.{report_ndigits}f}'}")

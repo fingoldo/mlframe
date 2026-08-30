@@ -18,6 +18,7 @@ import math
 import os
 from typing import Any, ClassVar, List, Optional
 
+from mlframe._output_paths import ensure_parent_dir
 import numpy as np
 
 from mlframe.reporting.spec import (
@@ -367,7 +368,7 @@ class PlotlyRenderer:
             # deliberate file-size tradeoff that renders as BLANK PANELS, with no error shown to the viewer, on a
             # host with no outbound internet (air-gapped training box, audited enterprise network). See
             # ``_plotlyjs_mode`` for the escape hatch.
-            fig.write_html(path, include_plotlyjs=_plotlyjs_mode(), auto_open=False, config=html_config())
+            fig.write_html(ensure_parent_dir(path), include_plotlyjs=_plotlyjs_mode(), auto_open=False, config=html_config())
         elif fmt == "json":
             with open(path, "w", encoding="utf-8") as f:
                 f.write(fig.to_json())

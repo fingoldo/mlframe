@@ -60,7 +60,17 @@ def _ensure_logging_visible(level: int = logging.INFO) -> None:
 
 
 def _entry_metric(entry, split: str, name: str) -> float:
-    """Pull a per-split per-name metric value, tolerating legacy nested/flat/split-less shapes; returns NaN on any miss."""
+    """Pull a per-split per-name metric value, tolerating nested/flat/split-less/class-indexed shapes; NaN on a miss.
+
+    Two shapes were missing and both produced the same silent symptom -- a cross-target verdict table whose
+    ``best_model`` column read ``-`` while the log printed that model's metrics a few lines above:
+
+    - a CLASS-INDEXED classification layout, ``metrics[split][1][name]``, which is what every binary and
+      multiclass run produces (the sibling reader in ``_ensemble_chooser`` already drills this level);
+    - an entry that is still the raw ``(namespace, train_df, val_df, test_df)`` tuple rather than the namespace.
+    """
+    if isinstance(entry, tuple) and entry:
+        entry = entry[0]
     metrics = getattr(entry, "metrics", None)
     if not isinstance(metrics, dict):
         return float("nan")
@@ -69,6 +79,15 @@ def _entry_metric(entry, split: str, name: str) -> float:
         v = inner.get(name)
         if isinstance(v, (int, float)):
             return float(v)
+        # Class-indexed: {1: {...}} for binary, {0: {...}, 1: {...}, ...} for multiclass. The positive class is
+        # the reported one for binary; for multiclass take the first class that carries the metric, which
+        # matches what the per-class report prints.
+        for _cls_key in sorted(k for k in inner if isinstance(k, int)):
+            _cls = inner.get(_cls_key)
+            if isinstance(_cls, dict):
+                _cv = _cls.get(name)
+                if isinstance(_cv, (int, float)):
+                    return float(_cv)
     v = metrics.get(name)
     if isinstance(v, (int, float)):
         return float(v)

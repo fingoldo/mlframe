@@ -20,6 +20,7 @@ import math
 import re
 from typing import Any
 
+from mlframe._output_paths import ensure_parent_dir
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
@@ -486,7 +487,7 @@ def plot_best_dummy_baseline_overlay(
 
     if save_path:
         try:
-            fig.savefig(save_path, bbox_inches="tight")
+            fig.savefig(ensure_parent_dir(save_path), bbox_inches="tight")
             logger.info(
                 "[dummy-baselines] target='%s' baseline-overlay plot "
                 "saved: %s", report.target_name, save_path,

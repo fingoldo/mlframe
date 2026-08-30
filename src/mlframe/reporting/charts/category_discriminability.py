@@ -150,7 +150,11 @@ def _iter_categorical_columns(X: Any, features: Optional[Sequence[str]]):
         labels = list(cat.cat.categories)
         if len(labels) < 1 or len(labels) > _MAX_CARDINALITY:
             if len(labels) > _MAX_CARDINALITY:
-                logger.info("category_discriminability: skipped high-cardinality column %r (%d levels)", col, len(labels))
+                logger.info(
+                    "category_discriminability: skipped high-cardinality column %r (%d levels in the %d sampled rows; "
+                    "the full-column count reported elsewhere is larger)",
+                    col, len(labels), len(s),
+                )
             continue
         codes = np.ascontiguousarray(cat.cat.codes.to_numpy(), dtype=np.int64)
         yield str(col), codes, labels

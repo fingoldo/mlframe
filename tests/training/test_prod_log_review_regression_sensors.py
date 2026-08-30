@@ -558,17 +558,19 @@ class TestEnsembleNameAnnotations:
             if _full is not None and _conf is not None and len(_full) > 0:
                 _cov_src = (_label, 100.0 * len(_conf) / len(_full))
                 break
-        _cov_tag = f" [{_cov_src[0]} COV={_cov_src[1]:.0f}%]" if _cov_src else ""
+        _cov_tag = f" [COV={_cov_src[1]:.0f}% measured on {_cov_src[0]}]" if _cov_src else ""
 
-        # The tag format is what the log grep keys on.
-        assert _cov_tag == " [VAL COV=10%]", f"Conf Ensemble COV tag regressed: got {_cov_tag!r}. The format ' [VAL COV=xx%]' is the log-grep contract."
+        # One number labels every split's line, so the old " [VAL COV=10%]" read as though it were that line's
+        # own coverage -- including on TEST. The confident subset is actually selected per split; this figure is
+        # whichever split came first in the priority order, so the tag has to name the split it came from.
+        assert _cov_tag == " [COV=10% measured on VAL]", f"Conf Ensemble COV tag regressed: got {_cov_tag!r}."
 
         # And the composition matches the prefix that gets logged.
         internal_method = "arithm"
         ensemble_name = "notext[cb+xgb] "
         prefix = f"Conf Ensemble {internal_method} {ensemble_name}{_cov_tag}"
         assert "Conf Ensemble" in prefix
-        assert "[VAL COV=" in prefix
+        assert "[COV=10% measured on VAL]" in prefix
         assert "[cb+xgb]" in prefix  # member label still present
 
     def test_conf_ensemble_cov_tag_empty_when_no_confident_indices(self):

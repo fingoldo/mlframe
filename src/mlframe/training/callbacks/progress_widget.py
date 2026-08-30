@@ -172,7 +172,9 @@ class TrainingProgressWidget:
             # the one call that decides whether any of it can run at all.
             go.FigureWidget()
         except Exception as exc:
-            logger.info(
+            # WARNING, not INFO: the caller enabled a live training widget and is not getting one. An INFO
+            # line is invisible under the default root level, so the capability vanished silently.
+            logger.warning(
                 "TrainingProgressWidget disabled: this plotly build cannot construct a FigureWidget (%s). "
                 "plotly >= 6 requires the 'anywidget' package for it (pip install anywidget). Training is "
                 "unaffected -- the per-iteration trajectory is still recorded on the callback.", exc,

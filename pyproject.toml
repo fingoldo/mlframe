@@ -290,6 +290,9 @@ polars_ext = [
 # ``catboost/widget/ipythonwidget.py``.
 viz = [
     "plotly>=5.15",
+    # plotly >= 6 moved FigureWidget behind anywidget and raises only at CONSTRUCTION time, so without
+    # this the live training-progress widget silently degrades to "disabled" on an otherwise complete install.
+    "anywidget>=0.9",
     "seaborn>=0.13",
     "altair>=5.0",
     "hvplot>=0.9",
@@ -636,8 +639,10 @@ skips = ["B101"]
 # short substring codespell matched inside a longer identifier/comment fragment
 # (strat/ser/clen/fo/anc/mis/numer/sav/bu/ans/ot/qest/OLL), or a real API name (whis is
 # matplotlib's boxplot whisker-range kwarg), or a hyphenated spelling
-# choice that is not a typo (re-use/re-used/re-using/re-uses).
-ignore-words-list = "nd,hist,te,ith,ba,thi,fpr,tre,strat,ser,clen,fo,anc,mis,als,mis,mape,lama,aci,coo,oll,ot,qest,ttest,disjointness,unparseable,canonicalizations,numer,sav,bu,ans,re-use,re-used,re-using,re-uses,compilability,accreting,lightening,addres,categor,whis"
+# choice that is not a typo (re-use/re-used/re-using/re-uses), or a third-party library's OWN typo that
+# appears verbatim in a message filter and therefore cannot be spelled correctly (optimze -- CatBoost
+# emits `Can't optimze method "evaluate"`, and the regex that silences it has to match that text).
+ignore-words-list = "nd,hist,te,ith,ba,thi,fpr,tre,strat,ser,clen,fo,anc,mis,als,mis,mape,lama,aci,coo,oll,ot,qest,ttest,disjointness,unparseable,canonicalizations,numer,sav,bu,ans,re-use,re-used,re-using,re-uses,compilability,accreting,lightening,addres,categor,whis,optimze"
 # Migration to per-line `# codespell:ignore <word>` (2026-07-18 architecture review suggestion)
 # evaluated for the short/collision-prone entries (nd/te/fo/ba/ot/bu et al.) and NOT done: a
 # spot-check (temporarily dropping them from this list and re-running codespell) showed hundreds
@@ -775,6 +780,7 @@ allow_indirect_imports = true
 DEP002 = [
     "catboost", "xgboost", "lightgbm", "torch", "cupy", "shap", "optuna",
     "tqdm", "portalocker", "sentencepiece", "flaml", "altair", "hvplot", "vegafusion", "vl-convert-python", "ipywidgets",
+    "anywidget",  # ipywidgets 8's own runtime backend for custom widgets -- the progress widget fails to render without it, but nothing here imports it by name
     "sqlalchemy", "psycopg2-binary", "pymongo", "duckdb", "hdbscan",
     "nvidia-cuda-nvcc-cu12", "gpu-info", "cupy-cuda11x", "cupy-cuda12x", "nvidia-cuda-nvcc-cu11",
     "mkdocs-material", "mkdocs-jupyter",

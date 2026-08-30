@@ -450,6 +450,7 @@ def _phase_pandas_conversion_and_cat_prep(
     df_size_mb: float,
     verbose: bool,
     polars_pipeline_applied: bool = True,
+    pipeline_stages_requested: bool = True,
     strategy_by_model: dict | None = None,
 ) -> tuple:
     """Pandas conversion + CatBoost cat prep + Polars release.
@@ -485,7 +486,13 @@ def _phase_pandas_conversion_and_cat_prep(
     # ``polars_pipeline_applied`` captures whether a polars-aware pipeline actually fitted on the polars frame;
     # when False the downstream pipeline state lives only in pandas representation, so the lazy-pandas fastpath
     # cannot keep frames as polars without losing that state.
-    defer_pandas_conv = was_polars_input and polars_pipeline_applied and not recurrent_models and not _has_rfecv
+    #
+    # But "not applied" and "not requested" are different things, and conflating them cost a production run a
+    # multi-GB conversion for nothing: a caller asking for no encoder, no scaler and no imputer has NO pipeline
+    # state in either representation, so there is nothing for pandas to carry and the polars frames can stay.
+    # That configuration is the normal one for a CatBoost-only run, which needs none of those transforms.
+    _pipeline_state_lives_in_pandas = pipeline_stages_requested and not polars_pipeline_applied
+    defer_pandas_conv = was_polars_input and not _pipeline_state_lives_in_pandas and not recurrent_models and not _has_rfecv
 
     train_df_size_bytes_cached: float | None = None
     val_df_size_bytes_cached: float | None = None
@@ -548,10 +555,10 @@ def _phase_pandas_conversion_and_cat_prep(
             reasons = []
             if not was_polars_input:
                 reasons.append("input is not a Polars DataFrame")
-            if not polars_pipeline_applied:
+            if _pipeline_state_lives_in_pandas:
                 reasons.append(
-                    "the polars-ds pipeline was not applied (e.g. PreprocessingBackendConfig(prefer_polarsds=False), "
-                    "or no polars-native pipeline was built for this input)"
+                    "transform stages were requested (encoder / scaler / imputer) but the polars-ds pipeline did "
+                    "not apply them, so the fitted state exists only in pandas representation"
                 )
             if recurrent_models:
                 reasons.append(f"recurrent_models={recurrent_models}")

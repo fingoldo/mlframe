@@ -448,6 +448,23 @@ def _predict_with_fallback(
     _pl_df = _pl_DataFrame()
     _is_cb = _model_type in CATBOOST_MODEL_TYPES
     if _pl_df is not type(None) and isinstance(X, _pl_df) and _is_cb and getattr(model, "_mlframe_polars_fastpath_broken", False):
+        # Say WHY the frame is being converted. A production run showed this fallback on every predict with
+        # no preceding failure in the log, which reads as "CatBoost cannot take polars" -- and a probe of the
+        # installed build says otherwise. The flag is sticky per MODEL, set by one earlier dispatch miss, so
+        # naming both facts distinguishes a library limitation from this model's own history.
+        try:
+            from mlframe.training._polars_native_support import accepts_polars
+
+            _native = accepts_polars("catboost")
+        except Exception:
+            _native = None
+        log_throttle(
+            logger, "cb_sticky_pandas_predict", logging.INFO,
+            "  [predict] this model is flagged as having missed the CatBoost polars fastpath earlier, so its "
+            "frames are converted to pandas from here on. The installed CatBoost %s accept a polars frame in "
+            "a probe, so this is a per-model condition (dtype mix on the failing call), not a library limit.",
+            {True: "DOES", False: "does NOT", None: "could not be probed to"}.get(_native, "could not be probed to"),
+        )
         X_pd = _cb_polars_to_pandas(model, X, method, verbose=verbose)
         with phase(method, model=_model_type, n_rows=n_rows):
             return _wrap_predict_result(fn(X_pd), method=method, classes_=getattr(model, "classes_", None))
@@ -798,3 +815,4 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
 # 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
 from ._cb_pool_build import _maybe_get_or_build_cb_pool  # noqa: F401
+from mlframe.utils.log_throttle import log_throttle

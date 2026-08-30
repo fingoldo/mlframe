@@ -652,7 +652,12 @@ def _emit_reliability_plot(
     except OSError as exc:
         logger.warning("pick_best_calibrator: reliability render failed for %s: %s", plot_path, exc)
         return None
-    return os.path.abspath(plot_path)
+    # The caller composed a FLAT path, but the per-format subfolder layout may have put the file in a ``png/``
+    # directory -- so returning the composed path hands back a name that does not exist on disk. Ask the writer
+    # where it actually went.
+    from mlframe.reporting.renderers.save import resolve_output_path
+
+    return os.path.abspath(resolve_output_path(root, "matplotlib", fmt, multi_output=False))
 
 
 def pick_best_calibrator(

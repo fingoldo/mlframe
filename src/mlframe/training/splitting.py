@@ -470,8 +470,8 @@ def make_train_test_split(
             train_details = f"{fmt_ts(timestamps.iloc[train_idx].min())}/{fmt_ts(timestamps.iloc[train_idx].max())}"
         else:
             train_details = "(empty)"
-        val_details = _build_details(timestamps, val_idx, val_idx_seq, eff_val_shuf, "R")
-        test_details = _build_details(timestamps, test_idx, test_idx_seq, eff_test_shuf, "R")
+        val_details = _build_details(timestamps, val_idx, val_idx_seq, eff_val_shuf, "Rnd")
+        test_details = _build_details(timestamps, test_idx, test_idx_seq, eff_test_shuf, "Rnd")
 
     else:
         # Row-based splitting without timestamps (fallback to sklearn).

@@ -302,6 +302,10 @@ class TrainingBehaviorConfig(BaseConfig):
     # pandas conversion, composite discovery, and model training -- the prod
     # frame regularly carries 40-100 such columns survivable only because
     # downstream filters re-screen them, at material RAM cost.
+    # On a split with a time axis, fit the recency-weighted model only. Uniform weighting asks what the model
+    # would look like if every row mattered equally, which a temporal split has already answered -- and fitting
+    # both doubles the wall time. Set False to keep the uniform fit alongside.
+    temporal_recency_only_weighting: bool = True
     auto_drop_distribution_analyzer_candidates: bool = True
     """When True (default), drop columns the feature_distribution_analyzer
     flagged as NaN-heavy (>=nan_fraction_threshold) or low-variance from

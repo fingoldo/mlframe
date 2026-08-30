@@ -13,6 +13,8 @@ Lazy by design: kernels are imported only when ``prewarm_fs_numba_cache()`` is c
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 # Idempotency guards, mirroring ``_numba_warmup.warmup_typed_dict``'s ``_warmup_done`` pattern:
@@ -414,11 +416,18 @@ def _prewarm_fs_numba_cache_impl(verbose: bool = False) -> None:
         from .feature_engineering import create_unary_transformations
         _warm_x = np.array([1.0, -2.0, 0.5, 0.0, 3.0], dtype=np.float64)
         _unary_warm = create_unary_transformations(preset="maximal")
-        for _fn in _unary_warm.values():
-            try:
-                _ = _fn(_warm_x)
-            except Exception as e:  # noqa: PERF203 - nosec B110 - per-transform fault isolation is intentional, not a hoisting candidate; a handful of transforms need domain-restricted input
-                logger.debug("unary transform %r warmup failed on the synthetic input, skipping: %s", _fn, e)
+        # The warm-up DISCARDS every result -- it exists to trigger the JIT compile, not to compute anything.
+        # No single input vector sits inside every transform's domain at once (arcsin wants [-1,1], arccosh
+        # wants [1,inf), reciprocal rejects 0), so feeding one produces a stream of RuntimeWarnings about
+        # values nobody reads. Silence them here rather than at the caller, where a real domain error would be
+        # worth seeing.
+        with np.errstate(all="ignore"), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            for _fn in _unary_warm.values():
+                try:
+                    _ = _fn(_warm_x)
+                except Exception as e:  # noqa: PERF203 - nosec B110 - per-transform fault isolation is intentional, not a hoisting candidate
+                    logger.debug("unary transform %r warmup failed on the synthetic input, skipping: %s", _fn, e)
     except Exception as e:  # nosec B110 - optional dependency import guard
         logger.debug("create_unary_transformations warmup failed, skipping: %s", e)
 

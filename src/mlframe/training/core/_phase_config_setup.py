@@ -221,6 +221,14 @@ def setup_configuration(
             _set_fsf(_subfolders)
         except (ImportError, AttributeError):
             pass
+    # One run's chart-timing table must describe one run's charts, and the registry behind it is process-wide.
+    # Reset here rather than at the facade so a caller that builds its own context still gets a clean table.
+    try:
+        from mlframe.reporting.renderers._render_timings import reset_chart_timings
+
+        reset_chart_timings()
+    except (ImportError, AttributeError):
+        pass
     _step_done("inline_display setup (import mlframe.reporting.renderers.save)")
 
     # Process-wide; None keeps the user's pre-suite matplotlib/plotly settings intact.
@@ -243,11 +251,16 @@ def setup_configuration(
     regression_calibration_config = _ensure_config(regression_calibration_config, RegressionCalibrationConfig, {})
     _step_done("_ensure_config x9 (output..regression_calibration)")
 
-    # Pre-warm numba kernels so first call doesn't pay 6-10s JIT cold-start.
+    # Pre-warm numba kernels so the first call does not pay the JIT cold-start.
+    #
+    # The feature-selection kernel set is by far the expensive half and is only worth compiling when
+    # feature selection will actually run: a CatBoost-only fit with no MRMR and no RFECV never calls one of
+    # those kernels, so warming them is pure wall time before any data is read.
+    _fs_will_run = bool(getattr(feature_selection_config, "use_mrmr_fs", False)) or bool(getattr(feature_selection_config, "rfecv_models", None))
     if dummy_baselines_config.enabled:
         try:
             from ..baselines import _warmup_numba_kernels
-            _warmup_numba_kernels()
+            _warmup_numba_kernels(include_feature_selection=_fs_will_run)
         except Exception as e:  # nosec B110 - optional dependency import guard
             logger.debug("numba kernel warm-up failed, first real call will pay JIT cost: %s", e)
     _step_done("_warmup_numba_kernels (JIT prewarm)")
@@ -353,10 +366,17 @@ def setup_configuration(
     _dataset_reuse_caps = _detect_dataset_reuse_capabilities()
     logger.info("Dataset-reuse capabilities: %s", _dataset_reuse_caps)
     if not _dataset_reuse_caps.get("cb_pool_label_swap"):
+        # Name the method that is ACTUALLY missing. The old text said "set_label/set_weight not available"
+        # whenever the label-swap capability was off, which reads as both being absent -- and set_weight has
+        # shipped and been documented for years, so an operator checking the docs concluded mlframe was wrong.
+        # In CatBoost 1.2.10 set_weight exists and set_label does not; only the latter gates the swap.
+        _missing = [_name for _name, _key in (("set_label", "cb_pool_set_label"), ("set_weight", "cb_pool_set_weight")) if not _dataset_reuse_caps.get(_key)]
         logger.warning(
-            "  CatBoost Pool.set_label/set_weight not available in installed build -- "
-            "mlframe will fall back to rebuilding the Pool on every weight schema and "
-            "same-type target. Upgrade CatBoost to pick up the Pool label-swap PR."
+            "  CatBoost Pool.%s not available in this build (%s present) -- mlframe will rebuild the Pool "
+            "for every weight schema and same-type target instead of swapping in place. Upgrade CatBoost to "
+            "pick up the Pool label-swap PR.",
+            "/".join(_missing) or "label-swap support",
+            "/".join(_n for _n in ("set_label", "set_weight") if _n not in _missing) or "neither",
         )
 
     # Pool cache is keyed by id(df), and Python recycles object ids across independent suite

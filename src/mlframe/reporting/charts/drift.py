@@ -221,7 +221,7 @@ def psi_heatmap(
     )
     if matrix.size == 0:
         panel: PanelSpec = AnnotationPanelSpec(text="PSI heatmap: no features / rows", title=title)
-        return FigureSpec(suptitle="", panels=((panel,),), figsize=figsize or (8.0, 3.0))
+        return FigureSpec(suptitle="", panels=((panel,),), figsize=(8.0, 3.0) if figsize is None else figsize)
 
     n_feat, n_buckets = matrix.shape
     n_rows_total = int(np.asarray(timestamps).shape[0])
@@ -256,7 +256,7 @@ def psi_heatmap(
             (PSI_SIGNIFICANT, "red", "solid", f"significant {PSI_SIGNIFICANT:g}"),
         ),
     )
-    fs = figsize or (max(8.0, 0.6 * n_buckets + 4.0), max(3.0, 0.32 * n_feat + 1.5))
+    fs = (max(8.0, 0.6 * n_buckets + 4.0), max(3.0, 0.32 * n_feat + 1.5)) if figsize is None else figsize
     n_flagged = int(np.nansum(matrix > PSI_SIGNIFICANT))
     n_blank = int(np.isnan(matrix).sum())
     caption = (
@@ -617,7 +617,7 @@ def metric_over_time(
     # only meaningful when at least one bucket cleared min_samples and produced a finite metric.
     if perf is None or len(perf) == 0 or metric not in perf.columns or not np.isfinite(perf[metric].to_numpy(dtype=np.float64)).any():
         panel: PanelSpec = AnnotationPanelSpec(
-            text=f"metric_over_time: no buckets with >= {min_samples} samples", title=title or metric,
+            text=f"metric_over_time: no buckets with >= {min_samples} samples", title=metric if title is None else title,
         )
         return FigureSpec(suptitle="", panels=((panel,),), figsize=figsize)
 
@@ -638,7 +638,7 @@ def metric_over_time(
         x=x,
         y=yvals,
         series_labels=(metric,),
-        title=title or f"{metric} over time ({direction})",
+        title=f"{metric} over time ({direction})" if title is None else title,
         xlabel="time",
         ylabel=metric,
         line_styles=("lines+markers",),

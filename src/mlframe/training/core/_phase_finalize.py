@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any
 
 from pyutilz.strings import slugify
 
+from mlframe.reporting.renderers._render_timings import chart_timings_snapshot, format_chart_timings
+
 from ._process_flag_scope import restore_process_flags
 from ..io import save_mlframe_model
 from ..phases import format_phase_summary
@@ -688,16 +690,21 @@ def finalize_suite(ctx: TrainingContext) -> dict:
     if ctx.verbose:
         logger.info("[phases] Top phases by wall-clock time:\n%s", format_phase_summary())
 
-        # Wall-share percentages computed against the longest-running phase (suite root).
+        # Share of the SUITE's wall time, not of the largest phase. Dividing by the largest phase made its own
+        # share 100% by construction and let the printed numbers sum past 250%, which reads as though several
+        # phases each consumed most of the run. Phases nest, so the shares still overlap -- that is inherent and
+        # is why the line names the denominator.
         try:
-            from ..phases import phase_snapshot
+            from ..phases import phase_snapshot, registry_elapsed
 
             _snap = phase_snapshot()
-            if _snap:
-                _root_wall = _snap[0][1] if _snap else 0.0
-                if _root_wall > 0:
-                    _share_str = ", ".join(f"{p}={tot/_root_wall*100:.1f}%" for p, tot, _ in _snap[:8])
-                    logger.info("[wall-share] top: %s", _share_str)
+            _suite_wall = registry_elapsed()
+            if _snap and _suite_wall > 0:
+                _share_str = ", ".join(f"{p}={tot/_suite_wall*100:.1f}%" for p, tot, _ in _snap[:8])
+                logger.info(
+                    "[wall-share] of %.0fs suite wall time (phases nest, so shares overlap): %s",
+                    _suite_wall, _share_str,
+                )
         except Exception as e:
             logger.debug("swallowed exception in _phase_finalize.py: %s", e)
             pass
@@ -729,6 +736,14 @@ def finalize_suite(ctx: TrainingContext) -> dict:
     if _selected_features_per_model:
         ctx.metadata["selected_features"] = sorted(_selected_features_union)
         ctx.metadata["selected_features_per_model"] = _selected_features_per_model
+
+    # Per-chart-type render cost. The suite draws hundreds of figures across dozens of types at the default
+    # settings, and until this was recorded the only visible number was the enclosing phase's total -- enough to
+    # know the report was slow, not enough to know which chart to cap or drop.
+    _chart_rows = chart_timings_snapshot()
+    ctx.metadata["chart_timings"] = _chart_rows
+    if _chart_rows:
+        logger.info("%s", format_chart_timings(_chart_rows))
 
     # Restore the process-wide overrides setup_configuration flipped for this suite. The same restore runs in a
     # finally at the suite boundary, because a suite that raises never reaches this point; popping the keys makes

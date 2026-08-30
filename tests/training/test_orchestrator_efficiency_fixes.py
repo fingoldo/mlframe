@@ -267,10 +267,12 @@ def test_finalize_suite_single_pass_walk():
 def test_main_del_df_has_why_comment():
     """Main del df has why comment."""
     src = _read("main.py")
-    idx = src.find("del df\n    ctx.df = None")
-    if idx < 0:
-        idx = src.find("del df")
-    assert idx >= 0, "del df line not found"
+    # Anchor on the STATEMENT, not on the text "del df": the WHY comment this test exists to require itself
+    # quotes ``del df``, so a plain substring search lands on the comment and then reads the 400 characters
+    # BEFORE it -- failing precisely when the comment is present. Indentation varies with the enclosing block.
+    _m = re.search(r"^[ \t]*del df$", src, re.MULTILINE)
+    assert _m is not None, "del df line not found"
+    idx = _m.start()
     window = src[max(0, idx - 400) : idx]
     assert (
         "gc" in window.lower() or "decref" in window.lower() or "reclaim" in window.lower() or "free" in window.lower()

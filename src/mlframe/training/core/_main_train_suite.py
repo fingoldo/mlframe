@@ -64,6 +64,7 @@ from ._main_train_suite_encoding import (
     _assert_suite_return_shape,
     _encode_string_multiclass_target,
 )
+from ._main_train_suite_polars_gate import any_pipeline_stage_requested, needs_polars_pre_clone
 from ._misc_helpers import _bulk_setattr_to_ctx, _split_preds_probs, _prep_polars_df  # noqa: F401
 from ._main_train_suite_defaults import _build_default_extractor, _infer_target_is_classification  # noqa: F401
 from ._main_train_suite_phases import (
@@ -616,11 +617,8 @@ def train_mlframe_models_suite(
             # default=True placeholder, to decide whether the polars-side cat fixes (Utf8 -> Categorical fills) need to be
             # mirrored back into the pandas-side frames before CatBoost Pool construction.
             polars_pipeline_applied=polars_pipeline_applied,
-            needs_polars_pre_clone=(
-                was_polars_input
-                and not (pipeline_config.get("skip_categorical_encoding") if isinstance(pipeline_config, dict) else pipeline_config.skip_categorical_encoding)
-                and (pipeline_config.get("categorical_encoding") if isinstance(pipeline_config, dict) else pipeline_config.categorical_encoding) is not None
-            ),
+            pipeline_stages_requested=any_pipeline_stage_requested(pipeline_config),
+            needs_polars_pre_clone=needs_polars_pre_clone(pipeline_config, was_polars_input=was_polars_input),
             mlframe_models=mlframe_models,
             recurrent_models=recurrent_models or [],
             rfecv_models=rfecv_models,
@@ -634,19 +632,12 @@ def train_mlframe_models_suite(
         ctx.val_df_size_bytes_cached = val_df_size_bytes_cached
 
         # ctx-form: parallel-session migrated _phase_global_outlier_detection to read from / write to ctx in place.
-        ctx.train_df_pd = train_df_pd
-        ctx.val_df_pd = val_df_pd
-        ctx.train_df_polars = train_df_polars
-        ctx.val_df_polars = val_df_polars
-        ctx.train_idx = train_idx
-        ctx.val_idx = val_idx
-        ctx.test_idx = test_idx
-        ctx.target_by_type = target_by_type
-        ctx.outlier_detector = outlier_detector
-        ctx.od_val_set = od_val_set
-        ctx.baseline_rss_mb = baseline_rss_mb
-        ctx.df_size_mb = df_size_mb
-        ctx.metadata = metadata
+        _bulk_setattr_to_ctx(
+            ctx,
+            ("train_df_pd", "val_df_pd", "train_df_polars", "val_df_polars", "train_idx", "val_idx", "test_idx",
+             "target_by_type", "outlier_detector", "od_val_set", "baseline_rss_mb", "df_size_mb", "metadata"),
+            locals(),
+        )
         _phase_global_outlier_detection(ctx)
         filtered_train_df = ctx.filtered_train_df
         filtered_val_df = ctx.filtered_val_df

@@ -64,6 +64,18 @@ def _build_rank_candidates():
 _ENSEMBLE_RANK_METRIC_CANDIDATES = _build_rank_candidates()
 
 
+# CONSIDERED AND REJECTED: excluding the rank-fusion flavours (rank_average, rrf -- see ``RANK_FUSION_METHODS``)
+# from the probability-metric probes. A rank blend's output is a normalised rank with a uniform marginal, so its
+# Brier / log-loss / ICE are not the same quantity a probabilistic blend's are: a production run showed rank_average
+# at test Brier 23.14% against 20.75% for every other flavour, which reads as "worse calibrated" when the values
+# simply mean something else. Excluding it there would nonetheless REMOVE a candidate the caller explicitly asked
+# for, and a rank blend that genuinely wins is a real result worth keeping -- a chooser that quietly narrows its own
+# field is worse than one that ranks on an imperfect scale. The probe order makes it near-moot in practice: roc_auc
+# is tried FIRST and is rank-invariant, so a calibration key only ever decides a run where no candidate exposes an
+# AUC at all. Status quo stands -- every flavour competes on every metric, and a rank blend chosen on a calibration
+# metric is an accepted, documented outcome rather than a bug.
+
+
 def _read_ensemble_metric(ens_result, split: str, metric: str):
     """Read ``ens_result.metrics[split][metric]`` (or nested int-keyed dict 1) returning float or None.
 
@@ -74,6 +86,14 @@ def _read_ensemble_metric(ens_result, split: str, metric: str):
     type error returns ``None`` so the chooser silently skips the flavour.
     """
     try:
+        # ``score_ensemble``'s values are the raw ``train_and_evaluate_model`` return -- a 4-tuple of
+        # ``(entry_namespace, train_df, val_df, test_df)`` -- not a bare namespace. A tuple has no
+        # ``.metrics``, so every probe returned None and the chooser fell back to the first-emitted
+        # flavour on a run whose metrics were all present and printed. The sibling model-list builder
+        # already documents and performs this unwrap; doing it here too means any caller handing over
+        # score_ensemble's output verbatim gets a metric-driven winner rather than an arbitrary one.
+        if isinstance(ens_result, tuple) and ens_result:
+            ens_result = ens_result[0]
         _m = getattr(ens_result, "metrics", None)
         if not isinstance(_m, dict):
             return None

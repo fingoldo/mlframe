@@ -239,6 +239,27 @@ class ReportingConfig(BaseConfig):
     # self-skips for slow ones instead of forcing every user to opt in.
     interaction_strength_charts: bool = True
     interaction_strength_max_features: int = 8
+    # Wall-clock budget for the post-fit diagnostics block AS A WHOLE, checked between diagnostics.
+    # Without it only one member carried a cap, so a run skipped that one for being projected at 20s and then
+    # spent six and a half minutes on the uncapped rest -- longer than the model fit it was describing.
+    # 0 disables the budget and renders everything regardless of cost.
+    # Which models get the expensive model-explanation diagnostics (SHAP, PDP/ICE, slice finder,
+    # interaction strength). "best" renders them for the primary model only; ensemble variants keep their
+    # metric and calibration panels, which is what actually distinguishes them. "all" restores rendering
+    # them for every model -- a production run drew five identical SHAP surfaces for five aggregations of
+    # two members correlated at 0.996.
+    heavy_diagnostics_for: str = "best"
+
+    diagnostics_max_seconds: float = 300.0
+
+    # Cost of one false positive vs one false negative, e.g. ``{"fp": 1.0, "fn": 12.0}``. Only the RATIO matters.
+    # Every crisp classification metric in the report describes a decision rule at 0.5 -- a default nobody chose,
+    # and a poor one at a 2.6% base rate. With costs given, the honest-diagnostics threshold block selects the
+    # cost-minimising threshold on OOF and reports it beside the 0.5 rule; without them it falls back to F1 and
+    # says so, because F1 silently prices the two mistakes equally. The block REPORTS only: the predictions the
+    # rest of the suite scores are untouched either way.
+    decision_costs: Optional[dict] = None
+
     interaction_strength_max_seconds: float = 20.0
     # PZAD case_visual/case_sdsj diagnostics: cheap njit-kernel charts, default-ON and skip-safe (each fires only when
     # its inputs fit -- a categorical column for group-structure / discriminability, a binary target for WoE).

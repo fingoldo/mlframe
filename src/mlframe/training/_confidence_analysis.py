@@ -12,6 +12,7 @@ import copy
 import logging
 from typing import Any
 
+from mlframe._output_paths import ensure_parent_dir
 import numpy as np
 
 try:
@@ -447,7 +448,7 @@ def run_confidence_analysis(
             _root, _ext = _os.path.splitext(plot_file)
             _path = plot_file if _ext else (plot_file + ".png")
             try:
-                fig.savefig(_path, bbox_inches="tight")
+                fig.savefig(ensure_parent_dir(_path), bbox_inches="tight")
             except Exception as _save_err:
                 logger.warning("Confidence beeswarm savefig failed for %s: %s", _path, _save_err)
         # Guard plt.show() against the non-interactive Agg backend (CI / pytest / headless scripts

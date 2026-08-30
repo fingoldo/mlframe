@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from . import Leaderboard
+from mlframe._output_paths import ensure_parent_dir
 
 
 def spearman_exp(lb, num_repeats, exp_range, top_k=7):
@@ -150,4 +151,4 @@ def create_exp_pic(exp_range, exp_res, filename=None):
     L.get_texts()[3].set_text("$\\sigma^{og}$")
 
     if filename is not None:
-        plt.savefig(filename, format="pdf")
+        plt.savefig(ensure_parent_dir(filename), format="pdf")

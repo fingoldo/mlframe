@@ -120,7 +120,7 @@ def binary_decile_table_figure(
 
     def _annotated(msg: str):
         """Render a bare, title-only figure carrying a centered explanatory message in place of a table (degenerate-input fallback)."""
-        fig = Figure(figsize=figsize or (8.0, 2.4))
+        fig = Figure(figsize=(8.0, 2.4) if figsize is None else figsize)
         FigureCanvasAgg(fig)
         ax = fig.add_subplot(111)
         ax.axis("off")
@@ -148,7 +148,7 @@ def binary_decile_table_figure(
     total_row = ["TOTAL", f"{total_n:,}", f"{total_pos:,}", "-" if not np.isfinite(total_resp) else f"{total_resp:.1%}", "100.0%", "1.00", "0.000"]
     cells.append(total_row)
 
-    fig = Figure(figsize=figsize or (8.0, 0.42 * (n_rows + 3)))
+    fig = Figure(figsize=(8.0, 0.42 * (n_rows + 3)) if figsize is None else figsize)
     FigureCanvasAgg(fig)
     ax = fig.add_subplot(111)
     ax.axis("off")

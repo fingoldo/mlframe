@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from mlframe._output_paths import ensure_parent_dir
 import numpy as np
 
 from mlframe.reporting.spec import (
@@ -199,7 +200,7 @@ class MatplotlibRenderer:
         # and any annotations outside the axes box land inside the saved
         # PNG. Without this the renderer crops at the figure box and long
         # ytick labels (FI plots) / suptitles get clipped.
-        fig.savefig(path, format=fmt, bbox_inches="tight", pad_inches=0.15)
+        fig.savefig(ensure_parent_dir(path), format=fmt, bbox_inches="tight", pad_inches=0.15)
 
     def show(self, fig: Any) -> None:
         """Display ``fig`` inline in an IPython/Jupyter kernel via ``IPython.display.display``, or best-effort pop a GUI window outside a kernel when matplotlib is in interactive mode; a no-op in headless / non-interactive contexts."""

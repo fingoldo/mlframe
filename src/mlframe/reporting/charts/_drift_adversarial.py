@@ -94,7 +94,12 @@ def adversarial_auc(
     names = tuple(_kept_names)
     Xa = np.column_stack([e[0][ia] for e in _enc]) if _enc else np.empty((len(ia), 0))
     Xb = np.column_stack([e[1][ib] for e in _enc]) if _enc else np.empty((len(ib), 0))
-    X = np.vstack([Xa, Xb])
+    X_arr = np.vstack([Xa, Xb])
+    # A NAMED frame, not the bare array: fitted on numpy, LightGBM invents "Column_0..N" for itself and
+    # sklearn then warns "X does not have valid feature names" on every fold predict -- several lines of
+    # noise per diagnostic. The real names are already resolved here, and a single-dtype frame wraps the
+    # array without copying it, so this also makes the importances below named rather than positional.
+    X = pd.DataFrame(X_arr, columns=list(names)) if len(names) else X_arr
     y = np.concatenate([np.zeros(len(ia), dtype=np.int64), np.ones(len(ib), dtype=np.int64)])
 
     # n_jobs=1, not -1: this diagnostic classifier is cheap (small subsampled X/y, serial cross_val_predict

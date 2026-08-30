@@ -35,6 +35,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, List, Optional, Sequence, Tuple
 
+from mlframe._output_paths import ensure_parent_dir
 import numpy as np
 
 try:
@@ -421,7 +422,7 @@ def _save_figure(fig: Any, base: str, plot_outputs: Optional[str]) -> List[str]:
     for fmt in formats:
         path = f"{root}.{fmt}"
         try:
-            fig.savefig(path, bbox_inches="tight")
+            fig.savefig(ensure_parent_dir(path), bbox_inches="tight")
             written.append(path)
         except Exception as save_err:
             log_throttle(logger, "shap_panel_savefig_failed", logging.WARNING, "SHAP panel savefig failed for %s: %s", path, save_err)

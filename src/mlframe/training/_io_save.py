@@ -38,6 +38,44 @@ logger = logging.getLogger("mlframe.training.io")
 _SAVE_MUTATION_LOCK = threading.RLock()
 
 
+def _describe_unpicklable(payload, error) -> str:
+    """Best-effort description of WHAT in ``payload`` pickle rejected.
+
+    The fallback used to log only ``type(err).__name__`` -- "AttributeError" and nothing else -- which names
+    neither the attribute nor the object holding it, so the dill fallback stayed a permanent mystery rather
+    than a lead. pickle's own message usually carries the qualified name of the offending local/lambda, and
+    for an object graph the offending ATTRIBUTE can be found by pickling each one on its own.
+
+    Never raises: this runs on an error path whose job is to fall back, not to diagnose perfectly.
+    """
+    import pickle as _pk  # nosec B403 - probing only, nothing is loaded
+
+    detail = str(error).strip().splitlines()[0] if str(error).strip() else ""
+    culprits = []
+    try:
+        state = getattr(payload, "__dict__", None)
+        if isinstance(state, dict):
+            for name, value in state.items():
+                try:
+                    _pk.dumps(value, protocol=_pk.HIGHEST_PROTOCOL)
+                except Exception:  # noqa: PERF203 -- per-attribute isolation IS the diagnostic; this runs once, on an error path
+                    culprits.append(name)
+        elif isinstance(payload, dict):
+            for name, value in payload.items():
+                try:
+                    _pk.dumps(value, protocol=_pk.HIGHEST_PROTOCOL)
+                except Exception:  # noqa: PERF203 -- per-attribute isolation IS the diagnostic; this runs once, on an error path
+                    culprits.append(str(name))
+    except Exception:
+        pass
+    parts = []
+    if detail:
+        parts.append(detail[:200])
+    if culprits:
+        parts.append("offending attribute(s): " + ", ".join(sorted(culprits)[:8]))
+    return "; ".join(parts) or "no further detail available"
+
+
 def save_mlframe_model(
     model: object,
     file: str,
@@ -301,9 +339,16 @@ def save_mlframe_model(
         except (TypeError, AttributeError, _pickle.PicklingError) as _pickle_err:
             # Non-picklable object in the graph -- dill handles closures /
             # lambdas / generators that vanilla pickle rejects.
-            logger.info(
-                "save_mlframe_model: pickle rejected the payload " "(%s); falling back to dill.dumps for %s",
+            # WARNING, not INFO: dill is slower, produces a larger artefact and is far more fragile to load in
+            # another environment, so a silent downgrade is a liability the operator should get to act on. The
+            # message names the offending attribute, because "AttributeError" alone gave nothing to fix -- and
+            # an unpicklable attribute is usually a runtime cache that belongs in ``__getstate__``'s exclusions.
+            logger.warning(
+                "save_mlframe_model: pickle rejected the payload (%s: %s); falling back to dill for %s. dill is "
+                "slower and less portable across environments -- exclude the offending attribute in the object's "
+                "__getstate__ (a warmed kernel, memo dict, device buffer or open handle) to stay on pickle.",
                 type(_pickle_err).__name__,
+                _describe_unpicklable(_payload, _pickle_err),
                 file,
             )
             _payload_bytes = dill.dumps(_payload)

@@ -197,6 +197,15 @@ def _patch_dataset_constructors_with_logging() -> None:
             logger.debug("_model_factories: len(payload) fallback failed, shape unknown: %s", exc)
             return None
 
+    def _active_phase_name() -> str:
+        """Innermost open suite phase, or "" -- best-effort, never raises into the instrumented constructor."""
+        try:
+            from mlframe.training.phases import active_phase
+
+            return active_phase()
+        except Exception:
+            return ""
+
     def _infer_callsite() -> str:
         """``"module:lineno"`` of the first stack frame outside catboost/xgboost/lightgbm internals, i.e. the mlframe (or user) call that triggered this dataset build."""
         # Walk up to find the first frame outside the library internals.
@@ -288,13 +297,20 @@ def _patch_dataset_constructors_with_logging() -> None:
                     # Demote when the build originates anywhere inside an internal fit loop (scanning the full stack, not
                     # just the shim-masked call site), so per-fold / per-feature-subset builds don't drown the log at INFO.
                     _level = logging.DEBUG if _originates_in_internal_loop() else logging.INFO
+                    # ``elapsed`` covers the CONSTRUCTOR only. LightGBM's Dataset defers its binning to
+                    # construct(), so a build that really took two minutes reported took=0.000s and read as
+                    # instant -- name which of the two the number is instead of letting it mislead.
+                    _lazy = "lightgbm" in str(label).lower()
+                    _phase = _active_phase_name()
                     _build_logger.log(
                         _level,
-                        "[dataset-build] %s shape=%s took=%.3fs site=%s",
+                        "[dataset-build] %s shape=%s %s=%.3fs site=%s%s",
                         label,
                         shape_str,
+                        "ctor(lazy; binning deferred to construct())" if _lazy else "took",
                         elapsed,
                         callsite,
+                        f" phase={_phase}" if _phase else "",
                     )
 
         _logged_init.__wrapped__ = orig_init  # type: ignore[attr-defined]

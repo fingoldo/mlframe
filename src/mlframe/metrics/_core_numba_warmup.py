@@ -15,6 +15,7 @@ import numba
 import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
+from time import perf_counter as _perf_counter
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,7 @@ def _assert_numba_nogil_active() -> bool:
         return True
 
 
-def prewarm_numba_cache():
+def prewarm_numba_cache(include_feature_selection: bool = True):
     """Pre-warm Numba JIT cache to avoid compilation overhead during profiling.
 
     Calls all @njit functions with small dummy data to trigger JIT compilation before timing-sensitive operations. Warms up both float32 and float64 paths.
@@ -116,12 +117,12 @@ def prewarm_numba_cache():
         return
     prewarm_numba_cache._in_progress = True  # type: ignore[attr-defined]  # process-local re-entrancy sentinel stamped on the function object
     try:
-        _prewarm_numba_cache_body()
+        _prewarm_numba_cache_body(include_feature_selection=include_feature_selection)
     finally:
         prewarm_numba_cache._in_progress = False  # type: ignore[attr-defined]
 
 
-def _prewarm_numba_cache_body():
+def _prewarm_numba_cache_body(include_feature_selection: bool = True):
     """Trigger JIT compilation of every numba-backed metric kernel by importing them (module-level ``@njit`` decoration compiles on first import/call), while kicking off the loky physical-core-count probe on a background thread so its ~1.5s wmic subprocess overlaps the JIT wait instead of stacking after it."""
     from .core import (
         fast_roc_auc, fast_aucs, fast_calibration_binning, fast_calibration_metrics,
@@ -504,19 +505,41 @@ def _prewarm_numba_cache_body():
     except Exception as e:  # nosec B110 - non-trivial body
         logger.warning("_batch_per_class_ice_kernel warmup failed, skipping: %s", e, exc_info=True)
 
-    # Warm feature_selection numba kernels. Without this, the first MRMR.fit call pays ~60s of cumulative JIT compile. Lazy import keeps this module's import cost unchanged.
-    try:
-        from mlframe.feature_selection.filters import prewarm_fs_numba_cache
-        prewarm_fs_numba_cache()
-    except Exception as e:  # nosec B110 - optional dependency import guard
-        logger.debug("feature_selection numba-cache prewarm failed, skipping: %s", e)
+    # Warm feature_selection numba kernels. Without this, the first MRMR.fit call pays a large cumulative JIT
+    # compile -- but a run with no MRMR and no RFECV never makes that call, so the whole cost is waste. The
+    # suite gates this on whether feature selection was actually requested; a caller that cannot tell leaves
+    # the default on, because paying the warm-up needlessly is a slow run while skipping it wrongly is a slow
+    # first fit plus a confusing profile. Lazy import keeps this module's import cost unchanged.
+    _group_times: dict = {}
+    if include_feature_selection:
+        _t_fs = _perf_counter()
+        try:
+            from mlframe.feature_selection.filters import prewarm_fs_numba_cache
+
+            prewarm_fs_numba_cache()
+        except Exception as e:  # nosec B110 - optional dependency import guard
+            logger.debug("feature_selection numba-cache prewarm failed, skipping: %s", e)
+        _group_times["feature_selection"] = _perf_counter() - _t_fs
+    else:
+        _group_times["feature_selection"] = 0.0  # skipped: no MRMR / RFECV in this run
 
     # Warm dummy_baselines kernels. The suite already calls `_warmup_numba_kernels` early in `train_mlframe_models_suite`, but that lands inside the suite wall-time; warming here shifts cost out of the user-visible timer.
+    _t_base = _perf_counter()
     try:
         from mlframe.training.baselines import _warmup_numba_kernels
+
         _warmup_numba_kernels()
     except Exception as e:  # nosec B110 - optional dependency import guard
         logger.debug("training.baselines numba-kernel warmup failed, skipping: %s", e)
+    _group_times["dummy_baselines"] = _perf_counter() - _t_base
+
+    # A production log once showed this whole step at 511.71s with nothing saying which group spent it, which
+    # left "is the prewarm warming things this run never calls?" unanswerable from the log alone.
+    if _group_times:
+        logger.info(
+            "  [JIT prewarm] per-group: %s",
+            ", ".join(f"{_name}={_secs:.1f}s" for _name, _secs in sorted(_group_times.items(), key=lambda kv: -kv[1])),
+        )
 
     # Prewarm-import the heavy neural-net stack. `mlframe.lightninglib` / `mlframe.training.neural` pulls in PyTorch Lightning, which is a ~275s cold-import on Windows. The cost otherwise lands inside the suite call because the import is deferred until `mlp` is in the model list. Triggered ONLY when lightning is already discoverable; otherwise the import attempt itself would be a 5-10s ModuleNotFoundError walk through sys.path.
     #

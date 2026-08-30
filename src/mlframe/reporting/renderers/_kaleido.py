@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import threading
 from typing import Any, Tuple
+from mlframe._output_paths import ensure_parent_dir
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +197,7 @@ def _oneshot_write_static(fig: Any, path: str, fmt: str) -> None:
     it is a genuinely independent recovery route (verified: writes a real PNG even when write_fig_sync raises).
     """
     try:
-        fig.write_image(path, format=fmt)
+        fig.write_image(ensure_parent_dir(path), format=fmt)
         return
     except Exception as e:
         logger.debug("fig.write_image() failed, falling back to kaleido.calc_fig_sync(): %s", e)
@@ -280,7 +281,7 @@ def write_image_via_kaleido(fig: Any, path: str, fmt: str) -> None:
         from os.path import splitext
         root, _ = splitext(path)
         try:
-            fig.write_html(root + ".html", include_plotlyjs="cdn", auto_open=False)
+            fig.write_html(ensure_parent_dir(root + ".html"), include_plotlyjs="cdn", auto_open=False)
             logger.warning(
                 "kaleido burned -- wrote interactive HTML instead of %s "
                 "to %s (PNG/SVG/PDF unavailable for the rest of this "
@@ -313,7 +314,7 @@ def write_image_via_kaleido(fig: Any, path: str, fmt: str) -> None:
             from os.path import splitext
             root, _ = splitext(path)
             try:
-                fig.write_html(root + ".html", include_plotlyjs="cdn", auto_open=False)
+                fig.write_html(ensure_parent_dir(root + ".html"), include_plotlyjs="cdn", auto_open=False)
             except Exception as e2:  # best-effort: diagnostic chart save, suite continues without it
                 logger.error(
                     "All save paths failed for %s (%s); diagnostic chart "

@@ -14,6 +14,7 @@ import logging
 import os
 from typing import Any, Sequence
 
+from mlframe._output_paths import ensure_parent_dir
 import numpy as np
 import pandas as pd
 
@@ -682,7 +683,7 @@ def report_regression_model_perf(
                         ".png", ".pdf", ".svg", ".jpg", ".jpeg", ".tif", ".tiff", ".webp",
                     ):
                         _save_path = plot_file + ".png"
-                    fig.savefig(_save_path)
+                    fig.savefig(ensure_parent_dir(_save_path))
 
                 if show_perf_chart:
                     # block=False (not plt.ion()) so the process-global interactive flag is not leaked into the user session.

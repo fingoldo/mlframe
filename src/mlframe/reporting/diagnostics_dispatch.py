@@ -75,7 +75,7 @@ def _save_figure(fig, plot_outputs: str, base_path: str) -> Optional[bool]:
         if "png" not in (plot_outputs or "").lower():
             return None  # not requested, not a failure
         try:
-            fig.savefig(base_path + ".png", bbox_inches="tight")
+            fig.savefig(ensure_parent_dir(base_path + ".png"), bbox_inches="tight")
             return True
         except Exception:
             logger.exception("diagnostics_dispatch: saving figure %s failed; continuing.", base_path)
@@ -958,3 +958,4 @@ from ._diagnostics_dispatch_extra import (  # noqa: F401
     render_split_comparison_from_suite,
     render_target_dist_overlay,
 )
+from mlframe._output_paths import ensure_parent_dir

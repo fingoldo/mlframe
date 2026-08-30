@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, TYPE_CHECKING
+from mlframe._output_paths import ensure_parent_dir
 if TYPE_CHECKING:
     from .target_temporal_audit import TemporalAuditResult
 
@@ -123,7 +124,7 @@ def plot_target_over_time(
     fig.tight_layout()
 
     if save_path:
-        fig.savefig(save_path, dpi=110, bbox_inches="tight")
+        fig.savefig(ensure_parent_dir(save_path), dpi=110, bbox_inches="tight")
         plt.close(fig)
         result.plot_path = save_path
         return None

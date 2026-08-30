@@ -25,6 +25,7 @@ import pandas as pd, numpy as np
 from matplotlib import pyplot as plt
 
 from sklearn.calibration import calibration_curve
+from mlframe._output_paths import ensure_parent_dir
 from mlframe.reporting.charts import confusion_matrix_counts, plot_confusion_matrix
 from mlframe.metrics.core import (
     fast_mean_absolute_error,
@@ -397,7 +398,7 @@ def evaluate_estimators(
 
                         ax_cm.grid(visible=None)
                         if confusion_matrix_file:
-                            fig_cm.savefig(confusion_matrix_file, dpi=dpi, bbox_inches="tight")
+                            fig_cm.savefig(ensure_parent_dir(confusion_matrix_file), dpi=dpi, bbox_inches="tight")
 
                         # Library code must not leave figures open (memory leak under repeated evaluation) nor block on plt.show().
                         plt.close(fig_cm or plt.gcf())
@@ -713,7 +714,7 @@ def plot_pr_curve(
             logger.warning("calibration overlay failed: %s", exc)
 
     if save_as:
-        fig.savefig(save_as, bbox_inches="tight")
+        fig.savefig(ensure_parent_dir(save_as), bbox_inches="tight")
 
     try:
         logger.info("classification report at thresh=%s:\n%s", thresh, format_classification_report(y, (preds > thresh).astype(np.int64), nclasses=2))
@@ -768,6 +769,6 @@ def plot_roc_curve(
             logger.warning("calibration overlay failed: %s", exc)
 
     if save_as:
-        fig.savefig(save_as, bbox_inches="tight")
+        fig.savefig(ensure_parent_dir(save_as), bbox_inches="tight")
 
     return fig

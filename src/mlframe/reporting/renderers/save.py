@@ -23,10 +23,12 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from typing import Any, Dict, Optional, Tuple
 
 from mlframe.reporting.output import PlotOutputSpec
 from mlframe.reporting.renderers.base import get_renderer
+from mlframe.reporting.renderers._render_timings import chart_type_of, record_chart_render
 from mlframe.reporting.spec import FigureSpec
 from mlframe.utils.log_throttle import log_throttle
 
@@ -324,6 +326,9 @@ def render_and_save(
 
     def _do_backend(backend: str, fmts) -> "Tuple[str, Any]":
         """Render ``spec`` once on ``backend`` and save it to every format in ``fmts``; runs on a worker thread so multiple backends render+save concurrently (see the note above on GIL release during Agg/write_html)."""
+        # Timed per backend rather than per call: the two backends render concurrently, so one wall time for both
+        # would attribute the slower one's cost to the faster one as well.
+        _t0 = time.perf_counter()
         renderer = get_renderer(backend)
         # plotly legends default off (hover identifies series interactively); enable them when a static format
         # is in this backend's save set since a png/svg/pdf export has no hover.
@@ -337,6 +342,7 @@ def render_and_save(
             if _dir:
                 os.makedirs(_dir, exist_ok=True)
             renderer.save(fig, path, fmt)
+        record_chart_render(chart_type_of(base_path), time.perf_counter() - _t0, backend=backend)
         return backend, fig
 
     if len(_backends) > 1:

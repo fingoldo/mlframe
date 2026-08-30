@@ -99,6 +99,81 @@ def _has_active_extension_stage(config) -> bool:
     )
 
 
+def _only_row_wise_summary_requested(config) -> bool:
+    """True when the row-wise SUMMARY is the single active extension stage.
+
+    The polars fastpath below can only take over when nothing else in the block needs the pandas bridge --
+    tf-idf, PySR and every sklearn-bridge transform do, and the row-wise EXTREME-columns stage still has no
+    polars implementation.
+    """
+    if config is None or not getattr(config, "row_wise_summary_stats_enabled", False):
+        return False
+    if getattr(config, "pysr_enabled", False) or getattr(config, "tfidf_columns", None):
+        return False
+    if getattr(config, "row_wise_extreme_columns_enabled", False):
+        return False
+    return all(
+        getattr(config, _attr, None) is None
+        for _attr in ("scaler", "binarization_threshold", "kbins", "polynomial_degree", "nonlinear_features", "dim_reducer")
+    )
+
+
+def _row_wise_summary_polars_fastpath(train, val, test, config, verbose: int = 1):
+    """``(train, val, test, True)`` with the summary columns joined on, or ``(train, val, test, False)``.
+
+    Skips the polars->pandas bridge entirely: measured 5.6x faster than converting and reducing with numpy at
+    400,000 x 85, and 6.0x at 2M, because the streaming engine reduces morsels instead of materialising one
+    float64 matrix of the whole frame. Order statistics are bit-identical to the numpy reference and the
+    remaining stats agree to ~1e-16 -- see ``row_wise_summary_polars``'s module docstring for the table.
+
+    Declines (returning ``False``) unless every frame is polars and the summary is the only active stage, so a
+    caller with any other extension still takes the original path unchanged.
+    """
+    if pl is None or not _only_row_wise_summary_requested(config):
+        return train, val, test, False
+    frames = [f for f in (train, val, test) if f is not None]
+    if not frames or not all(isinstance(f, pl.DataFrame) for f in frames):
+        return train, val, test, False
+    try:
+        from mlframe.feature_engineering.row_wise_summary_polars import row_wise_summary_stats_polars
+    except ImportError:
+        return train, val, test, False
+
+    stats = getattr(config, "row_wise_summary_stats_list", None)
+    # The column list is pinned from TRAIN, exactly as the pandas path does: a column present only in val/test
+    # would otherwise widen that split's output and schema-drift the fitted pipeline against it.
+    cols = [c for c, dtype in zip(train.columns, train.dtypes) if dtype.is_numeric()]
+    if not cols:
+        return train, val, test, False
+
+    def _apply(_df):
+        """Join the summary columns onto one split, over the pinned column list it actually carries."""
+        if _df is None:
+            return None
+        _use = [c for c in cols if c in _df.columns]
+        if not _use:
+            return _df
+        # Passed positionally rather than through a **kwargs dict: the dict's inferred value type is a
+        # union that mypy cannot match against the distinct parameter types.
+        if stats:
+            return _df.hstack(row_wise_summary_stats_polars(_df, _use, stats))
+        return _df.hstack(row_wise_summary_stats_polars(_df, _use))
+
+    try:
+        # ATOMIC across the three splits, for the same reason the pandas path is: a partial application
+        # schema-drifts the fitted pipeline against whichever split missed out.
+        _t, _v, _s = _apply(train), _apply(val), _apply(test)
+    except Exception:
+        logger.warning(
+            "apply_preprocessing_extensions: polars row_wise_summary_stats fastpath failed; falling back to the pandas path.",
+            exc_info=True,
+        )
+        return train, val, test, False
+    if verbose:
+        logger.info("    apply_preprocessing_extensions: row_wise_summary_stats computed natively in polars (no pandas bridge)")
+    return _t, _v, _s, True
+
+
 def _extension_relevant_polars_cols(df, config) -> Optional[list]:
     """Column subset of a POLARS frame that any extension stage can actually consume, or None if ``df`` isn't polars.
 
@@ -133,6 +208,41 @@ def _extension_relevant_polars_cols(df, config) -> Optional[list]:
     return keep
 
 
+def _boolish_object_columns(_df) -> list:
+    """Object-dtype columns whose non-null values are all booleans.
+
+    A polars Boolean with ANY null converts to pandas ``object`` -- pandas' own ``bool`` dtype cannot hold NA.
+    So ``select_dtypes(include="bool")`` misses it, the bool-to-int8 promotion below never fires, and the
+    numeric gate then drops it as "non-numeric". A production run lost ``hide_budget`` (476,193 False / 6 True /
+    2,217,431 null) exactly this way, while the log told the operator to encode it upstream -- it was already
+    boolean, just nullable.
+    """
+    out = []
+    for _c in _df.columns:
+        if _df[_c].dtype != object:
+            continue
+        _vals = _df[_c].dropna()
+        if _vals.empty:
+            continue
+        # ``map(type)`` over a large column is one pass and only runs for object columns, of which a
+        # post-encoder frame has few.
+        if set(_vals.map(type).unique()) <= {bool}:
+            out.append(_c)
+    return out
+
+
+def _promote_boolish(_df, _cols) -> None:
+    """Cast boolish object columns to float32 IN PLACE: True->1.0, False->0.0, null->NaN.
+
+    float32 rather than int8 because the nulls have to survive -- they are what the downstream median imputer
+    exists to handle, and a column that is 82% null carries most of its signal in that very missingness.
+    """
+    import numpy as _np_bool
+
+    for _c in _cols:
+        _df[_c] = _df[_c].map({True: 1.0, False: 0.0}).astype(_np_bool.float32)
+
+
 def _filter_to_numeric(_df, keep_cols=None):
     """Drop non-numeric columns and bool-to-int8 promote in place, returning ``(filtered_view, dropped_names)``.
 
@@ -163,6 +273,7 @@ def _filter_to_numeric(_df, keep_cols=None):
         for _c in _keep:
             if _df[_c].dtype == bool:
                 _df[_c] = _df[_c].astype(_np_local.int8)
+        _promote_boolish(_df, [c for c in _boolish_object_columns(_df) if c in set(_keep)])
         _dropped = [c for c in _df.columns if c not in set(_keep)]
         return _df[_keep], _dropped
     # Bool columns are numerically valid for sklearn KBins / StandardScaler / PolynomialFeatures (False=0, True=1) but ``select_dtypes(include="number")`` EXCLUDES bool dtype - the default code path silently drops useful binary features (e.g. ``is_after_ps`` event-membership flags). Cast bool -> int8 so they pass the "number" gate; int8 is the smallest dtype that round-trips True/False without precision loss.
@@ -170,6 +281,9 @@ def _filter_to_numeric(_df, keep_cols=None):
     _bool_cols = _df.select_dtypes(include="bool").columns.tolist()
     for _c in _bool_cols:
         _df[_c] = _df[_c].astype(_np_local.int8)
+    # A NULLABLE boolean arrives as object dtype (pandas bool cannot hold NA), so it is invisible to the
+    # select_dtypes above and would be dropped by the numeric gate as if it were free text.
+    _promote_boolish(_df, _boolish_object_columns(_df))
     # ``select_dtypes(include="number")`` SELECTS timedelta64 (verified, pandas 2.3), but every downstream
     # sklearn step then dies on it: the scaler/imputer stack calls ``np.result_type`` across the frame's
     # dtypes and timedelta64 has no common dtype with float64, raising a DTypePromotionError from deep
@@ -210,6 +324,12 @@ def apply_preprocessing_extensions(
     # Fastpath: zero active stages -> no work to do. Return inputs UNTOUCHED (no polars->pandas down-convert). Without this gate the function paid the full Arrow->pandas conversion on every frame even when nothing was configured, defeating the polars fastpath and risking OOM on 100+GB polars frames for a no-op call.
     if not _has_active_extension_stage(config):
         return train_df, val_df, test_df, None
+    # Second fastpath: the row-wise SUMMARY alone needs no sklearn estimator, so on polars input it can be
+    # computed natively and the whole pandas bridge skipped. Measured 5.6x faster at 400k x 85 and 6.0x at
+    # 2M rows, with every order statistic bit-identical to the numpy reference.
+    _t_fast, _v_fast, _s_fast, _handled = _row_wise_summary_polars_fastpath(train_df, val_df, test_df, config, verbose)
+    if _handled:
+        return _t_fast, _v_fast, _s_fast, None
     # Polars input -> convert to pandas (extensions use sklearn; mixing with the polars-native fastpath
     # would defeat the point if user opted in). Bare ``df.to_pandas()`` collapses pl.Enum / pl.Categorical
     # columns to object-dtype and copies through pyarrow's slow path. Use Arrow split-blocks bridge
@@ -421,9 +541,9 @@ def apply_preprocessing_extensions(
     test, _ = _filter_to_numeric(test, keep_cols=_kept_train)
     if _dropped_train:
         logger.warning(
-            "apply_preprocessing_extensions: dropped %d non-numeric column(s) "
-            "before the sklearn-bridge pipeline (kbins / polynomial / scaler / "
-            "dim_reducer all reject object dtype): %s. Encode these upstream "
+            "apply_preprocessing_extensions: %d column(s) will not take part in the EXTENSION transforms "
+            "(kbins / polynomial / scaler / dim_reducer all reject object dtype) and are excluded from them -- "
+            "they remain in the frame the model is fitted on: %s. Encode these upstream "
             "(e.g. via OrdinalEncoder / OneHotEncoder in the suite's cat-encoder "
             "pre-pipeline) if you want them to participate in the extension "
             "transforms.",

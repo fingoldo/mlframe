@@ -49,6 +49,7 @@ plt = _LazyModule("matplotlib.pyplot")
 
 # Single source of truth for numba kwargs across mlframe.metrics modules.
 from .._numba_params import NUMBA_NJIT_PARAMS
+from mlframe._output_paths import ensure_parent_dir
 
 logger = logging.getLogger(__name__)
 
@@ -794,7 +795,7 @@ def show_calibration_plot(
                     ax.set_title(plot_title)
             # constrained_layout handles spacing automatically -- no
             # tight_layout() (which warns + mis-shapes colorbar).
-            fig.savefig(plot_file)
+            fig.savefig(ensure_parent_dir(plot_file))
             return fig
 
         # Interactive path (show_plots=True) -- keep pyplot so the GUI window is managed.
@@ -833,7 +834,7 @@ def show_calibration_plot(
         # against constrained_layout, see bench_calibration_layout.py).
 
         if plot_file:
-            fig.savefig(plot_file)
+            fig.savefig(ensure_parent_dir(plot_file))
 
         # 2026-05-09: ``show_plots=True`` previously ran ``plt.ion();
         # plt.show()`` and left the figure open. In an automated /
