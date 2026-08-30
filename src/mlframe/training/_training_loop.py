@@ -649,7 +649,7 @@ def _train_model_with_fallback(
             text_feat = fit_params.get("text_features") or []
             if text_feat:
                 try:
-                    from mlframe.training.cb._cb_text_probe import (
+                    from mlframe.training.cb import (
                         unigram_rescues_text_features,
                         unigram_text_processing,
                         unusable_text_features,
@@ -659,15 +659,27 @@ def _train_model_with_fallback(
                     # produce one -- which is what empties the dictionary. Switching to unigrams keeps every
                     # text feature instead of discarding the columns the caller deliberately promoted, so try
                     # that before considering any of them unusable.
+                    _rescued = False
                     if unigram_rescues_text_features(train_df, train_target, text_feat, verbose=True):
+                        # ``text_processing`` is a CatBoost PARAMETER, not a ``fit()`` keyword -- passing it
+                        # through fit_params raises TypeError and takes the whole suite down instead of
+                        # rescuing the fit. The scaled-occurrence path higher up in this file already sets it
+                        # the supported way; do the same here.
+                        try:
+                            model.set_params(text_processing=unigram_text_processing())
+                            _rescued = True
+                        except Exception as _tp_exc:
+                            logger.warning(
+                                "unigram rescue could not be applied (%s: %s); falling back to probing each "
+                                "text feature individually.", type(_tp_exc).__name__, _tp_exc,
+                            )
+                    if _rescued:
                         logger.warning(
                             "CatBoost raised 'Dictionary size is 0' because its DEFAULT text processing builds "
                             "word bigrams and %d text feature(s) %s carry a single token per row. Retrying with "
                             "a unigram dictionary, which keeps all of them rather than dropping any.",
                             len(text_feat), text_feat,
                         )
-                        fit_params = dict(fit_params)
-                        fit_params["text_processing"] = unigram_text_processing()
                         try_again = True
                         _bad = {}  # the rescue keeps every column, so nothing is dropped
                     else:

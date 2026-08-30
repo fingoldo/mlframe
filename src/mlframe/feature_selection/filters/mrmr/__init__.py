@@ -107,6 +107,7 @@ from .._internals import (
 from .._numba_utils import arr2str, count_cand_nbins, unpack_and_sort
 from ..discretization import (
     categorize_dataset,
+    numeric_column_names,
     discretize_array,
 )
 from ..feature_engineering import (
@@ -244,6 +245,7 @@ __all__ = [
     "CatBoostClassifier",
     "compute_probabilistic_multiclass_error",
     "categorize_dataset",
+    "numeric_column_names",
     "discretize_array",
     "check_prospective_fe_pairs",
     "compute_pairs_mis",

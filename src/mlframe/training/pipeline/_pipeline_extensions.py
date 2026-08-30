@@ -637,6 +637,22 @@ def apply_preprocessing_extensions(
             from mlframe.feature_engineering.row_wise_extremality import row_wise_top_k_extreme_columns
             _rw_k_raw = getattr(config, "row_wise_extreme_columns_k", None)
             _rw_k = int(_rw_k_raw) if _rw_k_raw is not None else 3
+            # Rank against a reference fixed on TRAIN rather than within each split. Ranking within the
+            # frame made the feature depend on which rows were present: train, val and test were each
+            # ranked against themselves, and a single row scored at predict time is its own median, so
+            # every score collapsed to 0.0 -- a train/serve skew in a default-on feature. Set
+            # ``row_wise_extreme_columns_fit_reference=False`` for the historical batch-relative score.
+            _rw_reference = None
+            if getattr(config, "row_wise_extreme_columns_fit_reference", True) and isinstance(train, pd.DataFrame):
+                try:
+                    from mlframe.feature_engineering.row_wise_extremality_reference import fit_extremality_reference
+
+                    _rw_reference = fit_extremality_reference(train, [c for c in _rw_cols if c in train.columns])
+                except Exception:
+                    logger.warning(
+                        "apply_preprocessing_extensions: could not fit the extremality reference; falling back "
+                        "to within-split ranking (scores stay batch-relative).", exc_info=True,
+                    )
 
             def _extreme_scores_only(_df, _cols):
                 """Numeric-only slice of ``row_wise_top_k_extreme_columns`` output -- drops the ``topK_column`` name columns (object dtype), which would otherwise break the numeric-only contract the sklearn-bridge enforces on every downstream step (scaler / kbins / polynomial / dim_reducer).
@@ -652,7 +668,7 @@ def apply_preprocessing_extensions(
                 ``_rw_k`` and pad any missing ``topN_score`` slot with NaN so every split's output width
                 is identical regardless of how many of ``_rw_cols`` that split actually had.
                 """
-                _out = row_wise_top_k_extreme_columns(_df, columns=_cols, k=_rw_k)
+                _out = row_wise_top_k_extreme_columns(_df, columns=_cols, k=_rw_k, reference=_rw_reference)
                 assert isinstance(_out, pd.DataFrame)  # return_column_summary not passed -> always the plain-DataFrame overload
                 _score_cols = [c for c in _out.columns if c.endswith("_score")]
                 _result = _out[_score_cols].add_prefix("row_extreme_")

@@ -91,7 +91,7 @@ def decision_threshold_block(
     fn_cost = float((decision_costs or {}).get("fn", 1.0))
     metric = "cost" if decision_costs else "f1"
 
-    from mlframe.metrics.classification._threshold_optimization import optimal_threshold, optimal_threshold_bootstrap_ci
+    from mlframe.metrics.classification import optimal_threshold, optimal_threshold_bootstrap_ci
 
     thr, _score = optimal_threshold(y, p, metric=metric, fp_cost=fp_cost, fn_cost=fn_cost)
     lo, hi = optimal_threshold_bootstrap_ci(

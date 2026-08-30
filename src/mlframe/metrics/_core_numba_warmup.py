@@ -101,7 +101,7 @@ def _assert_numba_nogil_active() -> bool:
         return True
 
 
-def prewarm_numba_cache(include_feature_selection: bool = True):
+def prewarm_numba_cache(include_feature_selection: bool = True, include_heavy_libs=None):
     """Pre-warm Numba JIT cache to avoid compilation overhead during profiling.
 
     Calls all @njit functions with small dummy data to trigger JIT compilation before timing-sensitive operations. Warms up both float32 and float64 paths.
@@ -117,12 +117,25 @@ def prewarm_numba_cache(include_feature_selection: bool = True):
         return
     prewarm_numba_cache._in_progress = True  # type: ignore[attr-defined]  # process-local re-entrancy sentinel stamped on the function object
     try:
-        _prewarm_numba_cache_body(include_feature_selection=include_feature_selection)
+        # The warm-up calls every kernel on a handful of synthetic rows, so a CUDA kernel here is launched with a
+        # grid of 3 blocks and numba dutifully warns about GPU under-utilisation. That is what a warm-up IS; the
+        # warning describes the fixture, not the production launch geometry, and printing it teaches the reader
+        # to ignore a class of warning that matters on real data.
+        import warnings as _w
+
+        with _w.catch_warnings():
+            try:
+                from numba.core.errors import NumbaPerformanceWarning
+
+                _w.simplefilter("ignore", NumbaPerformanceWarning)
+            except ImportError:
+                logger.debug("numba's warning class is unavailable; prewarm performance warnings stay visible")
+            _prewarm_numba_cache_body(include_feature_selection=include_feature_selection, include_heavy_libs=include_heavy_libs)
     finally:
         prewarm_numba_cache._in_progress = False  # type: ignore[attr-defined]
 
 
-def _prewarm_numba_cache_body(include_feature_selection: bool = True):
+def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_heavy_libs=None):
     """Trigger JIT compilation of every numba-backed metric kernel by importing them (module-level ``@njit`` decoration compiles on first import/call), while kicking off the loky physical-core-count probe on a background thread so its ~1.5s wmic subprocess overlaps the JIT wait instead of stacking after it."""
     from .core import (
         fast_roc_auc, fast_aucs, fast_calibration_binning, fast_calibration_metrics,
@@ -528,18 +541,13 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True):
     try:
         from mlframe.training.baselines import _warmup_numba_kernels
 
-        _warmup_numba_kernels()
+        # Forward the gate: this call re-enters prewarm_numba_cache, and while the re-entrancy sentinel makes
+        # that a no-op on the normal path, a caller reaching the body directly would otherwise re-run the
+        # heavy-import block with the default and undo the skip.
+        _warmup_numba_kernels(include_heavy_libs=include_heavy_libs)
     except Exception as e:  # nosec B110 - optional dependency import guard
         logger.debug("training.baselines numba-kernel warmup failed, skipping: %s", e)
     _group_times["dummy_baselines"] = _perf_counter() - _t_base
-
-    # A production log once showed this whole step at 511.71s with nothing saying which group spent it, which
-    # left "is the prewarm warming things this run never calls?" unanswerable from the log alone.
-    if _group_times:
-        logger.info(
-            "  [JIT prewarm] per-group: %s",
-            ", ".join(f"{_name}={_secs:.1f}s" for _name, _secs in sorted(_group_times.items(), key=lambda kv: -kv[1])),
-        )
 
     # Prewarm-import the heavy neural-net stack. `mlframe.lightninglib` / `mlframe.training.neural` pulls in PyTorch Lightning, which is a ~275s cold-import on Windows. The cost otherwise lands inside the suite call because the import is deferred until `mlp` is in the model list. Triggered ONLY when lightning is already discoverable; otherwise the import attempt itself would be a 5-10s ModuleNotFoundError walk through sys.path.
     #
@@ -575,6 +583,15 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True):
     # toggle in mlframe for short-lived non-neural runs.
     _prewarm_heavy = _os.environ.get("MLFRAME_PREWARM_HEAVY_LIBS", "").strip().lower()
     _skip_heavy = _prewarm_heavy in {"0", "false", "no", "skip"}
+    # ``include_heavy_libs`` is the CALLER's answer to "will this run touch the neural stack at all?".
+    # A production run with mlframe_models=['cb'] spent 382.73s here importing lightning -> torchmetrics
+    # -> transformers (which probes for tensorflow) for models it never builds. An explicit False skips
+    # it; None keeps the env-var-only behaviour for callers that cannot tell.
+    if include_heavy_libs is False:
+        _skip_heavy = True
+    elif include_heavy_libs is True:
+        _skip_heavy = False
+    _t_heavy = _perf_counter()
     if not _skip_heavy:
         try:
             import importlib
@@ -613,6 +630,17 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True):
                 logger.debug("mlframe.training.neural import warmup failed, skipping: %s", e)
         except Exception as e:  # nosec B110 - optional dependency import guard
             logger.debug("torch/lightning warmup block failed, skipping: %s", e)
+    # Attributed like every other group: a production log showed the whole step at 382.73s while the per-group
+    # line said dummy_baselines=0.0s, feature_selection=0.0s, because the import cascade was timed by nothing.
+    _group_times["heavy_lib_imports"] = 0.0 if _skip_heavy else _perf_counter() - _t_heavy
+
+    # A production log once showed this whole step at 511.71s with nothing saying which group spent it, which
+    # left "is the prewarm warming things this run never calls?" unanswerable from the log alone.
+    if _group_times:
+        logger.info(
+            "  [JIT prewarm] per-group: %s",
+            ", ".join(f"{_name}={_secs:.1f}s" for _name, _secs in sorted(_group_times.items(), key=lambda kv: -kv[1])),
+        )
 
     # Warm cupy GPU AUC kernels. `compute_batch_aucs` dispatches to `gpu_multiple_roc_auc_scores` / `gpu_multiple_pr_auc_scores` when N>=100k AND M>=5. cupy compiles CUDA kernels via NVRTC on first call (~128s per fresh process). No-op when cupy isn't installed.
     # Gate the WHOLE block on is_gpu_metrics_available() (which now probes

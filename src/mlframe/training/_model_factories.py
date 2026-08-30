@@ -203,25 +203,15 @@ def _patch_dataset_constructors_with_logging() -> None:
             from mlframe.training.phases import active_phase
 
             return active_phase()
-        except Exception:
+        except Exception as exc:
+            logger.debug("active_phase() unavailable (%s: %s); dataset built without a phase label", type(exc).__name__, exc)
             return ""
 
     def _infer_callsite() -> str:
-        """``"module:lineno"`` of the first stack frame outside catboost/xgboost/lightgbm internals, i.e. the mlframe (or user) call that triggered this dataset build."""
-        # Walk up to find the first frame outside the library internals.
-        try:
-            frame: Any = _sys._getframe(2)
-            for _ in range(8):
-                if frame is None:
-                    break
-                mod = frame.f_globals.get("__name__", "?")
-                if not (mod.startswith("catboost.") or mod.startswith("xgboost.") or mod.startswith("lightgbm.")):
-                    return f"{mod}:{frame.f_lineno}"
-                frame = frame.f_back
-            return f"{frame.f_globals.get('__name__', '?')}:{frame.f_lineno}" if frame else "?"
-        except Exception as exc:
-            logger.debug("_infer_callsite: stack walk failed, call site unknown: %s", exc)
-            return "?"
+        """Delegates to the module-level walk so it can be tested directly rather than through a monkey-patched constructor."""
+        from ._dataset_build_stats import infer_build_callsite
+
+        return infer_build_callsite(skip_frames=3)
 
     def _originates_in_internal_loop() -> bool:
         """True if any ancestor stack frame lives in a known per-iteration internal loop (composite discovery / screening / baseline-diagnostics ablation) -- used to demote its build-event log line to DEBUG."""
@@ -232,7 +222,10 @@ def _patch_dataset_constructors_with_logging() -> None:
         # frame lives in one of those loop modules, demote. The main-model training path has no such ancestor -> stays INFO.
         try:
             frame: Any = _sys._getframe(2)
-            for _ in range(25):
+            # 60, not 25: an internal loop that dispatches through sklearn CV plus joblib puts more than 25
+            # frames between itself and the constructor, so the demotion silently stopped applying exactly
+            # where the per-fold noise is worst.
+            for _ in range(60):
                 if frame is None:
                     break
                 mod = (frame.f_globals.get("__name__", "") or "").lower()
@@ -265,6 +258,15 @@ def _patch_dataset_constructors_with_logging() -> None:
                 orig_init(self, *args, **kwargs)
             finally:
                 elapsed = _time.perf_counter() - t0
+                # Recorded even when the per-build line is demoted to DEBUG (internal fit loops) or suppressed
+                # entirely: those are precisely the builds whose cost went unattributed in production logs.
+                try:
+                    from ._dataset_build_stats import record_dataset_build
+
+                    _shape_for_stats = _infer_shape(args, kwargs)
+                    record_dataset_build(str(label), _infer_callsite(), int(_shape_for_stats[0]) if _shape_for_stats else 0, elapsed)
+                except Exception as _stats_exc:
+                    logger.debug("dataset-build stats not recorded (%s: %s)", type(_stats_exc).__name__, _stats_exc)
                 # INFO is the LEAST restrictive level this wrapper ever logs at (the internal-loop branch
                 # further demotes to DEBUG, never promotes past INFO), so if INFO is disabled neither
                 # branch can ever fire -- skip the stack-walking introspection (_infer_callsite up to 8

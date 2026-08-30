@@ -58,6 +58,7 @@ def _probe_one(frame: Any, y: np.ndarray, column: str) -> Tuple[bool, str]:
         return True, ""
     except Exception as exc:
         message = str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
+        logger.debug("text probe raised (%s: %s)", type(exc).__name__, message[:160])
         if _EMPTY_DICT_MARKER in str(exc):
             return False, "CatBoost cannot build a token dictionary from this column"
         if "Invalid type for text_feature" in str(exc):
@@ -217,8 +218,7 @@ def unigram_rescues_text_features(df, y, text_features, *, verbose: bool = True)
             pd.DataFrame(data), y_probe, text_features=cols
         )
     except Exception as exc:
-        if verbose:
-            logger.debug("unigram rescue probe failed (%s: %s)", type(exc).__name__, str(exc).splitlines()[0][:120])
+        logger.debug("unigram rescue probe failed (%s: %s)", type(exc).__name__, str(exc).splitlines()[0][:120])
         return False
     return True
 

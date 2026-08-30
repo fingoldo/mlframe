@@ -7,7 +7,10 @@ dual-shape handling in one place instead of inline in an already-long argument l
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _STAGE_KEYS = ("categorical_encoding", "scaler_name", "imputer_strategy", "dim_reducer_name")
 
@@ -31,7 +34,8 @@ def any_pipeline_stage_requested(pipeline_config: Any) -> bool:
         return False
     try:
         return any(_config_get(pipeline_config, name) is not None for name in _STAGE_KEYS)
-    except Exception:
+    except Exception as exc:
+        logger.debug("unreadable pipeline_config (%s: %s); assuming a stage was requested", type(exc).__name__, exc)
         return True
 
 

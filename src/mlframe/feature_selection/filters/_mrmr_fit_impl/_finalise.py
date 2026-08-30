@@ -298,12 +298,20 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
                     f"estimator."
                 )
                 if _uninformative:
-                    _fallback_msg = (
-                        f"{_fallback_msg} All candidates have MI <= 0 "
-                        f"(e.g. constant X columns or empty "
-                        f"cached_MIs); the returned support_ carries "
-                        f"NO signal."
+                    # Name WHICH of the two causes actually fired. The previous wording listed both as
+                    # possibilities, which cost a debugging cycle on a fixture whose features were strongly
+                    # informative: the MI table was populated, every value was just <= 0, so the constant-column
+                    # explanation was a red herring and the real question was why the estimator returned zeros.
+                    _n_scored = len(_raw_mi)
+                    _cause = (
+                        "the MI table is EMPTY (no candidate was scored at all -- cached_MIs never populated)"
+                        if _n_scored == 0
+                        else f"all {_n_scored} scored candidate(s) came back with MI <= 0 (top={_top_mi:.6g}); "
+                        f"the table was populated, so this is a scoring result, not a missing-data problem -- "
+                        f"suspect the discretisation (constant columns, or a binning mode collapsing the column "
+                        f"to one bin) rather than the candidate list"
                     )
+                    _fallback_msg = f"{_fallback_msg} {_cause}. The returned support_ carries NO signal."
                 # Structured metadata so a downstream report can flag (without log-grepping) that the
                 # support_ came from the count floor rather than the relevance gates. n_features==1 with
                 # uninformative=True is the dangerous case: a single near-noise column handed to the model.
@@ -312,6 +320,7 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
                     "n_features": int(self.n_features_),
                     "top_mi": _top_mi,
                     "uninformative": bool(_uninformative),
+                    "n_scored_candidates": len(_raw_mi),
                     "min_features_fallback": int(_min_fb),
                 }
         except Exception as _exc:

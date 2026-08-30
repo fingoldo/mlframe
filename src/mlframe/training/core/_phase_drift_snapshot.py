@@ -122,11 +122,29 @@ def _log_cardinality_and_drift_snapshot(
 
                 # Test-side drift is reported above but NOT used in healing decisions
                 # (would leak test info into training).
+                _text_cols = set(text_features or [])
                 for c, card_tr, v_only, t_only in drift_rows:
                     if v_only == 0 and t_only == 0:
                         continue
                     v_frac = v_only / max(card_tr, 1)
                     if v_only >= _DRIFT_MIN_ABS or v_frac >= _DRIFT_MIN_FRAC:
+                        if c in _text_cols:
+                            # This scan covers text_features too (unseen tokens are worth knowing about), but the
+                            # categorical advice does not apply to them: the column is not in cat_features to be
+                            # dropped from, promoting it already happened, and a text feature never reaches the
+                            # categorical DMatrix path the crash warning describes. A production log printed all
+                            # three at once, one line after promoting the very columns it was advising about.
+                            log_throttle(
+                                logger,
+                                "phase_drift_snapshot_text_drift",
+                                logging.INFO,
+                                "  Text-feature vocabulary drift: %s -- val carries %s value(s) (%s of the %s seen in "
+                                "train) that train never saw. Unseen values are tokenised rather than treated as new "
+                                "categories, so nothing here needs healing: token drift is expected for free text. "
+                                "Refit more often or widen the training window if the model leans on this column.",
+                                c, v_only, f"{v_frac:.1%}", f"{card_tr:_}",
+                            )
+                            continue
                         if card_tr >= 1000:
                             _healing = (
                                 f"        suggested actions (pick one):\n"

@@ -97,6 +97,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         RFECV,
         CatBoostClassifier,
         categorize_dataset,
+        numeric_column_names,
         compute_probabilistic_multiclass_error,
         create_binary_transformations,
         create_unary_transformations,
@@ -1424,6 +1425,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     )
     logger.info("categorized.")
 
+    # Which columns the cardinality pre-screen may judge by bin count. Under a SUPERVISED nbins strategy (the
+    # default MDLP) a numeric column earns bins for explaining the target, so its bin count is a signal-strength
+    # measure, not a cardinality one -- feeding it to a "too many levels" guard drops the best feature. Only
+    # genuinely categorical columns, whose bins ARE their levels, stay eligible. With no supervised strategy every
+    # bin count is unsupervised again and the guard applies to all of them, as before.
+    _numeric_names = numeric_column_names(_x_for_cat) if _nbins_strategy else set()
+
     # 2026-07-11 perf: speculatively pre-warm the polynom-pair-FE loky pool here, AFTER categorization (not
     # before it). ``run_polynom_pair_fe`` is otherwise the pool's first user in a typical fit (the sibling CPU
     # pair-MI-sweep pool in ``_step_pairmi.py`` only engages when the GPU MI path fails), so production pays a
@@ -1888,6 +1896,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _dcd_state,
             _persisted_workers_pool,
         ) = screen_predictors(
+            # Recomputed from the CURRENT ``cols``: the cat-interaction FE step rebinds data/cols/nbins with
+            # engineered columns, and a crossed categorical can carry real cardinality, so it must stay
+            # eligible for the ceiling rather than inherit an exemption computed before it existed.
+            raw_cardinality_cols=(None if not _nbins_strategy else {c for c in cols if c not in _numeric_names}),
             factors_data=data,
             y=target_indices,  # type: ignore[arg-type]
             subsample_idx=_screen_shared_idx,

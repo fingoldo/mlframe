@@ -113,8 +113,15 @@ class _WeightedSubpopExtractor(SimpleFeaturesAndTargetsExtractor):
         return tuple(out)
 
 
-def _mrmr_fs_config(use_sample_weights_in_fs: bool) -> FeatureSelectionConfig:
-    """Tiny simple-mode MRMR config; deterministic seed; CPU-only."""
+def _mrmr_fs_config(use_sample_weights_in_fs: bool, *, selection_quality: bool = False) -> FeatureSelectionConfig:
+    """Tiny simple-mode MRMR config; deterministic seed; CPU-only.
+
+    ``selection_quality=True`` turns ``mdlp_fast_mode`` back OFF. The speed knobs were added for the tests that
+    only check sample_weight forwarding, but this helper is shared with the three tests that assert WHICH feature
+    gets selected -- and under fast mode the MRMR screen returns 0 features on this fixture and falls back to a
+    pick whose own warning says the support carries no signal, so those assertions were reading noise. Measured
+    on the flag_true case: fast mode fails, exact mode passes in 116s, affordable where the answer has to be
+    real. ``fe_max_steps=0`` stays on either way -- no test in this file checks FE quality."""
     return FeatureSelectionConfig(
         use_mrmr_fs=True,
         use_sample_weights_in_fs=use_sample_weights_in_fs,
@@ -125,7 +132,7 @@ def _mrmr_fs_config(use_sample_weights_in_fs: bool) -> FeatureSelectionConfig:
             "quantization_nbins": 5,
             "use_simple_mode": True,
             "random_seed": _SEED,
-            "nbins_strategy_kwargs": {"mdlp_fast_mode": True},  # 20-80x faster per column; not testing MDLP accuracy here
+            "nbins_strategy_kwargs": {"mdlp_fast_mode": not selection_quality},  # 20-80x faster per column; see the docstring
             "fe_max_steps": 0,  # this test only checks sample_weight forwarding + target types, not FE quality --
             # the FE stage's joblib.Parallel dispatch doesn't inherit max_runtime_mins (thread-local deadline,
             # documented gap: doesn't cross the joblib worker boundary), so it stayed the dominant cost even
@@ -219,7 +226,7 @@ class TestWeightAwareFeatureSelectionSuite:
 
         models, _ = _run_suite(
             df,
-            _mrmr_fs_config(use_sample_weights_in_fs=False),
+            _mrmr_fs_config(use_sample_weights_in_fs=False, selection_quality=True),
             temp_data_dir,
             common_init_params,
             fast_iterations,
@@ -244,7 +251,7 @@ class TestWeightAwareFeatureSelectionSuite:
 
         models, _ = _run_suite(
             df,
-            _mrmr_fs_config(use_sample_weights_in_fs=True),
+            _mrmr_fs_config(use_sample_weights_in_fs=True, selection_quality=True),
             temp_data_dir,
             common_init_params,
             fast_iterations,
@@ -273,7 +280,7 @@ class TestWeightAwareFeatureSelectionSuite:
         records_off = _install_mrmr_fit_spy(monkeypatch)
         _run_suite(
             df_off,
-            _mrmr_fs_config(use_sample_weights_in_fs=False),
+            _mrmr_fs_config(use_sample_weights_in_fs=False, selection_quality=True),
             temp_data_dir,
             common_init_params,
             fast_iterations,
@@ -287,7 +294,7 @@ class TestWeightAwareFeatureSelectionSuite:
         records_on = _install_mrmr_fit_spy(monkeypatch)
         _run_suite(
             df_on,
-            _mrmr_fs_config(use_sample_weights_in_fs=True),
+            _mrmr_fs_config(use_sample_weights_in_fs=True, selection_quality=True),
             temp_data_dir,
             common_init_params,
             fast_iterations,

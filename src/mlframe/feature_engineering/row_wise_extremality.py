@@ -101,7 +101,27 @@ def _compute_extremality_matrix(X: pd.DataFrame, columns: Optional[Sequence[str]
     return extremality, cols
 
 
-def row_wise_extremality_index(X: pd.DataFrame, columns: Optional[Sequence[str]] = None, column_name: str = "row_extremality_index") -> pd.Series:
+def _extremality_for(X, columns, reference):
+    """Extremality matrix either against a fit-time ``reference`` or, when none is given, within ``X`` itself.
+
+    Within-batch ranking makes the score depend on which rows are present: the same row measured 0.808 inside
+    a 50k split and 0.0 scored alone, because a single row is its own median. Passing a reference fixed at fit
+    time removes that; ``reference=None`` keeps the historical behaviour for callers that want a purely
+    descriptive, batch-relative score.
+    """
+    if reference is None:
+        return _compute_extremality_matrix(X, columns)
+    from .row_wise_extremality_reference import extremality_matrix_from_reference
+
+    return extremality_matrix_from_reference(X, reference, columns)
+
+
+def row_wise_extremality_index(
+    X: pd.DataFrame,
+    columns: Optional[Sequence[str]] = None,
+    column_name: str = "row_extremality_index",
+    reference: Optional[dict] = None,
+) -> pd.Series:
     """Per-row mean within-column-rank extremality, averaged across ``columns``.
 
     Parameters
@@ -120,7 +140,7 @@ def row_wise_extremality_index(X: pd.DataFrame, columns: Optional[Sequence[str]]
         column's median, approaching ``1`` as values sit at the extremes of their columns' distributions
         (averaged across columns; NaN values are excluded from both the ranking and the row-level average).
     """
-    extremality, _cols = _compute_extremality_matrix(X, columns)
+    extremality, _cols = _extremality_for(X, columns, reference)
     return pd.Series(np.nanmean(extremality, axis=1), index=X.index, name=column_name)
 
 
@@ -162,6 +182,7 @@ def row_wise_top_k_extreme_columns(
     k: int = 3,
     return_column_summary: bool = False,
     summary_rows: Optional[Sequence[bool] | np.ndarray] = None,
+    reference: Optional[dict] = None,
 ) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
     """Per-row top-``k`` columns by within-column-rank extremality -- "why is this row anomalous".
 
@@ -198,7 +219,7 @@ def row_wise_top_k_extreme_columns(
         ``(per_row, per_column)`` tuple instead, where ``per_column`` is indexed by column name with
         ``count`` / ``frequency`` / ``mean_score``, sorted by descending ``count``.
     """
-    extremality, cols = _compute_extremality_matrix(X, columns)
+    extremality, cols = _extremality_for(X, columns, reference)
     n_rows, n_cols = extremality.shape
     k = min(k, n_cols)
 

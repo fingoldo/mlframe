@@ -22,9 +22,12 @@ and decimate curves so a 1M-row time-ordered frame stays cheap. New behaviour de
 
 from __future__ import annotations
 
+import logging
 from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:
     from numba import njit
@@ -160,8 +163,19 @@ def compute_psi_matrix(
 
     rows: List[np.ndarray] = []
     peak: List[float] = []
-    for col in cols:
-        col = np.asarray(col, dtype=np.float64)
+    kept_names: List[str] = []
+    skipped: List[str] = []
+    for _name, col in zip(names, cols):
+        # PSI here is quantile-binned, which only means anything for an ordered numeric column. A string /
+        # categorical column used to reach ``np.asarray(..., dtype=float64)`` and take the whole diagnostic
+        # down with "could not convert string to float: 'FIXED'" -- one unusable column costing every other
+        # column its chart. Categorical drift has its own report (categorical PSI over level frequencies);
+        # here such a column is skipped and named.
+        try:
+            col = np.asarray(col, dtype=np.float64)
+        except (TypeError, ValueError):
+            skipped.append(_name)
+            continue
         base_vals = col[base_sel]
         edges = _quantile_edges(base_vals, nbins)
         per_bucket = np.empty(n_buckets, dtype=np.float64)
@@ -180,9 +194,19 @@ def compute_psi_matrix(
                 block = col_sorted[bucket_bounds[b] : bucket_bounds[b + 1]]
                 per_bucket[b] = _psi_one(base_props, _binned_proportions(block, edges))
         rows.append(per_bucket)
+        kept_names.append(_name)
         peak.append(float(np.nanmax(per_bucket)) if per_bucket.size and np.isfinite(per_bucket).any() else 0.0)
 
     matrix = np.vstack(rows) if rows else np.zeros((0, n_buckets), dtype=np.float64)
+    if skipped:
+        logger.info(
+            "psi_heatmap: %d non-numeric column(s) skipped (quantile PSI needs an ordered numeric column; "
+            "categorical drift is covered by the categorical-PSI report): %s",
+            len(skipped), ", ".join(skipped[:10]) + (", ..." if len(skipped) > 10 else ""),
+        )
+    # Row labels track the columns that actually produced a row: a skipped column must not shift every
+    # later name onto the wrong row.
+    names = kept_names
     if matrix.shape[0] > max_features:
         keep = np.argsort(peak)[::-1][:max_features]
         keep = keep[np.argsort(keep)]  # preserve original feature order among the kept set

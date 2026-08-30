@@ -15,6 +15,11 @@ module.
 """
 from __future__ import annotations
 
+from ._cb_text_probe import (
+    unigram_rescues_text_features,
+    unigram_text_processing,
+    unusable_text_features,
+)
 from ._cb_pool import (
     _predict_with_fallback,
     _maybe_get_or_build_cb_pool,
@@ -35,4 +40,7 @@ __all__ = [
     "_cached_gpu_info",
     "_cb_gpu_usable",
     "_CB_POOL_CACHE",
+    "unigram_rescues_text_features",
+    "unigram_text_processing",
+    "unusable_text_features",
 ]

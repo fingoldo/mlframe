@@ -159,7 +159,10 @@ def test_feature_drift_auto_action_e2e_regression():
         return _orig_train_one(ctx, target_type, targets, cur_target_name, cur_target_values)
 
     pt._train_one_target = _stash_ctx
-    import mlframe.training.core.main as _main
+    # The suite body was carved out of main.py into _main_train_suite.py, which is where the ``pr`` phase-runner
+    # alias now lives and from which ``pr._train_one_target`` is actually called; the facade only re-exports the
+    # entry point and never held the alias, so patching it there patched nothing.
+    import mlframe.training.core._main_train_suite as _main
 
     pt_alias = _main.pr
     _orig_pt_alias = pt_alias._train_one_target
@@ -256,7 +259,10 @@ def test_feature_drift_auto_action_default_off_warn_only():
         return _orig_train_one(ctx, target_type, targets, cur_target_name, cur_target_values)
 
     pt._train_one_target = _stash_ctx
-    import mlframe.training.core.main as _main
+    # The suite body was carved out of main.py into _main_train_suite.py, which is where the ``pr`` phase-runner
+    # alias now lives and from which ``pr._train_one_target`` is actually called; the facade only re-exports the
+    # entry point and never held the alias, so patching it there patched nothing.
+    import mlframe.training.core._main_train_suite as _main
 
     pt_alias = _main.pr
     _orig_pt_alias = pt_alias._train_one_target
@@ -344,7 +350,10 @@ def test_feature_drift_auto_action_e2e_with_mlp_opt_in():
         return _orig_train_one(ctx, target_type, targets, cur_target_name, cur_target_values)
 
     pt._train_one_target = _stash_ctx
-    import mlframe.training.core.main as _main
+    # The suite body was carved out of main.py into _main_train_suite.py, which is where the ``pr`` phase-runner
+    # alias now lives and from which ``pr._train_one_target`` is actually called; the facade only re-exports the
+    # entry point and never held the alias, so patching it there patched nothing.
+    import mlframe.training.core._main_train_suite as _main
 
     pt_alias = _main.pr
     _orig_pt_alias = pt_alias._train_one_target
@@ -440,7 +449,10 @@ def test_feature_drift_auto_action_e2e_binary_classification_no_auto_apply():
         return _orig_train_one(ctx, target_type, targets, cur_target_name, cur_target_values)
 
     pt._train_one_target = _stash_ctx
-    import mlframe.training.core.main as _main
+    # The suite body was carved out of main.py into _main_train_suite.py, which is where the ``pr`` phase-runner
+    # alias now lives and from which ``pr._train_one_target`` is actually called; the facade only re-exports the
+    # entry point and never held the alias, so patching it there patched nothing.
+    import mlframe.training.core._main_train_suite as _main
 
     pt_alias = _main.pr
     _orig_pt_alias = pt_alias._train_one_target

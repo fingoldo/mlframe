@@ -198,7 +198,7 @@ def _maybe_auto_drop_after_feature_analyzer(
         # The rule label carries the REAL threshold. It used to be the hardcoded string "(>=50% missing)",
         # which kept claiming 50% long after the constant moved to 0.99 -- so an operator reading this line
         # concluded the threshold change had never been applied.
-        from mlframe.training.targets._target_distribution_analyzer import _NAN_FRACTION_THRESHOLD
+        from mlframe.training.targets import _NAN_FRACTION_THRESHOLD
 
         _nan_label = f"nan_heavy (>={_NAN_FRACTION_THRESHOLD:.0%} missing)"
         def _reason_for(_col: str) -> str:

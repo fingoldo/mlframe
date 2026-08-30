@@ -55,6 +55,29 @@ def _detect_interactive_mode() -> bool:
 _MLFRAME_INTERACTIVE = _detect_interactive_mode()
 
 
+def _heavy_libs_needed(mlframe_models, recurrent_models, reporting_config) -> bool:
+    """True when this run will actually reach the neural / SHAP import stack.
+
+    The prewarm imports lightning, which pulls torchmetrics -> transformers -> a ``find_spec("tensorflow")``
+    probe, and separately shap. A production fit with ``mlframe_models=['cb']`` spent 382.73s on that for
+    models it never builds. Any recurrent model, any neural tag in the model list, or SHAP being enabled
+    means the cost is real work rather than waste; an unreadable config answers True, because paying the
+    import needlessly is a slow run while skipping it wrongly is a slow first fit plus a confusing profile.
+    """
+    try:
+        if recurrent_models:
+            return True
+        if mlframe_models:
+            from ..models import is_neural_model
+
+            if any(is_neural_model(m) for m in mlframe_models):
+                return True
+        return bool(getattr(reporting_config, "use_shap", False))
+    except Exception as exc:
+        logger.debug("could not decide whether heavy libs are needed (%s); warming them", exc)
+        return True
+
+
 def setup_configuration(
     *,
     preprocessing_config: Any,
@@ -78,6 +101,8 @@ def setup_configuration(
     model_name: str,
     target_name: str,
     mlframe_models: list[str] | None,
+    # Read only to decide whether the neural import stack is worth prewarming; the suite sets ctx.recurrent_models itself.
+    recurrent_models: list[str] | None = None,
     verbose: int,
     # These get plumbed into the TrainingContext so dispatchers downstream
     # (LTR ranker-suite, pre-pipeline builder, ensemble-builder) see the
@@ -224,9 +249,12 @@ def setup_configuration(
     # One run's chart-timing table must describe one run's charts, and the registry behind it is process-wide.
     # Reset here rather than at the facade so a caller that builds its own context still gets a clean table.
     try:
-        from mlframe.reporting.renderers._render_timings import reset_chart_timings
+        from mlframe.reporting.renderers import reset_chart_timings
+
+        from .._dataset_build_stats import reset_dataset_build_stats
 
         reset_chart_timings()
+        reset_dataset_build_stats()
     except (ImportError, AttributeError):
         pass
     _step_done("inline_display setup (import mlframe.reporting.renderers.save)")
@@ -257,10 +285,14 @@ def setup_configuration(
     # feature selection will actually run: a CatBoost-only fit with no MRMR and no RFECV never calls one of
     # those kernels, so warming them is pure wall time before any data is read.
     _fs_will_run = bool(getattr(feature_selection_config, "use_mrmr_fs", False)) or bool(getattr(feature_selection_config, "rfecv_models", None))
+    # The heavy-lib half (lightning -> torchmetrics -> transformers -> a tensorflow probe, plus shap) is worth
+    # importing only when this run will actually reach it. A production fit with mlframe_models=['cb'] spent
+    # 382.73s warming a neural stack it never touched. SHAP counts too: the trainer imports it when use_shap.
+    _heavy_will_run = _heavy_libs_needed(mlframe_models, recurrent_models, reporting_config)
     if dummy_baselines_config.enabled:
         try:
             from ..baselines import _warmup_numba_kernels
-            _warmup_numba_kernels(include_feature_selection=_fs_will_run)
+            _warmup_numba_kernels(include_feature_selection=_fs_will_run, include_heavy_libs=_heavy_will_run)
         except Exception as e:  # nosec B110 - optional dependency import guard
             logger.debug("numba kernel warm-up failed, first real call will pay JIT cost: %s", e)
     _step_done("_warmup_numba_kernels (JIT prewarm)")

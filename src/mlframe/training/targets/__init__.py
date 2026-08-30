@@ -37,6 +37,7 @@ from .regression_residual_audit import (
 from ._target_distribution_analyzer import (
     analyze_target_distribution,
     analyze_feature_distribution,
+    _NAN_FRACTION_THRESHOLD,
 )
 from ._train_eval_select_target import select_target
 from ._ttr_eval_set_scaling import _TTRWithEvalSetScaling
@@ -56,5 +57,6 @@ __all__ = [
     "ResidualAudit",
     "analyze_target_distribution",
     "analyze_feature_distribution",
+    "_NAN_FRACTION_THRESHOLD",
     "select_target",
 ]

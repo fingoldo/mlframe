@@ -283,8 +283,10 @@ def test_multi_target_suite_feature_side_cache_populated(synthetic_multi_target_
         return _orig_train_one(ctx, target_type, targets, cur_target_name, cur_target_values)
 
     pt._train_one_target = _stash_ctx
-    # Also patch the import in main.py since main.py uses ``pr._train_one_target``.
-    import mlframe.training.core.main as _main
+    # The suite body was carved out of main.py into _main_train_suite.py, which is where the ``pr`` phase-runner
+    # alias now lives and from which ``pr._train_one_target`` is actually called; the facade only re-exports the
+    # entry point and never held the alias, so patching it there patched nothing.
+    import mlframe.training.core._main_train_suite as _main
 
     pt_alias = _main.pr
     _orig_pt_alias = pt_alias._train_one_target

@@ -456,7 +456,8 @@ def _predict_with_fallback(
             from mlframe.training._polars_native_support import accepts_polars
 
             _native = accepts_polars("catboost")
-        except Exception:
+        except Exception as exc:
+            logger.debug("polars-native probe failed (%s: %s); the message omits the library's own answer", type(exc).__name__, exc)
             _native = None
         log_throttle(
             logger, "cb_sticky_pandas_predict", logging.INFO,

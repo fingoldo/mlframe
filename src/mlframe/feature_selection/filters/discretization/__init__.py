@@ -992,6 +992,7 @@ _DISCRETIZE_SPEC = kernel_tuner(
 
 from ._discretization_dataset import (
     categorize_dataset,
+    numeric_column_names,
     # re-exported public API; consumed via `from mlframe...discretization import clear_numeric_code_cache`
     # by tests/feature_selection/discretization/{test_discretize_col_cache,test_numeric_code_cache_occupancy_log}.py
     # and tests/feature_selection/test_discretize_col_cache_threadsafe.py -- code_audit's dead-import scan

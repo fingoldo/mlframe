@@ -396,6 +396,13 @@ class PreprocessingExtensionsConfig(BaseConfig):
     # Same generic-additive rationale as ``row_wise_summary_stats_enabled`` -- defaults to ON.
     row_wise_extreme_columns_enabled: bool = True
     row_wise_extreme_columns_k: int = Field(default=3, ge=1)
+    # Rank each value against a reference fixed on TRAIN instead of against the rows of whatever frame is
+    # being transformed. Within-frame ranking made the feature batch-dependent: train, val and test were each
+    # ranked against themselves, and a single row scored in production is its own median, so every score
+    # collapsed to 0.0 -- the model was served a feature it had never been trained on. Defaults to ON; set
+    # False for the historical batch-relative score (a descriptive "how extreme within THIS batch" statistic,
+    # which is a legitimate thing to want offline but is not a servable feature).
+    row_wise_extreme_columns_fit_reference: bool = True
 
     # Categorical composite FE (``mlframe.feature_engineering.categorical_powerset_concat`` /
     # ``categorical_group_concat``). Unlike the row-wise steps above, these run BEFORE categorical

@@ -12,13 +12,19 @@ frame and predicting from one. The probe is a few milliseconds and its result is
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 # (library, version) -> whether a polars frame survived fit + predict. Keyed by version so an upgrade inside a
 # long-lived process is not answered from a stale probe.
+#
+# The lock covers the whole miss-probe-store sequence: the probe FITS A MODEL, so two threads racing the same
+# key would each pay that cost, and one could store a result derived from a half-imported library the other
+# was still loading. Reads go through it too, so a reader never sees a partially-populated entry.
 _CACHE: Dict[Tuple[str, str], bool] = {}
+_CACHE_LOCK = threading.Lock()
 
 
 def _probe_frame():
@@ -81,15 +87,17 @@ def accepts_polars(library: str) -> bool:
     if version is None:
         return False
     key = (library, version)
-    if key not in _CACHE:
-        _CACHE[key] = _probe(library)
-        logger.debug("%s %s polars-native support: %s", library, version, _CACHE[key])
-    return _CACHE[key]
+    with _CACHE_LOCK:
+        if key not in _CACHE:
+            _CACHE[key] = _probe(library)
+            logger.debug("%s %s polars-native support: %s", library, version, _CACHE[key])
+        return _CACHE[key]
 
 
 def reset_cache() -> None:
     """Forget the probe results, so a test can re-probe against a patched library."""
-    _CACHE.clear()
+    with _CACHE_LOCK:
+        _CACHE.clear()
 
 
 __all__ = ["accepts_polars", "reset_cache"]

@@ -526,13 +526,21 @@ def _phase_train_val_test_split(
         if verbose:
             logger.info("Split sequences: train=%d, val=%d, test=%d", len(train_sequences), len(val_sequences) if val_sequences else 0, len(test_sequences))
 
-    if verbose:
-        logger.info("Deleting original DataFrame to free RAM...")
-
     # Refresh baseline so the next maybe_clean_ram_and_gpu in the caller sees the post-del state.
-    baseline_rss_mb = get_process_rss_mb()
-    baseline_rss_mb = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="post-split (del df)")
+    _rss_before_mb = get_process_rss_mb()
+    baseline_rss_mb = maybe_clean_ram_and_gpu(_rss_before_mb, df_size_mb, verbose=verbose, reason="post-split (del df)")
     if verbose:
+        # Report what the cleanup ACTUALLY released rather than announcing an intention: a production log printed
+        # "Deleting original DataFrame to free RAM..." and then the same 45.4GB it printed before, because the
+        # split frames are views over the source buffers and the source name is dropped by the caller, not here.
+        _freed_mb = _rss_before_mb - get_process_rss_mb()
+        if _freed_mb >= 64.0:
+            logger.info("Post-split cleanup released %.1fGB.", _freed_mb / 1024.0)
+        else:
+            logger.info(
+                "Post-split cleanup released no measurable RAM (%.0fMB): the split frames reference the same "
+                "buffers as the source, so dropping the source name alone frees nothing.", max(_freed_mb, 0.0),
+            )
         log_ram_usage()
 
     return TrainValTestSplitResult(

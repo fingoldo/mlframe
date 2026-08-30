@@ -609,9 +609,21 @@ def compute_categorical_drift_psi(
     cols = feature_names or _categorical_columns(train_df)
     per_feature: Dict[str, Dict[str, float]] = {}
     candidates: List[tuple[str, float]] = []
+    too_sparse: List[tuple[str, int, float]] = []
     for col in cols:
         train_counts = _col_value_counts(train_df, col)
         if not train_counts:
+            continue
+        # A level-wise PSI compares per-level frequencies, so it only means something when the levels hold
+        # enough rows to estimate a frequency at all. A production run reported PSI=42.666 for a column with
+        # 981_873 levels over 2.18M rows -- 2.2 rows per level, where nearly every level is a singleton and
+        # the number is sampling noise, not drift. Reporting it on the same 0.10 / 0.25 scale as a 5-level
+        # column invites acting on it. Same floor the binning uses: at least ``bin_min_count`` rows per level
+        # on average.
+        _n_levels = len(train_counts)
+        _rows_per_level = sum(train_counts.values()) / max(_n_levels, 1)
+        if _rows_per_level < bin_min_count:
+            too_sparse.append((col, _n_levels, _rows_per_level))
             continue
         val_counts = _col_value_counts(val_df, col) if val_df is not None else None
         test_counts = _col_value_counts(test_df, col) if test_df is not None else None
@@ -624,6 +636,14 @@ def compute_categorical_drift_psi(
         )
         if max_psi >= moderate_threshold:
             candidates.append((col, max_psi))
+    if too_sparse:
+        logger.info(
+            "[categorical-distribution-drift] %d feature(s) skipped: too many levels for a level-wise PSI "
+            "(fewer than %d train rows per level on average, so per-level frequencies are mostly singletons): %s. "
+            "Bucket or target-encode them if their drift matters.",
+            len(too_sparse), bin_min_count,
+            ", ".join(f"{c} ({n:_} levels, {r:.1f} rows/level)" for c, n, r in too_sparse[:max_features_in_log]),
+        )
     candidates.sort(key=lambda pair: -pair[1])
     if candidates:
         _shown = candidates[:max_features_in_log]
@@ -642,6 +662,7 @@ def compute_categorical_drift_psi(
         "moderate_threshold": moderate_threshold,
         "high_threshold": high_threshold,
         "n_categorical_features": len(per_feature),
+        "skipped_high_cardinality": [(c, n) for c, n, _ in too_sparse],
     }
 
 

@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING, Any
 
 from pyutilz.strings import slugify
 
-from mlframe.reporting.renderers._render_timings import chart_timings_snapshot, format_chart_timings
+from mlframe.reporting.renderers import chart_timings_snapshot, format_chart_timings
+
+from .._dataset_build_stats import dataset_build_snapshot, format_dataset_build_stats
 
 from ._process_flag_scope import restore_process_flags
 from ..io import save_mlframe_model
@@ -740,6 +742,14 @@ def finalize_suite(ctx: TrainingContext) -> dict:
     # Per-chart-type render cost. The suite draws hundreds of figures across dozens of types at the default
     # settings, and until this was recorded the only visible number was the enclosing phase's total -- enough to
     # know the report was slow, not enough to know which chart to cap or drop.
+    # Who materialised how many rows into model datasets. Five 1.96M-row builds on a CatBoost-only fit showed up
+    # in a production log only as five scattered lines attributed to sklearn's CV internals, which names the
+    # machinery rather than the caller; the rollup names the mlframe module and its total.
+    _build_rows = dataset_build_snapshot()
+    ctx.metadata["dataset_builds"] = _build_rows
+    if _build_rows:
+        logger.info("%s", format_dataset_build_stats(_build_rows))
+
     _chart_rows = chart_timings_snapshot()
     ctx.metadata["chart_timings"] = _chart_rows
     if _chart_rows:

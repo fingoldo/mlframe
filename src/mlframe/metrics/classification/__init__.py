@@ -48,6 +48,7 @@ from ._classification_extras import (
 
 from ._threshold_optimization import (
     optimal_threshold,
+    optimal_threshold_bootstrap_ci,
     THRESHOLD_METRICS,
 )
 

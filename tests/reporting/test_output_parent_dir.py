@@ -68,6 +68,17 @@ class TestEveryWriterIsGuarded:
                 tree = ast.parse(source)
             except SyntaxError:
                 continue
+            # Does this module create the directory itself? Read from the SYNTAX TREE, not by searching the
+            # source text: a substring check would also match the word inside a comment or a docstring, and
+            # asserting on source text as a stand-in for behaviour is what the meta-suite forbids.
+            creates_dir = any(
+                isinstance(n, ast.Call)
+                and (
+                    (isinstance(n.func, ast.Attribute) and n.func.attr in {"makedirs", "mkdir"})
+                    or (isinstance(n.func, ast.Name) and n.func.id in {"makedirs", "ensure_parent_dir"})
+                )
+                for n in ast.walk(tree)
+            )
             for node in ast.walk(tree):
                 if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
                     continue
@@ -75,8 +86,8 @@ class TestEveryWriterIsGuarded:
                     continue
                 first = node.args[0]
                 guarded = isinstance(first, ast.Call) and isinstance(first.func, ast.Name) and first.func.id == "ensure_parent_dir"
-                # A writer inside render_and_save's own dispatch is covered by its makedirs; everything else
-                # has to say so itself.
-                if not guarded and "makedirs" not in source:
+                # A writer inside render_and_save's own dispatch is covered by that module's own directory
+                # creation; everything else has to guard its own path.
+                if not guarded and not creates_dir:
                     offenders.append(f"{path.relative_to(SRC)}:{node.lineno} ({node.func.attr})")
         assert not offenders, "figure writers with no parent-directory guard: " + ", ".join(offenders)

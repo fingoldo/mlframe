@@ -34,9 +34,14 @@ def test_warmup_numba_kernels_calls_prewarm_metric_cache(monkeypatch):
     # the module attribute reaches the call site).
     seen = {"count": 0}
 
-    def _spy_prewarm():
-        """Counts invocations in place of the real prewarm_numba_cache call."""
+    def _spy_prewarm(*args, **kwargs):
+        """Counts invocations in place of the real prewarm_numba_cache call.
+
+        Accepts whatever the caller passes: the contract pinned here is THAT the metric chain is warmed,
+        not which knobs the suite forwards (it now forwards a heavy-lib gate alongside the FS one), and a
+        signature mismatch would be swallowed by the caller's broad except and read as "never called"."""
         seen["count"] += 1
+        seen["kwargs"] = dict(kwargs)
 
     monkeypatch.setattr(
         "mlframe.metrics.core.prewarm_numba_cache",

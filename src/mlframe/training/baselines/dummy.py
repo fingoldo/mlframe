@@ -101,7 +101,7 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
-def _warmup_numba_kernels(verbose: bool = False, include_feature_selection: bool = True) -> None:
+def _warmup_numba_kernels(verbose: bool = False, include_feature_selection: bool = True, include_heavy_libs=None) -> None:
     """Trigger numba JIT compilation of all dummy_baselines kernels.
 
     Pre-warms ``_numba_macro_log_loss``, ``_numba_micro_log_loss``,
@@ -133,12 +133,12 @@ def _warmup_numba_kernels(verbose: bool = False, include_feature_selection: bool
         return
     _warmup_numba_kernels._in_progress = True  # type: ignore[attr-defined]  # function-level reentrancy flag; Callable has no such attr statically
     try:
-        _warmup_numba_kernels_body(verbose, include_feature_selection=include_feature_selection)
+        _warmup_numba_kernels_body(verbose, include_feature_selection=include_feature_selection, include_heavy_libs=include_heavy_libs)
     finally:
         _warmup_numba_kernels._in_progress = False  # type: ignore[attr-defined]
 
 
-def _warmup_numba_kernels_body(verbose: bool = False, include_feature_selection: bool = True) -> None:
+def _warmup_numba_kernels_body(verbose: bool = False, include_feature_selection: bool = True, include_heavy_libs=None) -> None:
     """Run every numba-jitted dummy-baseline kernel once on tiny synthetic inputs to pay the JIT-compile cost up front rather than on the first real fit; called under the in-progress guard in ``_warmup_numba_kernels``."""
     import time as _time
     log = logger.info if verbose else logger.debug
@@ -193,7 +193,7 @@ def _warmup_numba_kernels_body(verbose: bool = False, include_feature_selection:
     try:
         from ...metrics.core import prewarm_numba_cache as _prewarm_metric_kernels
         _t1 = _time.time()
-        _prewarm_metric_kernels(include_feature_selection=include_feature_selection)
+        _prewarm_metric_kernels(include_feature_selection=include_feature_selection, include_heavy_libs=include_heavy_libs)
         log(
             "[dummy-baselines] metric kernel cache pre-warmed in %.2fs",
             _time.time() - _t1,

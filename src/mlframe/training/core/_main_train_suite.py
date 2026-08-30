@@ -328,6 +328,8 @@ def train_mlframe_models_suite(
         model_name=model_name,
         target_name=target_name,
         mlframe_models=mlframe_models,
+        # Read only by the prewarm gate: a run with no neural model must not pay the lightning import.
+        recurrent_models=recurrent_models,
         use_mlframe_ensembles=use_mlframe_ensembles,
         use_ordinary_models=use_ordinary_models,
         verbose=verbose,

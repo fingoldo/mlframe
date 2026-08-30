@@ -14,6 +14,24 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+def _is_numeric_column(X, name: str) -> bool:
+    """True when column ``name`` holds numbers, for pandas and polars alike.
+
+    Category dtype is deliberately NOT numeric here even though its CODES are integers: the codes carry no
+    additive meaning on the prediction scale, which is what an init score needs.
+    """
+    try:
+        col = X[name]
+        _dtype = getattr(col, "dtype", None)
+        _kind = getattr(_dtype, "kind", None)
+        if _kind is not None:
+            return _kind in "iuf"
+        return bool(getattr(_dtype, "is_numeric", lambda: False)())
+    except Exception as exc:
+        logger.debug("could not read the dtype of %r (%s); treating it as non-numeric", name, exc)
+        return False
+
+
 def _fit_init_score_baseline(
     self,
     X: pd.DataFrame,
@@ -54,6 +72,18 @@ def _fit_init_score_baseline(
     # Use only features with positive ablation delta - dropping them actually
     # hurts. Sorted ablation is already ranked; take prefix.
     chosen = [e for e in ablation[:top_k] if e.delta_pct > 0]
+    # An init score is a value ADDED to the logit / prediction, so the feature has to be numeric. A
+    # categorical that ranks high on ablation used to reach ``.astype(np.float64)`` below and raise
+    # "could not convert string to float: 'desktop_rjp'", which the caller caught as a broad failure and
+    # reported the ENTIRE diagnostic as skipped -- ablation results included, after paying for them.
+    _non_numeric = [e.feature for e in chosen if not _is_numeric_column(X, e.feature)]
+    if _non_numeric:
+        logger.info(
+            "init-score baseline: skipping %d non-numeric top feature(s) %s -- an init score is added to the "
+            "prediction, so only numeric columns qualify; the ablation ranking itself is unaffected.",
+            len(_non_numeric), _non_numeric,
+        )
+        chosen = [e for e in chosen if e.feature not in set(_non_numeric)]
     if not chosen:
         return None
 

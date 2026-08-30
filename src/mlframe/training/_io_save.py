@@ -58,16 +58,18 @@ def _describe_unpicklable(payload, error) -> str:
             for name, value in state.items():
                 try:
                     _pk.dumps(value, protocol=_pk.HIGHEST_PROTOCOL)
-                except Exception:  # noqa: PERF203 -- per-attribute isolation IS the diagnostic; this runs once, on an error path
+                except Exception as exc:  # noqa: PERF203 -- per-attribute isolation IS the diagnostic; this runs once, on an error path
+                    logger.debug("attribute %r is unpicklable (%s: %s)", name, type(exc).__name__, exc)
                     culprits.append(name)
         elif isinstance(payload, dict):
             for name, value in payload.items():
                 try:
                     _pk.dumps(value, protocol=_pk.HIGHEST_PROTOCOL)
-                except Exception:  # noqa: PERF203 -- per-attribute isolation IS the diagnostic; this runs once, on an error path
+                except Exception as exc:  # noqa: PERF203 -- per-attribute isolation IS the diagnostic; this runs once, on an error path
+                    logger.debug("key %r is unpicklable (%s: %s)", name, type(exc).__name__, exc)
                     culprits.append(str(name))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("pickle-culprit walk failed (%s: %s); the report keeps whatever it found", type(exc).__name__, exc)
     parts = []
     if detail:
         parts.append(detail[:200])
