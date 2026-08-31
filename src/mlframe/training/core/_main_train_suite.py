@@ -65,7 +65,7 @@ from ._main_train_suite_encoding import (
     _encode_string_multiclass_target,
 )
 from ._main_train_suite_polars_gate import any_pipeline_stage_requested, needs_polars_pre_clone
-from ._misc_helpers import _bulk_setattr_to_ctx, _split_preds_probs, _prep_polars_df  # noqa: F401
+from ._misc_helpers import _bulk_setattr_to_ctx, _split_preds_probs, _prep_polars_df, mirror_split_outputs_to_ctx  # noqa: F401
 from ._main_train_suite_defaults import _build_default_extractor, _infer_target_is_classification  # noqa: F401
 from ._main_train_suite_phases import (
     apply_module_global_patches,
@@ -634,11 +634,10 @@ def train_mlframe_models_suite(
         ctx.val_df_size_bytes_cached = val_df_size_bytes_cached
 
         # ctx-form: parallel-session migrated _phase_global_outlier_detection to read from / write to ctx in place.
-        _bulk_setattr_to_ctx(
-            ctx,
-            ("train_df_pd", "val_df_pd", "train_df_polars", "val_df_polars", "train_idx", "val_idx", "test_idx",
-             "target_by_type", "outlier_detector", "od_val_set", "baseline_rss_mb", "df_size_mb", "metadata"),
-            locals(),
+        mirror_split_outputs_to_ctx(
+            ctx, train_df_pd=train_df_pd, val_df_pd=val_df_pd, train_df_polars=train_df_polars, val_df_polars=val_df_polars,
+            train_idx=train_idx, val_idx=val_idx, test_idx=test_idx, target_by_type=target_by_type,
+            outlier_detector=outlier_detector, od_val_set=od_val_set, baseline_rss_mb=baseline_rss_mb, df_size_mb=df_size_mb, metadata=metadata,
         )
         _phase_global_outlier_detection(ctx)
         filtered_train_df = ctx.filtered_train_df

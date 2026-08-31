@@ -76,7 +76,15 @@ def decision_threshold_block(
     result is a recommendation; absent, the objective is F1 and the result is explicitly informational.
     """
     if oof_probs is None or oof_target is None:
-        return {"status": "skipped", "reason": "no OOF probabilities / target; the threshold must not be tuned on val or test"}
+        # Name the knob. OOF predictions are off by default (``oof_n_splits=0``), so on a stock run this block
+        # reports "skipped" every time and reads like a defect rather than a setting -- a production log showed
+        # exactly that. Tuning on val or test instead is not an option: val already drove early stopping, and
+        # selecting on test converts the one honest estimate into a fitted one.
+        return {
+            "status": "skipped",
+            "reason": "no OOF probabilities / target -- set oof_n_splits>=2 to compute them; the threshold must "
+            "not be tuned on val (already spent on early stopping) or test (the only honest estimate)",
+        }
     p = np.asarray(oof_probs, dtype=np.float64).ravel()
     y = np.asarray(oof_target, dtype=np.float64).ravel()
     n = min(p.shape[0], y.shape[0])

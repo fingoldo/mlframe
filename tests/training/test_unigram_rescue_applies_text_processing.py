@@ -90,7 +90,7 @@ class TestTheRescueSurvivesTheRetry:
 
     def test_the_retry_does_not_raise_a_typeerror(self, single_token_frame, monkeypatch):
         """One assertion for the production failure: the rescue must not take the suite down."""
-        monkeypatch.setattr("mlframe.training.cb._cb_text_probe.unigram_rescues_text_features", lambda *a, **k: True)
+        monkeypatch.setattr("mlframe.training.cb.unigram_rescues_text_features", lambda *a, **k: True)
         X, y = single_token_frame
         model = _FakeCatBoost()
         _run(model, X, y)
@@ -98,7 +98,7 @@ class TestTheRescueSurvivesTheRetry:
 
     def test_text_processing_goes_to_params_not_fit(self, single_token_frame, monkeypatch):
         """Where the value has to land, stated directly."""
-        monkeypatch.setattr("mlframe.training.cb._cb_text_probe.unigram_rescues_text_features", lambda *a, **k: True)
+        monkeypatch.setattr("mlframe.training.cb.unigram_rescues_text_features", lambda *a, **k: True)
         X, y = single_token_frame
         model = _FakeCatBoost()
         _run(model, X, y)
@@ -106,7 +106,7 @@ class TestTheRescueSurvivesTheRetry:
 
     def test_the_rescue_keeps_every_text_column(self, single_token_frame, monkeypatch):
         """Its whole purpose: no column the caller promoted gets dropped."""
-        monkeypatch.setattr("mlframe.training.cb._cb_text_probe.unigram_rescues_text_features", lambda *a, **k: True)
+        monkeypatch.setattr("mlframe.training.cb.unigram_rescues_text_features", lambda *a, **k: True)
         X, y = single_token_frame
         model = _FakeCatBoost()
         _run(model, X, y)
@@ -115,7 +115,7 @@ class TestTheRescueSurvivesTheRetry:
 
     def test_the_unigram_dictionary_is_what_gets_set(self, single_token_frame, monkeypatch):
         """A bigram dictionary would reproduce the very error being recovered from."""
-        monkeypatch.setattr("mlframe.training.cb._cb_text_probe.unigram_rescues_text_features", lambda *a, **k: True)
+        monkeypatch.setattr("mlframe.training.cb.unigram_rescues_text_features", lambda *a, **k: True)
         X, y = single_token_frame
         model = _FakeCatBoost()
         _run(model, X, y)
@@ -128,8 +128,8 @@ class TestWhenTheRescueCannotApply:
 
     def test_a_set_params_failure_falls_back_to_probing(self, single_token_frame, monkeypatch):
         """The per-column probe is the documented second option; an exception here must not escape."""
-        monkeypatch.setattr("mlframe.training.cb._cb_text_probe.unigram_rescues_text_features", lambda *a, **k: True)
-        monkeypatch.setattr("mlframe.training.cb._cb_text_probe.unusable_text_features", lambda *a, **k: {"skills_text": "probe says unusable"})
+        monkeypatch.setattr("mlframe.training.cb.unigram_rescues_text_features", lambda *a, **k: True)
+        monkeypatch.setattr("mlframe.training.cb.unusable_text_features", lambda *a, **k: {"skills_text": "probe says unusable"})
         X, y = single_token_frame
         model = _FakeCatBoost()
 
@@ -144,8 +144,8 @@ class TestWhenTheRescueCannotApply:
 
     def test_a_dropped_column_is_rerouted_to_cat_features(self, single_token_frame, monkeypatch):
         """Left out entirely, CatBoost tries to cast its strings to float and raises."""
-        monkeypatch.setattr("mlframe.training.cb._cb_text_probe.unigram_rescues_text_features", lambda *a, **k: False)
-        monkeypatch.setattr("mlframe.training.cb._cb_text_probe.unusable_text_features", lambda *a, **k: {"skills_text": "probe says unusable"})
+        monkeypatch.setattr("mlframe.training.cb.unigram_rescues_text_features", lambda *a, **k: False)
+        monkeypatch.setattr("mlframe.training.cb.unusable_text_features", lambda *a, **k: {"skills_text": "probe says unusable"})
         X, y = single_token_frame
         model = _FakeCatBoost()
         _run(model, X, y)

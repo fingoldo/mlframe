@@ -330,7 +330,12 @@ def build_combined_html_report(
             label = os.path.basename(p)
             png = p if p.lower().endswith(".png") else ""
             if not png:
-                png = next((c for c in _candidate_paths(p, "png", BACKEND_FORMATS) if os.path.exists(c)), p + ".png")
+                # Last-resort candidate: where the per-format layout WOULD have written it, not the flat name --
+                # with subfolders on, the flat name never exists and the entry silently fell back to the fragment.
+                from mlframe.reporting.renderers.save import resolve_output_path
+
+                _fallback_png = resolve_output_path(p, "matplotlib", "png", multi_output=False)
+                png = next((c for c in _candidate_paths(p, "png", BACKEND_FORMATS) if os.path.exists(c)), _fallback_png)
             if not os.path.exists(png):
                 # No PNG (e.g. a plotly[html]-only run): fall back to the interactive fragment so the entry
                 # still appears in the index instead of being dropped.
@@ -343,7 +348,11 @@ def build_combined_html_report(
             entries.append((section, nice, png))
         if not entries:
             return None
-        out_path = base_path + "_report.html"
+        # The stitched report is an html artefact like any other, so it belongs in the html/ directory rather
+        # than loose beside it.
+        from mlframe.reporting.renderers.save import resolve_output_path
+
+        out_path = resolve_output_path(base_path + "_report", "plotly", "html", multi_output=False)
         build_combined_report(entries, title=title, out_path=out_path)
         _record(charts, "combined_html", True)
         if isinstance(metrics_dict, dict) and charts is not None:

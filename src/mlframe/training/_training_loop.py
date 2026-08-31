@@ -492,6 +492,26 @@ def _train_model_with_fallback(
     if model_type_name in CATBOOST_MODEL_TYPES:
         _has_text = bool(fit_params.get("text_features")) or (_cb_pool is not None and bool(getattr(_cb_pool, "_mlframe_text_features", None)))
         if _has_text:
+            # Head off the empty-bigram-dictionary abort. The recovery below only learns about it by FITTING,
+            # so a production run paid a full 44.99s doomed fit on 2.4M rows before retrying with unigrams.
+            # A whitespace scan over a sample answers the same question in milliseconds, and it only fires
+            # when NOT ONE sampled row of a column has two tokens -- the case where a bigram cannot exist.
+            try:
+                from mlframe.training.cb import single_token_text_features, unigram_text_processing
+
+                _decl_text = list(fit_params.get("text_features") or [])
+                _single_tok = single_token_text_features(train_df, _decl_text) if _decl_text else []
+                if _single_tok and len(_single_tok) == len(_decl_text) and hasattr(model, "set_params"):
+                    if not (model.get_params().get("text_processing") if hasattr(model, "get_params") else None):
+                        model.set_params(text_processing=unigram_text_processing())
+                        logger.info(
+                            "  [pre-fit] %d text feature(s) %s carry a single token per row, so the default "
+                            "bigram dictionary would be empty and the fit would abort. Starting with a unigram "
+                            "dictionary instead of discovering this after a failed fit.",
+                            len(_single_tok), _single_tok,
+                        )
+            except Exception as _tok_exc:
+                logger.debug("single-token pre-scan skipped (%s: %s)", type(_tok_exc).__name__, _tok_exc)
             _cb_n_rows = train_df.shape[0] if hasattr(train_df, "shape") else (len(_cb_pool) if _cb_pool is not None and hasattr(_cb_pool, "__len__") else None)
             _user_text_proc = None
             if hasattr(model, "get_params"):

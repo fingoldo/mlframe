@@ -446,7 +446,11 @@ def run_confidence_analysis(
         if plot_file:
             import os as _os
             _root, _ext = _os.path.splitext(plot_file)
-            _path = plot_file if _ext else (plot_file + ".png")
+            # Resolved through the shared layout so this chart joins the others in png/ instead of sitting
+            # loose beside it.
+            from mlframe.reporting.renderers.save import resolve_output_path
+
+            _path = plot_file if _ext else resolve_output_path(plot_file, "matplotlib", "png", multi_output=False)
             try:
                 fig.savefig(ensure_parent_dir(_path), bbox_inches="tight")
             except Exception as _save_err:

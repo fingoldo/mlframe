@@ -15,6 +15,8 @@ requested functional at each cut and returning the arg-max. Supported functional
 
 from __future__ import annotations
 
+from typing import Tuple
+
 import numba
 import numpy as np
 from numba import njit
@@ -185,7 +187,7 @@ def optimal_threshold_bootstrap_ci(
     n_boot: int = 200,
     alpha: float = 0.05,
     random_state: int = 0,
-):
+) -> Tuple[float, float]:
     """Percentile interval for the tuned threshold itself, so a reader can see how much of it is noise.
 
     A threshold is a FITTED parameter, and on a rare-positive target it is fitted from very few positives -- a

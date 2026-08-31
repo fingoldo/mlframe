@@ -17,7 +17,7 @@ and the extremality is the same ``|percentile - 0.5| * 2``.
 from __future__ import annotations
 
 import logging
-from typing import Dict, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -49,6 +49,13 @@ def _extremality_vs_reference_njit(values: np.ndarray, ref_flat: np.ndarray, ref
             v = values[i, j]
             if np.isnan(v):
                 continue
+            # MID-RANK across the tie block: ``lo`` counts values strictly below v, ``hi`` counts values at or
+            # below it, and the percentile is the midpoint. Using ``lo`` alone gives every row of a constant or
+            # heavily-tied column a percentile of ~0, i.e. maximal extremality -- which collapsed the feature to a
+            # constant and got it dropped by the zero-variance pre-screen on a production frame full of ratios,
+            # counts and mostly-zero columns. The within-batch ranking spreads ties over the whole range instead;
+            # neither is more "correct" per row, but the midpoint is the only one that puts the MODE at the median
+            # where it belongs, and it is what makes a lone row score the same as it does in a batch.
             lo = 0
             hi = length
             while lo < hi:
@@ -57,9 +64,15 @@ def _extremality_vs_reference_njit(values: np.ndarray, ref_flat: np.ndarray, ref
                     lo = mid + 1
                 else:
                     hi = mid
-            # ``lo`` values sit strictly below v; +0.5 centres the value inside its own tie block so a value
-            # equal to the reference median scores 0 rather than half a step off it.
-            frac = (lo + 0.5) / denom
+            upper = lo
+            hi2 = length
+            while upper < hi2:
+                mid = (upper + hi2) // 2
+                if ref_flat[start + mid] <= v:
+                    upper = mid + 1
+                else:
+                    hi2 = mid
+            frac = ((lo + upper) * 0.5 + 0.5) / denom
             out[i, j] = abs(frac - 0.5) * 2.0
 
 
@@ -88,7 +101,9 @@ def fit_extremality_reference(
     return reference
 
 
-def extremality_matrix_from_reference(X: pd.DataFrame, reference: Dict[str, np.ndarray], columns: Optional[Sequence[str]] = None):
+def extremality_matrix_from_reference(
+    X: pd.DataFrame, reference: Dict[str, np.ndarray], columns: Optional[Sequence[str]] = None
+) -> Tuple[np.ndarray, List[str]]:
     """``(n_rows, n_cols)`` extremality matrix scored against ``reference``; NaN where the source value was NaN.
 
     Columns absent from the reference are scored NaN rather than silently re-ranked within the batch -- a

@@ -157,6 +157,15 @@ def adapt_constant_group_leak(train_df, val_df, test_df, target_col, cat_feature
         return {"error": str(e)}
 
 
+# Row budget for the adversarial fold-selection diagnostic, counted over the train+test UNION it classifies.
+# It runs a 5-fold ``cross_val_predict`` of a LightGBM train-vs-test classifier, so its cost is five fits
+# over the whole union: a production run spent about two minutes and materialised 10.26M rows on a fit whose
+# model list was a single CatBoost. Subsampling is NOT the way out -- the diagnostic must score every train
+# row to rank it by test-likeness, so a sample would change what it returns rather than just what it costs.
+# Above the budget it is skipped, loudly and by name, and the knob to run it anyway is in the message.
+ADVERSARIAL_FOLD_MAX_UNION_ROWS = 500_000
+
+
 def adapt_adversarial_fold_selection(train_df, val_df, test_df, target_col, cat_features, group_ids, y, **kwargs) -> dict:
     """Registry adapter for build_test_like_validation_fold over shared numeric train/test columns."""
     try:
@@ -168,6 +177,21 @@ def adapt_adversarial_fold_selection(train_df, val_df, test_df, target_col, cat_
         if not common_cols:
             return {"error": "adversarial_fold_selection: no shared numeric columns between train_df/test_df"}
         X_train, X_test = X_train[common_cols], X_test[common_cols]
+        _max_union = int(kwargs.pop("max_union_rows", ADVERSARIAL_FOLD_MAX_UNION_ROWS) or 0)
+        _union_rows = len(X_train) + len(X_test)
+        if _max_union > 0 and _union_rows > _max_union:
+            logger.warning(
+                "diagnostics.adversarial_fold_selection SKIPPED: it 5-fold cross-validates a train-vs-test "
+                "classifier over the %s-row train+test union, i.e. five fits of that size (about two minutes "
+                "and 10M materialised rows at this scale). Budget is %s rows; pass "
+                "max_union_rows=0 to disable the budget, or a larger number to raise it.",
+                f"{_union_rows:_}", f"{_max_union:_}",
+            )
+            return {
+                "status": "skipped",
+                "reason": f"train+test union {_union_rows} rows exceeds max_union_rows={_max_union}",
+                "n_union_rows": _union_rows,
+            }
         kwargs.pop("return_history", None)  # keep the 2-tuple contract this adapter returns
         _fold_result = build_test_like_validation_fold(X_train=X_train, X_test=X_test, return_history=False, **kwargs)
         val_idx, remaining_idx = _fold_result[0], _fold_result[1]

@@ -149,12 +149,18 @@ def phase_ram_snapshot() -> dict[str, float]:
 
 
 def _try_get_rss_gb() -> float:
-    """Best-effort current process RSS in GB; 0.0 if psutil missing."""
+    """Best-effort current process memory in GB, on the same measure every other user-facing line uses.
+
+    Raw ``memory_info().rss`` is the WORKING SET on Windows, which ``clean_ram()`` deliberately evicts -- so a
+    phase that cleans reported a large negative delta (-6.47GB for process_model in one production run) that
+    said nothing about memory the process actually released.
+    """
     try:
-        import psutil
-        return float(psutil.Process().memory_info().rss / (1024 ** 3))
+        from ._ram_helpers import get_reported_memory_gb
+
+        return get_reported_memory_gb()
     except Exception as exc:
-        logger.debug("_try_get_rss_gb: RSS probe unavailable: %s", exc)
+        logger.debug("_try_get_rss_gb: memory probe unavailable: %s", exc)
         return 0.0
 
 
@@ -172,10 +178,14 @@ def format_phase_summary(top: int = 30) -> str:
         return "[phases] no timings recorded"
     ram_deltas = _registry.ram_delta_snapshot()
     name_w = max(len("phase"), max(len(n) for n, _, _ in rows))
-    # "net RSS" rather than "+/-RAM": the number is the process RSS at the phase's exit minus its entry, so a
-    # phase that allocates 40GB and frees 75GB reports -35GB. That is a NET figure covering everything the phase
-    # contained, and reading it as "this phase used -35GB" is how a nesting parent looks like it gave memory back.
-    header = f"{'phase'.ljust(name_w)}   total       calls    avg     net RSS"
+    # The column is the measured memory at the phase's exit minus its entry, so a phase that allocates 40GB and
+    # frees 75GB reports -35GB: a NET figure covering everything the phase contained, not "this phase used
+    # -35GB". The header NAMES the quantity because it differs by platform -- private commit on Windows, RSS
+    # elsewhere -- and an unlabelled "RAM" column invites comparing it against a number that measures the other.
+    from ._ram_helpers import memory_measure_name
+
+    _mem_label = f"net {memory_measure_name()}"
+    header = f"{'phase'.ljust(name_w)}   total       calls    avg   {_mem_label:>16}"
     sep = "-" * len(header)
     lines = [header, sep]
     for name, total, count in rows:

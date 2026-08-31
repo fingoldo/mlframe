@@ -541,12 +541,14 @@ def apply_preprocessing_extensions(
     test, _ = _filter_to_numeric(test, keep_cols=_kept_train)
     if _dropped_train:
         logger.warning(
-            "apply_preprocessing_extensions: %d column(s) will not take part in the EXTENSION transforms "
-            "(kbins / polynomial / scaler / dim_reducer all reject object dtype) and are excluded from them -- "
-            "they remain in the frame the model is fitted on: %s. Encode these upstream "
-            "(e.g. via OrdinalEncoder / OneHotEncoder in the suite's cat-encoder "
-            "pre-pipeline) if you want them to participate in the extension "
-            "transforms.",
+            # Say that they are DROPPED, because they are: ``train`` is rebound to the filtered frame just above,
+            # so these columns are absent from what this function returns and therefore from what the model is
+            # fitted on. The previous wording claimed they "remain in the frame the model is fitted on", which
+            # reads as reassurance about a column that has in fact just been removed.
+            "apply_preprocessing_extensions: %d non-numeric column(s) dropped from the extension pipeline "
+            "(kbins / polynomial / scaler / dim_reducer all reject object dtype), so they do not reach the "
+            "model either: %s. Encode these upstream (e.g. via OrdinalEncoder / OneHotEncoder in the suite's "
+            "cat-encoder pre-pipeline) if you want them kept and transformed.",
             len(_dropped_train), _dropped_train[:8],
         )
 

@@ -183,7 +183,7 @@ def unigram_text_processing() -> dict:
     }
 
 
-def unigram_rescues_text_features(df, y, text_features, *, verbose: bool = True) -> bool:
+def unigram_rescues_text_features(df: Any, y: Any, text_features: Optional[Sequence[str]], *, verbose: bool = True) -> bool:
     """Would a unigram dictionary let the installed CatBoost fit ALL of ``text_features`` together?
 
     Probes the real fit rather than reasoning about token counts, for the same reason the per-column probe
@@ -230,3 +230,43 @@ __all__ = [
     "unusable_text_features",
     "usable_text_features",
 ]
+
+
+def single_token_text_features(df: Any, text_features: Optional[Sequence[str]], *, sample_rows: int = 20_000) -> List[str]:
+    """Names among ``text_features`` whose sampled rows never carry two whitespace-separated tokens.
+
+    CatBoost's DEFAULT text processing builds word BIGRAMS, and a column with one token per row can never
+    produce one, which empties the dictionary and aborts the whole fit. The existing recovery probes that by
+    FITTING, which means the suite first pays a full doomed fit -- 44.99s on a 2.4M-row production frame --
+    before it learns something a string scan answers in milliseconds.
+
+    Deliberately conservative: it reports a column only when NOT ONE sampled row has two tokens. A column that
+    is mostly single-token but occasionally longer can still build a dictionary, so it is left to the fit.
+    """
+    cols = [c for c in (text_features or []) if c]
+    if not cols:
+        return []
+    single: list = []
+    for col in cols:
+        try:
+            series = df[col]
+            n = len(series)
+            if n == 0:
+                continue
+            step = max(1, n // sample_rows) if n > sample_rows else 1
+            values = series[::step] if hasattr(series, "__getitem__") else series
+            found_multi = False
+            for v in (values.to_list() if hasattr(values, "to_list") else list(values)):
+                if v is None:
+                    continue
+                text = str(v)
+                # ``split()`` on the default separator collapses runs of whitespace, which is the same
+                # tokenisation CatBoost's default word dictionary applies.
+                if len(text.split()) > 1:
+                    found_multi = True
+                    break
+            if not found_multi:
+                single.append(col)
+        except Exception as exc:
+            logger.debug("single-token scan skipped %r (%s: %s); leaving it to the fit", col, type(exc).__name__, exc)
+    return single

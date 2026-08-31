@@ -281,6 +281,16 @@ def display_estimator_name(name: str) -> str:
     return out
 
 
+def _fi_png_path(base: str) -> str:
+    """``base`` resolved to its .png destination under the active per-format layout.
+
+    Composing ``base + "_fiplot.png"`` wrote the plot beside the png/ directory every other chart
+    went into, which is how a production output folder ended up with loose files at its top level.
+    """
+    from mlframe.reporting.renderers.save import resolve_output_path
+
+    return resolve_output_path(base + "_fiplot", "matplotlib", "png", multi_output=False)
+
 def report_model_perf(
     targets: np.ndarray | pd.Series,
     columns: Sequence[str],
@@ -625,7 +635,7 @@ def report_model_perf(
                 model=model,
                 columns=columns,
                 model_name=(report_title + " " + model_name + f" [{nfeatures}{get_human_readable_set_size(len(preds))} rows]").strip(),
-                plot_file=plot_file + "_fiplot.png" if plot_file else "",
+                plot_file=_fi_png_path(plot_file) if plot_file else "",
                 X=_fi_X,
                 y=targets,
                 **fi_kwargs,

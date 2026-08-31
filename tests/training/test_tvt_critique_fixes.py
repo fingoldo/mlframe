@@ -240,7 +240,9 @@ def test_G_verdict_picks_ensemble_when_better_than_best_model():
         best_model_metrics_by_target=best_model_metrics,
         min_lift=1.5,
     )
-    assert "MODELS_BARELY_BEAT_TRIVIAL" in out_no_ens
+    # lift = 13.19/13.43 = 0.98: the model really is worse than the baseline, which is what this half of the
+    # test set up. The verdict now says so; it used to read MODELS_BARELY_BEAT_TRIVIAL, which claims a win.
+    assert "BEST_MODEL_BELOW_DUMMY" in out_no_ens
 
     # With the ensemble: comfortable beat of dummy by 1.38x -> healthy verdict.
     out_with_ens = format_suite_end_summary(

@@ -35,12 +35,16 @@ def chart_type_of(base_path: str) -> str:
     """Collapse one output path to the chart TYPE it is an instance of."""
     import os
 
-    stem = os.path.basename(str(base_path or "")) or "unnamed"
+    # Explicit emptiness checks rather than ``or``: a caller passing "" means "no name", which is exactly the
+    # case being handled, so collapsing it through a truthiness default hides the intent.
+    stem = os.path.basename(str(base_path)) if base_path else ""
+    if not stem:
+        return "unnamed"
     prev = None
     while prev != stem:
         prev = stem
         stem = _SUFFIX_RE.sub("", stem)
-    return stem or "unnamed"
+    return stem if stem else "unnamed"
 
 
 def record_chart_render(chart_type: str, seconds: float, *, backend: str = "") -> None:

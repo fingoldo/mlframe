@@ -195,13 +195,24 @@ def format_suite_end_summary(
                     if lift >= min_lift:
                         verdict = "TASK_NON_TRIVIAL_AND_MODELS_HEALTHY"
                         n_healthy += 1
-                    else:
-                        verdict = "MODELS_BARELY_BEAT_TRIVIAL"
+                    elif lift < 1.0:
+                        verdict = "BEST_MODEL_BELOW_DUMMY"
                         warn_lines.append(
                             f"[DUMMY_BASELINES] WARN BEST_MODEL_BELOW_DUMMY "
-                            f"target='{target_name}' lift={lift:.2f}x -- "
-                            f"investigate label encoding, target leak, "
-                            f"train/test contamination."
+                            f"target='{target_name}' lift={lift:.2f}x -- the trained model is WORSE than a "
+                            f"trivial baseline. Investigate label encoding, target leak, train/test contamination."
+                        )
+                    else:
+                        # lift in [1.0, min_lift): the model DOES beat the baseline, just not by the margin
+                        # worth deploying for. Calling that BEST_MODEL_BELOW_DUMMY -- as this did at
+                        # lift=1.34x -- states the opposite of the measurement and sends the reader hunting
+                        # for a label-encoding bug that is not there.
+                        verdict = "MODELS_BARELY_BEAT_TRIVIAL"
+                        warn_lines.append(
+                            f"[DUMMY_BASELINES] WARN BEST_MODEL_LIFT_BELOW_THRESHOLD "
+                            f"target='{target_name}' lift={lift:.2f}x (beats the baseline, but below the "
+                            f"{min_lift:.2f}x bar) -- the signal is real but thin: check whether the features "
+                            f"carry more than the baseline already exploits before shipping this."
                         )
 
             # TS_BEATS_TREES heuristic: strongest baseline name contains
@@ -242,7 +253,12 @@ def format_suite_end_summary(
 
     lines.extend(warn_lines)
     if best_model_metrics_by_target is not None:
-        lines.append(f"[DUMMY_BASELINES] HEALTH: {n_healthy}/{n_total} targets -- " f"{'ALL_HEALTHY' if n_healthy == n_total else 'see WARN lines above'}")
+        # Say what the count MEANS: "0/1 targets" alone reads as total failure, when it can equally mean one
+        # target that beats its baseline by 1.34x against a 1.50x bar.
+        lines.append(
+            f"[DUMMY_BASELINES] HEALTH: {n_healthy}/{n_total} target(s) clear the {min_lift:.2f}x lift bar -- "
+            f"{'ALL_HEALTHY' if n_healthy == n_total else 'see WARN lines above for what each shortfall is'}"
+        )
 
     return "\n".join(lines)
 

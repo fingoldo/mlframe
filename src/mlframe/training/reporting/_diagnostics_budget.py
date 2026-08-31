@@ -37,7 +37,9 @@ class HeavyDiagnosticsPolicy:
 
     def __init__(self, mode: str = "best", is_primary: bool = True) -> None:
         """``mode`` is "best" (heavy diagnostics on the primary model only) or "all" (the previous behaviour)."""
-        self.mode = (mode or "best").lower()
+        # Explicit None check: a caller passing "" is asking for something this cannot honour, and silently
+        # turning it into "best" hides the mistake rather than surfacing it.
+        self.mode = ("best" if mode is None else str(mode)).lower()
         self.is_primary = bool(is_primary)
 
     def allows(self, name: str) -> bool:
@@ -58,7 +60,7 @@ class DiagnosticsBudget:
         """Start the clock. ``policy`` decides scope (which diagnostics apply here); the budget decides time."""
         self.max_seconds = float(max_seconds or 0.0)
         self.verbose = verbose
-        self.policy = policy or HeavyDiagnosticsPolicy(mode="all")
+        self.policy = HeavyDiagnosticsPolicy(mode="all") if policy is None else policy
         self.out_of_scope: List[str] = []
         self._t0 = time.perf_counter()
         self.skipped: List[str] = []

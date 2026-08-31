@@ -113,11 +113,12 @@ def test_gpu_probe_xgb_support_logs_on_probe_failure(caplog):
 
 
 def test_model_factories_infer_callsite_returns_marker_on_failure(caplog, monkeypatch):
-    """`_infer_callsite` (a closure inside the patched Dataset.__init__) must log and degrade to
-    "?" if the stack walk raises. Driven through a real lightgbm.Dataset construction, with the
-    patches installed via the public `apply_third_party_patches_once` and `sys._getframe`
-    monkeypatched (`_patch_dataset_constructors_with_logging` imports `sys` locally, so patch the
-    real global `sys` module)."""
+    """The call-site walk must log and degrade to "?" if the stack walk raises.
+
+    Driven through a real lightgbm.Dataset construction with ``sys._getframe`` monkeypatched. The walk moved out
+    of the closure into ``_dataset_build_stats.infer_build_callsite`` so it could be tested directly rather than
+    only through a monkey-patched constructor; the guard below keys on that name, and the closure now delegates.
+    """
     import sys
     import numpy as np
     import lightgbm as lgb
@@ -131,7 +132,7 @@ def test_model_factories_infer_callsite_returns_marker_on_failure(caplog, monkey
     def _raising_getframe(depth):
         """Raise only when called from `_infer_callsite` itself -- a blanket sys._getframe
         monkeypatch would also break pytest's own frame introspection."""
-        if real_getframe(1).f_code.co_name == "_infer_callsite":
+        if real_getframe(1).f_code.co_name == "infer_build_callsite":
             raise ValueError("call stack is not deep enough")
         return real_getframe(depth)
 
@@ -139,7 +140,7 @@ def test_model_factories_infer_callsite_returns_marker_on_failure(caplog, monkey
 
     with caplog.at_level(logging.DEBUG):
         lgb.Dataset(np.zeros((5, 2)), label=np.zeros(5), free_raw_data=False)
-    assert any("_infer_callsite: stack walk failed" in rec.getMessage() for rec in caplog.records)
+    assert any("stack walk failed, call site unknown" in rec.getMessage() for rec in caplog.records)
 
 
 def test_predict_guards_recover_feature_names_logs_on_failure(caplog):

@@ -45,6 +45,12 @@ def _brute_force_best(y_true, y_score, metric):
             tpr = tp / (tp + fn) if (tp + fn) > 0 else 0.0
             tnr = tn / (tn + fp) if (tn + fp) > 0 else 0.0
             val = tpr + tnr - 1.0
+        elif metric == "cost":
+            # Negated average cost per row, matching the kernel: every functional here is higher-is-better so
+            # one arg-max serves them all. Default costs are 1.0 / 1.0, i.e. plain error rate negated.
+            fn = ((pred == 0) & (y_true == 1)).sum()
+            fp = ((pred == 1) & (y_true == 0)).sum()
+            val = -(fp * 1.0 + fn * 1.0) / len(y_true)
         else:
             raise ValueError(metric)
         if val > best_val:

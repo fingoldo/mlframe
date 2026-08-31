@@ -75,7 +75,8 @@ def _describe_unpicklable(payload, error) -> str:
         parts.append(detail[:200])
     if culprits:
         parts.append("offending attribute(s): " + ", ".join(sorted(culprits)[:8]))
-    return "; ".join(parts) or "no further detail available"
+    # Explicit: an empty ``parts`` is the "we learned nothing" case, not a falsy value to be defaulted away.
+    return "; ".join(parts) if parts else "no further detail available"
 
 
 def save_mlframe_model(

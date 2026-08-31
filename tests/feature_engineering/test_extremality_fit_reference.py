@@ -161,3 +161,66 @@ class TestTheSuiteUsesItByDefault:
         from mlframe.training._preprocessing_configs import PreprocessingExtensionsConfig
 
         assert PreprocessingExtensionsConfig().row_wise_extreme_columns_fit_reference is True
+
+
+class TestTiedAndLowCardinalityColumns:
+    """The blind spot that shipped: the first version was only ever tested on continuous data.
+
+    Counting values STRICTLY below gives every row of a constant or heavily-tied column a percentile of ~0, i.e.
+    maximal extremality. A production frame is mostly ratios, counts and mostly-zero columns, so the whole
+    feature collapsed to a constant and the suite's zero-variance pre-screen dropped all three
+    ``row_extreme_topN_score`` columns -- a feature silently deleted by a bug in its own fix.
+    """
+
+    def test_a_constant_column_is_not_extreme(self):
+        """Every value IS the median; the old form scored all of them 0.9995."""
+        df = pd.DataFrame({"c": np.ones(500)})
+        out, _ = extremality_matrix_from_reference(df, fit_extremality_reference(df))
+        assert np.nanmax(np.abs(out)) < 1e-9
+
+    def test_a_mostly_zero_column_flags_only_the_non_zeros(self):
+        """The 5% that differ are the extreme ones, not all 100%."""
+        rng = np.random.default_rng(0)
+        vals = np.where(rng.random(2000) < 0.95, 0.0, rng.random(2000) + 1.0)
+        df = pd.DataFrame({"c": vals})
+        out, _ = extremality_matrix_from_reference(df, fit_extremality_reference(df))
+        assert out[vals == 0.0].mean() < out[vals != 0.0].mean()
+
+    def test_a_tied_column_keeps_real_variance(self):
+        """Zero variance is exactly what got the feature dropped by the pre-screen."""
+        rng = np.random.default_rng(1)
+        df = pd.DataFrame({"c": np.round(rng.random(2000), 1)})
+        out, _ = extremality_matrix_from_reference(df, fit_extremality_reference(df))
+        assert np.nanstd(out) > 0.2
+
+    def test_the_top_k_scores_keep_real_variance_on_a_realistic_frame(self):
+        """End to end, on the column mix a production frame actually has."""
+        rng = np.random.default_rng(2)
+        n = 2000
+        df = pd.DataFrame({
+            "const": np.ones(n),
+            "mostly_zero": np.where(rng.random(n) < 0.95, 0.0, rng.random(n)),
+            "ratio": np.round(rng.random(n), 1),
+            "cont": rng.standard_normal(n),
+        })
+        ref = fit_extremality_reference(df, list(df.columns))
+        out = row_wise_top_k_extreme_columns(df, columns=list(df.columns), k=3, reference=ref)
+        scores = out[[c for c in out.columns if c.endswith("_score")]]
+        assert (scores.std() > 0.01).all(), f"a collapsed score column would be dropped as zero-variance: {scores.std().to_dict()}"
+
+    def test_the_mode_of_a_skewed_column_sits_at_the_median(self):
+        """The anchor the tie handling has to respect: the most common value is the least surprising one."""
+        df = pd.DataFrame({"c": np.concatenate([np.zeros(900), np.arange(1, 101, dtype=float)])})
+        ref = fit_extremality_reference(df)
+        at_mode, _ = extremality_matrix_from_reference(pd.DataFrame({"c": [0.0]}), ref)
+        at_tail, _ = extremality_matrix_from_reference(pd.DataFrame({"c": [100.0]}), ref)
+        assert at_mode[0, 0] < at_tail[0, 0]
+
+    def test_a_lone_tied_row_still_matches_its_batch_score(self):
+        """The skew fix has to survive the tie fix."""
+        rng = np.random.default_rng(3)
+        df = pd.DataFrame({"a": np.round(rng.random(1000), 1), "b": np.zeros(1000)})
+        ref = fit_extremality_reference(df, list(df.columns))
+        batch, _ = extremality_matrix_from_reference(df, ref, list(df.columns))
+        lone, _ = extremality_matrix_from_reference(df.iloc[[42]], ref, list(df.columns))
+        assert lone[0] == pytest.approx(batch[42], abs=1e-12)

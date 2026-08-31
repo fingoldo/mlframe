@@ -40,7 +40,7 @@ from pyutilz.system import clean_ram, get_own_memory_usage
 
 def log_ram_usage() -> None:
     """Log current RAM usage, attributed to the caller's module."""
-    _caller_logger().info(f"Done. RAM usage: {get_own_memory_usage():.1f}GB.")
+    _caller_logger().info(f"Done. RAM usage ({memory_measure_name()}): {get_own_memory_usage():.1f}GB.")
 
 
 # Adaptive clean_ram: skip gc.collect + trim when RSS hasn't grown meaningfully
@@ -221,3 +221,30 @@ def maybe_clean_ram_and_gpu(
                 logger.info("  clean_ram fired")
         return get_process_rss_mb()
     return baseline_rss_mb
+
+
+def get_reported_memory_gb() -> float:
+    """The one memory number the suite shows a reader, in GB.
+
+    Two adjacent lines of a production log disagreed by 39GB -- ``Done. RAM usage: 45.2GB`` followed immediately
+    by ``process_model(cb) START -- RAM=6.2GB``. They were measuring different things: the first goes through
+    ``get_own_memory_usage``, which on Windows reports PRIVATE COMMIT, while the second read ``memory_info().rss``
+    directly, which on Windows is the WORKING SET -- and ``clean_ram()`` deliberately evicts the working set via
+    ``SetProcessWorkingSetSizeEx``, so raw rss collapses right after a clean while the process still holds the
+    same committed memory. pyutilz documents exactly this and is why ``get_own_memory_usage`` exists.
+
+    Everything user-facing goes through here so the two cannot drift apart again. Internal
+    grew-since-baseline checks keep their own rss probes: there the question really is about the working set.
+    """
+    value = get_own_memory_usage()
+    return float(value) if value is not None else 0.0
+
+def memory_measure_name() -> str:
+    """What the reported memory number actually IS on this platform.
+
+    Windows reports PRIVATE COMMIT (Private Bytes) because the working set is evicted by ``clean_ram()`` and
+    would read as a phantom drop; every other platform reports RSS. Naming it in the message spares the reader
+    from having to know that -- "RAM usage: 45.2GB" and "RAM=6.2GB" seconds apart are both true of DIFFERENT
+    quantities, and only the label makes that legible.
+    """
+    return "private commit" if sys.platform.startswith("win") else "RSS"

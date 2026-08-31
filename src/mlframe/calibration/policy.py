@@ -645,8 +645,10 @@ def _emit_reliability_plot(
     root, ext = os.path.splitext(plot_path)
     fmt = ext.lstrip(".").lower()
     if fmt not in ("png", "pdf", "svg", "jpg", "jpeg"):
+        # Only the FORMAT is being normalised here. The destination is decided by render_and_save below and
+        # read back through resolve_output_path, so composing a path at this point would just be a second,
+        # layout-blind opinion about where the file goes.
         fmt = "png"
-        plot_path = root + ".png"
     try:
         render_and_save(spec, parse_plot_output_dsl(f"matplotlib[{fmt}]"), root, interactive=False)
     except OSError as exc:

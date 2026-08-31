@@ -58,6 +58,13 @@ def _save_spec(spec, plot_outputs: str, base_path: str) -> bool:
         return False
 
 
+def _png_path(base: str) -> str:
+    """``base`` resolved to its .png destination under the active per-format layout."""
+    from mlframe.reporting.renderers.save import resolve_output_path
+
+    return resolve_output_path(base, "matplotlib", "png", multi_output=False)
+
+
 def _save_figure(fig, plot_outputs: str, base_path: str) -> Optional[bool]:
     """Save a raw matplotlib Figure (builders that emit a Figure, not a FigureSpec) to ``base_path.png`` when png is requested.
 
@@ -75,7 +82,13 @@ def _save_figure(fig, plot_outputs: str, base_path: str) -> Optional[bool]:
         if "png" not in (plot_outputs or "").lower():
             return None  # not requested, not a failure
         try:
-            fig.savefig(ensure_parent_dir(base_path + ".png"), bbox_inches="tight")
+            # Through ``resolve_output_path``, not ``base_path + ".png"``: these builders emit a raw Figure and
+            # wrote straight to the flat name, so with the per-format subfolder layout on they landed BESIDE the
+            # png/ and html/ directories every render_and_save chart went into -- visible in a production output
+            # dir as a handful of loose decile_table / fiplot / shap / report files.
+            from mlframe.reporting.renderers.save import resolve_output_path
+
+            fig.savefig(ensure_parent_dir(resolve_output_path(base_path, "matplotlib", "png", multi_output=False)), bbox_inches="tight")
             return True
         except Exception:
             logger.exception("diagnostics_dispatch: saving figure %s failed; continuing.", base_path)
@@ -841,7 +854,7 @@ def render_shap_diagnostic(
     try:
         res = shap_summary_and_dependence(
             model, df, feature_names=list(feature_names) if feature_names else None,
-            max_rows=max_rows, top_k=top_k, plot_file=base_path + "_shap.png",
+            max_rows=max_rows, top_k=top_k, plot_file=_png_path(base_path + "_shap"),
             plot_outputs=plot_outputs, allow_kernel=allow_kernel, seed=seed,
         )
         ok = bool(res.paths) and res.skipped is None
@@ -883,7 +896,7 @@ def render_shap_interactions_diagnostic(
     try:
         res = shap_interaction_summary(
             model, df, feature_names=list(feature_names) if feature_names else None,
-            max_rows=max_rows, top_pairs=top_pairs, plot_file=base_path + "_shap_interactions.png",
+            max_rows=max_rows, top_pairs=top_pairs, plot_file=_png_path(base_path + "_shap_interactions"),
             plot_outputs=plot_outputs, seed=seed,
         )
         ok = bool(res.paths) and res.skipped is None
@@ -927,7 +940,7 @@ def render_shap_per_instance_diagnostic(
     try:
         res = shap_worst_errors_explanation(
             model, df, y_true, y_score, feature_names=list(feature_names) if feature_names else None,
-            k=k, max_explain_rows=max_explain_rows, plot_file=base_path + "_shap_per_instance.png",
+            k=k, max_explain_rows=max_explain_rows, plot_file=_png_path(base_path + "_shap_per_instance"),
             plot_outputs=plot_outputs, seed=seed,
         )
         ok = bool(res.paths) and res.skipped is None

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from ._cb_text_probe import (
     unigram_rescues_text_features,
+    single_token_text_features,
     unigram_text_processing,
     unusable_text_features,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "_cb_gpu_usable",
     "_CB_POOL_CACHE",
     "unigram_rescues_text_features",
+    "single_token_text_features",
     "unigram_text_processing",
     "unusable_text_features",
 ]

@@ -298,16 +298,24 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # PSUTIL-IMPORT-HOT: ``psutil`` is now imported at module level (``_ps_module``);
                 # the prior in-loop import paid ImportError lookup costs on every iter.
                 try:
-                    _ram_gb_now = _ps_module.Process().memory_info().rss / (1024**3) if _ps_module is not None else 0.0
+                    # Same measure as every other "RAM usage" line: a raw rss read here reported 6.2GB one line
+                    # after the suite printed 45.2GB, because on Windows rss is the working set and clean_ram
+                    # evicts it.
+                    from mlframe.training._ram_helpers import get_reported_memory_gb, memory_measure_name
+
+                    _ram_gb_now = get_reported_memory_gb()
+                    _ram_measure = memory_measure_name()
                 except Exception as e:
-                    logger.debug("psutil RSS probe failed: %s", e)
+                    logger.debug("memory probe failed: %s", e)
                     _ram_gb_now = 0.0
+                    _ram_measure = "?"
                 logger.info(
-                    "  process_model(%s) START -- model %d/%d, RAM=%.1fGB",
+                    "  process_model(%s) START -- model %d/%d, RAM=%.1fGB (%s)",
                     mlframe_model_name,
                     _model_idx_in_run,
                     _total_models_in_run,
                     _ram_gb_now,
+                    _ram_measure,
                 )
 
             if _model_entry not in models_params:

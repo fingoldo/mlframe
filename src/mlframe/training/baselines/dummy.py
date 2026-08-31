@@ -312,6 +312,15 @@ from ._dummy_timeseries import (  # noqa: F401
 )
 
 
+def _overlay_png_path(prefix: str) -> str:
+    """``prefix`` resolved to the dummy-overlay png under the active per-format layout.
+
+    Concatenating the name wrote it beside the png/ directory the rest of the run uses.
+    """
+    from mlframe.reporting.renderers.save import resolve_output_path
+
+    return resolve_output_path(prefix + "dummy_overlay", "matplotlib", "png", multi_output=False)
+
 def compute_dummy_baselines(
     target_type: str,
     target_name: str,
@@ -582,7 +591,7 @@ def compute_dummy_baselines(
     # Optional dedicated pre-training overlay (off by default; standard reports cover the floor).
     # BaselineReport is an immutable NamedTuple, so rebuild it with the saved path via _replace.
     if getattr(config, "overlay_plot", False) and strongest is not None:
-        _ov_save = (plot_file_prefix + "dummy_overlay.png") if plot_file_prefix else None
+        _ov_save = _overlay_png_path(plot_file_prefix) if plot_file_prefix else None
         try:
             _fig = plot_best_dummy_baseline_overlay(
                 report, val_y=val_y_arr, test_y=test_y_arr,

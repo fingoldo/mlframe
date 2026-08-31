@@ -12,7 +12,7 @@ import hashlib
 import logging
 import os
 import threading
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence, Set
 
 import numpy as np
 import pandas as pd
@@ -199,7 +199,7 @@ def create_redundant_continuous_factor(
     df[name] = agg_func(df[factors].values, axis=1) * (1 + (noise - 0.5) * noise_percent / 100)
 
 
-def numeric_column_names(df) -> set:
+def numeric_column_names(df: Any) -> Set[str]:
     """Names ``categorize_dataset`` will DISCRETISE (numeric) rather than encode as raw level codes (categorical).
 
     Exposed because the bin count of a discretised numeric column means something completely different from the bin

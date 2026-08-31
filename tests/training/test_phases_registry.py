@@ -122,8 +122,11 @@ def test_format_phase_summary_truncates_to_top_n():
     for i in range(20):
         record_phase(f"phase_{i:02d}", float(i + 1))
     out = format_phase_summary(top=5)
-    # 5 data rows + 2 (header + sep) = 7 lines total.
-    assert len(out.splitlines()) == 7
+    # Count the DATA rows rather than the whole block: the summary also carries a header, separators and a
+    # footnote saying the column does not sum (phases nest), and pinning a total line count made the test fail
+    # on the footnote rather than on the truncation it is about.
+    _data_rows = [ln for ln in out.splitlines() if ln.startswith("phase_")]
+    assert len(_data_rows) == 5
     # Top entry must be the largest total.
     assert "phase_19" in out
 

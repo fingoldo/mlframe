@@ -7,9 +7,8 @@ from __future__ import annotations
 
 import logging
 from types import SimpleNamespace  # bundled config return at the bottom of get_training_configs
-from typing import Any, Optional, Sequence
+from typing import Callable, Any, Optional, Sequence
 
-import numpy as np
 import psutil  # used for n_jobs=cpu_count(logical=False) in XGB_GENERAL_PARAMS
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit
@@ -18,11 +17,18 @@ from ._gpu_probe import CUDA_IS_AVAILABLE, LGB_GPU_AVAILABLE, XGB_GPU_AVAILABLE
 from ._classif_helpers import _classif_objective_kwargs
 from mlframe.metrics.core import (
     ICE,
-    compute_probabilistic_multiclass_error,
-    robust_mlperf_metric,
 )
 
 logger = logging.getLogger("mlframe.training.helpers")
+
+
+from ._picklable_metrics import (
+    IntegralCalibrationError,
+    LightGBMMetricAdapter,
+    PositionalIntegralCalibrationError,
+    SubgroupAveragedMetric,
+    build_robust_ts_metric,
+)
 
 
 def get_training_configs(
@@ -311,151 +317,30 @@ def get_training_configs(
         # model_schemas metadata record populated in core.py around the
         # fit call.
 
-    def integral_calibration_error(y_true: np.ndarray, y_score: np.ndarray, verbose: bool = False) -> float:
-        """Compute integral calibration error for probabilistic predictions.
+    # These were nested functions. A local function cannot be pickled, and they are attached to model params
+    # (XGB eval_metric, CatBoost ICE, the LGBM adapter), so EVERY save_mlframe_model call fell back to dill --
+    # slower on each save, and dill serialises bytecode, so a model written here may not load under a different
+    # interpreter or mlframe version. Module-level callables with the same state pickle by reference instead.
+    integral_calibration_error = IntegralCalibrationError(
+        method=method,
+        mae_weight=mae_weight,
+        std_weight=std_weight,
+        brier_loss_weight=brier_loss_weight,
+        roc_auc_weight=roc_auc_weight,
+        pr_auc_weight=pr_auc_weight,
+        min_roc_auc=min_roc_auc,
+        roc_auc_penalty=roc_auc_penalty,
+        use_weighted_calibration=use_weighted_calibration,
+        weight_by_class_npositives=weight_by_class_npositives,
+        nbins=nbins,
+    )
+    make_robust_ts_metric = build_robust_ts_metric
 
-        Wraps compute_probabilistic_multiclass_error with the outer function's
-        configuration parameters (method, weights, etc.).
-
-        Parameters
-        ----------
-        y_true : np.ndarray
-            Ground truth labels.
-        y_score : np.ndarray
-            Predicted probabilities.
-        verbose : bool, default=False
-            If True, print calibration error info.
-
-        Returns
-        -------
-        float
-            The computed calibration error (lower is better).
-        """
-        err = compute_probabilistic_multiclass_error(
-            y_true=y_true,
-            y_score=y_score,
-            method=method,
-            mae_weight=mae_weight,
-            std_weight=std_weight,
-            brier_loss_weight=brier_loss_weight,
-            roc_auc_weight=roc_auc_weight,
-            pr_auc_weight=pr_auc_weight,
-            min_roc_auc=min_roc_auc,
-            roc_auc_penalty=roc_auc_penalty,
-            use_weighted_calibration=use_weighted_calibration,
-            weight_by_class_npositives=weight_by_class_npositives,
-            nbins=nbins,
-            verbose=verbose,
-        )
-        if verbose:
-            logger.debug("integral_calibration_error=%s (n=%d)", err, len(y_true))
-        return float(err)
-
-    def make_robust_ts_metric(
-        metric_fn,
-        num_splits: int,
-        std_coeff: float,
-        greater_is_better: bool,
-        min_samples_per_split: int = 100,
-        ensure_enough_classes: bool = False,
-        verbose: int = 0,
-    ):
-        """Wrap a metric to evaluate across consecutive time splits.
-
-        Returns mean(metric_values) ± std(metric_values) * std_coeff
-        where ± is + if greater_is_better=False (penalize variance for minimization)
-              and - if greater_is_better=True (penalize variance for maximization)
-        """
-
-        def robust_metric(y_true: np.ndarray, y_score: np.ndarray, *args, **kwargs):
-            """Evaluate ``metric_fn`` on consecutive time splits and combine via mean +/- std*std_coeff, falling back to
-            the full-data metric when there isn't enough data / valid splits for the robustness estimate."""
-            n = len(y_true)
-
-            # Fallback 1: Not enough data for any splits
-            if n < min_samples_per_split:
-                if verbose:
-                    logger.info("make_robust_ts_metric: n=%s < min_samples_per_split=%s, using full data", n, min_samples_per_split)
-                return metric_fn(y_true, y_score, *args, **kwargs)
-
-            # Compute actual number of splits we can do
-            actual_splits = min(num_splits, n // min_samples_per_split)
-
-            # Fallback 2: Can only do 1 split
-            if actual_splits <= 1:
-                if verbose:
-                    logger.info("make_robust_ts_metric: actual_splits=%s <= 1, using full data", actual_splits)
-                return metric_fn(y_true, y_score, *args, **kwargs)
-
-            # Split into consecutive intervals
-            split_size = n // actual_splits
-            values = []
-
-            for i in range(actual_splits):
-                start_idx = i * split_size
-                end_idx = (i + 1) * split_size if i < actual_splits - 1 else n
-
-                y_true_split = y_true[start_idx:end_idx]
-                y_score_split = y_score[start_idx:end_idx]
-
-                # Skip split if not enough samples
-                if len(y_true_split) < min_samples_per_split:
-                    if verbose:
-                        logger.info("make_robust_ts_metric: split %s skipped, len=%d < %d", i, len(y_true_split), min_samples_per_split)
-                    continue
-
-                # Skip split if single class (classification only)
-                if ensure_enough_classes and len(np.unique(y_true_split)) < 2:
-                    if verbose:
-                        logger.info("make_robust_ts_metric: split %s skipped, single class in y_true", i)
-                    continue
-
-                val = metric_fn(y_true_split, y_score_split, *args, **kwargs)
-                if not np.isnan(val):
-                    values.append(val)
-
-            # Fallback 3: No valid splits computed
-            if len(values) == 0:
-                if verbose:
-                    logger.info("make_robust_ts_metric: no valid splits, using full data")
-                return metric_fn(y_true, y_score, *args, **kwargs)
-
-            # Fallback 4: Only one valid split
-            if len(values) == 1:
-                if verbose:
-                    logger.info("make_robust_ts_metric: only 1 valid split, returning %.6f", values[0])
-                return values[0]
-
-            mean_val = np.mean(values)
-            std_val = np.std(values)
-
-            if verbose:
-                logger.info("make_robust_ts_metric: %d splits, mean=%.6f, std=%.6f", len(values), mean_val, std_val)
-
-            # Penalize high variance
-            if greater_is_better:
-                # For maximization: subtract std penalty (lower result = worse)
-                return mean_val - std_val * std_coeff
-            else:
-                # For minimization: add std penalty (higher result = worse)
-                return mean_val + std_val * std_coeff
-
-        return robust_metric
-
+    # Annotated Callable because the three branches below bind three different callable TYPES to this name
+    # (subgroup wrapper / the metric itself / the robustness wrapper), all of which every consumer only calls.
+    final_integral_calibration_error: Callable
     if subgroups:
-
-        def final_integral_calibration_error(y_true: np.ndarray, y_score: np.ndarray, *args, **kwargs):  # partial won't work with xgboost
-            """``integral_calibration_error`` averaged across ``subgroups`` via ``robust_mlperf_metric`` (subgroup-aware variant)."""
-            return robust_mlperf_metric(
-                y_true,
-                y_score,
-                *args,
-                metric=integral_calibration_error,
-                higher_is_better=False,
-                subgroups=subgroups,
-                **kwargs,  # type: ignore[misc]  # caller (xgboost/lgbm eval callback) never passes these names in kwargs
-            )
-
+        final_integral_calibration_error = SubgroupAveragedMetric(integral_calibration_error, subgroups, higher_is_better=False)
     else:
         final_integral_calibration_error = integral_calibration_error
 
@@ -470,36 +355,12 @@ def get_training_configs(
             verbose=verbose,
         )
 
-    def fs_and_hpt_integral_calibration_error(*args, verbose: bool = True, **kwargs):
-        """Positional-args variant of ``integral_calibration_error`` for feature-selection / HPT callers that pass
-        ``y_true``/``y_score`` positionally instead of by keyword."""
-        err = compute_probabilistic_multiclass_error(
-            *args,
-            **kwargs,  # type: ignore[misc]  # caller (xgboost/lgbm eval callback) never passes these names in kwargs
-            mae_weight=mae_weight,
-            std_weight=std_weight,
-            brier_loss_weight=brier_loss_weight,
-            roc_auc_weight=roc_auc_weight,
-            pr_auc_weight=pr_auc_weight,
-            min_roc_auc=min_roc_auc,
-            roc_auc_penalty=roc_auc_penalty,
-            use_weighted_calibration=use_weighted_calibration,
-            weight_by_class_npositives=weight_by_class_npositives,
-            nbins=nbins,
-            verbose=verbose,
-        )
-        return err
+    fs_and_hpt_integral_calibration_error = PositionalIntegralCalibrationError(**integral_calibration_error._kwargs())
 
     XGB_CALIB_CLASSIF = XGB_GENERAL_CLASSIF.copy()
     XGB_CALIB_CLASSIF.update({"eval_metric": final_integral_calibration_error})
 
-    def lgbm_integral_calibration_error(y_true, y_score):
-        """Adapt ``final_integral_calibration_error`` to LightGBM's custom-metric contract: returns
-        ``(metric_name, value, higher_is_better)`` instead of a bare float."""
-        metric_name = "integral_calibration_error"
-        value = final_integral_calibration_error(y_true, y_score)
-        higher_is_better = False
-        return metric_name, value, higher_is_better
+    lgbm_integral_calibration_error = LightGBMMetricAdapter(final_integral_calibration_error)
 
     CB_CALIB_CLASSIF = CB_CLASSIF.copy()
     # ICE custom-metric only works for single-target CatBoost objectives

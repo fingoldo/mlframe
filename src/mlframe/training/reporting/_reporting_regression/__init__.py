@@ -682,7 +682,11 @@ def report_regression_model_perf(
                     if os.path.splitext(plot_file)[1].lower() not in (
                         ".png", ".pdf", ".svg", ".jpg", ".jpeg", ".tif", ".tiff", ".webp",
                     ):
-                        _save_path = plot_file + ".png"
+                        # Resolved, not concatenated: a flat name lands beside the png/ directory the rest of
+                        # the run writes into.
+                        from mlframe.reporting.renderers.save import resolve_output_path
+
+                        _save_path = resolve_output_path(plot_file, "matplotlib", "png", multi_output=False)
                     fig.savefig(ensure_parent_dir(_save_path))
 
                 if show_perf_chart:
