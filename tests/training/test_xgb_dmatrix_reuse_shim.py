@@ -569,7 +569,11 @@ class TestXGBShimIntegrationWithMlframeSuite:
             sample_weights={"uniform": None, "recency": recency},
         )
 
-        bc = TrainingBehaviorConfig(prefer_gpu_configs=False)
+        # ``temporal_recency_only_weighting`` (default True) drops the uniform schema when the split has a time
+        # axis and a recency schema is offered -- which this fixture has, so the suite would fit ONCE and there
+        # would be no second iteration for the DMatrix cache to serve. The contract under test is the shim, not
+        # the weighting policy, so pin the policy off and keep both schemas.
+        bc = TrainingBehaviorConfig(prefer_gpu_configs=False, temporal_recency_only_weighting=False)
 
         # Capture DEBUG output from xgb_shim — the reuse log line is at
         # DEBUG level (it's hot path, would otherwise spam INFO).

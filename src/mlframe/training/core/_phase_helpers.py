@@ -491,8 +491,14 @@ def _phase_pandas_conversion_and_cat_prep(
     # multi-GB conversion for nothing: a caller asking for no encoder, no scaler and no imputer has NO pipeline
     # state in either representation, so there is nothing for pandas to carry and the polars frames can stay.
     # That configuration is the normal one for a CatBoost-only run, which needs none of those transforms.
+    #
+    # Deferring needs BOTH halves though. ``polars_pipeline_applied`` used to imply "some model reads polars"
+    # on its own, so relaxing the first half alone started deferring for an XGB-only run -- whose models cannot
+    # read a polars frame, so each fit converted its own copy, and the cross-clone DMatrix cache (keyed on the
+    # frame signature) missed on every weight schema. Ask about the models explicitly instead of inferring it.
     _pipeline_state_lives_in_pandas = pipeline_stages_requested and not polars_pipeline_applied
-    defer_pandas_conv = was_polars_input and not _pipeline_state_lives_in_pandas and not recurrent_models and not _has_rfecv
+    _needs_pandas_frames = _pipeline_state_lives_in_pandas or not all_models_polars_native
+    defer_pandas_conv = was_polars_input and not _needs_pandas_frames and not recurrent_models and not _has_rfecv
 
     train_df_size_bytes_cached: float | None = None
     val_df_size_bytes_cached: float | None = None

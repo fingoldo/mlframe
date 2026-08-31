@@ -78,8 +78,13 @@ def test_beeswarm_saved_to_plot_file_and_figure_closed(tmp_path):
         plot_file=out,
         verbose=False,
     )
-    # .png appended when the path has no extension.
-    assert os.path.exists(out + ".png"), "confidence beeswarm was not saved to plot_file"
+    # Ask the layout where the file goes rather than assuming the flat name: the per-format subfolder mode is a
+    # process-wide setting, so a test that hardcodes ``out + ".png"`` passes or fails depending on what ran
+    # before it in the same worker. The contract here is "the beeswarm reached its plot_file", not the directory.
+    from mlframe.reporting.renderers.save import resolve_output_path
+
+    _expected = resolve_output_path(out, "matplotlib", "png", multi_output=False)
+    assert os.path.exists(_expected), f"confidence beeswarm was not saved to plot_file (looked for {_expected})"
     assert len(plt.get_fignums()) <= n_open_before, (
         "confidence beeswarm figure leaked: every figure it opened must be closed after save "
         f"(INV-49). open before={n_open_before}, after={len(plt.get_fignums())}"

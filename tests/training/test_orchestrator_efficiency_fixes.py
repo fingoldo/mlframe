@@ -185,14 +185,19 @@ def test_common_params_copy_has_why_comment():
     assert "isolation" in window.lower() or "bleed" in window.lower(), "expected WHY comment about isolation copy"
 
 
-# Fix 8: WHY comment on per-iter psutil RSS probe.
-def test_psutil_rss_sample_has_why_comment():
-    """Psutil rss sample has why comment."""
+# Fix 8: WHY comment on the per-iteration memory probe.
+def test_per_iteration_memory_probe_has_why_comment():
+    """The per-iteration memory read must say why it is worth taking on every model.
+
+    The probe used to be a raw ``memory_info().rss`` read. That is the WORKING SET on Windows, which
+    ``clean_ram()`` deliberately evicts, so it printed 6.2GB one line after the suite reported 45.2GB; it now
+    goes through the shared reporting helper. The sensor follows the probe rather than its old spelling.
+    """
     src = _read("_phase_train_one_target.py")
-    idx = src.find("memory_info().rss")
-    assert idx >= 0, "expected per-iter psutil RSS sample"
+    idx = src.find("get_reported_memory_gb()")
+    assert idx >= 0, "expected a per-iteration memory probe"
     window = src[max(0, idx - 1200) : idx]
-    assert "oom" in window.lower() or ("rss" in window.lower() and "intentional" in window.lower()), "expected WHY comment justifying per-iter RSS sample"
+    assert any(tok in window.lower() for tok in ("oom", "rss", "working set", "ram usage")), "expected WHY comment justifying the per-iteration memory probe"
 
 
 # Fix 9: dead try/except around _dropped_high_card_data.clear() removed.
