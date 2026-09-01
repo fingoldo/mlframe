@@ -50,9 +50,23 @@ class ScatterPanelSpec:
     # ``point_size``: scalar => uniform; ndarray => per-point sizes (e.g.
     # bin-population for calibration scatter).
     point_size: Union[float, np.ndarray] = 10.0
+    # Colour-scale limits for ``point_color``. Left None the renderers autoscale to the data, which is wrong for a
+    # DIVERGING map: autoscaling puts the palette's neutral midpoint at the middle of the observed range rather than
+    # at zero, so a set of uniformly positive gaps renders with a "neutral" colour that means nothing. A caller using
+    # a diverging map passes symmetric limits so the midpoint keeps its meaning.
+    color_vmin: Optional[float] = None
+    color_vmax: Optional[float] = None
     # Inline text labels: list of ``(x, y, text)`` tuples drawn next to points.
     inline_labels: Optional[Tuple[Tuple[float, float, str], ...]] = None
+    # Per-label text colours, parallel to ``inline_labels``. A label that lands on top of its own marker has to be
+    # read against the MARKER, not the panel background: black-on-dark-blue is what a fixed colour produces on the
+    # one bin big enough for its label to sit inside it. The builder decides, because only it knows the marker
+    # geometry and the colour scale.
+    inline_label_colors: Optional[Tuple[str, ...]] = None
     legend_label: Optional[str] = None
+    # Place the legend beside the panel instead of inside it. A calibration diagram puts its most important points
+    # in the bottom-left corner, which is exactly where an inside legend lands by default.
+    legend_outside: bool = False
     grid: bool = True
     # When the colorbar represents a meaningful axis (e.g. bin population),
     # set ``colorbar_label`` so renderers add a labelled colorbar.
@@ -61,6 +75,12 @@ class ScatterPanelSpec:
     # ``y_err`` may be a single array (symmetric) or a (lower, upper) pair of arrays (asymmetric, as Wilson is).
     y_err: Optional[Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]] = None
     x_err: Optional[Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]] = None
+    # DE-emphasised subset: integer indices into x/y whose value rests on too little data to be read as an
+    # observation. Drawn hollow, with a muted error bar, so the reader can see the point and its uncertainty
+    # without the pair carrying the same visual weight as a well-populated one. A reliability bin holding a
+    # single row has a confidence interval spanning most of the axis: that whisker is the honest answer ("we
+    # know nothing here"), and shortening or hiding it would be the dishonest fix.
+    low_evidence_indices: Optional[np.ndarray] = None
     # Emphasised subset (e.g. worst-K regression errors): integer indices into x/y drawn on top, larger + colored.
     highlight_indices: Optional[np.ndarray] = None
     highlight_color: str = "#d62728"  # tab:red, which separates from TREND_LINE's dark orange far better than pure red
@@ -120,7 +140,10 @@ class HistogramPanelSpec:
     # tests/reporting/test_matplotlib_histogram_bin_width_precedence.py. Supply it to override that derivation --
     # the single-bin case in particular cannot be derived. The old "required when bin_centers given" comment
     # described a co-requirement the renderers never enforced.
-    bin_width: Optional[float] = None
+    # A scalar applies one width to every bar; an array gives each bar its own. Equal-MASS binning puts the
+    # centres at uneven spacing, so a single width cannot tile them: the bars are drawn with white gaps of
+    # varying size that read as missing data rather than as the artefact of one constant.
+    bin_width: Optional[Union[float, np.ndarray]] = None
     # Explicit x-axis range ``(lo, hi)``; lets a shared-x calibration histogram align to the scatter's probability range.
     xlim: Optional[Tuple[float, float]] = None
     # Per-point / per-bar tooltip text (plotly only -- matplotlib has no hover layer). This is where a builder

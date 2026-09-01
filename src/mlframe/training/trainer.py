@@ -413,7 +413,7 @@ def _build_configs_from_params(
     models_subdir=MODELS_SUBDIR,
     display_sample_size=0,
     show_feature_names=False,
-    show_prob_histogram=True,
+    show_prob_histogram=False,
     prob_histogram_yscale="auto",
     show_inline_population_labels=True,
     # None sentinels: when the caller omits these, ReportingConfig's own field defaults are the

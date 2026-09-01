@@ -71,5 +71,14 @@ def restore_process_flags(artifacts: Optional[Dict[str, Any]]) -> None:
         except (ImportError, AttributeError) as err:
             logger.debug("format_subfolders flag restore failed: %s: %s", type(err).__name__, err)
 
+    if "_process_flag_prior_calibration_cmap" in artifacts:
+        prior = artifacts.pop("_process_flag_prior_calibration_cmap")
+        try:
+            from mlframe.reporting.colors import set_calibration_cmap
+
+            set_calibration_cmap(prior)
+        except (ImportError, AttributeError) as err:
+            logger.debug("calibration_colormap restore failed: %s: %s", type(err).__name__, err)
+
 
 __all__ = ["SNAPSHOT_PREFIX", "capture_process_flag_snapshot", "restore_process_flags"]

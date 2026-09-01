@@ -54,7 +54,7 @@ def test_debiased_ece_present_in_spec_annotation():
     """Debiased ece present in spec annotation."""
     y, score = _perfectly_calibrated(n=20_000)
     fp, ft, hits = fast_calibration_binning(y, score, nbins=15)
-    spec = build_calibration_spec(fp, ft, hits, plot_title="rel")
+    spec = build_calibration_spec(fp, ft, hits, plot_title="rel", show_ece_annotation=True)
     scatter = spec.panels[0][0]
     assert "ECE (plotted bins)=" in scatter.title
     assert "debiased=" in scatter.title
@@ -119,7 +119,7 @@ def test_degenerate_omits_debiased_term_keeps_chart():
     fp = np.array([0.2, 0.8])
     ft = np.array([0.0, 1.0])
     hits = np.array([1.0, 1.0])
-    spec = build_calibration_spec(fp, ft, hits, plot_title="rel")
+    spec = build_calibration_spec(fp, ft, hits, plot_title="rel", show_ece_annotation=True)
     title = spec.panels[0][0].title
     assert "ECE (plotted bins)=" in title
     assert "debiased=" not in title
@@ -131,7 +131,7 @@ def test_single_class_input_omits_debiased():
     score = np.linspace(0.05, 0.95, 5000)
     y = np.zeros_like(score, dtype=np.int64)
     fp, ft, hits = fast_calibration_binning(y, score, nbins=15)
-    spec = build_calibration_spec(fp, ft, hits, plot_title="rel")
+    spec = build_calibration_spec(fp, ft, hits, plot_title="rel", show_ece_annotation=True)
     assert "ECE (plotted bins)=" in spec.panels[0][0].title
 
 

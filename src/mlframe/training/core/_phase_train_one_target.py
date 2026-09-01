@@ -8,6 +8,8 @@ from typing import Any
 
 import numpy as np
 
+from mlframe._dtype_canon import canonicalise_dtype
+
 try:
     import polars as pl
 except ImportError:
@@ -571,22 +573,9 @@ def _canonical_dtype_pairs_compute(train_df) -> tuple:
     return tuple((c, _canonicalise_dtype(dt)) for c, dt in items)
 
 
-def _canonicalise_dtype(dt: str) -> str:
-    """Map polars / pandas dtype strings to a single canonical form (see ``_canonical_dtype_pairs`` docstring for table)."""
-    s = str(dt).strip().lower()
-    if s.startswith("int"):
-        return "i" + s[len("int") :]
-    if s.startswith("uint"):
-        return "u" + s[len("uint") :]
-    if s.startswith("float"):
-        return "f" + s[len("float") :]
-    if s in ("boolean", "bool"):
-        return "b"
-    if s in ("utf8", "string", "object", "str"):
-        return "s"
-    if s in ("categorical", "category"):
-        return "c"
-    return s
+# The rule itself lives in a leaf module so this and ``_mrmr_fingerprints`` share ONE copy; the local name is
+# kept because it is what this module's own callers and its test import.
+_canonicalise_dtype = canonicalise_dtype
 
 
 from ._phase_train_one_target_dataset_cache import (  # noqa: F401

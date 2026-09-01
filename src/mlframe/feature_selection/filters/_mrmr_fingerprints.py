@@ -29,6 +29,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from mlframe._dtype_canon import canonicalise_dtype
+
 # Not used directly in this module - load-bearing for import ORDER. This module is reached via
 # filters/mrmr/__init__.py -> _legacy.py (circular: _legacy does ``from .mrmr import MRMR`` back into
 # the package being loaded). Forcing wrappers.RFECV to resolve HERE, before that circular re-entry,
@@ -89,28 +91,10 @@ _MRMR_IDENTITY_FP_LOCK = _threading.Lock()
 _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS = 8
 
 
-def _canonicalise_dtype_str(dt) -> str:
-    """Polars / pandas-agnostic dtype canonical form.
-
-    Mirrors the table in
-    ``mlframe.training.core._phase_train_one_target._canonicalise_dtype``;
-    duplicated here to avoid the import-time cycle (mrmr -> training).
-    Same on-disk dtype yields the same canonical form across polars / pandas; identity-cache hits work irrespective of which backend the call site uses.
-    """
-    s = str(dt).strip().lower()
-    if s.startswith("int"):
-        return "i" + s[len("int") :]
-    if s.startswith("uint"):
-        return "u" + s[len("uint") :]
-    if s.startswith("float"):
-        return "f" + s[len("float") :]
-    if s in ("boolean", "bool"):
-        return "b"
-    if s in ("utf8", "string", "object", "str"):
-        return "s"
-    if s in ("categorical", "category"):
-        return "c"
-    return s
+# Was a hand-kept copy of the training-side table, duplicated to dodge the mrmr -> training import cycle. The
+# rule now lives in a leaf module both sides can import, which removes the cycle AND the copy; the local name
+# stays because ``mrmr/__init__`` re-exports it.
+_canonicalise_dtype_str = canonicalise_dtype
 
 
 def _mrmr_compute_y_fingerprint_sample(y, max_sample: int = 1000) -> str:

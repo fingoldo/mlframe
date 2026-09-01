@@ -31,6 +31,7 @@ Every environment variable read anywhere in `src/mlframe/` via `os.environ.get(.
 | `MLFRAME_BORUTA_AUTO_PROBE_ROWS` | `'2000'` | [src/mlframe/feature_selection/boruta_shap/_auto_dispatch.py](../src/mlframe/feature_selection/boruta_shap/_auto_dispatch.py#L51) |
 | `MLFRAME_BORUTA_AUTO_PROBE_TREES` | `'80'` | [src/mlframe/feature_selection/boruta_shap/_auto_dispatch.py](../src/mlframe/feature_selection/boruta_shap/_auto_dispatch.py#L50) |
 | `MLFRAME_BORUTA_SHADOW_TIE_GATE` | `'0.20'` | [src/mlframe/feature_selection/boruta_shap/_shadow_stats.py](../src/mlframe/feature_selection/boruta_shap/_shadow_stats.py#L86) |
+| `MLFRAME_CALIBRATION_CMAP` | — | [src/mlframe/reporting/colors.py](../src/mlframe/reporting/colors.py#L64) |
 | `MLFRAME_CALIBRATION_RESAMPLE_MAX_BYTES` | — | [src/mlframe/calibration/policy.py](../src/mlframe/calibration/policy.py#L56) |
 | `MLFRAME_CALIB_BINNING_PRANGE_THRESHOLD` | `'2000000'` | [src/mlframe/metrics/calibration/_calibration_plot.py](../src/mlframe/metrics/calibration/_calibration_plot.py#L188) |
 | `MLFRAME_CAT_DIAG` | — | [src/mlframe/training/_eval_helpers.py](../src/mlframe/training/_eval_helpers.py#L74) |

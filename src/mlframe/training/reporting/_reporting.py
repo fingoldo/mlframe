@@ -320,7 +320,7 @@ def report_model_perf(
     metrics: dict[str, Any] | None = None,
     group_ids: np.ndarray | None = None,
     n_features: int | None = None,
-    show_prob_histogram: bool = True,
+    show_prob_histogram: bool = False,
     prob_histogram_yscale: str = "auto",
     show_inline_population_labels: bool = True,
     title_metrics_tokens: tuple[str, ...] | None = None,

@@ -6,9 +6,9 @@ directly; plotly uses ``plotly.colors.sample_colorscale`` with a
 matplotlib-compatible name.
 
 Conventions:
-- ``CALIBRATION``: sequential ``viridis`` (bright = high population) -- used in
-  the calibration scatter + bin-population histogram so both panels
-  read against the same colorbar.
+- ``CALIBRATION``: diverging ``RdYlBu`` -- the reliability scatter colours its bubbles by the SIGNED
+  calibration gap, so the palette needs a meaningful midpoint. Overridable per run via
+  ``calibration_cmap`` / ``set_calibration_cmap`` (suite: ``ReportingConfig.calibration_colormap``).
 - ``CONFUSION``: ``RdBu_r`` (diverging, centred on zero; red diagonal = confusion good)
 - ``HEATMAP_GENERIC``: the "no preference" sentinel; resolves to ``HEATMAP_CMAP`` (viridis)
 - ``BAR_PRIMARY``: ``"steelblue"`` (single-series bar default)
@@ -19,15 +19,52 @@ Conventions:
 from __future__ import annotations
 
 import logging
+import os
+import threading
 from typing import Optional, Tuple
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# Population is an unsigned count, so this is sequential: a diverging map would imply a meaningful midpoint that a
-# count does not have. Both calibration panels share it so the scatter and the population histogram read together.
-CALIBRATION = "viridis"
+# Diverging, because the reliability diagram's colour channel now carries the SIGNED calibration gap
+# (observed - predicted), whose midpoint -- zero, i.e. calibrated -- is exactly the meaningful one. Red reads as
+# over-confident, blue as under-confident, pale as calibrated. Callers that colour by bin population instead pass
+# the same map with autoscaled limits, matching the palette the long-standing matplotlib calibration plot used.
+CALIBRATION = "RdYlBu"
+
+# Per-thread override for the calibration colormap, same shape and same reason as the renderers' output-layout
+# override: two suites running concurrently in one process must not repaint each other's charts mid-run.
+_CALIBRATION_CMAP_OVERRIDE = threading.local()
+
+
+def set_calibration_cmap(name: Optional[str]) -> None:
+    """Set (or clear, with ``None``) this thread's calibration-colormap override."""
+    if name is None:
+        if hasattr(_CALIBRATION_CMAP_OVERRIDE, "value"):
+            del _CALIBRATION_CMAP_OVERRIDE.value
+    else:
+        _CALIBRATION_CMAP_OVERRIDE.value = str(name)
+
+
+def get_calibration_cmap_override() -> Optional[str]:
+    """This thread's calibration-colormap override, or None when unset (so a caller can restore it)."""
+    return getattr(_CALIBRATION_CMAP_OVERRIDE, "value", None)
+
+
+def calibration_cmap() -> str:
+    """The colormap the calibration charts should use: thread override, else env var, else ``CALIBRATION``.
+
+    Resolved per call rather than captured at import: the suite sets the override while building its charts, and a
+    module-level constant read at import time would be fixed before that ever happens.
+    """
+    override = get_calibration_cmap_override()
+    if override:
+        return override
+    env = (os.environ.get("MLFRAME_CALIBRATION_CMAP") or "").strip()
+    return env if env else CALIBRATION
+
+
 CONFUSION = "RdBu_r"
 # CB-safe heatmap defaults. ``HEATMAP_CMAP`` (viridis) is perceptually uniform and colourblind-safe for
 # unsigned magnitude heatmaps (confusion / PSI drift / weak-segment / co-occurrence / per-label threshold /
@@ -194,5 +231,6 @@ __all__ = [
     "BAR_PRIMARY", "PERFECT_FIT_LINE", "NORMAL_OVERLAY", "ZERO_LINE",
     "TREND_LINE", "OVERLAY_LINE", "OVERLAY_BAND",
     "LINE_PALETTE", "line_color", "line_style", "auto_text_color", "auto_text_colors_batch", "resolve_heatmap_cmap",
+    "calibration_cmap", "set_calibration_cmap", "get_calibration_cmap_override",
     "FRIEND_GRAPH_NODE_COLORS", "FRIEND_GRAPH_EDGE_CMAP", "friend_graph_node_color",
 ]

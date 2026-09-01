@@ -246,6 +246,21 @@ def setup_configuration(
             _set_fsf(_subfolders)
         except (ImportError, AttributeError):
             pass
+    # Same set-and-restore shape again, for the reliability diagram's colour scale.
+    _calib_cmap = getattr(reporting_config, "calibration_colormap", None)
+    _calib_cmap_prior_set = False
+    _calib_cmap_prior = None
+    if _calib_cmap is not None:
+        try:
+            from mlframe.reporting.colors import (
+                get_calibration_cmap_override as _get_ccm,
+                set_calibration_cmap as _set_ccm,
+            )
+            _calib_cmap_prior = _get_ccm()
+            _calib_cmap_prior_set = True
+            _set_ccm(_calib_cmap)
+        except (ImportError, AttributeError):
+            pass
     # One run's chart-timing table must describe one run's charts, and the registry behind it is process-wide.
     # Reset here rather than at the facade so a caller that builds its own context still gets a clean table.
     try:
@@ -526,4 +541,6 @@ def setup_configuration(
         ctx.artifacts["_process_flag_prior_inline_display"] = _inline_display_prior
     if _subfolders_prior_set:
         ctx.artifacts["_process_flag_prior_format_subfolders"] = _subfolders_prior
+    if _calib_cmap_prior_set:
+        ctx.artifacts["_process_flag_prior_calibration_cmap"] = _calib_cmap_prior
     return ctx

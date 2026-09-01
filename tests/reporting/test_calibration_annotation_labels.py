@@ -15,6 +15,8 @@ These are labelling defects, not maths defects: every number was correct.
 
 from __future__ import annotations
 
+import contextlib
+
 import numpy as np
 
 from mlframe.metrics.calibration import render_title_metric_token
@@ -51,6 +53,33 @@ def _token_args(**overrides):
     return args
 
 
+@contextlib.contextmanager
+def caplog_at_info():
+    """Collect this module's INFO records; pytest's own caplog fixture cannot be used from a plain method here."""
+    import logging
+
+    records: list = []
+
+    class _Sink(logging.Handler):
+        """Appends every record it is handed."""
+
+        def emit(self, record):
+            """Keep the record for the assertion."""
+            records.append(record)
+
+    log = logging.getLogger("mlframe.reporting.charts.calibration")
+    sink = _Sink()
+    prior_level, prior_prop = log.level, log.propagate
+    log.addHandler(sink)
+    log.setLevel(logging.INFO)
+    try:
+        yield records
+    finally:
+        log.removeHandler(sink)
+        log.setLevel(prior_level)
+        log.propagate = prior_prop
+
+
 def _calibrated(n=20_000, seed=0):
     """A well-calibrated binary problem: the label is drawn at exactly the predicted probability."""
     rng = np.random.default_rng(seed)
@@ -69,13 +98,21 @@ def _overconfident(n=20_000, seed=1):
 class TestTheChartECEIsDistinguishableFromTheHeaderECE:
     """Two ECE estimates may coexist; two identically-labelled ones in different units may not."""
 
+    def test_the_chart_ece_is_off_by_default(self):
+        """Two ECE estimates on one figure was the confusion; the headline's own token is the one that stays."""
+        from mlframe.metrics import fast_calibration_binning
+
+        y, score = _calibrated()
+        fp, ft, hits = fast_calibration_binning(y, score, nbins=15)
+        assert "ECE" not in build_calibration_spec(fp, ft, hits, plot_title="rel").panels[0][0].title
+
     def test_the_chart_ece_names_its_basis(self):
         """``ECE=`` alone is the header's label; this one has to say which binning it came from."""
         from mlframe.metrics import fast_calibration_binning
 
         y, score = _calibrated()
         fp, ft, hits = fast_calibration_binning(y, score, nbins=15)
-        title = build_calibration_spec(fp, ft, hits, plot_title="rel").panels[0][0].title
+        title = build_calibration_spec(fp, ft, hits, plot_title="rel", show_ece_annotation=True).panels[0][0].title
         assert "ECE (plotted bins)=" in title
 
     def test_the_chart_ece_is_rendered_in_the_same_unit_as_the_header(self):
@@ -84,7 +121,7 @@ class TestTheChartECEIsDistinguishableFromTheHeaderECE:
 
         y, score = _calibrated()
         fp, ft, hits = fast_calibration_binning(y, score, nbins=15)
-        title = build_calibration_spec(fp, ft, hits, plot_title="rel").panels[0][0].title
+        title = build_calibration_spec(fp, ft, hits, plot_title="rel", show_ece_annotation=True).panels[0][0].title
         ece_line = next(line for line in title.splitlines() if "ECE" in line)
         assert "%" in ece_line
 
@@ -94,7 +131,7 @@ class TestTheChartECEIsDistinguishableFromTheHeaderECE:
 
         y, score = _calibrated()
         fp, ft, hits = fast_calibration_binning(y, score, nbins=15)
-        title = build_calibration_spec(fp, ft, hits, plot_title="rel").panels[0][0].title
+        title = build_calibration_spec(fp, ft, hits, plot_title="rel", show_ece_annotation=True).panels[0][0].title
         assert "debiased=" in title
         assert "ECE_debiased=" not in title
 
@@ -105,12 +142,12 @@ class TestThresholdDependentMetricsNameTheirThreshold:
     def test_the_threshold_appears_in_the_fragment(self):
         """Without it the three numbers are unattributable."""
         out = render_title_metric_token("PR_AUC", binary_threshold=0.5, **_token_args())
-        assert "PR@0.50=" in out
+        assert "@0.50: [PR=" in out
 
     def test_a_non_default_threshold_is_the_one_reported(self):
         """A tuned decision threshold is exactly the case where the reader must not assume 0.5."""
         out = render_title_metric_token("PR_AUC", binary_threshold=0.23, **_token_args())
-        assert "PR@0.23=" in out
+        assert "@0.23: [PR=" in out
 
     def test_an_omitted_threshold_degrades_to_the_old_bare_label(self):
         """Callers that never computed one still render, rather than printing a made-up 0.50."""
@@ -163,13 +200,18 @@ class TestTheSignificanceClaimSaysWhereAndWhichWay:
         grid = np.linspace(0.0, 1.0, 11)
         assert _significant_region_note(grid, grid - 0.05, grid + 0.05) == ""
 
-    def test_the_rendered_title_carries_the_location(self):
-        """End to end: a genuinely miscalibrated model gets a located claim, not a bare percentage."""
+    def test_the_logged_verdict_carries_the_location(self):
+        """End to end: the claim leaves the chart but keeps its location and direction in the log."""
+        import logging
+
         from mlframe.metrics import fast_calibration_binning
 
         y, score = _overconfident()
         fp, ft, hits = fast_calibration_binning(y, score, nbins=15)
-        title = build_calibration_spec(fp, ft, hits, raw_probs=score, raw_labels=y, plot_title="").panels[0][0].title
-        assert "miscal. significant on" in title
-        assert "p in [" in title
-        assert "over-confident" in title
+        with caplog_at_info() as records:
+            build_calibration_spec(fp, ft, hits, raw_probs=score, raw_labels=y, plot_title="", log_miscalibration_significance=True)
+        logged = " ".join(r.getMessage() for r in records)
+        assert "miscalibration significant on" in logged
+        assert "p in [" in logged
+        assert "over-confident" in logged
+        del logging

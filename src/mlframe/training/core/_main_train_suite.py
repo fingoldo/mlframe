@@ -262,8 +262,7 @@ def train_mlframe_models_suite(
             preprocessing_config=PreprocessingConfig(fillna_value=0.0),
             split_config=TrainingSplitConfig(test_size=0.1, val_size=0.1),
             reporting_config=ReportingConfig(
-                title_metrics_template="ICE BR_DECOMP ECE CMAEW",
-                show_prob_histogram=True,
+                title_metrics_template="ICE BR ECE CMAEW",
             ),
             output_config=OutputConfig(data_dir="./artifacts", save_charts=True),
         )

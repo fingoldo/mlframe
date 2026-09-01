@@ -435,7 +435,7 @@ def _compute_split_metrics(
     details: str = "",
     has_other_splits: bool = False,
     n_features: int | None = None,
-    show_prob_histogram: bool = True,
+    show_prob_histogram: bool = False,
     prob_histogram_yscale: str = "auto",
     show_inline_population_labels: bool = True,
     title_metrics_tokens: tuple[str, ...] | None = None,

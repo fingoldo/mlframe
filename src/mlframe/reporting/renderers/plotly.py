@@ -42,14 +42,15 @@ from ._kaleido import (
     write_image_via_kaleido,
 )
 from ._plotly_interactivity import apply_interactivity, html_config
-from ._plotly_color import _axis_ref, _rgba, _mpl_to_plotly_cmap
+from ._plotly_color import _rgba, _mpl_to_plotly_cmap
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
     _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS,
     _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
-    panel_title_wrap_chars, truncate_bar_label, wrap_annotation_text, wrap_title_lines,
+    histogram_bar_extent, low_evidence_mask, panel_title_wrap_chars, select_per_point, truncate_bar_label, wrap_annotation_text,
+    wrap_text_to_width, wrap_title_lines,
 )
 
-from mlframe.reporting.colors import NORMAL_OVERLAY, OVERLAY_LINE, PERFECT_FIT_LINE, TREND_LINE
+from mlframe.reporting.colors import NORMAL_OVERLAY
 logger = logging.getLogger(__name__)
 
 # plotly is an optional, heavy dependency: keep the import lazy (deferred off module load) but declare it
@@ -68,6 +69,8 @@ def _go():
 
 # Text-wrap budgets mirror the matplotlib renderer (~90 chars/line for the full-width suptitle, ~46 for one panel); plotly annotations need ``<br>`` (not ``\n``). Wrappers live inline because strict file-ownership scopes this fix to plotly.py.
 _SUPTITLE_WRAP_CHARS = 90
+# Caption point size, shared with the width measurement that wraps it (matches the matplotlib twin).
+_CAPTION_FONTSIZE = 10
 # Subplot-title font. plotly's own default (16) overflows horizontally into the adjacent subplot at a
 # typical 3-column figsize; 11 matches matplotlib's panel titles.
 _PANEL_TITLE_FONTSIZE = 11
@@ -88,6 +91,15 @@ _BAR_XTICK_MAXLEN = 60
 def _wrap_text(text: str, width: int, *, sep: str = "<br>") -> str:
     """Wrap ``text`` to ``width`` chars/line (each ``\n``-delimited line independently, preserving explicit breaks), folded with ``sep``."""
     return sep.join(wrap_title_lines(text, width))
+
+
+def _wrap_text_to_figure(text: str, *, fontsize: float, width_in: float, fallback_chars: int, sep: str = "<br>") -> str:
+    """Wrap to the figure's real width, measuring the font, and fold with plotly's ``<br>``.
+
+    Same reasoning as the matplotlib twin: a fixed chars-per-line budget is a claim about one width and one
+    font size, so at any other width the headline is broken early and the rest of the page goes unused.
+    """
+    return sep.join(wrap_text_to_width(text, fontsize=fontsize, width_in=width_in, fallback_chars=fallback_chars))
 
 
 # matplotlib marker token -> plotly symbol name. Anything outside this table is a marker the caller chose
@@ -211,6 +223,8 @@ class PlotlyRenderer:
     _heatmap: ClassVar[Any]
     _confusion_margins: ClassVar[Any]
     _colorbar_placement: ClassVar[Any]
+    # Bound at the bottom of this module from ``._plotly_scatter``, same as the two families above.
+    _scatter: ClassVar[Any]
 
     def render(self, spec: FigureSpec, *, static_legend: bool = False) -> Any:
         """Build a plotly figure from the spec.
@@ -247,14 +261,22 @@ class PlotlyRenderer:
             sub_specs.append(row_specs)
 
         # Subplot titles are HTML annotations: wrap long panel titles (~46 chars/line, matching matplotlib) so they fold instead of bleeding into the adjacent subplot, and convert ``\n`` -> ``<br>`` (plotly drops a raw newline).
+        # Measured against the font rather than counted in characters, for the reason the matplotlib twin
+        # documents: a diagnostic title is digits and CamelCase identifiers, not average-width characters.
         _panel_wrap = panel_title_wrap_chars(spec.figsize, cols)
+        _panel_w_in = float(spec.figsize[0]) / max(cols, 1)
         subplot_titles = []
         for row in spec.panels:
             for c in range(cols):
                 if c >= len(row) or row[c] is None:
                     subplot_titles.append("")
                 else:
-                    subplot_titles.append(_wrap_text(getattr(row[c], "title", "") or "", _panel_wrap))
+                    subplot_titles.append(
+                        _wrap_text_to_figure(
+                            getattr(row[c], "title", "") or "",
+                            fontsize=_PANEL_TITLE_FONTSIZE, width_in=_panel_w_in, fallback_chars=_panel_wrap,
+                        )
+                    )
 
         # Row 1's titles live in the top MARGIN, but every later row's is stamped into the inter-row gap -- which
         # was sized from the row count alone, so a tall title below row 1 had nothing reserved for it. Grow the gap
@@ -292,7 +314,7 @@ class PlotlyRenderer:
         # Figure-level layout. Reserve vertical headroom for the suptitle so it never lands on the first row of subplot titles: wrap it (~90 chars/line, matching matplotlib) then grow the top margin by the wrapped line count.
         n_suptitle_lines = 1
         if spec.suptitle:
-            wrapped_suptitle = _wrap_text(spec.suptitle, _SUPTITLE_WRAP_CHARS)
+            wrapped_suptitle = _wrap_text_to_figure(spec.suptitle, fontsize=spec.suptitle_fontsize, width_in=spec.figsize[0], fallback_chars=_SUPTITLE_WRAP_CHARS)
             n_suptitle_lines = wrapped_suptitle.count("<br>") + 1
             fig.update_layout(title=dict(
                 text=wrapped_suptitle,
@@ -312,7 +334,7 @@ class PlotlyRenderer:
         # never overlaps the axes or the below-figure legend.
         n_caption_lines = 0
         if spec.caption:
-            wrapped_caption = _wrap_text(spec.caption, _SUPTITLE_WRAP_CHARS)
+            wrapped_caption = _wrap_text_to_figure(spec.caption, fontsize=_CAPTION_FONTSIZE, width_in=spec.figsize[0], fallback_chars=_SUPTITLE_WRAP_CHARS)
             n_caption_lines = wrapped_caption.count("<br>") + 1
             fig.add_annotation(
                 text=wrapped_caption, xref="paper", yref="paper", x=0.5, y=0, xanchor="center", yanchor="top",
@@ -428,171 +450,6 @@ class PlotlyRenderer:
         fig.update_xaxes(visible=False, row=row, col=col)
         fig.update_yaxes(visible=False, row=row, col=col)
 
-    def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
-        """Render a scatter panel: downsamples above ``_SCATTER_MAX_POINTS`` (extremes-preserving), converts mpl marker-area sizing to plotly pixel-diameter, switches to WebGL above ``_SCATTER_WEBGL_THRESHOLD`` points (unless error bars are present, which Scattergl doesn't support), and layers optional highlight points, trend line, uncertainty band, overlay line, and a perfect-fit y=x diagonal on top."""
-        go = _go()
-
-        x = np.asarray(p.x)
-        y = np.asarray(p.y)
-        n = len(x)
-
-        # Per-point size / color arrays must follow the SAME row subset as x/y when downsampling.
-        size_arr = p.point_size if isinstance(p.point_size, np.ndarray) else None
-        color_arr = p.point_color if isinstance(p.point_color, np.ndarray) else None
-
-        if n > _SCATTER_MAX_POINTS:
-            _warn_scatter_downsample(n)
-            from mlframe.reporting.charts import subsample_preserving_extremes
-            idx = subsample_preserving_extremes(x, y, sample_size=_SCATTER_MAX_POINTS)
-            x, y = x[idx], y[idx]
-            if size_arr is not None and len(size_arr) == n:
-                size_arr = size_arr[idx]
-            if color_arr is not None and len(color_arr) == n:
-                color_arr = color_arr[idx]
-
-        marker: dict = dict(opacity=p.point_alpha)
-        # ScatterPanelSpec.point_size follows matplotlib's ``s=`` (area in pt^2); plotly marker.size is the
-        # DIAMETER in px. Without conversion large mpl areas blow up to giant circles and the auto-axis range
-        # goes haywire. Conversion: plotly_diameter_px = sqrt(mpl_area_pt2) * 1.33.
-        if size_arr is not None:
-            marker["size"] = np.sqrt(np.maximum(np.asarray(size_arr, dtype=float), 0.0)) * 1.33
-        else:
-            marker["size"] = float(math.sqrt(max(float(p.point_size), 0.0)) * 1.33)
-        if color_arr is not None:
-            marker["color"] = np.asarray(color_arr)
-            marker["colorscale"] = _mpl_to_plotly_cmap(p.colormap)
-            marker["showscale"] = bool(p.colorbar_label)
-            if p.colorbar_label:
-                marker["colorbar"] = dict(title=p.colorbar_label)
-        elif p.point_color is not None:
-            marker["color"] = p.point_color
-
-        # inline_labels are (x, y, text) triples placed AT THOSE COORDINATES on matplotlib. Using them as
-        # per-point marker text put them on the wrong points, and the len == n gate silently dropped a shorter
-        # list entirely -- the common case, since these annotate a handful of bins, not every row.
-        text = None
-        # add_annotation re-validates the whole growing tuple per call (O(n^2) over a loop), so only the FIRST call
-        # is made through it -- to let plotly resolve this subplot's axis refs -- and the rest are built as plain
-        # Annotation objects and assigned in one go.
-        _labels = tuple(p.inline_labels or ())
-        if _labels:
-            _lx, _ly, _ltext = _labels[0]
-            fig.add_annotation(x=_lx, y=_ly, text=str(_ltext), showarrow=False, font=dict(size=8), yshift=8, row=row, col=col)
-            if len(_labels) > 1:
-                _ref = fig.layout.annotations[-1]
-                _rest = tuple(
-                    go.layout.Annotation(
-                        x=lx, y=ly, text=str(txt), showarrow=False, font=dict(size=8), yshift=8,
-                        xref=_ref.xref, yref=_ref.yref,
-                    )
-                    for lx, ly, txt in _labels[1:]
-                )
-                fig.layout.annotations = fig.layout.annotations + _rest
-
-        # Per-point error bars (e.g. Wilson CIs on reliability bins). CI panels carry n=bin-count points (no
-        # downsample reorder), so the error arrays align with x/y as-passed; only attach when not downsampled.
-        error_y = error_x = None
-        if n <= _SCATTER_MAX_POINTS:
-            error_y = _err_to_plotly(p.y_err)
-            error_x = _err_to_plotly(p.x_err)
-
-        # WebGL renders large scatters orders of magnitude faster than SVG-mode go.Scatter; ndarrays pass
-        # through to plotly natively (faster + smaller than .tolist()). Scattergl has no error_y/error_x support,
-        # so a panel carrying error bars uses SVG-mode go.Scatter (bin counts are small, so no perf concern).
-        if error_y is not None or error_x is not None:
-            trace_cls = go.Scatter
-        else:
-            trace_cls = go.Scattergl if n > _SCATTER_WEBGL_THRESHOLD else go.Scatter
-        fig.add_trace(
-            trace_cls(x=x, y=y,
-                      mode="markers+text" if text else "markers",
-                      marker=marker,
-                      error_y=error_y, error_x=error_x,
-                      text=text,
-                      textposition="top center" if text else None,
-                      textfont=dict(size=8),
-                      name=p.legend_label or "",
-                      showlegend=bool(p.legend_label)),
-            row=row, col=col,
-        )
-
-        # Emphasised subset (worst-K errors): resolve indices against the ORIGINAL arrays (pre-downsample).
-        if p.highlight_indices is not None:
-            hi_idx = np.asarray(p.highlight_indices, dtype=np.int64)
-            ox, oy = np.asarray(p.x), np.asarray(p.y)
-            hi_idx = hi_idx[(hi_idx >= 0) & (hi_idx < len(ox))]
-            if hi_idx.size:
-                fig.add_trace(
-                    go.Scatter(x=ox[hi_idx], y=oy[hi_idx], mode="markers",
-                               marker=dict(symbol="circle-open", size=12,
-                                           line=dict(color=p.highlight_color, width=2)),
-                               name="worst-K", showlegend=True),
-                    row=row, col=col,
-                )
-
-        if p.trend_line is not None and n > 1:
-            from mlframe.reporting.renderers._trend import robust_fit_endpoints
-            ends = robust_fit_endpoints(np.asarray(p.x), np.asarray(p.y), p.trend_line)
-            if ends is not None:
-                (tx0, ty0), (tx1, ty1) = ends
-                fig.add_trace(
-                    go.Scatter(x=[tx0, tx1], y=[ty0, ty1], mode="lines",
-                               line=dict(color=TREND_LINE, width=2),
-                               name=f"robust fit ({p.trend_line})", showlegend=True),
-                    row=row, col=col,
-                )
-
-        if p.overlay_band is not None:
-            bx, blo, bhi = (np.asarray(a) for a in p.overlay_band)
-            fig.add_trace(
-                go.Scatter(x=bx, y=blo, mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip"),
-                row=row,
-                col=col,
-            )
-            fig.add_trace(
-                go.Scatter(x=bx, y=bhi, mode="lines", line=dict(width=0),
-                           fill="tonexty", fillcolor="rgba(128,0,128,0.18)",
-                           name="curve 95% band", showlegend=True, hoverinfo="skip"),
-                row=row, col=col,
-            )
-
-        if p.overlay_line is not None:
-            ox_grid, oy_grid, olabel = p.overlay_line
-            fig.add_trace(
-                go.Scatter(x=np.asarray(ox_grid), y=np.asarray(oy_grid), mode="lines", line=dict(color=OVERLAY_LINE, width=2), name=olabel, showlegend=True),
-                row=row,
-                col=col,
-            )
-
-        if p.perfect_fit_line and n > 0:
-            # Span the y=x line over the UNION of both axes so it stays the true diagonal even when prediction
-            # collapse (constant y) makes the y-range a single point; scaleanchor squares the panel so y=x is 45deg.
-            lo = float(min(np.min(x), np.min(y)))
-            hi = float(max(np.max(x), np.max(y)))
-            fig.add_trace(
-                go.Scatter(x=[lo, hi], y=[lo, hi], mode="lines", line=dict(color=PERFECT_FIT_LINE, dash="dash"), name="Perfect fit", showlegend=True),
-                row=row,
-                col=col,
-            )
-            y_range = list(p.ylim) if p.ylim is not None else [lo, hi]
-            x_range = list(p.xlim) if p.xlim is not None else [lo, hi]
-            if p.equal_aspect:
-                # Square the panel so y=x is 45deg; probability-vs-probability (calibration) skips this so the panel
-                # fills its cell width and aligns with the population histogram below.
-                fig.update_yaxes(scaleanchor=_axis_ref(fig, row, col), scaleratio=1.0, row=row, col=col)
-            fig.update_yaxes(range=y_range, row=row, col=col)
-            fig.update_xaxes(range=x_range, row=row, col=col)
-        else:
-            if p.equal_aspect:
-                fig.update_yaxes(scaleanchor=_axis_ref(fig, row, col), scaleratio=1.0, row=row, col=col)
-            if p.xlim is not None:
-                fig.update_xaxes(range=list(p.xlim), row=row, col=col)
-            if p.ylim is not None:
-                fig.update_yaxes(range=list(p.ylim), row=row, col=col)
-
-        fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid)
-        fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
-
     def _histogram(self, fig, p: HistogramPanelSpec, row: int, col: int) -> None:
         """Render a histogram panel: uses spec-supplied ``bin_centers`` directly, pre-bins raw values above ``_HIST_PREBIN_THRESHOLD`` (avoids embedding huge raw arrays into HTML), else falls back to plotly's own ``go.Histogram`` binning; optionally overlays a fitted Normal PDF curve spanning the bin range."""
         go = _go()
@@ -611,11 +468,18 @@ class PlotlyRenderer:
                 bin_centers = centers
 
         if bin_centers is not None:
+            # A per-bar width array and a single float are both valid here (plotly's ``Bar.width`` accepts either),
+            # so the binding is deliberately widened rather than coerced.
+            width_any: Any
             if heights is None:
                 heights = np.asarray(p.values)
-                width = float(p.bin_width if p.bin_width is not None else ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
+                if isinstance(p.bin_width, np.ndarray):
+                    width_any = np.asarray(p.bin_width, dtype=float)
+                else:
+                    width_any = float(p.bin_width if p.bin_width is not None else ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
             else:
-                width = float(width0)
+                width_any = float(width0)
+            width = width_any
             colors_kw: dict[str, Any] = dict(color=p.color)
             if p.bar_colors is not None:
                 # The range and its degeneracy guard were computed and then discarded -- `colors_kw` was
@@ -640,8 +504,7 @@ class PlotlyRenderer:
                 row=row, col=col,
             )
             if len(bin_centers) > 0:
-                overlay_x_lo = float(bin_centers[0] - width / 2.0)
-                overlay_x_hi = float(bin_centers[-1] + width / 2.0)
+                overlay_x_lo, overlay_x_hi = histogram_bar_extent(bin_centers, width)
         else:
             fig.add_trace(
                 go.Histogram(x=np.asarray(p.values),
@@ -977,3 +840,9 @@ from ._plotly_heatmap import (
 PlotlyRenderer._heatmap = _heatmap_impl
 PlotlyRenderer._confusion_margins = _confusion_margins_impl
 PlotlyRenderer._colorbar_placement = staticmethod(_colorbar_placement_impl)
+
+# ``_scatter`` too, for the same reason: the low-evidence split (a second, hollow trace for bins whose interval
+# is too wide to read) pushed this file back over the limit.
+from ._plotly_scatter import _scatter as _scatter_impl
+
+PlotlyRenderer._scatter = _scatter_impl

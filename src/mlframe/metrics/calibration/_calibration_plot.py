@@ -60,8 +60,11 @@ logger = logging.getLogger(__name__)
 # discrimination on imbalanced classes; MCC summarises all 4 cells
 # of the confusion matrix; BSS shows whether the probabilities beat
 # the marginal baseline.
+# ``BR``, not ``BR_DECOMP``: the decomposition renders as ``BR=20.5%(RL0.0%+U23.8%-RS3.2%)``, which is the
+# single longest token in the headline and the one a reader cannot parse without knowing the Murphy identity.
+# The decomposition is still available by asking for ``BR_DECOMP`` explicitly.
 DEFAULT_TITLE_METRICS_TOKENS: tuple = (
-    "ICE", "BR_DECOMP", "ECE", "CMAEW", "LL",
+    "ICE", "BR", "ECE", "CMAEW", "LL",
     "ROC_AUC", "PR_AUC", "KS", "MCC", "BSS",
 )
 
@@ -166,9 +169,11 @@ def render_title_metric_token(
         else:
             base = f"PR AUC={pr_auc:.{ndigits}f}{suffix}"
         # PR/RE/F1 are threshold-dependent, unlike the two AUCs beside them; printing them bare invited reading them as
-        # threshold-free summaries. The threshold is named once, in front of the group it governs.
-        at = f"@{binary_threshold:.2f}" if binary_threshold is not None else ""
-        return f"{base}, PR{at}={precision * 100:.{pct_digits}f}%," f"RE={recall * 100:.{pct_digits}f}%,F1={f1 * 100:.{pct_digits}f}%"
+        # threshold-free summaries. The threshold is named ONCE, in front of the bracketed group it governs, rather
+        # than repeated on each of the three -- one label for one fact.
+        prf = f"PR={precision * 100:.{pct_digits}f}%,RE={recall * 100:.{pct_digits}f}%,F1={f1 * 100:.{pct_digits}f}%"
+        group = f"@{binary_threshold:.2f}: [{prf}]" if binary_threshold is not None else prf
+        return f"{base}, {group}"
     if token == "KS":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         if np.isnan(ks):
             return "KS=N/A"
@@ -545,7 +550,7 @@ def show_calibration_plot(
     base_path: Optional[str] = None,
     dpi: Optional[int] = None,
     show_wilson_ci: bool = True,
-    reliability_smoothed: bool = True,
+    reliability_smoothed: bool = False,
     raw_probs: Optional[np.ndarray] = None,
     raw_labels: Optional[np.ndarray] = None,
 ):
@@ -568,7 +573,7 @@ def show_calibration_plot(
     band on the reliability scatter; it is forwarded to ``build_calibration_spec``
     (the legacy inline matplotlib path draws no CI band, so it has no effect there).
 
-    ``reliability_smoothed`` (default on) overlays a binning-free smoothed isotonic reliability curve fit on the raw
+    ``reliability_smoothed`` (default OFF) overlays a binning-free smoothed isotonic reliability curve fit on the raw
     per-row ``(raw_probs, raw_labels)`` pairs; these are passed as views, the smoother subsamples internally so no extra
     full-n copy is made. The overlay reaches the chart only via the DSL render path (build_calibration_spec); the legacy
     inline matplotlib path has no overlay. Absent raw arrays -> overlay simply not drawn (binned-only diagram, no crash).

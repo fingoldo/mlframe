@@ -73,11 +73,13 @@ class ReportingConfig(BaseConfig):
     rejected. Unknown tokens rejected. Empty string is legal (title gets
     only the user-supplied prefix).
 
-    Histogram subplot (``show_prob_histogram``, default True) draws a
+    Histogram subplot (``show_prob_histogram``, default False) draws a
     predicted-probability histogram under the reliability scatter, sharing
-    the X axis. Y-scale auto-picks log when ``max(hits)/max(min(hits),1) >
-    100`` and linear otherwise; override via
-    ``prob_histogram_yscale="log" | "linear"``. Inline per-bin population
+    the X axis. It is off by default because bubble area and the inline
+    label already state each bin's population, so the panel spends a third
+    of the figure restating it. Y-scale defaults to linear; override via
+    ``prob_histogram_yscale="log" | "auto"`` (``"auto"`` picks log when
+    ``max(hits)/max(min(hits),1) > 100``). Inline per-bin population
     text labels next to scatter points are independently controlled by
     ``show_inline_population_labels`` so users can keep both, drop both, or
     keep only one.
@@ -109,8 +111,11 @@ class ReportingConfig(BaseConfig):
 
     # Histogram subplot - independent toggles for the histogram itself and
     # for the inline population annotations on the scatter plot.
-    show_prob_histogram: bool = True
-    prob_histogram_yscale: Literal["auto", "log", "linear"] = "auto"
+    show_prob_histogram: bool = False
+    # Linear, not "auto". The auto rule flipped to log whenever the population skew exceeded 100x, which on a
+    # rare-event target is always -- and a log axis whose only labelled tick reads "10^2" states a scale and no
+    # values. "auto" is still available for a caller who wants the old behaviour.
+    prob_histogram_yscale: Literal["auto", "log", "linear"] = "linear"
     show_inline_population_labels: bool = True
 
     # Title-metrics template. Validator parses + populates title_metrics_tokens.
@@ -118,7 +123,9 @@ class ReportingConfig(BaseConfig):
     # preference - the most informative single-number summaries beyond
     # the calibration / AUC family. Gini is available as a token but
     # not in default (it's algebraically derivable from ROC_AUC).
-    title_metrics_template: str = "ICE BR_DECOMP ECE CMAEW LL ROC_AUC PR_AUC KS MCC BSS"
+    # ``BR`` rather than ``BR_DECOMP``: the decomposition renders as ``BR=20.5%(RL0.0%+U23.8%-RS3.2%)``, the
+    # longest token in the headline and the one a reader cannot decode without knowing the Murphy identity.
+    title_metrics_template: str = "ICE BR ECE CMAEW LL ROC_AUC PR_AUC KS MCC BSS"
     # Populated by the model_validator after title_metrics_template is validated.
     # Stored as a tuple so downstream hot-path code (fast_calibration_report)
     # never has to re-parse the string. Do not set directly - it is overwritten
@@ -154,6 +161,12 @@ class ReportingConfig(BaseConfig):
     # subfolder of the report directory (``png/...png``, ``html/...html``); the file NAMES are unchanged, so a caller
     # that knows the flat name finds the file by prepending the format directory. False restores the flat layout.
     plot_format_subfolders: bool = True
+
+    # Colormap for the reliability diagram's bubbles (and the bin-population panel when it is enabled). The library
+    # default is the diverging ``RdYlBu``, which suits the signed calibration gap the bubbles are coloured by: red
+    # over-confident, pale calibrated, blue under-confident. ``None`` keeps that default; any matplotlib colormap
+    # name overrides it for the run, so a report can be matched to a house palette without editing the chart.
+    calibration_colormap: Optional[str] = None
 
     # Opt-out for jupyter inline plot display.
     # ``None`` (default): auto-detect via ``__IPYTHON__`` / ``sys.ps1`` in ``render_and_save`` - inside a notebook kernel, figures render inline in the cell output AFTER on-disk save (the saved file is the artifact; the inline render is the operator-feedback path).

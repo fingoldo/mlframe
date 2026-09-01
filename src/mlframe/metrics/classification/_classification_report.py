@@ -231,7 +231,7 @@ def fast_calibration_report(
     show_inline_population_labels: bool = True,
     binning_strategy: str = "auto",
     reliability_show_ci: bool = True,
-    reliability_smoothed: bool = True,
+    reliability_smoothed: bool = False,
     #
     plot_file: str = "",
     plot_outputs: Optional[str] = None,
@@ -271,7 +271,7 @@ def fast_calibration_report(
     reliability diagram; set False to suppress it (the toggle reaches the chart via
     ``show_calibration_plot`` -> ``build_calibration_spec(show_wilson_ci=...)``).
 
-    ``reliability_smoothed`` (default on) overlays a binning-free smoothed isotonic reliability curve. The raw per-row
+    ``reliability_smoothed`` (default OFF) overlays a binning-free smoothed isotonic reliability curve. The raw per-row
     ``(y_pred, y_true)`` arrays this function already holds (post finite-mask) are forwarded as views to
     ``show_calibration_plot`` -> ``build_calibration_spec(raw_probs=, raw_labels=)``; the smoother subsamples internally
     so no extra full-n copy is made. The overlay rides the DSL render path only; the legacy inline path is unaffected.
@@ -456,19 +456,11 @@ def fast_calibration_report(
         if rendered:
             fragments.append(rendered)
 
-    # Per user feedback: insert a hard line
-    # break after the ``LL=`` fragment so the metrics-string doesn't
-    # render as one ~200-char wall. Two-line layout reads naturally:
-    # line 1 = calibration / loss family (ICE / BR / ECE / CMAEW / LL),
-    # line 2 = ranking / classification family (ROC / PR / PR / RE / F1).
-    metrics_string = ""
-    for i, frag in enumerate(fragments):
-        sep = ", "
-        if i == 0:
-            sep = ""
-        elif fragments[i - 1].startswith("LL="):
-            sep = "\n"
-        metrics_string += sep + frag
+    # One string, no hard break. The break that used to be forced after ``LL=`` predates the renderers
+    # measuring text: it split the headline at a fixed point regardless of how wide the figure was, so a wide
+    # figure got two short ragged lines instead of one full-width one. The renderers now wrap to the real
+    # canvas width, which is the only place that knows where the line actually has to end.
+    metrics_string = ", ".join(fragments)
 
     fig = None
 

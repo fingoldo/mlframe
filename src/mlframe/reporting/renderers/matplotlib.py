@@ -9,7 +9,7 @@ calls so we don't init a GUI backend on headless / parallel runs.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, ClassVar
 
 from mlframe._output_paths import ensure_parent_dir
 import numpy as np
@@ -23,10 +23,11 @@ from mlframe.reporting.spec import (
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
     _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS,
     _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
-    panel_title_wrap_chars, truncate_bar_label, wrap_annotation_text, wrap_title_lines,
+    _TITLE_REF_WIDTH_IN, histogram_bar_extent, low_evidence_mask, panel_title_wrap_chars, select_per_point, truncate_bar_label,
+    wrap_annotation_text, wrap_text_to_width, wrap_title_lines,
 )
 
-from mlframe.reporting.colors import OVERLAY_LINE, TREND_LINE
+from mlframe.reporting.colors import TREND_LINE
 logger = logging.getLogger(__name__)
 
 # Panel-title font cap so a verbose diagnostic title can't dwarf the panel. The chars-per-line budget is
@@ -35,34 +36,47 @@ _TITLE_FONTSIZE = 10
 
 
 def _set_panel_title(ax, title) -> None:
-    """Set an axes title, wrapping each line to a width-scaled chars/line budget and capping the font size.
+    """Set an axes title, wrapped to the panel's REAL width by measuring the font, and capped in size.
 
-    Two behaviours the flat ``textwrap.wrap(s, _TITLE_WRAP_CHARS)`` form got wrong:
+    Three behaviours the flat ``textwrap.wrap(s, _TITLE_WRAP_CHARS)`` form got wrong, in the order they were
+    found:
 
     * ``textwrap.wrap`` treats ``\\n`` as ordinary whitespace, so any explicit line break the CALLER put in
       the title was silently collapsed and re-flowed. Each line is now wrapped independently, so deliberate
       breaks survive.
     * ``_TITLE_WRAP_CHARS`` is calibrated for a ~6-inch panel but was applied at any panel width, so a wide
-      panel folded its title into a narrow ragged column with most of the width left empty. The budget now
-      scales with the axes' real width.
+      panel folded its title into a narrow ragged column with most of the width left empty.
+    * Scaling that budget with panel width fixed the second point but kept the assumption underneath it --
+      that every character is as wide as the calibration's average. A diagnostic title is mostly digits,
+      percent signs and CamelCase identifiers, none of which are that average, so the line still broke in the
+      wrong place. The budget is now the measured width of the actual glyphs.
     """
     if not title:
         return
     # ``ax.get_position().width`` is the axes' width as a FRACTION of the figure, so multiplying by the
-    # figure width yields this panel's real width in inches -- the quantity the budget is calibrated on.
+    # figure width yields this panel's real width in inches -- the quantity being filled.
     try:
         panel_w = float(ax.get_position().width) * float(ax.figure.get_size_inches()[0])
     except Exception:
         logger.debug("could not measure panel width for title wrapping; falling back to the unscaled budget", exc_info=True)
         panel_w = None
-    width = panel_title_wrap_chars((panel_w, 0), 1) if panel_w else panel_title_wrap_chars(None, 1)
-    ax.set_title("\n".join(wrap_title_lines(title, width)), fontsize=_TITLE_FONTSIZE)
+    fallback = panel_title_wrap_chars((panel_w, 0), 1) if panel_w else panel_title_wrap_chars(None, 1)
+    # Explicit rather than ``panel_w or REF``: a measured width of exactly 0 is a degenerate axes, not a
+    # missing measurement, and the two deserve the same fallback for DIFFERENT reasons -- said once, here.
+    width_in = panel_w if (panel_w is not None and panel_w > 0.0) else _TITLE_REF_WIDTH_IN
+    lines = wrap_text_to_width(title, fontsize=_TITLE_FONTSIZE, width_in=width_in, fallback_chars=fallback)
+    ax.set_title("\n".join(lines), fontsize=_TITLE_FONTSIZE)
 
 
 # Wrap budgets, mirroring the plotly renderer: ~90 chars for the full-figure suptitle, ~110 for the
 # wider caption band beneath it.
 _SUPTITLE_WRAP_CHARS = 90
 _CAPTION_WRAP_CHARS = 110
+# Caption point size, shared by the renderer and the width measurement that wraps it.
+_CAPTION_FONTSIZE = 7
+# A point within this fraction of an axis edge gets its inline label flipped to the other side, so the text
+# stays inside the panel instead of being clipped mid-word.
+_EDGE_LABEL_FLIP_FRACTION = 0.08
 # Bar-category label policy, matching the plotly renderer: past this many categories show ~_BAR_TICK_KEEP
 # evenly-spaced labels, and cap any single label so a long generated feature name cannot run off the axis.
 _BAR_TICK_THIN_THRESHOLD = 25
@@ -93,6 +107,8 @@ class MatplotlibRenderer:
     """Renders a ``FigureSpec`` to a ``matplotlib.figure.Figure`` via a headless ``Figure`` + ``FigureCanvasAgg`` (never through pyplot), dispatching each panel to a per-type ``_<kind>`` method."""
 
     backend = "matplotlib"
+    # Bound at the bottom of this module from ``._matplotlib_scatter``.
+    _scatter: ClassVar[Any]
 
     def render(self, spec: FigureSpec, *, static_legend: bool = False) -> Any:
         """Build the grid of subplots described by ``spec`` (row/col ratios, optional suptitle/caption), render every panel into its cell, and return the assembled ``Figure``."""
@@ -163,32 +179,46 @@ class MatplotlibRenderer:
                 cbar_axes = col_axes[c] if (spec.sharex and len(col_axes[c]) > 1) else ax
                 self._render_panel(ax, panel, fig, cbar_axes=cbar_axes)
 
+        # Title and caption both live in bands reserved OUTSIDE the axes rectangle, and both bands are measured
+        # from the wrapped line count rather than assumed. constrained_layout is documented to make room for a
+        # suptitle, but it under-reserves for a multi-line one: a three-line model identity on a 12x6 figure
+        # started 25 px BELOW the top of the axes, printing the run's own metrics across its own chart.
+        _h_px = fig.get_size_inches()[1] * (fig.get_dpi() or 100.0)
+        _top_band = 0.0
+        _bottom_band = 0.0
+        _sup_text = ""
+        _cap = ""
         if spec.suptitle:
-            # Wrap a long suptitle so it doesn't overflow the figure width (a verbose model identity
-            # like "TEST LGBMRegressor TVT basic_new ... trained on 4.1M rows @iter=298 training curves"
-            # ran off the right edge). Wrap each author-supplied line independently so explicit newlines
-            # are preserved; ~90 chars suits the full figure width (vs ~46 for a single panel).
-            _sup_lines = wrap_title_lines(spec.suptitle, _SUPTITLE_WRAP_CHARS)
-            fig.suptitle("\n".join(_sup_lines), fontsize=spec.suptitle_fontsize)
+            # Broken at the real edge of the canvas, not at a character count. The fixed ~90-char budget this
+            # replaces was calibrated at one width and one font size and then applied at every width, so a
+            # wide figure folded a verbose model identity into a narrow ragged column with a third of the
+            # figure unused -- the text was being broken by an assumption rather than by the page.
+            _sup_lines = wrap_text_to_width(spec.suptitle, fontsize=spec.suptitle_fontsize, width_in=fig.get_size_inches()[0], fallback_chars=_SUPTITLE_WRAP_CHARS)
+            _sup_text = "\n".join(_sup_lines)
+            _top_band = min(0.35, (len(_sup_lines) * (spec.suptitle_fontsize + 3.0) + 12.0) / _h_px)
         if spec.caption:
             # How-to-read footnote, small + dim, in a reserved bottom band so it never overlaps the x-axis label.
-            # constrained_layout (forced on above when a caption is present) is told to leave the band free via rect.
             # Wrap through the shared helper so an author-supplied line break in a caption SURVIVES.
             # ``textwrap.wrap`` treats a newline as ordinary whitespace and re-flows it away, silently
             # collapsing the deliberate structure captions are written with (one clause per line, a VERDICT
-            # sentence on its own). The suptitle above already used the per-line form; the caption did not.
-            _cap_lines = wrap_title_lines(spec.caption, _CAPTION_WRAP_CHARS)
+            # sentence on its own).
+            _cap_lines = wrap_text_to_width(spec.caption, fontsize=_CAPTION_FONTSIZE, width_in=fig.get_size_inches()[0], fallback_chars=_CAPTION_WRAP_CHARS)
             _cap = "\n".join(_cap_lines)
-            _h_px = fig.get_size_inches()[1] * (fig.get_dpi() or 100.0)
-            _band = min(0.30, (len(_cap_lines) * 11.0 + 12.0) / _h_px)  # bottom fraction reserved for the caption
+            _bottom_band = min(0.30, (len(_cap_lines) * 11.0 + 12.0) / _h_px)
+        if _top_band or _bottom_band:
             _eng = fig.get_layout_engine()
             if _eng is not None:
                 try:
-                    _eng.set(rect=(0.0, _band, 1.0, 1.0))  # type: ignore[call-arg]  # matplotlib stubs type _eng as the base LayoutEngine; constrained_layout was forced on above so this is always a ConstrainedLayoutEngine, whose .set() does accept rect
+                    _eng.set(rect=(0.0, _bottom_band, 1.0, 1.0 - _bottom_band - _top_band))  # type: ignore[call-arg]  # matplotlib stubs type _eng as the base LayoutEngine; constrained_layout was forced on above so this is always a ConstrainedLayoutEngine, whose .set() does accept rect
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                     logger.debug("suppressed: %s", e)
                     pass
-            fig.text(0.5, _band * 0.5, _cap, ha="center", va="center", fontsize=7, color="0.35")
+        if _sup_text:
+            # Centred in its own band. Left to constrained_layout's own placement the multi-line case lands on
+            # the axes; anchored here it cannot, because the band is exactly what the axes rectangle excludes.
+            fig.suptitle(_sup_text, fontsize=spec.suptitle_fontsize, y=1.0 - _top_band * 0.5, va="center")
+        if _cap:
+            fig.text(0.5, _bottom_band * 0.5, _cap, ha="center", va="center", fontsize=_CAPTION_FONTSIZE, color="0.35")
         return fig
 
     def save(self, fig: Any, path: str, fmt: str) -> None:
@@ -277,119 +307,6 @@ class MatplotlibRenderer:
         for spine in ax.spines.values():
             spine.set_visible(False)
 
-    def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
-        """Render a scatter panel: subsamples above ``_SCATTER_MAX_POINTS`` (preserving extremes, rasterized), then layers optional error bars, highlighted worst-K points, trend line, overlay band/line, y=x reference and inline labels/colorbar/legend on top."""
-        import matplotlib
-        x = np.asarray(p.x)
-        y = np.asarray(p.y)
-        n = len(x)
-        size_arr = p.point_size if isinstance(p.point_size, np.ndarray) else None
-        color_arr = p.point_color if isinstance(p.point_color, np.ndarray) else None
-
-        rasterized = False
-        if n > _SCATTER_MAX_POINTS:
-            from mlframe.reporting.charts import subsample_preserving_extremes
-            idx = subsample_preserving_extremes(x, y, sample_size=_SCATTER_MAX_POINTS)
-            x, y = x[idx], y[idx]
-            if size_arr is not None and len(size_arr) == n:
-                size_arr = size_arr[idx]
-            if color_arr is not None and len(color_arr) == n:
-                color_arr = color_arr[idx]
-            rasterized = True  # capped scatter still rasterized so a vector export stays small.
-
-        # Per-point error bars (e.g. Wilson CIs on reliability bins). Drawn before the scatter so the markers
-        # sit on top. Subsample never reorders for these CI panels (n is bin-count, well under the cap), so the
-        # error arrays align with x/y as-passed.
-        if p.y_err is not None or p.x_err is not None:
-            yerr = _err_to_mpl(p.y_err)
-            xerr = _err_to_mpl(p.x_err)
-            ax.errorbar(x, y, yerr=yerr, xerr=xerr, fmt="none", ecolor="gray", elinewidth=1.0, capsize=3, alpha=0.7, zorder=1)
-
-        # plotly names the scatter trace from `legend_label`; matplotlib never passed it to `ax.scatter`, so
-        # the label was dropped AND the legend call below drew an empty box (matplotlib warns about it) on
-        # every scatter that set one. Passing it makes the two backends agree and gives the legend content.
-        kw: dict[str, Any] = {"alpha": p.point_alpha, "rasterized": rasterized}
-        if p.legend_label:
-            kw["label"] = p.legend_label
-        kw["s"] = size_arr if size_arr is not None else float(p.point_size)
-        if color_arr is not None:
-            kw["c"] = color_arr
-            kw["cmap"] = matplotlib.colormaps[p.colormap]
-        elif p.point_color is not None:
-            kw["color"] = p.point_color
-        sc = ax.scatter(x, y, **kw)
-
-        # Emphasised subset (worst-K errors): drawn on top, larger + colored. Indices are positions into the
-        # ORIGINAL arrays, so resolve against the pre-subsample data (``p.x`` / ``p.y``), not the capped ``x``/``y``.
-        if p.highlight_indices is not None:
-            hi_idx = np.asarray(p.highlight_indices, dtype=np.int64)
-            ox, oy = np.asarray(p.x), np.asarray(p.y)
-            hi_idx = hi_idx[(hi_idx >= 0) & (hi_idx < len(ox))]
-            if hi_idx.size:
-                base_s = float(p.point_size) if size_arr is None else float(np.median(np.asarray(p.point_size)))
-                ax.scatter(ox[hi_idx], oy[hi_idx], s=base_s * 4.0, facecolors="none", edgecolors=p.highlight_color, linewidths=1.5, zorder=5, label="worst-K")
-
-        if p.trend_line is not None and n > 1:
-            from mlframe.reporting.renderers._trend import robust_fit_endpoints
-            ends = robust_fit_endpoints(np.asarray(p.x), np.asarray(p.y), p.trend_line)
-            if ends is not None:
-                (tx0, ty0), (tx1, ty1) = ends
-                ax.plot([tx0, tx1], [ty0, ty1], color=TREND_LINE, linestyle="-", linewidth=1.6, zorder=4, label=f"robust fit ({p.trend_line})")
-
-        if p.overlay_band is not None:
-            bx, blo, bhi = (np.asarray(a) for a in p.overlay_band)
-            ax.fill_between(bx, blo, bhi, color=OVERLAY_LINE, alpha=0.18, zorder=3, linewidth=0, label="curve 95% band")
-
-        if p.overlay_line is not None:
-            ox_grid, oy_grid, olabel = p.overlay_line
-            ax.plot(np.asarray(ox_grid), np.asarray(oy_grid), color=OVERLAY_LINE, linestyle="-", linewidth=1.8, zorder=4, label=olabel)
-
-        if p.perfect_fit_line and n > 0:
-            # Span y=x over the UNION of both axes (so it stays the diagonal even when prediction collapse makes
-            # y constant) and square the panel so y=x is a true 45-degree line.
-            lo = float(min(np.min(x), np.min(y)))
-            hi = float(max(np.max(x), np.max(y)))
-            ax.plot([lo, hi], [lo, hi], "g--", label="Perfect fit")
-            if not p.equal_aspect:
-                # Probability-vs-probability (calibration): the diagonal spans corner-to-corner at any aspect, so let
-                # the panel fill its cell width and align with the histogram below; xlim/ylim are applied just after.
-                pass
-            elif p.xlim is not None or p.ylim is not None:
-                # Explicit limits given: "datalim" would discard set_xlim to satisfy equal aspect (large bubble
-                # markers then drive x far past the data); "box" keeps the fixed limits and squares via the box.
-                ax.set_aspect("equal", "box")
-            else:
-                # Equal lo..hi limits on both axes already make the diagonal a true 45-degree line; square via the box
-                # ("box" respects the fixed limits). "datalim" would instead adjust the limits to satisfy the aspect and
-                # log "Ignoring fixed x limits to fulfill fixed data aspect" on every scatter panel.
-                ax.set_xlim(lo, hi)
-                ax.set_ylim(lo, hi)
-                ax.set_aspect("equal", "box")
-        elif p.equal_aspect:
-            # The flag used to be read only inside the perfect-fit branch, so asking for a square panel
-            # without that diagonal silently did nothing.
-            ax.set_aspect("equal", "box")
-        if p.xlim is not None:
-            ax.set_xlim(*p.xlim)
-        if p.ylim is not None:
-            ax.set_ylim(*p.ylim)
-
-        if p.inline_labels:
-            for lx, ly, txt in p.inline_labels:
-                ax.text(lx, ly, txt, fontsize=8, ha="right", va="bottom")
-
-        if p.colorbar_label and color_arr is not None:
-            cbar = fig.colorbar(sc, ax=(cbar_axes if cbar_axes is not None else ax))
-            cbar.set_label(p.colorbar_label)
-
-        ax.set_xlabel(p.xlabel)
-        ax.set_ylabel(p.ylabel)
-        _set_panel_title(ax, p.title)
-        if p.legend_label or p.perfect_fit_line or p.trend_line or p.overlay_line is not None or p.overlay_band is not None or p.highlight_indices is not None:
-            ax.legend(loc="best", fontsize=8, framealpha=0.7)
-        if p.grid:
-            ax.grid(True, alpha=0.3)
-
     def _histogram(self, ax, p: HistogramPanelSpec) -> None:
         """Render a histogram panel: uses pre-binned ``bin_centers`` when given (or pre-bins above ``_HIST_PREBIN_THRESHOLD`` rather than letting ``ax.hist`` re-scan the full array), else falls back to ``ax.hist`` on finite values only; optionally overlays a fitted Normal PDF."""
         import matplotlib
@@ -405,7 +322,10 @@ class MatplotlibRenderer:
         if bin_centers is not None:
             if heights is None:
                 heights = np.asarray(p.values)
-                width = float(p.bin_width or ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
+                if isinstance(p.bin_width, np.ndarray):
+                    width = np.asarray(p.bin_width, dtype=float)
+                else:
+                    width = float(p.bin_width or ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
             colors_kw: dict[str, Any] = {"color": p.color}
             if p.bar_colors is not None:
                 cm = matplotlib.colormaps[p.colormap]
@@ -417,8 +337,7 @@ class MatplotlibRenderer:
             ax.bar(bin_centers, heights, width=width, align="center", edgecolor="white", linewidth=0.5, **colors_kw)
             if len(bin_centers) > 0:
                 assert width is not None
-                overlay_x_lo = float(bin_centers[0] - width / 2.0)
-                overlay_x_hi = float(bin_centers[-1] + width / 2.0)
+                overlay_x_lo, overlay_x_hi = histogram_bar_extent(bin_centers, width)
         else:
             # ax.hist autodetects its range from the data and raises on empty / all-non-finite input; drop
             # non-finite first and fall back to an empty axes when nothing is left to bin.
@@ -446,6 +365,20 @@ class MatplotlibRenderer:
         ax.set_ylabel(p.ylabel)
         _set_panel_title(ax, p.title)
         ax.set_yscale(p.yscale)
+        if p.yscale == "linear":
+            # A short panel gets matplotlib's sparsest tick set -- two or three labels for the whole axis, which
+            # is not enough to read a bar's value off. Ask for a denser set that still lands on round numbers.
+            from matplotlib.ticker import MaxNLocator
+
+            ax.yaxis.set_major_locator(MaxNLocator(nbins=6, min_n_ticks=4, steps=[1, 2, 2.5, 5, 10]))
+        if p.yscale == "log":
+            # matplotlib's default log locator only labels decades, so a histogram spanning a decade and a bit
+            # gets ONE labelled tick -- the axis then carries a scale name and no readable values. Asking for
+            # several ticks plus the 2/5 subdivisions puts numbers back on it.
+            from matplotlib.ticker import LogFormatterSciNotation, LogLocator
+
+            ax.yaxis.set_major_locator(LogLocator(base=10.0, subs=(1.0, 2.0, 5.0), numticks=8))
+            ax.yaxis.set_major_formatter(LogFormatterSciNotation(base=10.0))
         if p.xlim is not None:
             ax.set_xlim(*p.xlim)
         if p.grid:
@@ -890,3 +823,11 @@ class MatplotlibRenderer:
 
 
 __all__ = ["MatplotlibRenderer"]
+
+
+# ``_scatter`` lives in a sibling module (this file crossed the 1000-LOC house limit once the low-evidence
+# split and the per-label contrast landed); bound back onto the class here so the ``_render_panel`` dispatch
+# and any external ``MatplotlibRenderer._scatter`` reference keep resolving unchanged.
+from ._matplotlib_scatter import _scatter as _scatter_impl
+
+MatplotlibRenderer._scatter = _scatter_impl

@@ -6,9 +6,13 @@ implementation lives here so the two backends can't drift.
 """
 from __future__ import annotations
 
-from typing import Any
+import logging
+import threading
+from typing import Any, Optional, Tuple
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # A density heatmap bins into ~80x80 cells, so one tick per cell-label overlaps into unreadable soup. Above this
 # many labels, show at most this many evenly-spaced ticks (the rest of the grid is still drawn).
@@ -59,6 +63,51 @@ def _finite_range(mat):
     return float(finite.min()), float(finite.max())
 
 
+def histogram_bar_extent(bin_centers: Any, width: Any) -> Tuple[Optional[float], Optional[float]]:
+    """``(left_edge_of_first_bar, right_edge_of_last_bar)`` for a pre-binned bar panel.
+
+    ``width`` is a scalar for evenly-spaced bins and a per-bar array for uneven ones, so halving it wholesale
+    raises on the array case -- which is how a per-bar width first reached production as a ``TypeError`` from a
+    plotly worker rather than as a wrong-looking chart. Both backends anchor their Normal-overlay grid on this
+    pair and both got it wrong the same way, so the arithmetic lives here once.
+    """
+    centres = np.asarray(bin_centers)
+    if centres.size == 0:
+        return None, None
+    arr = isinstance(width, np.ndarray)
+    first = float(width[0]) if arr else float(width)
+    last = float(width[-1]) if arr else float(width)
+    return float(centres[0] - first / 2.0), float(centres[-1] + last / 2.0)
+
+
+def select_per_point(value: Any, mask: np.ndarray, n: int) -> Any:
+    """Narrow ``value`` to ``mask`` when it is a per-point array of length ``n``; return it untouched otherwise.
+
+    Splitting a scatter into two traces (filled observations, hollow weak ones) has to carry every per-point
+    field along -- sizes, colours -- while leaving the scalar style fields alone. Both backends need exactly
+    this test, and getting it wrong is silent: a size array that is not narrowed either raises or, worse,
+    pairs each point with another point's size.
+    """
+    if isinstance(value, np.ndarray) and len(value) == n:
+        return value[mask]
+    return value
+
+
+def low_evidence_mask(indices: Any, n: int) -> np.ndarray:
+    """Boolean mask over ``n`` points marking those a builder flagged as resting on too little data.
+
+    Shared so the two backends cannot disagree about WHICH points are unreadable: a bin drawn hollow in the PNG
+    and solid in the interactive HTML is one chart contradicting itself. Out-of-range indices are dropped rather
+    than raising, because this only controls emphasis.
+    """
+    mask = np.zeros(max(int(n), 0), dtype=bool)
+    if indices is None or mask.size == 0:
+        return mask
+    idx = np.asarray(indices, dtype=np.int64)
+    mask[idx[(idx >= 0) & (idx < mask.size)]] = True
+    return mask
+
+
 def _per_series_flags(flag, n: int):
     """Normalize a per-series bool flag (single bool / tuple / None) into a length-n bool list."""
     if flag is None:
@@ -74,6 +123,142 @@ def _per_series_flags(flag, n: int):
 # panel width, so a wide figure folded its title into a narrow ragged column using a fraction of the space.
 _PANEL_TITLE_WRAP_CHARS = 46
 _TITLE_REF_WIDTH_IN = 6.0
+
+
+# Per-fontsize character-advance tables. One table serves every string at that size, so the font is touched
+# once per size per process rather than once per line. Guarded because ``render_and_save`` renders its backends
+# CONCURRENTLY in a thread pool, and both call in here: without the lock two threads racing on the same new size
+# each build their own table (matplotlib's font machinery is not reentrant, and the wasted build is the benign
+# half of the problem).
+_CHAR_ADVANCE_CACHE: dict = {}
+_CHAR_ADVANCE_LOCK = threading.Lock()
+# Left+right breathing room reserved when fitting text to the figure width, in inches.
+_TEXT_SIDE_MARGIN_IN = 0.35
+
+
+def _char_advances(fontsize: float) -> dict:
+    """Per-character horizontal advance (in points) for the active font at ``fontsize``, built once and cached.
+
+    This replaced measuring each candidate LINE with ``matplotlib.textpath.TextPath``, which rasterises glyph
+    outlines: at ~8 ms a call, greedily wrapping one 40-word headline cost **4.2 seconds**, and a suite rendering
+    hundreds of charts hit the renderer's 60 s per-figure timeout. Advances are what a font actually lays text
+    out with, the table is 95 entries built in ~14 ms per size, and summing it is ~10 us per line -- validated
+    against matplotlib's own ``get_text_width_height_descent`` to within 0.11% on realistic titles, which is far
+    inside the margin already reserved at each side of the figure.
+    """
+    cached: "dict | None" = _CHAR_ADVANCE_CACHE.get(fontsize)
+    if cached is not None:
+        return cached
+    from matplotlib import font_manager, ft2font
+
+    with _CHAR_ADVANCE_LOCK:
+        # Re-checked inside the lock: another thread may have built this size while this one waited.
+        under_lock: "dict | None" = _CHAR_ADVANCE_CACHE.get(fontsize)
+        if under_lock is not None:
+            return under_lock
+        # The STORE happens here, under the lock that guards it, rather than inside the builder. A builder that
+        # writes a cache while its CALLER holds the lock is the "locked elsewhere, unlocked here" shape: the
+        # module greps as lock-aware, so a later caller that forgets the lock still reads as correct.
+        table = _build_char_advances(fontsize, font_manager, ft2font)
+        _CHAR_ADVANCE_CACHE[fontsize] = table
+        return table
+
+
+def _build_char_advances(fontsize: float, font_manager: Any, ft2font: Any) -> dict:
+    """Load the font once and tabulate every printable-ASCII advance. Called under ``_CHAR_ADVANCE_LOCK``."""
+    font = ft2font.FT2Font(font_manager.findfont(font_manager.FontProperties(size=fontsize)))
+    font.set_size(fontsize, 72)  # 72 dpi so the advance comes out in points directly
+    # ``LoadFlags`` replaced the module-level constants in matplotlib 3.10; the old spelling still resolves on
+    # older releases, so both are tried by name -- only one of the two exists in any given install.
+    try:
+        flags = ft2font.LoadFlags.NO_HINTING
+    except AttributeError:
+        flags = ft2font.LOAD_NO_HINTING  # pre-3.10 spelling, deprecated but still present
+    table: dict = {}
+    for code in range(32, 127):
+        table[chr(code)] = float(font.load_char(code, flags=flags).linearHoriAdvance) / 65536.0
+    # Anything outside printable ASCII (a degree sign, a plus-minus, CJK) falls back to the widest letter rather
+    # than to an average: over-estimating breaks a line early, under-estimating runs it off the canvas.
+    table["\x00default"] = max(table.values())
+    return table
+
+
+def _measured_text_width_pt(text: str, fontsize: float) -> float:
+    """Width of ``text`` in points, measured on the ACTIVE font rather than counted in characters.
+
+    A character budget is a guess about the font: proportional faces put ``i`` and ``W`` an order of
+    magnitude apart, so one constant is simultaneously too generous for a title full of capitals and far too
+    stingy for a run of digits and punctuation -- which is exactly what a metrics headline is. Summing real
+    advances removes the guess without paying for glyph outlines.
+    """
+    table = _char_advances(fontsize)
+    default = table["\x00default"]
+    return float(sum(table.get(ch, default) for ch in text))
+
+
+def _split_overlong_word(word: str, fontsize: float, budget_pt: float) -> list[str]:
+    """Break one token that is wider than the whole line into measured pieces.
+
+    A generated column name, a file path or a serialised param dict carries no spaces, so a space-only wrapper
+    leaves it whole and it runs straight out of the panel. The cut point is found by bisection on the MEASURED
+    prefix width -- about log2(len) measurements rather than one per character.
+    """
+    pieces: list[str] = []
+    rest = word
+    while rest and _measured_text_width_pt(rest, fontsize) > budget_pt:
+        lo, hi = 1, len(rest)
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if _measured_text_width_pt(rest[:mid], fontsize) <= budget_pt:
+                lo = mid
+            else:
+                hi = mid - 1
+        pieces.append(rest[:lo])
+        rest = rest[lo:]
+    if rest:
+        pieces.append(rest)
+    return pieces
+
+
+def wrap_text_to_width(text: Any, *, fontsize: float, width_in: float, fallback_chars: int = 90, break_long_words: bool = False) -> list[str]:
+    """Wrap ``text`` to the real width of a ``width_in``-inch figure, measuring the font instead of counting characters.
+
+    The fixed character budgets this replaces (90 for a suptitle, 110 for a caption) were calibrated once and
+    then applied at every figure width and font size, so a wide figure folded its headline into a narrow
+    ragged column with a third of the width unused -- the text was being broken by an assumption, not by the
+    edge of the canvas.
+
+    An explicit line break in the text is honoured: each segment is wrapped independently, so a deliberate
+    break survives. Any measurement failure falls back to the character budget: this only controls text
+    layout and must never raise.
+    """
+    lines_in = str(text).splitlines() or [""]
+    try:
+        budget_pt = max(float(width_in) - 2.0 * _TEXT_SIDE_MARGIN_IN, 1.0) * 72.0
+        out: list[str] = []
+        for segment in lines_in:
+            words = segment.split()
+            if not words:
+                out.append("")
+                continue
+            if break_long_words:
+                expanded: list[str] = []
+                for word in words:
+                    expanded.extend(_split_overlong_word(word, fontsize, budget_pt))
+                words = expanded
+            current = words[0]
+            for word in words[1:]:
+                candidate = current + " " + word
+                if _measured_text_width_pt(candidate, fontsize) <= budget_pt:
+                    current = candidate
+                else:
+                    out.append(current)
+                    current = word
+            out.append(current)
+        return out
+    except Exception:
+        logger.debug("measured text wrapping failed; falling back to the character budget", exc_info=True)
+        return wrap_title_lines(text, fallback_chars)
 
 
 def panel_title_wrap_chars(figsize: Any, cols: int = 1) -> int:
@@ -102,18 +287,20 @@ def wrap_annotation_text(text: Any, panel_width_in: float, fontsize: float) -> s
     the neighbouring panel. plotly does not wrap free text whatsoever, and paints annotations ABOVE traces, so the
     overflow lands visually on top of whatever sits beside it.
 
-    The character budget assumes an average glyph advance of ~0.6 em, which is close enough for the sans-serif faces
-    both backends default to; the point is to bound the line, not to typeset it exactly.
+    The line is now bounded by MEASURED glyph widths rather than by an assumed ~0.6 em average advance. That
+    assumption is wrong in both directions on the text this actually wraps: a metric dict is mostly digits and
+    punctuation (narrower, so the panel went under-filled) while a class name in CamelCase is mostly capitals
+    (wider, so it still overflowed the panel the budget was supposed to protect).
     """
-    import textwrap
-
     usable_in = max(float(panel_width_in) * 0.92, 0.5)  # leave a small margin inside the panel
-    char_w_in = max(float(fontsize), 1.0) * 0.6 / 72.0
-    width = max(12, int(usable_in / char_w_in))
-    out: list = []
-    for line in str(text).split("\n"):
-        out.extend(textwrap.wrap(line, width=width, break_long_words=True, break_on_hyphens=True) or [""])
-    return "\n".join(out)
+    lines = wrap_text_to_width(
+        text,
+        fontsize=fontsize,
+        width_in=usable_in + 2.0 * _TEXT_SIDE_MARGIN_IN,  # the helper reserves its own side margins; this keeps the 0.92 factor as the only one
+        fallback_chars=max(12, int(usable_in / (max(float(fontsize), 1.0) * 0.6 / 72.0))),
+        break_long_words=True,
+    )
+    return "\n".join(lines)
 
 
 def wrap_title_lines(text: Any, width: int) -> list[str]:
