@@ -43,6 +43,8 @@ fit.
 `_reset_for_tests` (:103-109). :89 proves the author already distinguished the genuinely-unavailable case, so
 :93 is by construction the unexpected-failure branch. Cluster-wide count of KTC consumers: 268.
 
+**Disposition:** RESOLVED in the P0 pass, same file and handler as XCUT_SWALLOWED_FAILURES-1: `_kernel_tuning.py` uses a bounded `_MAX_INIT_ATTEMPTS = 3` retry plus a `logger.warning`, so one corrupt read no longer latches the singleton off for the process.
+
 ### FS_FILTERS_MRMR-2 [P2] silent-backend-downgrade
 
 **File:** `src/mlframe/feature_selection/filters/_kernel_tuning.py` :53, :62-65

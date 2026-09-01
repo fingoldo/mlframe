@@ -48,6 +48,8 @@ asserting two differently-coloured bars come out of a two-row spec.
 `charts/`: this is the only single-series `BarPanelSpec` passing a length-N tuple; every other is a
 `LinePanelSpec` (per-series, correct) or a length-1 tuple.
 
+**Disposition:** RESOLVED in both renderers. A `colors` tuple as long as `values` on a SINGLE-series `BarPanelSpec` is now taken as one colour per BAR: matplotlib's bar/barh accept a sequence, and plotly's `marker.color` accepts an array. `BarPanelSpec.colors` documents the two readings. `tests/reporting/test_signed_bars_get_their_own_colour.py` renders through both renderers and inspects the painted patch colours / trace markers, so reverting either call site fails it.
+
 ### REPORTING-2 [P2] index-misalignment -- FIXED 2026-09-01
 
 **File:** `charts/calibration.py` :605 and :421-426

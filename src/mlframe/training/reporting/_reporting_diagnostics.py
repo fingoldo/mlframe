@@ -168,11 +168,16 @@ def _ranked_feature_names(metrics, model, columns) -> tuple[list[str] | None, li
     return names, None
 
 
-def _build_learning_curve(model, df, targets, columns, target_type, lc_cfg, metrics, metadata_target_name="learning_curve"):
-    """Opt-in learning curve: refit a fresh clone of ``model`` on log-spaced train-size prefixes; store + render.
+def _build_learning_curve(model, df, targets, columns, target_type, lc_cfg, metrics, metadata_target_name="learning_curve", source_split=""):
+    """Opt-in learning curve: refit a fresh clone of ``model`` on log-spaced size prefixes of ``df``; store + render.
 
     Returns the ``FigureSpec`` panel (or None when skipped). Uses ``sklearn.clone`` for the estimator factory and the
     task-appropriate sklearn scorer. K full refits by construction -- only invoked when ``lc_cfg.enabled``.
+
+    ``df``/``targets`` are whichever split is being REPORTED, not the train split: the caller runs once per
+    report. ``source_split`` is therefore threaded into the panel so the two series and the verdict name the
+    data they came from -- they used to read "train score" and "holdout score" on a test report, where both were
+    scores on disjoint subsets of the test rows.
     """
     if lc_cfg is None or not getattr(lc_cfg, "enabled", False):
         return None
@@ -184,8 +189,17 @@ def _build_learning_curve(model, df, targets, columns, target_type, lc_cfg, metr
 
         from mlframe.training.diagnostics import compute_learning_curve, learning_curve_panel
 
+        # Scorer by TARGET TYPE. ``roc_auc`` was hardcoded for everything non-regression, so a multiclass or
+        # multilabel target raised inside the scorer and was swallowed by the handler below -- the diagnostic
+        # simply never appeared, reported only as "learning_curve diagnostic failed".
         tt = (target_type or "").lower()
-        if "regress" in tt:
+        if "regress" in tt or "quantile" in tt:
+            scorer_name, higher_is_better = "r2", True
+        elif "multiclass" in tt:
+            scorer_name, higher_is_better = "roc_auc_ovr_weighted", True
+        elif "multilabel" in tt:
+            scorer_name, higher_is_better = "roc_auc", True
+        elif "rank" in tt:
             scorer_name, higher_is_better = "r2", True
         else:
             scorer_name, higher_is_better = "roc_auc", True
@@ -205,7 +219,7 @@ def _build_learning_curve(model, df, targets, columns, target_type, lc_cfg, metr
 
             metrics.setdefault(metadata_target_name, {})
             metrics[metadata_target_name] = asdict(result) if is_dataclass(result) else result
-        return learning_curve_panel(result)
+        return learning_curve_panel(result, source_split=source_split)
     except Exception:  # best-effort: the learning-curve diagnostic is optional, degrades to None
         logger.exception("learning_curve diagnostic failed; continuing.")
         return None
@@ -225,6 +239,7 @@ def _render_post_fit_diagnostics(
     metrics,
     reporting_config,
     model_name=None,
+    report_title=None,
 ):
     """Fire the model/preds-based standalone diagnostics default-ON (PDP, slice-finder, decision-curve, SHAP, learning
     curve) and stitch the combined HTML index. Each is gated by a ``ReportingConfig`` knob and skips cheaply when its
@@ -482,7 +497,10 @@ def _render_post_fit_diagnostics(
                     plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
             ))
 
-    lc_panel = _build_learning_curve(model, df, targets, columns, target_type, getattr(cfg, "learning_curve", None), metrics)
+    # The report title names the split ("TEST ", "VAL (DUMMY) ", ...); the curve is computed on that split's
+    # rows, so the panel has to say so rather than call them train and holdout.
+    _split_label = (report_title or "").strip().rstrip(":").lower() or "reported split"
+    lc_panel = _build_learning_curve(model, df, targets, columns, target_type, getattr(cfg, "learning_curve", None), metrics, source_split=_split_label)
     if lc_panel is not None:
         try:
             from mlframe.reporting.output import parse_plot_output_dsl

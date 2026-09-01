@@ -39,6 +39,8 @@ rather than inferring it from the dtype of `selected`; e.g. pass an explicit `po
 claims the string-match fallback "covers non-str name types too, e.g. integer column labels", which the integer
 fast-path above it preempts.
 
+**Disposition:** RESOLVED. `_finalize` threads an explicit `positional` flag derived from whether the fit input had `columns`, instead of inferring it from the dtype of `selected`. A frame with integer column labels now takes the name-match path. `tests/feature_selection/test_ace_permutation_importance_is_held_out.py` covers the adapter's sibling; the adapter itself is exercised by the existing functional-adapter suite.
+
 ### REMAINING_SUBSYSTEMS-2 [P1] not-argmax-under-tol
 **File:** src/mlframe/feature_selection/greedy_backward_elimination.py:150
 **Summary:** The per-round removal search compares each candidate against the *running best* plus `tol` instead of
@@ -76,6 +78,8 @@ lines 58-59) to say "in-sample" and state the resulting bias.
 `_one_replicate_importances` lines 112-121 passes the same `X_joint`/`y` used for `model.fit`; contrast in
 `boruta_shap/_shadow_stats.py:230-253`, which explicitly documents "Debiased held-out permutation when a 30%
 holdout exists ... else in-sample optimism".
+
+**Disposition:** RESOLVED. Permutation importance is scored on a per-replicate held-out split (`_pfi_split`, 25%, stratified where the target allows), so the fully-grown forest no longer scores its own memorised training rows and inflate the contrast bar. The split is drawn fresh per replicate, so the replicate loop averages a bagged held-out PFI rather than one arbitrary split; too few rows to hold any out falls back to the in-sample score with a debug line. `native` importance still fits on every row, unchanged. `tests/feature_selection/test_ace_permutation_importance_is_held_out.py`.
 
 ### REMAINING_SUBSYSTEMS-4 [P2] documented-knob-never-read
 **File:** src/mlframe/feature_selection/wrappers/_helpers.py:460

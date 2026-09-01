@@ -9,6 +9,12 @@ model never saw -- with a purge gap for temporal recurrences and whole-group ass
 
 Pure integer-index math (no frame copy); the splitter passes the carved indices to its
 format-native ``.iloc``/``.filter`` at the call site. Returns ``(train_fit, calib, conformal)``.
+
+NOT YET WIRED into production. The four public carvers here are imported only by
+``tests/training/conformal/test_conformal_split_carving.py``; the production split path is
+``splitting.make_train_test_split`` -> ``_split_helpers._carve_calib_from_train``, which carves a calib slice
+and no conformal slice. ``TrainingSplitConfig.conformal_size`` refuses a non-zero value for that reason -- see
+its comment in ``_preprocessing_configs.py``.
 """
 
 from __future__ import annotations

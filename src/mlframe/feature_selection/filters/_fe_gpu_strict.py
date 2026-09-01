@@ -189,15 +189,39 @@ def _cuda_usable() -> bool:
                 except Exception as e2:
                     # Same reasoning as ``_internals.numba_cuda_can_compile``: an ImportError means the stack is
                     # genuinely absent, but a device fault raised while another process holds the card is a
-                    # moment. Latching on it pinned STRICT-resident mode off for the rest of the process at
-                    # debug level. Leave the cache unset so the next caller re-probes.
-                    logger.warning(
-                        "numba.cuda.is_available() raised %s: %s -- treating as a transient device condition; the "
-                        "probe is left unresolved and the next caller re-probes.",
-                        type(e2).__name__, e2,
-                    )
-                    return False
+                    # moment, and latching on the first one pinned STRICT-resident mode off for the rest of the
+                    # process at debug level. Retry inside THIS call rather than leaving the answer unresolved:
+                    # a probe that says False now and True on the next call produces a mixed state, where one
+                    # code path uploads to the device and another routes the same arrays into a CPU njit kernel.
+                    _CUDA_USABLE_CACHE = _retry_cuda_available(e2)
     return _CUDA_USABLE_CACHE
+
+
+_CUDA_PROBE_RETRIES = 2
+
+
+def _retry_cuda_available(first_error: Exception) -> bool:
+    """Re-probe ``numba.cuda.is_available()`` a bounded number of times after a transient device error.
+
+    Returns the process-wide verdict. A stable answer matters more than an optimistic one: see the call site.
+    """
+    logger.warning(
+        "numba.cuda.is_available() raised %s: %s -- treating as a transient device condition and retrying.",
+        type(first_error).__name__, first_error,
+    )
+    try:
+        from numba import cuda as _c
+    except ImportError as exc:
+        logger.warning("numba.cuda import failed on retry (%s); treating CUDA as unusable.", exc)
+        return False
+    _probe = getattr(_c, "is_available", lambda: False)
+    for _ in range(_CUDA_PROBE_RETRIES):
+        try:
+            return bool(_probe())
+        except Exception as exc:  # noqa: PERF203 - a bounded retry around a device probe, not a hot loop
+            logger.warning("numba.cuda.is_available() retry raised %s: %s", type(exc).__name__, exc)
+    logger.warning("numba.cuda.is_available() failed every attempt; treating CUDA as unusable for this process so routing stays consistent.")
+    return False
 
 
 def fe_gpu_strict_enabled(*, n: int | None = None, p: int | None = None, min_p: int | None = None) -> bool:

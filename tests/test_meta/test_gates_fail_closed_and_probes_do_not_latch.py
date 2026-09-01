@@ -104,13 +104,16 @@ class TestTheGpuProbesDoNotLatchOnATransientFault:
         monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
 
         class _Boom:
-            """A CatBoostRegressor stand-in whose probe fit hits a device fault."""
+            """A CatBoostRegressor stand-in whose probe fit hits a device fault, counting attempts."""
+
+            fits: list = []
 
             def __init__(self, **kw):
                 """Accept and ignore the probe's constructor arguments."""
 
             def fit(self, *a, **k):
                 """Stand in for a device fault during the probe fit."""
+                _Boom.fits.append(1)
                 raise RuntimeError("out of memory")
 
         import catboost
@@ -118,7 +121,7 @@ class TestTheGpuProbesDoNotLatchOnATransientFault:
         monkeypatch.setattr(catboost, "CatBoostRegressor", _Boom)
         with caplog.at_level(logging.WARNING):
             assert _cb_pool._cb_gpu_usable() is False
-        assert _cb_pool._CB_GPU_USABLE_CACHE is None, "a transient fault latched the process onto CPU CatBoost"
+        assert len(_Boom.fits) == _cb_pool._CB_GPU_PROBE_ATTEMPTS, "a single transient fault was accepted without a retry"
         assert any("transient" in r.message for r in caplog.records)
 
     def test_the_catboost_probe_still_latches_on_a_cpu_only_wheel(self, monkeypatch):
@@ -151,8 +154,32 @@ class TestTheGpuProbesDoNotLatchOnATransientFault:
 
         assert {t.__name__ for t in _PERMANENT_CUDA_FAULTS} >= {"ImportError", "NvvmSupportError", "CudaSupportError"}
 
-    def test_a_transient_numba_fault_leaves_the_cache_unset(self, monkeypatch, caplog):
+    def test_a_transient_numba_fault_is_retried_before_it_is_believed(self, monkeypatch, caplog):
         """The failure mode: one contended startup routed every filter to CPU for the process."""
+        import mlframe.feature_selection.filters._internals as internals
+
+        monkeypatch.setattr(internals, "_NUMBA_CUDA_CAN_COMPILE", None)
+        from numba import cuda as _cuda
+
+        calls = []
+
+        def _flaky(*a, **k):
+            """Fail once, then behave."""
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError("CUDA_ERROR_OUT_OF_MEMORY")
+            return np.zeros(1, dtype=np.int32)
+
+        monkeypatch.setattr(_cuda, "is_available", lambda: True)
+        monkeypatch.setattr(_cuda, "to_device", _flaky)
+        with caplog.at_level(logging.WARNING):
+            internals.numba_cuda_can_compile()
+        assert len(calls) > 1, "a single transient fault was accepted as the answer without a retry"
+        assert any("transient" in r.message for r in caplog.records)
+
+    def test_the_verdict_is_stable_once_settled(self, monkeypatch, caplog):
+        """A probe answering False now and True later produces a mixed state: one path uploads to the device
+        while another routes the same arrays into a CPU njit kernel, which cannot type a `cupy.ndarray`."""
         import mlframe.feature_selection.filters._internals as internals
 
         monkeypatch.setattr(internals, "_NUMBA_CUDA_CAN_COMPILE", None)
@@ -161,9 +188,29 @@ class TestTheGpuProbesDoNotLatchOnATransientFault:
         monkeypatch.setattr(_cuda, "is_available", lambda: True)
         monkeypatch.setattr(_cuda, "to_device", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("CUDA_ERROR_OUT_OF_MEMORY")))
         with caplog.at_level(logging.WARNING):
-            assert internals.numba_cuda_can_compile() is False
-        assert internals._NUMBA_CUDA_CAN_COMPILE is None
-        assert any("transient" in r.message for r in caplog.records)
+            first = internals.numba_cuda_can_compile()
+        assert first is False
+        assert internals._NUMBA_CUDA_CAN_COMPILE is False, "the verdict was left unresolved; a later call could answer differently"
+        assert internals.numba_cuda_can_compile() is first
+
+    def test_a_permanent_fault_is_not_retried(self, monkeypatch):
+        """An NVVM mismatch is a property of the host; retrying it is pure cost."""
+        import mlframe.feature_selection.filters._internals as internals
+
+        monkeypatch.setattr(internals, "_NUMBA_CUDA_CAN_COMPILE", None)
+        from numba import cuda as _cuda
+
+        calls = []
+
+        def _permanent(*a, **k):
+            """Always raise one of the documented permanent faults."""
+            calls.append(1)
+            raise internals._PERMANENT_CUDA_FAULTS[-1]("no supported GPU compute capabilities found")
+
+        monkeypatch.setattr(_cuda, "is_available", lambda: True)
+        monkeypatch.setattr(_cuda, "to_device", _permanent)
+        assert internals.numba_cuda_can_compile() is False
+        assert len(calls) == 1
 
 
 class TestUnknownParamsAreNotEmptyParams:

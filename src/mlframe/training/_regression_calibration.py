@@ -7,8 +7,11 @@ extremes), back-transform bias, distribution shift. Fitting a MONOTONE map on a 
 calibration slice corrects the shrinkage without ever changing the ranking, so it can only
 help a shrunk model and is ~identity (a no-op) on an already-calibrated one.
 
-Fit on the disjoint calibration slice (``calib_size``); the conformal residuals are then taken
-on the recalibrated predictor on the SEPARATE ``conformal_size`` slice. Monotone-preserving by
+Fit on the disjoint calibration slice (``calib_size``). The conformal residuals are taken on that
+SAME slice, which makes them in-sample for the map and the resulting intervals optimistically
+narrow; the separate ``conformal_size`` slice that would fix this is declared on
+``TrainingSplitConfig`` but not carved by any production code path, and the config refuses a
+non-zero value rather than let it read as configured. Monotone-preserving by
 construction (isotonic increasing / positive-slope linear). Ship only when it measurably beats
 identity on honest holdout -- ``recalibration_rmse_gain`` is the gate (REJECTED != DELETED).
 """

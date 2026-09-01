@@ -590,7 +590,10 @@ class PlotlyRenderer:
             if fig.layout.barmode is None:
                 fig.update_layout(barmode="group")
         else:
-            _add_bar(p.values, p.colors[0] if p.colors else "steelblue", "", False, p.hatches[0] if p.hatches else "", p.value_err)
+            # A colours tuple as long as ``values`` is PER-BAR, not per-series: plotly's marker.color accepts an
+            # array. Reading ``colors[0]`` painted every bar the colour of the first one.
+            _bar_color = list(p.colors) if (p.colors and len(p.colors) == len(p.values) and len(p.colors) > 1) else (p.colors[0] if p.colors else "steelblue")
+            _add_bar(p.values, _bar_color, "", False, p.hatches[0] if p.hatches else "", p.value_err)
 
         # Reference line perpendicular to the bars (global metric). vline for horizontal bars (value axis is x),
         # hline for vertical bars (value axis is y).

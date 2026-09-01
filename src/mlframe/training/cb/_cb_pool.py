@@ -592,6 +592,8 @@ def _cached_gpu_info() -> list:
 _CB_GPU_USABLE_CACHE: bool | None = None
 # The one failure that IS a permanent property of the installed wheel; anything else is a transient condition.
 _CB_GPU_ABSENT_SIGNATURE = "Environment for task type [GPU] not found"
+# Attempts inside ONE probe call before a transient fault is accepted as the process-wide answer.
+_CB_GPU_PROBE_ATTEMPTS = 2
 
 
 def _cb_gpu_usable() -> bool:
@@ -628,33 +630,39 @@ def _cb_gpu_usable() -> bool:
         if _cvd is not None and _cvd.strip() in ("", "-1"):
             _CB_GPU_USABLE_CACHE = False
             return False
-        try:
-            from catboost import CatBoostRegressor
-            import numpy as _np
-            _probe = CatBoostRegressor(
-                iterations=1, task_type="GPU", devices="0",
-                allow_writing_files=False, verbose=False,
-            )
-            _probe.fit(_np.zeros((2, 1), dtype=_np.float32), _np.array([0.0, 1.0], dtype=_np.float32))
-            _CB_GPU_USABLE_CACHE = True
-        except Exception as e:
-            # Only a CPU-only wheel is a permanent property of this host, and it announces itself: CatBoost
-            # raises "Environment for task type [GPU] not found". Everything else reaching here -- a GPU OOM
-            # while a concurrent process holds VRAM, a WDDM TDR reset, a driver hiccup -- is a moment, not a
-            # fact about the machine, and latching on it pinned EVERY CatBoost model in the process to CPU for
-            # the rest of the run, at debug level. Genuine absence is already short-circuited above
-            # (``_cached_gpu_info``, ``CUDA_VISIBLE_DEVICES``), so this handler guards only the real fit.
-            if _CB_GPU_ABSENT_SIGNATURE in str(e):
-                logger.debug("CatBoost GPU usability probe fit failed: %s. This wheel has no GPU support.", e)
-                _CB_GPU_USABLE_CACHE = False
-            else:
-                logger.warning(
-                    "CatBoost GPU usability probe fit raised %s: %s -- this is a transient device condition rather than "
-                    "evidence that the wheel lacks GPU support, so the probe is left unresolved and the next caller "
-                    "re-probes. Set CUDA_VISIBLE_DEVICES='' to force CPU.",
-                    type(e).__name__, e,
+        for _attempt in range(_CB_GPU_PROBE_ATTEMPTS):
+            try:
+                from catboost import CatBoostRegressor
+                import numpy as _np
+                _probe = CatBoostRegressor(
+                    iterations=1, task_type="GPU", devices="0",
+                    allow_writing_files=False, verbose=False,
                 )
-                return False
+                _probe.fit(_np.zeros((2, 1), dtype=_np.float32), _np.array([0.0, 1.0], dtype=_np.float32))
+                _CB_GPU_USABLE_CACHE = True
+                break
+            except Exception as e:
+                if _CB_GPU_ABSENT_SIGNATURE in str(e):
+                    logger.debug("CatBoost GPU usability probe fit failed: %s. This wheel has no GPU support.", e)
+                    _CB_GPU_USABLE_CACHE = False
+                    break
+                # A GPU OOM while a concurrent process holds VRAM, a WDDM TDR reset, a driver hiccup: a moment,
+                # not a fact about the machine. Latching on the first one pinned EVERY CatBoost model in the
+                # process to CPU for the rest of the run, at debug level. Retry inside this call rather than
+                # re-probing per caller -- the probe fit costs ~4s, and an answer that changes between callers is
+                # worse than a stable one. Genuine absence is already short-circuited above (``_cached_gpu_info``,
+                # ``CUDA_VISIBLE_DEVICES``), so this handler guards only the real fit.
+                logger.warning(
+                    "CatBoost GPU usability probe attempt %d raised %s: %s -- transient device condition, retrying.",
+                    _attempt + 1, type(e).__name__, e,
+                )
+        if _CB_GPU_USABLE_CACHE is None:
+            logger.warning(
+                "CatBoost GPU usability probe failed %d times with transient device errors; treating GPU CatBoost as "
+                "unusable for this process so the routing stays consistent. Set CUDA_VISIBLE_DEVICES='' to force CPU.",
+                _CB_GPU_PROBE_ATTEMPTS,
+            )
+            _CB_GPU_USABLE_CACHE = False
         return _CB_GPU_USABLE_CACHE
 
 

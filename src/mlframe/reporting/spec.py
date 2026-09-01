@@ -251,6 +251,10 @@ class BarPanelSpec:
     title: str = ""
     xlabel: str = ""
     ylabel: str = ""
+    # One colour per SERIES for grouped bars. On a SINGLE-series panel a tuple as long as ``values`` is taken as
+    # one colour per BAR instead, which is how a signed chart encodes each bar's direction. Both renderers used
+    # to read only ``colors[0]`` on the single-series branch, so every bar came out the colour of the first one
+    # while the title told the reader the colour meant the sign.
     colors: Optional[Tuple[str, ...]] = None
     grid: bool = True
     # Rotate x-tick labels (useful for long category names).

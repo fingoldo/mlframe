@@ -371,10 +371,27 @@ def _diagnose(
         )
         return "Near-Gaussian (platykurtic)", "MSE (default) - mild tail-thinning is tolerable", rationale
 
-    # Mild asymmetry without nonneg constraint - flag but Gaussian still ok.
+    # Asymmetry without a non-negativity constraint. This branch is TERMINAL: it used to append a rationale and
+    # fall through, so any skew whatever -- +2.0 included -- reached the final block and was reported as
+    # "residuals look ~Gaussian: |skew|=2.00 (< 0.3)", a sentence contradicted by its own number, under the
+    # verdict "Gaussian (well-behaved)" and the advice that MSE is appropriate. That text is rendered into the
+    # default regression log block and into the residual-histogram panel title.
     if abs_skew >= SKEW_MODERATE:
         rationale.append(
-            f"mild skew ({skew:+.2f}); within Gaussian tolerance but worth investigating " "if the target has a natural non-negativity constraint."
+            f"skew ({skew:+.2f}) exceeds the near-Normal band (|skew| < {SKEW_MODERATE}); "
+            "kurtosis and heteroscedasticity are within tolerance, so the shape is Normal-like apart from the "
+            "asymmetry. Worth investigating whether the target has a natural non-negativity constraint."
+        )
+        if abs_skew >= SKEW_HIGH:
+            return (
+                "Skewed (strongly asymmetric)",
+                f"Huber (robust to the {'right' if skew > 0 else 'left'} tail; pick delta ~ 1-2 * MAD) or a variance-stabilising transform",
+                rationale,
+            )
+        return (
+            "Near-Gaussian (mildly skewed)",
+            "MSE (default) - mild asymmetry is tolerable, but compare against Huber if the tail matters",
+            rationale,
         )
 
     # True Gaussian verdict reserved for tight near-Normal:

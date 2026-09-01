@@ -35,6 +35,18 @@ logger = logging.getLogger(__name__)
 _TITLE_FONTSIZE = 10
 
 
+def _bar_colors(colors, values):
+    """Colour argument for a single-series bar call: the whole per-bar sequence when it matches, else one colour."""
+    if not colors:
+        return "steelblue"
+    try:
+        if len(colors) == len(values) and len(colors) > 1:
+            return list(colors)
+    except TypeError:
+        pass
+    return colors[0]
+
+
 def _set_panel_title(ax, title) -> None:
     """Set an axes title, wrapped to the panel's REAL width by measuring the font, and capped in size.
 
@@ -555,7 +567,9 @@ class MatplotlibRenderer:
             if p.series_labels:
                 ax.legend(loc="best", fontsize=8, framealpha=0.7)
         else:
-            kw = {"color": p.colors[0] if p.colors else "steelblue"}
+            # A colours tuple as long as ``values`` is PER-BAR, not per-series: matplotlib's bar/barh accept a
+            # sequence. Reading ``colors[0]`` painted every bar the colour of the first one.
+            kw = {"color": _bar_colors(p.colors, p.values)}
             if p.hatches and p.hatches[0]:
                 kw["hatch"] = p.hatches[0]
             if p.value_err is not None:

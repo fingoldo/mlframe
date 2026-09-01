@@ -52,6 +52,9 @@ def _permanent_cuda_faults() -> tuple:
 
 _PERMANENT_CUDA_FAULTS = _permanent_cuda_faults()
 
+# Attempts inside ONE probe call before a transient fault is accepted as the process-wide answer.
+_CUDA_PROBE_ATTEMPTS = 3
+
 
 def numba_cuda_can_compile() -> bool:
     """True only if numba.cuda can actually COMPILE + LAUNCH a kernel on this host.
@@ -67,11 +70,30 @@ def numba_cuda_can_compile() -> bool:
     global _NUMBA_CUDA_CAN_COMPILE
     if _NUMBA_CUDA_CAN_COMPILE is not None:
         return _NUMBA_CUDA_CAN_COMPILE
+    for _attempt in range(_CUDA_PROBE_ATTEMPTS):
+        _verdict = _probe_numba_cuda_once(_attempt)
+        if _verdict is not None:
+            _NUMBA_CUDA_CAN_COMPILE = _verdict
+            return _verdict
+    # Every attempt hit a transient fault. Latch False: the answer has to be STABLE for the process, because a
+    # probe that says False on one call and True on the next produces a mixed state -- one code path uploads to
+    # the device while another routes the same arrays into a CPU njit kernel, which then fails to type a
+    # ``cupy.ndarray``. Retrying inside this one call is what keeps a single hiccup from costing the run.
+    logger.warning(
+        "numba.cuda kernel-compile probe failed %d times with transient device errors; treating the numba.cuda "
+        "path as unusable for this process so the routing stays consistent. Set CUDA_VISIBLE_DEVICES='' to force CPU.",
+        _CUDA_PROBE_ATTEMPTS,
+    )
+    _NUMBA_CUDA_CAN_COMPILE = False
+    return False
+
+
+def _probe_numba_cuda_once(attempt: int) -> "bool | None":
+    """One compile+launch probe. Returns the verdict, or ``None`` when the failure looks transient."""
     try:
         from numba import cuda as _cuda
 
         if not _cuda.is_available():
-            _NUMBA_CUDA_CAN_COMPILE = False
             return False
 
         @_cuda.jit
@@ -82,24 +104,21 @@ def numba_cuda_can_compile() -> bool:
         out = _cuda.to_device(np.zeros(1, dtype=np.int32))
         _probe[1, 1](out)
         _cuda.synchronize()
-        _NUMBA_CUDA_CAN_COMPILE = int(out.copy_to_host()[0]) == 1
+        return int(out.copy_to_host()[0]) == 1
     except _PERMANENT_CUDA_FAULTS as e:
-        # A toolkit/compute-capability mismatch or a missing stack IS a permanent property of this host, so
-        # latching is right for these.
+        # A toolkit/compute-capability mismatch or a missing stack IS a permanent property of this host, so a
+        # definitive False is right for these -- no point retrying.
         logger.debug("numba.cuda kernel-compile probe failed permanently: %s: %s", type(e).__name__, e)
-        _NUMBA_CUDA_CAN_COMPILE = False
+        return False
     except Exception as e:
         # Anything else -- a CudaAPIError or an OOM at ``to_device`` while another process holds VRAM -- is a
-        # moment, not a fact about the host. Latching on it routed every numba.cuda-capable filter in the
-        # process to cupy/CPU for the rest of the run with no reset hook and no log above debug. Leave the cache
-        # UNSET so the next caller re-probes, and report this attempt as unusable.
+        # moment, not a fact about the host. Latching on the first one routed every numba.cuda-capable filter in
+        # the process to cupy/CPU for the rest of the run, at debug level, with no reset hook.
         logger.warning(
-            "numba.cuda kernel-compile probe raised %s: %s -- treating as a transient device condition rather "
-            "than an unusable stack, so the probe is left unresolved and the next caller re-probes.",
-            type(e).__name__, e,
+            "numba.cuda kernel-compile probe attempt %d raised %s: %s -- treating as a transient device condition and retrying.",
+            attempt + 1, type(e).__name__, e,
         )
-        return False
-    return _NUMBA_CUDA_CAN_COMPILE
+        return None
 
 
 # =============================================================================

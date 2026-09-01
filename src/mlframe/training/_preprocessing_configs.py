@@ -129,6 +129,13 @@ class TrainingSplitConfig(BaseConfig):
     # g(model) so the interval reflects what ships (sharing one slice makes residuals in-sample for g ->
     # optimistic coverage). None/0 -> finalize falls back to the calib slice (regression-safe until g exists)
     # or to CV+/OOF residuals. Carved by the SAME structure-aware splitter (group-disjoint / forward-walk).
+    #
+    # NOT YET WIRED. Nothing in src/ reads this field: the production split path is
+    # ``splitting.make_train_test_split`` -> ``_split_helpers._carve_calib_from_train``, which carves the calib
+    # slice only, and the structure-aware carvers in ``_conformal_split.py`` have no production call site. A
+    # non-zero value is therefore REFUSED below rather than silently ignored -- ignoring it left finalize
+    # reusing the calib slice, which is exactly the optimistic-coverage regime this field exists to avoid, with
+    # intervals narrower than the truth and nothing saying so.
     conformal_size: Optional[float] = Field(default=None, ge=0.0, lt=1.0)
     shuffle_val: bool = False
     shuffle_test: bool = False
@@ -211,6 +218,14 @@ class TrainingSplitConfig(BaseConfig):
             raise ValueError(
                 f"test_size ({self.test_size}) + val_size ({self.val_size}) + calib_size ({_calib}) + "
                 f"conformal_size ({_conformal}) = {_total} must be <= 1.0"
+            )
+        if _conformal > 0:
+            raise ValueError(
+                f"conformal_size={self.conformal_size} is not wired into the split path yet: no production code "
+                "carves a conformal slice, so setting it would leave finalize scoring residuals on the calib "
+                "slice the recalibration map was fitted on -- in-sample residuals and optimistically narrow "
+                "intervals. Leave it unset (or 0.0) until the carve is wired; the calib-slice fallback is the "
+                "documented regression-safe behaviour in the meantime."
             )
         if self.cv_strategy in ("timeseries", "purged") and self.val_placement == "backward":
             raise ValueError(

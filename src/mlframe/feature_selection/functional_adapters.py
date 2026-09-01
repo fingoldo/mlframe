@@ -67,7 +67,7 @@ def _default_sklearn_scorer_name(y: np.ndarray) -> str:
     return "accuracy" if _is_classification_target(y) else "r2"
 
 
-def _support_from_selected(feature_names: list, selected: list) -> np.ndarray:
+def _support_from_selected(feature_names: list, selected: list, positional: bool) -> np.ndarray:
     """Boolean support mask (input-column order) marking columns present in ``selected``.
 
     ``forward_select`` / ``greedy_backward_elimination`` / ``iterative_zero_importance_pruning`` /
@@ -76,12 +76,19 @@ def _support_from_selected(feature_names: list, selected: list) -> np.ndarray:
     ``_finalize`` always builds ``feature_names`` as strings (``x{i}`` synthetic names for an
     ndarray fit), so a positional ``selected`` (e.g. ``[0, 1, 4]``) must be resolved by INDEX, not
     by string-matching "0" against "x0" - the latter always misses, silently zeroing out the
-    entire support mask (0 selected columns) for every ndarray-input fit. A DataFrame-input fit's
-    ``selected`` are the real column names/values, which the fallback string-match path still
-    handles correctly (covers non-str name types too, e.g. integer column labels)."""
-    if selected and all(isinstance(c, (int, np.integer)) and not isinstance(c, bool) for c in selected):
+    entire support mask (0 selected columns) for every ndarray-input fit.
+
+    Which convention applies is decided by ``positional``, threaded down from ``_finalize``, which already
+    knows: it built synthetic names exactly when the fit input had no ``columns``. It used to be INFERRED from
+    whether every entry of ``selected`` was an integer, which is also true of a DataFrame whose column LABELS
+    are integers. ``pd.DataFrame(columns=[2, 0, 1])`` then had ``selected = [2, 0]`` -- labels -- read as
+    positions 2 and 0, so ``transform`` handed the model columns ``1`` and ``2`` and ``selected_features_``
+    named the wrong features, silently. With non-contiguous labels (``columns=[10, 20, 30]``) the same line
+    raised ``IndexError: index 10 is out of bounds`` from inside ``fit``."""
+    if positional:
         mask = np.zeros(len(feature_names), dtype=bool)
-        mask[list(selected)] = True
+        if selected:
+            mask[list(selected)] = True
         return mask
     selected_set = set(str(c) for c in selected)
     return np.asarray([str(c) in selected_set for c in feature_names], dtype=bool)
@@ -178,10 +185,13 @@ class _FunctionalSelectorBase(TransformerMixin, BaseEstimator):
 
     def _finalize(self, X, selected: list) -> None:
         """Record fitted feature-name/support-mask state from the selected column list."""
-        names = [str(c) for c in X.columns] if hasattr(X, "columns") else [f"x{i}" for i in range(np.asarray(X).shape[1])]
+        _is_frame = hasattr(X, "columns")
+        names = [str(c) for c in X.columns] if _is_frame else [f"x{i}" for i in range(np.asarray(X).shape[1])]
         self.feature_names_in_ = np.asarray(names, dtype=object)
         self.n_features_in_ = len(names)
-        self.support_ = _support_from_selected(names, selected)
+        # ``positional`` comes from the fit input's own shape, not from the dtype of ``selected``: a frame with
+        # integer column labels produces an all-integer ``selected`` that is NOT positional.
+        self.support_ = _support_from_selected(names, selected, positional=not _is_frame)
         # Derived from the RESOLVED mask (not `selected` directly): for a bare-ndarray fit,
         # `selected` holds integer positions, not the synthetic "x{i}" names `names` uses - see
         # _support_from_selected's docstring. Deriving from `names[support_]` keeps

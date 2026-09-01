@@ -39,6 +39,8 @@ Same treatment for the inner except at :18.
 **Evidence:** Read in full; traced `CUDA_IS_AVAILABLE` to its four consumers and confirmed :118-119 is the sole
 default resolution for the whole suite.
 
+**Disposition:** RESOLVED in the P0 pass. `_gpu_probe.py` narrows the outer handler to `ImportError`; anything else logs at warning and leaves `CUDA_IS_AVAILABLE` optimistic so the per-library probes decide.
+
 ### TRAINING_CORE-2 [P1] dead-knob / optimistic-uncertainty
 
 **File:** `src/mlframe/training/_preprocessing_configs.py` :132, :206-213; `src/mlframe/training/_conformal_split.py` :1-167
@@ -62,6 +64,8 @@ declaration, the sum validator, one docstring mention, and `_conformal_split.py`
 carvers are imported only by `tests/training/conformal/test_conformal_split_carving.py`; the production path is
 `splitting.py` :831 -> `_split_helpers._carve_calib_from_train` (calib only, no conformal slice, no
 purge/embargo).
+
+**Disposition:** RESOLVED as fail-closed, wiring deferred. `TrainingSplitConfig` now REFUSES a non-zero `conformal_size` with a message naming what would otherwise happen; the field and `_conformal_split.py` are marked not-yet-wired, and `_regression_calibration.py`'s docstring no longer promises the separate slice it does not get. Carving a slice with no consumer would only shrink train for nothing, so the honest resolution is to stop the setting reading as configured. `tests/training/test_conformal_size_is_not_silently_ignored.py` includes an AST check that fails the moment someone gives the field a real consumer, pointing them at the refusal to lift.
 
 ### TRAINING_CORE-3 [P1] stale-cache / wrong-weights
 
@@ -89,6 +93,8 @@ handle this and document why: `lgb_shim.py` :378-386 ("plain `set_weight(ones)` 
 weight is already set at the C++ side") and `xgb_shim.py` :523-528. Reuse is capability-gated only, no config
 opt-out. Note: `cb/` is one directory outside the stated cluster path; reported because the triggering loop is
 in-cluster and the two in-cluster shims prove the intended contract.
+
+**Disposition:** RESOLVED. The weight is re-applied unconditionally on a cache hit, resetting to uniform when the fit asks for no weights; the built Pool records its own weight state. Tested against a fake Pool because this CatBoost build has no `Pool.set_label`, so the reuse path cannot activate on this machine and a skip would have proved nothing. `tests/training/test_cb_pool_reuse_resets_weights.py`.
 
 ### TRAINING_CORE-4 [P2] dead-guard behind slots=True
 

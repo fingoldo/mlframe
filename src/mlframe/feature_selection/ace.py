@@ -103,6 +103,36 @@ def _make_contrasts(X: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     return out
 
 
+# Fraction of rows held out per replicate to score permutation importance on. Small enough that the fit keeps
+# most of the data, large enough that the PFI estimate is not dominated by holdout noise; the replicate loop
+# averages over ``n_replicates`` independent draws anyway.
+_PFI_HOLDOUT_FRACTION = 0.25
+
+
+def _pfi_split(n: int, y: np.ndarray, rng: np.random.Generator) -> tuple:
+    """Row indices ``(fit_idx, score_idx)`` for one replicate's held-out permutation importance.
+
+    Stratified on ``y`` when it is discrete and every class can be represented on both sides; otherwise a plain
+    random split. A different draw per replicate is deliberate -- the replicate loop then averages a bagged
+    held-out PFI rather than repeating one arbitrary split.
+    """
+    n_hold = round(n * _PFI_HOLDOUT_FRACTION)
+    if n_hold < 2 or n - n_hold < 2:
+        return None, None
+    seed = rng.integers(0, 2**31 - 1).item()
+    try:
+        from sklearn.model_selection import train_test_split
+
+        classes, counts = np.unique(y, return_counts=True)
+        stratify = y if (classes.size > 1 and classes.size <= max(2, n // 10) and counts.min() >= 2) else None
+        fit_idx, score_idx = train_test_split(np.arange(n), test_size=n_hold, random_state=seed, stratify=stratify)
+        return np.asarray(fit_idx), np.asarray(score_idx)
+    except Exception as exc:
+        logger.debug("ACE held-out PFI split failed (%s); falling back to a plain permutation split.", exc)
+        perm = np.random.default_rng(seed).permutation(n)
+        return perm[n_hold:], perm[:n_hold]
+
+
 def _one_replicate_importances(
     fit_predict_model, X: np.ndarray, y: np.ndarray, importance: str, n_perm_repeats: int, rng: np.random.Generator, seed: int
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -113,6 +143,23 @@ def _one_replicate_importances(
     contrasts = _make_contrasts(X, rng)
     X_joint = np.hstack([X, contrasts])
     model = clone(fit_predict_model)
+
+    # Permutation importance must be scored on rows the model did NOT see. It used to be computed on the exact
+    # rows just fitted, while the docstrings twice describe it as held-out PFI. With the default fully-grown
+    # 120-tree forest the training set is memorised, so permuting a high-cardinality CONTRAST column also
+    # produces a large importance drop -- and the contrast bar is the 100th percentile over the contrasts, so
+    # that memorisation inflates the acceptance threshold and genuinely relevant low-cardinality features fail
+    # the one-sided t-test. The caller opted into the mode advertised as removing exactly that bias.
+    if importance == "permutation":
+        fit_idx, score_idx = _pfi_split(X_joint.shape[0], y, rng)
+        if fit_idx is not None:
+            model.fit(X_joint[fit_idx], y[fit_idx])
+            imps = _read_importances(model, importance, X_joint[score_idx], y[score_idx], n_repeats=n_perm_repeats, random_state=seed)
+            if imps.shape[0] != 2 * p:
+                raise ValueError(f"ACE expected {2 * p} importances from the joint fit, got {imps.shape[0]}.")
+            return imps[:p], imps[p:]
+        logger.debug("ACE: %d rows are too few to hold any out; scoring permutation importance in-sample for this replicate.", X_joint.shape[0])
+
     model.fit(X_joint, y)
     imps = _read_importances(model, importance, X_joint, y, n_repeats=n_perm_repeats, random_state=seed)
     if imps.shape[0] != 2 * p:
