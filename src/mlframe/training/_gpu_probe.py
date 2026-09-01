@@ -6,21 +6,33 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# numba is an optional dep: probing CUDA via numba.cuda is convenient but the
-# training package must still import on machines without numba (or without a
-# working CUDA driver). Wrap both the import and the call so any failure -
-# ImportError, OSError on missing libcuda, runtime probe errors - degrades
-# silently to CPU-only mode.
+# numba is an optional dep, so a genuine ImportError means "no numba" and CPU-only is the right answer.
+#
+# Anything ELSE is not evidence about the machine, and it used to be treated as if it were. This runs at IMPORT
+# and its result is cached for the process lifetime, so a transient fault -- a driver reset, a contended GPU, an
+# OSError from libcuda while another process holds the device -- pinned every CatBoost `task_type`, every
+# `_xgb_device` and every `_lgb_device` resolution to CPU for the rest of the run, logged only at `debug`. That
+# is the same shape as the documented `_select_mi_backend` regression, where one startup hiccup cost ~100x.
+#
+# So: ImportError is silent and decisive; anything else warns and stays OPTIMISTIC, leaving the decision to the
+# per-library probes below, which check the installed binary rather than the driver and cannot be fooled by a
+# momentary device fault.
 try:
     from numba.cuda import is_available as is_cuda_available
+except ImportError as e:
+    logger.debug("numba.cuda unavailable (%s); assuming no CUDA", e)
+    CUDA_IS_AVAILABLE = False
+else:
     try:
         CUDA_IS_AVAILABLE = bool(is_cuda_available())
     except Exception as e:
-        logger.debug("numba.cuda.is_available() probe failed, assuming no CUDA: %s", e)
-        CUDA_IS_AVAILABLE = False
-except Exception as e:
-    logger.debug("numba.cuda import/probe failed, assuming no CUDA: %s", e)
-    CUDA_IS_AVAILABLE = False
+        logger.warning(
+            "numba.cuda.is_available() raised %s: %s -- this is a transient device/driver condition rather than "
+            "evidence that no GPU exists, so GPU support stays enabled and the per-library probes decide. Set "
+            "CUDA_VISIBLE_DEVICES='' to force CPU.",
+            type(e).__name__, e,
+        )
+        CUDA_IS_AVAILABLE = True
 
 
 def _probe_xgb_gpu_support() -> bool:

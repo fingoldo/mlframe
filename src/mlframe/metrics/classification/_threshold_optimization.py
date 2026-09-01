@@ -145,7 +145,9 @@ def _bootstrap_threshold_kernel(y_sorted: np.ndarray, s_sorted: np.ndarray, idx:
 
     ``idx`` is ``(n_boot, n)`` of positions into the ALREADY DESCENDING-sorted arrays, drawn once by the caller so
     the RNG order is reproducible and the draw itself stays out of the GIL-bound Python loop. Sorting once and
-    resampling positions keeps every resample in sorted order for free, which is the whole cost of the sweep.
+    The caller sorts each row of ``idx`` before handing it over, which is what keeps every resample in
+    descending score order -- the invariant this sweep's incremental counts depend on. Sampling positions
+    does NOT preserve sortedness on its own; that earlier claim was wrong and cost the interval its meaning.
     """
     n_boot = idx.shape[0]
     n = idx.shape[1]
@@ -210,6 +212,13 @@ def optimal_threshold_bootstrap_ci(
     # All resample indices in ONE draw: the per-resample RNG call is what makes a Python-level bootstrap loop
     # GIL-bound, and drawing up front is also what makes the run reproducible from the seed alone.
     idx = np.random.default_rng(random_state).integers(0, n, size=(int(n_boot), n)).astype(np.int64)
+    # Sorted per row. ``idx`` holds POSITIONS into the descending-sorted arrays, drawn at random, so each
+    # resample reached the kernel in random score order -- and the kernel's incremental counts are only
+    # confusion counts when the walk is monotone: ``tn = N - fp`` and ``fn = P - tp`` presuppose that every
+    # row seen so far is a row scoring at or above the current cut. Sorting the positions restores that
+    # order while preserving the resample MULTISET, which is what a bootstrap resample is; the draw itself
+    # is untouched, so the result stays reproducible from the seed.
+    idx.sort(axis=1)
     thrs = _bootstrap_threshold_kernel(yt[order], ys[order], idx, _METRIC_CODE[metric], float(fp_cost), float(fn_cost))
     # ``method="nearest"`` returns an OBSERVED threshold rather than interpolating between two: interpolating
     # across the +inf ("predict all negative") solution yields inf-inf = nan and silently erases the interval,

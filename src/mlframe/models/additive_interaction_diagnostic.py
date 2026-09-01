@@ -43,7 +43,8 @@ def additive_interaction_diagnostic(
         Full feature/target arrays. ``y`` may be a plain ndarray or a pandas Series; a Series is indexed
         positionally (``.iloc``) against ``cv_splits``' index arrays regardless of its own index labels.
     cv_splits
-        Iterable of ``(train_idx, test_idx)`` index pairs.
+        Iterable of ``(train_idx, test_idx)`` index pairs. A one-shot iterator (e.g. ``KFold().split(X)``) is
+        accepted: it is materialised once on entry, since the folds are re-scored several times.
     metric_fn
         ``metric_fn(y_true, y_pred) -> float``, HIGHER is better (e.g. AUC, R^2) -- used to compute the
         additive-vs-full RATIO in a natural [0, 1]-ish scale; for a loss metric, pass ``-metric_fn`` (or wrap
@@ -83,6 +84,13 @@ def additive_interaction_diagnostic(
     import lightgbm as lgb
 
     is_frame = hasattr(X, "iloc")
+    # Materialised ONCE. The parameter is documented as an Iterable, so the natural argument is
+    # ``KFold(...).split(X)`` -- a generator, which ``_cv_score`` below would exhaust on its first call. Every
+    # later call then iterated nothing, ``np.mean([])`` returned NaN with only a RuntimeWarning, and the
+    # diagnostic's recommendation flag flipped from True to False without an error anywhere.
+    cv_splits = list(cv_splits)
+    if not cv_splits:
+        raise ValueError("additive_interaction_diagnostic: cv_splits is empty; there is nothing to score.")
     full_params = default_lgbm_params(objective=objective, **(full_model_overrides or {}))
     additive_params = default_lgbm_params(objective=objective, **(additive_model_overrides or {}))
     additive_params["num_leaves"] = 2
@@ -108,6 +116,8 @@ def additive_interaction_diagnostic(
             else:
                 pred = np.asarray(model.predict(X_test))
             fold_scores.append(float(metric_fn(y_test, pred)))
+        if not fold_scores:
+            raise ValueError("additive_interaction_diagnostic: no fold produced a score.")
         return float(np.mean(fold_scores))
 
     full_score = _cv_score(full_params)

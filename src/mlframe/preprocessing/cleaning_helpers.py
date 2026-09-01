@@ -32,6 +32,20 @@ def map_elementwise_dedup(s: pd.Series, fcn: Callable, *, sample: int = 20_000, 
     u = pd.unique(s)
     if len(u) > dup_ratio * n:
         return s.map(fcn)
+    # Deduplication is only value-preserving when a value's IDENTITY is decided by equality, and in an object
+    # column it is not: ``True == 1`` and ``hash(True) == hash(1)``, so a column holding both collapses them
+    # into one key and every such row gets whichever of the two was seen first. ``Decimal(1) == 1`` collapses
+    # the same way, and ``pd.factorize`` does it too -- the collision lives in pandas' hash table, not in the
+    # dict, so it cannot be detected after the fact from ``u`` (which has already lost one of the pair).
+    #
+    # Worse than being wrong, it was wrong ONLY above the 4*sample gate: the same column returned per-row
+    # results below 80k rows and collapsed results above it.
+    #
+    # So the fast path is restricted to what it was written for -- string-valued object columns (countries,
+    # statuses, codes), where no value can hash-collide with an unequal-typed one. Everything else takes the
+    # row-wise map, which is correct by construction.
+    if not all(v is None or isinstance(v, str) or v != v for v in u):
+        return s.map(fcn)
     mapping = {v: fcn(v) for v in u}
     return s.map(mapping)
 

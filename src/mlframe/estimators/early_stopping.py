@@ -240,7 +240,22 @@ class EarlyStoppingWrapper(BaseEstimator):
                 logger.info("Early stopping at stage %d", stage)
                 break
         # Truncate the snapshot to the winning stage so predict() uses exactly that prefix of estimators.
-        if self.best_model_ is not None and "n_estimators" in self.best_model_.get_params():
+        #
+        # The FITTED ensemble is what has to be cut, not the hyperparameter. sklearn's gradient-boosting
+        # ``predict`` walks ``estimators_`` and never consults ``n_estimators`` after the fit, so the previous
+        # ``set_params(n_estimators=best_stage)`` left the snapshot predicting with every stage it had grown --
+        # early stopping had NO effect at all on this backend, while ``best_score_`` and ``n_iterations_`` went
+        # on reporting a plausible stop. Slicing ``estimators_`` is what the staged curve was measuring.
+        if self.best_model_ is None or best_stage <= 0:
+            return
+        _fitted = getattr(self.best_model_, "estimators_", None)
+        if _fitted is not None and len(_fitted) > best_stage:
+            self.best_model_.estimators_ = _fitted[:best_stage]
+            # Keep the declared budget consistent with what the model will actually evaluate, so a later
+            # ``get_params()`` / warm-start refit does not disagree with ``len(estimators_)``.
+            if hasattr(self.best_model_, "n_estimators_"):
+                self.best_model_.n_estimators_ = best_stage
+        if "n_estimators" in self.best_model_.get_params():
             self.best_model_.set_params(n_estimators=best_stage)
 
     def _fit_warm(self, X_train, y_train, X_val, y_val, scoring, n_attr, deadline):

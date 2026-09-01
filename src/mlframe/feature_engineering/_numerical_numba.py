@@ -723,7 +723,13 @@ def _make_compute_moments_slope_mi(use_kahan: bool, use_fastmath: bool):
                 if weighted_std == 0:
                     weighted_skew, weighted_kurt = 0.0, 0.0
                 else:
-                    factor = size * weighted_std**3
+                    # ``sum_weights``, not ``size``. The accumulators above sum ``w_i * d_i**k``, so the
+                    # weighted moment is that divided by the total WEIGHT -- which is what ``weighted_std`` and
+                    # ``weighted_mad`` in this same block already divide by. Dividing by the row count instead
+                    # scaled both statistics by ``sum_weights / size``: with weights normalised to sum to 1 at
+                    # n=200 that is a factor of 200, and the excess kurtosis then collapsed toward the constant
+                    # -3.0 -- the same signature the comment forty lines up records from an earlier bug here.
+                    factor = sum_weights * weighted_std**3
                     if factor:
                         weighted_skew = weighted_skew / factor
 

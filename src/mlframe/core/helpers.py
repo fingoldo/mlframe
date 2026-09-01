@@ -286,7 +286,14 @@ def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = True, nans_fil
 
     if inf_cols:
         for col in inf_cols:
-            df[col] = np.nan_to_num(df[col], posinf=nans_filler, neginf=nans_filler)
+            # Masked, not ``np.nan_to_num``: that helper's ``nan`` argument defaults to 0.0, so passing only
+            # ``posinf``/``neginf`` ALSO rewrote every NaN in the column to zero. A missing value is a signal a
+            # tree splits on; replacing it with a plausible number is a silent corruption, and it only happened
+            # in columns that happened to contain an infinity, so two otherwise identical frames could disagree.
+            # This is the same masked form the ndarray sibling above uses and whose contract this one mirrors.
+            values = df[col].to_numpy(copy=True)
+            np.putmask(values, np.isinf(values), nans_filler)
+            df[col] = values
         if verbose:
             logger.warning("Some factors (%s) contained infinity: %s", f"{len(inf_cols):_}", ", ".join(inf_cols))
     return df

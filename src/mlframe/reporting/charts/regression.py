@@ -444,6 +444,16 @@ def _err_by_decile_panel(
 _WORM_PLOT_CAP: int = 2000
 # How many extreme order statistics at EACH tail are kept verbatim (never thinned) on the worm plot.
 _WORM_TAIL_KEEP: int = 100
+# Fraction of a uniform sample allowed outside the POINTWISE 95% band before the verdict stops saying "normal".
+# Not 0.05: a pointwise band excludes ~5% under perfect normality, so 0.05 is the null itself, not a bar above it.
+_WORM_NORMAL_MAX_OUTSIDE: float = 0.10
+# Imbalance between the two tail medians above which the departure reads as SKEW rather than as tails.
+# Calibrated on known distributions at n=300k: symmetric cases sit at |asym| <= 0.01 (gaussian 0.001,
+# t(3) 0.005, uniform 0.000) while lognormal reaches 0.93 and its mirror 0.91.
+_WORM_SKEW_IMBALANCE: float = 0.15
+# Excess kurtosis beyond which the tails are called heavy (or, negated, light). A normal sample sits at 0;
+# t(8) measures +1.4 and uniform -1.2, so 0.5 separates them from noise without demanding an extreme.
+_WORM_HEAVY_TAIL_EXCESS_KURT: float = 0.5
 
 
 def _decimate_keep_tails(n: int, cap: int, tail_keep: int) -> np.ndarray:
@@ -515,24 +525,43 @@ def _worm_panel(
     # both tails bending UP-and-down away from zero = heavy tails (a few errors much larger than Gaussian
     # -> RMSE understates worst-case, prediction intervals too narrow); a consistent up- or down-tilt =
     # skew (systematic over/under-prediction in one tail).
+    # Plain mean, deliberately. The tail points ARE over-represented in ``keep`` (100 head + 100 tail of 2000,
+    # against 0.02% of the rows at n=1e6), and re-weighting each point by the order statistics it stands for was
+    # tried -- it moves this number by nothing: 0.002 vs 0.002 on a Gaussian at n=1e6, 0.994 vs 0.993 on a
+    # t(3). The CI here is built from the FULL n, so at large n it is tight enough that a point is either
+    # clearly inside or clearly outside regardless of where in the sample it sits. Re-weighting was reverted
+    # rather than shipped: it added a step that measurably changes nothing.
     _frac_out = float(np.mean(np.abs(detrended) > ci)) if ci.size else 0.0
     _rt = float(np.median(detrended[zt >= 1.0])) if np.any(zt >= 1.0) else 0.0
     _lt = float(np.median(detrended[zt <= -1.0])) if np.any(zt <= -1.0) else 0.0
-    if _frac_out < 0.05:
+    # The shape table this replaces was inoperative. Its HEAVY-TAILS branch required ``_rt > 0 and _lt < 0``,
+    # a combination NO real departure produces: after standardising by the sample sd -- which the outliers
+    # themselves inflate -- both tails of a heavy-tailed sample sit INSIDE the normal quantiles, giving
+    # ``_rt < 0, _lt > 0``. Measured on six known distributions at n=300k, every non-normal one fell through to
+    # the final ``else`` and was reported as "light tails", including a Student-t(3) with excess kurtosis +52
+    # and a lognormal with skew +5.5.
+    #
+    # The two tail medians also cannot separate heavy from light on their own: uniform residuals (excess
+    # kurtosis -1.2) give ``_rt=-0.075, _lt=+0.075`` -- the same signs as t(8) (+1.4) and a LARGER magnitude.
+    # What they do separate cleanly is ASYMMETRY, so they decide skew, and excess kurtosis -- which is
+    # unambiguous and already cheap to compute -- decides heavy versus light.
+    _excess_kurt = float(((resid - mu) ** 4).mean() / sd**4 - 3.0)
+    _asym = abs(_rt) - abs(_lt)
+    if _frac_out < _WORM_NORMAL_MAX_OUTSIDE:
         _shape = "residuals ~ normal (interval/RMSE assumptions hold)"
-    elif _rt > 0 and _lt < 0:
-        _shape = "HEAVY TAILS -- a few errors far larger than Gaussian (RMSE understates worst-case)"
-    elif _rt > 0 and _lt > 0:
-        _shape = "RIGHT-SKEW residuals (under-prediction tail)"
-    elif _rt < 0 and _lt < 0:
-        _shape = "LEFT-SKEW residuals (over-prediction tail)"
+    elif abs(_asym) > _WORM_SKEW_IMBALANCE:
+        _shape = "LEFT-SKEW residuals (over-prediction tail)" if _asym > 0 else "RIGHT-SKEW residuals (under-prediction tail)"
+    elif _excess_kurt > _WORM_HEAVY_TAIL_EXCESS_KURT:
+        _shape = f"HEAVY TAILS (excess kurtosis {_excess_kurt:+.1f}) -- a few errors far larger than Gaussian (RMSE understates worst-case)"
+    elif _excess_kurt < -_WORM_HEAVY_TAIL_EXCESS_KURT:
+        _shape = f"LIGHT TAILS (excess kurtosis {_excess_kurt:+.1f}) -- errors more bounded than Gaussian"
     else:
-        _shape = "light tails"
+        _shape = "non-normal, but neither markedly skewed nor markedly tailed"
     return LinePanelSpec(
         x=zt,
         y=(detrended, zero),
         series_labels=("de-trended QQ (sample - theoretical)", "normal (zero)"),
-        title=(f"Worm plot -- are residuals Gaussian? {_shape}\n" f"({_frac_out:.0%} of points outside 95% CI; n={n:,}, plotted {zt.size:,})"),
+        title=(f"Worm plot -- are residuals Gaussian? {_shape}\n" f"({_frac_out:.0%} of a uniform sample outside the pointwise 95% CI; n={n:,}, plotted {zt.size:,})"),
         xlabel="Theoretical normal quantile",
         ylabel="Sample quantile - theoretical (standardised)",
         line_styles=("lines+markers", "--"),

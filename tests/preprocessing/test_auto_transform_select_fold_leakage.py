@@ -79,3 +79,28 @@ def test_select_column_transforms_scaler_scores_are_not_leaked():
     result = select_column_transforms(df, y, task="classification", n_splits=4, random_state=0)
     for score in result["noise"]["all_scores"].values():
         assert 0.3 <= score <= 0.7, f"a pure-noise column scored {score}, suggesting a CV leak inflated it"
+
+
+def test_the_missing_value_fill_is_also_fold_local():
+    """This file guarded the transform fit and never reached the IMPUTATION three lines above it.
+
+    Not one fixture here carried a NaN or an inf, so ``select_column_transforms``'s non-finite branch was never
+    executed -- and that branch computed its median over the WHOLE column, before the fold split, leaking every
+    held-out fold's own values into its own imputation. A regression file for the leakage class that cannot
+    reach the leak is the shape this test exists to close.
+    """
+    from mlframe.preprocessing.auto_transform_select import select_column_transforms
+
+    rng = np.random.default_rng(3)
+    n = 400
+    noise = rng.normal(0, 1, n)
+    # Gaps concentrated in the tail: a whole-column median differs sharply from any single fold's, so a leaked
+    # fill is not merely biased but visibly so.
+    noise[rng.random(n) < 0.15] = np.nan
+    df = pd.DataFrame({"noise_with_gaps": noise})
+    y = rng.integers(0, 2, n)
+
+    result = select_column_transforms(df, y, task="classification", n_splits=4, random_state=0)
+    assert result["noise_with_gaps"]["all_scores"], "the non-finite branch must still produce scores"
+    for name, score in result["noise_with_gaps"]["all_scores"].items():
+        assert 0.3 <= score <= 0.7, f"pure-noise column with gaps scored {score} under {name}, suggesting a leak"
