@@ -599,12 +599,16 @@ def build_calibration_spec(
         bar_width = 0.05
 
     inline_labels: Optional[Tuple[Tuple[float, float, str], ...]] = None
+    label_keep: Optional[np.ndarray] = None
     if show_inline_population_labels and len(hits) > 0 and len(freqs_predicted) <= INLINE_LABEL_MAX_BINS:
         # Skip non-finite points: a label emitted at NaN coordinates is a ghost -- invisible on matplotlib and
         # an off-canvas annotation on plotly -- so a NaN bin used to leave a stray, unplaceable label behind.
-        inline_labels = tuple(
-            (float(x), float(y), _format_population(float(h))) for x, y, h in zip(freqs_predicted, freqs_true, hits) if np.isfinite(x) and np.isfinite(y)
-        )
+        # The kept INDICES are carried, not just the labels: the per-label colour is chosen from the marker the
+        # label sits on, so a dropped empty bin would otherwise shift every later label onto its neighbour's
+        # colour and radius -- and the contrast decision would then be made against the wrong bubble, which is
+        # the one thing that helper exists to get right.
+        label_keep = np.flatnonzero(np.isfinite(freqs_predicted) & np.isfinite(freqs_true))
+        inline_labels = tuple((float(freqs_predicted[i]), float(freqs_true[i]), _format_population(float(hits[i]))) for i in label_keep)
 
     point_size = _bubble_point_size(hits)
 
@@ -660,7 +664,14 @@ def build_calibration_spec(
             scatter_title = f"{plot_title}\n{ann}" if plot_title else ann
 
     point_color, cmap, c_vmin, c_vmax, resolved_cbar_label = _resolve_point_coloring(freqs_predicted, freqs_true, hits, color_by, colorbar_label)
-    label_colors = _inline_label_colors(inline_labels, point_color, point_size, cmap, c_vmin, c_vmax)
+    label_colors = _inline_label_colors(
+        inline_labels,
+        point_color if label_keep is None else point_color[label_keep],
+        point_size if label_keep is None else np.asarray(point_size)[label_keep],
+        cmap,
+        c_vmin,
+        c_vmax,
+    )
 
     scatter = ScatterPanelSpec(
         x=freqs_predicted,

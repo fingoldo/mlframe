@@ -215,3 +215,36 @@ class TestTheSignificanceClaimSaysWhereAndWhichWay:
         assert "p in [" in logged
         assert "over-confident" in logged
         del logging
+
+
+class TestALabelIsColouredForItsOwnBin:
+    """An empty bin drops its label but must not shift every later label's colour onto a neighbour."""
+
+    def test_a_dropped_empty_bin_does_not_shift_the_colours(self):
+        """The bug: labels were filtered for finiteness, colours were indexed by LABEL position into the
+        unfiltered arrays. One empty bin therefore coloured every subsequent label from the bin before it --
+        and the contrast decision, whose whole job is to read against the marker the text sits on, was then
+        made against the wrong marker."""
+        from mlframe.reporting.charts.calibration import _inline_label_colors, build_calibration_spec
+
+        fp = np.array([0.05, 0.25, 0.45, 0.65, 0.85])
+        ft = np.array([0.04, 0.30, np.nan, 0.62, 0.90])  # bin 2 is empty
+        hits = np.array([500.0, 400.0, 0.0, 300.0, 200.0])
+
+        scatter = build_calibration_spec(fp, ft, hits, plot_title="").panels[0][0]
+        labels, colours = scatter.inline_labels, scatter.inline_label_colors
+        assert len(labels) == 4, "the empty bin's label must still be dropped"
+        assert len(colours) == len(labels)
+
+        # Rebuild what each SURVIVING bin's colour should be, from that bin's own gap and marker size.
+        keep = np.array([0, 1, 3, 4])
+        expected = _inline_label_colors(labels, scatter.point_color[keep], np.asarray(scatter.point_size)[keep], scatter.colormap, scatter.color_vmin, scatter.color_vmax)
+        assert colours == expected
+
+    def test_every_label_sits_at_its_own_bin(self):
+        """The same misalignment would also have put the text at the wrong coordinates had it been shared."""
+        fp = np.array([0.05, 0.25, 0.45, 0.65, 0.85])
+        ft = np.array([0.04, 0.30, np.nan, 0.62, 0.90])
+        hits = np.array([500.0, 400.0, 0.0, 300.0, 200.0])
+        labels = build_calibration_spec(fp, ft, hits, plot_title="").panels[0][0].inline_labels
+        assert [lx for lx, _, _ in labels] == [0.05, 0.25, 0.65, 0.85]
