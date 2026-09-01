@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 _SUPPORTED_COMPONENT_CONSTRAINTS = ("non_negative",)
 
 
-class AdditiveDecompositionRegressor(BaseEstimator, RegressorMixin):
+class AdditiveDecompositionRegressor(RegressorMixin, BaseEstimator):
     """Shared-trunk MLP whose output is the SUM of named component heads, jointly trained.
 
     Parameters

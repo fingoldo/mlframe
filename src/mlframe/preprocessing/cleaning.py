@@ -579,6 +579,12 @@ def analyse_and_clean_features(
     and only ever call ``apply_features_cleaning`` on val/test with the dict this function returns.
     """
     features_transforms: Dict[str, Dict[Any, Any]] = defaultdict(dict)
+    # The dtype each column must end up in AFTER its transforms are applied. ``apply_features_cleaning`` used to
+    # re-derive this from the frame it was given, which diverges from what was learned here: a float64 column
+    # whose rare values merge to NaN is cast to ``default_float_type`` (float32) on train and left float64 on
+    # val, and an INTEGER column raises ``IntCastingNaNError`` outright, since the transform introduces NaN into
+    # a column the apply side then tries to cast back to int64. That is the default configuration.
+    features_dtypes: Dict[str, str] = {}
 
     potentially_categorical_features = set()  # all discrete+all fewly-valued (e.g.,<1/1000 population ration)
     potentially_outlying_features = set()
@@ -752,6 +758,7 @@ def analyse_and_clean_features(
                                 the_type = head[col].dtype.name
 
                             features_transforms[col].update(repl_instructions)
+                            features_dtypes[col] = str(the_type if isinstance(the_type, str) else np.dtype(the_type).name)
                             if update_data:
                                 if col_is_categorical:
                                     df[col] = df[col].astype("object")
@@ -802,6 +809,7 @@ def analyse_and_clean_features(
                     repl_instructions = {na_val: repl_value}
 
                     features_transforms[col].update(repl_instructions)
+                    features_dtypes.setdefault(col, head[col].dtype.name)
                     if update_data:
                         if col_is_categorical:
                             df[col] = df[col].astype("object")
@@ -860,6 +868,7 @@ def analyse_and_clean_features(
         continuous_features=continuous_features,
         manyvalued_features=manyvalued_features,
         features_transforms=features_transforms,
+        features_dtypes=features_dtypes,
         fewlyvalued_features=fewlyvalued_features,
         features_unique_values=features_unique_values,
         potentially_outlying_features=potentially_outlying_features,
@@ -902,15 +911,24 @@ def apply_features_cleaning(df: pd.DataFrame, features_cleaning: dict, update_da
     transforms = features_cleaning["features_transforms"]
     constant_features = [col for col in features_cleaning["constant_features"] if col in head]
 
+    # The dtype recorded at LEARN time, not the one this frame happens to carry. Deriving it from ``head``
+    # silently put train and val on different dtypes whenever a rare-value merge forced a float cast, and raised
+    # ``IntCastingNaNError`` on any integer column whose rare values merged to NaN -- the default configuration.
+    learned_dtypes = features_cleaning.get("features_dtypes") or {}
+
+    def _target_dtype(col: str) -> str:
+        """The learned dtype for ``col``, falling back to this frame's own for a pre-``features_dtypes`` result."""
+        return str(learned_dtypes.get(col, head[col].dtype.name))
+
     if update_data:
         for col, repl_instructions in transforms.items():
-            df[col] = df[col].replace(repl_instructions).astype(head[col].dtype.name)
+            df[col] = df[col].replace(repl_instructions).astype(_target_dtype(col))
         if constant_features:
             df.drop(columns=constant_features, inplace=True)  # noqa: PD002 -- update_data=True is documented as mutating the caller's frame in place
         return df
 
     # Non-mutating path: compose the replacements into a new frame without touching the caller's columns.
-    replacements = {col: df[col].replace(repl_instructions).astype(head[col].dtype.name) for col, repl_instructions in transforms.items()}
+    replacements = {col: df[col].replace(repl_instructions).astype(_target_dtype(col)) for col, repl_instructions in transforms.items()}
     if replacements:
         df = df.assign(**replacements)
     if constant_features:

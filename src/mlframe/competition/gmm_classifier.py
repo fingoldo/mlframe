@@ -38,7 +38,7 @@ from mlframe._sklearn_predict_shared import argmax_predict
 __all__ = ["GaussianMixtureClassifier"]
 
 
-class GaussianMixtureClassifier(BaseEstimator, ClassifierMixin):
+class GaussianMixtureClassifier(ClassifierMixin, BaseEstimator):
     """Direct classifier fitting one ``GaussianMixture`` per class.
 
     COMPETITION / EXPLORATORY ONLY -- see module docstring. Predicts via Bayes' rule:

@@ -70,7 +70,7 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
-class RFECV(BaseEstimator, TransformerMixin):
+class RFECV(TransformerMixin, BaseEstimator):
     """Finds subset of features having best CV score, by iterative narrowing down set of top_n candidates having highest importance, as per estimator's FI scores.
 
     Optimizes mean CV scores (possibly accounting for variation, possibly translated into ranks) divided by the features number.

@@ -268,7 +268,7 @@ def _ttest_greater(real_imps: np.ndarray, threshold: np.ndarray) -> np.ndarray:
     return p
 
 
-class ACESelector(BaseEstimator, TransformerMixin):
+class ACESelector(TransformerMixin, BaseEstimator):
     """sklearn-compatible adapter over :func:`ace_select` for the training suite's pre-pipeline slot.
 
     ``ace_select`` is a FUNCTION returning ``ACEResult``; the suite drives selectors via the sklearn

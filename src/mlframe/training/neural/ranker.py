@@ -577,7 +577,7 @@ class _SamplerSetEpochCallback(_L_MODULE.Callback):  # type: ignore[name-defined
 # ----------------------------------------------------------------------------------
 
 
-class MLPRanker(BaseEstimator, RegressorMixin):
+class MLPRanker(RegressorMixin, BaseEstimator):
     """sklearn-shaped MLP ranker. Returns per-row 1-D scores via ``predict``.
 
     Hyperparameters:

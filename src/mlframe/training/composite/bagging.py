@@ -82,7 +82,7 @@ def _take_1d(y: Any, idx: np.ndarray) -> np.ndarray:
     return np.asarray(arr[idx])
 
 
-class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
+class BaggedCompositeEstimator(RegressorMixin, BaseEstimator):
     """Bootstrap-bagged ensemble of composite estimators for variance + UQ.
 
     Parameters

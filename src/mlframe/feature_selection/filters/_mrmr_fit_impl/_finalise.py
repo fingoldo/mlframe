@@ -225,8 +225,17 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
                     )
                     _p_value = float(_sig[3])
                 except Exception as e:
-                    logger.debug("significance p-value computation failed, falling back to the magnitude-only decision: %s", e)
-                    _p_value = 0.0  # significance unavailable -> fall back to the magnitude-only decision (keep)
+                    # FAIL CLOSED. Substituting p = 0.0 is "maximally significant", so a broken probe made the
+                    # gate one line below pass for every candidate it scanned -- and this gate exists precisely
+                    # because coarse-binned plug-in MI is upward-biased, so the magnitude-only decision it fell
+                    # back to re-injects the noise the gate was added to remove. "Significance unavailable" is
+                    # not evidence of significance; drop on uncertainty, and say so audibly.
+                    logger.warning(
+                        "MRMR rescue: permutation-significance probe raised %s for column index %s (%s); "
+                        "dropping the candidate rather than admitting it on magnitude alone.",
+                        type(e).__name__, _cols_idx, e,
+                    )
+                    _p_value = 1.0
                 if _p_value >= _signif_alpha:
                     continue
                 # Redundancy dedup (#2): drop a candidate whose MI with an already-accepted column is a large fraction of its own relevance (an algebraic / near-duplicate twin).
@@ -238,8 +247,15 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
                             y=np.array([_acc_cols], dtype=np.int64), factors_nbins=nbins, dtype=_q_dtype,
                         ))
                     except Exception as e:
-                        logger.debug("pair-MI computation failed, recording 0.0: %s", e)
-                        _pair_mi = 0.0
+                        # FAIL CLOSED, same reasoning as the significance gate above: 0.0 is exactly the value
+                        # that makes the redundancy test below fail, so a failed pair-MI silently admitted an
+                        # algebraic near-duplicate into the support, visible afterwards only as a redundancy
+                        # regression with no trace.
+                        logger.warning(
+                            "MRMR rescue: pair-MI probe raised %s for columns %s vs %s (%s); treating the pair as redundant.",
+                            type(e).__name__, _cols_idx, _acc_cols, e,
+                        )
+                        _pair_mi = float("inf")
                     if _pair_mi >= _redundancy_frac * max(_mi, 1e-12):
                         _is_redundant = True
                         break

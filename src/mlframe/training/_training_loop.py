@@ -108,8 +108,16 @@ def _ensure_cb_mtr_loss(model, train_target, pool=None) -> None:
         get = getattr(model, "get_param", None) or getattr(model, "get_params", None)
         params = get() if callable(get) else {}
     except Exception as e:
-        logger.debug("_ensure_cb_mtr_loss: get_param()/get_params() failed, treating params as empty: %s", e)
-        params = {}
+        # "Params unknown" is not "params empty". Substituting {} made the very next check conclude the caller
+        # set no loss, so this function overwrote a deliberately-chosen CatBoost objective with MultiRMSE and the
+        # model trained against the wrong one -- with every downstream metric then honestly computed on a
+        # wrongly-trained model. Leave the objective alone and say why.
+        logger.warning(
+            "_ensure_cb_mtr_loss: get_param()/get_params() raised %s (%s); leaving the model's objective untouched rather than " "assuming none was set.",
+            type(e).__name__,
+            e,
+        )
+        return
     _existing = params.get("loss_function")
     # Skip when the user already wired a multi-target-compatible loss.
     if _existing is not None and "multi" in str(_existing).lower():
@@ -162,8 +170,16 @@ def _ensure_cb_multilabel_loss(model, train_target, pool=None) -> None:
         get = getattr(model, "get_param", None) or getattr(model, "get_params", None)
         params = get() if callable(get) else {}
     except Exception as e:
-        logger.debug("_ensure_cb_multilabel_loss: get_param()/get_params() failed, treating params as empty: %s", e)
-        params = {}
+        # "Params unknown" is not "params empty". Substituting {} made the very next check conclude the caller
+        # set no loss, so this function overwrote a deliberately-chosen CatBoost objective with MultiLogloss / HammingLoss and the
+        # model trained against the wrong one -- with every downstream metric then honestly computed on a
+        # wrongly-trained model. Leave the objective alone and say why.
+        logger.warning(
+            "_ensure_cb_multilabel_loss: get_param()/get_params() raised %s (%s); leaving the model's objective untouched rather than "
+            "assuming none was set.",
+            type(e).__name__, e,
+        )
+        return
     if params.get("loss_function") is not None:
         return
     label_arr = None

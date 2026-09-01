@@ -99,7 +99,7 @@ def _resolve_entity_ids(X: Any, entity_column: Optional[str], entity_id: Optiona
     raise ValueError("CompositePanelEstimator: supply the entity id either via entity_column (a column " "in X) or via the entity_id= argument to fit/predict.")
 
 
-class CompositePanelEstimator(BaseEstimator, RegressorMixin):
+class CompositePanelEstimator(RegressorMixin, BaseEstimator):
     """Panel composite: demean the per-entity fixed effect, model within-entity dynamics.
 
     Parameters

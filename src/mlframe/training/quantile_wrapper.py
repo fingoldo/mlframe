@@ -101,7 +101,7 @@ def _resolve_n_jobs(requested: int | str, k: int) -> int:
     raise ValueError(f"_QuantileMultiOutputWrapper.n_jobs must be int or 'auto'; " f"got {requested!r}")
 
 
-class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
+class _QuantileMultiOutputWrapper(RegressorMixin, BaseEstimator):
     """Fits ``len(alphas)`` independent regressors and stacks their
     predictions into ``(N, K)``.
 

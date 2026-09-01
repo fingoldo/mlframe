@@ -183,9 +183,20 @@ def _cuda_usable() -> bool:
                 try:
                     from numba import cuda as _c
                     _CUDA_USABLE_CACHE = bool(getattr(_c, "is_available", lambda: False)())
-                except Exception as e2:
-                    logger.debug("numba.cuda.is_available() probe failed, assuming CUDA unusable: %s", e2)
+                except ImportError as e2:
+                    logger.debug("numba.cuda unavailable (%s); assuming CUDA unusable", e2)
                     _CUDA_USABLE_CACHE = False
+                except Exception as e2:
+                    # Same reasoning as ``_internals.numba_cuda_can_compile``: an ImportError means the stack is
+                    # genuinely absent, but a device fault raised while another process holds the card is a
+                    # moment. Latching on it pinned STRICT-resident mode off for the rest of the process at
+                    # debug level. Leave the cache unset so the next caller re-probes.
+                    logger.warning(
+                        "numba.cuda.is_available() raised %s: %s -- treating as a transient device condition; the "
+                        "probe is left unresolved and the next caller re-probes.",
+                        type(e2).__name__, e2,
+                    )
+                    return False
     return _CUDA_USABLE_CACHE
 
 

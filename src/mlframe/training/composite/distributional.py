@@ -121,7 +121,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_DENSE_QUANTILES: tuple[float, ...] = tuple(round(0.05 * k, 2) for k in range(1, 20))
 
 
-class CompositeDistributionEstimator(BaseEstimator, RegressorMixin):
+class CompositeDistributionEstimator(RegressorMixin, BaseEstimator):
     """Full predictive distribution via a dense quantile composite + CRPS.
 
     Parameters

@@ -213,7 +213,7 @@ def ndcg_at_k(y_true: Any, scores: Any, group: Any, k: int = 10) -> float:
     )
 
 
-class CompositeRankEstimator(BaseEstimator, RegressorMixin):
+class CompositeRankEstimator(RegressorMixin, BaseEstimator):
     """Composite learning-to-rank estimator: base score + inner residual reranker.
 
     Parameters

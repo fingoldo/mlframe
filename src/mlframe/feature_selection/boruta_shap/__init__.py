@@ -63,7 +63,7 @@ logger = logging.getLogger(__name__)
 # TODO(naming): rename this class/module from BorutaShap to plain Boruta - track every call site, docs
 # reference, and pickle-compat shim (``__module__``/``__qualname__`` rewrites, like MRMR's) needed for a
 # non-breaking rename, since existing pickles + user code reference the current name.
-class BorutaShap(BaseEstimator, TransformerMixin):
+class BorutaShap(TransformerMixin, BaseEstimator):
     """
     BorutaShap is a wrapper feature selection method built on the foundations of both the SHAP and Boruta algorithms.
 

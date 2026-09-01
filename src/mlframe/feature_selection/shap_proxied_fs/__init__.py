@@ -43,7 +43,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_precomputed import re
 logger = logging.getLogger(__name__)
 
 
-class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator, TransformerMixin):
+class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, TransformerMixin, BaseEstimator):
     """SHAP-coalition-proxy feature selector (sklearn transformer)."""
 
     def __init__(

@@ -141,15 +141,18 @@ def test_biz_val_cv_score_equivalence_band_bonferroni_controls_search_wide_false
 
     # A single-call band is calibrated per-comparison, not per-search: over 60 sequential null comparisons the
     # whole-search false-accept probability (search "wins" if ANY of the 60 candidates clears the band) climbs
-    # to roughly 60-67% (measured across several seeds), far above the nominal per-test alpha=0.05. The
-    # Bonferroni-corrected band (dividing alpha by n_comparisons=60 before computing the band) roughly halves
-    # that whole-search rate (measured ~0.28-0.36 across seeds) -- it does not fully restore it to alpha because
-    # the underlying single-sample SEM band is itself a conservative approximation of a true two-sample test
-    # (compares against ONE candidate's own fold variance, not the pooled two-candidate variance), but the
-    # correction still cuts the cumulative false-accept rate by roughly half over a realistic search length.
-    assert uncorrected_rate > 0.50, f"uncorrected whole-search false-accept rate should be high after 60 null comparisons, got {uncorrected_rate}"
-    assert corrected_rate < 0.45, f"Bonferroni-corrected whole-search false-accept rate should be reduced, got {corrected_rate}"
-    assert corrected_rate < uncorrected_rate * 0.65, "Bonferroni correction should cut the whole-search false-accept rate substantially"
+    # to roughly 20-28% (measured across seeds 7/11/23/101), far above the nominal per-test alpha=0.05. The
+    # Bonferroni-corrected band (dividing alpha by n_comparisons=60 before computing the band) now brings that
+    # whole-search rate to 0-1%, at or below the nominal alpha.
+    #
+    # Both numbers were roughly 2-3x higher while the band was under-wide in two independent ways: a normal
+    # quantile applied to a standard error estimated from 5 folds (uncorrected 60-67%, corrected 28-36%), and a
+    # one-mean band applied to a difference of two means. The old thresholds here pinned that, and the note they
+    # carried -- that the correction "does not fully restore it to alpha" -- described those two defects rather
+    # than a limitation of Bonferroni. With an honest band the correction does what it claims.
+    assert uncorrected_rate > 0.15, f"uncorrected whole-search false-accept rate should be high after 60 null comparisons, got {uncorrected_rate}"
+    assert corrected_rate <= alpha, f"Bonferroni-corrected whole-search false-accept rate should be at or below the nominal alpha, got {corrected_rate}"
+    assert corrected_rate < uncorrected_rate * 0.20, "Bonferroni correction should cut the whole-search false-accept rate by roughly an order of magnitude"
 
 
 def test_cv_score_equivalence_band_n_comparisons_default_bit_identical():

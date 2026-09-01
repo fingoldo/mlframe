@@ -47,7 +47,7 @@ def _default_inner() -> Any:
     return HistGradientBoostingRegressor(random_state=0)
 
 
-class CompositeFeatureGenerator(BaseEstimator, TransformerMixin):
+class CompositeFeatureGenerator(TransformerMixin, BaseEstimator):
     """Turn a discovered composite spec (or a prototype wrapper) into one OOF feature column.
 
     Parameters

@@ -24,7 +24,7 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 logger = logging.getLogger(__name__)
 
 
-class RegimeSplitEnsemble(BaseEstimator, RegressorMixin):
+class RegimeSplitEnsemble(RegressorMixin, BaseEstimator):
     """One model per detected regime, combined at predict time by routing or averaging.
 
     Parameters

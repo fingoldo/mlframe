@@ -75,7 +75,7 @@ def _concat_feature(X: Any, col_name: str, values: np.ndarray) -> Any:
     return np.concatenate([np.asarray(X, dtype=np.float64), values.reshape(-1, 1)], axis=1)
 
 
-class GatedRegressionMixture(BaseEstimator, RegressorMixin):
+class GatedRegressionMixture(RegressorMixin, BaseEstimator):
     """Gate classifier hard-routes rows to branch regressors; gate probability is stacked as a feature.
 
     Parameters

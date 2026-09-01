@@ -115,7 +115,7 @@ def concordance_index(time: np.ndarray, pred: np.ndarray, event: np.ndarray) -> 
     return num / den
 
 
-class CompositeSurvivalEstimator(BaseEstimator, RegressorMixin):
+class CompositeSurvivalEstimator(RegressorMixin, BaseEstimator):
     """AFT-style residual-over-base composite for right-censored time-to-event.
 
     Parameters

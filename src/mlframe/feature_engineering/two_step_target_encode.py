@@ -82,9 +82,17 @@ def two_step_recency_weighted_target_encode(
     # orchestrator; this avoids an eager module-scope training/ import for a name only used here.
     from mlframe.training.feature_handling.ordered_target_encoder import ordered_target_encode
 
-    step1_encoding = ordered_target_encode(composite_cat, np.asarray(y, dtype=np.float64), order=order, smoothing=smoothing)
-
     time_vals = events_df[time_col].to_numpy(dtype=np.float64)
+    # Resolved ONCE, for both steps. Step 1 used to forward ``order=None`` straight through, and
+    # ``ordered_target_encode`` then falls back to input ROW ORDER -- so on a frame stored entity-major (all of
+    # card A's events, then all of card B's, the normal shape of a transactions table) step 1's expanding mean
+    # was built from rows chronologically in the future of the row it encodes. Step 2 already defaulted to
+    # ``time_vals``, so the two steps disagreed about what causal meant, and the module's "leak-free" claim did
+    # not hold for the default call.
+    causal_order = order if order is not None else time_vals
+
+    step1_encoding = ordered_target_encode(composite_cat, np.asarray(y, dtype=np.float64), order=causal_order, smoothing=smoothing)
+
     entity_vals = events_df[entity_col].to_numpy()
 
     df = pd.DataFrame({"entity": entity_vals, "time": time_vals, "enc": step1_encoding})
@@ -102,7 +110,6 @@ def two_step_recency_weighted_target_encode(
     # expanding cumsum (in causal order) stand in for an O(n^2) "recompute weights vs. row i" loop. B_j is
     # referenced to the entity's own max time (same convention as the non-causal branch) purely to keep the
     # exponent <= 0 and avoid overflow; the reference constant cancels in the ratio the same way A_i does.
-    causal_order = order if order is not None else time_vals
     sort_idx = np.argsort(np.asarray(causal_order), kind="mergesort")
     inverse_idx = np.argsort(sort_idx, kind="mergesort")
 

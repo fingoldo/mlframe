@@ -51,7 +51,7 @@ from .estimator import CompositeTargetEstimator, _extract_base
 logger = logging.getLogger(__name__)
 
 
-class MissingAwareComposite(BaseEstimator, RegressorMixin):
+class MissingAwareComposite(RegressorMixin, BaseEstimator):
     """Wrapper making a :class:`CompositeTargetEstimator` robust to NaN base.
 
     Parameters

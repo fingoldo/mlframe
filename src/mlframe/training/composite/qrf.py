@@ -421,7 +421,7 @@ def _make_backend(
     )
 
 
-class _QuantileForestAdapter(BaseEstimator, RegressorMixin):  # pragma: no cover - exercised only when quantile-forest installed
+class _QuantileForestAdapter(RegressorMixin, BaseEstimator):  # pragma: no cover - exercised only when quantile-forest installed
     """Adapt ``quantile_forest.RandomForestQuantileRegressor`` to the inner contract.
 
     Maps ``predict_quantile(X, alpha)`` onto the package's ``predict(X, quantiles=...)``
@@ -457,7 +457,7 @@ class _QuantileForestAdapter(BaseEstimator, RegressorMixin):  # pragma: no cover
         return out.reshape(-1) if scalar else out
 
 
-class CompositeQRFEstimator(BaseEstimator, RegressorMixin):
+class CompositeQRFEstimator(RegressorMixin, BaseEstimator):
     """Quantile-regression-forest distributional composite: full UQ from ONE fit.
 
     Parameters

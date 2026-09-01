@@ -131,6 +131,7 @@ def optimize_pipeline_by_gridsearch(X, Y, title: str, cv_func: Any, cv_results: 
 
     Must support exclusion rules, eg, feature_selection_optimistic only has sense if feature_selection_trials is >0
 
+    Returns the accumulated ``cv_results``, which is also the dict passed in when the caller supplies one.
     """
     if constants is None:
         constants = {}
@@ -159,15 +160,36 @@ def optimize_pipeline_by_gridsearch(X, Y, title: str, cv_func: Any, cv_results: 
         compare_cv_metrics(cv_results=cv_results[title][paramset_hash], extended=False)
         # compare_cv_metrics(cv_results=cv_results, extended=True)
     else:
-        # Need to travel all the keys from top to the bottom until actual computing can be started.
-        for var, options in possible_pipeline_blocks.items():
-            if var not in constants:
-                unexplored_options = possible_pipeline_blocks.copy()
-                del unexplored_options[var]
-                for opt in options:
-                    optimize_pipeline_by_gridsearch(
-                        X, Y, title=title, cv_func=cv_func, possible_pipeline_blocks=unexplored_options, constants={**constants, **{var: opt}}
-                    )
+        # Fix ONE block per level. Recursing on every still-unassigned block instead reached each complete
+        # assignment once per ORDER in which its blocks were assigned: k! * m^k leaves for m^k distinct
+        # configurations, every duplicate producing the same paramset_hash and re-running the full CV. Four
+        # blocks meant 24x redundant cross-validation, and cv_func dominates this function's cost.
+        unassigned = [v for v in possible_pipeline_blocks if v not in constants]
+        if not unassigned:
+            # Every remaining block is pinned by a constant, so there is nothing left to vary: evaluate this
+            # assignment. The old loop simply fell through here and dropped the branch without evaluating it.
+            return optimize_pipeline_by_gridsearch(
+                X, Y, title=title, cv_func=cv_func, cv_results=cv_results, possible_pipeline_blocks={}, constants=constants, output_dir=output_dir
+            )
+        var = unassigned[0]
+        unexplored_options = {k: v for k, v in possible_pipeline_blocks.items() if k != var}
+        for opt in possible_pipeline_blocks[var]:
+            # cv_results and output_dir must be forwarded: each leaf used to build a fresh accumulator and dump
+            # it to the system temp dir, so the caller's dict came back empty, the caller's output_dir stayed
+            # empty, and every leaf overwrote the previous leaf's dump at the same title-derived path -- a
+            # multi-hour sweep left a single-configuration file behind.
+            optimize_pipeline_by_gridsearch(
+                X,
+                Y,
+                title=title,
+                cv_func=cv_func,
+                cv_results=cv_results,
+                possible_pipeline_blocks=unexplored_options,
+                constants={**constants, var: opt},
+                output_dir=output_dir,
+            )
+
+    return cv_results
 
 
 def compare_cv_metrics(cv_results: dict, metric: str = "root_mean_squared_error", extended: bool = False, cmap=None, figsize=(20, 8), agg_fcn=np.median):

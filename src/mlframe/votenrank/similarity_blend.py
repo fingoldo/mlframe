@@ -27,7 +27,7 @@ def _identity_embedding(X: np.ndarray) -> np.ndarray:
     return np.asarray(X, dtype=np.float32)
 
 
-class SimilarityBlendEnsemble(BaseEstimator, RegressorMixin):
+class SimilarityBlendEnsemble(RegressorMixin, BaseEstimator):
     """Blend an in-distribution and an out-of-distribution specialist model, weighted by each row's
     k-NN similarity to the training set in embedding space.
 

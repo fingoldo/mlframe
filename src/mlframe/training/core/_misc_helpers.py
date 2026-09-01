@@ -547,14 +547,42 @@ def _build_tier_dfs(
     return tier_dfs
 
 
-def _split_preds_probs(arr):
-    """Regression: 1-D preds; classification: 2-D probs + derived 1-D preds via argmax."""
+def _split_preds_probs(arr, target_type=None):
+    """Split a raw model output into ``(preds, probs)``.
+
+    A 2-D output is class probabilities ONLY for a classification target. Several other target types are also
+    ``(N, K)``: quantile regression predicts K conditional quantiles, multi-target regression K independent
+    continuous targets. Treating those as probabilities took an argmax over quantiles as if it were a class
+    index and handed the matrix downstream as ``probs``; ``report_model_perf`` infers the task from
+    ``probs is not None`` when it has no model to ask, so the whole report was routed through the
+    classification path and died indexing the matrix by a target value
+    (``IndexError: index 3 is out of bounds for axis 1 with size 3``).
+
+    ``target_type`` may be a ``TargetTypes`` member or its string value; when omitted the old shape-only
+    behaviour applies, for callers that genuinely only ever pass classification output.
+    """
     if arr is None:
         return None, None
     a = np.asarray(arr)
-    if a.ndim == 2:
+    if a.ndim == 2 and _target_type_is_classification(target_type):
         return np.argmax(a, axis=1), a
     return a, None
+
+
+def _target_type_is_classification(target_type) -> bool:
+    """True when ``target_type`` names a classification task; True for ``None`` to preserve the shape-only default."""
+    if target_type is None:
+        return True
+    prop = getattr(target_type, "is_classification", None)
+    if isinstance(prop, bool):
+        return prop
+    from mlframe.training._configs_base import TargetTypes
+
+    try:
+        return TargetTypes(str(target_type)).is_classification
+    except ValueError:
+        logger.debug("_split_preds_probs: unrecognised target_type %r; assuming a 2-D output is probabilities", target_type)
+        return True
 
 
 def _maybe_clear_shim_cache(est):

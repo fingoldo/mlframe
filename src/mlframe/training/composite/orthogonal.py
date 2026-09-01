@@ -116,7 +116,7 @@ def _cross_fitted_oof(estimator: Any, X: Any, target: np.ndarray, kf: KFold, sam
     return oof
 
 
-class OrthogonalizedCompositeEstimator(BaseEstimator, RegressorMixin):
+class OrthogonalizedCompositeEstimator(RegressorMixin, BaseEstimator):
     """Debiased (double-ML) composite: confounding-free base coefficient via FWL.
 
     Parameters

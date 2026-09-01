@@ -12,7 +12,7 @@ from typing import Literal, Optional
 
 import numpy as np
 
-from mlframe.evaluation.noise_band import _two_sided_z, cv_score_equivalence_band
+from mlframe.evaluation.noise_band import _two_sided_t, two_sample_score_band
 
 ChangeSource = Literal["feature_engineering", "hyperparameter"]
 
@@ -59,13 +59,21 @@ class CVDeltaHistory:
 
     def pooled_band(self, n_folds: int, alpha: float = 0.05) -> Optional[float]:
         """Noise band for a comparison with ``n_folds`` folds, using the pooled (cross-history) std, or
-        ``None`` before any update.
+        ``None`` before any update. The band brackets a DIFFERENCE of two ``n_folds``-fold means, matching
+        :func:`mlframe.evaluation.noise_band.two_sample_score_band`.
         """
         std = self.pooled_std
         if std is None:
             return None
-        sem = std / float(np.sqrt(n_folds))
-        return _two_sided_z(alpha) * sem
+        # sqrt(2/n_folds), not 1/sqrt(n_folds): the band brackets a DIFFERENCE of two fold-score means, whose
+        # standard error is sqrt(2) times one mean's when both share this pooled per-fold variance. This matches
+        # what ``two_sample_score_band`` computes on the single-call path, so the two paths estimate the same
+        # quantity and the pooled one differs only by being better evidenced.
+        se = std * float(np.sqrt(2.0 / n_folds))
+        # The pooled dof, not ``n_folds - 1``: that is the whole point of pooling. A single 5-fold comparison
+        # carries 4 dof and needs t=2.776, but once history has accumulated a few hundred dof the estimate is
+        # nearly as good as a known SE and t converges to z on its own.
+        return _two_sided_t(alpha, self._pooled_dof) * se
 
 
 def triage_cv_delta(
@@ -99,6 +107,8 @@ def triage_cv_delta(
         is folded into the accumulator's pooled-variance estimate, and once the accumulator has seen at least
         ``min_history_dof`` pooled degrees of freedom the (tighter, cross-experiment) pooled band replaces the
         single-call band -- the project's own noise-band threshold auto-calibrates as more comparisons accrue.
+        What is pooled is the per-fold score variance; the band derived from it brackets a difference of two
+        means, the same quantity the single-call band brackets, so the two paths are directly comparable.
     min_history_dof
         Minimum pooled degrees of freedom (summed ``n_folds - 1`` across accumulated calls) before the pooled
         band from ``history`` is trusted over the single-call band. Ignored when ``history`` is ``None``.
@@ -118,6 +128,10 @@ def triage_cv_delta(
 
     delta = float(np.mean(candidate_fold_scores) - np.mean(baseline_fold_scores))
 
+    # The quantity under test is a DIFFERENCE of two fold-score means, so the band is the standard error of that
+    # difference. It used to be derived from the baseline's fold scores alone, which is the SE of ONE mean --
+    # narrower by up to sqrt(2). This band is the gate deciding whether a selection loop accepts a candidate, so
+    # an under-wide one accepts noise, the single failure the module exists to prevent.
     band_source = "single_call"
     pooled_band: Optional[float] = None
     if history is not None:
@@ -128,7 +142,7 @@ def triage_cv_delta(
         band = pooled_band
         band_source = "history"
     else:
-        band = cv_score_equivalence_band(baseline_fold_scores, alpha=alpha, method="sem")
+        band = two_sample_score_band(baseline_fold_scores, candidate_fold_scores, alpha=alpha)
 
     if change_source == "hyperparameter":
         band *= hyperparameter_band_multiplier

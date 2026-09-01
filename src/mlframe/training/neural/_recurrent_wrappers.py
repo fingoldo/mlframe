@@ -40,7 +40,7 @@ logger = logging.getLogger("mlframe.training.neural.recurrent_dataset_helpers") 
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
+class RecurrentClassifierWrapper(ClassifierMixin, _RecurrentWrapperBase):
     """
     Sklearn-compatible wrapper for RecurrentTorchModel (classification).
 
@@ -285,7 +285,7 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
+class RecurrentRegressorWrapper(RegressorMixin, _RecurrentWrapperBase):
     """
     Sklearn-compatible wrapper for RecurrentTorchModel (regression).
 

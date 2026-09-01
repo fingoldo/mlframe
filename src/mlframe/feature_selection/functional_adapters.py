@@ -137,7 +137,7 @@ def _numeric_view_for_selection(X):
     return out
 
 
-class _FunctionalSelectorBase(BaseEstimator, TransformerMixin):
+class _FunctionalSelectorBase(TransformerMixin, BaseEstimator):
     """Shared fit/transform/get_support plumbing for the functional-utility adapters below."""
 
     def transform(self, X):

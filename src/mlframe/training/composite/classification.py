@@ -92,7 +92,7 @@ def _fit_inner_with_init_score(model: Any, X: Any, y: np.ndarray, init_score: np
         raise NotImplementedError(f"CompositeClassificationEstimator: inner {cls!r} does not accept a " "base margin (init_score / base_margin / baseline).")
 
 
-class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
+class CompositeClassificationEstimator(ClassifierMixin, BaseEstimator):
     """Binary classifier that learns the residual log-odds over a base margin.
 
     Parameters

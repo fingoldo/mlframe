@@ -177,7 +177,7 @@ from ._mrmr_class_fit_helpers import _MRMRFitHelpersMixin
 _MRMR_SCHEMA_VERSION = 1
 
 
-class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, _MRMRConfigMixin, _MRMRFitHelpersMixin):
+class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, _MRMRConfigMixin, _MRMRFitHelpersMixin):
     """Finds subset of features having highest impact on target and least redundancy.
 
     Parameters

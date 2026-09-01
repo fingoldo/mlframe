@@ -153,7 +153,12 @@ class UnseenCategoryImputer:
                 right_dist = np.abs(sorted_vals[idx_right] - query)
                 nearest_idx = np.where(left_dist <= right_dist, idx_left, idx_right)
                 replacement = pd.Series(sorted_cats[nearest_idx], index=df.index[unreliable_mask])
-                out.loc[unreliable_mask, col] = replacement
+                # Whole-column rebind, matching the ``mode`` branch below. ``out`` is a SHALLOW copy, so
+                # ``out.loc[mask, col] = ...`` writes through the shared block into the CALLER's frame: after
+                # ``imp.transform(X_test)`` the caller's own ``X_test`` came back with rewritten categories, and
+                # a second transform on it then reported a 0 fallback rate because the substitution had already
+                # happened. Only this opt-in branch had the bug; the ``mode`` branch was always safe.
+                out[col] = df[col].where(~unreliable_mask, replacement.reindex(df.index))
             else:
                 out[col] = df[col].where(~unreliable_mask, self.mode_[col])
         return out

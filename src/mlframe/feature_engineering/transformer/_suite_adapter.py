@@ -38,7 +38,7 @@ def _to_2d_numeric(X) -> np.ndarray:
     return np.ascontiguousarray(arr, dtype=np.float32)
 
 
-class ShortlistTransformerAdapter(BaseEstimator, TransformerMixin):
+class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
     """Wrap a standalone ``compute_*`` shortlist transformer as a leakage-safe sklearn transformer for ``custom_pre_pipelines``.
 
     Parameters

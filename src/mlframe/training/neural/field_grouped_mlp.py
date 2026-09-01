@@ -75,7 +75,7 @@ class _FieldGroupedMLPModule(nn.Module):
         return out
 
 
-class FieldGroupedMLPRegressor(BaseEstimator, RegressorMixin):
+class FieldGroupedMLPRegressor(RegressorMixin, BaseEstimator):
     """sklearn-compatible regressor: per-field sub-MLP encoders, merged before a shared head.
 
     Parameters

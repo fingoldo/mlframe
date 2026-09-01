@@ -168,7 +168,7 @@ def _set_inner_objective(model: Any, family: str, tweedie_power: float) -> None:
         )
 
 
-class CompositeGLMEstimator(BaseEstimator, RegressorMixin):
+class CompositeGLMEstimator(RegressorMixin, BaseEstimator):
     """Log-link GLM composite that learns a residual over a base mean predictor.
 
     For count (Poisson), strictly-positive (Gamma) and zero-inflated-positive

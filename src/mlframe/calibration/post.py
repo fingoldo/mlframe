@@ -94,7 +94,7 @@ _NEEDS_2D_CALIBRATORS = (
 )
 
 
-class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
+class BinaryPostCalibrator(ClassifierMixin, BaseEstimator):
     """sklearn-compatible adapter that wraps a third-party binary calibrator behind a uniform interface.
 
     Normalises the many calibrator libraries (netcal, pycalib, betacal, dirichletcal, venn-abers,

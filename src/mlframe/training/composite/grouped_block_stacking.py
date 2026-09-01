@@ -96,7 +96,7 @@ def _select_group(X: Any, columns: Sequence[Any]) -> np.ndarray:
     return np.asarray(X, dtype=np.float64)[:, [int(c) for c in columns]]
 
 
-class GroupedBlockStacker(BaseEstimator, RegressorMixin):
+class GroupedBlockStacker(RegressorMixin, BaseEstimator):
     """Per-feature-group OOF submodels (restricted to each group's valid rows), stacked by a meta-model.
 
     Parameters

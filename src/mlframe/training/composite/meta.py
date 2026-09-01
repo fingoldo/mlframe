@@ -100,7 +100,7 @@ def _fit_nnls_2col(oof: np.ndarray, y: np.ndarray, sample_weight: Optional[np.nd
     return np.asarray(w / total)
 
 
-class CompositeOrRawStacker(BaseEstimator, RegressorMixin):
+class CompositeOrRawStacker(RegressorMixin, BaseEstimator):
     """Blend a composite-target model with a raw-``y`` model, weighted by leakage-free OOF performance.
 
     Parameters

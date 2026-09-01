@@ -149,8 +149,9 @@ def gaussian_power_transform_search(
         finite = raw[np.isfinite(raw)]
         if finite.size < 3:
             continue
+        fill_median = float(np.median(finite))
         finite_fill = raw.copy()
-        finite_fill[~np.isfinite(finite_fill)] = np.median(finite)
+        finite_fill[~np.isfinite(finite_fill)] = fill_median
 
         abs_skews: Dict[str, float] = {}
         transformed_by_name: Dict[str, np.ndarray] = {}
@@ -193,11 +194,32 @@ def gaussian_power_transform_search(
             "best_abs_skew": abs_skews[best_transform],
             "all_abs_skew": abs_skews,
             "best_fitted_params": fitted_params_by_name[best_transform],
+            # A transform cannot be fitted through NaN, so non-finite cells are filled with this median before
+            # fitting. It is recorded here because the apply side must replay THIS value: recomputing a median
+            # from the frame being transformed is a train/serve statistic mismatch, and at single-row inference
+            # the "median" is that row's own value.
+            "fill_median": fill_median,
             **info,
         }
         results[col] = info
 
     return results
+
+
+def _restore_missing(values: np.ndarray, nonfinite: np.ndarray) -> np.ndarray:
+    """Put NaN back where the input was non-finite.
+
+    The fill exists so a transform can be FITTED and REPLAYED through a column containing NaN; it is not an
+    imputation decision, and this function's docstring promises only "each searched column replaced by its best-
+    scoring transform". Writing the filled values into the output made missingness disappear from the frame
+    without anything saying so, and left every previously-NaN row holding a transform of the training median.
+    """
+    out: np.ndarray = np.asarray(values, dtype=np.float64)
+    if not nonfinite.any():
+        return out
+    out = out.copy()
+    out[nonfinite] = np.nan
+    return out
 
 
 def apply_gaussian_power_transform(df: pd.DataFrame, search_result: Dict[str, dict]) -> pd.DataFrame:
@@ -209,14 +231,30 @@ def apply_gaussian_power_transform(df: pd.DataFrame, search_result: Dict[str, di
     workflow) now applies the SAME function that was measured and selected, not a freshly-refit one.
 
     Returns ``df`` (shallow copy) with each searched column replaced by its best-scoring transform in place.
+    Cells that were non-finite on input come back as NaN: they are filled only so the fitted transform can be
+    replayed through them, using the median recorded at search time rather than one recomputed here.
     """
     out = df.copy(deep=False)
     for col, info in search_result.items():
         raw = out[col].to_numpy(dtype=np.float64)
-        finite = raw[np.isfinite(raw)]
+        nonfinite = ~np.isfinite(raw)
         finite_fill = raw.copy()
-        if finite.size:
-            finite_fill[~np.isfinite(finite_fill)] = np.median(finite)
+        if nonfinite.any():
+            fill_median = info.get("fill_median")
+            if fill_median is None:
+                # A result dict from before the fill median was recorded. Falling back to this frame's own median
+                # is the old, leaky behaviour; say so rather than replay it silently.
+                finite = raw[~nonfinite]
+                if not finite.size:
+                    continue
+                fill_median = float(np.median(finite))
+                logger.warning(
+                    "apply_gaussian_power_transform: column %r has no recorded fill_median (search result predates it); "
+                    "falling back to this frame's own median, which is a train/serve statistic mismatch. Re-run "
+                    "gaussian_power_transform_search to record it.",
+                    col,
+                )
+            finite_fill[nonfinite] = float(fill_median)
         best_transform = info["best_transform"]
         if best_transform == "boxcox":
             # _apply_transform's positivity guard is whole-array (needed at FIT time: a single
@@ -239,11 +277,11 @@ def apply_gaussian_power_transform(df: pd.DataFrame, search_result: Dict[str, di
                 if transformed_pos is not None:
                     replayed = finite_fill.copy()
                     replayed[positive_mask] = transformed_pos
-                    out[col] = replayed
+                    out[col] = _restore_missing(replayed, nonfinite)
             continue
         transformed, _ = _apply_transform(finite_fill, best_transform, fitted_params=info.get("best_fitted_params"))
         if transformed is not None:
-            out[col] = transformed
+            out[col] = _restore_missing(transformed, nonfinite)
     return out
 
 

@@ -288,16 +288,37 @@ def _pair_combo_mi_njit(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, x
         bn = bn_arr[j]
         val = np.empty(n, dtype=np.float64)
         s = 0.0
-        ss = 0.0
+        vmin = np.inf
+        vmax = -np.inf
         for i in range(n):
             a = _apply_unary(x1[i], ua, xmin_a)
             b = _apply_unary(x2[i], ub, xmin_b)
             v = _apply_binary(a, b, bn)
             val[i] = v
             s += v
-            ss += v * v
+            if v < vmin:
+                vmin = v
+            if v > vmax:
+                vmax = v
+        # Centred two-pass variance, plus an EXACT constant short-circuit. The previous form was
+        # ``var = ss / n - mean * mean`` from raw power sums, whose cancellation noise floor is ~eps * mean^2
+        # -- far ABOVE the ``1e-18`` constant gate for any |mean| > 0.067, so the gate was reading noise. On two
+        # epoch-second columns added together (v ~ 3.4e9) the floor is ~2.6e3: any combo whose true variance was
+        # under that computed a random-signed value, landed negative about half the time, and was written out as
+        # the -1.0 sentinel -- a SILENT false-negative feature rejection, indistinguishable downstream from a
+        # legitimately constant combo. The converse also fired: a truly constant combo whose noise landed
+        # positive passed the gate and was quantile-binned as a degenerate single-bin column, which vmin/vmax
+        # now catches exactly. ``val`` is already materialised in the first pass, so the second costs one more
+        # sequential read of an array that is still in cache.
+        if vmax == vmin:
+            out[j] = -1.0
+            continue
         mean = s / n
-        var = ss / n - mean * mean
+        ss = 0.0
+        for i in range(n):
+            d = val[i] - mean
+            ss += d * d
+        var = ss / n
         if var <= 1e-18:  # std <= 1e-9
             out[j] = -1.0
             continue
@@ -322,16 +343,37 @@ def _pair_combo_mi_njit_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, 
         bn = bn_arr[j]
         val = np.empty(n, dtype=np.float64)
         s = 0.0
-        ss = 0.0
+        vmin = np.inf
+        vmax = -np.inf
         for i in range(n):
             a = _apply_unary(x1[i], ua, xmin_a)
             b = _apply_unary(x2[i], ub, xmin_b)
             v = _apply_binary(a, b, bn)
             val[i] = v
             s += v
-            ss += v * v
+            if v < vmin:
+                vmin = v
+            if v > vmax:
+                vmax = v
+        # Centred two-pass variance, plus an EXACT constant short-circuit. The previous form was
+        # ``var = ss / n - mean * mean`` from raw power sums, whose cancellation noise floor is ~eps * mean^2
+        # -- far ABOVE the ``1e-18`` constant gate for any |mean| > 0.067, so the gate was reading noise. On two
+        # epoch-second columns added together (v ~ 3.4e9) the floor is ~2.6e3: any combo whose true variance was
+        # under that computed a random-signed value, landed negative about half the time, and was written out as
+        # the -1.0 sentinel -- a SILENT false-negative feature rejection, indistinguishable downstream from a
+        # legitimately constant combo. The converse also fired: a truly constant combo whose noise landed
+        # positive passed the gate and was quantile-binned as a degenerate single-bin column, which vmin/vmax
+        # now catches exactly. ``val`` is already materialised in the first pass, so the second costs one more
+        # sequential read of an array that is still in cache.
+        if vmax == vmin:
+            out[j] = -1.0
+            continue
         mean = s / n
-        var = ss / n - mean * mean
+        ss = 0.0
+        for i in range(n):
+            d = val[i] - mean
+            ss += d * d
+        var = ss / n
         if var <= 1e-18:
             out[j] = -1.0
             continue
@@ -370,14 +412,35 @@ def _pair_combo_mi_njit_table(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_
         bn = bn_arr[j]
         val = np.empty(n, dtype=np.float64)
         s = 0.0
-        ss = 0.0
+        vmin = np.inf
+        vmax = -np.inf
         for i in range(n):
             v = _apply_binary(U1[ua, i], U2[ub, i], bn)
             val[i] = v
             s += v
-            ss += v * v
+            if v < vmin:
+                vmin = v
+            if v > vmax:
+                vmax = v
+        # Centred two-pass variance, plus an EXACT constant short-circuit. The previous form was
+        # ``var = ss / n - mean * mean`` from raw power sums, whose cancellation noise floor is ~eps * mean^2
+        # -- far ABOVE the ``1e-18`` constant gate for any |mean| > 0.067, so the gate was reading noise. On two
+        # epoch-second columns added together (v ~ 3.4e9) the floor is ~2.6e3: any combo whose true variance was
+        # under that computed a random-signed value, landed negative about half the time, and was written out as
+        # the -1.0 sentinel -- a SILENT false-negative feature rejection, indistinguishable downstream from a
+        # legitimately constant combo. The converse also fired: a truly constant combo whose noise landed
+        # positive passed the gate and was quantile-binned as a degenerate single-bin column, which vmin/vmax
+        # now catches exactly. ``val`` is already materialised in the first pass, so the second costs one more
+        # sequential read of an array that is still in cache.
+        if vmax == vmin:
+            out[j] = -1.0
+            continue
         mean = s / n
-        var = ss / n - mean * mean
+        ss = 0.0
+        for i in range(n):
+            d = val[i] - mean
+            ss += d * d
+        var = ss / n
         if var <= 1e-18:
             out[j] = -1.0
             continue
@@ -408,14 +471,35 @@ def _pair_combo_mi_njit_table_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub
         bn = bn_arr[j]
         val = np.empty(n, dtype=np.float64)
         s = 0.0
-        ss = 0.0
+        vmin = np.inf
+        vmax = -np.inf
         for i in range(n):
             v = _apply_binary(U1[ua, i], U2[ub, i], bn)
             val[i] = v
             s += v
-            ss += v * v
+            if v < vmin:
+                vmin = v
+            if v > vmax:
+                vmax = v
+        # Centred two-pass variance, plus an EXACT constant short-circuit. The previous form was
+        # ``var = ss / n - mean * mean`` from raw power sums, whose cancellation noise floor is ~eps * mean^2
+        # -- far ABOVE the ``1e-18`` constant gate for any |mean| > 0.067, so the gate was reading noise. On two
+        # epoch-second columns added together (v ~ 3.4e9) the floor is ~2.6e3: any combo whose true variance was
+        # under that computed a random-signed value, landed negative about half the time, and was written out as
+        # the -1.0 sentinel -- a SILENT false-negative feature rejection, indistinguishable downstream from a
+        # legitimately constant combo. The converse also fired: a truly constant combo whose noise landed
+        # positive passed the gate and was quantile-binned as a degenerate single-bin column, which vmin/vmax
+        # now catches exactly. ``val`` is already materialised in the first pass, so the second costs one more
+        # sequential read of an array that is still in cache.
+        if vmax == vmin:
+            out[j] = -1.0
+            continue
         mean = s / n
-        var = ss / n - mean * mean
+        ss = 0.0
+        for i in range(n):
+            d = val[i] - mean
+            ss += d * d
+        var = ss / n
         if var <= 1e-18:
             out[j] = -1.0
             continue
@@ -620,10 +704,12 @@ def _pair_combo_mi_cupy(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, x
             a = ua_cache[ua_codes[j]]
             b = ub_cache[ub_codes[j]]
             V[r] = _gpu_apply_binary(a, b, bn_codes[j])
-        # std<=1e-9 sentinel: var = E[v^2] - E[v]^2 <= 1e-18.
-        mean = V.mean(axis=1)
-        var = (V * V).mean(axis=1) - mean * mean
-        live = var > 1e-18
+        # std<=1e-9 sentinel. Centred, and with an exact constant test alongside it: the raw-power-sum form
+        # ``(V*V).mean - mean*mean`` has a cancellation noise floor of ~eps * mean^2, far above this 1e-18 gate
+        # at any realistic scale, so the gate was reading noise and silently rejecting informative combos about
+        # half the time. See the njit twins above.
+        var = V.var(axis=1)
+        live = (var > 1e-18) & (V.max(axis=1) > V.min(axis=1))
         codes, kx = _gpu_quantile_bin_codes(V, d_qs)
         mi = _gpu_marginal_mi(codes, kx, d_y, h_y, k_y, n)
         mi = cp.where(live, mi, cp.float64(-1.0))

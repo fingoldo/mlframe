@@ -139,7 +139,7 @@ class EstimatorWithEarlyStopping(BaseEstimator):
         return self.fitted_estimator_.predict(X)
 
 
-class RegressorWithEarlyStopping(EstimatorWithEarlyStopping, RegressorMixin):
+class RegressorWithEarlyStopping(RegressorMixin, EstimatorWithEarlyStopping):
     """Regressor flavour of ``EstimatorWithEarlyStopping``.
 
     Wraps a base regressor so early stopping works inside an sklearn pipeline: ``fit`` carves an
@@ -149,7 +149,7 @@ class RegressorWithEarlyStopping(EstimatorWithEarlyStopping, RegressorMixin):
     pass
 
 
-class ClassifierWithEarlyStopping(EstimatorWithEarlyStopping, ClassifierMixin):
+class ClassifierWithEarlyStopping(ClassifierMixin, EstimatorWithEarlyStopping):
     """Classifier flavour of ``EstimatorWithEarlyStopping`` with ``predict_proba``/``decision_function`` passthrough.
 
     Wraps a base classifier so early stopping works inside an sklearn pipeline: ``fit`` carves an

@@ -46,7 +46,7 @@ def _subset_rows(X: Any, mask: np.ndarray) -> Any:
     return np.asarray(X)[mask]
 
 
-class GatedOutlierEstimator(BaseEstimator, RegressorMixin):
+class GatedOutlierEstimator(RegressorMixin, BaseEstimator):
     """Classifier gate + regression blend for targets with a degenerate point mass plus a continuous regime.
 
     Parameters

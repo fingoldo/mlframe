@@ -246,11 +246,7 @@ class PytorchLightningRegressor(RegressorMixin, PytorchLightningEstimator):  # R
     _estimator_type = "regressor"
 
 
-class PytorchLightningClassifier(
-    _ClassifierPredictMixin,
-    ClassifierMixin,
-    PytorchLightningEstimator,
-):  # ClassifierMixin must come first
+class PytorchLightningClassifier(ClassifierMixin, _ClassifierPredictMixin, PytorchLightningEstimator):  # ClassifierMixin must come first
     """sklearn-compatible classifier wrapper around a PyTorch Lightning module."""
 
     _estimator_type = "classifier"

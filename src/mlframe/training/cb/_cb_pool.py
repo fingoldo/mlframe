@@ -590,6 +590,8 @@ def _cached_gpu_info() -> list:
 
 
 _CB_GPU_USABLE_CACHE: bool | None = None
+# The one failure that IS a permanent property of the installed wheel; anything else is a transient condition.
+_CB_GPU_ABSENT_SIGNATURE = "Environment for task type [GPU] not found"
 
 
 def _cb_gpu_usable() -> bool:
@@ -636,8 +638,23 @@ def _cb_gpu_usable() -> bool:
             _probe.fit(_np.zeros((2, 1), dtype=_np.float32), _np.array([0.0, 1.0], dtype=_np.float32))
             _CB_GPU_USABLE_CACHE = True
         except Exception as e:
-            logger.debug("CatBoost GPU usability probe fit failed, treating GPU as unusable: %s", e)
-            _CB_GPU_USABLE_CACHE = False
+            # Only a CPU-only wheel is a permanent property of this host, and it announces itself: CatBoost
+            # raises "Environment for task type [GPU] not found". Everything else reaching here -- a GPU OOM
+            # while a concurrent process holds VRAM, a WDDM TDR reset, a driver hiccup -- is a moment, not a
+            # fact about the machine, and latching on it pinned EVERY CatBoost model in the process to CPU for
+            # the rest of the run, at debug level. Genuine absence is already short-circuited above
+            # (``_cached_gpu_info``, ``CUDA_VISIBLE_DEVICES``), so this handler guards only the real fit.
+            if _CB_GPU_ABSENT_SIGNATURE in str(e):
+                logger.debug("CatBoost GPU usability probe fit failed: %s. This wheel has no GPU support.", e)
+                _CB_GPU_USABLE_CACHE = False
+            else:
+                logger.warning(
+                    "CatBoost GPU usability probe fit raised %s: %s -- this is a transient device condition rather than "
+                    "evidence that the wheel lacks GPU support, so the probe is left unresolved and the next caller "
+                    "re-probes. Set CUDA_VISIBLE_DEVICES='' to force CPU.",
+                    type(e).__name__, e,
+                )
+                return False
         return _CB_GPU_USABLE_CACHE
 
 

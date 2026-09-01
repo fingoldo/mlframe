@@ -38,7 +38,7 @@ def _group_positions(X: pd.DataFrame, segment_keys: Sequence[str]) -> Dict[Tuple
     return {_as_tuple(key): idx for key, idx in X.groupby(list(segment_keys), sort=False).indices.items()}
 
 
-class SegmentedModelFactory(BaseEstimator, RegressorMixin):
+class SegmentedModelFactory(RegressorMixin, BaseEstimator):
     """One model per (cross of) segment keys, with per-segment add/update/remove lifecycle management.
 
     Parameters

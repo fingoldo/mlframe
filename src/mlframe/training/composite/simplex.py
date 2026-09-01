@@ -187,7 +187,7 @@ def aitchison_distance(a: np.ndarray, b: np.ndarray, delta: float = _DEFAULT_ZER
     return np.asarray(np.sqrt(((ca - cb) ** 2).sum(axis=1)))
 
 
-class CompositeSimplexEstimator(BaseEstimator, MultiOutputMixin, RegressorMixin):
+class CompositeSimplexEstimator(MultiOutputMixin, RegressorMixin, BaseEstimator):
     """Regressor for compositional targets via the ALR / ILR log-ratio map.
 
     Parameters

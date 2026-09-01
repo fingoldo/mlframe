@@ -74,7 +74,6 @@ def compute_shap_on_cv(
     if display_labels is None:
         display_labels = {}
     import shap  # pylint: disable=import-outside-toplevel
-    from catboost import EFstrType, Pool  # pylint: disable=import-outside-toplevel
     from imblearn.pipeline import Pipeline  # pylint: disable=import-outside-toplevel
 
     values: list = []
@@ -83,7 +82,15 @@ def compute_shap_on_cv(
     interaction_base_values: list = []
     predictions: list = []
     expected_values: list = []
-    _X = Pool(X, cat_features=model_params.get("cat_features"))
+    # Built lazily: a Pool is a whole-frame copy plus quantisation, and it is read ONLY by the
+    # ``catboost_native_feature_importance`` branch, which is not the default. Every LightGBM/XGBoost
+    # explanation used to pay for it and discard it -- and importing catboost unconditionally made it a hard
+    # requirement for explaining a model that has nothing to do with CatBoost.
+    _X: Any = None
+    if catboost_native_feature_importance:
+        from catboost import Pool  # pylint: disable=import-outside-toplevel
+
+        _X = Pool(X, cat_features=model_params.get("cat_features"))
 
     # OOF SHAP assembly (shap_oof=True): each fold contributes only its held-out test rows; we slot them back by original row position.
     oof_shap: Optional[list] = [None] * len(X) if shap_oof else None
@@ -176,6 +183,8 @@ def compute_shap_on_cv(
             # interaction_base_values.append(shap_interaction_values.base_values)
 
         else:
+
+            from catboost import EFstrType  # pylint: disable=import-outside-toplevel
 
             shap_values = model_stub.get_feature_importance(_X, type=EFstrType.ShapValues, verbose=0)
             shap_interaction_values = model_stub.get_feature_importance(_X, type=EFstrType.ShapInteractionValues, verbose=0)

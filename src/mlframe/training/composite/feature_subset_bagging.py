@@ -92,7 +92,7 @@ def correlation_cluster_feature_subsets(
     return subsets
 
 
-class FeatureSubsetBaggingEnsemble(BaseEstimator, RegressorMixin):
+class FeatureSubsetBaggingEnsemble(RegressorMixin, BaseEstimator):
     """Bag several models, each trained on a correlation-cluster-diverse feature subset.
 
     Parameters

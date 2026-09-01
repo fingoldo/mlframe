@@ -92,7 +92,7 @@ def build_keras_mlp(
     return model
 
 
-class KerasCompatibleMLP(BaseEstimator, RegressorMixin):
+class KerasCompatibleMLP(RegressorMixin, BaseEstimator):
     """sklearn wrapper over a Keras Sequential MLP."""
 
     def __init__(

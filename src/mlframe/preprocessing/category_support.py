@@ -82,9 +82,17 @@ def smoothed_target_encode_column(
         fold_train_idx = train_series.index[fold_train_pos]
         fold_val_idx = train_series.index[fold_val_pos]
         fold_train_series = train_series.loc[fold_train_idx]
-        fold_stats = y_train.loc[fold_train_idx].groupby(fold_train_series).agg(["mean", "count"])
-        fold_shrunk = (fold_stats["count"] * fold_stats["mean"] + smoothing * global_mean) / (fold_stats["count"] + smoothing)
-        train_encoded.loc[fold_val_idx] = train_series.loc[fold_val_idx].map(fold_shrunk).fillna(global_mean)
+        fold_y = y_train.loc[fold_train_idx]
+        # The shrinkage prior and the unseen-category fallback must come from THIS FOLD'S TRAIN rows. Using the
+        # full-train mean here let a held-out row's own label inform its own encoded value through both: a
+        # singleton category falls through to the fallback and is then 100% own-label contaminated, and every
+        # other category blends in ``smoothing * global_mean``. The contamination weight is 1/n_train but it is
+        # systematically aligned with the row's own label, so any correlation or AUC read off ``train_encoded``
+        # is optimistically biased -- exactly what the out-of-fold path exists to prevent.
+        fold_mean = float(fold_y.mean())
+        fold_stats = fold_y.groupby(fold_train_series).agg(["mean", "count"])
+        fold_shrunk = (fold_stats["count"] * fold_stats["mean"] + smoothing * fold_mean) / (fold_stats["count"] + smoothing)
+        train_encoded.loc[fold_val_idx] = train_series.loc[fold_val_idx].map(fold_shrunk).fillna(fold_mean)
     return train_encoded, test_encoded
 
 

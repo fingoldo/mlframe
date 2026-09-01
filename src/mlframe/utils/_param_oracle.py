@@ -222,6 +222,31 @@ def _as_2d_numeric(obj: Any):
     return arr2d, n, p, dtype_kind
 
 
+# The fingerprint is a handful of summary scalars, and every one of them converges long before the whole frame
+# has been read. Computing them over the full frame made a function documented as "stat-only" and "cheap"
+# materialize the caller's data as dense float64 plus roughly eight full (n, p) temporaries simultaneously --
+# an OOM on the 100GB frames this project sizes for, in a helper whose result is a dict of eight numbers.
+#
+# Cells rather than rows, so a very wide frame is bounded too: 4M cells is ~32MB per float64 temporary.
+_FINGERPRINT_MAX_CELLS = 4_000_000
+_FINGERPRINT_MIN_ROWS = 1_000
+# np.corrcoef materializes a (p, p) matrix; past this many columns it dominates everything else in the function.
+_FINGERPRINT_MAX_CORR_COLS = 256
+
+
+def _subsample_rows(arr2d, n: int, p: int):
+    """Deterministic strided row sample bounding the work to ``_FINGERPRINT_MAX_CELLS``.
+
+    Strided rather than random so the same input always fingerprints identically -- this value is a cache key.
+    """
+    if n <= _FINGERPRINT_MIN_ROWS:
+        return arr2d
+    max_rows = max(_FINGERPRINT_MIN_ROWS, _FINGERPRINT_MAX_CELLS // max(p, 1))
+    if n <= max_rows:
+        return arr2d
+    return arr2d[:: max(1, n // max_rows)][:max_rows]
+
+
 def default_fingerprint(args: Sequence[Any], kwargs: Mapping[str, Any]) -> dict:
     """Stat-only fingerprint of the first array/DataFrame-like positional or
     keyword argument.
@@ -252,6 +277,9 @@ def default_fingerprint(args: Sequence[Any], kwargs: Mapping[str, Any]) -> dict:
         }
 
     arr2d, n, p, dtype_kind = candidate
+    # ``n`` and ``p`` stay the TRUE shape -- they are part of the fingerprint's identity. Only the statistics
+    # below are computed on a bounded sample.
+    arr2d = _subsample_rows(arr2d, n, p)
 
     if dtype_kind == "O":
         # Object/categorical: only cheap structural stats.
@@ -267,28 +295,30 @@ def default_fingerprint(args: Sequence[Any], kwargs: Mapping[str, Any]) -> dict:
         }
 
     a = arr2d.astype(np.float64, copy=False)
-    finite = np.isfinite(a)
+    finite_mask = np.isfinite(a)
     total = a.size or 1
-    n_zero = int(np.sum(finite & (a == 0.0)))
-    n_nan = int(np.sum(~finite))
+    n_zero = int(np.sum(finite_mask & (a == 0.0)))
+    n_nan = int(np.sum(~finite_mask))
     sparsity = float((n_zero + n_nan) / total)
 
     # Per-column moments, NaN-robust, computed VECTORISED across all columns
     # at once (a per-column Python loop was the cProfile hotspot). Columns
     # with < 3 finite values or ~zero variance contribute 0 to skew/kurtosis.
-    finite_mask = np.isfinite(a)
+    # ``finite_mask`` is reused from above rather than recomputing the identical np.isfinite(a).
     n_finite = finite_mask.sum(axis=0)  # per-column finite count
     a0 = np.where(finite_mask, a, 0.0)  # NaNs -> 0 so they don't poison sums
     safe_cnt = np.where(n_finite > 0, n_finite, 1)
     col_mean = a0.sum(axis=0) / safe_cnt
     dev = np.where(finite_mask, a - col_mean, 0.0)
-    var = (dev**2).sum(axis=0) / safe_cnt
+    # Centred moments accumulated from ONE squared-deviation array instead of separate z, z**3 and z**4
+    # temporaries: three full (n, p) allocations become one, and the values are unchanged.
+    dev2 = dev * dev
+    var = dev2.sum(axis=0) / safe_cnt
     sd = np.sqrt(var)
     valid = (n_finite >= 3) & (sd > 1e-12)
     sd_safe = np.where(sd > 1e-12, sd, 1.0)
-    z = dev / sd_safe
-    skew_per_col = (z**3).sum(axis=0) / safe_cnt
-    kurt_per_col = (z**4).sum(axis=0) / safe_cnt - 3.0  # excess kurtosis
+    skew_per_col = (dev2 * dev).sum(axis=0) / safe_cnt / sd_safe**3
+    kurt_per_col = (dev2 * dev2).sum(axis=0) / safe_cnt / sd_safe**4 - 3.0  # excess kurtosis
     if valid.any():
         mean_abs_skew = float(np.mean(np.abs(skew_per_col[valid])))
         mean_kurtosis = float(np.mean(kurt_per_col[valid]))
@@ -311,8 +341,11 @@ def default_fingerprint(args: Sequence[Any], kwargs: Mapping[str, Any]) -> dict:
     # p==1 and degenerate columns.
     mean_abs_corr = 0.0
     if a.shape[1] >= 2:
+        # np.corrcoef builds a (p, p) matrix; on a wide frame that alone dwarfs everything else here, and the
+        # summary this feeds is a single mean absolute off-diagonal correlation.
+        n_corr_cols = min(a.shape[1], _FINGERPRINT_MAX_CORR_COLS)
         with np.errstate(invalid="ignore", divide="ignore"):
-            filled = np.where(np.isfinite(a), a, np.nan)
+            filled = np.where(finite_mask[:, :n_corr_cols], a[:, :n_corr_cols], np.nan)
             # Use pairwise complete via column-mean imputation (cheap, stat-only).
             col_means = np.nanmean(filled, axis=0)
             col_means = np.where(np.isfinite(col_means), col_means, 0.0)

@@ -24,10 +24,11 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable, Iterable, Mapping, Optional, Sequence
+from typing import Any, Callable, Iterable, Mapping, Optional, Sequence, cast
 
 import numpy as np
 
+from mlframe.evaluation._bootstrap_jackknife import _jackknife_ece
 from mlframe.evaluation.bootstrap import _ci_from_samples, _jackknife_metric
 from mlframe.utils.log_throttle import log_throttle
 
@@ -493,7 +494,17 @@ def _bootstrap_ece_with_indices(
     if valid == 0:
         raise ValueError("pick_best_calibrator: all resamples failed for a candidate")
     samples = samples[:valid]
-    jackknife = _jackknife_metric(y_true, y_pred, metric_fn) if method == "bca" else None
+    jackknife = None
+    if method == "bca":
+        # ECE has an O(n) closed-form leave-one-out jackknife; the generic gather is O(max_n * n), re-running the
+        # metric over 2000 leave-one-out copies of the full array. The closed form is already the wiring in
+        # honest_diagnostics and in _bootstrap_fused_binary_bundle, and is verified bit-identical to 1.1e-16 --
+        # this was the third caller still on the slow path. It returns None on its documented degeneracies
+        # (n < 3, non-binary labels, non-finite total), where the generic gather still applies.
+        if n_bins is not None:
+            jackknife = _jackknife_ece(y_true, y_pred, n_bins=int(n_bins))
+        if jackknife is None:
+            jackknife = _jackknife_metric(y_true, y_pred, metric_fn)
     lo, hi = _ci_from_samples(samples, point, alpha, method, jackknife)
     return {"point": point, "lo": lo, "hi": hi}
 
@@ -786,16 +797,21 @@ def pick_best_calibrator(
         """ECE metric closure over the outer ``n_bins`` default, passed to the bootstrap/jackknife machinery."""
         return _ece_score(_y, _p, n_bins=_nb)
 
-    # Build the stratified resample-index matrix ONCE: every candidate shares the
-    # same n / stratify / seed and only differs in calibrated y_pred, so the
-    # per-candidate ``bootstrap_metric`` call previously regenerated the identical
-    # resample. One matrix reused across candidates -> same indices -> bit-identical
-    # CIs at a fraction of the cost. Indices mirror bootstrap_metric's RNG order.
-    idx_matrix = _build_resample_indices(n_oof, n_bootstrap, stratify, random_state)
-
     inner_folds: Optional[list[np.ndarray]] = None
     if selection == "inner_cv":
         inner_folds = _stratified_inner_folds(oof_y_arr, max(2, int(inner_cv_splits)), random_state)
+
+    # Only the same-OOF path reads the bootstrap. Under the default ``selection="inner_cv"`` the held-out block
+    # below replaces BOTH the point estimate and the interval, so building the matrix and running 1000 resamples
+    # plus a jackknife per candidate produced a number nothing read -- and the build itself raises MemoryError
+    # once ``4 * n_bootstrap * n_oof`` passes the 1 GiB ceiling, killing a call whose result was going to be
+    # discarded (1.2 GiB at n_oof=300k with the defaults).
+    #
+    # Build the matrix ONCE for the path that does read it: every candidate shares the same n / stratify / seed
+    # and differs only in calibrated y_pred, so a per-candidate ``bootstrap_metric`` would regenerate identical
+    # resamples. One matrix reused across candidates -> same indices -> bit-identical CIs. Indices mirror
+    # bootstrap_metric's RNG order.
+    idx_matrix: Optional[np.ndarray] = None if inner_folds is not None else _build_resample_indices(n_oof, n_bootstrap, stratify, random_state)
 
     for name in cand_names:
         apply_fn = _fit_calibrator(name, oof_p_pos, oof_y_arr)
@@ -807,22 +823,25 @@ def pick_best_calibrator(
         except Exception as exc:
             log_throttle(logger, "calib_policy_oof_predict_failed", logging.WARNING, "pick_best_calibrator: %s.predict on OOF failed: %s", name, exc)
             continue
-        try:
-            ci = _bootstrap_ece_with_indices(oof_y_arr, cal_oof, idx_matrix, metric_fn, alpha, n_bins=n_bins)
-        except Exception as exc:
-            log_throttle(logger, "calib_policy_bootstrap_failed", logging.WARNING, "pick_best_calibrator: bootstrap on %s failed: %s", name, exc)
-            continue
         # ``rank_ece`` drives selection: held-out (honest) for inner_cv, same-OOF (legacy) otherwise.
-        rank_ece = float(ci["point"])
-        ece_ci = (float(ci["lo"]), float(ci["hi"]))
+        rank_ece: float
+        ece_ci: tuple
         if inner_folds is not None:
             ho = _heldout_ece_inner_cv(name, oof_p_pos, oof_y_arr, inner_folds, n_bins)
             if ho is None:
                 continue
             rank_ece, fold_eces = ho
             # CI from the SAME held-out resampling as the point estimate, so the reported interval brackets the
-            # reported number. The in-sample bootstrap CI above was paired with a held-out point and did not.
+            # reported number. An in-sample bootstrap CI paired with a held-out point would not.
             ece_ci = _heldout_ece_ci(rank_ece, fold_eces, alpha)
+        else:
+            try:
+                ci = _bootstrap_ece_with_indices(oof_y_arr, cal_oof, cast(np.ndarray, idx_matrix), metric_fn, alpha, n_bins=n_bins)
+            except Exception as exc:
+                log_throttle(logger, "calib_policy_bootstrap_failed", logging.WARNING, "pick_best_calibrator: bootstrap on %s failed: %s", name, exc)
+                continue
+            rank_ece = float(ci["point"])
+            ece_ci = (float(ci["lo"]), float(ci["hi"]))
         results[name] = {
             "ece_mean": rank_ece,
             "ece_ci": ece_ci,

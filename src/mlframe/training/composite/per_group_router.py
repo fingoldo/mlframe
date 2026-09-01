@@ -42,7 +42,7 @@ def _drop_group_column(X: Any, group_column: str) -> Any:
     return X.drop(group_column)  # polars DataFrame
 
 
-class PerGroupCompositeRouter(BaseEstimator, RegressorMixin):
+class PerGroupCompositeRouter(RegressorMixin, BaseEstimator):
     """Routes each row to its group's own composite-target submodel.
 
     Parameters

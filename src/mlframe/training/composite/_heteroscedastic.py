@@ -66,7 +66,7 @@ def _z_for_alpha(alpha: float) -> float:
     return float(norm.ppf(1.0 - alpha / 2.0))
 
 
-class HeteroscedasticCompositeEstimator(BaseEstimator, RegressorMixin):
+class HeteroscedasticCompositeEstimator(RegressorMixin, BaseEstimator):
     """Predictive-variance composite: conditional mean AND conditional variance on the T-scale, inverted to y.
 
     Parameters

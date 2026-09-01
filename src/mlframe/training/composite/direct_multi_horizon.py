@@ -30,7 +30,7 @@ def _pooled_rmse(pred: np.ndarray, actual: np.ndarray) -> float:
     return float(np.sqrt(np.mean((pred - actual) ** 2)))
 
 
-class DirectMultiHorizonEnsemble(BaseEstimator, RegressorMixin):
+class DirectMultiHorizonEnsemble(RegressorMixin, BaseEstimator):
     """One independently-fit model per horizon block, each predicting directly from origin-time features.
 
     Parameters

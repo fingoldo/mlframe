@@ -142,16 +142,22 @@ def greedy_backward_elimination(
     current_score = score_fn(col_select(remaining))
 
     while len(remaining) > min_features:
+        # The running maximum and the acceptance bar are SEPARATE. They used to be one variable, so each
+        # accepted candidate raised the bar for the ones after it: with ``tol > 0`` a later, better removal
+        # could be rejected for not beating the earlier one by ``tol``, and the feature actually dropped was
+        # whichever cleared the bar first rather than the argmax -- making the result depend on column order.
+        # ``tol`` is a minimum improvement over the CURRENT set, which is a property of the step, not a
+        # handicap applied between candidates.
         best_candidate = None
-        best_score = current_score
+        best_score = -np.inf
         for col in remaining:
             candidate_cols = [c for c in remaining if c != col]
             score = score_fn(col_select(candidate_cols))
-            if score > best_score + tol:
+            if score > best_score:
                 best_score = score
                 best_candidate = col
 
-        if best_candidate is None:
+        if best_candidate is None or best_score <= current_score + tol:
             break
 
         remaining.remove(best_candidate)

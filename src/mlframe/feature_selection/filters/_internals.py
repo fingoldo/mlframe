@@ -38,6 +38,20 @@ def suppress_numba_warnings():
 
 _NUMBA_CUDA_CAN_COMPILE: bool | None = None
 
+def _permanent_cuda_faults() -> tuple:
+    """Exception types that mean numba.cuda can never work on this host, as opposed to not right now."""
+    faults: list = [ImportError]
+    try:
+        from numba.cuda.cudadrv.error import CudaSupportError, NvvmSupportError
+
+        faults += [NvvmSupportError, CudaSupportError]
+    except ImportError:  # pragma: no cover - numba present without the cudadrv error module
+        pass
+    return tuple(faults)
+
+
+_PERMANENT_CUDA_FAULTS = _permanent_cuda_faults()
+
 
 def numba_cuda_can_compile() -> bool:
     """True only if numba.cuda can actually COMPILE + LAUNCH a kernel on this host.
@@ -69,11 +83,22 @@ def numba_cuda_can_compile() -> bool:
         _probe[1, 1](out)
         _cuda.synchronize()
         _NUMBA_CUDA_CAN_COMPILE = int(out.copy_to_host()[0]) == 1
-    except Exception as e:
-        logger.debug("numba.cuda kernel-compile probe failed: %s", e)
-        # NvvmSupportError, missing toolkit, driver mismatch, OOM at probe - any failure means
-        # the numba.cuda path is unusable on this host; route to cupy/CPU.
+    except _PERMANENT_CUDA_FAULTS as e:
+        # A toolkit/compute-capability mismatch or a missing stack IS a permanent property of this host, so
+        # latching is right for these.
+        logger.debug("numba.cuda kernel-compile probe failed permanently: %s: %s", type(e).__name__, e)
         _NUMBA_CUDA_CAN_COMPILE = False
+    except Exception as e:
+        # Anything else -- a CudaAPIError or an OOM at ``to_device`` while another process holds VRAM -- is a
+        # moment, not a fact about the host. Latching on it routed every numba.cuda-capable filter in the
+        # process to cupy/CPU for the rest of the run with no reset hook and no log above debug. Leave the cache
+        # UNSET so the next caller re-probes, and report this attempt as unusable.
+        logger.warning(
+            "numba.cuda kernel-compile probe raised %s: %s -- treating as a transient device condition rather "
+            "than an unusable stack, so the probe is left unresolved and the next caller re-probes.",
+            type(e).__name__, e,
+        )
+        return False
     return _NUMBA_CUDA_CAN_COMPILE
 
 

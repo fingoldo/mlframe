@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 _SCALE_PRED_COLUMN = "__dual_direction_scale_pred__"
 
 
-class DualDirectionCompositeEstimator(BaseEstimator, RegressorMixin):
+class DualDirectionCompositeEstimator(RegressorMixin, BaseEstimator):
     """Two-stage shape*scale composite: ``y_pred = shape_model_ratio_pred * scale_model_pred``.
 
     Parameters

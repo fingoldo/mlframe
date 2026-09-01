@@ -169,19 +169,25 @@ def _select_predictive_horizons(
     correctly dropped as non-incremental, while a horizon carrying genuinely new signal is kept even if its
     standalone score is unremarkable.
     """
-    from sklearn.dummy import DummyClassifier
+    from sklearn.base import is_classifier
+    from sklearn.dummy import DummyClassifier, DummyRegressor
     from sklearn.linear_model import LogisticRegression
     from sklearn.model_selection import cross_val_score
 
     model = estimator if estimator is not None else LogisticRegression(max_iter=1000)
     y = np.asarray(target)
+    # The baseline must match the task, like the estimator does. A prior-strategy CLASSIFIER scored against a
+    # continuous target with scoring="r2" does not raise -- it returns a large negative number (about -8.6 on a
+    # standard-normal target), so every candidate horizon cleared ``min_lift`` by roughly that margin regardless
+    # of whether it carried any signal, and the reported lift was that same meaningless offset.
+    dummy = DummyClassifier(strategy="prior") if is_classifier(model) else DummyRegressor(strategy="mean")
 
     def _score(cols: List[str]) -> float:
         """Cross-validate model against target using only cols, falling back to a no-feature baseline when empty."""
         if not cols:
             # no-feature baseline: a constant/majority predictor, the real floor a horizon must beat.
             X_dummy = np.zeros((len(y), 1))
-            return float(np.mean(cross_val_score(DummyClassifier(strategy="prior"), X_dummy, y, cv=cv, scoring=scoring)))
+            return float(np.mean(cross_val_score(dummy, X_dummy, y, cv=cv, scoring=scoring)))
         X = out[cols].fillna(0.0)
         return float(np.mean(cross_val_score(model, X, y, cv=cv, scoring=scoring)))
 

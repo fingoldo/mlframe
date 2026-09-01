@@ -56,7 +56,7 @@ def _from_log_odds(logit: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     return np.asarray(1.0 / (1.0 + np.exp(-logit)), dtype=np.float64)
 
 
-class NaiveBayesLogOddsEnsembler(BaseEstimator, ClassifierMixin):
+class NaiveBayesLogOddsEnsembler(ClassifierMixin, BaseEstimator):
     """Combine one calibrated model per feature (or feature block) via log-odds summation.
 
     COMPETITION / EXPLORATORY ONLY -- see module docstring. Valid only under
