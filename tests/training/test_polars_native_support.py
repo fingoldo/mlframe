@@ -71,10 +71,20 @@ class TestTheProbe:
             nat.accepts_polars("catboost")  # the raise is the probe's own; accepts_polars does not swallow it
 
     def test_probe_frame_carries_the_dtypes_that_historically_broke_dispatch(self):
-        """A probe over plain floats would pass while the real frames still fail."""
-        frame = nat._probe_frame()
+        """A probe over plain floats would pass while the real frames still fail.
+
+        The frame now lives inside the child-process source (LightGBM aborts the PROCESS on a categorical polars
+        frame, so the probe cannot run in-process). Build it the way the child does -- the frame is constructed
+        before the library branch, so running the source with an unknown library yields it without any model fit.
+        """
         import polars as pl
 
+        namespace: dict = {}
+        try:
+            exec(compile(nat._PROBE_SOURCE, "<probe>", "exec"), namespace)  # nosec B102 - our own constant source
+        except SystemExit:
+            pass  # the unknown-library branch, reached after the frame is built
+        frame = namespace["frame"]
         assert any(isinstance(dtype, pl.Enum) for dtype in frame.dtypes)
         assert frame["nullable"].null_count() > 0
 

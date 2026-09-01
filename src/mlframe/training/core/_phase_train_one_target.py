@@ -9,11 +9,6 @@ from typing import Any
 import numpy as np
 
 try:
-    import psutil as _ps_module
-except ImportError:  # pragma: no cover
-    _ps_module = None
-
-try:
     import polars as pl
 except ImportError:
     pl = None  # type: ignore[assignment]

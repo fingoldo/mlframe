@@ -94,3 +94,7 @@ seed_int
 # --- tests/feature_selection/conftest.py: IS_FAST_MODE is a documented re-export (see the
 # comment directly above its import) so subdir tests can keep importing it from this conftest. ---
 IS_FAST_MODE
+
+# --- tests/reporting/test_every_writer_honours_format_subfolders.py: ``subfolders_on`` is a pytest fixture,
+# requested by name in each test signature. vulture sees the parameter as an unused local. ---
+subfolders_on

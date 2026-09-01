@@ -17,11 +17,6 @@ from timeit import default_timer as timer
 from typing import Any
 
 try:
-    import psutil as _ps_module
-except ImportError:  # pragma: no cover
-    _ps_module = None
-
-try:
     import polars as pl
 except ImportError:
     pl = None  # type: ignore[assignment]
