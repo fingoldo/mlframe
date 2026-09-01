@@ -97,6 +97,7 @@ def render_title_metric_token(
     ks: float = np.nan,
     mcc: float = np.nan,
     bss: float = np.nan,
+    binary_threshold: Optional[float] = None,
 ) -> str:
     """Render one calibration-report title fragment for a token.
 
@@ -164,7 +165,10 @@ def render_title_metric_token(
             base = f"PR AUC=N/A{suffix}"
         else:
             base = f"PR AUC={pr_auc:.{ndigits}f}{suffix}"
-        return f"{base}, PR={precision * 100:.{pct_digits}f}%," f"RE={recall * 100:.{pct_digits}f}%,F1={f1 * 100:.{pct_digits}f}%"
+        # PR/RE/F1 are threshold-dependent, unlike the two AUCs beside them; printing them bare invited reading them as
+        # threshold-free summaries. The threshold is named once, in front of the group it governs.
+        at = f"@{binary_threshold:.2f}" if binary_threshold is not None else ""
+        return f"{base}, PR{at}={precision * 100:.{pct_digits}f}%," f"RE={recall * 100:.{pct_digits}f}%,F1={f1 * 100:.{pct_digits}f}%"
     if token == "KS":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         if np.isnan(ks):
             return "KS=N/A"

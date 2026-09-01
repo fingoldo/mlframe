@@ -451,6 +451,7 @@ def fast_calibration_report(
             recall=recall,
             f1=f1,
             ks=ks_val, mcc=mcc_val, bss=bss_val,
+            binary_threshold=binary_threshold,
         )
         if rendered:
             fragments.append(rendered)

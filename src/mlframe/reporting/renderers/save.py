@@ -336,7 +336,11 @@ def render_and_save(
             fig = renderer.render(spec, static_legend=True)
         else:
             fig = renderer.render(spec)
-        for fmt in fmts:
+        # ``will_save`` gates the WRITE too, not just the backend selection above. A backend kept alive by
+        # ``keep_handles`` or an interactive session still reached this loop with an empty ``base_path``, and
+        # ``resolve_output_path`` then composed a name out of the extension alone -- writing ``.matplotlib.png``
+        # and ``.html`` into the process's working directory. Dot-prefixed, so ``ls`` never showed them.
+        for fmt in fmts if will_save else ():
             path = resolve_output_path(base_path, backend, fmt, multi_output=multi_output, subfolders=_subfolders)
             _dir = os.path.dirname(path)
             if _dir:

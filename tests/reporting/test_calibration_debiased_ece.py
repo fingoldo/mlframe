@@ -56,8 +56,8 @@ def test_debiased_ece_present_in_spec_annotation():
     fp, ft, hits = fast_calibration_binning(y, score, nbins=15)
     spec = build_calibration_spec(fp, ft, hits, plot_title="rel")
     scatter = spec.panels[0][0]
-    assert "ECE=" in scatter.title
-    assert "ECE_debiased=" in scatter.title
+    assert "ECE (plotted bins)=" in scatter.title
+    assert "debiased=" in scatter.title
 
 
 def test_ece_annotation_can_be_disabled():
@@ -121,8 +121,8 @@ def test_degenerate_omits_debiased_term_keeps_chart():
     hits = np.array([1.0, 1.0])
     spec = build_calibration_spec(fp, ft, hits, plot_title="rel")
     title = spec.panels[0][0].title
-    assert "ECE=" in title
-    assert "ECE_debiased=" not in title
+    assert "ECE (plotted bins)=" in title
+    assert "debiased=" not in title
 
 
 def test_single_class_input_omits_debiased():
@@ -132,7 +132,7 @@ def test_single_class_input_omits_debiased():
     y = np.zeros_like(score, dtype=np.int64)
     fp, ft, hits = fast_calibration_binning(y, score, nbins=15)
     spec = build_calibration_spec(fp, ft, hits, plot_title="rel")
-    assert "ECE=" in spec.panels[0][0].title
+    assert "ECE (plotted bins)=" in spec.panels[0][0].title
 
 
 # --------------------------------------------------------------------------- biz_value

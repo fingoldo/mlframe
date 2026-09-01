@@ -497,8 +497,6 @@
   "preprocessing/scalers.py::make_all_scalers",
   "preprocessing/transforms.py::prepare_df_for_catboost",
   "reporting/charts/_sampling.py::prebin_histogram",
-  "reporting/charts/binary.py::binary_decile_table",
-  "reporting/charts/binary.py::binary_decile_table_figure",
   "reporting/charts/binary.py::compose_binary_figure",
   "reporting/charts/calibration.py::wilson_ci",
   "reporting/charts/confusion_matrix_plot.py::confusion_matrix_counts",

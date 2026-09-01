@@ -282,14 +282,44 @@ def debiased_ece(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.n
 
 
 def _ece_annotation(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray) -> str:
-    """One-line 'ECE=.. ECE_debiased=..' annotation; the debiased term is omitted when it degenerates to NaN."""
+    """One-line ECE annotation computed from the bins this chart actually draws.
+
+    Printed as a PERCENTAGE and named after its basis on purpose. The metrics-layer title already carries its own
+    ``ECE=`` token, computed over that layer's own binning and rendered in percent -- so this line used to sit
+    directly beneath it saying ``ECE=0.013`` against the header's ``ECE=1.2%``: same label, different unit,
+    different number, and no way for a reader to tell whether that was a contradiction or two different estimates.
+    They are two different estimates, and the label now says which one this is.
+    """
     std = standard_ece(freqs_predicted, freqs_true, hits)
     if not np.isfinite(std):
         return ""
     deb = debiased_ece(freqs_predicted, freqs_true, hits)
     if np.isfinite(deb):
-        return f"ECE={std:.3f}  ECE_debiased={deb:.3f}"
-    return f"ECE={std:.3f}"
+        return f"ECE (plotted bins)={std * 100:.1f}%  debiased={deb * 100:.1f}%"
+    return f"ECE (plotted bins)={std * 100:.1f}%"
+
+
+def _significant_region_note(grid: np.ndarray, lower: np.ndarray, upper: np.ndarray) -> str:
+    """Where on the probability axis the simultaneous band excludes the diagonal, and in which direction.
+
+    The bare fraction ("significant on 15% of range") tells a reader that something is wrong but not where to look,
+    which is the one thing a reliability diagram exists to answer. The band's own arrays already carry it: the
+    excluded grid points give the span, and which side of the diagonal the band sits on gives the direction.
+    Over-confident means the band lies BELOW ``y == p`` -- the observed rate is lower than the predicted one.
+    """
+    over = upper < grid
+    under = lower > grid
+    excluded = over | under
+    if not excluded.any():
+        return ""
+    lo, hi = float(grid[excluded].min()), float(grid[excluded].max())
+    if over.any() and under.any():
+        direction = "mixed"
+    elif over.any():
+        direction = "over-confident"
+    else:
+        direction = "under-confident"
+    return f"p in [{lo:.2f}, {hi:.2f}], {direction}"
 
 
 def _format_population(n: float) -> str:
@@ -459,7 +489,10 @@ def build_calibration_spec(
                 if band is not None:
                     bgrid, blo, bhi, sig_frac = band
                     overlay_band = (bgrid, blo, bhi)
+                    _where = _significant_region_note(bgrid, blo, bhi)
                     band_annotation = f"miscal. significant on {sig_frac*100:.0f}% of range (simultaneous 95% band)"
+                    if _where:
+                        band_annotation += f": {_where}"
 
     # Wilson CI band on the observed frequency per bin: ``freqs_true`` is the per-bin positive rate, ``hits`` its
     # count, so the binomial interval reflects sampling uncertainty (wide where a bin holds few points). The spec

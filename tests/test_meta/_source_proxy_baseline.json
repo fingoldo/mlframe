@@ -133,8 +133,6 @@
   "training/test_prediction_envelope_clip.py::_prediction_envelope_clip",
   "training/test_prediction_envelope_clip.py::clip_predictions_to_train_envelope",
   "training/test_prediction_envelope_clip.py::if y_train_min is not None and y_train_max is not None",
-  "training/test_process_flag_restore.py::_process_flag_prior_inline_display",
-  "training/test_process_flag_restore.py::_process_flag_prior_residual_audit",
   "training/test_split_config_model_dump_exclude.py::inspect.signature(make_train_test_split).parameters",
   "training/test_tvt_critique_fixes.py::_target_temporal_audit",
   "training/test_tvt_critique_fixes.py::compute_testset_metrics",
