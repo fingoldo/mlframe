@@ -64,6 +64,8 @@ promote :64-65 to `logger.warning`. Keep the `except ImportError` at :59 silent.
 **Evidence:** :53 `_DEFAULTS_REGISTERED = True  # never re-attempt, even on failure` precedes the `try` at :57;
 :64-65 is `except Exception` + `logger.debug`.
 
+**Disposition:** RESOLVED as suggested. `_DEFAULTS_REGISTERED` is now set on the SUCCESS path (an `else:` on the try) and on the two genuinely-permanent cases (no file, no package); a `register_default_cache` failure warns, names the consequence, and leaves the flag unset so a later call re-attempts. The failures it catches are transient by nature -- the 17KB JSON being rewritten by a concurrent sweep, a Windows PermissionError -- which is exactly why refusing to retry was the wrong response. `tests/feature_selection/test_fs_filters_target_cast_fingerprints_and_pads.py`.
+
 ### FS_FILTERS_MRMR-3 [P2] perf-primitive-not-wired
 
 **File:** `src/mlframe/feature_selection/filters/_conditional_gate_fe.py` :340-341
@@ -87,6 +89,8 @@ but do not lose the host-path win.
 **Evidence:** :337-342 is a plain `for i in range(n_perm): vals[i] = _mi(...)`. `_integer_lattice_fe.py` :202-209
 states it "Mirrors `_pairwise_modular_fe._perm_null_hi`" and describes the invariance.
 `_lattice_gate_proto_shared.py` :16 has the same loop but is prototype-only, so this is the last production site.
+
+**Disposition:** RESOLVED, with the resident-handle complication handled as the finding suggests. The host path builds the `(n, n_perm)` matrix of `feat[argsort(perm_i)]` and scores it in one `_mi_classif_batch`, with `rng.permutation(n)` still called `n_perm` times in the same order, so the result is bit-identical to the loop. The resident-cupy branch keeps the per-perm path: there the fixed candidate is already uploaded once and reused across all shuffles, so it never paid the re-upload cost the batching removes. `tests/feature_selection/test_fs_filters_target_cast_fingerprints_and_pads.py`.
 
 ### FS_FILTERS_MRMR-4 [P2] cache-identity-divergence
 
@@ -112,6 +116,8 @@ shared helper both functions call, so the next fix cannot land on one copy. Cost
 **Evidence:** :140-142 docstring claims the cell sample "mirrors `_content_array_signature`" -- that mirror claim
 is now false; the sibling moved to `_n_samples = 1024` at :298 and :293 documents why.
 
+**Disposition:** RESOLVED, and the rule is now shared rather than duplicated: both fingerprints read one `_CELL_SAMPLE_POSITIONS = 1024` constant, so they cannot diverge again. Verified with the finding's own canonical case -- a frame and its column-wise-clipped variant now fingerprint differently, while a copy of the same frame still fingerprints identically. `tests/feature_selection/test_fs_filters_target_cast_fingerprints_and_pads.py`.
+
 ### FS_FILTERS_MRMR-5 [P2] contract-drift
 
 **File:** `src/mlframe/feature_selection/filters/_conditional_gate_fe.py` :338, :451, :637
@@ -136,6 +142,8 @@ silently destroying a continuous target.
 
 **Evidence:** `_y_encoding.py` :3-11 names this exact defect. `_conditional_gate_fe.py` never imports it.
 
+**Disposition:** RESOLVED. All three module-boundary casts route through `encode_y_for_classif_mi`, as the sibling families already do. Confirmed the trap reproduces exactly as described: on a target drawn from U(0, 1), `np.asarray(y).astype(np.int64)` leaves exactly ONE distinct class, so every MI in the module reads 0.0 and the family emits nothing; the encoder leaves it multi-class. The encoder is idempotent on dense integer codes, so the classification path is unchanged. `tests/feature_selection/test_fs_filters_target_cast_fingerprints_and_pads.py`.
+
 ### FS_FILTERS_MRMR-6 [P2] dead-guard
 
 **File:** `src/mlframe/feature_selection/filters/polynom_pair_fe.py` :387 (guard at :447, pool at :496)
@@ -158,6 +166,8 @@ deadline in the DISPATCHING loop between `Parallel` batches, which does run on t
 `n_jobs=1`-only, i.e. live only in the serial configuration nobody runs by default. Mitigating:
 `fe_smart_polynom_iters` defaults to 0, so the family is off unless opted into -- hence P2.
 
+**Disposition:** RESOLVED, and the finding UNDERSTATES the scope. It reports the check as live in the serial configuration and dead only under `n_jobs > 1`; in fact `_eval_one_pair` runs the impl on a big-stack sub-thread (the Windows loky 1MB-stack numba workaround) in EVERY configuration, and a `threading.local` does not cross that boundary either -- so `fe_deadline_passed()` returned False unconditionally whether the work went to a process pool or ran serially. The deadline is now read once on the main thread, passed as an explicit argument through both wrappers, and re-published with `set_fe_deadline` inside the execution context, which is the pattern `_fe_deadline.py` prescribes. `tests/feature_selection/test_fs_filters_target_cast_fingerprints_and_pads.py`.
+
 ### FS_FILTERS_MRMR-7 [P3] wasted-per-call-work
 
 **File:** `src/mlframe/feature_selection/filters/_binned_numeric_agg_fe.py` :36-59, consumed at :89
@@ -179,6 +189,8 @@ The GPU twin already does this correctly (`_binned_numeric_agg_resident.py` :86-
 
 **Evidence:** :89 `cnt, s1, _, _, _ = _per_cell_raw_moments_njit(...)`; cluster-wide grep returns exactly two
 hits -- the definition and that call.
+
+**Disposition:** RESOLVED. `_per_cell_count_sum_njit` is a pruned twin of the full kernel called from `_per_cell_moments_stable`, mirroring it statement for statement so `cnt` and `s1` are bit-identical (asserted, not merely argued). One correction to the suggested fix: the full kernel has NO negative-code guard, so a `c < 0` skip in the pruned variant would have changed behaviour -- `codes` comes from `np.searchsorted`, which never returns a negative, so the case is unreachable either way and mirroring exactly is the right call for a bit-identity contract. `tests/feature_selection/test_fs_filters_target_cast_fingerprints_and_pads.py`.
 
 ### FS_FILTERS_MRMR-8 [P3] additive-epsilon-denominator
 
@@ -204,6 +216,8 @@ deflated by the same factor, biasing toward Chebyshev.
 the numpy body, not chosen. `_binned_numeric_agg_fe.py` :144-147 and `_target_encoding_fe.py` :137-141 both
 document removing exactly this pad as a SECOND bug distinct from the cancellation one.
 
+**Disposition:** RESOLVED as suggested -- the pad is gone and a `std <= 1e-12` column returns `skew = kurt_excess = 0.0`, matching `_global_stats_all`'s short-circuit. Verified on a gamma-shaped column rescaled by 1e-11: skew is now scale-invariant to 1e-6 relative, a genuinely heavy skew still reads above the 1.5 routing threshold at that scale, and `basis_route_by_moments` returns the same basis for the column and its rescaled copy. `tests/feature_selection/test_fs_filters_target_cast_fingerprints_and_pads.py`.
+
 ### FS_FILTERS_MRMR-9 [P3] permutation-null-uniformity
 
 **File:** `src/mlframe/feature_selection/filters/_permutation_null_resident.py` :171-174
@@ -228,6 +242,8 @@ construction and avoids materialising both `keys` and `order`.
 holds only for continuous keys. The CPU counterparts are exact permutations (`_permutation_null.py` :148-152,
 :182).
 
+**Disposition:** RESOLVED with the float64 key option, the cheaper of the two suggested. The buffer doubles, but it stays under the existing KTC/VRAM gate that already decides whether this path runs at all, and float64 uniforms make the tie count per row negligible rather than the ~10,700 at n=600k that `argsort`'s index tie-break was resolving toward the identity permutation. `tests/feature_selection/test_fs_filters_target_cast_fingerprints_and_pads.py`.
+
 ### FS_FILTERS_MRMR-10 [P3] cache-identity-collision
 
 **File:** `src/mlframe/feature_selection/filters/_mrmr_fingerprints.py` :219, :130, :284, :290
@@ -249,6 +265,8 @@ both `_content_array_signature` returns.
 **Evidence:** :217-219 is `except Exception` -> `logger.debug` -> the `id()` key; `_mrmr_class.py` :3571 treats
 any stored True as licence to short-circuit the entire fit.
 
+**Disposition:** RESOLVED as suggested, on all four paths: a fingerprint failure now returns a `uuid4`-based token that cannot match anything, so the cache is disabled for that call instead of risking a false hit on a reused address. The failure is also warned rather than logged at debug, since it means the identity cache is off. `tests/feature_selection/test_fs_filters_target_cast_fingerprints_and_pads.py` asserts the property directly: two failed fingerprints never match.
+
 ### FS_FILTERS_MRMR-11 [P3] diagnosability
 
 **File:** `src/mlframe/feature_selection/filters/_target_encoding_fe.py` :157, :160
@@ -269,6 +287,8 @@ function rather than at every caller.
 
 **Evidence:** `_binned_numeric_agg_fe.py` :163-172 is the same arithmetic with the guard;
 `_target_encoding_fe.py` :155-160 is the same arithmetic without it.
+
+**Disposition:** RESOLVED as suggested -- both expressions are wrapped in `np.errstate(divide="ignore", invalid="ignore")`, matching the guard `_binned_numeric_agg_fe` already carries on the same arithmetic. Values are unchanged; the `np.where` already selected correctly. `tests/feature_selection/test_fs_filters_target_cast_fingerprints_and_pads.py`.
 
 ## Verified, not a finding
 

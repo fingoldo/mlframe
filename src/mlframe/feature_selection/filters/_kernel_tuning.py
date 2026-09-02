@@ -55,19 +55,33 @@ def _register_default_tuning_cache() -> None:
     with _DEFAULTS_LOCK:
         if _DEFAULTS_REGISTERED:
             return
-        _DEFAULTS_REGISTERED = True  # never re-attempt, even on failure
         if not os.path.isfile(_DEFAULT_TUNING_JSON):
+            _DEFAULTS_REGISTERED = True
             logger.debug("no default kernel-tuning JSON at %s; using hand fallbacks", _DEFAULT_TUNING_JSON)
             return
         try:
             from pyutilz.performance.kernel_tuning.cache import register_default_cache
         except ImportError:
+            _DEFAULTS_REGISTERED = True  # genuinely absent, and it will not appear later in this process
             logger.debug("pyutilz.performance.kernel_tuning unavailable; skipping default-cache registration")
             return
         try:
             register_default_cache(_DEFAULT_TUNING_JSON)
         except Exception as _exc:  # never let a defaults problem break import
-            logger.debug("register_default_cache(%s) failed (%s: %s)", _DEFAULT_TUNING_JSON, type(_exc).__name__, _exc)
+            # The flag is NOT set here, so a later caller re-attempts. It used to be set before the try, commented
+            # "never re-attempt, even on failure" -- but the failures this catches are transient (the 17KB JSON
+            # being rewritten by a concurrent sweep, a Windows PermissionError), and refusing to retry meant every
+            # KTC lookup for the rest of the process missed the shipped measurement-derived defaults and fell
+            # through to hand heuristics: the exact regression this file exists to prevent, at debug level.
+            logger.warning(
+                "register_default_cache(%s) failed (%s: %s); the shipped per-hardware kernel-tuning defaults are "
+                "NOT registered and dispatch will use hand heuristics until a later call succeeds.",
+                _DEFAULT_TUNING_JSON,
+                type(_exc).__name__,
+                _exc,
+            )
+        else:
+            _DEFAULTS_REGISTERED = True
 
 
 def get_kernel_tuning_cache() -> Optional[Any]:

@@ -57,6 +57,8 @@ from typing import Optional, Sequence
 import numba
 import numpy as np
 
+from mlframe.feature_selection.filters._y_encoding import encode_y_for_classif_mi
+
 from ._pairwise_modular_fe import _mi
 from ._lattice_gate_hit_shared import margin_over_operands as _margin_over_operands, responded_property as _responded_property
 
@@ -335,10 +337,36 @@ def _perm_null_hi(feat, y: np.ndarray, nbins: int, n_perm: int = 12, seed: int =
     shuffles, so a resident handle is uploaded once and reused for every permutation instead of re-uploading the same
     float 12x. ``_mi`` takes the resident-input branch; only y is shuffled (a fresh host int64 per perm, as before)."""
     rng = np.random.default_rng(seed)
-    yi = np.asarray(y).astype(np.int64)
-    vals = np.empty(n_perm, dtype=np.float64)
-    for i in range(n_perm):
-        vals[i] = _mi(feat, yi[rng.permutation(yi.size)], nbins=nbins)
+    # `encode_y_for_classif_mi`, NOT `astype(np.int64)`. The bare cast is the continuous-target truncation trap
+    # `_y_encoding.py` exists to prevent, and every sibling FE family already routes through it: on a regression
+    # target in [0, 1) -- log-returns, a normalised label, a probability -- the cast collapses every row to class
+    # 0, so every MI in this module reads exactly 0.0, the gate never fires, and the family emits zero features
+    # with no error and no warning. A target in [0, 10) is worse: MI is non-zero but measures a truncated target,
+    # so tau and the accept decision are made against a signal that is not the caller's. Every public entry point
+    # here takes a raw y; the MRMR path was safe only because its cascade happens to pre-bin before calling in.
+    yi = encode_y_for_classif_mi(y)
+    n = int(yi.size)
+    if not isinstance(feat, np.ndarray):
+        # A resident cupy handle: `_mi` takes the resident-input branch and the fixed candidate is uploaded once
+        # for all n_perm shuffles, so the per-perm loop already avoids the cost the batching below removes.
+        vals = np.empty(n_perm, dtype=np.float64)
+        for _ in range(n_perm):
+            vals[_] = _mi(feat, yi[rng.permutation(n)], nbins=nbins)
+    else:
+        # One batched call instead of n_perm separate `_mi()` dispatches, each of which paid its own njit/GPU
+        # launch overhead on the SAME fixed feature. Both sibling copies of this function were ported already;
+        # this one was missed. Via the joint-reindex invariance ``MI(feat; y[perm]) == MI(feat[inv_perm]; y)``,
+        # each permutation becomes a column of one (n, n_perm) matrix scored against the unpermuted y. The RNG
+        # draw order is unchanged -- `rng.permutation(n)` is still called n_perm times, in the same order -- so
+        # the result is bit-identical to the loop it replaces.
+        from ._orthogonal_univariate_fe import _mi_classif_batch
+
+        mat = np.empty((n, n_perm), dtype=np.float64)
+        feat_host = np.ascontiguousarray(feat, dtype=np.float64).ravel()
+        for i in range(n_perm):
+            perm = rng.permutation(n)
+            mat[:, i] = feat_host[np.argsort(perm)]
+        vals = np.asarray(_mi_classif_batch(mat, yi, nbins=nbins), dtype=np.float64)
     return float(vals.mean() + z * vals.std())
 
 
@@ -448,7 +476,14 @@ def cheap_row_argmax_scan(
         cols = [c for c in cols if c in X.columns and _is_argmax_eligible(np.asarray(X[c]))]
     # Canonicalize the eligible-column order so the budgeted triple enumeration below scans the SAME triples regardless of the caller's input column order; without this a reversed-column frame walks a different ``max_triples`` prefix and synthesizes different argmax features, making the downstream selection column-order dependent.
     cols = sorted(cols, key=lambda c: str(c))
-    yi = np.asarray(y).astype(np.int64)
+    # `encode_y_for_classif_mi`, NOT `astype(np.int64)`. The bare cast is the continuous-target truncation trap
+    # `_y_encoding.py` exists to prevent, and every sibling FE family already routes through it: on a regression
+    # target in [0, 1) -- log-returns, a normalised label, a probability -- the cast collapses every row to class
+    # 0, so every MI in this module reads exactly 0.0, the gate never fires, and the family emits zero features
+    # with no error and no warning. A target in [0, 10) is worse: MI is non-zero but measures a truncated target,
+    # so tau and the accept decision are made against a signal that is not the caller's. Every public entry point
+    # here takes a raw y; the MRMR path was safe only because its cascade happens to pre-bin before calling in.
+    yi = encode_y_for_classif_mi(y)
     arrs = {c: np.asarray(X[c], dtype=np.float64) for c in cols}
 
     hits: list[ArgmaxHit] = []
@@ -634,7 +669,14 @@ def cheap_conditional_gate_scan(
     else:
         cols = [c for c in cols if c in X.columns and _is_argmax_eligible(np.asarray(X[c]))]
     cols = list(cols)
-    yi = np.asarray(y).astype(np.int64)
+    # `encode_y_for_classif_mi`, NOT `astype(np.int64)`. The bare cast is the continuous-target truncation trap
+    # `_y_encoding.py` exists to prevent, and every sibling FE family already routes through it: on a regression
+    # target in [0, 1) -- log-returns, a normalised label, a probability -- the cast collapses every row to class
+    # 0, so every MI in this module reads exactly 0.0, the gate never fires, and the family emits zero features
+    # with no error and no warning. A target in [0, 10) is worse: MI is non-zero but measures a truncated target,
+    # so tau and the accept decision are made against a signal that is not the caller's. Every public entry point
+    # here takes a raw y; the MRMR path was safe only because its cascade happens to pre-bin before calling in.
+    yi = encode_y_for_classif_mi(y)
 
     # FAST-SEARCH SUBSAMPLE. The gate DETECTION - raw-relevance ranking, the ~17-point
     # quantile tau-scan, and the per-tau residue-MI band - is RANK-stable under row subsampling (the

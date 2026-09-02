@@ -855,7 +855,17 @@ def _moment_fingerprint_njit(x: np.ndarray):
         s2 += d2
         s3 += d2 * d
         s4 += d2 * d2
-    std = (s2 / n) ** 0.5 + 1e-12
+    # No additive pad. The moment kernel above is correct (two-pass, centred); the pad was downstream of it and
+    # got INVERTED and then cubed / fourth-powered. For a column whose true std lands in roughly [1e-12, 1e-10] --
+    # a pre-scaled feature, or a tick-level price delta whose spread is ~1e-11 -- the pad is the same order as the
+    # real denominator, so an unpadded skew of 2.0 reads as 0.25 and `basis_route_by_moments`, which branches on
+    # `abs(skew) > 1.5`, routes a genuinely heavy-tailed one-sided column to Hermite instead of Laguerre.
+    # `spread_ratio = rng/std` is deflated by the same factor, biasing toward Chebyshev.
+    std = (s2 / n) ** 0.5
+    if std <= 1e-12:
+        # A constant column has no shape to report; 0.0 routes it the same way a symmetric light-tailed one goes,
+        # matching `_global_stats_all`'s short-circuit rather than inventing a moment from noise.
+        return mean, std, 0.0, 0.0, xmin, xmax
     inv = 1.0 / std
     inv2 = inv * inv
     skew = (s3 / n) * (inv2 * inv)

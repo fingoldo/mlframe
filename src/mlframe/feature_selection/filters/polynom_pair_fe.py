@@ -240,8 +240,14 @@ def run_polynom_pair_fe(
     # existing np.memmap to loky workers by filename with no re-dump at all.
     X_ndarr = fit_constant_memmap(X_ndarr)
 
-    def _eval_one_pair_impl(raw_vars_pair, X_arr, y_arr):
+    def _eval_one_pair_impl(raw_vars_pair, X_arr, y_arr, fe_deadline=None):
         """Search + fit the best polynomial-basis feature for one raw variable pair; runs inside a worker.
+
+        ``fe_deadline`` is the caller's ABSOLUTE ``timer()`` deadline, passed explicitly and re-published into this
+        execution context. ``_fe_deadline``'s state is a ``threading.local``, which crosses neither the loky
+        process boundary nor the big-stack sub-thread ``_eval_one_pair`` runs this on -- so the multi-seed loop's
+        deadline check below was unreachable in EVERY configuration, parallel and serial alike, not just under
+        ``n_jobs > 1`` as the module previously assumed.
 
         Extracts the pair's two columns from the shared ``X_arr``, subsamples for the optimiser's MI loop (per
         ``shared_subsample_idx`` / ``subsample_n``), computes the trivial-feature baseline once, cheap-skips the
@@ -376,14 +382,15 @@ def run_polynom_pair_fe(
             )
 
         best_res = None
-        from ._fe_deadline import fe_deadline_passed
+        from ._fe_deadline import fe_deadline_passed, set_fe_deadline
+
+        if fe_deadline is not None:
+            set_fe_deadline(fe_deadline)
 
         for seed_offset in range(fe_smart_polynom_iters):
-            # Optional-enrichment wall-clock budget: stop the multi-seed re-optimisation for this pair
-            # once MRMR.fit's deadline passes; keep the best result found so far. No-op without a budget.
-            # Only visible when this runs on the main thread (n_jobs=1, e.g. this project's profiling
-            # harness) - the thread-local deadline does not cross a joblib worker boundary by design (see
-            # _fe_deadline.py's docstring), same documented constraint its other 3 consumers already have.
+            # Optional-enrichment wall-clock budget: stop the multi-seed re-optimisation for this pair once
+            # MRMR.fit's deadline passes; keep the best result found so far. No-op without a budget. Live in every
+            # configuration now that the deadline arrives as an explicit argument and is re-published above.
             if fe_deadline_passed():
                 break
             res = optimise_hermite_pair(
@@ -416,15 +423,20 @@ def run_polynom_pair_fe(
         # to all rows (subsampling was only for the optimiser's MI loop).
         return (raw_vars_pair, best_res, vals_a_full, vals_b_full)
 
-    def _eval_one_pair(raw_vars_pair, X_arr, y_arr):
+    def _eval_one_pair(raw_vars_pair, X_arr, y_arr, fe_deadline=None):
         """Worker entry point: runs :func:`_eval_one_pair_impl` on a big-stack sub-thread to dodge the Windows loky 1MB-stack numba crash."""
         # Windows loky workers have a 1MB main-thread stack - numba's
         # JIT cache load runs an llvmlite finalize chain that needs
         # ~2-3MB and crashes the worker. Running the impl in a sub-thread
         # with 8MB stack avoids the overflow; pass-through no-op on Linux.
         return run_in_big_stack_thread(
-            _eval_one_pair_impl, raw_vars_pair, X_arr, y_arr,
+            _eval_one_pair_impl, raw_vars_pair, X_arr, y_arr, fe_deadline,
         )
+
+    # Read on the MAIN thread, where the thread-local actually lives, and passed down explicitly from here.
+    from ._fe_deadline import _state as _fe_deadline_state
+
+    _fe_deadline_value = getattr(_fe_deadline_state, "deadline", None)
 
     _poly_t0 = time.perf_counter()
     # 2026-05-18 threshold: at n=1M, 15 pairs, joblib worker spin-up
@@ -495,14 +507,14 @@ def run_polynom_pair_fe(
             _poly_pair_results = Parallel(
                 n_jobs=_polynom_n_jobs, backend=_loky_cpu_backend,
                 verbose=10 if verbose else 0,
-            )(delayed(_eval_one_pair)(rv, X_ndarr, classes_y) for rv in _pair_keys)
+            )(delayed(_eval_one_pair)(rv, X_ndarr, classes_y, _fe_deadline_value) for rv in _pair_keys)
         except Exception as _pool_exc:
             logger.warning(
                 "Polynomial-pair FE: loky pool dispatch failed (%s: %s); falling back to the serial "
                 "per-pair path for this round [n_pairs=%d].",
                 type(_pool_exc).__name__, _pool_exc, _n_pairs_to_eval,
             )
-            _poly_pair_results = [_eval_one_pair(rv, X_ndarr, classes_y) for rv in _pair_keys]
+            _poly_pair_results = [_eval_one_pair(rv, X_ndarr, classes_y, _fe_deadline_value) for rv in _pair_keys]
     else:
         if _polynom_n_jobs > 1 and verbose:
             logger.info(
@@ -510,7 +522,7 @@ def run_polynom_pair_fe(
                 _n_pairs_to_eval,
                 _PARALLEL_PAIR_THRESHOLD,
             )
-        _poly_pair_results = [_eval_one_pair(rv, X_ndarr, classes_y) for rv in _pair_keys]
+        _poly_pair_results = [_eval_one_pair(rv, X_ndarr, classes_y, _fe_deadline_value) for rv in _pair_keys]
     _eval_elapsed = time.perf_counter() - _poly_t0
     logger.info(
         "Polynomial-pair FE eval phase done in %.1fs (%d pairs, " "%.2fs/pair median).",

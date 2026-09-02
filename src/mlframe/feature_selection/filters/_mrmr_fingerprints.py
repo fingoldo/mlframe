@@ -23,6 +23,7 @@ time - only at runtime.
 from __future__ import annotations
 
 import hashlib
+from uuid import uuid4
 import logging
 from itertools import islice
 from typing import TYPE_CHECKING
@@ -51,6 +52,11 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+# One sampling rule for both fingerprints. 10 positions collided on frames differing only away from
+# those cells (an outlier clip preserving min/median/max rows); 1024 strided positions stay O(1) in
+# n_rows while making a content collision astronomically unlikely.
+_CELL_SAMPLE_POSITIONS = 1024
 
 
 # Cross-target identity cache for MRMR.fit. A prod log showed
@@ -182,14 +188,18 @@ def _mrmr_compute_x_fingerprint(X) -> str:
                 dtypes_repr = ()
         else:
             dtypes_repr = ()
-        # Cell-content sample: 10 evenly-spaced positions per column. Prevents
-        # same-schema-different-content X frames from colliding in the cache.
+        # Cell-content sample: 1024 evenly-spaced positions per column, the SAME rule `_content_array_signature`
+        # below was raised to, and for the same reason its comment records -- 10 boundary cells collided on any
+        # two frames that happened to agree there, which is exactly what an outlier clip, a winsorisation or a
+        # NaN imputation produces. A preprocessing sweep holds y fixed by construction, so
+        # `mrmr_identity_cache_include_y` does not close it, and a hit here makes `_fit_identity_shortcut` set
+        # `support_ = arange(n_cols)`: the selector returns "select everything" for a frame it never scored.
         # Skip cell-sampling for LazyFrame: each column read triggers a full
         # materialisation, the cost dominates the schema-only fingerprint.
         # The schema+dtype repr above is already collision-resistant enough.
         cell_sample: tuple = ()
         try:
-            n_sample = min(10, n_rows) if n_rows > 0 else 0
+            n_sample = min(_CELL_SAMPLE_POSITIONS, n_rows) if n_rows > 0 else 0
             if n_sample > 0 and hasattr(X, "columns") and not _is_lazy_polars:
                 step = max(1, n_rows // n_sample)
                 positions = [i * step for i in range(n_sample) if i * step < n_rows]
@@ -215,8 +225,13 @@ def _mrmr_compute_x_fingerprint(X) -> str:
         payload = repr((cols, n_rows, dtypes_repr, cell_sample)).encode()
         return hashlib.blake2b(payload, digest_size=12).hexdigest()
     except Exception as e:
-        logger.debug("_mrmr_compute_x_fingerprint: content fingerprint failed, falling back to id()-based key: %s", e)
-        return f"fp_id{id(X):x}"
+        # A never-matching token, NOT an id()-derived key. CPython reuses object addresses after collection, so a
+        # suite that builds a frame, fits, drops the reference and builds a different frame very commonly gets
+        # `id(X2) == id(X1)` -- and `_mrmr_class` treats a stored True as licence to skip the entire fit. The
+        # fallback is reached precisely when the code has LEAST information about X, which is the worst moment to
+        # key a cache on an address; disabling the cache for this call is the only safe answer.
+        logger.warning("_mrmr_compute_x_fingerprint: content fingerprint failed (%s); disabling the identity cache for this call.", e)
+        return f"fp_uncacheable_{uuid4().hex}"
 
 
 def _hashable_params_signature(params: dict) -> tuple:
@@ -281,13 +296,13 @@ def _content_array_signature(arr) -> tuple:
                 np_arr = arr.to_numpy()
             except Exception as e:
                 logger.debug("_content_array_signature: to_numpy() failed, falling back to id()-based key: %s", e)
-                return ("uncached", id(arr))
+                return ("uncached", uuid4().hex)
         elif hasattr(arr, "values"):
             np_arr = arr.values
         else:
             np_arr = arr
         if not hasattr(np_arr, "shape") or not hasattr(np_arr, "dtype"):
-            return ("uncached", id(arr))
+            return ("uncached", uuid4().hex)
         shape = np_arr.shape
         dtype_str = str(np_arr.dtype)
         # Strided 1024-position sample. The prior 10-cell sample collided on any two frames whose ten boundary cells happened to agree (e.g. column-wise outlier clip that preserves min/median/max rows). 1024 strided positions keep the fingerprint O(1) in n_rows yet make a content-collision astronomically unlikely while remaining cheaper than a full blake2b on 100GB frames.
@@ -301,7 +316,7 @@ def _content_array_signature(arr) -> tuple:
             sampled = bytes(flat[idx].tobytes())
         except Exception as e:
             logger.debug("_content_array_signature: strided sample failed, falling back to id()-based key: %s", e)
-            return ("uncached", id(arr))
+            return ("uncached", uuid4().hex)
         return (shape, dtype_str, sampled, col_names)
     except Exception as e:
         logger.debug("_content_array_signature: content signature failed, falling back to id()-based key: %s", e)

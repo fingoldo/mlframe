@@ -33,6 +33,23 @@ logger = logging.getLogger(__name__)
 
 
 @njit(cache=True)
+def _per_cell_count_sum_njit(codes, v, n_cells):
+    """Per-cell ``(cnt, s1)`` only -- pass 1 of the two-pass stable scheme, with the dead higher moments gone.
+
+    Accumulates in the same row order as :func:`_per_cell_raw_moments_njit`, so ``cnt`` and ``s1`` are
+    bit-identical to that kernel's first two outputs.
+    """
+    n_cells = int(n_cells)
+    cnt = np.zeros(n_cells, dtype=np.float64)
+    s1 = np.zeros(n_cells, dtype=np.float64)
+    for i in range(codes.shape[0]):
+        c = codes[i]
+        cnt[c] += 1.0
+        s1[c] += v[i]
+    return cnt, s1
+
+
+@njit(cache=True)
 def _per_cell_raw_moments_njit(codes, v, n_cells):
     """One-pass per-cell raw moment accumulator: returns ``(cnt, s1, s2, s3, s4)`` each ``(n_cells,)``.
 
@@ -86,7 +103,11 @@ def _per_cell_moments_stable(codes: np.ndarray, v: np.ndarray, n_cells: int) -> 
     directly. Feeds :func:`_derive_cell_stats`."""
     codes_i = np.ascontiguousarray(codes, dtype=np.int64)
     v_f = np.ascontiguousarray(v, dtype=np.float64)
-    cnt, s1, _, _, _ = _per_cell_raw_moments_njit(codes_i, v_f, int(n_cells))
+    # The pruned twin: this pass needs only `cnt` and `s1`, and the full kernel also accumulated s2, s3 and s4
+    # -- 2.5x the arithmetic and three unused `np.zeros(n_cells)` per call, on a kernel `fit_binned_numeric_agg`
+    # runs once per fold per (group_col, agg_col) pair. Bit-identical by construction: same row order, same adds.
+    # The GPU twin already bincounts only cnt and s1, so this was a host-only gap.
+    cnt, s1 = _per_cell_count_sum_njit(codes_i, v_f, int(n_cells))
     mean = s1 / np.maximum(cnt, 1.0)
     cm2, cm3, cm4 = _per_cell_centered_moments_njit(codes_i, v_f, mean, int(n_cells))
     return cnt, mean, cm2, cm3, cm4
