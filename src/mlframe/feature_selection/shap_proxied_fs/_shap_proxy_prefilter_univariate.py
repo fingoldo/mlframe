@@ -127,6 +127,7 @@ def f_classif_chunked(
     *,
     batch_size: Optional[int] = None,
     use_gemm: bool = True,
+    stable: bool = True,
 ) -> np.ndarray:
     """Column-batched ANOVA F-statistic, sklearn ``f_classif`` parity.
 
@@ -141,7 +142,20 @@ def f_classif_chunked(
     ``use_gemm=False`` for parity testing. The GEMM path is auto-disabled when X is float32
     because sgemm's reduction order does not bit-match sklearn's per-class
     ``safe_sqr(a).sum(axis=0)`` accumulation at single precision (~4e-4 drift), and the
-    drop-in-sklearn-parity contract from iter39 requires byte-identical float32 output."""
+    drop-in-sklearn-parity contract from iter39 requires byte-identical float32 output.
+
+    ``stable=True`` (the default) subtracts the per-column grand mean before accumulating the class sums of
+    squares, so ``sst`` is built directly from centred contributions instead of as ``total_sumsq - correction``.
+    The two are algebraically identical; the raw form is not numerically. For an epoch-timestamp column (~1.7e9)
+    with a genuine within-class std of 10 at N = 1e6, ``total_sumsq`` and ``correction`` are both ~2.89e24, so at
+    float32 the cancellation noise is ~3.4e17 against a true ``sst`` of 1e8 -- nine orders of noise over signal,
+    and the ``f64 < 0.0`` clamp below then ranks a genuinely discriminative feature WORST in the pool. Even at
+    float64 the floor is 6.4e8 against the same 1e8. The existing ``cancel_floor`` and ``min == max`` guards
+    catch only CONSTANT columns; a large-offset column with real but small variance clears both and gets a
+    fabricated F. The stable path also accumulates in float64 regardless of input dtype.
+
+    ``stable=False`` restores the raw-sum form, which is what the byte-identical sklearn float32 parity contract
+    above is written against -- the centring changes the low-order bits, so the two cannot both hold."""
     X = _coerce_2d_float(X)
     n_samples, n_features = X.shape
     y_arr = np.asarray(y).ravel()
@@ -161,7 +175,9 @@ def f_classif_chunked(
         return out
 
     masks = [(y_arr == c) for c in classes]  # K boolean masks, K * N bytes, dwarfed by the chunk.
-    acc_dtype = X.dtype
+    # The stable path is free of the sklearn bit-parity constraint that pins the raw path to X.dtype, so it
+    # accumulates in float64 whatever came in.
+    acc_dtype = np.dtype(np.float64) if stable else X.dtype
     n_per_class = counts.astype(acc_dtype)
 
     # GEMM requires float64 accumulation to preserve the sklearn-parity contract: at float32
@@ -209,8 +225,26 @@ def f_classif_chunked(
         grand_sum = sums.sum(axis=0)  # (b,)
         total_sumsq = sumsq.sum(axis=0)  # (b,)
         correction = (grand_sum * grand_sum) / acc_dtype.type(N)
-        sst = total_sumsq - correction
-        ssbn = (sums * sums / n_per_class[:, None]).sum(axis=0) - correction
+        if stable:
+            # Re-accumulate against the grand mean. `sst` is then a sum of squares of deviations -- every term
+            # non-negative, nothing subtracted -- and the between-class term needs no `correction` either,
+            # because the centred grand sum is zero by construction.
+            chunk_c = chunk.astype(acc_dtype, copy=False) - (grand_sum / acc_dtype.type(N))
+            if gemm_active and indicators is not None:
+                sums_c = indicators @ chunk_c
+                sumsq_c = indicators @ (chunk_c * chunk_c)
+            else:
+                sums_c = np.empty((K, b), dtype=acc_dtype)
+                sumsq_c = np.empty((K, b), dtype=acc_dtype)
+                for k, mask in enumerate(masks):
+                    block_c = chunk_c[mask, :]
+                    sums_c[k] = block_c.sum(axis=0)
+                    sumsq_c[k] = (block_c * block_c).sum(axis=0)
+            sst = sumsq_c.sum(axis=0)
+            ssbn = (sums_c * sums_c / n_per_class[:, None]).sum(axis=0)
+        else:
+            sst = total_sumsq - correction
+            ssbn = (sums * sums / n_per_class[:, None]).sum(axis=0) - correction
         sswn = sst - ssbn
         # Constant-column detection: sst is the CENTERED total sum of squares (total_sumsq -
         # correction). For a literally-constant column sst is 0 modulo float cancellation, whose
@@ -220,7 +254,11 @@ def f_classif_chunked(
         # old eps*|total_sumsq|*N threshold ballooned far above the column's genuine centered
         # variance and silently dropped informative columns. Using the centered cancellation floor
         # keeps such columns while still catching pure-FP-drift constants.
-        cancel_floor = eps * np.maximum(np.abs(total_sumsq), np.abs(correction))
+        # On the stable path `sst` is a sum of squared deviations, so it carries no cancellation and needs no
+        # floor at all -- the `min == max` test below is then the only constant check. Keeping the raw floor
+        # here would be actively wrong: it is scaled by the UNCENTRED `total_sumsq` (~2.89e24 for an epoch
+        # column), which dwarfs a perfectly real centred `sst` of ~2e6 and sends a discriminative column to -inf.
+        cancel_floor = np.zeros_like(sst) if stable else eps * np.maximum(np.abs(total_sumsq), np.abs(correction))
         # OR in an exact, cancellation-free identity check (chunk.max == chunk.min per column):
         # the sst-vs-cancel_floor test alone is GEMM/legacy-path-dependent -- BLAS dgemm's own
         # (blocked/threaded) reduction order for `indicators @ chunk` accumulates a literally

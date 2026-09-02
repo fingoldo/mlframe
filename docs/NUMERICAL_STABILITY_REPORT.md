@@ -231,11 +231,26 @@ of algebraic expansion of raw power sums):
 - `_target_encoding_fe.py::_raw_moment_sums` (per-category skew/kurt)
   -- fixed.
 - `_binned_numeric_agg_fe.py::_derive_cell_stats` (per-cell skew/kurt)
-  -- still uses the unstable formula; open follow-up.
+  -- fixed. Its signature now takes `(cnt, mean, cm2, cm3, cm4)` centred
+  sums from `_per_cell_moments_stable` and carries no `+1e-12` pad.
+- `_binned_numeric_agg_resident.py::_per_cell_moments_stable_gpu` (the
+  GPU twin of the above) -- converted in lockstep.
 
-Any new skew/kurt kernel should default to the two-pass centred-moment
-form (or Welford-Pébay, per the hot-path heuristic above) rather than
-expanding `E[(x-mean)^k]` algebraically in terms of raw power sums.
+The shape to watch for is `sum(x^k)` minus a power of the mean for ANY
+`k >= 2`, which includes plain VARIANCE (`E[x^2] - E[x]^2`), not just
+skew and kurtosis. Three prior search rounds grepped only for skew and
+kurt and therefore missed nine live variance sites across four files
+(`_usability_njit_pool.py`, `pre_screen.py`,
+`_shap_proxy_prefilter_univariate.py`, `_independence_check.py`,
+`adversarial_stochastic_blend.py`), all since fixed. The same applies to
+a fixed additive epsilon standing in for a degeneracy branch: it is only
+harmless when the denominator's natural scale is far above it, which is
+not true of an exponentially-decayed weighted variance, a band energy in
+squared input units, or the range of a large-offset near-constant window.
+
+Any new moment kernel should default to the two-pass centred form (or
+Welford-Pébay, per the hot-path heuristic above) rather than expanding
+`E[(x-mean)^k]` algebraically in terms of raw power sums.
 
 ## Files
 

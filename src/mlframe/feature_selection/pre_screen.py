@@ -211,12 +211,21 @@ def compute_unsupervised_drops(
                         # is-nan branch below - defeating this entire sparse-aware path, which exists to
                         # stop NaN-filled TF-IDF columns being screened out.
                         sum_valid = float(finite_sp.sum())
-                        sumsq_valid = float(np.square(finite_sp).sum())
                         if n_fill_valid:
                             sum_valid += n_fill_valid * fill_value
-                            sumsq_valid += n_fill_valid * (fill_value**2)
                         mean_valid = sum_valid / n_valid
-                        var_val = sumsq_valid / n_valid - mean_valid**2
+                        # Centred, not `sumsq/n - mean**2`. The raw-sum form has a cancellation floor of
+                        # ~2.2e-16 * mean**2, so for a sparse price column with fill_value 1e6 that floor is
+                        # 2.2e-4 while a genuine within-column variance of 1e-6 sits three orders BELOW it: the
+                        # result is noise with a random sign, and there is no `max(var, 0)` clamp, so a negative
+                        # one reads as "less variance than the cutoff" and the column is permanently dropped --
+                        # reintroducing, in a different regime, exactly the false drop this branch exists to
+                        # prevent. Centring keeps the single pass and the closed-form fill term.
+                        dev = finite_sp - mean_valid
+                        sumsq_centred = float(np.dot(dev, dev))
+                        if n_fill_valid:
+                            sumsq_centred += n_fill_valid * (fill_value - mean_valid) ** 2
+                        var_val = sumsq_centred / n_valid
                 else:
                     var_val = float(col.var())
             except (TypeError, ValueError):

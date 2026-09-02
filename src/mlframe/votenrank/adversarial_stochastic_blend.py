@@ -186,11 +186,21 @@ def adversarial_stochastic_blend(
     if track_convergence:
         iter_counts = np.arange(1, n_iterations + 1, dtype=np.float64)[:, None]
         cum_mean = np.cumsum(collected_weights, axis=0) / iter_counts
-        cum_sq_mean = np.cumsum(collected_weights**2, axis=0) / iter_counts
-        cum_var = np.maximum(cum_sq_mean - cum_mean**2, 0.0)
+        # Centred against the FINAL mean rather than `E[w^2] - E[w]^2`. On a converged blend -- every iteration
+        # producing nearly identical weights, w = 0.25 +- 1e-9 -- the raw form's cancellation floor is 1.4e-17
+        # against a true variance of 1e-18, so `np.maximum(..., 0.0)` clamped pure noise to exactly zero and the
+        # run reported a stability_score of 1.0: PERFECT convergence as a numerical artifact, and optimistic,
+        # which is the wrong direction for a trustworthiness diagnostic. `collected_weights` is fully
+        # materialised, so this costs one extra pass over an (n_iterations, n_models) array.
+        dev = collected_weights - cum_mean
+        cum_var = np.maximum(np.cumsum(dev * dev, axis=0) / iter_counts, 0.0)
         cum_std = np.sqrt(cum_var)
-        per_iter_cov = cum_std / (np.abs(cum_mean) + 1e-12)
-        convergence_curve = per_iter_cov.mean(axis=1)
+        # Multiplicative guard, not `+ 1e-12`. A member whose weight legitimately converged toward zero has
+        # |cum_mean| ~ 1e-13, where the pad dominates the true denominator and understates its coefficient of
+        # variation roughly tenfold with no cancellation involved at all. An undefined CV is the honest answer.
+        with np.errstate(divide="ignore", invalid="ignore"):
+            per_iter_cov = np.where(np.abs(cum_mean) > 1e-12, cum_std / np.where(np.abs(cum_mean) > 1e-12, np.abs(cum_mean), 1.0), np.nan)
+        convergence_curve = np.nanmean(per_iter_cov, axis=1)
         result["convergence_curve"] = convergence_curve
         result["stability_score"] = float(1.0 / (1.0 + convergence_curve[-1]))
 

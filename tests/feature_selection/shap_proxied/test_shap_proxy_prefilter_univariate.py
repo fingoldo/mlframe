@@ -214,7 +214,13 @@ def test_f_classif_float32_input_matches_sklearn_float32():
     caller hands us a float32 X, the chunked path must bit-match sklearn's float32 output
     so the cached F-scores can be substituted for a fresh ``f_classif(X.values, y)`` call.
     Pre-iter39 the chunked path silently upcast to float64 and diverged ~4e-4 from sklearn's
-    float32 result, breaking the downstream cache-hit contract."""
+    float32 result, breaking the downstream cache-hit contract.
+
+    ``stable=False`` is required here and is not a weakening of the test: byte-identical float32 parity with
+    sklearn and a cancellation-free SST are mutually exclusive, because sklearn itself forms
+    ``total_sumsq - correction``. The stable path is the default because a large-offset column's F is otherwise
+    fabricated (see ``test_f_classif_stable_path_survives_a_large_offset_column``); this test pins the escape
+    hatch the cache-substitution contract needs."""
     from sklearn.feature_selection import f_classif
 
     rng = np.random.default_rng(11)
@@ -227,7 +233,7 @@ def test_f_classif_float32_input_matches_sklearn_float32():
     expected, _ = f_classif(X32, y)
     expected = np.asarray(expected, dtype=np.float64)
     expected[~np.isfinite(expected)] = -np.inf
-    got = f_classif_chunked(X32, y, batch_size=512)
+    got = f_classif_chunked(X32, y, batch_size=512, stable=False)
     # Drop-in parity with sklearn at the same input dtype: must match the cached-vs-fresh
     # contract from test_biz_value_cached_f_scores_avoid_recomputation (rtol=1e-6, atol=1e-6).
     np.testing.assert_allclose(got, expected, rtol=1e-6, atol=1e-6)
@@ -309,12 +315,15 @@ def test_f_classif_gemm_auto_disabled_at_float32():
     """GEMM is auto-disabled when X is float32 to preserve sklearn's float32-parity contract
     (sgemm reorders sums vs sklearn's safe_sqr.sum, drifting ~4e-4). use_gemm=True must
     therefore reduce to the legacy K-loop path, producing bit-identical output to
-    use_gemm=False."""
+    use_gemm=False.
+
+    Pinned on the ``stable=False`` path, which is where that float32 dtype contract lives -- the stable path
+    accumulates in float64 by design, so GEMM stays enabled there."""
     rng = np.random.default_rng(605)
     X = rng.normal(size=(1500, 200)).astype(np.float32)
     y = rng.integers(0, 3, size=1500)
-    legacy = f_classif_chunked(X, y, batch_size=64, use_gemm=False)
-    gemm_requested = f_classif_chunked(X, y, batch_size=64, use_gemm=True)
+    legacy = f_classif_chunked(X, y, batch_size=64, use_gemm=False, stable=False)
+    gemm_requested = f_classif_chunked(X, y, batch_size=64, use_gemm=True, stable=False)
     # Auto-fallback to legacy at float32 -> bit-identical, not merely close.
     np.testing.assert_array_equal(gemm_requested, legacy)
 
@@ -327,3 +336,34 @@ def test_f_classif_gemm_default_is_on():
     default = f_classif_chunked(X, y, batch_size=16)
     explicit_gemm = f_classif_chunked(X, y, batch_size=16, use_gemm=True)
     np.testing.assert_array_equal(default, explicit_gemm)
+
+
+def test_f_classif_stable_path_survives_a_large_offset_column():
+    """A large offset with a real but small within-class difference: the raw-sum SST is pure cancellation noise.
+
+    An epoch-timestamp-scale column (~1.7e9) whose two classes differ by a few units has a true SST many orders
+    below `total_sumsq - correction`'s noise floor, so the raw form produced a meaningless F -- and the
+    `f64 < 0.0` clamp then sent a genuinely discriminative column to -inf, ranking it WORST in the pool. The
+    `cancel_floor` and `min == max` guards only catch CONSTANT columns, so this one cleared both.
+    """
+    rng = np.random.default_rng(3)
+    n = 20_000
+    y = (np.arange(n) % 2).astype(np.float64)
+    signal = 1.7e9 + y * 30.0 + rng.normal(0, 10.0, n)
+    noise = 1.7e9 + rng.normal(0, 10.0, n)
+    X = np.column_stack([signal, noise])
+
+    stable = f_classif_chunked(X, y, batch_size=512)
+    assert np.isfinite(stable[0]) and stable[0] > 0.0, stable
+    assert stable[0] > 10.0 * max(stable[1], 1e-12), stable  # the informative column must outrank the noise one
+
+    raw = f_classif_chunked(X, y, batch_size=512, stable=False)
+    assert not np.allclose(raw, stable, rtol=1e-3), (raw, stable)  # the fixture must actually exercise the difference
+
+
+def test_f_classif_stable_is_the_default():
+    """The corrective path ships on; the raw form is the opt-out for the sklearn byte-parity contract."""
+    rng = np.random.default_rng(4)
+    X = rng.normal(size=(400, 30))
+    y = rng.integers(0, 3, size=400)
+    np.testing.assert_array_equal(f_classif_chunked(X, y, batch_size=16), f_classif_chunked(X, y, batch_size=16, stable=True))

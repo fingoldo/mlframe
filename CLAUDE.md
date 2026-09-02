@@ -310,7 +310,7 @@ tolerance `_derive_cell_stats` already accepts for this stat family). 12.04x spe
 best-of-10) on the common all-4-stats request. Full existing test suite for the file (9 tests, incl. the
 pre-existing `test_global_stats_all_matches_global_stat`) passes.
 
-OPEN FOLLOW-UP: `_derive_cell_stats`'s own per-cell skew/kurt (lines ~129-133) uses the SAME raw-moment
+FOLLOW-UP (CLOSED): `_derive_cell_stats`'s own per-cell skew/kurt used the SAME raw-moment
 binomial-expansion formula just proven catastrophically unstable — per-cell offsets are typically smaller
 than a whole-column global, but this is unverified, not yet stress-tested, and is a real candidate for the
 exact same bug on production data with large per-cell offsets. Needs its own dedicated A/B sweep before
@@ -440,12 +440,11 @@ Added `test_skew_kurt_stable_on_large_offset_small_scale_target` (pins per-categ
 scipy's direct computation on exactly this large-offset regime) to `test_multistat_target_encoding.py`.
 Full target-encoding suite (39 tests across `target_encoding/` + the mrmr biz_val kfold-TE suite) passes.
 
-OPEN FOLLOW-UP (unchanged from the earlier entry): `_binned_numeric_agg_fe.py`'s `_derive_cell_stats` still
-uses the original catastrophically-unstable raw-moment-expansion formula for its per-cell skew/kurt and has
-not yet been fixed — now THREE confirmed/suspected instances of this exact bug class across the codebase
-(`_global_stats_all` fixed, target-encoding fixed here, `_derive_cell_stats` still open). Worth a dedicated
-sweep for any other `s3 = ... ; m3 = s3/n - 3*mean*(s2/n) + 2*mean**3`-shaped code before assuming these
-three are the only occurrences.
+FOLLOW-UP (CLOSED 2026-09-02): `_derive_cell_stats` and its GPU twin `_per_cell_moments_stable_gpu` were both
+converted to centred moments; all three originally-named instances are fixed. The follow-up sweep this entry
+asked for was run and found the class alive one order down — `var = E[x^2] - E[x]^2` is the same cancellation
+at k=2, and nine live sites had gone unnoticed because the earlier rounds grepped only for skew and kurt.
+**Grep for `sum(x^k)` minus a power of the mean at ANY k >= 2, not just k in {3, 4}.**
 
 ## INVESTIGATION LEAD (2026-08-04, NOT yet actionable): `resident_operand`'s GPU cache shows an ~84% miss rate under a wide pairwise-modular/conditional-gate FE sweep — `cupy.array` cost 1697.9s / 29346 calls (~25% of the ENTIRE 6827s run) on combo `c0605` (5 models, multilabel, wide pair search)
 `resident_operand` (`_fe_resident_operands.py`) is an already-sophisticated content-hash LRU cache (192-entry

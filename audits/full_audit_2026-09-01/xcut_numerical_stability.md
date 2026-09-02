@@ -87,6 +87,8 @@ the `n_fill_valid` truthiness guard at :215 that avoids `0 * nan`.
 **Evidence:** `pre_screen.py` :185-231. `sum_valid`/`sumsq_valid` accumulate at :213-217 including the fill-mass
 terms, combine at :218-219, and flow unclamped into the NaN check at :224 and the cutoff at :227.
 
+**Disposition:** RESOLVED, exactly as suggested -- the mean is formed first and the variance from centred contributions, with the fill mass keeping its single closed-form centred term, so the sparse-awareness and the one-pass cost are both preserved. CONFIRMED with a sharper failure than the finding describes: the raw form does not merely go noise-signed, it returns exactly 0.0. For `fill_value = 1e6` with four stored cells perturbed by +-1e-3 in 4000 rows it reports 0.0 against a true variance of 6.25e-10, and the same at +-1e-2 and +-1e-1; only from +-1.0 upward does a nonzero value appear. 0.0 is at or below `_var_cutoff`, so the column is dropped every time, not half the time. `tests/test_raw_power_sum_variance_sites.py`.
+
 ### XCUT_NUMERICAL_STABILITY-3 [P2] raw-power-sum-variance-under-float32-accumulation
 
 **File:** `src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_prefilter_univariate.py` :211-214
@@ -115,6 +117,12 @@ document the parity divergence.
 already diagnosed one large-mean/low-variance false drop and fixed the THRESHOLD; the underlying raw-sum formula
 was left in place.
 
+**Disposition:** RESOLVED via the suggested opt-in, `stable=True`, defaulting ON. The grand mean is subtracted before the class sums of squares are accumulated, so `sst` is a sum of squared deviations with nothing subtracted and `ssbn` needs no `correction` term; accumulation is float64 regardless of input dtype. Measured on a 20k-row epoch-scale column (1.7e9) whose two classes differ by 30 against a within-class std of 10, with a matched pure-noise column alongside: ground truth (sklearn on centred data) is F = 45169 for the informative column and 2.11 for the noise one. The raw path returned **-inf for the informative column** -- ranked WORST in the pool, exactly the failure the finding predicts -- and 19998 for the noise one, a complete inversion. sklearn's own `f_classif` on the same uncentred data returns 1250 and 645, nearly tying them, so the defect is in the formula sklearn itself uses, not in this port. The stable path reproduces the ground truth exactly.
+
+One correction to the suggested fix: the existing `cancel_floor` had to be zeroed on the stable path, not merely left alone. It is scaled by the UNCENTRED `total_sumsq` (~2.89e24 here), which dwarfs a perfectly real centred `sst` of ~2e6 and sent both columns to -inf on the first attempt. A centred `sst` carries no cancellation, so `min == max` is the only constant check it needs.
+
+`test_f_classif_float32_input_matches_sklearn_float32` and `test_f_classif_gemm_auto_disabled_at_float32` now pass `stable=False`. That is not a weakening: byte-identical float32 parity with sklearn and a cancellation-free SST are mutually exclusive, because sklearn forms `total_sumsq - correction` itself. `tests/feature_selection/shap_proxied/test_shap_proxy_prefilter_univariate.py` (26 tests).
+
 ### XCUT_NUMERICAL_STABILITY-4 [P2] raw-power-sum-variance-inverts-a-redundancy-diagnostic
 
 **File:** `src/mlframe/calibration/_independence_check.py` :52-54
@@ -141,6 +149,8 @@ saturated member is surfaced rather than laundered into a clean independence res
 **Evidence:** `_independence_check.py` :28-57. The docstring :31-35 documents the sufficient-statistic closed
 form as a deliberate one-BLAS-pass optimisation; the fix preserves that property.
 
+**Disposition:** RESOLVED. The logits are centred once before the sufficient statistics are formed; Pearson correlation is translation-invariant and the leave-one-out identity is translation-covariant, so the closed form and its single `logits.T @ row_sum` BLAS pass survive unchanged. The silent `clip(..., 0.0, None)` is replaced by an explicit degenerate branch returning NaN, so a saturated member is surfaced rather than reported as perfectly independent. `tests/test_raw_power_sum_variance_sites.py`.
+
 ### XCUT_NUMERICAL_STABILITY-5 [P3] raw-power-sum-variance-plus-additive-mean-pad
 
 **File:** `src/mlframe/votenrank/adversarial_stochastic_blend.py` :189-192
@@ -166,6 +176,8 @@ an undefined coefficient of variation rather than a silently deflated one.
 **Evidence:** :180-199. `cum_var` -> `cum_std` (:191) -> `per_iter_cov` (:192) -> `convergence_curve` (:193) ->
 the exported `stability_score` (:195), so the artifact reaches the caller-visible result.
 
+**Disposition:** RESOLVED. `cum_var` is accumulated from deviations against the running mean, and the `+1e-12` CV pad is replaced by `np.where(|cum_mean| > 1e-12, ..., np.nan)` with `np.nanmean` over the member axis. Measured at w = 0.25 +- 1e-10 over 200 iterations: the raw form clamps two of four members to exactly 0.0 and overstates the other two by ~1300x and ~10500x. The finding's own 1e-9 example is milder than it states -- there the raw form is wrong by 7x to 127x but does not reach the clamp -- so the fixture is pinned at 1e-10 where the clamp genuinely fires. `tests/test_raw_power_sum_variance_sites.py`.
+
 ### XCUT_NUMERICAL_STABILITY-6 [P3] stale-documentation-of-a-closed-finding
 
 **File:** `docs/NUMERICAL_STABILITY_REPORT.md` :233, and `CLAUDE.md` :313, :443-446
@@ -189,6 +201,8 @@ moments). Repo-wide grep for `_raw_moments`: the only surviving raw-power-sum ca
 `profiling/bench_binned_numeric_agg_fold_gate.py` :69-84, a benchmark that intentionally preserves the old form
 for A/B. `_per_cell_raw_moments_njit` (:36) survives in production but is called only for `cnt, s1` (:89) -- a
 plain additive sum for the mean pass, not a defect.
+
+**Disposition:** RESOLVED. Both documents now record `_derive_cell_stats` and its GPU twin `_per_cell_moments_stable_gpu` as fixed, and the guidance in `docs/NUMERICAL_STABILITY_REPORT.md` is broadened from "any new skew/kurt kernel" to `sum(x^k)` minus a power of the mean for ANY `k >= 2` -- naming plain variance explicitly, listing the five files where this sweep found it, and adding the sibling shape (a fixed additive epsilon standing in for a degeneracy branch) that the feature_engineering findings turned up in the same round. Documentation only; no runtime change.
 
 ## Verification of the three named instances
 
