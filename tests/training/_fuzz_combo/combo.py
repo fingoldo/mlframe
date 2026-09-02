@@ -2313,12 +2313,6 @@ class FuzzCombo:
         # 'multilabel-indicator'". Multilabel is not in scope for RFECV.
         if self.target_type == "multilabel_classification":
             return None
-        # Rare imbalance (rare_5pct / rare_1pct on small n) lets RFECV's
-        # internal CV folds land on single-class y, raising "Invalid
-        # classes inferred from unique values of y. Expected: [0], got
-        # [1]". Disable RFECV unless the target distribution is balanced.
-        if self.target_type == "binary_classification" and self.imbalance_ratio != "balanced":
-            return None
         return rfe
 
     def _canonical_prep_ext(self, name: str) -> "Any":

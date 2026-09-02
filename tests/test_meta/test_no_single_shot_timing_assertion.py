@@ -70,6 +70,67 @@ def _is_ratio_floor_assert(node: ast.Assert) -> bool:
     return (_is_div(left) and _is_const(right)) or (_is_const(left) and _is_div(right))
 
 
+def _timer_derived_names(func: ast.AST) -> set:
+    """Names bound in ``func`` from an expression containing a timer call, transitively.
+
+    Catches ``t0 = time.perf_counter()`` then ``elapsed = time.perf_counter() - t0``, and the pstats variant
+    ``total = float(out.split("in ")[1]...)`` only when the parsed value itself came from a timer -- text
+    parsing of a profiler header is not recognised, and those sites are listed in the baseline instead.
+    """
+    names: set = set()
+    for _ in range(3):  # a couple of passes so a chain of assignments propagates
+        grew = False
+        for node in _own_body_nodes(func):
+            if not isinstance(node, ast.Assign) or not node.targets:
+                continue
+            tgt = node.targets[0]
+            if not isinstance(tgt, ast.Name) or tgt.id in names:
+                continue
+            for sub in ast.walk(node.value):
+                if _is_timer_call(sub) or (isinstance(sub, ast.Name) and sub.id in names):
+                    names.add(tgt.id)
+                    grew = True
+                    break
+        if not grew:
+            break
+    return names
+
+
+def _is_wall_clock_assert(node: ast.Assert, timer_names: set) -> bool:
+    """True for ``<timer-derived name> <cmp> <constant>`` -- a bare wall-clock ceiling.
+
+    The detector originally recognised only the ``<division> <cmp> <constant>`` speedup-floor shape, so the far
+    more common ``assert elapsed < 5.0`` was structurally exempt: about forty of them across the suite, every one
+    a single un-warmed measurement that a contended runner perturbs by 2x-3x, and every one repairable by raising
+    its constant -- which is how a real regression gets absorbed.
+    """
+    test = node.test
+    if not isinstance(test, ast.Compare) or len(test.ops) != 1 or not isinstance(test.ops[0], _COMPARE_OPS):
+        return False
+    left, right = test.left, test.comparators[0]
+    named = isinstance(left, ast.Name) and left.id in timer_names
+    const = isinstance(right, ast.Constant) and isinstance(right.value, (int, float))
+    if named and const:
+        return True
+    named_r = isinstance(right, ast.Name) and right.id in timer_names
+    const_l = isinstance(left, ast.Constant) and isinstance(left.value, (int, float))
+    return named_r and const_l
+
+
+def _is_hang_guard(func: ast.AST) -> bool:
+    """True when the function is marked ``@pytest.mark.hang_guard``.
+
+    A hang guard's ceiling is deliberately an order of magnitude loose -- it asserts the call RETURNS, not that
+    it is fast. Lumping those in with perf gates means both get loosened by the same reflex, so they carry an
+    explicit marker and are exempt.
+    """
+    for dec in getattr(func, "decorator_list", []) or []:
+        node = dec.func if isinstance(dec, ast.Call) else dec
+        if isinstance(node, ast.Attribute) and node.attr == "hang_guard":
+            return True
+    return False
+
+
 _FUNC_NODES = (ast.FunctionDef, ast.AsyncFunctionDef)
 
 
@@ -93,11 +154,14 @@ def _single_shot_timing_functions(tree: ast.Module) -> list[tuple[int, str]]:
     for func in ast.walk(tree):
         if not isinstance(func, _FUNC_NODES):
             continue
+        if _is_hang_guard(func):
+            continue
+        timer_names = _timer_derived_names(func)
         has_timer = has_ratio_assert = has_min_call = has_loop = False
         for node in _own_body_nodes(func):
             if _is_timer_call(node):
                 has_timer = True
-            elif isinstance(node, ast.Assert) and _is_ratio_floor_assert(node):
+            elif isinstance(node, ast.Assert) and (_is_ratio_floor_assert(node) or _is_wall_clock_assert(node, timer_names)):
                 has_ratio_assert = True
             elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "min":
                 has_min_call = True
@@ -188,18 +252,34 @@ def test_best_of_n_via_loop():
     other = 1.0
     assert best / other >= 1.15
 
-def test_unrelated_ratio_assert():
+def test_bare_wall_clock_ceiling():
     t0 = time.perf_counter()
     run()
     elapsed = time.perf_counter() - t0
     assert elapsed < 5.0
     ratio = 4 / 2
     assert ratio >= 1.0
+
+
+@pytest.mark.hang_guard
+def test_hang_guard_is_exempt():
+    t0 = time.perf_counter()
+    run()
+    elapsed = time.perf_counter() - t0
+    assert elapsed < 90.0
 '''
 
 
-def test_detector_flags_only_the_single_shot_ratio_case():
-    """Only the genuinely single-shot ratio-assert function is flagged; both best-of-N shapes and the
-    non-ratio-shaped unrelated-division function are not."""
+def test_detector_flags_both_single_shot_shapes():
+    """Both single-shot shapes are flagged; best-of-N shapes and an explicit hang guard are not.
+
+    ``test_bare_wall_clock_ceiling`` is the shape this sample previously documented as deliberately NOT
+    flagged. It is the far more common of the two -- about forty across the suite, each a single un-warmed
+    measurement that a contended runner perturbs by 2x-3x and that gets repaired by raising its constant, which
+    is how a real regression is absorbed. It is now detected and baselined so the debt is at least tracked.
+
+    ``test_hang_guard_is_exempt`` carries ``@pytest.mark.hang_guard``: its ceiling asserts the call RETURNS, not
+    that it is fast, so lumping it in with perf gates would get both loosened by the same reflex.
+    """
     found = _single_shot_timing_functions(ast.parse(_DETECTOR_SAMPLE))
-    assert [name for _, name in found] == ["test_single_shot_flaky"], found
+    assert sorted(name for _, name in found) == ["test_bare_wall_clock_ceiling", "test_single_shot_flaky"], found

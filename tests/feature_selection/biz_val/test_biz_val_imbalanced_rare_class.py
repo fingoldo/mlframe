@@ -107,7 +107,10 @@ def _rare_class_weights(y):
 
 
 # n scaled so the rare class has enough members for a stable fit at each rate.
-_RATE_N = {0.10: 3000, 0.03: 3000, 0.01: 4000}
+# Row counts sized so the MINORITY class is large enough for the assertion made against it. The 1% leg is
+# measured separately below at n=20000 (~200 positives); the 3% and 10% legs keep their majority-of-seeds floors
+# at n=3000 (~90 and ~300 positives) because no measurement was taken at a larger size for them.
+_RATE_N = {0.10: 3000, 0.03: 3000, 0.01: 20000}
 
 
 def _majority_recovery(mk, rate, n, seeds, p_signal=3, p_noise=8, fit_kw_fn=None):
@@ -155,14 +158,24 @@ def test_biz_val_mrmr_recovers_signal_under_moderate_imbalance(rate):
 
 
 @pytest.mark.slow
+@pytest.mark.timeout(1800)
 def test_biz_val_mrmr_recovers_signal_at_1pct_with_enough_rows():
-    """At a 1% positive rate (n=4000 -> ~40 positives) MRMR still recovers all
-    3 informative columns on every seed tested (measured recov=[3,3,3]).
+    """At a 1% positive rate MRMR recovers all 3 informative columns on EVERY seed.
 
-    Floor = 2/3 median (5-15% margin)."""
-    recs, nsels = _majority_recovery(_make_mrmr, 0.01, 4000, (0, 1, 2))
-    print(f"MRMR rate=0.01 n=4000 recov={recs} nsel={nsels}")
-    assert _median(recs) >= 2, f"MRMR lost signal at 1% imbalance: recov={recs}"
+    The fixture is sized from the MINORITY count, not the total. It used to be n=4000 -- about 40 positives,
+    which after the train/val/test split leaves single digits per slice, so any metric computed on the minority
+    has a standard error comparable to its own value. The response at the time was to soften the floor to a
+    median-of-seeds, which makes a genuine regression costing one signal column on some seeds indistinguishable
+    from the pre-existing noise.
+
+    n=20000 gives ~200 positives, ~20 per 10% slice. Measured there: recov=[3,3,3] and nsel=[3,3,3] across
+    seeds 0/1/2 -- clean and identical per seed, so the floor is a PER-SEED 3/3 rather than a median. Runtime is
+    ~760s for the three seeds, hence the explicit timeout alongside the slow marker.
+    """
+    recs, nsels = _majority_recovery(_make_mrmr, 0.01, 20000, (0, 1, 2))
+    print(f"MRMR rate=0.01 n=20000 recov={recs} nsel={nsels}")
+    assert min(recs) == 3, f"MRMR lost signal at 1% imbalance on at least one seed: recov={recs}"
+    assert max(nsels) <= 6, f"MRMR selected too much at 1% imbalance: nsel={nsels}"
     assert _median(nsels) >= 1, "MRMR degenerated to the empty set at 1%"
 
 

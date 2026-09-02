@@ -60,6 +60,7 @@ def test_kill_process_tree_terminates_child_and_grandchild():
     assert not parent.is_running()
 
 
+@pytest.mark.hang_guard
 def test_reap_bounded_returns_false_for_undead_process_within_timeout():
     """A child that ignores kill (simulated by a long sleep we never kill) must
     NOT block ``_reap_bounded`` past its timeout -- it returns False promptly so
@@ -83,6 +84,7 @@ def test_reap_bounded_returns_true_for_exited_process():
     assert R._reap_bounded(p, 10) is True
 
 
+@pytest.mark.hang_guard
 def test_run_one_combo_does_not_wedge_on_child_holding_pipe_open_after_kill(monkeypatch):
     """Regression for the seed-0 AV wedge: an undead child whose stdout pipe
     stays open after the tree-kill (here simulated by a grandchild that inherits

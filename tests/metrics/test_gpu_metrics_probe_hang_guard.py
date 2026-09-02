@@ -11,11 +11,13 @@ reported, unretried). Fixed by running the actual probe on a bounded-join daemon
 from __future__ import annotations
 
 import threading
+import pytest
 import time
 
 from mlframe.metrics import _gpu_metrics
 
 
+@pytest.mark.hang_guard
 def test_hung_probe_returns_false_within_timeout_bound(monkeypatch):
     """A probe thread that never returns must not block the caller past ``_GPU_PROBE_TIMEOUT_S``."""
     monkeypatch.setattr(_gpu_metrics, "_GPU_AVAILABLE", None)
