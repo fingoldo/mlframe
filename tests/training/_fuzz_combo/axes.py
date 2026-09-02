@@ -947,10 +947,6 @@ AXES: dict[str, tuple[Any, ...]] = {
     # =====================================================================
     # EnsemblingConfig (entire class previously unfuzzed -- no
     # ``ensembling_config`` kwarg on suite, knobs were env-var-only).
-    # force_legacy toggles the pre-streaming materialised-aggregation path
-    # (allocates (M, N, K) tensors); streaming Welford is the new default.
-    # Canon to False when use_ensembles is off (no ensemble path runs).
-    "ensembling_force_legacy_cfg": (False, True),
     # quantile_budget_bytes: skip quantile-bucket aggregation when
     # M*N*K*8 > budget. 500 MB default; tight budget (10 MB) forces the
     # fallback-with-warn branch. Canon to default when ensembling is off.

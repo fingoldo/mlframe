@@ -86,9 +86,11 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # AR(1) lag-failsafe val cross-check. The ensemble deploys zero-param lag_predict when its group-K-fold OOF RMSE ties
     # the best trained component. That OOF underestimates the full-data model, so a tie can ship lag over a model that
     # generalises far better (prod: lag test 12.29 vs trained 9.31 at an OOF tie of 13.64). When a trained component
-    # beats lag on the group-disjoint VAL split (same honest regime as test) by more than lag_predict_failsafe_tolerance,
-    # veto the failsafe and deploy the trained component. Default ON (corrective); conservative -- only ever prevents a
-    # lag deployment in favour of a val-confirmed-better trained model.
+    # beats lag on the group-disjoint VAL split by more than lag_predict_failsafe_tolerance, veto the failsafe and
+    # deploy the trained component. Val is group-disjoint but is NOT the same honest regime as test: it is the
+    # early-stopping split, so the trained arm's val RMSE is biased low while zero-parameter lag's is not, and that bias
+    # points the same way as the decision. The tolerance is what absorbs it, and the realised margin is logged. Default
+    # ON (corrective); conservative -- only ever prevents a lag deployment in favour of a val-confirmed-better model.
     ar1_failsafe_val_crosscheck: bool = True
 
     # Per-row OOD-lag routing on the deployed model. After the val cross-check keeps the trained model (it wins overall),

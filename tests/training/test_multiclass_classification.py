@@ -349,6 +349,5 @@ def test_multilabel_dispatch_config_defaults():
 def test_ensembling_config_defaults():
     """Ensembling config defaults."""
     cfg = EnsemblingConfig()
-    assert cfg.force_legacy is False
     assert cfg.quantile_budget_bytes == 500 * 1024 * 1024
     assert cfg.accumulator == "welford"

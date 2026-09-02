@@ -657,7 +657,12 @@ def _render_split_diagnostics(
         timestamps=split_ts,
     )
     if isinstance(metrics_dict, dict) and res.get("worst_k_table") is not None:
-        metrics_dict["worst_k_table"] = res["worst_k_table"]
+        # Qualify the key with the split. val, test and OOF mean different things -- val is the early-stopping
+        # split and is optimistically biased, test/OOS is the honest estimate -- so an unqualified
+        # "worst_k_table" leaves a reader of the artifact with no way to tell which split produced it.
+        # `split_name` was accepted by this function and passed by its caller but never read at all.
+        metrics_dict[f"worst_k_table_{split_name}" if split_name else "worst_k_table"] = res["worst_k_table"]
+        metrics_dict["worst_k_table"] = res["worst_k_table"]  # unqualified alias, for existing readers
         metrics_dict["worst_k_indices"] = res["worst_k_indices"]
 
     # Temporal per-split panels (residual-vs-time / metric-over-time) only when timestamps cover this split.

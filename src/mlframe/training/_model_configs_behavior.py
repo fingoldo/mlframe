@@ -292,6 +292,15 @@ class TrainingBehaviorConfig(BaseConfig):
     target_temporal_audit_save_plot: bool = True
     """Save the time-series chart to the per-target charts folder."""
 
+    target_temporal_audit_unit: Optional[str] = None
+    """Epoch unit of an INTEGER timestamp column: ``"s"``, ``"ms"``, ``"us"`` or ``"ns"``.
+
+    ``None`` (default) auto-detects by trying each unit and taking the coarsest that lands the whole column
+    inside [1970, 2200]. The audit phase already read and documented this knob, but it was declared nowhere --
+    so setting it worked only through ``BaseConfig``'s ``extra="allow"`` escape hatch, which also logged a
+    warning telling the user it looked like a typo, and it was invisible to anyone reading this class alongside
+    its three declared siblings."""
+
     # mini-HPT feature_distribution_analyzer auto-drop knobs. Both flags
     # operate on the TRAIN frame only - the analyzer's drop_candidates list
     # is derived purely from per-column train-side stats (NaN fraction,

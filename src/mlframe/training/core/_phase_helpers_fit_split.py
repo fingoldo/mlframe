@@ -704,9 +704,9 @@ def _phase_auto_detect_feature_types(
     metadata["cat_features"] = cat_features
 
     # One-time Polars string->Enum cast so XGB's arrow bridge doesn't choke on large_string.
-    # Use pl.Enum (per-Series, no global cache impact) keyed off the train-only unique set;
-    # val/test cast non-strict so OOV becomes null (matches the alignment semantics elsewhere
-    # in the suite). pl.Categorical would widen the process-wide string cache (memory rule:
+    # Use pl.Enum (per-Series, no global cache impact); the domain and the strictness are described at the
+    # cast site below, which is where they are decided. pl.Categorical would widen the process-wide string
+    # cache (memory rule:
     # reference_polars_global_string_cache). Fixes audit B-P0-3 / Low-B11.
     if was_polars_input and all_models_polars_native and pipeline_config.skip_categorical_encoding and train_df is not None:
         _string_types = (pl.Utf8, pl.String) if hasattr(pl, "String") else (pl.Utf8,)

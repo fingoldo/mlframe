@@ -367,9 +367,6 @@ def _render_model_comparison_leaderboards(ctx: "TrainingContext") -> None:
     if not data_dir or not getattr(ctx, "save_charts", False):
         return
     _cfg = getattr(ctx, "reporting_config", None)
-    if _cfg is None:
-        _configs_root = getattr(ctx, "configs", None)
-        _cfg = getattr(_configs_root, "reporting_config", None) if _configs_root is not None else None
     if _cfg is not None and not getattr(_cfg, "model_comparison_charts", True):
         return
     plot_outputs = (getattr(_cfg, "plot_outputs", "") or "") if _cfg is not None else ""
@@ -419,9 +416,6 @@ def _render_split_comparison_panels(ctx: "TrainingContext") -> None:
     if not data_dir or not getattr(ctx, "save_charts", False):
         return
     _cfg = getattr(ctx, "reporting_config", None)
-    if _cfg is None:
-        _configs_root = getattr(ctx, "configs", None)
-        _cfg = getattr(_configs_root, "reporting_config", None) if _configs_root is not None else None
     if _cfg is not None and not getattr(_cfg, "split_comparison_charts", True):
         return
     plot_outputs = (getattr(_cfg, "plot_outputs", "") or "") if _cfg is not None else ""
@@ -474,9 +468,6 @@ def _render_prediction_stability_panels(ctx: "TrainingContext") -> None:
     if not data_dir or not getattr(ctx, "save_charts", False):
         return
     _cfg = getattr(ctx, "reporting_config", None)
-    if _cfg is None:
-        _configs_root = getattr(ctx, "configs", None)
-        _cfg = getattr(_configs_root, "reporting_config", None) if _configs_root is not None else None
     if _cfg is not None and not getattr(_cfg, "prediction_stability", True):
         return
     plot_outputs = (getattr(_cfg, "plot_outputs", "") or "") if _cfg is not None else ""

@@ -125,6 +125,8 @@ found this.
 literal in `src/mlframe/training/`: the four names are absent. Enumerated `TrainingSplitConfig`'s 18 fields:
 `group_field`, `timestamps_column`, `ts_column` are absent; `use_groups` and `time_column` are present.
 
+**Disposition:** RESOLVED, though not by the fix the finding implies. Confirmed the premise: none of `group_id_col`, `ts_field`, `extractor`, `features_and_targets_extractor` is a `TrainingContext` slot, and `TrainingSplitConfig` declares none of `group_field` / `timestamps_column` / `ts_column`. But there is no corrected NAME to substitute either -- the context addresses these as ARRAYS (`group_ids_raw`, `group_ids`, `timestamps`), never by column name, so the intended two-source resolution has no second source to resolve against. The three dead blocks are replaced by the one real source available at this point: a pandas Series' own `.name` on those three slots. The `use_groups and not _protected` skip remains the backstop for everything else. `tests/training/test_dead_slot_reads_and_stale_contracts.py`.
+
 ### TRAINING_CORE-5 [P2] dead-read / lost diagnostic output
 
 **File:** `src/mlframe/training/core/_phase_train_one_target_post.py` :247
@@ -142,6 +144,8 @@ lives at `ctx.output_config.plot_file`.
 
 **Evidence:** Same slot enumeration as TRAINING_CORE-4; `_phase_composite_wrapping.py` :115-134 shows
 `plot_file` is the sole source of `_plot_path` and the empty-string branch.
+
+**Disposition:** RESOLVED exactly as suggested: `getattr(getattr(ctx, "output_config", None), "plot_file", None)`. `tests/training/test_dead_slot_reads_and_stale_contracts.py` pins that `plot_file` is not a context slot while `output_config` is, so the test fails if the slot layout ever makes the old read look valid again.
 
 ### TRAINING_CORE-6 [P2] leakage-adjacent contract drift
 
@@ -170,6 +174,8 @@ tolerance from a measured train-versus-val ES gap rather than reusing `lag_predi
 `_composite_target_discovery_config.py` :524, call site at
 `core/_phase_composite_post_xt_ensemble/__init__.py` :913-919.
 
+**Disposition:** RESOLVED as a documentation-and-observability fix; the split itself is unchanged, and deliberately so. The finding is right that val is the early-stopping split and that its bias points the same way as the decision -- the module docstring's claim that val is "the SAME honest-holdout regime as test" is simply false, and the sibling config comment repeated it. Both now state plainly that val is group-disjoint but ES-biased, that lag_predict is zero-parameter and therefore unbiased, that the tolerance is the only thing absorbing the difference, and that the residual error direction is the mild one. Moving the decision off val is not available: there is no fourth split, and using test would leak the honest estimate into a deployment decision. The finding's other half -- "nothing measures how much ES optimism is actually present" -- is closed by logging both val RMSEs, the veto threshold, the tolerance and the outcome, so the realised headroom is observable per run rather than assumed. `tests/training/test_dead_slot_reads_and_stale_contracts.py`.
+
 ### TRAINING_CORE-7 [P3] undeclared config knob
 
 **File:** `src/mlframe/training/core/_phase_temporal_audit.py` :120, :132
@@ -190,6 +196,8 @@ the other three, or add it to that class's `_known_extras`.
 `training/core/` against every class field, function parameter and attribute access in `src/mlframe` -- this is
 the only name with no definition anywhere.
 
+**Disposition:** RESOLVED as suggested -- `target_temporal_audit_unit: Optional[str] = None` is declared on `TrainingBehaviorConfig` next to its three siblings, with a docstring naming the accepted units and the auto-detect default. `tests/training/test_dead_slot_reads_and_stale_contracts.py`.
+
 ### TRAINING_CORE-8 [P3] contradictory in-block comments
 
 **File:** `src/mlframe/training/core/_phase_helpers_fit_split.py` :707 versus :716-721
@@ -204,6 +212,8 @@ would silently reintroduce the exact ES bias :716-721 exists to prevent.
 **Suggested fix:** Delete the stale sentence at :707.
 
 **Evidence:** Read :700-795 in full.
+
+**Disposition:** RESOLVED. The stale sentence is deleted; the remaining lead comment now points at the cast site, which is where the domain and the strictness are actually decided, so the two cannot drift apart again. `tests/training/test_dead_slot_reads_and_stale_contracts.py`.
 
 ### TRAINING_CORE-9 [P3] docstring promises behaviour the body does not implement
 
@@ -221,6 +231,8 @@ stubs' NotImplementedError)", matching the honest comment already at :284-287.
 
 **Evidence:** Read :150-290; the AST sweep for never-read parameters flagged all three.
 
+**Disposition:** RESOLVED as suggested -- the Args entries say the parameters are accepted for signature stability and NOT consumed, since both stubs raise `NotImplementedError`. `tests/training/test_dead_slot_reads_and_stale_contracts.py`.
+
 ### TRAINING_CORE-10 [P3] unused parameter at a live call site
 
 **File:** `src/mlframe/training/_eval_helpers.py` :571-573, called at :552-567
@@ -236,6 +248,8 @@ indication of which split produced them; `metrics_dict["worst_k_table"]` is writ
 from the signature and the call.
 
 **Evidence:** Read :552-683; `split_name` appears only in the signature.
+
+**Disposition:** RESOLVED by threading rather than dropping. `split_name` now qualifies the artifact key (`worst_k_table_<split>`), with the unqualified key kept as an alias so existing readers are unaffected. The repo's own val/test/OOF naming rule is the reason to keep the parameter rather than delete it: an unqualified table leaves a reader unable to tell an optimistically-biased val figure from an honest test one. `tests/training/test_dead_slot_reads_and_stale_contracts.py`.
 
 ### TRAINING_CORE-11 [P3] dead knob exercised as a fuzz axis
 
@@ -260,6 +274,8 @@ declaration. A follow-up `refs <= 1` sweep found only two other fully-dead confi
 `docs/composite_config_reference.md` and allowlisted -- tracked dead knobs rather than silent ones, so not
 findings.
 
+**Disposition:** RESOLVED by removal, per the finding's own second option -- the field, its fuzz axis, the combo dataclass field, the canonical-key entry, the meta-test allowlist entry and the stale defaults assertion all go together. One correction to the evidence: the finding says `combo.py` :1446 "feeds it into the config", but that line is inside `canonical_key()`'s dedup tuple, not a config construction; the fuzz harness never built an `EnsemblingConfig` with it at all, so the axis was doubly dead. `BaseConfig` allows extras, so a caller still passing `force_legacy` gets a warning rather than a failure. `tests/training/test_dead_slot_reads_and_stale_contracts.py`.
+
 ### TRAINING_CORE-12 [P3] docstring versus implementation
 
 **File:** `src/mlframe/training/_overlapping_walk_forward_cv.py` :171-172 versus :202-209
@@ -278,6 +294,8 @@ non-zero first differences".
 **Evidence:** Read in full; :202-209 compute `np.diff(curve)` once, filter `signs != 0`, and divide
 `sign_changes / len(nonzero)`.
 
+**Disposition:** RESOLVED as suggested, and the docstring now also says WHY the denominator matters -- on a curve with flat segments it is smaller than the length, so a threshold set against the documented form is systematically too permissive. `tests/training/test_dead_slot_reads_and_stale_contracts.py`.
+
 ### TRAINING_CORE-13 [P3] unreachable fallback branch
 
 **File:** `src/mlframe/training/core/_phase_finalize.py` :371, :423, :478;
@@ -295,6 +313,8 @@ threshold-optimisation block instead of falling back.
 
 **Evidence:** Slot enumeration plus reading each of the eight sites.
 
+**Disposition:** RESOLVED by deleting all eight fallback branches rather than adding a `configs` aggregate slot: nothing else in the tree wants one, and the branches' only effect was to make an unreachable path read as a working two-source resolution. `tests/training/test_dead_slot_reads_and_stale_contracts.py`.
+
 ### TRAINING_CORE-14 [P3] purge double-charged on an empty carve
 
 **File:** `src/mlframe/training/_conformal_split.py` :84-95
@@ -311,6 +331,8 @@ from tests (see TRAINING_CORE-2), but it activates the moment the module is wire
 
 **Evidence:** Read in full; :86-89 apply `purge` unconditionally after `_resolve_counts` (:21-25) has already
 collapsed non-positive fractions to 0.
+
+**Disposition:** RESOLVED as suggested -- each purge is charged only when the slice it separates is non-empty. Verified across all four combinations: an empty carve now returns the full 1000-row fit slice where it previously returned 800, a calib-only carve charges one purge, a full carve charges both, and `purge=0` is unaffected. `tests/training/test_dead_slot_reads_and_stale_contracts.py`.
 
 ## Coverage
 

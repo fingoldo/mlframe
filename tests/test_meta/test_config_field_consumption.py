@@ -70,7 +70,6 @@ _USER_DEFERRED_DEAD: dict[str, str] = {
     # as the shadowed-by-kwarg cluster above, kept as deferred-dead until the
     # responsible subsystem author rewires.
     "AutoMLConfig.automl_show_fi": "shadowed by FeatureSelectionConfig.show_fi; AutoML branch reads the latter",
-    "EnsemblingConfig.force_legacy": "legacy-path opt-in; current code unconditionally uses the new ensembling kernel",
     "EnsemblingConfig.accumulator": "accumulator strategy knob — single-strategy hardcoded in current build",
     "FeatureSelectionConfig.rfecv_kwargs": "RFECV kwargs threading from FSConfig not yet wired; users pass via rfecv_models_params direct dict",
     "PreprocessingBackendConfig.fallback_to_sklearn": "auto-fallback already implicit in pipeline.py:_apply_polars_ds; flag never read",

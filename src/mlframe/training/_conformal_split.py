@@ -89,10 +89,14 @@ def carve_calib_conformal_temporal(
     _check_nonzero_floor(calib_frac, conformal_frac, n_calib, n_conf, n, "row")
     purge = max(0, int(purge))
     # Lay out from the most-recent end backwards: conformal | purge | calib | purge | fit.
+    # Each purge is charged only when the slice it separates is NON-EMPTY. `_resolve_counts` collapses a
+    # non-positive fraction to 0, so charging unconditionally discarded 2 * purge of the most recent train rows
+    # for boundaries that do not exist: `carve_calib_conformal_temporal(train_idx, 0.0, 0.0, purge=100)` returned
+    # a fit slice missing its 200 newest rows, with empty calib and conformal and no error.
     conf_start = n - n_conf
-    calib_stop = conf_start - purge
+    calib_stop = conf_start - (purge if n_conf else 0)
     calib_start = calib_stop - n_calib
-    fit_stop = calib_start - purge
+    fit_stop = calib_start - (purge if n_calib else 0)
     if fit_stop <= 0:
         raise ValueError(f"temporal carve leaves no train-fit rows: n={n}, calib={n_calib}, conformal={n_conf}, purge={purge}")
     conf = idx[conf_start:]

@@ -396,7 +396,6 @@ class FuzzCombo:
     ens_rank_average_cfg: bool = False
     enable_prediction_envelope_clip_cfg: bool = True
     # 2026-05-27 iter332 audit-driven new-functionality axes.
-    ensembling_force_legacy_cfg: bool = False
     ensembling_quantile_budget_bytes_cfg: int = 500 * 1024 * 1024
     ensembling_flag_degenerate_conf_subset_cfg: bool = True
     mlp_extreme_ar_group_aware_skip_cfg: bool = False
@@ -1443,7 +1442,6 @@ class FuzzCombo:
             (self.enable_prediction_envelope_clip_cfg if self.target_type == "regression" else True),
             # 2026-05-27 iter332 audit-driven canons.
             # Ensembling knobs only meaningful when use_ensembles is True.
-            (self.ensembling_force_legacy_cfg if self.use_ensembles else False),
             (self.ensembling_quantile_budget_bytes_cfg if self.use_ensembles else 500 * 1024 * 1024),
             # flag_degenerate_conf_subset is binary-classification-only;
             # collapse to default for other target types.

@@ -62,23 +62,24 @@ def _maybe_run_unsupervised_pre_screen(ctx, targets):
             _protected.update(str(c) for c in ctx.text_features)
         if getattr(ctx, "embedding_features", None):
             _protected.update(str(c) for c in ctx.embedding_features)
-        for _attr in ("group_id_col", "ts_field"):
-            _val = getattr(ctx, _attr, None)
-            if isinstance(_val, str) and _val:
-                _protected.add(_val)
-        # Defensive double-source: also pull group/ts column names from upstream extractor + split_config so a group-aware split with a missing ctx attribute still protects the columns. Without this fallback, variance/null pre-screen can drop the group_id column itself (high-cardinality string IDs often look like "near-all-unique strings") and break GroupShuffleSplit downstream.
-        _extractor = getattr(ctx, "extractor", None) or getattr(ctx, "features_and_targets_extractor", None)
-        if _extractor is not None:
-            for _attr in ("group_field", "timestamps_column", "ts_column", "timestamp_field"):
-                _val = getattr(_extractor, _attr, None)
-                if isinstance(_val, str) and _val:
-                    _protected.add(_val)
+        # Protect the group / timestamp columns from the default-ON pre-screen. Without this, variance/null
+        # pruning can drop the group_id column itself (a high-cardinality string ID looks exactly like a
+        # "near-all-unique string") and break GroupShuffleSplit downstream.
+        #
+        # The names come from the Series the context actually carries. Three earlier "defensive double-source"
+        # blocks probed `ctx.group_id_col`, `ctx.ts_field`, `ctx.extractor`,
+        # `ctx.features_and_targets_extractor`, and `split_config.group_field` / `timestamps_column` /
+        # `ts_column` -- none of which is a slot on `TrainingContext` or a field on `TrainingSplitConfig`. The
+        # dataclass is `slots=True`, so `getattr(..., None)` returned None silently instead of raising, and the
+        # protected set never contained a group or ts name at all. `TrainingContext` addresses these as ARRAYS
+        # (`group_ids_raw`, `group_ids`, `timestamps`), not by column name, so a pandas Series' own `.name` is
+        # the only real source available here; the `use_groups and not _protected` skip below remains the
+        # backstop for everything else.
+        for _series in (getattr(ctx, "group_ids_raw", None), getattr(ctx, "group_ids", None), getattr(ctx, "timestamps", None)):
+            _name = getattr(_series, "name", None)
+            if isinstance(_name, str) and _name:
+                _protected.add(_name)
         _split_cfg = getattr(ctx, "split_config", None)
-        if _split_cfg is not None:
-            for _attr in ("group_field", "timestamps_column", "ts_column"):
-                _val = getattr(_split_cfg, _attr, None)
-                if isinstance(_val, str) and _val:
-                    _protected.add(_val)
         _split_cfg_use_groups = bool(getattr(_split_cfg, "use_groups", False)) if _split_cfg is not None else False
         if _split_cfg_use_groups and not _protected:
             # SKIP the pre-screen entirely: with a group-aware split and an empty protected set we cannot

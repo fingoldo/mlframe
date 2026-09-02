@@ -73,9 +73,6 @@ def _isotonic_overfit_risk_check(ctx: "TrainingContext") -> None:
     from ...calibration.isotonic_risk import isotonic_overfit_risk
 
     _cfg = getattr(ctx, "behavior_config", None)
-    if _cfg is None:
-        _root = getattr(ctx, "configs", None)
-        _cfg = getattr(_root, "behavior_config", None) if _root is not None else None
     if _cfg is None or not bool(getattr(_cfg, "check_isotonic_overfit_risk", False)):
         return
     _kwargs = dict(getattr(_cfg, "isotonic_risk_kwargs", None) or {})
@@ -126,9 +123,6 @@ def _optimize_decision_threshold_on_calib_slice(ctx: "TrainingContext") -> None:
     from ...calibration.threshold_optimizer import optimize_decision_threshold
 
     _cfg = getattr(ctx, "behavior_config", None)
-    if _cfg is None:
-        _root = getattr(ctx, "configs", None)
-        _cfg = getattr(_root, "behavior_config", None) if _root is not None else None
     if _cfg is None or not bool(getattr(_cfg, "auto_optimize_threshold", False)):
         return
     _kwargs = dict(getattr(_cfg, "threshold_optimizer_kwargs", None) or {})
@@ -243,9 +237,6 @@ def _conformal_finalize_structure(ctx: "TrainingContext") -> str:
 
     _sc = getattr(ctx, "split_config", None)
     if _sc is None:
-        _root = getattr(ctx, "configs", None)
-        _sc = getattr(_root, "split_config", None) if _root is not None else None
-    if _sc is None:
         return "iid"
     return infer_split_structure(
         time_column=getattr(_sc, "time_column", None),
@@ -269,9 +260,6 @@ def _recalibrate_regression_on_calib_slice(ctx: "TrainingContext") -> None:
     from .._regression_calibration import RecalibratedRegressor, cv2_recalibration_gain, fit_point_recalibrator
 
     _cfg = getattr(ctx, "regression_calibration_config", None)
-    if _cfg is None:
-        _root = getattr(ctx, "configs", None)
-        _cfg = getattr(_root, "regression_calibration_config", None) if _root is not None else None
     method = str(getattr(_cfg, "point", "off")) if _cfg is not None else "off"
     _env = os.environ.get("MLFRAME_REGRESSION_RECALIBRATION", "").strip().lower()
     if _env in ("isotonic", "linear"):
@@ -356,9 +344,6 @@ def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
     from .._conformal_finalize import conformal_classification_report, conformal_regression_report
 
     _cfg = getattr(ctx, "conformal_config", None)
-    if _cfg is None:
-        _root = getattr(ctx, "configs", None)
-        _cfg = getattr(_root, "conformal_config", None) if _root is not None else None
     if _cfg is not None and not bool(getattr(_cfg, "enabled", True)):
         return
     alphas = tuple(getattr(_cfg, "alphas", (0.1, 0.2))) if _cfg is not None else (0.1, 0.2)

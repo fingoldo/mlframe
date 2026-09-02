@@ -168,8 +168,11 @@ def cv_stability_check(
         One sequence of metric values per seed/repeat, all evaluated at the SAME ordered hyperparameter grid
         (e.g. ``metric_curves[seed_idx][hp_idx]``). At least ``min_seeds`` curves are required.
     max_sign_change_ratio
-        A curve's second-difference sign-change count, divided by its length, above this threshold marks that
-        seed's curve as jagged/non-smooth (chasing noise rather than a real trend).
+        Sign changes of the curve's FIRST difference, divided by the number of NON-ZERO first differences,
+        above this threshold marks that seed's curve as jagged/non-smooth (chasing noise rather than a real
+        trend). The denominator matters: on a curve with flat segments it is smaller than the curve's length,
+        so a threshold set against "divided by its length" -- which is what this entry used to say, describing
+        a second-difference statistic the code never computed -- is systematically too permissive.
     min_seeds
         Minimum number of seed curves required to assess cross-seed agreement.
     maximize

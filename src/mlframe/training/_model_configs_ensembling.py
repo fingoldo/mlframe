@@ -13,13 +13,13 @@ class EnsemblingConfig(BaseConfig):
 
     Replaces the env-var ``ENSEMBLE_FORCE_LEGACY_MATERIALISATION=1`` knob
     (which is invisible in function signatures, untestable, and global)
-    with a structured config. Env var is still honoured as the default
-    for one release for back-compat.
-    """
+    with a structured config.
 
-    force_legacy: bool = False
-    """If True, use the pre-streaming materialised-aggregation path
-    (allocates ``(M, N, K)`` tensors). Default False uses streaming Welford."""
+    The ``force_legacy`` field was REMOVED: the pre-streaming materialised-aggregation path it named no longer
+    exists, so nothing in ``src`` ever read it, and the fuzz harness varied it as a combo axis -- making that
+    axis a guaranteed no-op that reported coverage of a path it never exercised. ``BaseConfig`` allows extras,
+    so a caller still passing it gets a warning rather than a failure.
+    """
 
     quantile_budget_bytes: int = 500 * 1024 * 1024
     """Skip quantile-bucket aggregation with warn when ``M*N*K*8 > budget``.

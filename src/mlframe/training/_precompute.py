@@ -268,8 +268,8 @@ def precompute_all(
         target_by_type: per-target mapping (forwarded to dummy stub).
         fs_config: feature-stats kwargs container (currently only ``max_ncats_to_track`` is honored
             if present as an attribute; pass None for defaults).
-        dummy_baselines_config: forwarded to the dummy stub.
-        composite_config: forwarded to the composite stub.
+        dummy_baselines_config: accepted for signature stability; NOT consumed -- both stubs raise NotImplementedError, so nothing is forwarded.
+        composite_config: accepted for signature stability; NOT consumed -- both stubs raise NotImplementedError, so nothing is forwarded.
 
     Returns:
         A populated ``TrainMlframeSuitePrecomputed`` bundle.
