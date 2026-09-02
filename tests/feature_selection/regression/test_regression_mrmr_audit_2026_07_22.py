@@ -1307,11 +1307,28 @@ def test_regression_mdlp_recurse_oos_validated_no_dead_present_parent_branch():
     splits: list = []
     counts_parent = np.bincount(y, minlength=2).astype(np.int64)
     present_parent = np.array([0, 1], dtype=np.int64)
-    # Must not raise (the removed branch's absence must not break the both-given call pattern).
+
+    # Interleave rather than halve. `x` is SORTED, so `x[:100]` is the whole negative tail and `y[:100]` is
+    # single-class -- the recursion correctly finds nothing to cut, which is why `splits` came back empty and
+    # why passing it in and never looking at it hid that this call exercised no recursion at all. Odd/even
+    # positions give both the train and the OOS slice both classes and a real boundary at x = 0.
+    _tr = np.arange(0, n, 2)
+    _oos = np.arange(1, n, 2)
     _mdlp_recurse_oos_validated(
-        x[:100], y[:100], x[100:], y[100:], splits, 0, 5, 8, 0.3,
+        x[_tr], y[_tr], x[_oos], y[_oos], splits, 0, 5, 8, 0.3,
         counts_parent=counts_parent, present_parent=present_parent,
     )
+
+    # `splits` was passed in and never inspected, so the "still works correctly" half of this test's own
+    # docstring was unasserted -- and "does not raise" held before the dead-branch removal too, since the
+    # combination exercised here (both counts_parent AND present_parent supplied) is the one that always worked.
+    assert isinstance(splits, list), f"splits is not a list: {type(splits).__name__}"
+    assert splits, "the MDLP recursion produced no cut points on a fixture with a clean class boundary at x=0"
+    assert all(np.isfinite(c) for c in splits), f"non-finite cut point(s): {splits}"
+    assert list(splits) == sorted(splits), f"cut points are not in ascending order: {splits}"
+    assert len(set(splits)) == len(splits), f"duplicate cut point(s): {splits}"
+    # The planted boundary is at x = 0; the recursion must find a cut near it rather than an arbitrary one.
+    assert min(abs(float(c)) for c in splits) < 0.5, f"no cut point near the planted boundary at x=0: {splits}"
 
 
 # ---------------------------------------------------------------------------
@@ -1319,7 +1336,6 @@ def test_regression_mdlp_recurse_oos_validated_no_dead_present_parent_branch():
 # default argsort, so two categories tied exactly at the cutoff boundary could swap non-deterministically
 # across numpy versions/architectures.
 # ---------------------------------------------------------------------------
-
 
 def test_regression_cap_categorical_cardinality_stable_tie_break():
     """Post-fix: kind='stable' argsort on negated counts gives a deterministic, reproducible tie-break

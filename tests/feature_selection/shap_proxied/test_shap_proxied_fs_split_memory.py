@@ -95,10 +95,26 @@ def test_split_path_drops_parent_frame_reference():
         verbose=False,
         n_jobs=1,
     )
+    import gc
+    import weakref
+
+    _x_ref = weakref.ref(X)
     sel.fit(X, y)
     assert (
         sel._deferred_holdout is None
     ), "selector leaked a reference to the parent X via _deferred_holdout; this would keep the wide block alive past fit and defeat the iter46 memory lever"
+
+    # The docstring states the contract as a LIVENESS property -- "so the parent block can be garbage-collected
+    # as soon as the caller drops its reference" -- and one named attribute cannot establish that: any OTHER
+    # attribute retaining X defeats the lever just as completely while `_deferred_holdout is None` still passes.
+    # Assert the property itself: after the caller drops X, nothing keeps it alive.
+    del X
+    gc.collect()
+    assert _x_ref() is None, (
+        "the parent X is still alive after the caller dropped it, so something on the fitted selector still "
+        f"references it. Retaining attributes: "
+        f"{[k for k, v in vars(sel).items() if v is _x_ref()] or 'not identifiable by identity; inspect vars(sel)'}"
+    )
 
 
 def test_split_path_works_without_prefilter():

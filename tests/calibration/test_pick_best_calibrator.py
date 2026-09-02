@@ -56,10 +56,14 @@ def test_pick_best_calibrator_picks_isotonic_on_large_n():
     # Either the lowest-ECE candidate wins outright (CI separated), or the Isotonic default fires when CIs overlap.
     if out["rule"] == "default_isotonic":
         assert out["chosen"] == "Isotonic"
-    if out["rule"] == "default_beta":
-        # Default beta should NOT trigger at n=2000 (only when n_oof<1000).
-        # Skip assertion if betacal absent reshuffles the candidate pool.
-        pass
+    # The comment states the contract -- default_beta is an n_oof < 1000 rule and must not fire at n=2000 --
+    # and then the body is `pass`, so the code permits exactly what the comment calls wrong. An inverted or
+    # dropped n-threshold in the selection policy passes silently. (The preceding assertion already admits
+    # default_beta into the allowed rule set, so nothing else catches it either.)
+    assert out["rule"] != "default_beta", (
+        f"default_beta fired at n=2000; it is an n_oof<1000 fallback, so the selection policy's n-threshold has "
+        f"been inverted or dropped. Full result: {out}"
+    )
     # Bench delivered at least 2 alternatives (Sigmoid + Isotonic ship with sklearn baseline).
     assert len(out["alternatives"]) >= 2
 

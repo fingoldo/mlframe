@@ -36,6 +36,10 @@ class TestNoFabricatedNumbersOnEmptyInput:
         """Four of ten annotated; the rest quoted zeros as measured."""
         panel = QUANTILE_BUILDERS[token](np.empty(0), np.empty((0, 3)), (0.1, 0.5, 0.9))
         assert isinstance(panel, AnnotationPanelSpec)
+        # The class's contract is that the builder must SAY so, and an AnnotationPanelSpec carrying an empty or
+        # whitespace-only text says nothing -- three of the five tests here already assert the text, so these
+        # two were the odd ones out rather than a deliberate exception.
+        assert panel.text and panel.text.strip(), f"{token}: empty annotation on a zero-row input"
 
     def test_every_regression_panel_annotates_at_n_zero(self):
         """The scatter rendered bare axes with an EMPTY title, and the decile bar drew a fabricated zero."""
@@ -62,6 +66,7 @@ class TestNoFabricatedNumbersOnEmptyInput:
         """Zero nodes raised out of the whole report; an edgeless graph returned arbitrary coordinates."""
         panel = _panels(compose_spectral_embedding_figure(n_nodes, edges))[0]
         assert isinstance(panel, AnnotationPanelSpec)
+        assert panel.text and panel.text.strip(), f"empty annotation on a degenerate graph (n_nodes={n_nodes}, edges={edges})"
 
 
 class TestSpecFieldsAreHonouredByBothBackends:

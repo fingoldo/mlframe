@@ -54,6 +54,8 @@ only, never on the full column (train+test) before splitting ... any transform w
 the test fold's own values". `grep -n nan` over both this file and
 tests/preprocessing/test_biz_val_auto_transform_select.py returns nothing.
 
+**Disposition:** RESOLVED (already, and verified this round). `test_the_missing_value_fill_is_also_fold_local` carries a NaN-bearing fixture with gaps concentrated in the tail, so the whole-column median differs sharply from any single fold's and a leaked fill is visibly so. The file now reaches the imputation branch it exists to guard.
+
 ### XCUT_NONDISCRIMINATING_ASSERTS-2 [P1] asserts-the-test-s-own-reimplementation
 **File:** tests/training/neural/test_bf16_auto_enable.py:98
 **Summary:** `test_bf16_auto_enable_dispatcher_compute_capability_check` copies the production bf16 gating rule
@@ -78,6 +80,8 @@ explicit-precision case.
 `test_caller_precision_setting_is_not_overridden` at :95, which asserts on `reg.trainer_params["precision"]`
 after a real fit and is the only test in the file that touches the production path.
 
+**Disposition:** RESOLVED. The test transcribed the gating rule into its own body and asserted on its transcription; its only production import was a `# noqa: F401` name it never called. It now runs the REAL fit dispatcher with `safe_accelerator` forced to cuda and the CUDA probes monkeypatched, intercepting `L.Trainer` to capture the params and abort before any GPU fit starts. Both directions are covered (cc=8.0 must enable bf16-mixed, cc=7.5 must not).
+
 ### XCUT_NONDISCRIMINATING_ASSERTS-3 [P1] zero-assertion-negative-contract
 **File:** tests/training/neural/test_bf16_auto_enable.py:76
 **Summary:** `test_bf16_not_enabled_on_cpu_accelerator` has zero assertions; its whole body is `reg =
@@ -92,6 +96,8 @@ CPU run cannot have bf16-mixed enabled (Lightning would warn or fail)" -- a warn
 `test_caller_precision_setting_is_not_overridden` reads at :95), or
 `assert reg.trainer_params.get("precision") != "bf16-mixed"` if a CPU default is legitimately stamped.
 **Evidence:** Read tests/training/neural/test_bf16_auto_enable.py:76-83 in full -- six lines, no `assert`.
+
+**Disposition:** RESOLVED. The negative contract is read off the trainer params the dispatcher built, not inferred from the absence of a crash -- the previous reasoning ("if we got here without crashing, the precision plumbing worked") is false, because Lightning ACCEPTS bf16-mixed on CPU with a performance warning rather than an error. The test also asserts the box actually resolved to CPU, so it cannot pass vacuously on a GPU runner.
 
 ### XCUT_NONDISCRIMINATING_ASSERTS-4 [P1] fixture-captured-never-inspected
 **File:** tests/training/test_permutation_fi_silent_skip_on_none_model.py:38
@@ -110,6 +116,8 @@ substring check on the exception text.
 `test_permutation_fi_silent_skip_when_model_is_none` does exactly this at :34; the `still_warns` test's body
 ends at the call on :62.
 
+**Disposition:** RESOLVED, and it found a production bug. The test entered `caplog` and never read it, closing with "no assertion here"; given a real assertion it FAILED -- a genuinely broken estimator produces no warning at all, because the adaptive scorer catches `predict()` failures and returns `-inf` at debug level, making every permutation score identical and the importances uninformative rather than wrong. That is precisely why nothing would ever have surfaced it. Fixed in `_feature_importances.py` with a throttled WARNING (the scorer runs once per feature per repeat, so a plain warning would spam), and the test asserts it.
+
 ### XCUT_NONDISCRIMINATING_ASSERTS-5 [P1] catches-its-own-failure
 **File:** tests/training/neural/test_generate_mlp.py:538
 **Summary:** A Hypothesis property test wraps all four of its assertions in `try: ... except AssertionError:
@@ -127,6 +135,8 @@ pytest.skip(...)`, or better `assume(...)` so Hypothesis resamples the invalid c
 **Evidence:** Read tests/training/neural/test_generate_mlp.py:513-540. This is the only `except AssertionError`
 in the whole `tests/` tree; the AST scan for assert-under-a-swallowing-`try` returned 7 sites and the other 6
 re-assert the real invariant after the handler.
+
+**Disposition:** RESOLVED. The `except AssertionError: pass` is gone, so the property test can fail again across its 50 generated examples. The justification comment argued for tolerating an invalid parameter combination -- a constructor `ValueError`, which the handler did NOT cover -- so that is what is caught now, and a refused combination returns early rather than swallowing a wrong output width.
 
 ### XCUT_NONDISCRIMINATING_ASSERTS-6 [P1] assert-behind-an-if-plus-disjunction
 **File:** tests/feature_selection/regression/test_regression_bug_fixes.py:154
@@ -148,6 +158,8 @@ record the per-trial scores via a spy and assert `result.degree == max(trials, k
 returns a result.
 **Evidence:** Read tests/feature_selection/regression/test_regression_bug_fixes.py:127-155.
 
+**Disposition:** RESOLVED, and the finding UNDERSTATES it. The assertion was `hasattr(result, "degree") or hasattr(result, "best_degree") or isinstance(result, dict)` -- and `HermiteResult` has NEITHER attribute (its fields are `degree_a` / `degree_b`) and is not a dict, so the disjunction is FALSE for any real result. The test passed ONLY because the function returned None on that fixture and the assertion sat behind `if result is not None`; it could not have passed any other way. It now lowers the uplift threshold enough to obtain a result (a fixture parameter, not a production change) and asserts both reported degrees lie inside the searched grid, plus the same on a widened grid -- which is what a reintroduced late-binding closure breaks.
+
 ### XCUT_NONDISCRIMINATING_ASSERTS-7 [P1] property-held-before-the-fix
 **File:** tests/feature_selection/mrmr/core/test_mrmr_cluster_stability_categorical_regression.py:67
 **Summary:** The test's own docstring says the pre-fix code "raised inside and silently fell back to classic" --
@@ -164,6 +176,8 @@ cluster-stability summary attribute) which the classic fallback leaves unset. A 
 "falling back to classic" warning was emitted is a valid second sensor.
 **Evidence:** Read tests/feature_selection/mrmr/core/test_mrmr_cluster_stability_categorical_regression.py:60-67
 -- the docstring at :61-62 states the pre-fix behaviour that makes the assertion non-discriminating.
+
+**Disposition:** RESOLVED. `support_ is not None` is produced by the silent fallback to classic exactly as it is by the fixed cluster path, so it could not distinguish them. The test now captures the filters package's log during the fit and asserts no fall-back-to-classic message was emitted, which is the actual difference between pre-fix and post-fix behaviour.
 
 ### XCUT_NONDISCRIMINATING_ASSERTS-8 [P1] assertion-contradicts-its-own-docstring
 **File:** tests/training/callbacks/test_biz_val_callbacks.py:110
@@ -184,6 +198,8 @@ plus the negative leg -- a fresh `tmp_path` with no stop file, asserting the sam
 **Evidence:** Read tests/training/callbacks/test_biz_val_callbacks.py:95-112 against
 src/mlframe/training/callbacks/stop_file.py:114-125.
 
+**Disposition:** RESOLVED. The stop file is created two lines above, so the contract is `result is True` -- `result is None or isinstance(result, bool)` admitted None, False and True equally, passing for an inverted check, a stale cached predicate, or a path-resolution regression that means training never stops. The negative half (no stop file, training continues) was never covered and now is.
+
 ### XCUT_NONDISCRIMINATING_ASSERTS-9 [P1] zero-assertion-memory-contract
 **File:** tests/feature_selection/regression/test_regression_mrmr_audit_2026_07_22.py:3155
 **Summary:** `test_regression_validate_inputs_skips_integer_columns_before_copy` asserts nothing; it calls
@@ -201,6 +217,8 @@ or measure directly with `tracemalloc.get_traced_memory()` around the call on a 
 peak delta stays under a small multiple of one column, not of the frame.
 **Evidence:** Read tests/feature_selection/regression/test_regression_mrmr_audit_2026_07_22.py:3146-3155 -- ten
 lines, the comment at :3154 reads "Must not raise", and there is no `assert`.
+
+**Disposition:** RESOLVED. "Does not raise" held before the fix too -- the pre-fix code did not raise on an integer frame, it merely built a float64 copy of it -- so the implicit assertion could never distinguish the two. The test now spies on `np.asarray` and asserts no float conversion of the whole frame occurs, which is the memory contract the docstring states.
 
 ### XCUT_NONDISCRIMINATING_ASSERTS-10 [P2] asserts-the-mechanism-exists-not-that-it-is-used
 **File:** tests/feature_selection/regression/test_regression_mrmr_audit_2026_07_22.py:729
@@ -223,6 +241,8 @@ tests/feature_selection/regression/test_regression_mrmr_audit_2026_07_22.py:491,
 tests/training/test_cache_safety_global_state.py:21 and :179. Each docstring states the pre-fix condition as "no
 lock guarded X's get-or-insert / LRU bookkeeping / eviction" -- a statement about the critical section, not about
 the object's existence.
+
+**Disposition:** RESOLVED. `isinstance(lock, Lock)` passes for a lock nothing ever acquires, while the defect guarded was unguarded LRU bookkeeping. The test now wraps the lock in a counting proxy and asserts it is actually ACQUIRED during a real `_resident_y_all_device` call. (A first attempt used an AST check for unguarded mutations; it flagged `c = _DY_DEVICE_CACHE`, a plain alias read, so the behavioural form is the one that survives.)
 
 ### XCUT_NONDISCRIMINATING_ASSERTS-11 [P2] imperative-xfail-discards-the-measurement
 **File:** tests/feature_selection/biz_val/test_biz_val_synthesis_and_drop_matrix.py:549
@@ -248,6 +268,8 @@ selector XPASSes as an error.
 **Evidence:** AST scan for `pytest.xfail(...)` as a statement (not a decorator) over all of `tests/` returns
 exactly these 3 sites. Read all three in full.
 
+**Disposition:** RESOLVED, and one of the gaps turned out to be CLOSED. Two sites called `pytest.xfail(gap)` BEFORE taking their measurement, so the gap families never ran and a gap that closed would never be reported; they now follow the pattern their own sibling already used -- measure, then xfail only if the gap is confirmed still open, with the measurement in the reason string. On conversion, `test_rfecv_dropping_matrix[default-permuted_decoy]` immediately went green: RFECV now rejects the decoy it was documented as admitting, and the unconditional xfail had been concealing that. The third site, an unconditional `pytest.xfail` at the end of a measured test, became an explicit bound.
+
 ### XCUT_NONDISCRIMINATING_ASSERTS-12 [P2] assertion-3x-looser-than-its-own-docstring
 **File:** tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_quality_metrics.py:315
 **Summary:** The docstring sets the false-positive ceiling at 30% of 10 pure-noise features; the assertion is
@@ -265,6 +287,8 @@ skipping).
 **Evidence:** Read tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_quality_metrics.py:289-315; the
 docstring "<= 30%" against the assertion `< 10`.
 
+**Disposition:** RESOLVED. The surrounding comment puts the tolerance at ~30-40% of ten pure-noise features, so the ceiling is 4 -- `n_selected < 10` only fires when EVERY noise feature is selected, which is a far more catastrophic regression than the one described, so the test tolerated a false-positive rate three times its own stated bound.
+
 ### XCUT_NONDISCRIMINATING_ASSERTS-13 [P2] assert-skipped-by-the-regression-it-guards
 **File:** tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_quality_metrics.py:137
 **Summary:** "Top-3 must be pure signals (precision = 1.0)" is asserted as `prec_at_3 >= 0.66`, and only when
@@ -278,6 +302,8 @@ under-selecting to one or two features on a three-strong-signal frame -- runs ze
 followed by an unguarded `assert prec_at_3 == 1.0`. If 0.66 is genuinely the sustainable floor across seeds, say
 so in the docstring instead of claiming 1.0.
 **Evidence:** Read tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_quality_metrics.py:113-137.
+
+**Disposition:** RESOLVED, and tightening it exposed that the METRIC was wrong too. The `if len(selected) >= 3` guard skipped the check on the stronger failure (fewer than three selected), and `>= 0.66` admitted one wrong feature. But asserting `precision == 1.0` then failed on a legitimately correct selection: the observed top-3 was `['sig2', 'sig1', 'add(sig0,sin(sig1))']` -- an ENGINEERED combination of two planted signals, which a literal-name precision scores 0.67 while containing no noise whatsoever. The assertion is now on NOISE CONTENT, which is what the test's own name ("no noise in top 3") states and what MRMR's ability to return engineered columns requires.
 
 ### XCUT_NONDISCRIMINATING_ASSERTS-14 [P2] the-comparison-in-the-name-is-a-pass-statement
 **File:** tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_contracts_robustness/test_mnar_missingness.py:272
@@ -296,6 +322,8 @@ quantitative form the convention asks for.
 **Evidence:** Read the test at :243-274. The AST scan for `if <cond>: pass` inside a test function returns only 4
 sites tree-wide; this is one of them.
 
+**Disposition:** RESOLVED. The comparison named in the test's title was written as an `if` with a `pass` body followed by "either way", so the strategy separate_bin is supposed to beat was never compared against -- a regression making fillna_zero preserve the MNAR signal would have left the test green while its premise quietly stopped being true.
+
 ### XCUT_NONDISCRIMINATING_ASSERTS-15 [P2] assert-skipped-on-the-expected-outcome
 **File:** tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_pre_distortion.py:815
 **Summary:** "must return None on a pair independent of y" is asserted as `if res is not None: assert res.uplift
@@ -312,6 +340,8 @@ fallback bound to the configured threshold (`res.uplift <= 1.01`) rather than 1.
 **Evidence:** Read tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_pre_distortion.py:787-818; the
 docstring "must return None" against the `if res is not None` guard, and `baseline_uplift_threshold=1.01` passed
 at :811 against the `<= 1.10` at :817.
+
+**Disposition:** RESOLVED. The EXPECTED outcome -- None -- was the one branch the assertion did not cover, so the test could only ever complain about a result it was not supposed to get. It now returns on the satisfied contract and keeps the marginal-uplift tolerance as an explicit allowance.
 
 ### XCUT_NONDISCRIMINATING_ASSERTS-16 [P2] non-emptiness-as-proof-of-a-leakage-contract
 **File:** tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_fe_hybrid_orth/test_hybrid_fe_sklearn_ecosystem.py:407
@@ -330,6 +360,8 @@ on a fixture with fold-sensitive signal; or spy on the recipe-builder entry poin
 **Evidence:** Read
 tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_fe_hybrid_orth/test_hybrid_fe_sklearn_ecosystem.py:389-409.
 
+**Disposition:** RESOLVED. Non-emptiness on every fold is exactly what a builder fitted ONCE on the full frame produces, so it cannot demonstrate the per-fold leakage contract the test is named for. It now collects each fold's recipe and asserts they are not all identical.
+
 ### XCUT_NONDISCRIMINATING_ASSERTS-17 [P2] dead-knob-invisible
 **File:** tests/feature_selection/mrmr/core/test_mrmr_basic.py:256
 **Summary:** The only test for `permutation_subsample` asserts `mrmr.support_ is not None` and explicitly
@@ -346,6 +378,8 @@ catch knobs that do nothing -- and this one has no such sensor.
 200`. That is load-independent and needs no timing assertion.
 **Evidence:** Read tests/feature_selection/mrmr/core/test_mrmr_basic.py:221-256.
 
+**Disposition:** RESOLVED. `support_ is not None` is true of a fit that ignored `permutation_subsample` entirely -- the comment even called it a "sanity" check. The test now asserts the config object survives onto the fitted estimator with the value it was given, and that the fixture is larger than the subsample so the knob can do anything at all.
+
 ### XCUT_NONDISCRIMINATING_ASSERTS-18 [P2] both-branches-are-no-ops
 **File:** tests/training/pipeline/test_pre_pipeline_applied_to_test.py:245
 **Summary:** A ~100-line test that fits a full Lightning MLP inside a `TransformedTargetRegressor` pipeline ends
@@ -361,6 +395,8 @@ has changed; re-derive the NaN guard"`. One line, and it turns a ~100-line inert
 sensor.
 **Evidence:** Read tests/training/pipeline/test_pre_pipeline_applied_to_test.py:147-247; the terminal `if
 has_nan: pass` at :245-247 and no `assert` anywhere in the function.
+
+**Disposition:** RESOLVED. A ~100-line test that fits a Lightning MLP inside a `TransformedTargetRegressor` ended in `if has_nan: pass` -- both branches no-ops, nothing asserted. It now asserts the silent-NaN property itself, which is the entire reason the pre_pipeline must be applied to test_df before predict: an MLP given NaN input returns NaN predictions with no exception for a guard to catch.
 
 ### XCUT_NONDISCRIMINATING_ASSERTS-19 [P2] biz_val-file-that-asserts-nothing
 **File:** tests/feature_engineering/transformer/test_biz_val_real_datasets.py:1342
@@ -387,6 +423,8 @@ assertion).
 through the `_per_dataset_test` / `_run_matrix` / `_print_matrix` helper chain. Read the module docstring at
 :1-17 and `_per_dataset_test` at :1338-1352.
 
+**Disposition:** RESOLVED. The helper backing 394 of the file's 396 tests ran boosting matrices on real datasets, printed a table and returned. It now asserts every score is finite and that no transformer-FE arm collapses more than 0.30 below raw. The floor is deliberately weak and universal: per-dataset lift thresholds belong in the individual tests, and several of these datasets legitimately expect neutral-to-negative lift, as their docstrings say. What it catches is a SILENT NUMERIC failure -- a NaN score, an all-zero feature block, a transform that collapses the matrix -- which is invisible in a printed table nobody diffs.
+
 ### XCUT_NONDISCRIMINATING_ASSERTS-20 [P3] presence-instead-of-absence
 **File:** tests/training/neural/test_neural_medium_severity_regressions.py:362
 **Summary:** Two tests pin "no per-call lazy import" by asserting that module-top names exist.
@@ -400,6 +438,8 @@ test checks the presence of a module attribute instead.
 is behavioural and survives renames of the module-level constants.
 **Evidence:** Read tests/training/neural/test_neural_medium_severity_regressions.py:355-373 against the
 docstring claim ("Hash backend ... was imported per-call inside `_compute_cache_key`").
+
+**Disposition:** RESOLVED. `hasattr(module, name)` is satisfied by a module that hoists the name AND still imports per call, so it cannot exclude the regression. Both tests now walk the AST: no function may import the hash backend, and `MLPRanker.fit` may neither call `_import_lightning()` nor import lightning inside itself. Checked structurally rather than by substring, because the fix's own explanatory comment quotes the old call and a substring search matches the comment.
 
 ### XCUT_NONDISCRIMINATING_ASSERTS-21 [P3] type-instead-of-value
 **File:** tests/estimators/test_custom_bugfixes.py:15
@@ -416,6 +456,8 @@ legs of `test_helpers_ensure_no_infinity_bugfix.py` already use.
 **Evidence:** Read tests/estimators/test_custom_bugfixes.py:12-16 against
 src/mlframe/estimators/custom.py:454-464.
 
+**Disposition:** RESOLVED. The test's name and its DEP1 note both make the contract the NaN fill, which `isinstance(out, np.ndarray)` cannot see -- a regression to `cval = 0.0`, which silently fabricates a real prediction where none exists, still returns an ndarray. The fill value is now asserted.
+
 ### XCUT_NONDISCRIMINATING_ASSERTS-22 [P3] type-asserted-content-not
 **File:** tests/reporting/test_ux_crosscutting_regressions.py:38
 **Summary:** Two of the five tests in `TestNoFabricatedNumbersOnEmptyInput` assert only the panel type, while
@@ -428,6 +470,8 @@ siblings show the right shape: :43 asserts `all(p.text for p in panels)` and :59
 **Suggested fix:** Add `assert panel.text` at both sites, and ideally a substring check naming the reason
 (`"rows"` / `"no data"`), matching :59.
 **Evidence:** Read tests/reporting/test_ux_crosscutting_regressions.py:31-64 -- the five tests side by side.
+
+**Disposition:** RESOLVED. Three of the five tests in the class already asserted the annotation text; these two were the odd ones out rather than a deliberate exception. An `AnnotationPanelSpec` carrying empty text does not "SAY so", which is the class's stated contract.
 
 ### XCUT_NONDISCRIMINATING_ASSERTS-23 [P3] every-assert-behind-a-hasattr-guard
 **File:** tests/training/test_all_models.py:1049
@@ -445,6 +489,8 @@ may not, the guard should be a `pytest.skip` with a reason, not a silent fall-th
 **Evidence:** Read tests/training/test_all_models.py:1025-1082; the AST scan for "every assertion inside an
 `if`" flagged all five members of this class.
 
+**Disposition:** RESOLVED. `test_preds` existence and non-emptiness are asserted OUTSIDE the guards, so a suite that stops producing predictions -- the regression these tests are the last line of defence against -- now fails instead of satisfying none of the conditions. The per-split loop keeps its guards for splits that genuinely are not produced in every configuration, which is a real case rather than a regression.
+
 ### XCUT_NONDISCRIMINATING_ASSERTS-24 [P3] documented-expectation-written-as-pass
 **File:** tests/calibration/test_pick_best_calibrator.py:59
 **Summary:** `if out["rule"] == "default_beta": pass` with the comment "Default beta should NOT trigger at
@@ -456,6 +502,8 @@ already admits `default_beta` into the allowed rule set, so no other assertion c
 reserved for n_oof < 1000"`. If the betacal-absent case really can reshuffle the candidate pool (the comment's
 stated reason for the `pass`), gate on `pytest.importorskip("betacal")` rather than disarming the check.
 **Evidence:** Read tests/calibration/test_pick_best_calibrator.py:31-64.
+
+**Disposition:** RESOLVED. The comment identified `default_beta` firing at n=2000 as wrong and the body was `pass`, so the code permitted exactly that -- and the preceding assertion already admits `default_beta` into the allowed rule set, so nothing else caught it either. It is now asserted directly, which is what catches an inverted or dropped n-threshold in the selection policy.
 
 ### XCUT_NONDISCRIMINATING_ASSERTS-25 [P3] one-attribute-as-proxy-for-a-liveness-contract
 **File:** tests/feature_selection/shap_proxied/test_shap_proxied_fs_split_memory.py:99
@@ -470,6 +518,8 @@ this lever exists to prevent.
 **Suggested fix:** Assert the liveness directly: `ref = weakref.ref(X); sel.fit(X, y); del X; gc.collect();
 assert ref() is None`. That is attribute-agnostic and cannot be defeated by a rename.
 **Evidence:** Read tests/feature_selection/shap_proxied/test_shap_proxied_fs_split_memory.py:71-101.
+
+**Disposition:** RESOLVED. The docstring states the contract as a LIVENESS property of the parent block, and one named attribute cannot establish it -- any other retaining attribute defeats the memory lever just as completely while `_deferred_holdout is None` still passes. The test now takes a weakref to X, drops the caller's reference after the fit, collects, and asserts the parent is genuinely gone.
 
 ### XCUT_NONDISCRIMINATING_ASSERTS-26 [P3] tautology
 **File:** tests/models/test_biz_val_lgbm_defaults.py:143
@@ -488,6 +538,8 @@ delete the line; the two assertions above it are the contract.
 legitimate (NaN checks written as `v != v`, and same-seed determinism checks such as
 tests/test_rng_determinism_sweep.py:41). These two are the exceptions.
 
+**Disposition:** RESOLVED. `default_lgbm_params() == default_lgbm_params()` compares the function to itself and can only fail if it is nondeterministic. The documented contract -- omitting `auto_extra_trees` leaves the static default unchanged -- is now tested by comparing the omitted call against the explicit `auto_extra_trees=False` call.
+
 ### XCUT_NONDISCRIMINATING_ASSERTS-27 [P3] output-never-inspected
 **File:** tests/feature_selection/regression/test_regression_mrmr_audit_2026_07_22.py:1281
 **Summary:** `test_regression_mdlp_recurse_oos_validated_no_dead_present_parent_branch` passes a `splits` list
@@ -500,6 +552,8 @@ fixture -- the strongest possible failure of MDLP -- passes.
 **Suggested fix:** `assert len(splits) >= 1` plus a check that the recovered cut sits near zero for this fixture
 (`assert abs(x[splits[0]]) < 0.3`), which is what "still works correctly" means here.
 **Evidence:** Read tests/feature_selection/regression/test_regression_mrmr_audit_2026_07_22.py:1268-1284.
+
+**Disposition:** RESOLVED, and asserting the output exposed that the fixture was inert. `splits` was passed in and never inspected, and the fixture halved a SORTED array, so the training slice was single-class and the recursion correctly produced nothing -- meaning the call exercised no recursion at all. Interleaving odd/even positions gives both slices both classes and a real boundary at x=0; the test now asserts cut points are produced, finite, ascending, unique, and near the planted boundary.
 
 ## Coverage
 **Reached.** The prior list of 903 is superseded, not sampled: I regenerated from source and got 1,773

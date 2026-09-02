@@ -140,4 +140,13 @@ def test_default_lgbm_params_auto_extra_trees_is_opt_in():
     baseline_large = default_lgbm_params(n_estimators=300)
     assert baseline_small["extra_trees"] is True
     assert baseline_large["extra_trees"] is True
-    assert default_lgbm_params() == default_lgbm_params()  # bit-identical across calls, new params untouched.
+    # `default_lgbm_params() == default_lgbm_params()` compares the function to ITSELF: it can only fail if the
+    # function is nondeterministic, and says nothing about the documented contract -- that OMITTING
+    # `auto_extra_trees` leaves the static default unchanged. Compare the omitted call against the explicit
+    # default instead, which is the comparison the docstring describes.
+    _omitted = default_lgbm_params()
+    _explicit_off = default_lgbm_params(auto_extra_trees=False)
+    assert _omitted == _explicit_off, (
+        "omitting auto_extra_trees no longer matches passing it as False, so the default has silently flipped: " f"omitted={_omitted}, explicit={_explicit_off}"
+    )
+    assert _omitted["extra_trees"] is True, f"the static default must remain extra_trees=True; got {_omitted.get('extra_trees')!r}"
