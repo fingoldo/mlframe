@@ -65,7 +65,7 @@ reads `vals[3]` for the label belonging to bin 4. The contrast decision (`radius
 bubble gets the black chosen for a small pale neighbour, and is unreadable -- exactly the failure that helper
 exists to prevent. Default path: `show_inline_population_labels=True` and `color_by="gap"` are both defaults.
 
-**Disposition: RESOLVED.** A `label_keep` index array is now built once and used for the labels and for both
+**Disposition:** RESOLVED. A `label_keep` index array is now built once and used for the labels and for both
 per-point arrays. Regression test `TestALabelIsColouredForItsOwnBin` added and proven to fail without the fix.
 
 **Evidence:** Read :601-663 and :396-427 in full. Both renderers consume the two tuples positionally in parallel,
@@ -223,6 +223,8 @@ the constants, and correct the :581 comment. Ideally move both thresholds into `
 **Evidence:** Read both `_bar` bodies in full; `truncate_bar_label` appears once in matplotlib (horizontal only)
 and three times in plotly (both orientations).
 
+**Disposition:** RESOLVED as suggested. The vertical branch truncates through `truncate_bar_label` like the horizontal one and both plotly orientations, the two literals are replaced by `_BAR_TICK_THIN_THRESHOLD` / `_BAR_TICK_KEEP`, and the horizontal branch's comment no longer claims the vertical branch already did this. `tests/reporting/test_renderer_divergences_and_dead_paths.py`.
+
 ### REPORTING-8 [P3] renderer-divergence / default_via_or
 
 **File:** `renderers/matplotlib.py` :328 and :360
@@ -241,6 +243,8 @@ builder today, so this is latent -- but it is the same trap two other files in t
 warnings about.
 
 **Evidence:** Read all four expressions; the pairs are the same logic written two ways.
+
+**Disposition:** RESOLVED. Both matplotlib sites use `is not None`, matching the plotly twin, so a deliberate `bin_width=0.0` or `overlay_label=""` produces one picture rather than two. `tests/reporting/test_renderer_divergences_and_dead_paths.py`.
 
 ### REPORTING-9 [P3] renderer-divergence
 
@@ -265,6 +269,8 @@ panel or caption so the number a reader reads off is defined.
 
 **Evidence:** Read both `_violin` bodies in full; matplotlib builds `kept`/`drawable`, plotly has no equivalent,
 and `whis=(5, 95)` has no plotly counterpart.
+
+**Disposition:** RESOLVED by moving matplotlib's behaviour onto plotly, since matplotlib's is the reasoned one -- its own comments explain both choices. Empty groups are dropped and the box whiskers span the 5th-95th percentiles. One deviation from the suggested fix: matplotlib names the dropped groups in the panel TITLE, which plotly cannot do from inside `_violin` because subplot titles are fixed at `make_subplots` time, before any panel renders. The note goes in as a subplot annotation instead, carrying the same information at the same place on the panel. Verified on a three-group spec with an empty middle group: two violin traces and an annotation reading "no data: class_c". `tests/reporting/test_renderer_divergences_and_dead_paths.py`.
 
 ### REPORTING-10 [P3] renderer-divergence
 
@@ -291,6 +297,8 @@ removes the transparency risk regardless of how the inheritance actually resolve
 branch has four explicit style overrides for the weak errorbar call and the plotly branch has none. `spec.py`
 :78-83 documents the intent.
 
+**Disposition:** RESOLVED. `_sel_err` takes a `muted` flag and sets `color="#c0c0c0"`, `thickness=0.8` and `width=0` on the low-evidence trace, mirroring matplotlib's `ecolor="0.75"` / `elinewidth=0.6` / `capsize=0`. This also closes the aggravating factor the finding flags as inferred rather than observed: with `error_y.color` now set explicitly, the whiskers can no longer inherit the weak marker's fully transparent `rgba(0,0,0,0)`. `tests/reporting/test_renderer_divergences_and_dead_paths.py`.
+
 ### REPORTING-11 [P3] hovertext-silently-dropped
 
 **File:** `renderers/_plotly_interactivity.py` :179-187
@@ -315,6 +323,8 @@ discarded.
 downsample and the two-trace split change the per-trace point count away from `len(p.x)`, and
 `_apply_nonline_traces` builds its supports with no knowledge of either.
 
+**Disposition:** RESOLVED as suggested -- the scatter renderer attaches `hovertext` on the traces it builds, narrowing it through the same downsample index and strong/weak mask it already applies to the marker fields, and declining to attach anything when the spec array's length does not match the panel's own row count (so a wrong-length array is ignored rather than misaligned). Verified on a 40-point panel with five low-evidence rows: the two traces now carry 35 and 5 hovertext entries, each its own rows, where the post-hoc length gate previously attached it to neither. `tests/reporting/test_renderer_divergences_and_dead_paths.py`.
+
 ### REPORTING-12 [P3] latent dense-axis-index assumption
 
 **File:** `renderers/_plotly_interactivity.py` :89, :117, :159, :172; `renderers/_plotly_color.py` :29-30;
@@ -338,6 +348,8 @@ the six sites call.
 **Evidence:** Read the `sub_specs` construction, whose comment states that `None` (not `{}`) is what suppresses
 the axis; read all six `idx =` sites; read `pack_panels` and grepped every `panels=((` in the cluster.
 
+**Disposition:** RESOLVED as suggested, and centralised. All six sites now call one `plotly_axis_suffix(fig, row, col, n_cols)` helper in `_shared_helpers` that reads `fig._grid_ref` -- the axes plotly ACTUALLY allocated -- and falls back to the old arithmetic when the grid is unreadable, which is what every caller did before. Verified on `((line, None), (line, heat))`: the three real panels now resolve to three DISTINCT suffixes, each of which exists in `fig.layout`; on a full grid the helper agrees with the arithmetic exactly, so nothing that worked before moves. `tests/reporting/test_renderer_divergences_and_dead_paths.py`.
+
 ### REPORTING-13 [P3] dead-code
 
 **File:** `renderers/_plotly_scatter.py` :76, :159, :162-164
@@ -353,6 +365,8 @@ was removed.
 **Suggested fix:** Delete `text = None` and the four dependent expressions; keep the comment.
 
 **Evidence:** Read :73-168; `text` has exactly one assignment.
+
+**Disposition:** RESOLVED as suggested -- `text = None` and the four dependent expressions are gone, the comment explaining why the per-point path was removed is kept and extended to say where inline labels actually go. `tests/reporting/test_renderer_divergences_and_dead_paths.py`.
 
 ### REPORTING-14 [P3] colour-constant-bypassed
 
@@ -370,6 +384,8 @@ line and leaves the matplotlib one green, from the same spec, with nothing flagg
 **Suggested fix:** Import it and replace `"g--"` with `color=PERFECT_FIT_LINE, linestyle="--"`.
 
 **Evidence:** :139 versus `_plotly_scatter.py` :224; `colors.py` :89 and the `__all__` export at :231.
+
+**Disposition:** RESOLVED as suggested. `PERFECT_FIT_LINE` is imported and the shorthand replaced with `color=PERFECT_FIT_LINE, linestyle="--"`, so repainting it now moves both backends. `tests/reporting/test_renderer_divergences_and_dead_paths.py`.
 
 ### REPORTING-15 [P3] duplicate-traces / hover-shadowed
 
@@ -391,6 +407,8 @@ built once over all edges. Hoist `_label` out of the loop.
 **Evidence:** Read `_network` :43-100 in full; both traces are `go.Scattergl` markers at the same midpoints, the
 second added unconditionally after the bin loop.
 
+**Disposition:** RESOLVED as suggested. The per-bucket midpoint trace is deleted and its `hovertext` -- node names plus the resolved `colorbar_label` -- moved onto the single global trace, built once over all edges; `_label` is hoisted out of the bin loop. The midpoints are now emitted once rather than twice. `tests/reporting/test_renderer_divergences_and_dead_paths.py`.
+
 ### REPORTING-16 [P3] contradictory-comments
 
 **File:** `charts/slice_finder.py` :412-418
@@ -405,6 +423,8 @@ highest-error slice will trust the wrong comment.
 **Suggested fix:** Delete the stale block at :412-414.
 
 **Evidence:** Read :402-419; the two blocks are consecutive and the sort key at :418 is `rec_score`.
+
+**Disposition:** RESOLVED. Only the stale `worst-ERROR-first` block is deleted; the block that correctly describes the `rec_score` sort is kept. (My first pass removed both and was corrected in the same session -- an accurate comment is the thing being protected here.) `tests/reporting/test_renderer_divergences_and_dead_paths.py`.
 
 ### REPORTING-17 [P3] incomplete-dedupe
 
@@ -426,6 +446,8 @@ today.
 **Evidence:** Read :277-293 in full; `find("<script")` takes the first occurrence unconditionally and the marker
 check filters on that one script only.
 
+**Disposition:** RESOLVED as suggested: the marker is located first, then the enclosing `<script>` is found by walking back to the nearest preceding `<script` and forward to the following `</script>`, with the not-found case guarded as before. `tests/reporting/test_renderer_divergences_and_dead_paths.py` covers both a bundle preceded by a config shim and the already-working first-script case.
+
 ### REPORTING-18 [P3] default_via_or
 
 **File:** `colors.py` :61-62
@@ -444,6 +466,8 @@ live wrong-chart path. It matters because the tri-state contract is `str` / `Non
 
 **Evidence:** Read `colors.py` :41-65 and `save.py` :42-68; the two tri-state overrides in this cluster are
 implemented two different ways.
+
+**Disposition:** RESOLVED, taking the stricter of the two suggested options. The read is `if override is not None`, and an override that is empty or whitespace now RAISES rather than silently falling through -- `""` is not a valid colormap name, so treating it as a second CLEAR path hid a caller's mistake. `set_calibration_cmap(None)` remains the one documented clear. `tests/reporting/test_renderer_divergences_and_dead_paths.py`.
 
 ## Coverage
 

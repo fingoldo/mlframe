@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ._shared_helpers import plotly_axis_suffix
+
 from mlframe.reporting.spec import (
     BarPanelSpec, HeatmapPanelSpec, HistogramPanelSpec, LinePanelSpec, ScatterPanelSpec, ViolinPanelSpec,
 )
@@ -86,8 +88,8 @@ def apply_interactivity(fig: Any, spec, *, static_legend: bool = False) -> None:
             for c in range(cols):
                 if not isinstance(row[c] if c < len(row) else None, LinePanelSpec):
                     continue
-                idx = r * cols + c + 1
-                fig.update_layout(**{f"xaxis{'' if idx == 1 else idx}": dict(showspikes=True, spikemode="across")})
+                _sfx = plotly_axis_suffix(fig, r + 1, c + 1, cols)
+                fig.update_layout(**{f"xaxis{_sfx}": dict(showspikes=True, spikemode="across")})
 
     # Clickable legend: single-click hides a series, double-click isolates it. Only meaningful when a legend
     # is actually drawn (static export, or any multi-trace legend); harmless no-op otherwise.
@@ -114,8 +116,7 @@ def _apply_line_traces(fig, spec) -> None:
             panel = row[c] if c < len(row) else None
             if not isinstance(panel, LinePanelSpec):
                 continue
-            idx = r * cols + c + 1
-            suffix = "" if idx == 1 else str(idx)
+            suffix = plotly_axis_suffix(fig, r + 1, c + 1, cols)
             tmpl = _key_template(panel)
             if tmpl is None:
                 x_fmt = "|%Y-%m-%d %H:%M" if _line_is_temporal(panel) else ":.6g"
@@ -156,8 +157,7 @@ def _apply_nonline_traces(fig, spec) -> None:
             tmpl = _NONLINE_TEMPLATES.get(type(panel))
             if tmpl is None:
                 continue
-            idx = r * cols + c + 1
-            suffix = "" if idx == 1 else str(idx)
+            suffix = plotly_axis_suffix(fig, r + 1, c + 1, cols)
             xn, yn = _axis_names(panel)
             axis_templates[f"x{suffix}"] = tmpl.format(x=xn, y=yn)
 
@@ -169,8 +169,7 @@ def _apply_nonline_traces(fig, spec) -> None:
             panel = row[c] if c < len(row) else None
             ht = getattr(panel, "hovertext", None)
             if ht:
-                idx = r * cols + c + 1
-                supports[f"x{'' if idx == 1 else idx}"] = tuple(ht)
+                supports["x" + plotly_axis_suffix(fig, r + 1, c + 1, cols)] = tuple(ht)
 
     for tr in fig.data:
         if tr.type not in ("scatter", "scattergl", "bar", "histogram", "violin"):

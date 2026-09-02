@@ -339,7 +339,10 @@ class MatplotlibRenderer:
                 if isinstance(p.bin_width, np.ndarray):
                     width = np.asarray(p.bin_width, dtype=float)
                 else:
-                    width = float(p.bin_width or ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
+                    # `is not None`, matching the plotly twin: `bin_width=0.0` is a deliberate spec value, and
+                    # `or` read it as "unset" and derived a width from the centre spacing instead -- one spec,
+                    # two pictures.
+                    width = float(p.bin_width if p.bin_width is not None else ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
             colors_kw: dict[str, Any] = {"color": p.color}
             if p.bar_colors is not None:
                 cm = matplotlib.colormaps[p.colormap]
@@ -371,7 +374,10 @@ class MatplotlibRenderer:
                 assert overlay_x_hi is not None
                 x_grid = np.linspace(overlay_x_lo, overlay_x_hi, 200)
                 normal_pdf = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((x_grid - mu) / sigma) ** 2)
-                label = p.overlay_label or f"Normal(mu={mu:.2g}, sigma={sigma:.2g})"
+                # `overlay_label=""` is a deliberate blank, which plotly honours; `or` substituted the auto label.
+                # This cluster recognises the empty-string-means-no-label distinction elsewhere (see
+                # `calibration.py`'s `colorbar_label`).
+                label = p.overlay_label if p.overlay_label is not None else f"Normal(mu={mu:.2g}, sigma={sigma:.2g})"
                 ax.plot(x_grid, normal_pdf, "r--", linewidth=1.4, label=label)
                 ax.legend(loc="best", fontsize=8, framealpha=0.7)
 
@@ -593,8 +599,7 @@ class MatplotlibRenderer:
                 ax.legend(loc="best", fontsize=8, framealpha=0.7)
 
         if horizontal:
-            # Thin AND truncate, mirroring what the vertical branch below already does and what plotly does
-            # on both orientations. A 200-category horizontal feature-importance chart otherwise smears its
+            # Thin AND truncate, as the vertical branch below and both plotly orientations do. A 200-category horizontal feature-importance chart otherwise smears its
             # y axis into an unreadable band of overlapping text, and a long generated feature name runs off
             # the left edge. The bars stay 1-per-category; only the LABELS are subsampled.
             n_cat = len(p.categories)
@@ -612,19 +617,25 @@ class MatplotlibRenderer:
             # Thin the x-tick labels when there are many categories so they don't overlap into an
             # unreadable smear (e.g. a 50-lag residual-ACF bar chart). Keep ~20 evenly-spaced labels;
             # the bars themselves stay 1-per-category, only the LABELS are subsampled.
+            # TRUNCATE here too. The horizontal branch's comment above says this branch already did, and the
+            # plotly twin truncates on both orientations -- but it passed labels through untouched, so a
+            # pathological generated column name ran off the bottom of the axis: exactly what
+            # ``truncate_bar_label`` exists as a safety valve against. The two thinning constants are the module
+            # ones now rather than 25 and 20 written out again, so the same numbers stop living in four places.
             n_cat = len(p.categories)
-            if n_cat > 25:
-                step = int(np.ceil(n_cat / 20))
+            _cats_v = [truncate_bar_label(c) for c in p.categories]
+            if n_cat > _BAR_TICK_THIN_THRESHOLD:
+                step = int(np.ceil(n_cat / _BAR_TICK_KEEP))
                 sel = np.arange(0, n_cat, step)
                 ax.set_xticks(pos[sel])
                 ax.set_xticklabels(
-                    [p.categories[i] for i in sel],
+                    [_cats_v[i] for i in sel],
                     rotation=p.xtick_rotation or 0,
                     ha="right" if p.xtick_rotation else "center", fontsize=8,
                 )
             else:
                 ax.set_xticks(pos)
-                ax.set_xticklabels(p.categories, rotation=p.xtick_rotation, ha="right" if p.xtick_rotation else "center", fontsize=8)
+                ax.set_xticklabels(_cats_v, rotation=p.xtick_rotation, ha="right" if p.xtick_rotation else "center", fontsize=8)
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         _set_panel_title(ax, p.title)

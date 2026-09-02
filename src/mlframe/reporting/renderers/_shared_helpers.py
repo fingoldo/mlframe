@@ -32,6 +32,28 @@ _HEATMAP_CELL_TEXT_MAX = 400
 _BAR_LABEL_MAXLEN = 60
 
 
+def plotly_axis_suffix(fig, row: int, col: int, n_cols: int) -> str:
+    """Axis-number suffix for the subplot at 1-based ``(row, col)``: ``""`` for the first, else ``"4"`` etc.
+
+    Read from ``fig._grid_ref``, which records the axes plotly ACTUALLY allocated, rather than computed as
+    ``(row - 1) * n_cols + col``. That arithmetic assumes every grid cell got an axis, but the renderer
+    deliberately passes ``None`` in ``specs`` for empty cells, so plotly allocates nothing there and the
+    numbering of every later cell shifts: on ``panels = ((line_a, None), (line_b, heat))`` the arithmetic yields
+    4 for ``line_b``, writing its hovertemplate under a key no trace is bound to and putting ``heat``'s lookups
+    off by one. ``_axis_ref`` feeds ``scaleanchor``, so an ``equal_aspect`` scatter in a grid with a hole would
+    square itself against the wrong axis.
+
+    Falls back to the arithmetic when the grid is unreadable, which is what every caller did before.
+    """
+    grid: Any = getattr(fig, "gridspec_ref", None) or getattr(fig, "_grid_ref", None)
+    try:
+        key = str(grid[row - 1][col - 1][0].layout_keys[0])  # e.g. "xaxis" / "xaxis4"
+        return key[len("xaxis") :]
+    except (IndexError, KeyError, AttributeError, TypeError):
+        idx = (row - 1) * n_cols + col
+        return "" if idx == 1 else str(idx)
+
+
 def truncate_bar_label(label: Any, maxlen: int = _BAR_LABEL_MAXLEN) -> str:
     """Shorten one bar-category label to ``maxlen`` chars, ellipsis-suffixed.
 

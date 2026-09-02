@@ -59,7 +59,12 @@ def calibration_cmap() -> str:
     module-level constant read at import time would be fixed before that ever happens.
     """
     override = get_calibration_cmap_override()
-    if override:
+    # `is not None`, so the tri-state contract is str / None with `set_calibration_cmap(None)` as the one CLEAR
+    # path. `if override:` made an empty string behave as a silent second clear rather than as the invalid
+    # colormap name it is -- and the two sibling overrides in `save.py` already use an explicit sentinel.
+    if override is not None:
+        if not override.strip():
+            raise ValueError("calibration_cmap: the thread override is an empty string; pass None to clear it.")
         return override
     env = (os.environ.get("MLFRAME_CALIBRATION_CMAP") or "").strip()
     return env if env else CALIBRATION

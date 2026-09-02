@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from mlframe.reporting.colors import OVERLAY_LINE, TREND_LINE
+from mlframe.reporting.colors import PERFECT_FIT_LINE, OVERLAY_LINE, TREND_LINE
 from mlframe.reporting.spec import ScatterPanelSpec
 
 from ._shared_helpers import _SCATTER_MAX_POINTS, low_evidence_mask, select_per_point
@@ -136,7 +136,10 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
         # y constant) and square the panel so y=x is a true 45-degree line.
         lo = float(min(np.min(x), np.min(y)))
         hi = float(max(np.max(x), np.max(y)))
-        ax.plot([lo, hi], [lo, hi], "g--", label="Perfect fit")
+        # From `colors`, not a hardcoded green shorthand. This is the one overlay colour that escaped the centralisation
+        # `colors.py` documents as being done to stop exactly this drift: repainting PERFECT_FIT_LINE would have
+        # moved the plotly y=x line and left this one green, from the same spec, with nothing flagging it.
+        ax.plot([lo, hi], [lo, hi], color=PERFECT_FIT_LINE, linestyle="--", label="Perfect fit")
         if not p.equal_aspect:
             # Probability-vs-probability (calibration): the diagonal spans corner-to-corner at any aspect, so let
             # the panel fill its cell width and align with the histogram below; xlim/ylim are applied just after.

@@ -25,13 +25,14 @@ _MPL_TO_PLOTLY = {
 
 def _axis_ref(fig, row: int, col: int) -> str:
     """x-axis reference string for the subplot at (row, col), e.g. ``"x"`` / ``"x4"`` — for scaleanchor."""
+    from ._shared_helpers import plotly_axis_suffix
+
     try:
         n_cols = len(fig._grid_ref[0])
-        idx = (row - 1) * n_cols + col
     except Exception as e:
-        logger.debug("subplot grid-index resolution failed, defaulting to 1: %s", e)
-        idx = 1
-    return "x" if idx == 1 else f"x{idx}"
+        logger.debug("subplot grid width unreadable, assuming a single column: %s", e)
+        n_cols = 1
+    return "x" + plotly_axis_suffix(fig, row, col, n_cols)
 
 
 def _rgba(color: str, alpha: float) -> str:

@@ -811,24 +811,45 @@ class PlotlyRenderer:
             fig.add_vline(x=vx, line=dict(color=vcolor, dash="dot", width=1.2), annotation_text=vlabel or None, annotation_position="top", row=row, col=col)
 
     def _violin(self, fig, p: ViolinPanelSpec, row: int, col: int) -> None:
-        """Render one ``go.Violin`` trace per group in ``p.groups`` (tab10 color cycle for cross-backend parity with matplotlib), with an optional inner box overlay."""
+        """Render one ``go.Violin`` trace per group in ``p.groups`` (tab10 color cycle for cross-backend parity with matplotlib), with an optional inner box overlay.
+
+        Empty groups are dropped and NAMED in the title, and the inner box's whiskers span the 5th-95th
+        percentiles -- both matching the matplotlib twin. Previously this iterated every group unfiltered, so an
+        empty one rendered as a labelled category with nothing in it and no note, while matplotlib dropped it and
+        said so; and the box drew plotly's default 1.5x IQR fences against matplotlib's 5/95. One spec made two
+        different claims about the same data, which is what the matplotlib box was added to stop.
+        """
         go = _go()
         from mlframe.reporting.colors import line_color
 
-        for i, group in enumerate(p.groups):
+        kept = [(np.asarray(g, dtype=float), lab) for g, lab in zip(p.groups, p.group_labels)]
+        kept = [(g[np.isfinite(g)], lab) for g, lab in kept]
+        drawable = [(g, lab) for g, lab in kept if g.size > 0]
+        empty = [str(lab) for g, lab in kept if g.size == 0]
+
+        for i, (group, label) in enumerate(drawable):
             # tab10 cycle for cross-backend parity (plotly default
             # 'Plotly' qualitative is over-saturated next to mpl bars).
             color = line_color(i)
             fig.add_trace(
-                go.Violin(y=np.asarray(group),
-                          name=p.group_labels[i],
-                          box_visible=p.show_box,
-                          meanline_visible=False,
-                          line_color=color,
-                          fillcolor=color,
-                          opacity=0.6,
-                          showlegend=False),
-                row=row, col=col,
+                go.Violin(
+                    y=group, name=label, box_visible=p.show_box, meanline_visible=False, line_color=color, fillcolor=color, opacity=0.6, showlegend=False
+                ),
+                row=row,
+                col=col,
+            )
+        if p.show_box:
+            # 5th/95th percentile whiskers, as matplotlib's `whis=(5, 95)` draws, rather than plotly's default
+            # 1.5x IQR fences -- the two mark different quantities.
+            fig.update_traces(box=dict(visible=True), quartilemethod="linear", selector=dict(type="violin"), row=row, col=col)
+        if empty:
+            # A violin that silently vanishes reads as "this group has no spread", which is a different statement
+            # from "this group has no data". matplotlib names the dropped groups in the panel title; plotly's
+            # subplot titles are fixed at `make_subplots` time, before this runs, so the note goes in as a
+            # subplot annotation carrying the same information.
+            fig.add_annotation(
+                x=0.5, y=1.0, xref="x domain", yref="y domain", xanchor="center", yanchor="bottom",
+                text=f"no data: {', '.join(empty)}", showarrow=False, font=dict(size=8), row=row, col=col,
             )
         fig.update_xaxes(title_text=p.xlabel, row=row, col=col, tickangle=-30)
         fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)

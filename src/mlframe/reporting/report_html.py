@@ -284,9 +284,15 @@ def _dedupe_plotly_js(fragment: str, seen: Optional[set]) -> str:
     if seen is None or _PLOTLY_JS_MARKER not in fragment:
         return fragment
     if "plotly.js" in seen:
-        start = fragment.find("<script")
-        end = fragment.find("</script>", start)
-        if start != -1 and end != -1 and _PLOTLY_JS_MARKER in fragment[start:end]:
+        # Find the script CONTAINING the marker, rather than assuming the bundle is the FIRST script. It is not
+        # when plotly emits a config or `require` shim ahead of it: the marker check then ran against that first
+        # script, came back False, and the fragment passed through whole -- so a 20-chart report still shipped 20
+        # copies of a 3-4 MB bundle, the exact cost this function exists to avoid. `seen` was already marked, so
+        # no later fragment was stripped either.
+        marker_at = fragment.find(_PLOTLY_JS_MARKER)
+        start = fragment.rfind("<script", 0, marker_at)
+        end = fragment.find("</script>", marker_at)
+        if start != -1 and end != -1:
             return fragment[:start] + fragment[end + len("</script>") :]
         return fragment
     seen.add("plotly.js")

@@ -37,6 +37,7 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
     size_arr = p.point_size if isinstance(p.point_size, np.ndarray) else None
     color_arr = p.point_color if isinstance(p.point_color, np.ndarray) else None
 
+    idx = None  # the downsample selection, so per-point spec arrays can follow the same rows
     if n > _SCATTER_MAX_POINTS:
         _warn_scatter_downsample(n)
         from mlframe.reporting.charts import subsample_preserving_extremes
@@ -72,8 +73,8 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
 
     # inline_labels are (x, y, text) triples placed AT THOSE COORDINATES on matplotlib. Using them as
     # per-point marker text put them on the wrong points, and the len == n gate silently dropped a shorter
-    # list entirely -- the common case, since these annotate a handful of bins, not every row.
-    text = None
+    # list entirely -- the common case, since these annotate a handful of bins, not every row. They are
+    # emitted as annotations below instead; there is no per-point text path here.
     # add_annotation re-validates the whole growing tuple per call (O(n^2) over a loop), so only the FIRST call
     # is made through it -- to let plotly resolve this subplot's axis refs -- and the rest are built as plain
     # Annotation objects and assigned in one go.
@@ -116,26 +117,63 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
     # matplotlib twin, so the two backends do not disagree about which bins are readable.
     weak = low_evidence_mask(p.low_evidence_indices if len(x) == len(np.asarray(p.x)) else None, len(x))
 
-    def _sel_err(err, mask):
-        """Narrow a plotly error spec to the masked points, keeping symmetric/asymmetric structure."""
+    def _sel_err(err, mask, muted: bool = False):
+        """Narrow a plotly error spec to the masked points, keeping symmetric/asymmetric structure.
+
+        ``muted=True`` also RESTYLES the interval, which the matplotlib twin has always done
+        (``ecolor="0.75"``, ``elinewidth=0.6``, ``capsize=0``) to implement the spec's stated intent that a
+        low-evidence interval reads as "we know nothing here". Narrowing the arrays alone drew the weak whiskers
+        identically to the strong ones, so the distinction ``low_evidence_ci_width`` exists for was lost on the
+        HTML backend -- and worse, the weak trace sets ``marker.color`` to a fully transparent
+        ``rgba(0,0,0,0)``, which plotly's error bars INHERIT when ``error_y.color`` is unset, so they could
+        render invisible rather than merely undifferentiated.
+        """
         if err is None:
             return None
         out = dict(err)
         for key in ("array", "arrayminus"):
             if out.get(key) is not None:
                 out[key] = np.asarray(out[key])[mask]
+        if muted:
+            out["color"] = "#c0c0c0"
+            out["thickness"] = 0.8
+            out["width"] = 0
         return out
 
     def _sel_marker(mask):
         """Narrow every per-point marker field to the masked points."""
         return {k: select_per_point(v, mask, len(x)) for k, v in marker.items()}
 
+    def _sel_hover(mask=None):
+        """The spec's per-point hovertext, narrowed to this trace's own rows.
+
+        Attached HERE, on the trace that knows the row subset, rather than by the post-hoc interactivity pass.
+        That pass keys a panel's hovertext by subplot axis and attaches it only when a trace's point count
+        exactly equals ``len(sup)``, so every scatter panel that downsampled or split into strong/weak traces
+        silently lost it -- and the per-point DENOMINATOR is precisely what the spec field exists to carry
+        ("without it a rate computed from 3 rows renders identically to one from 300k"). The fallback was the
+        generic axis-name template, so the tooltip still looked plausible and nothing signalled the loss.
+        """
+        ht = getattr(p, "hovertext", None)
+        if not ht:
+            return {}
+        arr = np.asarray(ht, dtype=object)
+        if arr.shape[0] != len(np.asarray(p.x)):
+            return {}
+        if idx is not None:
+            arr = arr[idx]
+        if mask is not None:
+            arr = arr[mask]
+        if arr.shape[0] != (len(x) if mask is None else int(np.count_nonzero(mask))):
+            return {}
+        return dict(hovertext=[str(v) for v in arr], hoverinfo="text")
+
     if weak.any() and (~weak).any():
         strong = ~weak
         fig.add_trace(
             trace_cls(x=x[strong], y=y[strong], mode="markers", marker=_sel_marker(strong),
                       error_y=_sel_err(error_y, strong), error_x=_sel_err(error_x, strong),
-                      name=p.legend_label or "", showlegend=bool(p.legend_label)),
+                      name=p.legend_label or "", showlegend=bool(p.legend_label), **_sel_hover(strong)),
             row=row, col=col,
         )
         _weak_marker = _sel_marker(weak)
@@ -149,21 +187,18 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
         _weak_marker["line"] = dict(color="#8c8c8c", width=1.2)
         fig.add_trace(
             trace_cls(x=x[weak], y=y[weak], mode="markers", marker=_weak_marker,
-                      error_y=_sel_err(error_y, weak), error_x=_sel_err(error_x, weak),
-                      name="too few rows to read", showlegend=True),
+                      error_y=_sel_err(error_y, weak, muted=True), error_x=_sel_err(error_x, weak, muted=True),
+                      name="too few rows to read", showlegend=True, **_sel_hover(weak)),
             row=row, col=col,
         )
     else:
         fig.add_trace(
             trace_cls(x=x, y=y,
-                      mode="markers+text" if text else "markers",
+                      mode="markers",
                       marker=marker,
                       error_y=error_y, error_x=error_x,
-                      text=text,
-                      textposition="top center" if text else None,
-                      textfont=dict(size=8),
                       name=p.legend_label or "",
-                      showlegend=bool(p.legend_label)),
+                      showlegend=bool(p.legend_label), **_sel_hover()),
             row=row, col=col,
         )
 

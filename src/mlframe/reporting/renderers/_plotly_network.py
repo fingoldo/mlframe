@@ -11,6 +11,8 @@ from typing import List
 
 import numpy as np
 
+from ._shared_helpers import plotly_axis_suffix
+
 from mlframe.reporting.spec import NetworkPanelSpec
 
 from ._plotly_color import _mpl_to_plotly_cmap
@@ -72,20 +74,13 @@ def _network(self, fig, p: NetworkPanelSpec, row: int, col: int) -> None:
                 row=row,
                 col=col,
             )
-            _label = p.colorbar_label if p.colorbar_label else "edge weight"
-            fig.add_trace(
-                go.Scattergl(
-                    x=[(node_x[a] + node_x[d]) / 2.0 for a, d in zip(e_src[mask], e_dst[mask])],
-                    y=[(node_y[a] + node_y[d]) / 2.0 for a, d in zip(e_src[mask], e_dst[mask])],
-                    mode="markers", marker=dict(size=6, color=color, opacity=0.01),
-                    hovertext=[f"{p.node_label[a]} - {p.node_label[d]}<br>{_label}={w:.4g}"
-                               for a, d, w in zip(e_src[mask], e_dst[mask], weights[mask])],
-                    hoverinfo="text", showlegend=False),
-                row=row, col=col,
-            )
-
-        # Invisible marker trace at edge midpoints carries the continuous MI
-        # colorbar and a per-edge hover readout without cluttering the plot.
+        # ONE marker trace at the edge midpoints, carrying both the colorbar and the descriptive hover. There
+        # used to be two overlapping sets: a rich per-bucket trace built inside the bin loop, and this global one
+        # added afterwards. Both sat at the same coordinates, and the later, poorer one won the hover -- so the
+        # reader got a hardcoded "MI=" that ignored `colorbar_label` and no node names, while the text the loop
+        # had built was unreachable. It also emitted every midpoint twice, up to 8 extra traces plus a full
+        # duplicate coordinate set per figure, and recomputed `_label` once per bin for a value that never varies.
+        _label = p.colorbar_label if p.colorbar_label else "edge weight"
         mid_x = (node_x[e_src] + node_x[e_dst]) / 2.0
         mid_y = (node_y[e_src] + node_y[e_dst]) / 2.0
         fig.add_trace(
@@ -94,7 +89,8 @@ def _network(self, fig, p: NetworkPanelSpec, row: int, col: int) -> None:
                 marker=dict(size=0.1, color=weights, colorscale=colorscale,
                             showscale=True,
                             colorbar=dict(title=p.colorbar_label) if p.colorbar_label else None),
-                text=[f"MI={w:.4f}" for w in weights],
+                hovertext=[f"{p.node_label[a]} - {p.node_label[d]}<br>{_label}={w:.4g}"
+                           for a, d, w in zip(e_src, e_dst, weights)],
                 hoverinfo="text", showlegend=False),
             row=row, col=col,
         )
@@ -110,8 +106,7 @@ def _network(self, fig, p: NetworkPanelSpec, row: int, col: int) -> None:
         if directed.any() and int(directed.sum()) <= self._NETWORK_MAX_ARROWS:
             try:
                 n_cols = len(fig._grid_ref[0])
-                idx = (row - 1) * n_cols + col
-                suffix = "" if idx == 1 else str(idx)
+                suffix = plotly_axis_suffix(fig, row, col, n_cols)
                 xref, yref = f"x{suffix}", f"y{suffix}"
                 # ``fig.add_annotation`` re-validates the whole growing ``layout.annotations`` tuple per
                 # call (O(n) per mutation -> O(n^2) over a loop, measured 534x at 400 calls in

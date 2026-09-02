@@ -409,9 +409,6 @@ def find_weak_slices(
             logger.info("slice_finder cap: %s", msg)
         return SliceFinderResult(FigureSpec(panels=((bar,),), figsize=(8.0, 5.0)), empty, global_error, ((), "", float("nan"), 0), tuple(capped))
 
-    # Display order is worst-ERROR-first: rank the surfaced slices by mean error descending (stable mergesort so equal
-    # errors keep their score-built order), then take the top_k. The candidate pool itself is still built by the
-    # degradation x support score above -- only the displayed ordering is by error.
     # Display order matches the SCORE the candidate pool was built with (degradation x sqrt(support share)), rather
     # than raw mean error: sorting by mean error alone hands the top bar to the thinnest slice that cleared the
     # support floor, which is the opposite of what a reader should look at first.
