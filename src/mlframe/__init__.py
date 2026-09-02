@@ -327,6 +327,7 @@ def _install_gpu_runtime_lazy_trigger() -> None:
         return
 
     import functools
+    from typing import Any
 
     @functools.wraps(_orig)
     def _is_cuda_available(*args, **kwargs):
@@ -336,8 +337,13 @@ def _install_gpu_runtime_lazy_trigger() -> None:
 
     _is_cuda_available._mlframe_gpu_runtime_wrapped = True  # type: ignore[attr-defined]
     # The attribute is declared as an `lru_cache_wrapper[bool]`; a functools.wraps'd delegate cannot be spelled
-    # as that type, and replacing it is the whole point of this lazy trigger.
-    _gd.is_cuda_available = _is_cuda_available  # type: ignore[assignment]
+    # as that type, and replacing it is the whole point of this lazy trigger. Assigned through an Any-typed
+    # alias because whether the direct assignment is an error at all depends on the installed pyutilz: with
+    # `warn_unused_ignores` on, a `type: ignore[assignment]` is required against a build that carries the
+    # annotation and reported as unused against one that does not, so no spelling of the direct assignment
+    # type-checks in both environments.
+    _gd_any: Any = _gd
+    _gd_any.is_cuda_available = _is_cuda_available
 
 
 _install_gpu_runtime_lazy_trigger()
