@@ -73,14 +73,16 @@ def _train_eval_auc(X_tr: np.ndarray, y_tr: np.ndarray, X_te: np.ndarray, y_te: 
 
 
 @pytest.mark.xfail(
-    strict=False,
+    strict=True,
     reason=(
-        "GO/NO-GO biz_value gate: row-attention not delivering its multi-head random-subspace "
-        "promise on the designed-for synthetic (lift_vs_raw ~ 0). The 1200-LOC block needs "
-        "either a real fix (the multi-head subspace MI estimator was tuned for n>=5000 and may "
-        "be too noisy at the n=2000 test size) or an honest removal. xfail-strict-False so the "
-        "gate runs every PR and surfaces the failure in test output (instead of being silently "
-        "skipped); flip to ``@pytest.mark.skip`` only if even running the algorithm regresses CI."
+        "GO/NO-GO biz_value gate: row-attention does not deliver its multi-head random-subspace promise on its "
+        "OWN designed-for synthetic (lift_vs_raw ~ 0). The 1200-LOC block needs either a real fix -- the "
+        "multi-head subspace MI estimator was tuned for n>=5000 and may be too noisy at this n=2000 test size, "
+        "which the sibling test below now measures directly -- or an honest removal.\n\n"
+        "strict=True, not strict=False. Under strict=False this marker made the gate unfalsifiable in BOTH "
+        "directions: it could not fail (failure is expected) and an XPASS is not an error, so if the feature "
+        "started working nobody would find out either. Strict keeps the known failure quiet while turning an "
+        "unexpected PASS into a red test that says 'this now works -- drop the marker'."
     ),
 )
 def test_row_attention_beats_raw_AND_knn_te_on_subspace_signal():
@@ -135,3 +137,31 @@ def test_row_attention_beats_raw_AND_knn_te_on_subspace_signal():
     msg = f"AUC: raw={auc_raw:.4f}, +kNN-TE={auc_knn_te:.4f}, +row-attn={auc_attn:.4f}; lift_vs_raw={lift_vs_raw:.4f}, lift_vs_kNN-TE={lift_vs_knn:.4f}"
     assert lift_vs_raw >= 0.03, f"row-attention must beat LightGBM(raw) by >= 0.03 AUC absolute; {msg}"
     assert lift_vs_knn >= 0.01, f"row-attention must beat LightGBM(raw + plain kNN-TE) by >= 0.01 AUC absolute; {msg}"
+
+
+@pytest.mark.slow
+def test_row_attention_lift_at_the_sample_size_it_was_tuned_for():
+    """Measure the xfail reason's own hypothesis instead of leaving it as a hypothesis.
+
+    The GO/NO-GO gate above runs at n=2000 and its reason string speculates that the multi-head subspace MI
+    estimator "was tuned for n>=5000 and may be too noisy at the n=2000 test size". That is testable, and until
+    it is tested the team cannot choose between the two options the reason offers (a real fix, or an honest
+    removal).
+
+    This records the lift at n=6000 on the same synthetic. It asserts only that the measurement RAN and is
+    finite -- deliberately not a threshold, because the point is to produce the number that decides the
+    fix-or-remove question, not to add a second gate that fails for the same reason as the first.
+    """
+    X, y = _make_subspace_synthetic(n=6000, d=200, d_signal=5, seed=0)
+    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
+    splitter = KFold(n_splits=5, shuffle=True, random_state=42)
+
+    _kw = dict(splitter=splitter, seed=42, n_heads=4, head_dim=8, k=32, aggregate=("y_mean", "y_std"), gpu_stage4=False, dedupe_threshold=None)
+    train_attn = compute_row_attention(X_train=X_tr, y_train=y_tr, X_query=None, **_kw).to_numpy()
+    test_attn = compute_row_attention(X_train=X_tr, y_train=y_tr, X_query=X_te, **_kw).to_numpy()
+
+    auc_raw = _train_eval_auc(X_tr, y_tr, X_te, y_te)
+    auc_attn = _train_eval_auc(np.hstack([X_tr, train_attn]), y_tr, np.hstack([X_te, test_attn]), y_te)
+    lift = auc_attn - auc_raw
+    print(f"\n[row-attention @ n=6000] auc_raw={auc_raw:.4f} auc_attn={auc_attn:.4f} lift_vs_raw={lift:+.4f}")
+    assert np.isfinite(lift), "the n>=5000 measurement did not produce a usable number"

@@ -193,6 +193,7 @@ def _prewarm_numba_once():
     yield
 
 
+_SESSION_FIXTURE_LEAKS: list = []
 _SESSION_FIXTURE_SHAPES: dict[str, tuple] = {}
 _SESSION_FIXTURE_REFS: dict[str, object] = {}
 
@@ -227,6 +228,10 @@ def _session_fixture_immutability_sensor():
             "[session-fixture-immutability-sensor] Tests should .copy() before mutating. "
             "See tests/training/conftest.py docstrings on sample_regression_data / sample_classification_data.\n"
         )
+        if os.environ.get("MLFRAME_ALLOW_SESSION_FIXTURE_MUTATION", "").strip().lower() not in ("1", "true", "on", "yes"):
+            # Recorded for `pytest_sessionfinish` rather than raised here: a raise in a session-fixture teardown
+            # is reported as an ERROR that some schedulers swallow, so the exit status is set explicitly instead.
+            _SESSION_FIXTURE_LEAKS.extend(leaked)
 
 
 def _df_shape_signature(df) -> tuple:
@@ -620,3 +625,23 @@ def trained_suite_multi_target(sample_regression_data, common_init_params, fast_
         },
     )
     return suite
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Fail the run when a session-scope DataFrame fixture was mutated in place.
+
+    The sensor above records the leaks; failing here rather than raising in its teardown means the signal
+    survives xdist, where a fixture-teardown error is attributed to a worker and can be lost.
+    """
+    if not _SESSION_FIXTURE_LEAKS:
+        return
+    session.exitstatus = 1
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if reporter is not None:
+        reporter.write_line("")
+        reporter.write_line(
+            "SESSION-FIXTURE MUTATION: " + "; ".join(f"{name}: {before} -> {after}" for name, before, after in _SESSION_FIXTURE_LEAKS),
+            red=True,
+            bold=True,
+        )
+        reporter.write_line("Copy before mutating a session-scope fixture; every later consumer sees the change.", red=True)

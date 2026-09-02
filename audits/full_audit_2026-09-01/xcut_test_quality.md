@@ -31,6 +31,8 @@ The suite has unusually strong meta-gates (`tests/test_meta/test_no_inspect_gets
 **Suggested fix:** Delete the comment-presence tests; a comment is not a contract, enforce it in review. Replace :163-168 with a behavioural check that `strategy_by_model` is built once -- spy on the factory and assert call count 1 across a 3-pre-pipeline run.
 **Evidence:** Read tests/training/test_orchestrator_efficiency_fixes.py:145-285 and its `_read()` helper at :19-40.
 
+**Disposition:** RESOLVED. All three comment-window checks are replaced by checks on the CODE, which is what actually carries the property: the per-iteration `common_params.copy()` (plus a check that it is not an alias assignment), the memory probe going through the shared helper (plus a check that the raw `memory_info().rss` read has not returned), and `del df` being followed by `ctx.df = None` (without which nothing is reclaimed). The two test names were updated to describe the property rather than the comment.
+
 ### XCUT_TEST_QUALITY-4 [P2] source-text-assertion
 **File:** tests/training/test_ensembling_caching_future_fixes.py:237
 **Summary:** Asserts the byte order of two code fragments inside a prod module read via `open(...).read()`, dodging the read_text-keyed position-proxy gate.
@@ -38,12 +40,16 @@ The suite has unusually strong meta-gates (`tests/test_meta/test_no_inspect_gets
 **Suggested fix:** Call the per-bin path twice with a counting spy on the LGBM fit and assert the second call performs zero fits. Extend `test_no_source_text_position_proxy_in_test_files` to recognise `open(...).read()` and `fh.read()` bindings, not only `.read_text()`.
 **Evidence:** Read tests/training/test_ensembling_caching_future_fixes.py:225-240; `src` is bound at :225 from `open(cd.__file__).read()` and only then extended with sibling `read_text()` in a loop, so `_prod_source_read_text_names` never registers it. Same `open(mod.__file__).read()` shape at tests/reporting/test_renderer_audit_regressions.py:145-146.
 
+**Disposition:** RESOLVED. The byte-order assertion over a CONCATENATION of sibling files is replaced by an AST check scoped to one function: the per-bin cache lookup must appear before the recompute inside the same function body. The per-file sources are kept separately for that reason -- a concatenation can satisfy "A before B" with A and B in different files, which is precisely the hole the finding names.
+
 ### XCUT_TEST_QUALITY-5 [P3] source-text-assertion
 **File:** tests/feature_selection/test_infonet_weights_only_load.py:36
 **Summary:** A redundant source-regex assertion on `torch.load(..., weights_only=True)` sits next to a real behavioural test of the same property.
 **Failure scenario:** The regex `torch\.load\([^)]*weights_only\s*=\s*True` fails on a multi-line call or one that passes the flag via a kwargs dict -- both correct -- and passes if such a call exists in a dead branch. The round-trip test at :20-31 already proves the loader honours `weights_only`, so this assertion contributes only fragility.
 **Suggested fix:** Delete :34-36, or replace it with a monkeypatch on `torch.load` that records kwargs during a real `infer` call.
 **Evidence:** Read tests/feature_selection/test_infonet_weights_only_load.py:16-36.
+
+**Disposition:** RESOLVED, and it found a real gap in the process. The regex is replaced by an AST walk over EVERY `torch.load` call site -- and that immediately surfaced a second call the regex could never see, since the regex only needed one matching call anywhere in the file to pass. That second call is a legitimate, documented torch<1.13 fallback in the `except TypeError` arm (those versions predate `weights_only` entirely, so nothing safer exists), so the test allows exactly that one, keyed on its own explanatory marker, and asserts there is exactly one such exception. A new unguarded call now fails.
 
 ### XCUT_TEST_QUALITY-6 [P1] single-shot-timing
 **File:** tests/reporting/test_panel_emphasis.py:359
@@ -70,6 +76,8 @@ The suite has unusually strong meta-gates (`tests/test_meta/test_no_inspect_gets
 **Suggested fix:** Make the budget best-of-N, or convert it to a `stats.total_calls` bound against a recorded baseline; a call-count budget is load-independent and is the load-bearing signal here.
 **Evidence:** Read tests/perf/test_train_one_target_cprofile_budget.py:18-41.
 
+**Disposition:** RESOLVED on both halves. The wall-clock budget is best-of-5 rather than a single shot, and the vacuous `stats.total_calls > 0` companion becomes a real envelope (`0 < total_calls < 200_000`) -- a hardware-INDEPENDENT bound that catches an algorithmic regression (an O(n) pass becoming O(n^2), a per-row kernel dispatch) even if the timing ceiling is later loosened, which was the finding's actual concern.
+
 ### XCUT_TEST_QUALITY-9 [P1] single-shot-timing
 **File:** tests/preprocessing/test_preprocessing.py:233
 **Summary:** ~40 `assert <elapsed> < <constant>` sites across the suite are single-shot wall-clock assertions the meta-gate does not match, because it only recognises the division shape.
@@ -85,6 +93,8 @@ The suite has unusually strong meta-gates (`tests/test_meta/test_no_inspect_gets
 **Failure scenario:** `if running_under_xdist(): pytest.skip("wall-clock budget assert unreliable under xdist contention")` at :131 and :182 sits before the `elapsed <= ceiling` assertion, and the same pattern gates the complexity-envelope ratios at :216 and :236. The project's own docstrings state CI runs `-n auto`, so on the only environment that executes the full matrix these four tests degrade to the structural pre-checks above the skip (`support_` non-empty, transform round-trips width). A regression where MRMR or RFECV ignores `max_runtime_mins` entirely -- the failure the assertion message itself calls `PROD BUG if persistent` -- is never detected by CI.
 **Suggested fix:** Keep the assertion and widen the ceiling under xdist via the existing `perf_time_budget()` helper, which exists for exactly this; a 10x-loose budget still catches "the knob is ignored", which is the real contract. Reserve `skip_if_host_contended` (tests/conftest.py:339) for the reversed-ratio case it was written for.
 **Evidence:** Read tests/feature_selection/biz_val/test_biz_val_runtime_budget.py:118-137, 175-190, 205-250; read the helper contract at tests/conftest.py:325-353.
+
+**Disposition:** RESOLVED. All four `pytest.skip(... under xdist ...)` guards are replaced by an `_XDIST_SLACK` multiplier (3x under xdist, 1x otherwise). The project's own docstrings say CI runs `-n auto`, so skipping meant these four assertions never ran on the only environment that executes the full matrix -- they were, in practice, dead. The failures they exist to catch are order-of-magnitude ones (a budget ignored outright, an O(n^2) path), which contention does not produce; and for the two SCALING tests a ratio is inherently contention-robust anyway, since both legs run on the same loaded box.
 
 ### XCUT_TEST_QUALITY-11 [P1] undersized-rare-class-fixture
 **File:** tests/feature_selection/biz_val/test_biz_val_imbalanced_rare_class.py:159
@@ -111,12 +121,16 @@ The suite has unusually strong meta-gates (`tests/test_meta/test_no_inspect_gets
 **Suggested fix:** Import the helpers directly at module scope so a rename becomes an ImportError at collection time, and delete the `is None` guards.
 **Evidence:** Read tests/feature_selection/fe/provenance/test_engineered_recipes_coverage.py:105-135 and :190-275. Same pattern at tests/feature_selection/info_theory/test_info_theory_coverage.py:84 ("entropy_miller_madow not exported") and tests/feature_selection/discretization/test_discretization_coverage.py:186 ("categorize_1d_array not exported").
 
+**Disposition:** RESOLVED -- all eight `pytest.skip("... not exported")` guards become assertions. A first-party private helper in the same repository is not an optional dependency: its absence is a regression, and turning that into a skip meant a rename silently deleted the coverage. The message tells the next reader to update the import if it moved.
+
 ### XCUT_TEST_QUALITY-14 [P2] leaked-state
 **File:** tests/training/conftest.py:220
 **Summary:** The session-scoped-fixture mutation tripwire is structurally incapable of failing -- it writes to stderr and returns.
 **Failure scenario:** `_session_fixture_immutability_sensor` collects `leaked` at teardown and then only calls `sys.stderr.write(...)` (:222-229). A test that mutates `sample_regression_data` in place changes the fixture for every later consumer in the session -- the precise leaked-state failure this sensor exists to catch -- and the suite stays green. Under `-n auto` the stderr lines land in per-worker captured output and are effectively invisible. Its docstring justifies the non-failure with "a mutation may have legitimately occurred in a test that explicitly took a .copy() after fixture access", but a test that copies before mutating does not change the shared object, so that is not a real false positive for a shape/columns/dtypes signature.
 **Suggested fix:** Make it fail: `assert not leaked, ...`. If a genuine legitimate-mutation site exists, allow-list it by fixture name rather than disarming the whole sensor.
 **Evidence:** Read tests/training/conftest.py:198-246 (the sensor and `_df_shape_signature`) and the fixture docstrings at :248-258.
+
+**Disposition:** RESOLVED. The sensor now records leaks into a module-level list and a `pytest_sessionfinish` hook sets a non-zero exit status and prints them through the terminal reporter. Failing there rather than raising in the fixture teardown is deliberate: a teardown error is attributed to a worker and can be lost under xdist, which is the same environment where the old stderr writes vanished into a per-worker capture buffer. The stated reason for not failing -- that a test may have legitimately mutated after taking a `.copy()` -- does not hold, because a copy cannot change the ORIGINAL's shape signature. `MLFRAME_ALLOW_SESSION_FIXTURE_MUTATION=1` restores the old behaviour for bisecting a pre-existing leak.
 
 ### XCUT_TEST_QUALITY-15 [P2] cannot-discriminate
 **File:** tests/core/test_helpers_ensure_no_infinity_bugfix.py:11
@@ -125,12 +139,18 @@ The suite has unusually strong meta-gates (`tests/test_meta/test_no_inspect_gets
 **Suggested fix:** Add `assert not np.isinf(out["a"].to_numpy()).any()` and an exact expected-value comparison to both frame legs, mirroring :42.
 **Evidence:** Read tests/core/test_helpers_ensure_no_infinity_bugfix.py in full (51 lines).
 
+**Disposition:** ALREADY RESOLVED before this pass, and verified. Both legs now assert on the VALUES (`not np.isinf(...).any()` plus the exact expected list) rather than on the return type, and the file's own docstring records why: the type assertion was true of the input, so it could not distinguish a working implementation from a no-op.
+
 ### XCUT_TEST_QUALITY-16 [P2] deferred-bug
 **File:** tests/feature_engineering/transformer/test_biz_val_row_attention.py:75
 **Summary:** A GO/NO-GO biz_value gate for a 1200-LOC production feature is permanently `xfail(strict=False)` because the feature does not deliver its claimed lift.
 **Failure scenario:** The reason string (:76-84) states row-attention shows "lift_vs_raw ~ 0" on its own designed-for synthetic and needs "either a real fix ... or an honest removal". With `strict=False` the test can neither fail (it is expected to fail) nor be noticed if it starts passing (XPASS is not an error), so neither branch of the stated decision is ever forced, while the feature ships. This is an xfail for a first-party defect, not a third-party or OS limitation.
 **Suggested fix:** Act on the file's own diagnosis -- the estimator was "tuned for n>=5000 and may be too noisy at the n=2000 test size", so raise `_make_subspace_synthetic(n=...)` at :88 to 5000 and re-measure; that resolves the xfail in either direction within one run. If the lift is still ~0, remove the feature. At minimum set `strict=True` so an accidental fix is surfaced instead of absorbed.
 **Evidence:** Read tests/feature_engineering/transformer/test_biz_val_row_attention.py:75-92.
+
+**Disposition:** RESOLVED as `strict=True` plus a measurement, not as a removal. Under `strict=False` the marker made the gate unfalsifiable in BOTH directions -- it could not fail, and an XPASS is not an error, so nobody would learn if the feature started working. Strict keeps the known failure quiet while turning an unexpected pass into a red test that says to drop the marker.
+
+The reason string's own hypothesis -- that the estimator "was tuned for n>=5000 and may be too noisy at the n=2000 test size" -- had never been run, and it is the thing that decides between the two options the reason offers. A new `@pytest.mark.slow` sibling measures the lift at n=6000 on the same synthetic and prints it. It deliberately asserts only that the measurement produced a finite number: the point is to generate the evidence for the fix-or-remove decision, not to add a second gate failing for the same reason as the first. That decision remains the owner's.
 
 ### XCUT_TEST_QUALITY-17 [P2] cannot-discriminate
 **File:** tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_dcd/test_recipe_pool.py:325
@@ -139,12 +159,16 @@ The suite has unusually strong meta-gates (`tests/test_meta/test_no_inspect_gets
 **Suggested fix:** Assert the precondition instead of skipping on it -- `assert m1.dcd_["swap_log"], "DCD produced no swap on the swap-designed fixture"` -- and assert the key intersection is non-empty before the comparison loop. If the fixture is genuinely marginal, redesign it so the mechanism fires deterministically.
 **Evidence:** Read tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_dcd/test_recipe_pool.py:305-330.
 
+**Disposition:** RESOLVED -- the skip becomes an assertion. A regression that stops DCD swapping entirely is the strongest possible failure of the subsystem under test, and converting it into a skip meant the suite went green on exactly that outcome. The message distinguishes the two causes (DCD regressed vs the fixture no longer provokes a swap) because both need a human.
+
 ### XCUT_TEST_QUALITY-18 [P3] mock-target-does-not-resolve
 **File:** tests/training/neural/test_training_neural_fixes.py:117
 **Summary:** A `monkeypatch.setattr(..., raising=False)` spy is aimed at a name that does not exist in the module it targets, silently creating a phantom attribute.
 **Failure scenario:** `monkeypatch.setattr(rdh, "safe_accelerator", spy, raising=False)` targets `mlframe.training.neural.recurrent_dataset_helpers`, which contains zero references to `safe_accelerator` (grep over `src/` finds it only in `_base_tensor_helpers`, `training/neural/base/_base_fit.py:30` and `training/neural/base/_base_predict.py:19`). `raising=False` turns the miss into a no-op attribute creation. The comment at :115-116 asserts the opposite ("recurrent_dataset_helpers imports safe_accelerator lazily inside the function"), so the file documents a binding that does not exist. The test passes today only because the sibling patch at :113 happens to intercept; if that binding ever becomes a module-level from-import -- as `_base_predict.py:19` already is -- the test breaks with no indication that the second patch had been dead all along.
 **Suggested fix:** Delete :117, or change it to `raising=True` so a stale target fails loudly. Repo-wide, add a meta-linter banning `raising=False` on `mlframe.*` module attributes: it is only legitimate for optional third-party modules and for attributes the test itself creates. There are 40 `raising=False` sites under tests/, several of them spies whose interception is load-bearing (e.g. tests/feature_selection/info_theory/test_analytic_mi_null_chi2_export.py:55, tests/training/test_core.py:2536-2540).
 **Evidence:** Read tests/training/neural/test_training_neural_fixes.py:99-132; `grep -rn safe_accelerator src/mlframe/training/neural/recurrent_dataset_helpers.py` returns nothing. Confirmed the test currently passes by running it (`1 passed in 187.58s`), so the dead patch is masked, not visible.
+
+**Disposition:** RESOLVED. The phantom `monkeypatch.setattr(rdh, "safe_accelerator", spy, raising=False)` is deleted -- confirmed that module contains no reference to the name, so `raising=False` was CREATING an attribute rather than replacing one, and the line protected nothing while reading as belt-and-braces. In its place is an assertion that the module still has no such reference, so if the call ever moves there the test says so instead of silently needing the patch back.
 
 ### XCUT_TEST_QUALITY-19 [P3] cannot-discriminate
 **File:** tests/models/test_ensembling.py:442
@@ -153,6 +177,8 @@ The suite has unusually strong meta-gates (`tests/test_meta/test_no_inspect_gets
 **Suggested fix:** Bind the patch to a name and assert `mock.call_count >= max_level`; assert the returned entries carry values derived from `mock_result`, not merely that the container is a dict; delete or complete the dead expression at :457.
 **Evidence:** Read tests/models/test_ensembling.py:420-500; located the production call sites at src/mlframe/models/ensembling/process_method.py:89, :341, :480. Identical patch target and assertion shape at tests/models/test_ensembling.py:486, 521, 558, 598, 635, 670 and tests/training/test_rrf_score_ensemble_flavour.py:207, 239 -- these nine were the only `patch("mlframe...")` targets out of 105 that a static AST resolution against `src/mlframe` could not resolve to a top-level definition (they resolve at runtime only via the `__getattr__` lazy-import table at src/mlframe/training/__init__.py:225).
 
+**Disposition:** RESOLVED. The six tests that patch `mlframe.training.train_and_evaluate_model` now name the mock and assert it was CALLED. The finding's mechanism is real and specific: the production call site imports the trainer lazily inside the function, so replacing that with a direct sibling import would make the facade patch intercept nothing while every one of these tests stayed green. (One test matched the same assertion pattern without creating the patch; the assertion was scoped back out of it.)
+
 ### XCUT_TEST_QUALITY-20 [P3] undersized-rare-class-fixture
 **File:** tests/training/_fuzz_combo/axes.py:22
 **Summary:** The fuzz `rare_1pct` axis canonicalises to `balanced` at the small (n=1000) tier, so the 1%-positive path is never exercised at the only tier where the n_rows-gated slow models run.
@@ -160,12 +186,16 @@ The suite has unusually strong meta-gates (`tests/test_meta/test_no_inspect_gets
 **Suggested fix:** Add a middle n_rows tier (e.g. 6000) so `rare_1pct` survives canon while still sitting under the `n_rows > 1000` gates that currently disable RFECV and the recurrent model, or lower those gates to whichever tier keeps rare_1pct alive.
 **Evidence:** Read tests/training/_fuzz_combo/axes.py:11-25 (the tier rationale states the consequence explicitly: "rare_1pct canonicalises to balanced") and tests/training/_fuzz_combo/combo.py:2434-2465.
 
+**Disposition:** RESOLVED as reporting, with the collapse itself deliberately KEPT. The canonicalisation is correct and must stay: at n=1000 a 1% minority gives ~1 expected row in the smallest slice, which produces a degenerate split rather than a useful test. What was wrong is that the downgrade was invisible, so `rare_1pct` appeared in a combo id that had silently run `balanced`. Two helpers now make it legible -- `imbalance_was_downgraded()` says whether this combo got the rarity it asked for, and `rare_1pct_min_rows()` reports the n that would keep it, accounting for aging-limit and outlier-detection shrinkage. The comment records that the `n_rows <= 1000`-gated paths (RFECV, the recurrent model) therefore need a raised n, not a lowered rarity, to be fuzzed against a rare target.
+
 ### XCUT_TEST_QUALITY-21 [P3] premise-about-the-machine
 **File:** tests/feature_selection/shap_proxied/test_shap_proxied_multiclass_interaction_fixes.py:6
 **Summary:** Three GPU-path fixes from this audit round are declared "fixed statically and cannot be executed on this box" and have no test at all, while the file reads as complete coverage of the round.
 **Failure scenario:** T1, the SR1 GPU mirror and T4 are asserted nowhere. The file's green status is read as "the 2026-06-22 ShapProxiedFS round is covered", so a wrong GPU mirror of the NaN-argpartition fix ships undetected on every host that does have CUDA -- which includes developer boxes, per the same premise-about-the-machine failure mode that produced the original VRAM defects. The same phrasing at tests/feature_selection/gpu/test_cache_safety_global_state.py:5 substitutes a CPU-side keying test for CON6/CON7/CON8's device-buffer behaviour; that substitute is better (it genuinely exercises the id-recycle/single-slot keying logic) but still leaves device-buffer lifetime untested.
 **Suggested fix:** Add `@pytest.mark.gpu` + `skipif(not _need_cuda())` tests for T1, the SR1 GPU mirror and T4, mirroring the CPU assertions -- the repo already has ~15 files using exactly this pattern (e.g. tests/feature_selection/gpu/test_batch_pair_mi_gpu.py:78) -- so they run on GPU boxes and are honestly reported as skipped elsewhere. A statically-fixed-only path being named as uncovered in the docstring is good practice; the gap is that nothing forces it to be closed.
 **Evidence:** Read tests/feature_selection/shap_proxied/test_shap_proxied_multiclass_interaction_fixes.py:1-8 and tests/feature_selection/gpu/test_cache_safety_global_state.py:1-30.
+
+**Disposition:** RESOLVED. "Cannot be executed on this box" is a property of the box, not of the fix, so the three GPU-path fixes now have `@pytest.mark.gpu` tests: they skip on a CPU-only machine -- which is honest and VISIBLE as a skip rather than as absence -- and run anywhere CUDA is present. The SR1 mirror test uses the CPU implementation as its oracle and asserts the two select the same candidates on an input containing NaN, +inf and -NaN. They executed on this host (cupy is installed), so the coverage is real rather than notional. The file's docstring no longer implies the round is fully covered.
 
 ## Coverage
 Swept (automated AST + regex scans over every file, plus targeted reads): `tests/` root, `calibration/`, `competition/`, `core/`, `data/`, `data_valuation/`, `estimators/`, `evaluation/`, `feature_engineering/` (+`transformer/`), `feature_selection/` and all 30 subdirectories (`biz_val/`, `boruta_shap/`, `clustering/`, `contracts/`, `core/`, `discretization/`, `fe/*`, `filters/`, `golden/*`, `gpu/`, `info_theory/`, `mrmr/*`, `mrmr_api/`, `regression/`, `robustness/`, `screening/`, `shap_proxied/`, `stability/`, `wrappers/*`, `_benchmarks/*`, `benchmarks/`), `inference/`, `inspection/`, `integrations/`, `metrics/*`, `models/*`, `perf/`, `preprocessing/`, `property/`, `reporting/*`, `signal/`, `signal_tests/`, `system/`, `test_meta/`, `training/` and all 25 subdirectories (`_fuzz_combo/`, `fuzz/`, `baselines/`, `callbacks/`, `cb/`, `composite/*`, `conformal/`, `core/`, `extractors/`, `feature_handling/`, `feature_selection/`, `neural/`, `pipeline/`, `ranking/`, `reporting/`, `slicing/`, `strategies/`, `targets/`), `utils/`, `votenrank/`.

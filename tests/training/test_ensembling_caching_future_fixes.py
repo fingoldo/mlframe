@@ -222,21 +222,45 @@ class TestENS_P2_5_CachedPerBin:
         import mlframe.training.composite.discovery as cd
 
         _dir = pathlib.Path(cd.__file__).resolve().parent
-        src = open(cd.__file__, encoding="utf-8").read()
+        # Keep the per-FILE texts, not just their concatenation: the order check below is a property of one
+        # function's body, and a concatenation can satisfy "A appears before B" with A and B in different files.
+        _sources = {pathlib.Path(cd.__file__): pathlib.Path(cd.__file__).read_text(encoding="utf-8")}
         for sibling in _dir.glob("*.py"):
             if sibling.name == "__init__.py":
                 continue
-            src += "\n" + sibling.read_text(encoding="utf-8")
+            _sources[sibling] = sibling.read_text(encoding="utf-8")
+        src = "\n".join(_sources.values())
         assert "_per_bin_first_pass" in src, "ENS-P2-5: the per-bin caching dict was removed/renamed; second pass will re-run the K-fold LGBM fits."
-        # The reuse branch must precede the recompute branch. Use a
-        # whitespace-tolerant regex because the 2026-05-21 composite_discovery
-        # monolith split changed the line indentation (top-level vs nested).
-        import re as _re
 
-        reuse_pos = src.index("cached_pb = _per_bin_first_pass.get")
-        m = _re.search(r"if isinstance\(result, tuple\):\s+_, per_bin = result", src)
-        assert m is not None, "recompute branch shape missing"
-        assert reuse_pos < m.start()
+        # The cache lookup must GUARD the recompute -- a relationship inside one function, checked on the AST.
+        # The byte-order assertion this replaces (`src.index(reuse) < re.search(recompute).start()`) held for
+        # any file where the two literals happened to appear in that order, including in two different
+        # functions or with the reuse branch behind a condition that never fires.
+        import ast as _ast
+
+        _checked = False
+        for _path, _text in _sources.items():
+            try:
+                _tree = _ast.parse(_text)
+            except SyntaxError:  # pragma: no cover - a sibling that is not importable is not our concern here
+                continue
+            for _fn in [n for n in _ast.walk(_tree) if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef))]:
+                _dump = _ast.dump(_fn)
+                if "_per_bin_first_pass" not in _dump or "per_bin" not in _dump:
+                    continue
+                _lookup_lines = [n.lineno for n in _ast.walk(_fn) if isinstance(n, _ast.Name) and n.id == "_per_bin_first_pass"]
+                _recompute_lines = [
+                    n.lineno
+                    for n in _ast.walk(_fn)
+                    if isinstance(n, _ast.Assign) and any(isinstance(t, _ast.Tuple) for t in n.targets) and "per_bin" in _ast.dump(n)
+                ]
+                if _lookup_lines and _recompute_lines:
+                    assert min(_lookup_lines) < min(_recompute_lines), (
+                        f"in {_path.name}:{_fn.name} the per-bin cache lookup does not precede the recompute, so the "
+                        "second pass re-runs the K-fold LGBM fits"
+                    )
+                    _checked = True
+        assert _checked, "no function containing both the per-bin cache lookup and the recompute was found; this test needs updating"
 
 
 # ---------------------------------------------------------------------------

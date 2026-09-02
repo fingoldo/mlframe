@@ -439,7 +439,7 @@ def test_score_ensemble_ensembling_levels(max_level):
     mock_result.test_preds = None
     mock_result.val_preds = None
 
-    with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result):
+    with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result) as _mock_train:
         result = score_ensemble(
             models_and_predictions=models,
             ensemble_name="test_ensemble",
@@ -453,6 +453,11 @@ def test_score_ensemble_ensembling_levels(max_level):
         )
 
     assert isinstance(result, dict)
+    # The patch must actually INTERCEPT. `isinstance(result, dict)` passes whether or not the ensembling path
+    # ever reached the trainer -- and the production call site imports it lazily
+    # (`from mlframe.training import train_and_evaluate_model` inside the function), so replacing that with a
+    # direct sibling import would make this facade patch intercept nothing while every test here stayed green.
+    assert _mock_train.called, "the ensembling path never called train_and_evaluate_model; the patch intercepted nothing"
     # Should have entries for each method and level
     max_level * 2  # 2 methods * max_level levels
     if max_level > 1:
@@ -483,7 +488,7 @@ def test_score_ensemble_regression_ensembling_levels(max_level):
     mock_result.test_preds = np.random.rand(50).astype(np.float32)
     mock_result.val_preds = np.random.rand(50).astype(np.float32)
 
-    with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result):
+    with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result) as _mock_train:
         result = score_ensemble(
             models_and_predictions=models,
             ensemble_name="test_regression",
@@ -497,6 +502,11 @@ def test_score_ensemble_regression_ensembling_levels(max_level):
         )
 
     assert isinstance(result, dict)
+    # The patch must actually INTERCEPT. `isinstance(result, dict)` passes whether or not the ensembling path
+    # ever reached the trainer -- and the production call site imports it lazily
+    # (`from mlframe.training import train_and_evaluate_model` inside the function), so replacing that with a
+    # direct sibling import would make this facade patch intercept nothing while every test here stayed green.
+    assert _mock_train.called, "the ensembling path never called train_and_evaluate_model; the patch intercepted nothing"
     assert len(result) >= max_level
 
 
@@ -518,7 +528,7 @@ def test_score_ensemble_level_labeling():
     mock_result.test_preds = None
     mock_result.val_preds = None
 
-    with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result):
+    with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result) as _mock_train:
         result = score_ensemble(
             models_and_predictions=models,
             ensemble_name="test",
@@ -555,7 +565,7 @@ def test_score_ensemble_uncertainty_quantile_values(uncertainty_quantile):
     mock_result.test_preds = None
     mock_result.val_preds = None
 
-    with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result):
+    with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result) as _mock_train:
         result = score_ensemble(
             models_and_predictions=models,
             ensemble_name="test",
@@ -569,6 +579,11 @@ def test_score_ensemble_uncertainty_quantile_values(uncertainty_quantile):
         )
 
     assert isinstance(result, dict)
+    # The patch must actually INTERCEPT. `isinstance(result, dict)` passes whether or not the ensembling path
+    # ever reached the trainer -- and the production call site imports it lazily
+    # (`from mlframe.training import train_and_evaluate_model` inside the function), so replacing that with a
+    # direct sibling import would make this facade patch intercept nothing while every test here stayed green.
+    assert _mock_train.called, "the ensembling path never called train_and_evaluate_model; the patch intercepted nothing"
     # With uncertainty_quantile > 0, we get additional "conf" entries
     if uncertainty_quantile > 0:
         assert any("conf" in key for key in result.keys())
@@ -595,7 +610,7 @@ def test_score_ensemble_mae_std_thresholds(max_mae, max_std):
     mock_result.test_preds = None
     mock_result.val_preds = None
 
-    with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result):
+    with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result) as _mock_train:
         result = score_ensemble(
             models_and_predictions=models,
             ensemble_name="test",
@@ -611,6 +626,11 @@ def test_score_ensemble_mae_std_thresholds(max_mae, max_std):
         )
 
     assert isinstance(result, dict)
+    # The patch must actually INTERCEPT. `isinstance(result, dict)` passes whether or not the ensembling path
+    # ever reached the trainer -- and the production call site imports it lazily
+    # (`from mlframe.training import train_and_evaluate_model` inside the function), so replacing that with a
+    # direct sibling import would make this facade patch intercept nothing while every test here stayed green.
+    assert _mock_train.called, "the ensembling path never called train_and_evaluate_model; the patch intercepted nothing"
 
 
 def test_score_ensemble_ensure_prob_limits():
@@ -632,7 +652,7 @@ def test_score_ensemble_ensure_prob_limits():
     mock_result.val_preds = None
 
     for ensure_limits in [True, False]:
-        with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result):
+        with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result) as _mock_train:
             result = score_ensemble(
                 models_and_predictions=models,
                 ensemble_name="test",
@@ -647,6 +667,11 @@ def test_score_ensemble_ensure_prob_limits():
             )
 
         assert isinstance(result, dict)
+    # The patch must actually INTERCEPT. `isinstance(result, dict)` passes whether or not the ensembling path
+    # ever reached the trainer -- and the production call site imports it lazily
+    # (`from mlframe.training import train_and_evaluate_model` inside the function), so replacing that with a
+    # direct sibling import would make this facade patch intercept nothing while every test here stayed green.
+    assert _mock_train.called, "the ensembling path never called train_and_evaluate_model; the patch intercepted nothing"
 
 
 def test_score_ensemble_normalize_stds_by_mean_preds():
@@ -667,7 +692,7 @@ def test_score_ensemble_normalize_stds_by_mean_preds():
     mock_result.test_preds = None
     mock_result.val_preds = None
 
-    with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result):
+    with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result) as _mock_train:
         result = score_ensemble(
             models_and_predictions=models,
             ensemble_name="test",
@@ -682,3 +707,8 @@ def test_score_ensemble_normalize_stds_by_mean_preds():
         )
 
     assert isinstance(result, dict)
+    # The patch must actually INTERCEPT. `isinstance(result, dict)` passes whether or not the ensembling path
+    # ever reached the trainer -- and the production call site imports it lazily
+    # (`from mlframe.training import train_and_evaluate_model` inside the function), so replacing that with a
+    # direct sibling import would make this facade patch intercept nothing while every test here stayed green.
+    assert _mock_train.called, "the ensembling path never called train_and_evaluate_model; the patch intercepted nothing"

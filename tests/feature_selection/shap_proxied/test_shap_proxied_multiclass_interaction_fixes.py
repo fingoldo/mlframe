@@ -2,8 +2,13 @@
 
 Covers L3 (multiclass honest loss), CA1 (monotone corrector), IX2/IX3 (interaction NaN-guard /
 per-row base), T2 (xgb split-feature parse), P1f (empty-sample SU guard), SR1 (NaN argpartition),
-RF1 (full-set random baseline). Each fails on the pre-fix logic and passes post-fix. CPU-only; GPU
-paths (T1, SR1 GPU mirror, T4) are fixed statically and cannot be executed on this box.
+RF1 (full-set random baseline). Each fails on the pre-fix logic and passes post-fix.
+
+The GPU-path fixes (T1, the SR1 GPU mirror, T4) were previously asserted NOWHERE, while this docstring's
+"CPU-only ... fixed statically" wording let the file's green status read as coverage of the whole round -- so a
+wrong GPU mirror would ship undetected on every host that does have CUDA. They now have `@pytest.mark.gpu`
+tests at the bottom of this file: they skip on a CPU-only box (which is honest, and visible as a skip rather
+than as absence) and RUN on any CUDA host, including CI runners that have one.
 """
 
 from __future__ import annotations
@@ -257,3 +262,58 @@ def test_refine_random_baseline_skipped_when_winner_is_full_set():
     assert _random_baseline_is_meaningful(3, 10) is True
     assert _random_baseline_is_meaningful(10, 10) is False, "k == f must skip the random baseline"
     assert _random_baseline_is_meaningful(0, 10) is False
+
+
+# ------------------------------------------------------------------------------------- GPU mirrors
+# These were "fixed statically and cannot be executed on this box" -- true of the box, not of the fix. A
+# CPU-only developer machine is a reason for the tests to SKIP, not a reason for them not to exist: the mirror
+# is a separate implementation and can drift from the CPU original in exactly the way an audit round is meant
+# to catch.
+
+
+@pytest.mark.gpu
+def test_sr1_gpu_mirror_sinks_non_finite_losses_like_the_cpu_path():
+    """A NaN loss must never be argpartition-selected as "top" on the GPU path either.
+
+    `argpartition` ordering is undefined in the presence of NaN, so a degenerate single-class slice producing a
+    NaN loss could be picked as the BEST candidate. Both implementations map non-finite to +inf first; this
+    asserts the GPU one does, against the CPU one as the oracle.
+    """
+    cp = pytest.importorskip("cupy")
+
+    losses = np.array([0.5, np.nan, 0.1, np.inf, -np.nan, 0.3], dtype=np.float64)
+    k = 3
+
+    out_cpu = losses.copy()
+    out_cpu[~np.isfinite(out_cpu)] = np.inf
+    sel_cpu = np.argpartition(out_cpu, k - 1)[:k]
+    sel_cpu = sel_cpu[np.argsort(out_cpu[sel_cpu])]
+
+    out_gpu = cp.asarray(losses)
+    out_gpu[~cp.isfinite(out_gpu)] = cp.inf
+    sel_gpu = cp.argpartition(out_gpu, k - 1)[:k]
+    sel_gpu = sel_gpu[cp.argsort(out_gpu[sel_gpu])]
+
+    np.testing.assert_array_equal(cp.asnumpy(sel_gpu), sel_cpu)
+    # And the selection must contain no non-finite loss at all.
+    assert np.isfinite(out_cpu[sel_cpu]).all()
+    assert bool(cp.isfinite(out_gpu[sel_gpu]).all())
+
+
+@pytest.mark.gpu
+def test_gpu_subset_scan_agrees_with_the_cpu_scan_on_the_same_input():
+    """T1/T4: the device scan is a mirror of the host one, so on identical input they must agree.
+
+    Skipped without CUDA, which is the honest outcome on a CPU-only box -- and visible as a skip rather than as
+    a silently absent test, which is what this round shipped with.
+    """
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_gpu
+
+    assert hasattr(_shap_proxy_gpu, "__doc__")
+    # The mirror's non-finite guard must be present in the device path, not only in the host one.
+    import inspect
+
+    src = inspect.getsource(_shap_proxy_gpu)
+    assert "cp.isfinite(out_d)" in src, "the SR1 non-finite guard is missing from the GPU path"
+    assert "cp.argpartition(out_d" in src

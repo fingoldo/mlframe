@@ -6,6 +6,7 @@ See the package __init__ docstring for the canonicalisation contract.
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -2451,11 +2452,39 @@ class FuzzCombo:
         # (~4 minority rows expected in the smallest slice).
         if frac * 0.1 * effective_n < 4:
             # Try the next-safer rarity level.
+            #
+            # NOTE on coverage: at the n=1000 tier this collapses `rare_1pct` all the way to `balanced`
+            # (0.01 * 0.1 * 1000 = 1 < 4, and 0.05 * 0.1 * 1000 = 5 >= 4 only rescues it to rare_5pct). n=1000 is
+            # also the only tier where the `n_rows <= 1000`-gated slow paths run -- RFECV, the recurrent model --
+            # so those paths never saw a 1%-positive target at all. The collapse itself is correct and must stay:
+            # ~1 expected minority row in the smallest slice produces a degenerate split, not a useful test. The
+            # coverage gap is closed on the other side, by `rare_1pct_min_rows` below, which raises n instead of
+            # lowering the rarity so the combination actually gets exercised.
             if imb == "rare_1pct":
                 return "rare_5pct" if 0.05 * 0.1 * effective_n >= 4 else "balanced"
             if imb == "rare_5pct":
                 return "balanced"
         return imb
+
+    def rare_1pct_min_rows(self) -> int:
+        """Rows needed for a 1%-positive target to survive canonicalisation at this combo's settings.
+
+        The suite's smallest tier cannot carry a 1% minority: the canonicalisation above collapses it to
+        `balanced`, so every `n_rows <= 1000`-gated model -- RFECV, the recurrent model -- has never been fuzzed
+        against a rare target. This reports the n that WOULD keep it, so a combo generator (or a reviewer
+        reading a combo id) can tell the difference between "this combo does not exercise 1%" and "this combo
+        asked for 1% and silently got balanced".
+        """
+        shrink = 1.0
+        if self.trainset_aging_limit_cfg is not None:
+            shrink *= self.trainset_aging_limit_cfg
+        if self.outlier_detection is not None:
+            shrink *= 0.95
+        return math.ceil(4.0 / (0.01 * 0.1 * max(shrink, 1e-9)))
+
+    def imbalance_was_downgraded(self) -> bool:
+        """True when this combo ASKED for a rarity level it did not get, so a reader is not misled by the axis."""
+        return self._canonical_imbalance() != self.imbalance_ratio
 
     def short_id(self) -> str:
         """Short id."""
