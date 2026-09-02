@@ -29,6 +29,13 @@ Detector, per test function, flagging when ANY holds:
   5. an imperative `pytest.xfail(...)` call.
 
 Fixture-only helpers, `conftest.py` and parametrised-skip scaffolding are excluded by the `test_*` name gate.
+
+Kept as a local scanner even though the same logic now ships centrally as
+`pyutilz.dev.code_audit.scan_nondiscriminating_test_functions`: the shared ratchet in
+`test_code_audit_baseline.py` is rooted at the mlframe PACKAGE directory, so it cannot see `tests/` at all --
+and `tests/` is the only place this check has anything to say. The two sibling classes distilled from the same
+audit (additive-epsilon denominators, non-neutral except fallbacks) apply to the package and ARE covered by
+that shared ratchet, so their local copies were retired rather than maintained twice.
 Baseline-diffed -- 24k functions cannot be fixed at once, and the value is in stopping NEW ones. Refresh with
 ``--refresh-nondiscriminating-assert-baseline`` after reviewing a finding.
 """
