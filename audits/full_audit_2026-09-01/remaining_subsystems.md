@@ -101,6 +101,8 @@ sites already pass `step` explicitly, so that part is behaviour-preserving for t
 **Evidence:** `_helpers.py:386` signature `step: str = "auto"` vs the docstring at 388-392; call sites at 265-272
 (threads step) and 273-279 (does not); delegate at 460; `_suggest_scipy_global = _suggest_scipy_local` at 466.
 
+**Disposition:** RESOLVED -- `step` is forwarded to `_suggest_dichotomic` and added to the signature, so `dichotomic_step` reaches the delegate under both scipy search methods (`_suggest_scipy_global` is an alias of the same function, so it is fixed by the same change). `tests/test_remaining_subsystems_contracts.py`.
+
 ### REMAINING_SUBSYSTEMS-5 [P2] train-serve-percentile-skew
 **File:** src/mlframe/votenrank/rank_percentile_stacking.py:98
 **Summary:** In the default (hard) mode the test-side percentile is offset by exactly `+0.5/n_oof` relative to the
@@ -118,6 +120,8 @@ midpoint matching `(rankdata - 0.5)`, so `test_percentile = test_rank / n_oof` m
 percentile. Add a unit test asserting `rank_percentile_transform(x, x)[0] == rank_percentile_transform(x, x)[1]`.
 **Evidence:** lines 86 (`(oof_ranks - 0.5) / n_oof`) and 93-99 (`test_rank = (left + right) / 2.0`, then
 `(test_rank + 0.5) / n_oof`); the docstring at lines 60-64 promises both are on "the same [0, 1] scale".
+
+**Disposition:** RESOLVED, and the correct formula is `test_rank / n_oof`, not the `- 0.5` the offset might suggest. The root cause is a one-based/zero-based mismatch: `rankdata` returns ONE-based ranks so the OOF value at sorted position i gets `(i + 1 - 0.5)/n = (i + 0.5)/n`, while `searchsorted` returns ZERO-based positions so an equal test value gets `test_rank = i + 0.5`. Dividing that by n reproduces the OOF percentile exactly. Verified numerically: transforming the OOF set as if it were the test set now gives a max absolute difference of exactly 0.0, on distinct values AND with 4x ties (the tied case works out too -- a value duplicated at positions i and i+1 has OOF percentile (i+1)/n, and left=i / right=i+2 gives test_rank = i+1). `tests/test_remaining_subsystems_contracts.py` pins the old +0.5/n offset so the fix cannot be undone silently.
 
 ### REMAINING_SUBSYSTEMS-6 [P2] safety-check-inert-by-construction
 **File:** src/mlframe/feature_selection/drop_raw_after_embedding.py:47
@@ -138,6 +142,8 @@ minimally -- document the bias explicitly in the `verify_against` parameter docs
 **Evidence:** `_raw_column_signal` lines 40-52 (`groupby(col).transform("mean")` over the full `y`); the comparison
 at lines 129-134; the docstring at lines 84-92 describing the check as a symmetric signal-retention ratio.
 
+**Disposition:** RESOLVED. `_raw_column_signal` encodes categoricals OUT-OF-FOLD (5 folds, prior fill for unseen codes) instead of in-sample. The finding is exactly right about why this mattered: with ~4 rows per group -- the high-cardinality regime this module exists to serve -- an in-sample group mean largely reproduces y, so `raw_signal` approached its ceiling and the `verify_against` gate could never clear the raw column, making a safety check inert precisely where it was needed. Measured on a 4000-row fixture with ~4 rows per id and a target independent of it: the out-of-fold signal is strictly below the in-sample one. A genuinely predictive column still scores above 0.5. `tests/test_remaining_subsystems_contracts.py`.
+
 ### REMAINING_SUBSYSTEMS-7 [P2] non-idempotent-get-or-create
 **File:** src/mlframe/integrations/mlflow.py:116
 **Summary:** `get_or_create_mlflow_run` accepts `experiment_id` and forwards it to `start_run`, but the lookup
@@ -156,6 +162,8 @@ and docstring promise never holds for the `experiment_id`-only calling conventio
 term) vs line 135 (`mlflow.start_run(..., experiment_id=experiment_id, ...)`); the docstring at 101-103 states
 "Tries to find a run by name within current mlflow experiment. If not found, creates new one."
 
+**Disposition:** RESOLVED -- the lookup scopes by `experiment_ids` when `experiment_id` is given, by `experiment_names` when only the name is, and unscoped otherwise. `experiment_id` was accepted and forwarded to `start_run` while the search silently used the currently-ACTIVE experiment, so the "get" half never found the run it had just created and the function produced a duplicate on every call -- the one behaviour a get-or-create must not have. `tests/test_remaining_subsystems_contracts.py`.
+
 ### REMAINING_SUBSYSTEMS-8 [P2] docstring-promises-unimplemented-stop-rule
 **File:** src/mlframe/feature_selection/zero_importance_pruning.py:54
 **Summary:** The function own summary line says the loop stops on CV degradation; the module docstring and the code
@@ -171,6 +179,8 @@ round is not a stop signal)."
 **Evidence:** line 54 vs the module docstring lines 8-14 ("It does NOT stop early on a degrading round - every
 round `candidate_remaining` becomes the new working set regardless of its CV score") and the unconditional
 assignment at line 121.
+
+**Disposition:** RESOLVED as documentation, and deliberately NOT by adding the stop rule. The loop's actual behaviour is defensible -- a round that hurts CV can still be a step toward a better set, and the `best_remaining` bookkeeping means a bad detour costs time rather than quality -- so the summary line was corrected to describe it, including why, rather than changing working search behaviour to match a one-line summary that contradicted both the module docstring and the code. `tests/test_remaining_subsystems_contracts.py`.
 
 ### REMAINING_SUBSYSTEMS-9 [P2] docstring-promises-unimplemented-stderr
 **File:** src/mlframe/votenrank/shapley_blend.py:87
@@ -189,6 +199,8 @@ document at line 87 exactly what it is.
 **Evidence:** line 87 docstring; `_analytic_stderr_proxy` at lines 180-182 (`np.abs(values) /
 np.sqrt(max(n_permutations, 1)) + 1e-12`); wiring at lines 133-134.
 
+**Disposition:** RESOLVED as documentation. The docstring now says `stderr` is an ANALYTIC PROXY, `|value| / sqrt(n_permutations)`, states that it is not a sampled standard error, and spells out the consequence the finding identifies: because the proxy is proportional to `|value|`, every model's `value / stderr` ratio is exactly `sqrt(n_permutations)`, so a "value must exceed 2 stderr" pruning rule either keeps everything or keeps nothing and can never discriminate. It also says what to do instead (resample the permutations and take the spread). Computing a real standard error would change the function's cost profile and is a design decision, not an audit fix. `tests/test_remaining_subsystems_contracts.py`.
+
 ### REMAINING_SUBSYSTEMS-10 [P2] unseeded-default-permutation-rng
 **File:** src/mlframe/votenrank/shapley_blend.py:110
 **Summary:** With the default `rng=None`, `shapley_model_values` seeds from OS entropy, so both the coalition
@@ -205,6 +217,8 @@ emit a one-time `logger.warning` at lines 109-110 stating the run is not reprodu
 **Evidence:** lines 109-110; consumption at 113 (`rng.choice`) and 150 (`rng.permutation`); sibling defaults at
 `hill_climb.py:92`, `constrained_weight_blend.py:96`, `adversarial_stochastic_blend.py:93`.
 
+**Disposition:** RESOLVED by seeding the default. `rng=None` drew from OS entropy, so both the coalition permutation order and the `score_subsample` row draw differed run to run and two calls on identical inputs returned different Shapley values -- which anything pruning the pool on those values inherited. A caller wanting fresh randomness passes their own generator, which is explicit; a caller passing nothing almost always wants the same answer twice. `tests/test_remaining_subsystems_contracts.py` asserts both directions.
+
 ### REMAINING_SUBSYSTEMS-11 [P3] doc-says-env-checked-first
 **File:** src/mlframe/votenrank/confidence_gated_blend.py:191
 **Summary:** The `force_backend` docstring says the env var `MLFRAME_CONFIDENCE_BLEND_BACKEND` is "checked first",
@@ -219,6 +233,8 @@ force_backend`, or reword line 129 to "`force_backend` takes precedence; otherwi
 the KTC dispatch". Separately, validate `force_backend` against the four known names and raise `ValueError` on a
 typo instead of silently selecting numpy.
 **Evidence:** docstring lines 127-129; code lines 190-196; branch chain 198-207.
+
+**Disposition:** RESOLVED by correcting the DOCSTRING, not the precedence. Precedence had to go one way; an explicit argument beating ambient configuration is the conventional direction, and reversing it would let an env var silently override a deliberate in-code choice. What was wrong is only that the docstring claimed the opposite of what the code does. `tests/test_remaining_subsystems_contracts.py`.
 
 ### REMAINING_SUBSYSTEMS-12 [P3] init-reexports-nothing-imports
 **File:** src/mlframe/votenrank/__init__.py:6
@@ -238,6 +254,8 @@ is paid only when a name is actually touched.
 **Evidence:** `votenrank/__init__.py` lines 5-17 (15 `from .x import y` lines, no `__all__`); a repo-wide grep for
 `from mlframe.votenrank import` returns only `Leaderboard`.
 
+**Disposition:** RESOLVED by making the re-exports LAZY (PEP 562) with an explicit `__all__`, rather than by deleting them. A name unused inside this repository may still be someone's public entry point, so nothing is removed -- but importing `mlframe.votenrank` no longer pulls fifteen submodules and their transitive scipy/sklearn/numba dependencies when, as the finding notes, only `Leaderboard` is reached through the package at all. `__dir__` is overridden so the names stay discoverable, a `TYPE_CHECKING` block keeps static analysis working, and an unknown attribute still raises `AttributeError`. Verified all sixteen names resolve. `tests/test_remaining_subsystems_contracts.py`.
+
 ### REMAINING_SUBSYSTEMS-13 [P3] relative-tol-applied-absolutely
 **File:** src/mlframe/feature_selection/ridge_forward_prefilter.py:126
 **Summary:** `tol` is documented as a "Max ALLOWED relative drop from the best observed CV score" but is subtracted
@@ -252,6 +270,8 @@ intended relative `-2.02`), and at `best_score = 0.02` the absolute floor `0.01`
 abs(best_score)`) or change the `tol` docstring at lines 71-73 to say "absolute drop, in scorer units".
 **Evidence:** docstring lines 71-73; comparison at line 126.
 
+**Disposition:** RESOLVED -- the floor is `best_score - abs(best_score) * tol`, which is the relative drop the docstring documents. Guarded with `abs()` so a negative best score (a worse-than-mean r2) does not invert the inequality. `tests/test_remaining_subsystems_contracts.py`.
+
 ### REMAINING_SUBSYSTEMS-14 [P3] max-features-off-by-initial-selected
 **File:** src/mlframe/feature_selection/forward_select.py:128
 **Summary:** With `initial_selected` supplied, the loop cap is `max_features + len(initial_selected)`, so the
@@ -264,6 +284,8 @@ returned subset can exceed the documented "stop once the selected subset reaches
 **Suggested fix:** state the intent explicitly in the docstring ("`max_features` counts greedily-ADDED candidates,
 excluding `initial_selected`") or change line 128 so the cap bounds the whole returned list.
 **Evidence:** line 128; docstring lines 63-64 and the Returns block at lines 96-98.
+
+**Disposition:** RESOLVED -- `max_features` is the size of the RETURNED subset, which is what its own docstring says and what the Returns section describes. The `+ len(selected)` is gone. `tests/test_remaining_subsystems_contracts.py`.
 
 ### REMAINING_SUBSYSTEMS-15 [P3] assert-as-control-flow
 **File:** src/mlframe/votenrank/constrained_weight_blend.py:56
@@ -285,6 +307,8 @@ for `correlation_diversity_ablation`, reindex `corr_matrix` by `corr_names` inst
 **Evidence:** `constrained_weight_blend.py` lines 44-58; `geometric_weight_blend.py:105,128`;
 `correlation_diversity_ablation.py:128`; `tests/training/test_audit_assert_in_production.py:1-17`.
 
+**Disposition:** RESOLVED -- a `ValueError` naming the cause replaces the bare `assert`. Under `python -O` the assertion vanished entirely and the function returned `None`, so the caller crashed far from the cause; and even with assertions on, a bare `AssertionError` said nothing. The message states what every restart failing actually means (the objective never returned a finite loss, typically a NaN reaching `log_loss`) and what to check. `tests/test_remaining_subsystems_contracts.py`.
+
 ### REMAINING_SUBSYSTEMS-16 [P3] interior-nan-destroys-suffix
 **File:** src/mlframe/signal/hull_moving_average.py:30
 **Summary:** `_cumsum_with_prefix` skips only the *leading* NaN run; a single interior NaN propagates through
@@ -302,6 +326,8 @@ alongside a cumulative valid-count, and emit NaN only where a window valid count
 **Evidence:** `_cumsum_with_prefix` lines 25-31 (the `while np.isnan(x[first_valid])` loop only advances over the
 prefix); `_sma_from_cumsum` lines 44-46; the docstring claim at lines 80-83.
 
+**Disposition:** RESOLVED by RAISING, deliberately not by imputing. The finding is right that one interior NaN voided the whole suffix -- a single missing tick at index 500 of a 100k-row series returned NaN for 99.5% of the output. But every possible repair (forward-fill, interpolate, drop) changes what the indicator MEANS, and that is the caller's decision, not something to make silently inside a cumulative-sum helper. The error names the count and the first offending indices so the caller can act. A leading NaN run is still tolerated, as before. `tests/test_remaining_subsystems_contracts.py`.
+
 ### REMAINING_SUBSYSTEMS-17 [P3] default-via-or-on-fraction
 **File:** src/mlframe/feature_selection/boruta_shap/_fit_explain.py:157
 **Summary:** `float(getattr(self, "stability_subsample_fraction", 0.75) or 0.75)` silently substitutes the default
@@ -318,6 +344,8 @@ which already does exactly this for `stability_threshold`. Validate the result i
 **Evidence:** line 157 vs the correct None-check idiom at lines 158-159; consumption at line 165
 (`size = min(n, max(10, round(frac * n)))`).
 
+**Disposition:** RESOLVED -- `is None` instead of `or`, so an explicitly-set `0.0` reaches the `max(10, ...)` floor the following lines establish rather than being silently replaced by 0.75. `tests/test_remaining_subsystems_contracts.py`.
+
 ### REMAINING_SUBSYSTEMS-18 [P3] zero-variance-breakpoint-kept
 **File:** src/mlframe/signal/changepoint_detection.py:101
 **Summary:** When both sides of a candidate breakpoint have zero variance the effect size is set to `np.inf`, so a
@@ -333,6 +361,8 @@ verdict for `mean_left == mean_right` with zero spread is effect size `0`.
 **Evidence:** lines 100-102; the `min_effect_size` docstring at lines 47-50 ("filters out statistically-detected but
 practically-negligible breaks").
 
+**Disposition:** RESOLVED, splitting the zero-variance case in two. Both sides constant AND equal means the segments are literally the same value, so the effect size is 0 and the cut is rejected; both sides constant but DIFFERENT is a genuine step and keeps `inf`. Returning `inf` unconditionally meant a spurious breakpoint inside a constant run always survived the min-effect gate, which is the opposite of the right answer. `tests/test_remaining_subsystems_contracts.py` covers both directions.
+
 ### REMAINING_SUBSYSTEMS-19 [P3] docstring-describes-absent-guard
 **File:** src/mlframe/competition/known_label_override.py:139
 **Summary:** The `known_label_override` docstring says the positive-direction override applies only when the
@@ -346,6 +376,8 @@ expect their own high-confidence predictions to be overwritten by the (noisier) 
 **Suggested fix:** delete the parenthetical from the docstring (lines 137-141), or implement it -- skip the write
 when `preds_arr[idx]` is already on the correct side of the midpoint.
 **Evidence:** docstring lines 137-141; the loop body at lines 158-166 has no such check.
+
+**Disposition:** RESOLVED as documentation. Writing `positive_value` unconditionally is correct for the stated use -- on a rank-only competition metric the difference between 0.997 and 1.0 is exactly what the override is for -- so the docstring was corrected to describe the unconditional write rather than the "already >= positive threshold" guard the code has never had. `tests/test_remaining_subsystems_contracts.py`.
 
 ## Coverage
 

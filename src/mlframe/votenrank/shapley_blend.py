@@ -10,7 +10,7 @@ removes the leave-one-out blind spot. Pruning by Shapley~=0 is therefore stable 
 
 Cost model: the permutation estimator evaluates ``n_permutations * n_models`` coalition marginals, each
 an ``O(n_rows)`` blend + ``score_fn`` call (AUC's sort dominates at large ``n_rows`` -- use
-``score_subsample`` to cap it). Guidance: ``n_permutations >= 10 * n_models`` for stable per-model stderr.
+``score_subsample`` to cap it). Guidance: ``n_permutations >= 10 * n_models`` for stable per-model values.
 """
 
 from __future__ import annotations
@@ -21,6 +21,10 @@ from typing import Callable, Optional
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+# Reproducibility by default: see the `rng is None` branch below for why this is a fixed value
+# rather than OS entropy.
+_DEFAULT_SHAPLEY_SEED = 0
 
 
 def _default_score_fn(y: np.ndarray, blended: np.ndarray) -> float:
@@ -84,7 +88,14 @@ def shapley_model_values(
     scores on large pools; document to callers that this trades a small amount of estimate variance for
     speed. ``None`` disables subsampling.
 
-    Returns ``(values, info)`` with ``info`` holding ``stderr`` (per-model, two-branch running stats),
+    Returns ``(values, info)`` with ``info`` holding ``stderr`` -- which is an ANALYTIC PROXY,
+    ``|value| / sqrt(n_permutations)``, and NOT a sampled standard error despite the name. It was documented as
+    "per-model, two-branch running stats", which it has never been. The distinction matters for the obvious use:
+    because the proxy is proportional to ``|value|``, every model's ``value / stderr`` ratio is exactly
+    ``sqrt(n_permutations)`` regardless of how noisy that model's marginal contributions actually were, so a
+    "keep it if the value exceeds 2 stderr" pruning rule either keeps everything or keeps nothing and can never
+    discriminate between a stable contributor and a lucky one. Use it as a scale hint only; for a real
+    significance test, resample the permutations and take the spread of the resulting values.
     ``n_evals``, ``v_full``, ``v_empty``.
     """
     preds = np.ascontiguousarray(preds, dtype=np.float64)
@@ -107,7 +118,12 @@ def shapley_model_values(
                 _card,
             )
     if rng is None:
-        rng = np.random.default_rng()
+        # A FIXED default seed, not OS entropy. With `rng=None` both the coalition permutation order and the
+        # `score_subsample` row draw differed run to run, so two calls on identical inputs returned different
+        # Shapley values -- and anything downstream that prunes the pool on those values inherited the
+        # irreproducibility. A caller who wants fresh randomness passes their own generator, which is explicit;
+        # a caller who passes nothing almost always wants the same answer twice.
+        rng = np.random.default_rng(_DEFAULT_SHAPLEY_SEED)
 
     if score_subsample is not None and n_rows > score_subsample:
         sub_idx = rng.choice(n_rows, size=score_subsample, replace=False)

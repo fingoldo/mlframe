@@ -27,6 +27,21 @@ def _cumsum_with_prefix(x: np.ndarray) -> tuple[np.ndarray, int, int]:
         first_valid += 1
     valid = x[first_valid:]
     n_valid = valid.shape[0]
+    if np.isnan(valid).any():
+        # An INTERIOR NaN used to propagate through `np.cumsum` and turn every later value into NaN -- one
+        # missing tick at index 500 of a 100k-row close series returned NaN for indices 500..99,999, i.e. 99.5%
+        # of the output, from a single absent point. Only the LEADING NaN run was ever handled.
+        #
+        # Raising rather than silently imputing: this is a moving average of a price series, and any fill (last
+        # value, interpolation, dropping the row) changes what the indicator MEANS, which is the caller's
+        # decision and not something to make quietly inside a cumsum helper. The message names the positions so
+        # the caller can act.
+        _bad = np.flatnonzero(np.isnan(valid))[:5] + first_valid
+        raise ValueError(
+            f"hull_moving_average: the input contains {int(np.isnan(valid).sum())} interior NaN(s) (first at "
+            f"index/indices {_bad.tolist()}). A cumulative-sum moving average cannot skip them -- one NaN would "
+            "make every later output NaN. Forward-fill, interpolate or drop them first, as suits the series."
+        )
     cumsum = np.concatenate([[0.0], np.cumsum(valid)])
     return cumsum, first_valid, n_valid
 

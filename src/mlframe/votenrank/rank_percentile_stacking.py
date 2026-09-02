@@ -95,7 +95,14 @@ def rank_percentile_transform(
     left = np.searchsorted(sorted_oof, test_pred, side="left")
     right = np.searchsorted(sorted_oof, test_pred, side="right")
     test_rank = (left + right) / 2.0
-    test_percentile = (test_rank + 0.5) / n_oof
+    # `test_rank / n_oof`, which lands a test value on EXACTLY the OOF percentile of an equal OOF value.
+    # `rankdata` is ONE-based, so the OOF value at sorted position i (0-based) has rank i+1 and percentile
+    # (i + 1 - 0.5)/n = (i + 0.5)/n. `searchsorted` is ZERO-based: an equal test value gets left=i, right=i+1,
+    # so test_rank = i + 0.5 and `test_rank / n` reproduces (i + 0.5)/n. The old `(test_rank + 0.5)/n` gave
+    # (i + 1)/n -- offset by exactly +0.5/n_oof, so the meta-learner was trained on one percentile scale and
+    # applied to another. Ties work out too: a value duplicated at sorted positions i and i+1 has OOF percentile
+    # (i + 1)/n, and left=i / right=i+2 gives test_rank = i + 1.
+    test_percentile = test_rank / n_oof
     test_percentile = np.clip(test_percentile, 0.0, 1.0)
 
     return oof_percentile, test_percentile

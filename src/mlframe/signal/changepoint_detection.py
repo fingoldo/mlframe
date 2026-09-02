@@ -98,7 +98,16 @@ def detect_regime_changepoints(
         left_segment = y[prev_start:bp]
         right_segment = y[bp:next_start]
         pooled_std = np.sqrt((np.var(left_segment, ddof=1) + np.var(right_segment, ddof=1)) / 2.0)
-        effect_size = abs(np.mean(right_segment) - np.mean(left_segment)) / pooled_std if pooled_std > 0 else np.inf
+        _mean_delta = abs(np.mean(right_segment) - np.mean(left_segment))
+        # Zero pooled variance means BOTH sides are constant, and that splits two ways. If their means are also
+        # equal the segments are literally the same value, so the cut is spurious and the effect size is 0 --
+        # returning inf unconditionally meant a breakpoint inside a constant run ALWAYS survived the
+        # min-effect gate, which is the opposite of the right answer. Only a genuine step between two DIFFERENT
+        # constants is an infinitely clear change.
+        if pooled_std > 0:
+            effect_size = _mean_delta / pooled_std
+        else:
+            effect_size = np.inf if _mean_delta > 0 else 0.0
         if effect_size >= min_effect_size:
             filtered_breakpoints.append(bp)
             prev_start = bp

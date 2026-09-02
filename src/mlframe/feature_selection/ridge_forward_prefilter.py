@@ -122,8 +122,15 @@ def ridge_coefficient_prefilter(
         size_scores[size] = score
         best_score = max(best_score, score)
 
+    # RELATIVE, as documented ("max allowed relative drop from the best observed CV score"). Subtracting `tol`
+    # absolutely made the floor tighter or looser than intended depending on the score's magnitude: at r2 = 0.90
+    # with tol = 0.01 the documented floor is 0.891 and the absolute one is 0.89, so a strictly smaller feature
+    # set could clear it than the operator asked for -- and on a small-magnitude score the same tol becomes an
+    # enormous relative allowance. Guarded on the sign so a negative best score (a worse-than-mean r2) does not
+    # invert the inequality.
+    _floor = best_score - abs(best_score) * tol if np.isfinite(best_score) else -np.inf
     for size in candidate_sizes:
-        if size_scores[size] >= best_score - tol:
+        if size_scores[size] >= _floor:
             selected_idx = ranked_idx[:size]
             break
     else:

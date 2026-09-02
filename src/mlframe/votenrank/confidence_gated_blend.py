@@ -126,7 +126,7 @@ def confidence_gated_blend(
         complementary weight ``1 - w`` at each row.
     force_backend
         Override the measured/dispatched backend (``"numpy"``/``"njit"``/``"njit_parallel"``/``"cupy"``);
-        also settable via the ``MLFRAME_CONFIDENCE_BLEND_BACKEND`` env var (checked first).
+        also settable via the ``MLFRAME_CONFIDENCE_BLEND_BACKEND`` env var (consulted when ``force_backend`` is None).
     per_sample_gate_calibration
         Opt-in (default ``False``, bit-identical to the raw-confidence path when omitted). The raw
         ``auxiliary_confidence`` signal is whatever the auxiliary model happens to emit (e.g. its own predicted
@@ -188,6 +188,10 @@ def confidence_gated_blend(
         return _blend_numpy(ensemble_pred, auxiliary_pred, auxiliary_confidence, confidence_threshold, gated_weight, default_weight)
 
     env_backend = os.environ.get("MLFRAME_CONFIDENCE_BLEND_BACKEND", "").strip().lower()
+    # The EXPLICIT argument wins over the env var, and the docstring now says so. Precedence had to go one way
+    # or the other; an explicit argument beating ambient configuration is the conventional direction, and the
+    # reverse would mean an operator's `MLFRAME_CONFIDENCE_BLEND_BACKEND` silently overrode a deliberate
+    # in-code choice. What was wrong was only that the docstring claimed the opposite.
     backend = force_backend or (env_backend if env_backend in ("numpy", "njit", "njit_parallel", "cupy") else None)
     if backend is None:
         from mlframe.votenrank._confidence_gated_blend_ktc_dispatch import choose_confidence_blend_backend

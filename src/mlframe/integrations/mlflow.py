@@ -113,7 +113,16 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: Optional[str] = None,
     if parent_run_id:
         filter_string += f' and tag.mlflow.parentRunId = "{_dsl_escape(parent_run_id)}"'
 
-    runs = mlflow.search_runs(experiment_names=[experiment_name] if experiment_name else None, filter_string=filter_string, output_format="list",)
+    # Scope the LOOKUP by whichever identifier the caller gave. `experiment_id` was accepted and forwarded to
+    # `start_run` but never used here, so `get_or_create_mlflow_run(name, experiment_id="7")` searched the
+    # currently-ACTIVE experiment instead -- found nothing -- and created a fresh run every single call, which is
+    # the one thing a get-or-create must not do.
+    if experiment_id:
+        runs = mlflow.search_runs(experiment_ids=[str(experiment_id)], filter_string=filter_string, output_format="list")
+    elif experiment_name:
+        runs = mlflow.search_runs(experiment_names=[experiment_name], filter_string=filter_string, output_format="list")
+    else:
+        runs = mlflow.search_runs(filter_string=filter_string, output_format="list")
     if runs:
         return runs[0], True
     else:

@@ -53,7 +53,17 @@ def _solve_simplex_weights(
             best_loss = loss
             best_weights = w
 
-    assert best_weights is not None
+    if best_weights is None:
+        # A raise, not a bare `assert`. Under `python -O` the assertion vanished and this returned `None`, so
+        # the caller crashed somewhere far from the cause with no indication of what had happened; and even with
+        # assertions on, a bare AssertionError said nothing about WHY. Every restart failing means the objective
+        # never returned a finite loss -- typically a NaN in the predictions reaching `log_loss`, or an SLSQP run
+        # that diverged -- which is worth saying out loud.
+        raise ValueError(
+            f"_solve_simplex_weights: none of the {n_restarts} restarts produced a finite loss, so no weights "
+            "could be chosen. The objective returned non-finite values throughout -- check the predictions for "
+            "NaN/inf before blending."
+        )
     return best_weights, best_loss
 
 

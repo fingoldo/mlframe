@@ -154,7 +154,10 @@ def _fit_with_subsample_stability(self, X, y):
     all_columns = list(X.columns)
     n = len(X)
     n_sub = int(self.stability_subsamples)
-    frac = float(getattr(self, "stability_subsample_fraction", 0.75) or 0.75)
+    # `is None`, not `or`: `0.0` is falsy but is a legitimate explicitly-set value, and `0.0 or 0.75` silently
+    # drew 75% of the rows instead of falling to the `max(10, ...)` floor the next lines establish.
+    _frac_cfg = getattr(self, "stability_subsample_fraction", None)
+    frac = 0.75 if _frac_cfg is None else float(_frac_cfg)
     _thr_cfg = getattr(self, "stability_threshold", None)
     thr = 0.6 if _thr_cfg is None else float(_thr_cfg)
     # Cap the >=10-row floor by n: with replace=False, np.random.Generator.choice raises when size>n,
