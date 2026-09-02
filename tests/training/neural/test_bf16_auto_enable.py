@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -27,15 +26,19 @@ from mlframe.training.neural import (
 )
 
 
-def _params(precision=None):
-    """Builds MLPTorchModel constructor params with an optional explicit Lightning trainer precision override."""
+def _params(precision=None, accelerator="cpu"):
+    """Builds MLPTorchModel constructor params with an optional explicit Lightning trainer precision override.
+
+    ``accelerator`` defaults to CPU (so ``safe_accelerator`` returns "cpu"); the bf16 gating test overrides it
+    to exercise the cuda branch with the CUDA probes monkeypatched.
+    """
     trainer_params = {
         "max_epochs": 1,
         "enable_model_summary": False,
         "enable_progress_bar": False,
         "log_every_n_steps": 1,
         "devices": 1,
-        "accelerator": "cpu",  # explicit CPU so safe_accelerator returns "cpu"
+        "accelerator": accelerator,  # CPU by default so safe_accelerator returns "cpu"
         "logger": False,
     }
     if precision is not None:
@@ -73,14 +76,48 @@ def reg_data():
     return X_tr, y_tr
 
 
-def test_bf16_not_enabled_on_cpu_accelerator(reg_data):
+def test_bf16_not_enabled_on_cpu_accelerator(reg_data, monkeypatch):
     """When accelerator resolves to CPU, bf16 must NOT be auto-set
-    (bf16 on CPU is slow / unsupported by Lightning's default plugin)."""
+    (bf16 on CPU is slow / unsupported by Lightning's default plugin).
+
+    Asserted on the trainer params the dispatcher actually built. The previous body was a fit() call and a
+    comment reasoning that "if we got here without crashing, the precision plumbing worked" -- which is false:
+    Lightning ACCEPTS bf16-mixed on CPU (it emits a performance warning, not an error), so a regression that
+    drops the cuda/gpu guard and sets the precision unconditionally completes the fit and passes. The negative
+    contract has to be read off the params, not inferred from the absence of a crash.
+    """
     X_tr, y_tr = reg_data
+
+    captured: dict = {}
+    # Patch the alias the fit path actually calls (`import lightning as L` -> `L.Trainer(...)`), not
+    # `lightning.pytorch.Trainer`: patching a name the production module does not use captures nothing, which
+    # the "Trainer was never constructed" assertion below would surface rather than silently passing.
+    import mlframe.training.neural.base._base_fit as _fit_mod
+
+    _orig_lightning = _fit_mod.L
+
+    class _CapturingLightning:
+        """Delegates everything to the real `lightning` module, recording the Trainer kwargs on the way past."""
+
+        def __getattr__(self, name):
+            """Forward every attribute except Trainer."""
+            return getattr(_orig_lightning, name)
+
+        @staticmethod
+        def Trainer(*args, **kwargs):
+            """Record the params the estimator hands Lightning, then build the real Trainer."""
+            captured.update(kwargs)
+            return _orig_lightning.Trainer(*args, **kwargs)
+
+    monkeypatch.setattr(_fit_mod, "L", _CapturingLightning())
+
     reg = PytorchLightningRegressor(**_params())
     reg.fit(X_tr, y_tr)
-    # If we got here without crashing, the precision plumbing worked.
-    # The CPU run cannot have bf16-mixed enabled (Lightning would warn or fail).
+
+    assert captured, "the Trainer was never constructed; this test needs updating"
+    _resolved = str(captured.get("accelerator", "")).lower()
+    assert _resolved not in ("cuda", "gpu"), f"this box resolved to {_resolved!r}; the CPU contract is untested here"
+    assert "bf16" not in str(captured.get("precision", "")), f"bf16 was auto-enabled on a CPU accelerator: precision={captured.get('precision')!r}"
 
 
 def test_caller_precision_setting_is_not_overridden(reg_data):
@@ -95,46 +132,61 @@ def test_caller_precision_setting_is_not_overridden(reg_data):
     assert reg.trainer_params["precision"] == "32-true"
 
 
-def test_bf16_auto_enable_dispatcher_compute_capability_check():
-    """Unit-test the dispatcher gating logic in isolation -- mock CUDA
-    available + compute_capability >= 8 should trigger bf16-mixed; <8
-    should not."""
-    # Direct import / probe of the gating logic isn't exposed as a
-    # function, so this test ASSERTS via the trainer_params mutation
-    # path: a synthetic _fit_common-like dispatcher block.
-    from mlframe.training.neural.base import safe_accelerator  # noqa: F401
+def _capture_trainer_params(monkeypatch, reg_data, *, compute_capability):
+    """Run the REAL fit dispatcher with CUDA reporting `compute_capability`, and return the params it built.
 
-    # Build a fresh trainer_params dict and simulate the gating.
-    trainer_params = {"accelerator": "cuda"}
-    _resolved = "cuda"  # assume safe_accelerator passes through
-    if "precision" not in trainer_params and _resolved in ("cuda", "gpu"):
-        with (
-            patch.object(torch.cuda, "is_available", return_value=True),
-            patch.object(torch.cuda, "device_count", return_value=1),
-            patch.object(torch.cuda, "get_device_capability", return_value=(8, 0)),
-        ):
-            try:
-                if torch.cuda.is_available() and torch.cuda.device_count() > 0:
-                    _cc_major, _ = torch.cuda.get_device_capability(0)
-                    if _cc_major >= 8:
-                        trainer_params["precision"] = "bf16-mixed"
-            except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-                pass
-    assert trainer_params.get("precision") == "bf16-mixed", f"Ampere+ (cc=8.0) should auto-enable bf16-mixed; got precision={trainer_params.get('precision')}"
+    `L.Trainer` is replaced by a recorder that raises a sentinel, so the production gating block runs in full
+    while no GPU fit is ever started.
+    """
+    import mlframe.training.neural.base._base_fit as _fit_mod
 
-    # Pre-Ampere (cc=7.x) should NOT auto-enable bf16.
-    trainer_params = {"accelerator": "cuda"}
-    if "precision" not in trainer_params and _resolved in ("cuda", "gpu"):
-        with (
-            patch.object(torch.cuda, "is_available", return_value=True),
-            patch.object(torch.cuda, "device_count", return_value=1),
-            patch.object(torch.cuda, "get_device_capability", return_value=(7, 5)),
-        ):
-            try:
-                if torch.cuda.is_available() and torch.cuda.device_count() > 0:
-                    _cc_major, _ = torch.cuda.get_device_capability(0)
-                    if _cc_major >= 8:
-                        trainer_params["precision"] = "bf16-mixed"
-            except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-                pass
-    assert "precision" not in trainer_params, f"Pre-Ampere (cc=7.5) should NOT auto-enable bf16-mixed; got precision={trainer_params.get('precision')}"
+    captured: dict = {}
+
+    class _Sentinel(RuntimeError):
+        """Aborts the fit immediately after the params are built."""
+
+    _orig_lightning = _fit_mod.L
+
+    class _CapturingLightning:
+        """Delegates to the real `lightning`, recording Trainer kwargs and stopping the fit there."""
+
+        def __getattr__(self, name):
+            """Forward every attribute except Trainer."""
+            return getattr(_orig_lightning, name)
+
+        @staticmethod
+        def Trainer(*args, **kwargs):
+            """Record and abort."""
+            captured.update(kwargs)
+            raise _Sentinel
+
+    monkeypatch.setattr(_fit_mod, "L", _CapturingLightning())
+    monkeypatch.setattr(_fit_mod, "safe_accelerator", lambda requested: "cuda")
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 1)
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda *a, **k: compute_capability)
+
+    X_tr, y_tr = reg_data
+    reg = PytorchLightningRegressor(**_params(accelerator="cuda"))
+    try:
+        reg.fit(X_tr, y_tr)
+    except _Sentinel:
+        pass
+    assert captured, "the dispatcher never reached Trainer construction; this test needs updating"
+    return captured
+
+
+def test_bf16_auto_enabled_on_ampere_and_not_before_it(reg_data, monkeypatch):
+    """The dispatcher's own gating, exercised through PRODUCTION code.
+
+    This test used to transcribe the gating rule into its own body -- building a local `trainer_params` dict,
+    running its own copy of the `if "precision" not in ... and _resolved in ("cuda","gpu")` block, and asserting
+    on that -- so it verified the test's transcription and never executed the dispatcher at all. Its only
+    production import was a `# noqa: F401` name it never called. A regression in the real gating (a dropped
+    compute-capability check, an inverted comparison, a moved branch) could not fail it.
+    """
+    ampere = _capture_trainer_params(monkeypatch, reg_data, compute_capability=(8, 0))
+    assert ampere.get("precision") == "bf16-mixed", f"Ampere+ (cc=8.0) should auto-enable bf16-mixed; got {ampere.get('precision')!r}"
+
+    pre_ampere = _capture_trainer_params(monkeypatch, reg_data, compute_capability=(7, 5))
+    assert "bf16" not in str(pre_ampere.get("precision", "")), f"pre-Ampere (cc=7.5) should NOT auto-enable bf16-mixed; got {pre_ampere.get('precision')!r}"

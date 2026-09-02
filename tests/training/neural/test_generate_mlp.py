@@ -517,6 +517,12 @@ def test_example_input_array():
 @settings(max_examples=50, deadline=None)
 def test_property_valid_model_creation(num_features, num_classes, nlayers):
     """Property test: generate_mlp should always create a valid model."""
+    # The construction is allowed to REFUSE a combination -- that is what the ValueError branch is for -- but
+    # once it returns a model, every property below must hold. The previous form wrapped all four assertions in
+    # `except AssertionError: pass`, so across 50 generated examples no assertion could ever fail the suite:
+    # a wrong output width for some (num_features, num_classes, nlayers) combination, which is exactly the
+    # combinatorial defect a property test exists to find, was swallowed. The justification comment argued for
+    # tolerating an invalid combination, which is a constructor ValueError -- a case the handler did not cover.
     try:
         model = generate_mlp(
             num_features=num_features,
@@ -525,19 +531,17 @@ def test_property_valid_model_creation(num_features, num_classes, nlayers):
             first_layer_num_neurons=max(num_features, num_classes),
             verbose=0,
         )
+    except ValueError:
+        return  # a refused parameter combination is a legitimate outcome, not a failure
 
-        assert isinstance(model, nn.Sequential)
-        assert count_parameters(model) > 0
+    assert isinstance(model, nn.Sequential)
+    assert count_parameters(model) > 0
 
-        # Test forward pass
-        x = torch.randn(2, num_features)
-        output = model(x)
-        assert output.shape[0] == 2  # Batch size
-        assert output.shape[1] == num_classes
-
-    except AssertionError:
-        # Some parameter combinations might be invalid
-        pass
+    # Test forward pass
+    x = torch.randn(2, num_features)
+    output = model(x)
+    assert output.shape[0] == 2  # Batch size
+    assert output.shape[1] == num_classes
 
 
 @given(

@@ -13,6 +13,8 @@ the bottom of evaluation only surfaces the public-API surface.
 from __future__ import annotations
 
 import logging
+
+from mlframe.utils.log_throttle import log_throttle
 from typing import Any, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -166,7 +168,20 @@ def _permutation_feature_importances(
             # "assignment destination is read-only". Predict on a private copy to keep sklearn's buffer writeable.
             preds = estimator.predict(np.array(X, copy=True) if isinstance(X, np.ndarray) else X)
         except Exception as exc:
-            logger.debug("permutation FI: adaptive scorer predict failed; scoring as -inf: %r", exc, exc_info=True)
+            # Throttled WARNING, not debug. `-inf` for every permutation makes baseline and permuted scores
+            # equal, so the importances come out uninformative rather than wrong -- which is exactly why a
+            # genuinely broken estimator would otherwise never be noticed. The scorer runs once per feature per
+            # repeat, so a plain warning would spam; a throttled one surfaces it a handful of times per process.
+            log_throttle(
+                logger,
+                "permutation_fi_scorer_predict_failed",
+                logging.WARNING,
+                "permutation FI: the estimator's predict() raised (%s: %s), so every permutation scores as -inf "
+                "and the resulting importances carry no information. This is an estimator failure, not a "
+                "feature-importance result.",
+                type(exc).__name__,
+                exc,
+            )
             return -np.inf
         preds_arr = np.asarray(preds)
         y_arr_local = np.asarray(y)

@@ -3151,8 +3151,30 @@ def test_regression_validate_inputs_skips_integer_columns_before_copy():
     m = MRMR(verbose=0)
     X_int = pd.DataFrame({"a": np.arange(20, dtype=np.int64), "b": np.arange(20, 40, dtype=np.int64)})
     y = np.arange(20) % 2
-    # Must not raise (no inf possible in an int frame) and must not crash despite no float columns.
-    m._validate_inputs(X_int, y)
+
+    # "Does not raise" held BEFORE the fix too -- the pre-fix code did not raise on an integer frame either, it
+    # merely built a float64 copy of the whole thing. So the implicit assertion could never distinguish the two,
+    # and a regression reinstating the whole-frame upcast was invisible. On this project's frame sizes that is
+    # the memory rule's central prohibition, so the ALLOCATION is what has to be asserted.
+    _converted: list = []
+    _orig_asarray = np.asarray
+
+    def _spy_asarray(a, *args, **kwargs):
+        """Record any call that would materialise this frame as a float array."""
+        if a is X_int or (hasattr(a, "shape") and getattr(a, "shape", None) == X_int.shape and not isinstance(a, pd.Series)):
+            _converted.append((type(a).__name__, kwargs.get("dtype", args[0] if args else None)))
+        return _orig_asarray(a, *args, **kwargs)
+
+    import unittest.mock as _mock
+
+    with _mock.patch.object(np, "asarray", _spy_asarray):
+        m._validate_inputs(X_int, y)
+
+    _float_conversions = [c for c in _converted if c[1] is not None and np.dtype(c[1]).kind == "f"]
+    assert not _float_conversions, (
+        f"the all-integer frame was upcast to float for the inf check ({_float_conversions}); only floating "
+        "columns should be selected before any array construction, or a 100+ GB frame is copied for nothing"
+    )
 
 
 def test_regression_validate_inputs_still_catches_inf_in_float_column():

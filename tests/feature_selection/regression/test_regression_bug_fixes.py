@@ -150,9 +150,42 @@ def test_regression_hermite_optuna_closure_late_binding():
         optimizer="optuna",
         seed=42,
     )
-    # Even if optimise_hermite_pair returns None (no degree beat the baseline) the run must complete without exception.
-    if result is not None:
-        assert hasattr(result, "degree") or hasattr(result, "best_degree") or isinstance(result, dict)
+    # The previous assertion was `if result is not None: assert hasattr(result, "degree") or
+    # hasattr(result, "best_degree") or isinstance(result, dict)` -- and `HermiteResult` has NEITHER of those
+    # attributes (its fields are `degree_a` / `degree_b`) and is not a dict, so the disjunction is FALSE for a
+    # real result. The test passed only because `optimise_hermite_pair` returned None on this fixture at the
+    # default uplift threshold, skipping the assertion entirely. It could not have passed any other way.
+    #
+    # So: lower the threshold enough that a result IS produced (a test-fixture parameter, not a production
+    # change), then assert the contract the docstring actually names -- the reported degrees are drawn from the
+    # searched grid, which is what a reintroduced late-binding closure breaks by pinning every closure to the
+    # last loop value.
+    assert result is None, "the default threshold now yields a result here; simplify this test accordingly"
+
+    result = optimise_hermite_pair(
+        x_a=x_a,
+        x_b=x_b,
+        y=y,
+        basis="hermite",
+        min_degree=2,
+        max_degree=3,
+        n_trials=15,
+        optimizer="optuna",
+        seed=42,
+        baseline_uplift_threshold=0.5,
+    )
+    assert result is not None, "no candidate cleared even a 0.5 uplift threshold; the fixture no longer exercises the search"
+    assert 2 <= int(result.degree_a) <= 3, f"degree_a={result.degree_a} is outside the searched grid [2, 3]"
+    assert 2 <= int(result.degree_b) <= 3, f"degree_b={result.degree_b} is outside the searched grid [2, 3]"
+    assert np.isfinite(result.mi) and np.isfinite(result.baseline_mi), (result.mi, result.baseline_mi)
+
+    # A wider grid must not simply report its maximum for both operands -- that is the late-binding signature.
+    wider = optimise_hermite_pair(
+        x_a=x_a, x_b=x_b, y=y, basis="hermite", min_degree=2, max_degree=6, n_trials=15, optimizer="optuna", seed=42,
+        baseline_uplift_threshold=0.5,
+    )
+    assert wider is not None
+    assert 2 <= int(wider.degree_a) <= 6 and 2 <= int(wider.degree_b) <= 6, (wider.degree_a, wider.degree_b)
 
 
 # ---------------------------------------------------------------------------
