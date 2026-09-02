@@ -196,11 +196,22 @@ def apply_outlier_cap_or_missing(df: pd.DataFrame, state: dict) -> pd.DataFrame:
         if not is_outlier.any():
             continue
         if mode == "cap":
-            out[col] = np.clip(values, lower, upper)
+            # Restore the ORIGINAL dtype in cap mode. Capping introduces no NaN and, for integer bounds, no
+            # fractional part either -- but the write-back came from a float64 working array, so an int32 count
+            # feature silently became float64. That is not cosmetic here: `cleaning.is_variable_truly_continuous`
+            # branches on the `np.modf` fractional structure, and a float64 column of integers gives different
+            # n_unique_ints / n_unique_fracts accounting than an int column, which can flip the
+            # discrete-vs-continuous classification and with it the rare-value cleaning path.
+            _capped = np.clip(values, lower, upper)
+            _orig_dtype = out[col].dtype
+            if np.issubdtype(_orig_dtype, np.integer) and np.all(_capped == np.floor(_capped)):
+                out[col] = _capped.astype(_orig_dtype)
+            else:
+                out[col] = _capped
         else:
             treated = values.copy()
             treated[is_outlier] = col_state["median"]
-            out[col] = treated
+            out[col] = treated  # replace mode introduces the median, which may be fractional -> float is correct
     return out
 
 

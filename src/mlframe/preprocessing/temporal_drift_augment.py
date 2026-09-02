@@ -122,7 +122,23 @@ def augment_temporal_drift(
         eligible = (new_last_rank >= min_history - 1) & (rank_within_entity == new_last_rank)
         if not eligible.any():
             continue
+        # Non-feature columns -- the LABEL above all -- come from the entity's TRUE last period, not from the
+        # truncated vintage whose features are being synthesised. `ordered.loc[eligible]` selects the row at
+        # rank `count - n_drop - 1`, and only `feature_cols` are overwritten below, so every other column was
+        # that earlier row's value: for an entity-level (period-invariant) label the two coincide and nothing
+        # breaks, but for a per-period label -- a rolling default flag, a next-period target -- every synthetic
+        # row was trained against the earlier period's answer.
         synth = ordered.loc[eligible].copy()
+        _last_rank_mask = rank_within_entity == (count_within_entity - 1)
+        _true_last = ordered.loc[_last_rank_mask]
+        if entity_col is not None and not _true_last.empty:
+            _non_feature = [c for c in ordered.columns if c not in feature_cols and c != entity_col]
+            if _non_feature:
+                _by_entity = _true_last.set_index(entity_col)[_non_feature]
+                _synth_entities = synth[entity_col]
+                for _c in _non_feature:
+                    _mapped = _synth_entities.map(_by_entity[_c])
+                    synth[_c] = _mapped.where(_mapped.notna(), synth[_c])
         std = expanding_std.loc[eligible]
         mean = expanding_mean.loc[eligible]
         raw = ordered.loc[eligible, feature_cols]

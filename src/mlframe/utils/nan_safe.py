@@ -73,7 +73,11 @@ def argmax_classes_safe(
     if probs.ndim == 1:
         # Degenerate 1D case: just argmax with a finite-mask short-circuit.
         if np.all(np.isfinite(probs)):
-            return np.asarray(np.argmax(probs))
+            # A 1-ELEMENT int64 array, matching the documented "(N,) int64 array of class indices". It used to
+            # return `np.asarray(np.argmax(...))` -- a 0-d array of dtype intp -- so `len(preds)` raised
+            # "len() of unsized object" and the int64 width the docstring promises was unmet wherever intp is
+            # int32. The 2-D path already honours both, so only this degenerate input diverged.
+            return np.asarray([np.argmax(probs)], dtype=np.int64)
         finite_mask = np.isfinite(probs)
         if not finite_mask.any():
             log.warning(

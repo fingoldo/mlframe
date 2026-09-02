@@ -170,8 +170,15 @@ def gaussian_power_transform_search(
         info: Dict[str, object] = {}
         eligible = abs_skews
         if require_target_correlation_retention is not None and y_arr is not None:
-            pair_mask = np.isfinite(finite_fill) & np.isfinite(y_arr)
-            raw_target_corr = _safe_abs_pearson(finite_fill[pair_mask], y_arr[pair_mask])
+            # Pairwise on the RAW column, not on the median-filled one. `finite_fill` is finite everywhere by
+            # construction, so `np.isfinite(finite_fill)` is all-True and only the target's non-finites were
+            # ever dropped -- on a column with 40% missing, 40% of the correlation's rows were a constant (the
+            # median), which mechanically attenuates the baseline toward 0. `min_required` was then computed
+            # against an artificially weak baseline, so aggressive transforms passed a retention check they
+            # should have failed. The transforms are still scored on `finite_fill`; only the BASELINE the
+            # threshold is derived from changes, and it now measures what the docstring says it measures.
+            pair_mask = np.isfinite(raw) & np.isfinite(y_arr)
+            raw_target_corr = _safe_abs_pearson(raw[pair_mask], y_arr[pair_mask])
             min_required = raw_target_corr * require_target_correlation_retention
             all_target_corr: Dict[str, float] = {}
             rejected = []

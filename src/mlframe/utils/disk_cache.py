@@ -8,7 +8,7 @@ Both consumers share the same usage pattern: a deterministic transform of
 (X, y, params) whose cost dominates a single fit, called repeatedly across
 hyperparam sweeps / ablations / incremental data updates where (X, y, params)
 recur exactly or near-exactly. Caching the result amortises the cost across
-re-fits with zero correctness loss.
+re-fits with zero correctness loss FOR PERMUTATION-INVARIANT consumers. ``hash_array_summary`` is deliberately sub-O(N) -- shape, dtype, the first and last 64 rows, and per-column sum/min/max -- so two arrays differing only by a permutation of their INTERIOR rows hash identically. That is exactly right for a consumer whose output does not depend on row order (MRMR bin edges), and wrong for one whose output does; such a consumer must fold an order-sensitive term of its own into the key.
 
 Design:
 
@@ -157,7 +157,7 @@ def hash_array_summary(arr: np.ndarray, n_summary_rows: int = _DEFAULT_SUMMARY_R
 def hash_object(obj: Any) -> str:
     """Deterministic hash for hashable / JSON-able objects (params dicts, etc).
 
-    Pickle protocol 0 is used to get a stable, key-sorted-ish representation
+    Keys are sorted before encoding, so dict ordering does not change the hash. The bytes come from the hand-rolled ``_feed`` encoder in this module, NOT from pickle -- an earlier docstring said "pickle protocol 0", which would imply pickle's stability guarantees. ``_feed``'s last-resort branch is ``repr(obj)``, which is NOT stable across runs for most objects, so a new type added to a params dict needs an explicit ``_feed`` branch rather than being assumed handled
     of dicts/sets. For the input regime here (params dicts of scalars, tuples,
     booleans, ints) the pickle bytes are deterministic across Python runs.
     For dicts specifically we sort keys to avoid hash drift between dict-insertion
@@ -432,10 +432,18 @@ class DiskCache:
         if total <= self.max_size_bytes:
             return
         files.sort(key=lambda r: r[0])  # oldest first
+        _protected: set = set()
+        if protect is not None:
+            _p = protect.resolve()
+            _protected = {_p, _p.with_suffix(_p.suffix + ".sha256"), _p.with_suffix(".sha256")}
         for _mtime, size, fpath in files:
             if total <= self.max_size_bytes:
                 break
-            if protect is not None and fpath.resolve() == protect.resolve():
+            # Protect the entry's SIDECAR too, not just its payload. `<key>.sha256` is a separate file, so an
+            # eviction pass triggered by the very `put` that wrote it could delete the sidecar while sparing the
+            # payload -- and the next `get` then fails closed with PickleVerificationError, deletes BOTH files,
+            # and the expensive compute the caller just paid for is repeated.
+            if protect is not None and fpath.resolve() in _protected:
                 continue
             try:
                 fpath.unlink()

@@ -481,8 +481,17 @@ def fragment_df_on_ram_usage_increase(df: pd.DataFrame, prev_mem_usage: float, m
             try:
                 df_bytes = int(df.memory_usage(deep=True).sum())
             except Exception as e:
-                logger.debug("memory_usage(deep=True) failed: %s", e)
-                df_bytes = 0
+                # Fail CLOSED. `df_bytes = 0` passed the size test below, so a probe failure -- which happens on
+                # an exotic extension dtype or an object column holding an un-sizeable payload -- sent the code
+                # straight into `df.copy()` on a frame that may be far above the guard, doubling peak RAM on
+                # exactly the huge, dtype-unusual frame the guard was written for. Skipping the defrag costs
+                # some fragmentation; the alternative costs the process.
+                logger.warning(
+                    "cleaning: memory_usage(deep=True) failed (%s: %s); skipping the defragmenting copy rather " "than risking it on a frame of unknown size.",
+                    type(e).__name__,
+                    e,
+                )
+                return df, prev_mem_usage
             if df_bytes > _DEFRAG_COPY_MAX_BYTES:
                 # Copying a multi-GB frame to defragment would double peak RAM; not worth it.
                 return df, prev_mem_usage
@@ -755,7 +764,12 @@ def analyse_and_clean_features(
                             if col_is_numeric and pd.isnull(default_na_val):
                                 the_type = default_float_type  # to make sure ints are converted to float when NaNs are added
                             else:
-                                the_type = head[col].dtype.name
+                                # The CURRENT dtype, not `head`'s. `head = df.head(1)` was snapshotted before
+                                # step 3's `astype("category")` ran, so restoring from it silently converted a
+                                # just-categorised column back to object -- undoing the documented memory saving
+                                # and leaving a 10M-row, 40-distinct-value column at full string-per-row cost,
+                                # with `dtypes=df.dtypes` recording the regression as if intended.
+                                the_type = df[col].dtype.name
 
                             features_transforms[col].update(repl_instructions)
                             features_dtypes[col] = str(the_type if isinstance(the_type, str) else np.dtype(the_type).name)
@@ -843,10 +857,27 @@ def analyse_and_clean_features(
                  '75%': 1260.0,
                  'max': 2594.0}
                 """
+                # `col_unique_values` is a `value_counts` Series: its INDEX holds the distinct values and its
+                # VALUES hold the counts. min/max off the index are correct (the extremes are the same either
+                # way), but the median was taken over the distinct-value SET with the counts ignored entirely --
+                # for a monetary or count column concentrated near zero with a long sparse tail, that lands far
+                # out in the tail rather than near zero, and every consumer of `features_ranges` (novelty
+                # detection, range checks, imputation defaults) read a number labelled "median" that was nowhere
+                # near the column's median. Weighting by the counts recovers the real one from the same summary,
+                # with no extra pass over the column.
+                _vals = np.asarray(col_unique_values.index, dtype=np.float64)
+                _cnts = np.asarray(col_unique_values.to_numpy(), dtype=np.float64)
+                _ok = np.isfinite(_vals) & (_cnts > 0)
+                _median = float("nan")
+                if _ok.any():
+                    _o = np.argsort(_vals[_ok], kind="stable")
+                    _sv, _sc = _vals[_ok][_o], _cnts[_ok][_o]
+                    _cum = np.cumsum(_sc)
+                    _median = float(_sv[int(np.searchsorted(_cum, _cum[-1] / 2.0, side="left"))])
                 features_ranges[col] = dict(
                     min=col_unique_values.index.min(),
                     max=col_unique_values.index.max(),
-                    median=np.nanmedian(col_unique_values.index),
+                    median=_median,
                 )
 
         collect()

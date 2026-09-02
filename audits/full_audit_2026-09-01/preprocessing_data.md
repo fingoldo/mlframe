@@ -146,12 +146,16 @@ exists in this cluster, and the one JSON-to-key path (`_param_oracle_store._stab
 **Suggested fix:** either soften the "zero correctness loss" claim to state the summary-hash collision class explicitly, or add a cheap order-sensitive term -- e.g. fold a position-weighted accumulator over one column, or hash the bytes of a strided row sample -- so an interior permutation changes the key.
 **Evidence:** module docstring line 11 ("Caching the result amortises the cost across re-fits with zero correctness loss") vs the hash inputs enumerated at lines 104-112 and implemented at lines 115-153. The head/tail defence noted at line 74 ("random row shuffles change the head/tail bytes") does not cover an interior-only permutation. Consumers are named at lines 5-6.
 
+**Disposition:** RESOLVED as documentation, which is the right shape for this one: the summary hash is deliberately sub-O(N) and that is a feature, not a bug -- what was wrong is the blanket "zero correctness loss" claim. The docstring now states that the guarantee holds for PERMUTATION-INVARIANT consumers (MRMR bin edges), names exactly what the summary does and does not see, and says that a consumer whose output depends on row order must fold an order-sensitive term into its own key. Strengthening the hash itself would make it O(N) and defeat the purpose the module exists for. `tests/preprocessing/test_summary_stats_guards_and_dtype_drift.py`.
+
 ### PREPROCESSING_DATA-15 [P2] memory
 **File:** src/mlframe/utils/_param_oracle_store.py:150
 **Summary:** `_ParquetStore._aggregate` implements a weighted median by replicating each metric value `n_obs` times into a Python list, and `n_obs` accumulates monotonically across every `append`.
 **Failure scenario:** a long-running tuning loop appends observations for the same (fn_name, host, fp_bucket, param_combo) key repeatedly. Each `append` calls `_aggregate` over ALL existing rows (line 99); for a row whose accumulated `n_obs` has reached, say, 500,000, line 150 builds a 500,000-element Python float list per metric per row just to take a median at line 151. With a few dozen keys and several metrics that is gigabytes of Python floats and a multi-second stall inside the cross-process file lock (line 103), blocking every other process appending to the same store.
 **Suggested fix:** carry the weight alongside the value (append `(float(mv), w)` pairs) and compute a true weighted median by sorting the pairs and walking to the half-weight point -- O(rows log rows) instead of O(sum of n_obs). Separately, re-aggregating stored medians yields a median-of-medians, not the median of the underlying observations; the class docstring at line 50 says "MEDIAN" without that caveat.
 **Evidence:** line 150 extends the list by `[float(mv)] * max(1, w)` with `w` read from `n_obs` at line 145; `total_obs` is summed at line 130 and written back into the aggregated row at line 159, so the multiplier grows without bound.
+
+**Disposition:** RESOLVED. `_weighted_median` takes (value, weight) PAIRS and walks the cumulative weight, so it is O(k log k) in the number of distinct rows instead of O(sum of weights) in both time and memory, and gives the same answer as the expanded list. That removes gigabytes of Python floats and a multi-second stall from inside the cross-process file lock, where it was blocking every other process appending to the same store. `tests/preprocessing/test_summary_stats_guards_and_dtype_drift.py` covers a 5,000,000-weight row, which the old form could not have run at all.
 
 ### PREPROCESSING_DATA-16 [P2] memory / contract-drift
 **File:** src/mlframe/core/frame_compat.py:19
@@ -160,12 +164,16 @@ exists in this cluster, and the one JSON-to-key path (`_param_oracle_store._stab
 **Suggested fix:** delegate the polars-DataFrame branch to `mlframe.training.utils.get_pandas_view_of_polars_df` -- the same bridge `feature_selection/boruta_shap/_fit_explain.py:145` and `:327` already use, and that CLAUDE.md documents as the validated zero-copy path -- falling back to `.to_pandas()` only if it raises. At minimum, drop the "zero-copy where possible" claim from line 19.
 **Evidence:** module docstring line 19 vs the implementation at lines 103-105. `grep -rn get_pandas_view_of_polars_df src/` shows the zero-copy bridge exists in `mlframe.training.utils` and is used elsewhere; it is not referenced in frame_compat.py.
 
+**Disposition:** RESOLVED, though not with the bridge the finding points at. `get_pandas_view_of_polars_df` lives in `training/`, and `core/frame_compat.py` importing from `training/` would invert the package layering (and risk a cycle). polars' own zero-copy form -- `to_pandas(use_pyarrow_extension_array=True)` -- gives the same Arrow-backed view with no cross-layer dependency, with a `TypeError` fallback to the copying form on a polars too old to accept the keyword. The dispatch-table entry now describes what actually happens. `tests/preprocessing/test_summary_stats_guards_and_dtype_drift.py`.
+
 ### PREPROCESSING_DATA-17 [P2] contract-drift
 **File:** src/mlframe/preprocessing/temporal_drift_augment.py:125
 **Summary:** The synthetic row's non-feature columns -- including the label -- are taken from the truncated-vintage row, not from the entity's TRUE last period the docstring promises.
 **Failure scenario:** a panel with a per-period label (a rolling default flag, a next-period target). `synth = ordered.loc[eligible].copy()` selects rows at `rank_within_entity == count - n_drop - 1`, i.e. the truncated vintage, and only `feature_cols` are overwritten at line 131. Every other column, label included, is that earlier row's value, so the augmented rows are trained against the earlier period's target. For an entity-level (period-invariant) label the two coincide and nothing breaks; for a period-varying label the augmentation silently mislabels every synthetic row.
 **Suggested fix:** either merge the true-last row's non-feature columns onto `synth` (join the entity's `rank == count - 1` row on `entity_col`), or amend the docstring to state that non-feature columns come from the truncated-vintage row and that the technique assumes an entity-level label.
 **Evidence:** line 122 defines `eligible` as `rank_within_entity == new_last_rank`; line 125 copies those rows wholesale; line 131 overwrites only `feature_cols`. The claim is at docstring lines 33-35 ("the real label at that entity's TRUE last statement, per the source technique").
+
+**Disposition:** RESOLVED. The synthetic row's non-feature columns -- the label above all -- are mapped from the entity's TRUE last period before the features are overwritten, so a per-period label (a rolling default flag, a next-period target) is no longer taken from the truncated vintage. Entities with no true-last row keep their existing values rather than becoming NaN. `tests/preprocessing/test_summary_stats_guards_and_dtype_drift.py`.
 
 ### PREPROCESSING_DATA-18 [P2] silent-wrong-value
 **File:** src/mlframe/preprocessing/cleaning.py:841
@@ -174,12 +182,16 @@ exists in this cluster, and the one JSON-to-key path (`_param_oracle_store._stab
 **Suggested fix:** compute the median from the counts -- sort the index, cumsum `col_unique_values.values`, take the half-count crossing -- or restore the commented-out `df[col].describe()` form shown at lines 827-836.
 **Evidence:** lines 838-842 build the dict from `col_unique_values.index`; `col_unique_values` is assigned at line 632 as `sub_df[col].value_counts(dropna=False)`.
 
+**Disposition:** RESOLVED. The median is now weighted by the `value_counts` COUNTS instead of taken over its index, which recovers the real column median from the same summary with no extra pass. Measured on a 10k-row column massed at 0-4 with a 100-row tail out to 100k: the old form returns a value more than 100 units from the true median, the new one lands within 1. `min`/`max` off the index were already correct -- the extremes are the same either way -- and are unchanged. `tests/preprocessing/test_summary_stats_guards_and_dtype_drift.py`.
+
 ### PREPROCESSING_DATA-19 [P2] contract-drift
 **File:** src/mlframe/preprocessing/cleaning.py:761
 **Summary:** A column converted to `category` dtype by step 3 is silently converted back to `object` by step 5, because `head` is a snapshot taken before any conversion -- undoing the documented memory saving.
 **Failure scenario:** a fewly-valued object column, say 40 distinct country codes over 10M rows. Line 675 does `df[col] = df[col].astype("category")` and logs "converted to category type". If that column then has rare values merged, line 757 casts it to `object` and line 761 casts to `the_type = head[col].dtype.name` -- but `head = df.head(1)` was taken at line 596, BEFORE the category conversion, so `the_type` is `object`. The column ends the function as `object`, at full string-per-row memory, and the returned `dtypes=df.dtypes` records that. The docstring's step 3 promise (line 526, "Converts fewly-valued ... object features into categorical, to save space & increase processing speed") is silently reverted for exactly the columns that also needed rare-value merging.
 **Suggested fix:** read the CURRENT dtype (`df[col].dtype.name`) rather than the stale `head[col].dtype.name` at lines 752, 761 and 808, or re-apply `.astype("category")` after the mask when the column was categorical on entry to the block.
 **Evidence:** `head = df.head(1)` at line 596; the category conversion at line 675 mutates `df`, not `head`; lines 752, 761 and 808 all read `head[col].dtype.name`.
+
+**Disposition:** RESOLVED -- the restore reads `df[col].dtype.name`, the CURRENT dtype, instead of the `head` snapshot taken before step 3's category conversion. `tests/preprocessing/test_summary_stats_guards_and_dtype_drift.py`.
 
 ### PREPROCESSING_DATA-20 [P2] contract-drift
 **File:** src/mlframe/utils/disk_cache.py:160
@@ -188,12 +200,16 @@ exists in this cluster, and the one JSON-to-key path (`_param_oracle_store._stab
 **Suggested fix:** rewrite the docstring to describe `_feed`'s tagged, length-prefixed encoding and its `repr()` last resort, and state explicitly which types are safe to pass.
 **Evidence:** docstring lines 160-165 vs the body at lines 166-168 (`_feed(h, obj)`); no `pickle` call appears anywhere in `hash_object` or `_feed`.
 
+**Disposition:** RESOLVED as suggested -- the docstring describes `_feed`, states that the sort-keys guarantee is real while the pickle mechanism never was, and warns that the last-resort `repr(obj)` branch is not stable across runs, so a new type needs an explicit branch rather than being assumed handled. `tests/preprocessing/test_summary_stats_guards_and_dtype_drift.py`.
+
 ### PREPROCESSING_DATA-21 [P3] memory-guard-defeated
 **File:** src/mlframe/preprocessing/cleaning.py:483
 **Summary:** The broad `except Exception` around `df.memory_usage(deep=True)` sets `df_bytes = 0`, so a failure in the size probe falls through to `df.copy()` on a frame that may be far above the 2 GB guard the probe exists to enforce.
 **Failure scenario:** `memory_usage(deep=True)` raises on an exotic extension dtype or an object column holding an un-sizeable payload. `df_bytes = 0` then passes the `> _DEFRAG_COPY_MAX_BYTES` test at line 486, and line 491 executes `df.copy()` on the full frame -- doubling peak RAM on exactly the huge, dtype-unusual frame the guard was written for. The failure is logged at DEBUG only (line 484), so it is invisible in production.
 **Suggested fix:** fail closed on exception -- `return df, prev_mem_usage`, skipping the defrag copy -- and log at WARNING, since a silent skip of the size check is the dangerous branch.
 **Evidence:** lines 481-491; the comment at lines 471-472 states the guard's purpose ("a 100+ GB prod frame OOMs the host").
+
+**Disposition:** RESOLVED as suggested -- the handler returns `df, prev_mem_usage` (skipping the defrag) and logs at WARNING. Failing closed costs some fragmentation; failing open cost the process, on exactly the huge dtype-unusual frame the guard was written for. `tests/preprocessing/test_summary_stats_guards_and_dtype_drift.py`.
 
 ### PREPROCESSING_DATA-22 [P3] cache-self-invalidation
 **File:** src/mlframe/utils/disk_cache.py:438
@@ -202,12 +218,16 @@ exists in this cluster, and the one JSON-to-key path (`_param_oracle_store._stab
 **Suggested fix:** compare against both `protect` and `Path(str(protect) + ".sha256")` at line 438, and pair each payload with its sidecar in the eviction accounting so they are removed together.
 **Evidence:** line 438 skips only `fpath.resolve() == protect.resolve()`; line 400 writes the separate sidecar file; line 422 skips only `tmp_`-prefixed names.
 
+**Disposition:** RESOLVED. `protect` is expanded into a small set covering the payload AND both spellings of its `.sha256` sidecar, and the eviction loop tests membership in that set. Losing the sidecar was worse than losing the payload: the next `get` fails closed, deletes both files, and the expensive compute the caller just paid for is repeated. `tests/preprocessing/test_summary_stats_guards_and_dtype_drift.py`.
+
 ### PREPROCESSING_DATA-23 [P3] contract-drift
 **File:** src/mlframe/preprocessing/gaussian_power_transform_search.py:172
 **Summary:** The docstring says rows non-finite in either the column or the target are dropped pairwise for the correlation check, but the column's non-finite rows were already median-filled, so only the target's non-finites are actually dropped.
 **Failure scenario:** a column with 40% missing feeding the `require_target_correlation_retention` guard. `pair_mask = np.isfinite(finite_fill) & np.isfinite(y_arr)` -- `finite_fill` is finite everywhere by construction (line 153), so 40% of the correlation's rows are a constant (the median), which mechanically attenuates `raw_target_corr` toward 0. The guard's `min_required` threshold (line 174) is then computed against an artificially weak baseline, so aggressive transforms pass a retention check they should have failed.
 **Suggested fix:** build `pair_mask` from the RAW array (`np.isfinite(raw) & np.isfinite(y_arr)`) and correlate `raw[pair_mask]` against `transformed[pair_mask]`.
 **Evidence:** line 153 fills every non-finite position; line 172 tests `np.isfinite(finite_fill)`, which is unconditionally True.
+
+**Disposition:** RESOLVED. The correlation BASELINE is now computed pairwise on the RAW column, so the column's own missing rows are genuinely dropped rather than silently replaced by a constant that attenuates the correlation toward zero and makes `min_required` too easy to clear. The transforms are still scored on the median-filled array -- only the baseline the threshold derives from changes, and it now measures what the docstring says. `tests/preprocessing/test_summary_stats_guards_and_dtype_drift.py`.
 
 ### PREPROCESSING_DATA-24 [P3] dtype-coercion
 **File:** src/mlframe/preprocessing/outlier_capping_or_missing.py:148
@@ -216,12 +236,16 @@ exists in this cluster, and the one JSON-to-key path (`_param_oracle_store._stab
 **Suggested fix:** in cap mode, cast the clipped result back to the original dtype when it is integral and the bounds are integral; otherwise document the widening explicitly.
 **Evidence:** lines 140, 148 and 154; docstring lines 129-132 make no dtype statement.
 
+**Disposition:** RESOLVED for cap mode, which is the case the finding is about. The original dtype is restored when it is integral and the capped values are still whole, so an int32 count feature stays int32. Replace mode is deliberately left widening: it substitutes the median, which can be fractional, so float is the correct result there and the code now says so. `tests/preprocessing/test_summary_stats_guards_and_dtype_drift.py`.
+
 ### PREPROCESSING_DATA-25 [P3] misleading-diagnostic
 **File:** src/mlframe/data_valuation/_adversarial_validation.py:89
 **Summary:** When no fold's model exposes `feature_importances_`, `importances` stays all-zero and `top_shift_features` still returns the first 20 column names as the features driving the shift.
 **Failure scenario:** a caller passes a LogisticRegression (or any estimator exposing `coef_` but not `feature_importances_`). The `if fi is not None` guard at line 82 skips every fold, `importances` remains `np.zeros(...)`, `np.argsort(-importances)[:20]` returns indices 0..19 in plain column order, and the returned `top_shift_features` is just the frame's first 20 column names -- presented by the docstring at lines 37-39 as the features driving the shift. An operator then acts on a ranking that carries no information at all.
 **Suggested fix:** track whether any fold contributed importances; if none did, return an empty list (or None) for `top_shift_features` and log a warning naming the estimator type.
 **Evidence:** lines 70, 81-84 and 89-90; `np.argsort` on an all-equal array returns index order.
+
+**Disposition:** RESOLVED as suggested -- a fold counter tracks whether any model contributed importances, and when none did the function returns an EMPTY `top_shift_features` with a warning naming the estimator type, instead of the frame's first twenty column names in file order. Verified with a LogisticRegression (which exposes `coef_`, not `feature_importances_`) and, as a control, with a RandomForest that still produces a real ranking. `tests/preprocessing/test_summary_stats_guards_and_dtype_drift.py`.
 
 ### PREPROCESSING_DATA-26 [P3] contract-drift
 **File:** src/mlframe/utils/nan_safe.py:76
@@ -230,6 +254,8 @@ exists in this cluster, and the one JSON-to-key path (`_param_oracle_store._stab
 **Suggested fix:** make the 1-D branch return a 1-element int64 array, or document explicitly that 1-D input yields a scalar; add `dtype=np.int64` at line 76 either way.
 **Evidence:** docstring line 60 versus lines 76, 83 and 84.
 
+**Disposition:** RESOLVED by making the 1-D branch match the documented contract -- a 1-element int64 array -- rather than by documenting the divergence, since the 2-D path already honours both shape and dtype and a caller has no reason to expect the degenerate input to behave differently. `tests/preprocessing/test_summary_stats_guards_and_dtype_drift.py`.
+
 ### PREPROCESSING_DATA-27 [P3] fragility
 **File:** src/mlframe/preprocessing/sibling_group_cold_start_fill.py:79
 **Summary:** The interpolate path re-indexes by the raw `order_col` values and calls `interpolate(method="index")`, which requires a numeric/datetime, strictly-ordered, unique index -- none of which the parameter's documented contract guarantees.
@@ -237,12 +263,16 @@ exists in this cluster, and the one JSON-to-key path (`_param_oracle_store._stab
 **Suggested fix:** validate at the top of the interpolate branch that `order_values` is numeric or datetime and unique, raising a named error otherwise; or fall back to positional linear interpolation with an explicit warning when it is not.
 **Evidence:** lines 76-81; docstring lines 37-39 describe `order_col` only as a sortable ordering across distinct groups, giving a group-level sequence id or a first-seen timestamp as examples.
 
+**Disposition:** RESOLVED, but by degrading rather than by raising. The finding is right that `method="index"` requires a numeric/datetime, unique, ordered index and that the parameter's contract guarantees none of it. Rejecting a string `order_col` would break a usage the docstring explicitly blesses ("a sortable ordering across DISTINCT groups"), so a non-numeric or non-unique order now falls back to POSITIONAL interpolation with a warning saying the value-distance weighting is unavailable. The numeric-and-unique case keeps the value weighting the module's own comment argues for. `tests/preprocessing/test_summary_stats_guards_and_dtype_drift.py`.
+
 ### PREPROCESSING_DATA-28 [P3] memory
 **File:** src/mlframe/core/arrays.py:280
 **Summary:** The `ascending=True` branch of `topk_by_partition` takes a full `.copy()` of the caller's array that nothing subsequently mutates.
 **Failure scenario:** `topk_by_partition(big_scores, k, ascending=True)` on a large score matrix doubles peak memory for no reason -- after line 280, `arr` is only read (`arr.ravel()` at 288, `np.argpartition` at 308, `np.take` at 310, `np.take_along_axis` at 311). The `ascending=False` branch at line 278 already produces a fresh array as a side effect of negation and does not copy again, so the two branches have inconsistent allocation behaviour for no functional reason.
 **Suggested fix:** replace line 280 with `arr = np.asarray(arr)`; the docstring promise that the function does not mutate the caller's array is already satisfied because no in-place operation remains.
 **Evidence:** lines 276-280 and the read-only uses at lines 288, 291, 308, 310 and 311.
+
+**Disposition:** RESOLVED exactly as suggested -- `arr = np.asarray(arr)`. Nothing after that line mutates `arr`, so the no-mutation promise holds without the copy, and the two branches now allocate consistently. `tests/preprocessing/test_summary_stats_guards_and_dtype_drift.py` asserts the promise behaviourally as well as by inspection.
 
 ## Coverage
 

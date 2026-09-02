@@ -277,7 +277,11 @@ def topk_by_partition(arr: np.ndarray, k: int, axis: int | None = None, ascendin
     if not ascending:
         arr = -arr
     else:
-        arr = np.asarray(arr).copy()
+        # No copy: after this point `arr` is only ever READ (ravel, argpartition, take, take_along_axis), so the
+        # docstring's promise not to mutate the caller's array holds without one -- and copying doubled peak
+        # memory on a large score matrix for nothing. The descending branch above already produces a fresh array
+        # as a side effect of the negation, so the two branches now allocate consistently.
+        arr = np.asarray(arr)
 
     # np.argpartition(..., axis=None) returns FLAT indices into the flattened array, but the axis=None
     # branches below (`arr[ind]`, `ind[ind_part]`, `vals_part[ind_part]`) index `arr` directly -- on a

@@ -13,9 +13,12 @@ and standalone).
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def adversarial_validation(
@@ -67,6 +70,7 @@ def adversarial_validation(
 
     oof_proba = np.zeros(n_train + n_test, dtype=np.float64)
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=int(rng.integers(0, 2**31 - 1)))
+    n_fi_folds = 0
     importances = np.zeros(len(feature_names), dtype=np.float64)
     for tr_idx, val_idx in kf.split(X_all):
         from sklearn.base import clone
@@ -81,13 +85,26 @@ def adversarial_validation(
         fi = getattr(fold_model, "feature_importances_", None)
         if fi is not None:
             importances += np.asarray(fi, dtype=np.float64)
+            n_fi_folds += 1
     importances /= n_splits
 
     auc = float(roc_auc_score(y_domain, oof_proba))
     train_test_proba = oof_proba[:n_train]
 
-    order = np.argsort(-importances)[:20]
-    top_shift_features = [feature_names[i] for i in order]
+    # An estimator exposing `coef_` but not `feature_importances_` -- a LogisticRegression, say -- leaves
+    # `importances` all zero, and `argsort` of an all-zero vector returns 0..19 in plain column order. The
+    # function then reported the frame's FIRST TWENTY COLUMN NAMES as the features driving the shift, which
+    # carries no information at all and is indistinguishable from a real ranking to the operator acting on it.
+    if n_fi_folds == 0:
+        logger.warning(
+            "adversarial_validation: %s exposes no feature_importances_, so no per-feature shift ranking is "
+            "available; returning an empty top_shift_features rather than the first columns in file order.",
+            type(fold_model).__name__,
+        )
+        top_shift_features: list = []
+    else:
+        order = np.argsort(-importances)[:20]
+        top_shift_features = [feature_names[i] for i in order]
 
     p = np.clip(train_test_proba, 1e-6, 1.0 - 1e-6)
     raw_weights = p / (1.0 - p)

@@ -10,9 +10,13 @@ whenever such an ordering exists and groups are locally similar.
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
+import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def sibling_group_cold_start_fill(
@@ -75,9 +79,26 @@ def sibling_group_cold_start_fill(
         # and use method="index" so pandas weights by that value's distance, not its rank. Bfill/ffill the tails.
         order_values = group_order.to_numpy()
         filled_per_group = last_known_per_group.copy()
-        filled_per_group.index = order_values
-        filled_per_group = filled_per_group.interpolate(method="index", limit_area="inside")
-        filled_per_group.index = last_known_per_group.index
+        # `method="index"` needs a NUMERIC (or datetime), strictly-ordered, UNIQUE index -- none of which the
+        # documented contract for `order_col` guarantees: it blesses "a sortable ordering across DISTINCT
+        # groups", which a quarter label like "2024Q1" satisfies while producing an object index that raises,
+        # and two groups sharing an order value produce a duplicate index where the distance weighting the
+        # comment above justifies is undefined. Fall back to positional interpolation in those cases, with a
+        # warning, rather than raising or silently weighting by something meaningless.
+        _numeric_order = np.issubdtype(np.asarray(order_values).dtype, np.number) or np.issubdtype(np.asarray(order_values).dtype, np.datetime64)
+        _unique_order = pd.Index(order_values).is_unique
+        if _numeric_order and _unique_order:
+            filled_per_group.index = order_values
+            filled_per_group = filled_per_group.interpolate(method="index", limit_area="inside")
+            filled_per_group.index = last_known_per_group.index
+        else:
+            logger.warning(
+                "sibling_group_cold_start_fill: order_col values are %s%s, so distance weighting by order value "
+                "is not available; interpolating by POSITION instead (equal spacing assumed).",
+                "non-numeric" if not _numeric_order else "numeric",
+                "" if _unique_order else " and non-unique",
+            )
+            filled_per_group = filled_per_group.interpolate(method="linear", limit_area="inside")
         filled_per_group = filled_per_group.ffill().fillna(global_fallback)
     else:
         # forward-fill across groups in sibling order: an entirely-missing group borrows the nearest
