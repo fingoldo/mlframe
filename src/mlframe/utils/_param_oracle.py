@@ -296,7 +296,7 @@ def default_fingerprint(args: Sequence[Any], kwargs: Mapping[str, Any]) -> dict:
 
     a = arr2d.astype(np.float64, copy=False)
     finite_mask = np.isfinite(a)
-    total = a.size or 1
+    total = a.size if a.size else 1  # a zero-size sample makes every ratio below 0/0; 1 keeps them at 0.0 rather than NaN
     n_zero = int(np.sum(finite_mask & (a == 0.0)))
     n_nan = int(np.sum(~finite_mask))
     sparsity = float((n_zero + n_nan) / total)

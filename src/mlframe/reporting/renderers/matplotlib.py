@@ -195,7 +195,8 @@ class MatplotlibRenderer:
         # from the wrapped line count rather than assumed. constrained_layout is documented to make room for a
         # suptitle, but it under-reserves for a multi-line one: a three-line model identity on a 12x6 figure
         # started 25 px BELOW the top of the axes, printing the run's own metrics across its own chart.
-        _h_px = fig.get_size_inches()[1] * (fig.get_dpi() or 100.0)
+        _dpi = fig.get_dpi()
+        _h_px = fig.get_size_inches()[1] * (_dpi if _dpi > 0 else 100.0)
         _top_band = 0.0
         _bottom_band = 0.0
         _sup_text = ""
@@ -309,7 +310,8 @@ class MatplotlibRenderer:
         # Wrap here rather than via matplotlib's `wrap=True`, which measures against the FIGURE box and never breaks
         # long tokens -- see wrap_annotation_text for the measured numbers.
         bbox = ax.get_window_extent()
-        panel_w_in = float(bbox.width) / float(ax.figure.dpi or 100.0)
+        _dpi = float(ax.figure.dpi)
+        panel_w_in = float(bbox.width) / (_dpi if _dpi > 0 else 100.0)
         text = wrap_annotation_text(p.text, panel_w_in, p.fontsize)
         family = "monospace" if getattr(p, "monospace", False) else None
         ax.text(0.5, 0.5, text, ha="center", va="center", fontsize=p.fontsize, transform=ax.transAxes, family=family)
@@ -639,7 +641,7 @@ class MatplotlibRenderer:
         xs_per_series = isinstance(p.x, tuple)
         labels = p.series_labels or (None,) * len(ys)
         styles = p.line_styles or ("-",) * len(ys)
-        cols = p.colors or tuple(line_color(i) for i in range(len(ys)))
+        cols = p.colors if p.colors else tuple(line_color(i) for i in range(len(ys)))
         sec = _per_series_flags(p.secondary_y, len(ys))
         fills = _per_series_flags(p.fill_to_baseline, len(ys))
 

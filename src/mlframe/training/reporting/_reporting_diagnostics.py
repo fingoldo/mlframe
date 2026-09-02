@@ -499,7 +499,8 @@ def _render_post_fit_diagnostics(
 
     # The report title names the split ("TEST ", "VAL (DUMMY) ", ...); the curve is computed on that split's
     # rows, so the panel has to say so rather than call them train and holdout.
-    _split_label = (report_title or "").strip().rstrip(":").lower() or "reported split"
+    _raw_split = report_title.strip().rstrip(":").lower() if report_title else ""
+    _split_label = _raw_split if _raw_split else "reported split"
     lc_panel = _build_learning_curve(model, df, targets, columns, target_type, getattr(cfg, "learning_curve", None), metrics, source_split=_split_label)
     if lc_panel is not None:
         try:

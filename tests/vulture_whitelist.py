@@ -98,3 +98,7 @@ IS_FAST_MODE
 # --- tests/reporting/test_every_writer_honours_format_subfolders.py: ``subfolders_on`` is a pytest fixture,
 # requested by name in each test signature. vulture sees the parameter as an unused local. ---
 subfolders_on
+
+# --- tests/feature_selection/filters/test_fe_gpu_vram_cushion_no_reprobe.py: ``without_cupy`` is a pytest
+# fixture, requested by name in each test signature. vulture sees the parameter as an unused local. ---
+without_cupy

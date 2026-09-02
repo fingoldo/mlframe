@@ -37,9 +37,13 @@ class TestReportingConfigTitleTemplate:
         # KS / MCC / BSS were added to the default template in the
         # reporting-coverage expansion; this test pins the post-expansion
         # token set so any future drop is caught immediately.
+        #
+        # BR, not BR_DECOMP: the default title carries the plain Brier score. The three-way decomposition
+        # (reliability / resolution / uncertainty) is still available via the BR_DECOMP token, but it made the
+        # chart title unreadable at default width, so it is opt-in rather than the default.
         assert cfg.title_metrics_tokens == (
             "ICE",
-            "BR_DECOMP",
+            "BR",
             "ECE",
             "CMAEW",
             "LL",
@@ -107,18 +111,27 @@ class TestReportingConfigTitleTemplate:
 class TestReportingConfigHistogramFields:
     """Histogram subplot toggles + label toggle."""
 
-    def test_show_prob_histogram_default_true(self):
-        """show_prob_histogram defaults to True."""
-        assert ReportingConfig().show_prob_histogram is True
+    def test_show_prob_histogram_default_false(self):
+        """show_prob_histogram defaults to False.
+
+        The probability histogram is a second panel under the reliability diagram. It squeezes the diagram
+        itself into a fraction of the figure while duplicating information the inline per-bin population
+        labels already carry, so it is opt-in.
+        """
+        assert ReportingConfig().show_prob_histogram is False
 
     def test_show_inline_population_labels_default_true(self):
         """show_inline_population_labels defaults to True, independent of the histogram toggle."""
         # Independent of histogram toggle - users can keep both, drop both, or only one.
         assert ReportingConfig().show_inline_population_labels is True
 
-    def test_prob_histogram_yscale_default_auto(self):
-        """prob_histogram_yscale defaults to "auto"."""
-        assert ReportingConfig().prob_histogram_yscale == "auto"
+    def test_prob_histogram_yscale_default_linear(self):
+        """prob_histogram_yscale defaults to "linear".
+
+        A log y-axis on a count histogram makes a 10-row bin and a 1000-row bin look comparable, which is the
+        opposite of what the panel is read for. "auto" and "log" remain available explicitly.
+        """
+        assert ReportingConfig().prob_histogram_yscale == "linear"
 
     def test_prob_histogram_yscale_accepts_explicit_modes(self):
         """prob_histogram_yscale accepts each explicit mode (auto/log/linear)."""

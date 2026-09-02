@@ -76,3 +76,69 @@ class TestTheSuiteGate:
     def test_fs_will_run_predicate(self, use_mrmr, rfecv, expected):
         """Mirrors the expression in setup_configuration; either mechanism alone is enough to need the kernels."""
         assert (bool(use_mrmr) or bool(rfecv)) is expected
+
+
+class TestTheReentrancyGuardIsPerStack:
+    """The guard exists for one mutual forward/reverse call, not for the whole process.
+
+    It used to be stamped on the function object, so while one thread was inside the warm-up a call on any
+    OTHER thread returned immediately and silently did nothing -- that caller paid a slow first fit and read a
+    profile with the compile time smeared through it, with no log line saying the warm-up had been skipped.
+    Under pytest-xdist this reached CI as three failures in this file whose only symptom was an empty caplog
+    and an un-called spy.
+    """
+
+    def test_a_concurrent_caller_is_not_silently_skipped(self, monkeypatch):
+        """One thread holding the guard must not turn another thread's warm-up into a no-op."""
+        import threading
+
+        from mlframe.metrics import _core_numba_warmup as warmup
+
+        entered = threading.Event()
+        release = threading.Event()
+        ran: list = []
+
+        def _slow_body(**kwargs):
+            """Hold the guard on this thread until the other one has had its turn."""
+            entered.set()
+            release.wait(timeout=10.0)
+            ran.append("holder")
+
+        monkeypatch.setattr(warmup, "_prewarm_numba_cache_body", _slow_body)
+        holder = threading.Thread(target=prewarm_numba_cache, daemon=True)
+        holder.start()
+        assert entered.wait(timeout=10.0), "the holding thread never entered the warm-up"
+
+        monkeypatch.setattr(warmup, "_prewarm_numba_cache_body", lambda **kw: ran.append("other"))
+        prewarm_numba_cache()
+        release.set()
+        holder.join(timeout=10.0)
+        assert "other" in ran, "a concurrent caller's warm-up was silently skipped"
+
+    def test_a_genuine_reentrant_call_is_still_a_no_op(self, monkeypatch):
+        """The guard's actual job: the forward/reverse pair must not recurse past the stack limit."""
+        from mlframe.metrics import _core_numba_warmup as warmup
+
+        depth: list = []
+
+        def _reentrant_body(**kwargs):
+            """Call back into the warm-up from inside it, exactly as the dummy-baselines path does."""
+            depth.append(1)
+            prewarm_numba_cache()
+
+        monkeypatch.setattr(warmup, "_prewarm_numba_cache_body", _reentrant_body)
+        prewarm_numba_cache()
+        assert depth == [1], f"the re-entrant call was not suppressed (depth {len(depth)})"
+
+    def test_the_guard_is_released_after_a_failure(self, monkeypatch):
+        """A raising body must not leave the process unable to warm up again."""
+        from mlframe.metrics import _core_numba_warmup as warmup
+
+        def _boom(**kwargs):
+            """Fail inside the warm-up body."""
+            raise RuntimeError("kernel compile blew up")
+
+        monkeypatch.setattr(warmup, "_prewarm_numba_cache_body", _boom)
+        with pytest.raises(RuntimeError):
+            prewarm_numba_cache()
+        assert not getattr(warmup._REENTRANCY, "in_progress", False)

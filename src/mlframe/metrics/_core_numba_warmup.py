@@ -9,6 +9,7 @@ resolve.
 from __future__ import annotations
 
 import logging
+import threading
 import os as _os
 
 import numba
@@ -101,21 +102,29 @@ def _assert_numba_nogil_active() -> bool:
         return True
 
 
+# Re-entrancy sentinel for ``prewarm_numba_cache``, per THREAD: the guard exists for the mutual forward/reverse
+# call with ``training.baselines.dummy._warmup_numba_kernels``, which is one stack, not one process.
+_REENTRANCY = threading.local()
+
+
 def prewarm_numba_cache(include_feature_selection: bool = True, include_heavy_libs=None):
     """Pre-warm Numba JIT cache to avoid compilation overhead during profiling.
 
     Calls all @njit functions with small dummy data to trigger JIT compilation before timing-sensitive operations. Warms up both float32 and float64 paths.
 
     Re-entrancy guard: this function calls ``training.baselines.dummy._warmup_numba_kernels``
-    (forward), and that function calls back into us (reverse). Without the
-    ``_in_progress`` sentinel the pair mutually recurses past the stack limit
-    before either try/except sees the failure (observed 2026-05-20 on S:
-    full-suite run). Flag is set on the function itself so it's process-local
-    and visible from both sides.
+    (forward), and that function calls back into us (reverse). Without the sentinel the pair mutually recurses
+    past the stack limit before either try/except sees the failure (observed 2026-05-20 on S: full-suite run).
+
+    The sentinel is THREAD-LOCAL. Re-entrancy is a property of one call stack, but the flag used to be stamped
+    on the function object, i.e. shared by every thread in the process -- so while one thread was inside the
+    warm-up, a call on any OTHER thread returned immediately and silently did nothing. That caller then paid a
+    slow first fit and read a profile with the compile time smeared through it, which is precisely the failure
+    this warm-up exists to prevent, and there was no log line to say the warm-up had been skipped.
     """
-    if getattr(prewarm_numba_cache, "_in_progress", False):
+    if getattr(_REENTRANCY, "in_progress", False):
         return
-    prewarm_numba_cache._in_progress = True  # type: ignore[attr-defined]  # process-local re-entrancy sentinel stamped on the function object
+    _REENTRANCY.in_progress = True
     try:
         # The warm-up calls every kernel on a handful of synthetic rows, so a CUDA kernel here is launched with a
         # grid of 3 blocks and numba dutifully warns about GPU under-utilisation. That is what a warm-up IS; the
@@ -132,7 +141,7 @@ def prewarm_numba_cache(include_feature_selection: bool = True, include_heavy_li
                 logger.debug("numba's warning class is unavailable; prewarm performance warnings stay visible")
             _prewarm_numba_cache_body(include_feature_selection=include_feature_selection, include_heavy_libs=include_heavy_libs)
     finally:
-        prewarm_numba_cache._in_progress = False  # type: ignore[attr-defined]
+        _REENTRANCY.in_progress = False
 
 
 def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_heavy_libs=None):
