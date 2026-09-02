@@ -320,7 +320,12 @@ def _total_variation_kernel(wins: np.ndarray, normalize: bool) -> np.ndarray:
                 wmax = v
             prev = v
         if normalize:
-            out[r] = tv / ((wmax - wmin) + 1e-12)
+            # Branch on a zero range rather than padding it. The pad is on the same scale as a genuinely tiny
+            # range -- a float32 price column around 1e5, or a sensor pinned at a setpoint, gives windows whose
+            # true range is ~1e-11 -- so `tv / (1e-11 + 1e-12)` reports 0.91 where the true normalised wiggle is
+            # 1.0, and 0.09 at a range of 1e-13. The same signal shifted or rescaled then yields a different
+            # feature. A constant window has tv == 0, so 0.0 is the right degenerate value and no division happens.
+            out[r] = tv / (wmax - wmin) if wmax > wmin else 0.0
         else:
             out[r] = tv
     return out
@@ -464,8 +469,9 @@ def rolling_total_variation(
         if normalize:
             wmax = wins.max(axis=1)
             wmin = wins.min(axis=1)
-            denom = (wmax - wmin) + 1e-12
-            tv = tv / denom
+            span = wmax - wmin
+            # Kept identical to the njit kernel above, which the docstring pins this fallback to.
+            tv = np.where(span > 0.0, tv / np.where(span > 0.0, span, 1.0), 0.0)
         out[write_idx] = tv
     return out
 

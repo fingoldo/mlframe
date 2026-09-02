@@ -122,6 +122,7 @@ def knn_aggregate(
     distance_weighted: bool = False,
     weight_eps: float = 1.0,
     leaf_size: int = 40,
+    query_is_ref: Optional[bool] = None,
 ) -> dict:
     """For each query row, aggregate ``ref_labels`` over its k nearest neighbours.
 
@@ -139,6 +140,15 @@ def knn_aggregate(
         Neighbour count. The actual query asks for ``k + 1`` and skips
         the self-match if the same point appears in both pools (so
         ``query is ref`` is leak-safe by construction).
+    query_is_ref
+        Whether the query pool IS the reference pool, which is what makes
+        the rank-0 self-match removal correct. ``None`` (the default)
+        infers it by identity (``query_coords is ref_coords``). Pass it
+        explicitly when the two arrays hold the same rows without being
+        the same object. When it is False the removal is skipped, because
+        a distance-0 hit is then a genuine coincident neighbour -- two
+        different entities at one address, an ordinary condition in
+        geocoded data -- and dropping it shifts the whole k-ring outward.
     agg_fns
         Iterable of aggregator names to compute. Default is the
         canonical four (median / iqr / std / mean).
@@ -170,6 +180,7 @@ def knn_aggregate(
     except Exception as e:
         raise ImportError("knn_aggregate requires scikit-learn (KDTree). Install via " "`pip install scikit-learn`.") from e
 
+    _query_is_ref = (query_coords is ref_coords) if query_is_ref is None else bool(query_is_ref)
     ref_coords = np.ascontiguousarray(ref_coords, dtype=np.float64)
     ref_labels = np.ascontiguousarray(ref_labels, dtype=np.float64)
     query_coords = np.ascontiguousarray(query_coords, dtype=np.float64)
@@ -245,7 +256,11 @@ def knn_aggregate(
         # self-match always lands at rank 0 and would otherwise always
         # survive the naive `indices[:, :k]` truncation, silently
         # replacing the true k-th neighbour with the query point itself.
-        is_zero_dist = distances <= 0.0
+        # ...but ONLY when the query pool really is the reference pool. Keying on distance alone dropped a
+        # genuine coincident neighbour whenever two different reference entities shared a location, which
+        # geocoded data produces constantly (one address, several entities): the k-ring then shifted outward by
+        # one and the aggregate was computed over a farther set than the k nearest, with nothing to show for it.
+        is_zero_dist = (distances <= 0.0) if _query_is_ref else np.zeros(distances.shape, dtype=bool)
         first_zero = is_zero_dist & (np.cumsum(is_zero_dist, axis=1) == 1)
         if first_zero.any():
             sorted_mask = np.where(first_zero, np.iinfo(np.int64).max, np.arange(q_k))
@@ -287,7 +302,10 @@ def knn_aggregate(
                 out_aggs[name] = np.nanpercentile(labels_arr, 90, axis=1)
             else:
                 raise ValueError(f"unknown agg_fn={name!r}")
-        out_aggs["_nearest_distance"] = compact_dist[:, 0]
+        # Consistent with the aggregates above. A query row whose own group exhausts the whole q_k window has
+        # correctly-NaN aggregates but was still handed `compact_dist[:, 0]` -- a SAME-group distance, i.e. a
+        # within-group proximity value leaking into a column documented as group-filtered.
+        out_aggs["_nearest_distance"] = np.where(compact_mask[:, 0], compact_dist[:, 0], np.nan)
     else:
         out_aggs = _resolve_aggs(labels_arr, agg_fns)
         if distance_weighted and "mean" in agg_fns:

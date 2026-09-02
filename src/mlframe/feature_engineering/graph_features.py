@@ -59,7 +59,11 @@ def _build_csr(n_nodes: int, edges: np.ndarray, weights: np.ndarray | None, dire
         src, dst, w = np.concatenate([src, dst]), np.concatenate([dst, src]), np.concatenate([w, w])
     keep = src != dst  # drop self-loops
     src, dst, w = src[keep], dst[keep], w[keep]
-    if src.size and (src.min() < 0 or src.max() >= n_nodes or dst.max() >= n_nodes):
+    # All FOUR bounds. `dst.min()` was the one omitted, and only the undirected path was covered by accident
+    # (it concatenates src and dst symmetrically above). On `directed=True` an edge like [3, -1] -- a factorize
+    # sentinel that escaped upstream filtering -- passed validation, and the aggregate kernels then read
+    # ``values[-1]``, silently folding the LAST node's value into node 3's neighbour aggregate.
+    if src.size and (src.min() < 0 or dst.min() < 0 or src.max() >= n_nodes or dst.max() >= n_nodes):
         raise ValueError("graph features: edge endpoint out of range [0, n_nodes).")
     order = np.lexsort((dst, src))  # primary src, secondary dst
     src, indices, data = src[order], dst[order], w[order]

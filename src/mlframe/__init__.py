@@ -335,7 +335,9 @@ def _install_gpu_runtime_lazy_trigger() -> None:
         return _orig(*args, **kwargs)
 
     _is_cuda_available._mlframe_gpu_runtime_wrapped = True  # type: ignore[attr-defined]
-    _gd.is_cuda_available = _is_cuda_available
+    # The attribute is declared as an `lru_cache_wrapper[bool]`; a functools.wraps'd delegate cannot be spelled
+    # as that type, and replacing it is the whole point of this lazy trigger.
+    _gd.is_cuda_available = _is_cuda_available  # type: ignore[assignment]
 
 
 _install_gpu_runtime_lazy_trigger()

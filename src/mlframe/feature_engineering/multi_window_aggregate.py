@@ -8,7 +8,7 @@ pattern to an arbitrary horizon list in one call, complementing the existing lea
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -233,18 +233,51 @@ def _cancellation_safe_diff(
     scale = np.maximum(np.abs(upper_vals), np.abs(lower_vals))
     risky = (scale > 0) & (np.abs(win_vals) < _CANCELLATION_REL_TOL * scale)
     if risky.any():
-        direct = _direct_window_agg(history_df, entity_col, time_col, query, query_entity_col, horizon, col, fn)
+        # Only the FLAGGED rows are recomputed, which is what the docstring above has always claimed. Passing
+        # the whole query made `_direct_window_agg` walk its per-entity / per-query double loop over every row
+        # to repair a handful, and a `mean` request pays that twice per horizon (once for sum, once for count),
+        # so an H-horizon call spent 2*H full O(n_queries) Python passes on rows whose fast subtraction was fine.
+        direct = _direct_window_agg(history_df, entity_col, time_col, query, query_entity_col, horizon, col, fn, rows=risky)
         win_vals = np.where(risky, np.where(np.isnan(direct), 0.0, direct), win_vals)
     return np.asarray(win_vals, dtype=np.float64)
 
 
+_DIRECT_AGG_REDUCTIONS: dict[str, Callable[[np.ndarray], Any]] = {
+    "sum": np.sum,
+    "count": np.size,
+    "mean": np.mean,
+    "min": np.min,
+    "max": np.max,
+    "median": np.median,
+    "std": lambda a: np.std(a, ddof=1),
+    "var": lambda a: np.var(a, ddof=1),
+}
+
+
 def _direct_window_agg(
-    history_df: pd.DataFrame, entity_col: str, time_col: str, query: pd.DataFrame, query_entity_col: str, horizon: float, col: str, fn: str
+    history_df: pd.DataFrame,
+    entity_col: str,
+    time_col: str,
+    query: pd.DataFrame,
+    query_entity_col: str,
+    horizon: float,
+    col: str,
+    fn: str,
+    rows: Optional[np.ndarray] = None,
 ) -> np.ndarray:
-    """Directly aggregate col over each query row's trailing horizon window from its entity's history, without caching intermediate windows."""
+    """Directly aggregate col over each query row's trailing horizon window from its entity's history, without caching intermediate windows.
+
+    ``rows`` is an optional boolean mask over ``query``; when given, only those rows are computed and the rest
+    are left NaN. The sole caller repairs a handful of cancellation-prone rows, so walking the whole frame was
+    wasted work.
+    """
+    reduce_fn = _DIRECT_AGG_REDUCTIONS.get(fn)
     history_groups = {entity: grp for entity, grp in history_df.groupby(entity_col, sort=False)}
     out = np.full(len(query), np.nan)
-    for entity, entity_queries in query.groupby(entity_col, sort=False):
+    query_rows = query if rows is None else query[rows]
+    if not len(query_rows):
+        return out
+    for entity, entity_queries in query_rows.groupby(entity_col, sort=False):
         entity_history = history_groups.get(entity)
         if entity_history is None or entity_history.empty:
             continue
@@ -256,7 +289,9 @@ def _direct_window_agg(
             lo = np.searchsorted(sorted_times, cutoff - horizon, side="left")
             hi = np.searchsorted(sorted_times, cutoff, side="left")
             if hi > lo:
-                out[idx] = getattr(pd.Series(sorted_col[lo:hi]), fn)()
+                # A numpy reduction on the slice, not a per-row `pd.Series` construction inside the loop.
+                window = sorted_col[lo:hi]
+                out[idx] = reduce_fn(window) if reduce_fn is not None else getattr(pd.Series(window), fn)()
     return out
 
 

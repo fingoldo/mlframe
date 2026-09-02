@@ -203,7 +203,15 @@ if _NUMBA_AVAILABLE:
             if n_anch >= 2:
                 num = Suy - Su * Sy / S0
                 den = Suu - Su * Su / S0
-                ewm_slope_out[i] = num / (den + 1e-12)
+                # RELATIVE guard, not a fixed `+ 1e-12` pad. Suu, Su and S0 are all multiplied by
+                # ``r = 0.5 ** (1 / half_life)`` on every row, so with a short half-life relative to the anchor
+                # spacing the whole triple shrinks geometrically -- at half_life=2 with anchors 100 rows apart the
+                # first anchor's weight is 0.5**50, about 9e-16. A fixed pad on that scale dominates `den` and the
+                # reported slope collapses toward 0: "the process is flat", the opposite of a strong recent move,
+                # finite and unflagged. Below the scale of Suu there is no slope to report, and the output array
+                # is NaN-initialised, so leaving the slot alone says exactly that.
+                if den > 1e-12 * (Suu if Suu > 0.0 else 1.0):
+                    ewm_slope_out[i] = num / den
 
     @_numba.njit(cache=True, fastmath=_ANCHOR_FASTMATH)
     def _anchor_extrap_core(label, is_anchor, K_slope, rows_since_out, last_val_out, slope_out, extrap_out):
@@ -694,7 +702,10 @@ def anchor_ewm_features(
                 ym = w_mean
                 num = (w * (xs - xm) * (ys - ym)).sum()
                 den = (w * (xs - xm) ** 2).sum()
-                ewm_slope_out[i] = float(num / (den + 1e-12))
+                # Same relative guard as the numba core above -- these weights decay geometrically too.
+                den_scale = float((w * xs * xs).sum())
+                if den > 1e-12 * (den_scale if den_scale > 0.0 else 1.0):
+                    ewm_slope_out[i] = float(num / den)
         return {
             f"ewm_anchor_value_H{int(half_life_rows)}": ewm_val_out,
             f"ewm_anchor_slope_H{int(half_life_rows)}": ewm_slope_out,

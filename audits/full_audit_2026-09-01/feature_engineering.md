@@ -85,12 +85,16 @@ The cluster's headline leakage risks are in good shape: the previously-confirmed
 **Suggested fix:** Pass the `risky` mask into `_direct_window_agg` and have it iterate only the flagged (entity, query) pairs (`query.loc[risky]` grouped by entity), leaving the fast subtraction for the rest -- which is what the docstring at lines 222-224 already claims ("Rows where the difference is tiny ... are flagged and recomputed directly"). Also replace the per-row `pd.Series(...)` reduction with the corresponding numpy reduction on the slice.
 **Evidence:** Line 230 calls `_direct_window_agg(history_df, ...)` with no reference to `risky`; line 231 then discards all but the risky positions. `_direct_window_agg`'s signature (lines 235-237) has no mask parameter.
 
+**Disposition:** RESOLVED. `_direct_window_agg` takes a `rows` boolean mask and walks only the flagged (entity, query) pairs; the per-row `pd.Series(...)` reduction is replaced by a numpy one from a small dispatch table, with the pandas form kept as the fallback for any aggregator not in it. `tests/feature_engineering/test_fe_p2_p3_epsilons_bounds_and_ties.py`.
+
 ### FEATURE_ENGINEERING-10 [P2] silent-correctness (additive epsilon in a small denominator)
 **File:** src/mlframe/feature_engineering/anchor.py :206 (identical form at :93, :554, :697)
 **Summary:** The EWM anchor slope divides by `den + 1e-12` where `den = Suu - Su*Su/S0` is an exponentially-DECAYED weighted variance, so a short half-life relative to the anchor spacing drives `den` below the epsilon and silently zeroes the slope.
 **Failure scenario:** `anchor_ewm_features` with `half_life` small relative to the gap between anchors -- e.g. `half_life=2` rows with anchors 100 rows apart. By the time the second anchor arrives, the first's weight has decayed by `0.5**50`, about 9e-16, so `den` (about 9e-16 times u squared) can sit at or below 1e-12. The reported `ewm_slope` is then a fraction of the true weighted-OLS slope, or about 0, with no NaN and no warning -- it reads as "the process is flat", the opposite of a strong recent move.
 **Suggested fix:** Replace the additive pad with a relative guard: `ewm_slope_out[i] = num / den if den > 1e-12 * max(Suu, 1.0) else np.nan` (or leave the output at its NaN initial value). The `n_anch >= 2` check at line 203 already covers the "no data" case; the epsilon is only guarding a numerically small denominator, where a wrong finite number is worse than NaN.
 **Evidence:** Lines 184-206 show `den` is built from `Suu`/`Su`/`S0`, all multiplied by `r = 0.5**(1/half_life)` on every row (line 189), so all three shrink geometrically. Line 206 adds a fixed 1e-12 to that decayed quantity. Same pattern at lines 93, 554, 697.
+
+**Disposition:** RESOLVED. Both sites now guard RELATIVELY (`den > 1e-12 * Suu`, and the weighted-scale equivalent in the numpy twin) and leave the NaN-initialised output slot alone rather than emitting a damped number. Measured on a perfectly linear anchor sequence (spacing 100, true slope 1.0): pre-fix `half_life=2` reported exactly 0.0, i.e. a flat process, the opposite of the truth; `half_life=5` and above were already correct and are unchanged. The two unweighted OLS sites (:93, :554) were left on their absolute branch -- their `den` is a sum of squared integer position offsets, so it is either 0 or >= 0.5 and cannot decay. `tests/feature_engineering/test_fe_p2_p3_epsilons_bounds_and_ties.py`.
 
 ### FEATURE_ENGINEERING-11 [P3] silent-correctness
 **File:** src/mlframe/feature_engineering/spatial.py :248-258
@@ -99,12 +103,16 @@ The cluster's headline leakage risks are in good shape: the previously-confirmed
 **Suggested fix:** Only compact when a genuine self-match is possible -- accept an explicit `query_is_ref: bool` parameter (or test `query_coords is ref_coords`) and skip the compaction otherwise; or, when row identity is available, mask on `indices == query_row_index` rather than on `distances <= 0.0`.
 **Evidence:** Line 248 `is_zero_dist = distances <= 0.0` keys on distance only; there is no comparison of `indices` against the query's own row index -- unlike `cross_sectional_neighbors.py:129`, which uses `neighbor_idx == np.arange(n).reshape(-1, 1)`.
 
+**Disposition:** RESOLVED. New `query_is_ref` parameter, inferred from `query_coords is ref_coords` when not given; the rank-0 removal is skipped when the pools differ. Measured: a query coincident with reference 0 (label 100) and k=2 returned 1.5 pre-fix (the coincident reference dropped, the ring shifted outward) against 50.5 post-fix. `knn_aggregate` has no in-repo callers, so nothing internal depended on the old behaviour. `tests/feature_engineering/test_fe_p2_p3_epsilons_bounds_and_ties.py`.
+
 ### FEATURE_ENGINEERING-12 [P3] diagnosability
 **File:** src/mlframe/feature_engineering/spatial.py :290 (and :296)
 **Summary:** `_nearest_distance` is documented as "distance to k=1 neighbour after group filtering", but in the group-filtered branch a fully-starved query row (zero valid different-group neighbours) still gets `compact_dist[:, 0]` -- a same-group neighbour's distance -- while its aggregates are correctly NaN.
 **Failure scenario:** A panel row whose own group exhausts the entire `q_k = min(n_ref, k*4+1)` candidate window (the case the warning at lines 227-235 already detects and counts). Its median / mean / std come back NaN, correctly signalling "no usable neighbours", but `_nearest_distance` comes back as a finite same-group distance -- a within-group proximity value leaking into a column meant to be group-filtered.
 **Suggested fix:** Mask it consistently with the aggregates: `out_aggs["_nearest_distance"] = np.where(compact_mask[:, 0], compact_dist[:, 0], np.nan)` in the group-filtered branch.
 **Evidence:** `compact_mask` (line 218) already records per-slot validity and is used to NaN out `labels_arr` at lines 238-240; line 290 reads `compact_dist[:, 0]` without consulting it. The `starved` computation at lines 224-225 proves the all-invalid case is reachable and known.
+
+**Disposition:** RESOLVED. `np.where(compact_mask[:, 0], compact_dist[:, 0], np.nan)`, as suggested. The regression test asserts separately that its fixture genuinely starves the row (six same-group references fill the whole `q_k = min(n_ref, 5)` window before the group-2 one), so the consistency assertion cannot pass on two finite values. `tests/feature_engineering/test_fe_p2_p3_epsilons_bounds_and_ties.py`.
 
 ### FEATURE_ENGINEERING-13 [P3] contract-drift / tie-handling
 **File:** src/mlframe/feature_engineering/fuzzy_entity.py :130-133
@@ -113,12 +121,16 @@ The cluster's headline leakage risks are in good shape: the previously-confirmed
 **Suggested fix:** After sorting, replace `cumcount()`/`diff()` with a comparison on the `order` VALUE -- within each (group, value) block compute `np.searchsorted(block_order, block_order, side="left")` for the strictly-before count, and take the gap against the last strictly-smaller order value.
 **Evidence:** Line 130 `df.sort_values("order", kind="stable")` then line 132 `grp.cumcount()` -- position-based, not value-based. Docstring line 84: "strictly from PRIOR rows only (leak-safe, causal)"; line 105: "STRICTLY BEFORE this row".
 
+**Disposition:** RESOLVED, vectorised rather than per-group. Sorting by (block, order) makes each (group, value) block contiguous and ascending, so a running maximum over run starts gives both the strictly-before count and the last strictly-earlier position with no Python callback -- this module deliberately avoids those (the mode aggregation above it was profiled at 54s/call through one). Measured pre-fix on three rows tied at order 5: counts `[0, 1, 2]` and gaps `[nan, 0.0, 0.0]`, against `[0, 0, 0]` and all-NaN post-fix. The answer also no longer depends on the incoming row order for tied timestamps. `tests/feature_engineering/test_fe_p2_p3_epsilons_bounds_and_ties.py`.
+
 ### FEATURE_ENGINEERING-14 [P3] silent-correctness (missing validation)
 **File:** src/mlframe/feature_engineering/graph_features.py :62
 **Summary:** `_build_csr` validates `src.min() < 0` but never `dst.min() < 0`, so on the `directed=True` path a negative destination index passes validation and then wraps around under numpy indexing, producing a wrong neighbour aggregate instead of raising.
 **Failure scenario:** `graph_neighbor_aggregate(n, edges, values, directed=True)` where an edge row is `[3, -1]` (e.g. a `pd.factorize` sentinel not filtered upstream). The endpoint check passes; `indices` then holds -1, and `_sum_impl` / `_wmean_impl` read `values[-1]` -- the LAST node's value -- silently mixing an unrelated node into node 3's neighbour aggregate. On the `directed=False` path the bug is masked because `src` and `dst` are concatenated symmetrically at line 59, so `src.min()` covers both.
 **Suggested fix:** Extend the guard to also test `dst.min() < 0` alongside the three bounds already checked on line 62.
 **Evidence:** Line 62 checks exactly three of the four bounds; the `keep = src != dst` self-loop filter at line 60 does not remove negative indices.
+
+**Disposition:** RESOLVED. `dst.min() < 0` added to the guard. `tests/feature_engineering/test_fe_p2_p3_epsilons_bounds_and_ties.py`.
 
 ### FEATURE_ENGINEERING-15 [P3] silent-correctness (additive epsilon in a small denominator)
 **File:** src/mlframe/feature_engineering/windowed_shape.py :323 (numpy twin at :467)
@@ -127,6 +139,8 @@ The cluster's headline leakage risks are in good shape: the previously-confirmed
 **Suggested fix:** Branch explicitly on a zero range instead of padding: `out[r] = tv / (wmax - wmin) if wmax > wmin else 0.0` -- a constant window has `tv == 0` anyway, so 0.0 is the right degenerate value and there is no division at all.
 **Evidence:** Lines 322-323 in the njit kernel and line 467 in the numpy fallback both use `(wmax - wmin) + 1e-12`; the docstring at line 297 pins the two forms to each other, so both must change together.
 
+**Disposition:** RESOLVED. Both the njit kernel and the numpy twin branch on `wmax > wmin` and emit 0.0 for a constant window. Measured on a fixed zig-zag whose true normalised TV is 19: pre-fix 17.27 at scale 1e-11 and 1.73 at 1e-13, i.e. down 91%, purely from rescaling the same shape. `tests/feature_engineering/test_fe_p2_p3_epsilons_bounds_and_ties.py`.
+
 ### FEATURE_ENGINEERING-16 [P3] contract-drift (output dtype)
 **File:** src/mlframe/feature_engineering/nearest_past_join.py :140-141
 **Summary:** In the `fallback_by_chain` path the attached columns are initialised with `pd.NA`, giving them object dtype; the documented "NaN where no eligible past row exists" contract and the numeric dtype of the single-tier path are both lost.
@@ -134,12 +148,16 @@ The cluster's headline leakage risks are in good shape: the previously-confirmed
 **Suggested fix:** Initialise with `np.nan` and a numeric dtype -- `out[new_name] = np.full(len(out), np.nan, dtype=np.float64)`, or seed the dtype from `right_df[col].dtype` -- and keep the `.notna()` resolution logic unchanged.
 **Evidence:** Lines 140-141 assign `pd.NA` into freshly created columns; the docstring at lines 111-112 promises NaN where no eligible past row exists. No cast back to a numeric dtype occurs before the return at line 175.
 
+**Disposition:** RESOLVED. The attached columns are seeded with `np.nan` at the source column's float dtype (or float64 when it is not a float dtype), so `.to_numpy(np.float64)` and `np.isnan` work and the chained path matches the single-tier one. `tests/feature_engineering/test_fe_p2_p3_epsilons_bounds_and_ties.py`.
+
 ### FEATURE_ENGINEERING-17 [P3] diagnosability
 **File:** src/mlframe/feature_engineering/financial.py :355-359
 **Summary:** OHLCV columns are `fill_null(0.0)` before every TA indicator, silently turning a missing price into a zero price, with no null-count check and no warning.
 **Failure scenario:** A ticker with a sporadic missing `low` on one bar. That bar's `low` becomes 0.0, so range-based indicators (ATR, Stochastic, Williams %R, and the `high / low.shift(lag) - 1` ratios built by `add_ohlcv_ratios_rlags` at lines 139-141) see a bar with a 100%-of-price range or divide by zero to inf. The comment at lines 349-354 explicitly documents that the caller must forward-fill upstream, but nothing checks whether they did, so the feature is silently corrupted for exactly the rows a user would most want flagged.
 **Suggested fix:** Before building the expressions, count nulls in the five OHLCV columns via `null_count()` and emit a `logger.warning` naming the columns and counts when any are non-zero -- the same "make the fallback diagnosable" treatment already applied at `numerical.py:134` and `numerical.py:429` in this cluster.
 **Evidence:** Lines 355-359 apply `.fill_null(0.0)` unconditionally; the comment at lines 349-354 acknowledges the caller-side requirement but no code enforces or reports it.
+
+**Disposition:** RESOLVED, diagnosability only -- the zero-fill itself is forced by the polars limitation documented at the fill site, so the behaviour is unchanged. Null counts are taken BEFORE the fill and a warning names each affected column and its count, so the caller who did not forward-fill upstream finds out. `tests/feature_engineering/test_fe_p2_p3_epsilons_bounds_and_ties.py`.
 
 ## Coverage
 Read in depth (32 files, 9,867 LOC):
