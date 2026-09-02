@@ -111,6 +111,21 @@ def fit_rare_category_collapse(
     return mapping
 
 
+def _replace_with_label(series: "pd.Series", mask: "pd.Series", other_label) -> "pd.Series":
+    """``series.where(~mask, other_label)``, but safe on a pandas ``category`` dtype.
+
+    ``Series.where`` raises ``TypeError: Cannot setitem on a Categorical with a new category`` when the
+    replacement is not already among the categories -- and ``category`` is the natural input dtype here, since
+    ``cleaning.analyse_and_clean_features`` converts fewly-valued object columns to it automatically. The fit
+    half succeeded, so the failure surfaced only at apply time, potentially on the inference frame.
+    """
+    if isinstance(series.dtype, pd.CategoricalDtype):
+        if other_label not in series.cat.categories:
+            series = series.cat.add_categories([other_label])
+        return series.where(~mask, other_label).cat.remove_unused_categories()
+    return series.where(~mask, other_label)
+
+
 def apply_rare_category_collapse(df: pd.DataFrame, mapping: Mapping[str, FrozenSet], other_label: str = "__other__") -> pd.DataFrame:
     """Replay a mapping learned by :func:`fit_rare_category_collapse` onto ``df`` (train, val, test, or a
     single inference row -- the same mapping every time, no recomputation from ``df`` itself).
@@ -122,7 +137,7 @@ def apply_rare_category_collapse(df: pd.DataFrame, mapping: Mapping[str, FrozenS
     for col, rare_values in mapping.items():
         if col not in out.columns:
             continue
-        out[col] = out[col].where(~out[col].isin(rare_values), other_label)
+        out[col] = _replace_with_label(out[col], out[col].isin(rare_values), other_label)
     return out
 
 

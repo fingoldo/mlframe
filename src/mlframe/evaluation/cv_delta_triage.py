@@ -84,6 +84,7 @@ def triage_cv_delta(
     hyperparameter_band_multiplier: float = 2.0,
     history: Optional[CVDeltaHistory] = None,
     min_history_dof: int = 20,
+    n_comparisons: int = 1,
 ) -> dict:
     """Classify a candidate's CV improvement as actionable, noise, or (for hyperparameter deltas) suspect.
 
@@ -112,6 +113,13 @@ def triage_cv_delta(
     min_history_dof
         Minimum pooled degrees of freedom (summed ``n_folds - 1`` across accumulated calls) before the pooled
         band from ``history`` is trusted over the single-call band. Ignored when ``history`` is ``None``.
+    n_comparisons
+        Bonferroni correction for a FAMILY of comparisons, forwarded to the band. Default ``1`` is the single
+        comparison. A caller running one triage per candidate -- a selection loop, or
+        :func:`mlframe.evaluation.compare_cv_schemes.compare_cv_schemes` testing a post-hoc-selected winner
+        against every runner-up -- must pass the family size, or the family-wise false-accept rate climbs far
+        above the nominal alpha. The knob existed on ``cv_score_equivalence_band`` but was unreachable from
+        here, so no production caller could use it.
 
     Returns
     -------
@@ -134,15 +142,18 @@ def triage_cv_delta(
     # an under-wide one accepts noise, the single failure the module exists to prevent.
     band_source = "single_call"
     pooled_band: Optional[float] = None
+    if n_comparisons < 1:
+        raise ValueError(f"triage_cv_delta: n_comparisons must be a positive integer; got {n_comparisons!r}")
+    _alpha = alpha / float(n_comparisons)
     if history is not None:
         history.update(baseline_fold_scores)
         if history.pooled_dof >= min_history_dof:
-            pooled_band = history.pooled_band(n_folds=baseline_fold_scores.shape[0], alpha=alpha)
+            pooled_band = history.pooled_band(n_folds=baseline_fold_scores.shape[0], alpha=_alpha)
     if pooled_band is not None:
         band = pooled_band
         band_source = "history"
     else:
-        band = two_sample_score_band(baseline_fold_scores, candidate_fold_scores, alpha=alpha)
+        band = two_sample_score_band(baseline_fold_scores, candidate_fold_scores, alpha=_alpha)
 
     if change_source == "hyperparameter":
         band *= hyperparameter_band_multiplier

@@ -105,9 +105,10 @@ def outlier_cap_or_missing(
     Per column, the outlier bound rule is auto-selected by a skewness test: near-symmetric columns
     (|skewness| <= 1.0) use ``mean +/- 3*std``; skewed columns use ``IQR * 1.5`` (Tukey's fences), which is
     more robust to a heavy tail than a symmetric bound would be. Bounds are always computed from the values
-    passed in ``df`` (fit-on-train discipline is the caller's responsibility -- pass only the train frame here
-    and apply the returned bounds' equivalent transform to test data via a fitted pipeline if leakage-free
-    train/test bounds are required).
+    passed in ``df``. For a leakage-free train/test split use the fit/apply pair directly:
+    ``state = fit_outlier_cap_or_missing(X_train, ...)`` then ``apply_outlier_cap_or_missing(X_test, state)``.
+    This single-frame wrapper is exactly ``apply(df, fit(df))`` and is only correct when ``df`` IS the fit set --
+    calling it on a test frame recomputes the bounds from the test distribution.
 
     Parameters
     ----------
@@ -131,16 +132,66 @@ def outlier_cap_or_missing(
     pd.DataFrame
         ``df`` (shallow copy) with each treated column's outliers capped or replaced+imputed in place.
     """
+    return apply_outlier_cap_or_missing(df, fit_outlier_cap_or_missing(df, columns=columns, mode=mode, rule=rule))
+
+
+def fit_outlier_cap_or_missing(
+    df: pd.DataFrame,
+    columns: Optional[Sequence[str]] = None,
+    mode: str = "cap",
+    rule: str = "auto",
+) -> dict:
+    """Learn per-column outlier bounds (and the imputation median) from ``df``, for replay on another frame.
+
+    The module documented "apply the returned bounds' equivalent transform to test data" while returning only a
+    DataFrame, so a caller following that discipline had no bounds to reuse: the only options were re-running
+    the whole function on the test frame -- recomputing mean/std or IQR from the TEST distribution, which is
+    exactly the "outlier threshold chosen on the data it then filters" pattern -- or reimplementing the private
+    ``_column_bounds`` at the call site. The three sibling modules in this package (``rare_count_pruning``,
+    ``regime_conditioned_imputation``, ``missing_indicator_pairing``) all ship an explicit fit/apply pair.
+
+    ``mode="missing_impute"`` persists the median too: it is computed AFTER the outlier-to-NaN swap on the FIT
+    frame, so replaying it on a test frame keeps the same replacement value rather than deriving a new one from
+    the rows being transformed.
+
+    Returns
+    -------
+    dict
+        Opaque state for :func:`apply_outlier_cap_or_missing`: ``{"mode", "rule", "columns": {col: {"lower",
+        "upper", "median"}}}``.
+    """
     if mode not in ("cap", "missing_impute"):
-        raise ValueError(f"outlier_cap_or_missing: mode must be 'cap' or 'missing_impute'; got {mode!r}.")
+        raise ValueError(f"fit_outlier_cap_or_missing: mode must be 'cap' or 'missing_impute'; got {mode!r}.")
     cols = list(columns) if columns is not None else [c for c in df.select_dtypes(include=[np.number]).columns]
 
-    out = df.copy(deep=False)
+    state: dict = {"mode": mode, "rule": rule, "columns": {}}
     for col in cols:
-        values = out[col].to_numpy(dtype=np.float64)
+        values = df[col].to_numpy(dtype=np.float64)
         lower, upper = _column_bounds(values, rule=rule)
         if not np.isfinite(lower) and not np.isfinite(upper):
             continue
+        median = float("nan")
+        if mode == "missing_impute":
+            treated = values.copy()
+            treated[(values < lower) | (values > upper)] = np.nan
+            median = float(np.nanmedian(treated)) if np.isfinite(treated).any() else float("nan")
+        state["columns"][col] = {"lower": float(lower), "upper": float(upper), "median": median}
+    return state
+
+
+def apply_outlier_cap_or_missing(df: pd.DataFrame, state: dict) -> pd.DataFrame:
+    """Replay the bounds learned by :func:`fit_outlier_cap_or_missing` on ``df``.
+
+    Columns present in ``state`` but absent from ``df`` are skipped, matching the schema-forgiving convention
+    the sibling apply functions in this package use.
+    """
+    mode = state.get("mode", "cap")
+    out = df.copy(deep=False)
+    for col, col_state in state.get("columns", {}).items():
+        if col not in out.columns:
+            continue
+        values = out[col].to_numpy(dtype=np.float64)
+        lower, upper = col_state["lower"], col_state["upper"]
         is_outlier = (values < lower) | (values > upper)
         if not is_outlier.any():
             continue
@@ -148,12 +199,9 @@ def outlier_cap_or_missing(
             out[col] = np.clip(values, lower, upper)
         else:
             treated = values.copy()
-            treated[is_outlier] = np.nan
-            median = np.nanmedian(treated)
-            treated[is_outlier] = median
+            treated[is_outlier] = col_state["median"]
             out[col] = treated
-
     return out
 
 
-__all__ = ["outlier_cap_or_missing"]
+__all__ = ["outlier_cap_or_missing", "fit_outlier_cap_or_missing", "apply_outlier_cap_or_missing"]

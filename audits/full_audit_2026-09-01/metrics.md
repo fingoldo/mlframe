@@ -179,6 +179,8 @@ selection cost.
 `y_true_arr`/`blended_all` over the whole input (:126-137); `safe_mask` at :150 and the MAE at :159 use the
 same `y_true_arr`. There is no held-out split anywhere in the function.
 
+**Disposition:** RESOLVED. `mae_blend_safe_heldout` picks the threshold on K-1 folds and scores the blend on the held-out fold, averaged; the docstring and the rendered summary both label `mae_blend_safe` as in-sample and point at the new field. NaN when the input is too small to split, rather than inventing a number. `tests/calibration/test_threshold_and_override_report_honest_scores.py`.
+
 ### METRICS-7 [P2] evaluation-honesty
 **File:** src/mlframe/calibration/threshold_optimizer.py:147-157
 **Summary:** `optimize_decision_threshold` returns `best_score` = the maximum of `metric_fn` over 200
@@ -198,6 +200,8 @@ carry the same warning that `_threshold_optimization.py`'s own HOLDOUT CONTRACT 
 **Evidence:** read the module in full. `scores` (:147-150) and `best_idx` (:152) are computed on the
 function's own `y_true`/`y_proba`; `best_score` at :155 is `scores[best_idx]`. No resampling or held-out
 evaluation of the score exists anywhere in the file.
+
+**Disposition:** RESOLVED. `cv_report` gains `heldout_score_mean` -- the threshold chosen on each fold's train side and SCORED on the held-out side -- and the return-value documentation now states plainly that `best_score` is an in-sample selected maximum, with the arithmetic (200 tries against ~25 informative events at 500 rows / 5% positives) and a pointer to the honest companion. Same test file.
 
 ### METRICS-8 [P2] contract-drift
 **File:** src/mlframe/calibration/threshold_optimizer.py:60-66
@@ -220,6 +224,8 @@ is comparable to a full-data threshold.
 **Evidence:** read `_threshold_stability_report` in full. `sklearn.model_selection.KFold.split` yields a
 `(train_index, test_index)` pair; line :60 discards the first element with `_` and binds the second to
 `fold_idx`, which is then the ONLY index used for the fit at :61-66.
+
+**Disposition:** RESOLVED. `KFold.split` yields `(train, test)` and the first element was being discarded; each fold's threshold is now fitted on the train index (`n - n/k` rows), the leave-one-fold-out analogue of the full-data fit the caller receives. The test counts the MODAL row count across metric calls, which distinguishes the sweep from the single held-out scoring call. Same test file.
 
 ### METRICS-9 [P2] contract-drift / multiplicity
 **File:** src/mlframe/evaluation/compare_cv_schemes.py:112-117; src/mlframe/evaluation/cv_delta_triage.py:131
@@ -244,6 +250,8 @@ passes anything but the default 1.
 `n_comparisons`; its only call to `cv_score_equivalence_band` (:131) passes `alpha` and `method` only.
 `compare_cv_schemes` calls `triage_cv_delta` in a loop over `other_names` (:104-118) with a fixed
 `alpha=significance_alpha`.
+
+**Disposition:** RESOLVED. `triage_cv_delta` accepts `n_comparisons` and divides alpha by it before building either band, and `compare_cv_schemes` passes `len(other_names)` -- the number of runner-ups its post-hoc-selected winner is tested against. A non-positive family size is refused. Same test file.
 
 ### METRICS-10 [P2] statistical-contract
 **File:** src/mlframe/evaluation/cv_delta_triage.py:119-131

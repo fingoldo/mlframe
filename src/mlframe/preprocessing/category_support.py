@@ -153,6 +153,15 @@ def train_test_support_screen(
     """
     if categorical_cols is None:
         categorical_cols = [c for c in train_df.columns if c in test_df.columns]
+        # The target is not a feature. With the default it used to land in the screened list whenever the
+        # test frame carried a label column, so the output recommended an encoding FOR THE TARGET ITSELF --
+        # and the documented "target_col must not be one of categorical_cols" constraint bought nothing but
+        # a ValueError on the explicit path.
+        categorical_cols = [c for c in categorical_cols if c != target_col]
+    elif target_col is not None and target_col in categorical_cols:
+        # The docstring states the constraint; nothing enforced it, so an explicit list naming the target
+        # screened the target as a feature and recommended an encoding for it.
+        raise ValueError(f"train_test_support_screen: target_col={target_col!r} must not be one of categorical_cols; it is not a feature.")
 
     if enable_smoothed_target_encoding_fallback and (target_col is None or target_col not in train_df.columns):
         raise ValueError("enable_smoothed_target_encoding_fallback=True requires a valid target_col present in train_df")

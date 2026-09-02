@@ -14,6 +14,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from mlframe.preprocessing.rare_count_pruning import _replace_with_label
+
 
 def _merge_skewed_categories(
     train_series: pd.Series,
@@ -57,8 +59,8 @@ def _merge_skewed_categories(
     # callback on a large Series" cost class flagged elsewhere; a plain membership mask is O(n) in C, not
     # O(n) Python-dispatch calls.
     merged_index = pd.Index(merged)
-    train_rebinned = train_series.where(~train_series.isin(merged_index), other_label)
-    test_rebinned = test_series.where(~test_series.isin(merged_index), other_label)
+    train_rebinned = _replace_with_label(train_series, train_series.isin(merged_index), other_label)
+    test_rebinned = _replace_with_label(test_series, test_series.isin(merged_index), other_label)
 
     return {
         "train_rebinned": train_rebinned,

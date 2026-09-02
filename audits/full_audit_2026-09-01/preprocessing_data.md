@@ -110,12 +110,16 @@ exists in this cluster, and the one JSON-to-key path (`_param_oracle_store._stab
 **Suggested fix:** split into `fit_outlier_cap_or_missing(df, columns, rule)` returning per-column `(lower, upper, median)` and `apply_outlier_cap_or_missing(df, state, mode)`, keeping `outlier_cap_or_missing` as the single-frame wrapper -- the exact shape the three sibling modules already use. Note the `missing_impute` mode also needs its median persisted: line 152 recomputes `np.nanmedian(treated)` from the frame being transformed.
 **Evidence:** docstring lines 108-110 vs the `-> pd.DataFrame` signature at line 102 and the sole `return out` at line 156. `_column_bounds` is module-private and never exposed.
 
+**Disposition:** RESOLVED. Split into `fit_outlier_cap_or_missing` (returns per-column lower/upper plus the `missing_impute` median, computed AFTER the outlier-to-NaN swap on the FIT frame) and `apply_outlier_cap_or_missing`, the same shape the three sibling modules already ship. `outlier_cap_or_missing` stays as the single-frame wrapper, now documented as exactly `apply(df, fit(df))` and correct only when `df` IS the fit set. `tests/preprocessing/test_preprocessing_contracts_hold.py` pins that replaying train bounds on a wider-scaled test frame differs from refitting on it.
+
 ### PREPROCESSING_DATA-11 [P2] contract-drift
 **File:** src/mlframe/preprocessing/category_support.py:149
 **Summary:** `target_col` is validated but never read by `train_test_support_screen`, and the documented constraint that it "must not be one of categorical_cols" is unenforced -- with the default `categorical_cols=None` the target column is itself screened as a categorical feature.
 **Failure scenario:** `train_test_support_screen(train_df, test_df, target_col="y", enable_smoothed_target_encoding_fallback=True)` with `categorical_cols` left at its default. Line 147 sets `categorical_cols` to every column present in both frames, which includes the target whenever the test frame carries a label column, so the output contains a row recommending an encoding for the target itself. Meanwhile the `smoothed_target_encode` recommendation (line 184) is decided purely from `freq_cv`, never from `y` -- so the `target_col` requirement buys nothing except the ValueError at line 150.
 **Suggested fix:** exclude `target_col` from the default `categorical_cols` at line 147 and raise if it appears in an explicit list; or drop the parameter and its validation, and state in the docstring that the caller supplies `y` only to the follow-up `smoothed_target_encode_column` call.
 **Evidence:** grepping `target_col` across the file yields only the signature (line 98), the docstring, and the validation at line 149. It appears nowhere in the loop body (lines 153-199).
+
+**Disposition:** RESOLVED, both halves. `target_col` is excluded from the default `categorical_cols`, and an explicit list naming it is now REFUSED -- the documented constraint had no enforcement anywhere in the file, so the audit's reading that line 149 raised for it was mistaken; the ValueError there guards `enable_smoothed_target_encoding_fallback`. Same test file.
 
 ### PREPROCESSING_DATA-12 [P2] contract-drift
 **File:** src/mlframe/preprocessing/missing_indicator_pairing.py:56
@@ -124,12 +128,16 @@ exists in this cluster, and the one JSON-to-key path (`_param_oracle_store._stab
 **Suggested fix:** exclude `group_col` from the default `cols` computation at line 56, and skip it (or raise) if it appears in an explicit `columns` list.
 **Evidence:** line 56 builds `cols` with no `group_col` exclusion; the guarantee is stated at line 152 of `impute_with_missing_indicator`'s docstring.
 
+**Disposition:** RESOLVED. `group_col` is dropped from the default column list with a debug line, and an explicit `columns` list naming it raises rather than being silently filtered -- imputing the key you group by is a caller error worth surfacing. Same test file.
+
 ### PREPROCESSING_DATA-13 [P2] crash-on-natural-input-dtype
 **File:** src/mlframe/preprocessing/rare_count_pruning.py:125
 **Summary:** `apply_rare_category_collapse` uses `Series.where(cond, other_label)`, which raises TypeError on a pandas `category`-dtype column -- the natural input dtype for a rare-CATEGORY collapsing module. Same construct at adversarial_rebin.py:60-61.
 **Failure scenario:** `apply_rare_category_collapse(df, mapping)` on a frame whose categorical columns carry `category` dtype -- which `cleaning.analyse_and_clean_features:675` in this same package produces automatically for fewly-valued object columns. Verified in-process on pandas 2.3.3: calling `.where(mask, "__other__")` on a Series built from a pandas Categorical raises `TypeError: Cannot setitem on a Categorical with a new category (__other__), set the categories first`. The `fit_rare_category_collapse` half succeeds, so the failure surfaces only at apply time -- potentially on the inference frame rather than during training.
 **Suggested fix:** for a CategoricalDtype column, call `add_categories([other_label])` first (the pattern `transforms.prepare_df_for_catboost:195-198` already uses for exactly this reason), then `where`, then optionally `remove_unused_categories()`. Apply the same fix in `adversarial_rebin._merge_skewed_categories`.
 **Evidence:** reproduced in-process (TypeError above). transforms.py:195-198 documents add-categories-first as the correct technique for Categorical columns in this codebase.
+
+**Disposition:** RESOLVED at both sites. `_replace_with_label` adds the label to the categories before `where` and drops unused ones afterwards, so a `category` column keeps its dtype instead of raising `TypeError: Cannot setitem on a Categorical with a new category`. `adversarial_rebin._merge_skewed_categories` imports the same helper. Same test file.
 
 ### PREPROCESSING_DATA-14 [P2] cache-key-collision
 **File:** src/mlframe/utils/disk_cache.py:100

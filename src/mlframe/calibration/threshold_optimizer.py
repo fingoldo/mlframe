@@ -16,10 +16,13 @@ Two opt-in extensions on top of the single global threshold:
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Dict, Optional, Tuple
 
 import numpy as np
 from sklearn.model_selection import KFold
+
+logger = logging.getLogger(__name__)
 
 
 def _best_threshold_for(
@@ -46,10 +49,22 @@ def _threshold_stability_report(
     seed: int,
     stability_cv_threshold: float,
 ) -> Dict[str, Any]:
-    """Fit the threshold independently on each of ``n_splits`` folds and report how much it moves.
+    """Refit the threshold leave-one-fold-out and report how much it moves, plus the out-of-sample score.
 
     A high coefficient of variation (``std / mean`` across folds) signals the threshold choice is
-    overfit to whichever fold happened to be used for the sweep, not a stable operating point.
+    overfit to whichever rows happened to be used for the sweep, not a stable operating point.
+
+    Each fold's threshold is fitted on the fold's TRAIN index -- ``n - n/k`` rows -- so the spread is the
+    leave-one-fold-out analogue of the full-data fit the caller actually receives. It used to be fitted on the
+    TEST index instead (``KFold.split`` yields ``(train, test)`` and the first element was discarded), i.e. on
+    one fifth of the data at the default k=5. That inflates the fold-to-fold spread by roughly
+    ``sqrt((n - n/k) / (n/k)) = 2.0``, so the reported CV was about twice too large and ``is_stable`` called
+    thresholds unstable that are perfectly stable at the full sample size.
+
+    ``heldout_score_mean`` is the companion the caller needs to read ``best_score`` honestly: the threshold is
+    chosen on the train side and SCORED on the held-out side, averaged over folds. ``best_score`` itself is the
+    maximum of the metric over the candidate sweep on the very rows the threshold was selected from -- a
+    200-way maximisation, upward biased, and on a small or rare-event fold badly so.
     """
     n = y_true.shape[0]
     if n < 2 * n_splits:
@@ -57,13 +72,22 @@ def _threshold_stability_report(
 
     kfold = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
     fold_thresholds = np.empty(n_splits, dtype=np.float64)
-    for i, (_, fold_idx) in enumerate(kfold.split(np.arange(n))):
-        y_true_fold = y_true[fold_idx]
-        y_proba_fold = y_proba[fold_idx]
+    heldout_scores = np.empty(n_splits, dtype=np.float64)
+    for i, (train_idx, test_idx) in enumerate(kfold.split(np.arange(n))):
+        y_true_fold = y_true[train_idx]
+        y_proba_fold = y_proba[train_idx]
+        heldout_scores[i] = float("nan")
         if len(np.unique(y_true_fold)) < 2:
             fold_thresholds[i] = float("nan")
             continue
         fold_thresholds[i] = _best_threshold_for(y_true_fold, y_proba_fold, thresholds, metric_fn)[0]
+        # Score the chosen threshold on the rows it was NOT chosen from.
+        y_true_out, y_proba_out = y_true[test_idx], y_proba[test_idx]
+        if len(np.unique(y_true_out)) >= 2:
+            try:
+                heldout_scores[i] = float(metric_fn(y_true_out, (y_proba_out >= fold_thresholds[i]).astype(int)))
+            except Exception as exc:
+                logger.debug("threshold stability: held-out scoring failed on fold %d (%s); leaving it NaN.", i, exc)
 
     valid = fold_thresholds[~np.isnan(fold_thresholds)]
     if valid.shape[0] == 0:
@@ -76,6 +100,7 @@ def _threshold_stability_report(
     # true relative spread - coefficient of variation is meant to be a non-negative dispersion measure.
     coeff_of_variation = float(std / abs(mean)) if mean != 0 else (0.0 if std < 1e-9 else float("inf"))
     is_stable = coeff_of_variation <= stability_cv_threshold
+    _valid_scores = heldout_scores[~np.isnan(heldout_scores)]
     return {
         "fold_thresholds": fold_thresholds,
         "mean": mean,
@@ -83,6 +108,8 @@ def _threshold_stability_report(
         "cv": coeff_of_variation,
         "is_stable": is_stable,
         "n_splits": n_splits,
+        "heldout_scores": heldout_scores,
+        "heldout_score_mean": float(np.mean(_valid_scores)) if _valid_scores.size else float("nan"),
     }
 
 
@@ -139,6 +166,17 @@ def optimize_decision_threshold(
         (the full sweep, for inspection/plotting) - unchanged when ``groups``/``cv`` are omitted. Plus,
         opt-in: ``group_thresholds``, ``group_results`` (when ``groups`` given) and ``cv_report`` (when
         ``cv`` given).
+
+        ``best_score`` IS AN IN-SAMPLE SELECTED MAXIMUM, not an estimate of what the chosen threshold will
+        score in production. It is the largest of ``n_thresholds`` (200 by default) metric values computed on
+        the very rows the threshold was picked from: a 200-way maximisation, which on 500 rows at a 5%
+        positive rate is 200 tries against roughly 25 informative events and routinely exceeds what the same
+        threshold achieves on fresh data by a wide margin. Each ``group_results`` entry is worse still -- the
+        same 200-way sweep over as few as ``min_group_size`` rows.
+
+        Pass ``cv`` to get an honest companion: ``cv_report["heldout_score_mean"]`` fits the threshold on each
+        fold's train side and scores it on the held-out side. Read that as the operating point's expected
+        performance, and ``best_score`` as the ceiling the sweep reached in sample.
     """
     y_true = np.asarray(y_true)
     y_proba = np.asarray(y_proba, dtype=np.float64)
