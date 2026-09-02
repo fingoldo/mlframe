@@ -21,7 +21,7 @@ from mlframe.reporting.spec import (
 )
 
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
-    _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS,
+    _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, heatmap_value_to_index,
     _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
     _TITLE_REF_WIDTH_IN, histogram_bar_extent, low_evidence_mask, panel_title_wrap_chars, select_per_point, truncate_bar_label,
     wrap_annotation_text, wrap_text_to_width, wrap_title_lines,
@@ -464,9 +464,8 @@ class MatplotlibRenderer:
                 _lo = float(min(_xv[_fin].min(), _yv[_fin].min()))
                 _hi = float(max(_xv[_fin].max(), _yv[_fin].max()))
                 if _hi > _lo:
-                    def _to_idx(v: float) -> float:
-                        """Map a value-space coordinate to bin-index space using the panel's own (lo, hi) binning range."""
-                        return (float(v) - _lo) / (_hi - _lo) * (_nb - 1)
+                    # Shared with the plotly renderer so the two backends cannot drift on this map again.
+                    _to_idx = heatmap_value_to_index(_lo, _hi, _nb)
                     # y=x reference in index space (origin="lower" -> bottom-left to top-right).
                     ax.plot([0, _nb - 1], [0, _nb - 1], color="0.4", linestyle=":", linewidth=1.0, label="y=x")
                     ends = robust_fit_endpoints(_xv, _yv, p.trend_line)

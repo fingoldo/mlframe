@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from mlframe.reporting.renderers._shared_helpers import heatmap_value_to_index
+
 from mlframe.reporting.spec import ConfusionMarginsPanelSpec, HeatmapPanelSpec
 
 from mlframe.reporting.colors import TREND_LINE
@@ -280,10 +282,16 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
             _lo = float(min(_xv[_fin].min(), _yv[_fin].min()))
             _hi = float(max(_xv[_fin].max(), _yv[_fin].max()))
             if _hi > _lo:
-                def _to_cat(v: float):
-                    """Map a value-space coordinate onto this panel's category axis via its own (lo, hi) range."""
-                    _idx = (float(v) - _lo) / (_hi - _lo) * (_nb - 1)
-                    return p.col_labels[round(min(max(_idx, 0.0), _nb - 1.0))]
+                # Fractional bin-index positions, NOT snapped category labels. A plotly category axis accepts a
+                # numeric position, and rounding-plus-clamping to the nearest label moved an extrapolated trend
+                # endpoint to the axis edge -- which changes the segment's SLOPE, the one thing this panel exists
+                # to show. Axis ranges below clip the drawn line the way matplotlib's limits do, without moving
+                # the endpoints. The snap also resolved BOTH coordinates against ``col_labels``; the y map now
+                # uses the row axis, which is latent for the hexbin builder (it sets both from the same centres)
+                # but puts the trend at a nonexistent y category for any spec with asymmetric labels, and plotly
+                # appends such a category rather than raising.
+                _to_x = heatmap_value_to_index(_lo, _hi, _nb)
+                _to_y = heatmap_value_to_index(_lo, _hi, len(p.row_labels))
 
                 fig.add_trace(
                     go.Scatter(x=[p.col_labels[0], p.col_labels[_nb - 1]],
@@ -296,7 +304,7 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
                 if ends is not None:
                     (tx0, ty0), (tx1, ty1) = ends
                     fig.add_trace(
-                        go.Scatter(x=[_to_cat(tx0), _to_cat(tx1)], y=[_to_cat(ty0), _to_cat(ty1)],
+                        go.Scatter(x=[_to_x(tx0), _to_x(tx1)], y=[_to_y(ty0), _to_y(ty1)],
                                    mode="lines", line=dict(color=TREND_LINE, width=2),
                                    name=f"robust fit ({p.trend_line})", showlegend=True),
                         row=row, col=col,

@@ -98,6 +98,25 @@ the same verdict at n = 1500.
 `p_k` and `detrended`, and `_frac_out` reduces over that array with no reweighting. The title discloses the
 sample size but not that the sample is non-uniform, and `_shape` carries no qualifier at all.
 
+**Disposition:** REJECTED on measurement, with a regression test added so the rejection is guarded rather than argued.
+
+Both claims were tested. Across the n=2000 decimation boundary and four orders of magnitude, mean `_frac_out` over three draws:
+
+| n | Gaussian | t(3) |
+|---|---|---|
+| 500 | 0.0087 | 0.613 |
+| 1,999 | 0.0143 | 0.861 |
+| 2,001 | 0.0002 | 0.841 |
+| 10,000 | 0.0068 | 0.944 |
+| 100,000 | 0.0110 | 0.982 |
+| 1,000,000 | 0.0075 | 0.995 |
+
+The verdict does NOT change with row count: Gaussian reads "normal" at every size including 1999 vs 2001, the two sides of the switch. And 0.05 does not sit on its own null: the observed Gaussian rate is 0.0002-0.0143, a 3.5x to 250x margin, because standardising by the SAMPLE sd absorbs most of the variability the asymptotic quantile SE budgets for -- the same mechanism that makes a heavy tail pull BOTH worm tails inside the band, which the shape table already accounts for. The theory the finding cites (a pointwise 95% band excludes ~5% under normality) does not describe this statistic.
+
+The tail-reweighting half was already measured and reverted before this audit, and the code comment records the numbers (0.002 vs 0.002 on a Gaussian at n=1e6, 0.994 vs 0.993 on a t(3)).
+
+`tests/reporting/test_worm_verdict_does_not_move_with_row_count.py` pins the separation, so a future change to the decimation, the plotting positions or the standardiser that genuinely does bias the verdict fails as the Gaussian rate climbing toward the threshold or the two populations overlapping.
+
 ### REPORTING-4 [P2] renderer-divergence
 
 **File:** `renderers/_plotly_heatmap.py` :283-303
@@ -125,6 +144,14 @@ so the two backends cannot drift.
 **Evidence:** Read `_plotly_heatmap._heatmap` :268-303 and `matplotlib._heatmap` :439-468 side by side; the clamp
 is literal at :286 and absent at `matplotlib.py` :455. `_trend.robust_fit_endpoints` :69-71 confirms the returned
 y values are model predictions, unbounded by the data's y range.
+
+**Disposition:** RESOLVED, both halves, and the map is now shared so the backends cannot drift again.
+
+`heatmap_value_to_index` lives in `_shared_helpers` and is deliberately UNCLAMPED -- clipping is the axis's job, and moving an endpoint changes the line. The plotly side passes fractional bin indices instead of snapped category labels: a category axis accepts a numeric position, and measured on a 20-bin panel the trend now spans x 2.88..15.79 with slope 1.004 against a true 1.0, where the clamped form collapsed both endpoints to integers. The y map is built from `row_labels`; it was resolving both coordinates against `col_labels`.
+
+`test_renderer_backend_parity.TestHeatmapTrendLandsOnTheCategoryAxis` pinned the old contract ("every plotted coordinate must be a label the axis already has"), which is what forced the snapping. Its real concern -- nothing lands off-grid -- is preserved: a coordinate must be either a label the axis has or an index inside its range. A second test pins the slope directly.
+
+`tests/reporting/test_heatmap_trend_slope_survives_both_backends.py` covers the shared map, including a case showing the old clamped form DOES change the slope, so the new assertion is not vacuous.
 
 ### REPORTING-5 [P2] spec-field-dropped
 

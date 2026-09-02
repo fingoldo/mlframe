@@ -63,6 +63,29 @@ def _finite_range(mat):
     return float(finite.min()), float(finite.max())
 
 
+def heatmap_value_to_index(lo: float, hi: float, n_bins: int):
+    """Return ``value -> bin-index`` for a heatmap axis binned over ``[lo, hi]`` into ``n_bins`` cells.
+
+    Both renderers draw the y=x reference and the robust trend line in BIN-INDEX space while
+    ``robust_fit_endpoints`` returns VALUE space, so both need this map. It lives here because they diverged:
+    the plotly side rounded AND clamped the result to a category label, which MOVES an extrapolated endpoint to
+    the axis edge and therefore changes the drawn segment's SLOPE -- defeating the panel's stated purpose, which
+    is to make a systematic slope bias visible. matplotlib applied the affine map alone and let the axis limits
+    clip the segment, which keeps the slope of the visible portion correct.
+
+    The map is deliberately NOT clamped: a caller that needs clipping sets axis limits, which clips the drawn
+    line without moving its endpoints.
+    """
+    span = float(hi) - float(lo)
+    scale = (float(n_bins) - 1.0) / span if span > 0 else 0.0
+
+    def _to_index(v: float) -> float:
+        """Position of ``v`` on the bin-index axis; may fall outside ``[0, n_bins - 1]`` for an extrapolation."""
+        return (float(v) - float(lo)) * scale
+
+    return _to_index
+
+
 def histogram_bar_extent(bin_centers: Any, width: Any) -> Tuple[Optional[float], Optional[float]]:
     """``(left_edge_of_first_bar, right_edge_of_last_bar)`` for a pre-binned bar panel.
 

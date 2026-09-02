@@ -7,6 +7,7 @@ charts built from one spec, with no indication which is right.
 
 import matplotlib
 import numpy as np
+import pytest
 
 matplotlib.use("Agg")
 
@@ -55,11 +56,19 @@ class TestFillBaselineShadesTheSameRegion:
 class TestHeatmapTrendLandsOnTheCategoryAxis:
     """The heatmap axes are categorical; a trend fitted in value space is thousands of positions off-grid."""
 
-    def test_trend_endpoints_are_valid_category_labels(self):
-        """Every plotted x/y must be a label the axis actually has, or the line is simply not on the chart."""
-        # The throwaway panel is only a convenient source of ``matrix`` and ``labels``; setting trend_line on it
-        # without a point cloud is now rejected at construction (REPORTING_CORE-14 -- the renderers silently drew
-        # nothing in that case), and it was never what this test is about.
+    def test_trend_endpoints_land_on_the_panels_own_axis(self):
+        """Every plotted x/y must be somewhere the axis can place it, or the line is simply not on the chart.
+
+        This used to require every coordinate to be a LABEL the axis already has, which forced the renderer to
+        round and clamp each endpoint to the nearest category -- and that MOVES an extrapolated endpoint to the
+        axis edge, changing the drawn segment's slope, which is the one thing the panel exists to show. A
+        category axis also accepts a numeric POSITION, so the robust fit is now drawn at fractional bin indices:
+        measured on a 20-bin panel, x spans 2.88..15.79 with slope 1.004 against a true 1.0, where the clamped
+        form collapsed both endpoints to integers. The y=x reference stays on label strings, since its endpoints
+        are the first and last categories by construction.
+
+        The real contract is that nothing lands off-grid: a label the axis has, or an index inside its range.
+        """
         panel, labels = _density_panel()
         rng = np.random.default_rng(0)
         xs = rng.uniform(3000.0, 6600.0, 4000)
@@ -72,7 +81,25 @@ class TestHeatmapTrendLandsOnTheCategoryAxis:
         assert len(named) == 2
         for trace in named:
             for value in list(trace.x) + list(trace.y):
-                assert value in labels
+                if isinstance(value, str):
+                    assert value in labels
+                else:
+                    assert -1.0 <= float(value) <= len(labels), f"{value} is off the {len(labels)}-category axis"
+
+    def test_the_trend_slope_is_not_quantised_by_the_axis(self):
+        """The defect the label requirement caused: rounding both endpoints changes the line's slope."""
+        panel, labels = _density_panel()
+        rng = np.random.default_rng(0)
+        xs = rng.uniform(3000.0, 6600.0, 4000)
+        panel = HeatmapPanelSpec(
+            matrix=panel.matrix, row_labels=labels, col_labels=labels, title=panel.title,
+            colormap="viridis", trend_line="theil-sen", trend_xy=(xs, xs + rng.normal(0.0, 300.0, 4000)),
+        )
+        fig = PlotlyRenderer().render(FigureSpec(panels=((panel,),), figsize=(6.0, 5.0)))
+        fit = next(t for t in fig.data if t.name == "robust fit (theil-sen)")
+        x0, x1 = (float(v) for v in fit.x)
+        y0, y1 = (float(v) for v in fit.y)
+        assert (y1 - y0) / (x1 - x0) == pytest.approx(1.0, abs=0.05), (fit.x, fit.y)
 
 
 class TestHeatmapRowOrderMatchesMatplotlib:
