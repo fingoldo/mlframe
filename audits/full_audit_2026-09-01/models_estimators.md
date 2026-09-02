@@ -33,6 +33,8 @@ dtype but not encoding. Add an `np.isfinite(score)` guard in the greedy loop so 
 **Evidence:** `metrics/_core_auc_brier.py` :749-750 (`tps += y_true[i]`, `fps += 1 - y_true[i]`); `fast_roc_auc`
 :558-582 performs no 0/1 validation; direct run on the three encodings.
 
+**Disposition:** RESOLVED. `_score_blend` binarises against the LARGER of the two labels (`(y == classes[-1]).astype(np.int64)`) rather than merely casting the dtype, and the greedy walk raises when the metric returns a non-finite score on the initial bag instead of silently degenerating. Verified on all three encodings with identical predictions: `{0,1}`, `{1,2}` and `{-1,+1}` now each return `score=1.0` and `weights=[1, 0]`, i.e. the correct model. `tests/models/test_caruana_selection_label_encoding.py`.
+
 ### MODELS_ESTIMATORS-2 [P0] silent-wrong-result-generator-exhaustion
 
 **File:** `src/mlframe/models/additive_interaction_diagnostic.py` :96
@@ -52,6 +54,8 @@ diagnostic's whole point -- the recommendation flag -- flips, with only a suppre
 
 **Evidence:** `_cv_score` is called at :113, :114 and twice per feature at :141-142, each time doing
 `for train_idx, test_idx in cv_splits`; empirical A/B above.
+
+**Disposition:** RESOLVED. `cv_splits` is materialised with `list(...)` at the top of `additive_interaction_diagnostic`, an empty one raises, and `_cv_score` raises rather than returning `float(np.mean([]))`. Verified: passing `KFold(3).split(X)` and `list(KFold(3).split(X))` now give the same `additive_signal_ratio` and the same recommendation flag. `tests/models/test_additive_diagnostic_accepts_a_generator.py`.
 
 ### MODELS_ESTIMATORS-3 [P0] early-stopping-is-a-no-op
 
@@ -75,6 +79,8 @@ from the full-budget model when an early stop fired.
 
 **Evidence:** sklearn 1.8.0, empirical checks above; `set_params` on a fitted estimator affects only a subsequent
 warm-start refit.
+
+**Disposition:** RESOLVED by truncating the FITTED ensemble, as suggested -- `best_model_.estimators_` is sliced to `best_stage` and the declared budget is kept consistent with it. Verified on `GradientBoostingClassifier(max_iter=60, patience=3)`: the snapshot now keeps 2 of 60 estimators and its `predict_proba` differs from the full-budget model's, where before it was bit-identical. `tests/estimators/test_staged_early_stopping_actually_truncates.py`.
 
 ### MODELS_ESTIMATORS-4 [P1] sklearn-api-compliance-mixin-mro
 
@@ -231,6 +237,8 @@ value so "gate passed but not refit" is distinguishable from "gate rejected".
 **Evidence:** docstring :449-455 versus `else: est = None` at :520-521; rejection path :523-525 returns the same
 None.
 
+**Disposition:** RESOLVED by returning `est` unfitted, matching the docstring, rather than by rewriting the docstring -- `None` is the rejection sentinel and a passing gate must not be indistinguishable from a rejection, particularly since `get_model` caches the return value. `tests/models/test_gate_return_deadline_and_dead_param.py`.
+
 ### MODELS_ESTIMATORS-11 [P3] documented-knob-not-read
 
 **File:** `src/mlframe/estimators/early_stopping.py` :318
@@ -249,6 +257,8 @@ same `logger.info` the other two backends emit. Document that the initial full-b
 **Evidence:** `fit` at :312 computes the deadline; :316 and :320 forward it, :318 does not; `_fit_staged`'s
 signature at :216 has no such parameter.
 
+**Disposition:** RESOLVED. `deadline` is forwarded to `_fit_staged` and checked at the end of each stage iteration, breaking with the same `logger.info` the other two backends emit; the docstring now records that the initial full-budget fit is a single opaque call and cannot be interrupted. Verified: with `max_iter=40, patience=100` the unbounded run walks all 40 stages and an already-expired deadline stops it at 1. `tests/models/test_gate_return_deadline_and_dead_param.py`.
+
 ### MODELS_ESTIMATORS-12 [P3] dead-parameter
 
 **File:** `src/mlframe/inference/predict.py` :246
@@ -264,6 +274,8 @@ gets no error and no effect.
 alignment check was intended, implement `len(Y) == len(X)`.
 
 **Evidence:** `Y` does not appear anywhere in the body (:258-274).
+
+**Disposition:** RESOLVED. `Y` becomes `Y=None`, so existing positional callers keep working; supplying it emits a `DeprecationWarning` and, since the finding notes a misaligned `Y` produced neither an error nor an effect, the length check the parameter's presence implied is now actually performed. `tests/models/test_gate_return_deadline_and_dead_param.py`.
 
 ## Coverage
 

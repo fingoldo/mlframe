@@ -522,8 +522,10 @@ def justify_estimator(
                         mean_score = refit_score
             else:
                 est.fit(X, y)
-        else:
-            est = None
+        # `refit=False` returns `est` UNFITTED, which is what the docstring promises. Returning None here made a
+        # passing gate indistinguishable from the below-threshold rejection below, so a caller branching on
+        # `if fitted_model is None: fall back to random sampling` abandoned ML-guided sampling despite the gate
+        # passing -- and `get_model` caches the return value, so the None poisoned the cache entry too.
     else:
         logger.info("OOS mean %s=%s, so ML can't be used (yet).", scoring, mean_score)
         est = None

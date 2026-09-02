@@ -213,12 +213,17 @@ class EarlyStoppingWrapper(BaseEstimator):
                 logger.info("Early stopping at iteration %d", i)
                 break
 
-    def _fit_staged(self, X_train, y_train, X_val, y_val, scoring):
+    def _fit_staged(self, X_train, y_train, X_val, y_val, scoring, deadline=None):
         """One fit, then evaluate the val metric at every boosting stage; keep the best-scoring prefix.
 
         ``staged_predict*`` yields the prediction after each added stage from a SINGLE fit, so the whole
         score-vs-stage curve costs one fit. We snapshot the estimator truncated to the best stage by copying
         it and setting ``n_estimators`` to that stage (the fast variant of the warm-start dichotomy).
+
+        ``max_runtime_mins`` bounds the STAGE-SCORING loop only. The initial full-budget fit above is a single
+        opaque call into the base estimator and cannot be interrupted, so a 5000-stage budget can still overrun
+        the cap inside that one fit; the deadline then stops the scoring sweep at the next stage boundary and
+        keeps the best prefix found so far. The other two backends bound their growth as well as their scoring.
         """
         # Grow to the full budget first: staged_predict yields one prediction per existing stage, so the
         # estimator must be built with max_iter stages for the curve to span the whole search range.
@@ -238,6 +243,9 @@ class EarlyStoppingWrapper(BaseEstimator):
                 best_stage = stage
             if stop:
                 logger.info("Early stopping at stage %d", stage)
+                break
+            if deadline is not None and time.monotonic() >= deadline:
+                logger.info("max_runtime_mins reached at stage %d; keeping the best prefix found so far.", stage)
                 break
         # Truncate the snapshot to the winning stage so predict() uses exactly that prefix of estimators.
         #
@@ -330,7 +338,7 @@ class EarlyStoppingWrapper(BaseEstimator):
         if cap == "partial_fit":
             self._fit_partial(X_train, y_train, X_val, y_val, y, scoring, deadline)
         elif cap == "staged":
-            self._fit_staged(X_train, y_train, X_val, y_val, scoring)
+            self._fit_staged(X_train, y_train, X_val, y_val, scoring, deadline)
         elif isinstance(cap, tuple) and cap[0] == "warm_start":
             self._fit_warm(X_train, y_train, X_val, y_val, scoring, cap[1], deadline)
         else:
