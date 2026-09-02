@@ -269,10 +269,16 @@ class TestNaNStrategyContrast:
         # either x_mnar absent, or if present, separate_bin has a
         # different (better) overall composition. We pin the strong,
         # business-meaningful contract: separate_bin selects it.
-        if "x_mnar" not in names_fz:
-            # Expected outcome: fillna_zero destroys the signal.
-            pass
-        # Either way, the default's contract is what we are pinning.
+        # The comparison in this test's NAME -- separate_bin BEATS fillna_zero -- was written as an `if` whose
+        # body is `pass`, followed by a comment saying "either way". So the only live assertion was that
+        # separate_bin works, and the strategy it is supposed to beat was never actually compared against:
+        # a regression making fillna_zero preserve the MNAR signal just as well would have left this green
+        # while the test's premise silently stopped being true.
+        assert "x_mnar" not in names_fz, (
+            f"fillna_zero selected the pure-MNAR feature (support={names_fz}). Mapping NaN to 0 should collide "
+            "it with the surrounding Gaussian values and destroy the NaN-as-signal, which is the whole reason "
+            "separate_bin is the default -- if it no longer does, this test's premise needs revisiting."
+        )
 
 
 class TestMultiMNAR:

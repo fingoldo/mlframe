@@ -729,6 +729,36 @@ def test_regression_dy_device_cache_has_lock():
     assert isinstance(bng_gpu._DY_DEVICE_CACHE_LOCK, type(threading.Lock()))
     assert isinstance(bng_gpu._DY_DEVICE_CACHE_CUPY_LOCK, type(threading.Lock()))
 
+    # A lock that EXISTS is not a lock that is USED, and the defect this guards was unguarded LRU bookkeeping,
+    # not an absent lock object -- `isinstance(..., Lock)` passes for a lock nothing ever acquires. Assert it is
+    # actually ACQUIRED during a real cache call, by counting acquisitions on a spy.
+    _acquired = {"n": 0}
+    _real_lock = bng_gpu._DY_DEVICE_CACHE_LOCK
+
+    class _CountingLock:
+        """Delegates to the real lock, counting context-manager entries."""
+
+        def __enter__(self):
+            """Count and acquire."""
+            _acquired["n"] += 1
+            return _real_lock.__enter__()
+
+        def __exit__(self, *exc):
+            """Release."""
+            return _real_lock.__exit__(*exc)
+
+    import unittest.mock as _mock
+
+    _classes_y = np.arange(16, dtype=np.int64) % 2
+    with _mock.patch.object(bng_gpu, "_DY_DEVICE_CACHE_LOCK", _CountingLock()):
+        try:
+            bng_gpu._resident_y_all_device(_classes_y, _classes_y, base_seed=0, nperm=0, n=16, P=1)
+        except Exception:
+            # No CUDA on this box: the upload fails, but the lookup under the lock has already happened, which
+            # is the property being asserted. The eviction half is exercised wherever CUDA is present.
+            pass
+    assert _acquired["n"] >= 1, "the device-cache lock was never acquired during a cache call; it is decorative"
+
 
 # ---------------------------------------------------------------------------
 # GPU_INFRA_B-1 (P1): gpu_materialise_discretize_codes_host / gpu_discretize_codes_host both called

@@ -201,12 +201,19 @@ def test_synthesis_matrix(family, score_fn, thr, floor, gap):
     A documented capability GAP (MODULAR) is asserted to the CORRECT behavior
     and xfail-ed -- not weakened -- so the miss stays visible. XOR3 is now
     recovered via the triplet cross-basis synthesizer in _FE_FULL."""
-    if gap is not None:
-        pytest.xfail(gap)
     df, y = _build_synth(family, score_fn, thr)
     fe_auc, fe_names = _sel_auc(_FE_FULL, df, y)
     raw_auc, raw_names = _sel_auc(_RAW_ONLY, df, y)
     delta = fe_auc - raw_auc
+    if gap is not None:
+        # MEASURE FIRST, then xfail only if the gap is still open -- the pattern the dropping-matrix sibling
+        # already uses. Calling `pytest.xfail(gap)` before the measurement meant the gap families never ran at
+        # all, so a gap that CLOSED (the synthesizer learning to cover that family) would go unnoticed for as
+        # long as the parametrisation carried a gap string.
+        if fe_auc <= 0.70 or delta < floor:
+            pytest.xfail(f"{gap} [still open: FE_auc={fe_auc:.3f} raw_auc={raw_auc:.3f} delta={delta:+.3f}]")
+        # Fell through: the gap has closed. Let the assertions below run and PASS, which is the signal to
+        # remove this family's gap string.
     print(f"SYNTH {family:14s} FE_auc={fe_auc:.3f} raw_auc={raw_auc:.3f} delta={delta:+.3f} floor={floor:+.3f} fe_names={fe_names[:4]}")
     # The FE selection must (a) carry the signal absolutely AND (b) beat raw-only
     # by the floor.  For THRESHOLD_RELU the raw column already exposes the step
@@ -384,8 +391,10 @@ def test_rfecv_dropping_matrix(family, decoy, kind, gap):
         assert ("x_real" in names) or ("decoy" in names), f"{family}: RFECV dropped BOTH the signal and its copy: {names}"
     else:
         assert "x_real" in names, f"{family}: RFECV dropped the real signal: {names}"
-    if gap is not None:
-        pytest.xfail(gap)
+    if gap is not None and "decoy" in names:
+        # Same pattern: xfail only when the gap is CONFIRMED still open. Xfailing unconditionally meant a
+        # closed gap -- RFECV learning to reject this decoy -- was reported as an expected failure forever.
+        pytest.xfail(f"{gap} [still open: selection={names}]")
     assert "decoy" not in names, f"{family}: RFECV admitted the decoy into selection: {names}"
 
 
@@ -546,4 +555,12 @@ def test_rfecv_synthesis_blindspot_quadratic():
     print(f"RFECV synth QUADRATIC in-sample linear auc={auc:.3f}")
     # Linear model on raw quadratic-signal columns is ~chance; this is the GAP
     # the FE-capable MRMR closes (see test_synthesis_matrix[QUADRATIC]).
-    pytest.xfail(f"FS GAP: RFECV cannot synthesize a quadratic (no FE); linear downstream stays near chance (auc={auc:.3f})")
+    # ASSERTED, not xfailed. `pytest.xfail(...)` called imperatively as the last statement throws the
+    # measurement away: the test is reported as xfailed whatever the number came out as, so if the gap
+    # this documents ever CLOSED -- the FS method learning to synthesize the feature -- nobody would
+    # find out, and if it got worse nobody would either. The gap is real and expected, so it is pinned
+    # as a bound with the measured value in the message instead.
+    assert auc < 0.75, (
+        f"RFECV cannot synthesize a quadratic (no FE); linear downstream stays near chance (auc={auc:.3f}) -- but auc={auc:.3f} is ABOVE the near-chance bound this gap predicts. "
+        "If the method now synthesizes this signal, delete the gap note and assert the new floor."
+    )

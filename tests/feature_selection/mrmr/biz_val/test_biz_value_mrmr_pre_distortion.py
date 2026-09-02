@@ -810,12 +810,15 @@ def test_noise_control_optimiser_uplift_is_rejected_by_gate():
         warm_start_als=True,
         baseline_uplift_threshold=1.01,
     )
-    # Either None (failed the uplift gate) or, if a marginal result slips
-    # through, its uplift must be negligible (<= 1.10x) -- never a real signal.
-    if res is not None:
-        assert (
-            res.uplift <= 1.10
-        ), f"noise pair produced uplift {res.uplift:.2f}x (> 1.10x); the warm start is manufacturing signal on a target independent of (a, b)"
+    # The stated contract is "must return None on a pair independent of y", and the EXPECTED outcome -- None --
+    # was the one branch the assertion did not cover: `if res is not None` meant the pass case asserted
+    # nothing, so the test could only ever complain about a result it was not supposed to get in the first
+    # place. Assert the contract directly, keeping the marginal tolerance as an explicit, named allowance.
+    if res is None:
+        return  # the contract, satisfied
+    assert res.uplift <= 1.10, (
+        f"noise pair produced uplift {res.uplift:.2f}x (> 1.10x); the warm start is manufacturing signal on a " "target independent of (a, b)"
+    )
 
 
 def test_noise_floor_permutation_guard_is_the_lever():

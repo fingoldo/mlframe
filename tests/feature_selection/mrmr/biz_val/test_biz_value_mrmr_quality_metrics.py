@@ -131,10 +131,21 @@ class TestRankingQuality:
             sel = MRMR(verbose=0).fit(X, pd.Series(y_arr))
         selected = list(sel.get_feature_names_out())
         true_signals = {f"sig{k}" for k in range(3)}
-        # If 3+ features are picked, at least 2/3 of top-3 must be signals.
-        if len(selected) >= 3:
-            prec_at_3 = _top_k_precision(selected, true_signals, k=3)
-            assert prec_at_3 >= 0.66, f"top-3 precision too low with strong signals: {prec_at_3:.2f}; selected={selected}"
+        # The contract this test's own NAME states is "no noise in top 3", which is stronger and more accurate
+        # than what was asserted. Two weaknesses: the `if len(selected) >= 3` guard meant a regression selecting
+        # FEWER than three features -- a stronger failure of the same subsystem -- skipped the check entirely,
+        # and `>= 0.66` tolerates one genuine noise feature in the top three on a fixture with three unambiguous
+        # signals.
+        #
+        # Asserted on NOISE CONTENT rather than on name-equality precision, because MRMR legitimately surfaces
+        # ENGINEERED columns: an observed top-3 here was `['sig2', 'sig1', 'add(sig0,sin(sig1))']`, which is a
+        # pure-signal result that a literal-name precision scores 0.67. What must never appear is a noise
+        # column, in raw or engineered form.
+        assert len(selected) >= 3, f"fewer than 3 features selected on a strong-signal fixture: {selected}"
+        _noise_names = {c for c in X.columns if c not in true_signals}
+        _top3 = selected[:3]
+        _contaminated = [name for name in _top3 if any(nz in name for nz in _noise_names)]
+        assert not _contaminated, f"noise reached the top-3: {_contaminated} (top-3={_top3})"
 
 
 # =============================================================================
@@ -312,4 +323,11 @@ class TestFalsePositiveRate:
         # this but trades off fit time. The ceiling assertion catches
         # catastrophic regressions where ALL noise features surface.
         if not fallback:
-            assert n_selected < 10, f"all-noise: every noise feature selected (catastrophic FP rate); got {n_selected}/10"
+            # The surrounding comment says ~30-40% of pure-noise features can survive at this permutation
+            # budget, so the honest ceiling is 4 of 10 -- not 9. `n_selected < 10` only fires when EVERY noise
+            # feature is selected, which is a far more catastrophic regression than the one being described, so
+            # the test tolerated a false-positive rate three times its own stated bound.
+            assert n_selected <= 4, (
+                f"all-noise: {n_selected}/10 pure-noise features selected. The documented tolerance at this "
+                "permutation budget is ~30-40%; above that the noise floor is not doing its job."
+            )

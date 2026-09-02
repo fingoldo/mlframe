@@ -57,3 +57,30 @@ the measurements above so the next reader does not repeat the three ruled-out hy
 `CUBLAS_WORKSPACE_CONFIG=:4096:8` and `torch.use_deterministic_algorithms(True)` set before the first fit. If
 that makes fit 1 match fits 2+, document the pair as the supported way to obtain bitwise-reproducible ranker
 fits and add an opt-in `deterministic=True` constructor flag that sets them.
+
+---
+
+## MRMR loses downstream AUC on the 5-signal/15-noise ranking benchmark
+
+**Found:** 2026-09-03, while tightening a neighbouring assertion in the same file (XCUT_NONDISCRIMINATING_ASSERTS-12/13).
+`tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_quality_metrics.py::TestRankingQuality::test_top_k_precision_5_signals_15_noise`
+fails, and it fails identically on unmodified `HEAD`, so it is pre-existing and not caused by this audit round.
+
+**Measured:** selection downstream AUC `0.8969` against an all-signal baseline of `0.9648` -- a gap of `0.068`
+where the test allows `0.03`. The selected set is two features:
+`['sig4', 'sub(add(neg(sig0),neg(sig1)),add(prewarp(sig2),prewarp(sig3)))']`.
+
+**Reading of it:** MRMR is not selecting noise -- both survivors are signal-derived, and the second is an
+engineered combination of four of the five planted signals. The loss is that five independent signals have been
+compressed into two columns, one of them a lossy algebraic mixture, so the downstream model can no longer
+separate their individual contributions. That is a redundancy-gate calibration question (the FE combination is
+being scored as subsuming its own operands), not a correctness bug in the sense of a wrong number.
+
+**Why not fixed here:** it is a selection-quality tuning question on a benchmark fixture, and the audit round
+this session is implementing contains no finding about it. Changing the redundancy gate to keep the operands
+would alter selection behaviour across the whole suite, which needs its own before/after measurement rather
+than a change made in passing.
+
+**Next action if picked up:** re-run with the FE families disabled to confirm the compression is what costs the
+AUC (expect the gap to close if so), then look at whether the subsumption discriminator is treating
+`sub(add(neg(sig0),neg(sig1)), ...)` as redundant with its own operands rather than complementary to them.
