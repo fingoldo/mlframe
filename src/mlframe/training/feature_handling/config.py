@@ -294,6 +294,62 @@ class FeatureHandlingConfig(BaseConfig):
     # ------------------------------------------------------------------
 
     @model_validator(mode="after")
+    def _warn_on_declared_but_unconsumed(self) -> FeatureHandlingConfig:
+        """Warn when a field that nothing in ``src/mlframe`` reads is set away from its default.
+
+        These models are ``extra="forbid"``, so accepting a field looks like a supported API -- and a user who
+        writes ``MemoryConfig(pressure_watermark_pct=60)`` or ``PricingConfig(cap_usd=5.0)`` expecting a memory
+        guard or a spend gate currently gets a run that behaves exactly as if the value were left at default,
+        with nothing said. The fields are kept rather than removed (they name real intended behaviour and are
+        part of the public surface), but setting one now produces a signal instead of silence.
+
+        Remove a name from this list in the same change that gives it a reader.
+        """
+        _unconsumed = {
+            "memory": ("pressure_watermark_pct",),
+            "cache": (
+                "eviction_async",
+                "prefetch_enabled",
+                "prefetch_device",
+                "prefetch_vram_safety_factor",
+                "max_per_column_entries",
+            ),
+            "pricing": ("cap_usd", "warn_above_usd"),
+            "logging": ("redact_column_names",),
+            "repro": (
+                "deterministic_torch",
+                "langdetect_seed",
+                "pinned_svd_solver_params",
+                "forbid_nonatomic_fs",
+                "deterministic_eviction",
+            ),
+        }
+        _set: list[str] = []
+        for _section, _names in _unconsumed.items():
+            _obj = getattr(self, _section, None)
+            if _obj is None:
+                continue
+            _defaults = type(_obj).model_fields
+            for _name in _names:
+                if _name not in getattr(_obj, "model_fields_set", ()):  # only an EXPLICIT assignment counts
+                    continue
+                _field = _defaults.get(_name)
+                _default = _field.get_default(call_default_factory=True) if _field is not None else None
+                if getattr(_obj, _name, None) != _default:
+                    _set.append(f"{_section}.{_name}")
+        for _name in ("auto_locale_sample_size", "auto_locale_english_threshold"):
+            _field = type(self).model_fields.get(_name)
+            if _name in self.model_fields_set and _field is not None and getattr(self, _name, None) != _field.get_default():
+                _set.append(_name)
+        if _set:
+            logger.warning(
+                "FeatureHandlingConfig: %s set to a non-default value but NOT consumed anywhere in mlframe -- the run "
+                "will behave as if left at default. Declared for a planned behaviour that is not implemented yet.",
+                ", ".join(sorted(_set)),
+            )
+        return self
+
+    @model_validator(mode="after")
     def _derive_memory_budgets(self) -> FeatureHandlingConfig:
         """Resolve ``memory.budget_gb`` / ``cache.ram_max_gb`` /
         ``cache.ram_reserve_gb`` from system probe when None.

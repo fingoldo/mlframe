@@ -80,10 +80,14 @@ def _derive_seed(master_seed: int, key: str) -> int:
     return derive_seed(master_seed, key)
 
 
-def _bootstrap_block(
-    y_true: np.ndarray, probs: np.ndarray, preds: Optional[np.ndarray] = None, *, rng_seed: int = 0,
-) -> dict[str, Any]:
-    """Compute bootstrap CIs for the binary top-line metrics that apply to ``(y_true, probs)``."""
+def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, *, rng_seed: int = 0) -> dict[str, Any]:
+    """Compute bootstrap CIs for the binary top-line metrics that apply to ``(y_true, probs)``.
+
+    Every metric here is probability-based (roc_auc, brier, log_loss, ece), so crisp predictions are not an
+    input. A ``preds`` parameter was accepted and passed by the caller but never read anywhere in the body,
+    which reads as working plumbing for a crisp-metric CI that does not exist -- so it is gone rather than
+    silently ignored. Adding an accuracy or F1 interval means adding the metric AND the argument together.
+    """
     from mlframe.evaluation.bootstrap import bootstrap_metric, bootstrap_metrics
 
     p = probs
@@ -481,9 +485,7 @@ def run_honest_diagnostics(
             payload["bootstrap_ci"][key] = {"status": "skipped", "reason": "no test_target / test_probs"}
             continue
         try:
-            payload["bootstrap_ci"][key] = _bootstrap_block(
-                y_test, p_test, getattr(entry, "test_preds", None), rng_seed=_derive_seed(master_seed, key),
-            )
+            payload["bootstrap_ci"][key] = _bootstrap_block(y_test, p_test, rng_seed=_derive_seed(master_seed, key))
         except Exception as exc:
             logger.debug("bootstrap CI block failed for key %r, skipping: %s", key, exc)
             payload["bootstrap_ci"][key] = {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}

@@ -41,6 +41,24 @@ logger = logging.getLogger(__name__)
 from ._reporting_probabilistic import _slugify_class
 
 
+def _record_chart(metrics, name: str, base_path: str, error: "Exception | None" = None) -> None:
+    """Register a rendered (or failed) chart in ``metrics["charts"]`` so the combined HTML index can find it.
+
+    Three default-ON families here wrote their files and returned without recording anything, so the charts were
+    absent from the combined report and from every chart-presence check -- and their failures were swallowed at
+    DEBUG with no ``failed`` entry either, making "the chart is missing because it broke" indistinguishable from
+    "the chart is missing because the family was off".
+    """
+    if not isinstance(metrics, dict):
+        return
+    _c = metrics.setdefault("charts", {"saved": [], "failed": []})
+    if error is None:
+        _c.setdefault("saved", []).append(name)
+        _c.setdefault("paths", []).append(base_path)
+    else:
+        _c.setdefault("failed", []).append(f"{name}: {type(error).__name__}: {error}")
+
+
 def _render_fairness_calibration(
     *,
     subgroups: dict[str, Any],
@@ -88,8 +106,10 @@ def _render_fairness_calibration(
             from mlframe.reporting.output import parse_plot_output_dsl
             from mlframe.reporting.renderers import render_and_save
             render_and_save(spec, parse_plot_output_dsl(_dsl), base_path)
+            _record_chart(metrics, f"fairness_calibration_{_slug}", base_path)
         except Exception as e:
             logger.debug("fairness_calibration chart for %r skipped: %s", group_name, e)
+            _record_chart(metrics, f"fairness_calibration_{_slugify_class(str(group_name))}", "", error=e)
 
     if metrics is not None and disparities:
         metrics.update(dict(fairness_calibration_disparity=disparities))
@@ -153,8 +173,10 @@ def _render_calibration_by_feature(
             from mlframe.reporting.output import parse_plot_output_dsl
             from mlframe.reporting.renderers import render_and_save
             render_and_save(spec, parse_plot_output_dsl(_dsl), base_path)
+            _record_chart(metrics, f"calibration_by_feature_{_slug}", base_path)
         except Exception as e:
             logger.debug("calibration_by_feature chart for %r skipped: %s", fname, e)
+            _record_chart(metrics, f"calibration_by_feature_{_slugify_class(str(fname))}", "", error=e)
 
     if metrics is not None and heterogeneity:
         metrics.update(dict(calibration_by_feature_heterogeneity=heterogeneity))
@@ -208,5 +230,7 @@ def _render_calibration_heatmap_2d(
         from mlframe.reporting.output import parse_plot_output_dsl
         from mlframe.reporting.renderers import render_and_save
         render_and_save(spec, parse_plot_output_dsl(_dsl), base_path)
+        _record_chart(metrics, "calibration_heatmap_2d", base_path)
     except Exception as e:
         logger.debug("calibration_heatmap_2d chart skipped: %s", e)
+        _record_chart(metrics, "calibration_heatmap_2d", "", error=e)

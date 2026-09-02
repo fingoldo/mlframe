@@ -516,6 +516,11 @@ def _render_post_fit_diagnostics(
         except Exception:  # best-effort: the learning-curve chart is optional diagnostic output
             logger.exception("learning_curve render failed; continuing.")
 
+    # Say what the budget dropped, BEFORE stitching the report. Without this call the promise the budget class
+    # documents -- that a shortened diagnostics block names what it left out -- was never kept, so a truncated
+    # report was indistinguishable from a complete one.
+    _budget.report()
+
     # Combined single-page HTML index stitching every chart artifact recorded for this (model, split).
     if getattr(cfg, "combined_html", True) and isinstance(metrics, dict):
         paths = metrics.get("charts", {}).get("paths", [])

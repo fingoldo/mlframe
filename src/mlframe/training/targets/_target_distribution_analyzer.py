@@ -157,9 +157,12 @@ class TargetDistributionReport:
 # - High-cardinality categorical features (n_unique > 100): one-hot blows up
 #   the feature space; recommend target / hashing encoders.
 #
-# - NaN-heavy features (fraction > 50%): random missingness or structural?
-#   At >=50% the imputer is dominating the column; the operator should pick a
-#   strategy explicitly rather than rely on the default.
+# - NaN-heavy features (fraction >= _NAN_FRACTION_THRESHOLD, which is 0.99): random missingness or structural?
+#   At that fraction the imputer is producing essentially the whole column, so the operator should pick a
+#   strategy explicitly rather than rely on the default. The threshold is 0.99 and not the former 0.5 for the
+#   structural-missingness reason written out at the constant's own definition above -- at 50% this rule alone
+#   discarded whole feature families whose missingness is meaningful. This block said "> 50%" long after that
+#   change, so a reader wondering why a 60%-NaN column was not flagged concluded the detector was broken.
 #
 # - Suspected target leakage (|Pearson(x, y)| > 0.99 for regression OR
 #   per-class AUC > 0.99 for classification): a feature should NOT predict

@@ -117,6 +117,13 @@ class TargetEncodeParams(BaseModel):
     cv: int = 5
     prior: Literal["mean", "median"] = "mean"
     random_state: Optional[int] = None
+    time_aware: bool = False
+    """Use forward-chaining ``TimeSeriesSplit`` folds instead of shuffled K-fold for the OOF encoding.
+
+    ``LeakageSafeEncoder`` has always implemented this as the safe path for a genuinely temporal target, but
+    the knob was not expressible here -- this model is ``extra="forbid"`` -- so every configured target encoder
+    got ``KFold(shuffle=True)`` regardless of temporal structure, which lets a row be encoded using statistics
+    computed from its own future. Rows must already be in time order for this to mean anything."""
 
 
 class CustomParams(BaseModel):

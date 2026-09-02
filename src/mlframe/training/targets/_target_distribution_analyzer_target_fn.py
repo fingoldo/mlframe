@@ -257,7 +257,7 @@ def analyze_target_distribution(
                 diagnostics["lag1_autocorr_per_group"] = ar
                 diagnostics["lag1_autocorr_per_group_groups_skipped"] = float(_n_groups_skipped)
         if math.isfinite(ar) and abs(ar) > _STRONG_AR_PEARSON_LAG1:
-            pathologies.append(f"strong_AR_target(lag1_corr={ar:.3f}, source={ar_source})")
+            pathologies.append(f"strong_AR_target(max_abs_autocorr={ar:.3f}, source={ar_source})")
             # Real prod root cause: MLP with per-row layernorm collapses
             # under strong AR because the layer destroys inter-row absolute-
             # scale signal that AR depends on. Force layernorm OFF.

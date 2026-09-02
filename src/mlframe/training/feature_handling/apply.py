@@ -492,6 +492,7 @@ def _apply_target_encoder(
             cv=params.cv,
             prior=params.prior,
             random_state=params.random_state,
+            time_aware=params.time_aware,
         )
         # fit_transform on train so OOF encodings are returned
         train_col = _extract_column_values(train_df, column)

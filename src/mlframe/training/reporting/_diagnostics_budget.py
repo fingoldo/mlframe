@@ -37,9 +37,17 @@ class HeavyDiagnosticsPolicy:
 
     def __init__(self, mode: str = "best", is_primary: bool = True) -> None:
         """``mode`` is "best" (heavy diagnostics on the primary model only) or "all" (the previous behaviour)."""
-        # Explicit None check: a caller passing "" is asking for something this cannot honour, and silently
-        # turning it into "best" hides the mistake rather than surfacing it.
-        self.mode = ("best" if mode is None else str(mode)).lower()
+        # A caller passing "" -- or "ALL " with a stray space, or any typo -- is asking for something this
+        # cannot honour, and silently turning it into "best" hides the mistake. The comment above this line used
+        # to claim that was surfaced; nothing was, so an unrecognised mode quietly got the RESTRICTIVE behaviour.
+        self.mode = "best" if mode is None else str(mode).strip().lower()
+        if self.mode not in ("best", "all"):
+            logger.warning(
+                "DiagnosticsBudget: heavy_diagnostics_for=%r is not one of 'best' / 'all'; falling back to 'best' "
+                "(heavy diagnostics on the primary model only).",
+                mode,
+            )
+            self.mode = "best"
         self.is_primary = bool(is_primary)
 
     def allows(self, name: str) -> bool:

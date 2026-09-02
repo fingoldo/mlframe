@@ -63,6 +63,10 @@ def plot_target_over_time(
         from mlframe.reporting.renderers import render_and_save
         spec = build_temporal_audit_spec(result, figsize=figsize)
         render_and_save(spec, parse_plot_output_dsl(plot_outputs), base_path)
+        # Record the path before returning. Only the legacy matplotlib-PNG branch below ever set this, so under
+        # the DEFAULT `plot_outputs` configuration the chart was written and the audit metadata still serialised
+        # a null `plot_path` -- a downstream consumer reading it concludes no temporal audit chart exists.
+        result.plot_path = base_path
         return None
 
     try:

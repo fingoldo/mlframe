@@ -49,12 +49,16 @@ The cluster is in good shape on the classic bug classes this audit hunts: no `df
 **Suggested fix:** Give the three helpers the same `metrics.setdefault("charts", ...)` bookkeeping the training-curve and learning-curve paths already use at _reporting_diagnostics.py:124-135 and :493-496 -- append tag plus `base_path` on success and the tag to `failed` on exception -- and raise the exception log level from `logger.debug` to `logger.warning`.
 **Evidence:** _reporting_probabilistic_calib.py:90, :155 and :210 call `render_and_save` with no `metrics["charts"]` update; the only `metrics` writes in the file are the disparity / heterogeneity dicts at lines 94-95, 159-160 and 197-202; _reporting_diagnostics.py:501-507 sources the combined HTML exclusively from `charts["paths"]`.
 
+**Disposition:** RESOLVED. A shared `_record_chart(metrics, name, base_path, error=...)` helper registers each of the three families in `metrics["charts"]["saved"]` / `["paths"]` on success and in `["failed"]` on the swallowed exception, so a chart that broke is no longer indistinguishable from a family that was switched off. `tests/training/test_reporting_targets_dropped_values_and_silent_knobs.py`.
+
 ### TRAINING_REPORTING_TARGETS-6 [P2] contract-drift
 **File:** src/mlframe/training/reporting/_diagnostics_budget.py :87-103
 **Summary:** `DiagnosticsBudget.report()` is never called anywhere in the codebase, so the promise that a budget-shortened diagnostics block names what it dropped is not kept -- a truncated report is indistinguishable from a complete one.
 **Failure scenario:** `ReportingConfig.diagnostics_max_seconds` set to e.g. 120 on a wide run. `_render_post_fit_diagnostics` constructs the budget at _reporting_diagnostics.py:275 and routes about 14 diagnostics through `_budget.run`. Once the budget is spent, `run` appends to `self.skipped` and returns None silently at lines 82-84; likewise `self.out_of_scope` under the `heavy_diagnostics_for="best"` policy. `_render_post_fit_diagnostics` returns at line 507 without ever calling `_budget.report()`, so neither the "this report is INCOMPLETE" warning nor the out-of-scope INFO line is ever emitted. The module docstring at lines 8-10 states the opposite: everything skipped is named in a single line at the end, so a shortened report never looks like a complete one.
 **Suggested fix:** Call `_budget.report()` at the end of `_render_post_fit_diagnostics`, before the combined-HTML block, and stamp `budget.skipped` and `budget.out_of_scope` into `metrics["charts"]` so a batch run can count truncated reports programmatically.
 **Evidence:** A repo-wide grep for `.report()` in src/mlframe returns only evaluation/adversarial_validator.py, its bench, and composite/discovery -- no call site for `DiagnosticsBudget.report`. _reporting_diagnostics.py:275 constructs the budget; lines 328-499 use `_budget.run`; lines 500-507 end the function.
+
+**Disposition:** RESOLVED -- `_budget.report()` is called at the end of `_render_post_fit_diagnostics`, before the combined HTML is stitched, so both the INCOMPLETE warning and the out-of-scope INFO line finally reach the operator. `tests/training/test_reporting_targets_dropped_values_and_silent_knobs.py`.
 
 ### TRAINING_REPORTING_TARGETS-7 [P2] dropped-value
 **File:** src/mlframe/training/targets/_target_temporal_plot.py :60-66
@@ -63,12 +67,16 @@ The cluster is in good shape on the classic bug classes this audit hunts: no `df
 **Suggested fix:** Set `result.plot_path` to `base_path`, or to the resolved path returned by `render_and_save`, in the DSL branch before returning, mirroring line 129.
 **Evidence:** _target_temporal_plot.py:60-66 versus :126-130; the dataclass field comment at target_temporal_audit.py:131 -- filled in if plot_target_over_time saves a file.
 
+**Disposition:** RESOLVED -- `result.plot_path = base_path` before the DSL branch returns. The test asserts the assignment PRECEDES the early return, which is the whole defect. `tests/training/test_reporting_targets_dropped_values_and_silent_knobs.py`.
+
 ### TRAINING_REPORTING_TARGETS-8 [P2] config-knob-never-read
 **File:** src/mlframe/training/feature_handling/config.py :80, :107, :110-112, :118, :143-144, :151, :161, :163-166, :262, :276-277
 **Summary:** Sixteen `FeatureHandlingConfig` fields are accepted -- the models are `extra="forbid"`, so setting them looks like a supported API -- but are read nowhere in src/mlframe; a user tuning them gets silence.
 **Failure scenario:** A user writes `FeatureHandlingConfig(memory=MemoryConfig(pressure_watermark_pct=60), cache=CacheConfig(prefetch_enabled=False, prefetch_device="cpu", max_per_column_entries=50), pricing=PricingConfig(cap_usd=5.0), repro=ReproConfig(deterministic_torch=True))` expecting a memory-pressure guard, prefetch disabled, a per-column cache cap, a spend gate on paid embedding providers, and deterministic torch. None of these values is ever read; the run behaves exactly as if they were left at defaults, with no warning. A per-field grep over src/mlframe excluding _benchmarks returns exactly one hit -- the definition -- for each of: `pressure_watermark_pct` :80, `eviction_async` :107, `prefetch_enabled` :110, `prefetch_device` :111, `prefetch_vram_safety_factor` :112, `max_per_column_entries` :118, `cap_usd` :143, `warn_above_usd` :144, `redact_column_names` :151, `deterministic_torch` :161, `langdetect_seed` :163, `pinned_svd_solver_params` :164, `forbid_nonatomic_fs` :165, `deterministic_eviction` :166, `auto_locale_sample_size` :276, `auto_locale_english_threshold` :277. Several are even swept by the fuzz suite at tests/training/_fuzz_combo/axes.py:836-842, which therefore proves nothing about them. Separately `per_target` :262 is validated for cache-identity consistency by `_validate_per_target_consistency` but is never consulted when resolving handler chains: `feature_handling_apply` reads only `_effective_text_specs` and `_effective_cat_specs`, which look at `per_model` alone, so a per-target override silently has no effect.
 **Suggested fix:** For each field, either wire it into its consumer or delete it. Where wiring is a larger job, add a `model_validator` that emits a `logger.warning` naming the field when a non-default value is supplied -- the pattern apply.py:315-329 already uses for the unimplemented `group_columns` -- so "set it and get nothing" is at least visible.
 **Evidence:** Per-field grep over src/mlframe yielding a single definition-site hit each; apply.py:190-196 resolving specs from `_effective_*_specs` only; the `# reserved` comment on config.py:262.
+
+**Disposition:** RESOLVED as a diagnosability fix, not by removal or by implementing sixteen features. Verified the finding's count independently: of the seventeen fields at the cited lines, sixteen have no reader anywhere in `src/mlframe` (`per_target` does, so it is not one of them). Removing them would delete a public surface that names real intended behaviour; implementing all sixteen is a feature project, not an audit fix. Instead a root `model_validator` warns when any of them is EXPLICITLY set to a non-default value, naming each one and saying the run will behave as if it were left at default -- which converts the exact failure the finding describes ("a user tuning them gets silence") into a signal. Constructing the config at defaults, or setting a field to its own default, stays silent. `tests/training/test_reporting_targets_dropped_values_and_silent_knobs.py` includes a test that re-derives the unread set from the source tree and fails if any listed name acquires a reader, so the list has to shrink as fields get wired rather than lingering and warning about working knobs.
 
 ### TRAINING_REPORTING_TARGETS-9 [P2] perf-wasted-scan
 **File:** src/mlframe/training/feature_handling/cache.py :388-427 (invoked at :386)
@@ -77,12 +85,16 @@ The cluster is in good shape on the classic bug classes this audit hunts: no `df
 **Suggested fix:** Move the `free_bytes >= target_free_bytes` short-circuit above the directory scan -- it is a pure function of the already-probed `free_bytes` -- and reconcile the two thresholds; evicting down to `disk_evict_when_free_below_gb` with `disk_min_free_gb` as the hard floor is almost certainly the intended semantics given the trigger value.
 **Evidence:** cache.py:396-401 trigger on `disk_evict_when_free_below_gb`; :403 target from `disk_min_free_gb`; :405-409 unconditional scan and sort; :411-412 loop-entry break; defaults 50.0 and 5.0 at config.py:104-105.
 
+**Disposition:** RESOLVED. The loop's own first-iteration break condition (`free_bytes >= target_free_bytes`) is hoisted ahead of the `os.listdir` + per-file `getmtime` + sort, so the band between the 50 GB trigger and the 5 GB floor -- where a dev box or container volume commonly sits -- no longer pays a full directory scan after every disk write to delete nothing. `tests/training/test_reporting_targets_dropped_values_and_silent_knobs.py`.
+
 ### TRAINING_REPORTING_TARGETS-10 [P3] mislabelled-count
 **File:** src/mlframe/training/reporting/_reporting_regression/_mtr.py :107-111
 **Summary:** The MTR per-target chart summary reports K charts rendered and a `_target0 ... _target{K-1}` range even when the loop skipped columns via `continue`.
 **Failure scenario:** A 4-target MTR report where target 2 has fewer than 5 finite true/pred pairs. Lines 82-90 log a throttled WARNING and `continue`, so `{base}_target2.*` is never written; line 107 nonetheless logs "MTR per-target charts: rendered 4 chart base paths at {base}_target0 ... {base}_target3". An operator, or a script globbing that range, looks for a file that does not exist.
 **Suggested fix:** Count actual renders in a local counter incremented after `render_and_save` and report that, plus the list of skipped column indices.
 **Evidence:** _mtr.py:78-106 loop with the `continue` at :90; :107-111 log using `_K` and `_K - 1`.
+
+**Disposition:** RESOLVED as suggested. The loop tracks the indices it actually rendered and the ones it skipped; the summary reports "rendered N of K" with the explicit index list, and names the skipped targets and why. The old contiguous `_target0 ... _target{K-1}` range is gone. `tests/training/test_reporting_targets_dropped_values_and_silent_knobs.py`.
 
 ### TRAINING_REPORTING_TARGETS-11 [P3] mislabelled-verdict
 **File:** src/mlframe/training/targets/_target_distribution_analyzer_target_fn.py :239
@@ -91,12 +103,16 @@ The cluster is in good shape on the classic bug classes this audit hunts: no `df
 **Suggested fix:** Rename the token to match the quantity, e.g. `max_abs_autocorr={ar:.3f}`.
 **Evidence:** `_max_abs_lag_autocorr` returns the strongest lag per the comment at lines 202-206; line 210 builds the `global_lag{ar_lag}` source tag; line 239 formats the same value as `lag1_corr`.
 
+**Disposition:** RESOLVED as suggested -- the token is `max_abs_autocorr=`, which is the quantity actually printed and is consistent with the `source=global_lag3` token beside it. `tests/training/test_reporting_targets_dropped_values_and_silent_knobs.py`.
+
 ### TRAINING_REPORTING_TARGETS-12 [P3] documented-param-never-read
 **File:** src/mlframe/training/honest_diagnostics.py :83-84 (call site :485)
 **Summary:** `_bootstrap_block`'s `preds` parameter is accepted and passed by the caller but never read in the body.
 **Failure scenario:** `run_honest_diagnostics` passes `getattr(entry, "test_preds", None)` at line 485. The body of `_bootstrap_block`, lines 86-278, references only `y_true`, `probs` / `p_pos` and `rng_seed`; `preds` is dead. A reviewer adding a crisp-prediction metric such as an accuracy or F1 CI will reasonably assume the plumbing already works.
 **Suggested fix:** Delete the parameter and the call-site argument, or use it -- crisp-metric bootstrap CIs are the obvious intent given the docstring's "top-line metrics".
 **Evidence:** Full read of `_bootstrap_block` lines 83-278: no occurrence of `preds` after the signature.
+
+**Disposition:** RESOLVED by deleting the parameter and the call-site argument, which is the finding's first option. Every metric in the block is probability-based (roc_auc, brier, log_loss, ece), so crisp predictions are genuinely not an input; leaving the parameter in place would keep advertising plumbing for a crisp-metric CI that does not exist. The docstring now says that adding one means adding the metric and the argument together. All four existing callers already passed `rng_seed` by keyword, so none needed changing. `tests/training/test_reporting_targets_dropped_values_and_silent_knobs.py`.
 
 ### TRAINING_REPORTING_TARGETS-13 [P3] unreachable-safety-knob
 **File:** src/mlframe/training/feature_handling/target_encoders.py :144-145 and :506-511 (blocked at handlers.py :105-119 and apply.py :485-493)
@@ -105,6 +121,8 @@ The cluster is in good shape on the classic bug classes this audit hunts: no `df
 **Suggested fix:** Add `time_aware: bool = False` and optionally a splitter selector to `TargetEncodeParams`, and thread both through `_apply_target_encoder._fit`; the encoder side already supports them.
 **Evidence:** target_encoders.py:173-177 field docs; :506-511 splitter selection; handlers.py:111-119 `TargetEncodeParams` field list under `extra="forbid"`; apply.py:485-493 construction; grep showing no other `LeakageSafeEncoder(` call site in src.
 
+**Disposition:** RESOLVED for `time_aware`, which is the half that matters. It is now a declared field on `TargetEncodeParams` and is forwarded into `LeakageSafeEncoder`, so a temporal target can finally get forward-chaining folds instead of shuffled K-fold. `cv_splitter` is deliberately NOT exposed: it takes an arbitrary splitter OBJECT, which a pydantic config that must stay serialisable and hashable for the encoder cache key cannot carry, and `time_aware` covers the temporal case the finding is actually about. `tests/training/test_reporting_targets_dropped_values_and_silent_knobs.py` pins the config field, the forwarding, and the encoder's acceptance of it, so the three cannot drift apart again.
+
 ### TRAINING_REPORTING_TARGETS-14 [P3] contract-drift
 **File:** src/mlframe/training/reporting/_diagnostics_budget.py :40-43
 **Summary:** The comment claims an empty-string `mode` is surfaced rather than silently coerced, but an empty string silently behaves exactly like "best".
@@ -112,12 +130,16 @@ The cluster is in good shape on the classic bug classes this audit hunts: no `df
 **Suggested fix:** Validate `mode` against the set best/all in `__init__` and emit a `logger.warning`, or raise, on anything else.
 **Evidence:** _diagnostics_budget.py:40-43 comment versus assignment; :45-49 `allows` treating any non-"all" mode as restrictive.
 
+**Disposition:** RESOLVED. `HeavyDiagnosticsPolicy.__init__` validates the mode against best/all and warns before falling back, so an unrecognised value no longer quietly takes the RESTRICTIVE branch. One deliberate difference from the suggested fix: surrounding whitespace is STRIPPED rather than rejected, because "ALL " is unambiguously the "all" the caller meant -- only a genuinely unrecognised value warns. `tests/training/test_reporting_targets_dropped_values_and_silent_knobs.py`.
+
 ### TRAINING_REPORTING_TARGETS-15 [P3] stale-doc
 **File:** src/mlframe/training/targets/_target_distribution_analyzer.py :168-171
 **Summary:** The feature-side detector doc block still describes the NaN-heavy rule as "fraction > 50%", but the constant it documents was deliberately raised to 0.99.
 **Failure scenario:** A reader consults the module doc block to understand why a 60%-NaN column was not flagged, concludes the detector is broken, and files a bug. The actual threshold is `_NAN_FRACTION_THRESHOLD = 0.99` at line 91, changed with a long rationale comment at lines 84-90 that the doc block 80 lines below was never updated to match.
 **Suggested fix:** Update the doc block to say fraction >= 0.99 and cross-reference the structural-missingness rationale already written at lines 84-90.
 **Evidence:** _target_distribution_analyzer.py:91 versus :168-171, which still reads "NaN-heavy features (fraction > 50%) ... At >=50% the imputer is dominating the column".
+
+**Disposition:** RESOLVED as suggested -- the doc block names `_NAN_FRACTION_THRESHOLD` and its 0.99 value, and cross-references the structural-missingness rationale written at the constant's own definition. `tests/training/test_reporting_targets_dropped_values_and_silent_knobs.py` asserts the constant and the prose agree, so they cannot separate again.
 
 ## Coverage
 Read in full:
