@@ -19,6 +19,8 @@ one H2D of the (n,K) candidate code matrix. Same Miller-Madow plug-in CMI as the
 from __future__ import annotations
 
 import logging
+
+from mlframe.utils.log_throttle import log_throttle
 import os
 from typing import Any
 
@@ -624,9 +626,21 @@ def _get_mi_from_codes_v2_kernels():
         import cupy as cp
         try:
             _MI_FROM_CODES_V2_KERNELS = cp.RawKernel(_MI_FROM_CODES_V2_SRC, "mi_from_codes_cm_i16")
-        except Exception:
-            logger.debug("mi_from_codes v2 compile failed; one-kernel fallback", exc_info=True)
-            _MI_FROM_CODES_V2_KERNELS = False
+        except Exception as exc:
+            # Latch only a PERMANENT compile failure. A syntax or arch problem will fail identically every time
+            # and latching saves repeated compile attempts; a transient nvrtc/DLL fault -- a mode this repo
+            # documents elsewhere -- is indistinguishable here, and latching it cost the fused path for the whole
+            # run on a debug line. Warn, and leave the sentinel unset so the next call retries the compile.
+            log_throttle(
+                logger,
+                "mi_from_codes_v2_compile_failed",
+                logging.WARNING,
+                "mi_from_codes v2 RawKernel compile failed (%s: %s); using the one-kernel fallback for this call "
+                "and retrying the compile next time rather than latching the slower path for the process.",
+                type(exc).__name__,
+                exc,
+            )
+            return None
     return _MI_FROM_CODES_V2_KERNELS or None
 
 

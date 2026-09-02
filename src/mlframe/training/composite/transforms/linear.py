@@ -651,21 +651,36 @@ def _linear_residual_grouped_fit(
         y_g = _y_sorted[_lo:_hi]
         base_g = _base_sorted[_lo:_hi]
         sw_g = _sw_sorted[_lo:_hi] if _sw_sorted is not None else None
+        _fit_ok = True
         try:
             params_g = _linear_residual_fit(y_g, base_g, sample_weight=sw_g)
             a_g = float(params_g["alpha"])
             b_g = float(params_g["beta"])
         except Exception as e:  # pragma: no cover - defensive
-            logger.debug("per-group OLS fit failed for group %s, falling back to global alpha/beta: %s", g_key, e)
+            logger.warning(
+                "composite linear transform: per-group OLS fit failed for group %s (%s: %s); using the global "
+                "alpha/beta for that group's PREDICTIONS, but excluding it from the James-Stein shrinkage "
+                "statistics, since a copy of the global fit is not an independent per-group observation.",
+                g_key,
+                type(e).__name__,
+                e,
+            )
             a_g, b_g = alpha_global, beta_global
+            _fit_ok = False
         per_group_alphas[g_key] = a_g
         per_group_betas[g_key] = b_g
-        alphas_for_shrink.append(a_g)
-        sizes_for_shrink.append(float(n_g))
+        # Substituting the global fit for a group that could not be fit is a defensible PREDICTION fallback, but
+        # feeding those substituted values into the shrinkage estimator as though they were a real per-group fit
+        # is not: they carry zero between-group variance by construction, so every failed group pulls the
+        # estimated spread of alphas toward zero and makes the shrinkage more aggressive than the data warrants.
+        if _fit_ok:
+            alphas_for_shrink.append(a_g)
+            sizes_for_shrink.append(float(n_g))
         base_g64 = base_g.astype(np.float64)
         base_mean_for_shrink[g_key] = float(np.mean(base_g64))
         # Var(base_g) drives the scale-invariant JS slope-variance proxy.
-        base_vars_for_shrink.append(float(np.var(base_g64)) if n_g > 1 else 0.0)
+        if _fit_ok:
+            base_vars_for_shrink.append(float(np.var(base_g64)) if n_g > 1 else 0.0)
         # Accumulate residuals for σ² estimate.
         resid = y_g - a_g * base_g - b_g
         total_resid_sq += float(np.sum(resid * resid))

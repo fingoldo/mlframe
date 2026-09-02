@@ -36,6 +36,8 @@ the dispatcher routes to it above _DEFAULT_CUPY_WORK_THRESHOLD when a GPU is pre
 from __future__ import annotations
 
 import logging
+
+from mlframe.utils.log_throttle import log_throttle
 import time
 from typing import TYPE_CHECKING
 
@@ -371,9 +373,24 @@ def _get_spec():
             salt=1,
             cli_label="fe_interaction_prerank_discrete",
         )
-    except Exception as exc:
-        logger.debug("kernel_tuning registry unavailable (%s: %s); using source-default backend heuristic", type(exc).__name__, exc)
+    except ImportError as exc:
+        # Genuinely absent registry: permanent, expected on a host without pyutilz, latch and stay quiet.
+        logger.debug("kernel_tuning registry unavailable (%s); using the source-default backend heuristic", exc)
         _SPEC = False
+    except Exception as exc:
+        # Anything else -- a TypeError from a bad `variant_fns` / `axes` payload, a transient file fault -- is
+        # NOT "no registry on this host", yet latching `_SPEC = False` made it permanent for the process: the
+        # sentinel is checked before every retry, so one bad call cost the measured per-host backend choice for
+        # the whole run, on a debug line. Warn and leave the sentinel unset so the next call re-attempts.
+        log_throttle(
+            logger,
+            "fe_prerank_kernel_tuning_registry_error",
+            logging.WARNING,
+            "kernel_tuning registry raised %s (%s), which is not 'registry absent'; using the heuristic backend "
+            "for THIS call and retrying the registry next time rather than latching it off for the process.",
+            type(exc).__name__,
+            exc,
+        )
     return _SPEC
 
 
@@ -392,8 +409,18 @@ def compute_discrete_score(V: np.ndarray, V2: np.ndarray, yf: np.ndarray, classe
             try:
                 backend = spec.choose(work=work)
             except Exception as exc:
-                # Hot per-call dispatch path: debug-only, no per-call warning spam.
-                logger.debug("kernel_tuning backend choice failed, using heuristic fallback (%s: %s)", type(exc).__name__, exc)
+                # Throttled WARNING, not debug. The "no per-call spam" reasoning was sound and is preserved by
+                # the throttle -- a handful of lines per process, not one per call -- but debug is invisible in
+                # production, so a registry that has started failing on every call looked exactly like one that
+                # was working.
+                log_throttle(
+                    logger,
+                    "fe_prerank_backend_choice_failed",
+                    logging.WARNING,
+                    "kernel_tuning backend choice failed (%s: %s); using the heuristic fallback, so the measured " "per-host winner is not being used.",
+                    type(exc).__name__,
+                    exc,
+                )
                 backend = _fallback_choice(work=work)
         else:
             backend = _fallback_choice(work=work)
@@ -401,8 +428,17 @@ def compute_discrete_score(V: np.ndarray, V2: np.ndarray, yf: np.ndarray, classe
     try:
         return fn(ZV, ZV2, Yc)
     except Exception as exc:
-        # Hot per-call dispatch path: debug-only, no per-call warning spam.
-        logger.debug("backend %r kernel failed, falling back to numpy variant (%s: %s)", backend, type(exc).__name__, exc)
+        # Same throttle. A kernel that has begun failing every call is a real regression -- the numpy variant
+        # keeps the ANSWER correct, which is precisely why nothing else would ever surface it.
+        log_throttle(
+            logger,
+            "fe_prerank_backend_kernel_failed",
+            logging.WARNING,
+            "backend %r kernel failed (%s: %s); recomputing on the numpy variant. Correctness is preserved, the " "speed of the selected backend is not.",
+            backend,
+            type(exc).__name__,
+            exc,
+        )
         return discrete_score_numpy(ZV, ZV2, Yc)
 
 

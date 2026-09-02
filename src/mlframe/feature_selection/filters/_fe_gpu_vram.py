@@ -27,6 +27,8 @@ and independent of any STRICT override.
 from __future__ import annotations
 
 import logging
+
+from mlframe.utils.log_throttle import log_throttle
 import os
 import threading
 
@@ -111,9 +113,23 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0, *, free_b: "int | None" = Non
         ensure_fe_gpu_pool_limit()
         try:
             free_b, total_b = cp.cuda.runtime.memGetInfo()
-        except Exception as exc:  # - probe failed: permissive, do not block the GPU on a probe error
-            logger.debug("fe_gpu_has_vram_cushion: memGetInfo failed (%s); permissive", exc)
-            return True
+        except Exception as exc:
+            # Fail CLOSED. This guard exists to stop an OOM on a small card under contention -- a recurring
+            # condition in this project -- and returning True is the value that ALLOWS the upload, so failing
+            # open removed the protection at precisely the moment the device is unhealthy enough that
+            # `memGetInfo` itself cannot answer. Refusing the GPU path costs a slower host computation; allowing
+            # it costs the process. `ImportError` above still returns True, correctly: no cupy means no GPU
+            # upload to guard.
+            log_throttle(
+                logger,
+                "fe_gpu_vram_probe_failed",
+                logging.WARNING,
+                "fe_gpu_has_vram_cushion: memGetInfo failed (%s: %s); refusing the GPU path rather than uploading "
+                "blind onto a device whose free memory cannot be read.",
+                type(exc).__name__,
+                exc,
+            )
+            return False
     else:
         # Caller already probed; still ensure the pool cap is installed (idempotent, no extra memGetInfo).
         ensure_fe_gpu_pool_limit()

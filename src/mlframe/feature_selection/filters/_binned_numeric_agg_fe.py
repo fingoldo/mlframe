@@ -22,6 +22,8 @@ Design decisions (all measurement-backed, see ``_benchmarks/bench_cell_binning_f
 from __future__ import annotations
 
 import logging
+
+from mlframe.utils.log_throttle import log_throttle
 from collections.abc import Sequence
 from typing import Optional
 
@@ -904,23 +906,41 @@ def binned_numeric_agg_with_recipes(
                 # and score them all in ONE batched_cmi_gpu workload (cand as the fixed 'y', z as support),
                 # replacing _n_perm per-perm _cmi_from_binned calls. Identical permutations -> the null ceiling
                 # is selection-equivalent; falls back to the per-perm loop on any error / when GPU is off.
+                # ONE draw from `_rng` for the permutation seed, then a child generator both paths rebuild
+                # identically. The GPU path used to consume `_n_perm` draws BEFORE the call that can fail, and
+                # the host fallback then drew `_n_perm` MORE from the now-advanced generator -- so a GPU failure
+                # silently produced a DIFFERENT null ceiling and therefore a different keep/reject verdict, which
+                # is exactly the selection-equivalence the comment above claims. Seeding a child also leaves
+                # `_rng` equally advanced whichever path runs, so everything downstream is unaffected too, and it
+                # costs no extra memory (the fallback still permutes one column at a time).
+                _perm_seed = int(_rng.integers(0, 2**63 - 1))
                 _null = None
                 try:
                     if _cmi_gpu_enabled(n=int(y_cls.shape[0]), p=int(_n_perm), min_p=2) and int(_n_perm) > 1:
                         from ._fe_batched_mi import batched_cmi_gpu
 
+                        _prng = np.random.default_rng(_perm_seed)
                         _Yp = np.empty((y_cls.shape[0], int(_n_perm)), dtype=np.int64)
                         for _i in range(int(_n_perm)):
-                            _Yp[:, _i] = y_cls[_rng.permutation(y_cls.shape[0])]
+                            _Yp[:, _i] = y_cls[_prng.permutation(y_cls.shape[0])]
                         _null = np.asarray(batched_cmi_gpu(_Yp, cand_bin, z_joint), dtype=np.float64)
                         _null = np.where(np.isfinite(_null), _null, 0.0)
                 except Exception as e:
-                    logger.debug("GPU permutation-null batch computation failed, falling back to the host path: %s", e)
+                    log_throttle(
+                        logger,
+                        "binagg_gpu_perm_null_fallback",
+                        logging.WARNING,
+                        "GPU permutation-null batch failed (%s: %s); recomputing the null on the host path. The "
+                        "permutations are seeded identically, so the verdict is unchanged -- the GPU cost is not.",
+                        type(e).__name__,
+                        e,
+                    )
                     _null = None
                 if _null is None:
+                    _prng = np.random.default_rng(_perm_seed)
                     _null = np.empty(_n_perm, dtype=np.float64)
                     for _i in range(_n_perm):
-                        yp = y_cls[_rng.permutation(y_cls.shape[0])]
+                        yp = y_cls[_prng.permutation(y_cls.shape[0])]
                         c0 = _cmi_from_binned(cand_bin, yp, z_joint)
                         _null[_i] = c0 if np.isfinite(c0) else 0.0
                 # Robust one-sided null upper tail (mean + z*std), not the noisy raw max.

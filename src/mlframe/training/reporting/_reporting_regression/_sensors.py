@@ -92,12 +92,23 @@ def run_collapse_sensor(
         _y_mean = float(np.mean(targets_arr)) if targets_arr.size else 0.0
         _r2 = float(R2)
         _collapse_std = _y_std > 0 and _pred_std < 0.2 * _y_std and _r2 < 0
+        _max_err = float("nan")
         try:
             _max_err = float(np.max(np.abs(preds_arr - targets_arr)))
         except Exception as e:
-            logger.debug("max-error computation failed: %s", e)
-            _max_err = 0.0
-        _collapse_extrapolation = _y_std > 0 and _r2 < -1.0 and _max_err > 5.0 * _y_std
+            # NaN, not 0.0. Zero is the BEST possible max error, so substituting it made
+            # `_max_err > 5.0 * _y_std` unconditionally False and silently switched the extrapolation-collapse
+            # sensor off -- in exactly the situations where a collapse warning matters most, since what makes
+            # this computation raise is a shape mismatch or an object-dtype prediction array. NaN keeps the
+            # comparison False too (no false alarm from a number we do not have) but is visible as "unknown"
+            # rather than "healthy", and the failure is now announced instead of logged at debug.
+            logger.warning(
+                "regression sensors: max-error computation failed (%s: %s); the extrapolation-collapse check is "
+                "DISABLED for this model, so a collapsed model will not be flagged by it.",
+                type(e).__name__,
+                e,
+            )
+        _collapse_extrapolation = _y_std > 0 and _r2 < -1.0 and np.isfinite(_max_err) and _max_err > 5.0 * _y_std
         _collapse_mean_shift = _y_std > 0 and abs(_pred_mean - _y_mean) > 3.0 * _y_std
         # When train-y stats are plumbed, additionally trip when pred falls >3 sigma outside [y_train_min, y_train_max]:
         # catches the case where the in-batch target_std happens tighter than train-y_std and the extrapolation branch misses.

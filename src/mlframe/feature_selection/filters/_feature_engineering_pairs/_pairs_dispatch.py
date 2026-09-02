@@ -1,10 +1,13 @@
 """CPU/GPU dispatch for the batched FE-candidate MI + permutation noise-gate."""
 from __future__ import annotations
 
+import logging
 import os
 from typing import NamedTuple, Optional
 
 import numpy as np
+
+from mlframe.utils.log_throttle import log_throttle
 
 from ._pairs_common import _module_logger
 
@@ -181,9 +184,19 @@ def _dispatch_batch_mi_with_noise_gate(
                     disc_2d, _observed, classes_y, int(n), float(min_nonzero_confidence), by=_by_occ,
                 )
             except Exception as _an_exc:  # any failure -> fall through to the permutation path
-                _module_logger.debug(
-                    "analytic noise gate failed (%s: %s); permutation fallback",
-                    type(_an_exc).__name__, _an_exc,
+                # The analytic and permutation gates are two APPROXIMATIONS of the same null, not the same
+                # estimator computed two ways, so they return different keep/reject verdicts for borderline
+                # pairs -- and the permutation path also costs far more. A silent switch between them changes
+                # which features are selected, which is a result change, not a performance note.
+                log_throttle(
+                    _module_logger,
+                    "pairs_analytic_noise_gate_failed",
+                    logging.WARNING,
+                    "analytic noise gate failed (%s: %s); falling back to the PERMUTATION gate, which is a "
+                    "different approximation of the same null -- borderline pairs may be kept or rejected "
+                    "differently, and the fallback is substantially slower.",
+                    type(_an_exc).__name__,
+                    _an_exc,
                 )
 
     # Per-host CPU/GPU backend choice via the canonical ``get_or_tune`` orchestrator

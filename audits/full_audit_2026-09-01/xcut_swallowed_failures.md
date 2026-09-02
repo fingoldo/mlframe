@@ -105,12 +105,16 @@ The live form that remains is the one the brief calls out explicitly: a handler 
 **Suggested fix:** snapshot and restore the generator state (`_st = _rng.bit_generator.state` before the try, restored in the handler) so the fallback reproduces the same permutations, and log at warning naming the exception -- a silent change to a null distribution is a correctness event, not a perf event.
 **Evidence:** read `_binned_numeric_agg_fe.py:880-910`.
 
+**Disposition:** RESOLVED, and not by re-ordering the draws. One `_rng.integers` call now produces a permutation SEED, and both the GPU batch and the host fallback rebuild `np.random.default_rng(seed)` from it -- so the two paths use identical permutations (the selection-equivalence the comment already claimed) AND `_rng` advances by exactly one draw whichever path runs, so nothing downstream shifts either. Materialising the permutations up front would also have worked but costs an (n, n_perm) int64 array on frames where n is millions. `tests/test_meta/test_swallowed_failures_substitute_non_neutral_values.py`.
+
 ### XCUT_SWALLOWED_FAILURES-12 [P2] silently-degraded-numeric-result
 **File:** src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe.py :502
 **Summary:** When both the normal-equations solve and its SVD-lstsq fallback fail, `_deflate_sincos` returns `y` UNDEFLATED, so the next Fourier peak-pick re-detects the frequency that was supposed to have been removed.
 **Failure scenario:** The function's contract at :485-488 is "removes the contribution of one detected frequency so the next peak-pick sees the remaining tones". Returning `y` unchanged breaks that contract silently: the caller's iterative detection loop then reports the same tone repeatedly as several distinct detected frequencies, padding the engineered feature set with duplicate sin/cos legs. Two handlers, :502 (post-lstsq) and :505 (the outer non-LinAlgError case), both debug-only. Note :498 already correctly narrows to `np.linalg.LinAlgError`, so :505 can only fire on something other than a singular design -- i.e. a genuine bug.
 **Suggested fix:** log at warning naming `freq` and the exception type and stating that deflation was skipped; better, return a sentinel the caller can use to stop the detection loop instead of silently re-detecting. The `except Exception` at :505 should be dropped or narrowed to `ValueError`.
 **Evidence:** read `_orth_extra_basis_fe.py:485-507` plus the `_refine_peak_freq` / `_scan` caller at :460-482.
+
+**Disposition:** RESOLVED as diagnosability. Returning `y` undeflated is still the only thing available when both the normal-equations solve and the SVD fallback fail -- there is no third estimator -- but it silently breaks the function's contract, so the caller re-detects the same tone as several distinct frequencies. Both handlers now warn through `log_throttle` and say exactly that consequence. `tests/test_meta/test_swallowed_failures_substitute_non_neutral_values.py`.
 
 ### XCUT_SWALLOWED_FAILURES-13 [P2] cached-spec-downgrade-plus-silent-per-call-fallback
 **File:** src/mlframe/feature_selection/filters/_fe_interaction_prerank_kernels.py :374
@@ -119,12 +123,16 @@ The live form that remains is the one the brief calls out explicitly: a handler 
 **Suggested fix:** at :374 log at warning and do not latch on non-ImportError; at :394 and :403 use `log_throttle(logger, "<key>", logging.WARNING, ...)` naming the backend, the exception type and the work size, so the first occurrence per process is visible.
 **Evidence:** read `_fe_interaction_prerank_kernels.py:355-407`.
 
+**Disposition:** RESOLVED on both halves. The registry guard is narrowed to `ImportError` (genuinely absent, permanent, still latches and stays quiet); anything else -- a `TypeError` from a bad payload, a transient file fault -- warns and leaves `_SPEC` UNSET, so the next call retries instead of the process losing the measured backend choice for good. The two per-call handlers keep their "no spam" property via `log_throttle` rather than by being invisible: debug is not emitted in production, so a registry failing on every call looked exactly like one that was working. `tests/test_meta/test_swallowed_failures_substitute_non_neutral_values.py`.
+
 ### XCUT_SWALLOWED_FAILURES-14 [P2] process-wide-cached-gpu-probe
 **File:** src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_prefilter.py :202
 **Summary:** Both probe handlers (:202 cupy device count, :213 xgboost build info) latch `_GPU_MODEL_AVAILABLE_CACHE = False` for the process on any exception, debug-only, permanently routing the SHAP-proxy prefilter to its CPU path.
 **Failure scenario:** The docstring is explicit that the intended detections are "no CUDA device" and "CPU-only xgboost wheel", both permanent host properties. `except Exception` also swallows a transient `CUDARuntimeError` under contention, and once latched there is no automatic recovery -- `reset_gpu_model_available_cache()` at :221 is documented as test-only. Same shape at `_shap_proxy_cluster_su.py:88` (`_GPU_AVAILABLE_CACHE`) and `metrics/_core_auc_brier.py:135` (`_GPU_ARGSORT_AVAILABLE`, which gates the GPU argsort behind every metric kernel at :146).
 **Suggested fix:** narrow to `ImportError` / `ModuleNotFoundError` plus cupy's `CUDARuntimeError` combined with an explicit device-count-zero check; log anything else at warning and leave the cache `None` so the probe is retried.
 **Evidence:** read `_shap_proxy_prefilter.py:181-227` and `_core_auc_brier.py:126-154`.
+
+**Disposition:** RESOLVED. `ImportError` on cupy or xgboost is a permanent host property and still latches `_GPU_MODEL_AVAILABLE_CACHE = False`; a runtime probe failure now warns and returns False WITHOUT latching, so a transient `CUDARuntimeError` under contention costs one call rather than the process, and a recovered device is picked up on the next call. `tests/test_meta/test_swallowed_failures_substitute_non_neutral_values.py`.
 
 ### XCUT_SWALLOWED_FAILURES-15 [P2] disabled-safety-sensor
 **File:** src/mlframe/training/reporting/_reporting_regression/_sensors.py :97
@@ -133,12 +141,16 @@ The live form that remains is the one the brief calls out explicitly: a handler 
 **Suggested fix:** substitute `np.inf` (unknown error must not be read as zero error) or skip the branch explicitly, and log at warning -- a sensor that silently switches itself off is worse than no sensor.
 **Evidence:** read `_sensors.py:75-130`, tracing `_max_err` into the `_collapse_extrapolation` expression at :100 and the early return at :116.
 
+**Disposition:** RESOLVED. `_max_err` is NaN on failure, not 0.0, and the collapse test gains an `np.isfinite` term. NaN keeps the comparison False -- no false alarm from a number we do not have -- while being visibly "unknown" rather than "perfect", and the failure warns instead of logging at debug. 0.0 was the single worst value available: it is the BEST possible max error, so it made the check unconditionally False in exactly the situations (shape mismatch, object-dtype predictions) that produce it. `tests/test_meta/test_swallowed_failures_substitute_non_neutral_values.py`.
+
 ### XCUT_SWALLOWED_FAILURES-16 [P2] silent-memory-blowup
 **File:** src/mlframe/training/core/_predict_pre_pipeline.py :147
 **Summary:** If `sparse_df_from_spmatrix` fails, the handler calls `_arr.toarray()`, densifying a sparse matrix at predict time, on a debug line.
 **Failure scenario:** This is the one path in the file where the handler changes resource behaviour rather than values. A wide TF-IDF or one-hot output deliberately kept sparse is materialised dense; on the frame sizes this project explicitly designs for (CLAUDE.md: frames can be 100+ GB) that is an OOM or a Windows paging-file failure attributed to something else entirely, with the actual cause recorded only at debug. The `ImportError` case for scipy is already correctly narrowed at :141, so this handler only ever sees real failures of mlframe's own helper.
 **Suggested fix:** log at warning naming the exception and the dense byte estimate (`_arr.shape[0] * _arr.shape[1] * 8`) before densifying, and narrow to the helper's real raises so a bug inside `sparse_df_from_spmatrix` is not silently converted into a memory event.
 **Evidence:** read `_predict_pre_pipeline.py:128-151`.
+
+**Disposition:** RESOLVED as diagnosability -- the densification stays, because it is the only way to return a frame at all, but it now warns BEFORE it runs and names the matrix shape, its nnz, and the approximate dense size in GB. On this project's frame sizes the failure mode is an OOM or a Windows paging-file error attributed to something else entirely, so the value of this line is that the log says what was about to happen. `tests/test_meta/test_swallowed_failures_substitute_non_neutral_values.py`.
 
 ### XCUT_SWALLOWED_FAILURES-17 [P2] silently-changed-model-parameters
 **File:** src/mlframe/training/composite/transforms/linear.py :658
@@ -147,12 +159,16 @@ The live form that remains is the one the brief calls out explicitly: a handler 
 **Suggested fix:** mirror the :645 branch -- assign global params and `continue` rather than falling through into the shrinkage accumulators -- and log at warning naming the group key and exception type.
 **Evidence:** read `composite/transforms/linear.py:610-690`, comparing the `min_group_size` branch against the exception branch.
 
+**Disposition:** RESOLVED. Substituting the global fit for a group that could not be fit remains the PREDICTION fallback (it is defensible and there is nothing better), but those substituted values are no longer appended to `alphas_for_shrink` / `sizes_for_shrink` / `base_vars_for_shrink`: a copy of the global fit carries zero between-group variance by construction, so every failed group pulled the estimated spread of alphas toward zero and made the James-Stein shrinkage more aggressive than the data warrants. The substitution also warns. `tests/test_meta/test_swallowed_failures_substitute_non_neutral_values.py`.
+
 ### XCUT_SWALLOWED_FAILURES-18 [P2] silent-estimator-substitution
 **File:** src/mlframe/feature_selection/filters/_group_distance_fe.py :173
 **Summary:** When `scipy.stats.wasserstein_distance` raises, a 101-point quantile-grid approximation is substituted, producing DIFFERENT feature values rather than a slower route to the same values, logged at debug.
 **Failure scenario:** The numba path is gated out at :163, so this handler runs on hosts without numba. Its except covers the genuine `ImportError` (scipy absent) and any runtime failure of `wasserstein_distance` alike. The fallback approximates the Wasserstein-1 integral on a fixed 101-point grid, so the resulting `group_distance` feature differs numerically from the exact value, and that difference is baked into the persisted recipe and replayed at transform time. Two hosts running the same fit can therefore produce different feature values with nothing above debug to say so.
 **Suggested fix:** split `ImportError` into its own branch (a legitimate, permanent, host-level scipy-absent case that can stay quiet), log any other exception at warning naming the type, and record which estimator was used in the recipe payload so `transform()` replays what the fit actually did.
 **Evidence:** read `_group_distance_fe.py:152-181` and the `generate_group_distance_features` docstring at :183-194 describing recipe persistence.
+
+**Disposition:** RESOLVED. `ImportError` (scipy absent) is split out and stays at debug -- that is an expected deployment and the approximation is the intended answer there. A RUNTIME failure of an installed scipy warns, because the 101-point quantile fallback produces DIFFERENT feature values, so the feature silently mixes two estimators across its own rows. The fallback was also extracted into a named `_wasserstein_quantile_approx` so both call sites share one implementation. `tests/test_meta/test_swallowed_failures_substitute_non_neutral_values.py`.
 
 ### XCUT_SWALLOWED_FAILURES-19 [P2] silent-estimator-substitution
 **File:** src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_dispatch.py :183
@@ -161,12 +177,16 @@ The live form that remains is the one the brief calls out explicitly: a handler 
 **Suggested fix:** `log_throttle` at warning naming the exception type and stating that the analytic gate was replaced by the permutation gate; narrow both handlers so a genuine mismatch between the mlframe call and the `analytic_batch_noise_gate` signature raises rather than degrades.
 **Evidence:** read `_pairs_dispatch.py:155-210`.
 
+**Disposition:** RESOLVED as diagnosability. The permutation gate is the right fallback -- it is the more expensive but more general of the two -- but it is a DIFFERENT approximation of the same null, so borderline pairs can be kept or rejected differently. The handler now says so through `log_throttle` instead of a debug line. `tests/test_meta/test_swallowed_failures_substitute_non_neutral_values.py`.
+
 ### XCUT_SWALLOWED_FAILURES-20 [P2] silently-changed-selection-score
 **File:** src/mlframe/feature_selection/filters/_hinge_detect_gpu_resident.py :132
 **Summary:** A failed normal-equations solve returns `-np.inf` so that this design loses the comparison, silently removing a candidate hinge design from consideration on a debug line.
 **Failure scenario:** The substituted `-inf` is not neutral: it is the value that guarantees rejection. A singular design is a legitimate reason to lose, but `except Exception` also catches a shape bug or a cupy fault, in which case a genuinely good hinge breakpoint is discarded and the selected feature set differs, with nothing above debug. Same polarity problem at `_fe_additive_fusion_gpu_resident.py:85` (`return 0.0` after both the normal-equation solve AND the lstsq fallback fail, and 0.0 is the no-multiple-R value, so the fusion candidate always loses) and at `_friend_graph_and_redundancy/_group2.py:229` (`return -np.inf`, treating it as a failed candidate).
 **Suggested fix:** catch `np.linalg.LinAlgError` and the cupy equivalent for the genuine singular-design case and keep the current value; log anything else at warning naming the exception so a shape or dtype bug is not silently converted into a selection decision.
 **Evidence:** read `_hinge_detect_gpu_resident.py:120-140`; the two siblings confirmed from the sweep handler-body extraction.
+
+**Disposition:** RESOLVED. `cp.linalg.LinAlgError` -- a genuinely singular design -- keeps its `-inf` at debug, because losing the comparison is the correct verdict there. Any other exception still returns `-inf` (there is no other value that lets the search proceed) but warns, since `-inf` guarantees rejection and a shape bug or driver fault is not evidence about the breakpoint's quality. `tests/test_meta/test_swallowed_failures_substitute_non_neutral_values.py`.
 
 ### XCUT_SWALLOWED_FAILURES-21 [P2] silent-backend-fallback-on-hot-path
 **File:** src/mlframe/feature_selection/filters/batch_pair_mi_gpu.py :494
@@ -175,12 +195,16 @@ The live form that remains is the one the brief calls out explicitly: a handler 
 **Suggested fix:** test the shape-guard predicate explicitly BEFORE the call and take the CPU path without raising; any exception that then reaches the handler is by construction an incident and should `log_throttle` at warning with the type, message and `(n_rows, n_cols)`.
 **Evidence:** read `batch_pair_mi_gpu.py:480-535`.
 
+**Disposition:** RESOLVED. A shape-guard trip is detected explicitly (a `ValueError` mentioning shared memory or an exceeded cap) and stays at debug -- it is expected, cheap and permanent for that shape. Everything else warns through `log_throttle`, because the fallback keeps the ANSWER correct, which is precisely why a genuine kernel regression would otherwise never be noticed. `tests/test_meta/test_swallowed_failures_substitute_non_neutral_values.py`.
+
 ### XCUT_SWALLOWED_FAILURES-22 [P2] silent-reproducibility-loss
 **File:** src/mlframe/utils/misc.py :44
 **Summary:** `cp.random.seed(seed)` failing leaves the CUDA RNG unseeded for the whole process -- every cupy-backed stochastic path becomes non-reproducible -- logged at debug.
 **Failure scenario:** `ImportError` / `ModuleNotFoundError` is already correctly split out at :42, so this handler only fires when cupy IS installed but its RNG backend is unusable (`CURAND_STATUS_INITIALIZATION_FAILED`, driver mismatch). The function's entire purpose is determinism; a caller who called `set_random_seed(...)` and saw no error reasonably believes the run is reproducible, and it is not. The comment argues for degrading rather than poisoning downstream CPU-only estimators, which is reasonable, but the user is never told which half of the seed pair took effect.
 **Suggested fix:** log at warning -- this fires at most once per process at setup, so there is no spam concern, and a silently downgraded determinism guarantee is exactly what a warning is for.
 **Evidence:** read `utils/misc.py:20-56`.
+
+**Disposition:** RESOLVED as diagnosability. `ImportError` is already split out above, so this handler only fires when cupy IS installed and its RNG backend is unusable -- and the function's entire purpose is determinism. Promoted to a warning that states plainly that the CUDA RNG is unseeded and any cupy-backed stochastic path in the process is not reproducible, while the CPU seeds are set. `tests/test_meta/test_swallowed_failures_substitute_non_neutral_values.py`.
 
 ### XCUT_SWALLOWED_FAILURES-23 [P3] process-wide-cached-kernel-compile-flag
 **File:** src/mlframe/feature_selection/filters/_fe_batched_mi.py :627
@@ -189,12 +213,16 @@ The live form that remains is the one the brief calls out explicitly: a handler 
 **Suggested fix:** log the first compile failure per kernel at warning naming `type(e).__name__` and the kernel name so a real arch/syntax regression is visible in CI logs; narrow to the cupy `CompileException` / `NVRTCError` so an unrelated `NameError` in the surrounding Python surfaces.
 **Evidence:** read `_fe_batched_mi.py:615-635`; the four `_gpu_resident_select_kernels.py` sites and `_gpu_pairs.py:197` confirmed from the sweep with their assigned globals.
 
+**Disposition:** RESOLVED. The compile failure no longer latches `_MI_FROM_CODES_V2_KERNELS = False`; it warns and returns None, so the next call retries. A permanent syntax or arch problem simply fails again (a few extra compile attempts), while a transient nvrtc/DLL fault -- a mode this repo documents elsewhere -- no longer costs the fused path for the whole run. `tests/test_meta/test_swallowed_failures_substitute_non_neutral_values.py`.
+
 ### XCUT_SWALLOWED_FAILURES-24 [P3] import-time-cached-cuda-flag
 **File:** src/mlframe/feature_selection/filters/_batch_pair_mi_cuda_kernels.py :34
 **Summary:** Four modules resolve a module-level `_CUDA_AVAIL` at IMPORT time through a nested `except Exception` chain (pyutilz probe, then numba probe, then False), so an exception during import permanently disables that module's CUDA kernels for the process.
 **Failure scenario:** This is the `_select_mi_backend` mechanism exactly: a transient device fault raised while importing a probe module is indistinguishable from "no CUDA", it is resolved once at import, and it is logged at debug. Sites: `_batch_pair_mi_cuda_kernels.py:34` / `:39`, `_batch_mi_noise_gate_kernels.py:31` / `:35`, `friend_graph_gpu.py:70` / `:74`, `batch_pair_usability_corr_gpu.py:94` / `:98` / `:107`, plus the same two-level chain in `_gpu_policy.py:53` / `:59` and `_gpu_resident_fe.py:155` / `:160` (function-scoped, so marginally better). P3 rather than P1 only because most consumers re-check a second gate (`numba_cuda_can_compile`, `fe_gpu_strict_enabled`) before dispatching.
 **Suggested fix:** narrow the first level to `ImportError` -- the only genuine "pyutilz absent" case, per the `_select_mi_backend` fix already landed in this repo -- and log any other exception at warning while still attempting the numba probe; prefer a lazy first-use probe over resolving these at import time.
 **Evidence:** read `_batch_pair_mi_cuda_kernels.py:25-45`; the parallel sites confirmed identical by the sweep handler-body extraction.
+
+**Disposition:** RESOLVED at all four sites named. `ImportError` (pyutilz absent) is separated and stays quiet; anything else warns and says explicitly that `_CUDA_AVAIL` is resolved ONCE at module import, so if the fault was transient this module's CUDA kernels are disabled for the process. Making the probe lazy would be the deeper fix but restructures four modules' import-time constants; surfacing it is what turns an invisible permanent downgrade into a diagnosable one, which is the same treatment `_select_mi_backend` received. `tests/test_meta/test_swallowed_failures_substitute_non_neutral_values.py` parametrises over all four.
 
 ### XCUT_SWALLOWED_FAILURES-25 [P3] silent-oracle-fingerprint-corruption
 **File:** src/mlframe/utils/_param_oracle.py :260
@@ -203,12 +231,18 @@ The live form that remains is the one the brief calls out explicitly: a handler 
 **Suggested fix:** use `float("nan")` for unknown so the oracle can distinguish it from a real zero, and log at warning naming the statistic and the exception.
 **Evidence:** read `_param_oracle.py:240-340`.
 
+**Disposition:** RESOLVED. Both statistics record NaN on failure rather than 0.0. The distinction matters because 0.0 is a LEGAL reading of each -- "these columns are uncorrelated", "no cardinality" -- so substituting it does not degrade the fingerprint, it falsifies it, and the oracle then keys and scores against a description of a different dataset shape. NaN is a value no real frame produces, so an incomplete fingerprint is visibly incomplete.
+
+Worth recording: the first version of this fix mis-indented `cards.append(...)` behind the loop's `continue`, which made `cardinality_mean` NaN for EVERY frame rather than only on failure. `tests/test_meta/test_swallowed_failures_substitute_non_neutral_values.py`'s "a real frame still produces finite statistics" case caught it immediately -- which is the reason that test exists alongside the negative ones.
+
 ### XCUT_SWALLOWED_FAILURES-26 [P3] permissive-vram-guard
 **File:** src/mlframe/feature_selection/filters/_fe_gpu_vram.py :114
 **Summary:** When the VRAM cushion probe (`memGetInfo`) fails, the guard returns `True` (permissive) -- the value that ALLOWS a large upload -- on a debug line.
 **Failure scenario:** The guard exists to prevent an OOM on a 4 GB card under contention, a documented recurring condition in this repo. Failing open removes the protection precisely when the device is unhealthy. Related permissive-on-failure guards: `_gpu_resident_fe.py:188` (`return True`, deferring to per-path OOM fallbacks), `_gpu_batched.py:104` and `:348` (`_cushion_ok = True`, leaving existing guards in charge), `_fe_gpu_vram.py:185` (`total_b = 0`). P3 because each site names a downstream guard that still applies; the concern is that the reasoning is only checkable by reading four files and the log is debug.
 **Suggested fix:** log at warning naming the exception, since a failing `memGetInfo` is itself a device-health signal worth surfacing; narrow to the cupy `CUDARuntimeError` so an `AttributeError` from a cupy API change is not read as device-busy.
 **Evidence:** read `_fe_gpu_vram.py:100-205`.
+
+**Disposition:** RESOLVED -- the cushion guard fails CLOSED. `return True` is the value that ALLOWS the upload, so failing open removed the OOM protection at exactly the moment the device is unhealthy enough that `memGetInfo` cannot answer. Refusing the GPU path costs a slower host computation; allowing it costs the process. The `ImportError` branch still returns True, correctly: no cupy means there is no GPU upload to guard. `tests/test_meta/test_swallowed_failures_substitute_non_neutral_values.py`.
 
 ## Coverage
 **Swept mechanically (every .py file, 2445 of them):** all of `src/mlframe/` -- `calibration/`, `competition/`, `core/`, `data/`, `data_valuation/`, `estimators/`, `evaluation/`, `feature_engineering/`, `feature_selection/` (incl. `filters/`, `filters/info_theory/`, `filters/_mrmr_fit_impl/`, `filters/_feature_engineering_pairs/`, `filters/_orthogonal_univariate_fe/`, `filters/engineered_recipes/`, `filters/hermite_fe/`, `shap_proxied_fs/`, `wrappers/`), `inference/`, `inspection/`, `integrations/`, `metrics/`, `models/`, `preprocessing/`, `reporting/` (incl. `charts/`, `renderers/`), `signal/`, `system/`, `training/` (incl. `core/`, `cb/`, `composite/`, `neural/`, `pipeline/`, `strategies/`, `targets/`, `ranking/`, `reporting/`, `feature_handling/`, `baselines/`), `utils/`, `votenrank/`, and the top-level modules. `contextlib.suppress` was searched across the whole tree and does not occur anywhere in the package.

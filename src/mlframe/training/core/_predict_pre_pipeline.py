@@ -145,7 +145,22 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
             from ..pipeline import sparse_df_from_spmatrix
             return sparse_df_from_spmatrix(_arr, _names, df.index)
         except Exception as e:
-            logger.debug("sparse_df_from_spmatrix failed, densifying instead: %s", e)
+            # This is the one handler in the file that changes RESOURCE behaviour rather than a value: a wide
+            # TF-IDF or one-hot output deliberately kept sparse is materialised dense, which on the frame sizes
+            # this project designs for is an OOM or a Windows paging-file failure attributed to something else
+            # entirely, with the real cause recorded only at debug. The densification is still the only way to
+            # return a frame at all, so it stays -- but it says what it is about to do, and how big.
+            _nnz = getattr(_arr, "nnz", None)
+            _dense_bytes = int(_arr.shape[0]) * int(_arr.shape[1]) * int(getattr(_arr, "dtype", np.dtype(np.float64)).itemsize)
+            logger.warning(
+                "predict pre-pipeline: sparse_df_from_spmatrix failed (%s: %s); DENSIFYING a %s sparse matrix "
+                "(nnz=%s) into roughly %.2f GB. If the process dies shortly after this line, this is why.",
+                type(e).__name__,
+                e,
+                getattr(_arr, "shape", "?"),
+                _nnz,
+                _dense_bytes / 1e9,
+            )
             _arr = _arr.toarray()
     return pd.DataFrame(_arr, columns=_names, index=df.index)
 

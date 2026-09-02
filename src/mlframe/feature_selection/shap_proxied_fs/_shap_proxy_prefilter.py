@@ -37,6 +37,8 @@ original indices via ``working_cols``, so the sklearn ``support_`` stays in orig
 from __future__ import annotations
 
 import logging
+
+from mlframe.utils.log_throttle import log_throttle
 import time
 from typing import Any, Optional, cast
 
@@ -193,26 +195,54 @@ def gpu_model_available() -> bool:
     global _GPU_MODEL_AVAILABLE_CACHE
     if _GPU_MODEL_AVAILABLE_CACHE is not None:
         return _GPU_MODEL_AVAILABLE_CACHE
+    # Only a PERMANENT host property latches the cache. Both probes are documented as detecting exactly that --
+    # "no CUDA device" and "CPU-only xgboost wheel" -- but `except Exception` also swallowed a transient
+    # CUDARuntimeError under contention, and once latched there was no automatic recovery: the SHAP-proxy
+    # prefilter ran on the CPU for the rest of the process, on a debug line. An ImportError is permanent (the
+    # package will not appear mid-run) and still latches; anything else warns and returns False WITHOUT
+    # latching, so the next call re-probes and a recovered device is picked up.
     try:
         import cupy as cp
-
+    except ImportError as e:
+        logger.debug("cupy not installed (%s); GPU model path unavailable.", e)
+        _GPU_MODEL_AVAILABLE_CACHE = False
+        return False
+    try:
         if cp.cuda.runtime.getDeviceCount() <= 0:
             _GPU_MODEL_AVAILABLE_CACHE = False
             return False
     except Exception as e:
-        logger.debug("cupy device-count probe failed: %s", e)
-        _GPU_MODEL_AVAILABLE_CACHE = False
+        log_throttle(
+            logger,
+            "shap_proxy_gpu_device_probe_failed",
+            logging.WARNING,
+            "cupy device-count probe failed (%s: %s); using the CPU prefilter path for THIS call and re-probing "
+            "next time rather than latching CPU-only for the process.",
+            type(e).__name__,
+            e,
+        )
         return False
     try:
         import xgboost as xgb
-
+    except ImportError as e:
+        logger.debug("xgboost not installed (%s); GPU model path unavailable.", e)
+        _GPU_MODEL_AVAILABLE_CACHE = False
+        return False
+    try:
         info = xgb.build_info()
         if not info.get("USE_CUDA", False):
             _GPU_MODEL_AVAILABLE_CACHE = False
             return False
     except Exception as e:
-        logger.debug("CUDA-build-info probe failed: %s", e)
-        _GPU_MODEL_AVAILABLE_CACHE = False
+        log_throttle(
+            logger,
+            "shap_proxy_xgb_build_info_failed",
+            logging.WARNING,
+            "xgboost build-info probe failed (%s: %s); using the CPU prefilter path for THIS call and re-probing "
+            "next time rather than latching CPU-only for the process.",
+            type(e).__name__,
+            e,
+        )
         return False
     _GPU_MODEL_AVAILABLE_CACHE = True
     return True

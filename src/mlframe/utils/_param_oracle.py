@@ -328,14 +328,16 @@ def default_fingerprint(args: Sequence[Any], kwargs: Mapping[str, Any]) -> dict:
 
     # Cardinality stays per-column (np.unique sorts each column); only count
     # columns with >= 3 finite values so degenerate cols don't skew the mean.
-    cards = []
+    cards: list[float] = []
     for j in range(a.shape[1]):
         col = a[:, j]
         col = col[finite_mask[:, j]]
         if col.size < 3:
             continue
         cards.append(float(np.unique(col).size))
-    cardinality_mean = float(np.mean(cards)) if cards else 0.0
+    # NaN when no column could be measured, for the same reason as `mean_abs_corr` below: 0.0 reads as "no
+    # cardinality", which is a claim about the data rather than an admission that the probe failed.
+    cardinality_mean = float(np.mean(cards)) if cards else float("nan")
 
     # Mean absolute off-diagonal correlation (redundancy signal). Guard for
     # p==1 and degenerate columns.
@@ -359,8 +361,18 @@ def default_fingerprint(args: Sequence[Any], kwargs: Mapping[str, Any]) -> dict:
                     if vals.size:
                         mean_abs_corr = float(np.mean(np.abs(vals)))
             except Exception as e:
-                logger.debug("mean absolute correlation computation failed: %s", e)
-                mean_abs_corr = 0.0
+                # NaN, not 0.0. This value is part of the dataset FINGERPRINT the oracle keys and scores
+                # against, and 0.0 is a legal, meaningful reading -- "these columns are uncorrelated" -- so
+                # substituting it on failure does not degrade the fingerprint, it FALSIFIES it, and the oracle
+                # can then return hyperparameters tuned for a differently-shaped dataset. NaN is not a value any
+                # real frame produces, so a fingerprint carrying one is visibly incomplete.
+                logger.warning(
+                    "param_oracle: mean absolute correlation failed (%s: %s); recording it as NaN so the "
+                    "fingerprint reads as INCOMPLETE rather than as an uncorrelated dataset.",
+                    type(e).__name__,
+                    e,
+                )
+                mean_abs_corr = float("nan")
 
     return {
         "n": n,

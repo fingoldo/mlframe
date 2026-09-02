@@ -11,6 +11,8 @@ in-body to avoid a cycle.
 from __future__ import annotations
 
 import logging
+
+from mlframe.utils.log_throttle import log_throttle
 import os
 from typing import Optional, Sequence
 
@@ -500,10 +502,33 @@ def _deflate_sincos(z: np.ndarray, y: np.ndarray, freq: float) -> np.ndarray:
             coef, *_ = np.linalg.lstsq(A, y, rcond=None)
             return np.asarray(y - A @ coef)
         except Exception as e:
-            logger.debug("_deflate_sincos: SVD lstsq fallback also failed for freq=%s, returning y undeflated: %s", freq, e)
+            # Returning `y` UNCHANGED breaks this function's whole contract -- "removes the contribution of one
+            # detected frequency so the next peak-pick sees the remaining tones" -- because the caller's
+            # iterative loop then re-detects the same tone and reports it as several distinct frequencies. The
+            # value is not neutral, so the failure is announced rather than logged at debug; both solves failing
+            # means the design is genuinely unusable at this frequency and there is nothing better to return.
+            log_throttle(
+                logger,
+                "deflate_sincos_both_solves_failed",
+                logging.WARNING,
+                "_deflate_sincos: both the normal-equations solve and the SVD lstsq fallback failed at freq=%s "
+                "(%s: %s); returning y UNDEFLATED, so the caller's next peak-pick will re-detect this tone.",
+                freq,
+                type(e).__name__,
+                e,
+            )
             return y
     except Exception as e:
-        logger.debug("_deflate_sincos: normal-equations projection failed for freq=%s, returning y undeflated: %s", freq, e)
+        log_throttle(
+            logger,
+            "deflate_sincos_normal_equations_failed",
+            logging.WARNING,
+            "_deflate_sincos: the normal-equations projection failed at freq=%s with a non-LinAlgError (%s: %s), so "
+            "the SVD fallback was not attempted; returning y UNDEFLATED and this tone will be re-detected.",
+            freq,
+            type(e).__name__,
+            e,
+        )
         return y
 
 
