@@ -37,6 +37,8 @@ def remediate_drifting_features(
     drop_n_std: float | None = None,
     auto_tune_drop_threshold: bool = False,
     auto_tune_candidates: Sequence[float] | None = None,
+    auto_tune_holdout: float = 0.25,
+    auto_tune_seed: int = 0,
     **adversarial_kwargs: Any,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Flag adversarially-drifting features and remediate them by severity tier.
@@ -74,6 +76,13 @@ def remediate_drifting_features(
     auto_tune_candidates
         Candidate ``k`` values (std multiples, each must be ``> n_std``) to search when
         ``auto_tune_drop_threshold=True``. Defaults to ``n_std + [0.5, 1.0, 1.5, 2.0, 3.0]``.
+    auto_tune_holdout
+        Fraction of rows (of each frame) reserved for the auto-tune re-check. The search fits its own
+        importances on the remaining rows and scores every candidate on these held-out ones, so the chosen
+        threshold is not the one that best de-drifts the rows it was derived from. Ignored unless
+        ``auto_tune_drop_threshold=True``; the returned remediation always uses the full-data importances.
+    auto_tune_seed
+        Seed for that row split, so the search is reproducible.
     **adversarial_kwargs
         Forwarded to ``reporting.charts.drift.adversarial_auc`` (e.g. ``n_splits``, ``seed``, ``lgbm_params``).
 
@@ -143,16 +152,72 @@ def remediate_drifting_features(
         if c <= n_std:
             raise ValueError(f"remediate_drifting_features: auto_tune_candidates entries must be > n_std={n_std!r}, got {c!r}")
 
+    if not 0.0 < auto_tune_holdout < 1.0:
+        raise ValueError(f"remediate_drifting_features: auto_tune_holdout={auto_tune_holdout!r} must be in (0, 1)")
+
+    # The search scores candidates on rows it did NOT derive its importances or its flags from. Scoring the
+    # remediated versions of the very rows the importances came from measures how well a threshold de-drifts
+    # THOSE rows; the winner does not have to be the one that transfers, and the post-remediation AUC that
+    # motivated the choice is optimistic with nothing in the return value saying so.
+    rng = np.random.default_rng(auto_tune_seed)
+
+    def _split(n: int) -> tuple[np.ndarray, np.ndarray]:
+        """Row positions ``(fit, holdout)``; at least one row lands on each side."""
+        perm = rng.permutation(n)
+        n_hold = min(max(1, round(auto_tune_holdout * n)), n - 1) if n > 1 else 1
+        return perm[n_hold:], perm[:n_hold]
+
+    tr_fit, tr_hold = _split(len(train_df))
+    te_fit, te_hold = _split(len(test_df))
+
+    def _slice(df: pd.DataFrame, cols: Sequence[str], rows: np.ndarray) -> pd.DataFrame:
+        """The scan columns of the given rows, built column-wise -- never a whole-frame copy (frames can be 100+ GB)."""
+        return pd.DataFrame({c: df[c].to_numpy()[rows] for c in cols})
+
+    _, _, _, tune_imp, tune_names = adversarial_auc(
+        _slice(train_df, scan_cols, tr_fit), _slice(test_df, scan_cols, te_fit), feature_names=scan_cols, **adversarial_kwargs
+    )
+    tune_names_list = list(tune_names)
+    tune_imp_arr = np.asarray(tune_imp, dtype=np.float64)
+    tune_mean, tune_std = float(tune_imp_arr.mean()), float(tune_imp_arr.std())
+    tune_flagged = tune_imp_arr > tune_mean + n_std * tune_std
+
+    # Rank-transform each flagged column ONCE. It does not depend on the candidate -- only whether the column is
+    # ranked or dropped does -- so recomputing ``per_group_rank`` per candidate was pure repetition, on top of
+    # the ten whole-frame copies the old ``_build``-per-candidate loop made purely to score a handful of columns.
+    hold_train_groups = train_df[group_col].to_numpy()[tr_hold]
+    hold_test_groups = test_df[group_col].to_numpy()[te_hold]
+    hold_raw = {name: (train_df[name].to_numpy(dtype=np.float64)[tr_hold], test_df[name].to_numpy(dtype=np.float64)[te_hold]) for name in tune_names_list}
+    hold_ranked = {
+        name: (per_group_rank(hold_raw[name][0], hold_train_groups, pct=rank_pct), per_group_rank(hold_raw[name][1], hold_test_groups, pct=rank_pct))
+        for name, flagged in zip(tune_names_list, tune_flagged)
+        if flagged
+    }
+
     best_candidate: float | None = None
     best_auc = float("inf")
     for c in candidates:
-        cand_train, cand_test, _ = _build(c)
-        cand_cols = [col for col in scan_cols if col in cand_train.columns]
-        recheck_auc, *_ = adversarial_auc(cand_train[cand_cols], cand_test[cand_cols], feature_names=cand_cols, **adversarial_kwargs)
+        drop_threshold = tune_mean + c * tune_std
+        cand_cols = []
+        cand_train_cols: dict[str, np.ndarray] = {}
+        cand_test_cols: dict[str, np.ndarray] = {}
+        for name, importance, flagged in zip(tune_names_list, tune_imp_arr, tune_flagged):
+            if flagged and importance > drop_threshold:
+                continue
+            tr_col, te_col = hold_ranked[name] if flagged else hold_raw[name]
+            cand_cols.append(name)
+            cand_train_cols[name] = tr_col
+            cand_test_cols[name] = te_col
+        if not cand_cols:
+            continue  # a threshold that drops every scanned column has nothing left to score
+        recheck_auc, *_ = adversarial_auc(pd.DataFrame(cand_train_cols), pd.DataFrame(cand_test_cols), feature_names=cand_cols, **adversarial_kwargs)
         # tie-break toward the higher threshold: fewer dropped columns for the same de-drifting effect.
         if recheck_auc < best_auc or (recheck_auc == best_auc and (best_candidate is None or c > best_candidate)):
             best_auc = recheck_auc
             best_candidate = c
+
+    if best_candidate is None:
+        best_candidate = max(candidates)  # every candidate dropped everything; take the least aggressive one
 
     return _build(best_candidate)
 
