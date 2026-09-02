@@ -195,6 +195,19 @@ def _single_panel_has_labelled_series(spec: FigureSpec) -> bool:
     return any(bool(lab) for lab in labels)
 
 
+def _any_panel_needs_a_legend(spec: FigureSpec) -> bool:
+    """True when some panel carries its own legend keys, independent of series labels.
+
+    A network panel names its node CLASSES rather than series, so it has no ``series_labels`` and the
+    single-panel test above answers False for it. The panel used to compensate by calling
+    ``update_layout(showlegend=True)`` from inside its own body -- but ``render`` sets ``layout.showlegend``
+    AFTER every panel has run, so that was overwritten and the node-class legend silently vanished on the
+    interactive HTML backend while matplotlib drew it. Same figure-level-property-set-from-one-panel trap the
+    ``barmode`` comment further down already documents.
+    """
+    return any(getattr(p, "node_legend", None) for row in spec.panels for p in row if p is not None)
+
+
 def _err_to_plotly(err):
     """Spec error-bar field -> plotly ``error_y`` / ``error_x`` dict (data mode, asymmetric where a pair is given)."""
     if err is None:
@@ -359,7 +372,7 @@ class PlotlyRenderer:
             # reliability lines). That reasoning does not hold for a SINGLE labelled panel -- there is no soup,
             # and without a legend a chart like the decision curve renders three unlabelled lines that a reader
             # cannot tell apart at a glance. A static export has no hover at all, so it always gets the legend.
-            showlegend=static_legend or _single_panel_has_labelled_series(spec),
+            showlegend=static_legend or _single_panel_has_labelled_series(spec) or _any_panel_needs_a_legend(spec),
         )
         if static_legend:
             # Park the legend BELOW the plot area (horizontal, centred) so it never overlaps subplot titles / the suptitle the way a default top-right in-plot legend does on multi-panel figures.

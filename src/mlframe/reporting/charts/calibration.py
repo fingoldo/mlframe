@@ -559,18 +559,18 @@ def build_calibration_spec(
     cannot occlude its neighbours, and inline labels auto-disable past
     ``INLINE_LABEL_MAX_BINS`` to avoid label soup at large ``nbins``.
 
-    ``show_ece_annotation`` (default on) annotates the reliability scatter with both the standard fixed-bin ECE and a
+    ``show_ece_annotation`` (off by default: the standard fixed-bin ECE and its debiased twin both already appear in the metrics block and the log, and printing them again on the chart cost the title the width it needed) annotates the reliability scatter with both the standard fixed-bin ECE and a
     debiased ECE (Kumar et al. 2019; see ``debiased_ece``), computed from the per-bin summaries. Standard ECE is biased
     upward by finite-sample binning; the debiased value subtracts the per-bin variance term and reports closer to the
     truth. The metrics-layer ECE annotation is independent and untouched. Degenerate inputs omit the debiased term.
 
-    ``reliability_smoothed`` (default on) overlays a binning-free isotonic calibration curve, fit on the raw
+    ``reliability_smoothed`` (off by default: an isotonic overlay is a second model fitted on the same points the diagram shows, which reads as evidence rather than as a smoother) overlays a binning-free isotonic calibration curve, fit on the raw
     ``(raw_probs, raw_labels)`` pairs (subsampled to a bounded row count). Unlike the binned bubbles, its shape does
     not depend on the chosen bin count. It is additive (the binned points + Wilson CI + histogram are unchanged) and
     degrades to no overlay when the raw pairs are absent or degenerate (single class / all-equal scores / too few
     rows). The suite caller threads ``raw_probs``/``raw_labels`` through; passing only ``freqs_*`` skips the overlay.
 
-    ``reliability_band`` (default on, requires the smoothed overlay) shades a bootstrap 95% confidence band around the
+    ``reliability_band`` (off by default, and requires the smoothed overlay) shades a bootstrap 95% confidence band around the
     smoothed curve (``bootstrap_reliability_band``) so a reader can tell whether the curve's departure from the diagonal
     is statistically real vs sampling noise. It also annotates the fraction of the score range on which the band
     EXCLUDES the diagonal ("miscal. significant on X% of range"). Same degenerate-input guard as the curve: a single

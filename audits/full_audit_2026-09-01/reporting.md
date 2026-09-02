@@ -178,6 +178,8 @@ matplotlib PNG of the same spec carries the legend.
 unambiguous. `plotly.py` :585-589's own comment ("`barmode` is a FIGURE-level property, so setting it here from
 inside one panel silently applies to every bar...") states the rule this site breaks.
 
+**Disposition:** RESOLVED as suggested. `_any_panel_needs_a_legend` makes the panel's need visible to `render`, which sets `layout.showlegend` after every panel has run, and the `update_layout(showlegend=True)` inside the network panel body is deleted -- it was being overwritten. `tests/reporting/test_calibration_and_network_legend_contracts.py` asserts the legend is on, that its three proxy keys are present, that the panel no longer sets the figure property, and that an ordinary line panel does not force a legend on.
+
 ### REPORTING-6 [P2] contract-drift
 
 **File:** `charts/calibration.py` :562, :567, :573 versus the signature at :538-541
@@ -196,6 +198,8 @@ undocumented despite both changing what the chart means -- worth adding in the s
 
 **Evidence:** Read :522-733 in full; signature defaults and docstring claims are 25-50 lines apart in one
 function body.
+
+**Disposition:** RESOLVED. All three docstring entries now say "off by default" and give the reason: the ECE annotation duplicates numbers the metrics block and the log already carry and cost the title its width; the isotonic overlay is a second model fitted on the points the diagram shows, which reads as evidence rather than as a smoother; the band requires that overlay. `show_wilson_ci` genuinely does default on and its text is unchanged. Same test file, parametrised over the three so a future flip cannot leave the prose behind.
 
 ### REPORTING-7 [P3] renderer-divergence
 

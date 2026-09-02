@@ -154,8 +154,6 @@ def _network(self, fig, p: NetworkPanelSpec, row: int, col: int) -> None:
             row=row,
             col=col,
         )
-    if p.node_legend:
-        fig.update_layout(showlegend=True)
 
     fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=False, zeroline=False, showticklabels=False)
     fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=False, zeroline=False, showticklabels=False)
