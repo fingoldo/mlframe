@@ -274,6 +274,12 @@ pools baseline-arm variances rather than difference variances.
 **Evidence:** read `triage_cv_delta` in full. `candidate_fold_scores` appears only at :113-115 (coercion and
 shape check) and :119 (`np.mean`); the band at :126/:131 is a function of `baseline_fold_scores` only.
 
+**Disposition:** RESOLVED, but by a different statistic than the one suggested, and the difference is load-bearing.
+
+The defect is real and is closed: the band is now built by `two_sample_score_band`, whose SE is `sqrt((var_a + var_b)/n)`, so the candidate arm's own spread enters the decision. On the finding's own fixture the band comes out at 0.03654 against a delta of 0.001, so `actionable=False` -- the reported failure no longer reproduces. `pooled_band` was corrected in the same way, using `std * sqrt(2/n_folds)` rather than `std/sqrt(n_folds)`.
+
+The suggested PAIRED band, `cv_score_equivalence_band(candidate - baseline)`, was measured and REJECTED as the default. On a candidate that beats the baseline by a perfectly consistent +0.010 on all five folds -- the shape of a genuine, well-behaved improvement -- `std(candidate - baseline)` is exactly 0, so the paired band is exactly 0.0 and any delta is declared actionable with infinite confidence off five folds. For a gate whose stated failure mode is ACCEPTING NOISE, that is the wrong direction to be wrong in. On the finding's own fixture the paired band is 0.0434, wider than the two-sample band, not the 0.016 the finding computes, so the paired form is not uniformly tighter either. The two-sample band is more conservative in both regimes and cannot degenerate. `tests/metrics/test_band_stability_and_ktc_diagnosability.py` pins both fixtures, including the zero-band case, so a future switch to the paired form has to confront it.
+
 ### METRICS-11 [P3] dtype-dependent-metric
 **File:** src/mlframe/metrics/_log_loss_and_separation.py:161-162
 **Summary:** `fast_log_loss`'s default clipping epsilon is `np.finfo(y_pred.dtype).eps`, so the same
@@ -295,6 +301,8 @@ cross-model comparability consequence is not documented. Either add an explicit 
 `max(eps, min(1 - eps, p))` clip at :63 and :102-105, and `fast_log_loss` is the only entry point that
 derives it from the input dtype.
 
+**Disposition:** RESOLVED as documentation, which is what the finding asks for. The per-array rationale in the docstring is correct and is kept; what was missing is that it makes two models' scores incommensurable. The docstring now says so explicitly, gives the concrete 15.9-vs-36.0 penalty for a confidently-wrong row, states that a cross-model table must pass one explicit `eps` or upcast to float64 at the boundary, and names the `fast_log_loss_binary` divergence so the entry-point choice is visible.
+
 ### METRICS-12 [P3] diagnosability
 **File:** src/mlframe/calibration/_ktc_dispatch.py:49-51, :54-56, :128-129
 **Summary:** three broad `except Exception` handlers silently downgrade `odds_ratio_combine`'s backend
@@ -313,6 +321,8 @@ WARNING through `log_throttle` so a repeated cache hiccup is surfaced once rathe
 **Evidence:** read `_ktc_dispatch.py` in full. All three handlers catch bare `Exception` and call
 `logger.debug`; there is no path that raises or warns.
 
+**Disposition:** RESOLVED exactly as suggested. The import guard is narrowed to `ImportError` (the one genuine package-absent case, which stays at debug); any other exception from that import -- the module probes CUDA at import time, so a transient device fault lands here -- now warns through `log_throttle`, as do the singleton and lookup handlers. Throttled rather than plain warnings because the lookup sits on a dispatch path. `tests/metrics/test_band_stability_and_ktc_diagnosability.py`.
+
 ### METRICS-13 [P3] test-quality
 **File:** tests/metrics/test_warmup_skip_parallel_env_gate.py:92, :105
 **Summary:** the only two tests that assert `MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL` actually changes which
@@ -330,6 +340,8 @@ reason says is missing.
 `@pytest.mark.skip` decorators reference it. The file contains no other assertion about which kernels are
 warmed.
 
+**Disposition:** RESOLVED via the suggested subprocess approach, and the recorded blocker turned out to be entirely sidesteppable. A fresh interpreter has no prior compilation state, so `nopython_signatures` becomes decisive: measured, with the flag off all six `_par` kernels have >= 1 signature; with it on all six have exactly 0 while `_fast_mae_seq` still has 1. Both `@pytest.mark.skip` decorators are gone, replaced by three `@pytest.mark.slow` tests (the two directions plus one that asserts both runs together, so neither can pass by the kernels simply never warming on the host). Marked slow because each subprocess pays a full numba warmup; the pair takes about ten minutes here.
+
 ### METRICS-14 [P3] test-quality
 **File:** tests/metrics/classification/test_classification_extras.py:346
 **Summary:** a wall-clock assertion (`assert med >= 1.02`) makes a property of the host machine into a test
@@ -344,6 +356,8 @@ default suite. A perf regression belongs in `_benchmarks/`, where a number that 
 expected.
 **Evidence:** read :300-355. The assertion compares `min(_timed_block(...))` wall times of two Python
 callables; nothing about the code's OUTPUT is asserted in this test.
+
+**Disposition:** RESOLVED as suggested. `test_ks_fused_gate_perf_sentinel` keeps its measurement but carries `@pytest.mark.slow`, so it is deselected from the CI run that was flaking it, and a new behavioural test in the default suite asserts the fused gate returns bit-identical KS to the reference on tie-free, heavily-tied and all-tied scores -- which is the contract that actually protects the code.
 
 ### METRICS-15 [P3] bootstrap-degeneracy
 **File:** src/mlframe/calibration/prediction_band_correction.py:158
@@ -362,6 +376,8 @@ than substituting a value, and return `is_stable=False` when too many were dropp
 skip-and-count discipline `bootstrap_metrics` uses at `evaluation/bootstrap.py:531-533` and :559-566.
 **Evidence:** read the module in full. `boot_factors` is pre-allocated at `n_bootstrap` (:154) and every slot
 is filled at :158, with no valid-count tracking; :160-165 reduce the full array.
+
+**Disposition:** RESOLVED with the suggested skip-and-count discipline. Degenerate resamples are dropped rather than recorded as 1.0, the count is warned, `is_stable` is False when more than a tenth of the resamples degenerated, and fewer than two survivors returns a NaN-uncertainty report instead of a confident one. `tests/metrics/test_band_stability_and_ktc_diagnosability.py` pins that its own fixture genuinely produces degenerate resamples, so the assertions cannot pass for an unrelated reason.
 
 ## Coverage
 

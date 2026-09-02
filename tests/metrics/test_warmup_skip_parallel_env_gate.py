@@ -74,40 +74,70 @@ def _run_warmup_and_track_par_calls(monkeypatch, skip: bool):
     return called, seq_called
 
 
-_SKIP_REASON = (
-    "monkeypatch.setattr(core, <njit kernel name>, spy) reliably fails to be observed by the warmup "
-    "body on this CI: a diagnostic in test_warmup_calls_mape_par_kernel_with_nthr's investigation "
-    "(same file family) confirmed the warmup body still calling the REAL njit-compiled kernel "
-    "(CPUDispatcher) instead of the test's spy (a plain function), root cause unconfirmed despite "
-    "extensive investigation. That sibling test was converted to a signature-presence behavioral "
-    "check instead (numba records one compiled signature per distinct call-site arity, so a "
-    "not-yet-called kernel has none) -- not applicable here since these 6 _par kernels are commonly "
-    "warmed/called by many OTHER tests in the same worker before this one runs, so 'has a compiled "
-    "signature' can't distinguish 'skipped here' from 'already warm from elsewhere'. Needs a fresh-"
-    "compile-state reset mechanism (numba's own Dispatcher._clear()/.recompile() do not actually "
-    "clear .nopython_signatures, verified directly) before this can be rewritten behaviorally."
+_PAR_KERNELS = (
+    "_fast_mae_par",
+    "_fast_mse_par",
+    "_fast_r2_score_par",
+    "_fast_brier_score_loss_par",
+    "_fast_hamming_loss_par",
+    "_fast_jaccard_score_par",
 )
 
+# The two tests below used to be `@pytest.mark.skip`, so the env var's core contract -- which kernels actually
+# get warmed -- had NO coverage at all: a refactor that stopped honouring the flag, or honoured it for the `_seq`
+# kernels too, would have passed CI unchanged. The recorded blocker was real (monkeypatching an njit dispatcher
+# is not observed by the warmup body, and `nopython_signatures` cannot distinguish "skipped here" from "already
+# warm from another test in this worker"), but a FRESH SUBPROCESS has no prior compilation state at all, which is
+# exactly the reset mechanism the skip reason said was missing.
+_PROBE = """
+import json
+import mlframe.metrics._core_numba_warmup as warmup
+import mlframe.metrics.core as core
 
-@pytest.mark.skip(reason=_SKIP_REASON)
-def test_skip_flag_off_by_default_warms_both_seq_and_par(monkeypatch):
-    """Skip flag off by default warms both seq and par."""
-    par_called, seq_called = _run_warmup_and_track_par_calls(monkeypatch, skip=False)
-    assert "_fast_mae_par" in par_called
-    assert "_fast_mse_par" in par_called
-    assert "_fast_r2_score_par" in par_called
-    assert "_fast_brier_score_loss_par" in par_called
-    assert "_fast_hamming_loss_par" in par_called
-    assert "_fast_jaccard_score_par" in par_called
-    assert "_fast_mae_seq" in seq_called
+warmup.prewarm_numba_cache()
+names = {names!r}
+print("RESULT " + json.dumps({{n: len(getattr(getattr(core, n, None), "nopython_signatures", [])) for n in names}}))
+"""
 
 
-@pytest.mark.skip(reason=_SKIP_REASON)
-def test_skip_flag_on_skips_par_but_keeps_seq(monkeypatch):
-    """Skip flag on skips par but keeps seq."""
-    par_called, seq_called = _run_warmup_and_track_par_calls(monkeypatch, skip=True)
-    assert par_called == set(), f"expected no _par kernels called with the skip flag on, got {par_called}"
-    assert "_fast_mae_seq" in seq_called, "_seq variants must ALWAYS warm, regardless of the skip flag"
+def _warm_in_subprocess(skip: str) -> dict:
+    """Run the warmup in a clean interpreter with the flag set to ``skip``; return per-kernel signature counts."""
+    import json
+    import os
+    import subprocess
+    import sys
+
+    names = [*_PAR_KERNELS, "_fast_mae_seq"]
+    env = dict(os.environ, MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL=skip)
+    proc = subprocess.run([sys.executable, "-c", _PROBE.format(names=names)], capture_output=True, text=True, env=env, timeout=900, check=False)
+    line = next((ln for ln in proc.stdout.splitlines() if ln.startswith("RESULT ")), None)
+    assert line is not None, f"probe produced no result (exit {proc.returncode}):\n{proc.stdout[-2000:]}\n{proc.stderr[-2000:]}"
+    return json.loads(line[len("RESULT ") :])
+
+
+@pytest.mark.slow
+def test_skip_flag_off_by_default_warms_both_seq_and_par():
+    """Every `_par` kernel must carry a compiled signature after a default warmup. Measured: all six do."""
+    counts = _warm_in_subprocess("0")
+    for name in _PAR_KERNELS:
+        assert counts[name] >= 1, f"{name} was not warmed with the flag off: {counts}"
+    assert counts["_fast_mae_seq"] >= 1, counts
+
+
+@pytest.mark.slow
+def test_skip_flag_on_skips_par_but_keeps_seq():
+    """With the flag on, measured: all six `_par` kernels have zero signatures and `_fast_mae_seq` still has one."""
+    counts = _warm_in_subprocess("1")
+    warmed = [n for n in _PAR_KERNELS if counts[n]]
+    assert warmed == [], f"expected no _par kernels warmed with the skip flag on, got {warmed}: {counts}"
+    assert counts["_fast_mae_seq"] >= 1, "_seq variants must ALWAYS warm, regardless of the skip flag"
+
+
+@pytest.mark.slow
+def test_the_flag_is_what_makes_the_difference():
+    """Both runs in one assertion, so neither can pass by the kernels simply never warming on this host."""
+    off, on = _warm_in_subprocess("0"), _warm_in_subprocess("1")
+    assert all(off[n] >= 1 and on[n] == 0 for n in _PAR_KERNELS), (off, on)
 
 
 def test_skipped_par_kernel_still_works_correctly_via_lazy_compile(monkeypatch):

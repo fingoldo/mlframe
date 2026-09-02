@@ -291,6 +291,32 @@ def test_ks_upper_gate_is_bit_identical(kind):
             assert got == ref, f"{kind}: gated {got!r} != ref {ref!r}"
 
 
+def test_ks_fused_gate_matches_the_reference_on_tied_and_tie_free_scores():
+    """The BEHAVIOURAL half of the fused-gate contract, which is what belongs in the default suite.
+
+    Its perf sentinel sibling below asserts a wall-clock ratio, which makes a property of the host into a test of
+    the code -- its floor had already been lowered once (1.05 -> 1.02) because CI hardware measured 1.0498x, and a
+    slower runner, a different numba codegen, or a host where the two kernels genuinely tie fails it with no
+    defect present. That one now carries `@pytest.mark.slow` (deselected in CI); this one has no timing in it.
+    """
+    import numpy as np
+
+    from mlframe.metrics.classification._classification_extras import _ks_statistic_kernel, _ks_statistic_kernel_ordered
+
+    rng = np.random.default_rng(7)
+    for name, ys in (
+        ("tie-free", rng.random(2000)),
+        ("heavily tied", rng.integers(0, 5, size=2000).astype(np.float64)),
+        ("all tied", np.full(2000, 0.5)),
+    ):
+        yt = (rng.random(2000) < 0.3).astype(np.int64)
+        order = np.argsort(ys, kind="quicksort")
+        expected = float(_ks_statistic_kernel(yt[order], ys[order]))
+        got = float(_ks_statistic_kernel_ordered(order, yt, ys))
+        assert got == expected, f"{name}: fused {got!r} != reference {expected!r}"
+
+
+@pytest.mark.slow
 def test_ks_fused_gate_perf_sentinel():
     """Perf sentinel: the gated-in fused-gather path must not be materially slower than the
     pre-gathered reference at a size well inside the gate (it wins 1.3-1.7x on an uncontended
