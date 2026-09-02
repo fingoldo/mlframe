@@ -13,6 +13,8 @@ import os
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -339,7 +341,19 @@ def _friend_graph_and_redundancy_passes_group1(
                 )
                 return float(_sig[3]) < _rr_signif_alpha
             except Exception as e:
-                logger.debug("Marginal-MI significance re-add probe failed (%s: %s) -- permissive re-add", type(e).__name__, e)
+                # The permissive policy is deliberate -- never drop a screening-confirmed raw because the
+                # estimator failed -- but it silently reverts this gate to its pre-fix behaviour, and the gate
+                # exists precisely because coarse-binning plug-in MI upward-biases pure-noise columns. One
+                # throttled warning per fit, so a SYSTEMATIC estimator failure is visible rather than a debug
+                # line per candidate.
+                log_throttle(
+                    logger,
+                    "mrmr_readd_significance_probe_failed",
+                    logging.WARNING,
+                    "Marginal-MI significance re-add probe failed (%s: %s); re-adding screening-confirmed raws UNTESTED for the rest of this fit.",
+                    type(e).__name__,
+                    e,
+                )
                 return True  # significance unavailable -> permissive re-add
 
         _sv_set = set(selected_vars)

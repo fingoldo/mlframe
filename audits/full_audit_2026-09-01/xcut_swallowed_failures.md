@@ -69,12 +69,16 @@ The live form that remains is the one the brief calls out explicitly: a handler 
 **Suggested fix:** keep the permissive policy but make it audible -- one throttled `log_throttle(..., logging.WARNING, ...)` per fit naming the exception type and how many candidates were re-added untested; narrow the except to the estimator's real raises so a `TypeError` in mlframe's own call shape is not mistaken for an estimator limitation.
 **Evidence:** read `_group1.py:300-345`.
 
+**Disposition:** RESOLVED as suggested: the permissive policy is kept but made audible with one throttled warning per fit naming the exception type, so a SYSTEMATIC estimator failure is visible instead of a debug line per candidate. `tests/test_meta/test_swallowed_failures_are_audible.py`.
+
 ### XCUT_SWALLOWED_FAILURES-8 [P2] fail-closed-mass-drop
 **File:** src/mlframe/feature_selection/filters/_mrmr_fit_impl/_assign_support_tail.py :291
 **Summary:** If the subsumption discriminator is unavailable, the handler applies a blanket exclusion (`_rr_excl_names.update(_rr_cand_subsumed)`), dropping every candidate raw from the re-attach set at once, on a debug line.
 **Failure scenario:** This is the inverse polarity of finding 7 and is worse because it is bulk. One exception anywhere in the enclosing block -- an import fault, a shape error building `_child_bins`, a dtype problem on `data[:, _rr_ci]` -- removes the entire candidate set from `_raw_extra` at :296, so features that would have been retained are silently absent from `support_`. The inner per-candidate handler at :286 already implements the correct conservative-retain policy; the outer one at :291 does the opposite, and the two disagree with no way to tell from the logs which fired.
 **Suggested fix:** log at warning naming the exception and the number of names blanket-excluded; narrow the outer except so a genuine mlframe bug (an `AttributeError` on `self`, say) is not silently converted into a feature-set change, and align its polarity with the inner handler's retain-on-error rule.
 **Evidence:** read `_assign_support_tail.py:265-309`, including the `_raw_extra` filter at :296 that consumes `_rr_excl_names`.
+
+**Disposition:** RESOLVED. The outer handler's polarity is aligned with the inner one -- RETAIN on error -- and it warns naming the exception and the candidate count. The blanket `_rr_excl_names.update(...)` is gone, and the test walks the AST to fail if any except clause reintroduces a bulk update of that set.
 
 ### XCUT_SWALLOWED_FAILURES-9 [P2] silently-wrong-recipe
 **File:** src/mlframe/feature_selection/filters/_orthogonal_adaptive_arity_fe.py :661
@@ -83,12 +87,16 @@ The live form that remains is the one the brief calls out explicitly: a handler 
 **Suggested fix:** raise the level to warning naming the column and exception type (this is a per-column, not per-row, event, so there is no spam risk), and narrow the except to the column-read failures (`KeyError`, `TypeError`, `ValueError`) so a bug inside `basis_route_by_moments` surfaces.
 **Evidence:** read `_orthogonal_adaptive_arity_fe.py:645-690`, including the sibling `_freeze_leg_pp` handler at :685 with the same shape (returns `None`, silently taking the refit-at-replay path the surrounding comment calls a leak).
 
+**Disposition:** RESOLVED, both halves. The except is narrowed to the column-read failures (`KeyError`, `TypeError`, `ValueError`) so a bug inside `basis_route_by_moments` propagates instead of being laundered into a default, and the fallback warns naming the column and stating that `transform()` will replay the frozen basis. The test asserts structurally that the handler is not a bare `except Exception`.
+
 ### XCUT_SWALLOWED_FAILURES-10 [P2] uninformative-message-on-result-path
 **File:** src/mlframe/feature_selection/filters/_mi_greedy_cmi_fe.py :791
 **Summary:** The GPU CMI kernel's failure handler logs the literal string `"suppressed: %s"` -- naming neither the kernel, the fallback taken, nor the shape -- before pulling device arrays back to host and recomputing on CPU.
 **Failure scenario:** This is the per-call GPU dispatch exemplar almost verbatim. `_cmi_from_binned_cupy` can fail from a cupy import error, a kernel-shape miss, transient GPU contention, or a genuine numeric regression in the cupy path, and after the fact all four are indistinguishable -- the log line does not even say which function failed. The fallback recomputes the same CMI on CPU, so correctness holds, but the cost is silently paid on every call and a real kernel regression would never be noticed. Identical handler at :940 in the same file.
 **Suggested fix:** log at warning (throttled) naming `type(e).__name__`, the message, and `x.size` / `p`, stating that the CPU CMI path was substituted; narrow the except to `cupy.cuda.runtime.CUDARuntimeError`, `cupy.cuda.memory.OutOfMemoryError`, `ImportError` and `TypeError` so a shape bug in mlframe's own kernel call is not laundered as "GPU unavailable".
 **Evidence:** read `_mi_greedy_cmi_fe.py:775-806`, including the `_x_device` host-pull the handler performs.
+
+**Disposition:** RESOLVED at all three sites in the file (the finding named two). Each logs a throttled warning naming the failing kernel, the exception type and -- where the shape is in scope -- `n`, and states that the CPU path was substituted so correctness holds but the GPU cost does not. Distinct throttle keys per site so they cannot silence each other.
 
 ### XCUT_SWALLOWED_FAILURES-11 [P2] rng-state-divergence
 **File:** src/mlframe/feature_selection/filters/_binned_numeric_agg_fe.py :896

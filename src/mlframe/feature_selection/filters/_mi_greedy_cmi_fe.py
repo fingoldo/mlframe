@@ -788,8 +788,20 @@ def _cmi_from_binned(
     if _x_device or _cmi_gpu_enabled(n=int(x.size), p=1):
         try:
             return _cmi_from_binned_cupy(x, y, z_joint, return_cards=return_cards, kx=kx, kz=kz)
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
+        except Exception as e:
+            # A cupy import error, a kernel-shape miss, transient GPU contention and a genuine numeric
+            # regression in the cupy path all land here, so the message has to name which kernel and at what
+            # shape. The CPU recomputation below keeps the answer correct, which is exactly why a real kernel
+            # regression would otherwise never be noticed.
+            log_throttle(
+                logger,
+                "cmi_gpu_kernel_fallback",
+                logging.WARNING,
+                "_cmi_from_binned_cupy failed (%s: %s) at n=%d; recomputing this CMI on the CPU path. Correctness is preserved, the GPU cost is not.",
+                type(e).__name__,
+                e,
+                int(getattr(x, "size", 0)),
+            )
             if _x_device:
                 import cupy as cp
                 x = cp.asnumpy(x)
@@ -937,8 +949,20 @@ def cmi_from_binned_fixed_yz(
     if _x_device or _cmi_gpu_enabled(n=int(np.asarray(x).size), p=1):
         try:
             return _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n)
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
+        except Exception as e:
+            # A cupy import error, a kernel-shape miss, transient GPU contention and a genuine numeric
+            # regression in the cupy path all land here, so the message has to name which kernel and at what
+            # shape. The CPU recomputation below keeps the answer correct, which is exactly why a real kernel
+            # regression would otherwise never be noticed.
+            log_throttle(
+                logger,
+                "cmi_gpu_kernel_fallback",
+                logging.WARNING,
+                "_cmi_from_binned_cupy failed (%s: %s) at n=%d; recomputing this CMI on the CPU path. Correctness is preserved, the GPU cost is not.",
+                type(e).__name__,
+                e,
+                int(getattr(x, "size", 0)),
+            )
             if _x_device:
                 import cupy as cp
                 x = cp.asnumpy(x)
@@ -1640,9 +1664,17 @@ def greedy_cmi_fe_construct(
                     _Xs[:, _j] = _host_bins(_nm)
                 _cmis = np.asarray(batched_cmi_gpu(_Xs, y_shuf, _zc), dtype=np.float64)
                 return float(np.quantile(_cmis, 0.95))
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
-            pass
+        except Exception as e:
+            # Same reasoning as the two kernel handlers above: the CPU path below keeps the answer correct, so
+            # a real regression in the batched GPU permutation-null scan would otherwise never be noticed.
+            log_throttle(
+                logger,
+                "cmi_gpu_perm_null_fallback",
+                logging.WARNING,
+                "batched GPU permutation-null scan failed (%s: %s); recomputing the null floor on the CPU path. Correctness is preserved, the GPU cost is not.",
+                type(e).__name__,
+                e,
+            )
         # Hoist the y/z-invariant CMI block out of the sampled-candidate scan: y_shuf and z_joint are FIXED
         # across the 24 samples, so the plain per-sample ``_cmi_from_binned`` recomputed-and-discarded
         # ``renumber(y_shuf, z)`` + ``H(Z)`` + ``H(Y,Z)`` (or ``H(Y)`` on the marginal path) 24 times per step

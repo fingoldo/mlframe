@@ -289,9 +289,19 @@ def _assign_support_tail(
                             if not _retains:
                                 _rr_excl_names.add(_base)  # truly subsumed -> exclude from re-attach
                     except Exception as exc:
-                        logger.debug("mrmr: discriminator unavailable; falling back to the conservative blanket exclusion: %r", exc, exc_info=True)
-                        # discriminator unavailable -> fall back to the conservative blanket exclusion.
-                        _rr_excl_names.update(_rr_cand_subsumed)
+                        # RETAIN on error, matching the inner per-candidate handler a few lines above. This used
+                        # to do the opposite -- one exception anywhere in the enclosing block (an import fault, a
+                        # shape error building the child bins, a dtype problem on the data slice) blanket-excluded
+                        # EVERY candidate raw from the re-attach set, so features that would have been retained
+                        # were silently absent from support_, on a debug line, with the two handlers disagreeing
+                        # about polarity and no way to tell from the logs which had fired.
+                        logger.warning(
+                            "mrmr: the subsumption discriminator failed (%s: %s); RETAINING all %d candidate raw(s) for re-attach rather than "
+                            "blanket-excluding them. A dropped feature set would otherwise be indistinguishable from a genuine subsumption verdict.",
+                            type(exc).__name__,
+                            exc,
+                            len(_rr_cand_subsumed),
+                        )
                 if _rr_excl_names:
                     _raw_extra = [_nm for _nm in _raw_extra if str(_nm) not in _rr_excl_names]
             if _raw_extra:
