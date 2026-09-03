@@ -5,13 +5,13 @@ Each backend clause is ``<backend>[<fmt1>,<fmt2>,...]``. Whitespace is
 tolerated everywhere.
 
 Examples:
-    "plotly[html]"                       — single backend, single format
-    "plotly[html,png]"                   — single backend, two formats
-    "plotly[html] + matplotlib[pdf]"     — two backends; render twice
-    "matplotlib[png]"                    — back-compat with pre-2026-05-08 default
+    "plotly[html]"                       -- single backend, single format
+    "plotly[html,png]"                   -- single backend, two formats
+    "plotly[html] + matplotlib[pdf]"     -- two backends; render twice
+    "matplotlib[png]"                    -- the historical default, kept working for existing callers
 
 Validation:
-- Backend ∈ {"matplotlib", "plotly"} (room for "bokeh" later)
+- Backend is one of {"matplotlib", "plotly"} (room for "bokeh" later)
 - Per-backend format allowlist (matplotlib can't write html, plotly can't
   write jpeg, etc.)
 - No duplicate backends in one DSL
@@ -73,7 +73,7 @@ def parse_plot_output_dsl(s: str) -> PlotOutputSpec:
 
     raw = s
     # Split on '+' (allowing whitespace around it). Keep order so callers
-    # can rely on (matplotlib first → primary) when both are requested.
+    # can rely on (matplotlib first, so matplotlib is primary) when both are requested.
     clauses = [c.strip() for c in _CLAUSE_SPLIT_RE.split(s) if c.strip()]
     if not clauses:
         raise ValueError(f"plot_outputs DSL has no clauses: {s!r}")

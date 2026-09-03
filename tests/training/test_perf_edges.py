@@ -23,6 +23,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from tests.conftest import skip_under_numba_disabled_jit
 from mlframe.metrics.core import show_calibration_plot
 
 PYEXE = sys.executable
@@ -144,6 +145,7 @@ _NUMBA_SCRIPT = textwrap.dedent("""
 """)
 
 
+@skip_under_numba_disabled_jit
 def test_numba_cache_hit_across_subprocess(tmp_path):
     """cache=True: 2nd subprocess should load from cache (artifacts on disk + no recompile)."""
     script = tmp_path / "nb.py"

@@ -95,7 +95,10 @@ EGFDU           median                 val_RMSE=12.50  xgb         val_RMSE=12.4
 ```
 
 To see the full per-baseline × per-split metrics table for one target, raise
-the logger level for `mlframe.training.dummy_baselines` to `DEBUG`.
+the logger level for `mlframe.training.baselines` to `DEBUG` -- the code was
+split into `mlframe.training.baselines.*` submodules, each with its own
+`logging.getLogger(__name__)`, so the parent package name is the level to set,
+not the old pre-split `mlframe.training.dummy_baselines` name.
 
 ## Per-target catalog
 
@@ -461,9 +464,9 @@ the module.)
 
 ## Profiling + smoke
 
-- `python -m mlframe.training._profile_dummy_baselines` — cProfile harness;
+- `python -m mlframe.training.baselines._profile_dummy_baselines` — cProfile harness;
   prints per-target wall-time + top-30 cumulative-time entries.
-- `python mlframe/training/_smoke_dummy_baselines_e2e.py` — end-to-end
+- `python src/mlframe/training/baselines/_smoke_dummy_baselines_e2e.py` — end-to-end
   smoke through `train_mlframe_models_suite` with one lgb-target.
 
 Wall time: ~1s/target on 1M-row × 1-target after the numba pass; ~0.04s/target

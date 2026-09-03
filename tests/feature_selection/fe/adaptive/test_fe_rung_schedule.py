@@ -21,7 +21,6 @@ WHERE the operator-search compute goes, not admission.
 from __future__ import annotations
 
 import io
-import os
 import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import time
 
@@ -29,9 +28,17 @@ import numpy as np
 import pandas as pd
 import pytest
 
-# Keep the RAM-contended CI host on CPU; the rung logic is backend-agnostic.
-os.environ.setdefault("NUMBA_DISABLE_CUDA", "1")
-
+# NUMBA_DISABLE_CUDA is intentionally NOT force-set here (it used to be, via an unrestored
+# module-level os.environ.setdefault). numba reads it once into an internal config cache the first
+# time `numba.cuda.is_available()` (or anything touching numba.core.config) runs in the process and
+# never re-checks the live env var afterward -- confirmed directly: setting NUMBA_DISABLE_CUDA=1,
+# probing cuda.is_available(), then unsetting the var in the SAME process still returns the cached
+# False. A later-restore fixture (the pattern used for the CUDA_VISIBLE_DEVICES leaks elsewhere this
+# session) cannot undo this: the env var itself gets restored correctly, but numba's own cache stays
+# poisoned for the rest of the pytest-xdist worker, breaking every later test's real/mocked
+# `cuda.is_available()` expectation regardless of what they set. This module's own tests exercise the
+# rung-schedule dispatch logic (which is backend-agnostic per its own docstring) and CI runners have
+# no GPU anyway, so cuda.is_available() already returns False there without forcing the env var.
 from mlframe.feature_selection.filters._fe_rung_schedule import (
     apply_rung_schedule,
     _dispatch_keep_frac,
@@ -412,7 +419,11 @@ def test_cprofile_rung_screen_negligible():
     import cProfile
     import pstats
 
-    df, y = _make_canonical(n=4000, p_noise=25, seed=42)
+    # p_noise=12 (was 25) is plenty of gate-passing pairs to exercise the rung-0 screen's
+    # sort + dict comprehension against a real fit; the assertion is a RATIO (rung share of
+    # total fit time), not an absolute duration, so a narrower noise pool still proves the
+    # screen stays negligible without paying for the wider pool's synergy-pair search cost.
+    df, y = _make_canonical(n=4000, p_noise=12, seed=42)
     base = dict(verbose=0, random_seed=42, n_jobs=1, **_RELAXED)
 
     pr = cProfile.Profile()

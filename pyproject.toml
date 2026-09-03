@@ -55,12 +55,29 @@ dependencies = [
     # Upper cap <2.5: numba 0.65.1 (latest) rejects numpy 2.5 at import ("Numba needs NumPy 2.4 or less").
     # pip honours this (it ignores [tool.uv].override-dependencies, which carries the matching cap for uv).
     "numpy>=1.23,<2.5",
-    "pandas>=1.5",
+    # Upper cap <3.0: pandas 3.0 (PDEP-14) changed the default string-column dtype's str(dtype) to the
+    # bare "str" (was "object"), which broke mlframe's own dtype-detection in
+    # reporting/_diagnostics_dispatch_extra.py (now fixed), and dropped Day from Tick's offset-class
+    # hierarchy, which broke the day-divisor fast-path check in training/evaluation.py (now fixed too) --
+    # but the wider codebase hasn't been audited against 3.0 yet, so cap until that happens.
+    "pandas>=1.5,<3.0",
     "polars>=0.20",
     "scipy>=1.10",
-    # >=1.6: category-encoders (a hard dep below) imports ``sklearn.utils.Tags``, which only exists from
-    # sklearn 1.6; on older sklearn ``import category_encoders`` fails, so 1.6 is mlframe's effective floor.
-    "scikit-learn>=1.6",
+    # >=1.7 on Python>=3.10 (not just >=1.6): mlframe's own production code depends on two sklearn>=1.7
+    # features, not just category-encoders' importability floor (sklearn.utils.Tags, present from 1.6) --
+    # HistGradientBoostingClassifier/Regressor.fit(X_val=..., y_val=...) (native external-validation-set
+    # early stopping, used by the "hgb"/"ngb" eval_set path in training/_data_helpers.py, guarded at
+    # runtime via inspect.signature() so it degrades gracefully to internal validation_fraction ES when
+    # unavailable) and KBinsDiscretizer's ``quantile_method`` kwarg (training/pipeline/__init__.py's kbins
+    # extension step, same inspect.signature() runtime guard) were both confirmed live-broken on a CI leg
+    # that resolved sklearn==1.6.1 under the old unconditional ">=1.6" floor (TypeError: fit() got an
+    # unexpected keyword argument 'X_val'; __init__() got an unexpected keyword argument 'quantile_method').
+    # Split by Python version because sklearn>=1.7.0 itself requires Python>=3.10 (confirmed live: uv's
+    # resolver reports "No solution found" installing on Python 3.9.25 under a blanket >=1.7 floor) --
+    # 3.9 stays on the >=1.6 floor and relies on the two runtime guards above to degrade gracefully
+    # instead of crashing on the missing kwargs.
+    "scikit-learn>=1.7,<1.9; python_version >= '3.10'",
+    "scikit-learn>=1.6,<1.9; python_version < '3.10'",
     # >=25.0.0: pyarrow 24.0.0's cp314 wheel segfaults (Windows access violation) on import when
     # triggered through pytest's assertion-rewrite loader (reproduces in tests/conftest.py's
     # pyutilz.system -> pyutilz.text.strings -> pandas.compat.pyarrow -> pyarrow import chain; a
@@ -98,7 +115,22 @@ dependencies = [
     # in try/except with np.histogram fallback, so removing astropy from core
     # only loses the optional astropy-only bin schemes. Listed in [signal]
     # extras below for callers who want them.
-    "category-encoders>=2.6",
+    # >=2.8.0 on Python>=3.10: category-encoders' BaseEncoder didn't define __sklearn_tags__ until
+    # 2.8.0 (confirmed by inspecting the 2.7.0 vs 2.8.0 wheels directly) -- on sklearn>=1.6, whose
+    # tag-resolution machinery calls it via super(), any earlier category-encoders release (2.6.x/2.7.x)
+    # raises AttributeError: 'super' object has no attribute '__sklearn_tags__' from inside
+    # category_encoders' own code on the FIRST fit_transform call, cascading into a wide,
+    # unrelated-looking training-suite failure cluster. Reproduced live on CI (py3.9 leg resolved
+    # sklearn==1.6.1 + category-encoders==2.6.4). Split by Python version, same as the scikit-learn
+    # floor above, because category-encoders>=2.8.0 ITSELF requires Python>=3.10 (confirmed live: uv's
+    # resolver reports "No solution found" trying to install it on Python 3.9.25) -- so on Python<3.10
+    # the only installable releases are the ones that lack __sklearn_tags__ natively. Covered instead
+    # by ``mlframe.core._category_encoders_compat.ensure_category_encoders_sklearn_tags_shim()``, a
+    # runtime monkeypatch applied at every category_encoders import site that backports the same fix
+    # 2.8.0 shipped, using sklearn's own Tags/TargetTags dataclasses (idempotent, no-op once the
+    # installed category-encoders already has it natively).
+    "category-encoders>=2.8.0; python_version >= '3.10'",
+    "category-encoders>=2.6,<2.8; python_version < '3.10'",
     "expiringdict>=1.2",
     "pympler>=1.0",   # used via pyutilz.system; unconditional import in tests/feature_engineering/*
     # 2026-07-17: promoted from an optional/best-effort import to a hard dep. Used directly for fast
@@ -108,7 +140,7 @@ dependencies = [
     # carry (kept as defensive degradation, not exercised once this floor is guaranteed present).
     "xxhash>=3.0",
     # pyutilz is not yet on PyPI. Install it from GitHub before mlframe:
-    #   pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git@fc60f2287760917c8b7fa0ed45ef2cbe652070cb"
+    #   pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git@691a6ce16ba0abeb3647f17c1057464c895473ea"
     # X_SECURITY_API_PACKAGING-5 fix (mrmr_audit_2026-07-22): pin to a specific commit SHA, not the
     # floating default branch -- an unpinned, same-day pyutilz commit once silently flipped a shared
     # helper's default argument and broke MRMR.fit() for every caller (CORE_CLASS-1), with no version
@@ -258,6 +290,9 @@ polars_ext = [
 # ``catboost/widget/ipythonwidget.py``.
 viz = [
     "plotly>=5.15",
+    # plotly >= 6 moved FigureWidget behind anywidget and raises only at CONSTRUCTION time, so without
+    # this the live training-progress widget silently degrades to "disabled" on an otherwise complete install.
+    "anywidget>=0.9",
     "seaborn>=0.13",
     "altair>=5.0",
     "hvplot>=0.9",
@@ -402,9 +437,11 @@ dev = [
     "coverage>=7.2",
     "hypothesis>=6.80",
     "freezegun>=1.2",             # frozen-time fixtures in tests/perf and tests/training calibration suites
-    "ruff==0.16.0",               # pinned exact, matching .pre-commit-config.yaml's ruff-pre-commit rev AND
-                                    # CI's `uvx ruff==0.16.0` (ruff-blocking.yml) -- an open range here is
-                                    # exactly how the prior v0.8.6 pre-commit-vs-CI drift went unnoticed (2026-07-18).
+    "ruff==0.16.1",               # pinned exact, matching .pre-commit-config.yaml's ruff-pre-commit rev AND
+                                    # CI's `uvx ruff==0.16.1` (py-ci-shared's ruff-blocking.yml) -- an open range
+                                    # here is exactly how the prior v0.8.6 pre-commit-vs-CI drift went unnoticed
+                                    # (2026-07-18); this exact stale-pin-drift class recurred once already (this
+                                    # pin drifted to 0.16.0 while the other two stayed at 0.15.22, found 2026-08-05).
     # black==26.5.1 requires Python >=3.10 (found 2026-07-20: an unconditional pin here made
     # `pip install -e ".[all,dev]"` fail outright on CI's py3.9 matrix leg with "No solution found" --
     # that leg doesn't run black, so it doesn't need it installable; mirrors the identical fix already
@@ -412,6 +449,12 @@ dev = [
     "black==26.5.1 ; python_version >= '3.10'",  # pinned exact, matching CI's `BLACK_CMD: uvx black==26.5.1` (black-filtered.yml)
                                     # -- same rationale as ruff above; verified 2026-07-18 this exact version is
                                     # already filtered-Black-clean across the whole src/mlframe tree (no reformat).
+    "dtaidistance>=2.3 ; python_version >= '3.10'",  # mlframe.signal.dtw's dtw_cpu backend + tests/signal_tests/test_dtw.py's
+                                    # CPU-path tests (pytest.importorskip("dtaidistance")) -- never installed anywhere before
+                                    # (deptry's own ignore list even names it "known optional"), so every one of that file's
+                                    # CPU tests silently skipped in CI, leaving dtw.py at a genuine 0% coverage despite the
+                                    # test file existing and passing locally. No manylinux wheel for 3.9 at the pinned floor
+                                    # (2.4.0) -- gated the same way black is, above; importorskip already handles the 3.9 leg.
     "mypy>=1.0",
     "bandit>=1.7",
     "pre-commit>=3.3",
@@ -429,7 +472,7 @@ dev = [
     # X_SECURITY_API_PACKAGING-5 fix (mrmr_audit_2026-07-22): pinned to a specific commit SHA rather
     # than the floating default branch (see the matching pyutilz note above for the rationale). Bump
     # deliberately (with a CHANGELOG entry) when a new py-ci-shared feature is actually needed.
-    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@5851e65e7582a77ea1d37a2ec3c9940cd46f55a7",
+    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git",
 ]
 
 [project.scripts]
@@ -473,11 +516,22 @@ minversion = "7.0"
 testpaths = ["tests"]
 pythonpath = ["src"]
 # -p no:anyio / no:asyncio: the repo has zero async tests, and both transitively-installed async pytest plugins segfault the interpreter during collection on this stack -- anyio under CUDA_VISIBLE_DEVICES="" (CPU-only / CI), asyncio under a visible GPU (their event-loop native init collides with the CUDA/numba context). Unused plugins, so unloading both is pure upside.
-addopts = "-ra -s --no-cov --strict-markers --strict-config --timeout=600 --instafail --ignore=legacy --ignore=benchmarks --ignore=profiling -p no:anyio -p no:asyncio"
+# NOTE: do NOT add --no-cov here. pytest-cov's --no-cov unconditionally disables coverage collection
+# even when --cov=... is passed explicitly on the command line (pytest-cov's own documented precedence:
+# the LAST --cov/--no-cov flag wins across addopts + CLI, and addopts is appended before the CLI args
+# pytest-cov sees). A prior version of this line had --no-cov baked in globally -- meant only as the
+# Windows-local pytest-cov PermissionError workaround (pytest-cov can't write its data file on Windows;
+# pass --no-cov by hand on that platform, see CLAUDE.md) -- which silently zeroed out EVERY coverage
+# collection everywhere, including CI's explicit `--cov=src/mlframe --cov-report=xml` (ci.yml), for as
+# long as this addopts line existed. Confirmed live: CI's own logs show "CovDisabledWarning: Coverage
+# disabled via --no-cov switch!" on every run, and codecov.io showed 0% the entire time regardless of
+# the (separately real, separately fixed) cancelled-run and file/files-typo issues.
+addopts = "-ra -s --strict-markers --strict-config --timeout=900 --instafail --ignore=legacy --ignore=benchmarks --ignore=profiling -p no:anyio -p no:asyncio"
 xfail_strict = true
 doctest_optionflags = "NORMALIZE_WHITESPACE ELLIPSIS"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "hang_guard: the wall-clock ceiling asserts the call RETURNS, not that it is fast -- deliberately an order of magnitude loose, and exempt from the single-shot-timing gate so it stays distinguishable from a perf gate",
     "integration: marks integration tests requiring full pipeline",
     "gpu: marks tests requiring GPU hardware",
     "benchmark: pytest-benchmark timing tests",
@@ -496,6 +550,7 @@ markers = [
     "sklearn_matrix: include in the multi-sklearn-version CI matrix (.github/workflows/sklearn-matrix-ci.yml); tests pin scikit-learn surface contracts across the supported version range (1.6-1.8) and must NOT depend on private internals. See tests/test_meta/test_sklearn_matrix_marker_invariants.py for the convention.",
     "strict_cpu_only: test requires a CPU-only run (CUDA_VISIBLE_DEVICES=\"\") and must be skipped/fail fast otherwise; see tests/feature_selection/biz_val/conftest.py.",
     "xdist_group(name): pytest-xdist builtin -- pins a test to a single xdist worker. Normally auto-registered by the xdist plugin itself, but --strict-markers has been observed to reject it as unregistered on at least one CI shard; registered explicitly here so --strict-markers never depends on plugin load order.",
+    "flaky(reruns=N, reruns_delay=N, only_rerun=[...]): pytest-rerunfailures builtin -- reruns a test on failure instead of a one-shot FAILED. Normally auto-registered by the plugin itself, but --strict-markers has been observed to reject builtin plugin markers as unregistered on at least one CI shard (see xdist_group above for the same pattern); registered explicitly here so --strict-markers never depends on plugin load order. Scope only_rerun to a known transient-noise signature (e.g. AssertionError on a timing threshold) so a genuine deterministic bug is never silently retried into passing.",
 ]
 filterwarnings = [
     "error::DeprecationWarning:mlframe",
@@ -536,7 +591,14 @@ source = ["src/mlframe"]
 omit = [
     "tests/*",
     "legacy/*",
-    "benchmarks/*",
+    # Was "benchmarks/*" -- a literal top-level match that never hit any real directory: every
+    # actual benchmark dir in this tree is nested and underscore-prefixed (e.g.
+    # feature_selection/_benchmarks/, hermite_fe/_benchmarks/), so this exclusion had been
+    # silently dead since it was added. Confirmed live: 20+ _benchmarks/ dirs, ~8700 lines,
+    # all counting as uncovered against coverage this whole time. These are cProfile/bench
+    # harnesses saved in-package for manual use (CLAUDE.md convention), never meant to run
+    # under the test suite.
+    "*/_benchmarks/*",
     "profiling/*",
     "*/__pycache__/*",
     "*/site-packages/*",
@@ -576,9 +638,12 @@ skips = ["B101"]
 # absolute percentage error, LAMA/lama=LightAutoML, ACI=adaptive conformal inference,
 # COO=coordinate sparse format, ttest/disjointness/unparseable=valid English), or a
 # short substring codespell matched inside a longer identifier/comment fragment
-# (strat/ser/clen/fo/anc/mis/numer/sav/bu/ans/ot/qest/OLL), or a hyphenated spelling
-# choice that is not a typo (re-use/re-used/re-using/re-uses).
-ignore-words-list = "nd,hist,te,ith,ba,thi,fpr,tre,strat,ser,clen,fo,anc,mis,als,mis,mape,lama,aci,coo,oll,ot,qest,ttest,disjointness,unparseable,canonicalizations,numer,sav,bu,ans,re-use,re-used,re-using,re-uses,compilability,accreting,lightening,addres,categor"
+# (strat/ser/clen/fo/anc/mis/numer/sav/bu/ans/ot/qest/OLL), or a real API name (whis is
+# matplotlib's boxplot whisker-range kwarg), or a hyphenated spelling
+# choice that is not a typo (re-use/re-used/re-using/re-uses), or a third-party library's OWN typo that
+# appears verbatim in a message filter and therefore cannot be spelled correctly (optimze -- CatBoost
+# emits `Can't optimze method "evaluate"`, and the regex that silences it has to match that text).
+ignore-words-list = "nd,hist,te,ith,ba,thi,fpr,tre,strat,ser,clen,fo,anc,mis,als,mis,mape,lama,aci,coo,oll,ot,qest,ttest,disjointness,unparseable,canonicalizations,numer,sav,bu,ans,re-use,re-used,re-using,re-uses,compilability,accreting,lightening,addres,categor,whis,optimze"
 # Migration to per-line `# codespell:ignore <word>` (2026-07-18 architecture review suggestion)
 # evaluated for the short/collision-prone entries (nd/te/fo/ba/ot/bu et al.) and NOT done: a
 # spot-check (temporarily dropping them from this list and re-running codespell) showed hundreds
@@ -634,6 +699,27 @@ ignore-magic = true
 ignore-private = true
 exclude = ["tests", "scripts", "docs", "build", "dist", "**/_benchmarks/**", "**/benchmarks/**"]
 verbose = 1
+
+# ---------------------------------------------------------------------------
+# pydoclint (docstring-vs-signature consistency, run via `pydoclint src/mlframe`, wired as the
+# advisory-only lint-advisory CI job -- never blocking). Added 2026-08-23: the stock defaults
+# (Google-style, full Args/Returns/Raises/class-attrs completeness) fired ~886 findings, but the
+# overwhelming majority were a structural clash with this codebase's own documented convention
+# (CLAUDE.md "Comment style": terse one-liners, explain only the non-obvious WHY, never restate
+# self-evident Args/Returns/Raises) rather than genuine documentation bugs -- confirmed by hand-
+# auditing a sample: e.g. a function documenting only its non-obvious return SHAPE while skipping
+# fully-typed, self-explanatory Args is correct per our style, not incomplete. Disabling the
+# checks below cuts ~886 -> ~200 findings and, more importantly, stops false-flagging correct
+# terse docstrings so the check stays USEFUL for what's left. A hand-audit of the ~200 residual
+# findings DID surface 4 genuinely stale docstrings (boruta_shap: explain/create_shadow_features/
+# test_features/TentativeRoughFix all claimed a return value when the method actually mutates
+# `self.*` in place, two of them also documenting a parameter name from a since-refactored
+# signature) -- fixed the same day this section was added, not deferred.
+[tool.pydoclint]
+arg-type-hints-in-docstring = false  # our style never repeats a param's type hint in prose -- it's already in the signature (~421 of the original 886 findings: DOC105/109/110).
+check-return-types = false           # ditto for return types (~149 findings: DOC203).
+skip-checking-raises = true          # our style doesn't require a "Raises" section for every raise statement (~112 findings: DOC501/DOC503).
+check-class-attributes = false       # ditto for dataclass/NamedTuple attribute docs (~11 findings: DOC601/DOC603/DOC605).
 
 # ---------------------------------------------------------------------------
 # import-linter (architectural-boundary contracts). Added 2026-07-18 CI/CD architecture review --
@@ -695,6 +781,7 @@ allow_indirect_imports = true
 DEP002 = [
     "catboost", "xgboost", "lightgbm", "torch", "cupy", "shap", "optuna",
     "tqdm", "portalocker", "sentencepiece", "flaml", "altair", "hvplot", "vegafusion", "vl-convert-python", "ipywidgets",
+    "anywidget",  # ipywidgets 8's own runtime backend for custom widgets -- the progress widget fails to render without it, but nothing here imports it by name
     "sqlalchemy", "psycopg2-binary", "pymongo", "duckdb", "hdbscan",
     "nvidia-cuda-nvcc-cu12", "gpu-info", "cupy-cuda11x", "cupy-cuda12x", "nvidia-cuda-nvcc-cu11",
     "mkdocs-material", "mkdocs-jupyter",

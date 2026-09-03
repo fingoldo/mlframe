@@ -101,15 +101,21 @@ def test_biz_val_callbacks_xgb_after_iteration_stops_on_file(tmp_path):
     stop_path = tmp_path / "stop"
     stop_path.write_text("stop")
     cb = XGBoostStopFileCallback(fpath=str(stop_path))
-    # XGB callback hook signature: after_iteration(model, epoch, evals_log)
-    # The exact return semantics for the stop-file variant may differ;
-    # we just verify the call doesn't crash and returns SOMETHING.
-    try:
-        result = cb.after_iteration(model=None, epoch=1, evals_log={})
-        # Truthy result = stop
-        assert result is None or isinstance(result, bool)
-    except (AttributeError, NotImplementedError):
-        pytest.skip("callback API surface differs from after_iteration")
+    # XGB callback hook signature: after_iteration(model, epoch, evals_log). XGBoost halts on a TRUTHY return,
+    # and the stop file was created two lines above, so the contract is unambiguous: this must return True.
+    #
+    # `result is None or isinstance(result, bool)` -- the previous assertion -- admits None, False and True
+    # equally, so it passed for an inverted check, a stale cached predicate, or a path-resolution regression
+    # that makes the callback always return False, i.e. training never stops when the operator drops the stop
+    # file: the single behaviour this callback exists for. The comment conceding that "the exact return
+    # semantics may differ" was the tell.
+    result = cb.after_iteration(model=None, epoch=1, evals_log={})
+    assert result is True, f"the stop file exists, so the callback must halt training; got {result!r}"
+
+    # And the negative half, which was never covered: no stop file -> training must continue.
+    stop_path.unlink()
+    cb_no_file = XGBoostStopFileCallback(fpath=str(stop_path))
+    assert cb_no_file.after_iteration(model=None, epoch=1, evals_log={}) is not True, "training halted with no stop file present"
 
 
 # ---------------------------------------------------------------------------

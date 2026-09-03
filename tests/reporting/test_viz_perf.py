@@ -354,14 +354,20 @@ def test_compute_ml_perf_by_time_fast_path_used_for_day_divisor_freq():
     # D / h / sub-daily-divisor freqs route through the floorable numpy path; 7D / W do not.
     """Compute ml perf by time fast path used for day divisor freq."""
     from pandas.tseries.frequencies import to_offset
-    from pandas.tseries.offsets import Tick
 
     DAY_NS = 86_400_000_000_000
 
     def floorable(freq):
-        """Floorable."""
+        """Mirrors compute_ml_perf_by_time's own floorable test: `.nanos` raises for genuinely
+        non-fixed offsets in both pandas 2.x and 3.x, which is the actual fixed-duration signal --
+        NOT isinstance(Tick), which pandas>=3 stopped applying to Day (PDEP-14-adjacent offset
+        refactor) even though Day.nanos still works identically."""
         off = to_offset(_normalize_pandas_offset_alias(freq))
-        return isinstance(off, Tick) and off.nanos <= DAY_NS and DAY_NS % off.nanos == 0
+        try:
+            nanos = off.nanos
+        except ValueError:
+            return False
+        return nanos <= DAY_NS and DAY_NS % nanos == 0
 
     assert floorable("D") and floorable("h") and floorable("12h")
     assert not floorable("7D") and not floorable("W") and not floorable("ME")

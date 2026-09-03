@@ -257,6 +257,7 @@ def build_raw_redundancy_anchors(
     _recipes = recipes or {}
     _clean_subexpr_bin: dict[tuple, np.ndarray] = {}
     _clean_subexpr_bin_dev: dict = {}
+    _clean_subexpr_leaf_pair: dict[tuple, bool] = {}
     if _recipes and raw_X is not None:
         _consumer_subtrees: dict[int, dict] = {}
         for ei in eng_idx:
@@ -314,6 +315,14 @@ def build_raw_redundancy_anchors(
                 else:
                     _clean_subexpr_bin[(_rn, ei)] = _quantile_bin(_cvals_clean, nbins=_eng_card)
                     _clean_subexpr_bin_dev[(_rn, ei)] = None
+                # LEAF-PAIR marker: the clean sub-expression is a DIRECT elementary form (no further
+                # nested-parent composite of its own) over EXACTLY {rname, one other raw} - the tightest
+                # possible subsumption evidence (e.g. ``mul(log(c),sin(d))``, not a further composite that
+                # merely CONTAINS rname alongside other structure). See ``_LEAF_PAIR_RETAIN_FRAC`` at the
+                # call site for why this class gets a stricter self-retention bar.
+                _extra = getattr(_best_sub, "extra", None) or {}
+                _is_leaf = _extra.get("nested_parent_a") is None and _extra.get("nested_parent_b") is None
+                _clean_subexpr_leaf_pair[(_rn, ei)] = bool(_is_leaf and len(_sub_parents[_best_name]) == 2)
                 if verbose:
                     logger.info(
                         "raw-redundancy: conditioning raw %s on CLEAN nested sub-expression "
@@ -347,6 +356,7 @@ def build_raw_redundancy_anchors(
         eng_signal_parents=_eng_signal_parents,
         clean_subexpr_bin=_clean_subexpr_bin,
         clean_subexpr_bin_dev=_clean_subexpr_bin_dev,
+        clean_subexpr_leaf_pair=_clean_subexpr_leaf_pair,
         raw_marginal=_raw_marginal,
         raw_is_signal_bearing=_raw_is_signal_bearing,
         raw_codes=_raw_codes,

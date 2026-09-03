@@ -93,7 +93,7 @@ repos:
   # rate is near-zero after the de-star cleanup (F821/F822 are genuine bugs).
   # Stylistic rules (format, import order, naming) are WARN-ONLY via format-lint-warn.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.22
+    rev: v0.16.1
     hooks:
       - id: ruff
         name: "ruff (real bugs block)"
@@ -172,7 +172,7 @@ repos:
   # ``format-lint-warn`` hook below. Apply explicitly with
   # ``pre-commit run --hook-stage manual ruff`` / ``... ruff-format`` / ``... black``.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.22
+    rev: v0.16.1
     hooks:
       - id: ruff
         args: ['--fix']
@@ -427,7 +427,7 @@ repos:
   # src/mlframe and tests together to be meaningful (see the vulture-blocking note above) and
   # deptry is whole-project regardless of which subtree changed -- both are already covered.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.22
+    rev: v0.16.1
     hooks:
       - id: ruff
         name: "ruff tests/ (real bugs block)"
@@ -615,16 +615,14 @@ repos:
         always_run: false
         stages: [manual]
 
-  # Mypy on the files THIS commit touches. Mirrors CI's mypy-full.yml, which is BLOCKING for this
-  # repo (advisory: false, closed to 0 backlog 2026-07-08) -- so this now runs on every commit too
-  # instead of only in CI. Flipped from ``stages: [manual]`` 2026-07-12: that setting meant a
-  # commit with a whole-project mypy error would pass locally and only fail once pushed to CI,
-  # exactly the gap this policy pass exists to close.
-  # Scoped to changed files (2026-07-13): mypy still resolves each changed file's full transitive
-  # import graph (so cross-file errors it CAUSES are still caught), it just doesn't re-check every
-  # unrelated file in the other ~1300 -- CI's mypy-full.yml still runs the true whole-project check
-  # on every push, so a pre-existing whole-repo issue unrelated to this commit is still caught
-  # there. Local commits going from minutes to seconds is the point of this change.
+  # Mypy on the files THIS commit touches. RETIRED from the blocking pre-commit path 2026-08-06
+  # (X_CICD_DEPENDENCIES-6 audit finding): the whole-project mypy-full hook above ALSO runs
+  # blocking on every commit (flipped 2026-07-12) and is a strict superset of this changed-files
+  # check -- every file this hook would check, mypy-full already checks too, plus the other
+  # ~1300. Running both back-to-back doubled the mypy wall time paid per commit for zero extra
+  # coverage. Reverted to the shared hook definition's own default `stages: [manual]` (still
+  # runnable via `pre-commit run mypy-full-manual --hook-stage manual` for a quick changed-files-
+  # only check without paying the whole-project scan) rather than deleting the hook entirely.
   - repo: https://github.com/fingoldo/py-ci-shared
     rev: v1.0.0
     hooks:
@@ -637,18 +635,14 @@ repos:
         # files out of this hook; it has to be excluded here too, mirroring every other
         # pre-commit hook's own exclude (see e.g. black-filtered/ruff below).
         exclude: '(^|/)(legacy|_?benchmarks|profiling)/'
-        # The shared hook definition itself hardcodes stages: [manual] (it's a generic hook
-        # meant for repos where mypy-full is advisory, e.g. pyutilz) -- this repo-local override
-        # is what actually makes it run on every commit, since mlframe's mypy-full.yml IS
-        # blocking (advisory: false) unlike pyutilz's.
-        stages: [pre-commit, pre-merge-commit]
-        # --cache-dir points OUTSIDE this checkout, at a dir shared by every mlframe worktree
-        # (siblings under the same parent per the worktree-per-task convention). Measured
-        # 2026-07-14: a fresh worktree's cold .mypy_cache made this hook take 2-3 MINUTES on as
-        # few as 7 changed files (default follow_imports="normal" still walks + type-checks the
-        # full transitive closure); with the shared cache warm it drops to 6-8s. Runs in the
-        # real project env (language: system, real deps installed, unlike the isolated
-        # beachhead hook above) so it gets its own cache dir -- mixing cache formats across
-        # different dependency-version environments would just thrash. See
-        # reference_mlframe_shared_mypy_cache_dir memory note.
-        args: ['--cache-dir=../.mlframe_mypy_cache_shared']
+        # --cache-dir is LOCAL to this checkout (2026-08-05, was shared across every sibling
+        # worktree at ../.mlframe_mypy_cache_shared) -- moved off the shared cache for the exact
+        # reason the two sibling hooks above already were on 2026-08-03: a worktree on a
+        # known-buggy revision can populate the shared cache with stale/wrong results, and a
+        # DIFFERENT worktree on a fixed revision can then silently inherit that cache and report
+        # "Success" against code it never actually re-checked cold. Measured 2026-07-14 (when the
+        # shared cache was introduced): a fresh worktree's cold .mypy_cache made this hook take
+        # 2-3 MINUTES on as few as 7 changed files; the LOCAL cache still gets the same warm-cache
+        # speedup on repeat commits within one worktree, it just no longer crosses worktree
+        # boundaries. See reference_mlframe_shared_mypy_cache_dir memory note.
+        args: ['--cache-dir=.mypy_cache_precommit_manual']

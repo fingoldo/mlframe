@@ -94,8 +94,13 @@ def test_evaluate_candidate_gpu_success_path_unaffected(xor_factors):
 
 
 @pytest.fixture(autouse=True)
-def _reset_mi_direct_breaker():
+def _reset_mi_direct_breaker(monkeypatch):
     """Reset mi direct breaker."""
+    # ``gpu_globally_disabled()`` otherwise silently overrides this file's mocked
+    # ``is_cuda_available``/``mi_direct_gpu`` whenever the ambient CI/host env carries the off-switch --
+    # see the identical fixture in test_batch_pair_mi_gpu_vram_guard.py for the full root-cause writeup.
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.delenv("MLFRAME_DISABLE_GPU", raising=False)
     permutation_mod.reset_mi_direct_gpu_circuit_breaker()
     yield
     permutation_mod.reset_mi_direct_gpu_circuit_breaker()

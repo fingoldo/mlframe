@@ -24,7 +24,7 @@ from sklearn.base import BaseEstimator, RegressorMixin
 logger = logging.getLogger(__name__)
 
 
-class MultiTaskAuxiliaryLossRegressor(BaseEstimator, RegressorMixin):
+class MultiTaskAuxiliaryLossRegressor(RegressorMixin, BaseEstimator):
     """Shared-trunk MLP with a primary regression head plus optional auxiliary classification/regression
     heads, all heads' losses summed (auxiliary heads weighted lower) and backpropagated jointly.
 

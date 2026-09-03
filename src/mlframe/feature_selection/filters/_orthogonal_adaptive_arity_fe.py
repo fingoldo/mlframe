@@ -658,13 +658,19 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
             from ._fe_usability_signal import _crit_np_dtype
             x = X[col].to_numpy(dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
             return basis_route_by_moments(x)
-        except Exception as exc:
-            # This fallback used to be unlogged - a genuine
-            # failure to read X[col] or route the basis silently mislabels the frozen basis_i/j/k/l in the
-            # recipe as "hermite" instead of surfacing, unlike the already-documented :412 GPU-resident
-            # fallback (which is correctness-preserving via an exact host fallback; this one can change
-            # WHICH basis gets frozen into the recipe with no trace).
-            logger.debug("_route_basis: failed to route column %r (falling back to 'hermite'): %r", col, exc)
+        except (KeyError, TypeError, ValueError) as exc:
+            # A per-COLUMN event, so there is no spam risk in warning: the frozen basis is replayed by
+            # ``transform()``, so recording "hermite" for a column the fit actually routed elsewhere is a
+            # train/serve skew. Unlike the correctness-preserving GPU-resident fallback elsewhere in this file,
+            # this one changes WHICH basis is frozen. Narrowed to the column-read failures so a bug inside
+            # ``basis_route_by_moments`` propagates instead of being laundered into a default.
+            logger.warning(
+                "_route_basis: could not route column %r (%s: %s); freezing 'hermite' into the recipe. transform() will replay THAT basis, "
+                "so train-time and serve-time features for this leg will differ if the fit used another one.",
+                col,
+                type(exc).__name__,
+                exc,
+            )
             return "hermite"
 
     # Freeze the fit-time basis-preprocess params for one leg so ``transform()`` REPLAYS the frozen z-score/

@@ -380,6 +380,55 @@ def raw_retains_linear_signal_given_children(
     return abs(pcorr) > floor_p95
 
 
+def raw_is_tail_concentrated_subsumed(
+    raw_continuous: np.ndarray,
+    y_continuous: np.ndarray,
+    survivor_continuous_list: Sequence[np.ndarray],
+    *,
+    min_corr: float = 0.85,
+    rank_frac: float = 0.7,
+) -> bool:
+    """TAIL-CONCENTRATION continuous-subsumption probe, shared by every raw-operand
+    keep/drop site (the post-fit ``drop_redundant_raw_operands`` sweep AND the C2
+    additive-fusion's own raw-subsumption check).
+
+    Under heavy outliers a ratio operand (``a`` inside ``div(sqr(a),abs(b))``) can be
+    TAIL-CONCENTRATED: its RANK association with ``y`` collapses in the clean bulk (95%
+    of rows) while its LINEAR ``|corr|`` stays high (the signal lives in the 5% outlier
+    tail). Binned CMI/rank-MI keep-probes see PHANTOM private residual for such a raw and
+    wrongly KEEP it even though a surviving engineered survivor CONTINUOUSLY subsumes it
+    (``|corr(survivor, y)|`` ~ 0.99). Returns True (subsumed -> should DROP) iff: a
+    survivor's continuous ``|corr(y)|`` is HIGH (``>= min_corr``), the raw is linearly
+    WEAKER than that survivor (adds no linear signal it lacks), AND the raw's own RANK
+    association with ``y`` has COLLAPSED relative to its linear ``|corr|`` (``rank <=
+    rank_frac * linear`` - the tail-concentration signature). False (not proven
+    subsumed - the caller's own verdict stands) on any degenerate input or when the
+    signature does not fire; best-effort, never raises."""
+    from ._fe_usability_signal import _crit_np_dtype
+    from ._fe_usability_signal import abs_pearson as _abs_pearson
+
+    try:
+        _uc_dt = _crit_np_dtype()
+        yc = np.asarray(y_continuous, dtype=_uc_dt).ravel()
+        rc = np.asarray(raw_continuous, dtype=_uc_dt).ravel()
+        if rc.shape[0] != yc.shape[0] or yc.shape[0] < 3:
+            return False
+        r_lin = max(_abs_pearson(yc, rc), _abs_pearson(yc, rc * rc))
+        ry = _rank_transform(yc)
+        r_rank = max(_abs_pearson(ry, _rank_transform(rc)), _abs_pearson(ry, _rank_transform(rc * rc)))
+        s_lin = 0.0
+        for sv in survivor_continuous_list:
+            if sv is None:
+                continue
+            svc = np.asarray(sv, dtype=_uc_dt).ravel()
+            if svc.shape[0] == yc.shape[0]:
+                s_lin = max(s_lin, _abs_pearson(yc, svc))
+        return bool(s_lin >= float(min_corr) and r_lin < s_lin and r_rank <= float(rank_frac) * r_lin)
+    except Exception as e:
+        logger.debug("raw_is_tail_concentrated_subsumed: probe failed, treating as not-proven-subsumed: %s", e)
+        return False
+
+
 def _heldout_ridge_r2(X: np.ndarray, y: np.ndarray, frac: float = 0.7) -> Optional[float]:
     """Held-out StandardScaler+Ridge R^2 - the SAME linear probe the I4b downstream no-harm contract measures
     with (first ``frac`` rows train, remainder score; no shuffle, matching the endtoend uplift split). Returns

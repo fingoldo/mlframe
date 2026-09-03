@@ -133,8 +133,12 @@ def known_label_override(
             binary label (``positive_value``-like or ``negative_value``-like; any
             value closer to ``positive_value`` is treated as recovered-positive).
         asymmetric_safe_direction: which direction is safe to override toward.
-            ``"positive"`` only overrides rows where the recovered label is
-            positive (and current pred isn't already >= positive threshold);
+            ``"positive"`` overrides every row whose recovered label is
+            positive, INCLUDING rows already predicted at or above the
+            positive value -- writing the exact ``positive_value`` there is
+            the point, since a rank-only metric distinguishes 0.997 from
+            1.0. (This entry previously described an "isn't already >=
+            positive threshold" guard that the code has never had.);
             ``"negative"`` is the mirror case for domains where the negative
             class is the asymmetrically-costly/rare one.
         positive_value: value written when overriding toward the positive direction.

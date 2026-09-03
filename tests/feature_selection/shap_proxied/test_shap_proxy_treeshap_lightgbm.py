@@ -31,11 +31,22 @@ def _fit_lgb(X, y, *, classification, n_estimators=40, max_depth=4, num_leaves=1
 
 
 def _shap_main_reference(model, X):
-    """Shap main reference."""
+    """Shap main reference.
+
+    Raw ``shap.TreeExplainer`` construction MUST go through
+    ``_shap_proxy_explain._maybe_patch_shap_xgb_base_score`` even for a LightGBM model here -- this
+    file's own docstring history documents ``AttributeError: 'TreeEnsemble' object has no attribute
+    'values'`` on this exact call when an earlier, unpatched XGBoost TreeExplainer ran in the same
+    pytest-xdist worker on shap<0.52 and left ``shap.explainers._tree.float`` monkeypatched. See
+    test_shap_xgb_patch_version_gate.py for the full incident writeup.
+    """
     import shap
 
-    ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
-    phi = ex.shap_values(X, check_additivity=False)
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as spe
+
+    with spe._maybe_patch_shap_xgb_base_score():
+        ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
+        phi = ex.shap_values(X, check_additivity=False)
     if isinstance(phi, list):  # binary -> positive class
         phi = phi[1] if len(phi) == 2 else phi[0]
     phi = np.asarray(phi, dtype=np.float64)
@@ -123,8 +134,11 @@ def test_lightgbm_interaction_parity(classification):
 
     import shap
 
-    ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
-    Phi_ref = np.asarray(ex.shap_interaction_values(X), dtype=np.float64)
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as spe
+
+    with spe._maybe_patch_shap_xgb_base_score():
+        ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
+        Phi_ref = np.asarray(ex.shap_interaction_values(X), dtype=np.float64)
     if Phi_ref.ndim == 4:
         Phi_ref = Phi_ref[:, :, :, -1]
     np.testing.assert_allclose(Phi, Phi_ref, rtol=1e-4, atol=1e-4)

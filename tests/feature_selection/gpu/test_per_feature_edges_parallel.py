@@ -21,6 +21,7 @@ from mlframe.feature_selection.filters._adaptive_nbins import (
     per_feature_edges,
     _PARALLEL_EDGES_MIN_COLS,
 )
+from tests.conftest import skip_under_numba_disabled_jit
 
 
 def _make_X(n, p, seed=0):
@@ -100,9 +101,19 @@ def test_cache_thread_safety_and_hit_behavior(tmp_path):
     _assert_edges_identical(ref, warm, "cache-warm")
 
 
+@skip_under_numba_disabled_jit
 def test_narrow_frame_no_regression():
     # p=50 < threshold -> must use serial path, no thread overhead, identical edges.
-    """Narrow frame no regression."""
+    """Narrow frame no regression.
+
+    Skipped under NUMBA_DISABLE_JIT=1: same class as test_speedup_mdlp -- this is fundamentally a
+    wall-clock timing assertion (t_par < t_serial * 2.0 + 0.5), meaningless once the per_feature_edges
+    dispatcher forces serial-only execution under disabled JIT (see per_feature_edges's own
+    numba.config.DISABLE_JIT gate) regardless of n_jobs, AND n=20000/p=50 interpreted MDLP is slow
+    enough to risk the workflow's per-test timeout on its own. Bit-identity correctness at this
+    n_jobs>1-forced-to-serial config is already covered at smaller/faster scale by
+    test_parallel_edges_bit_identical and test_low_card_and_sparse_branches_identical.
+    """
     X = _make_X(20000, 50, seed=2)
     y = _make_y(X, seed=2)
     t0 = time.perf_counter()
@@ -117,10 +128,29 @@ def test_narrow_frame_no_regression():
     assert t_par < t_serial * 2.0 + 0.5
 
 
+@skip_under_numba_disabled_jit
 @pytest.mark.parametrize("p", [500, 2000])
 def test_speedup_mdlp(p):
-    """Speedup mdlp."""
-    n = 20000
+    """Speedup mdlp.
+
+    n=8000 (down from 20000): this test has no numeric speedup floor -- it only pins bit-identity
+    (the hard gate, already covered at n=2000/p=200 by test_parallel_edges_bit_identical) and PRINTS
+    the measured speedup for humans running it with -s. n only needs to be large enough that per-column
+    njit MDLP cost dominates thread-pool dispatch overhead so the printed ratio is still meaningful;
+    verified n=8000/p=2000 still crosses that comfortably (speedup ratio unchanged in kind, only wall
+    time drops) since this test runs BOTH the serial and parallel pass at full size (2x the cost of a
+    single pass) and p=2000 already carries the "wide frame" scale claim on its own.
+
+    Skipped under NUMBA_DISABLE_JIT=1: the whole premise (njit MDLP cost dominating thread-pool
+    dispatch overhead) doesn't hold once njit itself is off, AND a ThreadPoolExecutor buys zero
+    real parallelism over pure-Python GIL-bound code -- both the serial and n_jobs=-1 passes run at
+    full uncompiled MDLP cost across up to 2000 columns at n=8000, timing out the workflow's
+    3600s-per-test cap and crashing the xdist worker (confirmed live: numba-coverage-nightly run
+    32616328513, shard 2/8). Bit-identity between serial/parallel is already covered at a much
+    smaller n=2000/p=200 by test_parallel_edges_bit_identical, so nothing correctness-relevant is
+    lost by skipping this pure speed-measurement test here.
+    """
+    n = 8000
     X = _make_X(n, p, seed=5)
     y = _make_y(X, seed=5)
     # Warm numba JIT first (excluded from timing).

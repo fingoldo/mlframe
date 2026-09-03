@@ -127,10 +127,36 @@ def fuzzy_entity_group_features(
     mode_per_group = pd.Series({g: v for g, v in mode_idx.to_numpy()})
     group_mode_match = df["value"].to_numpy() == df["group"].map(mode_per_group).to_numpy()
 
-    df_sorted = df.sort_values("order", kind="stable")
-    grp = df_sorted.groupby(["group", "value"], sort=False)
-    occurrence_count_sorted = grp.cumcount().to_numpy().astype(np.float64)
-    gap_sorted = grp["order"].diff().to_numpy()
+    # Both outputs are documented as covering rows STRICTLY BEFORE this one, so they key on the order VALUE.
+    # A stable sort plus ``cumcount()``/``diff()`` is position-based: two rows in the same (group, value) block
+    # with the SAME order -- the ordinary case when `time_order` is a date -- gave the later-sorting one a count
+    # of 1 and a gap of 0.0, i.e. it had "already seen" a contemporaneous row, which for an online-scoring
+    # novelty signal is a same-timestamp leak rather than the NaN a genuine first observation earns.
+    #
+    # Kept vectorised: this module deliberately avoids per-group Python callbacks (see the mode aggregation
+    # above, profiled at 54s/call through one). Sorting by (block, order) makes each (group, value) block
+    # contiguous and ascending, so the index of the first row sharing this row's order -- a running maximum over
+    # the block/value run starts -- is both the strictly-before COUNT (relative to the block start) and the
+    # position of the last strictly-earlier row.
+    block_codes = pd.factorize(pd.MultiIndex.from_arrays([df["group"], df["value"]]))[0]
+    df_sorted = df.assign(_block=block_codes).sort_values(["_block", "order"], kind="stable")
+    blk = df_sorted["_block"].to_numpy()
+    order_sorted = df_sorted["order"].to_numpy(dtype=np.float64)
+
+    pos = np.arange(n)
+    new_block = np.empty(n, dtype=bool)
+    new_block[0] = True
+    new_block[1:] = blk[1:] != blk[:-1]
+    block_start = np.maximum.accumulate(np.where(new_block, pos, 0))
+
+    # A run start is either a new block or a strictly larger order within the same block.
+    run_start = new_block.copy()
+    run_start[1:] |= (~new_block[1:]) & (order_sorted[1:] != order_sorted[:-1])
+    first_equal = np.maximum.accumulate(np.where(run_start, pos, 0))
+
+    occurrence_count_sorted = (first_equal - block_start).astype(np.float64)
+    prev_pos = first_equal - 1
+    gap_sorted = np.where(first_equal > block_start, order_sorted - order_sorted[np.maximum(prev_pos, 0)], np.nan)
 
     orig_idx_sorted = df_sorted["_orig_idx"].to_numpy()
     occurrence_count = np.empty(n, dtype=np.float64)

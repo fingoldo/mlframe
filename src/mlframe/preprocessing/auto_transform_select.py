@@ -43,7 +43,13 @@ def _candidate_transforms() -> List[str]:
 
 
 def _apply_transform(x: np.ndarray, transform_name: str) -> Optional[np.ndarray]:
-    """Apply the named transform to ``x``, returning ``None`` if the scaler fails on this column."""
+    """Apply the named transform to ``x`` in one shot (fit and transform on the SAME data).
+
+    Only safe for a transform's final replay over the whole column (e.g. after the CV loop has
+    already picked the best transform); never for scoring, where fitting on the same rows the
+    score is read from leaks that fold's own statistics into its "held-out" evaluation. Use
+    :func:`_fit_transform_fold` inside any CV loop instead.
+    """
     if transform_name == "identity":
         return x
     if transform_name == "log1p_signed":
@@ -58,6 +64,60 @@ def _apply_transform(x: np.ndarray, transform_name: str) -> Optional[np.ndarray]
             except ValueError:
                 return None
     raise ValueError(f"_apply_transform: unknown transform_name {transform_name!r}")
+
+
+def _fill_nonfinite_from_train(x: np.ndarray, train_idx: np.ndarray) -> np.ndarray:
+    """Return a copy of ``x`` with non-finite cells filled by the median of the TRAIN slice only.
+
+    The median is a fit statistic exactly like a scaler's mean: computing it over the whole column before the
+    CV split leaks each test fold's own values into its "held-out" score, which is the leak
+    ``_fit_transform_fold`` was written to prevent one line further down. Fitting the transform per fold while
+    imputing from the full column left the door open at the step before it.
+    """
+    out: np.ndarray = np.asarray(x, dtype=np.float64).copy()
+    finite = np.isfinite(out)
+    train_finite = finite[train_idx]
+    fill = float(np.median(out[train_idx][train_finite])) if train_finite.any() else 0.0
+    out[~finite] = fill
+    return out
+
+
+def _fit_transform_fold(x: np.ndarray, transform_name: str, train_idx: np.ndarray, test_idx: np.ndarray) -> Optional["tuple[np.ndarray, np.ndarray]"]:
+    """Fit ``transform_name`` on ``x[train_idx]`` ONLY, then apply it to both ``x[train_idx]`` and
+    ``x[test_idx]``. Returns ``None`` if the transform fails to fit on the train slice.
+
+    Every candidate transform except identity/log1p_signed carries fit statistics (a scaler's
+    mean/std/min-max, RankGauss's sorted fit values) derived from whatever data it is fit on;
+    fitting on the FULL column (train+test) before a CV split leaks the test fold's own
+    statistics into the "held-out" score, optimistically biasing it. Fitting per-fold on the
+    train slice only, then replaying onto the test slice, matches standard CV preprocessing
+    practice (fit on train, transform train and test).
+    """
+    x_train, x_test = x[train_idx], x[test_idx]
+    if transform_name == "identity":
+        return x_train, x_test
+    if transform_name == "log1p_signed":
+        # Stateless per-element transform, no fit statistics -- safe to apply independently.
+        f = lambda a: np.asarray(np.sign(a) * np.log1p(np.abs(a)), dtype=np.float64)  # noqa: E731
+        return f(x_train), f(x_test)
+    if transform_name == "rankgauss":
+        from mlframe.feature_selection.filters import apply_rankgauss, engineered_name_rankgauss
+
+        enc_df, recipes = generate_rankgauss_features(pd.DataFrame({"c": x_train}), ["c"])
+        train_out = np.asarray(enc_df.iloc[:, 0].to_numpy(), dtype=np.float64)
+        recipe = recipes[engineered_name_rankgauss("c")]
+        test_out = np.asarray(apply_rankgauss(pd.DataFrame({"c": x_test}), recipe), dtype=np.float64).ravel()
+        return train_out, test_out
+    for name, scaler in make_all_scalers():
+        if name == transform_name:
+            try:
+                scaler.fit(x_train.reshape(-1, 1))
+                train_out = np.asarray(scaler.transform(x_train.reshape(-1, 1)).ravel(), dtype=np.float64)
+                test_out = np.asarray(scaler.transform(x_test.reshape(-1, 1)).ravel(), dtype=np.float64)
+                return train_out, test_out
+            except ValueError:
+                return None
+    raise ValueError(f"_fit_transform_fold: unknown transform_name {transform_name!r}")
 
 
 def _top_correlated_context_columns(df: pd.DataFrame, col: str, pool: List[str], n_context_features: int) -> List[str]:
@@ -181,51 +241,60 @@ def select_column_transforms(
     results: Dict[str, dict] = {}
     for col in columns:
         raw = df[col].to_numpy(dtype=np.float64)
-        finite_fill = raw.copy()
-        finite_fill[~np.isfinite(finite_fill)] = np.nanmedian(finite_fill[np.isfinite(finite_fill)]) if np.isfinite(finite_fill).any() else 0.0
 
         col_context_columns: List[str] = []
         context_matrix: Optional[np.ndarray] = None
         if multivariate_probe:
             col_context_columns = _top_correlated_context_columns(df, col, context_pool, n_context_features)
-            context_arrays = []
-            for ctx_col in col_context_columns:
-                ctx_raw = df[ctx_col].to_numpy(dtype=np.float64)
-                ctx_fill = ctx_raw.copy()
-                ctx_fill[~np.isfinite(ctx_fill)] = np.nanmedian(ctx_fill[np.isfinite(ctx_fill)]) if np.isfinite(ctx_fill).any() else 0.0
-                context_arrays.append(ctx_fill)
-            context_matrix = np.column_stack(context_arrays) if context_arrays else np.zeros((len(finite_fill), 0))
+            # Raw, unfilled: the per-fold fill happens inside the fold loop below, from the train slice only.
+            context_raw = [df[ctx_col].to_numpy(dtype=np.float64) for ctx_col in col_context_columns]
+            context_matrix = np.column_stack(context_raw) if context_raw else np.zeros((len(raw), 0))
 
         scores: Dict[str, float] = {}
         for transform_name in candidate_transforms:
-            transformed = _apply_transform(finite_fill, transform_name)
-            if transformed is None or not np.all(np.isfinite(transformed)):
-                continue
-            if multivariate_probe:
-                assert context_matrix is not None
-                interaction_cols = [transformed.reshape(-1, 1) * context_matrix[:, i : i + 1] for i in range(context_matrix.shape[1])]
-                feature_matrix = np.column_stack([transformed.reshape(-1, 1), context_matrix, *interaction_cols])
             fold_scores = []
+            transform_failed = False
             for train_idx, test_idx in fold_indices:
+                # Fit the transform on THIS FOLD'S train rows only, then apply it to both train
+                # and test -- fitting on the full column (train+test) before splitting would leak
+                # the test fold's own statistics into its "held-out" score.
+                # Imputed per fold, from this fold's train rows only -- see ``_fill_nonfinite_from_train``.
+                col_filled = _fill_nonfinite_from_train(raw, train_idx)
+                fitted = _fit_transform_fold(col_filled, transform_name, train_idx, test_idx)
+                if fitted is None:
+                    transform_failed = True
+                    break
+                transformed_train, transformed_test = fitted
+                if not (np.all(np.isfinite(transformed_train)) and np.all(np.isfinite(transformed_test))):
+                    transform_failed = True
+                    break
                 if multivariate_probe:
-                    assert multivariate_probe_model_fn is not None
+                    assert context_matrix is not None and multivariate_probe_model_fn is not None
+                    ctx_filled = np.column_stack([_fill_nonfinite_from_train(context_matrix[:, i], train_idx) for i in range(context_matrix.shape[1])]) if context_matrix.shape[1] else context_matrix
+                    ctx_train, ctx_test = ctx_filled[train_idx], ctx_filled[test_idx]
+                    inter_train = [transformed_train.reshape(-1, 1) * ctx_train[:, i : i + 1] for i in range(ctx_train.shape[1])]
+                    inter_test = [transformed_test.reshape(-1, 1) * ctx_test[:, i : i + 1] for i in range(ctx_test.shape[1])]
+                    feature_train = np.column_stack([transformed_train.reshape(-1, 1), ctx_train, *inter_train])
+                    feature_test = np.column_stack([transformed_test.reshape(-1, 1), ctx_test, *inter_test])
                     model = multivariate_probe_model_fn()
-                    model.fit(feature_matrix[train_idx], y[train_idx])
+                    model.fit(feature_train, y[train_idx])
                     if task == "classification":
-                        proba = model.predict_proba(feature_matrix[test_idx])[:, 1]
+                        proba = model.predict_proba(feature_test)[:, 1]
                         fold_scores.append(fast_roc_auc(y[test_idx], proba))
                     else:
-                        pred = model.predict(feature_matrix[test_idx])
+                        pred = model.predict(feature_test)
                         fold_scores.append(-float(np.sqrt(np.mean((y[test_idx] - pred) ** 2))))
                 else:
                     model = probe_model_fn()
-                    model.fit(transformed[train_idx].reshape(-1, 1), y[train_idx])
+                    model.fit(transformed_train.reshape(-1, 1), y[train_idx])
                     if task == "classification":
-                        proba = model.predict_proba(transformed[test_idx].reshape(-1, 1))[:, 1]
+                        proba = model.predict_proba(transformed_test.reshape(-1, 1))[:, 1]
                         fold_scores.append(fast_roc_auc(y[test_idx], proba))
                     else:
-                        pred = model.predict(transformed[test_idx].reshape(-1, 1))
+                        pred = model.predict(transformed_test.reshape(-1, 1))
                         fold_scores.append(-float(np.sqrt(np.mean((y[test_idx] - pred) ** 2))))
+            if transform_failed or not fold_scores:
+                continue
             scores[transform_name] = float(np.mean(fold_scores))
 
         if not scores:

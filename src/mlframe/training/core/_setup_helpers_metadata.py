@@ -139,8 +139,8 @@ def _finalize_and_save_metadata(ctx: "TrainingContext", *, verbose: int | None =
     # and on complex Pipeline state (Yeo-Johnson + dim_reducer + ordinal_encode
     # over many categories) each PyExpr.__setstate__ took 100-200ms in
     # polars' Rust deserializer. 19 such PyExprs = 2.2s load wall. Surfaced
-    # by the 100k binary_classification x lgb profile 2026-05-19 (seed
-    # 20260522): load 2.27s, of which 2.21s sat in PyExpr.__setstate__.
+    # by a 100k binary_classification x lgb profile: load 2.27s, of which
+    # 2.21s sat in PyExpr.__setstate__.
     # The proxy stores Pipeline.to_json() and reconstructs via from_json()
     # on load -- 10x speedup on the same combo (2.27s -> 0.21s measured).
     # Validate round-trip BEFORE wrapping: polars-ds from_json doesn't
@@ -156,7 +156,7 @@ def _finalize_and_save_metadata(ctx: "TrainingContext", *, verbose: int | None =
                 try:
                     _js = _pipeline_orig.to_json()
                     _js_hash = pipeline_json_cache_key(_js)
-                    # iter275: hydrate from disk cache once per process; gives
+                    # Hydrate from disk cache once per process; gives
                     # cross-process reuse so fuzz combo re-runs / pytest-xdist
                     # workers / CI all skip the 8.5s validation after the first
                     # process verified this JSON. No-op after the first call.

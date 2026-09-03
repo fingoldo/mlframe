@@ -75,6 +75,8 @@ def render_mtr_report(
                     _base = _base[: -len(_ext_strip)]
                     break
             _K = int(targets_arr.shape[1])
+            _rendered: list[int] = []
+            _skipped: list[int] = []
             for _k_idx in range(_K):
                 _yt_k = targets_arr[:, _k_idx].astype(np.float64).ravel()
                 _yp_k = preds_arr[:, _k_idx].astype(np.float64).ravel()
@@ -87,6 +89,7 @@ def render_mtr_report(
                         "MTR per-target chart: target %d has <5 finite " "(true, pred) pairs; skipping chart for this column.",
                         _k_idx,
                     )
+                    _skipped.append(_k_idx)
                     continue
                 _audit_k = audit_residuals(_yt_k[_mask_k], _yp_k[_mask_k], seed=42)
                 _mae_k = float(_mae_for_chart(_yt_k[_mask_k], _yp_k[_mask_k]))
@@ -104,10 +107,15 @@ def render_mtr_report(
                     _spec = _dc.replace(_spec, dpi=plot_dpi)
                 _per_target_path = f"{_base}_target{_k_idx}"
                 render_and_save(_spec, _render_config, _per_target_path)
+                _rendered.append(_k_idx)
+            # Report the columns ACTUALLY rendered, not `range(_K)`. The loop skips any target with fewer than
+            # five finite (true, pred) pairs, so the old message advertised a contiguous _target0.._target{K-1}
+            # range that included files never written -- an operator, or a script globbing that range, looks for
+            # something that does not exist.
             logger.info(
-                "MTR per-target charts: rendered %d chart base paths at "
-                "%s_target0 ... %s_target%d (renderer appends format ext).",
-                _K, _base, _base, _K - 1,
+                "MTR per-target charts: rendered %d of %d at %s_target{%s} (renderer appends format ext).%s",
+                len(_rendered), _K, _base, ",".join(str(i) for i in _rendered) if _rendered else "-",
+                f" Skipped target(s) {', '.join(str(i) for i in _skipped)}: fewer than 5 finite (true, pred) pairs." if _skipped else "",
             )
         except Exception as _chart_err:
             logger.warning(

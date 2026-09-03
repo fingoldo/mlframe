@@ -165,10 +165,9 @@ def test_wired_on_passes_frames_and_target_to_apply(monkeypatch):
 
 
 def test_sample_weight_kwarg_accepted_today():
-    """Forward-compat: the helper accepts ``sample_weight`` even though apply.py does not yet consume it.
-
-    Documents the plumbing contract so a later apply.py extension does not need a second wire-in patch here. The current behaviour is
-    silent discard -- the helper must not propagate sample_weight into apply() until apply() grows the kwarg.
+    """The helper accepts ``sample_weight`` and threads it through to ``feature_handling_apply``
+    (TRAINING_FEATURE_HANDLING_TARGETS-2). With a text-only FHC (no target-encoder handlers) the weight
+    is simply unused by any handler in the chain, so this just confirms the call still succeeds.
     """
     from mlframe.training.feature_handling import tfidf_only
 
@@ -177,7 +176,7 @@ def test_sample_weight_kwarg_accepted_today():
     fhc = tfidf_only(max_features=4)
     ctx = _make_ctx(fhc=fhc)
 
-    sw = {"recency": np.linspace(0.5, 1.5, len(train_df), dtype=np.float32)}
+    sw = np.linspace(0.5, 1.5, len(train_df), dtype=np.float32)
     # Must not raise.
     result = _maybe_run_feature_handling_apply(
         ctx,

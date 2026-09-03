@@ -58,19 +58,37 @@ def _save_spec(spec, plot_outputs: str, base_path: str) -> bool:
         return False
 
 
-def _save_figure(fig, plot_outputs: str, base_path: str) -> bool:
+def _png_path(base: str) -> str:
+    """``base`` resolved to its .png destination under the active per-format layout."""
+    from mlframe.reporting.renderers.save import resolve_output_path
+
+    return resolve_output_path(base, "matplotlib", "png", multi_output=False)
+
+
+def _save_figure(fig, plot_outputs: str, base_path: str) -> Optional[bool]:
     """Save a raw matplotlib Figure (builders that emit a Figure, not a FigureSpec) to ``base_path.png`` when png is requested.
 
-    Mirrors the matplotlib renderer's on-disk name so ``build_combined_html_report`` can stitch it. Returns True on success.
+    Mirrors the matplotlib renderer's on-disk name so ``build_combined_html_report`` can stitch it.
+
+    Tri-state on purpose: ``True`` saved, ``False`` genuinely FAILED to save, ``None`` png was never requested
+    so there was nothing to do. It used to return ``False`` for that last case, and callers fed the result
+    straight into ``_record``, so a ``plotly[html]``-only run reported these charts as FAILED -- an alarming
+    and wrong signal for a backend that simply does not write PNGs.
     """
     # ``plt.close`` MUST run on every exit (early non-png return, savefig failure, success); otherwise a builder that
     # hands us a Figure on a non-png run -- or whose savefig raises -- leaks it into matplotlib's global registry,
     # which grows unbounded across the per-split/per-target hot path. Hence the close lives in ``finally``.
     try:
         if "png" not in (plot_outputs or "").lower():
-            return False
+            return None  # not requested, not a failure
         try:
-            fig.savefig(base_path + ".png", bbox_inches="tight")
+            # Through ``resolve_output_path``, not ``base_path + ".png"``: these builders emit a raw Figure and
+            # wrote straight to the flat name, so with the per-format subfolder layout on they landed BESIDE the
+            # png/ and html/ directories every render_and_save chart went into -- visible in a production output
+            # dir as a handful of loose decile_table / fiplot / shap / report files.
+            from mlframe.reporting.renderers.save import resolve_output_path
+
+            fig.savefig(ensure_parent_dir(resolve_output_path(base_path, "matplotlib", "png", multi_output=False)), bbox_inches="tight")
             return True
         except Exception:
             logger.exception("diagnostics_dispatch: saving figure %s failed; continuing.", base_path)
@@ -124,7 +142,12 @@ def _select_feature_columns(frame: Any, feature_names: Optional[Sequence[str]], 
     if len(names) <= cap:
         return frame, names
     keep = names[:cap]
-    if hasattr(frame, "loc") and not isinstance(frame, np.ndarray):
+    # Probe the CAPABILITY (can this object select a list of columns?), not a pandas-only attribute. The
+    # previous ``hasattr(frame, "loc")`` gate is False for polars -- which has neither ``.loc`` nor ``.iloc``
+    # -- so the cap silently no-opped on every polars frame and the dense-matrix builders downstream
+    # received ALL columns, exactly the "thousands-of-columns engineered frame blows the matrix up" case
+    # this cap exists to prevent. ndarray is excluded because ``arr[list]`` selects ROWS there, not columns.
+    if not isinstance(frame, np.ndarray) and hasattr(frame, "columns"):
         try:
             return frame[keep], keep
         except Exception as exc:
@@ -196,18 +219,36 @@ def render_split_error_diagnostics(
     # Worst-K table on the FULL arrays so the highlight indices map onto the caller's data (no frame densify needed --
     # only the K worst rows pull feature values). Surface the table in the caller's metrics dict.
     sample_idx = _bounded_sample_idx(n, loss_finite, seed=seed)
-    sub_df, names = _select_feature_columns(_subset_rows(df, sample_idx), feature_names, DIAG_MAX_FEATURES)
+    # Cap COLUMNS first, then subset rows. Doing it the other way materialised DIAG_ROW_CAP rows x ALL
+    # columns before throwing most of them away -- on a 5,000-row cap against a 500-column frame that is a
+    # ~25x wider intermediate than the diagnostic ever reads. Column selection is a view/projection, so
+    # narrowing first makes the row gather proportional to what is actually used.
+    _capped_df, names = _select_feature_columns(df, feature_names, DIAG_MAX_FEATURES)
+    sub_df = _subset_rows(_capped_df, sample_idx)
+    if timestamps is None:
+        ts_arg = None
+    elif n <= DIAG_ROW_CAP:
+        ts_arg = list(timestamps[:n])
+    else:
+        # Subsampled branch: index timestamps by the SAME sample_idx used for yt/yp/sub_df below, instead
+        # of dropping temporal context entirely -- this is exactly the large-frame (100GB+) case this
+        # subsystem targets, so it must not be the one case where worst-K rows lose their timestamps.
+        ts_arg = list(np.asarray(timestamps)[sample_idx])
     try:
         wk = worst_k_table(
             _select_feature_columns(df, feature_names, DIAG_MAX_FEATURES)[0] if n <= DIAG_ROW_CAP else sub_df,
             yt if n <= DIAG_ROW_CAP else yt[sample_idx],
             yp if n <= DIAG_ROW_CAP else yp[sample_idx],
             task=task, k=worst_k, feature_names=names, feature_importances=feature_importances,
-            timestamps=(list(timestamps[:n]) if timestamps is not None and n <= DIAG_ROW_CAP else None),
+            timestamps=ts_arg,
         )
         out["worst_k_table"] = wk.table
         # Map subsample-local indices back to original positions when subsampled.
         out["worst_k_indices"] = (wk.indices if n <= DIAG_ROW_CAP else sample_idx[wk.indices]).astype(np.int64)
+        # Record the SUCCESS side too. Every other call site here records both outcomes; this one recorded
+        # only failure, so worst_k_table could never appear as saved and a run asserting chart presence saw
+        # a permanently absent diagnostic that had in fact been produced.
+        _record(charts, "worst_k_table", True)
     except Exception:
         logger.exception("diagnostics_dispatch: worst_k_table failed; continuing.")
         _record(charts, "worst_k_table", False)
@@ -219,6 +260,8 @@ def render_split_error_diagnostics(
         res = weak_segment_heatmap(sub_df, yt_s, yp_s, task=task, feature_names=names, seed=seed)
         ok = _save_spec(res.figure, plot_outputs, base_path + "_weak_segments")
         _record(charts, "weak_segments", ok)
+        if ok:
+            _record_path(charts, base_path + "_weak_segments")
     except Exception:
         logger.exception("diagnostics_dispatch: weak_segment_heatmap failed; continuing.")
         _record(charts, "weak_segments", False)
@@ -227,6 +270,8 @@ def render_split_error_diagnostics(
         eb_res = error_bias_per_feature(sub_df, yt_s, yp_s, feature_names=names)
         ok = _save_spec(eb_res.figure, plot_outputs, base_path + "_error_bias")
         _record(charts, "error_bias", ok)
+        if ok:
+            _record_path(charts, base_path + "_error_bias")
     except Exception:
         logger.exception("diagnostics_dispatch: error_bias_per_feature failed; continuing.")
         _record(charts, "error_bias", False)
@@ -252,6 +297,8 @@ def render_split_error_diagnostics(
                 )
                 ok = _save_spec(spec, plot_outputs, base_path + "_segments")
                 _record(charts, "segments", ok)
+                if ok:
+                    _record_path(charts, base_path + "_segments")
         except Exception:
             logger.exception("diagnostics_dispatch: segments_bar failed; continuing.")
             _record(charts, "segments", False)
@@ -277,21 +324,24 @@ def render_target_drift_diagnostics(
     calibration_drift: bool = True,
     target_acf: bool = True,
     cusum_drift: bool = True,
+    adversarial_validation: bool = True,
 ) -> None:
     """Render the per-target temporal-drift + adversarial-validation diagnostics, each accounted.
 
     ``psi_heatmap`` + ``residual_vs_time`` + ``metric_over_time`` fire when ``timestamps`` cover the split (same gate as
     the temporal target audit); ``adversarial_validation`` fires when train + test (or train + val) feature frames are
-    available. When timestamps cover the split, ``calibration_drift`` (classification) + ``target_acf`` also emit
-    default-on (both cheap: O(n) warmed njit / FFT-capped). All builders cap their own compute, so 100GB frames stay
-    safe (column-view histograms, 200k/side fit).
+    available AND ``adversarial_validation`` is True. When timestamps cover the split, ``calibration_drift``
+    (classification) + ``target_acf`` also emit default-on (both cheap: O(n) warmed njit / FFT-capped). All builders
+    cap their own compute, so 100GB frames stay safe (column-view histograms, 200k/side fit) -- EXCEPT
+    ``adversarial_validation``, whose own LightGBM classifier fit cost scales with column count, not just row count
+    (unbounded by any cap here); set the flag False for very wide frames where that cost dominates.
     """
     charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
     if not plot_outputs or not base_path:
         return
 
     from mlframe.reporting.charts.drift import (
-        adversarial_validation,
+        adversarial_validation as _adversarial_validation_fn,
         metric_over_time,
         psi_heatmap,
         residual_vs_time,
@@ -305,6 +355,8 @@ def render_target_drift_diagnostics(
             spec = psi_heatmap(test_frame, ts[: _row_count(test_frame)], feature_names=feature_names)
             ok = _save_spec(spec, plot_outputs, base_path + "_psi")
             _record(charts, "psi_heatmap", ok)
+            if ok:
+                _record_path(charts, base_path + "_psi")
         except Exception:
             logger.exception("diagnostics_dispatch: psi_heatmap failed; continuing.")
             _record(charts, "psi_heatmap", False)
@@ -320,6 +372,8 @@ def render_target_drift_diagnostics(
                     spec = residual_vs_time(yt[:m], yp[:m], ts[:m])
                     ok = _save_spec(spec, plot_outputs, base_path + "_residual_vs_time")
                     _record(charts, "residual_vs_time", ok)
+                    if ok:
+                        _record_path(charts, base_path + "_residual_vs_time")
                 except Exception:
                     logger.exception("diagnostics_dispatch: residual_vs_time failed; continuing.")
                     _record(charts, "residual_vs_time", False)
@@ -342,10 +396,21 @@ def render_target_drift_diagnostics(
                 # higher-is-better and inverted the "over time" trend annotation.
                 from mlframe.training.metrics_registry import metric_name_higher_is_better
                 _dir = metric_name_higher_is_better(metric)
-                higher_is_better = True if _dir is None else _dir
+                if _dir is None:
+                    # Defaulting an UNKNOWN metric to higher-is-better silently inverts this panel's trend
+                    # annotation for every custom error metric, which is the common case for a custom name.
+                    # Warn and pick the safer default: most bespoke metric names in this codebase are losses.
+                    logger.warning(
+                        "metric_over_time: optimisation direction for metric=%r is unknown; assuming "
+                        "lower-is-better. Register it via mlframe.training.metrics_registry.register_metric "
+                        "to silence this and get the trend annotation right.", metric,
+                    )
+                higher_is_better = False if _dir is None else _dir
                 spec = metric_over_time(yt[:m], yp[:m], ts[:m], metric=metric, higher_is_better=higher_is_better)
                 ok = _save_spec(spec, plot_outputs, base_path + "_metric_over_time")
                 _record(charts, "metric_over_time", ok)
+                if ok:
+                    _record_path(charts, base_path + "_metric_over_time")
             except Exception:
                 logger.exception("diagnostics_dispatch: metric_over_time failed; continuing.")
                 _record(charts, "metric_over_time", False)
@@ -363,15 +428,17 @@ def render_target_drift_diagnostics(
                     plot_outputs=plot_outputs, base_path=base_path, metrics_dict=metrics_dict,
                 )
 
-    if train_frame is not None and (test_frame is not None or val_frame is not None):
+    if adversarial_validation and train_frame is not None and (test_frame is not None or val_frame is not None):
         try:
-            spec = adversarial_validation(
+            spec = _adversarial_validation_fn(
                 train_frame, test_frame if test_frame is not None else val_frame,
                 val_frame=val_frame if test_frame is not None else None,
                 feature_names=feature_names, seed=seed,
             )
             ok = _save_spec(spec, plot_outputs, base_path + "_adversarial")
             _record(charts, "adversarial", ok)
+            if ok:
+                _record_path(charts, base_path + "_adversarial")
         except Exception:
             logger.exception("diagnostics_dispatch: adversarial_validation failed; continuing.")
             _record(charts, "adversarial", False)
@@ -471,6 +538,8 @@ def render_pdp_2d_diagnostic(
 
         fig = compose_pdp_2d_figure(model, df, feat_x, feat_y, grid=grid, sample_rows=sample, seed=seed)
         ok = _save_figure(fig, plot_outputs, base_path + "_pdp_2d")
+        if ok is None:
+            return False  # png not requested; nothing rendered, nothing to record either way
         _record(charts, "pdp_2d", ok)
         if ok:
             _record_path(charts, base_path + "_pdp_2d")
@@ -486,8 +555,16 @@ def _interaction_cost_within_budget(model: Any, df: Any, k: int, grid: int, samp
 
     The dominant work is ``C(k,2)`` 2-D PDP surfaces at ``grid^2`` predict-batches of ``sample`` rows each, plus ``k``
     1-D PDPs at ``grid`` batches. One predict on the sample gives the per-batch latency; the projection is model-agnostic
-    (a slow deep net self-skips, a fast tree runs). On any probe failure we allow the render (fail-open) -- the render
-    itself is best-effort and swallows errors.
+    (a slow deep net self-skips, a fast tree runs).
+
+    A failure inside the probe INFRASTRUCTURE (row count, subsetting) allows the render, because the render is
+    best-effort and swallows its own errors. A failure of the model's own ``predict`` does not: a model that cannot
+    predict on a clean sample cannot produce a single PDP surface either, so charging it the full budget only buys a
+    slow walk to the same failure.
+
+    The probe's OUTPUT is deliberately discarded rather than threaded into the composer. Reusing it would save one
+    batch out of ``n_pairs*grid^2 + k*grid`` -- at the defaults (k=8, grid=20) that is 1 of 11,360, under 0.01% of
+    the projected work -- which does not justify widening the composer's signature to accept a precomputed batch.
     """
     import time as _time
 
@@ -499,15 +576,23 @@ def _interaction_cost_within_budget(model: Any, df: Any, k: int, grid: int, samp
         fn = getattr(model, "predict_proba", None) or getattr(model, "predict", None)
         if fn is None:
             return True
+    except Exception:
+        logger.debug("interaction_strength: cost probe setup failed; allowing render.", exc_info=True)
+        return True
+    try:
         t0 = _time.perf_counter()
         fn(probe)
         t_batch = _time.perf_counter() - t0
-        n_pairs = k * (k - 1) // 2
-        projected = (n_pairs * grid * grid + k * grid) * t_batch
-        return projected <= float(max_seconds)
     except Exception:
-        logger.debug("interaction_strength: cost probe failed; allowing render.", exc_info=True)
-        return True
+        logger.info(
+            "[diagnostics] interaction_strength: the model raised on a %d-row probe predict, so no PDP surface can "
+            "be built -- skipping rather than spending the budget reaching the same failure.",
+            min(sample, n),
+        )
+        return False
+    n_pairs = k * (k - 1) // 2
+    projected = (n_pairs * grid * grid + k * grid) * t_batch
+    return projected <= float(max_seconds)
 
 
 def render_interaction_strength_diagnostic(
@@ -602,7 +687,9 @@ def render_slice_finder_diagnostic(
     loss = _per_row_error(yt, yp, task=task)
     loss_finite = np.where(np.isfinite(loss), loss, -np.inf)
     idx = _bounded_sample_idx(n, loss_finite, seed=seed)
-    sub_df, names = _select_feature_columns(_subset_rows(df, idx), feature_names, DIAG_MAX_FEATURES)
+    # Column cap before the row gather -- see the identical note in the split-error path above.
+    _capped_df, names = _select_feature_columns(df, feature_names, DIAG_MAX_FEATURES)
+    sub_df = _subset_rows(_capped_df, idx)
     try:
         res = find_weak_slices(
             sub_df, yt[idx], yp[idx], task=task, feature_names=names, seed=seed,
@@ -711,12 +798,18 @@ def render_target_acf_diagnostic(
         return False
     yt = np.asarray(y_true).ravel()
     ts = np.asarray(timestamps)
-    if yt.size < 8 or len(ts) < yt.size:
+    # Align to the common prefix instead of refusing outright. Every other entry point in this module trims
+    # y / timestamps to their shared length; this one alone dropped the diagnostic entirely whenever the
+    # caller's timestamp vector was shorter, which is the ordinary shape when a split carries partial
+    # temporal coverage. Only a genuinely too-short series (< 8 points, where an ACF says nothing) still skips.
+    m = min(yt.size, ts.shape[0])
+    if m < 8:
         return False
+    yt = yt[:m]
     try:
         from mlframe.reporting.charts.temporal import compose_target_acf_figure
 
-        order = np.argsort(ts[: yt.size], kind="stable")
+        order = np.argsort(ts[:m], kind="stable")
         spec = compose_target_acf_figure(yt[order], suptitle="Target ACF / PACF")
         ok = _save_spec(spec, plot_outputs, base_path + "_target_acf")
         _record(charts, "target_acf", ok)
@@ -761,7 +854,7 @@ def render_shap_diagnostic(
     try:
         res = shap_summary_and_dependence(
             model, df, feature_names=list(feature_names) if feature_names else None,
-            max_rows=max_rows, top_k=top_k, plot_file=base_path + "_shap.png",
+            max_rows=max_rows, top_k=top_k, plot_file=_png_path(base_path + "_shap"),
             plot_outputs=plot_outputs, allow_kernel=allow_kernel, seed=seed,
         )
         ok = bool(res.paths) and res.skipped is None
@@ -803,7 +896,7 @@ def render_shap_interactions_diagnostic(
     try:
         res = shap_interaction_summary(
             model, df, feature_names=list(feature_names) if feature_names else None,
-            max_rows=max_rows, top_pairs=top_pairs, plot_file=base_path + "_shap_interactions.png",
+            max_rows=max_rows, top_pairs=top_pairs, plot_file=_png_path(base_path + "_shap_interactions"),
             plot_outputs=plot_outputs, seed=seed,
         )
         ok = bool(res.paths) and res.skipped is None
@@ -847,7 +940,7 @@ def render_shap_per_instance_diagnostic(
     try:
         res = shap_worst_errors_explanation(
             model, df, y_true, y_score, feature_names=list(feature_names) if feature_names else None,
-            k=k, max_explain_rows=max_explain_rows, plot_file=base_path + "_shap_per_instance.png",
+            k=k, max_explain_rows=max_explain_rows, plot_file=_png_path(base_path + "_shap_per_instance"),
             plot_outputs=plot_outputs, seed=seed,
         )
         ok = bool(res.paths) and res.skipped is None
@@ -878,3 +971,4 @@ from ._diagnostics_dispatch_extra import (  # noqa: F401
     render_split_comparison_from_suite,
     render_target_dist_overlay,
 )
+from mlframe._output_paths import ensure_parent_dir

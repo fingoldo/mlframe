@@ -33,6 +33,26 @@ import pytest
 
 pytest.importorskip("lightgbm")
 
+_LEAN_OUTPUT_CONFIG_KWARGS = dict(
+    save_charts=False,
+    run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"],
+)
+_LEAN_REPORTING_CONFIG_KWARGS = dict(
+    show_perf_chart=False,
+    show_fi=False,
+    adversarial_validation=False,
+    interaction_strength_charts=False,
+    engineered_separability_charts=False,
+    class_structure_charts=False,
+    category_discriminability_charts=False,
+    slice_finder=False,
+    shap_panels=False,
+    decision_curve=False,
+    calibration_drift=False,
+    target_acf=False,
+    model_comparison=False,
+)
+
 
 def _tvt_dataset(n: int = 800, seed: int = 0) -> pd.DataFrame:
     """TVT-style: y = 0.95*lag + structural signal + noise."""
@@ -94,7 +114,8 @@ class TestCompositeIntegration:
             model_name="composite_off",
             features_and_targets_extractor=_build_minimal_fte(),
             mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models"},
+            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
+            reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
             verbose=0,
         )
         assert metadata.get("schema_version") == 2
@@ -125,7 +146,8 @@ class TestCompositeIntegration:
             model_name="composite_on",
             features_and_targets_extractor=_build_minimal_fte(),
             mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models"},
+            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
+            reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
             verbose=0,
             composite_target_discovery_config=cfg,
         )
@@ -169,7 +191,8 @@ class TestCompositeIntegration:
             model_name="composite_yscale",
             features_and_targets_extractor=_build_minimal_fte(),
             mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models"},
+            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
+            reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
             verbose=0,
             composite_target_discovery_config=cfg,
         )
@@ -257,7 +280,8 @@ class TestCompositeIntegration:
             model_name="composite_oof_gate",
             features_and_targets_extractor=_build_minimal_fte(),
             mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models"},
+            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
+            reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
             verbose=0,
             composite_target_discovery_config=cfg,
         )
@@ -301,7 +325,8 @@ class TestCompositeIntegration:
             model_name="composite_yscale_metrics",
             features_and_targets_extractor=_build_minimal_fte(),
             mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models"},
+            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
+            reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
             verbose=0,
             composite_target_discovery_config=cfg,
         )
@@ -356,7 +381,8 @@ class TestCompositeIntegration:
             model_name="composite_ensemble",
             features_and_targets_extractor=_build_minimal_fte(),
             mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models"},
+            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
+            reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
             verbose=0,
             composite_target_discovery_config=cfg,
         )
@@ -496,7 +522,8 @@ class TestCompositeIntegration:
                 model_name="composite_banner",
                 features_and_targets_extractor=_build_minimal_fte(),
                 mlframe_models=["linear"],
-                output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models"},
+                output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
+                reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
                 verbose=0,
                 composite_target_discovery_config=cfg,
             )
@@ -542,7 +569,8 @@ class TestCompositeIntegration:
             model_name="composite_yscale_dummy",
             features_and_targets_extractor=_build_minimal_fte(),
             mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models"},
+            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
+            reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
             verbose=0,
             composite_target_discovery_config=cfg,
         )
@@ -597,7 +625,8 @@ class TestCompositeIntegration:
                 model_name="composite_killswitch",
                 features_and_targets_extractor=_build_minimal_fte(),
                 mlframe_models=["linear"],
-                output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models"},
+                output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
+                reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
                 verbose=0,
                 composite_target_discovery_config=cfg,
             )

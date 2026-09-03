@@ -4,7 +4,7 @@ The broadcast path materialises a (chunk, n_t, d) float32 temporary per chunk an
 computes the same squared-distance matrix (chunk, n_t) via a single BLAS sgemm plus two squared-norm vectors,
 never allocating the 3-D tensor. Mathematically identical up to fp reduction order; the LSE downstream is unchanged.
 
-Run: CUDA_VISIBLE_DEVICES="" D:/ProgramData/anaconda3/python.exe bench_density_ratio_kde_gemm.py
+Run: CUDA_VISIBLE_DEVICES="" python -m mlframe.feature_engineering._benchmarks.bench_density_ratio_kde_gemm
 """
 from __future__ import annotations
 

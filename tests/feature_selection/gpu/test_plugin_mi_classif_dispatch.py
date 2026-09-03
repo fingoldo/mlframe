@@ -21,8 +21,20 @@ from mlframe.feature_selection.filters.hermite_fe import (
     plugin_mi_classif_dispatch,
 )
 
+def _gpu_available() -> bool:
+    """Gpu available."""
+    try:
+        import cupy as cp
+
+        return cp.cuda.runtime.getDeviceCount() >= 1
+    except Exception:  # pragma: no cover - no driver / no GPU
+        return False
+
+
+# ``_CUDA_AVAILABLE`` (hermite_fe) only checks that the cupy PACKAGE imports -- it stays True on a
+# host with cupy installed but no CUDA device, so combine it with a real device probe.
 cupy = pytest.importorskip("cupy") if _CUDA_AVAILABLE else None
-if not _CUDA_AVAILABLE:
+if not (_CUDA_AVAILABLE and _gpu_available()):
     pytest.skip("cupy not available", allow_module_level=True)
 
 # Re-import the cuda-only functions after the importorskip gate.

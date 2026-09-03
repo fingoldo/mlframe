@@ -7,7 +7,7 @@ the single-population ranking-evaluation curves used for marketing / targeting d
   the x-axis is the fraction of the population targeted (``PR = (TP+FP)/m``) and the y-axis is the
   fraction of positives captured (``gain = TPR``). "If we call the top 20%, what share of responders
   do we reach?"
-- **Lift curve** (slides 53-54): ``lift = gain / fraction_targeted`` — how many times better than random
+- **Lift curve** (slides 53-54): ``lift = gain / fraction_targeted`` -- how many times better than random
   targeting the top-k is. Tends to 1 as the whole population is targeted.
 - **Gains table** (slide 58, the decile "Gains Table"): per-decile cumulative captured-% and lift, the
   table a business reads to pick how deep to call.
@@ -15,7 +15,7 @@ the single-population ranking-evaluation curves used for marketing / targeting d
   per-object minimizer is the true probability (like log-loss / Brier); the boosting exponential loss
   written on the probability scale.
 
-These differ from mlframe's per-group LTR lift (`metrics.ranking`) — here it is one population, binary y.
+These differ from mlframe's per-group LTR lift (`metrics.ranking`) -- here it is one population, binary y.
 """
 
 from __future__ import annotations

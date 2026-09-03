@@ -57,23 +57,23 @@ def _parent_set(name: str, value) -> None:
         setattr(parent, name, value)
 
 
-# iter193 (2026-05-23): per-process cache for the polars-ds Pipeline
+# Per-process cache for the polars-ds Pipeline
 # from_json() roundtrip validation. ``_finalize_and_save_metadata`` calls
 # ``Pipeline.from_json(_js)`` on EVERY fit to verify the JSON roundtrips;
-# c0141 profile attributed 5.413s wall to this single call. The validation
+# A profile attributed 5.413s wall to this single call. The validation
 # is deterministic in the input JSON (same JSON -> same parse result), so
 # we cache the result keyed by ``hash(_js)``. First-fit pays the 5s, subse-
 # quent fits within the same process do a 1us dict lookup. Mirrors the
-# _PROBE_PRECISION_CACHE (iter181), _CB_GPU_USABLE_CACHE, and
-# _mlframe_callback_cache_installed (iter189) patterns for process-stable
+# _PROBE_PRECISION_CACHE, _CB_GPU_USABLE_CACHE, and
+# _mlframe_callback_cache_installed patterns for process-stable
 # costs. Falls back to live validation on cache miss.
 _PIPELINE_JSON_ROUNDTRIP_CACHE: dict[str, bool] = {}
 
 
-# iter275 (2026-05-23): cross-process file cache. The in-memory cache above
+# Cross-process file cache. The in-memory cache above
 # only helps repeated fits within ONE process. Fresh-process workflows
 # (fuzz combo re-runs, pytest-xdist workers, CI, dev iteration) pay the
-# full 8.5s validation on every first call. c0141 iter275 profile
+# full 8.5s validation on every first call. A profile
 # attributed 8.57s to a single ``from_json`` (20 polars Exprs x 428ms each).
 # Across 150 fuzz combos that's ~21 min wasted on deterministic work.
 #
@@ -91,11 +91,24 @@ _PIPELINE_JSON_DISK_CACHE_MAX_ENTRIES: int = 1000
 def _pipeline_disk_cache_path() -> str:
     """Resolve the per-version disk cache path on first use.
 
-    Honour an out-of-band override set on the parent facade
-    (tests / debug tooling do ``monkeypatch.setattr(parent,
-    "_PIPELINE_JSON_DISK_CACHE_PATH", path)``); otherwise initialise the
-    sibling global lazily under the system temp dir.
+    Checks, in order: the ``MLFRAME_PIPELINE_DISK_CACHE_PATH`` env var, then an
+    out-of-band override set on the parent facade (tests / debug tooling do
+    ``monkeypatch.setattr(parent, "_PIPELINE_JSON_DISK_CACHE_PATH", path)``),
+    then the sibling global initialised lazily under the system temp dir.
+
+    The env var exists because the facade-monkeypatch route above has an
+    unconfirmed CI-only failure mode (test_pipeline_json_disk_cache_roundtrip:
+    _persist_pipeline_disk_cache resolves the DEFAULT path instead of the
+    monkeypatched one, despite the ``_parent_attr``/``_parent_set`` bridge
+    reading correctly by inspection and the failure being unreproducible
+    locally) -- ``monkeypatch.setenv`` is a strictly simpler mechanism (no
+    cross-module attribute-bridge indirection) and gives tests an unambiguous
+    way to redirect this path regardless of whatever that root cause turns
+    out to be.
     """
+    env_override = os.environ.get("MLFRAME_PIPELINE_DISK_CACHE_PATH")
+    if env_override:
+        return env_override
     override = _parent_attr("_PIPELINE_JSON_DISK_CACHE_PATH", None)
     if override is not None:
         return str(override)
@@ -132,10 +145,20 @@ def _pipeline_disk_cache_version_tag() -> str:
 
 
 def _load_pipeline_disk_cache_into_memory() -> None:
-    """One-shot disk -> in-memory rehydrate; safe to call repeatedly."""
+    """One-shot disk -> in-memory rehydrate; safe to call repeatedly.
+
+    ``MLFRAME_PIPELINE_CACHE_FORCE_RELOAD=1`` bypasses the once-per-process guard below
+    unconditionally -- see ``_pipeline_disk_cache_path``'s own docstring for why an env var exists
+    alongside the facade-monkeypatch route: the same unconfirmed CI-only failure mode (a
+    monkeypatch.setattr(parent, ...) not being observed here) affected this flag too
+    (test_pipeline_json_disk_cache_roundtrip: rehydrate silently no-op'd because this guard saw the
+    flag as already True despite the test's monkeypatch setting it False moments earlier).
+    """
     global _PIPELINE_JSON_DISK_CACHE_LOADED
+    if os.environ.get("MLFRAME_PIPELINE_CACHE_FORCE_RELOAD") == "1":
+        _PIPELINE_JSON_DISK_CACHE_LOADED = False
     # Re-read the loaded flag from the parent facade in case a test reset it via monkeypatch.
-    if _parent_attr("_PIPELINE_JSON_DISK_CACHE_LOADED", _PIPELINE_JSON_DISK_CACHE_LOADED):
+    elif _parent_attr("_PIPELINE_JSON_DISK_CACHE_LOADED", _PIPELINE_JSON_DISK_CACHE_LOADED):
         _PIPELINE_JSON_DISK_CACHE_LOADED = True
         return
     _PIPELINE_JSON_DISK_CACHE_LOADED = True  # set early so partial failures don't retry
@@ -176,6 +199,14 @@ def _persist_pipeline_disk_cache() -> None:
     """
     try:
         path = _pipeline_disk_cache_path()
+        if os.environ.get("MLFRAME_PIPELINE_CACHE_DIAG") == "1":
+            logger.warning(
+                "pipeline-cache persist: resolved path=%s parent_attr_override=%r sibling_global=%r parent_module_in_sys_modules=%s",
+                path,
+                _parent_attr("_PIPELINE_JSON_DISK_CACHE_PATH", None),
+                _PIPELINE_JSON_DISK_CACHE_PATH,
+                _PARENT_MODULE in sys.modules,
+            )
         # Defensive: monkeypatched paths in tests (and prod first-fit on a
         # fresh box) may point at a directory the producer hasn't created yet.
         # ``os.replace`` raises ``FileNotFoundError`` when the dir is missing,
@@ -205,8 +236,14 @@ def _persist_pipeline_disk_cache() -> None:
             with open(tmp_path, "w", encoding="utf-8") as fh:
                 _json.dump(payload, fh)
         os.replace(tmp_path, path)
-    except Exception as e:  # nosec B110 - optional dependency import guard
-        logger.debug("pipeline-cache metadata write failed for %s: %s", path, e)
+    except Exception as e:  # nosec B110 - best-effort persistence, must never break the live training path
+        # Promoted from DEBUG (invisible by default) to WARNING with a traceback: a CI-only failure of
+        # this exact persist call (test_pipeline_json_disk_cache_roundtrip found no file on disk right
+        # after calling this function, not reproducible locally) was previously undiagnosable -- any
+        # cause (missing dir, a serialization edge case, a permissions/race issue on that runner) was
+        # silently swallowed with zero signal. The function's contract (best-effort, never raise) is
+        # unchanged; only the visibility of a genuine failure improves.
+        logger.warning("pipeline-cache metadata write failed for %s: %s", path, e, exc_info=True)
 
 
 class _PolarsDsPipelineJsonProxy:
@@ -217,7 +254,7 @@ class _PolarsDsPipelineJsonProxy:
     encoding over many categories) the polars Rust deserializer can take
     100-200ms PER expression during load; 19 such expressions produced a
     2.21s load wall on the 100k binary_classification x lgb profile
-    (seed=20260522, 2026-05-19). The proxy serialises via the Pipeline's
+    (seed=20260522). The proxy serialises via the Pipeline's
     own ``to_json()`` API on save and reconstructs via ``from_json()`` on
     load -- ~0.2ms regardless of expression complexity, ~5000x faster on
     the worst case. Transparent ``transform()`` + attribute forwarding

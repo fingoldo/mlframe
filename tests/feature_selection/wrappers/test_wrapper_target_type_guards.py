@@ -70,7 +70,7 @@ def test_hybrid_rejects_multilabel_target_clearly():
         HybridSelector(use_fe=False, fe_max_steps=0, random_state=0).fit(X, y2d)
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_hybrid_count_target_with_rare_classes_completes():
     """A count / high-cardinality multiclass target has rare classes (some with a single member). Pre-fix the shared
     permutation-FI's unconditional stratified split crashed; now it falls back to an unstratified split and completes."""

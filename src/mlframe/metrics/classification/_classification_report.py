@@ -80,14 +80,12 @@ def format_classification_report(
     and ``output_dict=True`` (use ``fast_classification_report`` for the
     raw arrays).
 
-    MACRO-AVG CAVEAT (matches sklearn): macro avg is the UNWEIGHTED mean of the per-class
-    precision / recall / f1 over ALL ``nclasses``, INCLUDING any class with support 0 in
-    ``y_true``. An absent class contributes its ``zero_division`` value (0 by default) to the
-    macro mean, which DEFLATES macro precision/recall/f1 on rare-event / sparse-label targets
-    where some classes never appear in this split. If you want the mean over only the classes
-    actually present, filter ``target_names`` to the observed labels before averaging, or read the
-    per-class rows directly. (weighted avg is support-weighted, so absent classes get weight 0 and
-    do not move it.)
+    MACRO-AVG CAVEAT (matches sklearn): this function calls ``fast_classification_report`` with its
+    default ``macro_over_present=True`` -- macro avg is the UNWEIGHTED mean of the per-class
+    precision / recall / f1 over only the classes actually PRESENT (support > 0) in ``y_true``. A
+    class with zero support in this split does NOT contribute a ``zero_division`` value and does
+    NOT deflate the macro mean -- this is what matches sklearn's ``classification_report``.
+    (weighted avg is support-weighted, so absent classes get weight 0 either way and never move it.)
     """
     from ..core import fast_classification_report  # lazy: see import-cycle note at module top
     _hits, _misses, accuracy, _balanced_accuracy, supports, precisions, recalls, f1s, macro_averages, weighted_averages = (
@@ -197,7 +195,7 @@ class CalibrationReport(NamedTuple):
     A ``typing.NamedTuple`` so it is fully back-compatible with the historical flat 17-element positional tuple: it still
     unpacks positionally (``brier_loss, cal_mae, ... = fast_calibration_report(...)``) and indexes (``result[0]``), while
     also exposing every element as a named attribute (``result.brier_loss``). Field ORDER is load-bearing and MUST NOT
-    change — external callers rely on positional unpacking and indexing.
+    change -- external callers rely on positional unpacking and indexing.
     """
 
     brier_loss: float
@@ -233,7 +231,7 @@ def fast_calibration_report(
     show_inline_population_labels: bool = True,
     binning_strategy: str = "auto",
     reliability_show_ci: bool = True,
-    reliability_smoothed: bool = True,
+    reliability_smoothed: bool = False,
     #
     plot_file: str = "",
     plot_outputs: Optional[str] = None,
@@ -258,7 +256,7 @@ def fast_calibration_report(
     classes (see ``compute_batch_aucs``). When supplied AND
     ``group_ids is None``, the per-call ``fast_aucs_per_group_optimized``
     is skipped and the precomputed values are used. Reserved for use by
-    the multiclass dispatcher in ``report_probabilistic_model_perf`` —
+    the multiclass dispatcher in ``report_probabilistic_model_perf`` --
     other callers should let this default to None.
 
     Title composition is controlled by ``title_metrics_tokens`` (an ordered tuple
@@ -273,7 +271,7 @@ def fast_calibration_report(
     reliability diagram; set False to suppress it (the toggle reaches the chart via
     ``show_calibration_plot`` -> ``build_calibration_spec(show_wilson_ci=...)``).
 
-    ``reliability_smoothed`` (default on) overlays a binning-free smoothed isotonic reliability curve. The raw per-row
+    ``reliability_smoothed`` (default OFF) overlays a binning-free smoothed isotonic reliability curve. The raw per-row
     ``(y_pred, y_true)`` arrays this function already holds (post finite-mask) are forwarded as views to
     ``show_calibration_plot`` -> ``build_calibration_spec(raw_probs=, raw_labels=)``; the smoother subsamples internally
     so no extra full-n copy is made. The overlay rides the DSL render path only; the legacy inline path is unaffected.
@@ -453,23 +451,16 @@ def fast_calibration_report(
             recall=recall,
             f1=f1,
             ks=ks_val, mcc=mcc_val, bss=bss_val,
+            binary_threshold=binary_threshold,
         )
         if rendered:
             fragments.append(rendered)
 
-    # 2026-04-27 Session 7 batch 8 (user feedback): insert a hard line
-    # break after the ``LL=`` fragment so the metrics-string doesn't
-    # render as one ~200-char wall. Two-line layout reads naturally:
-    # line 1 = calibration / loss family (ICE / BR / ECE / CMAEW / LL),
-    # line 2 = ranking / classification family (ROC / PR / PR / RE / F1).
-    metrics_string = ""
-    for i, frag in enumerate(fragments):
-        sep = ", "
-        if i == 0:
-            sep = ""
-        elif fragments[i - 1].startswith("LL="):
-            sep = "\n"
-        metrics_string += sep + frag
+    # One string, no hard break. The break that used to be forced after ``LL=`` predates the renderers
+    # measuring text: it split the headline at a fixed point regardless of how wide the figure was, so a wide
+    # figure got two short ragged lines instead of one full-width one. The renderers now wrap to the real
+    # canvas width, which is the only place that knows where the line actually has to end.
+    metrics_string = ", ".join(fragments)
 
     fig = None
 
@@ -510,217 +501,19 @@ def fast_calibration_report(
     )
 
 
-@numba.njit(fastmath=False, cache=True, nogil=True, parallel=True)
-def _batch_per_class_ice_kernel(
-    y_true_NK: np.ndarray,
-    y_pred_NK: np.ndarray,
-    desc_idx_NK: np.ndarray,
-    nbins: int,
-    use_weights: bool,
-    mae_weight: float,
-    std_weight: float,
-    brier_loss_weight: float,
-    roc_auc_weight: float,
-    pr_auc_weight: float,
-    min_roc_auc: float,
-    roc_auc_penalty: float,
-) -> np.ndarray:
-    """Batched per-class ICE: one numba dispatch, prange over K.
-
-    Inlines the work of ``fast_ice_only`` (Brier + calibration binning +
-    AUC + ICE combination) so the Python ``for class_id in range(K)``
-    loop in ``compute_probabilistic_multiclass_error`` collapses to a
-    single Python->numba transition. On 1M-row multiclass workloads
-    this drops the Python-glue overhead from ~10-20 ms per call * K
-    classes to ~10-20 ms total per call.
-
-    Inputs:
-        y_true_NK : (N, K) int8 — per-class indicator matrix
-        y_pred_NK : (N, K) float64 — per-class predicted probability
-
-    Returns ice_per_class : (K,) float64.
-
-    Bit-exact equivalent of looping ``fast_ice_only`` per class
-    (verified against the legacy form in
-    ``bench_compute_multiclass_error.py``).
-
-    ``desc_idx_NK`` is the per-class descending-score order (shape (N, K)), computed ONCE by the caller via numpy's
-    C ``np.argsort(-y_pred_NK, axis=0)``. numba's own ``np.argsort`` is markedly slower than numpy's (measured 3.6x on
-    the AUC portion at N=1M binary; bench_ice_argsort_variants.py), and the AUC/PR walk below only accumulates at
-    tie-run boundaries, so it is INVARIANT to the within-tie order -- any valid descending order gives a bit-identical
-    ROC/PR AUC. So the sort is hoisted out to numpy and passed in, leaving the kernel a pure single-dispatch reduction.
-
-    bench-attempt-rejected (2026-05-21, c0146 / iter133): fusing the
-    Brier + min/max passes (3 N-passes -> 2) saved only 1.04x at
-    N=1M/K=3, 1.01-1.02x smaller. Argsort + AUC walk dominates the
-    kernel; pre-argsort pass fusion is below the measurable speedup
-    floor. Bench: profiling/bench_batch_ice_kernel_pass_fusion.py.
-    """
-    N = y_true_NK.shape[0]
-    K = y_true_NK.shape[1]
-    ice_per_class = np.empty(K, dtype=np.float64)
-
-    for k in numba.prange(K):
-        y_t = y_true_NK[:, k]
-        y_p = y_pred_NK[:, k]
-
-        # ---- Brier loss (mean squared error vs indicator) ----
-        s = 0.0
-        for i in range(N):
-            d = float(y_t[i]) - y_p[i]
-            s += d * d
-        brier = s / N if N > 0 else 1.0
-
-        # ---- Calibration binning (uniform-strategy, fixed nbins) ----
-        # Replicates fast_calibration_binning + calibration_metrics_from_freqs
-        # logic inline so the kernel stays single-entry.
-        # Seed from the first sample (not a fixed [1.0, 0.0]) -- mirrors
-        # _fast_calibration_binning_serial ("gold") so predictions outside [0,1] bin against the actual data
-        # range instead of one sentinel never being touched when a class's predicted-probability column is
-        # entirely <0 or entirely >1.
-        min_val = y_p[0]
-        max_val = y_p[0]
-        for i in range(N):
-            v = y_p[i]
-            if v > max_val:
-                max_val = v
-            if v < min_val:
-                min_val = v
-        span = max_val - min_val
-        pockets_pred = np.zeros(nbins, dtype=np.int64)
-        pockets_true = np.zeros(nbins, dtype=np.int64)
-        if span > 0:
-            multiplier = (nbins - 1) / span
-            for i in range(N):
-                ind = int(np.floor((y_p[i] - min_val) * multiplier))
-                # FP-boundary clamp (same guard as the gold serial kernel): at y_p[i] == max_val this is
-                # exactly nbins-1 in exact arithmetic, but floating-point rounding can push it to nbins,
-                # which would write out of the pockets_pred/pockets_true bounds under @njit (bounds-checking off).
-                if ind < 0:
-                    ind = 0
-                elif ind >= nbins:
-                    ind = nbins - 1
-                pockets_pred[ind] += 1
-                pockets_true[ind] += y_t[i]
-        else:
-            for i in range(N):
-                pockets_pred[0] += 1
-                pockets_true[0] += y_t[i]
-
-        # Collapse to non-empty bins
-        n_nonempty = 0
-        for b in range(nbins):
-            if pockets_pred[b] > 0:
-                n_nonempty += 1
-        freqs_pred = np.empty(n_nonempty, dtype=np.float64)
-        freqs_true = np.empty(n_nonempty, dtype=np.float64)
-        hits = np.empty(n_nonempty, dtype=np.int64)
-        ptr = 0
-        for b in range(nbins):
-            if pockets_pred[b] > 0:
-                freqs_pred[ptr] = min_val + (b + 0.5) * span / nbins
-                freqs_true[ptr] = pockets_true[b] / pockets_pred[b]
-                hits[ptr] = pockets_pred[b]
-                ptr += 1
-
-        # ---- Calibration MAE / std / coverage ----
-        # (calibration_metrics_from_freqs inlined with power-weighting on)
-        if n_nonempty > 0:
-            # Compute weights (power_weighting alpha=0.8 default of use_weights)
-            if use_weights:
-                weights = np.empty(n_nonempty, dtype=np.float64)
-                for b in range(n_nonempty):
-                    weights[b] = hits[b] ** 0.8
-                w_sum = 0.0
-                for b in range(n_nonempty):
-                    w_sum += weights[b]
-                if w_sum > 0:
-                    for b in range(n_nonempty):
-                        weights[b] /= w_sum
-                # Weighted MAE
-                cal_mae = 0.0
-                for b in range(n_nonempty):
-                    cal_mae += abs(freqs_pred[b] - freqs_true[b]) * weights[b]
-                # Weighted std around weighted-mean MAE
-                cal_var = 0.0
-                for b in range(n_nonempty):
-                    d = abs(freqs_pred[b] - freqs_true[b]) - cal_mae
-                    cal_var += d * d * weights[b]
-                cal_std = np.sqrt(cal_var)
-            else:
-                # Unweighted
-                cal_mae = 0.0
-                for b in range(n_nonempty):
-                    cal_mae += abs(freqs_pred[b] - freqs_true[b])
-                cal_mae /= n_nonempty
-                cal_var = 0.0
-                for b in range(n_nonempty):
-                    d = abs(freqs_pred[b] - freqs_true[b]) - cal_mae
-                    cal_var += d * d
-                cal_std = np.sqrt(cal_var / n_nonempty)
-        else:
-            cal_mae = 1.0
-            cal_std = 1.0
-
-        # ---- ROC AUC + PR AUC (fast_numba_aucs body inline) ----
-        # Walk through (y_t, y_p) in score-desc order, accumulating TP / FP / current_precision / current_recall as in
-        # sklearn.average_precision_score. The descending order is precomputed by the caller (numpy C argsort, hoisted
-        # out because numba's argsort is ~3.6x slower); the walk emits only at tie-run boundaries so it is invariant to
-        # the within-tie order the sort chose -- bit-identical ROC/PR AUC for any valid descending permutation.
-        desc_idx = desc_idx_NK[:, k]
-        y_t_sorted = y_t[desc_idx]
-        y_p_sorted = y_p[desc_idx]
-        total_pos = 0
-        for i in range(N):
-            total_pos += y_t_sorted[i]
-        total_neg = N - total_pos
-        if total_pos == 0 or total_neg == 0:
-            roc_auc = np.nan
-            pr_auc = np.nan
-        else:
-            last_fps = 0
-            last_tps = 0
-            tps = 0
-            fps = 0
-            roc_acc = 0.0
-            pr_acc = 0.0
-            prev_recall = 0.0
-            for i in range(N):
-                yi = y_t_sorted[i]
-                tps += yi
-                fps += 1 - yi
-                if i == N - 1 or y_p_sorted[i + 1] != y_p_sorted[i]:
-                    delta_fps = fps - last_fps
-                    sum_tps = last_tps + tps
-                    roc_acc += delta_fps * sum_tps
-                    last_fps = fps
-                    last_tps = tps
-                    current_precision = tps / (tps + fps) if (tps + fps) > 0 else 0.0
-                    current_recall = tps / total_pos
-                    delta_recall = current_recall - prev_recall
-                    pr_acc += delta_recall * current_precision
-                    prev_recall = current_recall
-            denom_roc = tps * fps * 2
-            if denom_roc > 0:
-                roc_auc = roc_acc / denom_roc
-            else:
-                roc_auc = np.nan
-            pr_auc = pr_acc
-
-        # ---- Combine into ICE (integral_calibration_error_from_metrics body) ----
-        base_loss = brier * brier_loss_weight + cal_mae * mae_weight + cal_std * std_weight
-        roc_term = 0.0 if np.isnan(roc_auc) else np.abs(roc_auc - 0.5) * roc_auc_weight
-        pr_term = 0.0 if np.isnan(pr_auc) else pr_auc * pr_auc_weight
-        ice = base_loss - roc_term - pr_term
-        threshold_width = min_roc_auc - 0.5
-        if threshold_width > 0.0 and not np.isnan(roc_auc):
-            deficit = threshold_width - np.abs(roc_auc - 0.5)
-            if deficit > 0.0:
-                ice += (deficit / threshold_width) * roc_auc_penalty
-
-        ice_per_class[k] = ice
-
-    return ice_per_class
+# Batched per-class ICE njit kernel + its serial/parallel dispatch: carved into ._ice_kernel (this
+# file was nearing the 1k-LOC monolith threshold, CLAUDE.md's "Monolith split via re-export"). Every
+# moved name is re-exported here so existing `from ._classification_report import
+# _batch_per_class_ice_kernel` (and its siblings) call sites are unaffected.
+from ._ice_kernel import (  # noqa: F401 -- re-exported for existing call sites, not used directly here
+    _batch_per_class_ice_kernel,
+    _batch_per_class_ice_kernel_serial,
+    _ice_kernel_dispatch,
+    _ice_kernel_fallback_choice,
+    _ICE_KERNEL_PARALLELISM_SPEC,
+    _make_ice_kernel_inputs,
+    _run_ice_kernel_sweep,
+)
 
 
 def fast_ice_only(
@@ -735,7 +528,7 @@ def fast_ice_only(
     ``fast_calibration_report`` does for its reporting callers.
 
     Bit-exact equivalent of ``fast_calibration_report(...)[6]``. Used by
-    the fairness fan-out hot path — verified 1.1-1.7x faster per call
+    the fairness fan-out hot path -- verified 1.1-1.7x faster per call
     (bench_ice_only.py, 2026-04-19) with ICE drift < 1e-9.
     """
     from ..core import fast_brier_score_loss  # lazy: import-cycle, see module top

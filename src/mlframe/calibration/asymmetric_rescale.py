@@ -1,13 +1,13 @@
 """``fit_asymmetric_rescale``/``apply_asymmetric_rescale``: sign-conditional scalar rescaling.
 
-Source: 8th_ubiquant-market-prediction.md -- "multiplying all negative predictions by 1.4 and dividing all
+Source: 8th_ubiquant-market-prediction.md - "multiplying all negative predictions by 1.4 and dividing all
 positive predictions by 1.4... going through a bunch of different values from 1 to 2 and seeing how that
 affected the CV." Applicable when a prediction's SIGN carries most of the decision-relevant information but
 its magnitude is systematically miscalibrated in an asymmetric way between the positive and negative regimes
 (e.g. trading signals scored by a sign-weighted metric).
 
 Caveat (documented explicitly, per this idea's own known risk): a single scalar tuned by a 1-D CV sweep is
-genuinely prone to overfitting the validation fold, especially on noisy targets -- use a metric-appropriate
+genuinely prone to overfitting the validation fold, especially on noisy targets - use a metric-appropriate
 CV scheme (multiple folds, not a single holdout) and treat a large factor (far from 1.0) as a red flag for
 validation-set noise rather than a real, generalizable correction.
 """
@@ -80,7 +80,7 @@ def cross_validate_asymmetric_rescale(
     prone to overfitting, especially on noisy targets): fits a factor on each fold's train split, applies it to
     that fold's held-out split, and reports the fold-to-fold variance of the fitted factors. A genuine,
     generalizable asymmetric miscalibration produces similar factors across folds (low coefficient of
-    variation); pure validation-set noise produces wildly different factors per fold (high CV) -- a red flag
+    variation); pure validation-set noise produces wildly different factors per fold (high CV) - a red flag
     that applying the globally-fit factor to new data is risky.
 
     Parameters

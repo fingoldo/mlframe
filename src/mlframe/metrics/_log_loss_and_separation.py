@@ -143,6 +143,14 @@ def fast_log_loss(y_true: np.ndarray, y_pred: np.ndarray, eps: Optional[float] =
             ``1 - 1e-8`` collapses to exactly ``1.0`` on cast -- so clipping a float32 input at the smaller float64 eps (2.22e-16) would penalise that
             unrepresentable-near-1 region with ``-log(2.22e-16) ~= 36`` instead of the intended ``-log(1e-8) ~= 18``, OVERSHOOTING the honest value. The
             float32 eps is the correct precision-matched floor for float32 inputs; pass an explicit ``eps`` to override.
+
+            NOT COMPARABLE ACROSS DTYPES. That per-array reasoning is sound in isolation and is exactly what makes
+            two models' scores incommensurable: a confidently-wrong row (``p = 0`` on a positive) costs
+            ``-log(1.19e-7) = 15.9`` for a model emitting float32 probabilities and ``-log(2.22e-16) = 36.0`` for one
+            emitting float64, so on a target with a handful of such rows the float32 model wins a report purely on
+            dtype. Any cross-model comparison table must pass one explicit ``eps`` (or upcast every arm to float64 at
+            the boundary). The sibling ``fast_log_loss_binary`` defaults to a fixed ``1e-15`` and does not have this
+            property, so which entry point a call site happens to use also changes the number.
     Returns:
         Binary cross-entropy loss.
     """

@@ -66,7 +66,10 @@ def run_bed(name, X, y, seed=0):
     print(f"[{name}] mrmr raw-selected={len(raw)} (of p={p}); under-select regime={under}", flush=True)
 
     # tree importance (shared, one fit)
-    t0 = time.time(); ranked, _pairs = shallow_tree_signals(Xtr, ytr); round(time.time()-t0,1)
+    t0 = time.time()
+    ranked, _pairs = shallow_tree_signals(Xtr, ytr)
+    tree_fit_s = round(time.time() - t0, 1)
+    print(f"[{name}] shallow_tree_signals {tree_fit_s:6.1f}s", flush=True)
     for K in (15, 25):
         # rescue = mrmr_fe output PLUS tree top-K raw cols, ONLY when under-select detected (else a true no-op = baseline)
         extra = [c for c in ranked[:K] if c in Xtr.columns] if under else None

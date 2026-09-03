@@ -70,6 +70,16 @@ def test_select_best_iteration_by_aggregate_cv_invalid_shape_raises():
         select_best_iteration_by_aggregate_cv(np.array([1.0, 2.0, 3.0]))
 
 
+def test_select_best_iteration_by_aggregate_cv_zero_folds_raises():
+    """TRAINING_LOOSE_A-5: a 0-fold input (shape (0, n_rounds)) must raise a clear ValueError, not
+    silently produce NaN from np.mean/median/trim_mean over an empty axis."""
+    import pytest
+
+    curves = np.zeros((0, 20), dtype=np.float64)
+    with pytest.raises(ValueError, match="fold"):
+        select_best_iteration_by_aggregate_cv(curves)
+
+
 def test_biz_val_aggregate_curve_selection_beats_naive_per_fold_average():
     """Single-seed comparisons are a coin flip on noisy synthetic data -- run many independent trials and
     compare the DISTRIBUTION of errors, which is the statistically honest way to validate "averaging curves

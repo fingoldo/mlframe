@@ -149,6 +149,15 @@ def hill_climb_ensemble(
     preds = [np.asarray(p, dtype=np.float64) for p in oof_preds]
     y = np.asarray(y_true)
 
+    # Neither this function nor _hill_climb_single_path validated shape agreement -- a mismatched-shape
+    # array silently broadcasts (numpy broadcasting rules) into a wrong-shaped `running_sum`/`trial_pred`
+    # instead of raising, corrupting every downstream metric_fn call with no signal of the real cause.
+    mismatched = [i for i, p in enumerate(preds) if p.shape != y.shape]
+    if mismatched:
+        raise ValueError(
+            f"hill_climb_ensemble: oof_preds[{mismatched}] have shape(s) " f"{[preds[i].shape for i in mismatched]}, expected y_true's shape {y.shape}"
+        )
+
     if n_bags <= 1:
         # exact original code path: no randomization, single deterministic greedy run.
         return _hill_climb_single_path(preds, y, metric_fn, maximize, max_iterations, tol)

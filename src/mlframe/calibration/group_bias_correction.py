@@ -1,9 +1,9 @@
 """``fit_group_bias_correction``/``apply_group_bias_correction``: per-group multiplicative bias correction.
 
-Source: 5th_m5-forecasting-accuracy.md -- "I decided to create an average correction factor for each
+Source: 5th_m5-forecasting-accuracy.md - "I decided to create an average correction factor for each
 store/department, based on the last week (validation)... instead of using a magic multiplier, I used a magic
 multiplier for each store/department." A model can be well-calibrated on average but systematically
-over/under-predict for specific segments (a store, a department, a regime) -- a per-group ratio correction
+over/under-predict for specific segments (a store, a department, a regime) - a per-group ratio correction
 fixes that residual bias cheaply, without retraining, using only a held-out validation slice.
 """
 from __future__ import annotations
@@ -32,7 +32,11 @@ def _canonical_group_key_series(group: np.ndarray) -> pd.Series:
         keys = np.where(is_whole, safe_int_arr.astype(str), arr.astype(str)).astype(object)
         keys[is_nan] = np.nan
         return pd.Series(keys)
-    return pd.Series(arr).astype(str)
+    ser = pd.Series(arr)
+    is_missing = ser.isna()
+    keys_obj = ser.astype(str).astype(object)
+    keys_obj[is_missing] = np.nan
+    return keys_obj
 
 
 def fit_group_bias_correction(
@@ -52,18 +56,18 @@ def fit_group_bias_correction(
     group
         ``(n,)`` group/segment label per row (e.g. store/department id).
     min_group_size
-        Groups with fewer than this many validation rows get NO correction (ratio ``1.0``) -- too few
+        Groups with fewer than this many validation rows get NO correction (ratio ``1.0``) - too few
         observations to trust a group-specific ratio; avoids overfitting to validation noise for rare
         segments. Ignored when ``shrinkage_k`` is set (shrinkage handles small groups continuously instead
         of this binary cutoff).
     clip_range
-        ``(low, high)`` bounds on the correction ratio, or ``None`` for no clipping -- guards against a
+        ``(low, high)`` bounds on the correction ratio, or ``None`` for no clipping - guards against a
         near-zero ``mean(y_pred)`` producing an extreme multiplier.
     shrinkage_k
         Opt-in empirical-Bayes-style shrinkage strength. ``None`` (default) preserves the exact prior
         behavior (hard ``min_group_size`` cutoff, ratio ``1.0`` below it). When set, every group's raw ratio
         is blended toward the GLOBAL ``mean(y_true)/mean(y_pred)`` ratio with weight
-        ``count / (count + shrinkage_k)`` -- large groups (``count >> shrinkage_k``) keep ~their full raw
+        ``count / (count + shrinkage_k)`` - large groups (``count >> shrinkage_k``) keep ~their full raw
         ratio (real bias gets corrected), tiny groups (``count << shrinkage_k``) shrink toward the global
         ratio instead of overfitting a noisy few-row estimate. ``min_group_size`` is not applied in this
         mode; shrinkage itself is the small-group safeguard. Larger ``shrinkage_k`` shrinks harder; a
@@ -72,7 +76,7 @@ def fit_group_bias_correction(
     Returns
     -------
     dict
-        ``{group_value: correction_ratio}`` -- store this and reapply via ``apply_group_bias_correction`` at
+        ``{group_value: correction_ratio}`` - store this and reapply via ``apply_group_bias_correction`` at
         inference; never recompute on rows without ground truth (that's what this validation-slice-only fit
         exists to avoid). Keys are canonicalized (see :func:`_canonical_group_key_series`) so a numeric
         group column that drifts int64<->float64 between the fit and apply calls still matches. Rows whose

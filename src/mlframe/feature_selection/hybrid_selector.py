@@ -161,6 +161,7 @@ class HybridSelector:
 
     def __init__(self, vote: int = 1, prescreen: bool = True, expand_clusters: bool = False,
                  fi_guard: bool = False, corr_thr: float = 0.92, use_mrmr: bool = True,
+                 use_shap: bool = True, use_boruta: bool = True,
                  use_fe: bool = True, fe_max_steps: int = 1, boruta_driver: str = "gini", anchor_fe: bool = False,
                  use_tree_member: bool = True, tree_top_k: int = 0, tree_cooccur_pairs: int = 12,
                  tree_n_estimators: int = 80, tree_max_depth: int = 3, tree_prod_gate: str = "synergy",
@@ -212,6 +213,15 @@ class HybridSelector:
         self.fi_guard = fi_guard
         self.corr_thr = corr_thr
         self.use_mrmr = use_mrmr
+        # use_shap / use_boruta (default ON, matching use_mrmr/use_tree_member's existing pattern): the SHAP and
+        # Boruta members are each independently gated on/off so a caller who only needs the cheap MRMR/tree
+        # co-occurrence signal (e.g. tests asserting purely on _tree_prod_pairs_, which is fully finalised before
+        # either member runs) is not forced to pay for both - SHAP alone measured ~200s on a 26-candidate frame
+        # (exact brute-force search routes there at n<=~26, see shap_proxied_fs's own n_sub gate) and Boruta ~17s
+        # (see the bench-attempt-rejected comment above on why they cannot be parallelised together). Both default
+        # True so existing callers relying on the full ensemble vote see zero behaviour change.
+        self.use_shap = use_shap
+        self.use_boruta = use_boruta
         # use_tree_member (default ON - MEASURED win on interaction-heavy real data): a cheap shallow-GBM that
         # contributes a signal the MI-filter members structurally MISS. MRMR's marginal-MI greedy collapses on
         # interaction-heavy data (madelon: 3 features, lgbm 0.69) because the informative operands have ~0 marginal
@@ -285,10 +295,23 @@ class HybridSelector:
         Xtr, Xva, ytr, yva = train_test_split(X, y, test_size=0.3, random_state=self.random_state, stratify=_strat)
         m = lgb.LGBMClassifier(n_estimators=200, num_leaves=31, learning_rate=0.06, n_jobs=-1, verbose=-1, random_state=self.random_state)
         m.fit(Xtr, ytr)
-        pi = permutation_importance(m, Xva, yva, n_repeats=4, random_state=self.random_state, n_jobs=-1)
+        # permutation_importance's n_jobs=-1 spins up a loky PROCESS pool per call; on the small/medium beds most
+        # HybridSelector callers actually use (unit/biz_value fixtures, a few thousand rows x a few dozen columns)
+        # the per-repeat LightGBM predict is so cheap that process-spawn/IPC overhead dominates the wall time --
+        # measured 31.0s (n_jobs=-1) vs 1.8s (n_jobs=1) at n=2000/23 cols/4 repeats (17.5x), the exact shape of
+        # test_gain_mode_ranks_a_true_operand_pair_among_top's XOR bed. At n=100000/150 cols the parallel pool
+        # does pay off (98.2s vs 111.8s, a modest win) -- but the crossover is noisy in between (observed a
+        # pathological 50.2s parallel vs 9.7s serial at n=20000/50 cols, consistent with LightGBM's own internal
+        # OpenMP threading oversubscribing against the outer process pool), so this only flips the clearly-safe
+        # small case and leaves anything ambiguous or large on the untouched default.
+        _n_jobs_pi = 1 if (Xva.shape[0] * Xva.shape[1]) <= 100_000 else -1
+        pi = permutation_importance(m, Xva, yva, n_repeats=4, random_state=self.random_state, n_jobs=_n_jobs_pi)
         # store the summed-per-repeat importance too (drives cluster_rep="sum_fi"); falls back to mean*n_repeats if the
         # raw per-repeat matrix is unavailable. sum_fi prefers members whose importance is consistently high across
         # repeats, a more stable representative than a single lucky mean.
+        # `importances` is a real key on sklearn's permutation_importance Bunch (the raw (n_features, n_repeats)
+        # matrix, alongside importances_mean/importances_std) -- an external class the first-party-only
+        # code_audit scanner can't see, hence its getattr_unknown_attribute false positive here.
         imp = getattr(pi, "importances", None)
         sums = imp.sum(axis=1) if imp is not None else pi.importances_mean * 4.0
         self._fi_sum_ = {c: float(s) for c, s in zip(X.columns, sums)}
@@ -380,7 +403,7 @@ class HybridSelector:
                 top = [(a, b) for (a, b), _ in _pair_w_sorted if a in cols and b in cols]
                 # expand each co-occurrence pair to one candidate column per rich operator; each column carries its
                 # operand pair (so the synergy gate scores it independently) and its op (so _augment replays it).
-                ops = [o for o in self.tree_rich_ops if o in _TREE_OPS] or ["mul"]
+                ops = [o for o in self.tree_rich_ops if o in _TREE_OPS] or ["mul"]  # empty/all-invalid config -> the one safe default op, not a caller-supplied-empty trap
                 pairs, names = [], []
                 for i, (a, b) in enumerate(top):
                     for op in ops:
@@ -426,7 +449,7 @@ class HybridSelector:
         if rep == "first":
             return members[0]
         if rep == "sum_fi":
-            fsum = getattr(self, "_fi_sum_", None) or self.fi_
+            fsum = getattr(self, "_fi_sum_", None) or self.fi_  # _fi_sum_ unset/empty (pre-fit / degenerate) -> the mean-FI dict is a safe substitute, not a caller-supplied-empty trap
             return max(members, key=lambda f: fsum.get(f, 0.0))
         return max(members, key=lambda f: self.fi_.get(f, 0.0))
 
@@ -591,7 +614,7 @@ class HybridSelector:
         if self.use_tree_member and getattr(self, "_tree_prod_names_", None):
             self.fi_ = fi_full  # _admit_tree_products reads self.fi_
             raw_cols = list(X.columns)
-            survivor_proxy = [c for c in raw_cols if fi_full.get(c, 0.0) > 0.0] or raw_cols  # bar for relevant_median
+            survivor_proxy = [c for c in raw_cols if fi_full.get(c, 0.0) > 0.0] or raw_cols  # bar for relevant_median; all-zero FI (degenerate fit) -> the full raw set, not a caller-supplied-empty trap
             admitted = set(self._admit_tree_products(survivor_proxy, raw_cols))
             rejected = [nm for nm in self._tree_prod_names_ if nm not in admitted]
             if rejected:
@@ -663,16 +686,22 @@ class HybridSelector:
         # So the members stay SEQUENTIAL: the wall is irreducible sub-selector compute (already optimized upstream),
         # not glue. The hybrid's OWN glue is ~0.05s (<0.15% of wall); see corr_clusters for the one glue micro-opt.
         member_sel = {}
-        member_sel["mrmr"] = [c for c in (self.mrmr_selected_ + sorted(engineered)) if c in relevant] or list(relevant)
-        try:
-            member_sel["shap"] = self._run_shap(X_aug, y, relevant, self.artifacts_)
-        except Exception as e:
-            warnings.warn(f"HybridSelector: shap member degraded ({type(e).__name__}: {e})", stacklevel=2)
+        member_sel["mrmr"] = [c for c in (self.mrmr_selected_ + sorted(engineered)) if c in relevant] or list(relevant)  # MRMR selected nothing relevant (degenerate) -> the mrmr member votes for everything rather than abstaining, not a caller-supplied-empty trap
+        if self.use_shap:
+            try:
+                member_sel["shap"] = self._run_shap(X_aug, y, relevant, self.artifacts_)
+            except Exception as e:
+                warnings.warn(f"HybridSelector: shap member degraded ({type(e).__name__}: {e})", stacklevel=2)
+                member_sel["shap"] = []
+        else:
             member_sel["shap"] = []
-        try:
-            member_sel["boruta"] = self._run_boruta_premerge(X_aug, y, relevant)
-        except Exception as e:
-            warnings.warn(f"HybridSelector: boruta member degraded ({type(e).__name__}: {e})", stacklevel=2)
+        if self.use_boruta:
+            try:
+                member_sel["boruta"] = self._run_boruta_premerge(X_aug, y, relevant)
+            except Exception as e:
+                warnings.warn(f"HybridSelector: boruta member degraded ({type(e).__name__}: {e})", stacklevel=2)
+                member_sel["boruta"] = []
+        else:
             member_sel["boruta"] = []
         # TREE member: votes for its top-k features by split importance, plus the (already gate-admitted, already in
         # the frame) co-occurrence PRODUCT columns. The product gating happened up front (tree_prod_gate), so the
@@ -687,7 +716,7 @@ class HybridSelector:
 
         # STAGE 3 - cluster-aware vote over the shared clusters (pure, deterministic; extracted for unit testing)
         selected = self._combine(member_sel, cols)
-        self.raw_selected_ = [c for c in cols if c in set(selected)] or cols[:1]
+        self.raw_selected_ = [c for c in cols if c in set(selected)] or cols[:1]  # zero-vote degenerate case -> keep one column rather than an empty selector output, not a caller-supplied-empty trap
         self.n_engineered_ = sum(1 for c in self.raw_selected_ if c in engineered)
         # sklearn-style fitted attributes (raw_selected_ may include engineered eng_N names from X_aug)
         self.feature_names_in_ = list(X.columns)

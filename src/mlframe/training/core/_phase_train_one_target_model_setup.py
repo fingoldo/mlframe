@@ -115,6 +115,7 @@ def _render_per_target_diagnostics(
                 timestamps=_ts_test, task=task,
                 plot_outputs=plot_outputs, base_path=f"{plot_file}_target",
                 metrics_dict={"charts": charts_acc} if isinstance(charts_acc, dict) else None,
+                adversarial_validation=getattr(reporting_config, "adversarial_validation", True),
             )
         except Exception as _e:  # best-effort: a diagnostic chart failure must never abort training
             logger.warning("per-target drift/adversarial diagnostics failed for target='%s': %s", cur_target_name, _e)

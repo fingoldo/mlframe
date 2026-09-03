@@ -517,8 +517,13 @@ def hybrid_orth_mi_cmim_fe(
         X_augmented : ``X`` with the CMIM-ranked top-K winners appended.
         scores : the full ranking DataFrame (winners + rejects).
     """
+    # y=y (2026-08-15): the plug-in sibling (hybrid_orth_mi_fe) passes y so basis_routing="signal" can pick
+    # the basis that best LINEARISES y per column (falls back to moment-routing without it) -- this call
+    # omitted it, silently routing every column through the moment-based fallback instead. On a fixture whose
+    # real signal needs signal-adaptive routing (e.g. periodic structure), CMIM's candidate pool differs from
+    # plug-in's before scoring even starts, not because of a scoring difference.
     engineered = generate_univariate_basis_features(
-        X, cols=cols, degrees=degrees, basis=basis,
+        X, cols=cols, degrees=degrees, basis=basis, y=y,
     )
     empty_cols = [
         "engineered_col", "source_col",

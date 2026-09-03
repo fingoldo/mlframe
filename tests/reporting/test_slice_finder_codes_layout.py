@@ -16,7 +16,7 @@ def test_bin_matrix_codes_are_fortran_order_with_contiguous_columns():
     """Bin matrix codes are fortran order with contiguous columns."""
     rng = np.random.default_rng(0)
     mat = rng.standard_normal((2000, 12))
-    codes, _edges = _bin_matrix(mat, 4)
+    codes, _edges, _has_missing = _bin_matrix(mat, 4)
     assert codes.dtype == np.int64
     assert codes.flags["F_CONTIGUOUS"], "codes must be Fortran-order so column gathers are zero-copy (iter71 win)"
     for j in range(codes.shape[1]):
@@ -28,7 +28,7 @@ def test_aggregate_combo_bit_identical_across_codes_layout():
     rng = np.random.default_rng(1)
     mat = rng.standard_normal((5000, 10))
     err = np.ascontiguousarray(rng.standard_normal(5000))
-    codes_f, _ = _bin_matrix(mat, 4)  # prod: F-order
+    codes_f, _, _ = _bin_matrix(mat, 4)  # prod: F-order
     codes_c = np.ascontiguousarray(codes_f)  # legacy C-order layout
     nbins = [4, 4]
     for combo in [(0, 1), (2, 5), (7, 9)]:

@@ -266,7 +266,16 @@ class _MRMRConfigMixin:
 
         n_jobs = getattr(self, "n_jobs", -1)
         if n_jobs == -1:
-            return int(psutil.cpu_count(logical=False))
+            # psutil.cpu_count(logical=False) returns None on hosts (containers/some VMs) where
+            # physical-core detection fails; os.cpu_count() (logical) is the next-best signal, and a
+            # hardcoded 1 is the final fail-safe rather than a TypeError on int(None).
+            physical = psutil.cpu_count(logical=False)
+            if physical is None:
+                import os as _os
+
+                physical = _os.cpu_count() or 1
+                logger.debug("psutil.cpu_count(logical=False) returned None; falling back to os.cpu_count()=%s", physical)
+            return int(physical)
         return int(n_jobs)
 
     def _effective_parallel_kwargs(self) -> dict:

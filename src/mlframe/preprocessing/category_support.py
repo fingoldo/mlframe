@@ -18,8 +18,9 @@ frequency encoding would collapse.
 """
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Optional, Sequence
 
+import numpy as np
 import pandas as pd
 
 
@@ -28,15 +29,36 @@ def smoothed_target_encode_column(
     test_series: pd.Series,
     y_train: pd.Series,
     smoothing: float = 10.0,
+    oof: bool = True,
+    n_splits: int = 5,
+    random_state: Optional[int] = None,
 ) -> tuple[pd.Series, pd.Series]:
     """James-Stein-style shrinkage target encoding: per-category mean pulled toward the global mean by
     ``smoothing`` pseudo-observations, so low-count levels don't overfit to a handful of target rows.
 
     ``enc(cat) = (count(cat) * mean_y(cat) + smoothing * global_mean) / (count(cat) + smoothing)``
 
+    ``test_encoded`` is always computed from stats fit on the FULL ``train_series``/``y_train`` (no leakage:
+    test rows never inform their own encoding). ``train_encoded`` is, by default (``oof=True``), computed via
+    K-fold out-of-fold encoding: each train row's value comes from stats fit on every OTHER fold, so a row's
+    own label never informs its own encoded value. With ``oof=False`` (legacy behavior), ``train_encoded`` is
+    computed the same way as ``test_encoded`` but reusing ``train_series``' own stats -- every row's own label
+    contributes to its own category's shrunk mean, an in-sample target-encoding leak that inflates
+    ``train_encoded``'s apparent correlation with ``y_train`` versus what a model would see on genuinely
+    unseen rows. Prefer ``oof=True`` (the default) whenever ``train_encoded`` feeds a downstream model fit on
+    the same rows; ``oof=False`` is for pure EDA/screening where in-sample values are being eyeballed
+    directly, not fed back into training.
+
     Test categories unseen in train fall back to the train global mean (same blind spot as plain target-mean
     encoding for genuinely disjoint category sets — this helper is for the *overlapping*, near-uniform-count
     regime, not a fix for zero train/test overlap).
+
+    Parameters
+    ----------
+    oof
+        Default ``True``. See above.
+    n_splits, random_state
+        K-fold configuration for the OOF path; ignored when ``oof=False``.
 
     Returns
     -------
@@ -46,8 +68,31 @@ def smoothed_target_encode_column(
     global_mean = float(y_train.mean())
     stats = y_train.groupby(train_series).agg(["mean", "count"])
     shrunk = (stats["count"] * stats["mean"] + smoothing * global_mean) / (stats["count"] + smoothing)
-    train_encoded = train_series.map(shrunk).fillna(global_mean)
     test_encoded = test_series.map(shrunk).fillna(global_mean)
+
+    if not oof:
+        train_encoded = train_series.map(shrunk).fillna(global_mean)
+        return train_encoded, test_encoded
+
+    from sklearn.model_selection import KFold
+
+    train_encoded = pd.Series(np.nan, index=train_series.index, dtype=np.float64)
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    for fold_train_pos, fold_val_pos in kf.split(np.arange(len(train_series))):
+        fold_train_idx = train_series.index[fold_train_pos]
+        fold_val_idx = train_series.index[fold_val_pos]
+        fold_train_series = train_series.loc[fold_train_idx]
+        fold_y = y_train.loc[fold_train_idx]
+        # The shrinkage prior and the unseen-category fallback must come from THIS FOLD'S TRAIN rows. Using the
+        # full-train mean here let a held-out row's own label inform its own encoded value through both: a
+        # singleton category falls through to the fallback and is then 100% own-label contaminated, and every
+        # other category blends in ``smoothing * global_mean``. The contamination weight is 1/n_train but it is
+        # systematically aligned with the row's own label, so any correlation or AUC read off ``train_encoded``
+        # is optimistically biased -- exactly what the out-of-fold path exists to prevent.
+        fold_mean = float(fold_y.mean())
+        fold_stats = fold_y.groupby(fold_train_series).agg(["mean", "count"])
+        fold_shrunk = (fold_stats["count"] * fold_stats["mean"] + smoothing * fold_mean) / (fold_stats["count"] + smoothing)
+        train_encoded.loc[fold_val_idx] = train_series.loc[fold_val_idx].map(fold_shrunk).fillna(fold_mean)
     return train_encoded, test_encoded
 
 
@@ -108,6 +153,15 @@ def train_test_support_screen(
     """
     if categorical_cols is None:
         categorical_cols = [c for c in train_df.columns if c in test_df.columns]
+        # The target is not a feature. With the default it used to land in the screened list whenever the
+        # test frame carried a label column, so the output recommended an encoding FOR THE TARGET ITSELF --
+        # and the documented "target_col must not be one of categorical_cols" constraint bought nothing but
+        # a ValueError on the explicit path.
+        categorical_cols = [c for c in categorical_cols if c != target_col]
+    elif target_col is not None and target_col in categorical_cols:
+        # The docstring states the constraint; nothing enforced it, so an explicit list naming the target
+        # screened the target as a feature and recommended an encoding for it.
+        raise ValueError(f"train_test_support_screen: target_col={target_col!r} must not be one of categorical_cols; it is not a feature.")
 
     if enable_smoothed_target_encoding_fallback and (target_col is None or target_col not in train_df.columns):
         raise ValueError("enable_smoothed_target_encoding_fallback=True requires a valid target_col present in train_df")

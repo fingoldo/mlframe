@@ -272,3 +272,30 @@ def test_compute_inverse_frequency_class_weights_upweights_rare_class():
     mask = np.zeros_like(y, dtype=bool)
     weights = compute_inverse_frequency_class_weights(y, mask)
     assert weights[1] > weights[0], "the class with fewer positives (col 1: 1/5) should get a larger weight than col 0 (3/5)"
+
+
+def test_masked_objective_non_default_sentinel_survives_float32_roundtrip():
+    """MODELS-6: care_mask must still recognize the sentinel after it has round-tripped through XGBoost's
+    internal float32 label storage, for a sentinel value not exactly representable in float32.
+
+    Real DMatrix.get_label() returns labels already rounded to float32 precision -- a sentinel like pi
+    (outside {0, 1}, but not float32-exact) would silently fail the old exact-float64-equality check for
+    ANY cell it was written to, leaking a "don't care" cell into the loss as a bogus real label."""
+    class _FakeDMatrix:
+        """Mimics get_label() returning labels already rounded to float32, like the real XGBoost DMatrix."""
+
+        def __init__(self, labels: np.ndarray) -> None:
+            """Helper: Init  ."""
+            self._labels = labels
+
+        def get_label(self) -> np.ndarray:
+            """Return labels as float32, matching XGBoost's internal storage precision."""
+            return self._labels.astype(np.float32)
+
+    sentinel = 3.14159265358979  # not exactly representable in float32
+    objective = masked_multilabel_logloss_objective(sentinel=sentinel)
+    y_true = np.array([0.0, 1.0, sentinel])  # last entry is don't-care
+    grad, hess = objective(np.array([0.0, 0.0, 0.0]), _FakeDMatrix(y_true))
+    assert grad[2] == 0.0, "the sentinel cell must still be masked after a float32 round-trip"
+    assert hess[2] == 0.0
+    assert hess[0] > 0.0 and hess[1] > 0.0

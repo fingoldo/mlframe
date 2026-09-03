@@ -50,6 +50,27 @@ def _build_bins_with_known_signal(n: int = 500, n_informative: int = 2, n_noise:
 # ----------------------------------------------------------------------------
 
 
+def test_relevancy_no_candidate_features_returns_empty_gracefully():
+    """FS_BORUTA_ROOT-3: a bins frame containing ONLY target columns (no candidate features) must
+    return gracefully -- (no ZeroDivisionError from dividing by len(feature_columns)==0)."""
+    rng = np.random.default_rng(0)
+    target = rng.integers(0, 15, size=100, dtype=np.int8)
+    bins = pl.DataFrame({"target": target})
+    result = estimate_features_relevancy(
+        bins=bins,
+        target_columns=["target"],
+        mi_algorithms_ranking=[grok_compute_mutual_information],
+        benchmark_mi_algorithms=False,
+        min_randomized_permutations=3,
+        min_permuted_mi_evaluations=5,
+        verbose=0,
+    )
+    assert len(result) == 4
+    columns_to_drop, _mi_results, all_permuted_mis, _ranking = result
+    assert columns_to_drop == []
+    assert all_permuted_mis == {}
+
+
 def test_relevancy_returns_4_tuple():
     """Relevancy returns 4 tuple."""
     bins = _build_bins_with_known_signal(n=300)

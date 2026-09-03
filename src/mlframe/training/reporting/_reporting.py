@@ -281,6 +281,16 @@ def display_estimator_name(name: str) -> str:
     return out
 
 
+def _fi_png_path(base: str) -> str:
+    """``base`` resolved to its .png destination under the active per-format layout.
+
+    Composing ``base + "_fiplot.png"`` wrote the plot beside the png/ directory every other chart
+    went into, which is how a production output folder ended up with loose files at its top level.
+    """
+    from mlframe.reporting.renderers.save import resolve_output_path
+
+    return resolve_output_path(base + "_fiplot", "matplotlib", "png", multi_output=False)
+
 def report_model_perf(
     targets: np.ndarray | pd.Series,
     columns: Sequence[str],
@@ -310,7 +320,7 @@ def report_model_perf(
     metrics: dict[str, Any] | None = None,
     group_ids: np.ndarray | None = None,
     n_features: int | None = None,
-    show_prob_histogram: bool = True,
+    show_prob_histogram: bool = False,
     prob_histogram_yscale: str = "auto",
     show_inline_population_labels: bool = True,
     title_metrics_tokens: tuple[str, ...] | None = None,
@@ -558,13 +568,20 @@ def report_model_perf(
                 if _rendered_tag:
                     _charts["saved"].append(f"{_rendered_tag}_panels")
                     _charts.setdefault("paths", []).append(f"{plot_file}_{_rendered_tag}_panels")
-                else:
+                elif _panel_failures:
                     _charts["failed"].append(f"{_which}_panels")
-                if _panel_failures:
                     # Distinguishes an actual render-time exception (branch matched, then crashed) from a plain
-                    # no-op (nothing matched / templates empty) -- both used to collapse into the same "failed"
-                    # bucket above, so a batch run had no way to count how many reports dropped a whole panel set.
+                    # no-op -- a batch run needs to count how many reports dropped a whole panel set.
                     _charts.setdefault("panel_exceptions", []).extend(_panel_failures)
+                else:
+                    # NOT a failure. ``render_multi_target_panels`` returns None both for "nothing rendered
+                    # because the branch matched and crashed" and for "no branch matched at all", and the second
+                    # is the normal case for a regression target: ``binary_panels`` defaults non-empty, so the
+                    # guard above opens for every report, and a regression run then recorded
+                    # ``regression_panels`` as FAILED on every single report -- for a grid that does not exist.
+                    # An operator reading that goes hunting for a rendering bug, and a genuine failure in this
+                    # slot is indistinguishable from the no-op.
+                    _charts.setdefault("skipped", []).append(f"{_which}_panels")
 
     # Per-model train-vs-val iteration curves (INV-24): default-ON; no-op for non-boosting models, when charts are
     # not saved to disk, or when the model carries no eval history.
@@ -625,7 +642,7 @@ def report_model_perf(
                 model=model,
                 columns=columns,
                 model_name=(report_title + " " + model_name + f" [{nfeatures}{get_human_readable_set_size(len(preds))} rows]").strip(),
-                plot_file=plot_file + "_fiplot.png" if plot_file else "",
+                plot_file=_fi_png_path(plot_file) if plot_file else "",
                 X=_fi_X,
                 y=targets,
                 **fi_kwargs,
@@ -640,6 +657,7 @@ def report_model_perf(
             targets=targets, model=model, df=df, columns=columns, preds=preds, probs=probs,
             target_type=target_type, plot_file=plot_file, plot_outputs=plot_outputs,
             metrics=metrics, reporting_config=reporting_config, model_name=model_name,
+            report_title=report_title,
         )
 
     return preds, probs

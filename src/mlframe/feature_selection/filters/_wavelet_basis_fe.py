@@ -73,10 +73,11 @@ for leak-safe transform-time replay.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Optional, cast
 
 import numpy as np
 from numba import njit, prange
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +164,11 @@ def _dyadic_haar_leg_njit(z: np.ndarray, left: float, mid: float, right: float, 
     zeros-alloc + two separate boolean-mask + fancy-index numpy passes (4 full array traversals) with one
     prange loop doing the 2 comparisons and the write per element in one visit - the whole op is
     memory-bandwidth-bound, so collapsing traversals is the entire win. Bit-identical (same {-1,0,+1}
-    membership test, evaluated per-element in the same order)."""
+    membership test, evaluated per-element in the same order).
+
+    Only wins over the serial twin (:func:`_dyadic_haar_leg_njit_serial`) at extreme n (>~20-50M) --
+    see :func:`_dyadic_haar_leg`'s dispatch threshold for the measured crossover; this variant stays for
+    that regime, but is NOT the default entry point any more."""
     n = z.shape[0]
     for i in prange(n):
         v = z[i]
@@ -173,6 +178,86 @@ def _dyadic_haar_leg_njit(z: np.ndarray, left: float, mid: float, right: float, 
             out[i] = -1.0
         else:
             out[i] = 0.0
+
+
+@njit(cache=True, parallel=False)
+def _dyadic_haar_leg_njit_serial(z: np.ndarray, left: float, mid: float, right: float, out: np.ndarray) -> None:
+    """Serial twin of :func:`_dyadic_haar_leg_njit` -- identical body, ``range`` instead of ``prange``.
+
+    ``parallel=True`` pays a fixed per-call thread-pool dispatch cost that a 3-way compare-and-write
+    (trivial per-element work) cannot amortize at any n this codebase's FE search realistically reaches
+    (test/production data: hundreds to a few million rows). Measured (same-process A/B, warm,
+    best-of-30-200, ``bench_dyadic_haar_leg_parallel_vs_serial.py``): serial is 16x-12681x FASTER at
+    n<=1,000,000, still 4.55x faster at n=5,000,000; the crossover only appears between n=20M (parallel
+    1.18x) and n=50M (parallel 1.33x) -- see :func:`_dyadic_haar_leg`'s threshold for where this is used."""
+    n = z.shape[0]
+    for i in range(n):
+        v = z[i]
+        if left <= v < mid:
+            out[i] = 1.0
+        elif mid <= v < right:
+            out[i] = -1.0
+        else:
+            out[i] = 0.0
+
+
+# Per-host serial/parallel crossover via the canonical kernel_tuning_cache (NO hardcoded threshold --
+# feedback_use_kernel_tuning_cache_for_gpu / feedback_fastest_default_with_dispatch). Dev-box measurement
+# found the crossover between n=20M (parallel 1.18x) and n=50M (parallel 1.33x) -- the fallback threshold
+# below (used only pre-sweep / on tuner failure) is deliberately close to the loss side for that reason,
+# but the REAL per-host decision comes from the tuner's measured sweep, not this constant.
+_HAAR_LEG_SWEEP_N = [1_000, 1_000_000, 30_000_000]
+_HAAR_LEG_SALT = 1
+
+
+def _make_haar_leg_inputs(dims: dict) -> tuple:
+    """(z, left, mid, right) at the sweep's n cell -- a fixed (j=1, k=0) scale/offset is enough since
+    the kernel's per-element cost doesn't depend on which dyadic cell is tested."""
+    n = int(dims["n"])
+    rng = np.random.default_rng(0)
+    z = np.ascontiguousarray(rng.random(n), dtype=np.float64)
+    return (z, 0.0, 0.25, 0.5)
+
+
+def _run_haar_leg_sweep() -> list:
+    """Serial-vs-parallel wall-clock sweep over the n grid -> kernel_tuning_cache regions."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+
+    def _call(fn, z, left, mid, right):
+        """Allocate the output buffer and run the in-place kernel ``fn``, returning ``out`` so
+        ``sweep_backend_grid`` has a value to compare for equivalence."""
+        out = np.empty(z.shape[0], dtype=np.float32)
+        fn(z, left, mid, right, out)
+        return out
+
+    variants = {
+        "serial": lambda *a: _call(_dyadic_haar_leg_njit_serial, *a),
+        "parallel": lambda *a: _call(_dyadic_haar_leg_njit, *a),
+    }
+    return cast(list, sweep_backend_grid(
+        variants,
+        {"n": _HAAR_LEG_SWEEP_N},
+        _make_haar_leg_inputs,
+        reference="serial", repeats=5, equiv_atol=0.0, equiv_rtol=0.0,
+    ))
+
+
+def _haar_leg_fallback_choice(n: int) -> str:
+    """Pre-sweep / tuner-failure fallback: parallel above the dev-box-measured n crossover (see the
+    module comment above for the confirmed-loss/confirmed-win bracket)."""
+    return "parallel" if int(n) >= 20_000_000 else "serial"
+
+
+_HAAR_LEG_PARALLELISM_SPEC = kernel_tuner(
+    kernel_name="haar_leg_kernel_parallelism",
+    variant_fns=(_dyadic_haar_leg_njit_serial, _dyadic_haar_leg_njit),
+    tuner=_run_haar_leg_sweep,
+    axes={"n": _HAAR_LEG_SWEEP_N},
+    fallback=_haar_leg_fallback_choice,
+    gpu_capable=False,
+    salt=_HAAR_LEG_SALT,
+    cli_label="haar_leg_kernel_parallelism",
+)
 
 
 def _dyadic_haar_leg(z: np.ndarray, j: int, k: int, dtype=np.float32) -> np.ndarray:
@@ -190,15 +275,29 @@ def _dyadic_haar_leg(z: np.ndarray, j: int, k: int, dtype=np.float32) -> np.ndar
     boolean masks are computed against the float64 ``z`` axis, so the cell
     membership (and hence the leg) does not depend on the output dtype.
 
-    PERF (2026-08-03, incidental to a profiling cycle): fused into one njit prange pass
-    (:func:`_dyadic_haar_leg_njit`) - the prior form allocated a zeros array then wrote it via two
-    separate boolean-mask + fancy-index passes (4 full traversals of a memory-bandwidth-bound op)."""
+    PERF (2026-08-03, incidental to a profiling cycle): fused into one njit pass (originally
+    :func:`_dyadic_haar_leg_njit`) - the prior form allocated a zeros array then wrote it via two
+    separate boolean-mask + fancy-index passes (4 full traversals of a memory-bandwidth-bound op).
+
+    PERF (2026-08-23): that fused pass was ``parallel=True``, which turned out to cost 16x-12681x
+    MORE than a serial pass at every n this codebase's FE search realistically reaches (a 3-way
+    compare-and-write is too trivial per-element to amortize numba's fixed per-call thread-pool
+    dispatch cost) -- see :func:`_dyadic_haar_leg_njit_serial` and ``_HAAR_LEG_PARALLEL_MIN_N`` for
+    the measured crossover. Dispatches by n now; bit-identical either way (same per-element test,
+    independent of which thread -- if any -- runs it)."""
     width = 1.0 / (2 ** int(j))
     left = int(k) * width
     mid = left + width / 2.0
     right = left + width
     leg = np.empty_like(z, dtype=dtype)
-    _dyadic_haar_leg_njit(np.ascontiguousarray(z, dtype=np.float64), left, mid, right, leg)
+    zc = np.ascontiguousarray(z, dtype=np.float64)
+    try:
+        choice = _HAAR_LEG_PARALLELISM_SPEC.choose(n=int(zc.shape[0]))
+    except Exception as e:
+        logger.debug("haar_leg_kernel_parallelism choose() failed, using the size-based fallback: %s", e)
+        choice = _haar_leg_fallback_choice(int(zc.shape[0]))
+    fn = _dyadic_haar_leg_njit if choice == "parallel" else _dyadic_haar_leg_njit_serial
+    fn(zc, left, mid, right, leg)
     return leg
 
 

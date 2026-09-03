@@ -147,7 +147,7 @@ def test_wiring_renders_and_records_disparity(tmp_path):
     )
     import glob
 
-    assert glob.glob(base + "_faircal_region*.png"), "expected a per-feature calibration-fairness PNG"
+    assert glob.glob(base + "_faircal_region*.png"), "expected a per-feature calibration-fairness PNG -- " + _render_debug(tmp_path)
     disp = metrics["fairness_calibration_disparity"]
     assert "region" in disp and "**ORDER**" not in disp
     assert disp["region"]["traffic_light"] == "red"
@@ -162,3 +162,21 @@ def test_biz_val_fair_case_small_gap_green():
     d = compute_subgroup_ece_disparity(y, score, g)
     assert d["gap"] < 0.05, d
     assert d["traffic_light"] == "green"
+
+
+def _render_debug(root) -> str:
+    """Everything on disk under ``root``, plus the counters render_and_save bumps when it drops a chart."""
+    import os
+
+    from mlframe.reporting.renderers.save import get_render_failure_stats
+
+    found = []
+    for dirpath, _dirnames, filenames in os.walk(str(root)):
+        for name in sorted(filenames):
+            found.append(os.path.relpath(os.path.join(dirpath, name), str(root)))
+    from mlframe.reporting.renderers.save import _use_format_subfolders, get_format_subfolders
+    state = (
+        f"; effective_subfolders={_use_format_subfolders()}, thread_override={get_format_subfolders()!r}, "
+        f"env={os.environ.get('MLFRAME_PLOT_FORMAT_SUBFOLDERS')!r}, thread={__import__('threading').current_thread().name!r}"
+    )
+    return f"files under {root}: {found or '<none>'}; render failure stats: {get_render_failure_stats()}" + state

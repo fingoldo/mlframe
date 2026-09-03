@@ -4,17 +4,15 @@ import logging
 logger = logging.getLogger(__name__)
 
 import sys, time
+from pathlib import Path
 import numpy as np
 if __name__ == "__main__":
-    sys.path.insert(0, r"D:/Upd/Programming/PythonCodeRepository/mlframe/src")
-    sys.path.insert(0, r"D:/Upd/Programming/PythonCodeRepository")
-    PROG = r"D:/Temp/synergy_scale_bench/progress.txt"
-    def ck(m):
-        """Append a timestamped progress line to PROG and echo it to stdout."""
-        with open(PROG, "a") as _f:
-            _f.write(time.strftime("%H:%M:%S") + " | " + m + "\n")
-        print(m, flush=True)
+    # Derived from __file__, not a dev-machine-specific absolute path -- see h1_bench.py's sibling comment.
+    _src_dir = Path(__file__).resolve().parents[4]
+    sys.path.insert(0, str(_src_dir))
+    sys.path.insert(0, str(_src_dir.parent))
 
+    from mlframe.feature_selection._benchmarks.wide_data_scaling._progress_shared import ck
     from mlframe.feature_selection.filters.batch_pair_mi_gpu import batch_pair_mi_cuda
     import cupy as cp
 

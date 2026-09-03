@@ -90,11 +90,13 @@ def test_empty_cell_is_nan():
 def test_equal_population_time_bins():
     """Equal population time bins."""
     n = 1000
-    df = pd.DataFrame({"g": np.zeros(n, dtype=int)})
+    # Two groups, not one: a single-group heatmap compares nothing across its rows and is now refused with an
+    # annotation, so the equal-population TIME binning this test is about needs a frame the panel will actually draw.
+    df = pd.DataFrame({"g": np.arange(n) % 2})
     y = np.zeros(n)
     panel = class_structure_panel(df, y, group="g", time_col=None, n_time_bins=10, max_groups=5)
-    # Row order fallback -> 10 equal-population bins each of 100 rows, all in the single group row.
-    assert panel.matrix.shape == (1, 10)
+    # Row order fallback -> 10 equal-population bins of 100 rows each.
+    assert panel.matrix.shape == (2, 10)
 
 
 def test_max_groups_folds_into_other():

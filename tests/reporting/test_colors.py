@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from mlframe.reporting.colors import LINE_PALETTE, auto_text_color, auto_text_colors_batch, line_color
+from mlframe.reporting.colors import LINE_PALETTE, auto_text_color, auto_text_colors_batch, line_color, line_style
 
 _TAB10 = (
     "#1f77b4",
@@ -20,10 +20,13 @@ _TAB10 = (
 )
 
 
-def test_palette_extended_to_tab20():
-    """INV-29: at K>=11 classes collide on a 10-color palette; the palette must hold >=20 distinct colors so a default
-    20-class line plot (per-class ROC etc.) never reuses a color before cycling."""
-    assert len(LINE_PALETTE) >= 20
+def test_twenty_series_stay_distinguishable():
+    """INV-29's real contract: 20 classes must be tellable apart. The tab20 extension satisfied it on paper only --
+    a tab10 hue and its tab20 lightness twin separate by 2.8 under a deuteranopia simulation, against 14.6 for the
+    worst tab10 pair, so half those "distinct" colors were indistinguishable to a red-green-deficient reader.
+    The separation now comes from the (color, dash) PAIR, which survives the simulation."""
+    keys = [(line_color(i), line_style(i)) for i in range(20)]
+    assert len(set(keys)) == 20
     assert len(set(LINE_PALETTE)) == len(LINE_PALETTE), "palette colors must be distinct"
 
 
@@ -33,11 +36,12 @@ def test_first_ten_unchanged_for_snapshot_backcompat():
 
 
 def test_line_color_does_not_collide_until_palette_exhausted():
-    """Classes 0..len-1 each get a unique color (no early collision the way a 10-color palette had at idx 10)."""
+    """Classes 0..len-1 each get a unique color, and the wrap past the palette changes the dash instead."""
     colors = [line_color(i) for i in range(len(LINE_PALETTE))]
     assert len(set(colors)) == len(LINE_PALETTE)
-    # 11th class differs from the 1st (the exact defect a tab10-only palette had).
-    assert line_color(10) != line_color(0)
+    # The 11th class reuses the 1st color by design now; the dash is what separates them.
+    assert line_color(len(LINE_PALETTE)) == line_color(0)
+    assert line_style(len(LINE_PALETTE)) != line_style(0)
 
 
 def test_auto_text_colors_batch_matches_per_cell_auto_text_color():

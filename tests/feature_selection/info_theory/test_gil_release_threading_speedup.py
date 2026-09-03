@@ -34,6 +34,7 @@ from mlframe.feature_selection.filters.info_theory._class_mi_kernels import (
     compute_mi_mm_from_classes,
 )
 from mlframe.feature_selection.filters.permutation import parallel_mi, shuffle_arr, shuffle_arr_lcg
+from tests.conftest import skip_under_numba_disabled_jit
 
 
 def test_shuffle_arr_lcg_chained_state_survives_uint64_high_bit():
@@ -55,6 +56,7 @@ def test_shuffle_arr_lcg_chained_state_survives_uint64_high_bit():
     assert isinstance(state, np.uint64)
 
 
+@skip_under_numba_disabled_jit
 def test_compute_mi_from_classes_nogil_flag_set():
     """Compute mi from classes nogil flag set."""
     assert compute_mi_from_classes.targetoptions.get("nogil") is True, (
@@ -64,11 +66,13 @@ def test_compute_mi_from_classes_nogil_flag_set():
     )
 
 
+@skip_under_numba_disabled_jit
 def test_shuffle_arr_nogil_flag_set():
     """Shuffle arr nogil flag set."""
     assert shuffle_arr.targetoptions.get("nogil") is True
 
 
+@skip_under_numba_disabled_jit
 def test_parallel_mi_nogil_flag_set():
     """Parallel mi nogil flag set."""
     assert parallel_mi.targetoptions.get("nogil") is True
@@ -145,12 +149,17 @@ def test_shuffle_arr_lcg_thread_safety_under_concurrent_nogil_execution():
     assert not errors, f"concurrent nogil shuffle_arr_lcg execution failed: {errors[:5]}"
 
 
+@skip_under_numba_disabled_jit
 @pytest.mark.slow
 def test_threading_backend_delivers_real_speedup_not_regression():
     """Coarse regression sensor for the fix itself: joblib backend='threading' dispatch through
     compute_mi_from_classes must show SOME real multi-thread speedup, not the pre-fix 0.84-0.94x
     (worse-than-serial) pattern. Loose bound (>1.2x at 4 workers) -- this pins the fix direction, not a
-    tight performance contract."""
+    tight performance contract.
+
+    Skipped under NUMBA_DISABLE_JIT=1: a wall-clock speedup-ratio assertion, meaningless once
+    compute_mi_from_classes isn't compiled (nogil never applies, threading buys nothing).
+    """
     rng = np.random.default_rng(1)
     n = 30000
     classes_x = rng.integers(0, 20, size=n).astype(np.int32)

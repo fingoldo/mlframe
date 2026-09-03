@@ -96,7 +96,9 @@ def _roc_overlay_panel(per_model: Mapping[str, Mapping[str, Any]]) -> PanelSpec:
         score = _model_score(entry)
         if score is None:
             continue
-        yt, ys = _finite_binary(entry["y_true"], score)
+        if (y_true_entry := entry.get("y_true")) is None:
+            continue  # every sibling panel skips an incomplete entry rather than raising KeyError on the whole figure
+        yt, ys = _finite_binary(y_true_entry, score)
         sort = _ScoreSort(yt, ys)
         if sort.n_pos == 0 or sort.n_neg == 0:
             continue
@@ -200,43 +202,75 @@ def _leaderboard_panel(
     missing_names = [names[i] for i in range(len(names)) if not finite[i]]
     if missing_names:
         # A subset (not all) of models lack the metric; surface which ones so the shorter bar chart is not mistaken for a complete one.
-        title += f"\nN/A for: {', '.join(missing_names)}"
+        _shown = ", ".join(missing_names[:3])
+        _more = f" (+{len(missing_names) - 3} more)" if len(missing_names) > 3 else ""
+        title += f"\nN/A for: {_shown}{_more}"
+    # Colour each bar like that model's ROC curve. A single flat colour meant a bar could not be matched to its
+    # curve in the panel beside it, which is the whole point of putting them in one figure.
+    bar_colors = tuple(_MODEL_COLORS[names.index(names[i]) % len(_MODEL_COLORS)] for i in order_list)
+    if len(bar_vals) >= 2:
+        gap = abs(float(bar_vals[0]) - float(bar_vals[1]))
+        if gap < _LEADERBOARD_TIE_EPS:
+            title += f"\nTop two differ by {gap:.4g} on this metric -- too close to call a winner without a paired " "interval; treat them as tied."
     return BarPanelSpec(
         categories=cats,
         values=bar_vals,
         title=title,
         xlabel=metric,
         ylabel="model",
-        colors=("#4c78a8",),
+        colors=bar_colors,
         orientation="horizontal",
         hline=(float(ref), "red", ref_label),
     )
 
 
+# Two models whose headline metric differs by less than this are not distinguishable by eye on a bar chart and are
+# rarely distinguishable statistically either; the leaderboard says so rather than implying an ordering.
+_LEADERBOARD_TIE_EPS: float = 5e-3
+
+
 def _spearman_corr_matrix(scores: np.ndarray) -> np.ndarray:
     """Spearman correlation between the columns of ``scores`` (n_sub x K) via one vectorized double-argsort.
 
-    Spearman = Pearson on ranks. Ranks are obtained by ``argsort(argsort(col))`` applied across all columns at once
-    (average ranks for ties are not used -- ordinal ranks suffice for a diagnostic and avoid a per-column scipy
-    ``rankdata`` python loop). Returns a K x K matrix with 1.0 on the diagonal; columns with zero variance correlate
-    as NaN, replaced by 0 off-diagonal / 1 on-diagonal.
+    Spearman = Pearson on ranks. Ranks are obtained by ``argsort(argsort(col))`` applied across all columns at once,
+    then averaged within each tied block. Tie averaging is not optional here: without it a CONSTANT column receives
+    ranks ``0..n-1`` in row order rather than a single repeated rank, so it has full rank-variance and the
+    zero-variance guard below never fires -- two models sharing no information at all then correlated at exactly
+    1.000 on a heatmap whose stated purpose is flagging redundant models. Columns that are genuinely constant now
+    yield NaN off-diagonal, which renders blank rather than as a confident number.
     """
     n, k = scores.shape
     if n < 2 or k == 0:
         return np.eye(k, dtype=np.float64)
-    # Single argsort + scatter per column instead of double argsort (bit-identical, ~1.7-1.9x faster).
-    _order = np.argsort(scores, axis=0)
-    ranks = np.empty_like(_order)
-    np.put_along_axis(ranks, _order, np.broadcast_to(np.arange(n)[:, None], _order.shape), axis=0)
-    ranks = ranks.astype(np.float64)
+    _order = np.argsort(scores, axis=0, kind="stable")
+    ordered = np.take_along_axis(scores, _order, axis=0)
+    # Mid-rank per tied block: for each run of equal values, every member gets the mean of the ordinal ranks in it.
+    # `starts` marks the first row of each run; a cumulative-sum lookup converts run bounds to the shared mid-rank.
+    idx = np.arange(n, dtype=np.float64)[:, None]
+    is_new = np.empty(ordered.shape, dtype=bool)
+    is_new[0, :] = True
+    np.not_equal(ordered[1:], ordered[:-1], out=is_new[1:])
+    group = np.cumsum(is_new, axis=0) - 1
+    ngroups = int(group[-1].max()) + 1
+    sums = np.zeros((ngroups, k), dtype=np.float64)
+    cnts = np.zeros((ngroups, k), dtype=np.float64)
+    for j in range(k):
+        sums[:, j] = np.bincount(group[:, j], weights=idx[:, 0], minlength=ngroups)
+        cnts[:, j] = np.bincount(group[:, j], minlength=ngroups)
+    mid = sums / np.where(cnts > 0, cnts, 1.0)
+    ordered_ranks = np.take_along_axis(mid, group, axis=0)
+    ranks = np.empty((n, k), dtype=np.float64)
+    np.put_along_axis(ranks, _order, ordered_ranks, axis=0)
     ranks -= ranks.mean(axis=0, keepdims=True)
     std = np.sqrt((ranks * ranks).sum(axis=0))
-    std_safe = np.where(std > 0, std, 1.0)
-    normed = ranks / std_safe
-    corr = normed.T @ normed
-    # Zero-variance columns produce a degenerate row/col; force diag to 1 and clip FP overshoot.
+    degenerate = std <= 0
+    normed = ranks / np.where(degenerate, 1.0, std)
+    corr = np.asarray(np.clip(normed.T @ normed, -1.0, 1.0))
+    if degenerate.any():
+        corr[degenerate, :] = np.nan
+        corr[:, degenerate] = np.nan
     np.fill_diagonal(corr, 1.0)
-    return np.asarray(np.clip(corr, -1.0, 1.0))
+    return corr
 
 
 def _corr_heatmap_panel(per_model: Mapping[str, Mapping[str, Any]], subsample: int, seed: int) -> PanelSpec:
@@ -251,10 +285,15 @@ def _corr_heatmap_panel(per_model: Mapping[str, Mapping[str, Any]], subsample: i
     cols: List[np.ndarray] = [c for n in names if (c := _model_score(per_model[n])) is not None]
     lengths = {c.shape[0] for c in cols}
     if len(lengths) > 1:
-        raise ValueError(
-            f"_corr_heatmap_panel: models have mismatched row counts {dict(zip(names, (c.shape[0] for c in cols)))} "
-            "-- row i of each model's predictions must refer to the same underlying sample for a correlation "
-            "heatmap to be meaningful; truncating would silently pair unrelated rows."
+        # Refusing to correlate is right -- truncating would pair unrelated rows -- but raising took the ROC and
+        # leaderboard panels down with it. Every sibling panel degrades to an annotation; this one now does too.
+        return AnnotationPanelSpec(
+            text=(
+                "Prediction correlation unavailable: models have mismatched row counts "
+                f"{dict(zip(names, (c.shape[0] for c in cols)))}.\nRow i of every model's predictions must refer to "
+                "the same sample; truncating would silently pair unrelated rows."
+            ),
+            title="Prediction correlation",
         )
     mat = np.column_stack(cols)
     finite_rows = np.isfinite(mat).all(axis=1)
@@ -269,7 +308,14 @@ def _corr_heatmap_panel(per_model: Mapping[str, Mapping[str, Any]], subsample: i
     # model order otherwise hides them); apply the SAME permutation to rows, cols and labels.
     from mlframe.core.matrix_seriation import seriate
 
-    corr, perm = seriate(corr)
+    # A constant-prediction model has no defined rank correlation, so its row/col is NaN. Seriation is an ORDERING
+    # step and rejects non-finite input, so it gets a zeroed stand-in -- an undefined correlation carries no
+    # clustering information and 0 is exactly "tells us nothing". The DISPLAYED matrix keeps its NaNs, which render
+    # blank rather than as a confident number.
+    orderable = np.nan_to_num(corr, nan=0.0, posinf=0.0, neginf=0.0)
+    np.fill_diagonal(orderable, 1.0)
+    _, perm = seriate(orderable)
+    corr = corr[np.ix_(perm, perm)]
     names = [names[int(i)] for i in perm]
     return HeatmapPanelSpec(
         matrix=corr,
@@ -336,6 +382,14 @@ def compose_model_comparison_figure(
         suptitle=suptitle,
         panels=packed,
         figsize=figsize_for_grid(n_rows, n_cols, cell_width=cell_width, cell_height=cell_height),
+        caption=(
+            "ROC overlay: every model scored on the same rows, AUC in the legend. Leaderboard: the models ranked on "
+            "the chosen metric against the reference line. Correlation heatmap: Spearman correlation between the "
+            "models' PER-ROW predictions -- a cell near 1.0 means two models rank the rows almost identically, so "
+            "there is little to gain from ensembling them, while a low cell marks genuine diversity. Blank cells "
+            "mean a model's predictions are constant, so no ranking correlation is defined. The leaderboard shows "
+            "point estimates: two models within a few thousandths on a few hundred rows are not actually ranked."
+        ),
     )
 
 

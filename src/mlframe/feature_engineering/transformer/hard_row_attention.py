@@ -34,6 +34,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from ._squared_dists_shared import squared_dists as _squared_dists
 from ._utils import require_seed, validate_numeric_input, softmax
 
 logger = logging.getLogger(__name__)
@@ -127,8 +128,7 @@ def compute_hard_row_attention_features(
         anchors_abs_resid = abs_residuals[top_idx]
         anchors_signed_resid = signed_residuals[top_idx]
 
-        diffs = Xq_s[:, None, :] - anchors_X[None, :, :]  # (n_q, n_hard, d)
-        sq = (diffs**2).sum(axis=-1)
+        sq = _squared_dists(Xq_s, anchors_X)  # (n_q, n_total)
         scores = -sq
         weights = softmax(scores, temp=temp)  # (n_q, n_hard)
         entropy = -np.sum(weights * np.log(weights + 1e-9), axis=-1).astype(np.float32)

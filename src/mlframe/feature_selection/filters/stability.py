@@ -45,7 +45,7 @@ def _support_to_indices(support, n_features: int) -> np.ndarray:
     return arr.astype(np.int64)
 
 
-class StabilityMRMR(BaseEstimator, TransformerMixin):
+class StabilityMRMR(TransformerMixin, BaseEstimator):
     """Bootstrap-stability wrapper for mRMR-family selectors.
 
     Each bootstrap iteration:

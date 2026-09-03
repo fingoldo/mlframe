@@ -52,6 +52,36 @@ def test_biz_val_assert_no_group_leakage_catches_leaky_kfold():
         assert_no_group_leakage(leaky_splits, entity_ids)
 
 
+def test_assert_no_group_leakage_materializes_generator_eagerly():
+    # The docstring promises cv_splits is "consumed eagerly (materialized to a list)". Pre-fix, the
+    # function iterated the generator lazily with no list() call: since the FIRST fold below is the
+    # leaky one, lazy iteration would raise after pulling only 1 item, leaving the other 4 items
+    # un-consumed in the caller's generator object -- a silent partial-exhaustion trap for any caller
+    # that reuses it afterward (e.g. a retry loop, or logging the splits again). Eager materialization
+    # (list(cv_splits) at function entry, BEFORE any leak checking) drains the whole generator
+    # immediately regardless of which fold turns out to be leaky.
+    """Assert no group leakage materializes generator eagerly."""
+    entity_ids = np.array([0, 0, 1, 1, 2, 2, 3, 3])
+    # fold 0 is leaky (group 0 on both sides); folds 1+ are clean.
+    folds = [
+        (np.array([0, 2, 3, 4, 5]), np.array([1, 6, 7])),  # leaky: group 0 in both train(idx0) and test(idx1)
+        (np.array([2, 3, 4, 5, 6, 7]), np.array([0, 1])),
+        (np.array([0, 1, 4, 5, 6, 7]), np.array([2, 3])),
+    ]
+
+    def _gen():
+        """Yield each (train_idx, test_idx) fold from the fixed list above, one at a time."""
+        yield from folds
+
+    import pytest
+
+    shared_gen = _gen()
+    with pytest.raises(ValueError, match="assert_no_group_leakage"):
+        assert_no_group_leakage(shared_gen, entity_ids)
+    remaining = list(shared_gen)
+    assert len(remaining) == 0, "cv_splits must be materialized to a list at function entry, not iterated lazily (which would leave the caller's generator partially un-consumed)"
+
+
 def test_assert_no_group_leakage_passes_for_group_kfold():
     """Assert no group leakage passes for group kfold."""
     X, y, entity_ids = _make_nested_table(seed=1)

@@ -37,7 +37,7 @@ def _run(combo, tmp_path):
     """Trains the given FuzzCombo end-to-end through the suite, exercising the ensemble blend-knob wiring."""
     pytest.importorskip("catboost")
     pytest.importorskip("xgboost")
-    from mlframe.training import FeatureSelectionConfig, OutlierDetectionConfig, OutputConfig
+    from mlframe.training import FeatureSelectionConfig, OutlierDetectionConfig, OutputConfig, ReportingConfig
     from mlframe.training.core import train_mlframe_models_suite
     from tests.training.shared import SimpleFeaturesAndTargetsExtractor
     from tests.training._fuzz_combo.frame_builder import build_frame_for_combo
@@ -45,6 +45,11 @@ def _run(combo, tmp_path):
 
     df, target_col, _ = build_frame_for_combo(combo)
     fte = SimpleFeaturesAndTargetsExtractor(target_column=target_col, regression=False)
+    # Neither test in this file reads chart output or a diagnostics-registry entry -- only the returned
+    # `trained` model dict's structure/naming. No reporting_config was passed here at all (every default-ON
+    # diagnostic fired, incl. adversarial_validation + the ensemble's own scoring charts), and
+    # OutputConfig.save_charts defaults True. Same fix class already validated on
+    # test_ensemble_auroc_at_least_best_single / test_run_grid_sweep_beats_baseline_auroc.
     trained, meta = train_mlframe_models_suite(
         df=df,
         target_name=combo.short_id(),
@@ -57,7 +62,33 @@ def _run(combo, tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=True,
         outlier_detection_config=OutlierDetectionConfig(detector=None),
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        reporting_config=ReportingConfig(
+            show_perf_chart=False,
+            show_fi=False,
+            adversarial_validation=False,
+            interaction_strength_charts=False,
+            engineered_separability_charts=False,
+            class_structure_charts=False,
+            category_discriminability_charts=False,
+            slice_finder=False,
+            shap_panels=False,
+            decision_curve=False,
+            calibration_drift=False,
+            target_acf=False,
+            model_comparison=False,
+        ),
+        output_config=OutputConfig(
+            data_dir=str(tmp_path),
+            models_dir="models",
+            save_charts=False,
+            run_diagnostics=[
+                "cv_informativeness",
+                "compare_cv_schemes",
+                "group_leakage",
+                "constant_group_leak",
+                "subpopulation_drift",
+            ],
+        ),
         feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=False),
         **_configs_for_combo(combo),
     )

@@ -34,12 +34,10 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-from mlframe.reporting.charts._layout import (
-    figsize_for_grid, pack_panels,
-)
+from ._error_analysis_shared import DEFAULT_TAIL_FRACTION, _is_frame, _pull_columns_at_rows, _resolve_feature_names, _row_count  # noqa: F401
+from ._error_analysis_shared import DEFAULT_OVERLAY_BINS, _as_float_1d
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
-    LinePanelSpec, PanelSpec,
 )
 
 # A 1-2-feature weak-segment grid: more cells than this fragments support per cell into noise (FreaAI keeps slices coarse so findings stay actionable).
@@ -49,17 +47,10 @@ DEFAULT_TREE_DEPTH: int = 3
 # The tree only needs enough rows to RANK split features; fitting it on all of a 1M+ row set is the whole cost (~1.8s).
 # A 50k subsample picks the same top features and drops that to ~80ms; cell stats below still use every row.
 DEFAULT_TREE_FIT_CAP: int = 50_000
-# Histogram resolution for per-feature / target overlays; >~60 turns density curves into noisy combs at the row counts we see.
-DEFAULT_OVERLAY_BINS: int = 40
+# DEFAULT_OVERLAY_BINS / _DRIFT_Z / _as_float_1d come from ._error_analysis_shared (one definition,
+# imported by this module and by the carved-out siblings).
 # Default worst-K rows surfaced; 20 fits a screen and red-highlights without swamping the scatter.
 DEFAULT_WORST_K: int = 20
-# Over/under tail fraction for error-bias tagging (Evidently's signature 5% tails).
-DEFAULT_TAIL_FRACTION: float = 0.05
-
-
-def _as_float_1d(a: np.ndarray) -> np.ndarray:
-    """Coerce ``a`` to a flat float64 array."""
-    return np.asarray(a, dtype=np.float64).ravel()
 
 
 def _per_row_error(
@@ -72,12 +63,19 @@ def _per_row_error(
 
     Regression: absolute residual. Classification: log-loss when ``y_pred`` is a probability/score in [0,1]
     (richer than 0/1, so the tree sees *how* wrong), else 0/1 incorrectness when ``y_pred`` is a hard label.
+
+    The log-loss branch is BINARY, so it only applies when ``y_true`` is in {0, 1}. It was previously chosen off
+    ``y_pred``'s range alone, so a multiclass label reached it too: for ``y_true=2, p=0.9`` the binary formula
+    returns -2.09, a NEGATIVE "error" that then trained the weak-segment tree and coloured a "darker = worse"
+    heatmap. Multiclass labels now take the 0/1 incorrectness branch, which is well defined for any label set.
     """
     yt = _as_float_1d(y_true)
     yp = _as_float_1d(y_pred)
     if task == "regression":
         return np.asarray(np.abs(yt - yp))
-    looks_proba = yp.size > 0 and float(np.nanmin(yp)) >= 0.0 and float(np.nanmax(yp)) <= 1.0
+    finite_yt = yt[np.isfinite(yt)]
+    is_binary_label = finite_yt.size == 0 or bool(np.isin(finite_yt, (0.0, 1.0)).all())
+    looks_proba = is_binary_label and yp.size > 0 and float(np.nanmin(yp)) >= 0.0 and float(np.nanmax(yp)) <= 1.0
     if looks_proba:
         eps = 1e-12
         p = np.clip(yp, eps, 1.0 - eps)
@@ -101,6 +99,14 @@ def _resolve_feature_matrix(
     if hasattr(X, "columns") and hasattr(X, "__getitem__") and not isinstance(X, np.ndarray):
         cols = list(X.columns)
         all_names = list(feature_names) if feature_names is not None else [str(c) for c in cols]
+        if len(all_names) != len(cols):
+            # A bare zip() silently truncated to the shorter side, so a short `feature_names` dropped real columns
+            # from every weak-segment and error-bias diagnostic with no signal at all -- the caller saw a plausible
+            # chart built on a subset it never asked for.
+            raise ValueError(
+                f"_resolve_feature_matrix: feature_names has {len(all_names)} entries but X has {len(cols)} columns; "
+                "they must correspond one-to-one, otherwise columns are silently dropped from the diagnostics."
+            )
         mats: List[np.ndarray] = []
         names: List[str] = []
         for c, name in zip(cols, all_names):
@@ -123,68 +129,27 @@ def _resolve_feature_matrix(
     return mat, names
 
 
-def _row_count(X: Any) -> int:
-    """Row count of ``X`` (frame ``len`` / ndarray first axis) without materialising it."""
-    if _is_frame(X):
-        return len(X)
-    arr = np.asarray(X)
-    return arr.shape[0] if arr.ndim >= 1 else 0
+def _support_floor(n_rows: int) -> int:
+    """Rows a grid cell needs before its mean error may be ranked as the worst segment.
 
-
-def _is_frame(X: Any) -> bool:
-    """True when ``X`` is a pandas / polars frame (has ``columns`` and is indexable) rather than an ndarray."""
-    return hasattr(X, "columns") and hasattr(X, "__getitem__") and not isinstance(X, np.ndarray)
-
-
-def _resolve_feature_names(X: Any, feature_names: Optional[Sequence[str]]) -> List[str]:
-    """Feature names WITHOUT densifying the matrix -- for callers that only need a handful of columns at a few rows.
-
-    Mirrors :func:`_resolve_feature_matrix`'s naming, but skips the whole-frame ``column_stack``. Frames expose their
-    column labels directly; an ndarray gets positional ``f{i}`` names. Lets ``worst_k_table`` rank importances and pick
-    label columns without building the full dense matrix it would immediately discard all but a K x top_fi slice of.
+    ``nanargmax`` over per-cell means with no floor picks whichever cell happens to hold the most extreme few rows:
+    on near-collinear features the observed count matrices carry off-diagonal cells with 5-14 rows sitting beside
+    650-row cells, and one unlucky outlier in a 5-row cell wins every time. The chosen cell is printed in the title
+    as the actionable finding, so this is a wrong answer, not a cosmetic one.
     """
-    if _is_frame(X):
-        cols = list(X.columns)
-        return list(feature_names) if feature_names is not None else [str(c) for c in cols]
-    arr = np.asarray(X)
-    ncols = 1 if arr.ndim == 1 else arr.shape[1]
-    return list(feature_names) if feature_names is not None else [f"f{i}" for i in range(ncols)]
+    return max(20, round(0.005 * max(int(n_rows), 0)))
 
 
-def _pull_columns_at_rows(X: Any, col_indices: Sequence[int], row_idx: np.ndarray) -> Dict[int, np.ndarray]:
-    """Densify ONLY ``col_indices`` at ``row_idx`` -- bit-identical to ``_resolve_feature_matrix(X)[row_idx][:, j]``.
+def _worst_supported_cell(mean_err: np.ndarray, counts: np.ndarray, floor: int) -> int:
+    """Flat index of the highest-mean-error cell holding at least ``floor`` rows.
 
-    Returns ``{col_index -> float64 values at row_idx}``. Non-numeric frame columns are label-encoded over the FULL
-    column (``np.unique`` codes) exactly as :func:`_resolve_feature_matrix` does, then indexed -- so the codes match
-    the full-matrix path. Avoids building+discarding the whole dense matrix when only a few columns at a few rows
-    are needed.
+    Falls back to the unfiltered argmax when the floor excludes everything, so a small dataset still gets an answer
+    rather than an exception -- the title states the floor either way.
     """
-    out: Dict[int, np.ndarray] = {}
-    if _is_frame(X):
-        cols = list(X.columns)
-        for j in col_indices:
-            col = X[cols[j]]
-            arr = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
-            if arr.dtype.kind in "OUS" or arr.dtype.kind == "b":
-                # An object column holding non-scalar elements (e.g. a list-valued embedding column) can't be
-                # stringified by ``astype(str)`` -- numpy raises "setting an array element with a sequence"
-                # trying to broadcast the list into a fixed-width string array. Mirror _resolve_feature_matrix's
-                # embedding-column handling: substitute NaN rather than crash (a single embedding vector isn't
-                # a meaningful scalar table cell anyway).
-                if arr.dtype.kind == "O" and any(isinstance(v, (list, tuple, np.ndarray)) for v in arr):
-                    out[j] = np.full(len(row_idx), np.nan, dtype=np.float64)
-                    continue
-                _, codes = np.unique(arr.astype(str), return_inverse=True)
-                out[j] = codes.astype(np.float64)[row_idx]
-            else:
-                out[j] = arr.astype(np.float64)[row_idx]
-        return out
-    mat = np.asarray(X, dtype=np.float64)
-    if mat.ndim == 1:
-        mat = mat.reshape(-1, 1)
-    for j in col_indices:
-        out[j] = mat[row_idx, j]
-    return out
+    scored = np.where(np.isfinite(mean_err) & (counts >= floor), mean_err, -np.inf)
+    if not np.isfinite(scored).any():
+        scored = np.where(np.isfinite(mean_err), mean_err, -np.inf)
+    return int(np.nanargmax(scored))
 
 
 @dataclass(frozen=True)
@@ -244,9 +209,17 @@ def _top_split_features(
         # Surrogate ranking: a feature whose high/low halves differ most in mean error is the most error-discriminating.
         imp = np.zeros(n_cols, dtype=np.float64)
         for j in range(n_cols):
-            med = np.median(fit_mat[:, j])
-            hi = fit_err[fit_mat[:, j] > med]
-            lo = fit_err[fit_mat[:, j] <= med]
+            col = fit_mat[:, j]
+            finite = np.isfinite(col)
+            if not finite.any():
+                continue
+            # nanmedian (not median): a column with ANY NaN made plain np.median return NaN, which makes
+            # BOTH comparison masks (> med, <= med) all-False for every row (NaN comparisons are always
+            # False) -- hi/lo came back empty and the column's surrogate importance silently stayed 0.0
+            # regardless of its real discriminating power on the non-missing rows.
+            med = np.nanmedian(col)
+            hi = fit_err[finite & (col > med)]
+            lo = fit_err[finite & (col <= med)]
             if hi.size and lo.size:
                 imp[j] = abs(float(hi.mean()) - float(lo.mean()))
     if not np.any(imp > 0):
@@ -294,11 +267,21 @@ def weak_segment_heatmap(
     if not np.all(finite):
         err = err[finite]
         mat = mat[finite]
-    top = _top_split_features(mat, err, names, max_depth=max_depth, n_features=2, seed=seed)
+    # Zero usable rows (empty input, or every row dropped by the finite-mask above e.g. all-NaN error):
+    # binning/quantile-edge logic downstream assumes at least one row, and some sklearn versions raise
+    # a ValueError from DecisionTreeRegressor.fit here that the except-fallback below doesn't itself
+    # guard against re-indexing an empty array. Degenerate-out with the same "no usable features" panel
+    # the all-zero-split-importance case already uses, before ever reaching the tree fit.
+    top = [] if mat.shape[0] == 0 else _top_split_features(mat, err, names, max_depth=max_depth, n_features=2, seed=seed)
     if not top:
-        ann = HeatmapPanelSpec(
-            matrix=np.zeros((1, 1)), row_labels=("n/a",), col_labels=("n/a",),
-            title=title + " (no usable features)", colorbar_label="mean error",
+        # A one-by-one zero matrix labelled "n/a" renders as a single black CELL -- a picture where a sentence
+        # belongs. Two siblings in this same module already annotate this case.
+        ann = AnnotationPanelSpec(
+            text=(f"No feature discriminates the error: over {mat.shape[0]:,} rows and {len(names)} features, no "
+                  f"split at depth <= {max_depth} separates high-error rows from the rest. Either the error is "
+                  "spread evenly (nothing to localise), the prediction is near-constant, or the features that "
+                  "would explain it are not in this frame."),
+            title=title,
         )
         return WeakSegmentResult(
             FigureSpec(panels=((ann,),), figsize=(7.0, 5.0)),
@@ -306,6 +289,17 @@ def weak_segment_heatmap(
         )
 
     ja = top[0]
+    # np.digitize sorts NaN after every finite edge, so a NaN feature value would silently land in the
+    # HIGHEST bin instead of being excluded -- corrupting the worst-slice localization with rows that
+    # were never actually binned by value. Exclude rows with NaN in the feature(s) being binned here
+    # (a NaN feature value is still tolerated upstream for the tree fit that CHOSE these features).
+    bin_finite = np.isfinite(mat[:, ja])
+    if len(top) >= 2:
+        bin_finite &= np.isfinite(mat[:, top[1]])
+    if not np.all(bin_finite):
+        err = err[bin_finite]
+        mat = mat[bin_finite]
+
     ea = _bin_edges(mat[:, ja], nbins)
     ia = np.clip(np.digitize(mat[:, ja], ea[1:-1]), 0, len(ea) - 2)
     na = len(ea) - 1
@@ -323,7 +317,8 @@ def weak_segment_heatmap(
             mean_err = np.where(counts > 0, sums / np.where(counts > 0, counts, 1.0), np.nan)
         cell_error = mean_err.reshape(na, nb)
         cell_count = counts.reshape(na, nb)
-        worst = int(np.nanargmax(np.where(np.isfinite(mean_err), mean_err, -np.inf)))
+        support_floor = _support_floor(err.size)
+        worst = _worst_supported_cell(mean_err, counts, support_floor)
         wa, wb = worst // nb, worst % nb
         worst_cell = (float(ea[wa]), float(ea[wa + 1]), float(eb[wb]), float(eb[wb + 1]), float(mean_err[worst]))
         row_labels = tuple(f"{ea[i]:.3g}..{ea[i + 1]:.3g}" for i in range(na))
@@ -337,7 +332,8 @@ def weak_segment_heatmap(
             mean_err = np.where(counts > 0, sums / np.where(counts > 0, counts, 1.0), np.nan)
         cell_error = mean_err.reshape(na, 1)
         cell_count = counts.reshape(na, 1)
-        worst = int(np.nanargmax(np.where(np.isfinite(mean_err), mean_err, -np.inf)))
+        support_floor = _support_floor(err.size)
+        worst = _worst_supported_cell(mean_err, counts, support_floor)
         worst_cell = (float(ea[worst]), float(ea[worst + 1]), float("nan"), float("nan"), float(mean_err[worst]))
         row_labels = tuple(f"{ea[i]:.3g}..{ea[i + 1]:.3g}" for i in range(na))
         col_labels = tuple(["error"])
@@ -348,16 +344,32 @@ def weak_segment_heatmap(
         matrix=cell_error,
         row_labels=row_labels,
         col_labels=col_labels,
-        title=title + f"\nworst slice: {split_features} mean_err={worst_cell[4]:.3g}",
+        title=(
+            title
+            + f"\nworst slice: {split_features} mean_err={worst_cell[4]:.3g} over {int(counts[worst]):,} rows"
+            + f" (global mean {float(np.nanmean(err)):.3g}; cells under {support_floor:,} rows excluded from the ranking)"
+        ),
         xlabel=xlabel,
         ylabel=ylabel,
         colormap="Reds",
         cell_text=cell_count,
         text_format=".0f",
-        colorbar_label="mean error (darker = worse)",
+        # The colour and the colorbar encode MEAN ERROR; the number printed in each cell is that cell's ROW COUNT.
+        # Naming both is what stops a reader taking the annotation for the quantity on the scale.
+        colorbar_label="mean error (darker = worse); cell number = rows in cell",
     )
     return WeakSegmentResult(
-        FigureSpec(panels=((heat,),), figsize=(8.0, 6.0)),
+        FigureSpec(
+            panels=((heat,),),
+            figsize=(8.0, 6.0),
+            caption=(
+                "A shallow tree fitted on PER-ROW error picked the most error-discriminating features; the grid bins "
+                "them into equal-population slices. Colour = mean error (darker = worse); the number printed in each "
+                f"cell is that cell's ROW COUNT, not the error. Cells under {support_floor:,} rows are excluded from "
+                "the worst-slice ranking -- a dark cell backed by a handful of rows is an outlier, not a weak "
+                "segment. Use the worst slice named in the title as the place to look first, then check its count."
+            ),
+        ),
         split_features, worst_cell, cell_error, cell_count,
     )
 
@@ -403,11 +415,10 @@ def segments_bar(
         else:
             global_value = float(np.nanmean(metric))
 
+    # Worst-first: ascending for a higher-is-better metric (accuracy / NDCG), descending for an error rate.
     order = np.argsort(metric)
-    if not higher_is_worse:
-        order = order  # lowest metric = worst (e.g. accuracy / NDCG) -> leftmost
-    else:
-        order = order[::-1]  # highest metric = worst (e.g. error rate) -> leftmost
+    if higher_is_worse:
+        order = order[::-1]
     order = order[:max_groups]
 
     cats = tuple(groups[order])
@@ -416,14 +427,19 @@ def segments_bar(
         categories=cats,
         values=vals,
         series_labels=(metric_name,),
-        title=title + f"\n(worst-first; global reference = {global_value:.3g})",
+        title=title + f"\n(worst-first; global reference = {global_value:.3g}; worst segment {cats[0]} is {vals[0] / global_value:.2f}x the global)" if (vals.size and global_value) else title,
         xlabel=str(group_col),
         ylabel=metric_name,
         colors=("steelblue",),
         xtick_rotation=45.0,
         hline=(float(global_value), "darkorange", f"global = {global_value:.3g}"),
     )
-    return FigureSpec(suptitle="", panels=((bar,),), figsize=(max(8.0, len(cats) * 0.5), 5.0))
+    caption = (
+        "One bar per subgroup, sorted worst-first, against the global reference drawn in orange. The bars are raw "
+        "point estimates with NO uncertainty attached, so a short bar over a small subgroup may be sample size "
+        "rather than a real weakness -- read each bar together with its group size before acting on it."
+    )
+    return FigureSpec(suptitle="", panels=((bar,),), figsize=(max(8.0, len(cats) * 0.5), 5.0), caption=caption)
 
 
 @dataclass(frozen=True)
@@ -510,381 +526,28 @@ def worst_k_table(
     return WorstKResult(table, sel.astype(np.int64))
 
 
-@dataclass(frozen=True)
-class ErrorBiasResult:
-    """Per-feature OVER/UNDER/MAJORITY overlay figure + the group-mean table.
+# The per-split target/prediction overlay family (``target_dist_overlay`` and its helpers) lives in
+# ``._error_analysis_splits`` and is re-exported below. Carved out to keep this file under the house
+# 1000-LOC limit; it is the most self-contained group here, sharing only the small array helpers above.
 
-    ``group_means`` is a small DataFrame indexed by feature, columns OVER/UNDER/MAJORITY (each the group's mean
-    feature value). ``group_masks`` are the boolean row selectors so a caller can reuse the tagging.
-    """
+# ``from ...error_analysis import target_dist_overlay`` import site keeps resolving after the carve. Only the names
+# with a REAL import site are re-exported: the carve moved five private helpers, and re-exporting the four nobody
+# imports is a fiction that vulture correctly flags as dead. They live in ``_error_analysis_splits`` alone.
+from ._error_analysis_splits import (
+    _target_drift_verdict,  # noqa: F401 -- imported from HERE by tests/reporting/test_charts_statistical_regressions
+    target_dist_overlay,  # in __all__, so no noqa needed
+)
 
-    figure: FigureSpec
-    group_means: Any  # pandas.DataFrame
-    group_masks: Dict[str, np.ndarray]
-
-
-def _signed_error(y_true: np.ndarray, y_pred: np.ndarray) -> np.ndarray:
-    """Signed prediction error y_pred - y_true: positive => OVER-estimate, negative => UNDER-estimate."""
-    return np.asarray(_as_float_1d(y_pred) - _as_float_1d(y_true))
-
-
-def _tag_error_groups(
-    signed_err: np.ndarray,
-    tail_fraction: float,
-) -> Dict[str, np.ndarray]:
-    """Split rows into OVER / UNDER / MAJORITY by signed-error quantile.
-
-    The top ``tail_fraction`` of signed errors (most positive) are OVER-estimates, the bottom ``tail_fraction``
-    (most negative) UNDER-estimates, the middle is MAJORITY. Quantile cut via ``np.quantile`` (k-way partition,
-    O(n)); no full sort.
-    """
-    finite = np.isfinite(signed_err)
-    hi_cut = np.quantile(signed_err[finite], 1.0 - tail_fraction) if finite.any() else np.inf
-    lo_cut = np.quantile(signed_err[finite], tail_fraction) if finite.any() else -np.inf
-    over = finite & (signed_err >= hi_cut)
-    under = finite & (signed_err <= lo_cut)
-    majority = finite & ~over & ~under
-    return {"OVER": over, "UNDER": under, "MAJORITY": majority}
-
-
-def error_bias_per_feature(
-    X: Any,
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
-    *,
-    feature_names: Optional[Sequence[str]] = None,
-    features: Optional[Sequence[str]] = None,
-    max_features: int = 4,
-    tail_fraction: float = DEFAULT_TAIL_FRACTION,
-    nbins: int = DEFAULT_OVERLAY_BINS,
-    title: str = "Error bias per feature (OVER / UNDER / MAJORITY)",
-    seed: int = 0,
-) -> ErrorBiasResult:
-    """Own Evidently error-bias reimplementation: which feature values drive extreme errors.
-
-    Rows are tagged into the top-``tail_fraction`` signed-error OVER-estimates, the bottom-``tail_fraction``
-    UNDER-estimates, and the MAJORITY middle. For each (up to ``max_features``) feature the three groups' value
-    distributions are overlaid as density histograms (one LinePanelSpec per feature), and a group-mean table is
-    returned. Per-feature binning is via ``np.histogram`` (O(n)); group means via masked sums.
-    """
-    import pandas as pd
-
-    names = _resolve_feature_names(X, feature_names)
-    signed = _signed_error(y_true, y_pred)
-    masks = _tag_error_groups(signed, tail_fraction)
-    # Signed residual on the y_true - y_pred convention: > 0 in a segment => model UNDER-predicts there (truth above
-    # prediction), < 0 => OVER-predicts. This is the per-segment bias direction the title/annotations report. (Note the
-    # OVER/UNDER GROUP tagging above uses y_pred - y_true; the segment-bias readout below uses the residual convention so
-    # the "positive => UNDER-predict" rule the user asked for holds.)
-    resid_signed = _as_float_1d(y_true) - _as_float_1d(y_pred)
-
-    missing_features: List[str] = []
-    if features is not None:
-        missing_features = [f for f in features if f not in names]
-        sel = [names.index(f) for f in features if f in names]
-    else:
-        sel = list(range(min(max_features, len(names))))
-    missing_note = f"\nrequested features not found, skipped: {', '.join(missing_features)}" if missing_features else ""
-
-    # Densify ONLY the selected columns over all rows -- the overlay touches at most ``max_features`` (default 4) of
-    # what can be a several-hundred-column frame, so building the whole dense matrix here just to discard all but
-    # ``sel`` is wasted O(n*cols) work. Column pull is bit-identical to ``_resolve_feature_matrix(X)[:, j]``.
-    all_rows = np.arange(_row_count(X), dtype=np.int64)
-    col_vals = _pull_columns_at_rows(X, sel, all_rows)
-
-    group_colors = {"OVER": "#d62728", "UNDER": "#1f77b4", "MAJORITY": "#7f7f7f"}
-    panels: List[PanelSpec] = []
-    rows: Dict[str, List[float]] = {g: [] for g in ("OVER", "UNDER", "MAJORITY")}
-    feat_index: List[str] = []
-    # Track the single worst-bias segment across every feature for the figure title: (|mean signed resid|, signed text).
-    global_worst_abs = -1.0
-    global_worst_text = ""
-
-    for j in sel:
-        col = col_vals[j]
-        finite = np.isfinite(col)
-        cf = col[finite]
-        if cf.size == 0:
-            continue
-        try:
-            edges = np.histogram_bin_edges(cf, bins=nbins)
-        except ValueError:
-            # A near-constant finite column (e.g. an MLP-engineered feature with ~zero variance) has a range so
-            # tiny that numpy can't carve it into ``nbins`` distinct finite-precision edges -- raises "Too many
-            # bins for data range" (caught live via a fuzz combo with mlp in the model mix). This one feature's
-            # bias panel isn't meaningful anyway (no spread to bin), so skip it rather than aborting the whole
-            # diagnostic (best-effort, matches every other panel in this dispatcher).
-            continue
-        centers = (edges[:-1] + edges[1:]) / 2.0
-        series: List[np.ndarray] = []
-        labels: List[str] = []
-        cols: List[str] = []
-        for g in ("OVER", "UNDER", "MAJORITY"):
-            gvals = col[masks[g] & finite]
-            dens, _ = np.histogram(gvals, bins=edges, density=True)
-            series.append(dens)
-            labels.append(g)
-            cols.append(group_colors[g])
-            rows[g].append(float(gvals.mean()) if gvals.size else float("nan"))
-        feat_index.append(names[j])
-
-        # Per-segment signed-residual bias: bin this feature's values, take the mean residual (y_true - y_pred) in each
-        # bin. The segment with the largest |mean residual| is the model's worst-bias slice for this feature; its sign
-        # tells direction (> 0 UNDER-predict, < 0 OVER-predict). Aggregated O(n) via two bincounts, no per-row Python.
-        bin_idx = np.clip(np.digitize(col[finite], edges[1:-1]), 0, len(centers) - 1)
-        nbin = len(centers)
-        cnt = np.bincount(bin_idx, minlength=nbin).astype(np.float64)
-        ssum = np.bincount(bin_idx, weights=resid_signed[finite], minlength=nbin)
-        with np.errstate(invalid="ignore", divide="ignore"):
-            seg_bias = np.where(cnt > 0, ssum / np.where(cnt > 0, cnt, 1.0), np.nan)
-        worst_b = int(np.nanargmax(np.where(np.isfinite(seg_bias), np.abs(seg_bias), -np.inf))) if np.isfinite(seg_bias).any() else -1
-        if worst_b >= 0:
-            wb = float(seg_bias[worst_b])
-            direction = "UNDER-predicts" if wb > 0 else "OVER-predicts"
-            seg_lo, seg_hi = float(edges[worst_b]), float(edges[worst_b + 1])
-            worst_note = f"worst-bias segment: {names[j]} in [{seg_lo:.3g}, {seg_hi:.3g}] -> model {direction} (mean resid {wb:+.3g})"
-            if abs(wb) > global_worst_abs:
-                global_worst_abs = abs(wb)
-                global_worst_text = f"{names[j]} in [{seg_lo:.3g}, {seg_hi:.3g}] {direction} (resid {wb:+.3g})"
-        else:
-            worst_note = "worst-bias segment: n/a"
-
-        panels.append(LinePanelSpec(
-            x=centers,
-            y=tuple(series),
-            series_labels=tuple(labels),
-            colors=tuple(cols),
-            line_styles=("-", "-", "--"),
-            title=f"{names[j]} value distribution by error group\n{worst_note}",
-            xlabel=names[j],
-            ylabel="Density",
-        ))
-
-    group_means = pd.DataFrame(
-        {g: rows[g] for g in ("OVER", "UNDER", "MAJORITY")},
-        index=feat_index,
-    )
-    if not panels:
-        # No usable feature (all-NaN columns, zero features, or none selected); an empty grid would crash the renderer.
-        ann = AnnotationPanelSpec(text=f"{title}\n(no usable feature columns){missing_note}", title=title)
-        return ErrorBiasResult(FigureSpec(suptitle=title + missing_note, panels=((ann,),), figsize=(8.0, 3.0)), group_means, masks)
-    grid = pack_panels(panels, max_cols=2)
-    n_rows = len(grid)
-    worst_line = f"Worst-bias segment overall: {global_worst_text}" if global_worst_text else "Worst-bias segment overall: n/a"
-    suptitle = f"{title}\nSigned residual = y_true - y_pred; > 0 in a segment => model UNDER-predicts there, < 0 => OVER-predicts.\n" f"{worst_line}{missing_note}"
-    fig = FigureSpec(
-        suptitle=suptitle,
-        panels=grid,
-        figsize=figsize_for_grid(max(n_rows, 1), 2, cell_width=6.0, cell_height=4.0),
-    )
-    return ErrorBiasResult(fig, group_means, masks)
-
-
-def _split_arrays(
-    values: np.ndarray,
-    split_labels: Sequence[Any],
-) -> Dict[str, np.ndarray]:
-    """Group a flat value array by its per-row split label, preserving label order of first appearance."""
-    vals = np.asarray(values)
-    labels = np.asarray(split_labels)
-    out: Dict[str, np.ndarray] = {}
-    for lab in dict.fromkeys(labels.tolist()):
-        out[str(lab)] = vals[labels == lab]
-    return out
-
-
-def _common_edges(groups: Dict[str, np.ndarray], nbins: int) -> Optional[np.ndarray]:
-    """Shared histogram edges across all split groups so overlaid densities are comparable. None when no finite data."""
-    finite_min = np.inf
-    finite_max = -np.inf
-    for arr in groups.values():
-        a = _as_float_1d(arr)
-        a = a[np.isfinite(a)]
-        if a.size:
-            finite_min = min(finite_min, float(a.min()))
-            finite_max = max(finite_max, float(a.max()))
-    if not np.isfinite(finite_min) or finite_max <= finite_min:
-        if np.isfinite(finite_min):
-            return np.linspace(finite_min, finite_min + 1.0, nbins + 1)
-        return None
-    return np.linspace(finite_min, finite_max, nbins + 1)
-
-
-def _density_overlay_panel(
-    groups: Dict[str, np.ndarray],
-    *,
-    nbins: int,
-    title: str,
-    xlabel: str,
-    train_key: Optional[str],
-) -> PanelSpec:
-    """Overlaid per-split density histograms on shared edges, with p01/p99 vlines and train-envelope shading.
-
-    All binning is ``np.histogram`` on shared edges (O(n) per split); the curve is the bin centres so it stays at
-    ``nbins`` vertices regardless of row count. cProfile at 2.9M total rows: ~120 ms, all in ``np.histogram`` bin
-    search + the single train ``np.percentile`` partition -- no actionable speedup, this is the aggregate floor.
-    """
-    # Imported function-locally (not at module top) so this chart submodule does not pull in the ``mlframe.reporting``
-    # package surface at load time -- that back-edge closes the whole reporting.charts facade into one import SCC.
-    from mlframe.reporting import colors as _colors
-
-    edges = _common_edges(groups, nbins)
-    if edges is None:
-        from mlframe.reporting.spec import AnnotationPanelSpec
-        return AnnotationPanelSpec(text=f"{title}\n(no finite data)", title=title)
-    centers = (edges[:-1] + edges[1:]) / 2.0
-    series: List[np.ndarray] = []
-    labels: List[str] = []
-    cols: List[str] = []
-    for i, (lab, arr) in enumerate(groups.items()):
-        a = _as_float_1d(arr)
-        a = a[np.isfinite(a)]
-        dens, _ = np.histogram(a, bins=edges, density=True) if a.size else (np.zeros(len(centers)), edges)
-        series.append(dens)
-        labels.append(f"{lab} (mean={a.mean():.3g})" if a.size else f"{lab} (empty)")
-        cols.append(_colors.line_color(i))
-
-    vlines = None
-    vspans = None
-    if train_key is not None and train_key in groups:
-        tr = _as_float_1d(groups[train_key])
-        tr = tr[np.isfinite(tr)]
-        if tr.size:
-            p01, p99 = float(np.percentile(tr, 1)), float(np.percentile(tr, 99))
-            vlines = ((p01, "gray", "train p01"), (p99, "gray", "train p99"))
-            vspans = ((p01, p99, "gray", 0.08),)
-    return LinePanelSpec(
-        x=centers,
-        y=tuple(series),
-        series_labels=tuple(labels),
-        colors=tuple(cols),
-        title=title,
-        xlabel=xlabel,
-        ylabel="Density",
-        vlines=vlines,
-        vspans=vspans,
-    )
-
-
-def _classrate_panel(
-    groups: Dict[str, np.ndarray],
-    *,
-    title: str,
-    xlabel: str,
-) -> PanelSpec:
-    """Per-split class-rate grouped bars: one bar group per class, one bar per split. Aggregate via bincount."""
-    classes = np.unique(np.concatenate([np.asarray(a).ravel() for a in groups.values() if len(a)])) if any(len(a) for a in groups.values()) else np.array([0])
-    class_index = {c: i for i, c in enumerate(classes)}
-    rate_series: List[np.ndarray] = []
-    split_labels: List[str] = []
-    for lab, arr in groups.items():
-        a = np.asarray(arr).ravel()
-        rates = np.zeros(len(classes), dtype=np.float64)
-        if a.size:
-            for c, cnt in zip(*np.unique(a, return_counts=True)):
-                rates[class_index[c]] = cnt / a.size
-        rate_series.append(rates)
-        split_labels.append(str(lab))
-    return BarPanelSpec(
-        categories=tuple(f"class {c:g}" if np.issubdtype(type(c), np.number) else str(c) for c in classes),
-        values=tuple(rate_series),
-        series_labels=tuple(split_labels),
-        title=title,
-        xlabel=xlabel,
-        ylabel="Class rate",
-    )
-
-
-def _target_drift_verdict(
-    y_true_by_split: Dict[str, np.ndarray],
-    *,
-    train_key: str,
-    task: str,
-) -> str:
-    """One-line distribution-shift verdict: how far each non-train split's target mean drifts from train.
-
-    Material drift is flagged when |mean(split) - mean(train)| exceeds 0.25 * train_std (a quarter of a standard
-    deviation -- a conventional "small but real" effect size). Classification means are class-1 rates (base-rate drift).
-    Returns a reader-facing sentence appended to the figure title so a train/val/test target shift is called out, not
-    just drawn.
-    """
-    if train_key not in y_true_by_split:
-        return "Distribution-shift check: no 'train' split provided -> cannot compare drift."
-    tr = _as_float_1d(y_true_by_split[train_key])
-    tr = tr[np.isfinite(tr)]
-    if tr.size == 0:
-        return "Distribution-shift check: train split empty -> cannot compare drift."
-    tr_mean = float(tr.mean())
-    tr_std = float(tr.std()) if task != "classification" else 1.0
-    thr = 0.25 * tr_std if tr_std > 0 else 0.0
-    parts: List[str] = []
-    flagged: List[str] = []
-    excluded: List[str] = []
-    for lab, arr in y_true_by_split.items():
-        if lab == train_key:
-            continue
-        a = _as_float_1d(arr)
-        a = a[np.isfinite(a)]
-        if a.size == 0:
-            excluded.append(lab)
-            continue
-        shift = float(a.mean()) - tr_mean
-        parts.append(f"{lab} {shift:+.3g}")
-        if thr > 0 and abs(shift) > thr:
-            flagged.append(lab)
-    excluded_note = f" (split(s) empty/all-NaN, excluded from drift check: {', '.join(excluded)})" if excluded else ""
-    if not parts:
-        if excluded:
-            return f"Distribution-shift check: no usable non-train split{excluded_note} -> cannot compare drift."
-        return "Distribution-shift check: only the train split present -> no drift to assess."
-    scale = " (vs train, in target units; >0.25*train_std flagged)" if task != "classification" else " (class-1 rate shift vs train)"
-    head = f"Mean shift{scale}: " + ", ".join(parts) + f"; train mean={tr_mean:.3g}.{excluded_note}"
-    if flagged:
-        return head + f" WARNING: {', '.join(flagged)} drift materially from train -> distribution-shift risk; holdout metrics may not transfer."
-    return head + " No material drift from train."
-
-
-def target_dist_overlay(
-    y_true_by_split: Dict[str, np.ndarray],
-    *,
-    pred_by_split: Optional[Dict[str, np.ndarray]] = None,
-    task: str = "regression",
-    nbins: int = DEFAULT_OVERLAY_BINS,
-    train_key: str = "train",
-    title: str = "Target & prediction distribution by split",
-) -> FigureSpec:
-    """Overlaid per-split distributions of y AND of predictions (R-3 / INV-11).
-
-    ``y_true_by_split`` / ``pred_by_split`` map a split name ("train"/"val"/"test"/"oof") to its value array. For
-    regression each panel overlays per-split density histograms with the train p01/p99 vlines + a shaded train
-    envelope, so a train/test target shift is visible as separated curves. For classification each panel shows
-    per-split class-rate grouped bars. The prediction panel naturally carries the OOF-vs-test prediction overlay
-    when both keys are present. All binning is ``np.histogram`` / ``bincount`` (O(n)); curves stay at ``nbins``
-    vertices regardless of row count.
-    """
-    panels: List[PanelSpec] = []
-    drift_line = _target_drift_verdict(y_true_by_split, train_key=train_key, task=task)
-    if task == "classification":
-        panels.append(_classrate_panel(y_true_by_split, title="Target class rate by split", xlabel="class"))
-        if pred_by_split:
-            panels.append(_classrate_panel(pred_by_split, title="Prediction class rate by split", xlabel="class"))
-    else:
-        panels.append(_density_overlay_panel(
-            y_true_by_split, nbins=nbins, title="Target (y) distribution by split",
-            xlabel="y", train_key=train_key,
-        ))
-        if pred_by_split:
-            panels.append(_density_overlay_panel(
-                pred_by_split, nbins=nbins, title="Prediction distribution by split (incl. OOF vs test)",
-                xlabel="prediction", train_key=train_key if train_key in pred_by_split else None,
-            ))
-    grid = pack_panels(panels, max_cols=2)
-    return FigureSpec(
-        suptitle=f"{title}\n{drift_line}",
-        panels=grid,
-        figsize=figsize_for_grid(1, max(len(panels), 1), cell_width=7.0, cell_height=4.5),
-    )
-
+# Re-exported so every existing import keeps working; at the BOTTOM because the sibling imports this
+# module's feature-resolution helpers back.
+# _signed_error and _tag_error_groups are imported from HERE by tests/reporting/test_charts_error_analysis.py,
+# so the carve keeps them reachable at their old home.
+from ._error_bias import (  # noqa: F401
+    ErrorBiasResult,
+    _signed_error,
+    _tag_error_groups,
+    error_bias_per_feature,
+)
 
 __all__ = [
     "WeakSegmentResult",

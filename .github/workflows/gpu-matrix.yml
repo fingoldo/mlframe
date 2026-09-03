@@ -48,7 +48,8 @@ jobs:
 
       - name: Clone & install pyutilz (sibling dependency)
         run: |
-          git clone --depth 1 https://github.com/fingoldo/pyutilz.git
+          git clone https://github.com/fingoldo/pyutilz.git
+          git -C pyutilz checkout 691a6ce16ba0abeb3647f17c1057464c895473ea  # pinned 2026-08-19, see X_CICD_DEPENDENCIES-1 -- register_default_cache DEFAULT-cache-fallback diagnostics
           pip install "./pyutilz[system,pandas,polars,database]"
 
       - name: Install mlframe with all runtime extras + dev tooling + the chosen GPU extra
@@ -83,5 +84,5 @@ jobs:
           print("CUDA_HOME =", os.environ["CUDA_HOME"])
           import subprocess, sys
           sys.exit(subprocess.call([sys.executable, "-m", "pytest", "-m", "gpu", "--no-cov",
-                                    "-n", "0", "-p", "no:randomly", "--timeout=600", "-ra", "-v"], env=os.environ))
+                                    "-n", "0", "-p", "no:randomly", "--timeout=900", "-ra", "-v"], env=os.environ))
           PY

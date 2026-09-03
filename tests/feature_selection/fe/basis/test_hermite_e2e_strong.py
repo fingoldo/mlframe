@@ -61,7 +61,7 @@ def _build_xor_problem(n: int = 2000, seed: int = 42):
 class TestHermiteE2EStrong:
     """Drive the full Hermite pipeline and pin the recipe survival path."""
 
-    @pytest.mark.timeout(600)
+    @pytest.mark.timeout(900)
     def test_optimiser_finds_xor_and_recipe_persists(self) -> None:
         """The most directly testable path: optimise_hermite_pair on a XOR
         problem must return a usable HermiteResult; the recipe build/apply
@@ -110,7 +110,7 @@ class TestHermiteE2EStrong:
         # Dynamic range > 0 -> the recipe is not collapsed to a constant.
         assert float(out.std()) > 1e-6, f"replay output is near-constant (std={out.std()}); polynomial collapsed during replay"
 
-    @pytest.mark.timeout(600)
+    @pytest.mark.timeout(900)
     def test_engineered_column_has_higher_mi_than_raw(self) -> None:
         """biz_value: the Hermite-engineered column must carry more signal
         about y than any individual raw feature. This is the whole reason

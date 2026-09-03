@@ -279,18 +279,51 @@ def _host_cpu_contended(min_other_python_procs: int = 5) -> bool:
         return False
 
 
-def perf_time_budget(base_seconds: float, *, xdist_factor: float = 4.0, contention_factor: float = 4.0) -> float:
+def perf_time_budget(base_seconds: float, *, xdist_factor: float = 4.0, contention_factor: float = 4.0, numba_disabled_factor: float = 10.0) -> float:
     """Wall-clock time budgets are unreliable under parallel contention: a 2h full-suite run can starve any one
     worker for seconds, so a quiet-box budget that is correct standalone flakes under load. Multiply the budget when
     running under xdist, OR when system-wide CPU load indicates other concurrent processes (e.g. sibling worktree
     sessions on this shared machine) are contending for the same cores, so it still trips on a gross
     (order-of-magnitude) regression without flaking on transient scheduler stalls; a genuinely quiet box keeps the
-    tight budget. Use for absolute ``elapsed <= budget`` assertions."""
+    tight budget. Use for absolute ``elapsed <= budget`` assertions.
+
+    Also widens under ``NUMBA_DISABLE_JIT=1`` (the nightly numba-coverage.yml job, which disables JIT so coverage.py
+    can see inside @njit bodies): kernel-heavy code runs 10-1000x slower interpreted, per that workflow's own
+    comments and ``numba_disabled_timeout``'s docstring above -- a tight budget tuned for the compiled path
+    otherwise fails every kernel-heavy perf test on every nightly run regardless of a real regression. Multiplies
+    on top of (not instead of) the xdist/contention widening -- both slowdowns are real and independent."""
+    budget = base_seconds
     if running_under_xdist():
-        return base_seconds * xdist_factor
-    if _host_cpu_contended():
-        return base_seconds * contention_factor
+        budget *= xdist_factor
+    elif _host_cpu_contended():
+        budget *= contention_factor
+    if os.environ.get("NUMBA_DISABLE_JIT") == "1":
+        budget *= numba_disabled_factor
+    return budget
+
+
+def numba_disabled_timeout(base_seconds: int, *, factor: int = 4) -> int:
+    """Widen a ``@pytest.mark.timeout(...)`` value when running under ``NUMBA_DISABLE_JIT=1``.
+
+    The nightly ``numba-coverage.yml`` job runs these same test files with numba JIT compilation
+    disabled (so coverage.py can see inside ``@njit`` bodies) -- kernel-heavy tests run 10-1000x
+    slower there than under normal JIT (see that workflow's own comments), so a tight explicit
+    timeout override tuned for the fast (JIT-enabled) path can time out a test that is otherwise
+    completely healthy. Evaluated once at collection time (module import), matching how
+    ``@pytest.mark.timeout`` itself consumes a module-level constant.
+    """
+    if os.environ.get("NUMBA_DISABLE_JIT") == "1":
+        return base_seconds * factor
     return base_seconds
+
+
+skip_under_numba_disabled_jit = pytest.mark.skipif(
+    os.environ.get("NUMBA_DISABLE_JIT") == "1",
+    reason="meaningless under NUMBA_DISABLE_JIT=1: numba-vs-numpy speedup ratios and JIT-cache-artifact "
+    "checks have no valid answer once compilation itself is disabled -- widening (perf_time_budget's "
+    "own approach for wall-clock budgets) doesn't apply here since there is no amount of extra time "
+    "that makes an uncompiled loop faster than numpy or produces a .nbi/.nbc cache file.",
+)
 
 
 def perf_speedup_floor(base_ratio: float, *, xdist_factor: float = 0.6) -> float:
@@ -301,6 +334,23 @@ def perf_speedup_floor(base_ratio: float, *, xdist_factor: float = 0.6) -> float
     if not running_under_xdist():
         return base_ratio
     return max(1.0, base_ratio * xdist_factor)
+
+
+def skip_if_host_contended(reason: str = "relative-speed assertion is unreliable under detected host contention") -> None:
+    """Skip the calling test outright when running under xdist OR when sibling python processes indicate host
+    contention (see ``_host_cpu_contended``).
+
+    ``perf_speedup_floor`` already relaxes a speedup-ratio floor down to 1.0x under contention -- but 1.0x is
+    the mathematical floor for a "must be faster" claim: a genuinely reversed ratio (the fast arm measuring
+    SLOWER than the baseline under heavy scheduler noise) has no lower floor left to relax to, and a two-arm
+    back-to-back measurement of a small (sub-second) operation is exactly the shape most sensitive to a single
+    scheduling stall landing on one arm and not the other. For that class of test, skipping under detected
+    contention (rather than flaking red) is the honest response: the assertion is un-measurable right now, not
+    failing. Prefer ``perf_speedup_floor``/``perf_time_budget`` (which still assert, just relaxed) wherever the
+    floor has room left; reach for this only once the floor is already pinned at its minimum.
+    """
+    if running_under_xdist() or _host_cpu_contended():
+        pytest.skip(reason)
 
 
 @pytest.fixture(autouse=True)
@@ -319,6 +369,34 @@ def _reset_kernel_tuning_singleton():
     if _ktc is not None:
         try:
             _ktc._DEFAULT_INSTANCE = None
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
+            pass
+
+
+@pytest.fixture(autouse=True)
+def _snapshot_restore_default_tuning_cache():
+    """Snapshot/restore ``pyutilz``'s process-global ``_DEFAULT_CACHE`` singleton around every test.
+
+    ``register_default_cache()`` unconditionally reassigns this module attribute (used by every
+    ``KernelTuningCache.get_or_tune`` call's on-miss ``_fb()`` layer), and -- unlike
+    ``_DEFAULT_INSTANCE`` above -- nothing was resetting it between tests. mlframe's own
+    ``_register_default_tuning_cache()`` (module-import-time, see ``_kernel_tuning.py``) sets it
+    ONCE per worker process to the real production default; any test that calls
+    ``register_default_cache()`` with test-local data (e.g. ``test_gen_default_tuning.py``) was
+    permanently overwriting that production default for every OTHER test sharing the same xdist
+    worker for the rest of the process's life -- a genuine "never rebind a module singleton without
+    snapshot/restore" test-pollution bug (this session's own standing rule), not a timing flake.
+    Save/restore (not reset-to-None) so tests that don't touch it see no change, and the ambient
+    production default is preserved for everyone else."""
+    try:
+        from pyutilz.performance.kernel_tuning import cache as _ktc_cache
+    except Exception:
+        _ktc_cache = None
+    _prev = getattr(_ktc_cache, "_DEFAULT_CACHE", None) if _ktc_cache is not None else None
+    yield
+    if _ktc_cache is not None:
+        try:
+            _ktc_cache._DEFAULT_CACHE = _prev
         except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
 

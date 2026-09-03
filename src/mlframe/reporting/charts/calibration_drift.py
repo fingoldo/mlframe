@@ -26,7 +26,8 @@ import numpy as np
 
 from mlframe.metrics.calibration import compute_ece_debiased
 from mlframe.metrics.calibration import fast_calibration_binning
-from mlframe.reporting.spec import FigureSpec, LinePanelSpec
+from mlframe.reporting.charts._calibration_chart_shared import null_ece_scale
+from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, LinePanelSpec
 
 # Below this per-window count the ECE estimate is too noisy to trust; the window's ECE is set to NaN
 # (the renderer skips it) rather than reporting a spuriously-large miscalibration off a handful of rows.
@@ -157,7 +158,10 @@ def calibration_drift(
         lo, hi = int(edges[w]), int(edges[w + 1])
         cnt = hi - lo
         counts[w] = cnt
-        # Window center = time midpoint of its samples (first/last in the sorted slice); robust for datetime + numeric.
+        # Window centre = the MEDIAN timestamp of its samples (the middle element of the sorted slice), not the
+        # midpoint between its first and last. On clumped timestamps -- a burst of rows in one hour inside an
+        # otherwise sparse day -- the two differ materially, and the median is what places the point where the
+        # window's data actually is. Works for datetime and numeric alike, since it selects rather than averages.
         centers[w] = ts_sorted[lo + cnt // 2] if cnt > 0 else ts_sorted[min(lo, n - 1)]
         if cnt < MIN_WINDOW_SAMPLES:
             n_excluded += 1
@@ -215,9 +219,11 @@ def build_calibration_drift_spec(
 ) -> FigureSpec:
     """Build the calibration-drift FigureSpec from a ``CalibrationDriftResult``.
 
-    Top panel: ECE-over-time line (``x_is_time`` when the window centers are datetimes), with a band
-    at the irreducible noise floor and a vertical marker on the worst (highest-ECE) window so the eye
-    lands on the worst regime. Optional second panel: small-multiple reliability curves (one series per
+    Top panel: ECE-over-time line (``x_is_time`` when the window centers are datetimes), with a shaded band
+    at the irreducible per-window noise floor and a vertical marker on the worst (highest-ECE) window so the
+    eye lands on the worst regime. The band is what makes the line readable: ECE is a mean ABSOLUTE deviation,
+    so a perfectly calibrated window still scores above zero and the amount depends on how many rows it holds.
+    Movement INSIDE the band is sample size, not drift. Optional second panel: small-multiple reliability curves (one series per
     window, decimated to ``max_curve_panels`` evenly-spaced windows) sharing the perfect diagonal.
     """
     x = result.window_centers
@@ -225,18 +231,46 @@ def build_calibration_drift_spec(
     x_is_time = np.issubdtype(np.asarray(x).dtype, np.datetime64)
 
     finite = np.isfinite(ece)
+    if not finite.any():
+        return FigureSpec(
+            suptitle="",
+            panels=((AnnotationPanelSpec(
+                text=(f"Calibration drift unavailable: all {result.n_windows} time windows were excluded (each "
+                      "holds fewer rows than the per-window floor), so no ECE could be computed. A trend of zero "
+                      "here would be an artefact of the exclusions, not a stable model."),
+                title=title,
+            ),),),
+            figsize=figsize,
+        )
+    usable = result.n_windows - result.n_excluded_windows
+    usable_note = f"; {usable} of {result.n_windows} windows usable"
+    if result.usable_window_fraction < 0.5:
+        usable_note += " -- under half the timeline is monitored, so the trend is thinly supported"
     vlines: Optional[Tuple[Tuple[Any, str, str], ...]] = None
     if finite.any():
         worst_local = int(np.nanargmax(np.where(finite, ece, -np.inf)))
         vlines = ((x[worst_local], "red", f"worst window (ECE={ece[worst_local]:.3f})"),)
 
+    # The noise floor the docstring promised: per-window counts are already on the result, so the band costs
+    # one vectorised call. Without it a reader cannot tell a genuinely drifting window from a thin one.
+    band = None
+    counts = np.asarray(getattr(result, "window_counts", ()), dtype=np.float64)
+    prevalence = float(result.base_rate)
+    if counts.size == ece.shape[0] and counts.size:
+        floor = np.array([null_ece_scale(int(c), prevalence, int(result.n_bins)) for c in counts])
+        floor = np.where(np.isfinite(floor), floor, np.nan)
+        band = (np.zeros_like(floor), floor)
+
     ece_line = LinePanelSpec(
         x=np.asarray(x),
         y=ece,
+        band=band,
+        band_color="#bbbbbb",
+        band_label="per-window noise floor (perfect calibration still scores here)",
         series_labels=("ECE",),
-        title=f"{title} (trend {result.ece_trend:+.3f})",
+        title=f"{title} (trend {result.ece_trend:+.3f}{usable_note})",
         xlabel="time" if x_is_time else "window",
-        ylabel="ECE (miscalibration)",
+        ylabel="ECE (miscalibration; lower is better)",
         line_styles=("lines+markers",),
         colors=("crimson",),
         vlines=vlines,
@@ -244,20 +278,64 @@ def build_calibration_drift_spec(
     )
 
     if not (show_reliability_curves and result.reliability_curves):
-        return FigureSpec(suptitle="", panels=((ece_line,),), figsize=figsize)
+        return FigureSpec(
+            suptitle="", panels=((ece_line,),), figsize=figsize,
+            caption=(
+                "How to read: ECE is a mean ABSOLUTE miscalibration, so a perfectly calibrated window still scores "
+                "above zero by an amount set by its row count -- the grey band is that floor, and movement INSIDE it "
+                "is sample size, not drift. A window climbing clear of the band is a regime the model's probabilities "
+                "no longer fit, which is a retraining trigger rather than a ranking problem: AUC can be unchanged "
+                "while this rises."
+            ),
+        )
 
     rel_panel = _reliability_small_multiple(result, max_curve_panels=max_curve_panels)
     if rel_panel is None:
-        return FigureSpec(suptitle="", panels=((ece_line,),), figsize=figsize)
+        return FigureSpec(
+            suptitle="", panels=((ece_line,),), figsize=figsize,
+            caption=(
+                "How to read: ECE is a mean ABSOLUTE miscalibration, so a perfectly calibrated window still scores "
+                "above zero by an amount set by its row count -- the grey band is that floor, and movement INSIDE it "
+                "is sample size, not drift. A window climbing clear of the band is a regime the model's probabilities "
+                "no longer fit, which is a retraining trigger rather than a ranking problem: AUC can be unchanged "
+                "while this rises."
+            ),
+        )
     # constrained_layout reserves space between the rows so the top panel's rotated date x-tick labels do not
     # collide with the bottom panel's title; extra height gives both panels room once that gap is reserved.
     return FigureSpec(
         suptitle="",
         panels=((ece_line,), (rel_panel,)),
+        caption=(
+            "How to read: ECE is a mean ABSOLUTE miscalibration, so a perfectly calibrated window still scores "
+            "above zero by an amount set by its row count -- the grey band is that floor, and movement INSIDE it "
+            "is sample size, not drift. A window climbing clear of the band is a regime the model's probabilities "
+            "no longer fit, which is a retraining trigger rather than a ranking problem: AUC can be unchanged "
+            "while this rises."
+        ),
         figsize=(figsize[0], figsize[1] * 2.0),
         row_height_ratios=(1.0, 1.2),
         constrained_layout=True,
     )
+
+
+def _window_label(result: Any, i: int) -> str:
+    """Human label for window ``i``: its centre (a date when the axis is datetime) plus its row count."""
+    try:
+        centre = np.asarray(result.window_centers)[i]
+    except (IndexError, AttributeError, TypeError):
+        return f"w{i}"
+    if isinstance(centre, np.datetime64):
+        centre_txt = str(centre.astype("datetime64[D]"))
+    else:
+        try:
+            centre_txt = f"{float(centre):.4g}"
+        except (TypeError, ValueError):
+            centre_txt = str(centre)
+    counts = np.asarray(getattr(result, "window_counts", ()), dtype=np.float64)
+    if counts.size > i and np.isfinite(counts[i]):
+        return f"{centre_txt} (n={int(counts[i]):,})"
+    return centre_txt
 
 
 def _reliability_small_multiple(
@@ -287,7 +365,9 @@ def _reliability_small_multiple(
         fp, ftr = curves[i]
         series_x.append(np.asarray(fp, dtype=np.float64))
         series_y.append(np.asarray(ftr, dtype=np.float64))
-        labels.append(f"w{i}")
+        # Label with the window's own centre, not a bare index: "w3" cannot be mapped back to a period, which
+        # is the entire question this module exists to answer.
+        labels.append(_window_label(result, i))
         styles.append("lines+markers")
 
     return LinePanelSpec(

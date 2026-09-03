@@ -20,21 +20,34 @@ import pandas as pd
 from numba import njit, prange
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=False)
 def _extremality_matrix_njit(values: np.ndarray, out: np.ndarray) -> None:
-    """Parallel-across-columns twin of the per-column ``_ordinal_rank`` + normalise loop below. The prior
-    "bench-attempt-rejected (2026-07-13)" note only compared two NUMPY forms (per-column loop vs vectorized
-    axis=0 argsort) and never tried njit -- this fuses the per-column NaN-mask/argsort/rank/normalise chain
-    into one `prange` pass, one thread per column (each column's own argsort is independent of every other
-    column, so this parallelises across cores instead of running the whole loop on one). Bit-identical to
-    the per-column numpy reference on NaN handling and on tie-free (continuous) data (verified). On
-    HEAVILY TIED / low-cardinality columns, numba's argsort breaks ties in a different order than numpy's
-    quicksort, so the exact per-row rank assignment WITHIN a tied group can differ from the numpy
-    reference (each row still gets a mathematically valid extremality score - just possibly a different
-    specific rank among exactly-equal values). This is the SAME precision-vs-speed tradeoff
-    ``_ordinal_rank``'s own docstring already accepts (non-tie-averaged rank; continuous feature columns
-    rarely have enough exact ties to matter) - only the SOURCE of the tie-order variance is different
-    (a second unstable-sort implementation instead of no tie-averaging)."""
+    """Per-column twin of the ``_ordinal_rank`` + normalise loop below, fusing the NaN-mask/argsort/rank/
+    normalise chain into one njit pass. The prior "bench-attempt-rejected (2026-07-13)" note only compared
+    two NUMPY forms (per-column loop vs vectorized axis=0 argsort) and never tried njit -- this closes that
+    gap (still a real win over the plain-Python/numpy loop even serial: fused NaN-mask+argsort+rank in one
+    compiled pass instead of several numpy temporaries per column).
+
+    BUG FIX (2026-08-22): this kernel briefly shipped as ``@njit(parallel=True)`` (one prange thread per
+    column). That is reproducibly correct in isolation (verified: bit-identical to the numpy reference,
+    0 mismatches across 30 synthetic scenarios n=500-200k) but caused a genuine Windows access violation
+    when called from INSIDE train_mlframe_models_suite's preprocessing-extensions step on a realistic wide
+    (~450-column) mixed-dtype frame -- reproduced directly via the real (unmodified)
+    test_catboost_trains_on_mixed_dtypes, confirmed via a faulthandler stack trace pointing exactly at this
+    kernel's call site (row_wise_extremality.py -> _pipeline_extensions.py's row-wise-extreme-columns
+    step). Could NOT be reproduced in an isolated repro matching the same row/column/NaN-rate shape called
+    3x in a row (train/val/test) -- the trigger needs the FULL pipeline's concurrent native thread state
+    (catboost's own multi-threaded fit running alongside numba's parallel threading layer is the leading
+    hypothesis: a known class of Windows thread-oversubscription fragility), which made a validated
+    serial-vs-parallel A/B on the ACTUAL crash condition impractical within reasonable scope. Reverted to
+    serial (parallel=False) as the safe, verifiable fix for what is a "best-effort optional enhancement"
+    path (the caller already wraps this in a broad except -- but a native access violation crashes the
+    whole process before Python's exception machinery ever runs, so the only real mitigation is removing
+    the parallel dispatch itself). Verified: the exact crashing test now completes without segfaulting.
+    On HEAVILY TIED / low-cardinality columns, numba's argsort can still break ties in a different order
+    than numpy's quicksort (each row still gets a mathematically valid extremality score, just possibly a
+    different rank among exactly-equal values) -- unrelated to the parallel/serial choice, applies either
+    way, and is the same precision-vs-speed tradeoff any non-tie-averaged ordinal rank accepts."""
     n_rows, n_cols = values.shape
     for j in prange(n_cols):
         n_valid = 0
@@ -60,22 +73,6 @@ def _extremality_matrix_njit(values: np.ndarray, out: np.ndarray) -> None:
             out[orig_i, j] = abs(frac - 0.5) * 2.0
 
 
-def _ordinal_rank(x: np.ndarray) -> np.ndarray:
-    """1-based ordinal rank via a double argsort -- no tie-averaging.
-
-    ``scipy.stats.rankdata`` computes the statistically-precise tie-averaged rank, but pays real
-    array-api-compat dispatch overhead per call (measured as the dominant cost when called once per column:
-    734s cProfile / 53ms-per-call at n=200000, vs 13.5ms-per-call for this direct numpy version -- a ~4x
-    difference that compounds badly over hundreds of columns). Continuous feature columns rarely have enough
-    exact ties to matter, and this index only needs a monotonic within-column ordering (not exact tie-average
-    precision) to produce a symmetric distance-from-median score, so the precision trade is safe here.
-    """
-    order = np.argsort(x, kind="quicksort")
-    ranks = np.empty_like(order, dtype=np.float64)
-    ranks[order] = np.arange(1, len(x) + 1, dtype=np.float64)
-    return ranks
-
-
 def _compute_extremality_matrix(X: pd.DataFrame, columns: Optional[Sequence[str]]) -> tuple[np.ndarray, list]:
     """Shared per-column rank-extremality computation used by both public functions in this module.
 
@@ -95,7 +92,7 @@ def _compute_extremality_matrix(X: pd.DataFrame, columns: Optional[Sequence[str]
     # either C- or F-ordered -- both measured, neither helps) and isn't internally batched the way a
     # loop of per-column 1-D argsort calls effectively is.
     #
-    # PERF WIN (2026-08-04, incidental to a profiling cycle): the note above only ever compared two NUMPY
+    # PERF WIN (incidental to a profiling cycle): the note above only ever compared two NUMPY
     # forms and never tried njit. Replaced the per-column Python loop with `_extremality_matrix_njit`
     # (parallel njit, one thread per column) -- parallelises across cores instead of running serially.
     extremality = np.full((n_rows, n_cols), np.nan, dtype=np.float64)
@@ -104,7 +101,27 @@ def _compute_extremality_matrix(X: pd.DataFrame, columns: Optional[Sequence[str]
     return extremality, cols
 
 
-def row_wise_extremality_index(X: pd.DataFrame, columns: Optional[Sequence[str]] = None, column_name: str = "row_extremality_index") -> pd.Series:
+def _extremality_for(X, columns, reference):
+    """Extremality matrix either against a fit-time ``reference`` or, when none is given, within ``X`` itself.
+
+    Within-batch ranking makes the score depend on which rows are present: the same row measured 0.808 inside
+    a 50k split and 0.0 scored alone, because a single row is its own median. Passing a reference fixed at fit
+    time removes that; ``reference=None`` keeps the historical behaviour for callers that want a purely
+    descriptive, batch-relative score.
+    """
+    if reference is None:
+        return _compute_extremality_matrix(X, columns)
+    from .row_wise_extremality_reference import extremality_matrix_from_reference
+
+    return extremality_matrix_from_reference(X, reference, columns)
+
+
+def row_wise_extremality_index(
+    X: pd.DataFrame,
+    columns: Optional[Sequence[str]] = None,
+    column_name: str = "row_extremality_index",
+    reference: Optional[dict] = None,
+) -> pd.Series:
     """Per-row mean within-column-rank extremality, averaged across ``columns``.
 
     Parameters
@@ -123,7 +140,7 @@ def row_wise_extremality_index(X: pd.DataFrame, columns: Optional[Sequence[str]]
         column's median, approaching ``1`` as values sit at the extremes of their columns' distributions
         (averaged across columns; NaN values are excluded from both the ranking and the row-level average).
     """
-    extremality, _cols = _compute_extremality_matrix(X, columns)
+    extremality, _cols = _extremality_for(X, columns, reference)
     return pd.Series(np.nanmean(extremality, axis=1), index=X.index, name=column_name)
 
 
@@ -165,6 +182,7 @@ def row_wise_top_k_extreme_columns(
     k: int = 3,
     return_column_summary: bool = False,
     summary_rows: Optional[Sequence[bool] | np.ndarray] = None,
+    reference: Optional[dict] = None,
 ) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
     """Per-row top-``k`` columns by within-column-rank extremality -- "why is this row anomalous".
 
@@ -201,7 +219,7 @@ def row_wise_top_k_extreme_columns(
         ``(per_row, per_column)`` tuple instead, where ``per_column`` is indexed by column name with
         ``count`` / ``frequency`` / ``mean_score``, sorted by descending ``count``.
     """
-    extremality, cols = _compute_extremality_matrix(X, columns)
+    extremality, cols = _extremality_for(X, columns, reference)
     n_rows, n_cols = extremality.shape
     k = min(k, n_cols)
 

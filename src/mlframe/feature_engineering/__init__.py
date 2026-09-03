@@ -24,6 +24,13 @@ Submodules:
     transformer        - frozen transformer-style FE: RFF, positional encoding, row-attention (multi-head softmax-weighted kNN-TE).
     wavelet_dwt        - discrete + continuous wavelet transforms + denoising.
     windowed_shape     - rolling shape features (mean_abs_d2, n_peaks, n_troughs, extrema density, integral_above_baseline).
+
+``verbose`` convention: some functions in this package type ``verbose`` as ``bool`` (a flag), others as
+``int`` (a 0/1/2-style level) -- e.g. ``bruteforce.py`` uses ``int``, ``timeseries.py`` uses ``bool``. Both
+conventions are individually reasonable; check the specific function's signature before assuming which one
+it expects. ``bool`` truthiness is safe against an ``int``-typed function's ``verbose > 0`` checks, but not
+the reverse (an ``int``-typed ``verbose=2`` passed to a ``bool``-typed parameter is silently coerced to
+``True``, discarding the level).
 """
 
 from __future__ import annotations

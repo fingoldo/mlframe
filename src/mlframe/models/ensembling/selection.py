@@ -135,7 +135,14 @@ def _score_blend(
 
         # fast_roc_auc wants the positive-class score. For (N, K) take class-1 column (binary convention).
         score = blend[:, 1] if blend.ndim == 2 and blend.shape[1] >= 2 else np.ravel(blend)
-        return float(fast_roc_auc(y.astype(np.int64), score.astype(np.float64)))
+        # Binarised against the LARGER label, not merely cast. The kernel accumulates ``tps += y_true[i]``, so it
+        # requires strictly 0/1: on a {1,2} or {-1,+1} encoding ``astype(np.int64)`` changes the dtype and leaves
+        # the encoding, every AUC comes back NaN, and because ``nan > best`` is always False the greedy walk
+        # below never accepts a candidate and silently degenerates to whichever model index came first.
+        labels = np.asarray(y)
+        classes = np.unique(labels[np.isfinite(labels)] if labels.dtype.kind == "f" else labels)
+        binary = (labels == classes[-1]).astype(np.int64) if classes.size == 2 else labels.astype(np.int64)
+        return float(fast_roc_auc(binary, score.astype(np.float64)))
     return float(metric(y, blend))
 
 
@@ -266,6 +273,14 @@ def caruana_greedy_selection(
 
     bag_size = len(order)
     best_score = _score_blend(running_sum / bag_size, yv, metric)
+    # A non-finite starting score makes every later ``score > best_score`` comparison False, so the walk would
+    # return a well-formed result built from no comparisons at all. Say so rather than degenerate quietly.
+    if not np.isfinite(best_score):
+        raise ValueError(
+            f"caruana_greedy_selection: the metric returned {best_score!r} on the initial bag, so no candidate "
+            "can ever beat it and the selection would silently reduce to the starting set. Check the metric and "
+            "the label encoding."
+        )
 
     while len(order) < max_picks:
         cand_indices = range(m) if with_replacement else [i for i in range(m) if counts[i] == 0]
@@ -358,6 +373,13 @@ def _greedy_backward_elimination_core(
     running_sum = arr[kept].sum(axis=0)
     bag_size = len(kept)
     best_score = _score_blend(running_sum / bag_size, yv, metric)
+    # Same guard as the forward walk: a non-finite bar makes every comparison below False.
+    if not np.isfinite(best_score):
+        raise ValueError(
+            f"greedy_backward_pruning: the metric returned {best_score!r} on the initial bag, so no removal can "
+            "ever beat it and the pruning would silently keep the starting set. Check the metric and the label "
+            "encoding."
+        )
 
     while len(kept) > min_models:
         best_cand = -1

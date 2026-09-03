@@ -123,7 +123,7 @@ class _ParquetStore:
         out: list[dict] = []
         for (fn_name, host, fpj, pcj), grp in groups.items():
             # Collect every objective metric across the group's observations.
-            metric_vals: dict[str, list[float]] = {}
+            metric_vals: dict[str, list[tuple[float, int]]] = {}
             total_obs = 0
             latest_ts = ""
             for r in grp:
@@ -145,10 +145,14 @@ class _ParquetStore:
                 w = int(r.get("n_obs", 1) or 1)
                 for mk, mv in obj.items():
                     if isinstance(mv, (int, float)) and not isinstance(mv, bool):
-                        # Weight each pre-aggregated row by its obs count so
-                        # median reflects underlying observations.
-                        metric_vals.setdefault(mk, []).extend([float(mv)] * max(1, w))
-            median_obj = {mk: _median(vs) for mk, vs in metric_vals.items()}
+                        # Carry the (value, weight) PAIR rather than replicating the value `n_obs` times.
+                        # `n_obs` accumulates monotonically across every append and `_aggregate` runs over all
+                        # existing rows on each one, so a row whose count had reached ~500k built a 500k-element
+                        # Python float list per metric per row -- gigabytes across a few dozen keys, and a
+                        # multi-second stall INSIDE the cross-process file lock, blocking every other process
+                        # appending to the same store.
+                        metric_vals.setdefault(mk, []).append((float(mv), max(1, w)))
+            median_obj = {mk: _weighted_median(vs) for mk, vs in metric_vals.items()}
             out.append({
                 "schema_version": SCHEMA_VERSION,
                 "fn_name": fn_name,
@@ -160,6 +164,25 @@ class _ParquetStore:
                 "ts": latest_ts,
             })
         return out
+
+
+def _weighted_median(pairs: "list[tuple[float, int]]") -> float:
+    """Median of ``value`` weighted by integer ``weight``, computed from the pairs without expanding them.
+
+    Same result as taking the median of the expanded list, in O(k log k) on the number of DISTINCT rows rather
+    than O(sum of weights) time AND memory.
+    """
+    if not pairs:
+        return float("nan")
+    ordered = sorted(pairs, key=lambda t: t[0])
+    total = sum(w for _, w in ordered)
+    half = total / 2.0
+    seen = 0
+    for value, weight in ordered:
+        seen += weight
+        if seen >= half:
+            return float(value)
+    return float(ordered[-1][0])
 
 
 def _median(vals: Sequence[float]) -> float:

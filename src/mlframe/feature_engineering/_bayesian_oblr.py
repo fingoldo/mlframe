@@ -123,6 +123,12 @@ def online_bayesian_linear_regression(
     coefficients. Distinct from KF on (k=1, X=ones): general case with
     multiple features and slope-uncertainty as a per-row feature.
     """
+    if not (prior_precision > 0.0):
+        raise ValueError(
+            f"online_bayesian_linear_regression: prior_precision must be > 0 (Sigma_0 = I / prior_precision); "
+            f"got {prior_precision!r}, which would divide by zero (or flip the prior covariance's sign) and "
+            f"silently propagate inf/nan through every output instead of raising."
+        )
     y_arr = np.ascontiguousarray(y, dtype=np.float64)
     X_arr = np.ascontiguousarray(X, dtype=np.float64)
     if X_arr.ndim != 2 or X_arr.shape[0] != y_arr.size:

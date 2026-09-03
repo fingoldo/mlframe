@@ -7,13 +7,13 @@ and reports the wall time, so the parallelisation call is based on a number, not
 
 Measured on this dev box (n=3000, 15 calibrators, selection="inner_cv" default -> 5 refits/calibrator):
 wall ~6.1s total, 0 failures. Per-calibrator average is ~0.4s, dominated by netcal/pycalib fit calls
-that themselves may release the GIL poorly (per the audit's own note) -- a joblib process-backend
+that themselves may release the GIL poorly (per the audit's own note) - a joblib process-backend
 fan-out would need each worker to import + fit netcal/pycalib/dirichletcal/venn_abers fresh (these
 libraries pull in torch transitively), so the ~0.3-1s per-worker process-spawn overhead is the same
 order of magnitude as the serial per-calibrator cost being parallelised. At the zoo sizes actually used
 in this codebase (15-25 calibrators), a process-pool fan-out is not clearly a net win, and it adds real
 correctness risk to a function that also aggregates a shared metrics dict, a shared fit_calibrators
-dict, and a shared full_name-collision counter across calibrators (P1-5) -- all of which would need to
+dict, and a shared full_name-collision counter across calibrators - all of which would need to
 move to a post-hoc reduce step rather than in-loop mutation under a process pool.
 
 Verdict: no actionable speedup measured at the realistic zoo size; the win is not clearly worth the

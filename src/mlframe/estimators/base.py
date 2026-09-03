@@ -56,7 +56,10 @@ class EstimatorWithEarlyStopping(BaseEstimator):
         elif self.test_size is not None:
             n_val = int(self.test_size)
         else:
-            n_val = n
+            # sklearn's train_test_split defaults test_size to 0.25 when both test_size and train_size
+            # are None; using the full n here overestimated the real val fold size and could wrongly
+            # permit stratification that then fails inside train_test_split.
+            n_val = max(1, round(0.25 * n))
         if n_val < classes.size:
             return None
         return y
@@ -136,7 +139,7 @@ class EstimatorWithEarlyStopping(BaseEstimator):
         return self.fitted_estimator_.predict(X)
 
 
-class RegressorWithEarlyStopping(EstimatorWithEarlyStopping, RegressorMixin):
+class RegressorWithEarlyStopping(RegressorMixin, EstimatorWithEarlyStopping):
     """Regressor flavour of ``EstimatorWithEarlyStopping``.
 
     Wraps a base regressor so early stopping works inside an sklearn pipeline: ``fit`` carves an
@@ -146,7 +149,7 @@ class RegressorWithEarlyStopping(EstimatorWithEarlyStopping, RegressorMixin):
     pass
 
 
-class ClassifierWithEarlyStopping(EstimatorWithEarlyStopping, ClassifierMixin):
+class ClassifierWithEarlyStopping(ClassifierMixin, EstimatorWithEarlyStopping):
     """Classifier flavour of ``EstimatorWithEarlyStopping`` with ``predict_proba``/``decision_function`` passthrough.
 
     Wraps a base classifier so early stopping works inside an sklearn pipeline: ``fit`` carves an

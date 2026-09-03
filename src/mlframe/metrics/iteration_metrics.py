@@ -7,12 +7,14 @@ round / training epoch. The keys mirror the report's headline title-metric set
 (``ICE BR_DECOMP ECE CMAEW LL ROC_AUC PR_AUC KS MCC BSS``) plus the precision/recall/F1 block, so downstream
 meta-learners see the same feature names the reporting layer uses.
 
-This is a thin delegating aggregator, NOT a reimplementation: every number comes from an existing public metric
-function (``fast_aucs``, ``compute_ece_and_brier_decomposition``, ``fast_calibration_metrics``, ``fast_ice_only``,
+This is mostly a thin delegating aggregator: most numbers come from an existing public metric function
+(``fast_aucs``, ``compute_ece_and_brier_decomposition``, ``fast_calibration_metrics``, ``fast_ice_only``,
 ``fast_brier_score_loss``, ``fast_log_loss``, ``ks_statistic``, ``matthews_corrcoef_*``, ``brier_skill_score_*``,
 ``fast_classification_report``, the regression ``fast_*`` block). The binary calibration report
 (``fast_calibration_report``) is the report-time aggregator, but it is plot-coupled and ~10x heavier per call than
 needed here, so per-iteration capture composes the underlying kernels directly (identical numbers, no figure).
+The one exception: multiclass log-loss is computed inline in ``_multiclass_metrics`` (no public multiclass
+log-loss primitive exists elsewhere in the package to delegate to).
 
 Degrades gracefully: a single-class val set, NaN scores, or an empty array yield NaN for the undefined metrics
 rather than raising -- per-iteration capture must never abort a training run.
@@ -127,6 +129,9 @@ def _binary_metrics(y_true: np.ndarray, y_score: np.ndarray, nbins: int) -> dict
     return out
 
 
+_MULTICLASS_LOGLOSS_OOB_WARN_SEEN: set = set()
+
+
 def _multiclass_metrics(y_true: np.ndarray, y_score: np.ndarray, n_classes: Optional[int], nbins: int) -> dict:
     """Multiclass suite: log-loss + per-class-averaged AUC + classification report aggregates."""
     from .core import fast_aucs, fast_classification_report
@@ -152,6 +157,18 @@ def _multiclass_metrics(y_true: np.ndarray, y_score: np.ndarray, n_classes: Opti
     probs = np.where(row_sum > 0, ys / np.where(row_sum == 0, 1.0, row_sum), ys)
     clipped = np.clip(probs, eps, 1.0)
     valid = (yt >= 0) & (yt < k)
+    n_invalid = n - int(valid.sum())
+    if n_invalid > 0:
+        key = (n_invalid, n)
+        if key not in _MULTICLASS_LOGLOSS_OOB_WARN_SEEN:
+            _MULTICLASS_LOGLOSS_OOB_WARN_SEEN.add(key)
+            import warnings
+
+            warnings.warn(
+                f"_multiclass_metrics: {n_invalid} of {n} y_true labels are out of range [0, {k}); " f"dropped from the log_loss computation.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
     if valid.any():
         ll = -np.log(clipped[np.arange(n)[valid], yt[valid]]).mean()
         out["log_loss"] = float(ll)

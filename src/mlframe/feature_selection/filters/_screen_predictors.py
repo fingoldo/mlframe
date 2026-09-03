@@ -137,6 +137,10 @@ def screen_predictors(
     # at the floor comparison only (does NOT mutate mrmr_gains_ which
     # remains the raw plug-in value for downstream consumers).
     cardinality_bias_correction: bool = True,
+    # Column NAMES whose bin count is a raw level count (categoricals). Only these are eligible for the
+    # cardinality ceiling: a numeric column discretised by a SUPERVISED strategy earns bins for EXPLAINING the
+    # target, so judging it by bin count drops the strongest feature. None = judge every column by bin count.
+    raw_cardinality_cols: set | None = None,
     max_consec_unconfirmed: int = 10,
     max_runtime_mins: float | None = None,
     interactions_min_order: int = 1,
@@ -526,7 +530,7 @@ def screen_predictors(
         # Cardinality-bias pre-screen: drop columns whose Miller-Madow plug-in-MI bias is too large to score honestly (nbins_x > 2*sqrt(n)). See ``cardinality_prescreen``.
         if cardinality_bias_correction and factors_data.shape[1] > 0:
             x, _cardinality_refused_cols = cardinality_prescreen(
-                factors_data, factors_nbins, factors_names, x, y, verbose,
+                factors_data, factors_nbins, factors_names, x, y, verbose, raw_cardinality_cols=raw_cardinality_cols,
             )
         else:
             _cardinality_refused_cols = set()

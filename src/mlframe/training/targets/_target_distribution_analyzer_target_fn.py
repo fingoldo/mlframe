@@ -133,10 +133,31 @@ def analyze_target_distribution(
         diagnostics["std"] = sigma
 
         # Near-constant target -- hard pathology, no recommendation suffices.
-        rel_std = abs(sigma) / (abs(mu) + 1e-9) if abs(mu) > 1e-9 else (sigma if sigma > 0 else 0.0)
-        diagnostics["rel_std"] = rel_std
-        if rel_std < _NEAR_CONSTANT_REL_STD:
-            pathologies.append(f"near_constant_target(rel_std={rel_std:.2e})")
+        #
+        # A zero-mean target has no meaningful relative std, and substituting the ABSOLUTE std for it was wrong
+        # in both directions: daily returns with mean ~0 and std 8e-4 were labelled degenerate and every other
+        # detector was skipped, while a zero-mean target at std 1e6 could never trip the gate even when it was
+        # genuinely constant. The printed name did not match the printed quantity either. So: report the ratio
+        # only when there is a mean to divide by, and fall back to a SCALE-FREE test -- spread relative to the
+        # target's own range -- recorded under its own key.
+        _near_constant = False
+        if abs(mu) > 1e-9:
+            rel_std = abs(sigma) / abs(mu)
+            diagnostics["rel_std"] = rel_std
+            _near_constant = rel_std < _NEAR_CONSTANT_REL_STD
+            _detail = f"rel_std={rel_std:.2e}"
+        else:
+            # At zero mean there is no scale to be relative TO, so only an exactly-constant target is
+            # degenerate. A ratio against the target's own range would not work either: sigma / ptp is about
+            # 1/6 for any ordinary distribution and never approaches a 1e-3 threshold, so it would call nothing
+            # degenerate. Report the absolute spread under its own name so the printed quantity matches the
+            # printed label.
+            _ptp = float(np.ptp(y_for_stats))
+            diagnostics["abs_std"] = sigma
+            _near_constant = _ptp <= 0.0 or sigma <= 0.0
+            _detail = f"zero-mean, abs_std={sigma:.2e}"
+        if _near_constant:
+            pathologies.append(f"near_constant_target({_detail})")
             return TargetDistributionReport(
                 target_type="regression", n_samples=n,
                 pathologies=pathologies, knob_overrides=knob_overrides,
@@ -236,7 +257,7 @@ def analyze_target_distribution(
                 diagnostics["lag1_autocorr_per_group"] = ar
                 diagnostics["lag1_autocorr_per_group_groups_skipped"] = float(_n_groups_skipped)
         if math.isfinite(ar) and abs(ar) > _STRONG_AR_PEARSON_LAG1:
-            pathologies.append(f"strong_AR_target(lag1_corr={ar:.3f}, source={ar_source})")
+            pathologies.append(f"strong_AR_target(max_abs_autocorr={ar:.3f}, source={ar_source})")
             # Real prod root cause: MLP with per-row layernorm collapses
             # under strong AR because the layer destroys inter-row absolute-
             # scale signal that AR depends on. Force layernorm OFF.

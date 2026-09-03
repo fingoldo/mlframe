@@ -9,7 +9,6 @@ adversarial AUC ~0.5 on identical splits vs > 0.7 on a shifted split).
 
 from __future__ import annotations
 
-import os
 import warnings
 
 import numpy as np
@@ -22,6 +21,15 @@ from mlframe.reporting.diagnostics_dispatch import (
     render_target_dist_overlay,
     render_target_drift_diagnostics,
 )
+
+
+def _chart_exists(directory, stem: str) -> bool:
+    """Whether the PNG for ``stem`` was written, under either output layout.
+
+    Charts land in a per-format subfolder by default (``png/name.png``); these tests care that the chart was
+    PRODUCED, not which layout the run used, so they accept both.
+    """
+    return (directory / "png" / f"{stem}.png").exists() or (directory / f"{stem}.png").exists()
 
 
 @pytest.fixture
@@ -64,9 +72,9 @@ class TestSplitErrorDiagnostics:
                 feature_names=["f0", "f1", "f2"],
                 subgroups={"hi": df["f0"].to_numpy() > 0.5, "lo": df["f0"].to_numpy() <= 0.5},
             )
-        assert os.path.exists(tmp_path / "reg_weak_segments.png")
-        assert os.path.exists(tmp_path / "reg_error_bias.png")
-        assert os.path.exists(tmp_path / "reg_segments.png")
+        assert _chart_exists(tmp_path, "reg_weak_segments")
+        assert _chart_exists(tmp_path, "reg_error_bias")
+        assert _chart_exists(tmp_path, "reg_segments")
         assert set(m["charts"]["saved"]) >= {"weak_segments", "error_bias", "segments"}
         assert m["charts"]["failed"] == []
         assert len(out["worst_k_indices"]) == 20
@@ -147,6 +155,39 @@ class TestSplitErrorDiagnostics:
         assert (n - 1) in set(out["worst_k_indices"].tolist())
         assert (out["worst_k_indices"] < n).all()
 
+    def test_large_n_subsample_preserves_timestamps(self, tmp_path):
+        """REPORTING_B-2: when n > DIAG_ROW_CAP, worst_k_table must still receive the CORRECT
+        per-row timestamps for the subsampled rows (indexed by sample_idx), not None."""
+        rng = np.random.default_rng(2)
+        n = DIAG_ROW_CAP + 20_000
+        df = pd.DataFrame({"f0": rng.uniform(0, 1, n), "f1": rng.uniform(0, 1, n)})
+        y = df["f0"].to_numpy()
+        yp = y.copy()
+        yp[-1] += 100.0  # single worst row -- must survive subsampling
+        # Distinctive timestamps: row i's timestamp encodes i itself, so the surfaced worst-K
+        # timestamp can be checked against the true original row index.
+        ts = np.arange(n, dtype=np.int64)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            out = render_split_error_diagnostics(
+                df=df,
+                y_true=y,
+                y_pred=yp,
+                task="regression",
+                plot_outputs="matplotlib[png]",
+                base_path=str(tmp_path / "big_ts"),
+                metrics_dict={},
+                feature_names=["f0", "f1"],
+                timestamps=ts,
+                worst_k=5,
+            )
+        table = out["worst_k_table"]
+        assert table is not None
+        assert "timestamp" in table.columns
+        # The worst row (n-1) must carry ITS OWN original timestamp (n-1), not None / a wrong subsample-local value.
+        worst_row = table.iloc[0]
+        assert int(worst_row["timestamp"]) == n - 1
+
 
 # ----------------------------------------------------------------------------
 # Per-target drift + adversarial
@@ -173,10 +214,10 @@ class TestTargetDriftDiagnostics:
                 metrics_dict=m,
                 feature_names=["f0", "f1", "f2"],
             )
-        assert os.path.exists(tmp_path / "drift_psi.png")
-        assert os.path.exists(tmp_path / "drift_residual_vs_time.png")
-        assert os.path.exists(tmp_path / "drift_metric_over_time.png")
-        assert os.path.exists(tmp_path / "drift_adversarial.png")
+        assert _chart_exists(tmp_path, "drift_psi")
+        assert _chart_exists(tmp_path, "drift_residual_vs_time")
+        assert _chart_exists(tmp_path, "drift_metric_over_time")
+        assert _chart_exists(tmp_path, "drift_adversarial")
         assert set(m["charts"]["saved"]) >= {"psi_heatmap", "residual_vs_time", "metric_over_time", "adversarial"}
 
     def test_no_drift_panels_without_timestamps(self, reg_data, tmp_path):
@@ -198,9 +239,36 @@ class TestTargetDriftDiagnostics:
                 feature_names=["f0", "f1", "f2"],
             )
         # Temporal panels gated out; adversarial still fires (frames present).
-        assert not (tmp_path / "drift_psi.png").exists()
-        assert not (tmp_path / "drift_residual_vs_time.png").exists()
-        assert os.path.exists(tmp_path / "drift_adversarial.png")
+        assert not _chart_exists(tmp_path, "drift_psi")
+        assert not _chart_exists(tmp_path, "drift_residual_vs_time")
+        assert _chart_exists(tmp_path, "drift_adversarial")
+
+    def test_adversarial_validation_false_skips_the_panel(self, reg_data, tmp_path):
+        """``adversarial_validation=False`` (2026-08-16) must skip the panel even though train+test frames are
+        present -- pins the opt-out this diagnostic had no flag for until now (unlike every sibling diagnostic
+        in this function, which already had one)."""
+        df, y, yp, _bad, ts = reg_data
+        m: dict = {}
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            render_target_drift_diagnostics(
+                train_frame=df.iloc[:2500],
+                test_frame=df.iloc[2500:],
+                y_true=y,
+                y_pred=yp,
+                timestamps=ts,
+                task="regression",
+                plot_outputs="matplotlib[png]",
+                base_path=str(tmp_path / "drift"),
+                metrics_dict=m,
+                feature_names=["f0", "f1", "f2"],
+                adversarial_validation=False,
+            )
+        assert not _chart_exists(tmp_path, "drift_adversarial")
+        assert "adversarial" not in m["charts"]["saved"]
+        # The other (unrelated) panels still fire -- the flag is scoped to adversarial_validation only.
+        assert _chart_exists(tmp_path, "drift_psi")
+        assert _chart_exists(tmp_path, "drift_metric_over_time")
 
     def test_adversarial_identical_vs_shifted(self, tmp_path):
         """biz_value: adversarial AUC ~0.5 on identical train/test, > 0.7 when a feature is shifted.
@@ -240,7 +308,7 @@ class TestTargetDistOverlay:
                 metrics_dict=m,
             )
         assert ok
-        assert os.path.exists(tmp_path / "dist_target_dist.png")
+        assert _chart_exists(tmp_path, "dist_target_dist")
         assert "target_dist" in m["charts"]["saved"]
 
     def test_noop_empty_inputs(self, tmp_path):

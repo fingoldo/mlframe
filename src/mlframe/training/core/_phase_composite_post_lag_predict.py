@@ -29,7 +29,7 @@ class _LagPredictDeployableModel:
 
     Implements ``get_params``/``set_params``/``fit`` so ``sklearn.clone``
     accepts it during honest-OOF refit (CompositeCrossTargetEnsemble path,
-    2026-05-23 prod incident: clone failed -> component dropped -> NNLS
+    clone failed -> component dropped -> NNLS
     weights missed lag_predict and ensemble landed at RMSE 13.30 vs
     lag_predict's 11.58 floor).
     """

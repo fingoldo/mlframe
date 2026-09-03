@@ -180,6 +180,14 @@ def maybe_inject_distribution_driven_estimator(
     else:
         y_train = y_full
 
+    # train_df here is already the SPLIT-phase train subset (built as df.iloc[train_idx]/equivalent by
+    # _phase_train_val_test_split, same row order as train_idx), not the unfiltered full frame -- so it is
+    # already aligned with y_train (== y_full[train_idx]) row-for-row and needs no further subsetting.
+    # A prior fix (commit 7b5a3375e) assumed train_df was still unfiltered and re-applied train_idx to it,
+    # which double-subsets: train_idx holds full-df row positions (up to len(y_full)-1), but train_df only
+    # has len(train_idx) rows, so indexing it by train_idx again raises an out-of-bounds/index error under
+    # any real train/val/test split (the fix's own test only used train_idx=np.arange(n), which happens to
+    # be a no-op under double-subsetting and never exposed this).
     base_column = _pick_base_column(train_df, y_train)
     if not base_column:
         return mlframe_models

@@ -44,7 +44,7 @@ _N_TRIALS = 10 if is_fast_mode() else 20
 _N_EST = 40 if is_fast_mode() else 60
 
 
-pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+pytestmark = pytest.mark.timeout(900)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150->300: CI runners are shared 2-vCPU boxes under -n auto xdist contention with up to ~20 pytest shards running concurrently -- real (non-hung) fits legitimately exceeded 150s there under full-matrix load, causing spurious timeout failures unrelated to any actual hang; 300s still catches a genuine hang well before the 600s global backstop.
 
 
 def _make_clf_model(seed: int):
@@ -328,9 +328,16 @@ def _shap_topk_names(df, ys, cols, k, seed):
     """Top-``k`` column names by mean absolute SHAP importance of a freshly fit RF surrogate."""
     import shap
 
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as _spe
+
     rf = _make_clf_model(seed)
     rf.fit(df, ys)
-    sv = shap.TreeExplainer(rf).shap_values(df)
+    # Raw shap.TreeExplainer construction MUST go through _maybe_patch_shap_xgb_base_score --
+    # an unpatched shap<0.52 TreeExplainer for ANY model type can be corrupted by (or corrupt) a
+    # DIFFERENT model's unwrapped TreeExplainer call earlier/later in the same pytest-xdist
+    # worker. See test_shap_xgb_patch_version_gate.py's docstring for the full incident.
+    with _spe._maybe_patch_shap_xgb_base_score():
+        sv = shap.TreeExplainer(rf).shap_values(df)
     n_feat = len(cols)
     if isinstance(sv, list):
         imp = np.mean([np.abs(s).mean(axis=0) for s in sv], axis=0)

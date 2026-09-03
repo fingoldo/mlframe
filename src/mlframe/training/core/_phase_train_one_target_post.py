@@ -244,7 +244,11 @@ def _run_per_model_post_train_tail(
                     test_idx=getattr(ctx, "test_idx", None),
                     test_df_pd=test_df_pd,
                     train_idx=_train_idx,
-                    plot_file=getattr(ctx, "plot_file", None),
+                    # `ctx.output_config.plot_file`, not `ctx.plot_file` -- the latter is not a slot, so under
+                    # `slots=True` this read returned None on every run, `_plot_path` became "" downstream, and
+                    # the per-model composite y-scale TEST chart was never saved. The metric log line still
+                    # printed, so the run looked healthy and nothing warned.
+                    plot_file=getattr(getattr(ctx, "output_config", None), "plot_file", None),
                     reporting_config=getattr(ctx, "reporting_config", None),
                 )
     except Exception as _pmce:

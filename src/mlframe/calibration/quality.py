@@ -59,7 +59,7 @@ def mutual_information_score(y: np.ndarray, y_preds: np.ndarray) -> float:
     Kraskov/Stoegbauer/Grassberger) with ``n_neighbors=2``. Both inputs are reshaped to column
     vectors; the single scalar MI estimate is returned. Higher is better (more shared information
     between prediction and outcome). This is NOT the Hyvarinen score (a proper scoring rule based on
-    the score function of the density) despite the historical misnomer -- see the deprecated
+    the score function of the density) despite the historical misnomer - see the deprecated
     ``hyvarinen_score`` alias below.
     """
     if np.asarray(y).shape[0] <= 2:
@@ -72,7 +72,7 @@ def mutual_information_score(y: np.ndarray, y_preds: np.ndarray) -> float:
 def hyvarinen_score(y: np.ndarray, y_preds: np.ndarray) -> float:
     """Deprecated alias for :func:`mutual_information_score`.
 
-    Historically misnamed: this never computed the Hyvarinen score -- it returns a kNN mutual-information
+    Historically misnamed: this never computed the Hyvarinen score - it returns a kNN mutual-information
     estimate. Kept as a warning-emitting shim for backward compatibility; use ``mutual_information_score``.
     """
     import warnings
@@ -249,10 +249,9 @@ def bin_predictions(
             r = s
         else:
             r = lo + bin_size
-        # Wave 21 P2: nanmean so a NaN in y_pred/y_true within a bin doesn't
-        # poison the (avg_x, avg_y) pair -> propagates into ECE/MCE numbers
-        # reported on the calibration chart. Operator may spot the NaN bin
-        # but the numeric metrics would be silently wrong.
+        # nanmean so a NaN in y_pred/y_true within a bin doesn't poison the (avg_x, avg_y) pair -> propagates
+        # into ECE/MCE numbers reported on the calibration chart. Operator may spot the NaN bin but the
+        # numeric metrics would be silently wrong.
         # bench-attempt-rejected (2026-07): fusing these two np.nanmean passes into a single scalar
         # nan-aware loop over indices[lo:r] was bit-identical but SLOWER at typical n: the vectorized
         # y_pred[indices[lo:r]] gather feeds np.nanmean a contiguous SIMD-friendly buffer, whereas the
@@ -273,7 +272,7 @@ def estimate_calibration_quality_binned(
     y_pred: np.ndarray,
     nbins: int = 20,
     indices: np.ndarray | None = None,
-    metrics_to_show: dict = METRICS_TO_SHOW,
+    metrics_to_show: "dict[str, Any] | None" = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
     """Bin predictions into equal-mass pockets and score calibration-curve fidelity.
 
@@ -290,7 +289,8 @@ def estimate_calibration_quality_binned(
     # equal-width-[0,1] ECE in ``calibration/policy._ece_score`` nor the data-adaptive
     # [min,max]-span ECE in ``metrics/calibration/_calibration_metrics.compute_ece_and_brier_decomposition``:
     # the three schemes partition the score axis differently, so their ECE numbers differ on the same
-    # (y_true, y_pred) and must not be cross-compared -- compare only within one scheme.
+    # (y_true, y_pred) and must not be cross-compared - compare only within one scheme.
+    _metrics_to_show: "dict[str, Any]" = METRICS_TO_SHOW if metrics_to_show is None else metrics_to_show
     if indices is None:
         indices = np.argsort(y_pred)
     # With n_samples < nbins the equal-mass bin_size = s // nbins is 0, so every non-final pocket is an empty
@@ -300,6 +300,8 @@ def estimate_calibration_quality_binned(
     if n_samples == 0:
         raise ValueError("estimate_calibration_quality_binned: empty y_pred")
     nbins = min(nbins, n_samples)
+    if nbins < 1:
+        raise ValueError(f"estimate_calibration_quality_binned: nbins must be >= 1 after clamping to n_samples={n_samples}, got {nbins}")
     pockets_predicted, pockets_true, data = bin_predictions(y_true=y_true, y_pred=y_pred, indices=indices, nbins=nbins)
     # r2 = np.corrcoef(pockets_predicted, pockets_true)[0, 1] ** 2
 
@@ -311,7 +313,7 @@ def estimate_calibration_quality_binned(
             # Brier is a per-sample proper scoring rule — compute on raw (y_true, y_pred).
             # All other metrics evaluate calibration curve fidelity — compute on binned pockets.
             fname: (f(y_true, y_pred) if f is fast_brier_score_loss else f(pockets_true, pockets_predicted))
-            for fname, f in metrics_to_show.items()
+            for fname, f in _metrics_to_show.items()
         },
     )
 
@@ -331,7 +333,7 @@ def show_classifier_calibration(
     connected: bool = True,
     legend_label: str | None = None,
     append: bool = False,
-    metrics_to_show: dict = METRICS_TO_SHOW,
+    metrics_to_show: "dict[str, Any] | None" = None,
     skip_plotting: bool = False,
 ) -> dict | list | pd.DataFrame | None:
     """Plot a reliability (calibration) curve for one class and return its calibration metrics.
@@ -343,6 +345,8 @@ def show_classifier_calibration(
     """
     if nintervals < 1:
         raise ValueError(f"show_classifier_calibration: nintervals must be >= 1, got {nintervals}")
+    if metrics_to_show is None:
+        metrics_to_show = METRICS_TO_SHOW
 
     s = len(y_true)
     step = s // nintervals
@@ -431,7 +435,7 @@ def show_classifier_calibration(
 # Probability Integral Transform (PIT)
 # ---------------------------------------------------------------------------------------------------------------
 #
-# BINARY PIT CAVEAT (applies to every GoF statistic below -- KS / Cramer-von Mises / Anderson-Darling /
+# BINARY PIT CAVEAT (applies to every GoF statistic below - KS / Cramer-von Mises / Anderson-Darling /
 # chi-square / ECI / MSD / WPD):
 # The PIT construction ``pit = where(y==1, p, 1-p)`` yields a genuinely continuous Uniform(0,1) only for a
 # continuous forecast of a continuous outcome. For a BINARY outcome the PIT is a TWO-ATOM MIXTURE (mass at p
@@ -446,7 +450,7 @@ def show_classifier_calibration(
 def build_pit_diagram_spec(
     pit_values: np.ndarray,
     *,
-    caption: str = "",
+    title_prefix: str = "",
     bins: int = 20,
     figsize: tuple = (15, 5),
 ) -> "FigureSpec":
@@ -462,7 +466,7 @@ def build_pit_diagram_spec(
     edges = np.linspace(0.0, 1.0, bins + 1)
     heights, _ = np.histogram(pit_values, bins=edges, density=True)
     centers = 0.5 * (edges[:-1] + edges[1:])
-    title = (caption + " " if caption else "") + f"PIT Diagram (KS-vs-uniform={ks_stat:.4f})"
+    title = (title_prefix + " " if title_prefix else "") + f"PIT Diagram (KS-vs-uniform={ks_stat:.4f})"
     panel = HistogramPanelSpec(
         values=heights,
         bin_centers=centers,
@@ -472,14 +476,24 @@ def build_pit_diagram_spec(
         ylabel="Density",
         density=False,
     )
-    return FigureSpec(suptitle="", panels=((panel,),), figsize=figsize)
+    return FigureSpec(
+        suptitle="",
+        panels=((panel,),),
+        figsize=figsize,
+        caption=(
+            "How to read: the PIT value of a row is the predicted probability it assigned to what actually "
+            "happened, so a well-calibrated model spreads them UNIFORMLY -- a flat histogram. A hump in the middle "
+            "means the model is under-confident, mass piled at both ends means over-confident, and a tilt means a "
+            "systematic bias toward one class. The KS statistic in the title is the largest gap from uniform."
+        ),
+    )
 
 
 def plot_pit_diagram(
     predicted_probs: np.ndarray | None = None,
     true_labels: np.ndarray | None = None,
     pit_values: np.ndarray | None = None,
-    caption: str = "",
+    title_prefix: str = "",
     bins: int = 20,
     figsize: tuple = (15, 5),
     plot_file: str = "",
@@ -493,7 +507,7 @@ def plot_pit_diagram(
         true_labels (array-like): Binary true labels (0 or 1).
         pit_values (array-like): Precomputed PIT values, used directly instead of deriving them
             from ``predicted_probs``/``true_labels`` when supplied.
-        caption (str): Optional prefix prepended to the figure title.
+        title_prefix (str): Optional prefix prepended to the figure TITLE (the how-to-read caption is fixed).
         bins (int): Number of bins for the histogram.
         figsize (tuple): Figure size passed through to the underlying FigureSpec.
         plot_file (str): when set, save the figure here (``.png`` appended if no extension).
@@ -512,7 +526,7 @@ def plot_pit_diagram(
     from mlframe.reporting.output import parse_plot_output_dsl
     from mlframe.reporting.renderers import render_and_save
 
-    spec = build_pit_diagram_spec(pit_values, caption=caption, bins=bins, figsize=figsize)
+    spec = build_pit_diagram_spec(pit_values, title_prefix=title_prefix, bins=bins, figsize=figsize)
 
     if plot_outputs:
         outputs = parse_plot_output_dsl(plot_outputs)
@@ -611,7 +625,7 @@ def anderson_darling_statistic(pit_values: np.ndarray) -> float:
         float: Anderson-Darling statistic.
     """
     n = len(pit_values)
-    # Wave 47 (2026-05-20): (1/n) on empty pit_values divides by zero.
+    # (1/n) on empty pit_values divides by zero.
     if n == 0:
         return float("nan")
     sorted_pit = np.sort(np.asarray(pit_values, dtype=np.float64))
@@ -626,8 +640,8 @@ def chi_square_statistic(pit_values: np.ndarray, bins: int = 10) -> float:
     Returns ONLY the raw Pearson chi-square statistic ``sum (O_i - E_i)^2 / E_i`` over the ``bins``
     equal-width PIT bins against the uniform expectation ``E_i = n / bins``. The associated p-value from
     ``scipy.stats.chisquare`` is deliberately discarded: it assumes ``dof = bins - 1``, but the expected
-    counts here are FIXED (uniform, no parameters estimated from the data), and -- see the binary-PIT caveat
-    above -- a binary PIT is a two-atom mixture, not a continuous uniform, so the chi-square reference
+    counts here are FIXED (uniform, no parameters estimated from the data), and - see the binary-PIT caveat
+    above - a binary PIT is a two-atom mixture, not a continuous uniform, so the chi-square reference
     distribution does not hold. Compare the raw statistic across models/bins as a relative diagnostic; do
     NOT read it as a calibration hypothesis test. (If a p-value is ever needed, recompute it explicitly with
     the correct dof rather than trusting the default here.)

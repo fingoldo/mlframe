@@ -111,6 +111,18 @@ def _shap_sel(su_seeded, n_features):
         within_cluster_refine=True,
         parsimony_tol=0.005,
         su_seeded_interactions=su_seeded,
+        # ``su_seeded_interactions=False`` alone does NOT disable interaction detection: per
+        # ``ShapProxiedFitMixin._effective_su_seeded`` (`_shap_proxied_methods.py`), the su_seeded
+        # synergy screen ALSO runs whenever ``proxy_mode`` (default "auto") auto-gates into interaction
+        # mode, independent of this flag -- by design, "auto" always probes for a synergistic pair and
+        # only stays additive if the SNR gate clears nothing. With p_noise=60 here, post-clustering the
+        # proxy count shrinks enough that the auto-gate reliably fires even for the "off" baseline,
+        # which used to (silently) also recover the true operand pair and starve the intended additive-
+        # vs-su_seeded ablation this test measures. Pin the "off" run to genuinely additive-only scoring
+        # so su_seeded's lift is measured against a real baseline, not one that already benefits from
+        # the same interaction mechanism via a different gate. ``su_seeded_interactions=True`` already
+        # forces ``_effective_su_seeded()`` True regardless of proxy_mode, so the "on" run is unaffected.
+        proxy_mode="auto" if su_seeded else "additive",
         random_state=0,
         verbose=False,
     )

@@ -421,7 +421,9 @@ class TestDefaultDisabledByteIdentical:
             fe_hybrid_orth_basis="hermite",
         ).fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added, f"seed={seed}: adaptive flag ON should append at least one engineered column to hybrid_orth_features_; got {added}"
+        prov = getattr(m, "fe_provenance_", None)
+        produced = bool(added) or (prov is not None and (prov["origin"] == "hybrid_orth").any())
+        assert produced, f"seed={seed}: adaptive flag ON should append at least one engineered column (neither surviving nor in fe_provenance_); got {added}"
 
 
 # ---------------------------------------------------------------------------

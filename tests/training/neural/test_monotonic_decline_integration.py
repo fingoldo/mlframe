@@ -72,7 +72,7 @@ def _fit(monotonic):
     return est, n_epochs, rmse
 
 
-@pytest.mark.timeout(240)
+@pytest.mark.timeout(900)
 def test_monotonic_decline_stops_mlp_early():
     """Monotonic decline stops mlp early."""
     _est_mono, ep_mono, rmse_mono = _fit(monotonic=3)

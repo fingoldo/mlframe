@@ -35,7 +35,7 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 logger = logging.getLogger(__name__)
 
 
-class ChainedWindowForecaster(BaseEstimator, RegressorMixin):
+class ChainedWindowForecaster(RegressorMixin, BaseEstimator):
     """Stage 1 (window[t-1] -> window[t] proxy target) extrapolated onto window[t]'s own features, feeding
     stage 2 (window[t]'s features + the extrapolated value -> window[t+1]'s true target).
 

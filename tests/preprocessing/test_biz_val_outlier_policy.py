@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
+from sklearn.linear_model import Ridge
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 
@@ -56,16 +58,20 @@ def test_biz_val_tree_aware_outlier_policy_beats_naive_capping():
 
 def test_is_tree_based_model_detects_common_families():
     """Is tree based model detects common families."""
+
     class FakeLGBMClassifier:
         """Groups tests covering FakeLGBMClassifier."""
+
         pass
 
     class FakeXGBRegressor:
         """Groups tests covering FakeXGBRegressor."""
+
         pass
 
     class FakeLinearRegression:
         """Groups tests covering FakeLinearRegression."""
+
         pass
 
     assert is_tree_based_model(FakeLGBMClassifier()) is True
@@ -161,3 +167,28 @@ def test_apply_outlier_policy_unwrap_pipeline_routes_wrapped_tree_model_correctl
     assert (
         auc_fixed > auc_misrouted + 0.14
     ), f"unwrap_pipeline=True should recover the tree-aware-policy win lost to misrouting: fixed={auc_fixed:.4f} misrouted={auc_misrouted:.4f}"
+
+
+def test_docstring_documents_leakage_caveat():
+    """PREPROCESSING-7: apply_outlier_policy's docstring must warn that it recomputes bounds from
+    whatever X it is called on, with no fit/apply split -- calling it independently on train and test
+    silently diverges the bounds applied to each."""
+    doc = apply_outlier_policy.__doc__
+    assert doc is not None
+    assert "LEAKAGE CAVEAT" in doc
+
+
+def test_train_and_test_cap_bounds_silently_diverge_without_shared_fit():
+    """Sensor for the documented leakage caveat: calling apply_outlier_policy independently on two frames
+    with different distributions produces different effective cap bounds for the SAME column."""
+    rng = np.random.default_rng(0)
+    linear_model = Ridge()
+    X_train = pd.DataFrame({"x": rng.normal(0, 1, size=500)})
+    X_test = pd.DataFrame({"x": rng.normal(0, 10, size=500)})  # very different scale
+
+    out_train = apply_outlier_policy(X_train, linear_model, cap_quantiles=(0.05, 0.95))
+    out_test = apply_outlier_policy(X_test, linear_model, cap_quantiles=(0.05, 0.95))
+
+    assert out_train["x"].max() != pytest.approx(
+        out_test["x"].max(), rel=0.1
+    ), "train and test cap bounds should visibly diverge when computed independently on differently-scaled frames"

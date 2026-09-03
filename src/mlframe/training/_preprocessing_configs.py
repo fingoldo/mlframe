@@ -129,6 +129,13 @@ class TrainingSplitConfig(BaseConfig):
     # g(model) so the interval reflects what ships (sharing one slice makes residuals in-sample for g ->
     # optimistic coverage). None/0 -> finalize falls back to the calib slice (regression-safe until g exists)
     # or to CV+/OOF residuals. Carved by the SAME structure-aware splitter (group-disjoint / forward-walk).
+    #
+    # NOT YET WIRED. Nothing in src/ reads this field: the production split path is
+    # ``splitting.make_train_test_split`` -> ``_split_helpers._carve_calib_from_train``, which carves the calib
+    # slice only, and the structure-aware carvers in ``_conformal_split.py`` have no production call site. A
+    # non-zero value is therefore REFUSED below rather than silently ignored -- ignoring it left finalize
+    # reusing the calib slice, which is exactly the optimistic-coverage regime this field exists to avoid, with
+    # intervals narrower than the truth and nothing saying so.
     conformal_size: Optional[float] = Field(default=None, ge=0.0, lt=1.0)
     shuffle_val: bool = False
     shuffle_test: bool = False
@@ -211,6 +218,14 @@ class TrainingSplitConfig(BaseConfig):
             raise ValueError(
                 f"test_size ({self.test_size}) + val_size ({self.val_size}) + calib_size ({_calib}) + "
                 f"conformal_size ({_conformal}) = {_total} must be <= 1.0"
+            )
+        if _conformal > 0:
+            raise ValueError(
+                f"conformal_size={self.conformal_size} is not wired into the split path yet: no production code "
+                "carves a conformal slice, so setting it would leave finalize scoring residuals on the calib "
+                "slice the recalibration map was fitted on -- in-sample residuals and optimistically narrow "
+                "intervals. Leave it unset (or 0.0) until the carve is wired; the calib-slice fallback is the "
+                "documented regression-safe behaviour in the meantime."
             )
         if self.cv_strategy in ("timeseries", "purged") and self.val_placement == "backward":
             raise ValueError(
@@ -366,7 +381,7 @@ class PreprocessingExtensionsConfig(BaseConfig):
     # while dense-only backends densify implicitly on ``.to_numpy()``.
     # At ``max_features=5000`` and 1M rows this is the difference between
     # ~40 GB dense float64 and ~hundreds of MB sparse. Set False to restore
-    # the pre-2026-05-15 unconditional ``.toarray()`` path.
+    # the the prior unconditional ``.toarray()`` path.
     tfidf_keep_sparse: bool = True
     dim_reducer: Optional[Literal[
         "PCA", "KernelPCA", "LDA", "NMF", "TruncatedSVD", "FastICA",
@@ -396,6 +411,13 @@ class PreprocessingExtensionsConfig(BaseConfig):
     # Same generic-additive rationale as ``row_wise_summary_stats_enabled`` -- defaults to ON.
     row_wise_extreme_columns_enabled: bool = True
     row_wise_extreme_columns_k: int = Field(default=3, ge=1)
+    # Rank each value against a reference fixed on TRAIN instead of against the rows of whatever frame is
+    # being transformed. Within-frame ranking made the feature batch-dependent: train, val and test were each
+    # ranked against themselves, and a single row scored in production is its own median, so every score
+    # collapsed to 0.0 -- the model was served a feature it had never been trained on. Defaults to ON; set
+    # False for the historical batch-relative score (a descriptive "how extreme within THIS batch" statistic,
+    # which is a legitimate thing to want offline but is not a servable feature).
+    row_wise_extreme_columns_fit_reference: bool = True
 
     # Categorical composite FE (``mlframe.feature_engineering.categorical_powerset_concat`` /
     # ``categorical_group_concat``). Unlike the row-wise steps above, these run BEFORE categorical
@@ -710,7 +732,7 @@ class FeatureTypesConfig(BaseConfig):
     @model_validator(mode="after")
     def _check_master_toggle_vs_explicit_lists(self):
         """Raise when use_text_features=False but an explicit text_features list is set
-        (same for embedding). Pre-2026-05-20 the master-off silently dropped the
+        (same for embedding). Previously the master-off silently dropped the
         explicit list per the docstring at lines 670-677; operator who composed a preset
         stack (e.g. tfidf_only -> text_features=[...], then lite_mode flipping
         use_text_features=False) lost their text columns to the cat path silently --

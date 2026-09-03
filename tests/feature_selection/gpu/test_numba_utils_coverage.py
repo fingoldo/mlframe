@@ -37,13 +37,12 @@ def test_arr2str_int16():
 
 
 def test_arr2str_uint8():
-    """Arr2str uint8."""
-    try:
-        out = arr2str(np.array([1, 2], dtype=np.uint8))
-        assert isinstance(out, str)
-    except Exception:
-        # Some dtypes may not be supported -- ok
-        pytest.skip("uint8 not supported by arr2str dispatch")
+    """X_TEST_SUITE_ARCHITECTURE-3: uint8 is fully supported by arr2str (verified directly) -- assert on
+    it plainly instead of swallowing a real assertion failure into a misleading skip that would be
+    indistinguishable from a genuine environment gap."""
+    out = arr2str(np.array([1, 2], dtype=np.uint8))
+    assert isinstance(out, str)
+    assert out == "1_2"
 
 
 def test_arr2str_equal_arrays_equal_strings():

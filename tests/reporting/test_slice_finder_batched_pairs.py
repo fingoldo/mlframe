@@ -15,7 +15,7 @@ def test_batched_pairs_bit_identical_to_serial_aggregate():
     n, p = 8000, 14
     mat = rng.standard_normal((n, p))
     err = np.ascontiguousarray(rng.standard_normal(n))
-    codes, _edges = sf._bin_matrix(mat, 4)
+    codes, _edges, _has_missing = sf._bin_matrix(mat, 4)
     nbins_per = [4] * p
 
     pairs = [(0, 1), (2, 5), (3, 13), (7, 9), (10, 11)]

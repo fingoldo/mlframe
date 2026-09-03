@@ -122,7 +122,17 @@ def _su_normalize_relevance(direct_gain: float, X, y, factors_data, factors_nbin
 from ._evaluation_candidate import get_candidate_name, handle_best_candidate, should_skip_candidate  # noqa: F401  (re-export for external callers)
 
 
-@njit(cache=True)
+@njit(cache=False)  # Disk caching disabled for THIS kernel only: CI recurrently failed with a numba
+# TypingError ("Unknown attribute 'astype' of type reflected list(int64)" on the
+# selected_vars.astype call below) even though every real call site (fleuret.py, this file's own
+# recursive call) converts selected_vars to a real ndarray before calling in -- confirmed by
+# grepping every call site, not assumed. Never reproduced locally; the CI job logs show
+# "Cache hit for restore-key" (GitHub Actions' own wording for a restore-keys PREFIX fallback, not
+# an exact primary-key hit) immediately before the failure -- NUMBA_CACHE_DIR was restored from a
+# DIFFERENT source-tree state than the checked-out one, and numba's own per-function source-hash
+# cache invalidation evidently didn't catch it for this kernel under that fallback. Still gets
+# in-process compile caching within one Python process; only cross-process disk persistence is
+# affected, so the fix is scoped to this kernel rather than the CI-wide caching strategy.
 def evaluate_gain(
     current_gain: float,
     last_checked_k: int,
@@ -173,7 +183,12 @@ def evaluate_gain(
         # from this @njit context in nopython mode - numba reports "Untyped global name" on any cold
         # compile (a warm on-disk cache from before pyutilz's wrapper regressed to plain Python can mask
         # this). r = interactions_order + 1 is always >= 1 here, so the wrapper's r<0 validation is moot.
-        combs = _generate_combinations_recursive_njit_core(np.array(selected_vars, dtype=np.int32), interactions_order + 1)[::-1]
+        # .astype(np.int32), not np.array(selected_vars, dtype=np.int32): now that every caller passes
+        # a real ndarray (see the call site's own comment on why the reflected-list-typed np.array()
+        # call this replaced existed at all), nopython mode's np.array() no longer accepts an ndarray
+        # input ("not allowed in a homogeneous sequence") -- .astype() is the correct nopython-mode
+        # array-to-array dtype cast and works for both an int64 and an already-int32 input.
+        combs = _generate_combinations_recursive_njit_core(selected_vars.astype(np.int32), interactions_order + 1)[::-1]
 
         for Z in combs:
 
@@ -181,7 +196,20 @@ def evaluate_gain(
                 if confidence_mode and count_cand_nbins(Z, factors_nbins) > max_confirmation_cand_nbins:
                     additional_knowledge = 0.0  # this is needed to skip checking against hi cardinality approved factors
                 else:
-                    if mrmr_relevance_algo == "fleuret":
+                    # Gated on mrmr_redundancy_algo, not mrmr_relevance_algo: the conditional-MI machinery
+                    # below is the REDUNDANCY mechanism (I(X;Y|Z) checked against every already-selected Z),
+                    # independent of how relevance itself was scored (direct_gain, computed by the caller
+                    # before entering evaluate_gain at all). Gating on mrmr_relevance_algo instead left
+                    # `additional_knowledge` completely unset -- UnboundLocalError -- for the entirely valid
+                    # mrmr_relevance_algo="pld" + mrmr_redundancy_algo="fleuret" (the redundancy default)
+                    # combination, since neither branch of the original condition ever ran for it. The `or
+                    # mrmr_relevance_algo == "fleuret"` disjunct preserves every previously-reachable
+                    # combination byte-for-byte (relevance="fleuret" always entered this branch before,
+                    # regardless of redundancy_algo, so it still does). mrmr_redundancy_algo in
+                    # {"pld_max", "pld_mean"} is a separate, still-unimplemented gap (see
+                    # _screen_predictors.py's docstring) -- not addressed here, and not newly broken by this
+                    # fix (that combination never worked either way).
+                    if mrmr_redundancy_algo == "fleuret" or mrmr_relevance_algo == "fleuret":
                         # additional_knowledge = I(X; Y | Z) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z); I(X, Z) = entropy_x + entropy_z - entropy_xz.
                         key_found = False
                         if not confidence_mode:
@@ -220,7 +248,7 @@ def evaluate_gain(
 
                         if not key_found:
 
-                            # 2026-05-30 Wave 8 — JMIM aggregator (Bennasar 2015).
+                            # JMIM aggregator (Bennasar 2015).
                             # When the thread-local JMIM toggle is on, replace
                             # Fleuret's conditional MI ``I(X; Y | Z)`` with the
                             # joint MI ``I({X, Z}; Y)``. Both feed the same
@@ -402,7 +430,7 @@ def evaluate_candidate(
         # cached_confident_MIs stores (bootstrapped_gain, confidence) tuples (see confirm_candidate); take the gain.
         # WITHIN one screen_predictors() round, a candidate only lands in cached_confident_MIs AFTER permutation
         # confirmation, at which point its cand_idx is in added_/failed_candidates and should_skip_candidate filters it
-        # out before re-entry here. ACROSS rounds this branch is legitimately reachable (2026-07-09, seed_caches
+        # out before re-entry here. ACROSS rounds this branch is legitimately reachable (seed_caches
         # cross-round threading): added_/failed_candidates are round-local (their cand_idx indexing is not stable
         # across rounds, since the candidate pool changes shape), so a candidate confirmed in an earlier round is
         # correctly re-scored here on a later round rather than treated as already-decided. This is proven
@@ -435,7 +463,7 @@ def evaluate_candidate(
         elif X in cached_MIs:  # type: ignore[operator]
             direct_gain = cached_MIs[X]  # type: ignore[index]
         else:
-            # 2026-05-30 Wave 9.1 fix (XOR-synergy regression):
+            # XOR-synergy regression fix:
             # use UNANIMOUS-rejection baseline (require ALL perms to
             # beat observed before rejecting). The prior
             # ``min_nonzero_confidence=1.0`` hardcode + the
@@ -625,7 +653,16 @@ def evaluate_candidate(
                 best_gain=best_gain,
                 factors_data=factors_data,
                 factors_nbins=factors_nbins,
-                selected_vars=selected_vars,
+                # np.array(...), not the raw list: evaluate_gain is @njit and this function's own
+                # docstring/type hint already say `selected_vars: np.ndarray` -- a plain Python
+                # list slipping through here as-is gets numba's "reflected list" typing (silently
+                # accepted, no error, since numba infers from the runtime value not the type hint),
+                # which fires a NumbaPendingDeprecationWarning on every call (152 occurrences in one
+                # CI run's warning summary) and will stop working once numba removes reflected-list
+                # support. `selected_vars` (the plain list) is still used unconverted below for its
+                # own O(1)-membership-set/iteration needs -- this only converts the copy fed to the
+                # njit kernel.
+                selected_vars=np.array(selected_vars, dtype=np.int64) if selected_vars else np.empty(0, dtype=np.int64),
                 mrmr_relevance_algo=mrmr_relevance_algo,
                 mrmr_redundancy_algo=mrmr_redundancy_algo,
                 max_veteranes_interactions_order=max_veteranes_interactions_order,
@@ -655,7 +692,7 @@ def evaluate_candidate(
         # exactly 0.0, which now routes a non-synergy candidate through this branch.
         current_gain = 0.0
 
-    # 2026-05-30 Wave 8 — BUR additive bonus (Gao 2022). Off by default
+    # BUR additive bonus (Gao 2022). Off by default
     # (``bur_lambda`` thread-local = 0.0). When enabled, adds
     # ``lambda * (I(X; Y) - max_j I(X; X_j))`` to the post-Fleuret score.
     # ``direct_gain`` already holds ``I(X; Y)``; max-correlation to selected

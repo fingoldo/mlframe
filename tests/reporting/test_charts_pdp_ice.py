@@ -71,6 +71,127 @@ def test_compute_pdp_shapes_and_keys():
     assert res["feature_index"] == 0
 
 
+def test_compute_pdp_batched_matches_per_step_fallback_ndarray():
+    """The one-call batched grid predict (_predict_grid_batched) must be bit-identical to the per-step loop
+    fallback (forced via a monkeypatched _PDP_BATCH_MAX_ROWS) -- pins the 2026-08-16 perf fix (g predict calls
+    -> 1) as a pure fusion with zero output change."""
+    rng = np.random.default_rng(7)
+    X = rng.normal(size=(3000, 5))
+    model = _LinearModel([1.0, -2.0, 0.5, 0.0, 3.0])
+
+    batched = pdp_ice.compute_pdp(model, X, 2, grid=18, sample=500, ice=True, seed=11)
+
+    orig = pdp_ice._PDP_BATCH_MAX_ROWS
+    pdp_ice._PDP_BATCH_MAX_ROWS = -1
+    try:
+        looped = pdp_ice.compute_pdp(model, X, 2, grid=18, sample=500, ice=True, seed=11)
+    finally:
+        pdp_ice._PDP_BATCH_MAX_ROWS = orig
+
+    np.testing.assert_array_equal(batched["grid"], looped["grid"])
+    np.testing.assert_array_equal(batched["pdp"], looped["pdp"])
+    np.testing.assert_array_equal(batched["ice"], looped["ice"])
+
+
+def test_predict_grid_batched_never_batches_a_categorical_sweep():
+    """A categorical/discrete grid (``cat_labels is not None``) must always fall back to the per-step loop
+    (``_predict_grid_batched`` returns ``None``), regardless of ``_PDP_BATCH_MAX_ROWS``. Pins the 2026-08-16
+    safety fix for a reproduced, intermittent native crash ("Windows fatal exception: access violation" inside
+    catboost's Pool._init) when batching a wide-cardinality categorical sweep -- see that function's docstring
+    for the full incident writeup. Only the categorical path is restricted; a numeric grid on the identical
+    carrier still batches (checked here too, so this test would also catch an over-broad future restriction)."""
+    import pandas as pd
+
+    rng = np.random.default_rng(8)
+    n = 600
+    X = pd.DataFrame({"f0": rng.normal(size=n), "f1": rng.normal(size=n)})
+    X["cat"] = pd.Categorical(rng.choice(["a", "b", "c", "d"], n))
+    base = X[["f0", "f1"]].to_numpy()
+
+    out = pdp_ice._predict_grid_batched(
+        lambda block: np.zeros(len(block)), X, base, col_idx=2,
+        grid_vals=np.array([0.0, 1.0, 2.0, 3.0]), cat_labels=["a", "b", "c", "d"],
+        m=n, g=4, col_name="cat", categorical_dtype=X["cat"].dtype,
+    )
+    assert out is None, "a categorical grid sweep must never take the batched path"
+
+    out_numeric = pdp_ice._predict_grid_batched(
+        lambda block: np.zeros(len(block)), X, base, col_idx=0,
+        grid_vals=np.linspace(-1.0, 1.0, 10), cat_labels=None,
+        m=n, g=10, col_name="f0", categorical_dtype=None,
+    )
+    assert out_numeric is not None, "a numeric grid sweep on the same carrier must still batch"
+    assert out_numeric.shape == (10, n)
+
+
+def test_predict_grid_batched_polars_rechunks_before_predict():
+    """The polars branch of ``_predict_grid_batched`` must feed ``predict`` a fully rechunked (single-chunk
+    per column) frame, never the raw ``pl.concat(..., rechunk=False)`` default's multi-chunk, buffer-aliased
+    result. Pins the 2026-08-25 fix for 4 independent CI segfaults (3.9/3.11/3.13,
+    TestTextAndEmbeddingFeatures), all of which traced to this exact line: concatenating the same sample
+    frame g times without rechunking leaves g chunks aliasing one identical underlying Arrow buffer, which
+    CatBoost's native embedding/text-column extraction is not safe against."""
+    polars = pytest.importorskip("polars")
+
+    n = 40
+    rng = np.random.default_rng(3)
+    X = polars.DataFrame({"f0": rng.normal(size=n).tolist(), "f1": rng.normal(size=n).tolist()})
+    base = X.to_numpy()
+
+    seen_chunks = {}
+
+    def _spy_predict(block):
+        """Record each column's chunk count on the frame CatBoost's native predict would actually receive."""
+        seen_chunks["f0"] = block["f0"].n_chunks()
+        seen_chunks["f1"] = block["f1"].n_chunks()
+        return np.zeros(len(block))
+
+    out = pdp_ice._predict_grid_batched(
+        _spy_predict, X, base, col_idx=0,
+        grid_vals=np.linspace(-1.0, 1.0, 6), cat_labels=None,
+        m=n, g=6, col_name="f0", categorical_dtype=None,
+    )
+    assert out is not None
+    assert seen_chunks["f0"] == 1, "swept column must be a single contiguous chunk, not g aliased chunks"
+    assert seen_chunks["f1"] == 1, "untouched column must also be rechunked, not left multi-chunk"
+
+
+def test_compute_pdp_batched_matches_per_step_fallback_pandas_categorical():
+    """Same batched-vs-looped identity pin as the ndarray test above, on the pandas + categorical-column path
+    (a distinct code branch from the ndarray one) -- the two must agree even though the categorical path
+    itself never batches (see test_predict_grid_batched_never_batches_a_categorical_sweep), since compute_pdp
+    must produce the same result whichever path handled the substitution."""
+    import pandas as pd
+
+    rng = np.random.default_rng(8)
+    n = 600
+    X = pd.DataFrame({"f0": rng.normal(size=n), "f1": rng.normal(size=n)})
+    X["cat"] = pd.Categorical(rng.choice(["a", "b", "c", "d"], n))
+
+    class _CatAwareModel:
+        """Deterministic scorer reading f0 plus a per-category offset, native-pandas-categorical-in."""
+
+        def predict(self, block):
+            """Predict."""
+            offsets = {"a": 0.0, "b": 1.0, "c": -1.0, "d": 2.0}
+            return np.asarray(block["f0"], dtype=np.float64) + block["cat"].map(offsets).to_numpy(dtype=np.float64)
+
+    model = _CatAwareModel()
+    batched = pdp_ice.compute_pdp(model, X, "cat", grid=20, sample=300, ice=True, seed=5)
+
+    orig = pdp_ice._PDP_BATCH_MAX_ROWS
+    pdp_ice._PDP_BATCH_MAX_ROWS = -1
+    try:
+        looped = pdp_ice.compute_pdp(model, X, "cat", grid=20, sample=300, ice=True, seed=5)
+    finally:
+        pdp_ice._PDP_BATCH_MAX_ROWS = orig
+
+    assert batched["is_discrete"] and looped["is_discrete"]
+    np.testing.assert_array_equal(batched["grid"], looped["grid"])
+    np.testing.assert_array_equal(batched["pdp"], looped["pdp"])
+    np.testing.assert_array_equal(batched["ice"], looped["ice"])
+
+
 def test_compute_pdp_centered_anchors_first_grid_point():
     """Compute pdp centered anchors first grid point."""
     rng = np.random.default_rng(1)

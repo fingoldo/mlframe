@@ -23,6 +23,22 @@ import pytest
 _BASES = ("chebyshev", "hermite", "legendre", "laguerre")
 
 
+def _require_gpu():
+    """Import cupy (skip if the package is missing) AND skip if no real CUDA device is present.
+
+    ``pytest.importorskip("cupy")`` alone only proves the package imports -- it stays green on a
+    host with cupy installed but no CUDA device, so every real-GPU test in this file routes through
+    this helper instead of a bare ``pytest.importorskip("cupy")``."""
+    cp = pytest.importorskip("cupy")
+    try:
+        available = cp.cuda.runtime.getDeviceCount() >= 1
+    except Exception:  # pragma: no cover - no driver / no GPU
+        available = False
+    if not available:
+        pytest.skip("No CUDA device available")
+    return cp
+
+
 def _als_parity_tol():
     """(rtol, atol) for the device-born ALS coefficient parity vs the CPU f64 reference.
 
@@ -55,7 +71,7 @@ def _std_col(x):
 def test_device_basis_matrix_matches_host_all_bases():
     """``_build_basis_matrix_gpu`` == host ``build_basis_matrix`` to 1e-13 for every
     orthogonal-polynomial basis, across degrees and a heavy-tailed z range."""
-    cp = pytest.importorskip("cupy")
+    cp = _require_gpu()
     from mlframe.feature_selection.filters.hermite_fe import build_basis_matrix
     from mlframe.feature_selection.filters.hermite_fe._hermite_prewarp_gpu_resident import (
         _build_basis_matrix_gpu,
@@ -87,7 +103,7 @@ def test_device_basis_matrix_matches_host_all_bases():
 def test_device_basis_matrix_rejects_unknown_basis():
     """The device builder must raise ``KeyError`` on a non-polynomial basis, mirroring
     the host ``build_basis_matrix`` contract (factory bases use the per-call path)."""
-    cp = pytest.importorskip("cupy")
+    cp = _require_gpu()
     from mlframe.feature_selection.filters.hermite_fe._hermite_prewarp_gpu_resident import (
         _build_basis_matrix_gpu,
     )
@@ -100,7 +116,7 @@ def test_als_coeffs_device_born_match_cpu():
     """``warm_start_als_seed_gpu_from_z`` (device-born design) coefficients == the CPU
     ``warm_start_als_seed`` (prebuilt host design) coefficients to ~1e-12 -- a
     product-structured target so the ALS actually recovers both factors."""
-    pytest.importorskip("cupy")
+    _require_gpu()
     from mlframe.feature_selection.filters.hermite_fe import build_basis_matrix
     from mlframe.feature_selection.filters.hermite_fe._hermite_prewarp import (
         warm_start_als_seed,
@@ -144,7 +160,7 @@ def test_dispatch_routes_device_born_under_resident_flag(monkeypatch):
     """With the resident flag ON and za/zb/basis supplied, ``warm_start_als_seed``
     must route through the device-born twin and return coefficients matching the CPU
     path -- end-to-end selection-equivalence through the production dispatch."""
-    pytest.importorskip("cupy")
+    _require_gpu()
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT_RESIDENT", "1")
     from mlframe.feature_selection.filters._gpu_strict_fe._entry import (

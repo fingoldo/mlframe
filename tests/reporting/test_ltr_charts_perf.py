@@ -32,7 +32,7 @@ from mlframe.reporting.charts.ltr import (
     _ndcg_dist_panel,
     compose_ltr_figure,
 )
-from mlframe.reporting.spec import BarPanelSpec, FigureSpec
+from mlframe.reporting.spec import AnnotationPanelSpec, BarPanelSpec, FigureSpec
 
 # ---------------------------------------------------------------------------
 # Synthetic generators covering mixed group sizes, ties, int + float grades
@@ -332,12 +332,17 @@ class TestNDCGByQSizePanel:
         # First bin = smallest sizes, last bin = largest sizes.
         assert vals[0] > vals[-1] + 0.05, f"small-group NDCG {vals[0]:.3f} should exceed large-group {vals[-1]:.3f}"
 
-    def test_empty_input_returns_placeholder_bar(self):
-        """Empty input returns placeholder bar."""
+    def test_empty_input_explains_instead_of_plotting_a_zero(self):
+        """Empty input yields an annotation naming the cause, never a bar sitting at 0.0.
+
+        A "(no data)" bar at height 0.0 is drawn on the same axis as real measurements, so it reads as "NDCG is
+        zero here" rather than "there was nothing to measure" -- the audit found six such fabricated zeros in this
+        module, one of which went on to print a bootstrap CI of [0.000, 0.000] around a placeholder.
+        """
         empty = np.array([])
         panel = _ndcg_by_qsize_panel(empty, empty, empty)
-        assert isinstance(panel, BarPanelSpec)
-        assert panel.categories == ("(no data)",)
+        assert isinstance(panel, AnnotationPanelSpec)
+        assert "no query" in panel.text
 
 
 # ---------------------------------------------------------------------------

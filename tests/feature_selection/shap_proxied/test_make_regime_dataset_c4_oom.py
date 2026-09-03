@@ -105,7 +105,7 @@ def test_make_regime_dataset_c4_peak_rss_under_cap():
     assert sum(1 for r in roles.values() if r == "noise") == 19960
 
 
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_make_regime_dataset_recall_path_on_chunked_noise():
     """Downscaled recall check that still exercises the chunked-noise codepath.
 

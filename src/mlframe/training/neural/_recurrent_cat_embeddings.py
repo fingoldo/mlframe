@@ -31,9 +31,12 @@ class _RecurrentCatEmbeddingMixin:
         ``CategoricalEmbedding`` (on the aux block) can index them. SEQUENCES are never touched -- they have no named cat columns. ``cat_features``
         is the list of categorical column names; for each present column build a ``value -> code`` map (``pandas.factorize`` order, codes
         ``0..card-1``; the reserved code ``card`` is the unknown/overflow slot used at predict). The cat-code columns move to the FRONT of the
-        returned frame (numerics trail) as float32 -- the layout contract ``CategoricalEmbedding.forward`` expects. Stores ``_cat_code_maps_`` /
+        returned frame (numerics trail) as float32 -- the layout contract ``CategoricalEmbedding.forward`` expects. ``cat_features`` is unioned
+        with any remaining non-numeric column not already named (mirrors the flat-MLP sibling's ``_FitPrepMixin._factorize_cats_fit`` contract),
+        so an un-named categorical column is auto-detected and embedded rather than crashing downstream. Stores ``_cat_code_maps_`` /
         ``_cat_cols_`` / ``_cat_cardinalities_`` / ``_n_cat_features_`` for predict-time replay + network construction. No-op (cardinalities stays
-        None) when the knob is off, no cat column is named/present, or ``features`` is not a DataFrame. Returns the (possibly reordered) frame.
+        None) when the knob is off, no cat column is named/present/auto-detected, or ``features`` is not a DataFrame. Returns the (possibly
+        reordered) frame.
         """
         self._cat_code_maps_ = None
         self._cat_cols_ = None
@@ -42,13 +45,20 @@ class _RecurrentCatEmbeddingMixin:
 
         if not getattr(self, "use_learnable_cat_embeddings", True):
             return features
-        if not cat_features or features is None or not hasattr(features, "columns"):
-            return features
-        present = [c for c in cat_features if c in features.columns]
-        if not present:
+        if features is None or not hasattr(features, "columns"):
             return features
 
         import pandas as _pd
+
+        present = [c for c in (cat_features or []) if c in features.columns]
+        # Mirrors the flat-MLP sibling's ``_FitPrepMixin._factorize_cats_fit`` contract: an explicit
+        # cat_features list is unioned with any remaining non-numeric column, so an un-named categorical
+        # column doesn't crash downstream (the network expects a pure-numeric frame) -- it's auto-detected
+        # and embedded just like a named one.
+        _auto = [c for c in features.columns if c not in present and getattr(features[c], "ndim", 1) == 1 and not _pd.api.types.is_numeric_dtype(features[c])]
+        present = present + _auto
+        if not present:
+            return features
 
         code_maps: dict = {}
         cardinalities: list[int] = []
@@ -88,7 +98,12 @@ class _RecurrentCatEmbeddingMixin:
         for col, card in zip(self._cat_cols_, self._cat_cardinalities_):
             if col not in features.columns:
                 continue
-            mapped = features[col].map(code_maps[col])
+            # ``.astype(object)`` BEFORE ``.map``: Series.map on a pandas CATEGORICAL column returns a Categorical (it maps the categories
+            # and keeps the dtype), so the ``.fillna(card)`` unknown-code fill below would try to add ``card`` as a NEW category and raise
+            # "Cannot setitem on a Categorical with a new category". Mapping the plain object values yields a numeric/object Series whose NaN
+            # fill (values unseen at fit) lands as the reserved unknown code, never a new category. Mirrors the flat-MLP fix in
+            # ``base/_base_fit_prep.py::_apply_cat_codes``.
+            mapped = features[col].astype(object).map(code_maps[col])
             encoded_cols[col] = mapped.fillna(float(card)).astype(np.float32)
         other_cols = [c for c in features.columns if c not in self._cat_cols_]
         ordered = [c for c in self._cat_cols_ if c in features.columns] + other_cols

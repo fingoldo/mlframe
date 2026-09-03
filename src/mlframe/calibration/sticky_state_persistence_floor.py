@@ -1,6 +1,6 @@
 """``apply_sticky_state_persistence_floor``: enforce a minimum probability floor on the currently-active class.
 
-Source: dd_2nd_nasa-airport-config.md -- "Minimum Configuration Support ... a learned parameter enforcing a
+Source: dd_2nd_nasa-airport-config.md - "Minimum Configuration Support ... a learned parameter enforcing a
 minimum predicted-probability floor for the currently active configuration ... 'one of the most important
 aspects of our final submission.'" For "state persists unless there's strong evidence of change" multiclass
 sequence tasks (airport configuration, regime/status flags), a per-step classifier can flicker between classes
@@ -26,10 +26,10 @@ def apply_sticky_state_persistence_floor(probs: np.ndarray, active_class: np.nda
         ``(n,)`` integer index (into the ``k`` classes) of the currently-active class per row. Raises
         ``ValueError`` if any value falls outside ``[0, k)``.
     floor
-        Minimum probability to enforce for the active class, in ``[0, 1)`` -- raises ``ValueError`` outside
+        Minimum probability to enforce for the active class, in ``[0, 1)`` - raises ``ValueError`` outside
         that range (``floor >= 1`` would drive the renormalized "rest" probability mass negative). Rows
         where the active class's raw probability already exceeds ``floor`` are returned unchanged. Either a
-        single scalar applied to every class uniformly, or a ``(k,)`` per-class floor vector -- different
+        single scalar applied to every class uniformly, or a ``(k,)`` per-class floor vector - different
         classes can genuinely have different persistence tendencies (e.g. a state that almost never
         spontaneously changes vs. one that flips often), so a single global floor is a compromise between
         them. Opt-in: passing a scalar reproduces the original uniform-floor behavior bit-for-bit.
@@ -38,7 +38,7 @@ def apply_sticky_state_persistence_floor(probs: np.ndarray, active_class: np.nda
     -------
     np.ndarray
         ``(n, k)`` probability matrix, each row still summing to 1. Returns the input array UNCOPIED when no
-        row needs flooring (copy-on-write) -- callers that mutate the result in place should copy first if
+        row needs flooring (copy-on-write) - callers that mutate the result in place should copy first if
         they also hold a reference to the original ``probs`` array.
     """
     probs_src = np.asarray(probs, dtype=np.float64)
@@ -49,6 +49,8 @@ def apply_sticky_state_persistence_floor(probs: np.ndarray, active_class: np.nda
     floor_arr = np.asarray(floor, dtype=np.float64)
     if np.any(floor_arr < 0.0) or np.any(floor_arr >= 1.0):
         raise ValueError(f"apply_sticky_state_persistence_floor: floor must be in [0, 1), got {floor!r}.")
+    if floor_arr.ndim == 1 and floor_arr.shape[0] != k:
+        raise ValueError(f"apply_sticky_state_persistence_floor: per-class floor vector must have length {k} (k), got shape {floor_arr.shape}.")
     if n and (np.any(active < 0) or np.any(active >= k)):
         raise ValueError(f"apply_sticky_state_persistence_floor: active_class must index into [0, {k}), got {active_class!r}.")
 
@@ -65,7 +67,7 @@ def apply_sticky_state_persistence_floor(probs: np.ndarray, active_class: np.nda
     if not needs_floor.any():
         return probs_src
 
-    # only pay the full-array copy when at least one row actually needs flooring -- the common case (floor
+    # only pay the full-array copy when at least one row actually needs flooring - the common case (floor
     # tuned low, or most predictions already dominant) skips it entirely; measured as ~2.2s of 11.1s cProfile
     # total (200000 rows x20 classes x200 calls) when the copy was unconditional.
     probs_arr = probs_src.copy()
@@ -89,7 +91,7 @@ def optimize_persistence_floor(
     n_thresholds: int = 50,
 ) -> dict:
     """Sweep candidate floor values in ``[0, 1)`` and return the one maximizing ``metric_fn`` on the argmax
-    of the floored probabilities -- the same sweep-and-pick-argmax shape as
+    of the floored probabilities - the same sweep-and-pick-argmax shape as
     :func:`mlframe.calibration.threshold_optimizer.optimize_decision_threshold`, specialized to a full
     probability-matrix transform rather than a scalar-per-row binary threshold.
 
@@ -112,7 +114,7 @@ def optimize_persistence_floor(
     """
 
     # optimize_decision_threshold's binary-threshold sweep expects a scalar score per row, not a full
-    # probability-matrix transform, so it isn't directly reusable here -- sweep the floor value directly.
+    # probability-matrix transform, so it isn't directly reusable here - sweep the floor value directly.
     best_floor, best_score = 0.0, -np.inf
     for floor in np.linspace(0.0, 1.0, n_thresholds, endpoint=False):
         floored = apply_sticky_state_persistence_floor(probs, active_class, floor)
@@ -139,7 +141,7 @@ def optimize_persistence_floor_per_class(
 
     A single global floor is necessarily a compromise when classes have genuinely different persistence
     tendencies (a state that almost never spontaneously changes needs a high floor; one that flips often is
-    hurt by any floor at all) -- this sweeps each class's floor in turn, holding the others fixed at their
+    hurt by any floor at all) - this sweeps each class's floor in turn, holding the others fixed at their
     current-best value, for ``n_passes`` rounds (coordinate ascent; a full ``n_thresholds**k`` grid is
     exponential in the number of classes and unnecessary since classes interact only through renormalized
     mass, not directly).
@@ -156,7 +158,7 @@ def optimize_persistence_floor_per_class(
     Returns
     -------
     dict
-        ``{"floor": np.ndarray of shape (k,), "score": float}`` -- the per-class floor vector maximizing
+        ``{"floor": np.ndarray of shape (k,), "score": float}`` - the per-class floor vector maximizing
         ``metric_fn``, suitable for passing straight to :func:`apply_sticky_state_persistence_floor`.
     """
     k = probs.shape[1] if n_classes is None else n_classes

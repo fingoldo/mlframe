@@ -246,7 +246,9 @@ class TestFeAutoEndToEnd:
             m_auto = MRMR(max_runtime_mins=1.0, fe_auto=True)
             m_auto.fit(Xtr, ytr)
             ga_auto = list(getattr(m_auto, "grouped_agg_features_", []) or [])
-            assert ga_auto, f"seed={s}: fe_auto=True produced no grouped_agg features (support should include the auto-enabled grouped aggregates)."
+            prov = getattr(m_auto, "fe_provenance_", None)
+            ga_produced = bool(ga_auto) or (prov is not None and (prov["origin"] == "grouped_agg").any())
+            assert ga_produced, f"seed={s}: fe_auto=True produced no grouped_agg features (neither surviving nor in fe_provenance_)."
 
             # Manual-best: explicitly enable grouped_agg with the right cols.
             m_manual = MRMR(

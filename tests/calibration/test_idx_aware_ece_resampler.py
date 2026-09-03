@@ -67,9 +67,54 @@ def test_fused_bootstrap_bit_identical_to_metric_fn_and_bootstrap_metric(stratif
     sliced = policy._bootstrap_ece_with_indices(y, p, idx, mf, 0.05, n_bins=None)
     ref = bootstrap_metric(y, p, metric_fn=mf, n_bootstrap=400, alpha=0.05, stratify=strat, random_state=7)
 
+    # The point estimate is exact across all three paths, and the two paths that share the generic jackknife
+    # (sliced, ref) stay exact against each other -- so a real divergence still fails here.
     assert fused["point"] == sliced["point"] == ref["point"]
-    assert fused["lo"] == sliced["lo"] == ref["lo"]
-    assert fused["hi"] == sliced["hi"] == ref["hi"]
+    assert sliced["lo"] == ref["lo"] and sliced["hi"] == ref["hi"]
+
+    # The n_bins-fused path takes ECE's O(n) CLOSED-FORM leave-one-out jackknife; the generic path re-runs the
+    # metric over n leave-one-out copies, which is O(n^2). They are algebraically the same quantity summed in a
+    # different order, so the BCa acceleration lands a few ulp apart and the interval bounds with it. Measured
+    # across six seeds, stratified and not: jackknife vectors agree to 6.2e-16 relative, bounds to 2.0e-15 --
+    # machine epsilon on a confidence bound, which cannot move any decision that reads it. Asserting `==` here
+    # would forbid the closed form outright and force the quadratic path back.
+    for _key in ("lo", "hi"):
+        assert fused[_key] == pytest.approx(sliced[_key], rel=1e-12, abs=1e-15), (
+            f"fused {_key} diverged from the slice-based path by more than FP-reorder noise: " f"{fused[_key]!r} vs {sliced[_key]!r}"
+        )
+
+
+@pytest.mark.parametrize("stratified", [True, False])
+def test_fused_bootstrap_normalizes_non_01_labels_like_point_estimate(stratified):
+    """CALIBRATION-2 (2026-08-05 audit): the n_bins-fused loop fed RAW (un-normalised) y_true straight
+    into ``_ece_score_idx_numba_serial``'s ``sum_y`` accumulator, while the point estimate two lines
+    above (``metric_fn`` -> ``_ece_score``) normalises via ``_normalize_binary_labels`` first. For a
+    non-{0,1}-encoded y_true ({-1,+1} here) the pre-fix bootstrap CI was computed on a different label
+    scale than the point estimate it is supposed to bracket -- this pins that the fused ``n_bins`` path
+    now matches the slice-based (``n_bins=None``) path bit-for-bit regardless of label encoding."""
+    from mlframe.calibration import policy
+
+    rng = np.random.default_rng(11)
+    n = 2000
+    y01 = (rng.uniform(0, 1, n) < 0.35).astype(np.int64)
+    y_pm1 = np.where(y01 == 1, 1, -1).astype(np.int64)  # {-1, +1} encoding of the SAME labels
+    p = np.clip(rng.uniform(0, 1, n) + 0.1 * y01, 0.0, 1.0)
+    strat = y_pm1 if stratified else None
+    mf = lambda a, b: policy._ece_score(a, b, n_bins=15)
+
+    idx = policy._build_resample_indices(n, 300, strat, 13)
+    fused = policy._bootstrap_ece_with_indices(y_pm1, p, idx, mf, 0.05, n_bins=15)
+    sliced = policy._bootstrap_ece_with_indices(y_pm1, p, idx, mf, 0.05, n_bins=None)
+
+    assert fused["point"] == sliced["point"]
+    assert fused["lo"] == sliced["lo"]
+    assert fused["hi"] == sliced["hi"]
+
+    # Also matches the {0,1}-encoded run bit-for-bit (same underlying labels, same resample indices).
+    ref01 = policy._bootstrap_ece_with_indices(y01, p, idx, mf, 0.05, n_bins=15)
+    assert fused["point"] == ref01["point"]
+    assert fused["lo"] == ref01["lo"]
+    assert fused["hi"] == ref01["hi"]
 
 
 def test_wrapper_fast_path_matches_coercion_path():

@@ -137,7 +137,7 @@ class TestDispatcherEmphasis:
                 target_type="binary_classification",
             )
         assert tag == "binary"
-        assert os.path.exists(tmp_path / "bin_binary_panels.png")
+        assert os.path.exists(tmp_path / "bin_binary_panels.png"), _render_debug(tmp_path)
 
     def test_data_aware_applies_only_when_default(self, monkeypatch):
         """Emphasis fires only when binary_panels_is_default=True; a custom
@@ -339,21 +339,54 @@ class TestBizValuePanelEmphasis:
 # ---------------------------------------------------------------------------
 
 
-def test_cprofile_emphasis_is_trivial():
-    """The base-rate derivation is one O(n) pass; assert it is sub-millisecond
-    on a 1M-row label vector so it adds no measurable dispatch overhead."""
-    import cProfile
-    import pstats
-    import io
+def test_emphasis_selection_stays_linear_in_n():
+    """The base-rate derivation is one O(n) pass, asserted as a COMPLEXITY CLASS rather than a wall-clock ceiling.
 
-    y = _imbalanced_y(n=1_000_000)
-    pr = cProfile.Profile()
-    pr.enable()
-    for _ in range(20):
-        select_binary_emphasis_panels(y, _DEFAULT, emphasis="data_aware")
-    pr.disable()
-    s = io.StringIO()
-    pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats(5)
-    total = pstats.Stats(pr).total_tt
-    # 20 calls over 1M rows -> well under 0.5s even with profiler overhead.
-    assert total < 0.5, s.getvalue()
+    This used to be ``assert total < 0.5`` on one profiled run of 20 calls over 1M rows, with no warmup and no
+    best-of-N, under a profiler whose own overhead is load-dependent. On a contended runner that flakes red for
+    reasons unrelated to the code, and the predictable repair is to raise the constant -- after which a genuine
+    O(n^2) regression fits comfortably under the new ceiling.
+
+    A single n-vs-4n ratio is not robust enough either: measured on this box the same linear pass produced
+    ratios from 6.7x to 14.6x across trials, and its absolute time at 1M swung from 9.6ms to 102ms under load.
+    So the assertion is the MEDIAN per-doubling ratio over four doublings -- linear is ~2 per doubling (measured
+    2.40 / 2.00 / 1.88 / 4.16, median 2.2), quadratic would be ~4, and a median is immune to one spiked step.
+    """
+    import statistics
+    import time
+
+    def _elapsed(n):
+        """Best-of-5 wall time for 5 selections over an n-row label vector."""
+        y = _imbalanced_y(n=n)
+        select_binary_emphasis_panels(y, _DEFAULT, emphasis="data_aware")  # warm
+        best = float("inf")
+        for _ in range(5):
+            t0 = time.perf_counter()
+            for _ in range(5):
+                select_binary_emphasis_panels(y, _DEFAULT, emphasis="data_aware")
+            best = min(best, time.perf_counter() - t0)
+        return best
+
+    sizes = (125_000, 250_000, 500_000, 1_000_000, 2_000_000)
+    times = [_elapsed(n) for n in sizes]
+    ratios = [b / max(a, 1e-9) for a, b in zip(times, times[1:])]
+    median_ratio = statistics.median(ratios)
+    assert median_ratio < 3.0, f"median per-doubling ratio {median_ratio:.2f} (linear is ~2, quadratic ~4); per-step {[round(r, 2) for r in ratios]}"
+
+
+def _render_debug(root) -> str:
+    """Everything on disk under ``root``, plus the counters render_and_save bumps when it drops a chart."""
+    import os
+
+    from mlframe.reporting.renderers.save import get_render_failure_stats
+
+    found = []
+    for dirpath, _dirnames, filenames in os.walk(str(root)):
+        for name in sorted(filenames):
+            found.append(os.path.relpath(os.path.join(dirpath, name), str(root)))
+    from mlframe.reporting.renderers.save import _use_format_subfolders, get_format_subfolders
+    state = (
+        f"; effective_subfolders={_use_format_subfolders()}, thread_override={get_format_subfolders()!r}, "
+        f"env={os.environ.get('MLFRAME_PLOT_FORMAT_SUBFOLDERS')!r}, thread={__import__('threading').current_thread().name!r}"
+    )
+    return f"files under {root}: {found or '<none>'}; render failure stats: {get_render_failure_stats()}" + state

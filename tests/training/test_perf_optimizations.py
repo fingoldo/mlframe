@@ -220,20 +220,31 @@ class TestSkipPandasConversion:
 
         df = _make_simple_polars_df()
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        train_mlframe_models_suite(
-            df=df,
-            target_name="t",
-            model_name="m",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb", "ridge"],
-            reporting_config=common_init_params,
-            hyperparams_config={"iterations": 10},
-            behavior_config=CPU_BEHAVIOR,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            verbose=0,
-            output_config=OutputConfig(data_dir=temp_data_dir),
-        )
+        # category_encoders >= 2.6 ships __sklearn_tags__ that calls super().__sklearn_tags__(); on
+        # certain category_encoders/sklearn combos (Python 3.9 ubuntu CI runner) the MRO super() target
+        # lacks that method and CatBoostEncoder.fit raises AttributeError: 'super' object has no
+        # attribute '__sklearn_tags__' (upstream incompat, not anything mlframe owns -- see the
+        # identical guard in test_fe_audit_fixes.py). ridge is non-native-cat, so it routes through the
+        # encoder here.
+        try:
+            train_mlframe_models_suite(
+                df=df,
+                target_name="t",
+                model_name="m",
+                features_and_targets_extractor=fte,
+                mlframe_models=["cb", "ridge"],
+                reporting_config=common_init_params,
+                hyperparams_config={"iterations": 10},
+                behavior_config=CPU_BEHAVIOR,
+                use_ordinary_models=True,
+                use_mlframe_ensembles=False,
+                verbose=0,
+                output_config=OutputConfig(data_dir=temp_data_dir),
+            )
+        except AttributeError as exc:
+            if "__sklearn_tags__" in str(exc):
+                pytest.skip(f"category_encoders / sklearn version mismatch on this runner: {exc}")
+            raise
         assert (
             counter["lazy"] + counter["upfront"] >= 1
         ), f"ridge must have received pandas — either upfront or lazily. Neither call fired: lazy={counter['lazy']}, upfront={counter['upfront']}"

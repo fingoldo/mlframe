@@ -48,7 +48,7 @@ from ..transforms import get_transform, DomainViolationError
 logger = logging.getLogger(__name__)
 
 
-class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
+class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
     """sklearn-compatible wrapper that fits an inner regressor on a
     transformed target and inverts at predict time.
 

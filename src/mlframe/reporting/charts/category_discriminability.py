@@ -28,7 +28,7 @@ from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from mlframe.reporting.spec import BarPanelSpec, FigureSpec
+from mlframe.reporting.spec import AnnotationPanelSpec, BarPanelSpec, FigureSpec, PanelSpec
 
 logger = logging.getLogger(__name__)
 
@@ -71,14 +71,19 @@ except ImportError:  # numba unavailable: two-bincount numpy fallback (bit-ident
         return pos, tot
 
 
+# Rows probed when deciding whether an object column holds non-scalar (unhashable) elements. The probe is a
+# Python-level scan, so it must not be O(n): see the call site for the measured cost of scanning the whole column.
+_UNHASHABLE_PROBE_ROWS: int = 1000
+
+
 def level_woe(
     level_codes: np.ndarray,
     y: np.ndarray,
     n_levels: int,
     base_rate: float,
     alpha: float = 0.5,
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Weight-of-Evidence magnitude driver: return ``(woe, count)`` per level of one categorical feature.
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Weight-of-Evidence magnitude driver: return ``(woe, count, positives)`` per level of one categorical feature.
 
     ``woe[L] = ln( (p_L/(1-p_L)) / (base/(1-base)) )`` with Laplace-smoothed ``p_L = (pos_L + alpha) / (tot_L + 2*alpha)``; the
     sign is kept (positive => level tilts toward ``y=1``). ``count`` is the raw per-level total. The per-row count pass is the
@@ -88,13 +93,15 @@ def level_woe(
     yf = np.ascontiguousarray(y, dtype=np.float64)
     nl = int(n_levels)
     if nl <= 0:
-        return np.zeros(0), np.zeros(0)
+        return np.zeros(0), np.zeros(0), np.zeros(0)
     pos, tot = _level_counts_njit(codes, yf, nl)
     p = (pos + alpha) / (tot + 2.0 * alpha)
     base = min(max(float(base_rate), 1e-12), 1.0 - 1e-12)
     base_logit = np.log(base / (1.0 - base))
     woe = np.log(p / (1.0 - p)) - base_logit
-    return woe, tot
+    # ``pos`` rides along because this kernel already has it: the caller used to recompute the same per-level
+    # positive counts with two length-n gathers and a second bincount over the identical data.
+    return woe, tot, pos
 
 
 def _iter_categorical_columns(X: Any, features: Optional[Sequence[str]]):
@@ -116,6 +123,11 @@ def _iter_categorical_columns(X: Any, features: Optional[Sequence[str]]):
             # hashable, raising "TypeError: unhashable type: 'numpy.ndarray'". A single embedding vector isn't
             # a meaningful category anyway, so treat such a column as non-categorical here.
             return not any(isinstance(v, (list, tuple, np.ndarray)) for v in col)
+        # pandas' dedicated string dtype (StringDtype, and the newer numpy-backed "str" dtype some
+        # pandas versions/configs infer by default for plain-string columns instead of object) can
+        # only ever hold actual strings/NA -- no embedding-column hashability concern, unlike object.
+        if pd.api.types.is_string_dtype(dt):
+            return True
         # polars Series carry no pandas dtype object; string-ify the dtype instead of importing polars (X may be
         # pandas-only in most callers -- an unconditional polars import here would be a needless hard dependency).
         return str(dt) in ("Utf8", "String", "Categorical", "Enum", "Object")
@@ -138,7 +150,11 @@ def _iter_categorical_columns(X: Any, features: Optional[Sequence[str]]):
         labels = list(cat.cat.categories)
         if len(labels) < 1 or len(labels) > _MAX_CARDINALITY:
             if len(labels) > _MAX_CARDINALITY:
-                logger.info("category_discriminability: skipped high-cardinality column %r (%d levels)", col, len(labels))
+                logger.info(
+                    "category_discriminability: skipped high-cardinality column %r (%d levels in the %d sampled rows; "
+                    "the full-column count reported elsewhere is larger)",
+                    col, len(labels), len(s),
+                )
             continue
         codes = np.ascontiguousarray(cat.cat.codes.to_numpy(), dtype=np.int64)
         yield str(col), codes, labels
@@ -152,19 +168,20 @@ def category_discriminability_table(
     top_k: int = 15,
     min_support: int = 30,
     alpha: float = 0.5,
+    seed: int = 0,
 ) -> List[Tuple[str, str, float, int, float]]:
     """Rank ``(feature, level)`` cells by ``|WoE|``: return the top_k as ``(feature, level_label, woe, support, p_rate)``.
 
     Iterates the categorical columns (caller ``features`` or auto-detected object / category dtype), pulls each as codes, and
     scores every level with :func:`level_woe`. Levels below ``min_support`` are dropped and the total drop count is logged (not
     silently discarded). ``p_rate`` is the raw (unsmoothed) ``P(y=1 | level)``. On a huge frame the count pass runs on a bounded
-    seeded row subsample so the pass stays RAM-safe on 100+ GB frames.
+    ``seed``-seeded row subsample so the pass stays RAM-safe on 100+ GB frames.
     """
     y = np.ascontiguousarray(np.asarray(y), dtype=np.float64)
     n = y.shape[0]
     row_idx = None
     if n > _COUNT_SUBSAMPLE_CAP:
-        rng = np.random.default_rng(0)
+        rng = np.random.default_rng(seed)
         row_idx = rng.choice(n, size=_COUNT_SUBSAMPLE_CAP, replace=False)
         row_idx.sort()
         y_use = y[row_idx]
@@ -185,9 +202,7 @@ def category_discriminability_table(
         if codes.shape[0] != y_use.shape[0]:
             raise ValueError(f"category_discriminability_table: length mismatch X={codes.shape[0]} y={y_use.shape[0]}")
         n_levels = len(labels)
-        woe, tot = level_woe(codes, y_use, n_levels, base_rate, alpha=alpha)
-        keep = codes >= 0
-        pos = np.bincount(codes[keep], weights=y_use[keep], minlength=n_levels)
+        woe, tot, pos = level_woe(codes, y_use, n_levels, base_rate, alpha=alpha)
         for lvl in range(n_levels):
             support = int(tot[lvl])
             if support < min_support:
@@ -201,7 +216,33 @@ def category_discriminability_table(
         logger.info("category_discriminability: dropped %d levels below min_support=%d", dropped, min_support)
 
     rows.sort(key=lambda r: abs(r[2]), reverse=True)
-    return rows[: max(1, int(top_k))]
+    if int(top_k) < 1:
+        # Silently promoting 0 to 1 answers a different question than the one asked: a caller requesting
+        # zero rows got exactly one, which is a wrong result rather than a lenient one.
+        raise ValueError(f"top_k must be >= 1, got {top_k!r}")
+    return rows[: int(top_k)]
+
+
+def _woe_interval(p_rates, supports, base_rate: float, alpha: float):
+    """95% WoE interval per level: each level's Wilson interval on P(y=1|level), mapped through the WoE transform.
+
+    WoE is monotone in p, so the transformed Wilson bounds ARE the WoE bounds -- no delta-method approximation, and
+    it stays finite at p = 0 or 1 where the raw log-odds would not.
+    """
+    z = 1.959963984540054
+    n = np.where(supports > 0, supports, np.nan)
+    denom = 1.0 + (z * z) / n
+    centre = (p_rates + (z * z) / (2.0 * n)) / denom
+    half = (z * np.sqrt(p_rates * (1.0 - p_rates) / n + (z * z) / (4.0 * n * n))) / denom
+    base = min(max(float(base_rate), 1e-12), 1.0 - 1e-12)
+    base_logit = np.log(base / (1.0 - base))
+
+    def _woe_of(prob):
+        """WoE of a probability, Laplace-smoothed exactly as ``level_woe`` smooths it so the bar sits in its interval."""
+        ps = np.clip((prob * n + alpha) / (n + 2.0 * alpha), 1e-12, 1.0 - 1e-12)
+        return np.log(ps / (1.0 - ps)) - base_logit
+
+    return _woe_of(np.clip(centre - half, 0.0, 1.0)), _woe_of(np.clip(centre + half, 0.0, 1.0))
 
 
 def category_discriminability_panel(
@@ -212,25 +253,53 @@ def category_discriminability_panel(
     top_k: int = 15,
     min_support: int = 30,
     alpha: float = 0.5,
-) -> BarPanelSpec:
+    seed: int = 0,
+) -> PanelSpec:
     """Horizontal signed-WoE bar of the top_k ``feature=level`` cells (green => tilts to y=1, red => to y=0), zero line at WoE=0."""
-    rows = category_discriminability_table(X, y, features, top_k=top_k, min_support=min_support, alpha=alpha)
+    rows = category_discriminability_table(X, y, features, top_k=top_k, min_support=min_support, alpha=alpha, seed=seed)
     if not rows:
-        return BarPanelSpec(
-            categories=("(no level above min_support)",),
-            values=np.array([0.0]),
-            title="Category discriminability (|WoE|)",
-            orientation="horizontal",
+        # Say WHY the chart is empty, in a text panel. A single zero-height bar labelled
+        # "(no level above min_support)" rendered as full-size EMPTY axes spanning a meaningless
+        # -0.04..0.04 range, and repeated the figure's own suptitle as its panel title -- three ways of
+        # showing nothing. The reader needs the reason and the knob to turn, not a blank grid.
+        return AnnotationPanelSpec(
+            text=(
+                f"No categorical level cleared min_support={min_support:,} rows.\n\n"
+                "Weight of Evidence compares P(y=1 | level) against the base rate, so a level seen only a\n"
+                "handful of times produces a large but meaningless value; min_support exists to suppress\n"
+                "exactly that. An empty chart therefore means one of:\n"
+                "  - the categorical features are high-cardinality (many rare levels, none frequent), or\n"
+                "  - no categorical features were passed at all, or\n"
+                f"  - the dataset is smaller than {min_support:,} rows per level.\n\n"
+                "Lower min_support to inspect rarer levels (accepting noisier WoE), or group rare levels\n"
+                "into an 'other' bucket upstream."
+            ),
+            title="Category discriminability (|WoE|): nothing to show",
+            fontsize=10,
         )
     cats = tuple(f"{feat}={lbl}  (n={support:_}, p={p_rate:.2f})" for feat, lbl, _woe, support, p_rate in rows)
     vals = np.array([r[2] for r in rows], dtype=np.float64)
+    # Ranking every level of every feature by |WoE| is a MAX-SELECTION over hundreds of estimates, so the top bar is
+    # biased away from zero by the selection itself. Each bar's own 95% interval says whether the level is
+    # distinguishable from the base rate at all; the counts come free from level_woe.
+    _y = np.asarray(y, dtype=np.float64).ravel()
+    _base = float(np.nanmean(_y)) if _y.size else 0.5
+    supports = np.array([float(r[3]) for r in rows], dtype=np.float64)
+    p_rates = np.array([float(r[4]) for r in rows], dtype=np.float64)
+    lo_woe, hi_woe = _woe_interval(p_rates, supports, _base, alpha)
+    n_straddling = int(np.sum((lo_woe <= 0.0) & (hi_woe >= 0.0)))
+    _straddle_txt = (
+        f"{n_straddling} of {len(rows)} intervals straddle 0 (consistent with the base rate); " if n_straddling else "every interval excludes 0, but "
+    )
+    _sel_note = "\n" + _straddle_txt + ("the top bar is the max over every level screened, so its magnitude is biased away from 0")
     # Per-bar signed color: the bar direction already encodes the sign (positive extends right of the 0 line), the color
     # reinforces which class the level tilts toward. Kept as a per-bar tuple so a signed-aware renderer can color each bar.
     colors = tuple(_POS_COLOR if v >= 0.0 else _NEG_COLOR for v in vals)
     return BarPanelSpec(
         categories=cats,
         values=vals,
-        title="Category discriminability (signed |WoE|; green=>y=1, red=>y=0; label = support n + P(y=1|level))",
+        value_err=(np.clip(vals - lo_woe, 0.0, None), np.clip(hi_woe - vals, 0.0, None)),
+        title=("Category discriminability (signed |WoE|; green=>y=1, red=>y=0; label = support n + P(y=1|level))" + _sel_note),
         xlabel="Weight of Evidence  ln[ (p/(1-p)) / (base/(1-base)) ]",
         ylabel="feature=level",
         orientation="horizontal",
@@ -247,11 +316,24 @@ def compose_category_discriminability_figure(
     top_k: int = 15,
     min_support: int = 30,
     alpha: float = 0.5,
+    seed: int = 0,
     suptitle: str = "Category discriminability (|WoE|)",
 ) -> FigureSpec:
     """One-panel FigureSpec wrapping :func:`category_discriminability_panel`."""
-    panel = category_discriminability_panel(X, y, features, top_k=top_k, min_support=min_support, alpha=alpha)
-    return FigureSpec(suptitle=suptitle, panels=((panel,),), figsize=(10.0, max(5.0, 0.5 * len(panel.categories) + 2.0)))
+    panel = category_discriminability_panel(X, y, features, top_k=top_k, min_support=min_support, alpha=alpha, seed=seed)
+    # Height grows with the bar count; the degenerate branch returns a TEXT panel with no ``categories``, and
+    # a tall figure would only stretch a short message over empty space.
+    _cats = getattr(panel, "categories", None)
+    height = max(5.0, 0.5 * len(_cats) + 2.0) if _cats else 3.5
+    how_to_read = (
+        "Weight of Evidence per feature=level: ln[ odds(y=1 | level) / odds(y=1 | overall) ]. Positive (green) "
+        "means the level tilts toward y=1, negative (red) toward y=0, and 0 means the level carries no signal "
+        "beyond the base rate. Bar LENGTH is effect size in log-odds, roughly additive, so +0.7 is about a "
+        "2x odds shift. Each label carries the level's support n and its raw P(y=1|level); a long bar on a small "
+        "n is the one to distrust, which is what min_support screens for. Levels are ranked by |WoE|, so this "
+        "shows the strongest tilts, not every level."
+    )
+    return FigureSpec(suptitle=suptitle, panels=((panel,),), figsize=(10.0, height), caption=how_to_read if _cats else "")
 
 
 __all__ = [

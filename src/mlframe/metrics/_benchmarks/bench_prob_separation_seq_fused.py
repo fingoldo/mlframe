@@ -1,4 +1,4 @@
-"""Bench: probability_separation_score SEQ kernel — alloc-heavy vs fused scalar.
+"""Bench: probability_separation_score SEQ kernel -- alloc-heavy vs fused scalar.
 
 The current ``_probability_separation_score_seq`` (in
 ``mlframe/metrics/_log_loss_and_separation.py``) builds a boolean mask
@@ -8,7 +8,7 @@ fancy-indexed copy ``y_prob[idx]`` (alloc), then ``np.mean`` (full pass) and
 in-class subset of size m this is ~3 array allocations and ~4 passes.
 
 The fused variant walks ``y_true``/``y_prob`` ONCE accumulating count + sum,
-then ONCE more for the centred SSE — zero allocations. This is the seq path
+then ONCE more for the centred SSE -- zero allocations. This is the seq path
 that serves all n < _PARALLEL_MULTILABEL_THRESHOLD (50k), i.e. every typical
 classification/regression report shape.
 

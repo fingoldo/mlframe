@@ -200,7 +200,6 @@ def run_bed(name, X, y, seed):
     t0 = time.time()
     h = PerModelHybrid(vote=1, use_fe=True, random_state=seed).fit(Xtr, ytr)
     fit_s = round(time.time() - t0, 1)
-    list(h._Xaug_.columns)
     Ztr, Zte = h._augment(Xtr), h._augment(Xte)
 
     def slice_ok(sel):

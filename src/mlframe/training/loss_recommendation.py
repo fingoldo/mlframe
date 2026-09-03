@@ -32,8 +32,9 @@ from typing import Any, Dict
 import numpy as np
 
 _EXCESS_KURT_HEAVY: float = 1.5
-"""Threshold above which Gaussian assumptions break and a robust loss
-(Huber by default; L1 reachable via ``prefer_l1_above_kurt``) wins.
+"""Threshold above which Gaussian assumptions break and a robust loss (Huber) wins. Pure L1/MAE is not
+recommended by this policy (see history below); operators who explicitly want the Laplace MLE (median
+regression) call with ``target_quantile=0.5`` instead.
 
 History:
 * Originally: 1.5 -> pure L1/MAE.

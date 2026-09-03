@@ -286,7 +286,7 @@ def _avg_classifier_predict(self, X):
     return self.classes_[np.argmax(self.predict_proba(X), axis=1)]
 
 
-class ArithmAvgClassifier(BaseEstimator, ClassifierMixin):
+class ArithmAvgClassifier(ClassifierMixin, BaseEstimator):
     """Binary classifier that averages the first ``nprobs`` columns of X as the positive-class probability.
 
     Treats X as a matrix of pre-computed probabilities (e.g. outputs of several base models).
@@ -311,7 +311,7 @@ class ArithmAvgClassifier(BaseEstimator, ClassifierMixin):
         return np.concatenate([1 - posProbs, posProbs], axis=1)
 
 
-class GeomAvgClassifier(BaseEstimator, ClassifierMixin):
+class GeomAvgClassifier(ClassifierMixin, BaseEstimator):
     """Binary classifier that geometrically averages the first ``nprobs`` columns of X as the positive-class probability.
 
     Like ``ArithmAvgClassifier`` but combines the pre-computed probability columns via a
@@ -347,7 +347,7 @@ class GeomAvgClassifier(BaseEstimator, ClassifierMixin):
         return np.concatenate([1 - posProbs, posProbs], axis=1)
 
 
-class PureRandomClassifier(BaseEstimator, ClassifierMixin):
+class PureRandomClassifier(ClassifierMixin, BaseEstimator):
     """Random-prediction baseline. Respects `random_state` for reproducibility.
 
     Follows sklearn conventions: stores `classes_`, `n_features_in_` in fit,
@@ -390,8 +390,8 @@ class PureRandomClassifier(BaseEstimator, ClassifierMixin):
         return raw / raw.sum(axis=1, keepdims=True)
 
 
-class MyDecorrelator(BaseEstimator, TransformerMixin):
-    """TODO: TEST PROPERLY"""
+class MyDecorrelator(TransformerMixin, BaseEstimator):
+    """Drops features that are highly correlated with an already-kept feature, per `threshold`."""
 
     def __init__(self, threshold):
         self.threshold = threshold
@@ -692,13 +692,13 @@ class IdentityEstimator(BaseEstimator):
             return X[:, self.feature_indices]
 
 
-class IdentityRegressor(IdentityEstimator, RegressorMixin):
+class IdentityRegressor(RegressorMixin, IdentityEstimator):
     """Regressor flavour of ``IdentityEstimator``: ``predict`` returns the selected feature column(s) verbatim."""
 
     pass
 
 
-class IdentityClassifier(IdentityEstimator, ClassifierMixin):
+class IdentityClassifier(ClassifierMixin, IdentityEstimator):
     """Classifier flavour of ``IdentityEstimator``: treats selected feature column(s) as pre-computed class probabilities.
 
     ``predict`` returns the raw feature slice; ``predict_proba`` coerces it into a valid

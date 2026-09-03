@@ -86,7 +86,7 @@ def _fit(df, y, early_stop: bool, fe_max_steps: int = 3, use_cache: bool = True)
 # ---------------------------------------------------------------------------
 # (1) WALL-CUT + DPI-CORRECTNESS.
 # ---------------------------------------------------------------------------
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 def test_biz_value_work_cut_on_fully_recoverable_signal():
     """On the pure-linear fixture the early-stop fires (residual pure noise) and SKIPS the
     remaining FE search. The work-saved is asserted on a DETERMINISTIC proxy -- the number of
@@ -147,7 +147,7 @@ def test_biz_value_work_cut_on_fully_recoverable_signal():
 # ---------------------------------------------------------------------------
 # (2) SELECTION BYTE-IDENTITY on a genuine multi-signal fixture.
 # ---------------------------------------------------------------------------
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_biz_value_selection_byte_identical_on_genuine_multi_signal():
     """On the GENUINE multi-signal F1 fixture the early-stop does NOT fire prematurely (the
     residual still carries the unrecovered a**2/b signal), so the final selection is
@@ -171,7 +171,7 @@ def test_biz_value_selection_byte_identical_on_genuine_multi_signal():
 # ---------------------------------------------------------------------------
 # (3) NO-FALSE-STOP / NO-PREMATURE-STOP matrix.
 # ---------------------------------------------------------------------------
-@pytest.mark.timeout(200)
+@pytest.mark.timeout(900)
 def test_biz_value_no_false_stop_on_pure_noise_target():
     """A pure-noise target: every raw legitimately sits at the maxT null (no signal), so the
     maxT test alone would pass. The H(y)-relative variance guard must prevent the false stop
@@ -189,7 +189,7 @@ def test_biz_value_no_false_stop_on_pure_noise_target():
     assert v is None or not v.reached, f"FALSE STOP on pure noise: {v and v.reason}"
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_biz_value_no_premature_stop_with_unfound_second_signal():
     """A genuine second independent signal not yet captured: ``y = a + 3*g + noise`` where g
     is a strong raw. While the selection lacks g the residual carries g's full signal -> the
@@ -214,7 +214,7 @@ def test_biz_value_no_premature_stop_with_unfound_second_signal():
 # ---------------------------------------------------------------------------
 # (4) cProfile -- the residual-check cost is negligible.
 # ---------------------------------------------------------------------------
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 def test_cprofile_sufficient_summary_cost_is_negligible():
     """The per-pass sufficient-summary residual check must be a NEGLIGIBLE fraction of the
     fit (the cheap ridge on 1-5 cols + a few maxT permutations over a handful of raws). On

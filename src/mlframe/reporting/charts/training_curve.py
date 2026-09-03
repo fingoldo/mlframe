@@ -1,4 +1,4 @@
-"""Training-curve panels: train vs validation metric over boosting iterations (INV-24).
+"""Training-curve panels: train vs validation metric over boosting iterations.
 
 ``compose_training_curve_figure`` turns the generic per-metric history extracted from a
 fitted gradient-booster (lgb ``evals_result_`` / xgb ``evals_result()`` /
@@ -60,6 +60,11 @@ def normalize_history(
     return out
 
 
+# Metrics where a HIGHER validation value is the optimum; everything else (loss, error, deviance) is minimised.
+_HIGHER_IS_BETTER_METRICS = frozenset({"auc", "roc_auc", "aucpr", "pr_auc", "average_precision", "ap", "accuracy",
+                                       "f1", "map", "ndcg", "r2", "precision", "recall", "balanced_accuracy"})
+
+
 def _metric_panel(
     metric: str,
     splits: Mapping[str, np.ndarray],
@@ -99,6 +104,26 @@ def _metric_panel(
             vspans = ((float(es_iteration), float(n_iter - 1), "firebrick", 0.08),)
         title = f"{metric} vs iteration (ES @ {es_iteration})"
 
+    point_markers = None
+    if "train" in splits and "val" in splits:
+        _tr, _va = series[labels.index("train")], series[labels.index("val")]
+        _both = np.isfinite(_tr) & np.isfinite(_va)
+        if _both.any():
+            _last = int(np.flatnonzero(_both)[-1])
+            _at_stop = int(es_iteration) if (es_iteration is not None and 0 <= es_iteration <= _last and _both[es_iteration]) else _last
+            _gap_stop = float(_va[_at_stop] - _tr[_at_stop])
+            _gap_last = float(_va[_last] - _tr[_last])
+            # The gap WIDENING between the stop and the last iteration is the signal: it means the extra rounds
+            # bought train fit that validation never saw. A gap that stays flat is a model that is merely imperfect.
+            _widened = abs(_gap_last) - abs(_gap_stop)
+            _verdict = "widening -- the extra rounds are memorising" if _widened > 0 else "not widening"
+            title += "\n" + f"val-train gap {_gap_stop:+.4g} at the stop, {_gap_last:+.4g} at the last iteration " f"({_verdict})"
+        # Mark the validation optimum: the iteration the early-stopping rule was trying to find.
+        if np.isfinite(_va).any():
+            _lower_is_better = str(metric).lower() not in _HIGHER_IS_BETTER_METRICS
+            _best = int(np.nanargmin(_va) if _lower_is_better else np.nanargmax(_va))
+            point_markers = ((float(_best), float(_va[_best]), f"val optimum @ {_best}", "darkorange", "*"),)
+
     return LinePanelSpec(
         x=x,
         y=tuple(series) if len(series) > 1 else series[0],
@@ -110,6 +135,7 @@ def _metric_panel(
         colors=tuple(colors),
         vlines=vlines,
         vspans=vspans,
+        point_markers=point_markers,
     )
 
 
@@ -152,6 +178,12 @@ def compose_training_curve_figure(
         suptitle=suptitle,
         panels=grid,
         figsize=figsize_for_grid(n_rows, n_cols, cell_width=cell_width, cell_height=cell_height),
+        caption=(
+            "How to read: the train curve says what the model can fit, the validation curve what it can generalise. "
+            "The gap between them at the stopping point is the overfitting signal; a validation curve that turns "
+            "back up while train keeps falling means the extra rounds are memorising. Validation is also the split "
+            "early stopping optimised against, so its final value is optimistic -- quote the test split instead."
+        ),
     )
 
 

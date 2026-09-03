@@ -161,7 +161,7 @@ class TrainingConfig(BaseConfig):
     metamodel_func : Callable, optional
         Function to wrap models (e.g., for target transformation).
         Note: ``imputer`` / ``scaler`` / ``category_encoder`` overrides moved to
-        ``PreprocessingConfig`` in 2026-04-27 (the dict-typed pass-through that
+        ``PreprocessingConfig`` (the dict-typed pass-through that
         previously held them was deleted).
 
     Raises
@@ -436,7 +436,7 @@ class FeatureImportanceConfig(BaseConfig):
     """Configuration for feature-importance plots.
 
     Replaces the dict-typed ``fi_kwargs`` that previously lived on
-    pre-2026-04-27 ``ReportingConfig`` (it was a separate dict field then) and
+    the prior ``ReportingConfig`` (it was a separate dict field then) and
     was reachable from the suite layer only via the deleted dict-typed
     pass-through. Fields mirror the kwargs of
     ``mlframe.training.evaluation.plot_model_feature_importances``.
@@ -469,7 +469,7 @@ class FeatureImportanceConfig(BaseConfig):
 class OutputConfig(BaseConfig):
     """Filesystem destinations for saved artifacts.
 
-    Holds path/output knobs that previously lived on the pre-2026-04-27
+    Holds path/output knobs that previously lived on the prior
     ReportingConfig (``plot_file``) or as top-level kwargs of ``train_mlframe_models_suite``
     (``data_dir``, ``models_dir``, ``save_charts``). Pulled out so
     ``ReportingConfig`` covers only "look of the report" and not "where
@@ -520,7 +520,7 @@ class OutputConfig(BaseConfig):
     def _check_save_charts_has_destination(self):
         """Raise when the user EXPLICITLY set save_charts=True but left data_dir empty.
 
-        Pre-2026-05-20 the save branch silently short-circuited on falsy data_dir
+        Previously the save branch silently short-circuited on falsy data_dir
         (per the comment at L2040-2044), so every chart the suite rendered got dropped
         on the floor. An operator who explicitly opted into save_charts but forgot to
         configure data_dir saw no saved artifacts and no log line.

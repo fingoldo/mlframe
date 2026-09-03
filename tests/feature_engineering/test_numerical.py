@@ -408,6 +408,19 @@ class TestParameterCoverage:
         names = get_numaggs_names(return_distributional=True)
         assert len(result) == len(names)
 
+    @pytest.mark.parametrize("return_drawdown_stats", [False, True])
+    @pytest.mark.parametrize("return_exotic_means", [False, True])
+    def test_compute_numerical_aggregates_numba_empty_input_matches_fixed_width(self, return_drawdown_stats, return_exotic_means):
+        # FE_ROOT_A-1 (2026-08-05 audit): pre-fix, an empty arr hit a hardcoded `return [0.0]`
+        # short-circuit regardless of which return_* flags were set, silently returning a 1-element
+        # list even when get_basic_feature_names() (the documented fixed-width contract) expects
+        # far more columns for the requested flag combination.
+        """Empty arr must return a vector whose length matches get_basic_feature_names() for the same flags."""
+        empty = np.array([], dtype=np.float32)
+        result = compute_numerical_aggregates_numba(empty, return_drawdown_stats=return_drawdown_stats, return_exotic_means=return_exotic_means)
+        names = get_basic_feature_names(return_drawdown_stats=return_drawdown_stats, return_exotic_means=return_exotic_means)
+        assert len(result) == len(names), f"empty-input length {len(result)} != expected {len(names)} for return_drawdown_stats={return_drawdown_stats}, return_exotic_means={return_exotic_means}"
+
 
 # =============================================================================
 # PERFORMANCE BENCHMARKS
@@ -515,6 +528,21 @@ class TestEdgeCases:
         result = compute_numaggs(arr)
         # Should return NaNs for most statistics
         assert all(np.isnan(v) for v in result)
+
+    def test_short_input_return_float32_true_matches_normal_path_type(self):
+        """FE_ROOT_B-7: the len(arr)<=1 short-circuit must return an np.float32 ndarray when
+        return_float32=True (the default), matching the normal path's return type -- not a raw Python
+        tuple regardless of the flag."""
+        arr = np.array([1.0], dtype=np.float32)
+        result = compute_numaggs(arr, return_float32=True)
+        assert isinstance(result, np.ndarray)
+        assert result.dtype == np.float32
+
+    def test_short_input_return_float32_false_still_returns_tuple(self):
+        """FE_ROOT_B-7 companion: return_float32=False keeps the tuple return on the short-circuit path too."""
+        arr = np.array([1.0], dtype=np.float32)
+        result = compute_numaggs(arr, return_float32=False)
+        assert isinstance(result, tuple)
 
     def test_two_element_array(self):
         """Test with two element array."""

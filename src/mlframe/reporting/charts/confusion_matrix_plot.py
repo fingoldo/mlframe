@@ -15,7 +15,7 @@ from typing import Any, Optional, Sequence, Tuple
 
 import numpy as np
 
-from mlframe.reporting.colors import HEATMAP_CMAP, auto_text_color
+from mlframe.reporting.colors import HEATMAP_CMAP, auto_text_colors_batch
 
 # Above this many cells the per-cell annotation turns to unreadable soup; suppress the text (matrix still renders).
 _CELL_TEXT_MAX = 400
@@ -76,8 +76,11 @@ def _normalize_matrix(matrix: np.ndarray, normalize: Optional[str]) -> np.ndarra
             denom = m.sum()
         else:
             raise ValueError(f"normalize must be one of None, 'true', 'pred', 'all'; got {normalize!r}")
-        denom = np.where(denom == 0, 1.0, denom)
-        return np.asarray(m / denom)
+        # A zero denominator means the class has no samples at all in that direction. Substituting 1.0 turned the
+        # whole row into a confident 0.00, indistinguishable from a class the model never once predicted correctly.
+        # NaN renders blank, which is the honest reading: nothing was measured here.
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return np.asarray(np.where(denom == 0, np.nan, m / np.where(denom == 0, 1.0, denom)))
 
 
 def plot_confusion_matrix(
@@ -145,6 +148,28 @@ def plot_confusion_matrix(
     if values_format is None:
         values_format = "d" if normalize is None else ".2f"
 
+    if K == 0:
+        # imshow on a (0, 0) array draws an empty box with no axis ticks and no indication of why.
+        from matplotlib.figure import Figure
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+        if ax is None:
+            fig = Figure(figsize=(5.0, 3.0), layout="constrained")
+            FigureCanvasAgg(fig)
+            ax = fig.add_subplot(1, 1, 1)
+        ax.set_axis_off()
+        ax.text(
+            0.5,
+            0.5,
+            "Confusion matrix unavailable: no class labels.\nNeither y_true nor y_pred holds a usable label.",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
+        if title:
+            ax.set_title(title, fontsize=10)
+        return ax.figure, ax
+
     if ax is None:
         from matplotlib.figure import Figure
         from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -156,7 +181,8 @@ def plot_confusion_matrix(
         fig = ax.figure
 
     cm = matplotlib.colormaps[cmap]
-    im = ax.imshow(display, cmap=cm, aspect="auto")
+    # A confusion matrix is a square relation; "auto" stretches cells to the axes box and distorts it.
+    im = ax.imshow(display, cmap=cm, aspect="equal")
 
     _rotation: Any
     if xticks_rotation == "vertical":
@@ -172,6 +198,9 @@ def plot_confusion_matrix(
     ax.set_yticklabels(tick_labels, fontsize=8)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
+    if include_values and K and display.size > _CELL_TEXT_MAX:
+        # Silently dropping the annotations reads as "this matrix has no numbers", not "there were too many to show".
+        title = f"{title}\n(per-cell values hidden: {display.size:,} cells exceeds the {_CELL_TEXT_MAX} readable limit)"
     if title:
         ax.set_title(title, fontsize=10)
 
@@ -182,14 +211,16 @@ def plot_confusion_matrix(
         finite = display[np.isfinite(display)]
         if finite.size:
             vmin, vmax = float(finite.min()), float(finite.max())
+            # One vectorized colormap sample for the whole grid instead of one matplotlib call per cell
+            # (bit-identical to the per-cell auto_text_color -- same pattern PlotlyRenderer._heatmap uses).
+            text_colors = auto_text_colors_batch(np.where(np.isfinite(display), display, vmin), cmap, vmin=vmin, vmax=vmax)
             for i in range(K):
                 for j in range(K):
                     val = float(display[i, j])
-                    color = auto_text_color(val if np.isfinite(val) else vmin, cmap, vmin=vmin, vmax=vmax)
                     # Raw-count cells format as ints ('d'); the display matrix is float64 either way, so cast the
                     # value to int for an integer format spec (sklearn prints counts as ints too).
                     cell_val = round(val) if values_format.endswith(("d", "n")) else display[i, j]
-                    ax.text(j, i, format(cell_val, values_format), ha="center", va="center", fontsize=8, color=color)
+                    ax.text(j, i, format(cell_val, values_format), ha="center", va="center", fontsize=8, color=text_colors[i, j])
 
     if colorbar:
         fig.colorbar(im, ax=ax)

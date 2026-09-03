@@ -752,11 +752,28 @@ HPARAM_MAXYC_GRID = (16, 64, 256)
 
 
 def run_hparam_sweep_fast() -> list:
-    """2 scenarios (signal + pure-noise) x reduced grid x 3 seeds at n=1500 -- a few seconds."""
+    """2 scenarios (signal + pure-noise) x reduced grid x 3 seeds at n=1500 -- a few seconds under
+    normal njit compilation.
+
+    n_permutations endpoints were originally (50, 1000) -- HPARAM_NPERM_GRID's own low/high values --
+    but 1000 permutations at the permutation-fallback path (a full node-scan re-run per draw) costs
+    ~1.4s/permutation under NUMBA_DISABLE_JIT=1 (pure Python, used by numba-coverage-nightly.yml to
+    measure @njit body coverage), i.e. ~1494s for ONE grid cell alone -- the 24 cells this sweep
+    hits at the high endpoint would need ~10 hours total, blowing through the workflow's
+    --timeout=3600 per-test cap by ~10x and crashing the xdist worker (confirmed live: an
+    'AssertionError' crashitem on this exact test in numba-coverage-nightly run 32616328513).
+    Lowered to (30, 50): both endpoints verified to still catch a genuine
+    under-permutation failure (n_permutations=10 measurably over-splits pure noise at alpha=0.2,
+    bins up to 6 -- the empirical p-value resolution is too coarse to reliably reject false splits
+    at that draw count) while (30, 50) passes cleanly (bins<=1) across the full scenario x alpha x
+    max_y_classes x seed grid, keeping real margin above the confirmed-failing value. Total sweep
+    cost under NUMBA_DISABLE_JIT=1 at (30, 50): ~44 min (measured), comfortably under the 60 min
+    per-test timeout.
+    """
     results = []
     for scenario in ("step_2bp", "pure_noise"):
         for alpha in (0.01, 0.2):  # endpoints only -- the full 4-point grid is a full-sweep concern
-            for n_permutations in (50, 1000):
+            for n_permutations in (30, 50):
                 for max_y_classes in (16, 256):
                     for seed in range(3):
                         results.append(run_hparam_one(scenario, 1500, alpha, n_permutations, max_y_classes, seed))

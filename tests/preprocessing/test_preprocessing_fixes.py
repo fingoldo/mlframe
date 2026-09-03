@@ -277,6 +277,37 @@ def test_f10_apply_gaussian_power_transform_replays_fitted_lambda_not_refit():
     assert not np.isclose(refit_lambda, fitted_lambda)
 
 
+def test_apply_gaussian_power_transform_boxcox_partial_replay_on_nonpositive_rows(caplog):
+    """PREPROCESSING-6 (2026-08-05 audit): a few non-positive values at replay time (absent from the
+    fitted/searched data) must not silently disable the Box-Cox transform for the WHOLE column --
+    only those specific rows should be left at raw scale, with a warning naming the count."""
+    import logging
+
+    from scipy.special import boxcox as boxcox_apply
+
+    from mlframe.preprocessing.gaussian_power_transform_search import apply_gaussian_power_transform, gaussian_power_transform_search
+
+    rng = np.random.default_rng(2)
+    train = pd.DataFrame({"x": rng.lognormal(mean=0, sigma=1.0, size=500)})
+    search_result = gaussian_power_transform_search(train)
+    assert search_result["x"]["best_transform"] == "boxcox"
+    fitted_lambda = search_result["x"]["best_fitted_params"]
+
+    positive_vals = rng.lognormal(mean=0, sigma=1.0, size=20)
+    test = pd.DataFrame({"x": np.concatenate([positive_vals, [0.0, -1.0]])})
+
+    with caplog.at_level(logging.WARNING, logger="mlframe.preprocessing.gaussian_power_transform_search"):
+        applied = apply_gaussian_power_transform(test, search_result)
+
+    assert any("non-positive" in r.getMessage() for r in caplog.records)
+    expected_positive = boxcox_apply(positive_vals, fitted_lambda)
+    np.testing.assert_allclose(applied["x"].to_numpy()[:20], expected_positive)  # pre-fix: whole column left raw instead
+    # The non-positive rows stay at their raw (untransformed) value -- there is no valid Box-Cox
+    # image for them, and raw is the least-surprising fallback (matches the fit-time skip contract).
+    assert applied["x"].to_numpy()[20] == 0.0
+    assert applied["x"].to_numpy()[21] == -1.0
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # F11 / F16 -- __init__.py star-import namespace pollution / inconsistent re-exports
 # ---------------------------------------------------------------------------------------------------------------
@@ -387,3 +418,29 @@ def test_f15_single_option_nan_replacement_handles_numpy_str_subclass():
 
     assert list(result["features_transforms"]["flag"].values()) == ["not yes"]
     assert set(df["flag"].unique()) == {"yes", "not yes"}
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# X_SECURITY_ROBUSTNESS-5 -- UnseenCategoryImputer.fit() clear error on zero-non-null column
+# ---------------------------------------------------------------------------------------------------------------
+
+
+def test_unseen_category_imputer_fit_all_nan_column_raises_clear_error():
+    """X_SECURITY_ROBUSTNESS-5: fit() on a column with zero non-null values must raise a clear ValueError
+    naming the column, not a raw IndexError from reliable.index[0] on an empty Index."""
+    from mlframe.preprocessing.unseen_category_imputer import UnseenCategoryImputer
+
+    df = pd.DataFrame({"all_nan_col": [np.nan, np.nan, np.nan]})
+    imputer = UnseenCategoryImputer(columns=["all_nan_col"])
+    with pytest.raises(ValueError, match="all_nan_col.*zero non-null values"):
+        imputer.fit(df)
+
+
+def test_unseen_category_imputer_fit_empty_dataframe_raises_clear_error():
+    """X_SECURITY_ROBUSTNESS-5: fit() on a zero-row DataFrame must also raise the clear error, not IndexError."""
+    from mlframe.preprocessing.unseen_category_imputer import UnseenCategoryImputer
+
+    df = pd.DataFrame({"empty_col": pd.Series([], dtype=object)})
+    imputer = UnseenCategoryImputer(columns=["empty_col"])
+    with pytest.raises(ValueError, match="empty_col.*zero non-null values"):
+        imputer.fit(df)

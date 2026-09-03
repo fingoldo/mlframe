@@ -332,9 +332,10 @@ def test_m_neu_11_no_lazy_import_in_create_dataset() -> None:
     """ThreadPoolExecutor was lazily imported inside _create_dataset on every
     fit/predict pass. Post-fix it is imported once at module top of the module
     that defines _create_dataset (the recurrent monolith was carved into
-    submodules; _create_dataset now lives in recurrent_dataset_helpers).
+    submodules; _create_dataset now lives in _recurrent_wrapper_base --
+    recurrent_dataset_helpers is a pure re-export shim over it).
     """
-    import mlframe.training.neural.recurrent_dataset_helpers as ds
+    import mlframe.training.neural._recurrent_wrapper_base as ds
     from concurrent.futures import ThreadPoolExecutor
 
     # Module top of the owning module must expose ThreadPoolExecutor.
@@ -356,10 +357,26 @@ def test_m_neu_11_no_lazy_xxhash_in_cache_key() -> None:
     _compute_cache_key. Post-fix _HAS_XXHASH + _hashlib are module-top of the
     module that defines _compute_cache_key (carved into _recurrent_cat_embeddings).
     """
+    import ast
+    import inspect
+
     import mlframe.training.neural._recurrent_cat_embeddings as ce
 
     assert hasattr(ce, "_HAS_XXHASH")
     assert hasattr(ce, "_hashlib")
+
+    # Presence at module top does not EXCLUDE the per-call import: a module that hoists the names and still
+    # runs `import xxhash` inside `_compute_cache_key` satisfies both hasattr checks while the regression --
+    # an import executed on every call of a hot-path function -- is fully intact. Assert the absence directly.
+    _tree = ast.parse(inspect.getsource(ce))
+    for _fn in [n for n in ast.walk(_tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+        _inner = [
+            m
+            for m in ast.walk(_fn)
+            if isinstance(m, (ast.Import, ast.ImportFrom))
+            and any(("xxhash" in (a.name or "")) or ("hashlib" in (a.name or "")) for a in getattr(m, "names", []))
+        ]
+        assert not _inner, f"{_fn.name} still imports the hash backend per call at line(s) {[m.lineno for m in _inner]}"
 
 
 def test_m_neu_11_no_lazy_import_in_mlp_ranker_fit() -> None:
@@ -368,10 +385,26 @@ def test_m_neu_11_no_lazy_import_in_mlp_ranker_fit() -> None:
     callback is also hoisted to ``_EarlyStopping`` so the try/except isn't on
     the hot fit path.
     """
+    import ast
+    import inspect
+
     import mlframe.training.neural.ranker as rk
 
     assert hasattr(rk, "_L_MODULE")
     assert hasattr(rk, "_EarlyStopping")
+
+    # Same shape: the module-top names can exist while `fit` still calls `_import_lightning()` on every fit.
+    # Checked on the AST rather than by substring -- the fix's own explanatory comment quotes the old call, so a
+    # substring search matches the comment and fails on correct code.
+    import textwrap
+
+    _fit_tree = ast.parse(textwrap.dedent(inspect.getsource(rk.MLPRanker.fit)))
+    _lazy_calls = [n.lineno for n in ast.walk(_fit_tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "_import_lightning"]
+    assert not _lazy_calls, f"MLPRanker.fit re-resolves lightning on every fit at line(s) {_lazy_calls}"
+    _inner_imports = [
+        m for m in ast.walk(_fit_tree) if isinstance(m, (ast.Import, ast.ImportFrom)) and any("lightning" in (a.name or "") for a in getattr(m, "names", []))
+    ]
+    assert not _inner_imports, f"MLPRanker.fit imports lightning inside the hot path at line(s) {[m.lineno for m in _inner_imports]}"
 
 
 # ---------------------------------------------------------------------------

@@ -27,10 +27,26 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
 
+from ._composite_utils import is_polars_df as _is_polars_df
+
 logger = logging.getLogger(__name__)
 
 
-class GatedOutlierEstimator(BaseEstimator, RegressorMixin):
+def _subset_rows(X: Any, mask: np.ndarray) -> Any:
+    """Row-subset ``X`` by a boolean ``mask``, flavour-native: polars ``DataFrame[mask]`` / pandas ``.loc`` /
+    ndarray boolean index. ``np.asarray(X)[mask]`` (the prior fallback for anything lacking ``.loc``)
+    silently down-converts a polars DataFrame to an untyped/object ndarray, breaking feature-name and
+    dtype consistency for the fitted regressor (see ``bagging.py``'s ``_take_rows`` for the identical
+    pattern already used elsewhere in this package)."""
+    if _is_polars_df(X):
+        return X.filter(mask.tolist())
+    loc = getattr(X, "loc", None)
+    if loc is not None:
+        return loc[mask]
+    return np.asarray(X)[mask]
+
+
+class GatedOutlierEstimator(RegressorMixin, BaseEstimator):
     """Classifier gate + regression blend for targets with a degenerate point mass plus a continuous regime.
 
     Parameters
@@ -126,7 +142,7 @@ class GatedOutlierEstimator(BaseEstimator, RegressorMixin):
             # entirely on the classifier's (constant, ==1) probability and never call the regressor.
             self._regressor_fitted_ = False
         else:
-            reg_X = X.loc[non_point_mask] if hasattr(X, "loc") else np.asarray(X)[non_point_mask]
+            reg_X = _subset_rows(X, non_point_mask)
             reg_y = y_arr[non_point_mask]
             reg_kwargs = {"sample_weight": sample_weight[non_point_mask]} if sample_weight is not None else {}
             self.regressor_.fit(reg_X, reg_y, **reg_kwargs)

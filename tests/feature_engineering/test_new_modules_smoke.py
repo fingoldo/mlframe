@@ -239,6 +239,21 @@ def test_knn_aggregate_basic() -> None:
     assert "iqr" in out and "_nearest_distance" in out
 
 
+def test_knn_aggregate_excludes_self_match_when_query_is_ref() -> None:
+    """Knn aggregate excludes self match when query is ref."""
+    from mlframe.feature_engineering import knn_aggregate
+
+    rng = np.random.default_rng(0)
+    ref = rng.uniform(0, 10, (100, 2))
+    labels = ref.sum(axis=1)
+    out = knn_aggregate(ref, ref, labels, k=5, agg_fns=("mean",))
+    # Every query row is present in the ref pool at distance 0; the self-match
+    # must be excluded so the reported nearest neighbour is a genuinely different point.
+    assert (out["_nearest_distance"] > 0).all()
+    # A self-match slipping into the mean would pull it toward that row's own label.
+    assert not np.allclose(out["mean"], labels)
+
+
 def test_knn_within_bucket_aggregate_respects_bucket() -> None:
     """Knn within bucket aggregate respects bucket."""
     from mlframe.feature_engineering import knn_within_bucket_aggregate

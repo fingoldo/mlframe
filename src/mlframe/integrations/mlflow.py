@@ -76,6 +76,10 @@ def embed_website_to_mlflow(url:str,fname:str="url",extension:str='.html',width:
     ``url`` is embedded verbatim into an ``<iframe>`` with no sanitization -- callers must pass only
     internally-controlled URLs (e.g. a dashboard link the training pipeline itself generated), never
     an untrusted/user-supplied string, since the MLflow UI artifact viewer will render it as-is.
+
+    ``fname`` is likewise used unsanitized as a filesystem path (``open(fname + extension, "w")``) --
+    callers must pass only an internally-controlled filename, never an untrusted/user-supplied string,
+    since a ``fname`` containing ``../`` or an absolute path would write outside the intended directory.
     """
 
     safe_url = html.escape(url, quote=True)
@@ -109,11 +113,18 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: Optional[str] = None,
     if parent_run_id:
         filter_string += f' and tag.mlflow.parentRunId = "{_dsl_escape(parent_run_id)}"'
 
-    runs = mlflow.search_runs(experiment_names=[experiment_name] if experiment_name else None, filter_string=filter_string, output_format="list",)
+    # Scope the LOOKUP by whichever identifier the caller gave. `experiment_id` was accepted and forwarded to
+    # `start_run` but never used here, so `get_or_create_mlflow_run(name, experiment_id="7")` searched the
+    # currently-ACTIVE experiment instead -- found nothing -- and created a fresh run every single call, which is
+    # the one thing a get-or-create must not do.
+    if experiment_id:
+        runs = mlflow.search_runs(experiment_ids=[str(experiment_id)], filter_string=filter_string, output_format="list")
+    elif experiment_name:
+        runs = mlflow.search_runs(experiment_names=[experiment_name], filter_string=filter_string, output_format="list")
+    else:
+        runs = mlflow.search_runs(filter_string=filter_string, output_format="list")
     if runs:
-        for run in runs:
-            return run, True
-        return None, False
+        return runs[0], True
     else:
         if experiment_name:
             mlflow.set_experiment(experiment_name=experiment_name)
@@ -148,7 +159,24 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: Optional[str] = None,
                         log_throttle(logger, "mlflow_run_already_active_no_handle", logging.WARNING, scrubbed)
                 else:
                     log_throttle(logger, "mlflow_start_run_error", logging.ERROR, scrubbed)
-                    raise
+                    # A bare `raise` here propagates the ORIGINAL (unscrubbed) exception -- any outer
+                    # handler that logs str(e) on it (a common pattern) would leak the tracking-server
+                    # userinfo credential `scrubbed` was computed specifically to hide. Raise a new
+                    # exception carrying the scrubbed message instead; `from e` keeps the real cause
+                    # attached to the traceback for debugging without embedding the raw credential text.
+                    # type(e)(scrubbed) assumes a single-string-arg constructor, true for the vast
+                    # majority of exception types but not guaranteed for an arbitrary third-party class
+                    # mlflow might raise -- fall back to a plain RuntimeError if reconstruction fails.
+                    try:
+                        scrubbed_exc: BaseException = type(e)(scrubbed)
+                    except Exception as _reconstruct_exc:
+                        logger.debug(
+                            "mlflow start_run: could not reconstruct %s with a single-string arg (%s); " "falling back to RuntimeError.",
+                            type(e).__name__,
+                            _reconstruct_exc,
+                        )
+                        scrubbed_exc = RuntimeError(scrubbed)
+                    raise scrubbed_exc from e
             else:
                 mlflow.end_run()
                 break

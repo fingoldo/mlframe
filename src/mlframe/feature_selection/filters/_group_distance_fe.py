@@ -45,6 +45,8 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 from __future__ import annotations
 
 import logging
+
+from mlframe.utils.log_throttle import log_throttle
 from typing import Optional, Sequence
 
 import numpy as np
@@ -169,15 +171,40 @@ def _wasserstein1(group_vals: np.ndarray, global_sorted: np.ndarray) -> float:
         )
     try:
         from scipy.stats import wasserstein_distance
+    except ImportError as e:
+        # scipy genuinely absent is a permanent host property and an expected deployment; the approximation
+        # below is the intended answer there, so it stays at debug.
+        logger.debug("scipy not installed (%s); using the pure-numpy quantile approximation of Wasserstein-1.", e)
+        return _wasserstein_quantile_approx(group_vals, global_sorted)
+    try:
         return float(wasserstein_distance(group_vals, global_sorted))
     except Exception as e:
-        logger.debug("scipy wasserstein_distance failed, falling back to pure-numpy quantile approximation: %s", e)
-        # Pure-numpy fallback: mean |Q_group(u) - Q_global(u)| over a fixed
-        # quantile grid (Wasserstein-1 for 1-D == integral of |inverse-CDF diff|).
-        u = np.linspace(0.0, 1.0, 101)
-        qg = np.quantile(group_vals, u)
-        qglob = np.quantile(global_sorted, u)
-        return float(np.mean(np.abs(qg - qglob)))
+        # A RUNTIME failure of an installed scipy is different in kind: the fallback is a 101-point quantile
+        # approximation, so it produces DIFFERENT feature values -- not a slower route to the same ones -- and
+        # those values feed selection. Silently mixing two estimators across rows of the same feature is what
+        # makes this worth a warning rather than a debug line.
+        log_throttle(
+            logger,
+            "group_distance_wasserstein_runtime_failure",
+            logging.WARNING,
+            "scipy.stats.wasserstein_distance failed at runtime (%s: %s); this feature falls back to a 101-point "
+            "quantile APPROXIMATION, which yields different values than the exact statistic for the affected rows.",
+            type(e).__name__,
+            e,
+        )
+    return _wasserstein_quantile_approx(group_vals, global_sorted)
+
+
+def _wasserstein_quantile_approx(group_vals, global_sorted) -> float:
+    """Wasserstein-1 approximated as the mean |Q_group(u) - Q_global(u)| over a fixed 101-point quantile grid.
+
+    Exact Wasserstein-1 in 1-D is the integral of the inverse-CDF difference; this discretises that integral, so
+    it agrees with ``scipy.stats.wasserstein_distance`` only up to the grid resolution.
+    """
+    u = np.linspace(0.0, 1.0, 101)
+    qg = np.quantile(group_vals, u)
+    qglob = np.quantile(global_sorted, u)
+    return float(np.mean(np.abs(qg - qglob)))
 
 
 def generate_group_distance_features(

@@ -67,13 +67,33 @@ class TestA2_NaNInfInY:
 # ----------------------------------------------------------------------------
 class TestA5_MinorityClassValidation:
     """Groups tests covering TestA5_MinorityClassValidation."""
-    def test_extreme_imbalance_raises(self):
-        """Extreme imbalance raises."""
+    def test_extreme_imbalance_reduces_cv_instead_of_refusing(self, caplog):
+        """A minority too small for the requested cv REDUCES the fold count; it no longer refuses to run.
+
+        A rare-positive target is the normal case for this selector, not an error, and refusing meant RFECV
+        did not work on imbalanced targets at all -- the fuzz harness carried a canonicalisation rule
+        disabling RFECV for every non-balanced binary target for exactly that reason, so no combo ever
+        exercised the combination. The degradation must stay AUDIBLE, since each fold then holds a single
+        minority row and the per-fold metrics are unstable.
+        """
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((300, 5)))
-        # Only 2 positives - cv=3 cannot stratify.
         y = np.zeros(300, int)
-        y[:2] = 1
+        y[:2] = 1  # 2 positives against the requested cv=3
+        sel = RFECV(estimator=LogisticRegression(max_iter=100), cv=3)
+        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers.rfecv"):
+            sel.fit(X, y)
+        assert sel.cv == 2, f"cv should have been reduced to the minority count, got {sel.cv!r}"
+        assert any(
+            "minority class has 2 samples" in r.getMessage().lower() for r in caplog.records
+        ), "the fold reduction was silent; it degrades per-fold metric stability and must say so"
+
+    def test_minority_below_two_still_raises(self):
+        """Below 2 there is no stratified split at all, so the refusal has to remain."""
+        rng = np.random.default_rng(0)
+        X = pd.DataFrame(rng.standard_normal((300, 5)))
+        y = np.zeros(300, int)
+        y[:1] = 1
         with pytest.raises(ValueError, match="Minority class"):
             RFECV(estimator=LogisticRegression(max_iter=100), cv=3).fit(X, y)
 

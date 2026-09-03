@@ -42,6 +42,7 @@ import math
 from typing import Optional
 
 import numpy as np
+import numba
 from numba import njit
 
 from .discretization import _knuth_bin_edges, _bayesian_blocks_bin_edges
@@ -673,8 +674,7 @@ def per_feature_edges(
             logger.debug("per_feature_edges: cache disabled (%s)", exc)
             _cache = None
 
-    # 2026-05-30 Wave 9.1 fix (synergy-detection regression): if a
-    # column has few unique finite values (e.g. binary target, small
+    # If a column has few unique finite values (e.g. binary target, small
     # categorical, ordinal already pre-encoded), quantile-based
     # binning collapses to 1-bin because ``_edges_from_quantiles``
     # returns empty edges after ``np.unique`` dedup. Detect these
@@ -782,8 +782,7 @@ def per_feature_edges(
             )
         else:
             raise NotImplementedError(method_resolved)
-        # 2026-05-30 Wave 9.1 fix (synergy-detection regression): when a
-        # supervised binning method (MDLP / Mah / optimal_joint /
+        # When a supervised binning method (MDLP / Mah / optimal_joint /
         # fayyad_irani) returns zero inner edges - meaning the feature
         # was collapsed to a single bin because individually it has no
         # MI with y - the joint MI on any tuple containing this feature
@@ -902,7 +901,7 @@ def per_feature_edges(
     # order is preserved (results written by column index), so edges are deterministic
     # and bit-identical regardless of n_jobs / thread scheduling.
     #
-    # Bench (MDLP, n=20000, default njit backend, 2026-06-19, this machine):
+    # Bench (MDLP, n=20000, default njit backend, this machine):
     #   p=500 : serial 2.45s -> parallel 0.78s  (3.14x)
     #   p=2000: serial 10.10s -> parallel 3.20s (3.16x)
     #   p=50  : serial 0.28s -> parallel 0.22s  (gated to serial, no regression)
@@ -921,7 +920,25 @@ def per_feature_edges(
         _resolved_jobs = int(n_jobs)
     _resolved_jobs = max(1, min(_resolved_jobs, max(1, len(_miss_cols))))
 
-    if _resolved_jobs > 1 and len(_miss_cols) >= _PARALLEL_EDGES_MIN_COLS:
+    # Bit-identity above assumes njit(nogil=True) kernels: numba's nopython-mode functions get their
+    # own thread-isolated internal RNG state, so concurrent threads never see each other's draws even
+    # though they all call np.random.seed()/np.random.randint() with the same-looking call pattern.
+    # Under NUMBA_DISABLE_JIT=1 those calls run as plain Python and mutate numpy's single PROCESS-WIDE
+    # global RNG (numpy.random's legacy module-level state) instead -- concurrent GIL-interleaved
+    # threads race on that one shared generator, so the MDLP significance test's seeded permutation
+    # draws can interleave across threads and silently produce DIFFERENT (still plausible-looking, not
+    # obviously wrong) edges than the serial path -- caught live via numba-coverage-nightly
+    # (test_cache_thread_safety_and_hit_behavior: same data/seed, serial vs 4-thread edges diverged
+    # structurally on one column) and is also why a permutation-heavy MRMR gate test crashed a worker
+    # outright in the same run (a genuine native race on numpy's C-level RandomState buffer, not just a
+    # wrong-value race). This is a latent correctness bug independent of this test suite: ANY caller
+    # running without numba installed (the plain-Python njit no-op fallback several modules define) and
+    # requesting n_jobs>1 would hit the exact same silent divergence in production. Falls back to serial
+    # whenever JIT is not actually compiling, regardless of n_jobs, since the threaded path buys zero
+    # real parallelism over GIL-bound pure-Python code anyway (test_speedup_mdlp's already-documented
+    # rationale) -- there is no performance cost to this safety gate, only a latent bug it closes.
+    _jit_active = not numba.config.DISABLE_JIT
+    if _jit_active and _resolved_jobs > 1 and len(_miss_cols) >= _PARALLEL_EDGES_MIN_COLS:
         from concurrent.futures import ThreadPoolExecutor
 
         def _one(j):

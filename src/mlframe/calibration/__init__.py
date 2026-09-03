@@ -10,7 +10,7 @@ Submodules:
     post           - post-hoc calibration methods (isotonic, Platt, beta, Venn-Abers, ...).
     probabilities  - probability transformations and diagnostics.
 
-iter631: ``quality`` is NOT eager-imported. quality.py cascades through
+``quality`` is also NOT eager-imported. quality.py cascades through
 matplotlib + properscoring + sklearn (~2s per process); the suite reaches
 calibration symbols via ``mlframe.calibration.policy`` (the honest-diagnostics
 ECE wrapper) which loads its own narrow deps. PEP 562 ``__getattr__`` lazy-
@@ -34,6 +34,35 @@ from mlframe.calibration.asymmetric_rescale import fit_asymmetric_rescale, apply
 from mlframe.calibration.group_zero_sum_constraint import apply_group_zero_sum_constraint, apply_group_zero_sum_constraint_multi
 from mlframe.calibration.sticky_state_persistence_floor import apply_sticky_state_persistence_floor, optimize_persistence_floor
 from mlframe.calibration.prediction_band_correction import find_prediction_band_shift, apply_prediction_band_correction
+
+# Only the eagerly-bound names above; ``quality``/``probabilities`` symbols are resolved lazily via
+# __getattr__ (see the module docstring) and are intentionally NOT enumerated here -- listing them would
+# require importing those heavy modules eagerly, defeating the whole point of the lazy resolution.
+__all__ = sorted(
+    [
+        "odds_ratio_combine",
+        "isotonic_overfit_risk",
+        "compute_oof_confidence",
+        "apply_confidence_shrinkage",
+        "optimize_decision_threshold",
+        "apply_decision_threshold",
+        "fit_group_bias_correction",
+        "apply_group_bias_correction",
+        "apply_smoothed_override",
+        "backtest_override",
+        "OverrideBacktestResult",
+        "ConfidenceBucket",
+        "fit_asymmetric_rescale",
+        "apply_asymmetric_rescale",
+        "cross_validate_asymmetric_rescale",
+        "apply_group_zero_sum_constraint",
+        "apply_group_zero_sum_constraint_multi",
+        "apply_sticky_state_persistence_floor",
+        "optimize_persistence_floor",
+        "find_prediction_band_shift",
+        "apply_prediction_band_correction",
+    ]
+)
 
 
 def __getattr__(name: str) -> Any:

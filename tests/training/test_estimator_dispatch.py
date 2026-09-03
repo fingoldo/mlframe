@@ -154,3 +154,39 @@ def test_maybe_inject_appends_estimator_and_updates_ctx():
     assert out[1].base_column == "f0"
     assert id(out[1]) in ctx.strategy_by_model
     assert ctx.mlframe_models is out or ctx.mlframe_models == out
+
+
+def test_maybe_inject_fires_with_a_real_train_val_test_split():
+    """Re-framed for the 2026-08-05 fix (commit following 7b5a3375e's TRAINING_COMPOSITE_CORE_A-1): the
+    real call site (_main_train_suite_phases.run_distribution_analyzer_and_estimator_injection) passes
+    train_df AFTER the split phase has already subset it to train_idx's rows (df.iloc[train_idx]-equivalent,
+    same order) -- train_df is never the unfiltered full frame here. train_idx itself still holds the
+    ORIGINAL full-df row positions (used to slice y_full), so it can legitimately exceed len(train_df).
+    A prior version of this test built train_df as the full unsliced frame, which drove
+    maybe_inject_distribution_driven_estimator to double-subset train_df by train_idx and silently disabled
+    the feature under any real split (train_idx values beyond len(train_df) raise/are rejected). Pin the
+    real contract: train_df pre-sliced to n_train rows, train_idx holding full-df positions."""
+    from mlframe.training._configs_base import TargetTypes
+    from mlframe.training.composite.extremes import TailCompositeEstimator
+
+    rng = np.random.default_rng(2)
+    n_total, n_train = 400, 200
+    f0 = rng.normal(size=n_total)
+    f1 = rng.normal(size=n_total)
+    train_idx = np.arange(n_train)  # full-df row positions selected for train (a real split, not arange(n_total))
+    y_full = 2.0 * f0 + rng.normal(size=n_total)
+    train_df = pd.DataFrame({"f0": f0[:n_train], "f1": f1[:n_train]})  # already split-phase-subset to train_idx's rows
+
+    ctx = _ctx()
+    out = maybe_inject_distribution_driven_estimator(
+        ctx=ctx,
+        metadata={"target_distribution_report": {"pathologies": ["heavy_tail(excess_kurt=20)"]}},
+        mlframe_models=["xgb"],
+        target_by_type={TargetTypes.REGRESSION: {"t": y_full}},
+        train_idx=train_idx,
+        train_df=train_df,
+        behavior_config=SimpleNamespace(distribution_driven_estimator=True),
+    )
+    assert len(out) == 2, "the estimator must actually be injected under a real train/val/test split"
+    assert isinstance(out[1], TailCompositeEstimator)
+    assert out[1].base_column == "f0"

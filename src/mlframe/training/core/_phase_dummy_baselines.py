@@ -229,7 +229,7 @@ def run_dummy_baselines(
                 _emit_val = bool(getattr(reporting_config, "compute_valset_metrics", True))
                 _emit_test = bool(getattr(reporting_config, "compute_testset_metrics", True))
                 if _emit_val and _strongest_val_raw is not None and current_val_target is not None:
-                    _vp, _vpr = _split_preds_probs(_strongest_val_raw)
+                    _vp, _vpr = _split_preds_probs(_strongest_val_raw, target_type)
                     _common_val = dict(_common)
                     if plot_file:
                         _common_val["plot_file"] = f"{plot_file}_dummy_{_db_report.strongest}_val"
@@ -240,7 +240,7 @@ def run_dummy_baselines(
                         **_common_val,
                     )
                 if _emit_test and _strongest_test_raw is not None and current_test_target is not None:
-                    _tp, _tpr = _split_preds_probs(_strongest_test_raw)
+                    _tp, _tpr = _split_preds_probs(_strongest_test_raw, target_type)
                     _common_test = dict(_common)
                     if plot_file:
                         _common_test["plot_file"] = f"{plot_file}_dummy_{_db_report.strongest}_test"
@@ -292,8 +292,8 @@ def run_dummy_baselines(
                 # this the inverse raises "base has 1 columns but fitted
                 # alphas has K entries" -- caught by the outer try/except as
                 # a WARNING, but the y-scale dummy metric is then missing
-                # from metadata. Reproduced by fuzz c0047 (mode=legacy,
-                # multi-base auto-promoted to linresM-num_1+num_dep).
+                # from metadata. Reproduced with a legacy-mode, multi-base
+                # auto-promoted-to-linresM combo.
                 _extra_bases = tuple(_matching_spec.get("extra_base_columns") or ())
                 _raw_target_col, _raw_y_full = _resolve_spec_raw_target(
                     _matching_spec, target_type, target_by_type, cur_target_name,

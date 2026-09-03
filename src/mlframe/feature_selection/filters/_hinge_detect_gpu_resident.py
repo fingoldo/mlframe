@@ -23,6 +23,8 @@ Gate: the STRICT-resident path (``fe_gpu_strict_resident_enabled``); opt-out ``M
 from __future__ import annotations
 
 import logging
+
+from mlframe.utils.log_throttle import log_throttle
 import os
 from typing import Optional
 
@@ -129,8 +131,23 @@ def _heldout_uplift_gpu(cp, xg, yg, tau: float, min_rows: int) -> float:
         try:
             # normal-equations solve (k <= 3): two GEMVs + k x k solve, vs cusolver lstsq on the tall block.
             coef = cp.linalg.solve(A_tr.T @ A_tr, A_tr.T @ y_tr)
+        except cp.linalg.LinAlgError as e:
+            # A SINGULAR design is a legitimate reason for this candidate to lose, and -inf says exactly that.
+            logger.debug("_val_r2 (GPU-resident hinge): singular design at this breakpoint, so it loses the comparison: %s", e)
+            return -np.inf
         except Exception as e:
-            logger.debug("_val_r2 (GPU-resident hinge): normal-equations solve failed, returning -inf so this design loses the comparison: %s", e)
+            # Anything else -- a shape bug, a cupy/driver fault -- is NOT evidence about the breakpoint, yet -inf
+            # is not a neutral value: it guarantees rejection, so a genuinely good hinge is discarded and the
+            # selected feature set changes with nothing above debug to say why.
+            log_throttle(
+                logger,
+                "hinge_gpu_val_r2_non_linalg_failure",
+                logging.WARNING,
+                "_val_r2 (GPU-resident hinge): the normal-equations solve failed with a non-LinAlgError (%s: %s); "
+                "this hinge design is being REJECTED on a failure that says nothing about its quality.",
+                type(e).__name__,
+                e,
+            )
             return -np.inf
         pred = A_va @ coef
         sse = float(cp.sum((y_va - pred) ** 2))

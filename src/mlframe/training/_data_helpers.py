@@ -38,30 +38,13 @@ logger = logging.getLogger(__name__)
 def _validate_trusted_path(path: str, trusted_root: str | None) -> None:
     """Raise ValueError if ``path`` is not inside ``trusted_root`` (absolute commonpath check).
 
-    Matches the convention used in ``mlframe.inference.predict.read_trained_models``. Callers that
-    want to disable the check must pass ``trusted_root=None`` explicitly; that is only
-    appropriate for internally-produced cache files (the default posture refuses silently
-    loading untrusted pickles).
+    Thin re-export of the single shared implementation (``mlframe.core.helpers.validate_trusted_path``)
+    so existing call sites in this module keep working unchanged; see that function's docstring for the
+    fail-closed contract.
     """
-    import os as _os
+    from mlframe.core.helpers import validate_trusted_path as _validate
 
-    if trusted_root is None:
-        raise ValueError(
-            "trusted_root is required for joblib.load() of cached model files. "
-            "Pass an absolute directory under which cached artifacts are stored, "
-            "or set it to the containing directory of the file being loaded."
-        )
-    abs_root = _os.path.abspath(trusted_root)
-    abs_path = _os.path.abspath(path)
-    try:
-        common = _os.path.commonpath([abs_root, abs_path])
-    except ValueError as exc:
-        raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}") from exc
-    if common != abs_root:
-        raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}")
-
-
-logger = logging.getLogger(__name__)
+    _validate(path, trusted_root)
 
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -341,10 +324,18 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
                     )
             else:
                 if len(np.unique(arr_np)) < 2:
+                    # arr_np.size == 0 (an empty target) means np.unique returns an empty array too
+                    # (len 0 < 2), so this branch also fires on a genuinely EMPTY target, not just a
+                    # single-value one -- arr_np.flat[0] on an empty array raises IndexError, which
+                    # the `except ValueError: raise` below does NOT match, so it fell through to the
+                    # generic `except Exception` and was silently swallowed as a debug log, masking
+                    # the intended diagnostic entirely and letting the empty target proceed straight
+                    # to a much more opaque downstream backend crash. Guard the message construction
+                    # so both the single-value and empty-target cases raise their own clear ValueError.
+                    _value_desc = f"({arr_np.flat[0]!r}); classification needs at least 2 classes" if arr_np.size > 0 else "-- the target is EMPTY (0 rows)"
                     raise ValueError(
                         f"{subset_name} target has only one unique value "
-                        f"({arr_np.flat[0]!r}); classification needs at least "
-                        f"2 classes. Most likely cause: upstream filtering "
+                        f"{_value_desc}. Most likely cause: upstream filtering "
                         f"(outlier_detection + trainset_aging_limit + rare "
                         f"imbalance) eliminated the minority class entirely. "
                         f"Investigate the filter pipeline OR loosen the "
@@ -532,6 +523,21 @@ def _update_model_name_after_training(model_name, train_df_len, train_details, b
     return model_name
 
 
+def _hgb_supports_external_val(model_obj: Any) -> bool:
+    """True if ``model_obj.fit`` accepts ``X_val``/``y_val`` (sklearn>=1.7's native external-validation-set
+    early stopping for HistGradientBoosting*). Absent on sklearn<1.7 (mlframe's floor on Python 3.9, which
+    caps at sklearn<1.7) -- callers must fall back to HGB's own internal validation_fraction-based ES
+    instead of raising ``TypeError: fit() got an unexpected keyword argument 'X_val'``.
+    """
+    fit = getattr(model_obj, "fit", None)
+    if fit is None:
+        return False
+    try:
+        return "X_val" in inspect.signature(fit).parameters
+    except (TypeError, ValueError):
+        return False
+
+
 def _setup_eval_set(
     model_type_name: str,
     fit_params: dict[str, Any],
@@ -653,8 +659,9 @@ def _setup_eval_set(
             # HGB / NGB only support a single (X_val, y_val) pair. Slice-stable ES is not supported
             # for these models via the online multi-eval-set path; the caller should route through
             # ``on_unsupported`` policy (default ``posthoc``). Here we just register the full val.
-            fit_params["X_val"] = val_df
-            fit_params["y_val"] = val_target
+            if _hgb_supports_external_val(model_obj):
+                fit_params["X_val"] = val_df
+                fit_params["y_val"] = val_target
         elif value_format == "separate_Y":
             fit_params["X_val"] = val_df
             fit_params["Y_val"] = val_target
@@ -662,15 +669,15 @@ def _setup_eval_set(
         if model_category in ("xgb", "lgb", "cb"):
             if sample_weight_val is not None:
                 sw_list: list[Any] = [sample_weight_val]
-                sw_list.extend(shard.sample_weight if shard.sample_weight is not None else None for shard in extra_eval_sets)
+                sw_list.extend(shard.sample_weight for shard in extra_eval_sets)
                 fit_params["sample_weight_eval_set"] = sw_list
             if base_margin_val is not None and model_category == "xgb":
                 bm_list: list[Any] = [base_margin_val]
-                bm_list.extend(shard.base_margin if shard.base_margin is not None else None for shard in extra_eval_sets)
+                bm_list.extend(shard.base_margin for shard in extra_eval_sets)
                 fit_params["base_margin_eval_set"] = bm_list
             if group_ids_val is not None:
                 grp_list: list[Any] = [group_ids_val]
-                grp_list.extend(shard.group_ids if shard.group_ids is not None else None for shard in extra_eval_sets)
+                grp_list.extend(shard.group_ids for shard in extra_eval_sets)
                 if model_category == "xgb":
                     fit_params["eval_qid"] = grp_list
                 elif model_category == "lgb":
@@ -685,8 +692,9 @@ def _setup_eval_set(
             _val_df_values = val_df.values if hasattr(val_df, "values") else val_df
             fit_params[param_name] = [(_val_df_values, val_target.values if hasattr(val_target, "values") else val_target)]
         elif value_format == "separate":
-            fit_params["X_val"] = val_df
-            fit_params["y_val"] = val_target
+            if _hgb_supports_external_val(model_obj):
+                fit_params["X_val"] = val_df
+                fit_params["y_val"] = val_target
         elif value_format == "separate_Y":
             fit_params["X_val"] = val_df
             fit_params["Y_val"] = val_target
@@ -964,3 +972,18 @@ def _setup_early_stopping_callback(model_category, fit_params, callback_params, 
         callbacks = [cb for cb in existing_callbacks if isinstance(cb, XGBTrainingCallback) and not isinstance(cb, XGBoostCallback)]
         callbacks.append(es_callback)
         model_obj.set_params(callbacks=callbacks)
+    if model_obj is not None:
+        # Expose the per-iteration trajectory on the estimator for the run metadata. The containers are bound
+        # BY REFERENCE at wiring time (the same idiom ``_build_cb_iteration_metrics_callback`` uses for
+        # ``iteration_metrics_``) so they fill during fit with no post-fit harvest step. Recorded regardless
+        # of whether the widget drew it or the log printed it, which is what makes ``live_trainperf_report``
+        # default to False without losing anything.
+        try:
+            model_obj._mlframe_es_callback = es_callback
+            model_obj.training_curves_ = {
+                "iterations": es_callback.iter_history,
+                "metrics": es_callback.metric_history,
+                "ram_gb": es_callback.ram_history,
+            }
+        except AttributeError:
+            pass  # best-effort: an estimator with __slots__ simply does not carry the trajectory

@@ -441,6 +441,7 @@ def integral_calibration_error_from_metrics(
     roc_auc_weight: float = 1.5,
     pr_auc_weight: float = 0.1,
     brier_loss_weight: float = 0.8,
+    coverage_weight: float = 0.0,
     min_roc_auc: float = 0.54,
     roc_auc_penalty: float = 0.00,
 ) -> float:
@@ -460,8 +461,19 @@ def integral_calibration_error_from_metrics(
     approaches ``min_roc_auc`` instead of dropping off a step cliff -- this
     avoids jumpy early-stopping curves that could fixate just inside the
     penalty zone when the step was large.
+
+    ``calibration_coverage`` (bin-grid population fraction -- a structurally independent signal from
+    ``calibration_mae``/``calibration_std``, which are computed only over the *populated* bins, see
+    ``calibration_metrics_from_freqs``) used to be accepted but never read: it had no effect on the
+    returned value regardless of its value. ``coverage_weight`` (default ``0.0``, so every existing
+    caller's ICE is bit-identical unless they opt in) now wires it in as a loss term,
+    ``(1.0 - calibration_coverage) * coverage_weight`` -- full coverage contributes 0, and the penalty
+    grows as coverage worsens. The default is intentionally 0.0 (not some nonzero magnitude): this is a
+    framework-wide early-stopping metric, and a nonzero default needs its own dedicated multi-seed
+    empirical validation pass before it changes every caller's training curves, per this repo's own
+    "single-seed win doesn't count" convention -- not something to ship from a code-reading pass alone.
     """
-    # Guard against NaN in any of the 5 inputs (single-class eval set, zero-variance scores, out-of-range
+    # Guard against NaN in any of the 6 inputs (single-class eval set, zero-variance scores, out-of-range
     # probabilities feeding fast_brier_score_loss, degenerate calibration bins, etc. - each of these upstream
     # kernels documents returning NaN on such degenerate inputs). Without this guard on EVERY term, the entire
     # ICE becomes NaN, which silently breaks early-stopping comparisons (NaN > best is always False, so the
@@ -469,7 +481,8 @@ def integral_calibration_error_from_metrics(
     brier_term = 0.0 if np.isnan(brier_loss) else brier_loss * brier_loss_weight
     mae_term = 0.0 if np.isnan(calibration_mae) else calibration_mae * mae_weight
     std_term = 0.0 if np.isnan(calibration_std) else calibration_std * std_weight
-    base_loss = brier_term + mae_term + std_term
+    cov_term = 0.0 if np.isnan(calibration_coverage) else (1.0 - calibration_coverage) * coverage_weight
+    base_loss = brier_term + mae_term + std_term + cov_term
     roc_term = 0.0 if np.isnan(roc_auc) else np.abs(roc_auc - 0.5) * roc_auc_weight
     pr_term = 0.0 if np.isnan(pr_auc) else pr_auc * pr_auc_weight
     res = base_loss - roc_term - pr_term

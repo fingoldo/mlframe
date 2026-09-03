@@ -60,15 +60,31 @@ def _to_numpy_or_none(arr: Any) -> np.ndarray | None:
 
 
 def _binary_split_summary(arr: np.ndarray) -> dict[str, float]:
-    """Summarize one split of a binary target: sample count, positive count, and positive rate."""
+    """Summarize one split of a binary target: sample count, positive count, and positive rate.
+
+    NaN-robust like the regression/multiclass/multilabel summarizers in this module: rows with a
+    missing label are excluded from ``n`` (and therefore from ``p_positive``'s denominator) rather than
+    silently counted as negative -- ``arr == 1`` is False for NaN, so an un-filtered denominator would
+    quietly deflate ``p_positive`` with no signal that labels were missing. ``n_missing`` surfaces the count.
+    """
+    arr = np.asarray(arr)
+    try:
+        arr_float = arr.astype(np.float64, copy=False)
+        finite_mask = np.isfinite(arr_float)
+    except (TypeError, ValueError):
+        # Non-float-castable dtype (e.g. object array of bools/strings): no NaN concept, treat as all-finite.
+        finite_mask = np.ones(arr.shape[0], dtype=bool)
+    n_missing = int(arr.shape[0] - finite_mask.sum())
+    arr = arr[finite_mask]
     n = int(arr.shape[0])
     if n == 0:
-        return {"n": 0, "n_positive": 0, "p_positive": float("nan")}
+        return {"n": 0, "n_positive": 0, "p_positive": float("nan"), "n_missing": n_missing}
     n_pos = int((arr == 1).sum())
     return {
         "n": n,
         "n_positive": n_pos,
         "p_positive": n_pos / n,
+        "n_missing": n_missing,
     }
 
 

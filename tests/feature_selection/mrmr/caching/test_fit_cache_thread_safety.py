@@ -158,7 +158,9 @@ def test_concurrent_real_fits_no_exception_and_bounded_cache():
     MRMR.clear_fit_cache()
     cap = 4
     n_threads = 6
-    iters_per_thread = 12
+    # 6 fits/thread (36 total, 9x the cap) is enough to force repeated LRU eviction under contention;
+    # the earlier 12 (72 fits) only doubled wall time without exercising a qualitatively different path.
+    iters_per_thread = 6
     errors: list = []
 
     def worker(tid: int):

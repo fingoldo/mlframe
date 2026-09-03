@@ -81,13 +81,17 @@ def test_k_bound_respected():
 
 
 def test_non_tree_model_skipped():
-    """Non-tree model -> skipped with a reason, no figure, no KernelExplainer."""
+    """Non-tree model -> skipped with a reason STATED ON A FIGURE, and no KernelExplainer."""
     X, y = _simple_binary()
     model = LogisticRegression(max_iter=200).fit(X, y)
     score = model.predict_proba(X)[:, 1]
     res = spi.shap_worst_errors_explanation(model, X, y, score, k=4)
     assert res.skipped is not None and "non-tree" in res.skipped
-    assert res.figure is None
+    # A skip used to return no figure at all, so the report showed nothing where the panel would have been --
+    # indistinguishable from a panel nobody asked for. The figure now states the reason to the reader.
+    assert res.figure is not None
+    assert "non-tree" in "".join(t.get_text() for t in res.figure.texts)
+    plt.close(res.figure)
 
 
 def test_no_errors_annotated():

@@ -368,7 +368,7 @@ def _process_single_ensemble_method(
             _entry_ns = next_ens_results[0] if isinstance(next_ens_results, tuple) else next_ens_results
             _entry_ns.member_test_preds = np.column_stack([c[:_w] for c in _cols])
     except Exception as e:
-        logger.debug("swallowed exception in process_method.py: %s", e)
+        logger.warning("swallowed exception in process_method.py: %s", e)
         pass
 
     conf_results = None
@@ -448,7 +448,10 @@ def _process_single_ensemble_method(
         # doesn't slam the next token onto the closing bracket -- the 2026-04-24
         # prod log showed ``[VAL COV=10%]notext prod_jobsdetails ...`` (no space
         # before "notext"). Empty tag stays empty (no double-space when off).
-        _cov_tag = f" {_degenerate_marker}[{_cov_src[0]} COV={_cov_src[1]:.0f}%] " if _cov_src else ""
+        # One coverage number goes into a name that then labels every split's line, so a bare "[COV=10%]" on a
+        # TEST row reads as though it were that row's own coverage. It is not: the confident subset is selected
+        # per split, and the number here is whichever split came first in the priority order above. Say which.
+        _cov_tag = f" {_degenerate_marker}[COV={_cov_src[1]:.0f}% measured on {_cov_src[0]}] " if _cov_src else ""
 
         # Build config objects from flat params for confidence ensemble
         conf_flat_params = dict(

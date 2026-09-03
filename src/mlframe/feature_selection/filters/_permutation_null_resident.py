@@ -168,7 +168,14 @@ def gen_target_shuffles_cupy(y_codes: np.ndarray, nperm: int, dtype: type, rando
         seed = 0x9E3779B9 if random_seed is None else (int(random_seed) & 0x7FFFFFFF)
         _rng = cp.random.default_rng(seed)
         d_y = cp.asarray(np.ascontiguousarray(y_codes).astype(dtype, copy=False))  # one tiny (n,) upload
-        keys = _rng.random((nperm, n), dtype=cp.float32)  # (nperm, n) i.i.d. sort keys, on device
+        # float64 keys, not float32. float32 uniforms occupy only ~1.68e7 grid points, so the expected number of
+        # TIED pairs per row is n^2 / 2^25 -- about 10,700 at n=600k and 1.2e5 at n=2M, and this path is gated to
+        # fire at exactly those sizes. `argsort` breaks ties by index, so tied positions keep their original
+        # relative order and each row carries a small positive correlation with the identity permutation instead
+        # of being a uniform draw. The bias is conservative (the null band inflates, so the maxT floor is slightly
+        # too strict and rejects marginal true candidates), but it makes the GPU floor a different estimator from
+        # the CPU Fisher-Yates one, which the docstring's "statistically equivalent" claim does not cover.
+        keys = _rng.random((nperm, n), dtype=cp.float64)  # (nperm, n) i.i.d. sort keys, on device
         order = cp.argsort(keys, axis=1)  # per-row permutation indices
         del keys
         out = d_y[order]  # (nperm, n) gathered shuffles, on device

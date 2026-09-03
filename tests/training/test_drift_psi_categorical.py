@@ -124,5 +124,30 @@ def test_feature_distribution_drift_includes_categorical_psi_payload():
     assert cpsi["per_feature"]["cat_b"]["val_psi"] >= 0.20
 
 
+def test_feature_names_restriction_honored_on_categorical_side_too():
+    """TRAINING_LOOSE_C-6: a caller restricting compute_feature_distribution_drift's feature_names to
+    only "num_a" must exclude "cat_b" from the categorical_psi payload too, not just the numeric side.
+
+    Pre-fix, _compute_drift_invariant forwarded feature_names to the numeric z-stat loop but called
+    compute_categorical_drift_psi with no feature_names, so it always fell back to _categorical_columns
+    (every categorical column) regardless of the caller's restriction.
+    """
+    train_df = pd.DataFrame(
+        {
+            "num_a": [0.0, 1.0, 2.0, 3.0, 4.0] * 200,
+            "cat_b": ["X"] * 500 + ["Y"] * 500,
+        }
+    )
+    val_df = pd.DataFrame(
+        {
+            "num_a": [0.0, 1.0, 2.0, 3.0, 4.0] * 200,
+            "cat_b": ["X"] * 800 + ["Y"] * 200,
+        }
+    )
+    rep = compute_feature_distribution_drift(train_df, val_df, test_df=None, feature_names=["num_a"])
+    assert "cat_b" not in rep["categorical_psi"]["per_feature"], "feature_names restriction was not honored on the categorical side"
+    assert rep["categorical_psi"]["n_categorical_features"] == 0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s", "--no-cov"])

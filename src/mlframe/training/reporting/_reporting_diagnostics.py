@@ -168,11 +168,16 @@ def _ranked_feature_names(metrics, model, columns) -> tuple[list[str] | None, li
     return names, None
 
 
-def _build_learning_curve(model, df, targets, columns, target_type, lc_cfg, metrics, metadata_target_name="learning_curve"):
-    """Opt-in learning curve: refit a fresh clone of ``model`` on log-spaced train-size prefixes; store + render.
+def _build_learning_curve(model, df, targets, columns, target_type, lc_cfg, metrics, metadata_target_name="learning_curve", source_split=""):
+    """Opt-in learning curve: refit a fresh clone of ``model`` on log-spaced size prefixes of ``df``; store + render.
 
     Returns the ``FigureSpec`` panel (or None when skipped). Uses ``sklearn.clone`` for the estimator factory and the
     task-appropriate sklearn scorer. K full refits by construction -- only invoked when ``lc_cfg.enabled``.
+
+    ``df``/``targets`` are whichever split is being REPORTED, not the train split: the caller runs once per
+    report. ``source_split`` is therefore threaded into the panel so the two series and the verdict name the
+    data they came from -- they used to read "train score" and "holdout score" on a test report, where both were
+    scores on disjoint subsets of the test rows.
     """
     if lc_cfg is None or not getattr(lc_cfg, "enabled", False):
         return None
@@ -184,8 +189,17 @@ def _build_learning_curve(model, df, targets, columns, target_type, lc_cfg, metr
 
         from mlframe.training.diagnostics import compute_learning_curve, learning_curve_panel
 
+        # Scorer by TARGET TYPE. ``roc_auc`` was hardcoded for everything non-regression, so a multiclass or
+        # multilabel target raised inside the scorer and was swallowed by the handler below -- the diagnostic
+        # simply never appeared, reported only as "learning_curve diagnostic failed".
         tt = (target_type or "").lower()
-        if "regress" in tt:
+        if "regress" in tt or "quantile" in tt:
+            scorer_name, higher_is_better = "r2", True
+        elif "multiclass" in tt:
+            scorer_name, higher_is_better = "roc_auc_ovr_weighted", True
+        elif "multilabel" in tt:
+            scorer_name, higher_is_better = "roc_auc", True
+        elif "rank" in tt:
             scorer_name, higher_is_better = "r2", True
         else:
             scorer_name, higher_is_better = "roc_auc", True
@@ -205,7 +219,7 @@ def _build_learning_curve(model, df, targets, columns, target_type, lc_cfg, metr
 
             metrics.setdefault(metadata_target_name, {})
             metrics[metadata_target_name] = asdict(result) if is_dataclass(result) else result
-        return learning_curve_panel(result)
+        return learning_curve_panel(result, source_split=source_split)
     except Exception:  # best-effort: the learning-curve diagnostic is optional, degrades to None
         logger.exception("learning_curve diagnostic failed; continuing.")
         return None
@@ -225,6 +239,7 @@ def _render_post_fit_diagnostics(
     metrics,
     reporting_config,
     model_name=None,
+    report_title=None,
 ):
     """Fire the model/preds-based standalone diagnostics default-ON (PDP, slice-finder, decision-curve, SHAP, learning
     curve) and stitch the combined HTML index. Each is gated by a ``ReportingConfig`` knob and skips cheaply when its
@@ -243,7 +258,36 @@ def _render_post_fit_diagnostics(
     # crashed/length-mismatched deep inside them instead of being skipped at the gate as intended.
     _multilabel = _targets_arr is not None and _targets_arr.ndim > 1 and _targets_arr.shape[1] > 1
     y_arr = _targets_arr.ravel() if _targets_arr is not None else None
+    # A frame whose row count disagrees with the target cannot be aligned here -- the rows were selected by an
+    # index this function never receives. The confidence-filtered ensemble reports hit exactly that: the target
+    # is the COV=10% subset while ``df`` stayed the full split, which crashed the separability panel eight times
+    # in one run and, worse, would let any diagnostic that does NOT length-check compute on mismatched rows
+    # silently. Dropping the frame degrades those diagnostics to "skipped" instead, which is honest.
+    if df is not None and y_arr is not None and not _multilabel:
+        _n_df = getattr(df, "shape", (None,))[0]
+        if _n_df is not None and int(_n_df) != int(y_arr.shape[0]):
+            logger.warning(
+                "  [diagnostics] frame has %s rows but the target has %s -- the frame was not filtered alongside "
+                "the target (a confidence-coverage subset does this), so frame-paired diagnostics are skipped "
+                "rather than computed on mismatched rows.",
+                f"{int(_n_df):,}", f"{int(y_arr.shape[0]):,}",
+            )
+            df = None
+
     names, importances = _ranked_feature_names(metrics, model, columns)
+
+    # One diagnostic used to carry a 20s cap while the block around it had none, so a run skipped the
+    # interaction surface for being projected at 20s and then spent six minutes on the rest. The budget
+    # binds on the block, and is checked BETWEEN diagnostics -- a half-drawn figure is worse than a missing one.
+    from mlframe.training.reporting._diagnostics_budget import DiagnosticsBudget, HeavyDiagnosticsPolicy
+
+    # A model whose name carries an ensemble marker is a VARIANT of models already explained -- five
+    # aggregations of the same two members produce five identical SHAP surfaces. Scope the expensive
+    # diagnostics to the primary model; the metric and calibration panels still render for every variant,
+    # since comparing them is what those panels are for.
+    _is_ensemble_variant = "ens" in (model_name or "").lower() or "ensemble" in (model_name or "").lower()
+    _policy = HeavyDiagnosticsPolicy(mode=getattr(cfg, "heavy_diagnostics_for", "best"), is_primary=not _is_ensemble_variant)
+    _budget = DiagnosticsBudget(getattr(cfg, "diagnostics_max_seconds", 0.0) or 0.0, policy=_policy)
 
     from mlframe.reporting.diagnostics_dispatch import (
         build_combined_html_report, render_category_discriminability_diagnostic, render_class_structure_diagnostic,
@@ -297,50 +341,55 @@ def _render_post_fit_diagnostics(
         _collapsed = False  # gate disabled -> behave as before
 
     if getattr(cfg, "pdp_ice", True) and y_arr is not None and not _collapsed:
-        render_pdp_ice_diagnostic(
-            model=model, df=df, feature_names=names, feature_importances=importances,
-            plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
-            top_features=getattr(cfg, "pdp_top_features", 4), sample=getattr(cfg, "pdp_sample", 2000),
-            grid=getattr(cfg, "pdp_grid", 20),
+        _budget.run("pdp_ice", lambda: render_pdp_ice_diagnostic(
+                model=model, df=df, feature_names=names, feature_importances=importances,
+                plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+                top_features=getattr(cfg, "pdp_top_features", 4), sample=getattr(cfg, "pdp_sample", 2000),
+                grid=getattr(cfg, "pdp_grid", 20),
+            ),
         )
 
     if getattr(cfg, "pdp_2d_charts", False) and y_arr is not None and not _collapsed:
-        render_pdp_2d_diagnostic(
-            model=model, df=df, feature_names=names, feature_importances=importances,
-            plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
-            sample=getattr(cfg, "pdp_sample", 2000), grid=getattr(cfg, "pdp_grid", 20),
-        )
+        _budget.run("pdp_2d", lambda: render_pdp_2d_diagnostic(
+                model=model, df=df, feature_names=names, feature_importances=importances,
+                plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+                sample=getattr(cfg, "pdp_sample", 2000), grid=getattr(cfg, "pdp_grid", 20),
+        ))
 
     if getattr(cfg, "interaction_strength_charts", False) and y_arr is not None and not _collapsed:
-        render_interaction_strength_diagnostic(
-            model=model, df=df, feature_names=names, feature_importances=importances,
-            plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
-            max_features=getattr(cfg, "interaction_strength_max_features", 8),
-            sample=getattr(cfg, "pdp_sample", 2000), grid=getattr(cfg, "pdp_grid", 20),
-            max_seconds=getattr(cfg, "interaction_strength_max_seconds", 20.0),
+        _budget.run("interaction_strength", lambda: render_interaction_strength_diagnostic(
+                model=model, df=df, feature_names=names, feature_importances=importances,
+                plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+                max_features=getattr(cfg, "interaction_strength_max_features", 8),
+                sample=getattr(cfg, "pdp_sample", 2000), grid=getattr(cfg, "pdp_grid", 20),
+                max_seconds=getattr(cfg, "interaction_strength_max_seconds", 20.0),
+            ),
         )
 
     if getattr(cfg, "engineered_separability_charts", True) and df is not None and y_arr is not None and not _collapsed and not _multilabel:
-        render_engineered_separability_diagnostic(
-            df=df, y_true=y_arr, feature_names=names, feature_importances=importances,
-            plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
-            sample=getattr(cfg, "pdp_sample", 2000) * 2,
+        _budget.run("engineered_separability", lambda: render_engineered_separability_diagnostic(
+                df=df, y_true=y_arr, feature_names=names, feature_importances=importances,
+                plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+                sample=getattr(cfg, "pdp_sample", 2000) * 2,
+            ),
         )
 
     if getattr(cfg, "class_structure_charts", True) and df is not None and y_arr is not None and not _multilabel:
-        render_class_structure_diagnostic(
-            df=df, y_true=y_arr, feature_names=names,
-            plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
-            max_groups=getattr(cfg, "class_structure_max_groups", 30),
-            n_time_bins=getattr(cfg, "class_structure_time_bins", 20),
+        _budget.run("class_structure", lambda: render_class_structure_diagnostic(
+                df=df, y_true=y_arr, feature_names=names,
+                plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+                max_groups=getattr(cfg, "class_structure_max_groups", 30),
+                n_time_bins=getattr(cfg, "class_structure_time_bins", 20),
+            ),
         )
 
     if getattr(cfg, "category_discriminability_charts", True) and df is not None and tt == "binary_classification" and y_arr is not None and not _multilabel:
-        render_category_discriminability_diagnostic(
-            df=df, y_true=y_arr, feature_names=names,
-            plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
-            top_k=getattr(cfg, "category_discriminability_top_k", 15),
-            max_columns=getattr(cfg, "category_discriminability_max_columns", 40),
+        _budget.run("category_discriminability", lambda: render_category_discriminability_diagnostic(
+                df=df, y_true=y_arr, feature_names=names,
+                plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+                top_k=getattr(cfg, "category_discriminability_top_k", 15),
+                max_columns=getattr(cfg, "category_discriminability_max_columns", 40),
+            ),
         )
 
     if (
@@ -348,48 +397,54 @@ def _render_post_fit_diagnostics(
         and y_arr is not None and y_pred is not None and not _multilabel
         and len(y_pred) == len(y_arr) and not _collapsed
     ):
-        render_slice_finder_diagnostic(
-            df=df, y_true=y_arr, y_pred=y_pred, task=task, feature_names=names,
-            plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
-        )
+        _budget.run("slice_finder", lambda: render_slice_finder_diagnostic(
+                df=df, y_true=y_arr, y_pred=y_pred, task=task, feature_names=names,
+                plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+        ))
 
     if getattr(cfg, "decision_curve", True) and tt == "binary_classification" and y_arr is not None:
         _bs = _binary_positive_score(probs)
         if _bs is not None and len(_bs) == len(y_arr):
-            render_decision_curve_diagnostic(
-                y_true=y_arr, y_score=_bs, plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
-            )
+            # Bound to a non-Optional local: the lambda defers execution, so the enclosing narrowing
+            # of ``_bs`` does not reach inside it.
+            _score = _bs
+            _budget.run("decision_curve", lambda: render_decision_curve_diagnostic(
+                    y_true=y_arr, y_score=_score, plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+            ))
 
     if getattr(cfg, "decile_table", True) and tt == "binary_classification" and y_arr is not None:
         _bs = _binary_positive_score(probs)
         if _bs is not None and len(_bs) == len(y_arr):
-            render_decile_table_diagnostic(
-                y_true=y_arr, y_score=_bs, plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
-            )
+            # Bound to a non-Optional local: the lambda defers execution, so the enclosing narrowing
+            # of ``_bs`` does not reach inside it.
+            _score = _bs
+            _budget.run("decile_table", lambda: render_decile_table_diagnostic(
+                    y_true=y_arr, y_score=_score, plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+            ))
 
     if getattr(cfg, "risk_coverage_charts", True) and y_arr is not None and not _multilabel:
         from mlframe.reporting import render_risk_coverage_diagnostic
         if tt == "binary_classification":
             _bs = _binary_positive_score(probs)
             if _bs is not None and len(_bs) == len(y_arr):
-                render_risk_coverage_diagnostic(
-                    y_true=y_arr, y_score=_bs, task="binary", plot_outputs=plot_outputs,
-                    base_path=plot_file, metrics_dict=metrics, model_label=model_name_for_title(target_type),
-                )
+                _budget.run("risk_coverage", lambda: render_risk_coverage_diagnostic(
+                        y_true=y_arr, y_score=_bs, task="binary", plot_outputs=plot_outputs,
+                        base_path=plot_file, metrics_dict=metrics, model_label=model_name_for_title(target_type),
+                ))
         elif tt == "multiclass_classification" and probs is not None:
             _proba = np.asarray(probs, dtype=np.float64)
             if _proba.ndim == 2 and _proba.shape[0] == len(y_arr):
-                render_risk_coverage_diagnostic(
-                    y_true=y_arr, y_score=_proba, task="multiclass", plot_outputs=plot_outputs,
-                    base_path=plot_file, metrics_dict=metrics, model_label=model_name_for_title(target_type),
-                )
+                _budget.run("risk_coverage", lambda: render_risk_coverage_diagnostic(
+                        y_true=y_arr, y_score=_proba, task="multiclass", plot_outputs=plot_outputs,
+                        base_path=plot_file, metrics_dict=metrics, model_label=model_name_for_title(target_type),
+                ))
         elif task == "regression" and y_pred is not None and len(y_pred) == len(y_arr):
             # Confidence proxy: negative distance from the prediction's own mean (central preds = more typical = more certain).
             conf = -np.abs(y_pred - float(np.mean(y_pred)))
-            render_risk_coverage_diagnostic(
-                y_true=y_arr, y_score=y_pred, task="regression", confidence=conf, plot_outputs=plot_outputs,
-                base_path=plot_file, metrics_dict=metrics, model_label=model_name_for_title(target_type),
-            )
+            _budget.run("risk_coverage", lambda: render_risk_coverage_diagnostic(
+                    y_true=y_arr, y_score=y_pred, task="regression", confidence=conf, plot_outputs=plot_outputs,
+                    base_path=plot_file, metrics_dict=metrics, model_label=model_name_for_title(target_type),
+            ))
 
     if getattr(cfg, "model_card", True) and y_arr is not None:
         _mc_task = "regression" if task == "regression" else ("binary" if tt == "binary_classification" else "classification")
@@ -408,41 +463,45 @@ def _render_post_fit_diagnostics(
             _card_name = model_name_for_title(target_type)
         # Card is defined for binary + regression; multiclass/multilabel have no single positive-class score.
         if _mc_task == "regression" and y_pred is not None and len(y_pred) == len(y_arr):
-            render_model_card_diagnostic(
-                task="regression", y_true=y_arr, y_pred=y_pred, plot_outputs=plot_outputs,
-                base_path=plot_file, metrics_dict=metrics, model_name=_card_name, split=_split,
-            )
+            _budget.run("model_card", lambda: render_model_card_diagnostic(
+                    task="regression", y_true=y_arr, y_pred=y_pred, plot_outputs=plot_outputs,
+                    base_path=plot_file, metrics_dict=metrics, model_name=_card_name, split=_split,
+            ))
         elif _mc_task == "binary":
             _bs = _binary_positive_score(probs)
             if _bs is not None and len(_bs) == len(y_arr):
-                render_model_card_diagnostic(
-                    task="binary", y_true=y_arr, y_score=_bs, plot_outputs=plot_outputs,
-                    base_path=plot_file, metrics_dict=metrics, model_name=_card_name, split=_split,
-                )
+                _budget.run("model_card", lambda: render_model_card_diagnostic(
+                        task="binary", y_true=y_arr, y_score=_bs, plot_outputs=plot_outputs,
+                        base_path=plot_file, metrics_dict=metrics, model_name=_card_name, split=_split,
+                ))
 
     if getattr(cfg, "shap_panels", True) and model is not None and df is not None and not _collapsed:
-        render_shap_diagnostic(
-            model=model, df=df, feature_names=names, plot_outputs=plot_outputs, base_path=plot_file,
-            metrics_dict=metrics, max_rows=getattr(cfg, "shap_max_rows", 20000),
-            top_k=getattr(cfg, "shap_top_k", 6), allow_kernel=getattr(cfg, "shap_allow_kernel", False),
-        )
+        _budget.run("shap", lambda: render_shap_diagnostic(
+                model=model, df=df, feature_names=names, plot_outputs=plot_outputs, base_path=plot_file,
+                metrics_dict=metrics, max_rows=getattr(cfg, "shap_max_rows", 20000),
+                top_k=getattr(cfg, "shap_top_k", 6), allow_kernel=getattr(cfg, "shap_allow_kernel", False),
+        ))
 
     if getattr(cfg, "shap_interactions", False) and model is not None and df is not None and not _collapsed:
-        render_shap_interactions_diagnostic(
-            model=model, df=df, feature_names=names, plot_outputs=plot_outputs, base_path=plot_file,
-            metrics_dict=metrics, max_rows=getattr(cfg, "shap_interaction_max_rows", 2000),
-        )
+        _budget.run("shap_interactions", lambda: render_shap_interactions_diagnostic(
+                model=model, df=df, feature_names=names, plot_outputs=plot_outputs, base_path=plot_file,
+                metrics_dict=metrics, max_rows=getattr(cfg, "shap_interaction_max_rows", 2000),
+        ))
 
     if getattr(cfg, "shap_per_instance", False) and model is not None and df is not None and y_arr is not None:
         # Per-instance needs a 1-D score: binary positive-class prob, else the regression prediction.
         _yscore = _binary_positive_score(probs) if tt == "binary_classification" else (y_pred if task == "regression" else None)
         if _yscore is not None and len(_yscore) == len(y_arr):
-            render_shap_per_instance_diagnostic(
-                model=model, df=df, y_true=y_arr, y_score=_yscore, feature_names=names,
-                plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
-            )
+            _budget.run("shap_per_instance", lambda: render_shap_per_instance_diagnostic(
+                    model=model, df=df, y_true=y_arr, y_score=_yscore, feature_names=names,
+                    plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+            ))
 
-    lc_panel = _build_learning_curve(model, df, targets, columns, target_type, getattr(cfg, "learning_curve", None), metrics)
+    # The report title names the split ("TEST ", "VAL (DUMMY) ", ...); the curve is computed on that split's
+    # rows, so the panel has to say so rather than call them train and holdout.
+    _raw_split = report_title.strip().rstrip(":").lower() if report_title else ""
+    _split_label = _raw_split if _raw_split else "reported split"
+    lc_panel = _build_learning_curve(model, df, targets, columns, target_type, getattr(cfg, "learning_curve", None), metrics, source_split=_split_label)
     if lc_panel is not None:
         try:
             from mlframe.reporting.output import parse_plot_output_dsl
@@ -456,6 +515,11 @@ def _render_post_fit_diagnostics(
                 _c.setdefault("paths", []).append(base)
         except Exception:  # best-effort: the learning-curve chart is optional diagnostic output
             logger.exception("learning_curve render failed; continuing.")
+
+    # Say what the budget dropped, BEFORE stitching the report. Without this call the promise the budget class
+    # documents -- that a shortened diagnostics block names what it left out -- was never kept, so a truncated
+    # report was indistinguishable from a complete one.
+    _budget.report()
 
     # Combined single-page HTML index stitching every chart artifact recorded for this (model, split).
     if getattr(cfg, "combined_html", True) and isinstance(metrics, dict):

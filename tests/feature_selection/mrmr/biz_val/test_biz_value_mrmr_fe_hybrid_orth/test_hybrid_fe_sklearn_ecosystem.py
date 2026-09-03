@@ -16,7 +16,7 @@ Contracts pinned
 ----------------
 A. **GridSearchCV over FE hyperparameters**
    ``GridSearchCV(MRMR, {'fe_hybrid_orth_enable': [False, True],
-   'fe_hybrid_orth_basis': ['hermite', 'chebyshev']}, cv=3).fit(X, y)``
+   'fe_hybrid_orth_basis': ['hermite', 'chebyshev']}, cv=2).fit(X, y)``
    on a quadratic-signal target completes WITHOUT crashing on any
    candidate, ``cv_results_`` has 2x2=4 rows, and the search surfaces a
    config that SOLVES the quadratic (best CV >= 0.95) far above the legacy
@@ -161,7 +161,7 @@ class TestGridSearchCVOverFEParams:
                 "mrmr__fe_hybrid_orth_enable": [False, True],
                 "mrmr__fe_hybrid_orth_basis": ["hermite", "chebyshev"],
             },
-            cv=3,
+            cv=2,  # 2 folds still exercises the grid-search surface; the 4-candidate count (not fold depth) is what's pinned
             n_jobs=1,
             refit=True,
         )
@@ -214,7 +214,7 @@ class TestGridSearchCVOverFEParams:
                 "mrmr__fe_hybrid_orth_enable": [False, True],
                 "mrmr__fe_hybrid_orth_basis": ["hermite", "chebyshev"],
             },
-            cv=3,
+            cv=2,  # 2 folds still exercises the grid-search surface; the 4-candidate count (not fold depth) is what's pinned
             n_jobs=1,
             refit=True,
         )
@@ -268,7 +268,7 @@ class TestGridSearchCVOverFEParams:
                 "mrmr__fe_hybrid_orth_enable": [False, True],
                 "mrmr__fe_hybrid_orth_basis": ["hermite", "chebyshev"],
             },
-            cv=3,
+            cv=2,  # 2 folds still exercises the grid-search surface; the 4-candidate count (not fold depth) is what's pinned
             n_jobs=1,
             refit=True,
         )
@@ -397,6 +397,7 @@ class TestCrossValWithHybridFE:
         """
         X, y = _build_quadratic_binary(seed=7, n=1800)
         kf = KFold(n_splits=5, shuffle=True, random_state=42)
+        _per_fold_recipes = []
         for fold_idx, (tr_idx, _te_idx) in enumerate(kf.split(X)):
             m = _make_mrmr(
                 fe_hybrid_orth_enable=True,
@@ -407,6 +408,16 @@ class TestCrossValWithHybridFE:
             assert (
                 len(m.hybrid_orth_features_) > 0
             ), f"fold={fold_idx}: hybrid_orth_features_ empty on a quadratic signal; FE pipeline failed to engage on this fold's training slice"
+            _per_fold_recipes.append(tuple(m.hybrid_orth_features_))
+
+        # Non-emptiness alone cannot demonstrate the LEAKAGE contract this test is named for -- a builder that
+        # ran once on the full frame and reused one recipe for every fold produces a non-empty list on every
+        # fold too. What distinguishes per-fold fitting is that different training slices produce DIFFERENT
+        # recipes; identical output across all folds is the signature of a builder that is not seeing the folds.
+        assert len(set(_per_fold_recipes)) > 1, (
+            "every fold produced an identical recipe, which is what a builder fitted ONCE on the full frame "
+            f"would produce. Per-fold recipes: {_per_fold_recipes}"
+        )
 
     def test_no_y_leakage_across_folds(self):
         """Permuting the target inside the holdout slice MUST NOT

@@ -116,18 +116,60 @@ def _read(rel: str) -> str:
 
 
 def test_rff_calibration_bench_module_exists() -> None:
-    """Rff calibration bench module exists."""
+    """Rff calibration bench module exists and exposes the expected CPU/GPU/CLI entry points."""
     bench_path = MLFRAME_ROOT / "feature_engineering" / "_benchmarks" / "bench_rff_matmul.py"
     assert bench_path.exists(), "Wave 65: RFF calibration bench script must exist"
-    text = bench_path.read_text(encoding="utf-8")
-    # The bench writes to kernel_tuning_cache under the "rff_matmul" key.
-    assert 'cache.store("rff_matmul"' in text
-    # Both CPU + GPU timing helpers must be present.
-    assert "def _bench_cpu(" in text
-    assert "def _bench_gpu(" in text
-    # CLI entry point.
-    assert "def main(" in text
-    assert "__name__ ==" in text
+
+    from mlframe.feature_engineering._benchmarks import bench_rff_matmul as _mod
+
+    assert callable(_mod._bench_cpu)
+    assert callable(_mod._bench_gpu)
+    assert callable(_mod.main)
+
+
+def test_rff_calibration_main_writes_work_threshold_to_kernel_tuning_cache(monkeypatch) -> None:
+    """``main()`` must actually persist the calibrated crossover under the ``"rff_matmul"`` key that
+    ``random_features._should_use_gpu_rff`` looks up -- not merely mention it in source text. Stubs
+    ``calibrate`` to a deterministic threshold and spies on the real ``KernelTuningCache.update`` call
+    to assert on the runtime side effect."""
+    from mlframe.feature_engineering._benchmarks import bench_rff_matmul as _mod
+
+    calls: list[dict] = []
+
+    class _FakeCache:
+        """Spy standing in for the real ``KernelTuningCache``, recording every ``update()`` call."""
+
+        def update(self, key, axes, regions):
+            """Record the call args instead of touching the real on-disk cache."""
+            calls.append({"key": key, "axes": axes, "regions": regions})
+
+    fake_sweep_row = {
+        "n": 1000,
+        "d": 16,
+        "work": 16000,
+        "cpu_s": 0.01,
+        "gpu_s": 0.005,
+        "speedup": 2.0,
+        "gpu_wins": True,
+    }
+    monkeypatch.setattr(_mod, "calibrate", lambda *a, **k: (12345, [fake_sweep_row]))
+
+    class _FakeKTC:
+        """Spy standing in for the real ``KernelTuningCache`` class, returning the fake instance."""
+
+        @staticmethod
+        def load_or_create():
+            """Return the fake cache instead of loading/creating a real on-disk one."""
+            return _FakeCache()
+
+    monkeypatch.setattr("pyutilz.performance.kernel_tuning.cache.KernelTuningCache", _FakeKTC)
+
+    rc = _mod.main()
+
+    assert rc == 0
+    assert len(calls) == 1
+    assert calls[0]["key"] == "rff_matmul"
+    assert calls[0]["regions"] == [{"work_threshold": 12345}]
 
 
 def test_rff_calibration_module_imports_and_calibrate_returns_tuple() -> None:
@@ -150,8 +192,10 @@ def test_phase_recurrent_todo_replaced_with_closure_note() -> None:
     # The original TODO ("core/predict.py (currently locked) does not re-run
     # the recurrent-augmented ensemble") must be gone.
     assert "core/predict.py`` (currently locked)" not in src
-    # Replaced with explicit closure note that documents the symmetric helper.
-    assert "Wave 66 (2026-05-20): predict-time replay closure" in src
+    # Replaced with an explicit closure note documenting the predict-time replay contract (the wave/date
+    # marker that once prefixed this note was later stripped per the project's no-audit-metadata-in-
+    # comments rule -- the substantive content is what matters).
+    assert "predict-time replay closure" in src
 
 
 # ---------------------------------------------------------------------------
@@ -196,8 +240,11 @@ def test_timeseries_past_side_sanity_check_landed() -> None:
     src = _read("feature_engineering/timeseries.py")
     # The "deferred to a follow-up" marker is gone.
     assert "deferred to a follow-up" not in src
-    # The check itself is what matters; the wave marker that once introduced it is not.
-    assert "past_nwindows_expected" in src and "not past_windows_features" in src
+    # The check itself is what matters; the wave marker that once introduced it is not. The shipped
+    # fix is stricter than a bare non-empty check: it compares against the full expected window count
+    # (symmetric with the pre-existing future-side check), catching a PARTIALLY-satisfied past window
+    # set too, not just a totally empty one.
+    assert "past_nwindows_expected" in src and "insufficient_past" in src
 
 
 def test_mrmr_factors_to_use_documented_already_threaded() -> None:
@@ -210,9 +257,11 @@ def test_mrmr_factors_to_use_documented_already_threaded() -> None:
 def test_phase_helpers_strategy_list_documented() -> None:
     """Phase helpers strategy list documented."""
     src = _read("training/core/_phase_helpers.py")
-    # The TODO is replaced with a closure note.
+    # The TODO is replaced with a closure note. The wave/date marker that once prefixed this note was
+    # later stripped per the project's no-audit-metadata-in-comments rule -- the substantive content
+    # (that defer_pandas_conv already threads through ctx.strategy_by_model) is what matters.
     assert "TODO: surface the per-model strategy list" not in src
-    assert "Wave 69 (2026-05-20) closure: defer_pandas_conv heuristic landed" in src
+    assert "defer_pandas_conv heuristic landed" in src
 
 
 def test_hermite_fe_separate_eval_documented_as_implemented() -> None:

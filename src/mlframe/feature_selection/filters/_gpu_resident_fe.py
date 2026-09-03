@@ -995,8 +995,6 @@ def _gpu_k_chunk(n: int, *, free_bytes: int | None = None,
     chunk boundaries. ``max_cols`` caps to the caller's column count (defaults len(_COMBOS)). G3: the VRAM
     fraction is per-host KTC-tuned; an explicit ``vram_fraction`` (sweep probe) overrides; clamp to (0, 0.9]
     so a stale cache entry never zeros the budget nor exceeds 90% of free VRAM."""
-    import cupy as cp
-
     if free_bytes is None:
         # DEVICE-free ALONE is wrong when cupy's mempool holds the card (2026-07-02, gap-analysis root cause):
         # cudaMemGetInfo reports ~0 device-free once the resident FE caches + operand tables have grown the
@@ -1005,6 +1003,10 @@ def _gpu_k_chunk(n: int, *, free_bytes: int | None = None,
         # k_chunk to 1 -> the materialise+bin loop ran ONE candidate per launch (measured 11,664 per-candidate
         # launches + their host syncs = the dominant GPU-idle source). Add the pool's free capacity
         # (total - used) so the budget reflects what can actually be allocated -> the loop batches again.
+        # cupy is only imported here, on the path that actually needs live device queries -- callers that
+        # pass free_bytes explicitly (CPU-fallback sizing math, unit tests, no-GPU hosts) never pay the import.
+        import cupy as cp
+
         _dev_free, _dev_total = cp.cuda.runtime.memGetInfo()
         try:
             _mp = cp.get_default_memory_pool()
@@ -1194,15 +1196,17 @@ def gpu_resident_pair_candidate_mi_fast(a, b, y_codes, *, nbins: int = 20, refin
     # (or a fused sort-free EXACT kernel), not just the sort. Kept as a validated option, not the default.
 
 
-# --- Tier E carve re-exports: prewarp/orth-basis + grand-fusion block -> _gpu_resident_basis.py,
-# residency-buffer + radix-select block -> _gpu_resident_select.py (carved VERBATIM under the 1k ceiling).
-# Rebind EVERY moved name (public AND underscore-private) into this namespace so all existing
-# ``from .._gpu_resident_fe import X`` paths still resolve byte-for-byte (production code + tests import
-# several private names by path). At the BOTTOM so the siblings' top-level back-imports resolve.
+# --- Tier E carve re-exports: prewarp/orth-basis block -> _gpu_resident_basis.py, its own further carve
+# (analytic pair-MI + grand-fusion + dispatch) -> _gpu_resident_pair_mi.py, residency-buffer + radix-select
+# block -> _gpu_resident_select.py (all carved VERBATIM under the 1k ceiling). Rebind EVERY moved name
+# (public AND underscore-private) into this namespace so all existing ``from .._gpu_resident_fe import X``
+# paths still resolve byte-for-byte (production code + tests import several private names by path). At the
+# BOTTOM so the siblings' top-level back-imports resolve.
 from . import _gpu_resident_basis as _grb
+from . import _gpu_resident_pair_mi as _gpm
 from . import _gpu_resident_select as _grs
 from . import _gpu_resident_k_chunk_ktc as _grk
-for _m in (_grb, _grs, _grk):
+for _m in (_grb, _gpm, _grs, _grk):
     for _n in dir(_m):
         if not _n.startswith("__") and _n not in globals():
             globals()[_n] = getattr(_m, _n)

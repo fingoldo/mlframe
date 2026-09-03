@@ -179,6 +179,62 @@ def test_group_aware_polars_bridge_matches_pandas_clustering():
     assert ca[0] == ca[1], f"correlated a,b should cluster together under the polars path; got {ca}"
 
 
+def test_validate_inputs_catches_non_builtin_float_inf_in_object_column():
+    """MRMR-1: the object-dtype +/-inf guard must catch np.float32/np.float16 infinities too, not
+    only Python float / np.float64 (which subclasses float)."""
+    import pandas as pd
+
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    rng = np.random.default_rng(0)
+    n = 20
+    df = pd.DataFrame({"a": rng.normal(size=n), "b": rng.normal(size=n)})
+    df["obj_col"] = pd.array([np.float32(1.0)] * (n - 1) + [np.float32("inf")], dtype=object)
+    y = (df["a"] > 0).astype(int)
+
+    est = MRMR(random_seed=0, n_workers=1, verbose=0)
+    with pytest.raises(ValueError, match="obj_col"):
+        est._validate_inputs(df, y)
+
+
+def test_to_series_rejects_multicolumn_ndarray_y_instead_of_silently_raveling():
+    """MRMR-2: partial_fit's ``_to_series`` must reject a 2-D multi-column ndarray ``y_new``
+    (multilabel/multi-target), matching the DataFrame path's explicit rejection, instead of
+    silently ``.ravel()``-flattening it into ``n*k`` bogus single-target rows."""
+    from mlframe.feature_selection.filters._mrmr_partial_fit import _to_series
+
+    y_multi = np.zeros((10, 3))
+    with pytest.raises(ValueError, match="multilabel/multi-target"):
+        _to_series(y_multi)
+
+    # Single-column 2-D and 1-D ndarrays are unaffected (still flatten to a plain Series).
+    y_single_col = np.arange(10).reshape(-1, 1)
+    out = _to_series(y_single_col)
+    assert list(out) == list(range(10))
+    out_1d = _to_series(np.arange(10))
+    assert list(out_1d) == list(range(10))
+
+
+def test_validate_string_params_rejects_none_for_params_without_none_sentinel():
+    """MRMR-6: quantization_method=None must raise a clear ValueError from _validate_string_params
+    (the allow-list doesn't include None as a sentinel), not silently pass through to become the
+    literal string "None" deep inside the fit-impl discretisation dispatch."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    est = MRMR(quantization_method=None, random_seed=0, n_workers=1, verbose=0)
+    with pytest.raises(ValueError, match="quantization_method cannot be None"):
+        est._validate_string_params()
+
+
+def test_validate_string_params_still_allows_none_where_it_is_a_real_sentinel():
+    """MRMR-6 regression guard: params whose allow-list legitimately contains None (nbins_strategy,
+    redundancy_aggregator) must NOT start raising after the fix -- None stays a valid sentinel there."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    est = MRMR(nbins_strategy=None, redundancy_aggregator=None, random_seed=0, n_workers=1, verbose=0)
+    est._validate_string_params()  # must not raise
+
+
 def test_adaptive_arity_multileg_recipes_freeze_preprocess_params():
     """Adaptive-arity arity>=2 recipes must freeze per-leg preprocess params so transform() replays (never refits) the basis axis."""
     import pandas as pd

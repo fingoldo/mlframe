@@ -24,6 +24,8 @@ Subcommands::
     refresh-rff-matmul              tune rff_matmul (skip if cached)
     refresh-knn-hnsw-crossover      tune knn_hnsw_crossover (CPU; skip if cached)
     refresh-discretize-2d-array     tune discretize_2d_array (skip if cached)
+    refresh-batch-mi-noise-gate     tune batch_mi_noise_gate (skip if cached)
+    refresh-fe-gpu-pairs-mi         tune fe_gpu_pairs_mi (skip if cached)
     refresh-all                     tune every registered kernel sweep (skip those already cached; --force to re-run)
 
 All refresh-* skip a kernel already validly cached for this host; pass --force to re-benchmark.
@@ -44,7 +46,7 @@ import sys
 def _cmd_show(args) -> int:
     from pyutilz.performance.kernel_tuning.cache import cache_path
     path = cache_path()
-    # Wave 48 (2026-05-20): drop the redundant isfile precheck; just try-open.
+    # Drop the redundant isfile precheck; just try-open.
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -87,7 +89,7 @@ def _cmd_clear(args) -> int:
         if ans not in ("y", "yes"):
             print("aborted")
             return 1
-    # Wave 48 (2026-05-20): tolerate race with concurrent _cmd_clear / external cleanup.
+    # Tolerate race with concurrent _cmd_clear / external cleanup.
     try:
         os.remove(path)
     except FileNotFoundError:
@@ -104,7 +106,7 @@ def _refresh_generic(kernel_label: str, ensure_fn, force: bool = False) -> int:
     ``force=False`` (the default): the sweep is SKIPPED when a valid result is
     already cached for this host -- ``ensure_fn`` returns the cached regions
     without re-benchmarking. ``force=True`` re-runs the sweep unconditionally.
-    The Wave 24 sweeps that genuinely can't run on the live HW (e.g.
+    Sweeps that genuinely can't run on the live HW (e.g.
     hnswlib not installed) return [] -- that's a successful no-op for
     the API surface but a non-success exit for the operator, so the CLI
     still reports rc=1. ``refresh-all`` folds these into its rollup."""
@@ -239,7 +241,7 @@ def _cmd_refresh_batch_mi_noise_gate(args) -> int:
 
 
 def _cmd_refresh_fe_gpu_pairs_mi(args) -> int:
-    from mlframe.feature_selection.filters._gpu_resident_fe import ensure_fe_gpu_pairs_mi_tuning
+    from mlframe.feature_selection.filters._gpu_resident_pair_mi import ensure_fe_gpu_pairs_mi_tuning
     return _refresh_generic("fe_gpu_pairs_mi", ensure_fe_gpu_pairs_mi_tuning, force=args.force)
 
 

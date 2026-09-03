@@ -137,11 +137,18 @@ class BaselineReport(NamedTuple):
         ts_tag = ""
         if self.ts_period_used is not None:
             ts_tag = f" ts_period={self.ts_period_used}"
+        def _finite(total: int, finite: int) -> str:
+            """``(all finite)`` when nothing was lost, else the exact surviving count.
+
+            Repeating the row count as "(finite=2181841)" beside "n_train=2181841" makes the reader compare two
+            identical numbers to learn nothing; the interesting case is when they DIFFER."""
+            return "(all finite)" if total == finite else f"({finite:,} finite)"
+
         lines.append(
             f"[DUMMY_BASELINES] target='{self.target_name}' {self.target_type}"
-            f"{ts_tag} n_train={self.n_train} (finite={self.n_train_finite})"
-            f" n_val={self.n_val} (finite={self.n_val_finite})"
-            f" n_test={self.n_test} (finite={self.n_test_finite})"
+            f"{ts_tag} n_train={self.n_train:,} {_finite(self.n_train, self.n_train_finite)}"
+            f" n_val={self.n_val:,} {_finite(self.n_val, self.n_val_finite)}"
+            f" n_test={self.n_test:,} {_finite(self.n_test, self.n_test_finite)}"
         )
 
         if self.strongest is None:

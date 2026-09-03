@@ -123,7 +123,10 @@ def _map_group_keys(
     if keys.dtype != object:
         keys = keys.astype(str)
     s = pd.Series(keys, copy=False)
-    out = s.map(lookup).to_numpy(dtype=np.float64)
+    # copy=True: some pandas versions return a read-only view from to_numpy() when the
+    # requested dtype already matches the mapped Series' dtype (no-op astype short-circuit),
+    # which then raises "assignment destination is read-only" on the absent-key fill below.
+    out = s.map(lookup).to_numpy(dtype=np.float64, copy=True)
     absent = ~s.isin(lookup.keys()).to_numpy()
     if absent.any():
         out[absent] = global_value
@@ -377,7 +380,11 @@ def apply_grouped_delta(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     lookup_mean = dict(recipe["lookup_mean"])
     lookup_std = dict(recipe["lookup_std"])
     global_mean = float(recipe["global_mean"])
-    global_std = float(recipe["global_std"]) or 1.0
+    # `or 1.0` would silently rewrite ANY falsy stored value, not just a genuine zero-std guard case
+    # (fit-time already stores global_std as strictly > 0 -- see the mirrored `> 0.0 else 1.0` guard
+    # where the recipe is built); an explicit comparison keeps the same zero-std fallback without that trap.
+    _global_std_raw = float(recipe["global_std"])
+    global_std = _global_std_raw if _global_std_raw > 0.0 else 1.0
     if group_col not in X_test.columns or num_col not in X_test.columns:
         raise KeyError(f"apply_grouped_delta: missing column(s) {group_col!r}/{num_col!r} " f"from X_test")
     g_vals = group_key_strings(X_test[group_col])

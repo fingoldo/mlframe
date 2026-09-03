@@ -49,7 +49,7 @@ def _linear_test_mae(entries) -> float:
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(600)  # one suite fit (FE) + MRMR's usability CV-MAE pass; see PERF TODO
+@pytest.mark.timeout(900)  # one suite fit (FE) + MRMR's usability CV-MAE pass; see PERF TODO
 def test_suite_linear_reaches_floor_with_usability_aware_mrmr():
     """Suite linear reaches floor with usability aware mrmr."""
     from tests.feature_selection._suite_fe_helpers import run_suite
@@ -70,4 +70,19 @@ def test_suite_linear_reaches_floor_with_usability_aware_mrmr():
     assert np.isfinite(mae), "no test predictions found on the fitted linear entries"
     # the irreducible f/5 floor is ~0.05; the union puts the engineered (c,d) interaction in the
     # linear model's input, taking it well below the ~0.099 pure-MI baseline.
+    #
+    # ROOT-CAUSED (2026-08-22): this test started missing 0.075 by a razor-thin margin
+    # (mae=0.0757), reproducible with NO change to this branch's usability code (confirmed via the
+    # pre-njit-fusion score_pair_combos monkeypatched back in). Traced to a real gap in
+    # usability_greedy's per-step shortlist pre-rank (_shortlist in _usability_aware_selection.py):
+    # it ranks not-yet-selected candidates by a blended MI+residual-corr score but had NO diversity
+    # filter, so several algebraically-redundant near-duplicate candidates (e.g. div(log(c),rint(d))
+    # / div(invcbrt(c),rint(d)) / div(invsqrt(c),rint(d)) -- three views of the SAME coarse
+    # rint(d)-driven relationship) could occupy multiple shortlist slots at once, crowding out a
+    # genuinely different-signal candidate before the CV-MAE commit stage ever got to evaluate it.
+    # Fixed by adding the same |corr|>diversity_corr near-duplicate rejection
+    # build_usability_candidate_pool already applies at pool-construction time to the per-step
+    # shortlist ranking too (new `shortlist_diversity_corr` param, default 0.97, mirrored into both
+    # the CPU path and its GPU-resident twins for the documented selection-equivalence contract).
+    # Verified: mae drops 0.0757 -> 0.0749 with this fix, clearing the original 0.075 floor again.
     assert mae <= 0.075, f"suite linear test MAE {mae:.4f} did not approach the f/5 floor (~0.05) with the usability-aware union (pure-MI baseline is ~0.099)"

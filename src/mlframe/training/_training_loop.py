@@ -6,6 +6,7 @@ early stopping, OOM recovery, and post-hoc probability calibration.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from timeit import default_timer as timer
 from typing import Any
@@ -44,6 +45,22 @@ from .utils import get_pandas_view_of_polars_df
 from .utils import maybe_clean_ram_adaptive as _maybe_clean_ram
 
 logger = logging.getLogger(__name__)
+
+
+@contextlib.contextmanager
+def _suppress_catboost_noise():
+    """Silence CatBoost's own cosmetic UserWarnings for the duration of a fit.
+
+    ``Can't optimze method "evaluate" because self argument is used`` (CatBoost's own typo included) is emitted
+    from ``_check_train_params`` on every single fit, says nothing the caller can act on, and is
+    indistinguishable in a log from a warning that matters. Only this exact message is filtered -- everything
+    else CatBoost has to say still reaches the log.
+    """
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=r".*optimze method.*", category=UserWarning)
+        yield
 
 
 def _in_interactive_notebook() -> bool:
@@ -88,11 +105,24 @@ def _ensure_cb_mtr_loss(model, train_target, pool=None) -> None:
     if type(model).__name__ != "CatBoostRegressor":
         return
     try:
-        get = getattr(model, "get_param", None) or getattr(model, "get_params", None)
+        # `get_params` FIRST: CatBoost defines both, and `get_param(key)` takes a required argument, so the
+        # previous `get_param or get_params` always selected the single-key form and `get()` raised TypeError
+        # on every call. That was invisible while the handler substituted an empty dict -- the loss still got
+        # set, for the wrong reason -- and became a silent no-op the moment the handler correctly stopped
+        # treating "params unknown" as "params empty".
+        get = getattr(model, "get_params", None) or getattr(model, "get_param", None)
         params = get() if callable(get) else {}
     except Exception as e:
-        logger.debug("_ensure_cb_mtr_loss: get_param()/get_params() failed, treating params as empty: %s", e)
-        params = {}
+        # "Params unknown" is not "params empty". Substituting {} made the very next check conclude the caller
+        # set no loss, so this function overwrote a deliberately-chosen CatBoost objective with MultiRMSE and the
+        # model trained against the wrong one -- with every downstream metric then honestly computed on a
+        # wrongly-trained model. Leave the objective alone and say why.
+        logger.warning(
+            "_ensure_cb_mtr_loss: get_param()/get_params() raised %s (%s); leaving the model's objective untouched rather than " "assuming none was set.",
+            type(e).__name__,
+            e,
+        )
+        return
     _existing = params.get("loss_function")
     # Skip when the user already wired a multi-target-compatible loss.
     if _existing is not None and "multi" in str(_existing).lower():
@@ -142,11 +172,24 @@ def _ensure_cb_multilabel_loss(model, train_target, pool=None) -> None:
     if type(model).__name__ != "CatBoostClassifier":
         return
     try:
-        get = getattr(model, "get_param", None) or getattr(model, "get_params", None)
+        # `get_params` FIRST: CatBoost defines both, and `get_param(key)` takes a required argument, so the
+        # previous `get_param or get_params` always selected the single-key form and `get()` raised TypeError
+        # on every call. That was invisible while the handler substituted an empty dict -- the loss still got
+        # set, for the wrong reason -- and became a silent no-op the moment the handler correctly stopped
+        # treating "params unknown" as "params empty".
+        get = getattr(model, "get_params", None) or getattr(model, "get_param", None)
         params = get() if callable(get) else {}
     except Exception as e:
-        logger.debug("_ensure_cb_multilabel_loss: get_param()/get_params() failed, treating params as empty: %s", e)
-        params = {}
+        # "Params unknown" is not "params empty". Substituting {} made the very next check conclude the caller
+        # set no loss, so this function overwrote a deliberately-chosen CatBoost objective with MultiLogloss / HammingLoss and the
+        # model trained against the wrong one -- with every downstream metric then honestly computed on a
+        # wrongly-trained model. Leave the objective alone and say why.
+        logger.warning(
+            "_ensure_cb_multilabel_loss: get_param()/get_params() raised %s (%s); leaving the model's objective untouched rather than "
+            "assuming none was set.",
+            type(e).__name__, e,
+        )
+        return
     if params.get("loss_function") is not None:
         return
     label_arr = None
@@ -212,7 +255,7 @@ def _handle_oom_error(model_obj, model_type_name: str) -> bool:
     return True
 
 
-# Wave 94 (2026-05-21): post-hoc calibration wrappers
+# post-hoc calibration wrappers
 # (_SigmoidAdapter, _PostHocCalibratedModel, _PerClassIsotonicCalibrator,
 # _PostHocMultiCalibratedModel, _maybe_apply_posthoc_calibration) moved
 # to sibling file _calibration_models.py to drop this file below the
@@ -475,6 +518,26 @@ def _train_model_with_fallback(
     if model_type_name in CATBOOST_MODEL_TYPES:
         _has_text = bool(fit_params.get("text_features")) or (_cb_pool is not None and bool(getattr(_cb_pool, "_mlframe_text_features", None)))
         if _has_text:
+            # Head off the empty-bigram-dictionary abort. The recovery below only learns about it by FITTING,
+            # so a production run paid a full 44.99s doomed fit on 2.4M rows before retrying with unigrams.
+            # A whitespace scan over a sample answers the same question in milliseconds, and it only fires
+            # when NOT ONE sampled row of a column has two tokens -- the case where a bigram cannot exist.
+            try:
+                from mlframe.training.cb import single_token_text_features, unigram_text_processing
+
+                _decl_text = list(fit_params.get("text_features") or [])
+                _single_tok = single_token_text_features(train_df, _decl_text) if _decl_text else []
+                if _single_tok and len(_single_tok) == len(_decl_text) and hasattr(model, "set_params"):
+                    if not (model.get_params().get("text_processing") if hasattr(model, "get_params") else None):
+                        model.set_params(text_processing=unigram_text_processing())
+                        logger.info(
+                            "  [pre-fit] %d text feature(s) %s carry a single token per row, so the default "
+                            "bigram dictionary would be empty and the fit would abort. Starting with a unigram "
+                            "dictionary instead of discovering this after a failed fit.",
+                            len(_single_tok), _single_tok,
+                        )
+            except Exception as _tok_exc:
+                logger.debug("single-token pre-scan skipped (%s: %s)", type(_tok_exc).__name__, _tok_exc)
             _cb_n_rows = train_df.shape[0] if hasattr(train_df, "shape") else (len(_cb_pool) if _cb_pool is not None and hasattr(_cb_pool, "__len__") else None)
             _user_text_proc = None
             if hasattr(model, "get_params"):
@@ -583,7 +646,8 @@ def _train_model_with_fallback(
                     # gradient-boosting val-set support).
                     _strip_keys = ("eval_set", "X_val", "y_val", "validation_data")
                     fit_params = {k: v for k, v in fit_params.items() if k not in _strip_keys}
-                model.fit(train_df, train_target, **fit_params)
+                with _suppress_catboost_noise():
+                    model.fit(train_df, train_target, **fit_params)
     except Exception as e:
         try_again = False
         error_str = str(e)
@@ -619,42 +683,77 @@ def _train_model_with_fallback(
             raise
 
         elif model_type_name in CATBOOST_MODEL_TYPES and "Dictionary size is 0" in error_str:
-            # CatBoost's text feature estimator failed to build a TF-IDF
-            # vocabulary -- the column's non-null samples, after the
-            # occurrence_lower_bound filter, leave an empty dictionary.
-            # Root cause: columns auto-promoted to text_features that
-            # have >99.9% null rows (e.g.
-            # _raw_countries, job_post_source with 6-20 non-null
-            # strings out of 810_000). Proactive guard in
-            # _auto_detect_feature_types now blocks these at promotion
-            # time, but this is the defensive fallback: on the exact
-            # CB error, drop text_features from fit_params and retry
-            # without text processing. The columns stay in the frame
-            # (CB will treat them as plain categorical-by-name or
-            # ignore).
+            # CatBoost's text estimator could not build a vocabulary for at least ONE text column, and the
+            # raise names none of them -- so the old handler dropped EVERY text feature and retried, silently
+            # training without any of the columns that were promoted on purpose.
+            #
+            # It also blamed the wrong thing ("too few non-null samples"). Measured against CatBoost 1.2.10, a
+            # column with 400 non-null rows and 400 distinct tokens still raises, while one whose rows carry
+            # three tokens each survives at a token frequency of 3 -- the condition is about token structure,
+            # not row counts. ``_cb_text_probe`` asks the installed CatBoost per column instead of re-deriving
+            # its vocabulary filter, so only the genuinely unusable columns are dropped.
             text_feat = fit_params.get("text_features") or []
             if text_feat:
-                logger.warning(
-                    "CatBoost raised 'Dictionary size is 0' on text_features %s -- "
-                    "the column(s) have too few non-null samples for CB's TF-IDF "
-                    "estimator to build a vocabulary. Dropping text_features from "
-                    "fit_params and retrying. Fix upstream: block promotion of "
-                    "sparse columns in _auto_detect_feature_types (see the "
-                    "min_non_null_for_text_promotion guard), or increase "
-                    "non-null coverage of these columns in your feature "
-                    "extraction.",
-                    text_feat,
-                )
-                # Reroute the dropped text columns to cat_features so CB's
-                # categorical handling still sees them (otherwise CB tries to
-                # cast the string values to float on the retry and raises
-                # ``Cannot convert 'X' to float``).
-                _existing_cats = list(fit_params.get("cat_features") or [])
-                _moved_to_cat = [c for c in text_feat if c not in _existing_cats]
-                fit_params = {k: v for k, v in fit_params.items() if k != "text_features"}
-                if _moved_to_cat:
-                    fit_params["cat_features"] = _existing_cats + _moved_to_cat
-                try_again = True
+                try:
+                    from mlframe.training.cb import (
+                        unigram_rescues_text_features,
+                        unigram_text_processing,
+                        unusable_text_features,
+                    )
+
+                    # The default text pipeline builds BIGRAMS, and a column of one token per row can never
+                    # produce one -- which is what empties the dictionary. Switching to unigrams keeps every
+                    # text feature instead of discarding the columns the caller deliberately promoted, so try
+                    # that before considering any of them unusable.
+                    _rescued = False
+                    if unigram_rescues_text_features(train_df, train_target, text_feat, verbose=True):
+                        # ``text_processing`` is a CatBoost PARAMETER, not a ``fit()`` keyword -- passing it
+                        # through fit_params raises TypeError and takes the whole suite down instead of
+                        # rescuing the fit. The scaled-occurrence path higher up in this file already sets it
+                        # the supported way; do the same here.
+                        try:
+                            model.set_params(text_processing=unigram_text_processing())
+                            _rescued = True
+                        except Exception as _tp_exc:
+                            logger.warning(
+                                "unigram rescue could not be applied (%s: %s); falling back to probing each "
+                                "text feature individually.", type(_tp_exc).__name__, _tp_exc,
+                            )
+                    if _rescued:
+                        logger.warning(
+                            "CatBoost raised 'Dictionary size is 0' because its DEFAULT text processing builds "
+                            "word bigrams and %d text feature(s) %s carry a single token per row. Retrying with "
+                            "a unigram dictionary, which keeps all of them rather than dropping any.",
+                            len(text_feat), text_feat,
+                        )
+                        try_again = True
+                        _bad = {}  # the rescue keeps every column, so nothing is dropped
+                    else:
+                        _bad = unusable_text_features(train_df, train_target, text_feat, verbose=True)
+                except Exception as _probe_exc:
+                    logger.debug("text-feature probe unavailable (%s); dropping all text features", _probe_exc)
+                    _bad = {c: "probe unavailable" for c in text_feat}
+                _keep = [c for c in text_feat if c not in _bad]
+                if _bad:
+                    logger.warning(
+                        "CatBoost raised 'Dictionary size is 0'. Probing each text feature individually against the "
+                        "installed CatBoost identified %d unusable of %d: %s. Retrying with the remaining %d text "
+                        "feature(s) %s instead of dropping them all.",
+                        len(_bad), len(text_feat), "; ".join(f"{c} ({r})" for c, r in _bad.items()) or "(none)",
+                        len(_keep), _keep or "(none)",
+                    )
+                    # A dropped text column is rerouted to cat_features so CB's categorical handling still sees it;
+                    # left out entirely, CB tries to cast its strings to float and raises "Cannot convert 'X' to float".
+                    _existing_cats = list(fit_params.get("cat_features") or [])
+                    _moved_to_cat = [c for c in _bad if c not in _existing_cats]
+                    if _keep:
+                        fit_params = dict(fit_params)
+                        fit_params["text_features"] = _keep
+                    else:
+                        fit_params = {k: v for k, v in fit_params.items() if k != "text_features"}
+                    if _moved_to_cat:
+                        fit_params["cat_features"] = _existing_cats + _moved_to_cat
+                    try_again = True
             else:
                 # Raise -- same error without text_features in params is
                 # an unexpected variant, not our problem.
@@ -818,7 +917,8 @@ def _train_model_with_fallback(
                 n_cols=(train_df.shape[1] if hasattr(train_df, "shape") else None),
                 retry=True,
             ):
-                model.fit(train_df, train_target, **fit_params)
+                with _suppress_catboost_noise():
+                    model.fit(train_df, train_target, **fit_params)
         else:
             raise e
 
@@ -846,7 +946,7 @@ def _train_model_with_fallback(
         except (AttributeError, TypeError, ValueError):
             logger.warning("Could not get best iteration", exc_info=True)
 
-    # Loss-fallback retry on degenerate early stopping (2026-05-26).
+    # Loss-fallback retry on degenerate early stopping.
     # Heavy-kurt targets get Huber via ``_apply_loss_recommendation_-
     # in_place``; on EXTREME-kurt (observed +42.67 in prod) the
     # Huber gradient ``delta * sign(residual)`` collapses to ~ 0 when
@@ -867,7 +967,7 @@ def _train_model_with_fallback(
         if _new_best_iter is not None:
             best_iter = _new_best_iter
 
-    # MLP / recurrent collapse detection (2026-05-26 followup): same
+    # MLP / recurrent collapse detection: same
     # failure shape as the booster Huber-collapse path -- network
     # converges to a near-constant prediction (output saturation under
     # tanh_train_range + BN-less LeakyReLU, etc). Architecture-

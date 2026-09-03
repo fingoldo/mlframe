@@ -84,7 +84,19 @@ def chao_shen_entropy_from_counts(counts: np.ndarray, coverage: float = -1.0) ->
         # Stable 1-(1-p_adj)^N via -expm1(N*log1p(-p_adj)): the naive form catastrophically cancels
         # for small p_adj*N (rare category, large N — exactly this estimator's target regime), silently
         # tripping the <=1e-12 guard and dropping the category.
-        denom = -math.expm1(N * math.log1p(-p_adj))
+        #
+        # p_adj can reach exactly 1.0 (a single, non-singleton category -> C_hat=1.0, p_emp=1.0), making
+        # log1p(-p_adj) = log(0), the analytic limit of 1-(1-p_adj)^N as p_adj->1 (N>0). Under njit-
+        # compiled code math.log1p/expm1 map straight to libm and silently return -inf/-1.0 for this input
+        # (no domain check), so the formula happens to still land on the correct denom=1.0 -- but under
+        # NUMBA_DISABLE_JIT=1 (or any objmode/no-numba fallback), CPython's math.log1p(-1.0) raises
+        # ValueError: math domain error instead, a real behavioral divergence between compiled and
+        # interpreted execution of the identical source line (caught live via numba-coverage-nightly).
+        # Take the analytic limit explicitly rather than relying on libm's non-raising behavior.
+        if p_adj >= 1.0:
+            denom = 1.0
+        else:
+            denom = -math.expm1(N * math.log1p(-p_adj))
         if denom <= 0.0:
             continue
         h_cs -= p_adj * math.log(p_adj) / denom

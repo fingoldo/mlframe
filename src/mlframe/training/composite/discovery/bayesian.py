@@ -16,6 +16,12 @@ Two functions ship together:
 
 Lazy-imports ``_linear_residual_fit`` from composite.py to break the
 import cycle.
+
+Not auto-integrated into Discovery.fit(): production discovery selects a
+base via point-estimate CV-RMSE only. These posteriors are a standalone,
+opt-in diagnostic for callers who want a credible interval / uncertainty
+estimate on a chosen base's (alpha, beta) after the fact -- call them
+directly on the winning base, they are not wired into any selection path.
 """
 
 from __future__ import annotations

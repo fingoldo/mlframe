@@ -12,7 +12,7 @@ import hashlib
 import logging
 import os
 import threading
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence, Set
 
 import numpy as np
 import pandas as pd
@@ -199,6 +199,31 @@ def create_redundant_continuous_factor(
     df[name] = agg_func(df[factors].values, axis=1) * (1 + (noise - 0.5) * noise_percent / 100)
 
 
+def numeric_column_names(df: Any) -> Set[str]:
+    """Names ``categorize_dataset`` will DISCRETISE (numeric) rather than encode as raw level codes (categorical).
+
+    Exposed because the bin count of a discretised numeric column means something completely different from the bin
+    count of a categorical one: under a supervised strategy (MDLP) it grows with how well the column explains the
+    target, so a "too many bins" cardinality guard applied to it drops the STRONGEST feature rather than a
+    user_id-style nuisance column. Callers that gate on cardinality have to tell the two apart.
+    """
+    try:
+        import polars as _pl
+
+        if isinstance(df, _pl.DataFrame):
+            return {name for name, dt in df.schema.items() if not _is_polars_categorical_dtype(dt)}
+    except ImportError:
+        pass
+    return set(df.head(5).select_dtypes(exclude=("category", "object", "string", "bool")).columns.values.tolist())
+
+
+def _is_polars_categorical_dtype(dt) -> bool:
+    """True if a polars dtype should be treated as categorical (string/categorical/boolean/enum) rather than numeric for discretization purposes."""
+    import polars as pl
+
+    return dt == pl.Utf8 or dt == pl.String or dt == pl.Categorical or dt == pl.Boolean or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum))
+
+
 def categorize_dataset(
     df,
     method: str = "quantile",
@@ -234,9 +259,7 @@ def categorize_dataset(
         _is_polars = False
 
     if _is_polars:
-        def _is_pl_cat(dt):
-            """True if a polars dtype should be treated as categorical (string/categorical/boolean/enum) rather than numeric for discretization purposes."""
-            return dt == pl.Utf8 or dt == pl.String or dt == pl.Categorical or dt == pl.Boolean or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum))
+        _is_pl_cat = _is_polars_categorical_dtype
 
         numerical_cols = [name for name, dt in df.schema.items() if not _is_pl_cat(dt)]
         categorical_cols_detected = [name for name, dt in df.schema.items() if _is_pl_cat(dt)]

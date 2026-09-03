@@ -139,6 +139,23 @@ def test_default_stratify_none_stays_none_for_regressor():
     assert stratify is None
 
 
+def test_resolve_stratify_uses_sklearn_default_test_size_when_none():
+    """Regression test for audit CORE_INFRA_MISC-8: when test_size is None, _resolve_stratify must
+    size the val fold at sklearn's train_test_split default (test_size=0.25 * n), not the full n.
+
+    Before the fix, n_val was set to n (the whole dataset) when test_size is None, overestimating the
+    real val fold size: n_val=n is >= classes.size for almost any y, so the classes.size gate never
+    fired and stratification was wrongly judged safe. With n=20 rows split across 6 classes (min count
+    2 each), the real 0.25*n=5 val rows is below classes.size=6 -- too few to guarantee 1-per-class --
+    so the fixed code must return None (skip stratification) here, while the buggy n_val=20 code would
+    wrongly return y.
+    """
+    y = np.array([0, 1, 2, 3, 4, 5] * 3 + [0, 1])  # n=20, 6 classes, min count 2
+    est = EstimatorWithEarlyStopping(base_estimator=LogisticRegression(), test_size=None, random_state=0)
+    stratify = est._resolve_stratify(y)
+    assert stratify is None
+
+
 def test_fit_preserves_dataframe_columns_and_sets_feature_names_in(caplog):
     """Regression test for audit F2: a bare check_array(X) silently discarded DataFrame columns / feature_names_in_.
 

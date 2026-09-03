@@ -93,6 +93,36 @@ def test_weak_segment_heatmap_ndarray_input(reg_clean):
     assert all(f in {"f0", "f1", "f2"} for f in res.split_features)
 
 
+def test_weak_segment_heatmap_excludes_nan_rows_from_worst_cell_localization():
+    """REPORTING_B-1: np.digitize sorts NaN after every finite edge, so rows with NaN in the split
+    feature(s) would silently land in the HIGHEST bin instead of being excluded. Inject a huge-error
+    spike ONLY in NaN rows of the split feature -- if the bug is present those rows corrupt the
+    highest bin's mean_err with a spurious spike; fixed code must exclude them entirely, so the
+    highest bin's error stays at the ambient noise level."""
+    rng = np.random.default_rng(7)
+    n = 4000
+    f0 = rng.uniform(0, 1, n)
+    f1 = rng.uniform(0, 1, n)
+    X = pd.DataFrame({"f0": f0, "f1": f1})
+    yt = f1.copy() * 2.0
+    yp = yt + rng.normal(0, 0.05, n)
+
+    nan_mask = np.zeros(n, dtype=bool)
+    nan_idx = rng.choice(n, size=200, replace=False)
+    nan_mask[nan_idx] = True
+    X.loc[nan_mask, "f0"] = np.nan
+    # Huge error spike attached ONLY to the NaN rows -- a NaN-lands-in-highest-bin bug would drag the
+    # top f0 bin's mean_err way up even though those rows carry no real f0 value.
+    yp = np.where(nan_mask, yp + 50.0, yp)
+
+    res = weak_segment_heatmap(X, yt, yp, task="regression", nbins=5)
+    assert np.isfinite(res.cell_error[np.isfinite(res.cell_error)]).any()
+    assert res.cell_count.sum() == n - nan_mask.sum(), "NaN rows in the split feature must be excluded from the binned counts"
+    # No cell should show the injected spike's magnitude; a genuine bucket's mean_err stays near the ambient noise.
+    finite_cells = res.cell_error[np.isfinite(res.cell_error)]
+    assert finite_cells.max() < 5.0, f"a cell absorbed the NaN-row error spike (max cell mean_err={finite_cells.max():.2f})"
+
+
 def test_biz_val_weak_segment_localizes_injected_bad_region():
     """A region f0>0.8 & f1<0.2 gets injected error spikes; the worst heatmap cell MUST localise there.
 
@@ -534,16 +564,17 @@ def test_target_dist_overlay_all_nan_split_is_surfaced_as_excluded():
         "test": np.full(500, np.nan),
     }
     fig = target_dist_overlay(y, task="regression")
-    assert "test" in fig.suptitle
-    assert "excluded" in fig.suptitle
+    # The verdict moved out of the suptitle and into the caption, where the rest of the figure's prose lives.
+    assert "test" in fig.caption
+    assert "excluded" in fig.caption
 
 
 def test_target_dist_overlay_no_usable_nontrain_split():
     """Target dist overlay no usable nontrain split."""
     y = {"train": np.random.default_rng(4).normal(0, 1, 500), "test": np.full(200, np.nan)}
     fig = target_dist_overlay(y, task="regression")
-    assert "excluded" in fig.suptitle
-    assert "cannot compare drift" in fig.suptitle
+    assert "excluded" in fig.caption
+    assert "cannot compare drift" in fig.caption
 
 
 def test_biz_val_target_dist_overlay_detects_train_test_shift():

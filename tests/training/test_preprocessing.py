@@ -179,6 +179,31 @@ class TestPreprocessing:
         assert not np.isinf(result.select_dtypes(include=["floating"]).to_numpy()).any()
         assert int(result.isna().sum().sum()) == 2
 
+    def test_preprocess_dataframe_normalises_string_dtype_to_object(self):
+        """A pandas StringDtype column must be normalised to plain object dtype, matching legacy
+        object-dtype string columns. mlframe's downstream cat-feature auto-detection / LGB-XGB
+        categorical conversion / model Pool building all gate on object-dtype (is_object_dtype /
+        dtype == object); a StringDtype column that survives preprocess_dataframe unconverted
+        silently skips those code paths and reaches the model as an un-declared, un-encoded
+        string column -- e.g. CatBoost's own error 'Cannot convert 'A' to float' when it tries to
+        treat an undetected string column as a numeric feature."""
+        n = 50
+        df = pd.DataFrame(
+            {
+                "num": np.arange(n, dtype=np.float64),
+                "group": pd.array(["A", "B"] * (n // 2), dtype="string"),
+            }
+        )
+        assert isinstance(df["group"].dtype, pd.StringDtype)
+
+        config = PreprocessingConfig(fillna_value=0.0)
+        result = preprocess_dataframe(df, config, verbose=0)
+
+        assert result["group"].dtype == object, f"StringDtype column was not normalised to object; got {result['group'].dtype}"
+        assert list(result["group"]) == list(df["group"])
+        # Caller's frame must stay unmutated (documented deep=False shallow-copy contract).
+        assert isinstance(df["group"].dtype, pd.StringDtype)
+
     def test_preprocess_polars_dataframe(self, sample_polars_data):
         """Test preprocessing with Polars DataFrame."""
         pl_df, _, _ = sample_polars_data

@@ -28,7 +28,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.conftest import skip_under_numba_disabled_jit
 
+
+@skip_under_numba_disabled_jit
 def test_numba_within_group_decorator_has_cache_true() -> None:
     """The kernel must be `@njit(cache=True)`. We can't inspect the
     decorator string at runtime, but numba dispatchers expose

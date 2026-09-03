@@ -93,8 +93,11 @@ def test_boruta_fit_does_not_mutate_caller_X_or_y():
 
     # column set + order preserved
     assert list(df.columns) == list(df_before.columns)
-    # original dtypes preserved (object / categorical NOT ordinal-encoded)
-    assert df["cat_obj"].dtype == object
+    # original dtypes preserved (string-ish / categorical NOT ordinal-encoded). Compared against
+    # df_before's own dtype rather than hardcoded `object`: pandas' opt-in future string dtype
+    # makes `pd.DataFrame({...: [str, ...]})` infer StringDtype instead of object on some
+    # versions/configs -- the real invariant is "unchanged by fit", not "must be object".
+    assert df["cat_obj"].dtype == df_before["cat_obj"].dtype
     assert isinstance(df["cat_pd"].dtype, pd.CategoricalDtype)
     pd.testing.assert_frame_equal(df, df_before)
     pd.testing.assert_series_equal(y, y_before)

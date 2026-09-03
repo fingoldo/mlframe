@@ -12,6 +12,7 @@ import copy
 import logging
 from typing import Any
 
+from mlframe._output_paths import ensure_parent_dir
 import numpy as np
 
 try:
@@ -82,8 +83,10 @@ def run_confidence_analysis(
     if verbose:
         logger.info("Running confidence analysis...")
 
-    if confidence_model_kwargs is None:
-        confidence_model_kwargs = {}
+    # Copy (not just default-to-{}) so the iterations/early_stopping_rounds injection below never
+    # mutates a caller-supplied dict in place -- a caller reusing one shared kwargs dict across calls
+    # would otherwise see it silently polluted after the first call.
+    confidence_model_kwargs = dict(confidence_model_kwargs) if confidence_model_kwargs is not None else {}
 
     # Bound the confidence model's
     # iteration budget so the CPU fallback can't spin indefinitely.
@@ -443,9 +446,13 @@ def run_confidence_analysis(
         if plot_file:
             import os as _os
             _root, _ext = _os.path.splitext(plot_file)
-            _path = plot_file if _ext else (plot_file + ".png")
+            # Resolved through the shared layout so this chart joins the others in png/ instead of sitting
+            # loose beside it.
+            from mlframe.reporting.renderers.save import resolve_output_path
+
+            _path = plot_file if _ext else resolve_output_path(plot_file, "matplotlib", "png", multi_output=False)
             try:
-                fig.savefig(_path, bbox_inches="tight")
+                fig.savefig(ensure_parent_dir(_path), bbox_inches="tight")
             except Exception as _save_err:
                 logger.warning("Confidence beeswarm savefig failed for %s: %s", _path, _save_err)
         # Guard plt.show() against the non-interactive Agg backend (CI / pytest / headless scripts

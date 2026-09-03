@@ -48,14 +48,21 @@ logger = logging.getLogger(__name__)
 def _performer_features(X: np.ndarray, W: np.ndarray) -> np.ndarray:
     """Performer positive RFF: φ(x) = exp(W^T x − ||x||²/2).
 
-    Returns (n_rows, M) feature matrix. Numerically stable via shifting (subtract row max).
+    Returns (n_rows, M) feature matrix. Numerically stable via shifting by a single GLOBAL scalar (NOT a
+    per-row shift): the key/training-side features this feeds are later SUMMED ACROSS ROWS into
+    ``A = phi_k.T @ y_t`` and ``B = phi_k.sum(axis=0)``, so a per-row shift would multiply each row's
+    contribution to that sum by an arbitrary, row-specific, target-unrelated factor -- silently corrupting
+    the kernel-weighted aggregate for every query. A single shared scalar shift factors out of A/B
+    uniformly and cancels exactly in the final ``numer/denom`` ratio; it is also provably harmless on the
+    query side (a global constant is a special case of the per-row constant that already cancels in each
+    query row's own ratio).
     """
     # ||x||² per row.
     x_norm_sq = (X**2).sum(axis=1, keepdims=True)  # (n, 1)
     proj = X @ W  # (n, M)
     log_phi = proj - 0.5 * x_norm_sq  # (n, M)
-    # Stabilize: subtract row max before exp.
-    log_phi -= log_phi.max(axis=1, keepdims=True)
+    # Stabilize with a single GLOBAL scalar -- NOT log_phi.max(axis=1): see docstring.
+    log_phi -= log_phi.max()
     return np.asarray(np.exp(log_phi).astype(np.float32))
 
 

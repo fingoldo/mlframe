@@ -99,7 +99,7 @@ def _resolve_entity_ids(X: Any, entity_column: Optional[str], entity_id: Optiona
     raise ValueError("CompositePanelEstimator: supply the entity id either via entity_column (a column " "in X) or via the entity_id= argument to fit/predict.")
 
 
-class CompositePanelEstimator(BaseEstimator, RegressorMixin):
+class CompositePanelEstimator(RegressorMixin, BaseEstimator):
     """Panel composite: demean the per-entity fixed effect, model within-entity dynamics.
 
     Parameters
@@ -150,26 +150,22 @@ class CompositePanelEstimator(BaseEstimator, RegressorMixin):
         alpha = float(self.shrinkage_alpha)
         if alpha < 0:
             raise ValueError(f"CompositePanelEstimator: shrinkage_alpha must be >= 0; got {alpha}.")
-        global_mean = float(y.mean())
-        # Group sums + counts via a single argsort-free dict reduction (entity counts are
-        # typically << n, so a Python dict reduction is cheaper than building a full index).
-        sums: dict = {}
-        counts: dict = {}
-        for e, val in zip(ids.tolist(), y.tolist()):
-            if e in sums:
-                sums[e] += val
-                counts[e] += 1
-            else:
-                sums[e] = val
-                counts[e] = 1
-        offsets: dict = {}
-        for e, c in counts.items():
-            mean_e = sums[e] / c
-            w = c / (c + alpha) if (c + alpha) > 0 else 0.0
-            offsets[e] = w * mean_e + (1.0 - w) * global_mean
+        y_arr = np.asarray(y, dtype=np.float64)
+        global_mean = float(y_arr.mean())
+        # Genuine vectorised groupby: np.unique(return_inverse=True) assigns each row a compact integer
+        # group code in one pass, then np.bincount reduces sums/counts per code -- a plain Python
+        # for-loop with dict accumulation (the prior form) is materially slower on the million-row panel
+        # data this estimator targets, regardless of entity cardinality.
+        uniq, codes = np.unique(np.asarray(ids), return_inverse=True)
+        n_groups = uniq.shape[0]
+        sums_arr = np.bincount(codes, weights=y_arr, minlength=n_groups)
+        counts_arr = np.bincount(codes, minlength=n_groups)
+        w = np.where((counts_arr + alpha) > 0, counts_arr / (counts_arr + alpha), 0.0)
+        means_arr = sums_arr / counts_arr
+        offsets_arr = w * means_arr + (1.0 - w) * global_mean
         self.global_mean_ = global_mean
-        self.entity_offsets_ = offsets
-        self.entity_counts_ = counts
+        self.entity_offsets_ = dict(zip(uniq.tolist(), offsets_arr.tolist()))
+        self.entity_counts_ = dict(zip(uniq.tolist(), counts_arr.tolist()))
 
     def _lookup_offsets(self, ids: np.ndarray) -> np.ndarray:
         """Per-row offset: stored entity offset, global-mean fallback for unseen entities."""

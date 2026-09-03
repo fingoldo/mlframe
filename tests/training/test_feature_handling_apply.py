@@ -310,6 +310,42 @@ class TestTargetEncoderIntegration:
                 # train_target=None  - missing
             )
 
+    def test_sample_weight_none_matches_omitting_the_kwarg(self, synthetic_train_df, synthetic_target):
+        """TRAINING_FEATURE_HANDLING_TARGETS-2: sample_weight=None is bit-identical to omitting it."""
+        fhc = FeatureHandlingConfig(
+            default_cat=[CatHandlerSpec(method="target_mean", params=TargetEncodeParams(kind="target_mean", smoothing=10.0, cv=3))],
+            default_text=[],
+        )
+        omitted = feature_handling_apply(
+            train_df=synthetic_train_df, fhc=fhc, model_kind="xgb", train_target=synthetic_target, candidate_cat_columns=["country"],
+        )
+        explicit_none = feature_handling_apply(
+            train_df=synthetic_train_df, fhc=fhc, model_kind="xgb", train_target=synthetic_target,
+            candidate_cat_columns=["country"], sample_weight=None,
+        )
+        np.testing.assert_array_equal(omitted.train.dense_block, explicit_none.train.dense_block)
+
+    def test_sample_weight_actually_changes_target_encoder_output(self, synthetic_train_df, synthetic_target):
+        """TRAINING_FEATURE_HANDLING_TARGETS-2: a real sample_weight vector must change the OOF target-mean
+        encoding vs the unweighted fit -- proves the weight is actually reaching LeakageSafeEncoder."""
+        fhc = FeatureHandlingConfig(
+            default_cat=[CatHandlerSpec(method="target_mean", params=TargetEncodeParams(kind="target_mean", smoothing=10.0, cv=3))],
+            default_text=[],
+        )
+        rng = np.random.RandomState(2)
+        weights = rng.uniform(0.1, 5.0, size=len(synthetic_target)).astype(np.float64)
+
+        unweighted = feature_handling_apply(
+            train_df=synthetic_train_df, fhc=fhc, model_kind="xgb", train_target=synthetic_target, candidate_cat_columns=["country"],
+        )
+        weighted = feature_handling_apply(
+            train_df=synthetic_train_df, fhc=fhc, model_kind="xgb", train_target=synthetic_target,
+            candidate_cat_columns=["country"], sample_weight=weights,
+        )
+        assert not np.allclose(
+            unweighted.train.dense_block, weighted.train.dense_block
+        ), "a real sample_weight vector should change the OOF target-mean encoding vs the unweighted fit"
+
 
 # =====================================================================
 # 6. Text auto-detection integration

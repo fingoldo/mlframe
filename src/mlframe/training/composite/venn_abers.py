@@ -44,8 +44,22 @@ Design choices mirror the rest of the package:
 """
 from __future__ import annotations
 
+import logging
+
 import numba
 import numpy as np
+
+logger = logging.getLogger(__name__)
+
+# _ivap_saddle_njit is O(g^2) in the number of unique calibration scores (see its own
+# docstring: an explicit outer max-over-lo rescan, no separability shortcut). g^2 stays
+# cheap well past a few thousand unique scores; beyond that it starts costing real seconds,
+# and a caller calibrating on a large, mostly-continuous-score split (g approaching n_cal)
+# can hit tens of billions of inner-loop iterations with no warning at all. WARN early so
+# a slow call is diagnosable; HARD_CAP refuses rather than let a call run for minutes to
+# hours -- the caller should subsample the calibration set or round/bin the scores first.
+_VENN_ABERS_G_WARN = 3_000
+_VENN_ABERS_G_HARD_CAP = 20_000
 
 
 def _isotonic_envelopes(s_sorted: np.ndarray, y_sorted: np.ndarray):
@@ -62,6 +76,19 @@ def _isotonic_envelopes(s_sorted: np.ndarray, y_sorted: np.ndarray):
     """
     grid, inverse = np.unique(s_sorted, return_inverse=True)
     g = grid.shape[0]
+    if g > _VENN_ABERS_G_HARD_CAP:
+        raise ValueError(
+            f"calibrate_venn_abers: {g} unique calibration scores exceeds the O(g^2) IVAP envelope "
+            f"computation's hard cap ({_VENN_ABERS_G_HARD_CAP}); this would run for minutes to hours. "
+            "Subsample the calibration set or round/bin the scores to reduce the number of unique values."
+        )
+    if g > _VENN_ABERS_G_WARN:
+        logger.warning(
+            "calibrate_venn_abers: %d unique calibration scores -- the IVAP envelope computation is "
+            "O(g^2) in this count and will take real time; consider subsampling the calibration set or "
+            "rounding scores to reduce cardinality if this is too slow.",
+            g,
+        )
     # Aggregate onto the unique-score grid: per grid point the sample count and label
     # sum. sklearn's IsotonicRegression averages tied-x labels, so the augmented fit
     # depends only on these (count, sum) weights, not the individual tied samples.

@@ -120,8 +120,17 @@ _LINEAR_RECOVERY = [
     # nondeterminism at this n -- see other MRMR column-order-sensitivity notes), span
     # 0.966. Floor set well below the WORST observed run, not just the best.
     pytest.param("bilinear", "uniform", 0.75, 0.80, False, id="linear-bilinear-uniform"),
-    # poly normal n=8000 (reduced from 40000): re-measured R2 0.989, span 1.008.
-    pytest.param("poly", "normal", 0.85, 0.80, False, id="linear-poly-normal"),
+    # poly normal n=8000 (reduced from 40000): re-measured R2 0.989, span 1.008, BIT-IDENTICAL
+    # across 5 repeated local seed=0 runs (unlike bilinear/trig_product above, no genuine
+    # MRMR run-to-run nondeterminism reproduced for this case) -- so the one observed CI
+    # failure (test-R2 0.7497, well below the 0.989 local value) is not explained by the same
+    # documented variance and the floor is NOT lowered on that single, unreproduced data
+    # point. A concurrent-background-load repro DID crash the fit subprocess once (matching
+    # the repo's shared-CI-runner contention class already fixed elsewhere this session, e.g.
+    # test_batch_parallel_faster_than_serial_loop's core-count-gated floor) -- flaky-marked
+    # instead of floor-padded: a genuine magnitude-quantization regression (this file's whole
+    # purpose) reproduces near R2~0.002 on every attempt and still fails after a rerun.
+    pytest.param("poly", "normal", 0.85, 0.80, False, id="linear-poly-normal", marks=pytest.mark.flaky(reruns=1, reruns_delay=2, only_rerun=["AssertionError"])),
     # trig_product uniform n=8000 (reduced from 40000): measured R2 0.808-0.947 across
     # repeated seed=0 runs (same MRMR run-to-run nondeterminism as bilinear above), span
     # 0.915. Floor set well below the WORST observed run.

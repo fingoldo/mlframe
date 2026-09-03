@@ -356,7 +356,20 @@ class RecurrentTorchModel(L.LightningModule):
             batch_first=True,
             enforce_sorted=False,
         )
-        packed_out, _ = self.rnn(packed)
+        try:
+            packed_out, _ = self.rnn(packed)
+        except RuntimeError as e:
+            # Some CPU torch/oneDNN builds fail to create an LSTM/GRU forward primitive on certain
+            # host CPUs (observed: torch 2.13.0+cpu, "could not create a primitive descriptor for
+            # the LSTM forward propagation primitive") -- an oneDNN kernel-selection bug, not an
+            # mlframe input/shape issue. Retry once with MKLDNN disabled for just this call; MKLDNN
+            # stays enabled globally (and for every other op) since this failure is RNN/oneDNN-kernel
+            # specific, not a general CPU incompatibility.
+            if "primitive descriptor" not in str(e):
+                raise
+            logger.warning("RecurrentTorchModel: RNN forward failed under MKLDNN (%s) -- retrying with MKLDNN disabled for this call", e)
+            with torch.backends.mkldnn.flags(enabled=False):
+                packed_out, _ = self.rnn(packed)
         rnn_out, _ = pad_packed_sequence(packed_out, batch_first=True)
 
         # Downstream attention/last-hidden expect lengths >= 1 (last_idx = lengths - 1 must be >=0).

@@ -93,7 +93,13 @@ def split_into_train_test(
         if features_indices is None:
             X_train = X_estimator[tr_arr, :]
             X_test = X_estimator[te_arr, :]
-        elif col_pos is not None and not isinstance(features_indices[0], (int, np.integer)):
+        elif not isinstance(features_indices[0], (int, np.integer)):
+            if col_pos is None:
+                raise ValueError(
+                    "split_into_train_test: X_estimator was supplied with string features_indices but col_pos=None "
+                    "-- col_pos (name->integer column position) is required to resolve names into X_estimator's "
+                    "numpy column positions."
+                )
             pos = np.fromiter((col_pos[f] for f in features_indices), dtype=np.intp, count=len(features_indices))
             X_train = X_estimator[np.ix_(tr_arr, pos)]
             X_test = X_estimator[np.ix_(te_arr, pos)]
@@ -442,7 +448,7 @@ def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict, n_total: i
     return int(min(remaining, key=lambda n: abs(n - target)))
 
 
-def _suggest_scipy_local(remaining: list, evaluated_scores_mean: dict, n_total: int, epsilon: float = 0.0, rng: Any = None) -> Union[int, None]:
+def _suggest_scipy_local(remaining: list, evaluated_scores_mean: dict, n_total: int, epsilon: float = 0.0, rng: Any = None, step=None) -> Union[int, None]:
     """S5: retained as a thin alias for ExhaustiveDichotomic.
 
     The previous implementation built a piecewise-linear interpolant over evaluated points and ran scipy's ``minimize_scalar`` on it.
@@ -451,7 +457,10 @@ def _suggest_scipy_local(remaining: list, evaluated_scores_mean: dict, n_total: 
     scipy import + roundtrip. We now delegate to dichotomic with optional epsilon kick; users keep the OptimumSearch.ScipyLocal enum
     value to avoid silent API breakage in pickled configs.
     """
-    return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total, epsilon=epsilon, rng=rng)
+    # `step` FORWARDED. Without it `dichotomic_step` was silently ignored under OptimumSearch.ScipyLocal /
+    # ScipyGlobal and the adaptive "auto" schedule always ran -- so a caller who set the shipped default
+    # "midpoint" got a different search than the one they configured, with nothing to indicate it.
+    return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total, epsilon=epsilon, rng=rng, step=step)
 
 
 # S5: retained as a thin alias for ExhaustiveDichotomic. Same reasoning as _suggest_scipy_local:

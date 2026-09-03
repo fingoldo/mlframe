@@ -647,7 +647,11 @@ def _eval_one_transform_impl(
                     )
                 boot_gains[b] = float("nan")
         boot_finite = boot_gains[np.isfinite(boot_gains)]
-        if boot_finite.size >= bootstrap_n // 2:
+        # `boot_finite.size >= bootstrap_n // 2` is trivially true (0 >= 0) whenever
+        # bootstrap_n <= 1 and that lone replicate failed -- np.percentile on an empty
+        # array raises an uncaught IndexError, crashing the whole fit() call instead of
+        # leaving mi_gain_lcb at its no-CI default. Require a non-empty array explicitly.
+        if boot_finite.size > 0 and boot_finite.size >= bootstrap_n // 2:
             mi_gain_lcb = float(np.percentile(boot_finite, 2.5))
         # One-sided bootstrap p-value for H0 ``mi_gain <= 0`` from the same
         # replicates, fed to the family-wise FDR correction in ``_fit.py``. Use

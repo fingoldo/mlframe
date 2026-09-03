@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 
 _CACHE_SINGLETON: Optional[object] = None  # KernelTuningCache | False sentinel
 _LOAD_LOCK = threading.Lock()
+# Unexpected init failures are retried a bounded number of times rather than latched on the first one: the
+# realistic causes (a concurrently-rewritten tuning file, a Windows file lock, a transient nvidia-smi fault) are
+# all momentary, and latching costs the whole process its per-host measured thresholds.
+_MAX_INIT_ATTEMPTS = 3
+_INIT_ATTEMPTS = 0
 
 # Path to the repo-committed, anonymized DEFAULT tunings JSON (produced by
 # ``mlframe.feature_selection._benchmarks.gen_default_tuning``). It ships inside
@@ -50,19 +55,33 @@ def _register_default_tuning_cache() -> None:
     with _DEFAULTS_LOCK:
         if _DEFAULTS_REGISTERED:
             return
-        _DEFAULTS_REGISTERED = True  # never re-attempt, even on failure
         if not os.path.isfile(_DEFAULT_TUNING_JSON):
+            _DEFAULTS_REGISTERED = True
             logger.debug("no default kernel-tuning JSON at %s; using hand fallbacks", _DEFAULT_TUNING_JSON)
             return
         try:
             from pyutilz.performance.kernel_tuning.cache import register_default_cache
         except ImportError:
+            _DEFAULTS_REGISTERED = True  # genuinely absent, and it will not appear later in this process
             logger.debug("pyutilz.performance.kernel_tuning unavailable; skipping default-cache registration")
             return
         try:
             register_default_cache(_DEFAULT_TUNING_JSON)
         except Exception as _exc:  # never let a defaults problem break import
-            logger.debug("register_default_cache(%s) failed (%s: %s)", _DEFAULT_TUNING_JSON, type(_exc).__name__, _exc)
+            # The flag is NOT set here, so a later caller re-attempts. It used to be set before the try, commented
+            # "never re-attempt, even on failure" -- but the failures this catches are transient (the 17KB JSON
+            # being rewritten by a concurrent sweep, a Windows PermissionError), and refusing to retry meant every
+            # KTC lookup for the rest of the process missed the shipped measurement-derived defaults and fell
+            # through to hand heuristics: the exact regression this file exists to prevent, at debug level.
+            logger.warning(
+                "register_default_cache(%s) failed (%s: %s); the shipped per-hardware kernel-tuning defaults are "
+                "NOT registered and dispatch will use hand heuristics until a later call succeeds.",
+                _DEFAULT_TUNING_JSON,
+                type(_exc).__name__,
+                _exc,
+            )
+        else:
+            _DEFAULTS_REGISTERED = True
 
 
 def get_kernel_tuning_cache() -> Optional[Any]:
@@ -91,20 +110,37 @@ def get_kernel_tuning_cache() -> Optional[Any]:
                 _CACHE_SINGLETON = False
                 return None
             except Exception as _exc:
-                logger.debug(
-                    "KernelTuningCache init failed (%s: %s); using fallbacks",
-                    type(_exc).__name__, _exc,
-                )
-                _CACHE_SINGLETON = False
+                # NOT latched off, and NOT quiet. `ImportError` above is the one genuine "unavailable" case, so
+                # anything reaching here is unexpected: a corrupt or concurrently-rewritten tuning file, a
+                # Windows file lock from another mlframe process, or a transient fault in the nvidia-smi
+                # subprocess this constructor spawns. Latching on any of those pinned every kernel-tuning
+                # lookup in the package -- 268 dispatch sites -- to hardcoded defaults for the rest of the
+                # process, at `debug` level, so a run silently lost its per-host measured thresholds with
+                # nothing to explain it. Same failure shape as the documented `_select_mi_backend` regression.
+                global _INIT_ATTEMPTS
+                _INIT_ATTEMPTS += 1
+                if _INIT_ATTEMPTS >= _MAX_INIT_ATTEMPTS:
+                    logger.warning(
+                        "KernelTuningCache init failed %d times (%s: %s); giving up for this process and using "
+                        "hand-tuned fallbacks. Per-host measured kernel thresholds are NOT in effect.",
+                        _INIT_ATTEMPTS, type(_exc).__name__, _exc,
+                    )
+                    _CACHE_SINGLETON = False
+                else:
+                    logger.warning(
+                        "KernelTuningCache init failed (%s: %s); will retry on the next lookup (attempt %d of %d).",
+                        type(_exc).__name__, _exc, _INIT_ATTEMPTS, _MAX_INIT_ATTEMPTS,
+                    )
                 return None
         return _CACHE_SINGLETON
 
 
 def _reset_for_tests() -> None:
     """Test-only: clear the singleton so tests with mocked pyutilz can reset state."""
-    global _CACHE_SINGLETON, _DEFAULTS_REGISTERED
+    global _CACHE_SINGLETON, _DEFAULTS_REGISTERED, _INIT_ATTEMPTS
     with _LOAD_LOCK:
         _CACHE_SINGLETON = None
+        _INIT_ATTEMPTS = 0  # otherwise a test that exercised the retry path leaves the next one pre-exhausted
     with _DEFAULTS_LOCK:
         _DEFAULTS_REGISTERED = False
 

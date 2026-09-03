@@ -325,10 +325,14 @@ def near_collinear_keep_mask_fast(
     # mask; return a copy so the caller can mutate freely without corrupting the entry.
     _ck = _keep_mask_cache_key(fm, thr)
     if _ck is not None:
-        _hit = _KEEP_MASK_CACHE.get(_ck)
-        if _hit is not None:
-            _KEEP_MASK_CACHE.move_to_end(_ck)
-            return np.asarray(_hit.copy())
+        # Same lock the write/evict path (popitem + __setitem__) uses below: an OrderedDict's
+        # move_to_end() mutates its internal linked list, so reading it unlocked while another
+        # thread's fit() call is mid-write/evict risks a KeyError or a corrupted LRU order.
+        with _KEEP_MASK_CACHE_LOCK:
+            _hit = _KEEP_MASK_CACHE.get(_ck)
+            if _hit is not None:
+                _KEEP_MASK_CACHE.move_to_end(_ck)
+                return np.asarray(_hit.copy())
     finite = np.isfinite(fm)
     # All-finite fast path (the common case after the leakage filter): precompute
     # per-column mean+ssq once, then each kept pair costs ONE cross-term pass over

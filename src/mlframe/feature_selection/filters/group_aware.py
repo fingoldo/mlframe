@@ -269,7 +269,7 @@ def _cluster_medoids(
 
 # TransformerMixin (not SelectorMixin): the wrapped mRMR estimator's transform can add engineered features,
 # so it is not a pure mask-based selector and SelectorMixin's mask-only contract would be wrong here.
-class GroupAwareMRMR(BaseEstimator, TransformerMixin):
+class GroupAwareMRMR(TransformerMixin, BaseEstimator):
     """Wraps an mRMR-family estimator with correlation pre-clustering.
 
     .fit fits the inner estimator on cluster medoids; .transform / .support_ expand to all cluster members of any selected medoid.

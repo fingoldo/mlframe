@@ -9,6 +9,9 @@ e.g. ``info_theory/_cmi_cuda.py``, ``permutation.py``'s ``mi_direct``, ``_permut
 
 from __future__ import annotations
 
+import sys
+import types
+
 import numpy as np
 import pytest
 
@@ -23,11 +26,32 @@ def _reset_breaker():
     reset_ksg_gpu_circuit_breaker()
 
 
+def _stub_cupy_importable(monkeypatch):
+    """``ksg_mi_dispatch`` gates its GPU branch on a bare ``import cupy`` succeeding before ever calling
+    ``mixed_ksg_mi_gpu`` -- a test that wants to reach the mocked ``mixed_ksg_mi_gpu`` (not just the
+    "cupy absent" ImportError branch) must not depend on the REAL cupy package being importable on the
+    host running the test. On CI's main lane cupy is never installed (the ``[all,dev]`` extras used there
+    do not pull in the optional ``gpu`` extra), so a real ``import cupy`` deterministically raises
+    ImportError there -- silently short-circuiting straight to the "cupy absent" branch and never reaching
+    ``mixed_ksg_mi_gpu`` at all, which reads as passing (both branches fall back to CPU) but actually never
+    exercises the circuit-breaker logic this test exists to pin. On a dev host with cupy genuinely
+    installed, ``import cupy`` can also fail unpredictably if an EARLIER test in the same pytest process
+    triggered a real (hidden-device) CUDA fault that left cupy's own import machinery poisoned
+    (``sys.modules['cupy']`` left in a broken half-initialized state - the same class of cross-test cupy
+    poisoning documented in the GPU-remaining CI triage, reproduced live by pairing this file with
+    ``test_discretize_2d_array_vram_guard.py``). Injecting a minimal stub module under the name ``cupy``
+    makes the dispatcher's own ``import cupy`` line succeed unconditionally, so this test is isolated from
+    both failure modes and always reaches the mocked ``mixed_ksg_mi_gpu``."""
+    fake_cupy = types.ModuleType("cupy")
+    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+
+
 def test_gpu_runtime_fault_falls_back_to_cpu_not_raises(monkeypatch):
     """A non-ImportError exception from the GPU path (e.g. a CUDA OOM) must be caught and the call must
     fall back to CPU mixed_ksg_mi -- pre-fix this propagated out of ksg_mi_dispatch uncaught."""
     import mlframe.feature_selection.filters._ksg as ksg_mod
 
+    _stub_cupy_importable(monkeypatch)
     monkeypatch.setattr(ksg_mod, "_KSG_GPU_THRESHOLD", 10)  # force the >= threshold branch on a small fixture
 
     def _boom(*args, **kwargs):
@@ -50,6 +74,7 @@ def test_gpu_fault_trips_breaker_so_next_call_skips_gpu_path(monkeypatch):
     attempt the GPU path (pre-fix: no breaker existed, so every call re-attempted the doomed launch)."""
     import mlframe.feature_selection.filters._ksg as ksg_mod
 
+    _stub_cupy_importable(monkeypatch)
     monkeypatch.setattr(ksg_mod, "_KSG_GPU_THRESHOLD", 10)
 
     call_count = {"n": 0}
@@ -79,6 +104,7 @@ def test_import_error_does_not_trip_breaker(monkeypatch):
     breaker (which is reserved for real runtime faults) and must still fall back to CPU cleanly."""
     import mlframe.feature_selection.filters._ksg as ksg_mod
 
+    _stub_cupy_importable(monkeypatch)
     monkeypatch.setattr(ksg_mod, "_KSG_GPU_THRESHOLD", 10)
 
     def _no_cupy(*args, **kwargs):

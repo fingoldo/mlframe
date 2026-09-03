@@ -124,10 +124,28 @@ def nearest_past_join(
 
     tiers: List[List[str]] = [by_list] + [list(tier) if tier else [] for tier in fallback_by_chain]
 
+    # A fallback tier's key columns must not overlap right_value_cols (resolved once, from by, above) --
+    # a tier introducing a key column that's also a value column would build a duplicate-column frame in
+    # _nearest_past_join_single_tier and raise a confusing pandas error deep in the tier loop instead of
+    # a clear one here.
+    value_cols_set = set(right_value_cols)
+    for tier_idx, tier_by_list in enumerate(tiers):
+        overlap = value_cols_set.intersection(tier_by_list)
+        if overlap:
+            raise ValueError(
+                f"nearest_past_join: fallback tier {tier_idx} 'by' columns {sorted(overlap)} overlap "
+                f"right_value_cols; a key column cannot also be a value column."
+            )
+
     out = left_df.reset_index(drop=True).copy()
     attached_names = [f"{col}{suffix}" if col in out.columns else col for col in right_value_cols]
-    for new_name in attached_names:
-        out[new_name] = pd.NA
+    for new_name, src_col in zip(attached_names, right_value_cols):
+        # NaN in a numeric column, not `pd.NA` in an object one. Seeding with pd.NA gave every attached column
+        # object dtype holding a mix of pd.NA and Python floats, so `np.isnan` raised, `.to_numpy(np.float64)`
+        # and polars conversion either raised or silently coerced, and the dtype changed purely by enabling the
+        # fallback chain -- the single-tier `merge_asof` path returns proper float columns for the same inputs.
+        src_dtype = right_df[src_col].dtype
+        out[new_name] = pd.Series(np.nan, index=out.index, dtype=src_dtype if pd.api.types.is_float_dtype(src_dtype) else np.float64)
     matched_tier = pd.Series(-1, index=out.index, dtype="int64")
     # Per-(row, column) outstanding mask -- a row must keep retrying at coarser tiers for whichever of its
     # OWN attached columns are still null, not get dropped from retry entirely the moment ANY ONE column

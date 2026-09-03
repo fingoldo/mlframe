@@ -12,6 +12,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import pytest
 import time
 
 import numpy as np
@@ -177,6 +178,7 @@ def test_compute_y_binning_low_cardinality_integer_y_exact_label_encode_unchange
     assert np.array_equal(yb, np.searchsorted(uniq_y, y))
 
 
+@pytest.mark.hang_guard
 def test_mah_bin_edges_high_cardinality_integer_target_completes_quickly():
     """Regression test for the actual hang: pre-fix, ``mah_bin_edges`` on a continuous-like int64
     target (thousands of distinct values) hung past a 40s timeout in a separate-process empirical

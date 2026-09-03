@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_K_GRID: tuple[float, ...] = (1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0)
 
 
-class CountWeightedBlendEnsemble(BaseEstimator, RegressorMixin):
+class CountWeightedBlendEnsemble(RegressorMixin, BaseEstimator):
     """Blend ``entity_estimator`` (fit on all columns, e.g. an entity-embedding-aware model) and
     ``global_estimator`` (fit on metadata columns only) with weight ``count / (count + k)``.
 

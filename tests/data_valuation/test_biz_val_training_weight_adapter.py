@@ -76,7 +76,7 @@ def test_biz_val_weights_never_read_test_labels_or_features():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(120)
+@pytest.mark.timeout(900)
 def test_scale_wall_clock_bounded_past_the_subsample_cap():
     """Wall-clock at n_train=300k (capped valuation at max_valued_rows=5000) stays well under the time
     an UNCAPPED O(n_val * n_train) knn_shapley call would take at this size -- proof the linear

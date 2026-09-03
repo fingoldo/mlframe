@@ -15,7 +15,20 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-pytest.importorskip("cupy")
+cp = pytest.importorskip("cupy")
+
+
+def _gpu_available() -> bool:
+    """Gpu available."""
+    try:
+        return cp.cuda.runtime.getDeviceCount() >= 1
+    except Exception:  # pragma: no cover - no driver / no GPU
+        return False
+
+
+if not _gpu_available():  # pragma: no cover - guarded at collection time
+    pytest.skip("No CUDA device available", allow_module_level=True)
+
 import mlframe.feature_selection.filters.hermite_fe  # noqa: F401  (resolve import cycle first)
 
 from mlframe.feature_selection.filters._fe_resident_operands import clear_fe_resident_operands

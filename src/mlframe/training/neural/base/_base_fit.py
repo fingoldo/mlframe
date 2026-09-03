@@ -96,7 +96,7 @@ class _FitMixin(_FitPrepMixin):
 
         # Factorize raw categorical columns to integer codes (reordered leading) BEFORE validation, so the learnable ``CategoricalEmbedding``
         # can index them and ``_validate_no_nan_inf`` sees a pure-numeric frame. No-op when no ``cat_features`` are named or the knob is off.
-        X, eval_set = self._factorize_cats_fit(X, eval_set, fit_params)
+        X, eval_set = self._factorize_cats_fit(X, eval_set, fit_params, is_partial_fit=is_partial_fit)
 
         # F-06 (2026-05-30): sklearn-canonical reproducibility seed. When
         # ``random_state`` is an int, seed torch + numpy + Python random +
@@ -847,7 +847,16 @@ class _FitMixin(_FitPrepMixin):
 
         from ._cuda_fallback import run_with_cuda_cpu_fallback
 
-        _fit_accelerator = str(trainer_params.get("accelerator", "auto"))
+        # Use the ORIGINALLY-REQUESTED accelerator (``_requested``, captured above BEFORE the
+        # ``safe_accelerator`` downgrade), not ``trainer_params["accelerator"]`` (already overwritten
+        # with the resolved value at "trainer_params["accelerator"] = _resolved" above). On a host
+        # where the CUDA probe legitimately failed, ``_resolved`` is "cpu" -- reading THAT here made
+        # ``is_cuda_runtime_error`` see accelerator="cpu" and refuse to recognize a CUDA-fingerprinted
+        # failure as fallback-worthy, so it re-raised instead of retrying: exactly on the broken/absent-
+        # CUDA hosts this fallback exists to protect. ``_requested`` still reflects what the caller
+        # actually asked for (e.g. a test simulating a CUDA failure via ``trainer_params={"accelerator":
+        # "cuda"}"``), which is what the gate is meant to test against.
+        _fit_accelerator = str(_requested)
         # suppress_lightning_workers_warning() was defined + documented as "wrap the trainer.fit()/
         # predict() invocations" but never actually called anywhere.
         with suppress_lightning_workers_warning():
@@ -898,7 +907,7 @@ class _FitMixin(_FitPrepMixin):
         # WITHOUT dropping the datamodule shell itself. The full
         # train+val feature / label / sample_weight tensors were the
         # actual save() bloat (1788 MB on disk for a 4M x 323 float32
-        # frame, 2026-05-27 TVT regression log) -- the shell (~few KB
+        # frame, per a TVT regression log) -- the shell (~few KB
         # of config + class refs) is fine to pickle. Keeping the shell
         # lets predict() reuse the configured pre-pipeline /
         # batch_size / dataloader_params without rebuilding the

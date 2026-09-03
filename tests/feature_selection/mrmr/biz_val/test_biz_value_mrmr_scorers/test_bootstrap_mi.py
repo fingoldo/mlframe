@@ -548,12 +548,16 @@ class TestSortedGatherGate:
         assert _all_columns_distinct(disc) is False
         assert _all_columns_distinct(mixed) is False, "one discrete column must disqualify the whole matrix (the gather shares a single idx across all columns)"
 
-    def test_sorted_gather_bit_identical_on_continuous(self):
+    def test_sorted_gather_bit_identical_on_continuous(self, monkeypatch):
         """The optimisation's safety invariant: on all-distinct columns the MI
         from a sorted resample equals the MI from the unsorted resample."""
         import os
 
-        os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+        # monkeypatch (not a bare os.environ.setdefault) so this auto-restores at test teardown --
+        # a raw setdefault here left CUDA_VISIBLE_DEVICES="" poisoned for the rest of the pytest
+        # worker's process, silently defeating unrelated GPU-availability tests sharing the worker.
+        if "CUDA_VISIBLE_DEVICES" not in os.environ:
+            monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             _mi_classif_batch,
         )
@@ -569,13 +573,15 @@ class TestSortedGatherGate:
             mi_unsorted, mi_sorted
         ), f"sorted-gather MI must be bit-identical on continuous columns; max|diff|={float(np.max(np.abs(mi_unsorted - mi_sorted)))}"
 
-    def test_sorted_gather_diverges_on_discrete(self):
+    def test_sorted_gather_diverges_on_discrete(self, monkeypatch):
         """Counterpart: on discrete/tied columns the sort is NOT bit-identical
         (this is WHY the gate exists). Guards against a future 'just always
         sort' regression slipping through unnoticed."""
         import os
 
-        os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+        # monkeypatch (not a bare os.environ.setdefault) -- see the sibling test above for why.
+        if "CUDA_VISIBLE_DEVICES" not in os.environ:
+            monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             _mi_classif_batch,
         )

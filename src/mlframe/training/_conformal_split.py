@@ -9,6 +9,12 @@ model never saw -- with a purge gap for temporal recurrences and whole-group ass
 
 Pure integer-index math (no frame copy); the splitter passes the carved indices to its
 format-native ``.iloc``/``.filter`` at the call site. Returns ``(train_fit, calib, conformal)``.
+
+NOT YET WIRED into production. The four public carvers here are imported only by
+``tests/training/conformal/test_conformal_split_carving.py``; the production split path is
+``splitting.make_train_test_split`` -> ``_split_helpers._carve_calib_from_train``, which carves a calib slice
+and no conformal slice. ``TrainingSplitConfig.conformal_size`` refuses a non-zero value for that reason -- see
+its comment in ``_preprocessing_configs.py``.
 """
 
 from __future__ import annotations
@@ -83,10 +89,14 @@ def carve_calib_conformal_temporal(
     _check_nonzero_floor(calib_frac, conformal_frac, n_calib, n_conf, n, "row")
     purge = max(0, int(purge))
     # Lay out from the most-recent end backwards: conformal | purge | calib | purge | fit.
+    # Each purge is charged only when the slice it separates is NON-EMPTY. `_resolve_counts` collapses a
+    # non-positive fraction to 0, so charging unconditionally discarded 2 * purge of the most recent train rows
+    # for boundaries that do not exist: `carve_calib_conformal_temporal(train_idx, 0.0, 0.0, purge=100)` returned
+    # a fit slice missing its 200 newest rows, with empty calib and conformal and no error.
     conf_start = n - n_conf
-    calib_stop = conf_start - purge
+    calib_stop = conf_start - (purge if n_conf else 0)
     calib_start = calib_stop - n_calib
-    fit_stop = calib_start - purge
+    fit_stop = calib_start - (purge if n_calib else 0)
     if fit_stop <= 0:
         raise ValueError(f"temporal carve leaves no train-fit rows: n={n}, calib={n_calib}, conformal={n_conf}, purge={purge}")
     conf = idx[conf_start:]

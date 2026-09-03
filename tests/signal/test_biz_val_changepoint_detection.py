@@ -79,6 +79,27 @@ def test_detect_regime_changepoints_unknown_backend_raises():
         pass
 
 
+def test_detect_regime_changepoints_min_segment_length_zero_raises():
+    """CORE_INFRA_MISC-10: min_segment_length=0 must raise a clear ValueError instead of reaching the njit
+    PELT kernel, where a zero-length-segment division silently produces inf/nan costs that corrupt breakpoints."""
+    y = np.arange(100, dtype=np.float64)
+    try:
+        detect_regime_changepoints(y, min_segment_length=0)
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
+
+
+def test_detect_regime_changepoints_min_segment_length_negative_raises():
+    """A negative min_segment_length must also raise, not just zero."""
+    y = np.arange(100, dtype=np.float64)
+    try:
+        detect_regime_changepoints(y, min_segment_length=-3)
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
+
+
 def test_detect_regime_changepoints_segment_stats_opt_in_default_unchanged():
     # regression: return_segment_stats defaults to False and must not alter any prior key, bit-identical.
     """Detect regime changepoints segment stats opt in default unchanged."""

@@ -37,6 +37,28 @@ def test_reconstruct_pseudo_group_ids_exact_duplicates_recovers_true_partition()
     assert adjusted_rand_score(true_entity_id, reconstructed) == 1.0
 
 
+def test_reconstruct_pseudo_group_ids_survives_hash_collision(monkeypatch):
+    """TRAINING_LOOSE_B-5: a hash collision between two genuinely DIFFERENT rows must not silently merge
+    them into one pseudo-group -- verify via the actual rounded feature values, not the hash alone."""
+    import mlframe.training._pseudo_group_reconstruction as mod
+
+    X = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [10.0, 20.0, 30.0]})
+
+    real_hash_pandas_object = pd.util.hash_pandas_object
+
+    def _colliding_hash(obj, index=False):
+        """Force rows 0 and 1 (genuinely distinct) to collide on the same hash bucket."""
+        out = real_hash_pandas_object(obj, index=index).to_numpy().copy()
+        if len(out) >= 2:
+            out[1] = out[0]
+        return pd.Series(out)
+
+    monkeypatch.setattr(mod.pd.util, "hash_pandas_object", _colliding_hash)
+    ids = reconstruct_pseudo_group_ids(X)
+    assert ids[0] != ids[1], f"rows 0 and 1 are genuinely distinct but were merged by a forced hash collision: {ids}"
+    assert len(set(ids.tolist())) == 3, f"expected 3 distinct pseudo-groups (all rows distinct), got {ids}"
+
+
 def test_reconstruct_pseudo_group_ids_unique_rows_get_singleton_groups():
     """Reconstruct pseudo group ids unique rows get singleton groups."""
     X = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [10.0, 20.0, 30.0]})

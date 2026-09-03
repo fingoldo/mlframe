@@ -79,6 +79,15 @@ def test_native_gpu_shap_available_false_for_non_xgboost_model():
     assert not native_gpu_shap_available(model)
 
 
+def test_native_gpu_shap_available_false_for_unfitted_xgboost_model():
+    """CORE_INFRA_MISC-2: an unfitted XGBClassifier's get_booster() raises sklearn's NotFittedError, not
+    AttributeError -- native_gpu_shap_available must still return False (never raise), per its docstring."""
+    from mlframe.inference.native_gpu_shap import native_gpu_shap_available
+
+    model = xgboost.XGBClassifier(n_estimators=10, device="cuda")
+    assert not native_gpu_shap_available(model)
+
+
 def test_native_xgboost_gpu_shap_contribs_returns_none_when_unavailable():
     """Native xgboost gpu shap contribs returns none when unavailable."""
     from mlframe.inference.native_gpu_shap import native_xgboost_gpu_shap_contribs
@@ -112,13 +121,24 @@ def test_native_gpu_shap_additivity_holds_on_gpu():
 
 
 def test_shap_explainer_additivity_holds_on_cpu():
-    """Same additivity property, CPU path (``shap.Explainer``), as the other half of the GPU-vs-CPU pin."""
+    """Same additivity property, CPU path, as the other half of the GPU-vs-CPU pin.
+
+    ``shap.TreeExplainer`` (not the auto-detecting ``shap.Explainer``): a raw XGBClassifier is not
+    directly callable, and the generic ``shap.Explainer(model)`` entry point's tree-model
+    auto-detection failed on at least one CI leg ("The passed model is not callable and cannot be
+    analyzed directly with the given masker!", not reproducible locally) -- apparently version-
+    sensitive across the shap/xgboost combinations the CI matrix resolves. ``TreeExplainer`` is the
+    explicit, version-stable entry point for exactly this model class and needs no masker/auto-detect
+    step at all."""
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import _maybe_patch_shap_xgb_base_score
+
     X, y = _make_data(n=5000, f=15, seed=5)
     model = xgboost.XGBClassifier(n_estimators=120, max_depth=5, device="cpu", tree_method="hist")
     model.fit(X, y)
 
-    explainer = shap.Explainer(model)
-    cpu_shap = explainer(X)
+    with _maybe_patch_shap_xgb_base_score():
+        explainer = shap.TreeExplainer(model)
+        cpu_shap = explainer(X)
     margin = model.get_booster().predict(xgboost.DMatrix(X), output_margin=True)
 
     reconstructed = np.asarray(cpu_shap.values).sum(axis=1) + np.asarray(cpu_shap.base_values)

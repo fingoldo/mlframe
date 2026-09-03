@@ -2,14 +2,14 @@
 
 ``_build_resample_indices`` materializes a single ``(n_bootstrap, n)`` int64 matrix ( ``8 * n_bootstrap * n`` bytes:
 ~0.8 GB @ n=200k, ~2 GB @ n=500k for the 1000-resample default). It is built ONCE in ``pick_best_calibrator`` and
-SHARED (read-only) across every candidate -- it does NOT compound per candidate.
+SHARED (read-only) across every candidate - it does NOT compound per candidate.
 
 This bench shows two things:
   1. The ceiling is the SINGLE shared matrix; the per-candidate path (``_bootstrap_ece_with_indices``) already streams
      it row-by-row (``idx = idx_matrix[b]``) with no per-candidate copy.
   2. A chunked-block alternative (build ``block`` resample rows at a time, accumulate per-candidate ECE samples,
      discard the block) caps peak index RAM to ``8 * block * n`` bytes and is BIT-IDENTICAL when the RNG draw order
-     is preserved -- but it requires holding ALL candidates' calibrated-prob arrays simultaneously and re-walking the
+     is preserved - but it requires holding ALL candidates' calibrated-prob arrays simultaneously and re-walking the
      candidate set per block. We verify bit-identity and measure the wall/RAM trade-off.
 
 Verdict driver: the calibration OOF set is the calibration sample (typically << the 100 GB feature frame), the
@@ -34,18 +34,18 @@ def _build_full(n: int, n_bootstrap: int, seed: int) -> np.ndarray:
 
 
 def _ece_like(y: np.ndarray, p: np.ndarray, idx: np.ndarray, n_bins: int = 10) -> float:
-    # tiny ECE stand-in: |mean(p)-mean(y)| over the resample -- order-independent, enough to prove bit-identity.
+    # tiny ECE stand-in: |mean(p)-mean(y)| over the resample - order-independent, enough to prove bit-identity.
     yy = y[idx]
     pp = p[idx]
     return float(abs(pp.mean() - yy.mean()))
 
 
-def _samples_full(y, p, n: int, n_bootstrap: int, seed: int) -> np.ndarray:
+def _samples_full(y: np.ndarray, p: np.ndarray, n: int, n_bootstrap: int, seed: int) -> np.ndarray:
     mat = _build_full(n, n_bootstrap, seed)  # peak: 8*n_bootstrap*n bytes
     return np.array([_ece_like(y, p, mat[b]) for b in range(n_bootstrap)])
 
 
-def _samples_chunked(y, p, n: int, n_bootstrap: int, seed: int, block: int) -> np.ndarray:
+def _samples_chunked(y: np.ndarray, p: np.ndarray, n: int, n_bootstrap: int, seed: int, block: int) -> np.ndarray:
     """Bit-identical to _samples_full: SAME single-rng draw order, but only ``block`` rows resident at once."""
     rng = np.random.default_rng(seed)
     out = np.empty(n_bootstrap, dtype=np.float64)

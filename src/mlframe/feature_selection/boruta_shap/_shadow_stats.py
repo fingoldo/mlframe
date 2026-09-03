@@ -98,8 +98,7 @@ def create_shadow_features(self):
     and biases the shadow MI low on tied columns - the failure class ``_column_tie_fraction`` /
     ``SHADOW_TIE_GATE_FRACTION`` guard, should anyone replace this with such a fast path.)
 
-    Returns:
-        Datframe with random permutations of the original columns.
+    Sets ``self.X_shadow`` in place; does not return a value.
     """
     # Private rng (set in __init__) keeps shadow-feature permutations seeded
     # without mutating the global np.random stream that other suite stages rely on.
@@ -241,6 +240,14 @@ def feature_importance(self, normalize):
             X_perm, y_perm = self.X_boruta_test, self.y_test
         else:
             X_perm, y_perm = self.X_boruta, self.y
+        # bench-attempt-rejected: tried the same row*col size-gate that won 17.5x for
+        # HybridSelector._shared_perm_fi's LightGBM-backed call (see that function's docstring), forcing
+        # n_jobs=1 below a size threshold. Measured HERE (this file's own test_boruta_shap_permutation_driver
+        # suite, RandomForest-backed model): net REGRESSION, not a win -- 33.1s/17.8s/4.8s (n_jobs=-1) became
+        # 56.8s/56.0s/13.3s (size-gated) for the top 3 tests. The HybridSelector shape (LightGBM predict) does
+        # not generalise to RandomForest's own internal n_jobs parallelism here; the interaction is caller-
+        # and model-specific, not a property of permutation_importance's process-pool overhead alone. Left as
+        # the original n_jobs=-1.
         pi = permutation_importance(
             self.model_, X_perm, y_perm, n_repeats=self.permutation_n_repeats,
             random_state=self.random_state, n_jobs=-1,
@@ -288,7 +295,12 @@ def find_sample(self):
     """
     iteration = 0
     size = self.get_5_percent_splits(self.X.shape[0])
-    element = 1
+    if size.size == 0:
+        # get_5_percent_splits' np.arange(step, length, step) can come back empty on frames with
+        # <=2 rows (step >= length) -- nothing to sub-sample; return the full boruta frame as-is
+        # instead of raising IndexError on size[element] below.
+        return self.X_boruta
+    element = 0
     # ``iteration`` bounds the search per sample size; on the 20th miss we grow the
     # sample (next ``size`` element). Without incrementing it the bound never fired and a
     # frame where no sub-sample reaches the KS p>0.95 threshold looped forever.
@@ -351,13 +363,8 @@ def test_features(self, iteration):
     For each feature with an undetermined importance perform a two-sided test of equality
     with the maximum shadow value to determine if it is statistically better
 
-    Parameters
-    ----------
-    hits: an array which holds the history of the number times
-          this feature was better than the maximum shadow
-
-    Returns:
-        Two arrays of the names of the accepted and rejected columns at that instance
+    Appends this trial's accepted/rejected column names to ``self.accepted_columns`` /
+    ``self.rejected_columns`` and sets ``self.features_to_remove`` in place; does not return a value.
     """
 
     # ``self.hits`` is full-length (indexed by ``all_columns``), so this re-tests already-removed features every

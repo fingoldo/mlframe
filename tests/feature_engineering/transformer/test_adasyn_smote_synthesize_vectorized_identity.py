@@ -91,3 +91,17 @@ def test_adasyn_synthesize_empty_minority():
     X_min = np.zeros((0, 6), dtype=np.float32)
     got = _adasyn_synthesize(X_min, X_full, y_full, 50, 5, 10, 0)
     assert got.shape[0] == 0
+
+
+def test_adasyn_synthesize_k_global_exceeds_small_full_dataset():
+    """FE_TRANSFORMER_A-4: k_global+1 > X_full.shape[0] (a small fold/subset) must not raise sklearn's
+    ValueError -- the NearestNeighbors call must cap n_neighbors to X_full.shape[0] like every other
+    kNN call in this package."""
+    rng = np.random.default_rng(0)
+    n_full = 5  # smaller than k_global+1=11
+    X_full = rng.standard_normal((n_full, 3)).astype(np.float32)
+    y_full = np.array([1, 1, 0, 0, 0], dtype=np.float32)
+    X_min = X_full[:2]
+    got = _adasyn_synthesize(X_min, X_full, y_full, n_synthetic=10, k_smote=1, k_global=10, seed=0)
+    assert got.shape == (10, 3)
+    assert np.isfinite(got).all()

@@ -97,8 +97,14 @@ class CatBoostStrategy(TreeModelStrategy):
 
         Single ensemble outputs (N, K) directly. Use
         ``MultiRMSEWithMissingValues`` if any target column has NaN.
+
+        ``eval_metric`` is set alongside the loss, not left to whatever the model already carried. The clone
+        these kwargs are applied to has been through ``_cb_sklearn_clone``, which stamps a single-output
+        ``eval_metric`` (``RMSE``) on it; CatBoost then refuses the pair outright at fit time -- "metric [RMSE]
+        and loss [MultiRMSE] are incompatible" -- and the whole multi-target fit dies. ``_ensure_cb_mtr_loss``
+        already sets both for the same reason.
         """
-        return {"loss_function": "MultiRMSE"}
+        return {"loss_function": "MultiRMSE", "eval_metric": "MultiRMSE"}
 
     def get_quantile_objective_kwargs(self, qr_config) -> dict:
         """CatBoost ``MultiQuantile`` loss_function with comma-joined alphas.
@@ -107,6 +113,9 @@ class CatBoostStrategy(TreeModelStrategy):
         spaces). predict() then returns shape (N, K).
         """
         alphas_str = ",".join(str(a) for a in qr_config.alphas)
+        # No eval_metric here, unlike MultiRMSE above: CatBoost accepts a MultiQuantile loss beside a plain
+        # RMSE eval_metric (verified against the installed CatBoost), so there is no incompatible pair to fix
+        # and forcing the metric would silently change which surface early stopping tracks.
         return {"loss_function": f"MultiQuantile:alpha={alphas_str}"}
 
     def get_ranker_objective_kwargs(self, ranking_config=None, y_max=None):

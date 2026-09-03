@@ -31,6 +31,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Sequence, Tuple
 
+import math
+
 import numpy as np
 
 from mlframe.reporting.charts.error_analysis import (
@@ -145,7 +147,7 @@ class SliceFinderResult:
     capped: Tuple[str, ...] = field(default_factory=tuple)
 
 
-def _bin_matrix(mat: np.ndarray, nbins: int) -> Tuple[np.ndarray, List[np.ndarray]]:
+def _bin_matrix(mat: np.ndarray, nbins: int, row_mask: Optional[np.ndarray] = None) -> Tuple[np.ndarray, List[np.ndarray], List[bool]]:
     """Quantile-bin every column once into an (n, n_features) int64 code matrix + the per-feature edge arrays.
 
     Each column's edges are equal-frequency quantiles (deduped); a constant / degenerate column collapses to a single
@@ -156,12 +158,17 @@ def _bin_matrix(mat: np.ndarray, nbins: int) -> Tuple[np.ndarray, List[np.ndarra
     copy ``n`` int64 per gather (2 copies x N_pairs). F-order makes those gathers a zero-copy view (~7x on the per-combo
     aggregate at n=100k); bit-identical (same values, layout-only change).
     """
-    n, p = mat.shape
+    n = int(mat.shape[0] if row_mask is None else np.count_nonzero(row_mask))
+    p = int(mat.shape[1])
     codes = np.zeros((n, p), dtype=np.int64, order="F")
     all_edges: List[np.ndarray] = []
+    has_missing: List[bool] = []
     for j in range(p):
-        col = mat[:, j]
+        # One column at a time, so the row mask costs an (n,) copy per column instead of a second (n, p) matrix.
+        col = mat[:, j] if row_mask is None else mat[row_mask, j]
         nan_mask = ~np.isfinite(col)
+        any_missing = bool(nan_mask.any())
+        has_missing.append(any_missing)
         finite = col[~nan_mask]
         if finite.size == 0:
             all_edges.append(np.array([0.0, 1.0]))
@@ -169,20 +176,49 @@ def _bin_matrix(mat: np.ndarray, nbins: int) -> Tuple[np.ndarray, List[np.ndarra
         edges = np.unique(np.quantile(finite, np.linspace(0.0, 1.0, nbins + 1)))
         all_edges.append(edges)
         if edges.size < 2:
-            continue  # constant column -> all code 0
-        # searchsorted over interior edges; non-finite rows land in bin 0 (kept, not dropped). A cheap masked write of
-        # the lowest edge into the NaN positions avoids np.nan_to_num's allocate + isposinf/isneginf scan (16% of wall).
-        if nan_mask.any():
-            col = col.copy()
-            col[nan_mask] = edges[0]
-        c = np.searchsorted(edges[1:-1], col, side="right")
+            if any_missing:
+                codes[nan_mask, j] = 1  # the const bin is code 0, so missing takes the next one
+            continue
+        c = np.searchsorted(edges[1:-1], np.where(nan_mask, edges[0], col), side="right")
         np.clip(c, 0, edges.size - 2, out=c)
+        # Missing rows used to be folded into bin 0, so a slice labelled with a real numeric range could consist
+        # mostly of rows that never occupied it. "the model is worst where this feature is missing" is a finding in
+        # its own right, so missingness gets its own code (one past the last real bin) and its own label.
+        if any_missing:
+            c[nan_mask] = edges.size - 1
         codes[:, j] = c
-    return codes, all_edges
+    return codes, all_edges, has_missing
+
+
+def _norm_ppf_one_sided(p: float) -> float:
+    """Standard-normal quantile at ``p``.
+
+    Acklam's rational approximation (|error| < 1.15e-9 over the whole range), so this module keeps its numpy-only
+    dependency set -- ``math`` has no inverse erf, and pulling scipy in for one quantile is not worth it.
+    """
+    p = float(min(max(p, 1e-15), 1.0 - 1e-15))
+    a_ = (-3.969683028665376e01, 2.209460984245205e02, -2.759285104469687e02, 1.383577518672690e02, -3.066479806614716e01, 2.506628277459239e00)
+    b_ = (-5.447609879822406e01, 1.615858368580409e02, -1.556989798598866e02, 6.680131188771972e01, -1.328068155288572e01)
+    c_ = (-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e00, -2.549732539343734e00, 4.374664141464968e00, 2.938163982698783e00)
+    d_ = (7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e00, 3.754408661907416e00)
+    p_low, p_high = 0.02425, 1.0 - 0.02425
+    if p < p_low:
+        q = math.sqrt(-2.0 * math.log(p))
+        return (((((c_[0] * q + c_[1]) * q + c_[2]) * q + c_[3]) * q + c_[4]) * q + c_[5]) / ((((d_[0] * q + d_[1]) * q + d_[2]) * q + d_[3]) * q + 1.0)
+    if p > p_high:
+        q = math.sqrt(-2.0 * math.log(1.0 - p))
+        return -(((((c_[0] * q + c_[1]) * q + c_[2]) * q + c_[3]) * q + c_[4]) * q + c_[5]) / ((((d_[0] * q + d_[1]) * q + d_[2]) * q + d_[3]) * q + 1.0)
+    q = p - 0.5
+    r = q * q
+    return (((((a_[0] * r + a_[1]) * r + a_[2]) * r + a_[3]) * r + a_[4]) * r + a_[5]) * q / (
+        ((((b_[0] * r + b_[1]) * r + b_[2]) * r + b_[3]) * r + b_[4]) * r + 1.0)
 
 
 def _bin_label(edges: np.ndarray, b: int) -> str:
     """Human-readable bound for bin ``b`` of a feature with the given quantile edges."""
+    b = int(b)
+    if b >= max(edges.size - 1, 1):
+        return "is missing"
     if edges.size < 2:
         return "const"
     b = int(np.clip(b, 0, edges.size - 2))
@@ -260,9 +296,10 @@ def find_weak_slices(
     err = _per_row_error(y_true, y_pred, task=task)
     mat, names = _resolve_feature_matrix(X, feature_names)
     finite = np.isfinite(err)
+    row_mask = None
     if not np.all(finite):
         err = err[finite]
-        mat = mat[finite]
+        row_mask = finite  # applied per column inside _bin_matrix; a whole-matrix copy here doubles peak memory
     err = np.ascontiguousarray(err)  # hoisted out of the per-combo loop; the njit reduction kernels need it C-contig.
     n, p = mat.shape
     global_error = float(err.mean()) if err.size else float("nan")
@@ -274,8 +311,8 @@ def find_weak_slices(
         bar = BarPanelSpec(categories=("(no data)",), values=np.array([0.0]), title=title + " (no usable data)", orientation="horizontal")
         return SliceFinderResult(FigureSpec(panels=((bar,),), figsize=(8.0, 5.0)), empty, global_error, ((), "", float("nan"), 0), ())
 
-    codes, all_edges = _bin_matrix(mat, nbins)
-    nbins_per = [max(1, all_edges[j].size - 1) for j in range(p)]
+    codes, all_edges, has_missing = _bin_matrix(mat, nbins, row_mask=row_mask)
+    nbins_per = [max(1, all_edges[j].size - 1) + (1 if has_missing[j] else 0) for j in range(p)]
 
     # Build the combination list with caps.
     combos: List[Tuple[int, ...]] = [(j,) for j in range(p)]
@@ -283,7 +320,10 @@ def find_weak_slices(
     if max_arity >= 2:
         if len(combos) + len(pairs) > max_combos:
             keep = max(0, max_combos - len(combos))
-            capped.append(f"pair enumeration truncated at {max_combos} combos ({len(pairs)} pairs, kept {keep})")
+            capped.append(
+                f"pair enumeration truncated: the {max_combos} combo budget minus {len(combos)} single-feature "
+                f"slices leaves room for {keep} of {len(pairs)} pairs"
+            )
             pairs = pairs[:keep]
         combos.extend(pairs)
     if max_arity >= 3 and p > 3:
@@ -369,10 +409,32 @@ def find_weak_slices(
             logger.info("slice_finder cap: %s", msg)
         return SliceFinderResult(FigureSpec(panels=((bar,),), figsize=(8.0, 5.0)), empty, global_error, ((), "", float("nan"), 0), tuple(capped))
 
-    # Display order is worst-ERROR-first: rank the surfaced slices by mean error descending (stable mergesort so equal
-    # errors keep their score-built order), then take the top_k. The candidate pool itself is still built by the
-    # degradation x support score above -- only the displayed ordering is by error.
-    order = np.argsort(np.asarray(rec_mean), kind="stable")[::-1][:top_k]
+    # Display order matches the SCORE the candidate pool was built with (degradation x sqrt(support share)), rather
+    # than raw mean error: sorting by mean error alone hands the top bar to the thinnest slice that cleared the
+    # support floor, which is the opposite of what a reader should look at first.
+    order = np.argsort(np.asarray(rec_score), kind="stable")[::-1][:top_k]
+    # Per-slice 95% interval on the mean error, from that slice's own rows. Only the DISPLAYED slices are measured
+    # (top_k of them), so this is a handful of masked reductions, not a pass over every candidate.
+    n_candidates = len(rec_score)
+    # Sidak: a per-slice level of 1 - (1 - 0.05)**(1/m) gives a 95% SIMULTANEOUS family, so an interval that
+    # excludes the global error means the slice survives the multiple comparison rather than merely being the
+    # luckiest of m draws. Slightly tighter than Bonferroni for the same guarantee.
+    _alpha_per_slice = 1.0 - 0.95 ** (1.0 / max(n_candidates, 1))  # Sidak: family-wise 5% split across m slices
+    z_simultaneous = float(_norm_ppf_one_sided(1.0 - _alpha_per_slice / 2.0))
+    ci_lo: List[float] = []
+    ci_hi: List[float] = []
+    for i in order:
+        mask = np.ones(err.shape[0], dtype=bool)
+        for k, feat in enumerate(rec_combo[i]):
+            mask &= codes[:, feat] == rec_bins[i][k]
+        vals_i = err[mask]
+        if vals_i.size > 1:
+            se = float(np.std(vals_i, ddof=1) / np.sqrt(vals_i.size))
+            ci_lo.append(float(rec_mean[i] - z_simultaneous * se))
+            ci_hi.append(float(rec_mean[i] + z_simultaneous * se))
+        else:
+            ci_lo.append(float("nan"))
+            ci_hi.append(float("nan"))
     # Build the expensive bounds / features labels ONLY for the displayed top_k rows (see the deferral note above).
     def _features_for(i: int) -> Tuple[str, ...]:
         """Feature names for candidate row ``i``'s combo -- built only for the displayed top-k rows (see the deferral note above)."""
@@ -393,6 +455,8 @@ def find_weak_slices(
         "support": [rec_support[i] for i in order],
         "support_fraction": [rec_support[i] / n for i in order],
         "error_ratio": [rec_mean[i] / global_error if global_error > 0 else float("inf") for i in order],
+        "error_ratio_lo": [lo / global_error if global_error > 0 else float("nan") for lo in ci_lo],
+        "error_ratio_hi": [hi / global_error if global_error > 0 else float("nan") for hi in ci_hi],
         "score": [rec_score[i] for i in order],
     })
     table.index = np.arange(1, len(order) + 1)
@@ -404,19 +468,40 @@ def find_weak_slices(
     # Horizontal bars, worst on top: bar length = mean error, annotated label carries the support fraction + ratio.
     cats = tuple(f"{table['bounds'].iloc[i]}  (n={int(table['support'].iloc[i]):_}, {table['error_ratio'].iloc[i]:.2g}x)" for i in range(len(table)))
     vals = table["mean_error"].to_numpy()
+    err_lo = np.clip(vals - np.asarray(ci_lo, dtype=np.float64), 0.0, None)
+    err_hi = np.clip(np.asarray(ci_hi, dtype=np.float64) - vals, 0.0, None)
+    # A slice whose interval still covers the global error is not distinguishable from the model's overall
+    # performance -- the honest reading of most "worst" slices turned up by a wide search.
+    n_covers_global = int(np.sum(np.asarray(ci_lo, dtype=np.float64) <= global_error))
+    _bias_note = (
+        f"; intervals are 95% SIMULTANEOUS over the {n_candidates:,} candidate slices screened (Sidak, z="
+        f"{z_simultaneous:.2f}), because the top bar is the maximum of that search"
+        + (f"; {n_covers_global} of {len(table)} still cover the global error" if n_covers_global else "")
+    )
     # ``table`` is already worst-first; the renderer inverts the y-axis for horizontal bars so the first category
     # lands on TOP, so the worst slice reads at the top to match the "worst-on-top" title (no pre-reverse here).
     bar = BarPanelSpec(
         categories=cats,
         values=vals,
-        title=title + f"\n(global mean error = {global_error:.3g}; worst-on-top, label = support n + error ratio)",
+        title=title + f"\n(global mean error = {global_error:.3g}; worst-on-top, label = support n + error ratio{_bias_note})",
         xlabel="Slice mean error",
         ylabel="slice",
         orientation="horizontal",
         colors=("crimson",),
+        value_err=(err_lo, err_hi),
         hline=(global_error, "black", f"global = {global_error:.3g}"),
     )
-    fig = FigureSpec(suptitle="", panels=((bar,),), figsize=(10.0, max(5.0, 0.5 * len(table) + 2.0)))
+    fig = FigureSpec(
+        suptitle="",
+        panels=((bar,),),
+        figsize=(10.0, max(5.0, 0.5 * len(table) + 2.0)),
+        caption=(
+            "How to read: each bar is a feature-value region where the model's error is worse than its overall "
+            "error. These are the MAXIMUM over many candidate slices, so the top bar is upward-biased by the search "
+            "itself: treat it as a hypothesis to confirm on held-out rows, not as a measured effect. Read support "
+            "alongside the ratio -- a 3x error ratio over 40 rows is a different claim from one over 40,000."
+        ),
+    )
     top_row = table.iloc[0]
     worst_slice = (tuple(top_row["features"]), str(top_row["bounds"]), float(top_row["mean_error"]), int(top_row["support"]))
     return SliceFinderResult(fig, table, global_error, worst_slice, tuple(capped))

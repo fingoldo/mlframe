@@ -205,9 +205,11 @@ def rolling_hf_lf_ratio(
     """Ratio of high-frequency band energy to low-frequency band energy.
 
     Convenience wrapper around ``rolling_spectral_band_energies`` with
-    the default 3-band split: returns ``e_hi / (e_lo + 1e-6)`` clipped
-    to ``clip_range``. Values >>1 = signal energy concentrated in HF;
-    <<1 = LF-dominated; ~1 = balanced.
+    the default 3-band split: returns ``e_hi / e_lo`` clipped to
+    ``clip_range``, or ``fill_value`` where the low band is empty.
+    Values >>1 = signal energy concentrated in HF; <<1 = LF-dominated;
+    ~1 = balanced. The ratio is scale-invariant, so the same series
+    expressed in different units gives the same answer.
 
     Useful as a single-scalar "smoothness" feature.
     """
@@ -218,7 +220,15 @@ def rolling_hf_lf_ratio(
     # bands[:, 0] = lo, bands[:, -1] = hi
     e_lo = bands[:, 0]
     e_hi = bands[:, -1]
-    ratio = e_hi / (e_lo + 1e-6)
+    # Guarded by a ZERO test, not by adding a fixed 1e-6. These are unnormalised squared FFT magnitudes, so their
+    # units are the square of the input's: on log-returns at amplitude ~1e-3 the band energies land near 1e-8 and
+    # the epsilon dominated the denominator entirely, collapsing the ratio to ``e_hi * 1e6`` -- near zero for every
+    # row, and different again if the same series is expressed in basis points. The feature became a function of
+    # the input's SCALE rather than its spectral balance, with no NaN and no warning, and `clip_range` hid what
+    # was left. The `fill_value` default of 1.0 ("balanced") is already the right answer for a genuinely empty
+    # low band, which is what the isfinite pass below now handles alone.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.where(e_lo > 0.0, e_hi / np.where(e_lo > 0.0, e_lo, 1.0), np.nan)
     ratio = np.where(np.isfinite(ratio), ratio, fill_value)
     return np.clip(ratio, clip_range[0], clip_range[1])
 

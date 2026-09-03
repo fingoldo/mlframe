@@ -9,7 +9,13 @@ import pytest
 
 from mlframe.reporting.output import parse_plot_output_dsl
 from mlframe.reporting.renderers import render_and_save
+from mlframe.reporting.renderers.save import resolve_output_path
 from mlframe.reporting.spec import FigureSpec, ScatterPanelSpec
+
+
+def _saved(base: str, backend: str, fmt: str, *, multi: bool) -> str:
+    """Where render_and_save writes this (backend, format) under the default per-format-subfolder layout."""
+    return resolve_output_path(base, backend, fmt, multi_output=multi)
 
 
 @pytest.fixture
@@ -40,26 +46,26 @@ class TestNamingPolicy:
         out = parse_plot_output_dsl("matplotlib[png]")
         base = str(tmp_path / "plot")
         render_and_save(trivial_spec, out, base)
-        assert os.path.exists(base + ".png")
-        assert not os.path.exists(base + ".matplotlib.png")
+        assert os.path.exists(_saved(base, "matplotlib", "png", multi=False))
+        assert not os.path.exists(_saved(base, "matplotlib", "png", multi=True))
 
     def test_multi_backend_uses_backend_in_filename(self, trivial_spec, tmp_path):
         """Multi backend uses backend in filename."""
         out = parse_plot_output_dsl("plotly[html] + matplotlib[png]")
         base = str(tmp_path / "plot")
         render_and_save(trivial_spec, out, base)
-        assert os.path.exists(base + ".plotly.html")
-        assert os.path.exists(base + ".matplotlib.png")
-        assert not os.path.exists(base + ".html")
-        assert not os.path.exists(base + ".png")
+        assert os.path.exists(_saved(base, "plotly", "html", multi=True))
+        assert os.path.exists(_saved(base, "matplotlib", "png", multi=True))
+        assert not os.path.exists(_saved(base, "plotly", "html", multi=False))
+        assert not os.path.exists(_saved(base, "matplotlib", "png", multi=False))
 
     def test_single_backend_multi_format_uses_backend_in_filename(self, trivial_spec, tmp_path):
         """Single backend multi format uses backend in filename."""
         out = parse_plot_output_dsl("plotly[html,json]")
         base = str(tmp_path / "plot")
         render_and_save(trivial_spec, out, base)
-        assert os.path.exists(base + ".plotly.html")
-        assert os.path.exists(base + ".plotly.json")
+        assert os.path.exists(_saved(base, "plotly", "html", multi=True))
+        assert os.path.exists(_saved(base, "plotly", "json", multi=True))
 
 
 class TestKeepHandles:
@@ -106,11 +112,16 @@ class TestInteractiveDisplay:
         )
         render_and_save(trivial_spec, out, base, interactive=False)
         # File saved, show NOT called.
-        assert os.path.exists(base + ".png")
+        assert os.path.exists(_saved(base, "matplotlib", "png", multi=False))
         assert show_calls == []
 
-    def test_interactive_true_calls_show_per_backend(self, trivial_spec, tmp_path, monkeypatch):
-        """interactive=True: file saved AND renderer.show called once per backend."""
+    def test_interactive_true_does_not_show_matplotlib_inline(self, trivial_spec, tmp_path, monkeypatch):
+        """matplotlib is SAVE-ONLY: even with interactive=True it writes the file and is never shown inline.
+
+        In a notebook both backends used to render, so every chart appeared twice -- once as a static matplotlib
+        image and again as the interactive plotly twin. matplotlib is now save-only; plotly remains the inline
+        backend, and ``test_interactive_true_calls_show_for_plotly`` below pins that half.
+        """
         out = parse_plot_output_dsl("matplotlib[png]")
         base = str(tmp_path / "p")
         from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
@@ -122,8 +133,17 @@ class TestInteractiveDisplay:
             lambda self, fig: show_calls.append(fig),
         )
         render_and_save(trivial_spec, out, base, interactive=True)
-        assert os.path.exists(base + ".png")
-        assert len(show_calls) == 1
+        assert os.path.exists(_saved(base, "matplotlib", "png", multi=False))
+        assert show_calls == []
+
+    def test_interactive_true_calls_show_for_plotly(self, trivial_spec, tmp_path, monkeypatch):
+        """The inline backend is still shown once when interactive=True."""
+        from mlframe.reporting.renderers.plotly import PlotlyRenderer
+
+        shown = []
+        monkeypatch.setattr(PlotlyRenderer, "show", lambda self, fig: shown.append(fig))
+        render_and_save(trivial_spec, parse_plot_output_dsl("plotly[html]"), str(tmp_path / "q"), interactive=True)
+        assert len(shown) == 1
 
     def test_interactive_none_auto_detects_non_ipython(self, trivial_spec, tmp_path, monkeypatch):
         """interactive=None in a non-IPython context (no __IPYTHON__, no
@@ -149,7 +169,7 @@ class TestInteractiveDisplay:
         render_and_save(trivial_spec, out, base, interactive=None)
         # Auto-detected non-interactive → show NOT called.
         assert show_calls == []
-        assert os.path.exists(base + ".png")
+        assert os.path.exists(_saved(base, "matplotlib", "png", multi=False))
 
     def test_interactive_show_failure_does_not_break_save(self, trivial_spec, tmp_path, monkeypatch):
         """If renderer.show raises, the on-disk save still completes
@@ -165,7 +185,7 @@ class TestInteractiveDisplay:
         monkeypatch.setattr(MatplotlibRenderer, "show", _explode)
         # Must not raise — show failures are non-fatal.
         render_and_save(trivial_spec, out, base, interactive=True)
-        assert os.path.exists(base + ".png")
+        assert os.path.exists(_saved(base, "matplotlib", "png", multi=False))
 
 
 class TestInlineDisplayOptOut:
@@ -204,10 +224,15 @@ class TestInlineDisplayOptOut:
         render_and_save(trivial_spec, out, base, interactive=None)
         # Env var won → no inline display.
         assert show_calls == []
-        assert os.path.exists(base + ".png")
+        assert os.path.exists(_saved(base, "matplotlib", "png", multi=False))
 
     def test_env_var_force_true_overrides_non_ipython(self, trivial_spec, tmp_path, monkeypatch):
-        """Even outside a kernel, env var=1 → inline display fires."""
+        """Even outside a kernel, env var=1 turns the inline-display DECISION on.
+
+        The env var controls whether an inline session is claimed, not which backends may display in one.
+        matplotlib is save-only regardless, so the figure is still written and never shown -- what the override
+        buys is that the inline backend (plotly) would display.
+        """
         import builtins
         import sys
 
@@ -217,6 +242,7 @@ class TestInlineDisplayOptOut:
             monkeypatch.delattr(sys, "ps1")
         monkeypatch.setenv("MLFRAME_PLOT_INLINE_DISPLAY", "1")
         from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
+        from mlframe.reporting.renderers.plotly import PlotlyRenderer
 
         show_calls = []
         monkeypatch.setattr(
@@ -227,8 +253,12 @@ class TestInlineDisplayOptOut:
         out = parse_plot_output_dsl("matplotlib[png]")
         base = str(tmp_path / "p")
         render_and_save(trivial_spec, out, base, interactive=None)
-        assert len(show_calls) == 1
-        assert os.path.exists(base + ".png")
+        assert show_calls == []
+        assert os.path.exists(_saved(base, "matplotlib", "png", multi=False))
+        shown = []
+        monkeypatch.setattr(PlotlyRenderer, "show", lambda self, fig: shown.append(fig))
+        render_and_save(trivial_spec, parse_plot_output_dsl("plotly[html]"), str(tmp_path / "q"), interactive=None)
+        assert len(shown) == 1
 
     def test_setter_helper_controls_display_decision(self, monkeypatch):
         """``set_inline_display_mode`` drives the display decision (via a per-thread override) without

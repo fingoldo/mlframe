@@ -15,7 +15,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-def cardinality_prescreen(factors_data, factors_nbins, factors_names, x, y, verbose):
+def cardinality_prescreen(factors_data, factors_nbins, factors_names, x, y, verbose, raw_cardinality_cols=None):
     """Drop high-cardinality columns before candidate enumeration.
 
     The Miller-Madow bias on plug-in MI is ~(|X|-1)*(|Y|-1)/(2n) nats; columns with
@@ -23,6 +23,17 @@ def cardinality_prescreen(factors_data, factors_nbins, factors_names, x, y, verb
     high-level categoricals), so they are removed from the active factor index set ``x``.
     Returns ``(x, refused_set)`` where ``x`` matches the caller's container type (set or list)
     minus the refused indices.
+
+    ``raw_cardinality_cols`` is the set of column NAMES whose bin count really is a raw level count. Only those
+    are eligible for the ceiling. A numeric column discretised by a SUPERVISED strategy (MDLP, the MRMR
+    default) earns more bins the better it explains the target, so judging it by bin count inverts this
+    guard: measured on a 500-row fixture whose feature A drives the target on 80% of rows, MDLP gave A 50
+    bins against 2-5 for the pure-noise columns, A tripped the 2*sqrt(500)=44.7 ceiling, and MRMR returned a
+    noise column with ``fallback_used_=False`` -- a confident wrong answer. The plug-in bias those columns do
+    carry is already handled downstream by the permutation-null debiasing and its significance gate, and by
+    MDLP's own MDL stopping rule. ``None`` -- or any column this set cannot name -- keeps the legacy behaviour of
+    judging by bin count. ``verbose`` no longer gates the refusal warning: dropping a column from selection is
+    reported unconditionally.
 
     Caller gates on ``cardinality_bias_correction`` and ``factors_data.shape[1] > 0`` before
     invoking; this helper assumes both hold.
@@ -39,12 +50,19 @@ def cardinality_prescreen(factors_data, factors_nbins, factors_names, x, y, verb
         _nbins_x = int(factors_nbins[_col_idx])
         if _nbins_x <= 1:
             continue
+        # Only skip a column when it is POSITIVELY known to be supervised-binned. Without names there is nothing
+        # to classify by, so the legacy bin-count judgement stands rather than the guard quietly going inert.
+        if raw_cardinality_cols is not None and factors_names is not None and _col_idx < len(factors_names):
+            if factors_names[_col_idx] not in raw_cardinality_cols:
+                continue
         if _nbins_x > _nbins_x_ceiling:
             _refused.append(_col_idx)
             _refused_set.add(_col_idx)
-    if _refused and verbose >= 1:
+    # Unconditional: this silently removed the single most informative column from a production fit, and the
+    # only trace was an INFO line behind verbose>=1 that the suite never enables.
+    if _refused:
         _names = [factors_names[i] if factors_names is not None and i < len(factors_names) else f"col_{i}" for i in _refused]
-        logger.info(
+        logger.warning(
             "screen_predictors: pre-screening dropped %d high-cardinality column(s) "
             "(nbins_x > 2*sqrt(n)=%.0f at n=%d): %s. Bin or target-encode before "
             "fitting if they carry real signal. Disable via "

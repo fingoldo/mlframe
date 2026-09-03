@@ -11,6 +11,7 @@ import logging
 import threading
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from mlframe.config import CATBOOST_MODEL_TYPES
@@ -231,8 +232,18 @@ def _maybe_get_or_build_cb_pool(
                     _label_for_swap = train_target
                 cached.set_label(_label_for_swap)
                 cached._mlframe_last_target_sig = _target_sig
+            # The weight is re-applied UNCONDITIONALLY, uniform included. The cache signature carries no weight
+            # component, so a fit asking for uniform weights after one that asked for e.g. recency weights got
+            # the same Pool back -- and skipping set_weight left the previous schema's weights on it. The
+            # "uniform" model then trained recency-weighted, and its metrics were compared against the recency
+            # model as though the two were different schemas, so the leaderboard and ensemble picked between
+            # duplicates. ``set_weight`` has no target-type restriction, so resetting to ones is always valid.
             if sample_weight is not None:
                 cached.set_weight(sample_weight)
+                cached._mlframe_last_weight_uniform = False
+            elif getattr(cached, "_mlframe_last_weight_uniform", True) is False:
+                cached.set_weight(np.ones(cached.num_row(), dtype=np.float32))
+                cached._mlframe_last_weight_uniform = True
             # Post-swap verification: confirm the cached Pool's label is
             # non-empty (set_label can silently set a 0-length array if
             # _label_for_swap was empty after some upstream filter, then
@@ -303,6 +314,7 @@ def _maybe_get_or_build_cb_pool(
             text_features=list(text_features) or None,
             embedding_features=list(embedding_features) or None,
         )
+        pool._mlframe_last_weight_uniform = sample_weight is None
     except Exception as exc:
         # If Pool rejects the input (e.g. unsupported dtype combo),
         # fall back to the sklearn-wrapper path by returning None. The

@@ -19,7 +19,19 @@ warnings.filterwarnings("ignore")
 
 
 # All tests in this file require cupy.
-pytest.importorskip("cupy")
+cp = pytest.importorskip("cupy")
+
+
+def _gpu_available() -> bool:
+    """Gpu available."""
+    try:
+        return cp.cuda.runtime.getDeviceCount() >= 1
+    except Exception:  # pragma: no cover - no driver / no GPU
+        return False
+
+
+if not _gpu_available():  # pragma: no cover - guarded at collection time
+    pytest.skip("No CUDA device available", allow_module_level=True)
 
 pytestmark = pytest.mark.gpu
 

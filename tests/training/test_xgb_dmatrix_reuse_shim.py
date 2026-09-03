@@ -546,7 +546,7 @@ class TestXGBShimIntegrationWithMlframeSuite:
 
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training.configs import TrainingBehaviorConfig
-        from mlframe.training import OutputConfig, PreprocessingConfig
+        from mlframe.training import OutputConfig, PreprocessingConfig, ReportingConfig
         from .shared import TimestampedFeaturesExtractor
 
         rng = np.random.default_rng(0)
@@ -569,7 +569,11 @@ class TestXGBShimIntegrationWithMlframeSuite:
             sample_weights={"uniform": None, "recency": recency},
         )
 
-        bc = TrainingBehaviorConfig(prefer_gpu_configs=False)
+        # ``temporal_recency_only_weighting`` (default True) drops the uniform schema when the split has a time
+        # axis and a recency schema is offered -- which this fixture has, so the suite would fit ONCE and there
+        # would be no second iteration for the DMatrix cache to serve. The contract under test is the shim, not
+        # the weighting policy, so pin the policy off and keep both schemas.
+        bc = TrainingBehaviorConfig(prefer_gpu_configs=False, temporal_recency_only_weighting=False)
 
         # Capture DEBUG output from xgb_shim — the reuse log line is at
         # DEBUG level (it's hot path, would otherwise spam INFO).
@@ -577,6 +581,7 @@ class TestXGBShimIntegrationWithMlframeSuite:
 
         class _Capture(_logging.Handler):
             """Groups tests covering capture."""
+
             def emit(self, record):
                 """Emit."""
                 records.append(record.getMessage())
@@ -598,7 +603,27 @@ class TestXGBShimIntegrationWithMlframeSuite:
                 preprocessing_config=PreprocessingConfig(drop_columns=[]),
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+                output_config=OutputConfig(
+                    data_dir=str(tmp_path),
+                    models_dir="models",
+                    save_charts=False,
+                    run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"],
+                ),
+                reporting_config=ReportingConfig(
+                    show_perf_chart=False,
+                    show_fi=False,
+                    adversarial_validation=False,
+                    interaction_strength_charts=False,
+                    engineered_separability_charts=False,
+                    class_structure_charts=False,
+                    category_discriminability_charts=False,
+                    slice_finder=False,
+                    shap_panels=False,
+                    decision_curve=False,
+                    calibration_drift=False,
+                    target_acf=False,
+                    model_comparison=False,
+                ),
                 verbose=0,
             )
         finally:
@@ -963,7 +988,7 @@ class TestCoreAutoClearsShimCacheAtStrategyEnd:
         """The end-of-strategy auto-clear helper (``_maybe_clear_shim_cache``) must wipe a shim
         estimator's DMatrix cache. We exercise the helper directly on a fitted shim instance and
         verify the cache attribute is reset; preserves Booster (covered separately below)."""
-        from mlframe.training.core._phase_train_one_target import _maybe_clear_shim_cache
+        from mlframe.training.core._misc_helpers import _maybe_clear_shim_cache
 
         X, y = small_classification_data
         m = XGBClassifierWithDMatrixReuse(n_estimators=3, tree_method="hist")

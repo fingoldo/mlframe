@@ -66,6 +66,9 @@ def set_gpu_thresholds(*, n: Optional[int] = None, m: Optional[int] = None) -> N
         _GPU_BATCH_THRESHOLD_M = int(m)
 
 
+_GPU_PROBE_TIMEOUT_S: float = 20.0
+
+
 def is_gpu_metrics_available() -> bool:
     """True iff cupy is importable AND a CUDA device is visible AND a small reduction kernel actually compiles via NVRTC.
 
@@ -75,25 +78,52 @@ def is_gpu_metrics_available() -> bool:
     when its softlink-retry path re-enters itself (observed on a full-suite run
     after renaming cublas64_11.dll to unblock torch).
 
+    On some misconfigured hosts (no NVIDIA driver but a CUDA runtime lib still
+    present, or a stuck GPU) the underlying ``cudaGetDeviceCount`` call can
+    HANG indefinitely rather than raise -- ``except Exception`` never triggers
+    for a hang, only for a raised error (observed on a GPU-less CI runner: this
+    probe blocked past pytest-timeout's 300s per-test cap since it runs from a
+    session-scoped conftest fixture, then cascaded a "Timeout" failure onto
+    every subsequent test in that worker since the session fixture's cached
+    failure is reported, unretried, for the rest of the session). The actual
+    probe runs on a daemon thread with a bounded join so a driver hang costs
+    at most ``_GPU_PROBE_TIMEOUT_S`` once, never the whole session.
+
     Result is cached after the first call. ``except BaseException`` covers
     RecursionError too.
     """
     global _GPU_AVAILABLE
     if _GPU_AVAILABLE is not None:
         return _GPU_AVAILABLE
-    try:
-        import cupy as cp
-        if cp.cuda.runtime.getDeviceCount() < 1:
-            _GPU_AVAILABLE = False
-            return False
-        # NVRTC compile probe - mirrors _utils.is_gpu_available().
-        _ = cp.asarray([1.0], dtype=cp.float32).sum().item()
-        _GPU_AVAILABLE = True
-        return True
-    except Exception as e:  # nosec B110 - best-effort/optional path, no module logger
-        logger.debug("cupy GPU availability probe failed: %s", e)
-    _GPU_AVAILABLE = False
-    return False
+    import threading
+
+    result: dict = {}
+
+    def _probe():
+        """Run the actual cupy device-count + NVRTC compile check on a daemon thread so a driver hang can be bounded by a join timeout from the caller."""
+        try:
+            import cupy as cp
+            if cp.cuda.runtime.getDeviceCount() < 1:
+                result["available"] = False
+                return
+            # NVRTC compile probe - mirrors _utils.is_gpu_available().
+            _ = cp.asarray([1.0], dtype=cp.float32).sum().item()
+            result["available"] = True
+        except Exception as e:  # nosec B110 - best-effort/optional path, no module logger
+            logger.debug("cupy GPU availability probe failed: %s", e)
+            result["available"] = False
+
+    probe_thread = threading.Thread(target=_probe, daemon=True)
+    probe_thread.start()
+    probe_thread.join(timeout=_GPU_PROBE_TIMEOUT_S)
+    if probe_thread.is_alive():
+        # Driver call hung past the bound -- treat as unavailable and never wait on this
+        # leaked daemon thread again; cached False makes every later call an instant no-op.
+        logger.debug("cupy GPU availability probe hung past %.0fs; treating GPU as unavailable", _GPU_PROBE_TIMEOUT_S)
+        _GPU_AVAILABLE = False
+        return False
+    _GPU_AVAILABLE = bool(result.get("available", False))
+    return _GPU_AVAILABLE
 
 
 def _is_numba_cuda_available() -> bool:

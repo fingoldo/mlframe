@@ -234,6 +234,20 @@ class TestScrubSecrets:
         assert "sk-leaky" not in repr(p)
         assert "***" in repr(p)
 
+    def test_str_masks_api_key(self):
+        """str(provider) must also scrub secrets: pydantic.BaseModel defines its own
+        __str__ that does NOT fall back to __repr__, so overriding only __repr__ left
+        str()/f-strings/%s-logging printing the raw unscrubbed params."""
+        p = EmbeddingProvider(
+            kind="openai",
+            model="x",
+            params={"api_key": "sk-leaky"},
+        )
+        assert "sk-leaky" not in str(p)
+        assert "***" in str(p)
+        assert "sk-leaky" not in f"{p}"
+        assert "sk-leaky" not in ("%s" % p)
+
     def test_model_dump_default_scrubs(self):
         """Model dump default scrubs."""
         p = EmbeddingProvider(

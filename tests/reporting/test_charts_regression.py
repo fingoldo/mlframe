@@ -97,7 +97,11 @@ def test_scatter_subsample_keeps_max_error_and_shows_count():
     fig = compose_regression_figure(yt, yp, panels_template="SCATTER", metrics_str="MAE=0.2")
     sc = _flat(fig)[0]
     assert isinstance(sc, ScatterPanelSpec)
-    assert "showing 5,000 / 12,000 sampled" in sc.title
+    # The caption counts what is ON THE CANVAS, not what the sampler was asked for: the extremes-preserving draw
+    # returns slightly under the cap (4,995 here) once its extreme rows overlap the random fill, and the worst-K
+    # append no longer adds rows that are already present. Pin the caption AGAINST the plotted length.
+    assert f"showing {len(sc.y):,} / 12,000 sampled" in sc.title
+    assert len(sc.y) <= 5_000
     assert float(np.max(sc.y)) > 40.0  # the extreme is plotted, not dropped
 
 

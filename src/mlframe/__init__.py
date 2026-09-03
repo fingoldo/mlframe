@@ -5,12 +5,13 @@ The top-level ``mlframe`` namespace intentionally exports ONLY ``__version__`` a
 ``mlframe.config`` enums; everything else is reached via its subpackage path:
 
     from mlframe.training import train_mlframe_models_suite
+    from mlframe.training.core import predict_from_models
     from mlframe.training.composite import CompositeTargetEstimator
-    from mlframe.feature_selection import MRMR, RFECV
-    from mlframe.metrics.core import expected_calibration_error
+    from mlframe.feature_selection import RFECV
+    from mlframe.feature_selection.filters import MRMR
+    from mlframe.metrics.core import compute_ece_debiased
     from mlframe.calibration.policy import pick_best_calibrator
     from mlframe.models.ensembling import score_ensemble
-    from mlframe.inference.predict import predict_from_models
     from mlframe.evaluation.bootstrap import bootstrap_metric, delong_test
 
 Reaching into double-underscore private submodules (``mlframe.training.core._*``,
@@ -191,7 +192,6 @@ def _disable_broken_cupy() -> None:
             type(exc).__name__, exc,
         )
         gpu_disable_errors.append(f"cupy NVRTC probe failed: {type(exc).__name__}: {exc}")
-        gpu_disable_errors.append(f"cupy NVRTC probe raised {type(exc).__name__}: {exc}")
         # Poison the import: ``sys.modules["cupy"] = None`` makes every subsequent ``import cupy``
         # raise ``ImportError`` immediately. CPython's import machinery treats a ``None`` entry as
         # a negative-cache marker -- documented behaviour since Python 2.x, still maintained in 3.12+
@@ -327,6 +327,7 @@ def _install_gpu_runtime_lazy_trigger() -> None:
         return
 
     import functools
+    from typing import Any
 
     @functools.wraps(_orig)
     def _is_cuda_available(*args, **kwargs):
@@ -335,7 +336,14 @@ def _install_gpu_runtime_lazy_trigger() -> None:
         return _orig(*args, **kwargs)
 
     _is_cuda_available._mlframe_gpu_runtime_wrapped = True  # type: ignore[attr-defined]
-    _gd.is_cuda_available = _is_cuda_available
+    # The attribute is declared as an `lru_cache_wrapper[bool]`; a functools.wraps'd delegate cannot be spelled
+    # as that type, and replacing it is the whole point of this lazy trigger. Assigned through an Any-typed
+    # alias because whether the direct assignment is an error at all depends on the installed pyutilz: with
+    # `warn_unused_ignores` on, a `type: ignore[assignment]` is required against a build that carries the
+    # annotation and reported as unused against one that does not, so no spelling of the direct assignment
+    # type-checks in both environments.
+    _gd_any: Any = _gd
+    _gd_any.is_cuda_available = _is_cuda_available
 
 
 _install_gpu_runtime_lazy_trigger()

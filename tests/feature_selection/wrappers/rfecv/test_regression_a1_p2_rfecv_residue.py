@@ -73,6 +73,24 @@ def test_A1_12_polars_self_destruct_opted_in_by_marker():
     assert hasattr(sel, "support_")
 
 
+def test_fs_wrappers_5_transform_polars_self_destruct_only_on_internally_owned():
+    """FS_WRAPPERS-5: RFECV.transform() must gate self_destruct=True behind the SAME ownership marker
+    _fit_init.py uses -- a caller-owned polars X passed to transform() must not be destroyed."""
+    X_pd, y = _toy_xy(n=40, p=3)
+    sel = RFECV(estimator=LogisticRegression(max_iter=50), cv=3, max_nfeatures=2)
+    sel.fit(X_pd, y)
+
+    X_pl = pl.from_pandas(X_pd)
+    sel.transform(X_pl)
+    try:
+        _ = X_pl.shape
+        _ = X_pl.head(2)
+        consumed = False
+    except Exception:
+        consumed = True
+    assert not consumed, "caller-owned polars frame passed to transform() must NOT be destroyed by self_destruct"
+
+
 def test_A1_13_x_hash_full_content_no_collision_after_outlier_clip():
     """Two X frames that differ only at non-strided positions must produce DIFFERENT signatures
     so the skip-retrain shortcut cannot replay the wrong fit."""

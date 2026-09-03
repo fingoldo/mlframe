@@ -41,7 +41,7 @@ class _FitPrepMixin:
                 eval_set = ([_ev_new, *list(eval_set[1:])]) if _is_list else _ev_new
         return X, eval_set
 
-    def _factorize_cats_fit(self, X, eval_set, fit_params):
+    def _factorize_cats_fit(self, X, eval_set, fit_params, is_partial_fit: bool = False):
         """Factorize raw categorical columns to integer codes and reorder them leading so the network's ``CategoricalEmbedding`` can index them.
 
         ``cat_features`` arrives via ``fit_params`` (popped so it never reaches Lightning). For each named column present in X, build a
@@ -53,12 +53,29 @@ class _FitPrepMixin:
         knob is off (the strategy's CatBoostEncoder path then handles cats upstream). Runs BEFORE ``_validate_no_nan_inf`` so the validator
         (which rejects object dtype) sees a pure-numeric frame. Mirrors the eval_set handling for the val frame.
         """
+        cats = fit_params.pop("cat_features", None)
+
+        if is_partial_fit and getattr(self, "_cat_code_maps_", None) is not None:
+            # The CategoricalEmbedding table's cardinality was frozen at the initial fit() call; a fresh
+            # pd.factorize() over just THIS batch would assign codes by this batch's own value order
+            # (e.g. "red" -> 0 here, "red" -> 2 in the initial fit), desyncing every subsequent forward
+            # pass from the embedding table it was actually trained against. Replay the frozen mapping
+            # instead of rebuilding it.
+            X = self._apply_cat_codes(X)
+            if eval_set is not None:
+                _is_list = isinstance(eval_set, list) and len(eval_set) > 0
+                _ev = eval_set[0] if _is_list else eval_set
+                if isinstance(_ev, tuple) and len(_ev) >= 1 and _ev[0] is not None and hasattr(_ev[0], "columns"):
+                    _ev_X = self._apply_cat_codes(_ev[0])
+                    _ev_new = (_ev_X, *tuple(_ev[1:]))
+                    eval_set = ([_ev_new, *list(eval_set[1:])]) if _is_list else _ev_new
+            return X, eval_set
+
         self._cat_code_maps_ = None
         self._cat_cols_ = None
         self._cat_cardinalities_ = None
         self._n_cat_features_ = 0
 
-        cats = fit_params.pop("cat_features", None)
         if not getattr(self, "use_learnable_cat_embeddings", True):
             return X, eval_set
         if not hasattr(X, "columns"):

@@ -28,9 +28,34 @@ import pytest
 
 pytest.importorskip("pandas")
 
-os.environ.setdefault("NUMBA_DISABLE_CUDA", "1")
+# NUMBA_DISABLE_CUDA is intentionally NOT force-set here (a restore-after-module fixture used to
+# set-then-restore it alongside the other two vars below). numba reads NUMBA_DISABLE_CUDA once into
+# an internal config cache the first time anything touches numba.cuda.is_available() in the process
+# and never re-checks the live env var afterward -- a later-restore fixture puts the env var back
+# correctly but cannot undo numba's own cache, which stays poisoned for the rest of this
+# pytest-xdist worker regardless (see the identical bug, and this exact fix, in
+# tests/feature_selection/fe/adaptive/test_fe_rung_schedule.py). CUDA_VISIBLE_DEVICES does not have
+# this problem -- mlframe's own gpu_globally_disabled() re-reads it live via os.environ.get() on
+# every call, with no caching -- so it alone is sufficient to force this fit onto CPU; CI runners
+# also have no GPU anyway.
+_PRIOR_CUDA_ENV = {k: os.environ.get(k) for k in ("CUDA_VISIBLE_DEVICES", "MLFRAME_DISABLE_HNSW")}
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 os.environ.setdefault("MLFRAME_DISABLE_HNSW", "1")
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _restore_cuda_env_after_module():
+    """Undo this module's CUDA-disable env overrides once its own tests finish -- an unrestored
+    module-level setdefault poisons every later test in the same pytest-xdist worker (see the
+    identical bug fixed in test_biz_val_hybrid_cooccur_clusterrep.py, which caused a ~13-test
+    GPU-dispatch failure cluster in a completely different worker)."""
+    yield
+    for _k, _v in _PRIOR_CUDA_ENV.items():
+        if _v is None:
+            os.environ.pop(_k, None)
+        else:
+            os.environ[_k] = _v
+
 
 _TD = os.path.dirname(os.path.abspath(__file__))
 if _TD not in sys.path:
@@ -40,7 +65,7 @@ from tests.feature_selection._mrmr_realistic_data import make_realistic_case
 from mlframe.feature_selection.filters.mrmr import MRMR
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_smooth_interaction_fallback_not_suppressed_by_dropped_composite():
     """s319: the bilinear ``a*b`` operands must survive the empty-raw fallback even when the
     ``mul(a,b)`` composite that captures them is dropped from the output."""

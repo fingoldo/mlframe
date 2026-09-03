@@ -10,14 +10,21 @@ removes the leave-one-out blind spot. Pruning by Shapley~=0 is therefore stable 
 
 Cost model: the permutation estimator evaluates ``n_permutations * n_models`` coalition marginals, each
 an ``O(n_rows)`` blend + ``score_fn`` call (AUC's sort dominates at large ``n_rows`` -- use
-``score_subsample`` to cap it). Guidance: ``n_permutations >= 10 * n_models`` for stable per-model stderr.
+``score_subsample`` to cap it). Guidance: ``n_permutations >= 10 * n_models`` for stable per-model values.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Callable, Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
+
+# Reproducibility by default: see the `rng is None` branch below for why this is a fixed value
+# rather than OS entropy.
+_DEFAULT_SHAPLEY_SEED = 0
 
 
 def _default_score_fn(y: np.ndarray, blended: np.ndarray) -> float:
@@ -81,7 +88,14 @@ def shapley_model_values(
     scores on large pools; document to callers that this trades a small amount of estimate variance for
     speed. ``None`` disables subsampling.
 
-    Returns ``(values, info)`` with ``info`` holding ``stderr`` (per-model, two-branch running stats),
+    Returns ``(values, info)`` with ``info`` holding ``stderr`` -- which is an ANALYTIC PROXY,
+    ``|value| / sqrt(n_permutations)``, and NOT a sampled standard error despite the name. It was documented as
+    "per-model, two-branch running stats", which it has never been. The distinction matters for the obvious use:
+    because the proxy is proportional to ``|value|``, every model's ``value / stderr`` ratio is exactly
+    ``sqrt(n_permutations)`` regardless of how noisy that model's marginal contributions actually were, so a
+    "keep it if the value exceeds 2 stderr" pruning rule either keeps everything or keeps nothing and can never
+    discriminate between a stable contributor and a lucky one. Use it as a scale hint only; for a real
+    significance test, resample the permutations and take the spread of the resulting values.
     ``n_evals``, ``v_full``, ``v_empty``.
     """
     preds = np.ascontiguousarray(preds, dtype=np.float64)
@@ -89,8 +103,27 @@ def shapley_model_values(
     n_models, n_rows = preds.shape
     if score_fn is None:
         score_fn = _default_score_fn
+        # _default_score_fn silently falls back to negative-RMSE (treating y as continuous) for any
+        # cardinality != 2 -- including a degenerate single-class y (RMSE against a constant target is
+        # a near-meaningless Shapley game) or an integer-coded multiclass y (RMSE on class-index labels
+        # is not a sane classification score at all). Warn ONCE here (not inside the hot score_fn path,
+        # which runs n_permutations * n_models times per call) so the caller isn't silently handed a
+        # degenerate/wrong-metric Shapley decomposition.
+        _card = len(np.unique(y))
+        if _card != 2:
+            logger.warning(
+                "shapley_model_values: default score_fn falling back to negative-RMSE (treating y as "
+                "continuous) -- y has cardinality %d, not the binary case fast_roc_auc handles. Pass an "
+                "explicit score_fn for single-class or multiclass targets if this is not intended.",
+                _card,
+            )
     if rng is None:
-        rng = np.random.default_rng()
+        # A FIXED default seed, not OS entropy. With `rng=None` both the coalition permutation order and the
+        # `score_subsample` row draw differed run to run, so two calls on identical inputs returned different
+        # Shapley values -- and anything downstream that prunes the pool on those values inherited the
+        # irreproducibility. A caller who wants fresh randomness passes their own generator, which is explicit;
+        # a caller who passes nothing almost always wants the same answer twice.
+        rng = np.random.default_rng(_DEFAULT_SHAPLEY_SEED)
 
     if score_subsample is not None and n_rows > score_subsample:
         sub_idx = rng.choice(n_rows, size=score_subsample, replace=False)
@@ -104,26 +137,35 @@ def shapley_model_values(
     v_full = float(score_fn(y_scored, preds_scored.mean(axis=0) if coalition_blend == "mean" else _blend(preds_scored, np.arange(n_models), coalition_blend)))
 
     if estimator == "permutation":
-        values, n_evals = _permutation_shapley(preds_scored, y_scored, score_fn, coalition_blend, n_permutations, rng)
+        values, n_evals = _permutation_shapley(preds_scored, y_scored, score_fn, coalition_blend, n_permutations, rng, v_empty)
     elif estimator == "msr_banzhaf":
+        # n_permutations here means n_coalitions (independent random coalition masks, not orderings) --
+        # see _msr_banzhaf's own signature/docstring; the public parameter name is shared across both
+        # estimator branches (see this function's docstring) and isn't renamed per-branch.
         values, n_evals = _msr_banzhaf(preds_scored, y_scored, score_fn, coalition_blend, n_permutations, rng)
     else:
         raise ValueError(f"shapley_model_values: unsupported estimator {estimator!r}, expected 'permutation' or 'msr_banzhaf'")
 
-    stderr = np.full(n_models, np.nan) if n_permutations < 2 else _bootstrap_stderr(values, n_permutations)
+    stderr = np.full(n_models, np.nan) if n_permutations < 2 else _analytic_stderr_proxy(values, n_permutations)
     info = dict(stderr=stderr, n_evals=n_evals, v_full=v_full, v_empty=v_empty)
     return values, info
 
 
-def _permutation_shapley(preds, y, score_fn, coalition_blend, n_permutations, rng):
-    """Permutation-sampling Shapley estimator with the incremental running-sum marginal trick (mean blend only)."""
+def _permutation_shapley(preds, y, score_fn, coalition_blend, n_permutations, rng, v_empty):
+    """Permutation-sampling Shapley estimator with the incremental running-sum marginal trick (mean blend only).
+
+    ``v_empty`` is the caller's already-computed empty-coalition score (``score_fn(y, zeros)``) -- every
+    permutation's first marginal step needs this exact constant, so it's passed in rather than
+    recomputed once per permutation (``n_permutations`` redundant ``score_fn`` calls, ~1/n_models of the
+    total call budget for a typical ``n_permutations >= 10 * n_models`` run).
+    """
     n_models = preds.shape[0]
     values_sum = np.zeros(n_models, dtype=np.float64)
     n_evals = 0
     for _ in range(n_permutations):
         order = rng.permutation(n_models)
         running_sum = np.zeros(preds.shape[1], dtype=np.float64)
-        v_prev = float(score_fn(y, np.zeros(preds.shape[1], dtype=np.float64)))
+        v_prev = v_empty
         for step, m in enumerate(order, start=1):
             running_sum = running_sum + preds[m]
             blended = running_sum / step if coalition_blend == "mean" else _blend(preds, order[:step], coalition_blend)
@@ -151,8 +193,8 @@ def _msr_banzhaf(preds, y, score_fn, coalition_blend, n_coalitions, rng):
     return beta, n_coalitions
 
 
-def _bootstrap_stderr(values: np.ndarray, n_permutations: int) -> np.ndarray:
-    """Cheap analytic stderr proxy: values / sqrt(n_permutations), a standard-error-of-the-mean scaling (not a true bootstrap -- documented as an approximation)."""
+def _analytic_stderr_proxy(values: np.ndarray, n_permutations: int) -> np.ndarray:
+    """Cheap analytic stderr proxy: values / sqrt(n_permutations), a standard-error-of-the-mean scaling approximation."""
     return np.asarray(np.abs(values) / np.sqrt(max(n_permutations, 1)) + 1e-12)
 
 
@@ -172,6 +214,10 @@ def shapley_blend(
     Shapley value, is pruned too). ``blended`` is the weighted mean of
     survivors (``renormalize=True`` rescales survivor weights to sum to 1).
 
+    Degenerate case (every raw Shapley value <= 0, so every clipped weight is 0): falls back to the
+    single best-valued model with weight 1.0 rather than reporting it as "selected" while silently
+    returning an all-zero ``ensemble_pred``.
+
     Returns a dict with keys ``weights`` (``(n_models,)``, zero for pruned members), ``ensemble_pred``,
     ``score`` (the blended prediction's ``score_fn`` value), ``selected`` / ``selected_indices`` (both
     provided -- ``selected_indices`` matches :func:`mlframe.votenrank.hill_climb.hill_climb_ensemble`'s
@@ -189,14 +235,22 @@ def shapley_blend(
     total = weights.sum()
     threshold = prune_below * total
     keep_mask = weights > threshold
-    if not np.any(keep_mask):
+    degenerate = not np.any(keep_mask)
+    if degenerate:
         # Degenerate: nothing cleared the threshold -- fall back to the single best model rather than
         # returning an empty, unusable ensemble.
         keep_mask = np.zeros(n_models, dtype=bool)
         keep_mask[int(np.argmax(values))] = True
 
     survivor_weights = weights * keep_mask
-    if renormalize and survivor_weights.sum() > 0:
+    if degenerate:
+        # The fallback model's CLIPPED weight is 0 whenever its raw Shapley value is <= 0 (the only
+        # case that reaches this branch when prune_below=0.0), which would otherwise silently produce
+        # an all-zero ensemble_pred while still reporting the model as "selected" -- a misleadingly
+        # valid-looking result for what is actually a degenerate case. Give the sole fallback survivor
+        # full weight so ensemble_pred is that model's own (real) predictions.
+        survivor_weights[keep_mask] = 1.0
+    elif renormalize and survivor_weights.sum() > 0:
         survivor_weights = survivor_weights / survivor_weights.sum()
 
     ensemble_pred = np.zeros(preds.shape[1], dtype=np.float64)

@@ -19,6 +19,31 @@ from ..configs import TargetTypes as _TargetTypes
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
 
 
+# Weight schemas whose whole point is to down-weight older rows. On a temporal split these SUPERSEDE uniform
+# weighting rather than complementing it, so fitting both doubles the wall time to compare a model against one
+# built on an assumption the data has already contradicted.
+_RECENCY_SCHEMA_NAMES: frozenset = frozenset({"recency", "recency_weights", "time_decay", "exponential_decay"})
+
+
+def _drop_uniform_on_temporal_data(weight_schemas: dict, ctx: Any) -> tuple:
+    """``(schemas, dropped)`` -- uniform removed when the data is temporal and a recency schema is present.
+
+    Returns the input untouched when there is no time axis, when no recency schema was offered, or when the
+    caller opted out via ``behavior_config.temporal_recency_only_weighting=False``.
+    """
+    if "uniform" not in weight_schemas:
+        return weight_schemas, False
+    if not any(name in _RECENCY_SCHEMA_NAMES for name in weight_schemas):
+        return weight_schemas, False
+    behavior = getattr(ctx, "behavior_config", None)
+    if not bool(getattr(behavior, "temporal_recency_only_weighting", True)):
+        return weight_schemas, False
+    timestamps = getattr(ctx, "timestamps", None)
+    if timestamps is None or getattr(timestamps, "size", len(timestamps) if hasattr(timestamps, "__len__") else 0) == 0:
+        return weight_schemas, False
+    return {k: v for k, v in weight_schemas.items() if k != "uniform"}, True
+
+
 def _resolve_weight_schemas_and_warn_val_placement(
     sample_weights: Any,
     split_config: Any,
@@ -32,8 +57,16 @@ def _resolve_weight_schemas_and_warn_val_placement(
     """
     if sample_weights:
         weight_schemas = sample_weights
+        weight_schemas, _dropped_uniform = _drop_uniform_on_temporal_data(weight_schemas, ctx)
+        if _dropped_uniform and not ctx._sw_log_emitted:
+            logger.info(
+                "Dropping the 'uniform' weighting schema: this split has a time axis and a recency schema is "
+                "present, which supersedes uniform rather than complementing it -- fitting both doubles the wall "
+                "time to produce a model built on an assumption the data already contradicts. Set "
+                "behavior_config.temporal_recency_only_weighting=False to fit both.",
+            )
         if not ctx._sw_log_emitted:
-            if "uniform" in sample_weights:
+            if "uniform" in weight_schemas:
                 logger.info("Using %d weighting schema(s) from extractor: %s", len(weight_schemas), list(weight_schemas.keys()))
             else:
                 logger.info("Using %d weighting schema(s) from extractor: %s. Note: uniform weighting not included.", len(weight_schemas), list(weight_schemas.keys()))

@@ -129,7 +129,7 @@ class _Tabular1DCNNClassifierModule(nn.Module):
         return out
 
 
-class Tabular1DCNNRegressor(BaseEstimator, RegressorMixin):
+class Tabular1DCNNRegressor(RegressorMixin, BaseEstimator):
     """sklearn-compatible regressor: reorders features by correlation, then fits a small 1D-CNN over them.
 
     Parameters
@@ -188,7 +188,7 @@ class Tabular1DCNNRegressor(BaseEstimator, RegressorMixin):
         return np.asarray(preds.numpy())
 
 
-class Tabular1DCNNClassifier(BaseEstimator, ClassifierMixin):
+class Tabular1DCNNClassifier(ClassifierMixin, BaseEstimator):
     """sklearn-compatible classifier counterpart of ``Tabular1DCNNRegressor``.
 
     Same correlation-ordered 1D-CNN backbone (:func:`correlation_order_features` +

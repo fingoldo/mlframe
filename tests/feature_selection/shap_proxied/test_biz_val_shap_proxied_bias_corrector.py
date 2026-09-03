@@ -10,6 +10,15 @@ win only surfaces under a constrained reval budget + heavy proxy card/redundancy
 infeasible to floor in the test budget). Bucketed NEEDS-DEEPER-BENCH in the B7 audit report. This test
 pins the engage-and-record contract + the no-regression guarantee so a regression that silently
 disables the corrector trips.
+
+``_frame``'s n was bumped 1000->2500 (2026-08-21): CI (py3.12/3.13 shards, not reproducible on
+local py3.14 -- library-version-dependent SHAP attribution) intermittently landed the pure-noise
+``decoy`` column in the 4th (of 4) selected slot instead of a genuine noise column, failing
+``test_biz_val_bias_corrector_preserves_recovery``. ``decoy`` and the 8 ``n{i}`` columns are all
+pure noise wrt y by construction, so at n=1000 finite-sample correlation noise can occasionally
+make decoy look spuriously informative to BOTH the proxy and the honest evaluation -- not a
+corrector bug, just small-sample variance in the synthetic. More rows shrinks that noise floor
+without changing what the fixture is testing.
 """
 
 from __future__ import annotations
@@ -22,7 +31,7 @@ pytest.importorskip("shap")
 pytest.importorskip("xgboost")
 
 
-def _frame(seed=0, n=1000):
+def _frame(seed=0, n=2500):
     """Helper that frame."""
     rng = np.random.default_rng(seed)
     xi = rng.normal(size=(n, 3))
@@ -73,4 +82,4 @@ def test_biz_val_bias_corrector_preserves_recovery():
     sel = _fit(True)
     selected = {str(c) for c in sel.selected_features_}
     assert {"inf0", "inf1", "inf2"} <= selected, f"corrector-on must keep the 3 informative cols; got {selected}"
-    assert "decoy" not in selected
+    assert "decoy" not in selected, f"corrector should de-bias decoy's SHAP over-crediting out of the 4th slot; got {selected}"

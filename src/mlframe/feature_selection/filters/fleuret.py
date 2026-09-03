@@ -296,6 +296,16 @@ def get_fleuret_criteria_confidence(
             for idx in x:
                 _lcg_state = np.uint64(_fleuret_shuffle_col_lcg(data_copy[:, idx], _lcg_state))
 
+        # np.array(...), not the raw list: evaluate_gain is @njit and a plain Python list slipping
+        # through gets numba's "reflected list" typing, which breaks on any ndarray-only method the
+        # kernel calls (e.g. `.astype()`) -- see the identical conversion + rationale at evaluate_gain's
+        # other call site in evaluation.py. Hoisted out of the call's kwargs (rather than an inline
+        # ternary there) because this function is itself @njit -- numba's bytecode interpreter rejects
+        # a conditional expression inlined into a many-kwarg CALL_FUNCTION_EX call.
+        if len(selected_vars) > 0:
+            selected_vars_arr = np.array(selected_vars, dtype=np.int64)
+        else:
+            selected_vars_arr = np.empty(0, dtype=np.int64)
         _stopped_early, current_gain, _k, _sink_reasons = evaluate_gain(
             current_gain=LARGE_CONST,
             last_checked_k=-1,
@@ -304,7 +314,7 @@ def get_fleuret_criteria_confidence(
             best_gain=None,
             factors_data=data_copy,
             factors_nbins=factors_nbins,
-            selected_vars=selected_vars,
+            selected_vars=selected_vars_arr,
             nexisting=nexisting,
             direct_gain=bootstrapped_gain,
             mrmr_relevance_algo=mrmr_relevance_algo,

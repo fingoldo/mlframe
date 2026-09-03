@@ -114,6 +114,11 @@ def compare_cv_schemes(
                     candidate_fold_scores=best_gain,
                     change_source="feature_engineering",
                     alpha=significance_alpha,
+                    # The winner was SELECTED as the argmin over every scheme on these same folds, then tested
+                    # against each runner-up at the nominal alpha. Under a true null -- all schemes equally
+                    # good -- the probability that a post-hoc winner clears all of them is far above alpha, so
+                    # ``best_scheme_significant=True`` came back for pure fold noise. Correct for the family.
+                    n_comparisons=len(other_names),
                 )
                 significance[other] = triage
                 if not (triage["actionable"] and triage["delta"] > 0):

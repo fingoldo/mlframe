@@ -60,7 +60,7 @@ def _bare(nm):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_case1_clean_elementary_cd_form_recovered_with_gate_on():
     """CASE1: with conditional_gate ON (default) the clean (c,d) elementary form competes and wins."""
     from mlframe.feature_selection.filters.mrmr import MRMR
@@ -92,7 +92,7 @@ def test_case1_clean_elementary_cd_form_recovered_with_gate_on():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_case2_warped_cd_interaction_still_captured_with_gate_on():
     """CASE2: the gate genuinely helps -- the warped (c,d) interaction is captured (via the gate)
     and carries materially more MI than either raw operand alone."""

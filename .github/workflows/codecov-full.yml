@@ -1,0 +1,185 @@
+name: codecov-full
+
+# ci.yml's "codecov" badge and numba-coverage.yml's "codecov-numba" badge measure overlapping,
+# not disjoint, slices of the same codebase (ci.yml runs the whole suite under normal JIT, where
+# every @njit body is invisible to coverage.py; numba-coverage.yml re-runs a NARROWER subset --
+# feature_engineering/feature_selection/metrics/training, minus biz_val -- under
+# NUMBA_DISABLE_JIT=1 specifically to see inside those bodies). Their percentages cannot be added
+# together to get a combined figure. This job computes the real thing: downloads both jobs' raw
+# per-shard `.coverage` data files (18 total: ci.yml's 10 + numba-coverage.yml's 8), merges them
+# with `coverage combine` (a line counts as covered if EITHER run executed it), and uploads the
+# result to Codecov under its own `combined` flag -- the `codecov-full` badge.
+#
+# Auto-fires on completion of numba-coverage-nightly (chaining CI -> numba-coverage-nightly ->
+# this job). This job carries CODECOV_TOKEN, so the workflow_run trigger is gated (job-level
+# `if:`, not just the `on:` filter) on conclusion == 'success' AND event in ('push',
+# 'workflow_run') -- github.event.workflow_run.event here reflects what triggered
+# numba-coverage-nightly ITSELF, which is 'workflow_run' when IT was chain-triggered off CI (the
+# common case) and 'push' only on its schedule/dispatch fallback legs (which don't set this field
+# at all, hence the event_name != 'workflow_run' escape hatch above). numba-coverage-nightly's
+# OWN trigger already carries the identical event=='push' mitigation one level up (see that
+# file), so by the time IT completes and fires this job, the chain has already been vetted back
+# to a real push -- allowing 'workflow_run' here doesn't reopen the fork-PR hole, it just trusts
+# the already-verified upstream link instead of re-deriving it (which the 'event' field can't do
+# past one hop anyway). Neither value can be forged by an external fork PR (GitHub sets this
+# field server-side from what actually triggered the upstream workflow). Mirrors the identical
+# mitigation class on numba-coverage.yml's own workflow_run trigger (see that file + zizmor.yml's
+# dangerous-triggers ignore comment for the fuller writeup). The daily cron stays as a fallback.
+#
+# Falls back to the latest successful ci.yml run on master for the OTHER side's data, which need
+# not be the exact same commit as the nightly's -- acceptable drift for a coverage trend badge,
+# not a per-commit gate.
+
+on:
+  schedule:
+    - cron: "0 10 * * *"
+  workflow_run:
+    workflows: ["numba-coverage-nightly"]
+    branches: [master]
+    types: [completed]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  merge-and-upload:
+    name: Merge ci.yml + numba-coverage.yml raw coverage, upload combined flag
+    runs-on: ubuntu-latest
+    # workflow_run fires on EVERY completion of numba-coverage-nightly regardless of outcome --
+    # only chain off a genuinely green run that itself came from an already-vetted trigger
+    # (see the on: block comment above for why 'workflow_run' is accepted here, not just 'push').
+    if: |
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       contains(fromJSON('["push", "workflow_run"]'), github.event.workflow_run.event))
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v6.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Install coverage
+        run: pip install "coverage[toml]>=7.0"
+
+      - name: Find the latest completed numba-coverage-nightly run with real data
+        id: find_numba_run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # The single most-recent "completed" run (any conclusion) can be one that got
+          # cancelled (e.g. a rapid follow-up push's cancel-in-progress) before any shard reached
+          # its raw-coverage upload step -- still "completed", but zero matching artifacts.
+          # Confirmed live: codecov-full run 32923232739 picked exactly such a run (32910618774,
+          # conclusion "cancelled") and failed with "No raw coverage data downloaded". Walk back
+          # through the last 10 completed runs and pick the first that actually has a
+          # raw-coverage-numba-* artifact, instead of trusting "latest" blindly.
+          run_id=""
+          for candidate in $(gh run list --repo "${{ github.repository }}" --workflow numba-coverage.yml \
+              --status completed --limit 10 --json databaseId --jq '.[].databaseId'); do
+            count=$(gh api "repos/${{ github.repository }}/actions/runs/$candidate/artifacts" \
+              --jq '[.artifacts[] | select(.name | startswith("raw-coverage-numba-"))] | length')
+            if [ "$count" -gt 0 ]; then
+              run_id="$candidate"
+              echo "Using run $run_id ($count raw-coverage-numba-* artifact(s))"
+              break
+            fi
+            echo "Skipping run $candidate (0 raw-coverage-numba-* artifacts)"
+          done
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          if [ -z "$run_id" ]; then
+            echo "No completed numba-coverage-nightly run with real data found in the last 10 runs."
+          fi
+
+      - name: Download numba-coverage-nightly's raw shard data
+        if: steps.find_numba_run.outputs.run_id != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          pattern: raw-coverage-numba-*
+          path: raw-coverage
+          # NOT merge-multiple -- every shard's artifact contains a file with the SAME name
+          # (`.coverage`), so a flattened merge would let each downloaded shard overwrite the
+          # last, silently combining only 1 of 18. False keeps one subdirectory per artifact.
+          merge-multiple: false
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ steps.find_numba_run.outputs.run_id }}
+          repository: ${{ github.repository }}
+
+      - name: Find the latest completed ci.yml run on master with real data
+        id: find_ci_run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # `--status success` requires the WHOLE 66-job matrix run to conclude success, which
+          # with a matrix this wide practically never happens even when most/all shards' own
+          # coverage data is fine -- that made this step find zero runs and silently combine 0
+          # ci.yml shards every time. `--status completed` (any conclusion) is the right filter,
+          # but the single most-recent completed run can be one that got CANCELLED (e.g. a rapid
+          # follow-up push's cancel-in-progress) before any python-3.11 shard reached its
+          # raw-coverage upload step -- still "completed", zero matching artifacts. Confirmed
+          # live: codecov-full run 32923232739 picked exactly such a run (32910618774, conclusion
+          # "cancelled"). Walk back through the last 10 completed runs and pick the first that
+          # actually has a raw-coverage-ci-* artifact.
+          run_id=""
+          for candidate in $(gh run list --repo "${{ github.repository }}" --workflow ci.yml --branch master \
+              --status completed --limit 10 --json databaseId --jq '.[].databaseId'); do
+            count=$(gh api "repos/${{ github.repository }}/actions/runs/$candidate/artifacts" \
+              --jq '[.artifacts[] | select(.name | startswith("raw-coverage-ci-"))] | length')
+            if [ "$count" -gt 0 ]; then
+              run_id="$candidate"
+              echo "Using run $run_id ($count raw-coverage-ci-* artifact(s))"
+              break
+            fi
+            echo "Skipping run $candidate (0 raw-coverage-ci-* artifacts)"
+          done
+          if [ -z "$run_id" ]; then
+            echo "No completed ci.yml run with real data found in the last 10 runs -- skipping the combined upload this time."
+            echo "run_id=" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download ci.yml's raw shard data
+        if: steps.find_ci_run.outputs.run_id != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          pattern: raw-coverage-ci-*
+          path: raw-coverage
+          merge-multiple: false
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ steps.find_ci_run.outputs.run_id }}
+          repository: ${{ github.repository }}
+
+      - name: Combine and render the merged report
+        run: |
+          find raw-coverage -name '.coverage' | sort
+          # Every shard's downloaded file is literally named `.coverage` (one per subdirectory,
+          # see the merge-multiple note above) -- rename each into one flat directory as
+          # `.coverage.shardN` so `coverage combine` (which scans a directory for `.coverage`/
+          # `.coverage.*` data files) sees all 18 as distinct inputs instead of 1.
+          mkdir -p combined_input
+          i=0
+          while IFS= read -r -d '' f; do
+            i=$((i + 1))
+            cp "$f" "combined_input/.coverage.shard$i"
+          done < <(find raw-coverage -name '.coverage' -print0)
+          if [ "$i" -eq 0 ]; then
+            echo "No raw coverage data downloaded from either workflow -- nothing to combine."
+            exit 1
+          fi
+          echo "Combining $i shard coverage files"
+          coverage combine combined_input
+          coverage xml -o coverage-full.xml
+          coverage report
+
+      - name: Upload combined coverage to Codecov
+        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@f50288e5a6f5b7f972efb60f948ce6184c8e9e70  # v1.3.4
+        with:
+          files: ./coverage-full.xml
+          flags: combined
+          token: ${{ secrets.CODECOV_TOKEN }}

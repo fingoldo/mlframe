@@ -45,6 +45,23 @@ def test_exploration_scores_nonempty_unchanged():
     np.testing.assert_array_equal(distances, np.abs(search_space - 5))
 
 
+def test_exploration_scores_duplicate_search_space_values_use_first_occurrence():
+    """MODELS-13: a {value: index} dict silently collapses duplicate search_space values to the LAST
+    occurrence's index, giving wrong distances for earlier duplicates. A single known candidate landing on a
+    duplicate group can't distinguish this (every duplicate index maps to the same value, so abs-distance is
+    invariant to which one is picked) -- this needs a SECOND known candidate whose midpoint/boundary
+    computation depends on the (wrong) duplicate index. With search_space=[0,1,1,1,2,3,4,5] and known
+    candidates at values [1, 4]: the correct (leftmost) index for value=1 is 1, giving distances[3]=3
+    (search_space[3]=1 is |1-1|=0 from the left-half boundary but the RIGHT half starting at m=(1+6)//2=3
+    covers index 3..5 measured from index 6's value=4, i.e. |1-4|=3). The pre-fix dict-based lookup instead
+    resolved value=1 to index 3 (the LAST duplicate), shifting the midpoint to m=(3+6)//2=4 and wrongly
+    giving distances[3]=0."""
+    search_space = np.array([0, 1, 1, 1, 2, 3, 4, 5])
+    distances = compute_candidates_exploration_scores(search_space=search_space, known_candidates=[1, 4])
+    expected = np.array([1, 0, 0, 3, 2, 1, 0, 1])
+    np.testing.assert_array_equal(distances, expected)
+
+
 def test_suggest_candidate_empty_known_evaluations_returns_not_ready():
     # Inconsistent state (candidates present, evaluations empty) must not IndexError on known_evaluations[0].
     # Post-API23 the transient "surrogate not yet trainable" case returns the NOT_READY sentinel (NOT None),

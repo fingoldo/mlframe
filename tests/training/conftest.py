@@ -168,15 +168,32 @@ def _prewarm_numba_once():
     if is_xdist_coordinator:
         yield
         return
-    try:
-        from mlframe.metrics.core import prewarm_numba_cache
+    # Run on a daemon thread with a bounded join instead of calling directly: a pathological
+    # LLVM optimizer stall inside one njit(parallel=True) compile (observed on py3.9/ubuntu-latest
+    # CI -- LLVMPY_RunPassManager not returning within pytest-timeout's window) is a blocking C
+    # call that pytest-timeout's thread-interrupt cannot actually unstick, so every later test in
+    # that worker inherits the same wedged state and fails identically. A bounded join lets the
+    # fixture give up and let tests proceed (paying the cold-compile cost on first real use
+    # instead) rather than wedging the whole session; the stuck compile thread is abandoned
+    # (daemon=True) rather than joined indefinitely.
+    import threading
 
-        prewarm_numba_cache()
-    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-        pass
+    def _prewarm() -> None:
+        """Run the real prewarm on the watchdog thread, swallowing any failure (best-effort warmup)."""
+        try:
+            from mlframe.metrics.core import prewarm_numba_cache
+
+            prewarm_numba_cache()
+        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
+            pass
+
+    _t = threading.Thread(target=_prewarm, daemon=True)
+    _t.start()
+    _t.join(timeout=180)
     yield
 
 
+_SESSION_FIXTURE_LEAKS: list = []
 _SESSION_FIXTURE_SHAPES: dict[str, tuple] = {}
 _SESSION_FIXTURE_REFS: dict[str, object] = {}
 
@@ -211,6 +228,10 @@ def _session_fixture_immutability_sensor():
             "[session-fixture-immutability-sensor] Tests should .copy() before mutating. "
             "See tests/training/conftest.py docstrings on sample_regression_data / sample_classification_data.\n"
         )
+        if os.environ.get("MLFRAME_ALLOW_SESSION_FIXTURE_MUTATION", "").strip().lower() not in ("1", "true", "on", "yes"):
+            # Recorded for `pytest_sessionfinish` rather than raised here: a raise in a session-fixture teardown
+            # is reported as an ERROR that some schedulers swallow, so the exit status is set explicitly instead.
+            _SESSION_FIXTURE_LEAKS.extend(leaked)
 
 
 def _df_shape_signature(df) -> tuple:
@@ -445,10 +466,35 @@ def common_init_params():
     Returns a typed ReportingConfig (was a dict pre-2026-04-27). Tests that
     use this fixture should pass it as ``reporting_config=common_init_params``,
     not as the deleted ``init_common_params=`` legacy kwarg.
+
+    ``show_perf_chart=False, show_fi=False`` only gate the per-model report + FI plot --
+    ``render_post_fit_diagnostics`` (PDP/ICE, SHAP, interaction-strength, category/class-structure charts,
+    slice_finder, decision_curve, calibration_drift, target_acf, model_comparison) and the per-target
+    ``render_target_drift_diagnostics`` (adversarial_validation -- its own cross-validated classifier fit,
+    independent of the model(s) under test) still fired regardless, unrelated to what these 15+ consuming
+    test files actually assert on (none reads ``metadata["charts"]`` diagnostic content -- confirmed one
+    file, test_core_coverage.py, had already independently discovered and monkeypatched around the
+    adversarial_validation cost specifically). Profiled 2026-08-16 on test_catboost_trains_on_mixed_dtypes:
+    this exact flag set cut it 825s -> 412s. pdp_ice is left enabled (batched-predict fix landed the same
+    day, so it's no longer the dominant cost) in case any consuming test's own local override still wants it.
     """
     from mlframe.training.configs import ReportingConfig
 
-    return ReportingConfig(show_perf_chart=False, show_fi=False)
+    return ReportingConfig(
+        show_perf_chart=False,
+        show_fi=False,
+        adversarial_validation=False,
+        interaction_strength_charts=False,
+        engineered_separability_charts=False,
+        class_structure_charts=False,
+        category_discriminability_charts=False,
+        slice_finder=False,
+        shap_panels=False,
+        decision_curve=False,
+        calibration_drift=False,
+        target_acf=False,
+        model_comparison=False,
+    )
 
 
 @pytest.fixture(scope="session")
@@ -579,3 +625,23 @@ def trained_suite_multi_target(sample_regression_data, common_init_params, fast_
         },
     )
     return suite
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Fail the run when a session-scope DataFrame fixture was mutated in place.
+
+    The sensor above records the leaks; failing here rather than raising in its teardown means the signal
+    survives xdist, where a fixture-teardown error is attributed to a worker and can be lost.
+    """
+    if not _SESSION_FIXTURE_LEAKS:
+        return
+    session.exitstatus = 1
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if reporter is not None:
+        reporter.write_line("")
+        reporter.write_line(
+            "SESSION-FIXTURE MUTATION: " + "; ".join(f"{name}: {before} -> {after}" for name, before, after in _SESSION_FIXTURE_LEAKS),
+            red=True,
+            bold=True,
+        )
+        reporter.write_line("Copy before mutating a session-scope fixture; every later consumer sees the change.", red=True)

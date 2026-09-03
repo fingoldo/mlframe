@@ -8,12 +8,19 @@ pattern to an arbitrary horizon list in one call, complementing the existing lea
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
 
 from mlframe.feature_engineering.as_of_aggregate import leakage_safe_aggregate
+
+# Loss-of-significance threshold for the upper-minus-lower windowed-sum/count derivation: when a horizon's
+# window is a small fraction of an entity's total history span, `upper` (cumulative-to-cutoff) and `lower`
+# (cumulative-to-window-start) can both be large and nearly equal, so their difference (the actual windowed
+# aggregate) can lose most of its significant digits to catastrophic cancellation. Flag rows where the
+# difference is smaller than this fraction of the larger operand and recompute those cells directly.
+_CANCELLATION_REL_TOL: float = 1e-9
 
 
 def multi_window_aggregate(
@@ -97,7 +104,11 @@ def multi_window_aggregate(
                 colname = f"{col}_{fn}"
                 windowed_name = f"{colname}_last_{horizon}"
                 if fn in ("sum", "count"):
-                    out[windowed_name] = (upper[colname].fillna(0.0) - lower[colname].fillna(0.0)).to_numpy()
+                    upper_vals = upper[colname].fillna(0.0).to_numpy()
+                    lower_vals = lower[colname].fillna(0.0).to_numpy()
+                    out[windowed_name] = _cancellation_safe_diff(
+                        upper_vals, lower_vals, history_df, entity_col, time_col, query, query_entity_col, horizon, col, fn
+                    )
                 elif fn == "mean":
                     upper_sum = upper.get(f"{col}_sum")
                     upper_count = upper.get(f"{col}_count")
@@ -105,8 +116,14 @@ def multi_window_aggregate(
                         raise ValueError(f"multi_window_aggregate: computing windowed 'mean' for {col!r} requires 'sum' and 'count' also in agg_funcs[{col!r}]")
                     lower_sum = lower.get(f"{col}_sum")
                     lower_count = lower.get(f"{col}_count")
-                    win_sum = upper_sum.fillna(0.0) - lower_sum.fillna(0.0)
-                    win_count = upper_count.fillna(0.0) - lower_count.fillna(0.0)
+                    win_sum = _cancellation_safe_diff(
+                        upper_sum.fillna(0.0).to_numpy(), lower_sum.fillna(0.0).to_numpy(),
+                        history_df, entity_col, time_col, query, query_entity_col, horizon, col, "sum",
+                    )
+                    win_count = _cancellation_safe_diff(
+                        upper_count.fillna(0.0).to_numpy(), lower_count.fillna(0.0).to_numpy(),
+                        history_df, entity_col, time_col, query, query_entity_col, horizon, col, "count",
+                    )
                     with np.errstate(invalid="ignore", divide="ignore"):
                         out[windowed_name] = np.where(win_count > 0, win_sum / win_count, np.nan)
                 else:
@@ -152,19 +169,25 @@ def _select_predictive_horizons(
     correctly dropped as non-incremental, while a horizon carrying genuinely new signal is kept even if its
     standalone score is unremarkable.
     """
-    from sklearn.dummy import DummyClassifier
+    from sklearn.base import is_classifier
+    from sklearn.dummy import DummyClassifier, DummyRegressor
     from sklearn.linear_model import LogisticRegression
     from sklearn.model_selection import cross_val_score
 
     model = estimator if estimator is not None else LogisticRegression(max_iter=1000)
     y = np.asarray(target)
+    # The baseline must match the task, like the estimator does. A prior-strategy CLASSIFIER scored against a
+    # continuous target with scoring="r2" does not raise -- it returns a large negative number (about -8.6 on a
+    # standard-normal target), so every candidate horizon cleared ``min_lift`` by roughly that margin regardless
+    # of whether it carried any signal, and the reported lift was that same meaningless offset.
+    dummy = DummyClassifier(strategy="prior") if is_classifier(model) else DummyRegressor(strategy="mean")
 
     def _score(cols: List[str]) -> float:
         """Cross-validate model against target using only cols, falling back to a no-feature baseline when empty."""
         if not cols:
             # no-feature baseline: a constant/majority predictor, the real floor a horizon must beat.
             X_dummy = np.zeros((len(y), 1))
-            return float(np.mean(cross_val_score(DummyClassifier(strategy="prior"), X_dummy, y, cv=cv, scoring=scoring)))
+            return float(np.mean(cross_val_score(dummy, X_dummy, y, cv=cv, scoring=scoring)))
         X = out[cols].fillna(0.0)
         return float(np.mean(cross_val_score(model, X, y, cv=cv, scoring=scoring)))
 
@@ -184,13 +207,77 @@ def _select_predictive_horizons(
     return kept_horizons, lifts
 
 
-def _direct_window_agg(
-    history_df: pd.DataFrame, entity_col: str, time_col: str, query: pd.DataFrame, query_entity_col: str, horizon: float, col: str, fn: str
+def _cancellation_safe_diff(
+    upper_vals: np.ndarray,
+    lower_vals: np.ndarray,
+    history_df: pd.DataFrame,
+    entity_col: str,
+    time_col: str,
+    query: pd.DataFrame,
+    query_entity_col: str,
+    horizon: float,
+    col: str,
+    fn: str,
 ) -> np.ndarray:
-    """Directly aggregate col over each query row's trailing horizon window from its entity's history, without caching intermediate windows."""
+    """``upper_vals - lower_vals`` (a windowed sum/count derived from two cumulative snapshots), guarded
+    against catastrophic cancellation.
+
+    When an entity's history spans far more than the requested horizon, ``upper`` (cumulative up to the
+    query cutoff) and ``lower`` (cumulative up to the window start) can both be large and nearly equal, so
+    their difference -- the actual windowed aggregate -- can lose most of its significant digits. Rows
+    where the difference is tiny relative to the larger operand are flagged and recomputed directly (exact,
+    searchsorted-scoped) via :func:`_direct_window_agg` instead of trusting the numerically-unreliable
+    subtraction; the fast subtraction path stays in effect for every other row.
+    """
+    win_vals = upper_vals - lower_vals
+    scale = np.maximum(np.abs(upper_vals), np.abs(lower_vals))
+    risky = (scale > 0) & (np.abs(win_vals) < _CANCELLATION_REL_TOL * scale)
+    if risky.any():
+        # Only the FLAGGED rows are recomputed, which is what the docstring above has always claimed. Passing
+        # the whole query made `_direct_window_agg` walk its per-entity / per-query double loop over every row
+        # to repair a handful, and a `mean` request pays that twice per horizon (once for sum, once for count),
+        # so an H-horizon call spent 2*H full O(n_queries) Python passes on rows whose fast subtraction was fine.
+        direct = _direct_window_agg(history_df, entity_col, time_col, query, query_entity_col, horizon, col, fn, rows=risky)
+        win_vals = np.where(risky, np.where(np.isnan(direct), 0.0, direct), win_vals)
+    return np.asarray(win_vals, dtype=np.float64)
+
+
+_DIRECT_AGG_REDUCTIONS: dict[str, Callable[[np.ndarray], Any]] = {
+    "sum": np.sum,
+    "count": np.size,
+    "mean": np.mean,
+    "min": np.min,
+    "max": np.max,
+    "median": np.median,
+    "std": lambda a: np.std(a, ddof=1),
+    "var": lambda a: np.var(a, ddof=1),
+}
+
+
+def _direct_window_agg(
+    history_df: pd.DataFrame,
+    entity_col: str,
+    time_col: str,
+    query: pd.DataFrame,
+    query_entity_col: str,
+    horizon: float,
+    col: str,
+    fn: str,
+    rows: Optional[np.ndarray] = None,
+) -> np.ndarray:
+    """Directly aggregate col over each query row's trailing horizon window from its entity's history, without caching intermediate windows.
+
+    ``rows`` is an optional boolean mask over ``query``; when given, only those rows are computed and the rest
+    are left NaN. The sole caller repairs a handful of cancellation-prone rows, so walking the whole frame was
+    wasted work.
+    """
+    reduce_fn = _DIRECT_AGG_REDUCTIONS.get(fn)
     history_groups = {entity: grp for entity, grp in history_df.groupby(entity_col, sort=False)}
     out = np.full(len(query), np.nan)
-    for entity, entity_queries in query.groupby(entity_col, sort=False):
+    query_rows = query if rows is None else query[rows]
+    if not len(query_rows):
+        return out
+    for entity, entity_queries in query_rows.groupby(entity_col, sort=False):
         entity_history = history_groups.get(entity)
         if entity_history is None or entity_history.empty:
             continue
@@ -202,7 +289,9 @@ def _direct_window_agg(
             lo = np.searchsorted(sorted_times, cutoff - horizon, side="left")
             hi = np.searchsorted(sorted_times, cutoff, side="left")
             if hi > lo:
-                out[idx] = getattr(pd.Series(sorted_col[lo:hi]), fn)()
+                # A numpy reduction on the slice, not a per-row `pd.Series` construction inside the loop.
+                window = sorted_col[lo:hi]
+                out[idx] = reduce_fn(window) if reduce_fn is not None else getattr(pd.Series(window), fn)()
     return out
 
 

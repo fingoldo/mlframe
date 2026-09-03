@@ -161,12 +161,15 @@ def score_ensemble(
     # AUC on the OOF member preds) instead of the squared-error NNLS fit, fed into ``combine_probs`` via the same
     # ``precomputed_weights`` path. OFF by default (NNLS stays the default weight fit); takes precedence when enabled.
     use_caruana_weights: bool = False,
-    # P1-7: optional auto-drop of one member from each high-correlation pair.
-    # ``None`` preserves the observational-only default (just WARNs + stamps to _diversity);
-    # passing a float in (0, 1] activates auto-drop when any pair's |corr| exceeds the floor.
-    # The MEMBER WITH HIGHER MEAN ABSOLUTE GATE-METRIC (mae from the gate) is dropped, so the
-    # surviving member is the one closer to the median.
-    auto_drop_diversity_above: Optional[float] = None,
+    # Auto-drop one member from each high-correlation pair. The MEMBER WITH HIGHER MEAN ABSOLUTE GATE-METRIC
+    # (mae from the gate) is dropped, so the surviving one is the closer to the median.
+    #
+    # 0.99, not None: the observational-only default meant a production run WARNed that two members correlated at
+    # 0.996 and then built five aggregations of them anyway -- all four numeric flavours returned identical test
+    # AUC 0.71 and Brier 20.75%, i.e. minutes spent confirming that the mean of two equal numbers is that number.
+    # A pair above 0.99 carries no independent information; 0.95-0.98 still does, so the floor leaves genuine
+    # diversity untouched. Set None to restore the observe-and-warn behaviour.
+    auto_drop_diversity_above: Optional[float] = 0.99,
     # W16D / A3#3: when True, the simple-ensembling blends (arithm / harm / quad / qube / geo / median) consume
     # AP12-calibrated probs stamped by ``post_calibrate_model`` (``member.calibrated_val_probs`` /
     # ``calibrated_test_probs``) when available, falling back transparently to raw probs on members without the

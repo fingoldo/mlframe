@@ -18,6 +18,7 @@ import polars as pl
 
 from ..cb import _predict_with_fallback
 from ..utils import get_pandas_view_of_polars_df
+from .._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.core.predict")
@@ -144,7 +145,22 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
             from ..pipeline import sparse_df_from_spmatrix
             return sparse_df_from_spmatrix(_arr, _names, df.index)
         except Exception as e:
-            logger.debug("sparse_df_from_spmatrix failed, densifying instead: %s", e)
+            # This is the one handler in the file that changes RESOURCE behaviour rather than a value: a wide
+            # TF-IDF or one-hot output deliberately kept sparse is materialised dense, which on the frame sizes
+            # this project designs for is an OOM or a Windows paging-file failure attributed to something else
+            # entirely, with the real cause recorded only at debug. The densification is still the only way to
+            # return a frame at all, so it stays -- but it says what it is about to do, and how big.
+            _nnz = getattr(_arr, "nnz", None)
+            _dense_bytes = int(_arr.shape[0]) * int(_arr.shape[1]) * int(getattr(_arr, "dtype", np.dtype(np.float64)).itemsize)
+            logger.warning(
+                "predict pre-pipeline: sparse_df_from_spmatrix failed (%s: %s); DENSIFYING a %s sparse matrix "
+                "(nnz=%s) into roughly %.2f GB. If the process dies shortly after this line, this is why.",
+                type(e).__name__,
+                e,
+                getattr(_arr, "shape", "?"),
+                _nnz,
+                _dense_bytes / 1e9,
+            )
             _arr = _arr.toarray()
     return pd.DataFrame(_arr, columns=_names, index=df.index)
 
@@ -227,7 +243,7 @@ def _try_predict_with_pp_fallback(
 ):
     """Call ``fn(primary)`` with two fallback paths for predict-time dtype mismatches.
 
-    Wave 88 (2026-05-21): extracted from the 525-line predict_from_models per-model
+    extracted from the 525-line predict_from_models per-model
     try-block body. Logic identical to the prior nested closure; named-arg surface
     now explicit, lifetime no longer scoped to a single for-loop iteration.
 
@@ -270,6 +286,27 @@ def _try_predict_with_pp_fallback(
         # Both retry on the pre-main-pipeline frame where cat cols are strings.
         _is_encoder_mismatch = ("isnan" in _msg and "supported" in _msg) or ("'<' not supported" in _msg and "'float'" in _msg and "'str'" in _msg)
         if _is_encoder_mismatch and fallback is not None:
+            # The pre-pipeline frame only helps when it actually carries every fit-time feature.
+            # A model whose fit-time input went through the main pipeline's FE-extensions stage
+            # (e.g. row_summary_*/row_extreme_* engineered columns) has a feature_names_in_ the raw
+            # pre-pipeline frame never had -- retrying on it would just trade this TypeError for a
+            # more confusing downstream "columns are missing" ValueError deep inside sklearn. Skip
+            # the retry and let the original TypeError propagate in that case.
+            if expected_list is not None and hasattr(fallback, "columns"):
+                _fb_have_precheck = {str(c) for c in fallback.columns}
+                _fb_still_missing = [c for c in expected_list if c not in _fb_have_precheck]
+                if _fb_still_missing:
+                    logger.warning(
+                        "predict_from_models: %s.%s tripped encoder dtype mismatch (%s), but the "
+                        "pre-pipeline fallback frame is also missing %d fit-time feature(s) %s "
+                        "(likely FE-extensions-stage engineered columns); not retrying on it.",
+                        model_name,
+                        fn.__name__,
+                        _msg.splitlines()[0][:120],
+                        len(_fb_still_missing),
+                        _fb_still_missing[:5],
+                    )
+                    raise
             logger.warning(
                 "predict_from_models: %s.%s on post-pipeline "
                 "frame tripped encoder dtype mismatch (%s); "
@@ -358,7 +395,7 @@ def _apply_pre_pipeline_with_passthrough(
 ):
     """Apply ``model_obj.pre_pipeline.transform`` with text/embedding passthrough stash + feature-subset fallback.
 
-    Wave 90 (2026-05-21): extracted from the predict.py:1372 mega-try body
+    extracted from the predict.py:1372 mega-try body
     (was a 192-line nested ``if hasattr(model_obj, "pre_pipeline") ...``).
     Behaviour preserved bit-for-bit. Returns the (possibly transformed,
     possibly subsetted) input_for_model.
@@ -448,6 +485,14 @@ def _apply_pre_pipeline_with_passthrough(
 
     try:
         input_for_model = model_obj.pre_pipeline.transform(input_for_model)
+        # Mirror the fit-time GBM-safe rename (_trainer_train_and_evaluate.py's train_df/val_df/test_df
+        # sanitization right after this exact per-model pre_pipeline transform): engineered interaction
+        # names embedding JSON-structural characters (e.g. ``mul(log(f2),sin(f3))``) get remapped to an
+        # underscore form the fitted model's feature_names_ actually carries. Without this, a per-model
+        # pre_pipeline (MRMR-FS branch etc., distinct from the suite-level ``pipeline`` sanitized above)
+        # leaves predict-time columns comma-named while the model expects the sanitized names, and
+        # CatBoost's Pool build raises "should be feature with name ... (found ...)".
+        input_for_model = _sanitize_frame_columns(input_for_model)
         if _stashed_passthrough and isinstance(input_for_model, pd.DataFrame):
             # Reset the frame index ONCE before the loop -- was inside the loop,
             # so an N-column passthrough reset (copied) the whole frame N times.

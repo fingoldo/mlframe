@@ -224,6 +224,22 @@ def test_cache_evicts_oldest_when_bytes_budget_exceeded(tmp_path):
     assert recent_hits >= 1, "expected at least one recent entry to be retained"
 
 
+def test_cache_evicts_everything_when_bytes_limit_dropped_to_zero(tmp_path):
+    """TRAINING_LOOSE_C-15: _evict_lru_locked's byte-based eviction gate must treat bytes_limit=0 as a real
+    zero-byte budget (evicts everything), not 'unlimited' (never evicts by size) -- put() already refuses
+    new nonzero-size entries at bytes_limit=0, so eviction must honor the same contract for pre-existing
+    on-disk entries when the config is changed to 0."""
+    cache = SuiteArtefactCache(cache_dir=str(tmp_path), bytes_limit=10_000_000)
+    keys = [SuiteKeyBuilder.build(df_fp=f"fp{i}", config_canonical={"i": i}) for i in range(5)]
+    for k in keys:
+        cache.put(k, "x" * 1000)
+    assert cache.total_bytes() > 0, "sanity: entries were actually written"
+
+    cache.bytes_limit = 0
+    cache.evict_lru()
+    assert cache.total_bytes() == 0, f"expected every entry evicted at bytes_limit=0, got {cache.total_bytes()} bytes remaining"
+
+
 def test_cache_evicts_oldest_when_entry_cap_exceeded(tmp_path):
     """Cache evicts oldest when entry cap exceeded."""
     cache = SuiteArtefactCache(cache_dir=str(tmp_path), bytes_limit=10_000_000, max_entries=3)

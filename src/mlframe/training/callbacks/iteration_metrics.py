@@ -164,8 +164,14 @@ class CBIterationMetricsCallback:
         class column. Returns ``None`` (rather than raising) on any predict failure so a single bad round is
         skipped instead of aborting training."""
         try:
-            is_reg = "regression" in self.target_type
-            if is_reg:
+            # "regression" in target_type wrongly matches only literal regression target-type strings --
+            # any OTHER non-classification target (e.g. "learning_to_rank") falls through to
+            # predict_proba, which a ranker doesn't expose, raising AttributeError that the broad except
+            # below silently swallows (debug-only log), leaving iteration_metrics_ permanently empty.
+            # predict_proba is the one that needs an explicit allow-list, not predict: only genuine
+            # classification targets have calibrated class probabilities to collapse.
+            is_classification = self.target_type in ("binary_classification", "multiclass_classification", "multilabel_classification")
+            if not is_classification:
                 return model.predict(self.val_pool, ntree_end=ntree_end)
             proba = model.predict_proba(self.val_pool, ntree_end=ntree_end)
             proba = np.asarray(proba)

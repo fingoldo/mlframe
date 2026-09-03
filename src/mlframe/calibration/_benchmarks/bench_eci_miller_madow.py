@@ -1,6 +1,6 @@
 """Bench: plug-in Shannon entropy in entropy_calibration_index (ECI) is negatively biased, so ECI = log(bins) - H_plugin is POSITIVELY biased.
 
-Ground truth: a perfectly-calibrated model produces a UNIFORM PIT distribution. The true bin probabilities are all 1/bins, so the true entropy is log(bins) and the true ECI is exactly 0. At finite n, the plug-in entropy estimator H_hat = -sum p_i log p_i underestimates entropy (well-known negative bias ~ -(K-1)/(2N)), which inflates ECI = log(bins) - H_hat above its true value of 0 -- spuriously reporting miscalibration where there is none.
+Ground truth: a perfectly-calibrated model produces a UNIFORM PIT distribution. The true bin probabilities are all 1/bins, so the true entropy is log(bins) and the true ECI is exactly 0. At finite n, the plug-in entropy estimator H_hat = -sum p_i log p_i underestimates entropy (well-known negative bias ~ -(K-1)/(2N)), which inflates ECI = log(bins) - H_hat above its true value of 0 - spuriously reporting miscalibration where there is none.
 
 Miller-Madow correction: H_mm = H_hat + (K_obs - 1)/(2N), where K_obs is the number of non-empty bins. This cancels the leading 1/N bias term, pulling ECI back toward the true 0 on calibrated data.
 
@@ -13,7 +13,7 @@ import numpy as np
 from scipy.stats import entropy
 
 
-def _eci_plugin(pit_values, bins=10):
+def _eci_plugin(pit_values: np.ndarray, bins: int = 10) -> float:
     counts, _ = np.histogram(pit_values, bins=bins, range=(0, 1), density=False)
     total = counts.sum()
     if total == 0:
@@ -22,7 +22,7 @@ def _eci_plugin(pit_values, bins=10):
     return float(np.log(bins) - entropy(probs))
 
 
-def _eci_mm(pit_values, bins=10):
+def _eci_mm(pit_values: np.ndarray, bins: int = 10) -> float:
     counts, _ = np.histogram(pit_values, bins=bins, range=(0, 1), density=False)
     total = counts.sum()
     if total == 0:
@@ -34,7 +34,7 @@ def _eci_mm(pit_values, bins=10):
     return float(np.log(bins) - h_mm)
 
 
-def main():
+def main() -> None:
     n = 500  # small-n: where finite-sample entropy bias bites
     seeds = list(range(7))
     scenarios = {"bins=10": 10, "bins=20": 20}

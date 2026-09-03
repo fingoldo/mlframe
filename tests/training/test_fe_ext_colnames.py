@@ -26,7 +26,10 @@ def test_extension_columns_use_descriptive_names():
     from mlframe.training.pipeline import apply_preprocessing_extensions
     from mlframe.training.configs import PreprocessingExtensionsConfig
 
-    cfg = PreprocessingExtensionsConfig(scaler="StandardScaler", kbins=3)
+    # row_wise_summary_stats_enabled / row_wise_extreme_columns_enabled default to True on
+    # PreprocessingExtensionsConfig (documented, intentional additive row-wise FE) and would add
+    # row_summary_*/row_extreme_* columns unrelated to what this test checks (scaler/kbins naming).
+    cfg = PreprocessingExtensionsConfig(scaler="StandardScaler", kbins=3, row_wise_summary_stats_enabled=False, row_wise_extreme_columns_enabled=False)
     train = _toy_frame()
     val = _toy_frame(seed=1)
     test = _toy_frame(seed=2)

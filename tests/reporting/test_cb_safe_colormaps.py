@@ -110,8 +110,10 @@ class TestRendererCBDefault:
         assert heatmaps, "no heatmap trace emitted"
         # plotly normalises a named scale into an explicit (stop, color) list on the trace; compare against the
         # same normalisation of the CB-safe name (Viridis) and assert it is NOT the generic Blues placeholder.
+        # HEATMAP_GENERIC is a sentinel token now, not a colormap name, so the thing to contrast against is the
+        # literal Blues it used to be spelled as -- which a builder can finally ask for and actually receive.
         viridis = go.Heatmap(colorscale=_mpl_to_plotly_cmap(HEATMAP_CMAP)).colorscale
-        blues = go.Heatmap(colorscale=_mpl_to_plotly_cmap(HEATMAP_GENERIC)).colorscale
+        blues = go.Heatmap(colorscale=_mpl_to_plotly_cmap("Blues")).colorscale
         assert heatmaps[0].colorscale == viridis
         assert heatmaps[0].colorscale != blues
 
@@ -178,6 +180,31 @@ class TestLinePaletteUnchanged:
         """First ten are tab10."""
         assert LINE_PALETTE[:10] == _TAB10
 
-    def test_full_palette_byte_stable(self):
-        """Full palette byte stable."""
-        assert LINE_PALETTE == _TAB10 + _TAB20_EXT
+    def test_palette_is_tab10_only(self):
+        """The tab20 lightness variants are deliberately gone.
+
+        Under simulated deuteranopia/protanopia a tab10 hue and its tab20 lighter twin separate by as little as 2.8
+        (the worst tab10-only pair is 14.6), so classes 0 and 10 read as one colour. Past 10 series ``line_style``
+        varies the dash per palette wrap instead, which no colour vision deficiency can erase.
+        """
+        assert LINE_PALETTE == _TAB10
+        assert not set(LINE_PALETTE) & set(_TAB20_EXT)
+
+
+class TestGenericSentinelIsNotAColormap:
+    """CORE-21: the sentinel used to BE the string "Blues", so a builder asking for Blues silently got viridis."""
+
+    def test_the_sentinel_is_not_a_real_colormap_name(self):
+        """If the token were ever a valid colormap name again, the two would be indistinguishable at the resolver."""
+        import matplotlib
+
+        assert HEATMAP_GENERIC not in set(matplotlib.colormaps)
+
+    def test_an_explicit_blues_request_is_honoured(self):
+        """The behaviour the old sentinel made unexpressible."""
+        assert resolve_heatmap_cmap("Blues") == "Blues"
+
+    def test_the_sentinel_and_none_still_resolve_to_the_cb_safe_default(self):
+        """Unchanged for every caller that never wanted a specific map."""
+        assert resolve_heatmap_cmap(HEATMAP_GENERIC) == HEATMAP_CMAP
+        assert resolve_heatmap_cmap(None) == HEATMAP_CMAP

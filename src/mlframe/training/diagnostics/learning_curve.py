@@ -449,13 +449,20 @@ def compute_learning_curve(
     )
 
 
-def learning_curve_panel(result: LearningCurveResult, *, title: str = "Learning curve") -> "Any":
-    """Build a pure-data ``FigureSpec`` (one ``LinePanelSpec``) of train vs holdout score vs train size.
+def learning_curve_panel(result: LearningCurveResult, *, title: str = "Learning curve", source_split: str = "") -> "Any":
+    """Build a pure-data ``FigureSpec`` (one ``LinePanelSpec``) of fit-subset vs holdout score vs train size.
 
-    Two series share the train-size x-axis: the train-subset score and the holdout score, each with a +-1 std
-    band when repeats produced one. The gap between the curves and whether the holdout curve is still rising at
-    the right edge is the bias-vs-variance / "would-more-data-help" read the panel exists to surface. Returns a
-    one-panel ``FigureSpec`` so either backend renders it identically; the integrator drops it into the report grid.
+    Two series share the train-size x-axis: the score on the rows the clone was fitted on, and the score on the
+    held-out remainder, each with a +-1 std band when repeats produced one. The gap between the curves and
+    whether the holdout curve is still rising at the right edge is the bias-vs-variance / "would-more-data-help"
+    read the panel exists to surface. Returns a one-panel ``FigureSpec`` so either backend renders it
+    identically; the integrator drops it into the report grid.
+
+    ``source_split`` names the split the curve was computed on and is stamped into the series labels and the
+    subtitle. Both series were previously labelled "train score" and "holdout score" regardless of the source,
+    while the caller runs this once per REPORTED split -- so on a test report both curves were scores on
+    disjoint subsets of the test rows, and the ``data_starved`` / ``saturated`` verdict was derived entirely
+    from test-split rows while reading as a statement about training.
     """
     from mlframe.reporting.spec import FigureSpec, LinePanelSpec
 
@@ -469,20 +476,23 @@ def learning_curve_panel(result: LearningCurveResult, *, title: str = "Learning 
         band = (hold_y - result.holdout_score_std, hold_y + result.holdout_score_std)
 
     verdict = result.verdict()
-    subtitle = f"{title} ({result.scorer_name}) -- {verdict}; holdout n={result.holdout_n}" + (
+    _src = f" on {source_split}" if source_split else ""
+    subtitle = f"{title} ({result.scorer_name}){_src} -- {verdict}; holdout n={result.holdout_n}" + (
         f"; {len(result.skipped_fractions)} size(s) skipped (budget)" if result.skipped_fractions else ""
     )
+    _fit_label = f"fit-subset score ({source_split})" if source_split else "fit-subset score"
+    _hold_label = f"held-out score ({source_split})" if source_split else "held-out score"
 
     line = LinePanelSpec(
         x=x,
         y=(train_y, hold_y),
-        series_labels=("train score", "holdout score"),
+        series_labels=(_fit_label, _hold_label),
         line_styles=("--", "lines+markers"),
         title=subtitle,
         xlabel="train size (rows)",
         ylabel=result.scorer_name,
         band=band,
-        band_label="holdout +-1 std" if band is not None else None,
+        band_label="held-out +-1 std" if band is not None else None,
     )
     return FigureSpec(suptitle="", panels=((line,),), figsize=(7.0, 5.0))
 

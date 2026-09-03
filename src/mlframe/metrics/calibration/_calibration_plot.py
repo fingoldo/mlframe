@@ -49,6 +49,7 @@ plt = _LazyModule("matplotlib.pyplot")
 
 # Single source of truth for numba kwargs across mlframe.metrics modules.
 from .._numba_params import NUMBA_NJIT_PARAMS
+from mlframe._output_paths import ensure_parent_dir
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +60,11 @@ logger = logging.getLogger(__name__)
 # discrimination on imbalanced classes; MCC summarises all 4 cells
 # of the confusion matrix; BSS shows whether the probabilities beat
 # the marginal baseline.
+# ``BR``, not ``BR_DECOMP``: the decomposition renders as ``BR=20.5%(RL0.0%+U23.8%-RS3.2%)``, which is the
+# single longest token in the headline and the one a reader cannot parse without knowing the Murphy identity.
+# The decomposition is still available by asking for ``BR_DECOMP`` explicitly.
 DEFAULT_TITLE_METRICS_TOKENS: tuple = (
-    "ICE", "BR_DECOMP", "ECE", "CMAEW", "LL",
+    "ICE", "BR", "ECE", "CMAEW", "LL",
     "ROC_AUC", "PR_AUC", "KS", "MCC", "BSS",
 )
 
@@ -96,6 +100,7 @@ def render_title_metric_token(
     ks: float = np.nan,
     mcc: float = np.nan,
     bss: float = np.nan,
+    binary_threshold: Optional[float] = None,
 ) -> str:
     """Render one calibration-report title fragment for a token.
 
@@ -163,7 +168,12 @@ def render_title_metric_token(
             base = f"PR AUC=N/A{suffix}"
         else:
             base = f"PR AUC={pr_auc:.{ndigits}f}{suffix}"
-        return f"{base}, PR={precision * 100:.{pct_digits}f}%," f"RE={recall * 100:.{pct_digits}f}%,F1={f1 * 100:.{pct_digits}f}%"
+        # PR/RE/F1 are threshold-dependent, unlike the two AUCs beside them; printing them bare invited reading them as
+        # threshold-free summaries. The threshold is named ONCE, in front of the bracketed group it governs, rather
+        # than repeated on each of the three -- one label for one fact.
+        prf = f"PR={precision * 100:.{pct_digits}f}%,RE={recall * 100:.{pct_digits}f}%,F1={f1 * 100:.{pct_digits}f}%"
+        group = f"@{binary_threshold:.2f}: [{prf}]" if binary_threshold is not None else prf
+        return f"{base}, {group}"
     if token == "KS":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         if np.isnan(ks):
             return "KS=N/A"
@@ -217,7 +227,7 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     Size-aware dispatcher: the serial njit kernel for n below
     ``_CALIB_BINNING_PRANGE_THRESHOLD``, the parallel prange kernel above it (full-n metrics
     reports at 1M+ rows). Outputs are identical except ``freqs_predicted`` may differ by a
-    FP reduction-order ULP (~1e-14) from the per-thread partial-histogram summation — far
+    FP reduction-order ULP (~1e-14) from the per-thread partial-histogram summation -- far
     below any reliability-diagram / calibration-MAE decision boundary.
     """
     y_true, y_pred = _drop_nonfinite_pairs(y_true, y_pred)
@@ -415,7 +425,7 @@ def calibration_binning(
       binning spreads the mass across all ``nbins`` so the reliability diagram is readable.
     - ``"auto"``: quantile when the positive base rate < 10%, else uniform.
 
-    Returns ``(freqs_predicted, freqs_true, hits)`` — same contract as fast_calibration_binning;
+    Returns ``(freqs_predicted, freqs_true, hits)`` -- same contract as fast_calibration_binning;
     ``freqs_predicted`` is the per-bin mean predicted probability in both strategies.
     """
     if strategy not in ("uniform", "quantile", "auto"):
@@ -540,7 +550,7 @@ def show_calibration_plot(
     base_path: Optional[str] = None,
     dpi: Optional[int] = None,
     show_wilson_ci: bool = True,
-    reliability_smoothed: bool = True,
+    reliability_smoothed: bool = False,
     raw_probs: Optional[np.ndarray] = None,
     raw_labels: Optional[np.ndarray] = None,
 ):
@@ -563,7 +573,7 @@ def show_calibration_plot(
     band on the reliability scatter; it is forwarded to ``build_calibration_spec``
     (the legacy inline matplotlib path draws no CI band, so it has no effect there).
 
-    ``reliability_smoothed`` (default on) overlays a binning-free smoothed isotonic reliability curve fit on the raw
+    ``reliability_smoothed`` (default OFF) overlays a binning-free smoothed isotonic reliability curve fit on the raw
     per-row ``(raw_probs, raw_labels)`` pairs; these are passed as views, the smoother subsamples internally so no extra
     full-n copy is made. The overlay reaches the chart only via the DSL render path (build_calibration_spec); the legacy
     inline matplotlib path has no overlay. Absent raw arrays -> overlay simply not drawn (binned-only diagram, no crash).
@@ -614,6 +624,16 @@ def show_calibration_plot(
             _outputs = parse_plot_output_dsl(f"plotly[{_fmt}]")
             _base = _root or "calibration"
         render_and_save(spec, _outputs, _base)
+        return None
+
+    if backend == "plotly":
+        # Reaching here means the DSL branch above did NOT fire, i.e. neither
+        # (plot_outputs and base_path) nor (plot_file or show_plots) held -- no
+        # save target and no display request. Everything below this point builds
+        # a matplotlib ``fig`` and is unreachable for backend="plotly" (there is
+        # no plotly equivalent of "return an unsaved live Figure"), which used to
+        # fall through to the unconditional ``return fig`` at the end of this
+        # function and raise UnboundLocalError. Nothing was requested; no-op.
         return None
 
     # 2026-05-09: short-circuit when there is NO plot consumer. The
@@ -683,7 +703,7 @@ def show_calibration_plot(
             ``cbar_ax`` (optional) is the axes list / single ax the
             colorbar attaches to. When the calibration plot stacks
             with a histogram below, pass ``[ax_main, ax_hist]`` so the
-            colorbar spans both — otherwise the colorbar steals
+            colorbar spans both -- otherwise the colorbar steals
             horizontal space from only the calibration axes, making
             the histogram's plot-area visibly wider and breaking the
             shared-X alignment (2026-04-27 user feedback).
@@ -770,7 +790,7 @@ def show_calibration_plot(
                 # Colorbar spans BOTH axes so each subplot loses the
                 # same horizontal slice -> X-axes stay aligned via
                 # sharex (was: colorbar attached only to ax_main,
-                # making ax_hist visually wider — user feedback 2026-04-27).
+                # making ax_hist visually wider -- user feedback 2026-04-27).
                 _draw_calibration_axes(ax_main, fig, draw_xlabel=False, cbar_ax=[ax_main, ax_hist])
                 _draw_histogram_axes(ax_hist)
                 # hide top axes' x tick labels since hist below carries them via sharex
@@ -782,12 +802,12 @@ def show_calibration_plot(
                 _draw_calibration_axes(ax, fig, draw_xlabel=True)
                 if plot_title:
                     ax.set_title(plot_title)
-            # constrained_layout handles spacing automatically — no
+            # constrained_layout handles spacing automatically -- no
             # tight_layout() (which warns + mis-shapes colorbar).
-            fig.savefig(plot_file)
+            fig.savefig(ensure_parent_dir(plot_file))
             return fig
 
-        # Interactive path (show_plots=True) — keep pyplot so the GUI window is managed.
+        # Interactive path (show_plots=True) -- keep pyplot so the GUI window is managed.
         # 2026-05-11: layout="constrained" -> layout=None (same rationale as the
         # save-only path above: 1.67x faster, visually equivalent on this
         # 12x6 figsize + multi-axis colorbar + 2-line title geometry).
@@ -802,7 +822,7 @@ def show_calibration_plot(
             if dpi is not None:
                 _subplots_kwargs["dpi"] = dpi
             fig, (ax_main, ax_hist) = plt.subplots(**_subplots_kwargs)
-            # Colorbar spans both subplots — see _draw_calibration_axes
+            # Colorbar spans both subplots -- see _draw_calibration_axes
             # docstring for why (X-axis alignment under sharex).
             _draw_calibration_axes(ax_main, fig, draw_xlabel=False, cbar_ax=[ax_main, ax_hist])
             _draw_histogram_axes(ax_hist)
@@ -823,7 +843,7 @@ def show_calibration_plot(
         # against constrained_layout, see bench_calibration_layout.py).
 
         if plot_file:
-            fig.savefig(plot_file)
+            fig.savefig(ensure_parent_dir(plot_file))
 
         # 2026-05-09: ``show_plots=True`` previously ran ``plt.ion();
         # plt.show()`` and left the figure open. In an automated /

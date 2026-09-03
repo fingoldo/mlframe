@@ -34,11 +34,21 @@ def _fit_xgb(X, y, *, classification, n_estimators=40, max_depth=5, seed=0):
 
 
 def _shap_interaction_reference(model, X):
-    """(n, P, P) interaction tensor + scalar base from the shap library (positive class for binary)."""
+    """(n, P, P) interaction tensor + scalar base from the shap library (positive class for binary).
+
+    Raw ``shap.TreeExplainer`` construction MUST go through
+    ``_shap_proxy_explain._maybe_patch_shap_xgb_base_score`` on shap<0.52 -- see
+    test_shap_proxy_treeshap.py::_shap_reference for the full incident writeup (an unrestored
+    ``shap.explainers._tree.float`` patch otherwise leaks into whatever TreeExplainer runs next in
+    the same pytest-xdist worker).
+    """
     import shap
 
-    ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
-    Phi = np.asarray(ex.shap_interaction_values(X), dtype=np.float64)
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as spe
+
+    with spe._maybe_patch_shap_xgb_base_score():
+        ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
+        Phi = np.asarray(ex.shap_interaction_values(X), dtype=np.float64)
     if Phi.ndim == 4:  # (n, P, P, classes) -> positive class
         Phi = Phi[:, :, :, -1]
     base = ex.expected_value
@@ -68,9 +78,14 @@ def test_interaction_kernel_symmetry_rowsum_parity(classification, max_depth):
     # Row-sum identity: interaction rows sum to the main-effect SHAP values from the SAME kernel,
     # and those match the shap library main-effect values.
     np.testing.assert_allclose(Phi.sum(axis=2), phi, rtol=0, atol=1e-10)
-    phi_ref = np.asarray(
-        __import__("shap").TreeExplainer(model, feature_perturbation="tree_path_dependent").shap_values(X, check_additivity=False), dtype=np.float64
-    )
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as _spe
+
+    # Raw shap.TreeExplainer construction MUST go through _maybe_patch_shap_xgb_base_score --
+    # see _shap_interaction_reference's docstring in this file for the full incident writeup.
+    with _spe._maybe_patch_shap_xgb_base_score():
+        phi_ref = np.asarray(
+            __import__("shap").TreeExplainer(model, feature_perturbation="tree_path_dependent").shap_values(X, check_additivity=False), dtype=np.float64
+        )
     if phi_ref.ndim == 3:
         phi_ref = phi_ref[:, :, -1]
     np.testing.assert_allclose(phi, phi_ref, rtol=1e-4, atol=1e-4)
@@ -175,8 +190,11 @@ def test_biz_val_interaction_kernel_faster_than_shap():
     t0 = time.perf_counter()
     import shap
 
-    ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
-    _ = ex.shap_interaction_values(X)
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as spe
+
+    with spe._maybe_patch_shap_xgb_base_score():
+        ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
+        _ = ex.shap_interaction_values(X)
     t_shap = time.perf_counter() - t0
 
     speedup = t_shap / max(t_numba, 1e-9)

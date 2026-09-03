@@ -714,9 +714,9 @@ def ensemble_ranker_scores(
         - **rrf**: Reciprocal Rank Fusion -- ``Σ 1/(rrf_k + rank_i)`` per
           row, where rank_i is the rank assigned by model i WITHIN the
           row's query. Higher = better. Scale-invariant (TREC default).
-        - **borda**: Per-query rank averaging -- ``Σ rank_i``. LOWER is
-          better, so we negate at the end so "higher = better" matches
-          the other methods.
+        - **borda**: Borda count -- ``Σ (n_items_in_group - rank_i)`` per row, where the group size is the
+          row's own query's size. Higher = better. Matches ``ranker_suite.borda_fuse``'s definition (not
+          a bare negated rank sum, which is only order-equivalent within one fixed-size query group).
         - **score_mean**: Arithmetic mean of raw scores. Requires
           ``assume_comparable_scales=True`` (else WARN + fall back to
           rrf, since CB YetiRank emits ~[0,1], XGB rank:ndcg ~[-10,+10],
@@ -766,6 +766,16 @@ def ensemble_ranker_scores(
         out = np.mean(np.asarray(scores_per_model), axis=0)
         return np.asarray(out)
 
+    group_sizes_orig = None
+    if method == "borda":
+        # True Borda count (``group_size - rank``, summed per member), matching
+        # ranking.ranker_suite.borda_fuse's definition -- not a bare ``-sum(rank)``, which is only
+        # order-equivalent to true Borda WITHIN one fixed-size query group; the two forms diverge in
+        # magnitude (and can diverge in cross-query comparisons) once group sizes vary.
+        sizes_sorted = np.diff(group_starts)
+        group_sizes_by_sorted_row = np.repeat(sizes_sorted, sizes_sorted)
+        group_sizes_orig = group_sizes_by_sorted_row[inv_sort].astype(np.float64)
+
     # rrf and borda both work in rank-space (per-query).
     aggregate = np.zeros(n_rows, dtype=np.float64)
     for s in scores_per_model:
@@ -776,12 +786,7 @@ def ensemble_ranker_scores(
         if method == "rrf":
             aggregate += 1.0 / (rrf_k + ranks_orig)
         elif method == "borda":
-            aggregate += ranks_orig
-
-    if method == "borda":
-        # Borda: lower sum-of-ranks is better. Negate so higher = better
-        # (matches contract).
-        aggregate = -aggregate
+            aggregate += group_sizes_orig - ranks_orig
 
     return aggregate
 

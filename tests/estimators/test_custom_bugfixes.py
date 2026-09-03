@@ -14,6 +14,11 @@ def test_create_dummy_lagged_predictions_negative_lag_uses_np_nan():
     """Create dummy lagged predictions negative lag uses np nan."""
     out = create_dummy_lagged_predictions(np.array([1.0, 2.0, 3.0, 4.0]), strategy="constant_lag", lag=-1)
     assert isinstance(out, np.ndarray)
+    # The test's NAME and the DEP1 note both make the contract the NaN fill, which the type check cannot see: a
+    # regression to `cval = 0.0` -- a plausible edit, and one that silently fabricates a real prediction where
+    # none exists -- still returns an ndarray. On a negative lag the shifted-in positions must be NaN.
+    assert np.isnan(out[-1]), f"the lag<=0 fill must be NaN, not a fabricated value; got {out[-1]!r}"
+    assert np.isnan(out).any(), f"no NaN anywhere in a negative-lag result: {out!r}"
 
 
 def test_create_dummy_lagged_predictions_every_accepted_strategy_returns_ndarray():

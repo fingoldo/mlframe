@@ -34,7 +34,7 @@ from __future__ import annotations
 
 # Bound before ._legacy (which transitively imports preprocessing -> auto_transform_select, which
 # imports this name back from this package) so the circular re-entry sees it already defined.
-from ._extra_fe_families import generate_rankgauss_features
+from ._extra_fe_families import apply_rankgauss, engineered_name_rankgauss, generate_rankgauss_features
 
 # Legacy monolith star-import keeps every existing importer working transparently.
 from ._legacy import *
@@ -78,6 +78,8 @@ __all__ = [
     "seed_averaged_fold_scores",
     "ks_stability_filter",
     "generate_rankgauss_features",
+    "apply_rankgauss",
+    "engineered_name_rankgauss",
     "entropy",
     "mi",
     "conditional_mi",

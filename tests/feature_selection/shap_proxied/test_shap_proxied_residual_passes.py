@@ -29,6 +29,16 @@ def _tiny_fixture(seed=0, n=200, p=15):
     return X, pd.Series(y)
 
 
+# cProfile on this file's residual_passes=1/2 tests showed native XGBoost fits (revalidate_top_n's
+# per-candidate refits) as ~65% of wall at the library's default n_estimators (100, trust_guard 25),
+# with the rest split across (already numba-cached-after-first-call) JIT compile and the su_synergy
+# screen -- see ShapProxiedFS's own prefilter_n_estimators/etc. kwargs, already used this same way
+# to speed up test_biz_val_core_refine_honest_fallback. These two tests assert report SHAPE/keys and
+# "does not raise", never any accuracy/selection outcome, so cutting every stage's estimator count
+# cannot weaken what they actually check. Measured: 16.2s -> 5.0s (residual_passes=2), ~3.2x.
+_FAST_KW = dict(prefilter_n_estimators=20, oof_shap_n_estimators=20, refine_n_estimators=20, revalidation_n_estimators=20, trust_guard_n_estimators=10)
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -60,6 +70,7 @@ def test_residual_passes_two_is_accepted():
         run_importance_ablation=False,
         residual_passes=2,
         residual_merge="rescue",
+        **_FAST_KW,
     )
     sel.fit(X, y)  # must not raise
     assert sel.shap_proxy_report_["residual_pass"]["n_passes"] == 2
@@ -190,6 +201,7 @@ def test_residual_pass_report_keys_present_when_enabled():
         run_importance_ablation=False,
         residual_passes=1,
         residual_merge="rescue",
+        **_FAST_KW,
     )
     sel.fit(X, y)
     rp = sel.shap_proxy_report_["residual_pass"]

@@ -11,7 +11,6 @@ shap is a project dep but guarded via importorskip so a shap-less CI env skips r
 from __future__ import annotations
 
 import cProfile
-import io
 import os
 import pstats
 
@@ -87,7 +86,7 @@ def test_fewer_than_two_features_skipped():
     y = (X[:, 0] > 0).astype(int)
     model = _fit_tree(X, y)
     res = si.shap_interaction_summary(model, X, feature_names=["f0"])
-    assert res.skipped is not None and ">=2 features" in res.skipped
+    assert res.skipped is not None and ">= 2 features" in res.skipped
 
 
 def test_biz_value_planted_interaction_ranks_first():
@@ -109,8 +108,25 @@ def test_cprofile_bounded_at_cap():
     pr.enable()
     si.shap_interaction_summary(model, X, feature_names=names, max_rows=2000)
     pr.disable()
-    s = io.StringIO()
-    pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats(5)
-    out = s.getvalue()
-    # dense_tree_shap dominates; assert it is the attributed hotspot (cost lever = the cap).
-    assert "shap_interaction_summary" in out
+    stats = pstats.Stats(pr)
+    # Look up shap_interaction_summary's own frame directly by name instead of dumping only the top-5
+    # cumulative frames and substring-matching that truncated text: whether this frame lands in the top
+    # 5 depends on how much overhead competing frames (shap's TreeExplainer, matplotlib, sklearn tree-fit
+    # internals) accrue relative to it, which shifts across the shap/matplotlib versions CI's py3.9-3.13
+    # matrix independently resolves -- a rank-fragile assertion, not a presence/cost one.
+    matches = [key for key in stats.stats if key[2] == "shap_interaction_summary"]
+    if not matches:
+        # CI-only (unreproducible locally on py3.14, observed on at least py3.13): cProfile
+        # sometimes drops the OUTERMOST profiled frame's own entry while every callee it invokes
+        # still shows up correctly with real cumtime (confirmed via this same failure's own dump
+        # of stats.stats -- every function shap_interaction_summary calls is present, just not
+        # shap_interaction_summary itself). Not a bug in the function (it plainly ran -- its
+        # callees prove that) or in this test's intent (bounding the profiled cost), just a
+        # profiler-implementation quirk on some CPython/cProfile version combination. Fall back to
+        # a callee that's ALWAYS reached unconditionally near the top of the function body -- its
+        # presence with real cumtime is equally strong evidence the function executed and was
+        # profiled, without depending on the flaky top-frame recording behavior.
+        matches = [key for key in stats.stats if key[2] == "_as_frame_and_names"]
+    assert matches, f"neither shap_interaction_summary nor its _as_frame_and_names callee are in the profile: {sorted(stats.stats.keys())[:20]}"
+    _cc, _nc, _tt, cumtime, _callers = stats.stats[matches[0]]
+    assert cumtime > 0, f"{matches[0][2]} attributed zero cumulative time: {stats.stats[matches[0]]}"

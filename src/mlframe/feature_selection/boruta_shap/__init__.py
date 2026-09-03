@@ -63,7 +63,7 @@ logger = logging.getLogger(__name__)
 # TODO(naming): rename this class/module from BorutaShap to plain Boruta - track every call site, docs
 # reference, and pickle-compat shim (``__module__``/``__qualname__`` rewrites, like MRMR's) needed for a
 # non-breaking rename, since existing pickles + user code reference the current name.
-class BorutaShap(BaseEstimator, TransformerMixin):
+class BorutaShap(TransformerMixin, BaseEstimator):
     """
     BorutaShap is a wrapper feature selection method built on the foundations of both the SHAP and Boruta algorithms.
 
@@ -740,17 +740,16 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         accepted. This method is used in this case to make a decision on a tentative feature
         by comparing its median importance value with the median max shadow value.
 
-        Parameters
-        ----------
-        tentative: an array which holds the names of the tentative attiributes.
-
-        Returns:
-            Two arrays of the names of the final decision of the accepted and rejected columns.
-
+        Reads ``self.tentative`` (the pending features) and appends the resulting decisions to
+        ``self.accepted`` / ``self.rejected`` in place, clearing ``self.tentative``; does not
+        return a value.
         """
 
         # history_x is promoted from ndarray to DataFrame by run() before TentativeRoughFix is ever called.
         hx: pd.DataFrame = self.history_x
+        # Row 0 is the pre-loop np.zeros(...) initializer (create_importance_history), not a real trial;
+        # _io_plot.py's results_to_csv/plot already strip it via .iloc[1:] -- mirror that here.
+        hx = hx.iloc[1:]
         median_tentaive_values = hx[self.tentative].median(axis=0).values
         median_max_shadow = hx["Max_Shadow"].median(axis=0)
 
@@ -772,6 +771,10 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
         self.rejected = self.rejected + newly_rejected.tolist()
         self.accepted = self.accepted + newly_accepted.tolist()
+        # Every tentative feature is resolved into accepted or rejected above -- clear self.tentative so
+        # a caller reading it directly (or Subset(tentative=True)) doesn't see already-resolved features
+        # as still undecided.
+        self.tentative = []
 
     def Subset(self, tentative=False):
         """

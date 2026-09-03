@@ -6,24 +6,25 @@ and would index out of bounds if it ran. This pins the call arity behaviourally.
 """
 
 
-def test_warmup_calls_mape_par_kernel_with_nthr(monkeypatch):
+def test_warmup_calls_mape_par_kernel_with_nthr():
     """Warmup calls mape par kernel with nthr."""
-    import mlframe.metrics.core as core
+    from mlframe.metrics._core_precision_mape import _max_abs_pct_error_kernel_par
     from mlframe.metrics import _core_numba_warmup as warmup
 
-    seen = {"nargs": None, "called": False}
+    # Behavioral (not monkeypatch-spy) check (2026-08-21): a monkeypatch.setattr(core,
+    # "_max_abs_pct_error_kernel_par", spy) here reliably fails to be observed by the warmup body
+    # on CI -- confirmed via a diagnostic showing the warmup body still calling the REAL
+    # njit-compiled kernel (CPUDispatcher) instead of the test's spy (a plain function), for a
+    # reason that remains unconfirmed despite extensive investigation this session (also affected
+    # an unrelated facade-attribute monkeypatch elsewhere, see
+    # test_pipeline_json_disk_cache_roundtrip's history). Sidesteps the whole mystery: numba
+    # records one compiled signature per DISTINCT arg-type tuple it's called with, so a 3-arg
+    # signature can only exist if something called this kernel with exactly 3 positional args --
+    # verifying the real, observable side effect instead of intercepting the call.
+    warmup.prewarm_numba_cache()
 
-    def _spy(*args):
-        """Helper: Spy."""
-        seen["called"] = True
-        seen["nargs"] = len(args)
-        return (0.0, 0, 0)
-
-    # The warmup body does `from .core import ... _max_abs_pct_error_kernel_par`, so the
-    # name resolves from the core module at call time -> patching core catches it.
-    monkeypatch.setattr(core, "_max_abs_pct_error_kernel_par", _spy)
-
-    warmup._prewarm_numba_cache_body()
-
-    assert seen["called"], "warmup never reached the mape par kernel (earlier kernel aborted the block?)"
-    assert seen["nargs"] == 3, f"warmup must pass (y_true, y_pred, nthr); got {seen['nargs']} args"
+    sigs = _max_abs_pct_error_kernel_par.nopython_signatures
+    assert sigs, "warmup never reached the mape par kernel (earlier kernel aborted the block?)"
+    assert any(
+        len(sig.args) == 3 for sig in sigs
+    ), f"warmup must pass (y_true, y_pred, nthr) -- no compiled signature has 3 args; got {[len(sig.args) for sig in sigs]}"

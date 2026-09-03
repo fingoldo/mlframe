@@ -412,6 +412,11 @@ def _register_builtin_classification():
         pos = probs[:, 1] if probs.ndim == 2 and probs.shape[1] >= 2 else probs.ravel()
         yt = _np.asarray(y_true).ravel()
         uniq = _np.unique(yt)
+        if uniq.shape[0] == 0:
+            # Empty y_true -- uniq[-1] would raise IndexError; no positive class can be defined, so the
+            # exploss metric can't be computed. Signal via ValueError (already in iter_extra_metrics's
+            # broad-except tuple) instead of letting a raw IndexError escape and crash the whole metrics pass.
+            raise ValueError("exploss: y_true is empty, cannot determine a positive class")
         # Positive class = sklearn column-1 convention (second sorted label); probs[:, 1] aligns with it.
         pos_label = uniq[1] if uniq.shape[0] > 1 else uniq[-1]
         y_bin = (yt == pos_label).astype(_np.int64)

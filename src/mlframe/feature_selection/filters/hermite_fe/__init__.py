@@ -33,13 +33,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import numpy as np
 from numpy.polynomial.hermite_e import hermeval  # probabilist's Hermite
 from numpy.polynomial.legendre import legval
 from numpy.polynomial.chebyshev import chebval
 from numpy.polynomial.laguerre import lagval
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 try:
     from numba import njit, prange
@@ -212,7 +213,7 @@ def _plugin_mi_classif_cuda(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> f
     return float(res[0])
 
 
-# MI dispatcher backend choice. The 2026-05-20 fix routes through the
+# MI dispatcher backend choice. Routes through the
 # ``pyutilz.performance.kernel_tuning.cache`` infrastructure (already used for
 # joint_hist_batched) instead of hardcoded global thresholds. The KTC
 # pipeline:
@@ -222,7 +223,7 @@ def _plugin_mi_classif_cuda(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> f
 #   2. On cache miss: auto-tune sweep (~10-30s once per host) measures
 #      the (n_samples, k) grid and persists.
 #   3. Fallback (no pyutilz / no cuda): hand-coded measurements per HW
-#      fingerprint - on GTX 1050 Ti cc 6.1 (2026-05-20 sweep):
+#      fingerprint - on GTX 1050 Ti cc 6.1 (measured sweep):
 #      single-col cuda from n>=75k, batch (k>=5) cuda from n>=10k.
 # Env-var ``MLFRAME_MI_BACKEND`` (``njit`` / ``cuda``) still force-
 # overrides regardless of cache.
@@ -555,7 +556,11 @@ def _apply_minmax_njit(x: np.ndarray, lo: float, span: float, has_clip: bool, cl
     """Fused single-pass replay of ``2*(x-lo)/span - 1`` (+ optional symmetric clip), one prange pass instead
     of the numpy form's separate subtract/multiply/divide/subtract (+ clip) temp-array passes. Op order
     matches the numpy expression exactly (``2*(x-lo)/span - 1``, not a reciprocal-multiply rewrite) for
-    bit-identical FP rounding."""
+    bit-identical FP rounding.
+
+    Only wins over the serial twin (:func:`_apply_minmax_njit_serial`) at extreme n (>~10-20M) -- see
+    :func:`_apply_minmax`'s dispatch threshold for the measured crossover; this variant stays for that
+    regime, but is NOT the default entry point any more."""
     n = x.shape[0]
     out = np.empty(n, dtype=np.float64)
     for i in prange(n):
@@ -569,13 +574,92 @@ def _apply_minmax_njit(x: np.ndarray, lo: float, span: float, has_clip: bool, cl
     return out
 
 
+@njit(cache=True, parallel=False)
+def _apply_minmax_njit_serial(x: np.ndarray, lo: float, span: float, has_clip: bool, clip_val: float) -> np.ndarray:
+    """Serial twin of :func:`_apply_minmax_njit` -- identical body, ``range`` instead of ``prange``.
+
+    ``parallel=True`` pays a fixed per-call thread-pool dispatch cost that a 2-flop-plus-optional-clip
+    elementwise op cannot amortize at any n this codebase's FE search realistically reaches. Measured
+    (same-process A/B, warm, best-of-50, ``bench_apply_minmax_parallel_vs_serial.py``): serial is
+    2.4x-28x FASTER at n<=5,000,000; the crossover only appears between n=5M (parallel 2.41x SLOWER)
+    and n=20M (parallel 1.56x faster) -- see :func:`_apply_minmax`'s threshold for where this is used."""
+    n = x.shape[0]
+    out = np.empty(n, dtype=np.float64)
+    for i in range(n):
+        z = 2 * (x[i] - lo) / span - 1
+        if has_clip:
+            if z > clip_val:
+                z = clip_val
+            elif z < -clip_val:
+                z = -clip_val
+        out[i] = z
+    return out
+
+
+# Per-host serial/parallel crossover via the canonical kernel_tuning_cache (NO hardcoded threshold --
+# feedback_use_kernel_tuning_cache_for_gpu / feedback_fastest_default_with_dispatch). Dev-box measurement
+# found the crossover between n=5M (parallel 2.41x SLOWER) and n=20M (parallel 1.56x faster) -- the
+# fallback threshold below (used only pre-sweep / on tuner failure) is deliberately close to the loss
+# side for that reason, but the REAL per-host decision comes from the tuner's measured sweep.
+_MINMAX_SWEEP_N = [1_000, 1_000_000, 15_000_000]
+_MINMAX_SALT = 1
+
+
+def _make_minmax_inputs(dims: dict) -> tuple:
+    """(x, lo, span, has_clip, clip_val) at the sweep's n cell."""
+    n = int(dims["n"])
+    rng = np.random.default_rng(0)
+    x = np.ascontiguousarray(rng.random(n) * 10.0, dtype=np.float64)
+    return (x, 0.0, 10.0, True, 1.0)
+
+
+def _run_minmax_sweep() -> list:
+    """Serial-vs-parallel wall-clock sweep over the n grid -> kernel_tuning_cache regions."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+
+    variants = {
+        "serial": lambda *a: _apply_minmax_njit_serial(*a),
+        "parallel": lambda *a: _apply_minmax_njit(*a),
+    }
+    return cast(list, sweep_backend_grid(
+        variants,
+        {"n": _MINMAX_SWEEP_N},
+        _make_minmax_inputs,
+        reference="serial", repeats=5, equiv_atol=0.0, equiv_rtol=0.0,
+    ))
+
+
+def _minmax_fallback_choice(n: int) -> str:
+    """Pre-sweep / tuner-failure fallback: parallel above the dev-box-measured n crossover (see the
+    module comment above for the confirmed-loss/confirmed-win bracket)."""
+    return "parallel" if int(n) >= 10_000_000 else "serial"
+
+
+_MINMAX_PARALLELISM_SPEC = kernel_tuner(
+    kernel_name="hermite_minmax_kernel_parallelism",
+    variant_fns=(_apply_minmax_njit_serial, _apply_minmax_njit),
+    tuner=_run_minmax_sweep,
+    axes={"n": _MINMAX_SWEEP_N},
+    fallback=_minmax_fallback_choice,
+    gpu_capable=False,
+    salt=_MINMAX_SALT,
+    cli_label="hermite_minmax_kernel_parallelism",
+)
+
+
 def _apply_minmax(x, params):
     """Replay a fitted ``_preprocess_minmax_neg1_1`` transform onto new data from its stored ``lo``/``hi``/(optional)``clip`` params."""
     span = params["hi"] - params["lo"] + 1e-12
     clip = params.get("clip")
     if _NUMBA_AVAILABLE:
         xf = np.ascontiguousarray(x, dtype=np.float64)
-        return _apply_minmax_njit(xf, float(params["lo"]), float(span), clip is not None, float(clip) if clip is not None else 0.0)
+        try:
+            choice = _MINMAX_PARALLELISM_SPEC.choose(n=int(xf.shape[0]))
+        except Exception as e:
+            logger.debug("hermite_minmax_kernel_parallelism choose() failed, using the size-based fallback: %s", e)
+            choice = _minmax_fallback_choice(int(xf.shape[0]))
+        fn = _apply_minmax_njit if choice == "parallel" else _apply_minmax_njit_serial
+        return fn(xf, float(params["lo"]), float(span), clip is not None, float(clip) if clip is not None else 0.0)
     z = 2 * (x - params["lo"]) / span - 1
     if clip is not None:
         z = np.clip(z, -float(clip), float(clip))
@@ -771,7 +855,17 @@ def _moment_fingerprint_njit(x: np.ndarray):
         s2 += d2
         s3 += d2 * d
         s4 += d2 * d2
-    std = (s2 / n) ** 0.5 + 1e-12
+    # No additive pad. The moment kernel above is correct (two-pass, centred); the pad was downstream of it and
+    # got INVERTED and then cubed / fourth-powered. For a column whose true std lands in roughly [1e-12, 1e-10] --
+    # a pre-scaled feature, or a tick-level price delta whose spread is ~1e-11 -- the pad is the same order as the
+    # real denominator, so an unpadded skew of 2.0 reads as 0.25 and `basis_route_by_moments`, which branches on
+    # `abs(skew) > 1.5`, routes a genuinely heavy-tailed one-sided column to Hermite instead of Laguerre.
+    # `spread_ratio = rng/std` is deflated by the same factor, biasing toward Chebyshev.
+    std = (s2 / n) ** 0.5
+    if std <= 1e-12:
+        # A constant column has no shape to report; 0.0 routes it the same way a symmetric light-tailed one goes,
+        # matching `_global_stats_all`'s short-circuit rather than inventing a moment from noise.
+        return mean, std, 0.0, 0.0, xmin, xmax
     inv = 1.0 / std
     inv2 = inv * inv
     skew = (s3 / n) * (inv2 * inv)
@@ -816,7 +910,11 @@ def basis_route_by_moments(x: np.ndarray) -> str:
 # ----------------------------------------------------------------------
 # Sibling-module re-exports. Big optimisation + MI clusters live in
 # ``_hermite_fe_optimise.py`` and ``_hermite_fe_mi.py`` so this file
-# stays below the 1k-LOC monolith threshold.
+# stays below the 1k-LOC monolith threshold. No ``__all__`` here by design
+# (barrel/facade convention) -- every name below is meant to be reachable
+# as ``hermite_fe.<name>`` even though this file's own body never uses it
+# by bare name; e.g. ``optimise_pair_multimode`` is consumed exactly this
+# way by tests/feature_selection/biz_val/test_biz_val_filters_hermite_fe.py.
 # ----------------------------------------------------------------------
 from ._hermite_prewarp import (
     _L2_PENALTY_SATURATION_DEFAULT,
@@ -830,10 +928,24 @@ from ._hermite_prewarp import (
     warm_start_als_seed,
 )
 from .._hermite_fe_optimise import (
-    _baseline_mi_pair, _eval_coef_pair, _run_cma_search, _select_diverse_topm, detect_pair_symmetry, optimise_hermite_pair, optimise_pair_multimode, precompute_hermite_pair_basis,
+    _baseline_mi_pair, _eval_coef_pair, _run_cma_search, _select_diverse_topm, detect_pair_symmetry, optimise_hermite_pair, precompute_hermite_pair_basis,
+    # optimise_pair_multimode: re-exported public API, consumed via `from mlframe...hermite_fe import
+    # optimise_pair_multimode` by tests/feature_selection/biz_val/test_biz_val_filters_hermite_fe.py and
+    # tests/feature_selection/fe/basis/test_hermite_fe_coverage.py -- code_audit's dead-import scan only
+    # covers src/, so it can't see these consumers and flags this as unused.
+    optimise_pair_multimode,
 )
 from .._hermite_fe_mi import (
-    _bind_parent_kernels, _ensure_cuda_kernels, _plugin_mi_classif_batch_cuda, _plugin_mi_classif_batch_cuda_resident, _plugin_mi_classif_njit, _plugin_mi_from_binned_njit, _plugin_mi_regression_njit, plugin_mi_classif_batch_dispatch, plugin_mi_classif_dispatch, plugin_mi_classif_fast,
+    _bind_parent_kernels, _ensure_cuda_kernels, _plugin_mi_classif_batch_cuda, _plugin_mi_classif_batch_cuda_resident, _plugin_mi_classif_njit, _plugin_mi_from_binned_njit, _plugin_mi_regression_njit, plugin_mi_classif_batch_dispatch,
+    # plugin_mi_classif_dispatch: re-exported public API, consumed via `from mlframe...hermite_fe import
+    # plugin_mi_classif_dispatch` by tests/feature_selection/gpu/test_plugin_mi_classif_dispatch.py and
+    # tests/feature_selection/gpu/test_ktc_dispatch_no_sweep_on_default.py -- code_audit's dead-import scan
+    # only covers src/, so it can't see these consumers and flags this as unused.
+    plugin_mi_classif_dispatch,
+    # plugin_mi_classif_fast: re-exported public API, consumed via `from mlframe...hermite_fe import
+    # plugin_mi_classif_fast` by tests/feature_selection/gpu/test_plugin_mi_classif_dispatch.py --
+    # code_audit's dead-import scan only covers src/, so it can't see that consumer and flags this as unused.
+    plugin_mi_classif_fast,
 )
 
 # Parent is now fully initialised (``_quantile_bin_njit`` bound at line 77); bind it into the sibling so a

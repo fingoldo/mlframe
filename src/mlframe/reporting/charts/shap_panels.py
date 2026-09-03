@@ -35,6 +35,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, List, Optional, Sequence, Tuple
 
+from mlframe._output_paths import ensure_parent_dir
 import numpy as np
 
 try:
@@ -43,6 +44,7 @@ except ImportError:  # plt-using paths are guarded; matplotlib-less envs skip pl
     plt = None  # type: ignore[assignment]
 
 from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels, base_for as _base_for  # noqa: F401  (pack_panels re-exported for grid composers / parity with pdp_ice)
+from mlframe.reporting.charts._rank_stats import spearman
 from mlframe.reporting.charts._coerce_shared import coerce_float_2d as _coerce_float_2d
 from mlframe.reporting.charts._sampling import subsample_preserving_extremes
 from mlframe.utils.log_throttle import log_throttle
@@ -71,7 +73,14 @@ DEPENDENCE_GRID_COLS: int = 2
 # A dependence curve is judged DISCONTINUOUS/STEP when the largest local jump in the value-sorted, smoothed
 # SHAP curve exceeds this fraction of the curve's overall SHAP range -- i.e. the model has a sharp threshold
 # in that feature rather than a gradual effect.
-_STEP_JUMP_FRAC: float = 0.33
+# Visibility floor only: the jump must be a readable fraction of the SHAP range before it is worth calling a step
+# (a flat, noisy curve can produce a large z from nothing). Measured on the same synthetics: 0.058-0.062 for a real
+# step, 0.019-0.021 for a smooth curve. This was 0.33, which SMOOTHING makes unreachable -- a step spread over the
+# running-mean window never produces a single diff that large, so the step branch effectively never fired.
+_STEP_JUMP_FRAC: float = 0.03
+# The real test: robust sigmas by which the largest jump exceeds the curve's own typical jump. Scale-free, so it
+# does not move with n the way the fraction rule did.
+_STEP_JUMP_Z: float = 8.0
 # Below this many finite (value, shap) points a per-feature interpretation is unreliable, so the panel just
 # scatters without a verdict (never raises -- best-effort diagnostic).
 _MIN_INTERP_POINTS: int = 20
@@ -210,6 +219,12 @@ def _as_frame_and_names(X: Any, feature_names: Optional[Sequence[str]]) -> Tuple
     return arr, _coerce_float_2d(arr), names
 
 
+# How many times the row cap the score proxy is allowed to score. The proxy only has to FIND the extreme rows, and
+# the tail of a 10x pool is the tail of the data for this purpose; scoring all n rows to choose 8k of them was a
+# full-data inference pass inside a diagnostic whose whole cost story is the cap.
+_SCORE_PROXY_POOL_FACTOR: int = 10
+
+
 def _score_proxy(model: Any, carrier: Any, n: int) -> Optional[np.ndarray]:
     """A per-row magnitude proxy so the subsample keeps the tail rows (large |score| / |residual|).
 
@@ -265,30 +280,15 @@ def _shap_values_2d(sv: Any) -> np.ndarray:
 
 
 def _spearman(x: np.ndarray, y: np.ndarray) -> float:
-    """Spearman rank correlation (rank-Pearson) of ``x`` vs ``y``; 0.0 when either side is constant / degenerate.
+    """Spearman rank correlation of ``x`` vs ``y``; 0.0 when either side is constant / degenerate.
 
     Rank-based so it reports the MONOTONE direction of the feature-value -> SHAP relationship regardless of
     curvature -- a smooth saturating curve still reads near +/-1, which is exactly the directional read wanted.
+    Ties are AVERAGE-ranked (the shared helper): the ordinal ranks this used to compute depended on row order, so a
+    low-cardinality feature reported a different number after a shuffle and could disagree with the sibling panel
+    that always average-ranked.
     """
-    n = x.shape[0]
-    if n < 2:
-        return 0.0
-    def _ranks(v: np.ndarray) -> np.ndarray:
-        """Stable ordinal ranks via single argsort + scatter (bit-identical to argsort(argsort(v, kind=
-        "mergesort"), kind="mergesort"), ~1.7-1.9x faster -- the second sort was pure waste)."""
-        order = np.argsort(v, kind="mergesort")
-        r = np.empty(v.size, dtype=np.float64)
-        r[order] = np.arange(v.size, dtype=np.float64)
-        return r
-
-    rx = _ranks(x)
-    ry = _ranks(y)
-    rx -= rx.mean()
-    ry -= ry.mean()
-    denom = float(np.sqrt(np.sum(rx * rx) * np.sum(ry * ry)))
-    if denom == 0.0:  # one side is constant (all ranks equal after centring)
-        return 0.0
-    return float(np.sum(rx * ry) / denom)
+    return spearman(x, y, degenerate=0.0)
 
 
 @dataclass
@@ -334,8 +334,17 @@ def _interpret_dependence(feat_vals: np.ndarray, shap_vals: np.ndarray) -> _DepI
     jmax = int(np.argmax(diffs)) if diffs.size else 0
     max_jump = float(diffs[jmax]) if diffs.size else 0.0
     jump_frac = max_jump / rng if rng > 0 else 0.0
+    # Robust spread of the OTHER jumps (median + MAD, so the max itself does not inflate the reference).
+    others = np.delete(diffs, jmax) if diffs.size > 1 else diffs
+    med = float(np.median(others)) if others.size else 0.0
+    mad = float(np.median(np.abs(others - med))) if others.size else 0.0
+    # How far the largest jump stands out from the curve's OWN roughness, in robust sigmas (1.4826 * MAD estimates
+    # sigma for a normal). Measured on synthetic step vs smooth dependences at n = 500 / 2k / 8k: a real step scores
+    # 13.8-21.6 and a smooth tanh 4.0-5.9, both stable across n -- which is exactly the stability the fixed
+    # fraction-of-range rule lacked.
+    jump_z = (max_jump - med) / (1.4826 * mad) if mad > 0 else float("inf")
 
-    if jump_frac >= _STEP_JUMP_FRAC:
+    if jump_z >= _STEP_JUMP_Z and jump_frac >= _STEP_JUMP_FRAC:
         # Map the smoothed-curve jump index back to an approximate feature value (smoothing trims win-1 points).
         pos = min(jmax + win // 2, fv_s.shape[0] - 1)
         return _DepInterp(direction=direction, shap_range=rng, shape="step/discontinuous", step_value=float(fv_s[pos]), enough=True)
@@ -351,12 +360,50 @@ def _interp_title(name: str, interp: _DepInterp) -> str:
     sign = "+" if interp.direction >= 0 else "-"
     arrow = "increasing" if interp.direction >= 0 else "decreasing"
     if interp.shape == "step/discontinuous":
-        verdict = f"STEP at x~{interp.step_value:.3g} -- sharp threshold"
+        verdict = f"STEP at x~{interp.step_value:.3g} -- sharp threshold (jump stands out from the curve's own roughness)"
     elif interp.shape == "smooth (monotone)":
         verdict = f"smooth monotone ({arrow}) -- simple directional effect"
     else:
         verdict = "non-monotone -- interaction / mixed effect"
     return f"{name}\n{sign}dir rho={interp.direction:+.2f}, impact={interp.shap_range:.3g}; {verdict}"
+
+
+def _skipped_result(reason: str, plot_file: Optional[str], plot_outputs: Optional[str], *,
+                    top_names: Optional[Sequence[str]] = None, mean_abs: Optional[np.ndarray] = None,
+                    kind: str = "none") -> "ShapPanelsResult":
+    """A skipped ``ShapPanelsResult`` that also WRITES the reason to the requested path.
+
+    Every skip path used to return the reason on the dataclass only, so the rendered report showed an absent panel
+    and no way to tell "not requested" from "could not be computed". Routing them all through one constructor means
+    a new skip cannot forget the notice.
+    """
+    return ShapPanelsResult(
+        [],
+        _write_skip_notice(reason, plot_file, plot_outputs),
+        list(top_names) if top_names is not None else [],
+        mean_abs if mean_abs is not None else np.empty(0),
+        kind,
+        skipped=reason,
+    )
+
+
+def _write_skip_notice(reason: str, plot_file: Optional[str], plot_outputs: Optional[str]) -> List[str]:
+    """Write a one-line "why there is no SHAP panel" figure to the requested path; returns the files written.
+
+    Without this the skip is invisible in the rendered report: the panel is simply not there, which reads the same
+    as a panel nobody asked for.
+    """
+    if not plot_file or plt is None:
+        return []
+    try:
+        fig = plt.figure(figsize=(9.0, 2.2))
+        fig.text(0.5, 0.5, "SHAP panels not produced:' + BS + 'n" + reason, ha="center", va="center", fontsize=10, wrap=True)
+        written = _save_figure(fig, plot_file, plot_outputs)
+        plt.close(fig)
+        return written
+    except Exception as exc:  # a notice must never be the thing that breaks a report
+        logger.debug("shap skip-notice write failed (%s: %s)", type(exc).__name__, exc)
+        return []
 
 
 def _save_figure(fig: Any, base: str, plot_outputs: Optional[str]) -> List[str]:
@@ -375,7 +422,7 @@ def _save_figure(fig: Any, base: str, plot_outputs: Optional[str]) -> List[str]:
     for fmt in formats:
         path = f"{root}.{fmt}"
         try:
-            fig.savefig(path, bbox_inches="tight")
+            fig.savefig(ensure_parent_dir(path), bbox_inches="tight")
             written.append(path)
         except Exception as save_err:
             log_throttle(logger, "shap_panel_savefig_failed", logging.WARNING, "SHAP panel savefig failed for %s: %s", path, save_err)
@@ -508,13 +555,12 @@ def shap_summary_and_dependence(
     carrier, vals, names = _as_frame_and_names(X, feature_names)
     n = vals.shape[0]
     if n == 0 or vals.shape[1] == 0:
-        return ShapPanelsResult([], [], [], np.empty(0), "none", skipped="empty input")
+        return _skipped_result("empty input (no rows or no feature columns reached the explainer)", plot_file, plot_outputs)
 
     tree = is_tree_model(model)
     if not tree and not allow_kernel:
-        return ShapPanelsResult(
-            [], [], [], np.empty(0), "none",
-            skipped="non-tree model; KernelExplainer is slow -- pass allow_kernel=True to opt in",
+        return _skipped_result(
+            "non-tree model; KernelExplainer is slow -- pass allow_kernel=True to opt in", plot_file, plot_outputs,
         )
     if tree and _is_multi_output_catboost(model):
         # shap's CatBoost tree parser (shap/explainers/_tree.py TreeEnsemble.get_trees) assumes ONE scalar leaf
@@ -531,11 +577,11 @@ def shap_summary_and_dependence(
         # malformed/wrongly-sized child-index arrays; SingleTree.__init__ then walks them and reads out of bounds,
         # crashing the WHOLE PROCESS with a native access violation before any Python-catchable exception, so this
         # must be caught BEFORE shap.TreeExplainer(model) is ever constructed. Skip rather than risk the crash.
-        return ShapPanelsResult(
-            [], [], [], np.empty(0), "none",
-            skipped="CatBoost multi-output (MultiLogloss/MultiCrossEntropy/MultiClass/MultiClassOneVsAll/"
-            "MultiQuantile/MultiRMSE) leaf values are not supported by shap's TreeExplainer CatBoost parser -- "
-            "constructing it risks a native crash (see shap_panels.py comment)",
+        return _skipped_result(
+            "CatBoost multi-output (MultiLogloss/MultiCrossEntropy/MultiClass/MultiClassOneVsAll/MultiQuantile/"
+            "MultiRMSE) leaf values are not supported by shap's TreeExplainer CatBoost parser -- constructing it "
+            "risks a native crash (see shap_panels.py comment)",
+            plot_file, plot_outputs,
         )
     if tree and _model_has_catboost_embedding_features(model):
         # shap's own CatBoost path (shap/explainers/_tree.py TreeExplainer.shap_values) rebuilds a fresh
@@ -547,18 +593,22 @@ def shap_summary_and_dependence(
         # embedding column present, crash inside shap's TreeExplainer -> CatBoost Pool._init). Must be caught
         # BEFORE shap.TreeExplainer(model) is ever called with the embedding column present. Skip rather than
         # risk the crash -- shap has no supported way to carry embedding_features through its own Pool rebuild.
-        return ShapPanelsResult(
-            [], [], [], np.empty(0), "none",
-            skipped="CatBoost model has embedding_features -- shap's TreeExplainer CatBoost parser rebuilds its "
-            "own Pool without forwarding embedding_features, so the embedding column reaches CatBoost as a "
-            "plain numeric feature and can crash the process (see shap_panels.py comment)",
+        return _skipped_result(
+            "CatBoost model has embedding_features -- shap's TreeExplainer CatBoost parser rebuilds its own Pool "
+            "without forwarding embedding_features, so the embedding column reaches CatBoost as a plain numeric "
+            "feature and can crash the process (see shap_panels.py comment)",
+            plot_file, plot_outputs,
         )
 
     cap = max_rows if tree else min(max_rows, kernel_max_rows)
-    proxy = _score_proxy(model, carrier, n)
-    idx = subsample_preserving_extremes(
-        np.arange(n), sample_size=min(cap, n), extreme_values=proxy, k_extremes=_K_EXTREMES, rng=seed,
-    )
+    pool_idx = np.arange(n)
+    if n > cap * _SCORE_PROXY_POOL_FACTOR:
+        pool_idx = np.sort(np.random.default_rng(seed).choice(n, size=cap * _SCORE_PROXY_POOL_FACTOR, replace=False))
+    proxy = _score_proxy(model, _row_subset(carrier, pool_idx) if pool_idx.size != n else carrier, pool_idx.size)
+    idx = pool_idx[subsample_preserving_extremes(
+        np.arange(pool_idx.size), sample_size=min(cap, pool_idx.size), extreme_values=proxy,
+        k_extremes=_K_EXTREMES, rng=seed,
+    )]
     X_sample = _row_subset(carrier, idx)
     vals_sample = vals[idx]
 
@@ -579,9 +629,9 @@ def shap_summary_and_dependence(
             # this is a best-effort VISUAL diagnostic, never fatal. Broad ``except Exception`` is deliberate: the
             # backends raise library-specific error types (CatBoostError etc.), not a common base beyond Exception.
             logger.debug("Tree-SHAP explain failed (%s: %s) -- skipping the panel with the cause carried in skipped=", type(_shap_exc).__name__, _shap_exc)
-            return ShapPanelsResult(
-                [], [], [], np.empty(0), "none",
-                skipped=f"tree SHAP unavailable for this feature frame ({type(_shap_exc).__name__}: {str(_shap_exc)[:80]})",
+            return _skipped_result(
+                f"tree SHAP unavailable for this feature frame ({type(_shap_exc).__name__}: {str(_shap_exc)[:80]})",
+                plot_file, plot_outputs,
             )
         explainer_kind = "tree"
     else:
@@ -603,7 +653,7 @@ def shap_summary_and_dependence(
     top_names = [names[i] if i < len(names) else f"f{i}" for i in order[: max(int(top_k), 1)]]
 
     if plt is None:
-        return ShapPanelsResult([], [], top_names, mean_abs, explainer_kind, skipped="matplotlib unavailable")
+        return _skipped_result("matplotlib unavailable", plot_file, plot_outputs, top_names=top_names, mean_abs=mean_abs, kind=explainer_kind)
 
     figures: List[Any] = []
     paths: List[str] = []

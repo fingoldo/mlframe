@@ -16,7 +16,7 @@ logger = logging.getLogger("mlframe.training.core._phase_composite_post")
 
 
 class MTRPerColumnEqualMeanEnsemble:
-    """E2 (F-34, 2026-05-31) + E3 (F-34, 2026-05-31): per-column ensemble
+    """E2 (F-34) + E3 (F-34): per-column ensemble
     for MULTI_TARGET_REGRESSION cross-target ensembling.
 
     Wraps a list of K trained component models (each producing (N, K)
@@ -120,9 +120,10 @@ class MTRPerColumnEqualMeanEnsemble:
         For each target column k, solves:
             y[:, k] = A_k @ w_k,  subject to w_k >= 0
         where A_k[:, j] = self._components[j].predict(X)[:, k].
-        Then normalises w_k to sum to 1 (so the prediction is a convex
-        combination). When NNLS returns the all-zero degenerate
-        solution (no component fits the column), falls back to
+        w_k is kept RAW (NOT normalised to sum to 1) -- the optimal NNLS fit can need
+        weights summing to != 1, and normalising would change the fitted prediction
+        (see the ``weights`` property docstring). When NNLS returns the all-zero
+        degenerate solution (no component fits the column), falls back to
         equal-mean for that column.
 
         No-op when strategy == "equal_mean" (the equal-weight ensemble

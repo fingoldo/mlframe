@@ -55,8 +55,8 @@ _DEFAULT_LTR_ES = 30
 # Models that consume pandas Categorical via the joint train+val
 # encoding. Linear / MLP / Neural strategies operate on numeric tensors
 # and don't read the Categorical dtype at all; running the joint cat
-# prep for them is pure waste (c0095 iter195 found 865ms wasted on a
-# linear-only multilabel combo at 200k rows). LearningToRank LGB / XGB
+# prep for them is pure waste (865ms wasted on a linear-only
+# multilabel combo at 200k rows, measured). LearningToRank LGB / XGB
 # / CB rankers also consume cat_features through the joint encoding,
 # so they're included here.
 _MODELS_NEEDING_PANDAS_CAT_PREP: frozenset[str] = frozenset({
@@ -275,7 +275,7 @@ def _defensive_copy_and_expand_multilabel_regression(
         if ml_expanded_map:
             metadata.setdefault("multilabel_target_expansion", {})[str(TargetTypes.REGRESSION)] = ml_expanded_map
     elif ml_strategy == "multi_target_regression":
-        # F-34 (2026-05-31): keep (N, K) regression targets as-is, route
+        # Keep (N, K) regression targets as-is, route
         # them to TargetTypes.MULTI_TARGET_REGRESSION. Strategies that
         # support native multi-target (CatBoost MultiRMSE, XGBoost
         # multi_output_tree, MLP K-head, sklearn Linear/Ridge/RF) fit
@@ -450,6 +450,7 @@ def _phase_pandas_conversion_and_cat_prep(
     df_size_mb: float,
     verbose: bool,
     polars_pipeline_applied: bool = True,
+    pipeline_stages_requested: bool = True,
     strategy_by_model: dict | None = None,
 ) -> tuple:
     """Pandas conversion + CatBoost cat prep + Polars release.
@@ -467,7 +468,7 @@ def _phase_pandas_conversion_and_cat_prep(
     val_df_polars = val_df_polars_pre
     test_df_polars = test_df_polars_pre
 
-    # Wave 69 (2026-05-20) closure: defer_pandas_conv heuristic landed in wave 4
+    # defer_pandas_conv heuristic landed earlier
     # of the F6 audit (predict-skew closure); it consults ctx.strategy_by_model
     # directly rather than rebuilding the per-model strategy list here. The
     # on-demand build inside the verbose-only log branches below is intentional
@@ -485,7 +486,19 @@ def _phase_pandas_conversion_and_cat_prep(
     # ``polars_pipeline_applied`` captures whether a polars-aware pipeline actually fitted on the polars frame;
     # when False the downstream pipeline state lives only in pandas representation, so the lazy-pandas fastpath
     # cannot keep frames as polars without losing that state.
-    defer_pandas_conv = was_polars_input and polars_pipeline_applied and not recurrent_models and not _has_rfecv
+    #
+    # But "not applied" and "not requested" are different things, and conflating them cost a production run a
+    # multi-GB conversion for nothing: a caller asking for no encoder, no scaler and no imputer has NO pipeline
+    # state in either representation, so there is nothing for pandas to carry and the polars frames can stay.
+    # That configuration is the normal one for a CatBoost-only run, which needs none of those transforms.
+    #
+    # Deferring needs BOTH halves though. ``polars_pipeline_applied`` used to imply "some model reads polars"
+    # on its own, so relaxing the first half alone started deferring for an XGB-only run -- whose models cannot
+    # read a polars frame, so each fit converted its own copy, and the cross-clone DMatrix cache (keyed on the
+    # frame signature) missed on every weight schema. Ask about the models explicitly instead of inferring it.
+    _pipeline_state_lives_in_pandas = pipeline_stages_requested and not polars_pipeline_applied
+    _needs_pandas_frames = _pipeline_state_lives_in_pandas or not all_models_polars_native
+    defer_pandas_conv = was_polars_input and not _needs_pandas_frames and not recurrent_models and not _has_rfecv
 
     train_df_size_bytes_cached: float | None = None
     val_df_size_bytes_cached: float | None = None
@@ -538,17 +551,30 @@ def _phase_pandas_conversion_and_cat_prep(
                 )
     else:
         if verbose:
+            # These must mirror the ``defer_pandas_conv`` gate above TERM FOR TERM. They previously did
+            # not: the gate gives up deferral when ``polars_pipeline_applied`` is False, but that term was
+            # missing from the list, while ``all_models_polars_native`` -- which the gate never consults --
+            # was in it. So the one genuinely common case (a caller passing
+            # PreprocessingBackendConfig(prefer_polarsds=False), which leaves the polars-ds pipeline
+            # unapplied) matched no listed reason and printed "unknown", leaving a multi-GB conversion with
+            # no stated cause.
             reasons = []
             if not was_polars_input:
                 reasons.append("input is not a Polars DataFrame")
-            if not all_models_polars_native:
-                _strats = _strategies_for(mlframe_models or [])
-                non_native = [m for m, s in zip(mlframe_models or [], _strats) if not s.supports_polars]
-                reasons.append(f"non-Polars-native models requested: {non_native}" if non_native else "all_models_polars_native=False (no strategies)")
+            if _pipeline_state_lives_in_pandas:
+                reasons.append(
+                    "transform stages were requested (encoder / scaler / imputer) but the polars-ds pipeline did "
+                    "not apply them, so the fitted state exists only in pandas representation"
+                )
             if recurrent_models:
                 reasons.append(f"recurrent_models={recurrent_models}")
             if _has_rfecv:
                 reasons.append(f"rfecv_models={rfecv_models}")
+            if not all_models_polars_native:
+                _strats = _strategies_for(mlframe_models or [])
+                non_native = [m for m, s in zip(mlframe_models or [], _strats) if not s.supports_polars]
+                if non_native:
+                    reasons.append(f"non-Polars-native models requested: {non_native}")
             logger.info(
                 "  polars->pandas conversion needed because: %s",
                 "; ".join(reasons) or "unknown",
@@ -558,7 +584,7 @@ def _phase_pandas_conversion_and_cat_prep(
         # 1. If ``was_polars_input`` already populated ``train_df_size_bytes_cached`` via
         #    ``estimated_size()`` + cat-heavy inflation (lines ~473-483 above), KEEP that value.
         #    On a 4M-row x 25-col object-heavy frame ``memory_usage(deep=True)`` scans every cell
-        #    and takes ~17.6s (measured 2026-05-24); the polars estimate plus the 1.5x cat-heavy
+        #    and takes ~17.6s (); the polars estimate plus the 1.5x cat-heavy
         #    factor is accurate enough for GPU-sizing heuristics that already over-allocate.
         # 2. Otherwise fall back to ``memory_usage(deep=False)`` -- shallow scan returns in <1ms
         #    by reading buffer-block sizes per column. The object-dtype undercount that
@@ -584,9 +610,9 @@ def _phase_pandas_conversion_and_cat_prep(
                     (val_df_size_bytes_cached or 0) / 1e6,
                 )
 
-    # OPT-1 bench-attempt-rejected (2026-05-23): gated joint cat prep on
-    # mlframe_models containing CB/HGB/LGB/XGB/*_rfecv. Verified on c0095
-    # (linear-only multilabel 200k): gate fires correctly (prep call
+    # bench-attempt-rejected: gated joint cat prep on
+    # mlframe_models containing CB/HGB/LGB/XGB/*_rfecv. Verified on a
+    # linear-only multilabel 200k combo: gate fires correctly (prep call
     # eliminated, saving ~865ms cumtime) BUT overall wall went 25.05s ->
     # 32.48s. sklearn.multioutput.fit went 18.7s -> 23.4s (+4.7s); the
     # joint Categorical encoding apparently provides a downstream win for
@@ -654,7 +680,7 @@ def _phase_pandas_conversion_and_cat_prep(
     )
 
 
-# Wave 105 (2026-05-21): _phase_auto_detect_feature_types, _phase_fit_pipeline,
+# _phase_auto_detect_feature_types, _phase_fit_pipeline,
 # and _phase_train_val_test_split moved to sibling _phase_helpers_fit_split.py.
 # Re-exported below so existing callers
 # (`from ._phase_helpers import _phase_fit_pipeline`, etc.) keep working.
@@ -816,7 +842,7 @@ def _maybe_dispatch_to_ltr_ranker_suite(
     _data_dir = _cfg_get(ctx.output_config, "data_dir")
     _models_dir = _cfg_get(ctx.output_config, "models_dir") or "models"
     if _data_dir:
-        # Wave 46 (2026-05-20): raw ctx.model_name plumbed into os.path.join is a path-
+        # raw ctx.model_name plumbed into os.path.join is a path-
         # traversal vector ("../../evil" escapes models dir; an absolute "/foo" or "C:/x"
         # eats the prefix entirely). Slugify mirrors the non-LTR sibling paths at
         # _setup_helpers.py:852 and _phase_finalize.py:71.

@@ -1310,6 +1310,38 @@ def _per_dataset_test(loader, name: str) -> None:
     records = _run_matrix(X, y, task, name)
     _print_matrix(records)
 
+    # This helper backs 394 of the file's 396 test functions, and it asserted NOTHING -- it ran boosting
+    # matrices on real datasets, printed a table, and returned, so every one of those tests passed as long as
+    # nothing raised. A `test_biz_val_*` file is supposed to gate business value; this one measured it and threw
+    # the verdict away.
+    #
+    # The floor asserted here is deliberately weak and universal, because per-dataset lift thresholds belong in
+    # the individual tests (several of these datasets legitimately expect neutral-to-negative lift, as their own
+    # docstrings say). What it catches is a SILENT NUMERIC failure -- a NaN score, an all-zero feature block, a
+    # transform that collapses the matrix -- which is invisible in a printed table nobody diffs.
+    assert records, f"{name}: the matrix produced no records at all"
+    _bad = [r for r in records if not np.isfinite(r["score"])]
+    assert not _bad, f"{name}: non-finite score(s) in the matrix: {[(r['boosting'], r['features'], r['score']) for r in _bad]}"
+
+    _by_key: dict = {}
+    for r in records:
+        _by_key.setdefault((r["dataset"], r["boosting"]), {})[r["features"]] = r["score"]
+    _collapsed = []
+    for (_ds, _boost), _scores in _by_key.items():
+        _raw = _scores.get("raw")
+        if _raw is None or not np.isfinite(_raw):
+            continue
+        for _feat, _sc in _scores.items():
+            if _feat == "raw":
+                continue
+            # An arm scoring far below raw is a broken feature block, not a modelling result.
+            if _sc < _raw - 0.30:
+                _collapsed.append((_boost, _feat, round(_sc, 4), round(_raw, 4)))
+    assert not _collapsed, (
+        f"{name}: transformer-FE arm(s) collapsed more than 0.30 below raw, which indicates a broken feature "
+        f"block rather than a modelling outcome: {_collapsed}"
+    )
+
 
 def _print_matrix(records: List[Dict]) -> None:
     """Print a generic matrix: columns = whatever feature configs are present in the records (alphabetically sorted, with 'raw' first), rows = (dataset, boosting).

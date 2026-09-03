@@ -587,15 +587,27 @@ class TestLockWilcoxonGate:
             if d_w.specs_:
                 wilcoxon_accepts += 1
         # Demo: threshold 15/15, Wilcoxon 7/15 (53% reduction).
-        # Lock at >= 30% reduction.
+        # Lock at >= 30% reduction -- but only at the full n_reps=10 tier: at n_reps=5 (fast mode) each
+        # rep is 20 percentage points of granularity, so a single accept/reject flip (the expected ~half
+        # split landing at 3/5 instead of 2/5 wilcoxon accepts) swings the measured reduction from 40% to
+        # 20%, straddling the 30% floor on pure combinatorics rather than a regression signal. Fast mode
+        # keeps the coarser "catches at least one" check -- still fails a genuine "Wilcoxon gate is a
+        # no-op" regression (wilcoxon_accepts == threshold_accepts) while tolerating the single-flip noise
+        # the 5-rep sample size can't resolve at 30%-precision.
         if threshold_accepts >= 5:
             reduction = (threshold_accepts - wilcoxon_accepts) / threshold_accepts
-            assert reduction >= 0.3, (
-                f"regression: Wilcoxon caught only {reduction * 100:.0f}% "
-                f"of threshold's borderline false-positives "
-                f"(threshold={threshold_accepts}/{n_reps}, "
-                f"wilcoxon={wilcoxon_accepts}/{n_reps}); expected >= 30%"
-            )
+            if n_reps >= 10:
+                assert reduction >= 0.3, (
+                    f"regression: Wilcoxon caught only {reduction * 100:.0f}% "
+                    f"of threshold's borderline false-positives "
+                    f"(threshold={threshold_accepts}/{n_reps}, "
+                    f"wilcoxon={wilcoxon_accepts}/{n_reps}); expected >= 30%"
+                )
+            else:
+                assert wilcoxon_accepts < threshold_accepts, (
+                    f"regression: Wilcoxon caught none of threshold's borderline false-positives "
+                    f"(threshold={threshold_accepts}/{n_reps}, wilcoxon={wilcoxon_accepts}/{n_reps})"
+                )
 
 
 # ----------------------------------------------------------------------

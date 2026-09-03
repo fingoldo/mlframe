@@ -28,6 +28,8 @@ import pytest
 from mlframe.feature_selection.filters.info_theory import mi, mi_miller_madow, symmetric_uncertainty
 from mlframe.feature_selection.filters._fe_cmi_redundancy_gate import apply_cmi_redundancy_gate
 
+from tests.conftest import perf_time_budget
+
 
 @pytest.fixture(scope="module", autouse=True)
 def _prewarm():
@@ -223,7 +225,14 @@ def test_biz_val_jmim_captures_xor_synergy_no_harm_vs_fleuret():
     t = time.time()
     auc_fleuret = fit_auc(None)
     auc_jmim = fit_auc("jmim")
-    assert time.time() - t < 90, "two XOR fits should complete inside the budget"
+    # 90 -> 180 (2026-08-15): observed ~139s on a cupy-less host where fe_max_steps=1's hermite-prewarp path
+    # can't engage its GPU-resident fast path and falls through to a slower CPU loop; CI runners are GPU-less
+    # too, so this budget must hold there as well, not just on a dev box that happens to have a GPU.
+    # perf_time_budget (2026-08-18): a raw 180s cap still isn't enough once the shared 2-vCPU CI runners
+    # are themselves contended (this exact test timed out on a run where the whole ~57-job matrix ran
+    # several times its normal wall-clock); widen under detected xdist/host contention via the same
+    # mechanism already used for other wall-clock-sensitive assertions in this suite.
+    assert time.time() - t < perf_time_budget(180), "two XOR fits should complete inside the budget"
     assert auc_fleuret >= 0.95, f"Fleuret must recover XOR synergy (floor 0.95), got {auc_fleuret:.4f}"
     assert auc_jmim >= 0.95, f"JMIM must recover XOR synergy (floor 0.95), got {auc_jmim:.4f}"
     assert auc_jmim >= auc_fleuret - 0.02, f"JMIM must be no worse than Fleuret: jmim={auc_jmim:.4f} fleuret={auc_fleuret:.4f}"

@@ -415,8 +415,10 @@ def enrich_ensemble_preds_with_numaggs(
 
     if models_names is None:
         models_names = []
-    if numaggs_kwds is None:
-        numaggs_kwds = {"whiten_means": False}
+    # Copy rather than mutate the caller's dict in place: a caller who passes numaggs_kwds and reuses it
+    # for other calls (or reads it afterward) would silently see directional_only/return_hurst/
+    # return_entropy keys added by this function.
+    numaggs_kwds = dict(numaggs_kwds) if numaggs_kwds is not None else {"whiten_means": False}
 
     if predictions.shape[1] >= 10:
         numaggs_kwds.update(dict(directional_only=False, return_hurst=True, return_entropy=True))
@@ -721,10 +723,14 @@ def combine_probs(
         else:
             combined = np.sqrt(np.mean(sq, axis=0))
     elif flav == "qube":
-        # Underflow guard: for all-positive but extremely-small probs, cbrt(mean(p^3))
-        # can lose precision near 1e-100 because p^3 underflows below float64 min.
-        # Clip the pre-cube floor at the cube root of the smallest safe float64 (~1e-103).
-        _safe = np.clip(stacked, 1e-103, None) if (stacked > 0).all() else stacked
+        # Underflow guard: for extremely-small positive probs, cbrt(mean(p^3)) can lose precision
+        # near 1e-100 because p^3 underflows below float64 min. Clip the pre-cube floor at the cube
+        # root of the smallest safe float64 (~1e-103), but per-CELL on the positive-value mask -- a
+        # global (stacked > 0).all() gate would disable the clip for the WHOLE tensor the moment any
+        # single unrelated cell is exactly 0, leaving every other tiny-positive cell unprotected.
+        # Exact-zero cells are left untouched (0**3 == 0 exactly, no underflow to guard against, and
+        # bumping them to 1e-103 would corrupt a legitimately-zero probability).
+        _safe = np.where(stacked > 0, np.maximum(stacked, 1e-103), stacked)
         cu = _safe * _safe * _safe
         if weights_arr is not None:
             combined = np.cbrt(np.average(cu, axis=0, weights=weights_arr))

@@ -86,7 +86,10 @@ def _is_binary_score(y_true: np.ndarray, y_score: np.ndarray) -> bool:
     yt = np.asarray(y_true).ravel()
     ys = np.asarray(y_score, dtype=np.float64).ravel()
     finite = ys[np.isfinite(ys)]
-    label_ok = np.all(np.isin(yt[~np_isnan(yt)], (0, 1))) if yt.size else False
+    yt_finite = yt[~np_isnan(yt)]
+    # Guard on the POST-NaN-filter size, not yt.size: for an all-NaN y_true, np.all(np.isin([], (0, 1))) is
+    # vacuously True, which wrongly reported label_ok=True for a target carrying zero real label information.
+    label_ok = bool(yt_finite.size) and np.all(np.isin(yt_finite, (0, 1)))
     score_ok = finite.size > 0 and float(finite.min()) >= -1e-9 and float(finite.max()) <= 1.0 + 1e-9
     return bool(label_ok and score_ok)
 
@@ -139,15 +142,26 @@ def shap_worst_errors_explanation(
 
     severity = _error_severity(yt, ys)
     binary = _is_binary_score(yt, ys)
+    # A row with a missing label or score has NO severity, and `argsort(...)[::-1]` puts NaN FIRST -- so the
+    # "most-confident-wrong" panel led with rows carrying no label information at all, and the binary title then
+    # raised on `int(nan)`. Rank only rows whose severity is defined, and say how many were set aside.
+    finite_sev = np.isfinite(severity)
+    n_dropped = int((~finite_sev).sum())
+    if not finite_sev.any():
+        return _skip(f"no row has both a finite label and a finite score ({n:,} rows, all unusable)")
     # A "no misclassification" panel is informative on its own: annotate rather than silently emit nothing.
     no_errors = binary and float(np.nanmax(severity)) < 0.5
 
     k_eff = max(int(k), 1)
-    order = np.argsort(severity)[::-1]  # worst first
-    worst_idx = order[: min(k_eff, n)]
+    rankable = np.flatnonzero(finite_sev)
+    order = rankable[np.argsort(severity[rankable])[::-1]]  # worst first, defined severities only
+    worst_idx = order[: min(k_eff, rankable.size)]
     severities = severity[worst_idx]
 
-    explain_idx = _background_index(order, n, max_explain_rows, worst_idx, seed)
+    # Only the worst rows' SHAP values are ever read below, and TreeExplainer's base value comes from the model,
+    # not from the rows passed in -- so explaining a wider "background" set was pure work whose output was discarded.
+    explain_idx = worst_idx[: max(int(max_explain_rows), 1)]
+    dropped_note = f" ({n_dropped:,} rows had no finite label/score and were not ranked)" if n_dropped else ""
     X_explain = _row_subset(carrier, explain_idx)
     explainer = shap.TreeExplainer(model)
     sv = explainer(X_explain, check_additivity=False)
@@ -165,30 +179,22 @@ def shap_worst_errors_explanation(
         return ShapPerInstanceResult(None, [], worst_idx, severities, contributions, skipped="matplotlib unavailable")
 
     fig, paths = _render(
-        worst_idx, severities, contributions, yt, ys, binary, no_errors, plot_file, plot_outputs,
+        worst_idx, severities, contributions, yt, ys, binary, no_errors, plot_file, plot_outputs, dropped_note,
     )
     return ShapPerInstanceResult(fig, paths, worst_idx, severities, contributions, n_background=len(explain_idx))
 
 
 def _skip(reason: str) -> ShapPerInstanceResult:
-    """Build an empty ``ShapPerInstanceResult`` carrying ``reason`` so callers can distinguish a deliberate skip from a genuine explanation."""
-    return ShapPerInstanceResult(None, [], np.empty(0, dtype=int), np.empty(0), [], skipped=reason)
+    """Build a ``ShapPerInstanceResult`` whose figure STATES ``reason``, so the skip is visible in the report itself.
 
-
-def _background_index(order: np.ndarray, n: int, max_rows: int, worst_idx: np.ndarray, seed: int) -> np.ndarray:
-    """Bounded background row index: the K worst rows (always) plus a random fill to ``max_rows``.
-
-    The K worst rows MUST be in the explained set (we need their per-row SHAP); the rest are a random
-    background so the TreeExplainer base value reflects the population, not just the tail.
+    The reason used to live only on the dataclass, readable by a caller inspecting it and by nobody looking at the
+    rendered report -- where the panel simply was not there, indistinguishable from a panel nobody asked for.
     """
-    cap = min(max(int(max_rows), len(worst_idx)), n)
-    keep = set(int(i) for i in worst_idx)
-    rng = np.random.default_rng(seed)
-    pool = np.array([i for i in order if int(i) not in keep], dtype=int)
-    rng.shuffle(pool)
-    fill = pool[: max(cap - len(keep), 0)]
-    idx = np.concatenate([np.asarray(worst_idx, dtype=int), fill]) if fill.size else np.asarray(worst_idx, dtype=int)
-    return idx
+    fig = None
+    if plt is not None:
+        fig = plt.figure(figsize=(8.0, 2.5))
+        fig.text(0.5, 0.5, "Per-instance SHAP not produced:\n" + reason, ha="center", va="center", fontsize=11, wrap=True)
+    return ShapPerInstanceResult(fig, [], np.empty(0, dtype=int), np.empty(0), [], skipped=reason)
 
 
 def _render(
@@ -201,8 +207,13 @@ def _render(
     no_errors: bool,
     plot_file: Optional[str],
     plot_outputs: Optional[str],
+    dropped_note: str = "",
 ) -> Tuple[Any, List[str]]:
-    """Small-multiples: one signed-SHAP horizontal bar per worst-error instance."""
+    """Small-multiples: one signed-SHAP horizontal bar per worst-error instance.
+
+    ``dropped_note`` names how many rows had no finite label or score and so could not be ranked at all; stating it
+    on the figure is what keeps "top-K worst" from being read as "top-K of every row".
+    """
     k = len(worst_idx)
     ncol = min(k, 2) if k > 1 else 1
     nrow = int(np.ceil(k / ncol))
@@ -234,9 +245,12 @@ def _render(
             ax.set_title(title, fontsize=9)
 
         if no_errors:
-            fig.suptitle("Per-instance SHAP -- worst predictions (NOTE: no misclassifications; showing largest residuals)", fontsize=11)
+            fig.suptitle(
+                "Per-instance SHAP -- worst predictions (NOTE: no misclassifications; showing largest residuals)" + dropped_note,
+                fontsize=11,
+            )
         else:
-            fig.suptitle("Per-instance SHAP attribution -- top-K most-confident-wrong predictions", fontsize=11)
+            fig.suptitle("Per-instance SHAP attribution -- top-K most-confident-wrong predictions" + dropped_note, fontsize=11)
         fig.tight_layout(rect=(0, 0, 1, 0.97))
 
         paths: List[str] = []

@@ -11,6 +11,18 @@ import pytest
 
 cp = pytest.importorskip("cupy")
 
+
+def _gpu_available() -> bool:
+    """Gpu available."""
+    try:
+        return cp.cuda.runtime.getDeviceCount() >= 1
+    except Exception:  # pragma: no cover - no driver / no GPU
+        return False
+
+
+if not _gpu_available():  # pragma: no cover - guarded at collection time
+    pytest.skip("No CUDA device available", allow_module_level=True)
+
 from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _renumber_joint_gpu
 
 

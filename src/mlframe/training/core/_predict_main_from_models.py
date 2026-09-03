@@ -1,5 +1,5 @@
 """``predict_from_models`` carved out of
-``mlframe.training.core._predict_main`` for the 2026-05-22 sub-split that
+``mlframe.training.core._predict_main`` for the sub-split that
 brings _predict_main below 1k LOC.
 """
 from __future__ import annotations
@@ -20,6 +20,8 @@ from .utils import (
     _drop_cols_df,
     _validate_input_columns_against_metadata,
 )
+from .._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns
+from ..utils import _dtype_family
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.core.predict")
@@ -196,6 +198,15 @@ def predict_from_models(
         # the conversion until AFTER pipeline.transform so each pipeline
         # type sees the format it was fitted on.
         df = pipeline.transform(df)
+        # The pipeline (pre_pipeline / MRMR-FE) may emit engineered interaction column names
+        # embedding JSON-structural characters (e.g. ``mul(log(f2),sin(f3))``) -- fit time renames
+        # these to a GBM-safe form via the same pure deterministic map right after this exact
+        # transform (``_trainer_train_and_evaluate.py``'s ``train_df``/``val_df``/``test_df``
+        # sanitization). Predict skipped this step, so a fitted model's ``feature_names_`` carried
+        # the sanitized (underscore) names while the live predict frame still carried the raw
+        # (comma) names -- CatBoost's Pool build then raised "should be feature with name ...
+        # (found ...)" for any model with a hostile-named engineered feature.
+        df = _sanitize_frame_columns(df)
 
     # Row-wise extension columns (row_summary_*/row_extreme_*, default ON) are stateless per-row
     # functions with no fitted object to persist -- recompute them directly from the frame's own
@@ -264,7 +275,7 @@ def predict_from_models(
         _ext_new_cols = [c for c in df.columns if c not in set(df_pre_pipeline.columns)]
         if _ext_new_cols and df.shape[0] == df_pre_pipeline.shape[0]:
             try:
-                # ``pl.from_pandas(df[cols])`` pays a full pandas block consolidation copy through Arrow on the predict hot path. Building polars columns directly from per-column ``.to_numpy()`` views skips the pandas block manager round-trip; bench (100k x 30 mixed dtypes, 2026-05-24): 16.0ms -> 1.05ms (15x). ``rechunk=False`` on the from_pandas path showed no measurable gain in the same bench because the underlying copy is the consolidation, not the chunk merge.
+                # ``pl.from_pandas(df[cols])`` pays a full pandas block consolidation copy through Arrow on the predict hot path. Building polars columns directly from per-column ``.to_numpy()`` views skips the pandas block manager round-trip; bench (100k x 30 mixed dtypes): 16.0ms -> 1.05ms (15x). ``rechunk=False`` on the from_pandas path showed no measurable gain in the same bench because the underlying copy is the consolidation, not the chunk merge.
                 _ext_only_pl = pl.DataFrame({c: df[c].to_numpy() for c in _ext_new_cols})
                 df_pre_pipeline = df_pre_pipeline.hstack(_ext_only_pl)
             except Exception as _bm_err:  # best-effort: falls back to raw-only, logged so the cause is visible
@@ -344,6 +355,43 @@ def predict_from_models(
                     if isinstance(input_for_model, pl.DataFrame) and not _is_polars_native_model(model_obj):
                         input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
 
+                    # Restore RAW cat_features from df_pre_pipeline for any model with its own
+                    # per-model pre_pipeline (e.g. sklearn HGB's CatBoostEncoder step). The shared
+                    # ``pipeline`` above may already have numerically encoded cat_features under
+                    # the SAME column name (e.g. the polars-ds LGB-oriented pipeline casts cat_low
+                    # to Float64) -- that survives the "_missing" column check below (the name is
+                    # still present, just holding the wrong values/dtype), so the existing
+                    # df_pre_pipeline fallback (name-presence-only) never triggers. A per-model
+                    # pre_pipeline's own feature_names_in_ was fit on the RAW pre-pipeline frame
+                    # (see the comment above ``_expected`` below), so it needs the raw cat values,
+                    # not whatever the shared pipeline encoded them into for a DIFFERENT model
+                    # family. Surfaced by fuzz iter#80 (lgb+hgb mixed on Polars+cat): HGB's own
+                    # OrdinalEncoder compares Float64 input against its fitted string vocabulary
+                    # via ``xp.isnan(known_values)``, which trips on the fitted string categories.
+                    if (
+                        hasattr(model_obj, "pre_pipeline")
+                        and model_obj.pre_pipeline is not None
+                        and _cat_features
+                        and df_pre_pipeline is not None
+                        and hasattr(df_pre_pipeline, "columns")
+                        and hasattr(input_for_model, "columns")
+                        and len(df_pre_pipeline) == len(input_for_model)
+                    ):
+                        _raw_cat_cols = [c for c in _cat_features if c in df_pre_pipeline.columns and c in input_for_model.columns]
+                        if _raw_cat_cols:
+                            _pre_pipeline_pd = df_pre_pipeline
+                            if isinstance(_pre_pipeline_pd, pl.DataFrame):
+                                _pre_pipeline_pd = _ensure_pandas_view(_pre_pipeline_pd, _pandas_view_cache)
+                            if isinstance(input_for_model, pd.DataFrame) and isinstance(_pre_pipeline_pd, pd.DataFrame):
+                                _restore: dict[str, Any] = {}
+                                for _rc in _raw_cat_cols:
+                                    _live_fam = _dtype_family(str(input_for_model[_rc].dtype))
+                                    _raw_fam = _dtype_family(str(_pre_pipeline_pd[_rc].dtype))
+                                    if _live_fam != _raw_fam:
+                                        _restore[_rc] = _pre_pipeline_pd[_rc].reset_index(drop=True).set_axis(input_for_model.index)
+                                if _restore:
+                                    input_for_model = input_for_model.assign(**_restore)
+
                     # Subset to the per-model expected feature list BEFORE
                     # routing through pre_pipeline (sklearn pipelines for
                     # linear / ridge / sgd reject text/embedding columns at
@@ -367,6 +415,16 @@ def predict_from_models(
                         _expected = getattr(model, "feature_names_in_", None)
                     if _expected is None:
                         _expected = getattr(model, "feature_names_", None)
+                    if _expected is None:
+                        # LightGBM's own sklearn API (LGBMModel) never sets the sklearn-convention
+                        # ``feature_names_in_``/``feature_names_`` -- it exposes its fit-time column
+                        # list as ``feature_name_`` (singular, LGBM-specific). Missing this meant
+                        # ``_expected`` stayed None for every LGB model, so the extra-column drop below
+                        # never ran for LGB: a fit-time column dropped by an upstream filter (e.g. a
+                        # near-constant datetime-derived column pruned only on the TRAIN split) that
+                        # survives replay at predict time reached ``booster.predict()`` unfiltered,
+                        # raising LightGBMError "number of features ... not the same as ... training".
+                        _expected = getattr(model, "feature_name_", None)
                     if _expected is not None and hasattr(input_for_model, "columns"):
                         # Cached per-(input_for_model, _expected) set-diff. Multiple models in one suite often
                         # carry identical feature_names_in_; this reuses the computed missing / drop lists.
@@ -439,7 +497,7 @@ def predict_from_models(
                             else:
                                 input_for_model = input_for_model.drop(columns=_drop_extra)
 
-                    # Wave 90 (2026-05-21): per-model pre_pipeline.transform
+                    # per-model pre_pipeline.transform
                     # (with text/embedding passthrough stashing + feature-
                     # subset fallback on NotFittedError) lifted to the
                     # module-level _apply_pre_pipeline_with_passthrough.
@@ -456,7 +514,7 @@ def predict_from_models(
                         verbose=verbose,
                     )
 
-                    # Wave 89 (2026-05-21): LGB + XGB cat dtype coercion lifted
+                    # LGB + XGB cat dtype coercion lifted
                     # to module-level _coerce_cat_dtype_for_lgb_xgb. Same logic,
                     # one call instead of two adjacent ~40-line blocks.
                     # Thread persisted enum_domains (train-time Enum dictionaries) through so the polars XGB cat-cast lands on pl.Enum (per-Series, no global-string-cache widening). Out-of-domain values cast to null via strict=False (matches training treatment of truly-unseen test categories). Legacy bundles without enum_domains key fall back to pl.Categorical with WARN.
@@ -476,7 +534,7 @@ def predict_from_models(
                     # (correct for LGB / linear / etc.) and fall back to
                     # pre-pipeline on the specific isnan-on-strings TypeError.
                     # Surfaced by fuzz iter#80 (lgb+hgb on Polars+cat).
-                    # Wave 88 (2026-05-21): the 90-line nested _try_predict closure
+                    # the 90-line nested _try_predict closure
                     # was extracted to the module-level _try_predict_with_pp_fallback.
                     # Behaviour identical; the per-iteration def overhead is gone and
                     # the function is now unit-testable in isolation.
@@ -493,7 +551,7 @@ def predict_from_models(
                             verbose=verbose,
                         )
 
-                    # CTE-RAW-X (2026-05-21): CompositeTargetEstimator's predict
+                    # CompositeTargetEstimator's predict
                     # reads the base column directly from X to apply the transform's
                     # inverse (e.g. linear_residual: y = t_hat + alpha*base + beta).
                     # The alpha/beta were fit on the RAW base column at discovery
@@ -535,7 +593,7 @@ def predict_from_models(
                             if probs.shape[1] == 2:
                                 preds = (probs[:, 1] >= _bin_thr).astype(int)
                             else:
-                                # Wave 21 P2: nan-safe argmax (second predict
+                                # nan-safe argmax (second predict
                                 # entry point; symmetric to L964 fix).
                                 from ...utils.nan_safe import argmax_classes_safe
                                 preds = argmax_classes_safe(
@@ -556,7 +614,7 @@ def predict_from_models(
                     results["models_used"].append(model_name)
 
                 except Exception as e:
-                    # Wave 41 (2026-05-20): twin path at line 995 already uses exc_info=True;
+                    # twin path at line 995 already uses exc_info=True;
                     # this site was the asymmetric one - lost the traceback for downstream
                     # ensemble-member triage. Mirror the twin.
                     log_throttle(logger, "predict_error_with_model", logging.ERROR, "Error predicting with model %s", model_name, exc_info=True)

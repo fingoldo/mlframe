@@ -29,4 +29,12 @@ def attach_new_columns(df: Any, new_cols: "pd.DataFrame") -> Any:
         return df
     if isinstance(df, pl.DataFrame):
         return df.with_columns([pl.Series(c, new_cols[c].to_numpy()) for c in new_cols.columns])
+    # new_cols is guaranteed to be in the SAME ROW ORDER as df (contract above), but callers commonly
+    # build it with a fresh RangeIndex(0..n-1) rather than df's own (possibly non-contiguous, e.g. after
+    # an upstream df.iloc[train_idx] split) index. Both df.join() and pd.concat(axis=1) align by INDEX
+    # LABEL, not row position, so a mismatched index here silently produces NaN or cross-row-
+    # misattributed values for most rows. Align new_cols' index to df's own index (positional, by the
+    # same-row-order contract) before either alignment path runs.
+    if not new_cols.index.equals(df.index):
+        new_cols = new_cols.set_axis(df.index, axis=0)
     return df.join(new_cols) if hasattr(df, "join") else pd.concat([df, new_cols], axis=1)

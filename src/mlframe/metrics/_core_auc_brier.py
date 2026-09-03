@@ -253,11 +253,11 @@ def _fused_resample_auc(idx: np.ndarray, base_rank: np.ndarray, y_by_rank: np.nd
         r = base_rank[idx[k]]
         counts[r] += 1
         ones[r] += y_by_rank[r]
-    last_fps = 0
-    last_tps = 0
-    tps = 0
-    fps = 0
-    auc = 0
+    last_fps = np.int64(0)
+    last_tps = np.int64(0)
+    tps = np.int64(0)
+    fps = np.int64(0)
+    auc = np.int64(0)
     for r in range(n - 1, -1, -1):
         c = counts[r]
         if c == 0:
@@ -271,7 +271,7 @@ def _fused_resample_auc(idx: np.ndarray, base_rank: np.ndarray, y_by_rank: np.nd
         last_tps = tps
     tmp = tps * fps * 2
     if tmp > 0:
-        return auc / tmp
+        return float(auc / tmp)
     return np.nan
 
 
@@ -305,11 +305,11 @@ def _fused_resample_auc_grouped(idx: np.ndarray, group_of_base: np.ndarray, y_ba
         g = group_of_base[bi]
         counts[g] += 1
         ones[g] += y_base[bi]
-    last_fps = 0
-    last_tps = 0
-    tps = 0
-    fps = 0
-    auc = 0
+    last_fps = np.int64(0)
+    last_tps = np.int64(0)
+    tps = np.int64(0)
+    fps = np.int64(0)
+    auc = np.int64(0)
     for g in range(ngroups - 1, -1, -1):
         c = counts[g]
         if c == 0:
@@ -323,7 +323,7 @@ def _fused_resample_auc_grouped(idx: np.ndarray, group_of_base: np.ndarray, y_ba
         last_tps = tps
     tmp = tps * fps * 2
     if tmp > 0:
-        return auc / tmp
+        return float(auc / tmp)
     return np.nan
 
 
@@ -360,11 +360,11 @@ def _fused_resample_auc_batch_parallel(idxs: np.ndarray, base_rank: np.ndarray, 
             rk = base_rank[idx[k]]
             counts[rk] += 1
             ones[rk] += y_by_rank[rk]
-        last_fps = 0
-        last_tps = 0
-        tps = 0
-        fps = 0
-        auc = 0
+        last_fps = np.int64(0)
+        last_tps = np.int64(0)
+        tps = np.int64(0)
+        fps = np.int64(0)
+        auc = np.int64(0)
         for rk in range(n - 1, -1, -1):
             c = counts[rk]
             if c == 0:
@@ -739,10 +739,10 @@ def fast_numba_auc_nonw(y_true: np.ndarray, y_score: np.ndarray, desc_score_indi
     y_score = y_score[desc_score_indices]
     y_true = y_true[desc_score_indices]
 
-    last_counted_fps = 0
-    last_counted_tps = 0
-    tps, fps = 0, 0
-    auc = 0
+    last_counted_fps = np.int64(0)
+    last_counted_tps = np.int64(0)
+    tps, fps = np.int64(0), np.int64(0)
+    auc = np.int64(0)
 
     lo = len(y_true) - 1
     for i in range(lo + 1):
@@ -754,7 +754,7 @@ def fast_numba_auc_nonw(y_true: np.ndarray, y_score: np.ndarray, desc_score_indi
             last_counted_tps = tps
     tmp = tps * fps * 2
     if tmp > 0:
-        return auc / tmp
+        return float(auc / tmp)
     else:
         # Single-class data: ROC AUC is undefined
         return np.nan
@@ -849,9 +849,9 @@ def fast_numba_aucs_with_ks(y_true: np.ndarray, y_score: np.ndarray, desc_score_
     if total_pos == 0 or total_neg == 0:
         return np.nan, np.nan, np.nan
 
-    last_counted_fps = 0
-    last_counted_tps = 0
-    tps, fps = 0, 0
+    last_counted_fps = np.int64(0)
+    last_counted_tps = np.int64(0)
+    tps, fps = np.int64(0), np.int64(0)
     roc_auc = 0.0
     prev_recall = 0.0
     pr_auc = 0.0
@@ -910,9 +910,9 @@ def fast_numba_aucs(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices:
         return np.nan, np.nan
 
     # Variables for ROC AUC
-    last_counted_fps = 0
-    last_counted_tps = 0
-    tps, fps = 0, 0
+    last_counted_fps = np.int64(0)
+    last_counted_tps = np.int64(0)
+    tps, fps = np.int64(0), np.int64(0)
     roc_auc = 0.0
 
     # Variables for PR AUC. sklearn.average_precision_score computes

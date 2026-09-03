@@ -66,8 +66,15 @@ def binned_unique_count(
     """
     values = df[value_col].to_numpy(dtype=np.float64)
     valid = np.isfinite(values)
-    entities = pd.unique(df[entity_col])
-    entity_codes, _ = pd.factorize(df[entity_col], sort=False)
+    # Both the labels and the codes come from ONE factorize call. They used to come from two sources --
+    # ``pd.unique`` for the labels, ``pd.factorize`` for the codes -- which disagree about missing entities:
+    # ``unique`` KEEPS a NaN entity as an element, ``factorize`` maps it to the sentinel -1 and omits it from
+    # its uniques. So as soon as one row had a missing entity, every entity appearing after it in first-seen
+    # order was off by one, and each entity's distinct-bin count was written to its neighbour's row. Rows with
+    # a missing entity are excluded further down anyway (the sentinel would otherwise drive ``combined_key``
+    # negative and crash ``np.bincount``), so taking the labels from the same call is both consistent and
+    # narrower: a NaN is not an entity, and it no longer gets a row carrying someone else's count.
+    entity_codes, entities = pd.factorize(df[entity_col], sort=False)
 
     if per_entity_bins:
         if bin_edges is not None:
@@ -96,7 +103,12 @@ def binned_unique_count(
     # np.unique() the key array ONCE (drops duplicate (entity, bin) pairs globally), then count how many
     # surviving distinct-key rows belong to each entity via np.bincount -- O(n) total instead of O(n_entities)
     # separate reductions.
-    combined_key = entity_codes[valid].astype(np.int64) * n_bins_total + bin_codes[valid].astype(np.int64)
+    # pd.factorize maps a NaN/missing entity_col label to the sentinel code -1; combined with a
+    # valid (finite) value_col observation, that sentinel flowed unmasked into combined_key (going
+    # negative) and then into np.bincount, which requires non-negative integers and raised
+    # ValueError. Exclude NaN-entity rows from the count the same way NaN-value rows already are.
+    valid_key_rows = valid & (entity_codes != -1)
+    combined_key = entity_codes[valid_key_rows].astype(np.int64) * n_bins_total + bin_codes[valid_key_rows].astype(np.int64)
     unique_keys = np.unique(combined_key)
     unique_entity_codes = unique_keys // n_bins_total
     counts = np.bincount(unique_entity_codes, minlength=len(entities)).astype(np.int64)

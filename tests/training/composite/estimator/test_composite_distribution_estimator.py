@@ -243,3 +243,33 @@ def test_unfitted_methods_raise():
         est.sample(X, n=5)
     with pytest.raises(NotFittedError):
         est.crps(X, np.zeros(X.shape[0]))
+
+
+def test_predict_cdf_matches_dense_broadcast_reference():
+    """TRAINING_COMPOSITE_CORE_A-5: predict_cdf's njit step-CDF kernel (O(n*G) memory) must be
+    bit-identical to the removed dense (n, K, G) broadcast-comparison formula it replaces."""
+    est, X, _ = _fit()
+    grid = np.linspace(-6.0, 6.0, 33)
+    cdf = est.predict_cdf(X, grid)
+
+    qmat = est._quantile_matrix(X)
+    levels = est.quantiles_
+    t = np.asarray(grid, dtype=np.float64).reshape(-1)
+    leq = qmat[:, :, None] <= t[None, None, :]
+    level_if = np.where(leq, levels[None, :, None], 0.0)
+    reference = level_if.max(axis=1)
+
+    np.testing.assert_array_equal(cdf, reference)
+
+
+def test_predict_cdf_does_not_materialize_dense_n_k_g_array():
+    """TRAINING_COMPOSITE_CORE_A-5: predict_cdf must not allocate an O(n*K*G) dense array -- verified by
+    monkeypatching np.where (the old dense-broadcast formula's signature call) to fail if invoked."""
+    from unittest import mock
+
+    est, X, _ = _fit()
+    grid = np.linspace(-6.0, 6.0, 20)
+
+    with mock.patch("numpy.where", side_effect=AssertionError("predict_cdf must not call np.where (the removed dense-broadcast path)")):
+        cdf = est.predict_cdf(X, grid)
+    assert cdf.shape == (X.shape[0], grid.shape[0])

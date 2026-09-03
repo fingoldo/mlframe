@@ -192,7 +192,15 @@ def test_splitting_stratify_1d_equivalent_to_sklearn():
 
 def test_iterstrat_import_error_has_install_hint():
     """When iterstrat is missing, make_train_test_split(stratify_y=2D) must
-    raise ImportError with a pip-install hint (not a cryptic failure)."""
+    raise ImportError with a pip-install hint (not a cryptic failure).
+
+    Only the val_size=0 (test-only, 2-way) split still needs iterstrat: the combined
+    test+val (3-way) split routes through an njit port of iterstrat's own algorithm
+    (``_stratified_split_3way`` -> ``_iterative_stratification_njit``, ~50.8x faster)
+    that no longer depends on the package at all, falling back to the pure-Python
+    iterstrat path only if the njit kernel itself raises -- so with val_size>0 (the
+    default) this scenario no longer hits an ImportError, it just runs the fast path.
+    """
     from mlframe.training.splitting import make_train_test_split
 
     # Patch sys.modules to simulate iterstrat missing
@@ -214,6 +222,7 @@ def test_iterstrat_import_error_has_install_hint():
                 make_train_test_split(
                     df,
                     test_size=0.2,
+                    val_size=0.0,
                     stratify_y=y_2d,
                     random_seed=0,
                 )

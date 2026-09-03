@@ -240,8 +240,14 @@ def test_mlp_predict_returns_nan_silently_on_nan_input():
 
     preds = mlp.predict(X_test)
     has_nan = not np.all(np.isfinite(preds))
-    # MLP + NaN input = NaN output (silent, no ValueError)
-    # This is why we MUST apply the pre_pipeline to test_df before predict
-    if has_nan:
-        # The guard must detect NaN in the OUTPUT, not just catch ValueError
-        pass  # This is the bug — MLP NaN goes undetected
+    # This ~100-line test ended in an `if has_nan: pass`, so after fitting a full Lightning MLP inside a
+    # TransformedTargetRegressor it asserted NOTHING -- both branches were no-ops. The property it demonstrates
+    # is the reason the pre_pipeline must be applied to test_df before predict: an MLP given a NaN input emits a
+    # NaN prediction SILENTLY, with no ValueError for a caller to catch, so a guard that only watches for
+    # exceptions cannot see it.
+    assert has_nan, (
+        "an MLP predicting on an input containing NaN returned all-finite predictions. If sklearn or Lightning "
+        "has started raising or imputing here, the pre_pipeline-before-predict rationale this test documents "
+        "needs restating -- it is built on the silence being real."
+    )
+    assert not np.isfinite(preds).all(), "expected at least one non-finite prediction from the NaN row"

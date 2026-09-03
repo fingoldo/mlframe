@@ -20,13 +20,19 @@ from typing import Any, List, Optional, Tuple
 
 import numpy as np
 
-from mlframe.reporting.spec import FigureSpec, HeatmapPanelSpec
+from mlframe.reporting.charts._group_codes import group_codes_capped
+from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, HeatmapPanelSpec, PanelSpec
 
 # Default cap on the number of distinct group rows; the rest fold into a single "other" row so a high-cardinality group
 # column (thousands of ids) still yields a readable heatmap rather than an unrenderable wall of rows.
 DEFAULT_MAX_GROUPS: int = 30
 # Equal-population time bins: enough columns to reveal a time-band without shrinking per-cell support into noise.
 DEFAULT_N_TIME_BINS: int = 20
+# A cell below this many rows is blanked: at 1-2 rows the positive rate is 0.00 or 1.00 by construction, which paints
+# a fully-saturated cell indistinguishable from a real leakage band backed by tens of thousands of rows.
+_CELL_SUPPORT_FLOOR: int = 20
+# Past this many cells the per-cell numbers overlap into an unreadable smear (same ceiling as the other heatmaps).
+_CELL_TEXT_MAX: int = 400
 
 try:
     import numba
@@ -117,63 +123,126 @@ def _time_codes(df: Any, y_len: int, timestamps: Optional[np.ndarray], time_col:
         vals = np.arange(y_len, dtype=np.int64)
     if vals.dtype.kind == "M":  # datetime64 -> integer nanoseconds for ranking
         vals = vals.astype("datetime64[ns]").astype(np.int64)
-    return _equal_population_codes(np.ascontiguousarray(vals, dtype=np.float64), n_time_bins)
+    if vals.dtype.kind in "OUS":
+        raise TypeError(
+            f"class_structure_heatmap: the time axis has dtype {vals.dtype!r}. Parse it to datetime64 or a numeric "
+            "epoch first -- a string column cannot be ranked into equal-population time bins."
+        )
+    numeric = np.ascontiguousarray(vals, dtype=np.float64)
+    # argsort places NaN LAST, so rows with a missing timestamp silently landed in the most-recent bin and read as a
+    # genuine late-period signal. Send them to their own trailing bin instead of contaminating a real period.
+    if not np.isfinite(numeric).all():
+        numeric = np.where(np.isfinite(numeric), numeric, np.nanmax(numeric[np.isfinite(numeric)], initial=0.0) + 1.0)
+    return _equal_population_codes(numeric, n_time_bins)
+
+
+def _time_bin_labels(
+    df: Any,
+    y_len: int,
+    timestamps: Optional[np.ndarray],
+    time_col: Optional[Any],
+    time_codes: np.ndarray,
+    n_time_bins: int,
+) -> Tuple[str, ...]:
+    """Column labels naming each equal-population bin's TIME SPAN, falling back to the bin index for a row-order axis.
+
+    A bare "0".."19" is a bin index, and a bin index is never a unit: a suspicious column could not be mapped back to
+    a date range, which is the first thing a reader wants once a column looks anomalous.
+    """
+    if timestamps is None and time_col is None:
+        return tuple(f"rows\nbin {i}" for i in range(n_time_bins))
+    vals = np.asarray(timestamps) if timestamps is not None else _pull_column(df, time_col)
+    is_datetime = vals.dtype.kind == "M"
+    numeric = vals.astype("datetime64[ns]").astype(np.int64) if is_datetime else np.asarray(vals, dtype=np.float64)
+
+    def fmt(v: float) -> str:
+        """One bin edge as a date (datetime axis) or a compact number (numeric axis)."""
+        if is_datetime:
+            return str(np.datetime64(int(v), "ns").astype("datetime64[D]"))
+        return f"{v:.3g}"
+
+    labels: List[str] = []
+    for b in range(n_time_bins):
+        block = numeric[time_codes == b]
+        block = block[np.isfinite(block)] if not is_datetime else block
+        labels.append(f"{fmt(float(block.min()))}\n..{fmt(float(block.max()))}" if block.size else f"bin {b}\n(empty)")
+    return tuple(labels)
 
 
 def _group_codes_capped(group_arr: np.ndarray, max_groups: int) -> Tuple[np.ndarray, List[str], int]:
-    """Map raw group values to row codes, keeping the ``max_groups`` largest groups and folding the rest into "other"."""
-    encodable = group_arr if group_arr.dtype.kind in "iuf" else group_arr.astype(str)
-    labels, inv = np.unique(encodable, return_inverse=True)
-    inv = inv.astype(np.int64)
-    n_unique = labels.shape[0]
-    if n_unique <= max_groups:
-        row_labels = [str(v) for v in labels]
-        return inv, row_labels, n_unique
-    counts = np.bincount(inv, minlength=n_unique)
-    order = np.argsort(counts)[::-1]
-    keep = order[:max_groups]
-    new_code = np.full(n_unique, max_groups, dtype=np.int64)  # default row = the "other" bucket
-    new_code[keep] = np.arange(max_groups, dtype=np.int64)
-    row_labels = [str(labels[gi]) for gi in keep] + ["other"]
-    return new_code[inv], row_labels, max_groups + 1
+    """Group codes in natural label order (stable heatmap rows across runs) plus the resulting row count."""
+    codes, labels, _supports = group_codes_capped(group_arr, max_groups, sort_by_support=False)
+    return codes, labels, len(labels)
 
 
 def class_structure_panel(df: Any, y: np.ndarray, *, group: Any, timestamps: Optional[np.ndarray] = None,
                           time_col: Optional[Any] = None, max_groups: int = DEFAULT_MAX_GROUPS,
-                          n_time_bins: int = DEFAULT_N_TIME_BINS, seed: int = 0) -> HeatmapPanelSpec:
+                          n_time_bins: int = DEFAULT_N_TIME_BINS) -> PanelSpec:
     """HeatmapPanelSpec of the per-(group, time-bin) positive-class rate / mean target over ``df`` and ``y``.
 
     ``group`` is a column key into ``df``; ``timestamps`` (or an integer ``time_col``, else row order) is binned into
     ``n_time_bins`` equal-population columns; groups past the ``max_groups`` largest fold into a single "other" row.
+
+    Cells below :data:`_CELL_SUPPORT_FLOOR` rows are blanked. A single-row cell renders a saturated 1.00 that is
+    visually indistinguishable from a genuine 50k-row leakage band, and this chart's whole purpose is spotting those
+    bands, so an unsupported cell must not compete with them for the reader's attention. Every cell's row count is
+    carried in its tooltip either way.
     """
     yv = np.ascontiguousarray(np.asarray(y), dtype=np.float64)
     n = yv.shape[0]
     group_arr = _pull_column(df, group)
     group_codes, row_labels, n_rows = _group_codes_capped(group_arr, int(max_groups))
     time_codes = _time_codes(df, n, timestamps, time_col, int(n_time_bins))
-    rate, _counts = class_structure_matrix(group_codes, time_codes, yv, n_rows, int(n_time_bins))
-    col_labels = tuple(str(i) for i in range(int(n_time_bins)))
+    if n == 0 or n_rows < 2:
+        return AnnotationPanelSpec(
+            text=(f"Class structure by group needs at least two groups over a non-empty frame; got {n:,} rows in "
+                  f"{n_rows} group(s). With one group there is nothing to compare across rows of the heatmap."),
+            title="Class structure by group x time",
+        )
+    rate, counts = class_structure_matrix(group_codes, time_codes, yv, n_rows, int(n_time_bins))
+    low_support = counts < _CELL_SUPPORT_FLOOR
+    rate = np.where(low_support, np.nan, rate)
+    # Equal-population bins are unequal in TIME, so a bare index cannot be mapped back to a period. Label with the
+    # bin's own time span where a real time vector exists; fall back to the index when the axis is row order.
+    col_labels = _time_bin_labels(df, n, timestamps, time_col, time_codes, int(n_time_bins))
+    n_blank = int(low_support.sum())
     return HeatmapPanelSpec(
         matrix=rate,
         row_labels=tuple(row_labels),
         col_labels=col_labels,
-        title="Class structure by group x time",
-        xlabel="time bin (equal population)",
+        title=(
+            f"{rate.shape[0]} groups x {rate.shape[1]} equal-population time bins"
+            + (f"; {n_blank} of {counts.size} cells hold under {_CELL_SUPPORT_FLOOR} rows and are blanked" if n_blank else "")
+        ),
+        xlabel="time bin (equal population, so unequal in time)",
         ylabel="group",
         colormap="magma",
-        cell_text=rate,
+        cell_text=rate if rate.size <= _CELL_TEXT_MAX else None,
         text_format=".2f",
         colorbar_label="P(y=1) / mean y",
+        cell_hovertext=np.asarray([[f"{int(c):,} rows ({c / max(n, 1):.2%} of all)" for c in row] for row in counts], dtype=object),
     )
 
 
 def compose_class_structure_figure(df: Any, y: np.ndarray, *, group: Any, timestamps: Optional[np.ndarray] = None,
                                    time_col: Optional[Any] = None, max_groups: int = DEFAULT_MAX_GROUPS,
-                                   n_time_bins: int = DEFAULT_N_TIME_BINS, seed: int = 0,
+                                   n_time_bins: int = DEFAULT_N_TIME_BINS,
                                    suptitle: str = "Class structure by group x time") -> FigureSpec:
     """One-panel FigureSpec wrapping :func:`class_structure_panel`."""
-    panel = class_structure_panel(df, y, group=group, timestamps=timestamps, time_col=time_col, max_groups=max_groups, n_time_bins=n_time_bins, seed=seed)
-    return FigureSpec(suptitle=suptitle, panels=((panel,),), figsize=(7.0, 5.0))
+    panel = class_structure_panel(df, y, group=group, timestamps=timestamps, time_col=time_col, max_groups=max_groups, n_time_bins=n_time_bins)
+    return FigureSpec(
+        suptitle=suptitle,
+        panels=((panel,),),
+        figsize=(7.0, 5.0),
+        caption=(
+            "Each cell is the positive-class rate (or mean target) for one group within one EQUAL-POPULATION time "
+            "bin, so every column holds the same number of rows and the columns are NOT equal in time -- the column "
+            "labels give each bin's actual span. A whole row far from the rest is a group-level anomaly (a label "
+            "assigned after the outcome was known?); a whole column is a period-level one (a labelling-policy "
+            "change?). Hover shows each cell's row count, and cells below the support floor are left blank so a "
+            "one-row cell cannot masquerade as a leakage band."
+        ),
+    )
 
 
 __all__ = [

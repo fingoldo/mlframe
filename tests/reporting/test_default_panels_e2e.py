@@ -10,7 +10,6 @@ here -- not silently drop a panel from production reports.
 
 from __future__ import annotations
 
-import os
 import warnings
 
 import numpy as np
@@ -20,6 +19,15 @@ from mlframe.reporting import render_multi_target_panels
 from mlframe.reporting.charts import compose_regression_figure
 from mlframe.reporting.spec import FigureSpec
 from mlframe.training.configs import ReportingConfig
+
+
+def _chart_written(directory, stem: str) -> bool:
+    """Whether the PNG for ``stem`` was written, under either output layout.
+
+    Charts land in a per-format subfolder by default (``png/name.png``); this test cares that the chart was
+    PRODUCED, not which layout the run used.
+    """
+    return (directory / "png" / f"{stem}.png").exists() or (directory / f"{stem}.png").exists()
 
 
 def _n_panels(spec: FigureSpec) -> int:
@@ -71,7 +79,7 @@ class TestDefaultTemplatesDispatch:
                 target_type="multiclass_classification",
             )
         assert tag == "multiclass"
-        assert os.path.exists(tmp_path / "mc_multiclass_panels.png")
+        assert _chart_written(tmp_path, "mc_multiclass_panels")
 
     def test_default_quantile_template_emits_coverage(self, qr_inputs, tmp_path):
         """Default quantile template emits coverage."""
@@ -90,7 +98,7 @@ class TestDefaultTemplatesDispatch:
                 target_type="quantile_regression",
             )
         assert tag == "quantile"
-        assert os.path.exists(tmp_path / "qr_quantile_panels.png")
+        assert _chart_written(tmp_path, "qr_quantile_panels")
 
     def test_default_quantile_template_renders_reliability_decomp_crossing(self, qr_inputs, tmp_path):
         """R-6 end-to-end: the FULL default quantile template -- which now carries QUANTILE_RELIABILITY /
@@ -117,7 +125,7 @@ class TestDefaultTemplatesDispatch:
             )
         assert _n_panels(spec) == len(toks)
         assert tag == "quantile"
-        assert os.path.exists(tmp_path / "qrfull_quantile_panels.png")
+        assert _chart_written(tmp_path, "qrfull_quantile_panels")
 
     def test_default_binary_template_renders_pit(self, tmp_path):
         """INV-42 end-to-end: the default binary template now carries PIT and the full template renders through the
@@ -145,7 +153,7 @@ class TestDefaultTemplatesDispatch:
             )
         assert _n_panels(spec) == len(toks)
         assert tag == "binary"
-        assert os.path.exists(tmp_path / "bin_binary_panels.png")
+        assert _chart_written(tmp_path, "bin_binary_panels")
 
 
 class TestDefaultRegressionPanels:

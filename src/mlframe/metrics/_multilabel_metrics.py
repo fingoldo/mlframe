@@ -364,6 +364,12 @@ def jaccard_score_multilabel(y_true, y_pred, *, force_elementwise: bool = False)
     with the well-defined choice of 1.0 for empty-union rows
     (sklearn's default raises a ``DivisionWarning`` on those).
 
+    Not the same axis or convention as ``_multilabel_extras.fast_multilabel_classification_metrics_block``'s
+    ``jaccard_macro``: this function averages PER-ROW (sklearn's ``average='samples'``, 1.0 for an empty-union
+    row -- both y_true and y_pred all-zero for that row); ``jaccard_macro`` averages PER-LABEL (``average='macro'``,
+    0.0 for a zero-support label -- a column with tp+fp+fn==0). Both conventions match their respective sklearn
+    call, they are simply different axes.
+
     Performance: when ``K <= 64`` (the common case in multilabel tagging),
     uses a bitmap-popcount fast path (~10-50x faster than the elementwise
     loop) -- these are sequential because the per-row work is tiny on

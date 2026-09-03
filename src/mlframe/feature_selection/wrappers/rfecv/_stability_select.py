@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 
+from mlframe._output_paths import ensure_parent_dir
 import numpy as np
 import pandas as pd
 
@@ -528,7 +529,7 @@ def select_optimal_nfeatures_(
         plt.tight_layout()
 
         if plot_file:
-            plt.savefig(plot_file)
+            plt.savefig(ensure_parent_dir(plot_file))
         if show_plot:
             # Non-blocking show: plt.show(block=True) (the default) freezes the script behind a modal Qt window. Pair with a tiny pause
             # to flush the GUI event loop so the figure actually renders before training continues / exits.

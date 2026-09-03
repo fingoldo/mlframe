@@ -326,9 +326,11 @@ class TestMultiGPUAdvancedFeatures:
         eval_set = (multigpu_classification_data["X_val"], multigpu_classification_data["y_val"])
         clf.fit(multigpu_classification_data["X_train"], multigpu_classification_data["y_train"], eval_set=eval_set)
 
-        # Model should have best_epoch attribute
-        if hasattr(clf.model, "best_epoch"):
-            assert clf.model.best_epoch is not None
+        # With load_best_weights_on_train_end=True, the model must actually record and restore a
+        # best epoch -- previously this assertion was skipped entirely whenever the attribute was
+        # absent, so the test passed regardless of whether restoration worked in DDP mode.
+        assert hasattr(clf.model, "best_epoch"), "model must expose best_epoch when load_best_weights_on_train_end=True"
+        assert clf.model.best_epoch is not None
 
     def test_lr_scheduler_in_ddp(self, multigpu_classification_data, multigpu_estimator_params_classifier):
         """Test learning rate scheduler in DDP mode."""

@@ -26,7 +26,7 @@ def _drop_column(X: Any, is_frame: bool, feature_names: Sequence[str], col_idx: 
 
 def additive_interaction_diagnostic(
     X: Any,
-    y: np.ndarray,
+    y: Any,
     cv_splits: Any,
     metric_fn: Callable[[np.ndarray, np.ndarray], float],
     objective: str = "regression",
@@ -40,9 +40,11 @@ def additive_interaction_diagnostic(
     Parameters
     ----------
     X, y
-        Full feature/target arrays.
+        Full feature/target arrays. ``y`` may be a plain ndarray or a pandas Series; a Series is indexed
+        positionally (``.iloc``) against ``cv_splits``' index arrays regardless of its own index labels.
     cv_splits
-        Iterable of ``(train_idx, test_idx)`` index pairs.
+        Iterable of ``(train_idx, test_idx)`` index pairs. A one-shot iterator (e.g. ``KFold().split(X)``) is
+        accepted: it is materialised once on entry, since the folds are re-scored several times.
     metric_fn
         ``metric_fn(y_true, y_pred) -> float``, HIGHER is better (e.g. AUC, R^2) -- used to compute the
         additive-vs-full RATIO in a natural [0, 1]-ish scale; for a loss metric, pass ``-metric_fn`` (or wrap
@@ -82,9 +84,18 @@ def additive_interaction_diagnostic(
     import lightgbm as lgb
 
     is_frame = hasattr(X, "iloc")
+    # Materialised ONCE. The parameter is documented as an Iterable, so the natural argument is
+    # ``KFold(...).split(X)`` -- a generator, which ``_cv_score`` below would exhaust on its first call. Every
+    # later call then iterated nothing, ``np.mean([])`` returned NaN with only a RuntimeWarning, and the
+    # diagnostic's recommendation flag flipped from True to False without an error anywhere.
+    cv_splits = list(cv_splits)
+    if not cv_splits:
+        raise ValueError("additive_interaction_diagnostic: cv_splits is empty; there is nothing to score.")
     full_params = default_lgbm_params(objective=objective, **(full_model_overrides or {}))
     additive_params = default_lgbm_params(objective=objective, **(additive_model_overrides or {}))
     additive_params["num_leaves"] = 2
+
+    y_is_indexed = hasattr(y, "iloc")
 
     def _cv_score(params: dict, X_override: Optional[Any] = None) -> float:
         """Fit an LGBM model per CV fold with ``params`` and return the mean metric across folds."""
@@ -93,13 +104,20 @@ def additive_interaction_diagnostic(
         for train_idx, test_idx in cv_splits:
             X_train = X_source.iloc[train_idx] if is_frame else X_source[train_idx]
             X_test = X_source.iloc[test_idx] if is_frame else X_source[test_idx]
+            # .iloc (positional) for a pandas Series y: plain `y[train_idx]` performs LABEL-based lookup
+            # for a non-default index, silently misaligning train/test rows against cv_splits' positional
+            # index arrays whenever y's index isn't the default RangeIndex (the common real-world case).
+            y_train = y.iloc[train_idx] if y_is_indexed else y[train_idx]
+            y_test = y.iloc[test_idx] if y_is_indexed else y[test_idx]
             model = lgb.LGBMRegressor(**params) if objective == "regression" else lgb.LGBMClassifier(**params)
-            model.fit(X_train, y[train_idx])
+            model.fit(X_train, y_train)
             if hasattr(model, "predict_proba") and objective != "regression":
                 pred = np.asarray(model.predict_proba(X_test))[:, 1]
             else:
                 pred = np.asarray(model.predict(X_test))
-            fold_scores.append(float(metric_fn(y[test_idx], pred)))
+            fold_scores.append(float(metric_fn(y_test, pred)))
+        if not fold_scores:
+            raise ValueError("additive_interaction_diagnostic: no fold produced a score.")
         return float(np.mean(fold_scores))
 
     full_score = _cv_score(full_params)

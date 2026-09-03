@@ -31,9 +31,21 @@ except ImportError:
 try:
     from pyutilz.core.pythonlib import is_cuda_available as _pyutilz_is_cuda_available
     _CUDA_AVAIL = _pyutilz_is_cuda_available()
+except ImportError as e:
+    # pyutilz genuinely absent: expected on a lean install, permanent, quiet.
+    logger.debug("pyutilz.core.pythonlib unavailable (%s); falling back to numba.cuda.is_available().", e)
 except Exception as e:
-    # Fallback to inline numba probe if pyutilz is not importable for some reason.
-    logger.debug("pyutilz.core.pythonlib.is_cuda_available() probe failed, falling back to numba.cuda.is_available(): %s", e)
+    # This is the `_select_mi_backend` mechanism exactly, and it is worth a WARNING rather than a debug line:
+    # the probe module imports code that touches CUDA at import time, so a TRANSIENT device fault raised here
+    # is indistinguishable from "no CUDA" -- and because `_CUDA_AVAIL` is resolved once at MODULE IMPORT, that
+    # one hiccup disables this module's CUDA kernels for the entire process, invisibly.
+    logger.warning(
+        "is_cuda_available() probe raised %s (%s) during module import, which is NOT 'pyutilz absent'. "
+        "_CUDA_AVAIL is resolved ONCE at import, so if this was a transient device fault this module's CUDA "
+        "kernels are disabled for the whole process. Falling back to numba.cuda.is_available().",
+        type(e).__name__,
+        e,
+    )
     try:
         _CUDA_AVAIL = bool(getattr(_nb_cuda, "is_available", lambda: False)()) if _nb_cuda is not None else False
     except Exception as e2:

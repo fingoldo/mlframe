@@ -48,7 +48,7 @@ Usage:
 from __future__ import annotations
 
 import os
-from typing import Iterable, Literal, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Iterable, Literal, Optional, Sequence, Tuple, Union
 
 from hypothesis import HealthCheck, settings, strategies as st
 import polars as pl
@@ -395,6 +395,73 @@ def prod_like_frame_small(
     return dataframes(cols, min_size=min_size, max_size=max_size)
 
 
+# =============================================================================
+# Eager (non-Hypothesis) helpers
+# =============================================================================
+#
+# X_TEST_SUITE_ARCHITECTURE-5: the column/frame helpers above are all Hypothesis
+# strategies (must be driven via @given), which is the wrong shape for the many
+# call sites that just want ONE concrete pl.Series/pl.DataFrame for a plain
+# (non-property-based) test -- that API-shape mismatch, not undiscoverability,
+# is why dozens of tests hand-roll equivalent fixtures inline instead of
+# reusing this module. These eager wrappers materialize one deterministic
+# example from the same building blocks so simple tests can reuse them too.
+
+
+def constant_series(name: str, dtype: "pl.DataType | pl.datatypes.DataTypeClass", value: Any, *, length: int = 10) -> pl.Series:
+    """A concrete, deterministic all-``value`` column -- eager counterpart of :func:`constant_column`."""
+    return pl.Series(name, [value] * length, dtype=dtype)
+
+
+def categorical_series(name: str, categories: Sequence[str], *, length: int = 10, null_rate: float = 0.0, use_enum: bool = True) -> pl.Series:
+    """A concrete categorical column cycling through ``categories``, with every ``1/null_rate``-th cell null.
+
+    Eager counterpart of :func:`categorical_column` -- deterministic (no Hypothesis), for plain tests.
+    """
+    cats = list(categories)
+    values: list = []
+    for i in range(length):
+        if null_rate > 0.0 and null_rate >= 1.0:
+            values.append(None)
+        elif null_rate > 0.0 and (i % max(1, round(1.0 / null_rate))) == 0:
+            values.append(None)
+        else:
+            values.append(cats[i % len(cats)])
+    dtype = pl.Enum(cats) if use_enum else pl.Categorical
+    return pl.Series(name, values, dtype=dtype)
+
+
+def inf_heavy_float_series(name: str, *, width: Literal[16, 32, 64] = 32, length: int = 10, specials_rate: float = 0.2) -> pl.Series:
+    """A concrete float column with +inf/-inf/NaN sprinkled in at roughly ``specials_rate``.
+
+    Eager counterpart of :func:`inf_heavy_float_column`.
+    """
+    dtype = pl.Float32 if width == 32 else pl.Float64
+    specials = [float("inf"), float("-inf"), float("nan")]
+    step = max(1, round(1.0 / specials_rate)) if specials_rate > 0.0 else length + 1
+    values = [specials[i % len(specials)] if specials_rate > 0.0 and (i % step) == 0 else float(i) for i in range(length)]
+    return pl.Series(name, values, dtype=dtype)
+
+
+def high_card_text_series(name: str, *, length: int = 100) -> pl.Series:
+    """A concrete Utf8 column of ``length`` unique short strings. Eager counterpart of :func:`high_card_text_column`."""
+    return pl.Series(name, [f"t_{i:06d}" for i in range(length)], dtype=pl.Utf8)
+
+
+def sparse_null_series(name: str, dtype: "pl.DataType | pl.datatypes.DataTypeClass", *, length: int = 1000, non_null_rate: float = 0.001) -> pl.Series:
+    """A concrete column that's ~``1 - non_null_rate`` null. Eager counterpart of :func:`sparse_null_column`."""
+    step = max(1, round(1.0 / non_null_rate))
+    fill: "Callable[[int], object]"
+    if dtype in (pl.Utf8, pl.String):
+        fill = lambda i: f"v_{i}"  # noqa: E731
+    elif dtype in (pl.Float32, pl.Float64):
+        fill = lambda i: float(i)  # noqa: E731
+    else:
+        fill = lambda i: i  # noqa: E731
+    values = [fill(i) if (i % step) == 0 else None for i in range(length)]
+    return pl.Series(name, values, dtype=dtype)
+
+
 __all__ = [
     "register_profiles",
     "categorical_column",
@@ -406,4 +473,9 @@ __all__ = [
     "adversarial_frame",
     "prod_like_frame",
     "prod_like_frame_small",
+    "constant_series",
+    "categorical_series",
+    "inf_heavy_float_series",
+    "high_card_text_series",
+    "sparse_null_series",
 ]

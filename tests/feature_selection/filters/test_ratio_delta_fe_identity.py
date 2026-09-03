@@ -29,6 +29,33 @@ def test_map_group_keys_matches_per_row_loop():
     assert np.array_equal(got, ref)
 
 
+def test_map_group_keys_handles_read_only_to_numpy_output(monkeypatch):
+    """Some pandas versions return a read-only view from Series.to_numpy() when the requested
+    dtype already matches the mapped Series' dtype (a no-op astype short-circuit); _map_group_keys
+    must still be able to fill absent-key rows rather than raising 'assignment destination is
+    read-only'. Forces that condition directly (real pandas locally returns a writable array, so
+    this simulates the CI-only failure mode instead of relying on a specific pandas version)."""
+    real_to_numpy = pd.Series.to_numpy
+
+    def _readonly_to_numpy(self, *args, **kwargs):
+        """Delegate to the real to_numpy; freeze the result UNLESS the caller asked for copy=True
+        (mirroring the real pandas short-circuit: a fresh copy is always writable, only the
+        no-copy/no-op-astype path can hand back a frozen view)."""
+        arr = real_to_numpy(self, *args, **kwargs)
+        if kwargs.get("copy") is not True:
+            arr = np.array(arr, copy=True)
+            arr.flags.writeable = False
+        return arr
+
+    monkeypatch.setattr(pd.Series, "to_numpy", _readonly_to_numpy)
+
+    keys = np.array([0, 1, 999])  # 999 is unseen -> triggers the absent-key fill
+    lookup = {"0": 1.0, "1": 2.0}
+    glob = -1.0
+    got = rd._map_group_keys(keys, lookup, glob)
+    assert list(got) == [1.0, 2.0, -1.0]
+
+
 def test_pairwise_ratio_hoist_identity():
     """Pairwise ratio hoist identity."""
     rng = np.random.default_rng(1)

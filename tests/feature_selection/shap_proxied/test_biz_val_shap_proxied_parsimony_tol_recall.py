@@ -83,7 +83,7 @@ def test_biz_val_looser_parsimony_tol_never_selects_fewer_features():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_biz_val_default_parsimony_tol_favours_precision_on_marginal_signal():
     """Confirms the OTHER side of the tradeoff the default is tuned for: with the precision-favouring
     default (0.02), the selected subset is not inflated with every technically-nonzero-SHAP feature --

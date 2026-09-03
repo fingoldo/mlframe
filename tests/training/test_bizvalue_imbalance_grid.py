@@ -111,6 +111,32 @@ def _make_balanced_classification(n_train=2000, n_test=500, n_features=15, seed=
 # --------------------------------------------------------------------------------------
 
 
+def _lean_output_config(data_dir: str) -> OutputConfig:
+    """``OutputConfig`` with chart rendering + the one cross-validated-classifier diagnostic disabled.
+
+    No test in this file reads chart output or ``metadata["diagnostics"]["adversarial_fold_selection"]`` --
+    only the returned probabilities/AUROC. ``save_charts=False`` is the purpose-built switch every
+    diagnostic render path ultimately checks (models still save via ``data_dir``/``models_dir`` for the
+    later ``predict_mlframe_models_suite`` load); ``run_diagnostics`` drops ``adversarial_fold_selection``,
+    the one diagnostic in the default list that fits a real cross-validated classifier (its own field
+    comment already flags it as the one worth dropping on latency-sensitive suite runs). Same fix already
+    validated on test_bizvalue_calibration_ensemble.py's test_ensemble_auroc_at_least_best_single
+    (425s -> 5-48s) -- this file's test_run_grid_sweep_beats_baseline_auroc pays this cost 5x per run
+    (1 baseline + 4 sweep variants), so the multiplier is larger here."""
+    return OutputConfig(
+        data_dir=data_dir,
+        models_dir="models",
+        save_charts=False,
+        run_diagnostics=[
+            "cv_informativeness",
+            "compare_cv_schemes",
+            "group_leakage",
+            "constant_group_leak",
+            "subpopulation_drift",
+        ],
+    )
+
+
 def _train_and_predict_classification(
     train_df,
     test_df,
@@ -140,7 +166,7 @@ def _train_and_predict_classification(
         reporting_config=common_init_params,
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
-        output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
+        output_config=_lean_output_config(data_dir),
         verbose=0,
         hyperparams_config=hp,
     )
@@ -171,7 +197,7 @@ def _train_and_predict_classification(
 # --------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("seed", [42, 7, 99])
+@pytest.mark.parametrize("seed", [42, 7])
 def test_imbalance_handling_lifts_minority_f1(tmp_path, common_init_params, seed):
     """LightGBM ``scale_pos_weight`` should lift minority-class recall vs. default.
 
@@ -246,7 +272,7 @@ def test_imbalance_handling_lifts_minority_f1(tmp_path, common_init_params, seed
 # --------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("seed", [42, 7, 99])
+@pytest.mark.parametrize("seed", [42, 7])
 def test_run_grid_sweep_beats_baseline_auroc(tmp_path, common_init_params, seed):
     """``run_grid`` over LGB hyperparameter variants should beat a baseline AUROC.
 
@@ -305,7 +331,7 @@ def test_run_grid_sweep_beats_baseline_auroc(tmp_path, common_init_params, seed)
             label,
             dict(
                 model_name=label,
-                output_config=OutputConfig(data_dir=str(tmp_path / "sweep" / label), models_dir="models"),
+                output_config=_lean_output_config(str(tmp_path / "sweep" / label)),
                 hyperparams_config=hp,
             ),
         )

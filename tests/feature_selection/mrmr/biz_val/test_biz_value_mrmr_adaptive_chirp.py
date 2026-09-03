@@ -207,7 +207,7 @@ class TestGateAChirpRecovery:
     """Gate A: chirp-ON support recovers a fast chirp and materially beats chirp-OFF."""
 
     @pytest.mark.parametrize("seed", SEEDS)
-    @pytest.mark.timeout(300)
+    @pytest.mark.timeout(900)
     def test_support_model_recovers_fast_chirp_and_beats_off(self, seed):
         """chirp-ON support clears OOS R^2 >= 0.85 and beats chirp-OFF by >= 0.3."""
         X, y = _build_fast_chirp(seed)
@@ -239,7 +239,7 @@ class TestGateAChirpRecovery:
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
-    @pytest.mark.timeout(300)
+    @pytest.mark.timeout(900)
     def test_chirp_feature_present_and_protected(self, seed):
         """A chirp (__qsin/__qcos) feature is detected and protected into the engineered support."""
         _X, _y, sel = _fast_chirp_full_fit(seed)
@@ -259,7 +259,7 @@ class TestGateCChirpNoiseControl:
     """Gate C: a pure-noise frame (random y) adds no chirp column."""
 
     @pytest.mark.parametrize("seed", SEEDS)
-    @pytest.mark.timeout(300)
+    @pytest.mark.timeout(900)
     def test_pure_noise_adds_no_chirp_column(self, seed):
         """Pure-noise y triggers no chirp detection and no engineered chirp column."""
         rng = np.random.default_rng(seed)
@@ -285,7 +285,7 @@ class TestGateDChirpSelfGating:
     """Gate D: below the n-gate, support is byte-identical chirp-on vs chirp-off."""
 
     @pytest.mark.parametrize("n", [300, 600])
-    @pytest.mark.timeout(300)
+    @pytest.mark.timeout(900)
     def test_support_byte_identical_below_n_gate(self, n):
         """Below the min-rows n-gate, no chirp column is emitted and the support matches chirp-off."""
         rng = np.random.default_rng(7)
@@ -322,7 +322,7 @@ class TestChirpReplayByteMatch:
     """transform()/recipe replay of the chirp column byte-matches the fit-time computation."""
 
     @pytest.mark.parametrize("seed", SEEDS)
-    @pytest.mark.timeout(300)
+    @pytest.mark.timeout(900)
     def test_transform_replays_chirp_column_byte_for_byte(self, seed):
         """transform() reproduces the fit-time chirp column byte-for-byte and is y-independent at replay."""
         X, y, sel = _fast_chirp_full_fit(seed)

@@ -21,11 +21,14 @@ unsupervised behavior.
 """
 from __future__ import annotations
 
+import logging
 from typing import Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
 from scipy.stats import pearsonr, skew
+
+logger = logging.getLogger(__name__)
 
 _CANDIDATE_TRANSFORMS = ("identity", "sqrt_signed", "log1p_signed", "boxcox", "yeo_johnson")
 
@@ -146,8 +149,9 @@ def gaussian_power_transform_search(
         finite = raw[np.isfinite(raw)]
         if finite.size < 3:
             continue
+        fill_median = float(np.median(finite))
         finite_fill = raw.copy()
-        finite_fill[~np.isfinite(finite_fill)] = np.median(finite)
+        finite_fill[~np.isfinite(finite_fill)] = fill_median
 
         abs_skews: Dict[str, float] = {}
         transformed_by_name: Dict[str, np.ndarray] = {}
@@ -166,8 +170,15 @@ def gaussian_power_transform_search(
         info: Dict[str, object] = {}
         eligible = abs_skews
         if require_target_correlation_retention is not None and y_arr is not None:
-            pair_mask = np.isfinite(finite_fill) & np.isfinite(y_arr)
-            raw_target_corr = _safe_abs_pearson(finite_fill[pair_mask], y_arr[pair_mask])
+            # Pairwise on the RAW column, not on the median-filled one. `finite_fill` is finite everywhere by
+            # construction, so `np.isfinite(finite_fill)` is all-True and only the target's non-finites were
+            # ever dropped -- on a column with 40% missing, 40% of the correlation's rows were a constant (the
+            # median), which mechanically attenuates the baseline toward 0. `min_required` was then computed
+            # against an artificially weak baseline, so aggressive transforms passed a retention check they
+            # should have failed. The transforms are still scored on `finite_fill`; only the BASELINE the
+            # threshold is derived from changes, and it now measures what the docstring says it measures.
+            pair_mask = np.isfinite(raw) & np.isfinite(y_arr)
+            raw_target_corr = _safe_abs_pearson(raw[pair_mask], y_arr[pair_mask])
             min_required = raw_target_corr * require_target_correlation_retention
             all_target_corr: Dict[str, float] = {}
             rejected = []
@@ -190,11 +201,32 @@ def gaussian_power_transform_search(
             "best_abs_skew": abs_skews[best_transform],
             "all_abs_skew": abs_skews,
             "best_fitted_params": fitted_params_by_name[best_transform],
+            # A transform cannot be fitted through NaN, so non-finite cells are filled with this median before
+            # fitting. It is recorded here because the apply side must replay THIS value: recomputing a median
+            # from the frame being transformed is a train/serve statistic mismatch, and at single-row inference
+            # the "median" is that row's own value.
+            "fill_median": fill_median,
             **info,
         }
         results[col] = info
 
     return results
+
+
+def _restore_missing(values: np.ndarray, nonfinite: np.ndarray) -> np.ndarray:
+    """Put NaN back where the input was non-finite.
+
+    The fill exists so a transform can be FITTED and REPLAYED through a column containing NaN; it is not an
+    imputation decision, and this function's docstring promises only "each searched column replaced by its best-
+    scoring transform". Writing the filled values into the output made missingness disappear from the frame
+    without anything saying so, and left every previously-NaN row holding a transform of the training median.
+    """
+    out: np.ndarray = np.asarray(values, dtype=np.float64)
+    if not nonfinite.any():
+        return out
+    out = out.copy()
+    out[nonfinite] = np.nan
+    return out
 
 
 def apply_gaussian_power_transform(df: pd.DataFrame, search_result: Dict[str, dict]) -> pd.DataFrame:
@@ -206,17 +238,57 @@ def apply_gaussian_power_transform(df: pd.DataFrame, search_result: Dict[str, di
     workflow) now applies the SAME function that was measured and selected, not a freshly-refit one.
 
     Returns ``df`` (shallow copy) with each searched column replaced by its best-scoring transform in place.
+    Cells that were non-finite on input come back as NaN: they are filled only so the fitted transform can be
+    replayed through them, using the median recorded at search time rather than one recomputed here.
     """
     out = df.copy(deep=False)
     for col, info in search_result.items():
         raw = out[col].to_numpy(dtype=np.float64)
-        finite = raw[np.isfinite(raw)]
+        nonfinite = ~np.isfinite(raw)
         finite_fill = raw.copy()
-        if finite.size:
-            finite_fill[~np.isfinite(finite_fill)] = np.median(finite)
-        transformed, _ = _apply_transform(finite_fill, info["best_transform"], fitted_params=info.get("best_fitted_params"))
+        if nonfinite.any():
+            fill_median = info.get("fill_median")
+            if fill_median is None:
+                # A result dict from before the fill median was recorded. Falling back to this frame's own median
+                # is the old, leaky behaviour; say so rather than replay it silently.
+                finite = raw[~nonfinite]
+                if not finite.size:
+                    continue
+                fill_median = float(np.median(finite))
+                logger.warning(
+                    "apply_gaussian_power_transform: column %r has no recorded fill_median (search result predates it); "
+                    "falling back to this frame's own median, which is a train/serve statistic mismatch. Re-run "
+                    "gaussian_power_transform_search to record it.",
+                    col,
+                )
+            finite_fill[nonfinite] = float(fill_median)
+        best_transform = info["best_transform"]
+        if best_transform == "boxcox":
+            # _apply_transform's positivity guard is whole-array (needed at FIT time: a single
+            # lambda must be fit over the whole column), which at REPLAY time means one stray
+            # non-positive value at inference (absent from the searched/fitted data) silently
+            # disables the transform for the ENTIRE column with no warning -- every row reverts to
+            # raw scale, not just the offending one. Replay per-row instead: transform the positive
+            # subset with the fitted lambda, leave non-positive rows at their raw value, and warn.
+            positive_mask = finite_fill > 0
+            n_nonpositive = int((~positive_mask).sum())
+            if n_nonpositive:
+                logger.warning(
+                    "apply_gaussian_power_transform: column %r has %d non-positive value(s) at replay time "
+                    "(absent from the fitted data); those rows are left at raw scale, only the %d positive "
+                    "row(s) get the fitted Box-Cox transform.",
+                    col, n_nonpositive, int(positive_mask.sum()),
+                )
+            if positive_mask.any():
+                transformed_pos, _ = _apply_transform(finite_fill[positive_mask], best_transform, fitted_params=info.get("best_fitted_params"))
+                if transformed_pos is not None:
+                    replayed = finite_fill.copy()
+                    replayed[positive_mask] = transformed_pos
+                    out[col] = _restore_missing(replayed, nonfinite)
+            continue
+        transformed, _ = _apply_transform(finite_fill, best_transform, fitted_params=info.get("best_fitted_params"))
         if transformed is not None:
-            out[col] = transformed
+            out[col] = _restore_missing(transformed, nonfinite)
     return out
 
 

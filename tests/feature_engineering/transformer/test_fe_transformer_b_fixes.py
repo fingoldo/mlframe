@@ -20,7 +20,21 @@ import logging
 import numpy as np
 import pytest
 
-logging.disable(logging.CRITICAL)
+@pytest.fixture(autouse=True, scope="module")
+def _suppress_noisy_logging_during_this_module():
+    """Suppress WARNING-and-below logging while this module's tests run, then restore.
+
+    A bare module-level ``logging.disable(logging.CRITICAL)`` used to sit here with no matching
+    ``logging.disable(logging.NOTSET)`` -- ``logging.disable`` is a process-wide, manager-level
+    override (not scoped to one logger), so it fired at IMPORT time and stayed in effect for the
+    rest of this pytest-xdist worker's lifetime, silently swallowing every later test's
+    ``logger.warning(...)``/``logger.debug(...)`` calls regardless of that test's own
+    handler/level setup -- see the identical fix + incident writeup in
+    test_x_ml_correctness_meta_fixes.py.
+    """
+    logging.disable(logging.CRITICAL)
+    yield
+    logging.disable(logging.NOTSET)
 
 
 # ---------------------------------------------------------------------------
@@ -287,6 +301,16 @@ def test_f15_mdl_binning_honours_explicit_binary_task_for_nonstandard_labels():
     # the MDL bin-edge count differently than the auto-detected 5-class quantile path would.
     assert out_binary.shape[0] == 20
     assert np.isfinite(out_binary.to_numpy()).all()
+
+    # task="binary" must map the caller's label CODES to {0,1} class indices, not use them as
+    # indices directly -- the {0,1}-relabelled target carries the identical partition, so the
+    # binning result must be identical regardless of which two raw values encode the classes.
+    # Regression for a real bug: y_t.astype(np.int32) fed {1,2}-coded labels straight into a
+    # fixed-size (n_classes=2,) count array as an index, silently overrunning it under real JIT
+    # (no bounds check) and raising IndexError only with NUMBA_DISABLE_JIT=1.
+    y_relabelled = np.where(y == 1.0, 0.0, 1.0).astype(np.float32)
+    out_relabelled = compute_mdl_binning_pairwise_features(X, y_relabelled, X_query=X[:20], splitter=None, seed=0, task="binary", max_bins_per_feat=4)
+    np.testing.assert_array_equal(out_binary.to_numpy(), out_relabelled.to_numpy())
 
 
 def test_f17_no_dead_else_branch_remains():

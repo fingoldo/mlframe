@@ -34,6 +34,30 @@ import pandas as pd
 import polars as pl
 import pytest
 
+
+def _lean_reporting_config():
+    """Lean ReportingConfig (no chart/diagnostic rendering) for the train_mlframe_models_suite calls in
+    this file -- these are regression sensors that only assert on the returned model dict/metadata,
+    never chart output."""
+    from mlframe.training import ReportingConfig
+
+    return ReportingConfig(
+        show_perf_chart=False,
+        show_fi=False,
+        adversarial_validation=False,
+        interaction_strength_charts=False,
+        engineered_separability_charts=False,
+        class_structure_charts=False,
+        category_discriminability_charts=False,
+        slice_finder=False,
+        shap_panels=False,
+        decision_curve=False,
+        calibration_drift=False,
+        target_acf=False,
+        model_comparison=False,
+    )
+
+
 # =====================================================================
 # Fix 1: get_pandas_view_of_polars_df — nullable Boolean coercion
 # =====================================================================
@@ -417,7 +441,8 @@ class TestPipelineCacheKindIsolation:
             preprocessing_config=PreprocessingConfig(drop_columns=[]),
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+            reporting_config=_lean_reporting_config(),
             verbose=0,
         )
         assert models, "train_mlframe_models_suite returned empty models"
@@ -533,17 +558,19 @@ class TestEnsembleNameAnnotations:
             if _full is not None and _conf is not None and len(_full) > 0:
                 _cov_src = (_label, 100.0 * len(_conf) / len(_full))
                 break
-        _cov_tag = f" [{_cov_src[0]} COV={_cov_src[1]:.0f}%]" if _cov_src else ""
+        _cov_tag = f" [COV={_cov_src[1]:.0f}% measured on {_cov_src[0]}]" if _cov_src else ""
 
-        # The tag format is what the log grep keys on.
-        assert _cov_tag == " [VAL COV=10%]", f"Conf Ensemble COV tag regressed: got {_cov_tag!r}. The format ' [VAL COV=xx%]' is the log-grep contract."
+        # One number labels every split's line, so the old " [VAL COV=10%]" read as though it were that line's
+        # own coverage -- including on TEST. The confident subset is actually selected per split; this figure is
+        # whichever split came first in the priority order, so the tag has to name the split it came from.
+        assert _cov_tag == " [COV=10% measured on VAL]", f"Conf Ensemble COV tag regressed: got {_cov_tag!r}."
 
         # And the composition matches the prefix that gets logged.
         internal_method = "arithm"
         ensemble_name = "notext[cb+xgb] "
         prefix = f"Conf Ensemble {internal_method} {ensemble_name}{_cov_tag}"
         assert "Conf Ensemble" in prefix
-        assert "[VAL COV=" in prefix
+        assert "[COV=10% measured on VAL]" in prefix
         assert "[cb+xgb]" in prefix  # member label still present
 
     def test_conf_ensemble_cov_tag_empty_when_no_confident_indices(self):
@@ -767,7 +794,8 @@ class TestCategoryDriftHealingSuggestions:
                     preprocessing_config=PreprocessingConfig(drop_columns=[]),
                     use_ordinary_models=True,
                     use_mlframe_ensembles=False,
-                    output_config=OutputConfig(data_dir=tmp, models_dir="models"),
+                    output_config=OutputConfig(data_dir=tmp, models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+                    reporting_config=_lean_reporting_config(),
                     verbose=1,
                 )
             except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
@@ -882,7 +910,8 @@ class TestLazyConversionDefenseInDepth:
                 preprocessing_config=PreprocessingConfig(drop_columns=[]),
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+                reporting_config=_lean_reporting_config(),
                 verbose=0,
             )
         finally:
@@ -1074,7 +1103,8 @@ class TestPolarsReleaseBeforeNonNativeStrategy:
                 preprocessing_config=PreprocessingConfig(drop_columns=[]),
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+                reporting_config=_lean_reporting_config(),
                 verbose=1,
             )
         finally:

@@ -97,9 +97,23 @@ class _PhaseRegistry:
 _registry = _PhaseRegistry()
 
 
+# Wall-clock start of the current suite, stamped when the registry is reset. The phase shares need a real
+# denominator: dividing by the largest phase made that phase 100% by construction and let the printed
+# shares sum past 250%.
+_REGISTRY_STARTED_AT: float = _timer()
+
+
 def reset_phase_registry() -> None:
-    """Clear accumulated timings. Call once at the start of a training suite."""
+    """Clear accumulated timings and restart the suite clock. Call once at the start of a training suite."""
+    global _REGISTRY_STARTED_AT
+
     _registry.reset()
+    _REGISTRY_STARTED_AT = _timer()
+
+
+def registry_elapsed() -> float:
+    """Seconds since the phase registry was last reset, i.e. the suite's own wall time."""
+    return float(_timer() - _REGISTRY_STARTED_AT)
 
 
 def record_phase(name: str, seconds: float, ram_delta_gb: float = 0.0) -> None:
@@ -107,6 +121,21 @@ def record_phase(name: str, seconds: float, ram_delta_gb: float = 0.0) -> None:
     an already-measured duration). ``ram_delta_gb`` optional; not all callers
     have a RAM measurement available."""
     _registry.record(name, seconds, ram_delta_gb=ram_delta_gb)
+
+
+# Thread-local stack of open phase names: concurrent suites must not read each other's step.
+_PHASE_STACK = threading.local()
+
+
+def active_phase() -> str:
+    """Innermost phase currently open on this thread, or ``""`` outside any phase.
+
+    Exists so unrelated instrumentation can say WHICH suite step provoked it. A production log showed five
+    two-minute LightGBM dataset builds with nothing around them naming the step that ordered them, which left
+    an operator unable to tell wanted work from a runaway loop.
+    """
+    stack = getattr(_PHASE_STACK, "names", None)
+    return stack[-1] if stack else ""
 
 
 def phase_snapshot() -> list[tuple[str, float, int]]:
@@ -120,20 +149,26 @@ def phase_ram_snapshot() -> dict[str, float]:
 
 
 def _try_get_rss_gb() -> float:
-    """Best-effort current process RSS in GB; 0.0 if psutil missing."""
+    """Best-effort current process memory in GB, on the same measure every other user-facing line uses.
+
+    Raw ``memory_info().rss`` is the WORKING SET on Windows, which ``clean_ram()`` deliberately evicts -- so a
+    phase that cleans reported a large negative delta (-6.47GB for process_model in one production run) that
+    said nothing about memory the process actually released.
+    """
     try:
-        import psutil
-        return float(psutil.Process().memory_info().rss / (1024 ** 3))
+        from ._ram_helpers import get_reported_memory_gb
+
+        return get_reported_memory_gb()
     except Exception as exc:
-        logger.debug("_try_get_rss_gb: RSS probe unavailable: %s", exc)
+        logger.debug("_try_get_rss_gb: memory probe unavailable: %s", exc)
         return 0.0
 
 
 def format_phase_summary(top: int = 30) -> str:
     """Format the top-N phases by accumulated wall-clock time into a table.
 
-    Adds a ``+/-RAM_GB`` column when the registry has captured per-phase
-    RAM deltas (auto-populated by the ``phase()`` ctx
+    Adds a ``net RSS`` column when the registry has captured per-phase
+    RSS deltas (auto-populated by the ``phase()`` ctx
     manager). Phases where the delta is exactly 0.0 (no measurement, or
     truly zero net change) render as ``     `` (blank) so the column
     only highlights phases that moved RSS.
@@ -143,7 +178,14 @@ def format_phase_summary(top: int = 30) -> str:
         return "[phases] no timings recorded"
     ram_deltas = _registry.ram_delta_snapshot()
     name_w = max(len("phase"), max(len(n) for n, _, _ in rows))
-    header = f"{'phase'.ljust(name_w)}   total       calls    avg     +/-RAM"
+    # The column is the measured memory at the phase's exit minus its entry, so a phase that allocates 40GB and
+    # frees 75GB reports -35GB: a NET figure covering everything the phase contained, not "this phase used
+    # -35GB". The header NAMES the quantity because it differs by platform -- private commit on Windows, RSS
+    # elsewhere -- and an unlabelled "RAM" column invites comparing it against a number that measures the other.
+    from ._ram_helpers import memory_measure_name
+
+    _mem_label = f"net {memory_measure_name()}"
+    header = f"{'phase'.ljust(name_w)}   total       calls    avg   {_mem_label:>16}"
     sep = "-" * len(header)
     lines = [header, sep]
     for name, total, count in rows:
@@ -154,6 +196,11 @@ def format_phase_summary(top: int = 30) -> str:
         else:
             ram_str = "        "
         lines.append(f"{name.ljust(name_w)}  {total:8.2f}s  {count:6d}  {avg:7.3f}s{ram_str}")
+    # Phases NEST, so a child's seconds sit inside its parent's too and the column does not sum to the run. Without
+    # saying so the table invites exactly that addition -- totting up process_model, compute_split_metrics and
+    # model.fit gives more than the wall time, which reads as broken timings rather than as nesting.
+    lines.append(sep)
+    lines.append("phases nest: a child's time is also counted in its parent, so this column does not sum to the run")
     return "\n".join(lines)
 
 
@@ -205,6 +252,11 @@ def phase(name: str, level: int = logging.DEBUG, **context: Any) -> Iterator[Non
         split name, row count, etc.). Not included in the registry key.
     """
     ctx_str = _format_ctx(context)
+    _names = getattr(_PHASE_STACK, "names", None)
+    if _names is None:
+        _names = []
+        _PHASE_STACK.names = _names
+    _names.append(name)
     logger.log(level, f"[phase] {name} START {ctx_str}".rstrip())
     t0 = _timer()
     # Bracket each phase with RSS sample so the registry accumulates a
@@ -220,6 +272,7 @@ def phase(name: str, level: int = logging.DEBUG, **context: Any) -> Iterator[Non
         raised = e
         raise
     finally:
+        _names.pop() if _names else None
         dt = _timer() - t0
         rss_post_gb = _try_get_rss_gb()
         ram_delta = (rss_post_gb - rss_pre_gb) if (rss_pre_gb > 0 and rss_post_gb > 0) else 0.0

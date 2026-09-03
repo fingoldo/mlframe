@@ -156,3 +156,35 @@ def test_resident_gate_selection_identical_to_host():
     )
     assert dev_keep is not None, "resident gate returned None (GPU path unavailable under STRICT)"
     assert set(dev_keep) == host_keep, f"device survivors {set(dev_keep)} != host {host_keep}"
+
+
+def test_per_cell_stats_gpu_skew_kurt_stable_on_large_offset_small_scale_column():
+    # Same bug class already fixed on the host (_derive_cell_stats): the raw-power binomial-expansion
+    # form (s3/n - 3*mean*s2/n + ..., derived via cp.bincount raw moments on the GPU twin) catastrophically
+    # cancels on large-offset/small-scale data. Pin per-cell skew/kurt against scipy directly (not just
+    # host-vs-device parity, which would pass even if both sides shared the same bug).
+    """Per cell stats gpu skew kurt stable on large offset small scale column."""
+    from scipy.stats import kurtosis, skew
+
+    from mlframe.feature_selection.filters._binned_numeric_agg_resident import _per_cell_stats_gpu
+
+    rng = np.random.default_rng(7)
+    n_cells = 6
+    per_cell_n = 400
+    offset = 8.5e3
+    scale = 0.06
+    codes = np.repeat(np.arange(n_cells), per_cell_n)
+    v = offset + scale * rng.standard_normal(codes.shape[0])
+
+    codes_g = cp.asarray(codes, dtype=cp.int64)
+    v_g = cp.asarray(v, dtype=cp.float64)
+    got = _per_cell_stats_gpu(cp, codes_g, v_g, n_cells, ("mean", "std", "skew", "kurt"))
+    got = {k: cp.asnumpy(val) for k, val in got.items()}
+
+    worst = {"skew": 0.0, "kurt": 0.0}
+    for c in range(n_cells):
+        cell_v = v[codes == c]
+        worst["skew"] = max(worst["skew"], abs(got["skew"][c] - float(skew(cell_v))))
+        worst["kurt"] = max(worst["kurt"], abs(got["kurt"][c] - float(kurtosis(cell_v))))
+    assert worst["skew"] < 1e-6, f"GPU per-cell skew diverges {worst['skew']:.3e} from scipy on a large-offset/small-scale column"
+    assert worst["kurt"] < 1e-6, f"GPU per-cell kurt diverges {worst['kurt']:.3e} from scipy on a large-offset/small-scale column"

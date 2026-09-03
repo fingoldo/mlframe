@@ -27,6 +27,10 @@ from optbinning import BinningProcess
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer
 
+from mlframe.core import ensure_category_encoders_sklearn_tags_shim
+
+ensure_category_encoders_sklearn_tags_shim()
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Core
 # ----------------------------------------------------------------------------------------------------------------------------

@@ -10,14 +10,11 @@ quantization_nbins=20), and does NOT fire on reg n<50k or on classification (whe
 
 from __future__ import annotations
 
-import sys
 import warnings
-from pathlib import Path
-
 
 warnings.filterwarnings("ignore")
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from mrmr_largeN_campaign import _make_dgp
+
+from mlframe.feature_selection._benchmarks.fs_quality.mrmr_largeN_campaign import _make_dgp
 
 
 def _f1(p: float, r: float) -> float:

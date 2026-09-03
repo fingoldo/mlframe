@@ -43,13 +43,15 @@ def is_classification_target(y: np.ndarray, n: int | None = None) -> bool:
     return False
 
 
-def default_tree_estimator(y: np.ndarray, n: int | None = None, random_state: int = 0, n_estimators: int = 120) -> "RandomForestClassifier | RandomForestRegressor":
+def default_tree_estimator(
+    y: np.ndarray, n: int | None = None, random_state: int = 0, n_estimators: int = 120, n_jobs: int = -1
+) -> "RandomForestClassifier | RandomForestRegressor":
     """Task-appropriate RandomForest default: classifier for low-cardinality integer/label y, else regressor."""
     from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
     if is_classification_target(y, n):
-        return RandomForestClassifier(n_estimators=n_estimators, n_jobs=-1, random_state=random_state, max_features="sqrt")
-    return RandomForestRegressor(n_estimators=n_estimators, n_jobs=-1, random_state=random_state, max_features="sqrt")
+        return RandomForestClassifier(n_estimators=n_estimators, n_jobs=n_jobs, random_state=random_state, max_features="sqrt")
+    return RandomForestRegressor(n_estimators=n_estimators, n_jobs=n_jobs, random_state=random_state, max_features="sqrt")
 
 
 __all__ = ["is_classification_target", "default_tree_estimator"]

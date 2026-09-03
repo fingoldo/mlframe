@@ -65,6 +65,40 @@ def test_f1_pos_label_not_clobbered_across_estimators():
 
 
 # ---------------------------------------------------------------------------
+# COMPETITION_EVALUATION-2 (2026-08-05 audit): classification_thresholds crashed for classifiers
+# ---------------------------------------------------------------------------
+
+
+def test_classification_thresholds_does_not_crash_for_a_classifier():
+    """classification_thresholds is documented (and used by the regressor branch) as a plain list of
+    per-class representative values; the classifier branch fed that list directly to Series.map(),
+    which requires a dict/callable/Series, crashing with TypeError: 'list' object is not callable."""
+    from sklearn.linear_model import LogisticRegression
+
+    from mlframe.evaluation.reports import evaluate_estimators
+
+    rng = np.random.default_rng(0)
+    n = 200
+    X_train = pd.DataFrame(rng.normal(size=(n, 4)), columns=[f"f{i}" for i in range(4)])
+    y_train = (X_train["f0"].to_numpy() + rng.normal(scale=0.2, size=n) > 0).astype(np.int64)
+    X_test = pd.DataFrame(rng.normal(size=(100, 4)), columns=[f"f{i}" for i in range(4)])
+    y_test = (X_test["f0"].to_numpy() + rng.normal(scale=0.2, size=100) > 0).astype(np.int64)
+
+    results_log = {"results": {}}
+    # pre-fix: TypeError: 'list' object is not callable, raised from inside Series.map(classification_thresholds).
+    evaluate_estimators(
+        X_train, X_test, y_train, y_test,
+        estimators=[LogisticRegression(max_iter=200, random_state=0)],
+        classification_thresholds=[0.0, 100.0],
+        show_calibration_plot=False,
+        show_confusion_matrix=False,
+        plot=False,
+        results_log=results_log,
+    )
+    assert "classification_report_dict" in results_log["results"]
+
+
+# ---------------------------------------------------------------------------
 # F2 / F9 / PR1: optimize_group_blend_weight didn't actually hold previously-tuned groups fixed
 # ---------------------------------------------------------------------------
 
@@ -196,6 +230,127 @@ def test_f3_stable_sort_makes_verification_resort_a_true_identity():
     # remediated_feature substituted must no longer detect the original leak.
     assert isinstance(result["remediation_verified"], bool)
     assert result["remediation_verified"] is True
+
+
+# ---------------------------------------------------------------------------
+# COMPETITION_EVALUATION-3 (2026-08-05 audit): leaky_row_ranges' (min, max+1) collapse only reflects the
+# actual leaked rows when df is already time-sorted; on unsorted input it silently spans nearly the whole
+# dataset instead.
+# ---------------------------------------------------------------------------
+
+
+def test_competition_evaluation_3_leaky_row_positions_are_exact_not_a_wide_range():
+    """leaky_row_positions must report the EXACT (generally scattered) original-df positions of the leaked
+    validation rows, not a (min, max+1) range that silently spans everything in between on unsorted input.
+
+    Fixture: categories are narrow, non-repeating, time-clustered slices (each category appears only in
+    one 10-row chronological window and never again), and the original df row order is a random permutation
+    of chronological order. A full-dataset target-mean encoder ("leaky") then achieves near-perfect in-sample
+    R^2 for every fold, while the honest per-fold encoder (fit only on strictly-prior rows) has NEVER seen
+    any validation row's category before, so it falls back to the global mean (near-zero signal) --
+    guaranteeing every fold is flagged. Each flagged fold's true leaked-row COUNT (~33-34, one np.array_split
+    chunk of 200 rows / 6) is far smaller than the SPAN a naive (min, max+1) collapse would report (~180-197,
+    confirmed via direct reproduction of the pre-fix formula below) -- pinning that the fix reports the exact
+    count, not an inflated range.
+    """
+    from sklearn.linear_model import LinearRegression
+
+    from mlframe.evaluation.expanding_window_leakage import detect_expanding_window_feature_leakage
+
+    rng = np.random.default_rng(1)
+    n = 200
+    n_cats = 20
+    cat_of_time = np.repeat(np.arange(n_cats), n // n_cats)
+    rate = rng.uniform(1, 5, n_cats)
+    y_time = rate[cat_of_time] + rng.normal(scale=0.05, size=n)
+    t = np.arange(n)
+
+    perm = rng.permutation(n)  # original df row order != chronological order
+    df = pd.DataFrame({"t": t[perm], "cat": cat_of_time[perm], "_y": y_time[perm]})
+    y = y_time[perm]
+
+    def fit_transform_fn(fit_df, transform_df):
+        """Target-mean encoder: leaky when fit on the full dataset, honest when fit on strictly-prior rows."""
+        means = fit_df.groupby("cat")["_y"].mean()
+        global_mean = fit_df["_y"].mean()
+        return transform_df["cat"].map(means).fillna(global_mean).to_numpy(dtype=np.float64)
+
+    result = detect_expanding_window_feature_leakage(
+        df, "t", y, fit_transform_fn, lambda: LinearRegression(), n_splits=5, scoring="r2", auto_remediate=True,
+    )
+
+    assert result["leak_detected"] is True
+    assert len(result["leaky_row_positions"]) >= 1, "expected at least one flagged fold in this deliberately-leaky fixture"
+
+    for positions in result["leaky_row_positions"]:
+        assert isinstance(positions, np.ndarray)
+        span = int(positions[-1]) - int(positions[0]) + 1
+        # Each fold's expanding-window validation chunk is ~200/6 ~= 33 rows; the exact count must match
+        # that, not the ~180-197-row span a (min, max+1) collapse would report on this scattered fixture.
+        assert len(positions) < 50, f"reported {len(positions)} leaked rows -- expected ~33 (one fold's chunk), not span-inflated"
+        assert span > 2 * len(positions), f"span={span} vs count={len(positions)}: expected the fixture's scattering to make span >> count"
+        assert len(np.unique(positions)) == len(positions), "positions must be unique row indices"
+        assert positions.min() >= 0 and positions.max() < n
+
+
+# ---------------------------------------------------------------------------
+# COMPETITION_EVALUATION-5 / -6: empty-input KeyError from pd.DataFrame([]).sort_values(...)
+# ---------------------------------------------------------------------------
+
+
+def test_competition_evaluation_5_empty_candidate_cols_returns_empty_correctly_columned_frame():
+    """constant_group_target_scan(df, y, candidate_cols=[]) must return an empty, correctly-columned
+    DataFrame instead of raising KeyError from pd.DataFrame([]).sort_values(...)."""
+    from mlframe.evaluation.constant_group_leak_scan import constant_group_target_scan
+
+    df = pd.DataFrame({"a": [1, 2, 3]})
+    y = np.array([0.1, 0.2, 0.3])
+    out = constant_group_target_scan(df, y, candidate_cols=[])
+    assert list(out.columns) == ["column", "n_groups", "min_group_variance_ratio", "worst_group_value", "worst_group_size", "flagged"]
+    assert len(out) == 0
+
+
+def test_competition_evaluation_6_empty_frames_return_empty_correctly_columned_frame():
+    """subpopulation_ratio_drift_check must return an empty, correctly-columned DataFrame when train_df/
+    test_df have zero effective values for subgroup_col, instead of raising KeyError."""
+    from mlframe.evaluation.subpopulation_drift import subpopulation_ratio_drift_check
+
+    empty_train = pd.DataFrame({"grp": pd.Series([], dtype=object)})
+    empty_test = pd.DataFrame({"grp": pd.Series([], dtype=object)})
+    out = subpopulation_ratio_drift_check(empty_train, empty_test, "grp")
+    assert list(out.columns) == ["subgroup_value", "train_prevalence", "test_prevalence", "prevalence_ratio", "flagged"]
+    assert len(out) == 0
+
+    out_scored = subpopulation_ratio_drift_check(empty_train, empty_test, "grp", include_severity_score=True)
+    assert "drift_severity_score" in out_scored.columns
+    assert len(out_scored) == 0
+
+
+def test_competition_evaluation_7_empty_subgroup_cols_returns_empty_ranking():
+    """rank_subpopulation_drift_severity(subgroup_cols=[]) must return an empty ranking instead of
+    raising KeyError: 'drift_severity_score'."""
+    from mlframe.evaluation.subpopulation_drift import rank_subpopulation_drift_severity
+
+    train_df = pd.DataFrame({"grp": ["a", "b", "a"]})
+    test_df = pd.DataFrame({"grp": ["a", "a", "b"]})
+    out = rank_subpopulation_drift_severity(train_df, test_df, subgroup_cols=[])
+    assert list(out.columns) == ["subgroup_col", "drift_severity_score", "max_prevalence_ratio", "any_flagged"]
+    assert len(out) == 0
+
+
+def test_competition_evaluation_8_empty_candidates_returns_empty_ranking():
+    """rank_subgroup_feature_overfit_risk(candidates=[]) must return an empty ranking instead of
+    raising KeyError: 'risk_score'."""
+    from mlframe.evaluation.subgroup_feature_overfit_risk import rank_subgroup_feature_overfit_risk
+
+    train_df = pd.DataFrame({"grp": ["a", "b", "a"]})
+    test_df = pd.DataFrame({"grp": ["a", "a", "b"]})
+    out = rank_subgroup_feature_overfit_risk(train_df, test_df, candidates=[])
+    assert list(out.columns) == [
+        "feature_name", "subgroup_col", "feature_subgroup_value", "cv_delta", "prevalence_ratio",
+        "subgroup_shifted", "overfit_risk_flag", "drift_severity_score", "risk_score",
+    ]
+    assert len(out) == 0
 
 
 # ---------------------------------------------------------------------------

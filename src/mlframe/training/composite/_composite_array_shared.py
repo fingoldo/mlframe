@@ -10,7 +10,11 @@ import numpy as np
 
 
 def n_features(X: Any) -> int:
-    """Robust feature count for pandas / polars / 2-D ndarray (named-column length first, then ``shape[1]``)."""
+    """Robust feature count for pandas / polars / 2-D ndarray (named-column length first, then ``shape[1]``).
+
+    A 1-D array (``shape == (n,)``) is treated as a single feature column (matching the sklearn convention of
+    ``X.reshape(-1, 1)`` for a bare 1-D feature vector), not 0.
+    """
     cols = getattr(X, "columns", None)
     if cols is not None:
         try:
@@ -18,8 +22,11 @@ def n_features(X: Any) -> int:
         except TypeError:
             pass
     shape = getattr(X, "shape", None)
-    if shape is not None and len(shape) >= 2:
-        return int(shape[1])
+    if shape is not None:
+        if len(shape) >= 2:
+            return int(shape[1])
+        if len(shape) == 1:
+            return 1
     return 0
 
 

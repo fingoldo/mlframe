@@ -165,6 +165,16 @@ class TestLinearModelTraining:
             # Check that some coefficients are zero (L1 effect)
             assert np.sum(np.abs(model.coef_) < 0.01) > 0
 
+    def test_elasticnet_classifier_uses_configured_l1_ratio(self):
+        # TRAINING_LOOSE_C-2 (2026-08-05 audit): _build_elasticnet_classifier routed l1_ratio through
+        # _get_l1_ratio, which gates on config.penalty == "elasticnet" -- a field never automatically
+        # set just because model_type="elasticnet" was chosen (penalty defaults to "l2"), so the
+        # user's configured l1_ratio was silently discarded in favor of a hardcoded 0.15 fallback.
+        """Test that the classifier builder threads config.l1_ratio, not a hardcoded fallback."""
+        config = LinearModelConfig(model_type="elasticnet", alpha=0.1, l1_ratio=0.9, max_iter=2000)
+        model = create_linear_model("elasticnet", config, use_regression=False)
+        assert model.l1_ratio == 0.9, f"expected the configured l1_ratio=0.9 to reach the model, got {model.l1_ratio}"
+
     def test_huber_robustness(self, sample_regression_data):
         """Test Huber regression with outliers."""
         df, feature_names, _y = sample_regression_data

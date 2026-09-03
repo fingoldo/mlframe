@@ -11,8 +11,43 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 
 logger = logging.getLogger(__name__)
+
+
+def validate_trusted_path(path: str, trusted_root: "str | None") -> None:
+    """Raise ``ValueError`` unless ``path`` resolves inside ``trusted_root`` (absolute commonpath check).
+
+    Single shared implementation of the path-traversal guard every ``joblib.load``/``dill.load`` call
+    site in the codebase needs ahead of deserializing a pickle from a caller-influenced path. Previously
+    reimplemented independently in four separate files with subtly different fail-open/fail-closed
+    defaults when ``trusted_root`` was omitted -- two raised (fail-closed), one silently narrowed to the
+    file's OWN containing directory (a no-op check: a path's dirname always "contains" the path), making
+    it easy for a future call site to copy the weaker variant. This helper is fail-closed only:
+    ``trusted_root=None`` always raises: callers must pass an explicit trusted directory, or pass the
+    file's own directory explicitly if that's genuinely the intended (weak) boundary -- never an implicit
+    default silently narrows the check.
+    """
+    if trusted_root is None:
+        raise ValueError("trusted_root is required for joblib.load()/dill.load() of a caller-influenced path. Pass an absolute trusted directory.")
+    abs_root = os.path.abspath(trusted_root)
+    # A backslash-separated traversal segment (e.g. "..\\..\\win") is a real escape on Windows
+    # (os.path treats "\\" as a separator there) but silently becomes ONE inert literal filename
+    # component on POSIX (os.path never treats "\\" as a separator there), so the exact same
+    # caller-influenced string that traverses on Windows stays harmlessly inside trusted_root's
+    # own directory on Linux/macOS -- os.path.commonpath then never rejects it. Normalize "\\" to
+    # "/" before resolving so a backslash-style traversal attempt is caught identically on every
+    # platform, regardless of which OS actually runs the check.
+    abs_path = os.path.abspath(path.replace("\\", "/"))
+    try:
+        common = os.path.commonpath([abs_root, abs_path])
+    except ValueError as exc:
+        # e.g. "Paths don't have the same drive" on Windows -- preserve the original cause so a
+        # cross-drive root mismatch doesn't masquerade as a generic path-traversal rejection.
+        raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}") from exc
+    if common != abs_root:
+        raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}")
 
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -251,7 +286,14 @@ def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = True, nans_fil
 
     if inf_cols:
         for col in inf_cols:
-            df[col] = np.nan_to_num(df[col], posinf=nans_filler, neginf=nans_filler)
+            # Masked, not ``np.nan_to_num``: that helper's ``nan`` argument defaults to 0.0, so passing only
+            # ``posinf``/``neginf`` ALSO rewrote every NaN in the column to zero. A missing value is a signal a
+            # tree splits on; replacing it with a plausible number is a silent corruption, and it only happened
+            # in columns that happened to contain an infinity, so two otherwise identical frames could disagree.
+            # This is the same masked form the ndarray sibling above uses and whose contract this one mirrors.
+            values = df[col].to_numpy(copy=True)
+            np.putmask(values, np.isinf(values), nans_filler)
+            df[col] = values
         if verbose:
             logger.warning("Some factors (%s) contained infinity: %s", f"{len(inf_cols):_}", ", ".join(inf_cols))
     return df

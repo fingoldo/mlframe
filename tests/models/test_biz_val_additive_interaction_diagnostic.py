@@ -11,6 +11,8 @@ regimes, not just report a number.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
+import pytest
 from sklearn.metrics import r2_score
 from sklearn.model_selection import KFold
 
@@ -40,3 +42,26 @@ def test_biz_val_additive_interaction_diagnostic_distinguishes_additive_from_int
     assert result_interaction["recommend_interaction_engineering"] is True
 
     assert result_additive["additive_signal_ratio"] > result_interaction["additive_signal_ratio"]
+
+
+def test_additive_interaction_diagnostic_pandas_series_y_with_nondefault_index_matches_ndarray():
+    """MODELS-9 (2026-08-05 audit): _cv_score indexed y[train_idx]/y[test_idx] directly; for a pandas
+    Series y with a non-default index (the common real-world case -- e.g. a Series carried over from an
+    upstream .sample()/.sort_values() call), this performs LABEL-based indexing instead of positional,
+    silently misaligning train/test rows against cv_splits' positional index arrays. Pins that passing y
+    as a pandas Series with a shuffled (non-default) index gives the SAME result as the equivalent plain
+    ndarray."""
+    rng = np.random.default_rng(1)
+    n = 800
+    X = rng.normal(0, 1, (n, 3))
+    y_arr = X[:, 0] * 2 + rng.normal(0, 0.2, n)
+    splits = list(KFold(4, shuffle=True, random_state=0).split(X))
+
+    shuffled_index = rng.permutation(n)
+    y_series = pd.Series(y_arr, index=shuffled_index)
+
+    result_ndarray = additive_interaction_diagnostic(X, y_arr, splits, metric_fn=r2_score, objective="regression")
+    result_series = additive_interaction_diagnostic(X, y_series, splits, metric_fn=r2_score, objective="regression")
+
+    assert result_series["full_model_cv_score"] == pytest.approx(result_ndarray["full_model_cv_score"], abs=1e-9)
+    assert result_series["additive_model_cv_score"] == pytest.approx(result_ndarray["additive_model_cv_score"], abs=1e-9)

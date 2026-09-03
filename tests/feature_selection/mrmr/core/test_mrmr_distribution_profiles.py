@@ -44,13 +44,19 @@ import pytest
 
 import mlframe
 from mlframe.feature_selection.filters.mrmr import MRMR
+from tests.conftest import perf_time_budget
 from tests.feature_selection import _synthetic_distributions as sd
 
 # Reuse the battle-tested tolerant matcher from the uniform suite (no duplication).
 from tests.feature_selection.mrmr.core.test_mrmr_create_keep_drop import _artifact_path, _covers, _operand_tokens
 
 SEED = 42
-FIT_TIMEOUT = 360
+# perf_time_budget (2026-08-18): a raw 360s cap isn't enough once the shared 2-vCPU CI runners are
+# themselves contended (observed: a Timeout(>360.0s) failure on a run where the whole ~57-job matrix
+# ran several times its normal wall-clock). Widen under detected xdist/host contention via the same
+# mechanism already used for other wall-clock-sensitive assertions in this suite. Evaluated once at
+# collection time (module import), which is when @pytest.mark.timeout consumes it.
+FIT_TIMEOUT = int(perf_time_budget(360))
 _PROGRESS = _artifact_path("distros_progress.txt")
 _LEDGER = []
 
@@ -275,6 +281,13 @@ NOISE_ADMISSION = {
     "(same 3%-outlier residual as the 10000/20000 n-sweep cells; observed selected=['e', 'a', 'mul(sqr(a),reciproc(b))'])",
     ("ratio_sqr", "heavy_tailed_outliers", 20000): "e (0.01-weight noise) admitted; (a,b) recovered (pareto+outlier residual)",
     ("log_sin_product", "with_outliers", 20000): "e1+e2 (0.02-weight noise) admitted; (c,d) recovered (3%-outlier residual)",
+    # CI-only (not reproducible locally): the SAME 0.02-weight raw-retention residual as this formula's
+    # already-documented heavy_tailed/uniform/mixed/with_outliers cells above, on the pareto+outlier
+    # combination -- e1's marginal MI is already flagged near the noise floor by this exact cell's own
+    # SIGNAL_LOSS entry (MI=0.052 vs the dominant d factor's 2.09), so an occasional CI-Linux
+    # floating-point difference nudging its debiased marginal MI just over the relevance floor matches
+    # the established residual class, not a new bug: signal (d + sin(d)) is still fully recovered.
+    ("log_sin_product", "heavy_tailed_outliers", 20000): "e1 (0.02-weight noise) admitted; (c,d) signal recovered (pareto+outlier residual)",
 }
 
 

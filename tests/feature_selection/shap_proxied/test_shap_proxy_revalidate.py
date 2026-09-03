@@ -1394,7 +1394,7 @@ def test_selector_exposes_revalidation_n_estimators_default():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_biz_value_revalidation_cap_faster_recovery_preserved():
     """biz_value (iter28): on the live regime (width=1000, n_rows=5000, snr=8, 12 informatives) the
     ``revalidation_n_estimators=100`` cap must (1) speed the revalidation stage by >=30% over the

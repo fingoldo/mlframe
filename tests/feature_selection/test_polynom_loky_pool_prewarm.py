@@ -205,7 +205,11 @@ def test_idle_worker_timeout_exceeds_joblib_default_and_is_shared_with_real_disp
         quantization_nbins=10,
         quantization_method="uniform",
         quantization_dtype=np.int8,
-        n_jobs=16,
+        # n_jobs=2 (not the production 16): this test only spies the idle_worker_timeout kwarg passed to
+        # the REAL LokyBackend constructor -- it needs a genuine loky pool spin-up to observe that, but not
+        # 16 real worker processes' cold-start tax (the thing production-realism would need is covered by
+        # test_prewarm_speeds_up_a_real_run_polynom_pair_fe_call's n_jobs=16, marked @pytest.mark.slow).
+        n_jobs=2,
         verbose=0,
     )
 

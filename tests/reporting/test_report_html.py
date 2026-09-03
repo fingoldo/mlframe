@@ -251,8 +251,14 @@ def test_biz_val_report_html_reference_mode_no_byte_duplication(tmp_path):
     ), f"reference-mode HTML ({html_bytes}B) should stay below one referenced PNG ({png_bytes}B); the chart bytes must not be duplicated into the page"
 
 
-def test_sections_are_collapsible_details_first_open(tmp_path):
-    """Each section is a <details>; the first is open by default, the rest collapsed."""
+def test_sections_are_collapsible_details_all_open(tmp_path):
+    """Each section is a collapsible <details>, and every one starts OPEN.
+
+    Opening only the first section made two things fail that the report exists to do: a sidebar anchor
+    jumped to a COLLAPSED <details>, so the link landed on an invisible target, and printing or exporting
+    to PDF captured exactly one section of content. The sections remain collapsible by hand -- they just
+    do not start that way.
+    """
     png = _write_png(str(tmp_path / "a.png"))
     entries = [
         ChartEntry("First", "c1", png_path=png),
@@ -264,9 +270,9 @@ def test_sections_are_collapsible_details_first_open(tmp_path):
     assert text.count("<details ") == 3
     assert text.count("</details>") == 3
     assert "<summary>First</summary>" in text
-    # Exactly one open section (the first); collapsed sections carry no `open` attribute.
-    assert text.count('class="section" id="section-first" open') == 1
-    assert text.count(" open>") == 1
+    assert text.count("<details ") == text.count(" open>")  # every section, not just the first
+    assert 'class="section" id="section-first" open' in text
+    assert 'class="section" id="section-third" open' in text
 
 
 def test_nav_anchors_resolve_to_section_and_panel_ids(tmp_path):

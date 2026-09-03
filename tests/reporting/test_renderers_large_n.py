@@ -218,10 +218,24 @@ class TestStaticLegend:
         fig = get_renderer("plotly").render(self._labeled_spec(), static_legend=True)
         assert fig.layout.showlegend is True
 
-    def test_render_default_no_legend(self):
-        """Render default no legend."""
+    def test_render_shows_legend_for_a_single_labelled_panel(self):
+        """A one-panel figure whose series are named gets a legend even without the static-legend flag.
+
+        The flag exists to avoid cross-panel legend soup on a dense multi-panel grid. With ONE panel there is no
+        soup to avoid, and explicit ``series_labels`` are the author saying these lines need telling apart -- so
+        suppressing the legend there left an interactive HTML chart with two unidentifiable curves.
+        """
         fig = get_renderer("plotly").render(self._labeled_spec())
-        assert fig.layout.showlegend is False
+        assert fig.layout.showlegend is True
+
+    def test_render_default_no_legend_on_a_multi_panel_figure(self):
+        """Multi-panel figures still default to no legend: that is what the static-legend flag is for."""
+        from mlframe.reporting.spec import LinePanelSpec
+
+        x = np.arange(10)
+        line = LinePanelSpec(x=x, y=(x.astype(float), x.astype(float) * 2), series_labels=("a", "b"))
+        spec = FigureSpec(panels=((line, line),), figsize=(10, 4))
+        assert get_renderer("plotly").render(spec).layout.showlegend is False
 
     def test_save_dispatch_enables_legend_for_png_in_set(self, monkeypatch):
         """render_and_save passes static_legend=True to plotly when a static format is requested."""

@@ -118,6 +118,7 @@ def feature_handling_apply(
     numeric_block_val: Optional[np.ndarray] = None,
     numeric_block_test: Optional[np.ndarray] = None,
     numeric_feature_names: Optional[List[str]] = None,
+    sample_weight: Optional[Any] = None,
 ) -> FeatureHandlingResult:
     """Apply a ``FeatureHandlingConfig`` to a dataset for a specific
     model.
@@ -162,6 +163,10 @@ def feature_handling_apply(
     numeric_block_* : optional pre-built numeric matrices (post-imputer
         / scaler from the legacy pipeline). Concatenated to the
         assembled matrix as the "numeric" block.
+    sample_weight : optional 1-D per-train-row weights, aligned to ``train_target``. Threaded into the
+        target-encoder handlers only (``LeakageSafeEncoder.fit_transform`` already supports weighted
+        per-category means/OOF folds); other handler kinds (text, cat-onehot/ordinal, custom) do not
+        consume it. ``None`` (default) is bit-identical to the unweighted path.
 
     Returns
     -------
@@ -339,6 +344,7 @@ def feature_handling_apply(
                     train_target=train_target,
                     cache=cache, session_id=sess.session_id,
                     train_id=train_id,
+                    sample_weight=sample_weight,
                 )
                 train_blocks.append(tr_block)
                 if val_block is not None:
@@ -465,10 +471,15 @@ def _apply_target_encoder(
     cache: Optional[FeatureCache],
     session_id: str,
     train_id: int,
+    sample_weight: Optional[Any] = None,
 ) -> Tuple[HandlerOutput, Optional[HandlerOutput], Optional[HandlerOutput]]:
     """Fit a LeakageSafeEncoder OOF on train, transform held-out via
     full-train statistic. Cache the fitted encoder keyed on (column,
     method, params_hash) so multiple models share it.
+
+    ``sample_weight`` (optional, aligned to ``train_target``) is threaded into the OOF fit so per-category
+    means/folds are weighted -- unweighted (``None``) is bit-identical to omitting it. Folded into the
+    cache key so a different weight vector for the same (column, target) never replays a stale cached fit.
     """
     method = params.kind  # target_mean / target_m_estimate / ...
 
@@ -481,13 +492,15 @@ def _apply_target_encoder(
             cv=params.cv,
             prior=params.prior,
             random_state=params.random_state,
+            time_aware=params.time_aware,
         )
         # fit_transform on train so OOF encodings are returned
         train_col = _extract_column_values(train_df, column)
-        oof_train = enc.fit_transform(train_col, list(train_target))
+        oof_train = enc.fit_transform(train_col, list(train_target), sample_weight=sample_weight)
         return (enc, oof_train)
 
     if cache is not None:
+        _sw_token = _target_content_token(sample_weight) if sample_weight is not None else 0
         key = InMemoryKey(
             session_id=session_id,
             df_token=train_id,
@@ -496,8 +509,12 @@ def _apply_target_encoder(
             # sharing id(train_df) + an identical train_target but a DIFFERENT categorical column (e.g.
             # two different binnings/recodings of the same column name, or an OD mask that preserves the
             # target but changes the column) silently replay each other's cached (encoder, oof_train),
-            # the exact collision class _apply_text_encoder was already hardened against.
-            train_idx_token=_combine_content_tokens(_target_content_token(train_target), _text_column_content_token(train_df, column)),
+            # the exact collision class _apply_text_encoder was already hardened against. Also folds in
+            # sample_weight's own content token so a different weight vector for the same column/target
+            # never replays a stale unweighted (or differently-weighted) cached fit.
+            train_idx_token=_combine_content_tokens(
+                _target_content_token(train_target), _text_column_content_token(train_df, column), _sw_token,
+            ),
             column=column,
             params_canonical_hash=canonical_params_hash(params),
             provider_signature=f"target_encoder:{method}",

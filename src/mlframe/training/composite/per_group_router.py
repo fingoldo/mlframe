@@ -17,7 +17,7 @@ behaviour is exactly what a caller gets for every group when the opt-in flag is 
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -42,7 +42,7 @@ def _drop_group_column(X: Any, group_column: str) -> Any:
     return X.drop(group_column)  # polars DataFrame
 
 
-class PerGroupCompositeRouter(BaseEstimator, RegressorMixin):
+class PerGroupCompositeRouter(RegressorMixin, BaseEstimator):
     """Routes each row to its group's own composite-target submodel.
 
     Parameters
@@ -79,7 +79,7 @@ class PerGroupCompositeRouter(BaseEstimator, RegressorMixin):
         self.group_column = group_column
         self.min_group_fit_rows = min_group_fit_rows
 
-    def fit(self, X: Any, y: Any) -> "PerGroupCompositeRouter":
+    def fit(self, X: Any, y: Any, sample_weight: Optional[np.ndarray] = None) -> "PerGroupCompositeRouter":
         """Fit a global fallback submodel plus one per-group submodel per group with >= ``min_group_fit_rows`` rows."""
         if self.discovery is None or self.base_estimator is None:
             raise ValueError("discovery and base_estimator are required.")
@@ -91,6 +91,7 @@ class PerGroupCompositeRouter(BaseEstimator, RegressorMixin):
         specs_by_group = dict(getattr(self.discovery, "specs_by_group_", {}) or {})
 
         y_arr = np.asarray(y, dtype=np.float64)
+        w_arr = np.asarray(sample_weight, dtype=np.float64) if sample_weight is not None else None
         group_vals = _extract_groups(X, self.group_column)
 
         # Global fallback submodel: fit on ALL rows using the global (best) spec, exactly the
@@ -101,7 +102,8 @@ class PerGroupCompositeRouter(BaseEstimator, RegressorMixin):
             transform_name=_global_spec.transform_name,
             base_column=_global_spec.base_column,
         )
-        self.global_estimator_.fit(_drop_group_column(X, self.group_column), y_arr)
+        global_fit_kwargs = {"sample_weight": w_arr} if w_arr is not None else {}
+        self.global_estimator_.fit(_drop_group_column(X, self.group_column), y_arr, **global_fit_kwargs)
 
         self.group_estimators_: dict[Any, CompositeTargetEstimator] = {}
         for group_val, group_specs in specs_by_group.items():
@@ -123,8 +125,9 @@ class PerGroupCompositeRouter(BaseEstimator, RegressorMixin):
                 transform_name=spec.transform_name,
                 base_column=spec.base_column,
             )
+            group_fit_kwargs = {"sample_weight": w_arr[mask]} if w_arr is not None else {}
             try:
-                est.fit(X_group, y_arr[mask])
+                est.fit(X_group, y_arr[mask], **group_fit_kwargs)
             except Exception as exc:  # -- a per-group submodel failing to fit falls back to global, never aborts fit()
                 log_throttle(
                     logger,

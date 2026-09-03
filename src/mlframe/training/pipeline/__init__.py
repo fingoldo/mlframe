@@ -14,10 +14,10 @@ from __future__ import annotations
 # LOGGING
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
+import inspect
 import logging
 import os
 from timeit import default_timer as timer
-import subprocess  # nosec B404 - module used safely in this file, see call sites below (no untrusted input reaches it)
 
 from mlframe.utils.log_throttle import log_throttle
 
@@ -125,7 +125,13 @@ def _build_extension_steps(config: PreprocessingExtensionsConfig, n_features: in
     if config.binarization_threshold is not None:
         steps.append(("binarizer", Binarizer(threshold=config.binarization_threshold)))
     if config.kbins is not None:
-        steps.append(("kbins", KBinsDiscretizer(n_bins=config.kbins, encode=config.kbins_encode, strategy="quantile", quantile_method="averaged_inverted_cdf")))
+        # quantile_method was added to KBinsDiscretizer in sklearn 1.7 (absent on the 1.6.x floor the
+        # dedicated sklearn-matrix CI still exercises); on <1.7 sklearn's own default quantile algorithm
+        # is used instead of the explicit averaged_inverted_cdf request.
+        kbins_kwargs = {}
+        if "quantile_method" in inspect.signature(KBinsDiscretizer.__init__).parameters:
+            kbins_kwargs["quantile_method"] = "averaged_inverted_cdf"
+        steps.append(("kbins", KBinsDiscretizer(n_bins=config.kbins, encode=config.kbins_encode, strategy="quantile", **kbins_kwargs)))
     if config.polynomial_degree is not None:
         # Two-tier projection: ``n ** degree`` is a worst-case upper bound (sufficient for the
         # legacy regression-test contract that callers can rely on a conservative trip wire). When

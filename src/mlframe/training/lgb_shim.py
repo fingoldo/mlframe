@@ -67,7 +67,7 @@ process).
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -97,27 +97,20 @@ except ImportError:
     pl = None  # type: ignore
 
 
-def _maybe_bridge_polars_to_pandas(X):
-    """Route a polars frame through the Arrow split-blocks bridge so LightGBM sees a proper pandas frame with ``pd.Categorical`` preserved.
+from collections import OrderedDict as _OrderedDict
 
-    The default ``lgb.Dataset(data=polars_df)`` path falls through ``__array__`` and materialises X to a numpy object/float matrix, losing the Categorical
-    codes that LightGBM needs to dispatch the native categorical split path. ``get_pandas_view_of_polars_df`` is the project's Arrow split-blocks bridge --
-    zero-copy for numeric / boolean / string columns and ~32x faster than bare ``.to_pandas()`` on Categorical-heavy frames (benchmarked in
-    ``profiling/bench_polars_to_pandas.py``). Non-polars inputs pass through untouched.
-    """
-    if not _PL_AVAILABLE or not isinstance(X, pl.DataFrame):
-        return X
-    try:
-        from .utils import get_pandas_view_of_polars_df
-        return get_pandas_view_of_polars_df(X)
-    except ImportError:
-        # Fallback: pyarrow extension arrays preserve Categorical dtype but are slower than the split-blocks bridge.
-        return X.to_pandas(use_pyarrow_extension_array=True)
+from ._lgb_shim_helpers import (
+    _maybe_bridge_polars_to_pandas,
+    _signature_of,
+    _reset_weight_to_uniform,
+    normalize_eval_set,
+    _build_dataset,
+    _LGB_DATASET_CACHE,  # noqa: F401 -- re-exported for external cache-lifecycle callers (bench scripts, tests)
+    _lgb_cache_get,
+    _lgb_cache_put,
+    _lgb_cache_clear,  # noqa: F401 -- re-exported for external cache-lifecycle callers (bench scripts, tests)
+)
 
-
-# ---------------------------------------------------------------------
-# Capability gate
-# ---------------------------------------------------------------------
 
 def lgb_dataset_reuse_capable() -> bool:
     """True iff the installed LightGBM has ``set_label`` / ``set_weight``
@@ -125,186 +118,15 @@ def lgb_dataset_reuse_capable() -> bool:
 
     LightGBM >= 3.x has them. Returned as a runtime probe rather than a
     version-string compare so a future build with the methods removed
-    or renamed is detected directly.
+    or renamed is detected directly. Kept in this module (not the
+    ``_lgb_shim_helpers`` sibling) because it reads THIS module's own
+    ``_LGB_AVAILABLE``/``lgb`` globals -- tests monkeypatch those
+    directly on ``lgb_shim``, and a moved copy reading a sibling
+    module's separate globals would silently stop honouring the patch.
     """
     if not _LGB_AVAILABLE:
         return False
     return all(hasattr(lgb.Dataset, attr) for attr in ("set_label", "set_weight"))
-
-
-# ---------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------
-
-def _signature_of(X, categorical_feature=None) -> tuple:
-    """Cache key for a feature matrix; delegates to shared content fingerprint.
-
-    Combines the cross-shim content fingerprint (cols + shape + 3-row
-    sample hash) with the LGB-specific ``categorical_feature`` so cat-list
-    changes invalidate the cached Dataset (LightGBM bakes cat-feature
-    binning at construct time; reusing the cached dataset with a
-    different cat-list would silently produce wrong splits).
-
-    Pre-2026-05-23 the key included ``id(X)`` -- defeated by
-    ``sklearn.clone()`` + ``.iloc`` slicing in composite-ensemble OOF
-    refit, same as the XGB shim and CB Pool caches. Now content-based.
-    """
-    from ._dataset_cache_fingerprint import compute_signature
-    if isinstance(categorical_feature, list):
-        cat_key = tuple(categorical_feature)
-    else:
-        cat_key = categorical_feature  # 'auto' or None passes through
-    return compute_signature(X, extra=(cat_key,))
-
-
-def _is_pair_item(obj: Any) -> bool:
-    """True when ``obj`` looks like an X/y array (DataFrame / ndarray / polars / Series), i.e. one element of a bare (X, y[, w]) bundle."""
-    if isinstance(obj, (str, bytes)) or isinstance(obj, (list, tuple)):
-        return False
-    return bool(hasattr(obj, "shape") or hasattr(obj, "columns") or hasattr(obj, "iloc") or hasattr(obj, "dtypes"))
-
-
-def normalize_eval_set(eval_set: Any) -> Optional[List[tuple]]:
-    """Canonicalize an LGBM ``eval_set`` to a list-of-tuples once at the fit boundary.
-
-    Accepts and returns:
-      * ``None`` -> ``None``
-      * a bare ``(X, y)`` / ``(X, y, w)`` tuple -> ``[(X, y[, w])]``
-      * a bare ``[X, y]`` / ``[X, y, w]`` list (array-like items) -> ``[(X, y[, w])]``
-      * a proper list of ``(X, y[, w])`` pairs -> the same list (items coerced to tuples)
-
-    The bare 2/3-element forms are ambiguous with a genuine list of feature matrices;
-    the disambiguator is ``_is_pair_item`` (first element is array-like) plus a guard
-    that a real (X, y) bundle has y strictly lower-rank than X. Downstream code can
-    then assume a clean list-of-tuples and assert that invariant.
-    """
-    if eval_set is None:
-        return None
-
-    # Bare tuple form: (X, y) or (X, y, w) where the first element is array-like.
-    if isinstance(eval_set, tuple):
-        if len(eval_set) in (2, 3) and _is_pair_item(eval_set[0]):
-            return [tuple(eval_set)]
-        # Otherwise treat as an iterable of pairs.
-        return [tuple(p) for p in eval_set]
-
-    if isinstance(eval_set, list):
-        # Bare list form [X, y] / [X, y, w]: first element is array-like, not a pair.
-        if len(eval_set) in (2, 3) and _is_pair_item(eval_set[0]) and not isinstance(eval_set[1], (list, tuple)):
-            _first, _second = eval_set[0], eval_set[1]
-            _first_shape = getattr(_first, "shape", None)
-            _second_shape = getattr(_second, "shape", None)
-            # A genuine list of feature matrices has both elements 2-D with matching ncols;
-            # a real (X, y) bundle has y of rank 1 (or fewer cols). Only wrap the latter.
-            _is_list_of_matrices = (
-                _second_shape is not None and len(_second_shape) >= 2
-                and _first_shape is not None and len(_first_shape) >= 2
-                and _second_shape[1] == _first_shape[1]
-            )
-            if not _is_list_of_matrices:
-                return [tuple(eval_set)]
-        # Proper list of pairs.
-        return [tuple(p) for p in eval_set]
-
-    raise TypeError(f"lgb_shim: unsupported eval_set type {type(eval_set).__name__}; expected None, tuple, or list.")
-
-
-def _build_dataset(
-    X, y, sample_weight,
-    *,
-    reference=None,
-    categorical_feature="auto",
-    feature_name="auto",
-    init_score=None,
-    params=None,
-):
-    """Build a fresh ``lightgbm.Dataset``.
-
-    LightGBM's ``Dataset`` accepts pandas, numpy, scipy.sparse, pyarrow
-    Tables, and lists of sequences. Polars DataFrames are NOT accepted
-    natively: they fall through ``__array__`` and lose Categorical codes,
-    so the shim converts them up front via ``_maybe_bridge_polars_to_pandas``
-    (Arrow split-blocks bridge) before calling this helper.
-
-    ``reference`` (when given) is passed so val Datasets share the train
-    Dataset's bin mapping -- required by LightGBM for any non-train
-    Dataset to score consistently.
-
-    ``free_raw_data=False`` keeps the source data referenced by the
-    Dataset, so:
-      (a) ``set_label`` / ``set_weight`` continue to work after the
-          first fit (LightGBM keeps the binned representation, but
-          some metadata paths still touch the raw data);
-      (b) val datasets that ``reference=`` this train dataset don't
-          lose their binning context if we rebuild train.
-    """
-    return lgb.Dataset(
-        data=X,
-        label=y,
-        weight=sample_weight,
-        reference=reference,
-        init_score=init_score,
-        categorical_feature=categorical_feature,
-        feature_name=feature_name,
-        params=params,
-        free_raw_data=False,
-    )
-
-
-# ---------------------------------------------------------------------
-# Module-level Dataset cache, keyed by content fingerprint. Mirrors
-# xgb_shim's ``_XGB_DMATRIX_CACHE``/``_xgb_cache_get``/``_xgb_cache_put``
-# exactly. Without this, sklearn.clone() of an LGB shim (the same
-# CompositeCrossTargetEnsemble OOF refit pattern documented as the
-# motivating case for the XGB module cache) produces a fresh instance
-# with an empty instance-level cache and silently rebuilds the whole
-# binned Dataset from scratch on every clone -- the exact cost this
-# shim exists to eliminate, just never actually delivered on the LGB
-# side because no module-level fallback existed.
-#
-# ``MLFRAME_LGB_CACHE_DISABLE=1`` env var forces bypass (testing only).
-from collections import OrderedDict as _OrderedDict
-import os as _os
-import threading as _threading
-
-_LGB_DATASET_CACHE: "_OrderedDict[tuple, Any]" = _OrderedDict()
-_LGB_DATASET_CACHE_CAP: int = 8
-_LGB_DATASET_CACHE_LOCK = _threading.Lock()
-
-
-def _lgb_cache_disabled() -> bool:
-    """True when the ``MLFRAME_LGB_CACHE_DISABLE`` env var is set, forcing every Dataset cache lookup/store to be a no-op (diagnostics / A-B testing escape hatch)."""
-    return bool(_os.environ.get("MLFRAME_LGB_CACHE_DISABLE"))
-
-
-def _lgb_cache_get(key: tuple):
-    """LRU-ordered lookup of a cached Dataset by content-signature ``key``; touches the entry to most-recently-used on hit, returns None on miss or when the cache is disabled."""
-    if _lgb_cache_disabled() or key is None:
-        return None
-    with _LGB_DATASET_CACHE_LOCK:
-        ds = _LGB_DATASET_CACHE.get(key)
-        if ds is not None:
-            _LGB_DATASET_CACHE.move_to_end(key)
-        return ds
-
-
-def _lgb_cache_put(key: tuple, dataset: Any) -> None:
-    """Store ``dataset`` under ``key`` in the LRU Dataset cache, evicting the least-recently-used entry once the cache exceeds ``_LGB_DATASET_CACHE_CAP``."""
-    if _lgb_cache_disabled() or key is None or dataset is None:
-        return
-    with _LGB_DATASET_CACHE_LOCK:
-        if key in _LGB_DATASET_CACHE:
-            _LGB_DATASET_CACHE.move_to_end(key)
-        _LGB_DATASET_CACHE[key] = dataset
-        while len(_LGB_DATASET_CACHE) > _LGB_DATASET_CACHE_CAP:
-            _LGB_DATASET_CACHE.popitem(last=False)
-
-
-def _lgb_cache_clear() -> None:
-    """Release all cached Datasets (call between long-running suite invocations to free C++ memory)."""
-    with _LGB_DATASET_CACHE_LOCK:
-        _LGB_DATASET_CACHE.clear()
-
 
 # ---------------------------------------------------------------------
 # Mixin -- shared fit-with-cache logic
@@ -378,7 +200,7 @@ class _DatasetReuseMixin:
             state[_attr] = None
         # Val Datasets are the same unpicklable ctypes-pointer objects; strip the whole dict.
         state["_cached_val_datasets"] = _OrderedDict()
-        # Wave 19 P1: stamp the lightgbm version at save time. The booster
+        # Stamp the lightgbm version at save time. The booster
         # JSON inside the unmodified __dict__ is library-version-sensitive;
         # without this stamp the load side has no way to detect a minor
         # upgrade silently changing booster internals.
@@ -404,7 +226,7 @@ class _DatasetReuseMixin:
                 setattr(self, _attr, None)
         if not hasattr(self, "_cached_val_datasets"):
             self._cached_val_datasets = _OrderedDict()
-        # Wave 19 P1: compare the saved lightgbm version against the live
+        # Compare the saved lightgbm version against the live
         # one. WARN-only (booster libs are typically forward-compatible
         # for minor versions) so loads of older artifacts don't fail; the
         # operator just sees the skew before chasing weird predict crashes.
@@ -555,10 +377,37 @@ class _DatasetReuseMixin:
                 dtrain.set_weight(_w_arr)
             else:
                 # When sample_weight was set previously and now None is
-                # passed, "uniform weights" is the desired semantic. We
-                # set ones to clear any prior weight; LightGBM treats
-                # an all-1 weight identically to no-weight.
-                dtrain.set_weight(np.ones(dtrain.num_data(), dtype=np.float32))
+                # passed, "uniform weights" is the desired semantic. Uses
+                # _reset_weight_to_uniform (set_field, not set_weight) --
+                # plain set_weight(ones) silently NO-OPS when a real prior
+                # weight is already set at the C++ side (see that helper's
+                # docstring), which would otherwise leave the stale weight
+                # in place despite the caller asking for uniform.
+                _reset_weight_to_uniform(dtrain)
+            # set_label/set_weight were re-applied above on a cache hit, but set_init_score was
+            # not -- a subsequent .fit(X, y, init_score=new_value) call reusing this cached
+            # Dataset silently trained against the STALE (or entirely absent) init_score baked in
+            # from whichever earlier .fit() call first built it, instead of the new one. Always
+            # re-apply on every cache hit, same as label/weight: an explicit new init_score
+            # overwrites. LightGBM's Dataset.set_init_score(None) does NOT clear a previously-set
+            # init_score (confirmed live: get_init_score() still returns the old array after
+            # set_init_score(None)) -- explicit all-zeros is LightGBM's own default baseline when
+            # no init_score is supplied at all, so that is the correct "no init_score" state to
+            # restore to when this fit call omits it.
+            # Multiclass boosters need init_score flattened to num_data() * num_class rows (LightGBM's
+            # C++ side raises "Number of class for initial score error" for anything shorter) -- a
+            # binary/regression booster's init_score is exactly num_data() long. _n_classes is set by
+            # _pre_fit_bookkeeping above (classifier only; absent/<=2 means not multiclass).
+            _ncls_for_init = getattr(self, "_n_classes", None)
+            _expected_init_len = dtrain.num_data() * _ncls_for_init if _ncls_for_init is not None and _ncls_for_init > 2 else dtrain.num_data()
+            if init_score is not None:
+                _init_arr = np.asarray(init_score)
+                if _init_arr.shape[0] != _expected_init_len:
+                    raise ValueError(f"lgb_shim: init_score length " f"{_init_arr.shape[0]} != expected " f"{_expected_init_len}")
+                dtrain.set_init_score(_init_arr)
+            else:
+                dtrain.set_init_score(np.zeros(_expected_init_len, dtype=np.float64))
+
             # Promote a module-cache hit to instance-level for the next call on this instance.
             self._cached_train_dataset = dtrain
             self._cached_train_key = train_key
@@ -647,6 +496,13 @@ class _DatasetReuseMixin:
                     dval.set_label(np.asarray(y_val))
                     if w_val is not None:
                         dval.set_weight(np.asarray(w_val))
+                    else:
+                        # Asymmetric with the train-Dataset cache-hit path above (which explicitly
+                        # resets to uniform ones when sample_weight is omitted): a later call that
+                        # omits the eval-set weight after an earlier call supplied one used to
+                        # silently keep the STALE weight on this cached val Dataset instead of
+                        # resetting to uniform. Mirror the train path's reset here too.
+                        _reset_weight_to_uniform(dval)
                     self._cached_val_datasets[val_key] = dval
                     self._cached_val_datasets.move_to_end(val_key)
                     while len(self._cached_val_datasets) > self._VAL_DATASET_SLOTS_CAP:
@@ -686,7 +542,7 @@ class _DatasetReuseMixin:
                     # the shim used ``validation_{i}`` and the callback's
                     # set_default_monitor_metric raised on every shim-routed
                     # fit (test_tree_model_with_early_stopping[lgb], surfaced
-                    # 2026-05-16 by tests/training run after the migration).
+                    # by a tests/training run after the migration).
                     valid_names.append(f"valid_{i}")
 
         # ---- Resolve params for lgb.train() --------------------------
@@ -706,7 +562,7 @@ class _DatasetReuseMixin:
             import os as _os
             self.n_jobs = _os.cpu_count() or 1
         params: dict = self._process_params("fit")  # type: ignore[attr-defined]  # provided by the LGBMModel sklearn base this mixin is combined with
-        # Wave 14 P1 (re-opened 2026-05-20): same shape as xgb_shim --
+        # Same shape as xgb_shim --
         # pre-fix `or 100` silently rewrote n_estimators=0 to 100. lightgbm
         # accepts n_estimators=0 (means untrained booster); the shim
         # silently overrode that.
@@ -834,12 +690,16 @@ class _DatasetReuseMixin:
 
     def _align_cats_for_predict(self, X):
         """Recast the incoming frame's categorical columns to the train frame's CategoricalDtype so LightGBM's per-frame
-        cat-schema check matches the fit-time one. No-op when the model trained without categoricals or nothing differs;
-        only the incoming frame is rebuilt (assign block-reuse), never the caller's data."""
+        cat-schema check matches the fit-time one. Categorical re-alignment is a no-op when the model trained without
+        categoricals or nothing differs, but the polars->pandas bridge always runs first regardless -- fit() converts X
+        unconditionally (see the "Polars -> pandas" block in fit()), so predict must match or a bare polars X reaches
+        LightGBM's own predict/predict_proba unconverted whenever the model has no trained categorical columns (the
+        same bug class fixed in xgb_shim.py's _maybe_convert_polars_for_predict). Only the incoming frame is rebuilt
+        (assign block-reuse), never the caller's data."""
+        X = _maybe_bridge_polars_to_pandas(X)
         train_cats = getattr(self, "_mlframe_train_cat_dtypes", None)
         if not train_cats:
             return X
-        X = _maybe_bridge_polars_to_pandas(X)
         if not hasattr(X, "columns"):
             return X
         _cols = set(X.columns)

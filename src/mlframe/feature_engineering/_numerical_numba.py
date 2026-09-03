@@ -1,9 +1,8 @@
 """Heavy numba-builder functions for numerical aggregates.
 
-Wave 107 (2026-05-21): split out from ``feature_engineering/numerical.py``
-to keep that file below the 1k-line monolith threshold. Behaviour preserved
-bit-for-bit; every moved symbol is re-exported from ``numerical`` so
-existing imports continue to work.
+Split out from ``feature_engineering/numerical.py`` to keep that file below the
+1k-line monolith threshold. Behaviour preserved bit-for-bit; every moved symbol
+is re-exported from ``numerical`` so existing imports continue to work.
 
 (Originally part of the "Numerical feature engineering for ML --
 optimized & rich set of aggregates for 1d vectors" module.)
@@ -83,8 +82,27 @@ def compute_numerical_aggregates_numba(
 
     size = len(arr)
     # Empty input would IndexError on arr[0] / arr[-1]; callers usually guard upstream (compute_numaggs short-circuits at len<=1) but the kernel is exported in __all__ so accept the corner.
+    # A hardcoded [0.0] here broke the documented fixed-width output contract get_basic_feature_names()
+    # relies on for column-name alignment: the returned vector's length must depend only on which
+    # return_* flags are set, not on whether arr happened to be empty. Recurse on a single degenerate
+    # zero element instead (size=1, so this branch cannot recurse again) -- it flows through the exact
+    # same flag-driven branches as any real call, producing a correctly-sized (if meaningless) result.
     if size == 0:
-        return [0.0]
+        # `cast()` is NOT numba-nopython-compatible (this function body is @njit-compiled) --
+        # `# type: ignore` is a comment, invisible to numba's AST pass, so it is the only mypy
+        # satisfier usable inside this function.
+        return compute_numerical_aggregates_numba(  # type: ignore[no-any-return]
+            np.zeros(1, dtype=arr.dtype),
+            weights if weights is None else np.ones(1, dtype=weights.dtype),
+            geomean_log_mode,
+            directional_only,
+            whiten_means,
+            return_drawdown_stats,
+            return_profit_factor,
+            return_n_zer_pos_int,
+            return_exotic_means,
+            return_unsorted_stats,
+        )
 
     first = arr[0]
     last = arr[-1]
@@ -244,7 +262,7 @@ def compute_numerical_aggregates_numba(
 
     arithmetic_mean = arithmetic_mean / size
     if weights is not None:
-        # Wave 47 (2026-05-20): zero-sum weights vector (all-zero weight column or
+        # Zero-sum weights vector (all-zero weight column or
         # entirely filtered-out fold) divides by 0 in the njit kernel and aborts.
         if sum_weights == 0.0:
             weighted_arithmetic_mean = np.nan
@@ -291,7 +309,7 @@ def compute_numerical_aggregates_numba(
             harmonic_mean = np.nan
 
         if weights is not None:
-            # Wave 47 (2026-05-20): same sum_weights==0 guard as above.
+            # Same sum_weights==0 guard as above.
             if sum_weights == 0.0:
                 weighted_quadratic_mean = np.nan
                 weighted_qubic_mean = np.nan
@@ -676,7 +694,7 @@ def _make_compute_moments_slope_mi(use_kahan: bool, use_fastmath: bool):
                 weighted_std += weighted_std_c
                 weighted_skew += weighted_skew_c
                 weighted_kurt += weighted_kurt_c
-            # Wave 47 (2026-05-20): sum_weights==0 (all-zero weight column)
+            # sum_weights==0 (all-zero weight column)
             # used to crash the njit kernel here.
             if sum_weights == 0.0:
                 weighted_std = np.nan
@@ -697,7 +715,7 @@ def _make_compute_moments_slope_mi(use_kahan: bool, use_fastmath: bool):
                     kurt = kurt / factor - 3.0
 
             if weights is not None:
-                # Wave 47 (2026-05-20): same sum_weights==0 guard.
+                # Same sum_weights==0 guard.
                 if sum_weights == 0.0:
                     weighted_mad = np.nan
                 else:
@@ -705,7 +723,13 @@ def _make_compute_moments_slope_mi(use_kahan: bool, use_fastmath: bool):
                 if weighted_std == 0:
                     weighted_skew, weighted_kurt = 0.0, 0.0
                 else:
-                    factor = size * weighted_std**3
+                    # ``sum_weights``, not ``size``. The accumulators above sum ``w_i * d_i**k``, so the
+                    # weighted moment is that divided by the total WEIGHT -- which is what ``weighted_std`` and
+                    # ``weighted_mad`` in this same block already divide by. Dividing by the row count instead
+                    # scaled both statistics by ``sum_weights / size``: with weights normalised to sum to 1 at
+                    # n=200 that is a factor of 200, and the excess kurtosis then collapsed toward the constant
+                    # -3.0 -- the same signature the comment forty lines up records from an earlier bug here.
+                    factor = sum_weights * weighted_std**3
                     if factor:
                         weighted_skew = weighted_skew / factor
 

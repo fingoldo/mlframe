@@ -8,11 +8,26 @@ from __future__ import annotations
 
 import os
 
+_PRIOR_CUDA_ENV = {"CUDA_VISIBLE_DEVICES": os.environ.get("CUDA_VISIBLE_DEVICES")}
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
 import numpy as np
 import pandas as pd
 import pytest
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _restore_cuda_env_after_module():
+    """Undo this module's CUDA_VISIBLE_DEVICES override once its own tests finish -- an unrestored
+    module-level setdefault poisons every later test in the same pytest-xdist worker (see the
+    identical bug fixed in test_biz_val_hybrid_cooccur_clusterrep.py, which caused a ~13-test
+    GPU-dispatch failure cluster in a completely different worker)."""
+    yield
+    _v = _PRIOR_CUDA_ENV["CUDA_VISIBLE_DEVICES"]
+    if _v is None:
+        os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+    else:
+        os.environ["CUDA_VISIBLE_DEVICES"] = _v
 
 from mlframe.training import FeatureSelectionConfig
 
@@ -233,28 +248,32 @@ def test_biz_cascade_select_accepts_polars_frame():
     assert len(kept) <= pl_df.shape[1]
 
 
-# --------------------------------------------------------------------------- regression: default is ON (2026-07-12)
+# --------------------------------------------------------------------------- regression: default is OFF (2026-07-19)
 
 
-def test_default_config_enables_all_four_new_flags():
-    """``FeatureSelectionConfig`` defaults all four selectors ON (2026-07-12 default-flip); kwargs stay
-    None (no forced overrides) until a caller opts into custom selector params."""
+def test_default_config_disables_all_four_new_flags():
+    """``FeatureSelectionConfig`` defaults all four selectors OFF (2026-07-19 default-flip, superseding the
+    original 2026-07-12 default-ON flip this test used to pin): each is an O(features) or O(features^2)
+    per-round CV-refit selector (ForwardSelect / GreedyBackwardElimination / ZeroImportancePruning /
+    CascadeSelect) that can run for hours with no bound on real mlframe datasets with tens of thousands of
+    candidate features, so they are opt-in per-run rather than suite-wide defaults (see the field comments
+    in ``_feature_selection_config.py`` immediately above each flag). kwargs stay None (no forced overrides)
+    until a caller opts into custom selector params."""
     cfg = FeatureSelectionConfig()
-    assert cfg.use_forward_select_fs is True
+    assert cfg.use_forward_select_fs is False
     assert cfg.forward_select_kwargs is None
-    assert cfg.use_greedy_backward_elimination_fs is True
+    assert cfg.use_greedy_backward_elimination_fs is False
     assert cfg.greedy_backward_elimination_kwargs is None
-    assert cfg.use_zero_importance_pruning_fs is True
+    assert cfg.use_zero_importance_pruning_fs is False
     assert cfg.zero_importance_pruning_kwargs is None
-    assert cfg.use_cascade_select_fs is True
+    assert cfg.use_cascade_select_fs is False
     assert cfg.cascade_select_kwargs is None
 
 
 def test_build_pre_pipelines_opt_out_bit_identical_without_new_flags():
-    """``_build_pre_pipelines`` itself still defaults every new selector kwarg to False (the config-level
-    flip lives in ``FeatureSelectionConfig``, not this lower-level builder) -- explicitly passing all four
-    flags False still reproduces the pre-existing pipeline list/names byte-for-byte, i.e. the opt-out path
-    the config-level True default can still be overridden to."""
+    """``_build_pre_pipelines`` defaults every new selector kwarg to False, matching
+    ``FeatureSelectionConfig``'s own default (both OFF) -- explicitly passing all four flags False still
+    reproduces the pre-existing pipeline list/names byte-for-byte."""
     pps_before, names_before = _build(use_mrmr_fs=True, mrmr_kwargs={})
     pps_after, names_after = _build(
         use_mrmr_fs=True,

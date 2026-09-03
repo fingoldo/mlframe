@@ -731,9 +731,13 @@ class TestSuiteEndSummary:
         assert "TVT" in text
         assert "EGFDU" in text
 
-    def test_best_model_below_dummy_warn_fires(self, md):
-        # EGFDU model lift = dummy/model = 12.50/12.40 ≈ 1.008 < 1.5 → WARN
-        """Best model below dummy warn fires."""
+    def test_a_thin_but_real_lift_is_not_called_below_dummy(self, md):
+        """EGFDU lift = dummy/model = 12.50/12.40 = 1.008: the model WINS, just not by the 1.5x bar.
+
+        This case used to emit BEST_MODEL_BELOW_DUMMY, which states the opposite of the measurement and
+        sends the reader looking for a label-encoding bug that is not there. A production run showed it at
+        lift=1.34x. The shortfall is real and still warned about -- under a token that describes it.
+        """
         text = format_suite_end_summary(
             md,
             best_model_metrics_by_target={
@@ -742,8 +746,21 @@ class TestSuiteEndSummary:
             },
             min_lift=1.5,
         )
-        assert "WARN BEST_MODEL_BELOW_DUMMY" in text
+        assert "WARN BEST_MODEL_LIFT_BELOW_THRESHOLD" in text
+        assert "WARN BEST_MODEL_BELOW_DUMMY" not in text
         assert "EGFDU" in text
+
+    def test_a_model_that_really_loses_is_called_below_dummy(self, md):
+        """The token has to keep firing where it is true: model RMSE worse than the baseline's."""
+        text = format_suite_end_summary(
+            md,
+            best_model_metrics_by_target={
+                ("regression", "TVT"): {"val_RMSE": 14.20, "model_name": "cb"},
+                ("regression", "EGFDU"): {"val_RMSE": 25.00, "model_name": "xgb"},
+            },
+            min_lift=1.5,
+        )
+        assert "WARN BEST_MODEL_BELOW_DUMMY" in text
 
     def test_ts_beats_trees_warn_fires(self, md):
         # TVT model RMSE > seasonal_naive RMSE → TS_BEATS_TREES

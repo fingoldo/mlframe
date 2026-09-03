@@ -11,6 +11,9 @@ Public surface:
 from __future__ import annotations
 
 
+from mlframe.reporting.renderers._render_timings import (
+    chart_timings_snapshot, format_chart_timings, record_chart_render, reset_chart_timings,
+)
 from mlframe.reporting.renderers.base import Renderer, get_renderer
 from mlframe.reporting.renderers.save import (
     get_render_failure_stats, render_and_save, reset_render_failure_stats,
@@ -22,4 +25,8 @@ __all__ = [
     "render_and_save",
     "get_render_failure_stats",
     "reset_render_failure_stats",
+    "chart_timings_snapshot",
+    "format_chart_timings",
+    "record_chart_render",
+    "reset_chart_timings",
 ]

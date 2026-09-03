@@ -389,3 +389,62 @@ class TestSelectFeaturesFdrEdgeCases:
         assert "real_b" in selected
         # Sorted by W descending.
         assert selected[0] == "real_a"
+
+    @staticmethod
+    def _select_features_fdr_reference_o_n2(W: dict, q: float) -> list:
+        """Fixed oracle: a direct copy of the OLD O(p^2) select_features_fdr loop (pre FS_WRAPPERS-3 fix),
+        kept inline so it stays a stable reference independent of the production implementation."""
+        if not W:
+            return []
+        abs_W = np.array([abs(v) for v in W.values()])
+        candidates = sorted(set(abs_W[abs_W > 0]))
+        tau = float("inf")
+        for t in candidates:
+            n_neg = sum(1 for v in W.values() if v <= -t)
+            n_pos = sum(1 for v in W.values() if v >= t)
+            ratio = (1 + n_neg) / max(1, n_pos)
+            if ratio <= q:
+                tau = t
+                break
+        if not np.isfinite(tau):
+            return []
+        selected = [(n, v) for n, v in W.items() if v >= tau]
+        selected.sort(key=lambda kv: (-kv[1], kv[0]))
+        return [n for n, _ in selected]
+
+    @pytest.mark.parametrize("seed", [0, 1, 2, 3])
+    @pytest.mark.parametrize("q", [0.05, 0.1, 0.3])
+    def test_vectorized_select_features_fdr_matches_o_n2_reference(self, seed, q):
+        """FS_WRAPPERS-3 (2026-08-05 audit): the vectorized searchsorted-based threshold search must
+        select IDENTICAL features, in identical order, to the original O(p^2) per-candidate Python scan --
+        including ties in |W| (exercising the dedup path) and mixed positive/negative/zero values."""
+        rng = np.random.default_rng(seed)
+        n = 800
+        vals = rng.normal(scale=1.0, size=n)
+        # Inject some exact duplicate |W| values and some exact zeros to exercise the dedup/filter paths.
+        vals[: n // 20] = rng.choice([0.3, -0.3, 0.7, -0.7], size=n // 20)
+        vals[n // 20 : n // 20 + 5] = 0.0
+        W = {f"f{i}": float(v) for i, v in enumerate(vals)}
+
+        got = select_features_fdr(W, q=q)
+        ref = self._select_features_fdr_reference_o_n2(W, q=q)
+        assert got == ref, f"seed={seed} q={q}: vectorized selection diverged from the O(p^2) reference"
+
+    def test_select_features_fdr_p5000_is_fast(self):
+        """Perf regression: the documented pre-fix cost was 6.41s at p=5000 (an O(p^2) scan), directly
+        contradicting rfecv/_validate.py's own p>=5000 warning that recommends this exact function for
+        sub-second selection at this scale. Bound set comfortably below the pre-fix cost and above
+        realistic post-fix time."""
+        import time
+
+        rng = np.random.default_rng(7)
+        n = 5000
+        vals = rng.normal(scale=1.0, size=n)
+        vals[: n // 10] = rng.choice([0.5, -0.5, 1.0, -1.0], size=n // 10)  # duplicate |W| values
+        W = {f"f{i}": float(v) for i, v in enumerate(vals)}
+
+        t0 = time.perf_counter()
+        select_features_fdr(W, q=0.1)
+        elapsed = time.perf_counter() - t0
+
+        assert elapsed < 1.5, f"select_features_fdr at p={n} took {elapsed:.3f}s -- expected sub-second (pre-fix O(p^2) measured ~6.4s)"

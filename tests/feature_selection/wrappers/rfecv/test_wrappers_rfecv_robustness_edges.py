@@ -232,3 +232,19 @@ class TestOneSeDirection:
         rfecv = RFECV(estimator=Ridge())
         with pytest.raises(ValueError, match="direction"):
             rfecv.n_features_one_se_(direction="bogus")
+
+
+# ----------------------------------------------------------------------- FS_WRAPPERS-4
+
+
+class TestStabilitySelectionNoEstimator:
+    """FS_WRAPPERS-4: stability_selection=True with no estimator/estimators configured must raise
+    RFECV's own clear ValueError, not a confusing AttributeError from sklearn.base.clone(None)."""
+
+    def test_stability_selection_no_estimator_raises_clear_valueerror(self):
+        """No estimator= or estimators= configured -> RFECV's own ValueError, dispatched BEFORE the
+        stability_selection branch is ever reached."""
+        X, y = make_regression(n_samples=200, n_features=10, n_informative=4, random_state=0)
+        rfecv = RFECV(stability_selection=True)
+        with pytest.raises(ValueError, match="requires either estimator"):
+            rfecv.fit(X, y)

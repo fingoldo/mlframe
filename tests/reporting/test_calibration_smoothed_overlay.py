@@ -58,7 +58,7 @@ class TestSmoothedOverlayUnit:
         """Overlay present when raw supplied."""
         y, score, _ = _overconfident(n=5000)
         fp, ftr, hits = fast_calibration_binning(y, score, nbins=15)
-        spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y)
+        spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y, reliability_smoothed=True)
         scatter = spec.panels[0][0]
         assert isinstance(scatter, ScatterPanelSpec)
         assert scatter.overlay_line is not None
@@ -73,6 +73,12 @@ class TestSmoothedOverlayUnit:
         fp, ftr, hits = fast_calibration_binning(y, score, nbins=15)
         spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y, reliability_smoothed=False)
         assert spec.panels[0][0].overlay_line is None
+
+    def test_the_overlay_is_off_by_default(self):
+        """A second estimate of the same relationship, in a second visual language, over the same panel."""
+        y, score, _ = _overconfident(n=5000)
+        fp, ftr, hits = fast_calibration_binning(y, score, nbins=15)
+        assert build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y).panels[0][0].overlay_line is None
 
     def test_overlay_absent_when_no_raw(self):
         """Overlay absent when no raw."""
@@ -102,7 +108,7 @@ class TestSmoothedOverlayUnit:
         """Renders both backends."""
         y, score, _ = _overconfident(n=4000)
         fp, ftr, hits = fast_calibration_binning(y, score, nbins=15)
-        spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y)
+        spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y, reliability_smoothed=True)
         render_and_save(spec, parse_plot_output_dsl("matplotlib[png]"), str(tmp_path / "c"))
         render_and_save(spec, parse_plot_output_dsl("plotly[html]"), str(tmp_path / "c"))
         assert os.path.exists(tmp_path / "c.png")

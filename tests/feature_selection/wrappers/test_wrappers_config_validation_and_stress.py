@@ -505,17 +505,49 @@ class TestB9_InfInX:
 
 class TestB11_SmallSample:
     """Groups tests covering TestB11_SmallSample."""
-    def test_n_lt_2cv_raises(self):
-        # n=4, cv=3 -> 2*cv=6 > n. Even before A5 catches it via class
-        # imbalance, the b11 check should reject.
-        """N lt 2cv raises."""
+    def test_n_lt_2cv_reduces_cv_and_still_fits(self):
+        """n=4 against cv=3 is now served by reducing the fold count, not by refusing.
+
+        This previously asserted a rejection. The minority-vs-cv check no longer refuses a target whose
+        minority class merely cannot fill the requested folds -- it reduces cv to what the minority supports
+        (2 here) -- so a 4-row balanced problem is fittable and the old assertion pinned a behaviour that had
+        been deliberately removed. What still matters is that the reduction produces a usable, fitted
+        selector rather than a silently degenerate one.
+        """
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((4, 5)), columns=list("abcde"))
         y = np.array([0, 1, 0, 1])
-        with pytest.raises(ValueError):
+        sel = RFECV(
+            estimator=LogisticRegression(max_iter=100),
+            cv=3,
+            max_refits=2,
+            verbose=0,
+            leakage_corr_threshold=None,
+        ).fit(X, y)
+        assert sel.cv == 2, f"cv should have been reduced to the minority count, got {sel.cv!r}"
+        assert sel.support_.shape[0] == X.shape[1], "support_ must cover every input column"
+        assert int(np.sum(sel.support_)) >= 1, "a fitted selector must keep at least one feature"
+
+
+class TestFsWrappers2MinorityClassDtype:
+    """FS_WRAPPERS-2 (2026-08-05 audit): the minority-class-vs-cv check in _init_fit_state gated its
+    per-class count computation on ``y.dtype.kind in "iu"`` (via np.bincount(y.astype(int))), so a
+    float- or bool-dtype classification y silently skipped this early, actionable ValueError and instead
+    crashed much later with a far less actionable message (deep inside the wrapped classifier or
+    StratifiedKFold.split). Counts now come from the same dtype-agnostic np.unique(y, return_counts=True)
+    call already used for the "y has only N unique classes" check."""
+
+    @pytest.mark.parametrize("dtype", [np.int64, np.float64, np.bool_])
+    def test_minority_class_violation_raises_across_y_dtypes(self, dtype):
+        """A minority class too small for the requested cv must raise ValueError regardless of y's dtype."""
+        rng = np.random.default_rng(0)
+        X = pd.DataFrame(rng.standard_normal((30, 4)), columns=list("abcd"))
+        y = np.zeros(30, dtype=dtype)
+        y[0] = True if dtype is np.bool_ else 1
+        with pytest.raises(ValueError, match="Minority class has"):
             RFECV(
                 estimator=LogisticRegression(max_iter=100),
-                cv=3,
+                cv=5,
                 max_refits=2,
                 verbose=0,
                 leakage_corr_threshold=None,

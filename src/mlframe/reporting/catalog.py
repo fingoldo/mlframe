@@ -1,4 +1,4 @@
-"""Panel-token catalogue for the reporting DSL (INV-58).
+"""Panel-token catalogue for the reporting DSL.
 
 ``describe_available_panels()`` lists, per task type, every panel token a
 ``ReportingConfig.*_panels`` / ``compose_*_figure`` template accepts, with a
@@ -10,7 +10,7 @@ rather than silently omitting it).
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, TextIO, Tuple
 
 from mlframe.reporting.charts.binary import ALLOWED_BINARY_PANEL_TOKENS
 from mlframe.reporting.charts.ltr import ALLOWED_LTR_PANEL_TOKENS
@@ -105,6 +105,29 @@ _STANDALONE_DIAGNOSTICS: List[Tuple[str, str]] = [
     ("shap_panels", "SHAP beeswarm + top-K dependence (default-on for tree models via fast TreeExplainer; opt-in KernelExplainer for non-tree)."),
     ("learning_curve", "Holdout score vs train size (OPT-IN: K full refits; set LearningCurveConfig(enabled=True))."),
     ("combined_html", "Single navigable HTML index per (model, split) stitching the rendered chart artifacts (assembly-only)."),
+    # The list above had drifted badly: 19 diagnostics the dispatcher actually renders and records were
+    # missing, so `describe_available_panels()` under-reported the suite's own output by more than half.
+    # `test_catalog_lists_every_wired_diagnostic` now diffs this list against the `_record(charts, "...")`
+    # call sites in the dispatch modules, so the next added diagnostic cannot silently go unlisted.
+    ("model_card", "One-glance per-(model, split) executive card: headline metrics, traffic-light verdict, 3 mini sparklines."),
+    ("decile_table", "Binary decile / gain table: per-decile response rate, cumulative gain and lift."),
+    ("split_comparison", "Per-split metric comparison for the same model (train / val / test side by side)."),
+    ("prediction_stability", "Rank-stability of per-row predictions across splits or refits (Spearman-based)."),
+    ("weak_segments", "Per-split weak-segment heatmap: mean error over a 2-feature equal-population grid."),
+    ("weak_slices", "Worst feature-value slices ranked by degradation x support (the slice_finder headline)."),
+    ("error_bias", "Per-feature value distributions of the over- / under-predicting tails vs the majority."),
+    ("segments", "Per-subgroup metric bars against a global reference line."),
+    ("worst_k_table", "Top-K worst-error rows with id / timestamp / y / yhat / resid + top-importance feature values."),
+    ("target_dist", "Per-split overlaid target and prediction distributions (exchangeability / extrapolation check)."),
+    ("target_acf", "Target ACF / PACF serial-dependence panel when the split carries timestamps."),
+    ("psi_heatmap", "Population Stability Index per feature per time bucket against a baseline period."),
+    ("residual_vs_time", "Regression residual mean +- 1 sd per equal-count time bucket (bias and variance drift)."),
+    ("cusum_drift", "Two-sided tabular CUSUM of standardised residuals; catches a sustained mean shift."),
+    ("metric_over_time", "Rolling metric per time bucket with split / regime shading."),
+    ("adversarial", "Adversarial train-vs-test validation: ROC + AUC + the top drift-driving features."),
+    ("pdp_2d", "Two-feature partial-dependence surface for the top interacting pair."),
+    ("shap_interactions", "SHAP interaction values for the top feature pairs (tree models)."),
+    ("shap_per_instance", "Per-instance SHAP attribution for the top-K most-confident-wrong rows."),
 ]
 
 # Task type -> its ALLOWED_*_PANEL_TOKENS frozenset (the source of truth for which tokens exist).
@@ -132,7 +155,7 @@ def available_panels() -> Dict[str, List[Tuple[str, str]]]:
     return out
 
 
-def describe_available_panels(*, file=None) -> Dict[str, List[Tuple[str, str]]]:
+def describe_available_panels(*, file: Optional[TextIO] = None) -> Dict[str, List[Tuple[str, str]]]:
     """Print the panel-token catalogue per task type and return the same structured mapping.
 
     Each task type's section lists its tokens (alphabetical) with a one-line description. ``file`` defaults to stdout;

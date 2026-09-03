@@ -310,10 +310,17 @@ def _build_lasso_classifier(config: LinearModelConfig) -> BaseEstimator:
 
 
 def _build_elasticnet_classifier(config: LinearModelConfig) -> BaseEstimator:
-    """Build an ElasticNet classifier via LogisticRegression (l1_ratio controls L1/L2 mix via saga)."""
+    """Build an ElasticNet classifier via LogisticRegression (l1_ratio controls L1/L2 mix via saga).
+
+    Uses ``config.l1_ratio`` directly rather than the shared ``_get_l1_ratio`` helper: that helper
+    gates on ``config.penalty == "elasticnet"``, a field this dedicated elasticnet builder does not
+    require the caller to set (``model_type="elasticnet"`` already says unambiguously which model
+    this is) -- gating on it here silently discarded the user's configured l1_ratio in favor of a
+    hardcoded 0.15 fallback whenever penalty stayed at its own default ("l2").
+    """
     return LogisticRegression(
         C=1.0 / config.alpha if config.alpha > 0 else 1.0,
-        l1_ratio=_get_l1_ratio(config),
+        l1_ratio=config.l1_ratio,
         solver="saga",
         max_iter=config.max_iter,
         tol=config.tol,

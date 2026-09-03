@@ -18,6 +18,7 @@ from __future__ import annotations
 _REFRESH_FLAGS = [
     "--refresh-api-snapshot",
     "--refresh-annotation-baseline",
+    "--refresh-nondiscriminating-assert-baseline",
     "--refresh-audit-metadata-baseline",
     "--refresh-bare-except-baseline",
     "--refresh-cache-mutation-lock-baseline",

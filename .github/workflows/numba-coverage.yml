@@ -1,30 +1,70 @@
 name: numba-coverage-nightly
 
-# Disabled 2026-07-10: this nightly (340min timeout, full feature_engineering/feature_selection/
-# metrics/training suites under NUMBA_DISABLE_JIT=1) was part of what exhausted the account's
-# monthly free GitHub Actions minutes and left every workflow, in every repo on the account, stuck
-# queued. The cron TRIGGER stays declared (test_numba_coverage_workflow_exists.py's
-# test_numba_coverage_workflow_has_nightly_cron pins its presence -- deleting it silently regresses
-# the njit-kernel-body coverage-blind-spot guard this workflow exists for, see
-# reference_numba_coverage_blind), but the job itself is gated behind `if: inputs.run`, which is
-# only ever set by a workflow_dispatch invocation -- `github.event.inputs` is empty for a
-# schedule-triggered run, so `inputs.run` evaluates to falsy and the 03:00 UTC cron fires the
-# workflow but the job body never actually runs (0 minutes spent) until someone flips the input on
-# via a manual "Run workflow" click. Flip the input default to true (or delete the guard) to
-# restore real nightly runs once budget allows.
+# Re-enabled 2026-08-11: was disabled 2026-07-10 (340min timeout, full feature_engineering/
+# feature_selection/metrics/training suites under NUMBA_DISABLE_JIT=1) after it was part of what
+# exhausted the account's monthly free GitHub Actions minutes and left every workflow, in every
+# repo on the account, stuck queued. `if: inputs.run` gated real runs behind a manual
+# workflow_dispatch since then -- `github.event.inputs` is empty for a schedule-triggered run, so
+# the 03:00 UTC cron fired the workflow shell every night but the job body never actually ran (0
+# minutes spent), which also meant GitHub's workflow-level badge showed the (accurate) "skipped"
+# conclusion as a permanently red "failing" pill with no way to distinguish it from a real
+# failure. Now runs on the actual nightly cron; workflow_dispatch's `run` input still lets a
+# manual invocation opt OUT (set to false) if the Actions-minutes budget needs relief again.
+#
+# Sharded 8 ways (2026-08-18): this job ran as a SINGLE unsharded job with only intra-job xdist
+# parallelism (`-n 4`, capped below `auto` -- see the "Run kernel-heavy test suites" step comment)
+# on one 2-vCPU runner. Under NUMBA_DISABLE_JIT=1 kernel-heavy tests run 10-1000x slower than
+# under normal JIT (see the job's own timeout-minutes comment below), so this suite needed
+# job-level sharding across multiple runners even MORE than ci.yml's normal-speed matrix does --
+# yet it had none, running the whole subset in one job against the 340m hard-cap headroom on
+# every nightly run. Mirrors ci.yml's proven `--splits N --group M` pattern (10-way there); 8
+# shards here since this job's scope (feature_engineering/feature_selection/metrics/training,
+# --ignore=biz_val) is a narrower subset of the full suite. `-n 4` per shard is unchanged --
+# that limit exists to avoid nested joblib oversubscription within ONE job (each xdist worker's
+# MRMR.fit() spawns its own joblib fan-out), which job-level sharding doesn't affect.
+#
+# Also added `--store-durations`/`--durations=200` with a durations file distinct from the main
+# CI's `.test_durations` (this job's NUMBA_DISABLE_JIT=1 timings are wildly different from
+# normal-JIT timings and would corrupt ci.yml's shard-balancing data if they shared a file) --
+# previously this job had NO durations tracking at all, so pytest-split would otherwise balance
+# the FIRST sharded run by raw file count alone. Seeded `.test_durations_numba_disabled` instead
+# from ci.yml's own `.test_durations` (25489 overlapping node IDs, filtered to this job's scope:
+# feature_engineering/feature_selection-minus-biz_val/metrics/training), unscaled -- pytest-split's
+# duration_based_chunks only balances on RELATIVE proportions between tests, so a uniform (if
+# individually wrong, given the 10-1000x/test-dependent slowdown) scale factor doesn't change the
+# split at all; a normal-JIT-derived seed already correlates far better with real relative cost
+# than pure file-count would. This nightly's own `merge-test-durations` job overwrites it with
+# real NUMBA_DISABLE_JIT=1 timings after the first run, so the seed only matters once.
 
 on:
   schedule:
     - cron: "0 3 * * *"
+  # Auto-fires on every completed run of the main CI workflow on master (push and merged PRs
+  # alike) -- kept alongside the nightly cron as a fallback in case a given day's last CI run
+  # somehow doesn't fire this (e.g. workflow_run itself failing to deliver). Deliberately
+  # unthrottled per explicit user decision: this workflow already burned the account's whole
+  # monthly GH Actions minutes budget once (2026-07-10, see the block comment above) from running
+  # too often, and firing after every CI-triggering push (which can be many times a day during an
+  # active session) reintroduces that exact risk -- accepted knowingly, not overlooked.
+  workflow_run:
+    workflows: ["CI"]
+    branches: [master]
+    types: [completed]
   workflow_dispatch:
     inputs:
       run:
-        description: "Actually run the nightly (disabled by default -- see file header comment)"
+        description: "Actually run the nightly (set false to skip a manual dispatch without disabling the cron)"
         type: boolean
-        default: false
+        default: true
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Keyed on the EVENT as well as the ref. The scheduled run's 8 kernel-coverage shards take up to 340 minutes,
+  # while a workflow_run-triggered run fires after EVERY CI completion on master (several a day). Under one shared
+  # group those short runs cancelled the long scheduled one mid-flight -- and the scheduled run is the one that
+  # actually reaches the codecov upload, so the numba-disabled flag stayed empty and its badge grey. Observed on
+  # 2026-08-27 and 2026-08-28: both scheduled runs cancelled, with kernel shards 2/8 and 3/8 killed part-way.
+  # Cancel-in-progress still collapses two rapid runs of the SAME trigger kind, which is what it was there for.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 permissions:
@@ -32,27 +72,50 @@ permissions:
 
 jobs:
   numba-disabled-coverage:
-    if: inputs.run
-    name: pytest with NUMBA_DISABLE_JIT=1 (kernel-body coverage)
+    # inputs.run is only populated for a workflow_dispatch event -- for the schedule trigger it's
+    # always empty/falsy regardless of the declared default above, so the schedule leg must be let
+    # through explicitly rather than relying on inputs.run alone. workflow_run fires on EVERY
+    # completion of the CI workflow regardless of outcome (success/failure/cancelled) -- only
+    # chain off a genuinely green main CI run, not a red one. Also gated on
+    # workflow_run.event == 'push': this repo is public and CI.yml also triggers on
+    # pull_request, so an unfiltered workflow_run would let an external fork's PR trigger this
+    # job with checkout/write access to the base repo (the classic "pwn request" pattern --
+    # zizmor's dangerous-triggers audit flags bare workflow_run for exactly this). A push to
+    # master already requires write access, so this leg is no more exposed than the schedule/
+    # workflow_dispatch legs.
+    if: |
+      (github.event_name != 'workflow_dispatch' || inputs.run) &&
+      (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    name: pytest with NUMBA_DISABLE_JIT=1 (kernel-body coverage) (shard ${{ matrix.group }}/8)
     runs-on: ubuntu-latest
     # 340 (near the 360min hosted-runner hard ceiling): under NUMBA_DISABLE_JIT=1, kernel-heavy
     # fixtures (permutation-null loops, discretization, orthogonal-basis FE) run 10-1000x slower
     # than under normal JIT, since the whole point of the run is to make @njit bodies visible to
     # coverage.py by NOT compiling them. 120min was consistently insufficient (10 consecutive
-    # nightly failures/cancellations 2026-06-29..2026-07-08 before this fix).
+    # nightly failures/cancellations 2026-06-29..2026-07-08 before this fix). Kept as headroom
+    # after 2026-08-18's 8-way sharding, not lowered -- a cold/imbalanced shard should still have
+    # room to finish and report real failures instead of being truncated.
     timeout-minutes: 340
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11"]
+        group: ["1", "2", "3", "4", "5", "6", "7", "8"]
     env:
       NUMBA_DISABLE_JIT: "1"
       PYTHONUNBUFFERED: "1"
+      # ci.yml sets this for its normal-speed matrix (see that job's own comment: runs every
+      # parametrized case with 1 representative value instead of the full N-seed sweep, still
+      # exercising every code path). This job never had it, so it was paying the full N-seed
+      # matrix on TOP of the already-documented 10-1000x NUMBA_DISABLE_JIT=1 slowdown per test --
+      # plausible root cause of shards running for hours with no visible progress in the log.
+      MLFRAME_FAST: "1"
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -63,7 +126,8 @@ jobs:
 
       - name: Clone & install pyutilz (sibling dependency)
         run: |
-          git clone --depth 1 https://github.com/fingoldo/pyutilz.git
+          git clone https://github.com/fingoldo/pyutilz.git
+          git -C pyutilz checkout 691a6ce16ba0abeb3647f17c1057464c895473ea  # pinned 2026-08-19, see X_CICD_DEPENDENCIES-1 -- register_default_cache DEFAULT-cache-fallback diagnostics
           pip install "./pyutilz[system,pandas,polars,database]"
 
       - name: Install mlframe with all runtime extras + dev tooling
@@ -87,35 +151,207 @@ jobs:
           # matrix; running them here just burns the nightly's time budget on multi-minute
           # full-model fits without adding kernel-BODY coverage the non-biz_val unit tests don't
           # already provide.
+          # --durations-path: kept separate from ci.yml's `.test_durations` -- NUMBA_DISABLE_JIT=1
+          # timings (10-1000x normal-JIT cost) would badly skew that file's shard-balancing data
+          # for the normal-speed main CI matrix if they shared a path.
+          # --timeout=3600 (raised from 1200, 2026-08-18): a permutation-null MI test hit the old
+          # 1200s per-test cap mid-kernel (info_theory/_batch_kernels.py's joint_counts accumulation
+          # loop) -- under NUMBA_DISABLE_JIT=1 that kernel runs as a plain Python nested loop, and
+          # this job's own 10-1000x-slower framing means a test that normally finishes in a couple
+          # seconds under JIT can legitimately need north of 1200s here. 3600s gives real headroom;
+          # the 340m job cap still bounds a shard that has several such tests back to back.
+          # --ignore=tests/training/test_core.py: mirrors ci.yml's identical exclusion (see that
+          # workflow's own comment on the same line) -- this file's xdist_group-pinned CatBoost
+          # classes repeatedly OOM-killed the runner ("node down: Not properly terminated") here
+          # too, confirmed directly in this workflow's own job logs (worker crashed while running
+          # TestTextAndEmbeddingFeatures tests), for the identical root cause: a second xdist
+          # worker's own memory stacks against the pinned group's on the same 7GB host. Run
+          # separately by test-heavy-serial-numba-disabled below.
           pytest -m "not slow and not gpu and not multigpu" \
+            --splits 8 --group ${{ matrix.group }} \
             -n 4 \
+            --dist=loadgroup \
             --cov=src/mlframe \
             --cov-report=xml \
             --cov-report=term-missing \
             -p no:randomly \
-            --timeout=1200 \
+            --timeout=3600 \
+            --durations=200 \
+            --store-durations \
+            --show-progress \
+            --durations-path=.test_durations_numba_disabled \
             --ignore=tests/feature_selection/biz_val \
+            --ignore=tests/training/test_core.py \
             tests/feature_engineering/ \
             tests/feature_selection/ \
             tests/metrics/ \
             tests/training/
 
+      - name: Upload shard test durations
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: test-durations-numba-disabled-${{ matrix.group }}
+          path: .test_durations_numba_disabled
+          retention-days: 3
+          include-hidden-files: true
+          if-no-files-found: ignore
+
       - name: Upload coverage XML as artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         if: always()
         with:
-          name: coverage-numba-disabled
+          name: coverage-numba-disabled-${{ matrix.group }}
           path: coverage.xml
           retention-days: 14
 
       - name: Upload coverage to Codecov (numba-disabled flag)
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
-        if: success()
+        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@f50288e5a6f5b7f972efb60f948ce6184c8e9e70  # v1.3.4
+        # (success() || failure()): a failure in one shard must not hide the other 7 shards'
+        # coverage from Codecov -- mirrors ci.yml's identical fix for the same reason.
+        if: success() || failure()
         with:
-          file: ./coverage.xml
+          files: ./coverage.xml
           flags: numba-disabled
-          fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
+
+      # Raw sqlite `.coverage` so codecov-full.yml can `coverage combine` this shard's data
+      # with ci.yml's shards into one genuinely unioned line-coverage report -- see ci.yml's
+      # identical step for why the two flags' percentages can't just be added together.
+      - name: Upload raw coverage data (for the cross-workflow merged report)
+        if: success() || failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: raw-coverage-numba-${{ matrix.group }}
+          path: .coverage
+          retention-days: 3
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+  # Dedicated, always-serial (-n 1, no second worker) home for tests/training/test_core.py under
+  # NUMBA_DISABLE_JIT=1 -- mirrors ci.yml's test-heavy-serial job; see that job's own comment and
+  # this workflow's --ignore=tests/training/test_core.py line above for the full root-cause
+  # rationale (a second xdist worker's memory stacking against this file's pinned CatBoost classes
+  # on the same 2-vCPU/7GB runner, confirmed via this workflow's own "node down" job logs).
+  # Split into 4 groups via pytest-split (mirrors ci.yml's own test-heavy-serial, see that job's
+  # comment): even -n 1 (zero worker stacking) still crashed on ci.yml's plain-JIT run from
+  # cumulative per-process memory growth, and a first 2-group fix was STILL insufficient there
+  # (confirmed 2026-08-23: group 2/2 crashed TWICE in one run on python 3.12, same
+  # TestTextAndEmbeddingFeatures class both times) -- expected to be at least as real here given
+  # NUMBA_DISABLE_JIT=1's extra Python-side allocation per njit call site. timeout-minutes is
+  # generous (180, vs ci.yml's 60) since NUMBA_DISABLE_JIT=1 makes any njit-body work inside
+  # train_mlframe_models_suite's FE stage 10-1000x slower than normal JIT -- untested at this
+  # scale, so headroom is deliberately wide rather than guessed tight.
+  test-heavy-serial-numba-disabled:
+    if: github.event_name != 'workflow_dispatch' || inputs.run
+    name: pytest with NUMBA_DISABLE_JIT=1 (test_core.py, serial, group ${{ matrix.group }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3, 4]
+    env:
+      NUMBA_DISABLE_JIT: "1"
+      PYTHONUNBUFFERED: "1"
+      MLFRAME_FAST: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Clone & install pyutilz (sibling dependency)
+        run: |
+          git clone https://github.com/fingoldo/pyutilz.git
+          git -C pyutilz checkout 691a6ce16ba0abeb3647f17c1057464c895473ea  # pinned 2026-08-19, see X_CICD_DEPENDENCIES-1 -- register_default_cache DEFAULT-cache-fallback diagnostics
+          pip install "./pyutilz[system,pandas,polars,database]"
+
+      - name: Install mlframe with all runtime extras + dev tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[all,dev]"
+
+      - name: Run tests/training/test_core.py (serial, group ${{ matrix.group }}/4) with NUMBA_DISABLE_JIT=1
+        run: |
+          pytest tests/training/test_core.py \
+            -m "not slow and not gpu and not multigpu" \
+            --splits 4 --group ${{ matrix.group }} \
+            -n 1 \
+            -p no:randomly \
+            --timeout=3600 \
+            --durations=200 \
+            --no-cov \
+            --show-progress
+
+  # Folds every shard's freshly-measured `.test_durations_numba_disabled` slice back into one file
+  # and commits it, mirroring ci.yml's `merge-test-durations` job -- keeps pytest-split's shard
+  # balancing current on every nightly run instead of relying solely on file-count balancing
+  # forever. Runs on the schedule, an explicit workflow_dispatch, or a successful workflow_run
+  # chain-trigger off the main CI workflow.
+  merge-test-durations:
+    name: Merge + commit .test_durations_numba_disabled
+    runs-on: ubuntu-latest
+    needs: numba-disabled-coverage
+    if: |
+      always() && (
+        github.event_name == 'schedule' ||
+        (github.event_name == 'workflow_dispatch' && inputs.run) ||
+        (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+      )
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: true
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          pattern: test-durations-numba-disabled-*
+          path: .test_durations_numba_disabled_shards
+          merge-multiple: false
+
+      - name: Merge shard durations
+        run: |
+          python - <<'PY'
+          import json
+          import pathlib
+
+          merged = {}
+          # Sorted for deterministic merge order (last-write-wins on a nodeid two shards both
+          # happened to freshly measure this run -- either value is a valid balancing input,
+          # determinism just keeps output diffs reviewable).
+          for f in sorted(pathlib.Path(".test_durations_numba_disabled_shards").glob("*/.test_durations_numba_disabled")):
+              try:
+                  merged.update(json.loads(f.read_text()))
+              except (json.JSONDecodeError, OSError):
+                  continue
+          pathlib.Path(".test_durations_numba_disabled").write_text(json.dumps(merged, sort_keys=True, indent=4))
+          print(f"[merge-test-durations] merged {len(merged)} entries")
+          PY
+
+      - name: Commit updated .test_durations_numba_disabled
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- .test_durations_numba_disabled; then
+            echo "No change to .test_durations_numba_disabled"
+            exit 0
+          fi
+          git add .test_durations_numba_disabled
+          git commit -m "chore: refresh .test_durations_numba_disabled (post-nightly shard rebalance)"
+          git push origin HEAD:"$REF_NAME"
 
 # Future idea (2026-07-10, not implemented): a re-scoped "codecov-numba" job narrowed to ACTUALLY
 # numba-touching tests via a `@pytest.mark.numba` marker (doesn't exist yet -- would need a triage

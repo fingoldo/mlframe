@@ -73,9 +73,15 @@ def test_phase_helpers_rejects_dup_columns_in_train_df() -> None:
 
 
 def test_misc_helpers_rejects_dup_columns_in_predict_df() -> None:
-    """Misc helpers rejects dup columns in predict df."""
-    src = _read("training/core/_misc_helpers.py")
-    assert "deduplicate before predict() to keep schema-hash honest" in src
+    """The duplicate-column guard must exist wherever the feature-type code now lives.
+
+    ``_misc_helpers`` crossed the 1000-LOC budget and its feature-type detection moved to a sibling, taking this
+    guard with it. The check follows the code rather than the file it used to sit in.
+    """
+    needle = "deduplicate before predict() to keep schema-hash honest"
+    src_parent = _read("training/core/_misc_helpers.py")
+    src_sibling = _read("training/core/_misc_helpers_feature_types.py")
+    assert needle in src_parent or needle in src_sibling
 
 
 def test_general_mi_rejects_dup_target_columns() -> None:

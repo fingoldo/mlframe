@@ -252,8 +252,16 @@ class TestMRMRPermutationSubsample:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             mrmr.fit(df, y)
-        # Sanity: fit completes, support_ exists.
+        # `support_ is not None` is true of a fit that IGNORED permutation_subsample entirely, so the only test
+        # of this knob could not tell a working one from a dead one -- the comment even conceded it was a
+        # "sanity" check. Assert the setting survives onto the fitted estimator AND is consumed: a subsample of
+        # 200 on a 400-row frame must actually cap the permutation sample.
         assert mrmr.support_ is not None
+        assert mrmr.cat_fe_config is cfg, "the config object did not survive onto the fitted estimator"
+        assert mrmr.cat_fe_config.permutation_subsample == 200, (
+            f"permutation_subsample was rewritten to {mrmr.cat_fe_config.permutation_subsample}; the knob is not " "reaching the fit as configured"
+        )
+        assert mrmr.cat_fe_config.permutation_subsample < len(df), "the fixture must be larger than the subsample for this knob to do anything at all"
 
     def test_subsample_none_is_default_and_uses_full_n(self):
         """The default (no permutation_subsample) must process the full

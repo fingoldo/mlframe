@@ -235,11 +235,17 @@ class TestGetPandasViewOfPolarsDF:
             get_pandas_view_of_polars_df(pd_df)
 
     def test_polars_series_input(self):
-        """Test conversion of Polars Series - currently not supported."""
+        """Test conversion of Polars Series - currently not supported.
+
+        get_pandas_view_of_polars_df's isinstance guard used to accept anything and fail later with an
+        unrelated AttributeError deep inside the conversion; the 2026-07-21 audit wave (commit 3f8b58ada)
+        narrowed the guard to raise a clean TypeError up front instead (no caller in the codebase ever
+        passed a bare Series -- see the function's own docstring note), so a Series now fails fast at the
+        guard rather than deep inside.
+        """
         pl_series = pl.Series("values", [1, 2, 3])
 
-        # Series passes assertion but fails internally - convert to DataFrame first
-        with pytest.raises(AttributeError):
+        with pytest.raises(TypeError):
             get_pandas_view_of_polars_df(pl_series)
 
     def test_empty_dataframe(self):

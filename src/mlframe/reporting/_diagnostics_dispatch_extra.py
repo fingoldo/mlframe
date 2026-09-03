@@ -20,6 +20,7 @@ real suite run -- no actionable speedup in this wiring layer; the orchestration 
 from __future__ import annotations
 
 import logging
+import numbers
 import os
 from typing import Any, Dict, Optional, Sequence
 
@@ -27,14 +28,22 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# Row cap for the feature-frame-consuming error-analysis builders. ``_resolve_feature_matrix`` densifies the pulled
-# columns into one float64 matrix, so an unbounded frame would materialise a full dense copy; the tree only needs
-# enough rows to RANK split features and the error-bias quantiles converge well below this. Worst-error rows are
-# preserved in the subsample so the localisation verdict is unchanged.
-DIAG_ROW_CAP: int = 100_000
-# Hard ceiling on feature columns handed to the dense-matrix builders; a several-hundred-column frame at the row cap is
-# still bounded, but a pathological thousands-of-columns engineered frame would blow the dense matrix up.
-DIAG_MAX_FEATURES: int = 200
+# DIAG_ROW_CAP / DIAG_MAX_FEATURES are NOT redefined here -- the actual consumer (and single source of
+# truth) is diagnostics_dispatch.py:34,37; this module never uses either constant itself, only re-exports
+# them via __all__ below for callers that import from this submodule directly. A top-level `from
+# .diagnostics_dispatch import DIAG_ROW_CAP, DIAG_MAX_FEATURES` would reintroduce the exact half-initialised-
+# parent hazard the lazy _record/_record_path/_save_figure delegates above already document (a sibling
+# importing THIS module first would trigger diagnostics_dispatch's bottom import of this module while it's
+# still partially initialised). Resolve lazily via module __getattr__ instead, deferring the cross-import
+# past both modules' load time.
+def __getattr__(name: str):
+    """Lazily resolve DIAG_ROW_CAP/DIAG_MAX_FEATURES from diagnostics_dispatch.py (the single source of
+    truth) on first access, avoiding a duplicate top-level definition that could drift from the original."""
+    if name in ("DIAG_ROW_CAP", "DIAG_MAX_FEATURES"):
+        from . import diagnostics_dispatch
+
+        return getattr(diagnostics_dispatch, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # The four record/save helpers live in the parent ``diagnostics_dispatch``, which re-exports THIS module's
@@ -120,18 +129,39 @@ def _entry_score(entry: Any) -> Optional[np.ndarray]:
     return None
 
 
+def _is_real_scalar(v) -> bool:
+    """True for a real numeric scalar, including numpy's -- and excluding bools.
+
+    ``isinstance(v, (int, float))`` misses every numpy scalar except ``np.float64``: ``np.float32`` does not
+    inherit from ``float`` and ``np.int64`` does not inherit from ``int``. LightGBM and XGBoost routinely
+    hand back ``float32`` metrics, so that test silently DROPPED those models' AUC/logloss from the
+    leaderboard -- an omission with no warning, indistinguishable from "the model did not report it".
+    """
+    return isinstance(v, (numbers.Real, np.number)) and not isinstance(v, (bool, np.bool_))
+
+
 def _flat_scalar_metrics(metrics: Any) -> Dict[str, float]:
-    """Best-effort flat ``{name: float}`` from a (possibly nested) per-model test-metrics dict for the leaderboard."""
+    """Best-effort flat ``{name: float}`` from a (possibly nested) per-model test-metrics dict for the leaderboard.
+
+    Merge precedence: a top-level scalar key ALWAYS wins over a same-named key from any nested sub-dict. Among
+    nested sub-dicts themselves, the LAST one (in ``metrics`` iteration order) wins on a name collision --
+    consistent with a plain dict's own last-write-wins semantics.
+    """
     out: Dict[str, float] = {}
     if not isinstance(metrics, dict):
         return out
+    top_level_keys: set = set()
     for k, v in metrics.items():
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
+        if _is_real_scalar(v):
             out[str(k)] = float(v)
-        elif isinstance(v, dict):
+            top_level_keys.add(str(k))
+    for v in metrics.values():
+        if isinstance(v, dict):
             for k2, v2 in v.items():
-                if isinstance(v2, (int, float)) and not isinstance(v2, bool):
-                    out.setdefault(str(k2), float(v2))
+                if str(k2) in top_level_keys:
+                    continue  # a top-level scalar of the same name always wins.
+                if _is_real_scalar(v2):
+                    out[str(k2)] = float(v2)  # last nested sub-dict wins on a nested-vs-nested collision.
     return out
 
 
@@ -177,6 +207,78 @@ def render_model_comparison_from_suite(
     )
 
 
+# Chart-name -> (report section, human label). The combined report used to file EVERY chart under one
+# section literally named "charts", labelled by raw filename basename, so a 40-chart report was one
+# undifferentiated list of strings like "MRMR LGBMClassifier_val_weak_segments". Grouping by what the chart
+# answers, and naming it in words, is the difference between an index and a directory listing.
+_CHART_SECTIONS: tuple = (
+    ("Calibration", ("calib", "reliability", "decile_table", "fairness")),
+    ("Discrimination", ("binary_panels", "multiclass", "multilabel", "roc", "model_card", "model_comparison")),
+    ("Errors and weak segments", ("weak_seg", "weak_slices", "error_bias", "segments", "worst_k")),
+    ("Explainability", ("shap", "pdp", "interaction", "feature")),
+    ("Drift and stability", ("psi", "drift", "cusum", "over_time", "acf", "stability", "adversarial")),
+    ("Decision quality", ("decision_curve", "risk_coverage", "gain", "threshold")),
+    ("Training", ("training_curve", "learning_curve")),
+)
+
+
+def _classify_chart(basename: str) -> tuple:
+    """Map a chart's file basename to ``(section, human label)`` for the combined report's navigation.
+
+    Unrecognised names fall into "Other" and keep their basename, so a new chart is never dropped or
+    mislabelled -- it just does not get a curated home until it is added above.
+    """
+    low = basename.lower()
+    section = "Other"
+    for name, keys in _CHART_SECTIONS:
+        if any(k in low for k in keys):
+            section = name
+            break
+    # The suite prefixes every artifact with "<model> <split>_", so the chart's own name is whatever follows
+    # the LAST split marker. Splitting on the final underscore instead would keep only the last word and turn
+    # "weak_segments" into "segments" and "decision_curve" into "curve".
+    label = basename
+    for marker in ("_val_", "_test_", "_train_", "_oof_", "_calib_"):
+        pos = low.rfind(marker)
+        if pos != -1:
+            label = basename[pos + len(marker) :]
+            break
+    return section, label.replace("_", " ").strip() or basename
+
+
+def _candidate_paths(base: str, fmt: str, backends) -> list:
+    """Every place ``render_and_save`` could have written ``base`` in ``fmt``, most likely first.
+
+    The report builder LOOKS UP files it did not write, so it has to know both layouts: the per-format subfolder
+    (the default) and the flat one, each with and without the backend infix a multi-output run adds. Reconstructing
+    only one of them silently drops the image from the report rather than failing.
+    """
+    out: list = []
+    for stem in (f"{base}.{fmt}", *(f"{base}.{b}.{fmt}" for b in backends)):
+        directory, name = os.path.split(stem)
+        out.append(os.path.join(directory, fmt, name))
+        out.append(stem)
+    return out
+
+
+def _find_html_fragment(base: str) -> Optional[str]:
+    """Return an interactive plotly fragment for ``base`` when one was written, else ``None``.
+
+    Lets a ``plotly[html]``-only run still produce a combined index: the report builder embeds a fragment
+    exactly as happily as a PNG, so there is no reason for the html-only configuration to get no report.
+    """
+    from mlframe.reporting.output import BACKEND_FORMATS
+
+    for cand in _candidate_paths(base, "html", BACKEND_FORMATS):
+        if os.path.exists(cand):
+            try:
+                with open(cand, encoding="utf-8") as fh:
+                    return fh.read()
+            except OSError:
+                return None
+    return None
+
+
 def build_combined_html_report(
     *,
     base_path: str,
@@ -191,9 +293,15 @@ def build_combined_html_report(
     artifacts are noted inline by the builder, never crash. Records the combined path in ``metrics_dict["charts"]``.
     """
     charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
-    if not base_path or not chart_paths or "png" not in (plot_outputs or "").lower():
+    # The report builder embeds a plotly HTML fragment just as happily as a PNG, so gating the WHOLE report on
+    # "png in plot_outputs" meant a `plotly[html]`-only run -- the interactive-first configuration -- produced
+    # no combined index at all. Any renderable output is enough; the per-entry lookup below picks whichever
+    # artifact actually exists on disk.
+    _outputs = (plot_outputs or "").lower()
+    if not base_path or not chart_paths or not _outputs:
         return None
     try:
+        from mlframe.reporting.output import BACKEND_FORMATS
         from mlframe.reporting.report_html import build_combined_report
 
         # Display worst feature-value slices (``_weak_slices``) before the per-split weak-segment heatmaps
@@ -211,26 +319,47 @@ def build_combined_html_report(
                 if p == anchor:
                     ordered.extend(segs)
 
-        entries = []
+        # Heterogeneous by design: a PNG entry is (section, label, png) and an interactive one is
+        # (section, label, None, fragment); build_combined_report accepts both tuple arities.
+        entries: list = []
         seen = set()
         for p in ordered:
             if not p or p in seen:
                 continue
             seen.add(p)
             label = os.path.basename(p)
-            png = p if p.lower().endswith(".png") else p + ".png"
+            png = p if p.lower().endswith(".png") else ""
+            if not png:
+                # Last-resort candidate: where the per-format layout WOULD have written it, not the flat name --
+                # with subfolders on, the flat name never exists and the entry silently fell back to the fragment.
+                from mlframe.reporting.renderers.save import resolve_output_path
+
+                _fallback_png = resolve_output_path(p, "matplotlib", "png", multi_output=False)
+                png = next((c for c in _candidate_paths(p, "png", BACKEND_FORMATS) if os.path.exists(c)), _fallback_png)
             if not os.path.exists(png):
-                # matplotlib renderer may suffix the backend (e.g. ``_pdp_ice.matplotlib.png``).
-                alt = p + ".matplotlib.png"
-                png = alt if os.path.exists(alt) else png
-            entries.append(("charts", label, png))
+                # No PNG (e.g. a plotly[html]-only run): fall back to the interactive fragment so the entry
+                # still appears in the index instead of being dropped.
+                _frag = _find_html_fragment(p)
+                if _frag is not None:
+                    section, nice = _classify_chart(os.path.basename(p))
+                    entries.append((section, nice, None, _frag))
+                    continue
+            section, nice = _classify_chart(label)
+            entries.append((section, nice, png))
         if not entries:
             return None
-        out_path = base_path + "_report.html"
+        # The stitched report is an html artefact like any other, so it belongs in the html/ directory rather
+        # than loose beside it.
+        from mlframe.reporting.renderers.save import resolve_output_path
+
+        out_path = resolve_output_path(base_path + "_report", "plotly", "html", multi_output=False)
         build_combined_report(entries, title=title, out_path=out_path)
         _record(charts, "combined_html", True)
         if isinstance(metrics_dict, dict) and charts is not None:
-            charts.setdefault("combined_report", out_path)
+            # Assign, do not setdefault: `setdefault` kept the FIRST path, so rebuilding a report (a
+            # re-render into a new directory, or a second call in the same run) left the metrics dict
+            # pointing at the previous, now-stale document.
+            charts["combined_report"] = out_path
         return out_path
     except Exception:
         logger.exception("diagnostics_dispatch: combined HTML report failed; continuing.")
@@ -265,6 +394,8 @@ def render_decile_table_diagnostic(
         fig = binary_decile_table_figure(yt[:m], ys[:m], n_deciles=n_deciles)
         out = base_path + "_decile_table"
         ok = _save_figure(fig, plot_outputs, out)
+        if ok is None:
+            return False  # png not requested; nothing rendered, nothing to record either way
         _record(charts, "decile_table", ok)
         if ok:
             _record_path(charts, out)
@@ -342,10 +473,8 @@ def render_prediction_stability_diagnostic(
 
         yt = None if y_true is None else np.asarray(y_true, dtype=np.float64).ravel()
         # member_test_preds and test_target can come from different upstream slices (e.g. a coarse ensemble
-        # re-scoring pass over more rows than the target was subsampled to) -- the old one-sided
-        # ``yt[:mp.shape[0]]`` only ever shrank yt, so a SHORTER yt than mp left them mismatched and
-        # ``abs_error = yt - res.ensemble_mean`` raised a raw broadcast ValueError downstream. Align both to
-        # the shorter length instead of assuming mp is never the shorter side.
+        # re-scoring pass over more rows than the target was subsampled to), and EITHER can be the shorter one,
+        # so both are aligned to the shorter length before ``abs_error`` broadcasts them together.
         if yt is not None and yt.shape[0] != mp.shape[0]:
             n = min(yt.shape[0], mp.shape[0])
             yt = yt[:n]
@@ -447,7 +576,7 @@ def render_target_dist_overlay(
     base_path: str,
     metrics_dict: Optional[dict] = None,
 ) -> bool:
-    """Render the per-target y / prediction distribution overlay (R-3 / INV-11) once per target. Returns success."""
+    """Render the per-target y / prediction distribution overlay once per target. Returns success."""
     charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
     if not plot_outputs or not base_path or not y_true_by_split:
         return False
@@ -458,6 +587,8 @@ def render_target_dist_overlay(
         spec = target_dist_overlay(y_true_by_split, pred_by_split=pred_by_split, task=overlay_task)
         ok = _save_spec(spec, plot_outputs, base_path + "_target_dist")
         _record(charts, "target_dist", ok)
+        if ok:
+            _record_path(charts, base_path + "_target_dist")
         return bool(ok)
     except Exception:
         logger.exception("diagnostics_dispatch: target_dist_overlay failed; continuing.")
@@ -471,15 +602,21 @@ def _column_names(*args, **kwargs):
     return _f(*args, **kwargs)
 
 
-def _ranked_top_features(names, feature_importances, k):
+def _ranked_top_features(names: Sequence[str], feature_importances: Optional[Sequence[float]], k: int) -> list:
     """Top-``k`` feature names ranked by importance when available, else the first ``k`` names (mirrors pdp_ice)."""
     if feature_importances is not None and len(feature_importances) == len(names):
-        order = np.argsort(np.asarray(feature_importances, dtype=np.float64))[::-1]
+        importances = np.asarray(feature_importances, dtype=np.float64)
+        # np.argsort sorts NaN LAST (ascending); the prior `[::-1]` reversal then put NaN-importance
+        # features FIRST -- picked as top-ranked instead of excluded. Sort ascending by a NaN-safe
+        # descending key (-x for finite values, so ascending order of the key is descending order of
+        # importance; NaN mapped to +inf so it sinks to the very end regardless).
+        sort_key = np.where(np.isnan(importances), np.inf, -importances)
+        order = np.argsort(sort_key)
         return [names[int(i)] for i in order][:k]
     return list(names)[:k]
 
 
-def _first_group_column(df, names, max_card: int = 50):
+def _first_group_column(df: Any, names: Optional[Sequence[str]], max_card: int = 50) -> Optional[str]:
     """First bounded-cardinality categorical column usable as the class-structure ``group`` axis, else None.
 
     Prefers pandas ``category`` dtype (cardinality is the cheap ``.cat.categories`` length); falls back to an ``object``
@@ -493,17 +630,35 @@ def _first_group_column(df, names, max_card: int = 50):
             logger.debug("suppressed: %s", e)
             continue
         dt = getattr(col, "dtype", None)
-        if str(dt) == "category":
+        dt_str = str(dt)
+        # pandas category dtype OR polars Categorical/Enum (str(dtype) is "Categorical(...)"/"Enum(...)").
+        if dt_str == "category" or dt_str.startswith("Categorical") or dt_str.startswith("Enum"):
             try:
-                if 2 <= len(col.cat.categories) <= max_card:
+                if hasattr(col, "cat"):
+                    card = len(col.cat.categories)  # pandas
+                elif hasattr(col, "n_unique"):
+                    card = col.n_unique()  # polars
+                else:
+                    continue
+                if 2 <= card <= max_card:
                     return c
             except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
                 logger.debug("suppressed: %s", e)
                 continue
-        elif dt is object or str(dt).startswith("string"):
+        # `dt is object` compares the dtype INSTANCE by identity against the Python builtin `object`
+        # TYPE, which a pandas object-dtype (numpy.dtype('O')) never satisfies -- this branch was
+        # unreachable for object-dtype columns. Use equality (numpy defines dtype == object
+        # meaningfully) plus explicit string-dtype coverage for pandas' "string"/polars' "String"/"Utf8"/
+        # pandas>=3's PDEP-14 default string dtype, whose str(dtype) is the bare "str" (not "string").
+        elif dt == object or dt_str.startswith("string") or dt_str in ("Utf8", "String", "str"):  # noqa: E721 -- `is` genuinely does not work here (numpy.dtype('O') is object is False); that was the bug just fixed above.
             try:
                 head = col.head(20_000) if hasattr(col, "head") else col
-                nun = int(head.nunique(dropna=True)) if hasattr(head, "nunique") else 0
+                if hasattr(head, "nunique"):
+                    nun = int(head.nunique(dropna=True))  # pandas
+                elif hasattr(head, "n_unique"):
+                    nun = int(head.n_unique())  # polars
+                else:
+                    nun = 0
                 if 2 <= nun <= max_card:
                     return c
             except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
@@ -514,10 +669,10 @@ def _first_group_column(df, names, max_card: int = 50):
 
 def render_engineered_separability_diagnostic(
     *,
-    df,
-    y_true,
-    feature_names,
-    feature_importances,
+    df: Any,
+    y_true: Any,
+    feature_names: Optional[Sequence[str]],
+    feature_importances: Optional[Sequence[float]],
     plot_outputs: str,
     base_path: str,
     metrics_dict: Optional[dict] = None,
@@ -555,9 +710,9 @@ def render_engineered_separability_diagnostic(
 
 def render_category_discriminability_diagnostic(
     *,
-    df,
-    y_true,
-    feature_names,
+    df: Any,
+    y_true: Any,
+    feature_names: Optional[Sequence[str]],
     plot_outputs: str,
     base_path: str,
     metrics_dict: Optional[dict] = None,
@@ -582,7 +737,7 @@ def render_category_discriminability_diagnostic(
         from mlframe.reporting.charts.category_discriminability import compose_category_discriminability_figure
 
         spec = compose_category_discriminability_figure(
-            df, np.asarray(y_true).ravel(), features=names, top_k=top_k, min_support=min_support,
+            df, np.asarray(y_true).ravel(), features=names, top_k=top_k, min_support=min_support, seed=seed,
         )
         if spec is None:
             return False
@@ -599,10 +754,10 @@ def render_category_discriminability_diagnostic(
 
 def render_class_structure_diagnostic(
     *,
-    df,
-    y_true,
-    feature_names,
-    timestamps=None,
+    df: Any,
+    y_true: Any,
+    feature_names: Optional[Sequence[str]],
+    timestamps: Optional[Any] = None,
     plot_outputs: str,
     base_path: str,
     metrics_dict: Optional[dict] = None,
@@ -628,7 +783,7 @@ def render_class_structure_diagnostic(
 
         spec = compose_class_structure_figure(
             df, np.asarray(y_true).ravel(), group=group, timestamps=timestamps,
-            max_groups=max_groups, n_time_bins=n_time_bins, seed=seed,
+            max_groups=max_groups, n_time_bins=n_time_bins,
         )
         ok = _save_spec(spec, plot_outputs, base_path + "_class_structure")
         _record(charts, "class_structure", ok)
@@ -656,6 +811,6 @@ __all__ = [
     "render_prediction_stability_diagnostic",
     "render_split_comparison_from_suite",
     "build_combined_html_report",
-    "DIAG_ROW_CAP",
-    "DIAG_MAX_FEATURES",
+    "DIAG_ROW_CAP",  # noqa: F822 -- resolved lazily via module __getattr__ above, not a top-level binding
+    "DIAG_MAX_FEATURES",  # noqa: F822 -- resolved lazily via module __getattr__ above, not a top-level binding
 ]

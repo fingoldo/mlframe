@@ -707,6 +707,12 @@ def bocpd_features(
     the cap entirely (legacy uncapped behaviour). Note: this caps the run-length VECTOR; the returned ``max_run_length``
     dict key is the per-row MAP run length and is unrelated to this argument.
     """
+    if not (kappa0 > 0.0):
+        raise ValueError(f"bocpd_features: kappa0 must be > 0 (NIG prior precision), got {kappa0!r}")
+    if not (alpha0 > 0.0):
+        raise ValueError(f"bocpd_features: alpha0 must be > 0 (NIG shape parameter; alpha0=0 divides by zero in the Student-t predictive scale), got {alpha0!r}")
+    if not (beta0 > 0.0):
+        raise ValueError(f"bocpd_features: beta0 must be > 0 (NIG scale parameter), got {beta0!r}")
     obs = np.ascontiguousarray(observations, dtype=np.float64)
     n = obs.size
     out_p_change = np.full(n, np.nan, dtype=np.float64)

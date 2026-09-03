@@ -97,19 +97,29 @@ def test_inline_display_mode_get_set_roundtrip():
         set_inline_display_mode(_prior)
 
 
-def test_finalize_source_contains_restore_block():
-    """Source-level guard: the restore block must exist in _phase_finalize.py.
+def test_finalize_restores_every_snapshotted_flag():
+    """The restore must actually run on the snapshot ``finalize_suite`` is handed.
 
-    Direct behavioural test of the full suite flow is too heavy for a sensor;
-    this source-check catches a future refactor that removes the restore call.
+    This used to grep ``_phase_finalize.py`` for the two snapshot key names. Those names now live in the shared
+    ``_process_flag_scope`` helper (the restore had to be reachable from a ``finally`` at the suite boundary as
+    well, since a suite that raises never reaches finalize), so the grep failed on a code path that restores
+    strictly more than it used to. Calling the restore and observing the flags is the contract either way.
     """
-    import pathlib
+    from mlframe.reporting.renderers.save import get_inline_display_mode, set_inline_display_mode
+    from mlframe.training.core._phase_finalize import restore_process_flags
+    from mlframe.training.evaluation import _get_residual_audit_enabled, _set_residual_audit_enabled
 
-    # Derive the src path from the installed package so the source-check
-    # works regardless of clone location; the previous hardcoded D:/ path
-    # raised FileNotFoundError on every other machine.
-    import mlframe as _mlframe
-
-    src = (pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core" / "_phase_finalize.py").read_text(encoding="utf-8")
-    assert "_process_flag_prior_residual_audit" in src, "_phase_finalize must restore the residual_audit flag from ctx.artifacts."
-    assert "_process_flag_prior_inline_display" in src, "_phase_finalize must restore the inline_display flag from ctx.artifacts."
+    _prior_audit = _get_residual_audit_enabled()
+    _prior_inline = get_inline_display_mode()
+    try:
+        _set_residual_audit_enabled(True)
+        set_inline_display_mode(True)
+        artifacts = {"_process_flag_prior_residual_audit": False, "_process_flag_prior_inline_display": False}
+        restore_process_flags(artifacts)
+        assert _get_residual_audit_enabled() is False, "finalize must restore the residual_audit flag from ctx.artifacts."
+        assert get_inline_display_mode() is False, "finalize must restore the inline_display flag from ctx.artifacts."
+        # Popped keys make a second call harmless -- the suite-boundary finally and finalize can both run it.
+        assert artifacts == {}
+    finally:
+        _set_residual_audit_enabled(_prior_audit)
+        set_inline_display_mode(_prior_inline)

@@ -81,7 +81,6 @@ WHITELIST: set[str] = {
     "test_meta/test_log_only_except_final_best_effort_sweep.py",
     "test_meta/test_x_architecture_api_consistency_fixes.py",
     "test_meta/test_x_security_robustness_fixes.py",
-    "test_meta/test_x_test_suite_architecture_fixes.py",
     "training/baselines/test_training_baselines_fixes.py",
     "training/composite/discovery/test_training_composite_discovery_fixes.py",
     "training/composite/test_training_composite_loose_a_fixes.py",

@@ -3,7 +3,7 @@
 OLD ``_bootstrap_ece_with_indices`` did a per-resample Python-level fancy-index
 copy ``y_true[idx]`` / ``y_pred[idx]`` (two length-n int64/float64 gathers, 1000x)
 then called the ECE kernel. NEW path passes the base arrays + idx row straight to
-``_ece_score_idx_numba_serial``, which gathers inside the njit bin loop -- zero
+``_ece_score_idx_numba_serial``, which gathers inside the njit bin loop - zero
 per-resample Python slice. Bit-identical (equal-width binning is order-independent).
 
 Run: python -m mlframe.calibration._benchmarks.bench_idx_aware_ece_resampler
@@ -21,15 +21,16 @@ import time
 import numpy as np
 
 
-def _make(n, seed=11):
+def _make(n: int, seed: int = 11) -> "tuple[np.ndarray, np.ndarray]":
     rng = np.random.default_rng(seed)
     p = np.clip(rng.uniform(0, 1, n), 0.0, 1.0)
     y = (rng.uniform(0, 1, n) < p).astype(np.int64)
     return np.ascontiguousarray(y), np.ascontiguousarray(p)
 
 
-def _old_loop(y, p, idx_matrix, n_bins):
+def _old_loop(y: np.ndarray, p: np.ndarray, idx_matrix: np.ndarray, n_bins: int) -> np.ndarray:
     from mlframe.calibration.policy import _ece_score
+
     nbs = idx_matrix.shape[0]
     out = np.empty(nbs)
     for b in range(nbs):
@@ -38,8 +39,9 @@ def _old_loop(y, p, idx_matrix, n_bins):
     return out
 
 
-def _new_loop(y, p, idx_matrix, n_bins):
+def _new_loop(y: np.ndarray, p: np.ndarray, idx_matrix: np.ndarray, n_bins: int) -> np.ndarray:
     from mlframe.calibration.policy import _ece_score_idx_numba_serial
+
     nbs = idx_matrix.shape[0]
     out = np.empty(nbs)
     for b in range(nbs):
@@ -47,7 +49,7 @@ def _new_loop(y, p, idx_matrix, n_bins):
     return out
 
 
-def main(sizes=((2000, 1000), (20000, 1000), (200000, 500)), reps=50, n_bins=15):
+def main(sizes: "tuple[tuple[int, int], ...]" = ((2000, 1000), (20000, 1000), (200000, 500)), reps: int = 50, n_bins: int = 15) -> None:
     from mlframe.calibration.policy import _build_resample_indices
 
     for n, nbs in sizes:

@@ -21,6 +21,23 @@ import numpy as np
 logger = logging.getLogger("mlframe.training.core._main_train_suite")
 
 
+# Model keys whose fitted learner takes NaN as a first-class value rather than needing it imputed away: the
+# gradient-boosting family routes a missing value down a learned default branch, so a NaN-heavy column still
+# carries its "is this field present at all" signal into the split. Anything not listed here (linear, MLP, kNN,
+# SVM) needs a finite matrix, and dropping an essentially-empty column ahead of it is a real service.
+_NAN_NATIVE_MODEL_KEYS: frozenset = frozenset({"cb", "cb_rfecv", "lgb", "lgb_rfecv", "xgb", "xgb_rfecv", "hgb"})
+
+
+def _all_models_handle_nan(mlframe_models) -> bool:
+    """True when EVERY model this suite will fit consumes NaN natively (so dropping a NaN-heavy column loses signal).
+
+    Returns False for an empty or unknown list: the conservative reading is that something in the run needs a
+    finite matrix, and the drop stays on.
+    """
+    keys = [str(k).strip().lower() for k in (mlframe_models or []) if str(k).strip()]
+    return bool(keys) and all(k in _NAN_NATIVE_MODEL_KEYS for k in keys)
+
+
 def _maybe_auto_drop_after_feature_analyzer(
     *,
     fd_report,
@@ -30,6 +47,8 @@ def _maybe_auto_drop_after_feature_analyzer(
     behavior_config,
     metadata: dict,
     verbose: bool,
+    preprocessing_config=None,
+    mlframe_models=None,
 ):
     """Apply the auto-drop knobs (auto_drop_distribution_analyzer_candidates,
     auto_drop_near_duplicate_threshold) from behavior_config to all three split
@@ -40,6 +59,16 @@ def _maybe_auto_drop_after_feature_analyzer(
     train_df + train-y only. val/test simply lose the same columns to keep
     schemas aligned (no val/test stats touch the drop decision).
 
+    ``preprocessing_config.remove_constant_columns=False`` is a user's explicit "keep degenerate
+    columns" signal for ``preprocess_dataframe``'s own (gated) constant-column removal -- this
+    auto-drop is a SEPARATE mini-HPT mechanism with its own default-True knob, so without this
+    check a user who explicitly opted out of constant-column removal still silently lost those
+    exact columns here (surfaced by test_remove_constant_columns_false_keeps_them: the flag
+    correctly disabled the direct dropper, but analyze_feature_distribution's low-variance /
+    nan-heavy / insufficient-finite candidates still went through this default-on path). Only the
+    constant/all-null-flavoured candidates are exempted; redundant-pair (near-duplicate)
+    candidates are an unrelated correlation-based reason and still drop normally.
+
     Returns ``(train_df, val_df, test_df, dropped_cols)``. When nothing is
     dropped (flags disabled, no candidates, or columns already missing) the
     frames are returned unchanged and ``dropped_cols`` is empty.
@@ -47,10 +76,42 @@ def _maybe_auto_drop_after_feature_analyzer(
     if behavior_config is None or fd_report is None:
         return train_df, val_df, test_df, []
     _do_drop_candidates = bool(getattr(behavior_config, "auto_drop_distribution_analyzer_candidates", False))
+    # A NaN-heavy column is only worth dropping when something downstream cannot read a NaN. With a
+    # gradient-boosting-only run, the missingness IS the signal -- it is usually structural (the field applies
+    # to a subset of rows), and the model routes it down its own default branch. The other drop reasons
+    # (low variance, no finite values, near-duplicate) still apply, because none of them are about NaN.
+    _keep_nan_heavy = _all_models_handle_nan(mlframe_models)
     _dup_threshold = float(getattr(behavior_config, "auto_drop_near_duplicate_threshold", 2.0))
+    _keep_constant_cols = not bool(getattr(preprocessing_config, "remove_constant_columns", True))
     drop_set: set = set()
     if _do_drop_candidates:
-        drop_set.update(getattr(fd_report, "drop_candidates", []) or [])
+        _candidates = getattr(fd_report, "drop_candidates", []) or []
+        if _keep_nan_heavy:
+            _warn_map_nan = getattr(fd_report, "feature_warnings", {}) or {}
+            _nan_only = [
+                _c for _c in _candidates if (_warn_map_nan.get(_c) or []) and all(str(_m).startswith("nan_fraction") for _m in _warn_map_nan.get(_c) or [])
+            ]
+            if _nan_only:
+                _candidates = [_c for _c in _candidates if _c not in set(_nan_only)]
+                if verbose:
+                    logger.info(
+                        "[mini-HPT] keeping %d NaN-heavy column(s) that would otherwise be dropped: every model in "
+                        "this run (%s) consumes NaN natively, so the missingness is signal rather than something to "
+                        "impute away. Kept: %s",
+                        len(_nan_only), ", ".join(str(_m) for _m in (mlframe_models or [])),
+                        ", ".join(_nan_only[:8]) + (f", ... (+{len(_nan_only) - 8} more)" if len(_nan_only) > 8 else ""),
+                    )
+        if _keep_constant_cols:
+            _warnings = getattr(fd_report, "feature_warnings", {}) or {}
+
+            def _is_degenerate_reason(_col: str) -> bool:
+                """True when every warning recorded for ``_col`` is the low-variance / all-null /
+                insufficient-finite-values flavour ``remove_constant_columns`` also targets."""
+                _msgs = _warnings.get(_col) or []
+                return bool(_msgs) and all(m.startswith("low_variance") or m.startswith("nan_fraction") or m == "insufficient_finite_values" for m in _msgs)
+
+            _candidates = [c for c in _candidates if not _is_degenerate_reason(c)]
+        drop_set.update(_candidates)
     if _dup_threshold <= 1.0:
         # Walk the analyzer's diagnostics.redundant_feature_pairs (list of
         # (a, b, |corr|)) and drop the alphabetically-larger of each pair whose
@@ -72,10 +133,21 @@ def _maybe_auto_drop_after_feature_analyzer(
                 logger.debug("suppressed: %s", e)
                 continue
             if abs(_c) >= _dup_threshold:
-                # Greedy chain collapse: drop the alphabetically-larger of a fresh pair; once either
-                # side is already in drop_set, add whichever side ISN'T yet dropped instead (so a
-                # correlated chain A-B, B-C collapses to a single survivor A, not left half-dropped).
-                drop_set.add(_b if _a not in drop_set and _b not in drop_set else (_a if _b in drop_set else _b))
+                # Greedy vertex-cover collapse: drop the alphabetically-larger of a pair ONLY when
+                # NEITHER side is already in drop_set. If either side is already dropped, this edge
+                # is already "covered" (at least one of its endpoints is gone) -- do nothing.
+                #
+                # The prior logic instead added whichever side WASN'T yet dropped whenever the OTHER
+                # side already was, which walks a 3+ way mutually-correlated cluster (a triangle A-B,
+                # B-C, A-C in the correlation graph, not just a linear chain) into dropping every
+                # single member: pair (A,B) drops B; pair (B,C) then sees B already dropped and adds
+                # C (instead of no-op'ing since the edge is already covered); pair (A,C) then sees C
+                # already dropped and adds A too -- zero survivors. The fix only drops a NEW column
+                # when the edge isn't already covered, which guarantees at least one member of every
+                # connected correlated cluster always survives (dropping requires BOTH endpoints
+                # alive, so the last alive node touching any edge is never removed).
+                if _a not in drop_set and _b not in drop_set:
+                    drop_set.add(max(_a, _b))
     if not drop_set:
         return train_df, val_df, test_df, []
     # Filter the drop set to columns actually present in train_df.
@@ -114,13 +186,53 @@ def _maybe_auto_drop_after_feature_analyzer(
     test_df = _drop(test_df, drop_list)
     metadata.setdefault("feature_distribution_report", {})["auto_dropped_columns"] = list(drop_list)
     if verbose:
-        _preview = ", ".join(drop_list[:8])
-        if len(drop_list) > 8:
-            _preview += f", ... (+{len(drop_list) - 8} more)"
+        # Report WHICH RULE removed each column, not just how many went. The pre-fix line named a count
+        # and 8 sample names, so a run that discarded 30% of its features looked identical whether the
+        # cause was one aggressive rule or a broad spread -- and the single most consequential case
+        # (a whole feature family dropped for >=50% NaN, where the missingness is STRUCTURAL rather than
+        # random, i.e. the feature only applies to a subset of rows and its absence is itself signal)
+        # was indistinguishable from the benign ones. Group by reason so an over-aggressive rule is
+        # visible at a glance and can be retargeted via BaselineDiagnostics/analyzer thresholds.
+        _warn_map = getattr(fd_report, "feature_warnings", {}) or {}
+
+        # The rule label carries the REAL threshold. It used to be the hardcoded string "(>=50% missing)",
+        # which kept claiming 50% long after the constant moved to 0.99 -- so an operator reading this line
+        # concluded the threshold change had never been applied.
+        from mlframe.training.targets import _NAN_FRACTION_THRESHOLD
+
+        _nan_label = f"nan_heavy (>={_NAN_FRACTION_THRESHOLD:.0%} missing)"
+        def _reason_for(_col: str) -> str:
+            """Coarse rule label for ``_col``: the analyzer's own warning prefix, else the near-duplicate path."""
+            _msgs = _warn_map.get(_col) or []
+            for _m in _msgs:
+                if _m.startswith("nan_fraction"):
+                    return _nan_label
+                if _m.startswith("low_variance"):
+                    return "low_variance"
+                if _m == "insufficient_finite_values":
+                    return "insufficient_finite_values"
+            return f"near_duplicate (|corr|>={_dup_threshold:.4f})" if _msgs == [] else "other"
+
+        _by_reason: dict[str, list[str]] = {}
+        for _c in drop_list:
+            _by_reason.setdefault(_reason_for(_c), []).append(_c)
         logger.info(
-            "[mini-HPT] auto-drop applied: %d column(s) removed from train/val/test (analyzer candidates + |corr|>=%.4f duplicates): %s",
-            len(drop_list), _dup_threshold, _preview,
+            "[mini-HPT] auto-drop applied: %d of %d column(s) removed from train/val/test. Breakdown by rule: %s",
+            len(drop_list), len(train_cols), "; ".join(f"{_r}: {len(_cs)}" for _r, _cs in sorted(_by_reason.items())),
         )
+        for _r, _cs in sorted(_by_reason.items()):
+            _preview = ", ".join(_cs[:8]) + (f", ... (+{len(_cs) - 8} more)" if len(_cs) > 8 else "")
+            logger.info("[mini-HPT]   %s -> %s", _r, _preview)
+        _nan_dropped = _by_reason.get(_nan_label) or []
+        if len(_nan_dropped) >= 5:
+            logger.warning(
+                "[mini-HPT] %d column(s) were dropped for >=%.0f%%%% missing values alone. When missingness is "
+                "STRUCTURAL (the feature only applies to a subset of rows, e.g. an hourly-rate field on "
+                "fixed-price jobs) its presence/absence is itself predictive, and dropping discards that "
+                "signal rather than noise -- tree models handle NaN natively. Set "
+                "behavior_config.auto_drop_distribution_analyzer_candidates=False to keep them.",
+                len(_nan_dropped), _NAN_FRACTION_THRESHOLD * 100.0,
+            )
     return train_df, val_df, test_df, drop_list
 
 
@@ -139,6 +251,7 @@ def _run_target_distribution_analyzer(
     val_df=None,
     test_df=None,
     behavior_config=None,
+    preprocessing_config=None,
 ):
     """Run the target-side and feature-side analyzers; merge recommendations.
 
@@ -420,6 +533,8 @@ def _run_target_distribution_analyzer(
                             behavior_config=behavior_config,
                             metadata=metadata,
                             verbose=verbose,
+                            preprocessing_config=preprocessing_config,
+                            mlframe_models=getattr(ctx, "mlframe_models", None),
                         )
                         # Mirror drops onto ctx so any later phase reading from ctx
                         # (the in-progress ctx-form migration in main_train_suite) sees

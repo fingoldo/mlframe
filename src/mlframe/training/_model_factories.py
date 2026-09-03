@@ -22,7 +22,7 @@ LGBMClassifier = LGBMRegressor = None
 def _patch_lgb_feature_names_in_setter() -> None:
     """Install a no-op setter for ``LGBMModel.feature_names_in_``.
 
-    Fix 4 defense-in-depth (2026-04-21). LightGBM >=4.6.0 exposes
+    Defense-in-depth. LightGBM >=4.6.0 exposes
     ``feature_names_in_`` as a read-only property. sklearn >=1.8's
     ``validate_data`` path (triggered whenever ``fit()`` receives a
     non-pandas input such as a Polars DataFrame or numpy array) calls
@@ -30,7 +30,7 @@ def _patch_lgb_feature_names_in_setter() -> None:
     ``AttributeError: property 'feature_names_in_' of 'LGBMClassifier'
     object has no setter`` -- aborting the run 5 seconds in.
 
-    The primary fix is Fix 1 (ensure LGB receives pandas -> sklearn path
+    The primary fix ensures LGB receives pandas via the sklearn path
     skipped at ``lightgbm/sklearn.py:948``). This setter patch is a
     belt-and-braces guard for cases where a future code path slips a
     non-pandas input past the lazy-conversion hook. Storing the value in
@@ -39,7 +39,7 @@ def _patch_lgb_feature_names_in_setter() -> None:
 
     Idempotent: safe to call multiple times (module re-import).
     """
-    # 2026-05-16 (was 2026-04-21 bug, surfaced by post-migration tests):
+    # (surfaced by post-migration tests):
     # the previous early-return on ``LGBMClassifier is None`` was wrong -
     # ``LGBMClassifier`` is a *lazy* module-level None that only gets
     # populated by ``_lgb_classifier_cls()`` on first call. At module
@@ -75,7 +75,7 @@ def _patch_lgb_feature_names_in_setter() -> None:
     _model_cls._mlframe_feature_names_setter_installed = True
 
 
-# Audit 2026-05-17 (Wave 1.5): the LightGBM feature_names_in_ setter
+# The LightGBM feature_names_in_ setter
 # patch was originally applied at import time as a global side effect.
 # We now expose it via ``apply_third_party_patches_once()`` (idempotent)
 # which the suite entrypoint + the dataset factories below call lazily.
@@ -155,7 +155,7 @@ def make_lgb_dataset(*args, **kwargs):
 def _patch_dataset_constructors_with_logging() -> None:
     """Wrap ``catboost.Pool.__init__`` / ``xgboost.DMatrix.__init__`` /
     ``lightgbm.Dataset.__init__`` so every construction emits one INFO
-    log line with shape + duration + callsite. Fix 9.4.1 (2026-04-21).
+    log line with shape + duration + callsite.
 
     Purpose: make rebuild-vs-reuse visible in the log. Without this the
     sklearn-wrapper rebuilds silently inside ``fit()`` and the operator
@@ -197,22 +197,21 @@ def _patch_dataset_constructors_with_logging() -> None:
             logger.debug("_model_factories: len(payload) fallback failed, shape unknown: %s", exc)
             return None
 
-    def _infer_callsite() -> str:
-        """``"module:lineno"`` of the first stack frame outside catboost/xgboost/lightgbm internals, i.e. the mlframe (or user) call that triggered this dataset build."""
-        # Walk up to find the first frame outside the library internals.
+    def _active_phase_name() -> str:
+        """Innermost open suite phase, or "" -- best-effort, never raises into the instrumented constructor."""
         try:
-            frame: Any = _sys._getframe(2)
-            for _ in range(8):
-                if frame is None:
-                    break
-                mod = frame.f_globals.get("__name__", "?")
-                if not (mod.startswith("catboost.") or mod.startswith("xgboost.") or mod.startswith("lightgbm.")):
-                    return f"{mod}:{frame.f_lineno}"
-                frame = frame.f_back
-            return f"{frame.f_globals.get('__name__', '?')}:{frame.f_lineno}" if frame else "?"
+            from mlframe.training.phases import active_phase
+
+            return active_phase()
         except Exception as exc:
-            logger.debug("_infer_callsite: stack walk failed, call site unknown: %s", exc)
-            return "?"
+            logger.debug("active_phase() unavailable (%s: %s); dataset built without a phase label", type(exc).__name__, exc)
+            return ""
+
+    def _infer_callsite() -> str:
+        """Delegates to the module-level walk so it can be tested directly rather than through a monkey-patched constructor."""
+        from ._dataset_build_stats import infer_build_callsite
+
+        return infer_build_callsite(skip_frames=3)
 
     def _originates_in_internal_loop() -> bool:
         """True if any ancestor stack frame lives in a known per-iteration internal loop (composite discovery / screening / baseline-diagnostics ablation) -- used to demote its build-event log line to DEBUG."""
@@ -223,7 +222,10 @@ def _patch_dataset_constructors_with_logging() -> None:
         # frame lives in one of those loop modules, demote. The main-model training path has no such ancestor -> stays INFO.
         try:
             frame: Any = _sys._getframe(2)
-            for _ in range(25):
+            # 60, not 25: an internal loop that dispatches through sklearn CV plus joblib puts more than 25
+            # frames between itself and the constructor, so the demotion silently stopped applying exactly
+            # where the per-fold noise is worst.
+            for _ in range(60):
                 if frame is None:
                     break
                 mod = (frame.f_globals.get("__name__", "") or "").lower()
@@ -256,6 +258,15 @@ def _patch_dataset_constructors_with_logging() -> None:
                 orig_init(self, *args, **kwargs)
             finally:
                 elapsed = _time.perf_counter() - t0
+                # Recorded even when the per-build line is demoted to DEBUG (internal fit loops) or suppressed
+                # entirely: those are precisely the builds whose cost went unattributed in production logs.
+                try:
+                    from ._dataset_build_stats import record_dataset_build
+
+                    _shape_for_stats = _infer_shape(args, kwargs)
+                    record_dataset_build(str(label), _infer_callsite(), int(_shape_for_stats[0]) if _shape_for_stats else 0, elapsed)
+                except Exception as _stats_exc:
+                    logger.debug("dataset-build stats not recorded (%s: %s)", type(_stats_exc).__name__, _stats_exc)
                 # INFO is the LEAST restrictive level this wrapper ever logs at (the internal-loop branch
                 # further demotes to DEBUG, never promotes past INFO), so if INFO is disabled neither
                 # branch can ever fire -- skip the stack-walking introspection (_infer_callsite up to 8
@@ -273,28 +284,35 @@ def _patch_dataset_constructors_with_logging() -> None:
                         shape_str = f"{shape[0]}x?"
                     else:
                         shape_str = "?x?"
-                    # I3 fix (2026-05-11): demote internal-diagnostic build events to
+                    # I3 fix: demote internal-diagnostic build events to
                     # DEBUG so per-feature ablation / per-trial discovery loops don't
                     # drown out actually-useful build events on production-size datasets.
-                    # Tightened 2026-05-16: only demote when callsite originates in
+                    # Only demote when callsite originates in
                     # one of the known internal-loop modules (the previous "OR row
                     # count below 50K" half of the heuristic hid every legitimate
                     # small-data build from INFO; caught by
                     # test_fix9_build_logging_fires_on_dmatrix on a 200x5 frame).
-                    # Extended 2026-05-20: BaselineDiagnostics' ablation loop fits a
+                    # BaselineDiagnostics' ablation loop fits a
                     # fresh LGB.Dataset per feature-subset (7-15 builds per training
                     # run on a wide frame) - same nuisance pattern as composite /
                     # screening, demote it too.
                     # Demote when the build originates anywhere inside an internal fit loop (scanning the full stack, not
                     # just the shim-masked call site), so per-fold / per-feature-subset builds don't drown the log at INFO.
                     _level = logging.DEBUG if _originates_in_internal_loop() else logging.INFO
+                    # ``elapsed`` covers the CONSTRUCTOR only. LightGBM's Dataset defers its binning to
+                    # construct(), so a build that really took two minutes reported took=0.000s and read as
+                    # instant -- name which of the two the number is instead of letting it mislead.
+                    _lazy = "lightgbm" in str(label).lower()
+                    _phase = _active_phase_name()
                     _build_logger.log(
                         _level,
-                        "[dataset-build] %s shape=%s took=%.3fs site=%s",
+                        "[dataset-build] %s shape=%s %s=%.3fs site=%s%s",
                         label,
                         shape_str,
+                        "ctor(lazy; binning deferred to construct())" if _lazy else "took",
                         elapsed,
                         callsite,
+                        f" phase={_phase}" if _phase else "",
                     )
 
         _logged_init.__wrapped__ = orig_init  # type: ignore[attr-defined]
@@ -339,7 +357,7 @@ except ImportError:  # pragma: no cover
     XGBClassifier = XGBRegressor = None  # type: ignore[assignment,misc]
     XGBTrainingCallback = object  # type: ignore[assignment,misc]
 
-# DMatrix-reuse shim (2026-04-24). Subclasses XGBClassifier / XGBRegressor
+# DMatrix-reuse shim. Subclasses XGBClassifier / XGBRegressor
 # to cache QuantileDMatrix across consecutive ``.fit()`` calls on the same
 # feature matrix -- saves ~100 s per repeated fit on multi-GB train frames.
 # Toggle via ``USE_XGB_DMATRIX_REUSE_SHIM`` below.
@@ -354,7 +372,7 @@ except ImportError:  # pragma: no cover
     XGBClassifierWithDMatrixReuse = XGBRegressorWithDMatrixReuse = None  # type: ignore[assignment,misc]
     _XGB_SHIM_AVAILABLE = False
 
-# Dataset-reuse shim (2026-05-08). Mirror of the XGB shim above for
+# Dataset-reuse shim. Mirror of the XGB shim above for
 # LightGBM. Subclasses LGBMClassifier / LGBMRegressor to cache the
 # binned ``lightgbm.Dataset`` across consecutive ``.fit()`` calls on
 # the same feature matrix -- mirrors the same weight-schema-loop saving
@@ -376,7 +394,7 @@ except ImportError:  # pragma: no cover
 #
 #   True  -> use the DMatrix-reuse shim. Reuses QuantileDMatrix across
 #           weight-schema iterations and target swaps on the same feature
-#           matrix (the 2026-04-24 prod log saving target -- ~100 s per
+#           matrix (the prod log saving target -- ~100 s per
 #           rebuild eliminated).
 #   False -> fall back to vanilla ``XGBClassifier`` / ``XGBRegressor``.
 #           Use this if the shim regresses behaviour or once XGBoost
@@ -475,22 +493,30 @@ except (ImportError, OSError):  # pragma: no cover
 # module-load (see neural/base.py:32-45 for the chain). On Windows that
 # takes 30-180 s cold and consistently overshoots the per-test timeout
 # of the FIRST test in any pytest run that touches the trainer (fuzz
-# c0000 timeout, observed 2026-04-27). Defer the import to first MLP
+# a cold-start timeout, observed in prod). Defer the import to first MLP
 # fit via ``_get_neural_components()`` so typical users / fuzz tests
 # don't pay the cost. Sentinel ``None`` here; the getter populates the
 # tuple lazily on first call and caches.
 MLPNeuronsByLayerArchitecture = None
 PytorchLightningRegressor = PytorchLightningClassifier = None
+# Distinguishes "never attempted" (None sentinels above) from "attempted and failed" -- without this,
+# a BROKEN (not merely absent) mlframe.training.neural install (e.g. a partial/corrupted lightning
+# install raising ImportError deep in its own import chain) makes every subsequent call retry the same
+# documented 30-180s cold import chain, since the components stay None either way.
+_NEURAL_IMPORT_FAILED = False
 
 
 def _get_neural_components():
     """Lazy-load ``MLPNeuronsByLayerArchitecture`` /
     ``PytorchLightningRegressor`` / ``PytorchLightningClassifier`` on
     first MLP fit. Returns the 3-tuple, or ``(None, None, None)`` if
-    the optional ``mlframe.training.neural`` extras are not installed.
-    Caches into the module-level globals so subsequent calls are free.
+    the optional ``mlframe.training.neural`` extras are not installed
+    (or the import previously failed). Caches into the module-level
+    globals so subsequent calls are free, including on the failure path.
     """
-    global MLPNeuronsByLayerArchitecture, PytorchLightningRegressor, PytorchLightningClassifier
+    global MLPNeuronsByLayerArchitecture, PytorchLightningRegressor, PytorchLightningClassifier, _NEURAL_IMPORT_FAILED
+    if _NEURAL_IMPORT_FAILED:
+        return None, None, None
     if MLPNeuronsByLayerArchitecture is None:
         try:
             # `global` above makes the import bindings update module-level names directly; no rebind step needed.
@@ -500,6 +526,7 @@ def _get_neural_components():
                 PytorchLightningClassifier,
             )
         except ImportError:  # pragma: no cover
+            _NEURAL_IMPORT_FAILED = True
             return None, None, None
     return MLPNeuronsByLayerArchitecture, PytorchLightningRegressor, PytorchLightningClassifier
 
@@ -515,7 +542,7 @@ GPU_VRAM_SAFE_FREE_LIMIT_GB: float = 0.1
 # Fairness and feature importance functions from their respective modules
 
 
-# 2026-05-13 refactor: extracted modules
+# Extracted modules
 from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: F401
 from .pipeline import (  # noqa: F401
     _apply_pre_pipeline_transforms,

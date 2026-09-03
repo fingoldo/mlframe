@@ -59,13 +59,16 @@ _SPLIT_COLORS: Dict[str, str] = {
     "train": "#1f77b4", "val": "#ff7f0e", "test": "#2ca02c", "oof": "#9467bd",
 }
 _FALLBACK_COLORS: Tuple[str, ...] = ("#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf")
+# Confusing val with test changes the conclusion on this chart, so the split identity must not ride on hue alone.
+_SPLIT_HATCHES: Dict[str, str] = {"train": "", "val": "//", "test": "xx", "oof": "..", "oos": "xx"}
+_FALLBACK_HATCHES: Tuple[str, ...] = ("", "//", "xx", "..", "\\\\")
 
 
 @dataclass(frozen=True)
 class OverfitVerdict:
     """The cross-split overfit traffic-light + the gap that drove it (read by tests / triage, not just drawn)."""
 
-    color: str  # "green" / "amber" / "red"
+    color: str  # "green" / "amber" / "red" / "unknown"
     label: str  # short headline, e.g. "GENERALIZES" / "MILD OVERFIT" / "OVERFIT"
     reason: str  # human-readable justification incl. the headline gap
     gap: float  # the headline degradation (train->test AUC drop, or test/train RMSE ratio)
@@ -78,6 +81,11 @@ def _order_splits(names: Sequence[str]) -> List[str]:
     ordered = [s for s in _SPLIT_ORDER if s in present]
     ordered.extend(s for s in present if s not in _SPLIT_ORDER)
     return ordered
+
+
+def _split_hatch(name: str, idx: int) -> str:
+    """Fill pattern per split, so train/val/test stay distinguishable without relying on hue alone."""
+    return _SPLIT_HATCHES.get(name.lower(), _FALLBACK_HATCHES[idx % len(_FALLBACK_HATCHES)])
 
 
 def _split_color(name: str, idx: int) -> str:
@@ -119,7 +127,11 @@ def _metrics_for_split(
             return None, "single class -- discrimination undefined"
         yt, ys = _subsample(yt, ys, cap=subsample, seed=seed)
         sort = _ScoreSort(yt, ys)
-        return _classification_metrics(sort, yt, ys, threshold), None
+        _m = _classification_metrics(sort, yt, ys, threshold)
+        _m["n_rows"] = float(yt.size)
+        _m["n_pos"] = float((yt == 1).sum())
+        _m["n_neg"] = float((yt == 0).sum())
+        return _m, None
 
     if task == "regression":
         pred = entry.get("y_pred")
@@ -133,9 +145,29 @@ def _metrics_for_split(
         yt, yp = _subsample(yt, yp, cap=subsample, seed=seed)
         m = _regression_metrics(yt, yp)
         m["y_std"] = float(np.std(yt))  # carried for the 0-1 quality normalization of RMSE/MAE/|bias| bars
+        m["n_rows"] = float(yt.size)
         return m, None
 
     raise ValueError(f"unknown task {task!r}; expected 'classification'/'binary'/'regression'")
+
+
+def _auc_gap_se(m_lo: Mapping[str, float], m_hi: Mapping[str, float]) -> float:
+    """Standard error of a train-test AUC GAP under the null of equal AUCs, from each split's class counts.
+
+    A Mann-Whitney AUC has null variance ``(n_pos + n_neg + 1) / (12 * n_pos * n_neg)``; the two splits are
+    independent, so the gap's variance is their sum. Without this the fixed 0.03 AMBER line fires on pure noise at a
+    few hundred rows and stays silent at a genuine 0.02 gap on a million.
+    """
+    def _var(m):
+        """Null variance of one split's AUC, or NaN when the class counts were not carried."""
+        npos = float(m.get("n_pos", 0.0) or 0.0)
+        nneg = float(m.get("n_neg", 0.0) or 0.0)
+        if npos <= 0 or nneg <= 0:
+            return float("nan")
+        return (npos + nneg + 1.0) / (12.0 * npos * nneg)
+
+    total = _var(m_lo) + _var(m_hi)
+    return float(np.sqrt(total)) if np.isfinite(total) else float("nan")
 
 
 def _overfit_verdict(task: str, per_metrics: Mapping[str, Dict[str, float]]) -> OverfitVerdict:
@@ -148,28 +180,42 @@ def _overfit_verdict(task: str, per_metrics: Mapping[str, Dict[str, float]]) -> 
     lo = "train" if "train" in per_metrics else (ordered[0] if ordered else None)
     hi = "test" if "test" in per_metrics else (ordered[-1] if ordered else None)
     if lo is None or hi is None or lo == hi:
-        return OverfitVerdict("green", "N/A", "need >= 2 splits to measure a train-test gap", 0.0, "")
+        # "unknown", never "green": a green light is a POSITIVE claim that the model generalises, and
+        # rendering one when nothing could be measured is the most misleading outcome available here.
+        return OverfitVerdict("unknown", "NOT MEASURED", "need >= 2 splits to measure a train-test gap", 0.0, "")
 
     if task in ("classification", "binary"):
         a_train = per_metrics[lo].get("ROC_AUC", float("nan"))
         a_test = per_metrics[hi].get("ROC_AUC", float("nan"))
         gap = float(a_train - a_test)
         if not np.isfinite(gap):
-            return OverfitVerdict("green", "N/A", "ROC_AUC missing on a split", 0.0, "ROC_AUC")
-        if gap >= AUC_GAP_RED:
+            return OverfitVerdict("unknown", "NOT MEASURED", "ROC_AUC missing or non-finite on a split", 0.0, "ROC_AUC")
+        se = _auc_gap_se(per_metrics[lo], per_metrics[hi])
+        noise_bar = 2.0 * se if np.isfinite(se) else 0.0
+        if gap >= max(AUC_GAP_RED, noise_bar):
             color, label = "red", "OVERFIT"
-        elif gap >= AUC_GAP_AMBER:
+        elif gap >= max(AUC_GAP_AMBER, noise_bar):
             color, label = "amber", "MILD OVERFIT"
         else:
             color, label = "green", "GENERALIZES"
-        reason = f"{lo}->{hi} ROC_AUC drop {gap:+.3f} ({a_train:.3f} -> {a_test:.3f})"
+        _n_lo = int(per_metrics[lo].get("n_rows", 0) or 0)
+        _n_hi = int(per_metrics[hi].get("n_rows", 0) or 0)
+        # No fabricated "n=0/0" when a caller passes precomputed metrics without row counts: say the counts are
+        # unavailable rather than print a zero that reads as a measurement.
+        if np.isfinite(se) and noise_bar > 0:
+            _bar_note = f"; noise bar 2*SE={noise_bar:.3f} at n={_n_lo:,}/{_n_hi:,}"
+        elif _n_lo or _n_hi:
+            _bar_note = f"; n={_n_lo:,}/{_n_hi:,}"
+        else:
+            _bar_note = "; row counts unavailable, so the fixed threshold was used rather than a noise bar"
+        reason = f"{lo}->{hi} ROC_AUC drop {gap:+.3f} ({a_train:.3f} -> {a_test:.3f}){_bar_note}"
         return OverfitVerdict(color, label, reason, gap, "ROC_AUC")
 
     r_train = per_metrics[lo].get("RMSE", float("nan"))
     r_test = per_metrics[hi].get("RMSE", float("nan"))
     ratio = float(r_test / r_train) if r_train > 0 else float("inf")
     if not np.isfinite(ratio):
-        return OverfitVerdict("green", "N/A", "RMSE undefined on a split (zero train error?)", 0.0, "RMSE")
+        return OverfitVerdict("unknown", "NOT MEASURED", "RMSE undefined on a split (zero train error?)", 0.0, "RMSE")
     if ratio >= RMSE_RATIO_RED:
         color, label = "red", "OVERFIT"
     elif ratio >= RMSE_RATIO_AMBER:
@@ -192,9 +238,19 @@ def _grouped_bar_panel(
     """
     headline = _CLF_HEADLINE if task in ("classification", "binary") else _REG_HEADLINE
     cats = tuple(disp for disp, _, _ in headline)
-    y_std = max(per_metrics.get("train", {}).get("y_std", 0.0), 1e-12)
+    # The scale used to be read from "train" only, so a figure built without a train split divided by a 1e-12 floor
+    # and every RMSE/MAE/bias bar flattened to zero -- a perfect-model reading produced by a missing dictionary key.
+    # Fall back to the first split that carries a usable spread, and drop the affected metrics when none does.
+    y_std = 0.0
+    for _s in ("train", *splits):
+        _cand = float(per_metrics.get(_s, {}).get("y_std", 0.0) or 0.0)
+        if np.isfinite(_cand) and _cand > 0.0:
+            y_std = _cand
+            break
+    scaled_ok = y_std > 0.0
     series: List[np.ndarray] = []
     colors: List[str] = []
+    hatches: List[str] = []
     for i, s in enumerate(splits):
         m = per_metrics[s]
         row: List[float] = []
@@ -206,20 +262,29 @@ def _grouped_bar_panel(
             if higher:
                 q = raw
             elif key in ("RMSE", "MAE", "bias"):
+                if not scaled_ok:
+                    row.append(float("nan"))  # NaN leaves a gap; a zero bar would read as "perfectly wrong"
+                    continue
                 q = 1.0 - min(1.0, abs(raw) / y_std)
             else:
                 q = 1.0 - abs(raw)
             row.append(float(np.clip(q, 0.0, 1.0)))
         series.append(np.asarray(row, dtype=np.float64))
         colors.append(_split_color(s, i))
+        hatches.append(_split_hatch(s, i))
     return BarPanelSpec(
         categories=cats,
         values=tuple(series),
-        series_labels=tuple(splits),
-        title="Headline metrics per split (taller = better, [0,1])",
+        # n per split, always: the audit's point is that a gap read without the row counts behind it is unreadable.
+        series_labels=tuple(f"{s} (n={int(per_metrics[s].get('n_rows', 0) or 0):,})" if per_metrics.get(s, {}).get("n_rows") else s for s in splits),
+        title=(
+            "Headline metrics per split (taller = better, [0,1]) -- "
+            f"{ {'green': 'generalises', 'amber': 'watch the gap', 'red': 'overfit', 'unknown': 'not measured'}.get(verdict_color, 'not measured') }"
+        ),
         xlabel="metric",
         ylabel="quality",
         colors=tuple(colors),
+        hatches=tuple(hatches),
     )
 
 
@@ -242,7 +307,9 @@ def _delta_table_panel(
         if len(splits) > 2:
             transitions.append((splits[0], splits[-1]))
 
-    dot = {"green": "[GREEN]", "amber": "[AMBER]", "red": "[RED]"}.get(verdict.color, "[RED]")
+    # "unknown" gets its own marker. It previously fell through to the [RED] default, which is a different
+    # wrong answer from the green one: both assert a finding where none was measured.
+    dot = {"green": "[GREEN]", "amber": "[AMBER]", "red": "[RED]", "unknown": "[NOT MEASURED]"}.get(verdict.color, "[NOT MEASURED]")
     lines: List[str] = [f"{dot} {verdict.label}", verdict.reason, ""]
     header = f"{'metric':<9s}" + "".join(f"{a[:2]}->{b[:2]:<6s}" for a, b in transitions)
     lines.append(header)
@@ -252,7 +319,7 @@ def _delta_table_panel(
             va, vb = per_metrics[a].get(key, float("nan")), per_metrics[b].get(key, float("nan"))
             cells.append(f"{(vb - va):+.3f}" if np.isfinite(va) and np.isfinite(vb) else "  n/a ")
         lines.append(f"{disp:<9s}" + "".join(f"{c:<8s}" for c in cells))
-    return AnnotationPanelSpec(text="\n".join(lines), title="Cross-split deltas + overfit verdict", fontsize=10)
+    return AnnotationPanelSpec(text="\n".join(lines), title="Cross-split deltas + overfit verdict", fontsize=10, monospace=True)
 
 
 def overfit_verdict(
@@ -338,10 +405,20 @@ def compose_split_comparison_figure(
     if degenerate:
         # Surface annotated splits in the table panel so they are not silently dropped.
         skipped = "; ".join(f"{n}: {why}" for n, why in degenerate)
-        table = AnnotationPanelSpec(text=table.text + f"\n\nskipped: {skipped}", title=table.title, fontsize=table.fontsize)
+        table = AnnotationPanelSpec(text=table.text + f"\n\nskipped: {skipped}", title=table.title, fontsize=table.fontsize, monospace=True)
 
     title = suptitle if suptitle is not None else f"Cross-split overfit -- {model_name} -- {verdict.label}"
-    return FigureSpec(suptitle=title, panels=((bar, table),), figsize=figsize)
+    return FigureSpec(
+        suptitle=title,
+        panels=((bar, table),),
+        figsize=figsize,
+        caption=(
+            "How to read: the same metrics computed on each split, so what matters is the SHAPE across splits, not "
+            "any single bar. A train-to-test drop beyond sampling noise is overfitting; a val-to-test drop is "
+            "selection pressure from tuning against val, which is why val is never the honest number to quote. "
+            "Splits are usually different sizes, so a small gap on a small test split may be noise."
+        ),
+    )
 
 
 __all__ = [

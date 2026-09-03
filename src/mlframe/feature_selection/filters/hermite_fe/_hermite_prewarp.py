@@ -205,6 +205,13 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
             _twin_ready = False
         if _twin_ready:
             _dev_errs: list = []
+            # ModuleNotFoundError is added unconditionally, before the cupy-specific probes below --
+            # ``warm_start_als_seed_gpu``/``_gpu_from_z`` do their OWN ``import cupy`` and raise this
+            # when cupy is absent; if it's only added inside the try block that ALSO does `import cupy`,
+            # a missing cupy skips straight past that append (the import itself fails first), leaving
+            # ModuleNotFoundError out of the tuple and letting it propagate uncaught instead of falling
+            # back to CPU like every other genuine device-absence fault here.
+            _dev_errs.append(ModuleNotFoundError)
             try:
                 _dev_errs.append(np.linalg.LinAlgError)
                 import cupy as _cp

@@ -4,11 +4,16 @@ import logging
 logger = logging.getLogger(__name__)
 
 import sys, time, math
+from pathlib import Path
 import numpy as np
 
 if __name__ == "__main__":
-    sys.path.insert(0, r"D:/Upd/Programming/PythonCodeRepository/mlframe/src")
-    sys.path.insert(0, r"D:/Upd/Programming/PythonCodeRepository")
+    # Derived from __file__ (this file lives at <repo>/src/mlframe/feature_selection/_benchmarks/
+    # wide_data_scaling/h1_bench.py), not a dev-machine-specific absolute path -- a stale hardcoded path
+    # would silently shadow the properly installed mlframe package for the whole process on any other machine.
+    _src_dir = Path(__file__).resolve().parents[4]
+    sys.path.insert(0, str(_src_dir))
+    sys.path.insert(0, str(_src_dir.parent))
 
     from mlframe.feature_selection._benchmarks.wide_data_scaling._progress_shared import ck
     from mlframe.feature_selection.filters.batch_pair_mi_gpu import (

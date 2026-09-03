@@ -11,6 +11,18 @@ import pytest
 from mlframe.models.ensembling import base as eb
 from mlframe.models.ensembling import per_member_tuning as pmt
 
+# Pinned to the same xdist worker as tests/feature_selection/test_gen_default_tuning.py's
+# register_default_cache tests (2026-08-21): this file's autotune-on-miss sweep
+# (MLFRAME_PER_MEMBER_AUTOTUNE=1) can spawn a background daemon thread
+# (KernelTuningCache._spawn_async_sweep) that outlives its own test and touches pyutilz's
+# process-global _TUNED_THIS_PROCESS/_tuned_guard_lock state -- a plausible source of the
+# unreproduced-locally CI-only race in test_register_default_cache_loads_and_local_miss_returns_default
+# (reproduced once locally under a wide -n 4 tests/feature_selection/ run, never isolated to a
+# specific interacting file). Forcing both files onto one worker removes any chance of that
+# thread still running when the OTHER file's local-miss assertion executes, regardless of the
+# exact mechanism -- same rationale as test_gen_default_tuning.py's existing xdist_group use.
+pytestmark = pytest.mark.xdist_group(name="kernel_tuning_default_cache")
+
 
 @pytest.fixture(autouse=True)
 def _isolated_cache(tmp_path, monkeypatch):
@@ -74,7 +86,10 @@ def test_ensure_tuning_populates_cache_and_dispatch_reads_it():
     """Ensure tuning populates cache and dispatch reads it."""
     from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
-    pmt.ensure_per_member_tuning(force=True, observed_elements=50_000, observed_groups=4, repeats=5)
+    # ensure_per_member_tuning has no observed_groups param -- run_per_member_sweep fixes n_groups at the
+    # internal _SWEEP_K constant (see its docstring: "not swept; the crossover is dominated by
+    # elements_per_member"), so there is nothing for a caller to pass here.
+    pmt.ensure_per_member_tuning(force=True, observed_elements=50_000, repeats=5)
     assert KernelTuningCache().has(pmt._PER_MEMBER_KERNEL_NAME)
     # dispatch now reads the persisted region (autotune already ran this process)
     eb._per_member_use_numba.cache_clear()

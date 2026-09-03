@@ -287,7 +287,7 @@ def stability_select_fe(
     }
 
 
-class StabilityFESelector(BaseEstimator, TransformerMixin):
+class StabilityFESelector(TransformerMixin, BaseEstimator):
     """sklearn-compatible wrapper around ``stability_select_fe``.
 
     ``fit(X, y)`` :

@@ -185,7 +185,13 @@ def compute_mdl_binning_pairwise_features(
         # y_t's values -- a caller passing task="binary" for a {-1,1}- or {1,2}-coded target
         # previously silently got 5-class quantile binning instead of the requested 2-class binning.
         if task == "binary":
-            y_class = y_t.astype(np.int32)
+            # y_t's raw values are the caller's label CODES (e.g. {-1,1} or {1,2}), not necessarily
+            # {0,1} class INDICES -- the downstream njit kernels index fixed-size (n_classes,) count
+            # arrays with y_class directly, so a nonstandard code (e.g. 2) silently overruns the
+            # array under real JIT (no bounds check) or raises IndexError with JIT disabled. Map to
+            # {0,1} via the sorted unique values rather than casting the raw codes.
+            uniq = np.unique(y_t)
+            y_class = np.searchsorted(uniq, y_t).astype(np.int32)
             n_classes = 2
         else:
             qs = np.quantile(y_t, [0.2, 0.4, 0.6, 0.8])
@@ -209,8 +215,13 @@ def compute_mdl_binning_pairwise_features(
         # Vectorised np.unique + searchsorted lookup replaces the per-query-row Counter.get() Python loop
         # (5-10x faster at n>=10k); counts are integers so the result is bit-identical to the dict path.
         if d >= 2:
-            train_combo = train_bins[:, 0] * 100 + train_bins[:, 1]
-            query_combo = query_bins[:, 0] * 100 + query_bins[:, 1]
+            # np.digitize against len(edges) edges returns bin indices in [0, len(edges)], so the base
+            # must exceed the largest possible bin1 index -- a hardcoded 100 silently collides distinct
+            # (bin0, bin1) pairs into the same combo code once max_bins_per_feat (caller-settable) allows
+            # >=100 bins for feature 1.
+            combo_base = len(all_edges[1]) + 1
+            train_combo = train_bins[:, 0] * combo_base + train_bins[:, 1]
+            query_combo = query_bins[:, 0] * combo_base + query_bins[:, 1]
             uniq_combo, uniq_counts = np.unique(train_combo, return_counts=True)
             pos = np.searchsorted(uniq_combo, query_combo)
             pos_clipped = np.clip(pos, 0, uniq_combo.shape[0] - 1)

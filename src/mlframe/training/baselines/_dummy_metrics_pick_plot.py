@@ -20,6 +20,7 @@ import math
 import re
 from typing import Any
 
+from mlframe._output_paths import ensure_parent_dir
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
@@ -486,7 +487,7 @@ def plot_best_dummy_baseline_overlay(
 
     if save_path:
         try:
-            fig.savefig(save_path, bbox_inches="tight")
+            fig.savefig(ensure_parent_dir(save_path), bbox_inches="tight")
             logger.info(
                 "[dummy-baselines] target='%s' baseline-overlay plot "
                 "saved: %s", report.target_name, save_path,
@@ -514,8 +515,8 @@ def plot_best_dummy_baseline_overlay(
                 # serialised the figure to the kernel display channel,
                 # so the pyplot-registry reference is dead weight.
                 # Leaving it alive causes the inline backend's end-of-
-                # cell auto-flush to re-render the figure (the "толпа
-                # графиков" double-render seen 2026-05-26).
+                # cell auto-flush to re-render the figure (a "crowd of
+                # plots" double-render).
                 _plt.close(fig)
             except Exception as e:
                 logger.debug("IPython inline display failed, falling back to plt.show(): %s", e)

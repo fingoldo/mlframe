@@ -56,10 +56,14 @@ def test_pick_best_calibrator_picks_isotonic_on_large_n():
     # Either the lowest-ECE candidate wins outright (CI separated), or the Isotonic default fires when CIs overlap.
     if out["rule"] == "default_isotonic":
         assert out["chosen"] == "Isotonic"
-    if out["rule"] == "default_beta":
-        # Default beta should NOT trigger at n=2000 (only when n_oof<1000).
-        # Skip assertion if betacal absent reshuffles the candidate pool.
-        pass
+    # The comment states the contract -- default_beta is an n_oof < 1000 rule and must not fire at n=2000 --
+    # and then the body is `pass`, so the code permits exactly what the comment calls wrong. An inverted or
+    # dropped n-threshold in the selection policy passes silently. (The preceding assertion already admits
+    # default_beta into the allowed rule set, so nothing else catches it either.)
+    assert out["rule"] != "default_beta", (
+        f"default_beta fired at n=2000; it is an n_oof<1000 fallback, so the selection policy's n-threshold has "
+        f"been inverted or dropped. Full result: {out}"
+    )
     # Bench delivered at least 2 alternatives (Sigmoid + Isotonic ship with sklearn baseline).
     assert len(out["alternatives"]) >= 2
 
@@ -107,6 +111,38 @@ def test_pick_best_calibrator_emit_plot_writes_png():
         assert out["plot_path"] is not None, "expected non-null plot_path after emit_plot=True"
         assert os.path.exists(out["plot_path"]), out["plot_path"]
         assert os.path.getsize(out["plot_path"]) > 1024, "PNG looks suspiciously small"
+
+
+def test_pick_best_calibrator_survives_reliability_spec_build_failure(monkeypatch):
+    """CALIBRATION-4: pick_best_calibrator must NOT crash when build_reliability_overlay_spec (the
+    plot-spec builder, called before render_and_save) raises -- selection already succeeded and
+    plotting is documented as an opt-in, failure-tolerant diagnostic."""
+    import mlframe.reporting.charts.calibration as calibration_charts
+    from mlframe.calibration.policy import pick_best_calibrator
+
+    def _boom(*args, **kwargs):
+        """Stand-in for build_reliability_overlay_spec that always raises."""
+        raise RuntimeError("synthetic spec-build failure")
+
+    monkeypatch.setattr(calibration_charts, "build_reliability_overlay_spec", _boom)
+
+    raw, y = _make_miscalibrated(n=500, seed=23)
+    with tempfile.TemporaryDirectory() as td:
+        plot_path = os.path.join(td, "calib_plot.png")
+        out = pick_best_calibrator(
+            probs=None,
+            y=None,
+            oof_probs=raw,
+            oof_y=y,
+            n_bootstrap=100,
+            random_state=23,
+            emit_plot=True,
+            plot_path=plot_path,
+        )
+        # Selection itself must still have succeeded despite the plotting failure.
+        assert out["chosen"] is not None
+        assert out["plot_path"] is None
+        assert not os.path.exists(plot_path)
 
 
 def test_pick_best_calibrator_rejects_too_few_rows():

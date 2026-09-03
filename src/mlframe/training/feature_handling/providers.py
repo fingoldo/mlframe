@@ -283,5 +283,11 @@ class EmbeddingProvider(BaseModel):
         scrubbed_params = _scrub_dict(self.params)
         return f"EmbeddingProvider(kind={self.kind!r}, model={self.model!r}, " f"params={scrubbed_params!r})"
 
+    def __str__(self) -> str:
+        # pydantic.BaseModel defines its OWN __str__ (does not fall back to __repr__), so
+        # overriding only __repr__ left str(provider) / f"{provider}" / %s-logging printing
+        # the raw unscrubbed params via pydantic's default field-walking __str__.
+        return self.__repr__()
+
 
 __all__ = ["EmbeddingProvider"]

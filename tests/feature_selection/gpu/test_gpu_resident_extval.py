@@ -9,7 +9,19 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-pytest.importorskip("cupy")
+cp = pytest.importorskip("cupy")
+
+
+def _gpu_available() -> bool:
+    """Gpu available."""
+    try:
+        return cp.cuda.runtime.getDeviceCount() >= 1
+    except Exception:  # pragma: no cover - no driver / no GPU
+        return False
+
+
+if not _gpu_available():  # pragma: no cover - guarded at collection time
+    pytest.skip("No CUDA device available", allow_module_level=True)
 
 from mlframe.feature_selection.filters._gpu_resident_extval import gpu_materialise_extval_codes_host
 from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_materialise import (

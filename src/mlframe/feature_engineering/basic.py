@@ -289,6 +289,10 @@ def create_date_features(
     tz-naive bucket). The function never auto-converts -- the caller must normalise upstream
     (e.g. tz-convert all to UTC at ingest) if the intended semantics is "same instant".
     """
+    # Captured BEFORE the default fills it in: the cyclical branch below must distinguish "the caller
+    # named the date parts they want" from "the caller took the default set", and after this line the
+    # two are indistinguishable.
+    _methods_explicit = methods is not None
     if methods is None:
         methods = dict(_DEFAULT_DATE_METHODS)
     if len(cols) == 0:
@@ -342,8 +346,21 @@ def create_date_features(
 
     # ``add_cyclical`` MUST run before ``delete_original_cols`` drops the source datetimes -- the cyclical helper reads ``df[col].dt`` directly off the source column rather than recomputing from the just-emitted integer fields.
     if add_cyclical:
+        # Never emit a cyclical pair for a date part the caller did not ask for. When ``methods`` is
+        # explicit, the requested set IS the caller's statement of which parts they want; defaulting
+        # cyclical to the full hour/day/weekday/month/day_of_year list regardless meant a caller asking
+        # for {hour, day, weekday} silently received month_sin/cos and day_of_year_sin/cos too -- which
+        # the suite's own redundancy analyzer then flagged as near-duplicate (|r|=0.97) features the
+        # caller never requested. An explicit ``cyclical_periods`` still wins, so the full set remains
+        # one argument away; ``methods=None`` (the full default part set) keeps the full cyclical set.
+        # ``_DEFAULT_CYCLICAL_PERIODS`` and ``methods`` are keyed by the same logical part names, so a
+        # direct membership test is the right check (the alias map's values are (pandas, polars) accessor
+        # pairs, not comparable names).
+        _periods = cyclical_periods
+        if _periods is None and _methods_explicit:
+            _periods = tuple((_name, _p) for _name, _p in _DEFAULT_CYCLICAL_PERIODS if _name in methods)
         df = add_cyclical_date_features(
-            df, cols=cols, periods=cyclical_periods,
+            df, cols=cols, periods=_periods,
             delete_original_cols=False,
             _precomputed_bases=precomputed_bases if is_pandas else None,
         )

@@ -401,14 +401,14 @@ def group_aware_mrmr_select(
     red = _su_redundancy_matrix(X_df[cols], nbins=nbins)  # (n_features, n_features) SU in [0, 1]
 
     n = len(cols)
-    cap = min(n, int(max_features)) if max_features else n
+    cap = min(n, int(max_features)) if max_features is not None else n
     # Adaptive floor: finite-sample binned MI is biased upward (a pure-noise feature scores a small positive MI), so
     # gate on a fraction of the strongest feature's relevance as well as the absolute floor -- keeps genuine signal,
     # drops the noise pedestal. ``relevance_frac`` of the max is the discriminator that separates s_within from noise.
     eff_floor = max(float(relevance_floor), 0.2 * float(rel.max()) if rel.size else 0.0)
     eligible = np.where(rel > eff_floor)[0]
-    if eligible.size == 0:
-        return []  # nothing carries within-query signal -> select nothing (caller keeps all)
+    if eligible.size == 0 or cap <= 0:
+        return []  # nothing carries within-query signal, or max_features=0 explicitly caps the selection at zero
 
     selected: list = [int(eligible[np.argmax(rel[eligible])])]
     # Incremental redundancy: ``red_sum[i] = sum(red[i, s] for s in selected)`` maintained vectorised (one

@@ -1,6 +1,6 @@
 """``apply_group_zero_sum_constraint``: enforce a known per-group weighted-sum conservation law on predictions.
 
-Source: 9th_optiver-trading-at-the-close.md -- code subtracting the ``groupby(date_id, seconds_in_bucket)``
+Source: 9th_optiver-trading-at-the-close.md - code subtracting the ``groupby(date_id, seconds_in_bucket)``
 weighted mean of predictions so the weighted sum is exactly zero within each group, matching a known property
 of the target (Optiver's target is itself a cross-sectional relative price move, which sums to ~0 per
 auction-second by construction). Unlike :func:`mlframe.calibration.group_bias_correction`, this needs no
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 def apply_group_zero_sum_constraint(predictions: np.ndarray, group: np.ndarray, weights: Optional[np.ndarray] = None, target_sum: float = 0.0) -> np.ndarray:
     """Shift each row's prediction by a constant per-group offset so the group's weighted sum equals ``target_sum``.
 
-    ``corrected = pred - weighted_mean(pred | group) + target_sum / sum(weights | group)`` -- equivalently,
+    ``corrected = pred - weighted_mean(pred | group) + target_sum / sum(weights | group)`` - equivalently,
     for the default ``target_sum=0.0``, each group's weighted predictions are re-centered to sum to exactly
     zero, without changing the RELATIVE ordering of predictions within a group (a constant shift per group).
 
@@ -32,7 +32,7 @@ def apply_group_zero_sum_constraint(predictions: np.ndarray, group: np.ndarray, 
     group
         ``(n,)`` group label per row (e.g. a combined ``date_id``/``seconds_in_bucket`` key). A NaN group
         label is excluded from the fitted offset table (pandas groupby's own ``dropna=True``) and receives
-        offset ``0.0`` (a logged warning, no correction) -- not an error.
+        offset ``0.0`` (a logged warning, no correction) - not an error.
     weights
         ``(n,)`` per-row weight, or ``None`` for an unweighted (equal-weight) sum/mean within each group.
     target_sum
@@ -72,16 +72,23 @@ def apply_group_zero_sum_constraint_multi(
     max_iterations: int = 10,
     tol: float = 1e-8,
 ) -> np.ndarray:
-    """Satisfy MULTIPLE simultaneous per-group zero-sum constraints via Dykstra-style alternating projection.
+    """Satisfy MULTIPLE simultaneous per-group zero-sum constraints via alternating per-group shifts.
 
     Real conservation-law targets can carry more than one known grouping that each must independently sum
-    (weighted) to a target -- e.g. Optiver's target sums to ~0 both within ``(date_id, seconds_in_bucket)``
+    (weighted) to a target - e.g. Optiver's target sums to ~0 both within ``(date_id, seconds_in_bucket)``
     AND, if a second orthogonal grouping is also known to be constrained, within that grouping too. Applying
     :func:`apply_group_zero_sum_constraint` for one grouping alone re-satisfies THAT constraint but generally
     re-breaks any other grouping's constraint (the two group-by partitions overlap, so a per-row shift that
     fixes one recentres rows into different partial sums for the other). Alternating the single-constraint
-    projection across all groupings and iterating converges both (all) constraints simultaneously, exactly
-    like Dykstra's alternating projection algorithm onto multiple convex sets.
+    projection across all groupings and iterating converges all constraints simultaneously (verified
+    empirically - see the multi-constraint convergence tests).
+
+    This is the same alternating-sweep STRUCTURE as Dykstra's algorithm, but each per-constraint step is a
+    constant per-group additive shift (by design - it must preserve within-group prediction ordering), not
+    Dykstra's true weighted orthogonal projection onto each constraint set. Under non-uniform ``weights``
+    that distinction matters: Dykstra's convergence-to-the-nearest-feasible-point optimality guarantee does
+    NOT carry over here. What's guaranteed (and verified) is that the sweep converges to *a* point
+    satisfying every constraint, not necessarily the one closest to the input in any particular norm.
 
     Parameters
     ----------
@@ -116,7 +123,7 @@ def apply_group_zero_sum_constraint_multi(
     for _ in range(max_iterations):
         for group, target_sum in zip(groups, targets):
             corrected = apply_group_zero_sum_constraint(corrected, group, weights=w_arr, target_sum=target_sum)
-        # the just-applied (last) constraint is satisfied to float precision by construction -- no need to
+        # the just-applied (last) constraint is satisfied to float precision by construction - no need to
         # re-scan it; only the earlier constraints in this sweep may have been disturbed by later applies.
         max_residual = max(
             (_max_abs_group_residual(corrected, group, w_arr, target_sum) for group, target_sum in zip(groups[:-1], targets[:-1])),

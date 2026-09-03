@@ -55,6 +55,29 @@ def _detect_interactive_mode() -> bool:
 _MLFRAME_INTERACTIVE = _detect_interactive_mode()
 
 
+def _heavy_libs_needed(mlframe_models, recurrent_models, reporting_config) -> bool:
+    """True when this run will actually reach the neural / SHAP import stack.
+
+    The prewarm imports lightning, which pulls torchmetrics -> transformers -> a ``find_spec("tensorflow")``
+    probe, and separately shap. A production fit with ``mlframe_models=['cb']`` spent 382.73s on that for
+    models it never builds. Any recurrent model, any neural tag in the model list, or SHAP being enabled
+    means the cost is real work rather than waste; an unreadable config answers True, because paying the
+    import needlessly is a slow run while skipping it wrongly is a slow first fit plus a confusing profile.
+    """
+    try:
+        if recurrent_models:
+            return True
+        if mlframe_models:
+            from ..models import is_neural_model
+
+            if any(is_neural_model(m) for m in mlframe_models):
+                return True
+        return bool(getattr(reporting_config, "use_shap", False))
+    except Exception as exc:
+        logger.debug("could not decide whether heavy libs are needed (%s); warming them", exc)
+        return True
+
+
 def setup_configuration(
     *,
     preprocessing_config: Any,
@@ -78,6 +101,8 @@ def setup_configuration(
     model_name: str,
     target_name: str,
     mlframe_models: list[str] | None,
+    # Read only to decide whether the neural import stack is worth prewarming; the suite sets ctx.recurrent_models itself.
+    recurrent_models: list[str] | None = None,
     verbose: int,
     # These get plumbed into the TrainingContext so dispatchers downstream
     # (LTR ranker-suite, pre-pipeline builder, ensemble-builder) see the
@@ -184,7 +209,7 @@ def setup_configuration(
 
     # None = clear override (auto-detect via __IPYTHON__ / sys.ps1); True/False = explicit.
     # Only import the renderers.save module when the caller actually set a non-None value.
-    # The import triggers the mlframe.reporting -> renderers chain (~12ms on cold-start, measured 2026-05-20)
+    # The import triggers the mlframe.reporting -> renderers chain (~12ms on cold-start)
     # which is pure overhead on suites that never touch charts (plot_outputs='matplotlib[png]'
     # + save_charts=False).
     _inline_display = getattr(reporting_config, "plot_inline_display", None)
@@ -205,6 +230,48 @@ def setup_configuration(
             _set_idm(_inline_display)
         except ImportError:
             pass
+    # Same set-and-restore shape as the inline-display override above, and the same reason for the thread-local:
+    # two suites running concurrently must not flip each other's output layout mid-run.
+    _subfolders = getattr(reporting_config, "plot_format_subfolders", None)
+    _subfolders_prior_set = False
+    _subfolders_prior = None
+    if _subfolders is not None:
+        try:
+            from mlframe.reporting.renderers.save import (
+                get_format_subfolders as _get_fsf,
+                set_format_subfolders as _set_fsf,
+            )
+            _subfolders_prior = _get_fsf()
+            _subfolders_prior_set = True
+            _set_fsf(_subfolders)
+        except (ImportError, AttributeError):
+            pass
+    # Same set-and-restore shape again, for the reliability diagram's colour scale.
+    _calib_cmap = getattr(reporting_config, "calibration_colormap", None)
+    _calib_cmap_prior_set = False
+    _calib_cmap_prior = None
+    if _calib_cmap is not None:
+        try:
+            from mlframe.reporting.colors import (
+                get_calibration_cmap_override as _get_ccm,
+                set_calibration_cmap as _set_ccm,
+            )
+            _calib_cmap_prior = _get_ccm()
+            _calib_cmap_prior_set = True
+            _set_ccm(_calib_cmap)
+        except (ImportError, AttributeError):
+            pass
+    # One run's chart-timing table must describe one run's charts, and the registry behind it is process-wide.
+    # Reset here rather than at the facade so a caller that builds its own context still gets a clean table.
+    try:
+        from mlframe.reporting.renderers import reset_chart_timings
+
+        from .._dataset_build_stats import reset_dataset_build_stats
+
+        reset_chart_timings()
+        reset_dataset_build_stats()
+    except (ImportError, AttributeError):
+        pass
     _step_done("inline_display setup (import mlframe.reporting.renderers.save)")
 
     # Process-wide; None keeps the user's pre-suite matplotlib/plotly settings intact.
@@ -227,11 +294,20 @@ def setup_configuration(
     regression_calibration_config = _ensure_config(regression_calibration_config, RegressionCalibrationConfig, {})
     _step_done("_ensure_config x9 (output..regression_calibration)")
 
-    # Pre-warm numba kernels so first call doesn't pay 6-10s JIT cold-start.
+    # Pre-warm numba kernels so the first call does not pay the JIT cold-start.
+    #
+    # The feature-selection kernel set is by far the expensive half and is only worth compiling when
+    # feature selection will actually run: a CatBoost-only fit with no MRMR and no RFECV never calls one of
+    # those kernels, so warming them is pure wall time before any data is read.
+    _fs_will_run = bool(getattr(feature_selection_config, "use_mrmr_fs", False)) or bool(getattr(feature_selection_config, "rfecv_models", None))
+    # The heavy-lib half (lightning -> torchmetrics -> transformers -> a tensorflow probe, plus shap) is worth
+    # importing only when this run will actually reach it. A production fit with mlframe_models=['cb'] spent
+    # 382.73s warming a neural stack it never touched. SHAP counts too: the trainer imports it when use_shap.
+    _heavy_will_run = _heavy_libs_needed(mlframe_models, recurrent_models, reporting_config)
     if dummy_baselines_config.enabled:
         try:
             from ..baselines import _warmup_numba_kernels
-            _warmup_numba_kernels()
+            _warmup_numba_kernels(include_feature_selection=_fs_will_run, include_heavy_libs=_heavy_will_run)
         except Exception as e:  # nosec B110 - optional dependency import guard
             logger.debug("numba kernel warm-up failed, first real call will pay JIT cost: %s", e)
     _step_done("_warmup_numba_kernels (JIT prewarm)")
@@ -256,7 +332,15 @@ def setup_configuration(
         output_config.plot_file = ""
 
     if verbose:
-        _plot_dir = f"{data_dir}/{models_dir}/{model_name}" if data_dir and save_charts else "(no save)"
+        # Must match ``_setup_helpers.setup_directories``, which writes charts to
+        # ``<data_dir>/charts/<target_name>/<model_name>/<target_type>/<cur_target_name>/`` (every segment
+        # slugified). The previous string named ``<data_dir>/<models_dir>/<model_name>`` -- the MODELS
+        # directory, unslugified, missing the target_name segment entirely -- so anyone who followed this
+        # log line looked in a directory charts are never written to and concluded rendering had failed.
+        # target_type / cur_target_name are only known inside the per-target loop, hence the trailing "...".
+        from mlframe.training.core._setup_helpers import slugify as _slugify
+
+        _plot_dir = f"{data_dir}/charts/{_slugify(target_name)}/{_slugify(model_name)}/..." if data_dir and save_charts else "(no save)"
         if _short_circuit_active:
             logger.info(
                 "[reporting] save_charts=%s, interactive=%s -- " "cal-plot short-circuit ACTIVE: clearing plot_file so " "chart rendering is skipped entirely",
@@ -305,7 +389,7 @@ def setup_configuration(
     od_val_set = outlier_detection_config.apply_to_val
     use_mrmr_fs = feature_selection_config.use_mrmr_fs
     mrmr_kwargs = feature_selection_config.mrmr_kwargs
-    # USABILITY-AWARE MULTI-LIST (2026-06-13): the suite-level flag turns on MRMR's usability second pass
+    # The suite-level flag turns on MRMR's usability second pass
     # so transform() materialises the UNION of all three selection lists (pure-MI + linear + universal),
     # putting the linearly-usable engineered interaction in every model's input. An explicit mrmr_kwargs
     # entry wins; the default path (flag off) leaves mrmr_kwargs untouched / byte-identical.
@@ -329,10 +413,17 @@ def setup_configuration(
     _dataset_reuse_caps = _detect_dataset_reuse_capabilities()
     logger.info("Dataset-reuse capabilities: %s", _dataset_reuse_caps)
     if not _dataset_reuse_caps.get("cb_pool_label_swap"):
+        # Name the method that is ACTUALLY missing. The old text said "set_label/set_weight not available"
+        # whenever the label-swap capability was off, which reads as both being absent -- and set_weight has
+        # shipped and been documented for years, so an operator checking the docs concluded mlframe was wrong.
+        # In CatBoost 1.2.10 set_weight exists and set_label does not; only the latter gates the swap.
+        _missing = [_name for _name, _key in (("set_label", "cb_pool_set_label"), ("set_weight", "cb_pool_set_weight")) if not _dataset_reuse_caps.get(_key)]
         logger.warning(
-            "  CatBoost Pool.set_label/set_weight not available in installed build -- "
-            "mlframe will fall back to rebuilding the Pool on every weight schema and "
-            "same-type target. Upgrade CatBoost to pick up the Pool label-swap PR."
+            "  CatBoost Pool.%s not available in this build (%s present) -- mlframe will rebuild the Pool "
+            "for every weight schema and same-type target instead of swapping in place. Upgrade CatBoost to "
+            "pick up the Pool label-swap PR.",
+            "/".join(_missing) or "label-swap support",
+            "/".join(_n for _n in ("set_label", "set_weight") if _n not in _missing) or "neither",
         )
 
     # Pool cache is keyed by id(df), and Python recycles object ids across independent suite
@@ -340,7 +431,7 @@ def setup_configuration(
     # suite N-1, fetch the stale Pool, and feed CatBoost stale binned data + stale labels.
     # The cache is small and rebuilds cheaply, so per-suite reset is the safe default.
     #
-    # 2026-05-20 fix: the train-side _CB_POOL_CACHE lives in mlframe.training._cb_pool, NOT
+    # the train-side _CB_POOL_CACHE lives in mlframe.training._cb_pool, NOT
     # in trainer.py. The pre-fix import resolved trainer._CB_POOL_CACHE (a DEAD stub at
     # trainer.py:217 that nothing else reads or writes), called .clear() on an empty dict,
     # and silently succeeded WITHOUT clearing the live cache. The val-side _CB_VAL_POOL_CACHE
@@ -414,7 +505,7 @@ def setup_configuration(
         # Caller's verbose level. Without this the TrainingContext class default (1) was
         # always used regardless of user-passed value, so every ``if ctx.verbose:`` block
         # across phases fired even on verbose=0 runs (including the _phase_finalize.py:438
-        # plotly-import for kaleido telemetry, ~25ms cold-start). Fixed 2026-05-20.
+        # plotly-import for kaleido telemetry, ~25ms cold-start). Fixed.
         verbose=int(verbose) if verbose is not None else 1,
         data_dir=data_dir,
         models_dir=models_dir,
@@ -448,4 +539,8 @@ def setup_configuration(
     ctx.artifacts["_process_flag_prior_residual_audit"] = _residual_audit_prior
     if _inline_display_prior_set:
         ctx.artifacts["_process_flag_prior_inline_display"] = _inline_display_prior
+    if _subfolders_prior_set:
+        ctx.artifacts["_process_flag_prior_format_subfolders"] = _subfolders_prior
+    if _calib_cmap_prior_set:
+        ctx.artifacts["_process_flag_prior_calibration_cmap"] = _calib_cmap_prior
     return ctx

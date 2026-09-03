@@ -136,6 +136,26 @@ def test_biz_val_nearest_past_join_fallback_chain_recovers_sparse_key_matches():
     )
 
 
+def test_nearest_past_join_fallback_tier_key_overlapping_value_col_raises_clear_error():
+    """FE_ROOT_B-18: a fallback tier's 'by' key columns must not overlap right_value_cols (resolved once,
+    outside the tier loop) -- previously this would build a duplicate-column frame deep inside
+    _nearest_past_join_single_tier and raise a confusing pandas error instead of a clear one upfront."""
+    rng = np.random.default_rng(2)
+    history_df, query_df = _make_sparse_key_dataset(rng)
+    try:
+        nearest_past_join(
+            query_df,
+            history_df,
+            on="t",
+            by=["entity"],
+            right_value_cols=["val"],
+            fallback_by_chain=[["val"]],  # 'val' is both the value column and this tier's key
+        )
+        raise AssertionError("expected ValueError")
+    except ValueError as exc:
+        assert "val" in str(exc)
+
+
 def test_nearest_past_join_fallback_chain_omitted_matches_single_key_bit_identical():
     """Nearest past join fallback chain omitted matches single key bit identical."""
     rng = np.random.default_rng(1)

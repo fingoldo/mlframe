@@ -62,6 +62,33 @@ def test_mrmr_cluster_stability_runs_on_categorical_without_fallback():
     inside and silently fell back to classic). The fit completes with a populated support_."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
+    import logging
+
     df, y = _frame_with_categorical(n=200)
-    fs = MRMR(verbose=0, random_seed=0, stability_selection_method="cluster", stability_n_bootstrap=4).fit(df, pd.Series(y, name="y"))
+
+    # `support_ is not None` is produced by the SILENT FALLBACK just as much as by the cluster path, so it
+    # cannot distinguish the fixed code from the defect: pre-fix the cluster path raised, was caught, and
+    # classic ran instead -- completing the fit and populating support_ exactly the same way. What separates
+    # them is whether the fallback fired at all, so that is what is asserted.
+    _records: list = []
+
+    class _Capture(logging.Handler):
+        """Collect everything the filters package logs during the fit."""
+
+        def emit(self, record):
+            """Record it."""
+            _records.append(record)
+
+    _logger = logging.getLogger("mlframe.feature_selection.filters")
+    _logger.addHandler(_Capture())
+    _prev_level = _logger.level
+    _logger.setLevel(logging.DEBUG)
+    try:
+        fs = MRMR(verbose=0, random_seed=0, stability_selection_method="cluster", stability_n_bootstrap=4).fit(df, pd.Series(y, name="y"))
+    finally:
+        _logger.setLevel(_prev_level)
+        _logger.handlers = [h for h in _logger.handlers if not isinstance(h, _Capture)]
+
     assert getattr(fs, "support_", None) is not None
+    _fallback = [r.getMessage() for r in _records if "fall" in r.getMessage().lower() and "classic" in r.getMessage().lower()]
+    assert not _fallback, f"the cluster path fell back to classic, so it is a silent no-op here: {_fallback}"

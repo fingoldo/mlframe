@@ -7,10 +7,17 @@ full-data trained model's generalisation. On a strong-AR wellbore target this pr
 each) that shipped lag_predict (test RMSE 12.29) even though the trained LGBM scored 9.31 on BOTH the group-disjoint val
 AND test splits -- a 32% worse deployment chosen from a pessimistic proxy.
 
-The group-disjoint VAL split is the SAME honest-holdout regime as test (whole groups held out). When a trained component
-beats lag on VAL by more than the failsafe tolerance, the OOF tie is spurious: deploy the trained component, not lag.
-Conservative by construction -- it only ever PREVENTS a lag deployment in favour of a val-confirmed-better trained model,
-never the reverse, and no-ops when val data is absent.
+The VAL split is group-disjoint, like test -- but it is NOT the same honest-holdout regime, and calling it that
+overstated the guarantee. Val is the EARLY-STOPPING split, so a trained component's val RMSE is optimistically biased
+low, while ``lag_predict`` is zero-parameter and does no early stopping at all, so its val RMSE is unbiased. The bias
+therefore runs in the SAME direction as the decision: it inflates exactly the quantity that triggers the swap, so the
+veto fires somewhat more often than an honest comparison would justify.
+
+What absorbs it is the tolerance -- the veto demands the trained component beat lag on val by MORE than the failsafe
+tolerance (10% by default), not merely beat it -- and the direction of the residual error is the mild one: the veto can
+only ever PREVENT a lag deployment in favour of a trained model that measurably beat it, never the reverse, and it
+no-ops when val data is absent. The margin is logged so an operator can see how much headroom a given veto actually
+had rather than trusting that the tolerance was enough.
 """
 from __future__ import annotations
 
@@ -58,9 +65,24 @@ def decide_ar1_failsafe_val_veto(
     bt_val = float(val_rmse_of(best_trained_idx))
     if not (np.isfinite(lp_val) and np.isfinite(bt_val)):
         return None
-    # Veto only when the trained component beats lag on VAL by MORE than the same tolerance -- a large, honest margin
-    # that early-stopping optimism (val is used for ES) cannot manufacture, so the OOF tie is confirmed spurious.
-    if bt_val < lp_val / (1.0 + lag_failsafe_tol):
+    # Veto only when the trained component beats lag on VAL by MORE than the same tolerance. Val is the
+    # early-stopping split, so `bt_val` is biased LOW and `lp_val` (zero-parameter, no ES) is not -- the bias
+    # points the same way as the decision, and the tolerance is the only thing absorbing it. Log the realised
+    # margin so that headroom is observable instead of assumed.
+    _threshold = lp_val / (1.0 + lag_failsafe_tol)
+    _fires = bt_val < _threshold
+    logger.info(
+        "AR(1) failsafe val cross-check: lag_predict val RMSE=%.6g, best trained (%s) val RMSE=%.6g, veto threshold=%.6g "
+        "(tol=%.3g) -> %s. Val is the early-stopping split, so the trained arm's figure is optimistically biased; the "
+        "margin below the threshold is the headroom that bias has to fit inside.",
+        lp_val,
+        oof_names[best_trained_idx],
+        bt_val,
+        _threshold,
+        lag_failsafe_tol,
+        "VETO (deploy the trained component)" if _fires else "no veto (keep lag_predict)",
+    )
+    if _fires:
         return best_trained_idx
     return None
 

@@ -9,6 +9,11 @@ from typing import TYPE_CHECKING, Any
 
 from pyutilz.strings import slugify
 
+from mlframe.reporting.renderers import chart_timings_snapshot, format_chart_timings
+
+from .._dataset_build_stats import dataset_build_snapshot, format_dataset_build_stats
+
+from ._process_flag_scope import restore_process_flags
 from ..io import save_mlframe_model
 from ..phases import format_phase_summary
 from ._phase_finalize_calibration import (
@@ -101,7 +106,7 @@ def _persist_ct_ensemble_entries(ctx: "TrainingContext") -> None:
             # the literal directory name we want. (The earlier slice-and-splice was a no-op rewrite of the
             # same string -- the comment about slugify dropping the leading underscore did not match the
             # actual code.)
-            # Wave 46 (2026-05-20): defence-in-depth: a key like "_CT_ENSEMBLE__../../evil" would
+            # defence-in-depth: a key like "_CT_ENSEMBLE__../../evil" would
             # bypass the prefix gate and traverse out of _base; slugify keeps the prefix as a literal
             # marker while neutralising any path separators / parent-dir refs inside the rest.
             _dir_name = "_CT_ENSEMBLE__" + slugify(_tname[len("_CT_ENSEMBLE__") :])
@@ -362,9 +367,6 @@ def _render_model_comparison_leaderboards(ctx: "TrainingContext") -> None:
     if not data_dir or not getattr(ctx, "save_charts", False):
         return
     _cfg = getattr(ctx, "reporting_config", None)
-    if _cfg is None:
-        _configs_root = getattr(ctx, "configs", None)
-        _cfg = getattr(_configs_root, "reporting_config", None) if _configs_root is not None else None
     if _cfg is not None and not getattr(_cfg, "model_comparison_charts", True):
         return
     plot_outputs = (getattr(_cfg, "plot_outputs", "") or "") if _cfg is not None else ""
@@ -414,9 +416,6 @@ def _render_split_comparison_panels(ctx: "TrainingContext") -> None:
     if not data_dir or not getattr(ctx, "save_charts", False):
         return
     _cfg = getattr(ctx, "reporting_config", None)
-    if _cfg is None:
-        _configs_root = getattr(ctx, "configs", None)
-        _cfg = getattr(_configs_root, "reporting_config", None) if _configs_root is not None else None
     if _cfg is not None and not getattr(_cfg, "split_comparison_charts", True):
         return
     plot_outputs = (getattr(_cfg, "plot_outputs", "") or "") if _cfg is not None else ""
@@ -469,9 +468,6 @@ def _render_prediction_stability_panels(ctx: "TrainingContext") -> None:
     if not data_dir or not getattr(ctx, "save_charts", False):
         return
     _cfg = getattr(ctx, "reporting_config", None)
-    if _cfg is None:
-        _configs_root = getattr(ctx, "configs", None)
-        _cfg = getattr(_configs_root, "reporting_config", None) if _configs_root is not None else None
     if _cfg is not None and not getattr(_cfg, "prediction_stability", True):
         return
     plot_outputs = (getattr(_cfg, "plot_outputs", "") or "") if _cfg is not None else ""
@@ -687,16 +683,21 @@ def finalize_suite(ctx: TrainingContext) -> dict:
     if ctx.verbose:
         logger.info("[phases] Top phases by wall-clock time:\n%s", format_phase_summary())
 
-        # Wall-share percentages computed against the longest-running phase (suite root).
+        # Share of the SUITE's wall time, not of the largest phase. Dividing by the largest phase made its own
+        # share 100% by construction and let the printed numbers sum past 250%, which reads as though several
+        # phases each consumed most of the run. Phases nest, so the shares still overlap -- that is inherent and
+        # is why the line names the denominator.
         try:
-            from ..phases import phase_snapshot
+            from ..phases import phase_snapshot, registry_elapsed
 
             _snap = phase_snapshot()
-            if _snap:
-                _root_wall = _snap[0][1] if _snap else 0.0
-                if _root_wall > 0:
-                    _share_str = ", ".join(f"{p}={tot/_root_wall*100:.1f}%" for p, tot, _ in _snap[:8])
-                    logger.info("[wall-share] top: %s", _share_str)
+            _suite_wall = registry_elapsed()
+            if _snap and _suite_wall > 0:
+                _share_str = ", ".join(f"{p}={tot/_suite_wall*100:.1f}%" for p, tot, _ in _snap[:8])
+                logger.info(
+                    "[wall-share] of %.0fs suite wall time (phases nest, so shares overlap): %s",
+                    _suite_wall, _share_str,
+                )
         except Exception as e:
             logger.debug("swallowed exception in _phase_finalize.py: %s", e)
             pass
@@ -729,35 +730,25 @@ def finalize_suite(ctx: TrainingContext) -> dict:
         ctx.metadata["selected_features"] = sorted(_selected_features_union)
         ctx.metadata["selected_features_per_model"] = _selected_features_per_model
 
-    # Restore process-wide overrides flipped by setup_configuration. Pre-fix the
-    # residual_audit + inline_display flags were set but NEVER restored, so two
-    # back-to-back suite calls with different behavior_config values silently
-    # inherited the first call's setting (the leading comment at the set site
-    # promised restore but it was aspirational). Snapshot lives in ctx.artifacts.
-    _artifacts = ctx.artifacts or {}
-    _residual_audit_prior = _artifacts.pop("_process_flag_prior_residual_audit", None)
-    if _residual_audit_prior is not None:
-        try:
-            from mlframe.training.evaluation import _set_residual_audit_enabled
+    # Per-chart-type render cost. The suite draws hundreds of figures across dozens of types at the default
+    # settings, and until this was recorded the only visible number was the enclosing phase's total -- enough to
+    # know the report was slow, not enough to know which chart to cap or drop.
+    # Who materialised how many rows into model datasets. Five 1.96M-row builds on a CatBoost-only fit showed up
+    # in a production log only as five scattered lines attributed to sklearn's CV internals, which names the
+    # machinery rather than the caller; the rollup names the mlframe module and its total.
+    _build_rows = dataset_build_snapshot()
+    ctx.metadata["dataset_builds"] = _build_rows
+    if _build_rows:
+        logger.info("%s", format_dataset_build_stats(_build_rows))
 
-            _set_residual_audit_enabled(_residual_audit_prior)
-        except (ImportError, AttributeError) as _restore_err:
-            logger.debug(
-                "[finalize] residual_audit flag restore failed: %s: %s",
-                type(_restore_err).__name__,
-                _restore_err,
-            )
-    if "_process_flag_prior_inline_display" in _artifacts:
-        _inline_display_prior = _artifacts.pop("_process_flag_prior_inline_display")
-        try:
-            from mlframe.reporting.renderers.save import set_inline_display_mode
+    _chart_rows = chart_timings_snapshot()
+    ctx.metadata["chart_timings"] = _chart_rows
+    if _chart_rows:
+        logger.info("%s", format_chart_timings(_chart_rows))
 
-            set_inline_display_mode(_inline_display_prior)
-        except (ImportError, AttributeError) as _restore_err:
-            logger.debug(
-                "[finalize] inline_display flag restore failed: %s: %s",
-                type(_restore_err).__name__,
-                _restore_err,
-            )
+    # Restore the process-wide overrides setup_configuration flipped for this suite. The same restore runs in a
+    # finally at the suite boundary, because a suite that raises never reaches this point; popping the keys makes
+    # whichever call happens second a no-op.
+    restore_process_flags(ctx.artifacts)
 
     return ctx.metadata

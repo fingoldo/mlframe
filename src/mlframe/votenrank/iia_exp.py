@@ -25,6 +25,12 @@ def fine_sorted_ranking(ranking):
 
 def compute_iia_for_fixed_models(method, table, models_order, weights):
     """Count IIA violations for one fixed model-arrival order: how many times adding the next model changes the relative ranking of the models already present."""
+    if len(models_order) < 3:
+        raise ValueError(
+            f"compute_iia_for_fixed_models: IIA needs at least 3 models to measure a violation "
+            f"(adding a 3rd model can change the ranking of the first 2); got {len(models_order)}."
+        )
+
     result = 0
 
     ranking_kwargs = {"gamma": 95} if method == "optimality_gap" else {}

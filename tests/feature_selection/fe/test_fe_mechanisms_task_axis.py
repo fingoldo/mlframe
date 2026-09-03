@@ -31,14 +31,18 @@ Each fixture injects exactly the structure the mechanism can exploit:
 * heavy-tailed ``x1`` linear-but-saturating in y -> RankGauss tames the outliers
   for the linear downstream (DPI: MI preserved, the win is downstream).
 
-Calibrated 2026-06-10 (measured medians, floors 60-85% below per CLAUDE.md):
+Calibrated 2026-06-10 (measured medians, floors 60-85% below per CLAUDE.md); rankgauss re-calibrated
+2026-08-10 (fixture strengthened from Student-t df=2 to Cauchy - see ``_fx_heavytail``'s docstring -
+so the mechanism reliably reaches the output against the always-on pair-search's own competing
+unary-transform catalog; measured medians across two independent seed quadruples: reg 0.059/0.060,
+mc 0.019/0.029):
 
 | mechanism      | reg R2 lift median | mc acc lift median |
 |----------------|--------------------|--------------------|
 | kfold-te       | 0.847              | 0.440              |
 | grouped-agg    | 0.352              | 0.238              |
 | cat-num-resid  | 0.885              | 0.517              |
-| rankgauss      | 0.225              | 0.073              |
+| rankgauss      | 0.060              | 0.019-0.029        |
 """
 
 from __future__ import annotations
@@ -141,12 +145,23 @@ def _fx_cat_num_resid(seed: int, n: int = N):
 
 
 def _fx_heavytail(seed: int, n: int = N):
-    """Heavy-tailed (Student-t df=2) ``x1`` enters y through a saturating monotone
+    """Cauchy-tailed (Student-t df=1) ``x1`` enters y through a saturating monotone
     map; raw x1 outliers dominate the shared regularised linear scale. RankGauss
     Gaussianises x1 -> better linear-model input (DPI: MI preserved, downstream
-    win). Returns ``(X, logit)``."""
+    win).
+
+    df=2 (the original calibration) is not heavy-tailed enough: the always-on
+    pair-search's own unary-transform catalog (``cbrt``, ``sqrt``, ...) already
+    tames a df=2 tail well enough to win the single pair-FE slot outright on
+    3/4 seeds, with no trace of rankgauss in the output at all (unlike the
+    kfold-TE case, where the competing family folds the target-under-test's
+    OWN column into a composite - here a genuinely different column wins).
+    Cauchy's unbounded-variance tail defeats a bounded-power squash like cbrt
+    but not RankGauss's bounded quantile map, so rankgauss reliably reaches the
+    output (own column, standalone or as a composite operand) on 4/4 seeds.
+    Returns ``(X, logit)``."""
     rng = np.random.default_rng(seed)
-    base = rng.standard_t(df=2, size=n)
+    base = rng.standard_cauchy(size=n)
     z2 = rng.normal(size=n)
     logit = 1.3 * np.tanh(base) + 0.9 * z2
     X = pd.DataFrame(
@@ -206,7 +221,7 @@ _MECHS = [
         "rankgauss_features_",
         "rankgauss",
         0.04,
-        0.03,
+        0.015,
         id="rankgauss",
     ),
 ]

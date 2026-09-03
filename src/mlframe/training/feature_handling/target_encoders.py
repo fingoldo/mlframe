@@ -28,9 +28,14 @@ Variants supported:
   * ``target_mean`` -- standard smoothed mean (default).
   * ``target_m_estimate`` -- m-estimate (mathematically equivalent
     to target_mean with ``smoothing == m``).
-  * ``target_james_stein`` -- shrinkage toward prior with
-    variance-aware shrinkage factor (closed-form for Gaussian
-    targets).
+  * ``target_james_stein`` -- shrinkage toward prior with a genuinely
+    variance-aware shrinkage factor: ``shrink = sigma2 / (sigma2 +
+    n_c * tau2)`` where ``sigma2`` is the pooled within-category
+    variance and ``tau2`` the estimated between-category variance of
+    the true means (one-way random-effects / Efron-Morris method of
+    moments), NOT a function of ``smoothing`` alone -- categories
+    shrink harder when within-category noise dominates the real
+    between-category signal.
   * ``target_loo`` -- leave-one-out (row-wise; not k-fold). Uses
     the standard formula ``(n_c × mean_c - target_i) / (n_c - 1)``
     for row i in category c. NaN-safe at category size = 1.
@@ -175,6 +180,11 @@ class LeakageSafeEncoder:
         self._global_prior: Optional[float] = None
         self._category_means: Optional[Dict[str, float]] = None  # for transform on held-out
         self._category_counts: Optional[Dict[str, int]] = None
+        # target_james_stein only: pooled within-category variance (sigma2) and between-category
+        # variance of the TRUE category means (tau2), estimated once at fit time. See
+        # ``_fit_james_stein_variance_params`` for the derivation.
+        self._js_sigma2: Optional[float] = None
+        self._js_tau2: Optional[float] = None
         # WoE-only state
         self._woe_pos: Optional[Dict[str, float]] = None
         self._woe_neg: Optional[Dict[str, float]] = None
@@ -216,6 +226,8 @@ class LeakageSafeEncoder:
             if not (set(unique_y).issubset({0.0, 1.0}) and len(unique_y) <= 2):
                 raise ValueError("method='woe' requires binary {0, 1} target; got " f"{sorted(unique_y)[:5]}")
             self._woe_pos, self._woe_neg = self._compute_woe_per_category(cats, y_arr, sw_arr)
+        elif self.method == "target_james_stein":
+            self._js_sigma2, self._js_tau2 = self._fit_james_stein_variance_params(cats, y_arr, self._category_counts, self._category_means)
 
         self._is_fitted = True
         return self
@@ -268,6 +280,8 @@ class LeakageSafeEncoder:
         self._category_counts, self._category_means = self._compute_per_category(cats, y_arr, sw_arr)
         if self.method == "woe":
             self._woe_pos, self._woe_neg = self._compute_woe_per_category(cats, y_arr, sw_arr)
+        elif self.method == "target_james_stein":
+            self._js_sigma2, self._js_tau2 = self._fit_james_stein_variance_params(cats, y_arr, self._category_counts, self._category_means)
 
         self._is_fitted = True
         return out
@@ -345,6 +359,61 @@ class LeakageSafeEncoder:
             sums[c] = sums.get(c, 0.0) + float(w_i) * float(y_i)
         means = {c: (sums[c] / counts[c] if counts[c] > 0 else 0.0) for c in counts}
         return counts, means
+
+    @staticmethod
+    def _fit_james_stein_variance_params(
+        cats: np.ndarray,
+        y: np.ndarray,
+        counts: Dict[str, Any],
+        means: Dict[str, float],
+    ) -> tuple:
+        """Estimate (sigma2, tau2) for variance-aware James-Stein shrinkage of category means toward the
+        prior -- the classic one-way random-effects (Efron-Morris / empirical-Bayes) formulation.
+
+        ``sigma2`` is the pooled WITHIN-category variance of y (residual noise around each category's own
+        mean). ``tau2`` is the estimated variance of the TRUE category means around the grand mean, net of
+        the within-category noise that would otherwise inflate the raw sample-mean spread (method-of-
+        moments / one-way ANOVA estimator, clipped at 0 since variance can't be negative).
+
+        Unlike the pre-fix formula (``smoothing / (n_c + smoothing)``, algebraically identical to
+        target_mean/m_estimate regardless of the DATA's actual variance structure), the shrinkage factor
+        this produces genuinely depends on how noisy individual observations are (``sigma2``) relative to
+        how much categories truly differ (``tau2``) -- categories shrink harder when within-category noise
+        dominates between-category signal, and barely at all when the reverse holds. Falls back to
+        ``sigma2=1.0, tau2=1e12`` (shrink -> 0, i.e. trust the raw sample mean) when there's too little
+        structure to estimate variance from (fewer than 2 categories, or every category singleton).
+        """
+        cats_with_data = [c for c in counts if counts[c] > 0]
+        K = len(cats_with_data)
+        n_total = float(len(y))
+        if K < 2 or n_total < 2:
+            return 1.0, 1e12
+        n_arr = np.array([counts[c] for c in cats_with_data], dtype=np.float64)
+        m_arr = np.array([means[c] for c in cats_with_data], dtype=np.float64)
+        grand_mean = float(np.sum(n_arr * m_arr) / n_total)
+
+        # Pooled within-category variance: sum of each row's squared deviation from ITS OWN category
+        # mean, divided by the residual degrees of freedom (n_total - K). A dict lookup per row is the
+        # simplest correct implementation; this only runs once per fit (or once per fold), not per row
+        # of the hot transform path.
+        cat_mean_lookup = means
+        residuals = np.array([y_i - cat_mean_lookup.get(c, grand_mean) for c, y_i in zip(cats, y)], dtype=np.float64)
+        dof = n_total - K
+        if dof <= 0:
+            # Every category is a singleton (n_c == 1 everywhere) -- no within-category residual d.f.
+            # to estimate sigma2 from directly; fall back to the (unbiased) TOTAL variance of y as the
+            # noise estimate instead.
+            sigma2 = float(np.var(y, ddof=1)) if n_total > 1 else 1.0
+        else:
+            sigma2 = float(np.sum(residuals**2) / dof)
+        sigma2 = max(sigma2, 1e-12)
+
+        # Between-category variance, unbalanced-design ANOVA method-of-moments estimator (Searle et al.):
+        # n0 = (n_total - sum(n_c^2)/n_total) / (K - 1); tau2 = max(0, (MSB - sigma2) / n0).
+        msb = float(np.sum(n_arr * (m_arr - grand_mean) ** 2) / (K - 1))
+        n0 = (n_total - float(np.sum(n_arr**2)) / n_total) / (K - 1)
+        tau2 = max(0.0, (msb - sigma2) / n0) if n0 > 0 else 0.0
+        return sigma2, tau2
 
     def _compute_woe_per_category(
         self,
@@ -466,9 +535,18 @@ class LeakageSafeEncoder:
                     p_safe = float(min(max(p, 1e-12), 1.0 - 1e-12))
                     q_safe = float(min(max(q, 1e-12), 1.0 - 1e-12))
                     out[j] = float(np.log(p_safe) - np.log(q_safe))
+            elif self.method == "target_james_stein":
+                sigma2_t, tau2_t = self._fit_james_stein_variance_params(cats_train, y_train, counts_t, means_t)
+                for j, c in zip(val_idx, cats_val):
+                    n_c = counts_t.get(c, 0)
+                    m_c = means_t.get(c, prior_t)
+                    if n_c == 0:
+                        out[j] = prior_t
+                    else:
+                        shrink = sigma2_t / (sigma2_t + n_c * tau2_t) if tau2_t > 0 else 1.0
+                        out[j] = (1.0 - shrink) * m_c + shrink * prior_t
             else:
-                # Smoothed mean (target_mean / target_m_estimate /
-                # target_james_stein share this OOF shape).
+                # Smoothed mean (target_mean / target_m_estimate share this OOF shape).
                 for j, c in zip(val_idx, cats_val):
                     n_c = counts_t.get(c, 0)
                     m_c = means_t.get(c, prior_t)
@@ -573,10 +651,13 @@ class LeakageSafeEncoder:
             else:
                 m_c = self._category_means[c]
                 if self.method == "target_james_stein":
-                    # JS shrinkage: factor = 1 - (k-1)*sigma^2 / sum_sq_dev
-                    # Simplified: shrink toward prior with factor that
-                    # depends on per-category sample size.
-                    shrink = self.smoothing / (n_c + self.smoothing)
+                    # Variance-aware JS shrinkage (see _fit_james_stein_variance_params): shrink harder
+                    # toward the prior when within-category noise (sigma2) dominates the true
+                    # between-category spread (tau2), and barely at all when categories genuinely
+                    # differ. tau2==0 means the data show no detectable between-category signal at all
+                    # -- fully trust the prior.
+                    assert self._js_sigma2 is not None and self._js_tau2 is not None, "_encode_per_row(james_stein): fit() must populate _js_sigma2/_js_tau2 before transform"
+                    shrink = self._js_sigma2 / (self._js_sigma2 + n_c * self._js_tau2) if self._js_tau2 > 0 else 1.0
                     out[i] = (1 - shrink) * m_c + shrink * prior
                 else:
                     out[i] = (n_c * m_c + self.smoothing * prior) / (n_c + self.smoothing)

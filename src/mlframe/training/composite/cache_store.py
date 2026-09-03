@@ -16,6 +16,7 @@ import os
 import pickle  # nosec B403 - module used safely in this file, see call sites below (no untrusted input reaches it)
 import re
 import tempfile
+import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -107,6 +108,25 @@ class DiscoveryCache:
         self._lru_dirty = False
         self._entry_sizes: Optional[Dict[str, int]] = None
         self._total_bytes = 0
+        # In-process guard for the two lazy-init check-then-load-then-set sequences below
+        # (_ensure_lru / _ensure_sizes): without it, two threads racing the first touch/set can both
+        # see the guarded attribute as None, both load their OWN dict from disk, and whichever thread's
+        # assignment lands last silently discards the other thread's in-memory writes (not just a stale
+        # read -- the LOSING thread's dict object becomes unreachable, along with every mutation already
+        # made through the local reference it was handed). Confirmed live: two threads each touching 20
+        # distinct keys left the loser's entire 20-key run missing from the final ledger.
+        self._init_lock = threading.Lock()
+
+    def __getstate__(self) -> Dict[str, Any]:
+        """Drop the unpicklable ``threading.Lock`` from the pickled state; ``__setstate__`` rebuilds it."""
+        state = self.__dict__.copy()
+        del state["_init_lock"]
+        return state
+
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        """Restore instance state and rebuild the lock dropped by ``__getstate__`` (a fresh unlocked lock is always correct -- pickling never happens mid-critical-section)."""
+        self.__dict__.update(state)
+        self._init_lock = threading.Lock()
 
     # LRU sidecar (key -> access timestamp). Plain JSON; tiny so we read / write the whole file on
     # every touch. Atime is too unreliable on NTFS to depend on.
@@ -187,7 +207,9 @@ class DiscoveryCache:
         is read back, so access ordering survives.
         """
         if self._lru is None:
-            self._lru = self._load_lru()
+            with self._init_lock:
+                if self._lru is None:  # re-check: another thread may have loaded it while we waited
+                    self._lru = self._load_lru()
         return self._lru
 
     def _ensure_sizes(self) -> Dict[str, int]:
@@ -199,23 +221,25 @@ class DiscoveryCache:
         re-derives the exact footprint the disk-scan design would have computed.
         """
         if self._entry_sizes is None:
-            sizes: Dict[str, int] = {}
-            total = 0
-            for path in glob.glob(os.path.join(self.cache_dir, "*.pkl")):
-                stem = os.path.splitext(os.path.basename(path))[0]
-                size = 0
-                try:
-                    size = os.path.getsize(path)
-                except OSError:
-                    pass
-                try:
-                    size += os.path.getsize(path + ".sha256")
-                except OSError:
-                    pass
-                sizes[stem] = size
-                total += size
-            self._entry_sizes = sizes
-            self._total_bytes = total
+            with self._init_lock:
+                if self._entry_sizes is None:  # re-check: another thread may have built it while we waited
+                    sizes: Dict[str, int] = {}
+                    total = 0
+                    for path in glob.glob(os.path.join(self.cache_dir, "*.pkl")):
+                        stem = os.path.splitext(os.path.basename(path))[0]
+                        size = 0
+                        try:
+                            size = os.path.getsize(path)
+                        except OSError:
+                            pass
+                        try:
+                            size += os.path.getsize(path + ".sha256")
+                        except OSError:
+                            pass
+                        sizes[stem] = size
+                        total += size
+                    self._entry_sizes = sizes
+                    self._total_bytes = total
         return self._entry_sizes
 
     def _entry_size_on_disk(self, stem: str) -> int:

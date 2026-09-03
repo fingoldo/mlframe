@@ -203,6 +203,13 @@ def test_setup_helpers_pipeline_cache_load_logs_on_corrupt_file(caplog, tmp_path
     bad_path = tmp_path / "corrupt_cache.json"
     bad_path.write_bytes(b"{not valid json")
     monkeypatch.setattr(cache_mod, "_pipeline_disk_cache_path", lambda: str(bad_path))
+    # _load_pipeline_disk_cache_into_memory has a once-per-process guard (_PIPELINE_JSON_DISK_CACHE_LOADED):
+    # once ANY earlier test in this xdist worker has loaded the real cache, later calls return early
+    # without ever reading the (monkeypatched) path, so the corrupt-file log line never fires -- test-order
+    # dependent, reproduced on 3/10 CI shards. FORCE_RELOAD is the module's own documented, reliable bypass
+    # (see _load_pipeline_disk_cache_into_memory's docstring for why the alternative -- monkeypatching the
+    # loaded flag via the parent-facade attribute bridge -- has its own unconfirmed CI-only failure mode).
+    monkeypatch.setenv("MLFRAME_PIPELINE_CACHE_FORCE_RELOAD", "1")
     with caplog.at_level(logging.DEBUG, logger="mlframe.training.core._setup_helpers_pipeline_cache"):
         cache_mod._load_pipeline_disk_cache_into_memory()
     assert any("load failed, treating as absent" in rec.message for rec in caplog.records)

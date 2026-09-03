@@ -10,9 +10,31 @@ fold -- a validation set that's actually representative of what the model will b
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union, overload
 
 import numpy as np
+import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+
+def _cpu_count_for_diagnostics() -> int:
+    """Physical core count for diagnostic-only model fits, falling back to a conservative default.
+
+    Mirrors the project's ``psutil``-over-``os.cpu_count()`` convention (logical count over-reports on
+    SMT/hyperthreaded hosts); a diagnostic classifier's runtime is not latency-critical, so under-shooting
+    by falling back to 4 costs a little wall-time, never correctness.
+    """
+    try:
+        import psutil
+
+        _n = psutil.cpu_count(logical=False)
+        if _n:
+            return int(_n)
+    except Exception as e:
+        logger.debug("psutil physical-core probe failed (%s: %s) -- falling back to 4", type(e).__name__, e)
+    return 4
 
 
 def _oof_is_test_proba(
@@ -21,6 +43,7 @@ def _oof_is_test_proba(
     n_splits: int,
     seed: int,
     need_importance: bool,
+    feature_names: Optional[Sequence[str]] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """Fit the OOF train-vs-test classifier on the given feature columns and return (oof_proba, importances).
 
@@ -34,10 +57,31 @@ def _oof_is_test_proba(
 
     n_train = train_arr.shape[0]
     n_test = test_arr.shape[0]
-    union = np.concatenate([train_arr, test_arr], axis=0)
+    # LightGBM must receive a NAMED table. Fitting on a bare ndarray makes it fabricate its own names
+    # ("Column_0", "Column_1", ...) and expose them via ``feature_names_in_``; sklearn >=1.8 then sees an
+    # estimator "fitted with feature names" being predicted on nameless arrays and emits a UserWarning per
+    # CV fold. That warning is pure noise (the fabricated names match positionally every time), but on a
+    # multi-million-row diagnostic it repeats per fold and reads, in a training log, like a real
+    # feature-misalignment bug. Real names also make ``importances`` below attributable to actual columns.
+    if isinstance(train_arr, pd.DataFrame):
+        # Frames arrive already named and already the right dtype -- concatenating them directly avoids the
+        # float64 materialisation the ndarray route pays (see build_test_like_validation_fold's note).
+        union: Any = pd.concat([train_arr, test_arr], axis=0, ignore_index=True)
+    else:
+        union = np.concatenate([train_arr, test_arr], axis=0)
+        if feature_names is not None and len(feature_names) == union.shape[1]:
+            union = pd.DataFrame(union, columns=list(feature_names))
     source_label = np.concatenate([np.zeros(n_train, dtype=np.int64), np.ones(n_test, dtype=np.int64)])
 
-    clf = lgb.LGBMClassifier(n_estimators=100, max_depth=6, random_state=seed, verbosity=-1)
+    # LightGBM's own OpenMP thread pool defaults to ALL cores. This diagnostic runs as an auxiliary step
+    # inside the same process as (potentially) a just-completed torch/Lightning fit, whose OpenMP/MKL
+    # threads are still warm -- the two thread pools compete for the same cores under Windows, measured
+    # directly as a ~20x slowdown (17.7s vs <1s for an equivalent standalone fit) rather than a clean
+    # deadlock. Capping LGBM to a modest thread count costs nothing here (this is a diagnostic
+    # train-vs-test classifier, not the production model -- accuracy is unaffected by thread count) and
+    # avoids the oversubscription entirely.
+    _lgb_n_jobs = min(4, _cpu_count_for_diagnostics())
+    clf = lgb.LGBMClassifier(n_estimators=100, max_depth=6, random_state=seed, verbosity=-1, n_jobs=_lgb_n_jobs)
     cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
     oof_is_test_proba = cross_val_predict(clf, union, source_label, cv=cv, method="predict_proba")[:, 1]
 
@@ -46,7 +90,7 @@ def _oof_is_test_proba(
         # importance_type="gain" (not the LGBMClassifier default "split" count): a feature that gives one
         # massive, near-perfectly-separating split ranks low by split COUNT (it's used sparingly) but should
         # rank highest for peel-back purposes -- gain reflects how much it actually drove the classification.
-        importance_clf = lgb.LGBMClassifier(n_estimators=100, max_depth=6, random_state=seed, verbosity=-1, importance_type="gain")
+        importance_clf = lgb.LGBMClassifier(n_estimators=100, max_depth=6, random_state=seed, verbosity=-1, importance_type="gain", n_jobs=_lgb_n_jobs)
         importance_clf.fit(union, source_label)
         importances = importance_clf.feature_importances_
 
@@ -135,14 +179,26 @@ def build_test_like_validation_fold(
     """
     from ..metrics.core import fast_roc_auc
 
-    if hasattr(X_train, "to_numpy"):
+    # A pandas input stays a pandas frame all the way to LightGBM. The former ``to_numpy(dtype=np.float64)``
+    # was never required -- ``.iloc[:, cols]`` selects columns positionally just as well as ndarray fancy
+    # indexing, which is the only thing the peel-back loop needs -- and it cost real time and memory: the
+    # forced float64 upcast DOUBLES a float32 frame (production frames here are largely Float32), then
+    # ``np.concatenate`` copies the doubled result again. Measured on 450k x 68 float32: 0.09 s / 245 MB for
+    # the numpy route vs 0.04 s / 122 MB keeping the frame. LightGBM consumes a DataFrame natively (and gets
+    # real column names from it for free). Non-pandas inputs keep the ndarray route unchanged.
+    _is_frame = hasattr(X_train, "iloc") and hasattr(X_train, "columns")
+    if _is_frame:
         cols = list(X_train.columns) if feature_names is None else list(feature_names)
-        train_full = X_train[cols].to_numpy(dtype=np.float64)
-        test_full = X_test[cols].to_numpy(dtype=np.float64)
+        train_full = X_train[cols]
+        test_full = X_test[cols]
+    elif hasattr(X_train, "to_numpy"):  # polars and other non-pandas frames: no .iloc, keep the array route
+        cols = list(X_train.columns) if feature_names is None else list(feature_names)
+        train_full = X_train[cols].to_numpy()
+        test_full = X_test[cols].to_numpy()
     else:
         cols = list(feature_names) if feature_names is not None else [str(i) for i in range(np.asarray(X_train).shape[1])]
-        train_full = np.asarray(X_train, dtype=np.float64)
-        test_full = np.asarray(X_test, dtype=np.float64)
+        train_full = np.asarray(X_train)
+        test_full = np.asarray(X_test)
 
     n_train = train_full.shape[0]
     n_test = test_full.shape[0]
@@ -156,11 +212,24 @@ def build_test_like_validation_fold(
 
     oof_is_test_proba = np.empty(0)
     for it in range(n_effective_iterations):
-        train_arr = train_full[:, active_cols]
-        test_arr = test_full[:, active_cols]
+        # ``active_cols`` starts as the full range and only ever has entries DELETED (never reordered),
+        # so a full-length list is exactly the identity selection. Fancy-indexing with it still allocates
+        # and copies the whole matrix -- on a 2.4M x 68 float64 frame that is ~1.3 GB of pure waste, paid
+        # on the DEFAULT one-shot path (n_iterations=1) where the peel-back loop never narrows anything.
+        # Take the arrays as-is in that case; the copy is only genuinely needed once columns are dropped.
+        if len(active_cols) == train_full.shape[1]:
+            train_arr, test_arr = train_full, test_full
+        elif _is_frame:
+            train_arr = train_full.iloc[:, active_cols]
+            test_arr = test_full.iloc[:, active_cols]
+        else:
+            train_arr = train_full[:, active_cols]
+            test_arr = test_full[:, active_cols]
         is_last_iteration = it == n_effective_iterations - 1
         can_drop = not is_last_iteration and top_k_drop_per_iteration > 0 and len(active_cols) > top_k_drop_per_iteration
-        oof_is_test_proba, importances = _oof_is_test_proba(train_arr, test_arr, n_splits, seed, need_importance=can_drop)
+        oof_is_test_proba, importances = _oof_is_test_proba(
+            train_arr, test_arr, n_splits, seed, need_importance=can_drop, feature_names=[cols[i] for i in active_cols]
+        )
         auc = float(fast_roc_auc(source_label, oof_is_test_proba))
 
         dropped_names: List[str] = []

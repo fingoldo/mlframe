@@ -4,14 +4,14 @@ or K/2 hardest top-quintile-y + K/2 hardest bottom-quintile-y (regression).
 Iter 66 mechanism. Addresses iter 65's blindness to class imbalance and heavy-tail collapse.
 
 Mechanism (binary):
-1. Fit 50-iter LightGBM baseline → in-sample predictions p̂.
+1. Fit 50-iter LightGBM baseline via inner KFold(3) → out-of-fold predictions p̂.
 2. |residual| = |y - p̂|.
 3. Within y=1 rows, pick K/2=8 with largest |residual| (hardest positives, FN-prone).
 4. Within y=0 rows, pick K/2=8 with largest |residual| (hardest negatives, FP-prone).
 5. Combined K=16 anchors with class balance (8 pos + 8 neg).
 
 Mechanism (regression):
-1. Fit 50-iter LightGBM baseline → in-sample predictions ŷ.
+1. Fit 50-iter LightGBM baseline via inner KFold(3) → out-of-fold predictions ŷ.
 2. |residual| = |y - ŷ|.
 3. Partition y into 5 quintiles.
 4. Within Q5 (top-y) rows, pick K/2=8 hardest by |residual|.
@@ -40,32 +40,52 @@ import numpy as np
 import polars as pl
 
 from ._hard_row_shared import topk_within_subset
+from ._squared_dists_shared import squared_dists as _squared_dists
 from ._utils import require_seed, validate_numeric_input, softmax
 
 logger = logging.getLogger(__name__)
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
-    """Fit a shallow LightGBM baseline (classifier or regressor per ``task``) and return its IN-SAMPLE predictions, used only to rank rows by |residual| hardness."""
+    """Fit a shallow LightGBM baseline via an inner KFold(3) and return its OUT-OF-FOLD predictions on Xt.
+
+    An in-sample prediction is close to y_t almost by construction (the model was just fit on these exact
+    rows), which systematically understates |residual| and biases which rows look "hardest" -- the same
+    leakage class already fixed for the sibling ``bidir_residual_band.py::_fit_baseline_predict``. Falls
+    back to a single in-sample fit when there are too few rows for a 3-fold inner split.
+    """
     try:
         import lightgbm as lgb
     except ImportError as exc:
         raise ImportError("class_balanced_hard_row requires lightgbm") from exc
-    if task == "binary":
-        model = lgb.LGBMClassifier(
-            n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
-            random_state=int(seed), verbose=-1, n_jobs=-1,
-        )
-        model.fit(Xt, y_t.astype(np.int32))
-        preds = np.asarray(model.predict_proba(Xt))[:, 1].astype(np.float32)
-    else:
+
+    def _fit_predict(X_fit: np.ndarray, y_fit: np.ndarray, X_pred: np.ndarray, rs: int) -> np.ndarray:
+        """Fit a shallow LightGBM baseline on (X_fit, y_fit), return its predictions on X_pred."""
+        if task == "binary":
+            model = lgb.LGBMClassifier(
+                n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
+                random_state=int(rs), verbose=-1, n_jobs=-1,
+            )
+            model.fit(X_fit, y_fit.astype(np.int32))
+            return np.asarray(model.predict_proba(X_pred))[:, 1].astype(np.float32)
         model = lgb.LGBMRegressor(
             n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
-            random_state=int(seed), verbose=-1, n_jobs=-1,
+            random_state=int(rs), verbose=-1, n_jobs=-1,
         )
-        model.fit(Xt, y_t)
-        preds = np.asarray(model.predict(Xt)).astype(np.float32)
-    return np.asarray(preds)
+        model.fit(X_fit, y_fit)
+        return np.asarray(model.predict(X_pred)).astype(np.float32)
+
+    n = Xt.shape[0]
+    if n < 3:
+        return _fit_predict(Xt, y_t, Xt, seed)
+
+    from sklearn.model_selection import KFold
+
+    preds = np.zeros(n, dtype=np.float32)
+    inner_splitter = KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11)
+    for inner_idx, (in_tr, in_val) in enumerate(inner_splitter.split(Xt)):
+        preds[in_val] = _fit_predict(Xt[in_tr], y_t[in_tr], Xt[in_val], int(seed) + 7 + inner_idx)
+    return preds
 
 
 _topk_within_subset = topk_within_subset
@@ -90,7 +110,7 @@ def compute_class_balanced_hard_row_features(
     """Class-balanced hard-row attention.
 
     Output: 2*n_hard_per_side weights + entropy + per-side agg_y + per-side agg_resid + best_pos + best_neg + min_dist_pos + min_dist_neg
-    = 2*n_hard_per_side + 8 features.
+    = 2*n_hard_per_side + 9 features.
     """
     seed = require_seed(seed)
     validate_numeric_input(X_train, name="X_train", allow_fp16=False)
@@ -159,8 +179,7 @@ def compute_class_balanced_hard_row_features(
         anchors_y = np.concatenate(anchors_y_list, axis=0)
         anchors_abs = np.concatenate(anchors_abs_list, axis=0)
 
-        diffs = Xq_s[:, None, :] - anchors_X[None, :, :]  # (n_q, n_total, d)
-        sq = (diffs**2).sum(axis=-1)
+        sq = _squared_dists(Xq_s, anchors_X)  # (n_q, n_total)
         scores = -sq
         weights = softmax(scores, temp=temp)  # (n_q, n_total)
         entropy = -np.sum(weights * np.log(weights + 1e-9), axis=-1).astype(np.float32)

@@ -142,6 +142,16 @@ def _node_has_restore(node: ast.AST) -> bool:
                 # subprocess.run(...)
                 if f.attr == "run" and isinstance(f.value, ast.Name) and f.value.id == "subprocess":
                     return True
+        # A `finally:` block that itself re-runs `importlib.reload(...)` (typically after
+        # `monkeypatch.undo()` restores the patched dependency) IS a restore mechanism: reload
+        # re-executes the module against the now-real dependency, rebinding its names back to the
+        # normal state -- functionally equivalent to (and for non-singleton modules, more complete
+        # than) a raw `sys.modules[...] = saved_module` snapshot restore.
+        if isinstance(sub, ast.Try):
+            for fin in sub.finalbody:
+                for fin_sub in ast.walk(fin):
+                    if _is_reload_call(fin_sub) == "importlib.reload":
+                        return True
     return False
 
 

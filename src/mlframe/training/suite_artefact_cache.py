@@ -279,7 +279,10 @@ class SuiteArtefactCache:
         keys_ordered = list(self._lru.keys())
         total = self._total_bytes_locked()
         for key in keys_ordered:
-            over_bytes = self.bytes_limit > 0 and total > self.bytes_limit
+            # No "> 0 means unlimited" special-case here: put() treats bytes_limit=0 as a real zero-byte
+            # budget (refuses any nonzero-size entry), so eviction must honor the same contract -- a
+            # bytes_limit>0 -> 0 config change must evict every pre-existing on-disk entry, not leave them.
+            over_bytes = total > self.bytes_limit
             over_entries = self.max_entries is not None and len(self._lru) > self.max_entries
             if not over_bytes and not over_entries:
                 break

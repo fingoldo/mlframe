@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 def render_risk_coverage_diagnostic(
     *,
     y_true: np.ndarray,
-    y_score: np.ndarray,
+    y_score: Optional[np.ndarray],
     task: Literal["binary", "multiclass", "regression"] = "binary",
     confidence: Optional[np.ndarray] = None,
     plot_outputs: str,

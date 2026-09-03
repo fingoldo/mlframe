@@ -124,7 +124,7 @@ def _fuzz3way_cleanup():
     gc.collect()
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize("combo", COMBOS_3WAY, ids=[c.pytest_id() for c in COMBOS_3WAY])
 def test_fuzz_3way_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     """Run the suite on one triple-coverage combo. Identical assertion

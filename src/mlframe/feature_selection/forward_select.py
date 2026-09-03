@@ -125,7 +125,11 @@ def forward_select(
             current_fold_scores = baseline_fold_scores
     else:
         best_score = -np.inf
-    cap = (max_features if max_features is not None else len(all_candidates)) + len(selected)
+    # `max_features` is the size of the RETURNED subset, which is what its docstring says ("stop once the
+    # selected subset reaches this size") and what the Returns section describes -- the initial columns are part
+    # of that subset, not extra allowance on top of it. Adding `len(selected)` meant
+    # `max_features=5, initial_selected=[a, b, c]` returned up to 8 columns.
+    cap = max_features if max_features is not None else len(all_candidates) + len(selected)
 
     report = ForwardSelectReport()
     non_significant_streak = 0

@@ -22,6 +22,8 @@ Design decisions (all measurement-backed, see ``_benchmarks/bench_cell_binning_f
 from __future__ import annotations
 
 import logging
+
+from mlframe.utils.log_throttle import log_throttle
 from collections.abc import Sequence
 from typing import Optional
 
@@ -30,6 +32,23 @@ import pandas as pd
 from numba import njit, prange
 
 logger = logging.getLogger(__name__)
+
+
+@njit(cache=True)
+def _per_cell_count_sum_njit(codes, v, n_cells):
+    """Per-cell ``(cnt, s1)`` only -- pass 1 of the two-pass stable scheme, with the dead higher moments gone.
+
+    Accumulates in the same row order as :func:`_per_cell_raw_moments_njit`, so ``cnt`` and ``s1`` are
+    bit-identical to that kernel's first two outputs.
+    """
+    n_cells = int(n_cells)
+    cnt = np.zeros(n_cells, dtype=np.float64)
+    s1 = np.zeros(n_cells, dtype=np.float64)
+    for i in range(codes.shape[0]):
+        c = codes[i]
+        cnt[c] += 1.0
+        s1[c] += v[i]
+    return cnt, s1
 
 
 @njit(cache=True)
@@ -57,6 +76,44 @@ def _per_cell_raw_moments_njit(codes, v, n_cells):
         s3[c] += x2 * x
         s4[c] += x2 * x2
     return cnt, s1, s2, s3, s4
+
+@njit(cache=True)
+def _per_cell_centered_moments_njit(codes, v, cell_mean, n_cells):
+    """One-pass per-cell CENTERED moment accumulator: given each cell's already-computed mean (indexed
+    by cell id), returns ``(cm2, cm3, cm4)`` each ``(n_cells,)`` -- ``sum((x-mean_c)^k)`` per cell for
+    k=2,3,4. Numerically stable (no raw-power cancellation) -- the whole-array analog of
+    :func:`_centered_moments_njit`, whose own docstring documents the measured catastrophic failure of
+    the raw-moment binomial-expansion form this replaces in :func:`_derive_cell_stats`."""
+    n_cells = int(n_cells)
+    cm2 = np.zeros(n_cells, dtype=np.float64)
+    cm3 = np.zeros(n_cells, dtype=np.float64)
+    cm4 = np.zeros(n_cells, dtype=np.float64)
+    for i in range(codes.shape[0]):
+        c = codes[i]
+        d = v[i] - cell_mean[c]
+        d2 = d * d
+        cm2[c] += d2
+        cm3[c] += d2 * d
+        cm4[c] += d2 * d2
+    return cm2, cm3, cm4
+
+
+def _per_cell_moments_stable(codes: np.ndarray, v: np.ndarray, n_cells: int) -> tuple:
+    """Per-cell ``(cnt, mean, cm2, cm3, cm4)`` via the numerically-stable two-pass scheme: pass 1
+    (:func:`_per_cell_raw_moments_njit`, cnt/s1 only used) gets each cell's mean -- a plain additive sum,
+    safe from cancellation; pass 2 (:func:`_per_cell_centered_moments_njit`) accumulates CENTERED powers
+    directly. Feeds :func:`_derive_cell_stats`."""
+    codes_i = np.ascontiguousarray(codes, dtype=np.int64)
+    v_f = np.ascontiguousarray(v, dtype=np.float64)
+    # The pruned twin: this pass needs only `cnt` and `s1`, and the full kernel also accumulated s2, s3 and s4
+    # -- 2.5x the arithmetic and three unused `np.zeros(n_cells)` per call, on a kernel `fit_binned_numeric_agg`
+    # runs once per fold per (group_col, agg_col) pair. Bit-identical by construction: same row order, same adds.
+    # The GPU twin already bincounts only cnt and s1, so this was a host-only gap.
+    cnt, s1 = _per_cell_count_sum_njit(codes_i, v_f, int(n_cells))
+    mean = s1 / np.maximum(cnt, 1.0)
+    cm2, cm3, cm4 = _per_cell_centered_moments_njit(codes_i, v_f, mean, int(n_cells))
+    return cnt, mean, cm2, cm3, cm4
+
 
 SUPPORTED_STATS = ("mean", "std", "skew", "kurt")
 # Minimum rows-per-cell for a stable estimate of each moment order (rule-of-thumb, used by the moment cap).
@@ -100,37 +157,42 @@ def resolve_nbins_and_stats(n: int, stats: Sequence[str], nbins_base: int, k: in
     return 2, ["mean"]  # degenerate fallback
 
 
-def _raw_moments(codes: np.ndarray, v: np.ndarray, n_cells: int) -> tuple:
-    """One-pass njit raw-moment accumulation ``(cnt, s1, s2, s3, s4)`` of ``v`` per cell of ``codes`` (see
-    :func:`_per_cell_raw_moments_njit`). Each is a pure additive per-row partition sum, so
-    ``moments(A) + moments(B) == moments(A union B)`` elementwise for disjoint row sets A/B - exploited by
-    ``fit_binned_numeric_agg`` to derive a fold's TRAIN-only moments as ``full - test`` instead of rescanning
-    the ``(n_folds-1)/n_folds`` of rows that make up that fold's training split."""
-    return _per_cell_raw_moments_njit(np.ascontiguousarray(codes).astype(np.int64), np.ascontiguousarray(v).astype(np.float64), int(n_cells))  # type: ignore[no-any-return]  # njit kernel returns the declared (cnt, s1, s2, s3, s4) tuple
+def _derive_cell_stats(cnt: np.ndarray, mean: np.ndarray, cm2: np.ndarray, cm3: np.ndarray, cm4: np.ndarray, stats: Sequence[str]) -> dict:
+    """Derive per-cell statistics from ``(cnt, mean, cm2, cm3, cm4)`` -- CENTERED moment sums (see
+    :func:`_per_cell_moments_stable` / :func:`_per_cell_centered_moments_njit`), not the raw-power form this
+    replaced: the raw-power binomial-expansion derivation (``s3/n - 3*mean*s2/n + 2*mean**3``)
+    is catastrophically unstable on large-offset/small-scale columns -- the exact bug class already fixed for
+    the whole-column global stats (:func:`_global_stats_all`) and target-encoding's per-category moments
+    (``_target_encoding_fe.py``), confirmed live here too via a 1e13-scale skew/kurt error on synthetic data
+    with a large per-cell offset. No ``+1e-12`` epsilon pad on the skew/kurt denominators either (that pad
+    corrupts an already-small-but-correctly-computed denominator by ~30-100% once cancellation itself is
+    fixed -- see the target-encoding fix's own docstring for the same finding); the ``std > 1e-9`` /
+    ``m2 > 1e-12`` guards already bound the denominator away from true zero.
 
-
-def _derive_cell_stats(cnt: np.ndarray, s1: np.ndarray, s2: np.ndarray, s3: np.ndarray, s4: np.ndarray, stats: Sequence[str]) -> dict:
-    """Derive per-cell statistics from additive raw moments (see :func:`_raw_moments`). Empty cells get NaN
-    (caller substitutes the global value). Pure function of the moments - callable on either a direct
-    accumulation or a ``full - test`` subtraction result."""
+    Empty cells get NaN (caller substitutes the global value)."""
     safe = np.maximum(cnt, 1.0)
-    mean = s1 / safe
     out: dict = {}
     need_hi = any(s in ("std", "skew", "kurt") for s in stats)
     if need_hi:
-        m2 = np.maximum(s2 / safe - mean * mean, 0.0)
-        std = np.sqrt(m2)
+        m2 = cm2 / safe
+        std = np.sqrt(np.maximum(m2, 0.0))
     for stat in stats:
         if stat == "mean":
             raw = mean
         elif stat == "std":
             raw = std
         elif stat == "skew":
-            m3 = s3 / safe - 3.0 * mean * (s2 / safe) + 2.0 * mean**3
-            raw = np.where(std > 1e-9, m3 / (std**3 + 1e-12), 0.0)
+            m3 = cm3 / safe
+            # np.where evaluates BOTH branches elementwise before selecting, so m3/std**3 still runs
+            # (and warns) on the std<=1e-9 cells even though their result is discarded -- suppress the
+            # resulting divide/invalid RuntimeWarning locally rather than at every one of this
+            # function's callers; the discarded values are never read.
+            with np.errstate(divide="ignore", invalid="ignore"):
+                raw = np.where(std > 1e-9, m3 / std**3, 0.0)
         elif stat == "kurt":
-            m4 = s4 / safe - 4.0 * mean * (s3 / safe) + 6.0 * mean**2 * (s2 / safe) - 3.0 * mean**4
-            raw = np.where(m2 > 1e-12, m4 / (m2 * m2 + 1e-12) - 3.0, 0.0)
+            m4 = cm4 / safe
+            with np.errstate(divide="ignore", invalid="ignore"):
+                raw = np.where(m2 > 1e-12, m4 / (m2 * m2) - 3.0, 0.0)
         else:
             raise ValueError(f"binned_numeric_agg stat {stat!r} not in {SUPPORTED_STATS}")
         out[stat] = np.where(cnt > 0, raw, np.nan)
@@ -138,13 +200,12 @@ def _derive_cell_stats(cnt: np.ndarray, s1: np.ndarray, s2: np.ndarray, s3: np.n
 
 
 def per_cell_stats_bincount(codes: np.ndarray, v: np.ndarray, n_cells: int, stats: Sequence[str]) -> dict:
-    """Vectorised per-cell statistics of ``v`` via raw-moment ``np.bincount`` (O(n), no Python per-row loop).
-    Returns ``{stat: np.ndarray(n_cells)}``. Empty cells get NaN (caller substitutes the global value).
-    One-pass njit raw-moment accumulation (cnt, s1..s4) replaces up to FOUR np.bincount passes + full-array
-    power ops - ~30x faster at n=100k (0.59 vs 18 ms). s2 (x*x) matches np.bincount(v*v) exactly; s3/s4
-    differ from numpy v**3/v**4 only at the last ULP, far below the bin resolution."""
-    cnt, s1, s2, s3, s4 = _raw_moments(codes, v, n_cells)
-    return _derive_cell_stats(cnt, s1, s2, s3, s4, stats)
+    """Vectorised per-cell statistics of ``v`` via one-pass njit centered-moment accumulation (O(n), no
+    Python per-row loop, no ``np.bincount``). Returns ``{stat: np.ndarray(n_cells)}``. Empty cells get NaN
+    (caller substitutes the global value). Two njit passes (mean, then centered powers) -- numerically
+    stable, see :func:`_derive_cell_stats`."""
+    cnt, mean, cm2, cm3, cm4 = _per_cell_moments_stable(codes, v, n_cells)
+    return _derive_cell_stats(cnt, mean, cm2, cm3, cm4, stats)
 
 
 def _global_stat(v: np.ndarray, stat: str) -> float:
@@ -327,13 +388,10 @@ def fit_binned_numeric_agg(
             if globals_ is None:
                 globals_ = _global_stats_all(av[finite], kept_stats)
                 _globals_cache[_gk] = globals_
-            # Full-data raw moments, needed anyway for the ``full``/``lut`` recipe lookup below. cnt/s1..s4 are
-            # additive partition sums over the finite rows, so a fold's TRAIN-only moments equal full - test
-            # (both finite & fold==f); an O(n_test) TEST-only pass + subtraction replaces the O(n_train) rescan
-            # per fold, cutting total row-visits from ~(n_folds-1)*n to ~2*n over the whole OOF loop.
-            full_cnt, full_s1, full_s2, full_s3, full_s4 = _raw_moments(codes[finite], av[finite], n_cells)
+            # Full-data moments, needed anyway for the ``full``/``lut`` recipe lookup below.
+            full_cnt, full_mean, full_cm2, full_cm3, full_cm4 = _per_cell_moments_stable(codes[finite], av[finite], n_cells)
             if not recipe_only:
-                # RECIPE_ONLY (device-born binagg, 2026-07-02) skips the 5-fold OOF feat-column build - the
+                # RECIPE_ONLY (device-born binagg) skips the 5-fold OOF feat-column build - the
                 # per-fold gather + np.where over the full n rows, the FE scan's single largest GPU-idle host
                 # stage. The device-born path (binned_numeric_agg_with_recipes) fits recipes-only, gates on the
                 # device from those recipes, then builds the OOF for the FEW survivors - so the OOF of the
@@ -341,6 +399,8 @@ def fit_binned_numeric_agg(
                 # fields) are cheap 1-pass njit and are always built.
                 assert _fold_test is not None and _ct_by_fold is not None  # populated whenever recipe_only is False
                 oof = {s: np.full(n, globals_[s], dtype=np.float64) for s in kept_stats}
+                finite_idx = np.where(finite)[0]
+                fold_of_finite = fold_ids[finite_idx]
                 for f in range(int(n_folds)):
                     test = _fold_test[f]
                     ct = _ct_by_fold[f]
@@ -352,12 +412,18 @@ def fit_binned_numeric_agg(
                     # finite row.
                     if test_fin.size == finite_count:
                         continue
-                    t_cnt, t_s1, t_s2, t_s3, t_s4 = _raw_moments(codes[test_fin], av[test_fin], n_cells)
-                    per = _derive_cell_stats(full_cnt - t_cnt, full_s1 - t_s1, full_s2 - t_s2, full_s3 - t_s3, full_s4 - t_s4, kept_stats)
+                    # CENTERED moments are NOT additive across row subsets (a subset's own mean differs
+                    # from the full-data mean, so full - test is invalid for cm2/cm3/cm4, unlike the old
+                    # raw-power form) -- compute TRAIN directly on its own rows instead of full-minus-test
+                    # (mirrors the same correctness-over-the-old-buggy-optimization tradeoff already made
+                    # for target-encoding's per-category moments -- see _target_encoding_fe.py).
+                    train_fin_idx = finite_idx[fold_of_finite != f]
+                    t_cnt, t_mean, t_cm2, t_cm3, t_cm4 = _per_cell_moments_stable(codes[train_fin_idx], av[train_fin_idx], n_cells)
+                    per = _derive_cell_stats(t_cnt, t_mean, t_cm2, t_cm3, t_cm4, kept_stats)
                     for s in kept_stats:
                         vals = per[s][ct]
                         oof[s][test] = np.where(np.isfinite(vals), vals, globals_[s])
-            full = _derive_cell_stats(full_cnt, full_s1, full_s2, full_s3, full_s4, kept_stats)
+            full = _derive_cell_stats(full_cnt, full_mean, full_cm2, full_cm3, full_cm4, kept_stats)
             for s in kept_stats:
                 name = engineered_name_binned_agg(acol, gcol, s)
                 if not recipe_only:
@@ -667,12 +733,18 @@ def binned_numeric_agg_with_recipes(
     g_mi = _cheap_mi_group_selection(X, gcands, y_codes)
     gsel = sorted([g for g in gcands if g_mi[g] > 0.0], key=lambda g: g_mi[g], reverse=True)[: max(1, int(max_group_cols))]
     # AGG pre-selection by variance (unsupervised - the aggregated column needs spread to have per-cell shape).
-    a_var = {a: float(np.var(np.asarray(X[a].to_numpy(), dtype=np.float64))) for a in acands}
+    # Vectorised over columns (one np.var(axis=0) call) instead of a per-column Python loop -- each column's
+    # variance is independent of every other, the classic "fuse into one batched call" pattern (measured
+    # 1.94x at p=300 cols/n=1500, max diff 3.3e-15 vs the per-column loop -- machine-epsilon float-summation-
+    # order noise, not a behavioural change; only feeds a descending sort so exact equality isn't even load-
+    # bearing here).
+    _a_var_vals = np.var(X[acands].to_numpy(dtype=np.float64), axis=0)
+    a_var = dict(zip(acands, _a_var_vals.tolist()))
     asel = sorted(acands, key=lambda a: a_var.get(a, 0.0), reverse=True)[: max(1, int(max_agg_cols))]
     if not gsel or not asel:
         return X, [], []
 
-    # PRE-CAP (2026-06-17 perf): the OOF fit below previously computed all gsel x asel pairs and only
+    # PRE-CAP (perf): the OOF fit below previously computed all gsel x asel pairs and only
     # then capped to top-``max_pairs`` by ``pair_rank`` (group MI, then agg variance) - both already
     # known here, BEFORE any OOF work. Rank + cap the (group, agg) pairs up front and compute OOF for
     # only those, so per_cell_stats_bincount runs ``max_pairs`` times instead of |gsel|*|asel| (e.g.
@@ -795,7 +867,7 @@ def binned_numeric_agg_with_recipes(
         # Keep it only when its observed CMI clears BOTH the absolute floor AND that ceiling - genuine cell-conditional
         # signal sits far above the null, redundant re-encodings sit at it.
         #
-        # 2026-06-22 FWER fix: the ceiling was the raw MAX over only 15 permutations. With ~1/(n_perm+1) effective
+        # FWER fix: the ceiling was the raw MAX over only 15 permutations. With ~1/(n_perm+1) effective
         # alpha per candidate and many (group, agg, stat) candidates over many fits, a high-variance noise stat
         # (kurt sits at the top of the moment ladder) eventually clears the noisy max by luck - measured on the
         # all-noise null frame (seed=6, clf): binagg_kurt(n2|qbin(n4)) cmi=0.02507 vs max-of-15=0.02279 (PASS by
@@ -834,23 +906,41 @@ def binned_numeric_agg_with_recipes(
                 # and score them all in ONE batched_cmi_gpu workload (cand as the fixed 'y', z as support),
                 # replacing _n_perm per-perm _cmi_from_binned calls. Identical permutations -> the null ceiling
                 # is selection-equivalent; falls back to the per-perm loop on any error / when GPU is off.
+                # ONE draw from `_rng` for the permutation seed, then a child generator both paths rebuild
+                # identically. The GPU path used to consume `_n_perm` draws BEFORE the call that can fail, and
+                # the host fallback then drew `_n_perm` MORE from the now-advanced generator -- so a GPU failure
+                # silently produced a DIFFERENT null ceiling and therefore a different keep/reject verdict, which
+                # is exactly the selection-equivalence the comment above claims. Seeding a child also leaves
+                # `_rng` equally advanced whichever path runs, so everything downstream is unaffected too, and it
+                # costs no extra memory (the fallback still permutes one column at a time).
+                _perm_seed = int(_rng.integers(0, 2**63 - 1))
                 _null = None
                 try:
                     if _cmi_gpu_enabled(n=int(y_cls.shape[0]), p=int(_n_perm), min_p=2) and int(_n_perm) > 1:
                         from ._fe_batched_mi import batched_cmi_gpu
 
+                        _prng = np.random.default_rng(_perm_seed)
                         _Yp = np.empty((y_cls.shape[0], int(_n_perm)), dtype=np.int64)
                         for _i in range(int(_n_perm)):
-                            _Yp[:, _i] = y_cls[_rng.permutation(y_cls.shape[0])]
+                            _Yp[:, _i] = y_cls[_prng.permutation(y_cls.shape[0])]
                         _null = np.asarray(batched_cmi_gpu(_Yp, cand_bin, z_joint), dtype=np.float64)
                         _null = np.where(np.isfinite(_null), _null, 0.0)
                 except Exception as e:
-                    logger.debug("GPU permutation-null batch computation failed, falling back to the host path: %s", e)
+                    log_throttle(
+                        logger,
+                        "binagg_gpu_perm_null_fallback",
+                        logging.WARNING,
+                        "GPU permutation-null batch failed (%s: %s); recomputing the null on the host path. The "
+                        "permutations are seeded identically, so the verdict is unchanged -- the GPU cost is not.",
+                        type(e).__name__,
+                        e,
+                    )
                     _null = None
                 if _null is None:
+                    _prng = np.random.default_rng(_perm_seed)
                     _null = np.empty(_n_perm, dtype=np.float64)
                     for _i in range(_n_perm):
-                        yp = y_cls[_rng.permutation(y_cls.shape[0])]
+                        yp = y_cls[_prng.permutation(y_cls.shape[0])]
                         c0 = _cmi_from_binned(cand_bin, yp, z_joint)
                         _null[_i] = c0 if np.isfinite(c0) else 0.0
                 # Robust one-sided null upper tail (mean + z*std), not the noisy raw max.

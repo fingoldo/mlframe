@@ -329,3 +329,38 @@ def test_cyclical_sincos_njit_dispatches_to_parallel_above_threshold(monkeypatch
     basic._cyclical_sincos_njit(np.arange(100.0), 0.1)
     basic._cyclical_sincos_njit(np.arange(5000.0), 0.1)
     assert calls == {"serial": 1, "parallel": 1}
+
+
+def test_cyclical_periods_follow_explicitly_requested_methods():
+    """An explicit ``methods`` set must not silently gain cyclical pairs for parts it never named.
+
+    Defaulting ``cyclical_periods`` to the full hour/day/weekday/month/day_of_year list regardless of
+    ``methods`` meant a caller asking for {hour, day, weekday} also received month_sin/cos and
+    day_of_year_sin/cos -- features the suite's own redundancy analyzer then flagged as near-duplicates
+    (|r|=0.97) and auto-dropped. The caller never asked for them in the first place.
+    """
+    df = pd.DataFrame({"ts": pd.to_datetime([datetime(2024, 1, 1) + timedelta(hours=7 * i) for i in range(60)])})
+    out = create_date_features(df, cols=["ts"], methods={"hour": np.int8, "day": np.int8, "weekday": np.int8})
+
+    cyc = sorted(c for c in out.columns if c.endswith("_sin") or c.endswith("_cos"))
+    assert cyc == ["ts_day_cos", "ts_day_sin", "ts_hour_cos", "ts_hour_sin", "ts_weekday_cos", "ts_weekday_sin"], cyc
+
+
+def test_default_methods_keep_the_full_cyclical_set():
+    """``methods=None`` means "give me the default part set", so the full default cyclical set stays --
+    the narrowing above must key off an EXPLICIT caller request, not off the post-default value."""
+    df = pd.DataFrame({"ts": pd.to_datetime([datetime(2024, 1, 1) + timedelta(hours=7 * i) for i in range(60)])})
+    out = create_date_features(df, cols=["ts"])
+
+    sins = sorted(c for c in out.columns if c.endswith("_sin"))
+    assert sins == ["ts_day_of_year_sin", "ts_day_sin", "ts_hour_sin", "ts_month_sin", "ts_weekday_sin"], sins
+
+
+def test_explicit_cyclical_periods_still_win_over_the_methods_narrowing():
+    """An explicit ``cyclical_periods`` is the caller's direct statement and must override the
+    methods-derived default entirely -- including asking for a period whose integer part wasn't requested."""
+    df = pd.DataFrame({"ts": pd.to_datetime([datetime(2024, 1, 1) + timedelta(hours=7 * i) for i in range(60)])})
+    out = create_date_features(df, cols=["ts"], methods={"day": np.int8}, cyclical_periods=[("month", 12.0)])
+
+    cyc = sorted(c for c in out.columns if c.endswith("_sin"))
+    assert cyc == ["ts_month_sin"], cyc

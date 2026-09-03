@@ -14,6 +14,7 @@ from mlframe.reporting.charts.multiclass import (
     _stratified_subsample,
     compose_multiclass_figure,
 )
+from mlframe.reporting.colors import line_style
 from mlframe.reporting.spec import (
     AnnotationPanelSpec,
     BarPanelSpec,
@@ -95,7 +96,10 @@ class TestConfusedPairs:
         panel = _confused_pairs_panel(y_true, proba, list(range(K)), y_pred=y_pred, top_n=10)
         top_cat = panel.categories[0]
         top_val = panel.values[0]
-        assert top_cat == "0 -> 1", f"expected dominant 0->1 pair on top, got {top_cat}"
+        # The category now carries the true-class support: a confusion RATE is unreadable without its denominator,
+        # and an unfloored ranking put "1 of 2 rows misrouted = 50%" above a 12% leak measured over 40000 rows.
+        assert top_cat.startswith("0 -> 1"), f"expected dominant 0->1 pair on top, got {top_cat}"
+        assert "n=" in top_cat
         # Measured leak ~0.60; floor 0.51 (15% below) catches a regression that mis-ranks/mis-scales.
         assert top_val >= 0.51, f"top confused-pair fraction {top_val} below planted 0.60"
 
@@ -169,10 +173,13 @@ class TestReferenceLines:
 
 class TestPalette:
     """Groups tests for: TestPalette."""
-    def test_tab20_no_collision_below_20(self):
-        """Tab20 no collision below 20."""
-        colors = [_class_color(i) for i in range(20)]
-        assert len(set(colors)) == 20, "two classes share a color within K<=20"
+    def test_no_collision_below_20(self):
+        """20 classes stay tellable apart -- by the (color, dash) pair, since the palette is 10 hues wide.
+
+        The tab20 extension it replaced separated a hue from its lightness twin by 2.8 under a deuteranopia
+        simulation, against 14.6 for the worst tab10 pair, so it met this contract on paper only."""
+        keys = [(_class_color(i), line_style(i)) for i in range(20)]
+        assert len(set(keys)) == 20, "two classes share both color and dash within K<=20"
 
     def test_roc_12_classes_distinct(self):
         """Roc 12 classes distinct."""
@@ -183,7 +190,7 @@ class TestPalette:
         proba = rng.dirichlet([1] * K, size=n)
         panel = compose_multiclass_figure(y_true, proba, classes, panels_template="ROC").panels[0][0]
         # Per-class colors (skip the gray chance series) must be unique for K=12.
-        per_class = panel.colors[1:]
+        per_class = list(zip(panel.colors[1:], panel.line_styles[1:]))
         assert len(set(per_class)) == K
 
 

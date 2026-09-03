@@ -289,10 +289,17 @@ def _conditional_permutation_importance(
                 for _ in range(n_repeats):
                     X_perm[:, j] = rng.permutation(orig_col)
                     X_for_score = pd.DataFrame(X_perm, columns=cols, index=idx) if is_dataframe else X_perm
-                    score_losses.append(baseline - float(model.score(X_for_score, y)))
+                    # E11 ext (mirrors the general p>1 branch below): wrap model.score in try/except so a
+                    # custom scorer crash on the permuted X doesn't abort the whole per-fold FI computation.
+                    # NaN signals the failure to the consumer instead of propagating the exception.
+                    try:
+                        score_losses.append(baseline - float(model.score(X_for_score, y)))
+                    except Exception as e:
+                        logger.debug("permutation-importance score() failed (single-feature branch), recording NaN: %s", e)
+                        score_losses.append(np.nan)
             finally:
                 X_perm[:, j] = orig_col
-            importances[j] = float(np.mean(score_losses))
+            importances[j] = float(np.nanmean(score_losses)) if any(not np.isnan(s) for s in score_losses) else 0.0
             continue
 
         # F10/F11: pass max_depth + min_samples_leaf. max_depth=None grows the tree

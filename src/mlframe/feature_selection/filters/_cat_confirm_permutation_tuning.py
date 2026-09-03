@@ -9,7 +9,12 @@ exposes ``_CAT_PERM_SPEC``, which the parent re-imports at its module bottom.
 
 from __future__ import annotations
 
+import logging
+from typing import Any
+
 import numpy as np
+
+logger = logging.getLogger("mlframe.feature_selection.filters.cat_interactions")
 
 from ._cat_confirm_permutation import (
     _count_nfailed_joint_indep_cupy,
@@ -116,17 +121,27 @@ def _perm_kernel_fallback_choice(n_samples: int, n_perms: int) -> str:
 
 
 # Register with the @kernel_tuner registry so retune_all / mlframe-tune-kernels
-# discover + batch-tune the cat-FE permutation kernel. GPU-capable (cupy backend).
-from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+# discover + batch-tune the cat-FE permutation kernel. GPU-capable (cupy backend). Wrapped: a
+# missing/broken pyutilz.performance.kernel_tuning.registry would otherwise crash this module's
+# import unconditionally; ``_CAT_PERM_SPEC`` is left ``None`` on failure, and the sole consumer
+# (``_perm_kernel_backend_choice`` in the ``_cat_confirm_permutation`` sibling) falls back to the
+# same heuristic (``_perm_kernel_fallback_choice``) the spec itself would have used on a cache miss.
 from typing import cast
 
-_CAT_PERM_SPEC = kernel_tuner(
-    kernel_name="cat_fe_perm_kernel",
-    variant_fns=(_count_nfailed_joint_indep_serial, _count_nfailed_joint_indep_prange),  # CPU bodies; cupy via salt
-    tuner=_run_perm_kernel_sweep,
-    axes={"n_samples": list(_PERM_SWEEP_N_SAMPLES), "n_perms": list(_PERM_SWEEP_N_PERMS_GRID)},
-    fallback=_perm_kernel_fallback_choice,  # callable (n_samples, n_perms) -> str
-    gpu_capable=True,
-    salt=_PERM_SALT,
-    cli_label="cat_fe_perm_kernel",
-)
+_CAT_PERM_SPEC: Any | None = None
+try:
+    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+    _CAT_PERM_SPEC = kernel_tuner(
+        kernel_name="cat_fe_perm_kernel",
+        variant_fns=(_count_nfailed_joint_indep_serial, _count_nfailed_joint_indep_prange),  # CPU bodies; cupy via salt
+        tuner=_run_perm_kernel_sweep,
+        axes={"n_samples": list(_PERM_SWEEP_N_SAMPLES), "n_perms": list(_PERM_SWEEP_N_PERMS_GRID)},
+        fallback=_perm_kernel_fallback_choice,  # callable (n_samples, n_perms) -> str
+        gpu_capable=True,
+        salt=_PERM_SALT,
+        cli_label="cat_fe_perm_kernel",
+    )
+except Exception as _e:
+    logger.warning("cat_fe_perm_kernel: @kernel_tuner registration failed (%s); using the static fallback heuristic.", _e)
+    _CAT_PERM_SPEC = None

@@ -37,7 +37,17 @@ def is_polars_df_logged(x: Any) -> bool:
 
 
 def sklearn_set_params(self: Any, **params: Any) -> Any:
-    """sklearn-compatible bulk attribute setter (used by ``clone`` / grid-search); bind as ``ClassName.set_params = sklearn_set_params``."""
+    """sklearn-compatible bulk attribute setter (used by ``clone`` / grid-search); bind as ``ClassName.set_params = sklearn_set_params``.
+
+    Matches sklearn's own ``BaseEstimator.set_params`` contract: raises ``ValueError`` naming every
+    unrecognized parameter instead of silently swallowing a typo'd kwarg via a bare ``setattr`` loop.
+    """
+    if not params:
+        return self
+    valid_params = self.get_params(deep=False)
+    invalid = sorted(set(params) - set(valid_params))
+    if invalid:
+        raise ValueError(f"Invalid parameter(s) {invalid} for estimator {self.__class__.__name__}. " f"Valid parameters are: {sorted(valid_params)}.")
     for k, v in params.items():
         setattr(self, k, v)
     return self

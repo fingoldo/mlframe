@@ -25,7 +25,7 @@ def _wide_interaction(n=2000, p_noise=80, seed=0):
     return X, pd.Series(y)
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_rescue_fires_on_wide_underselection_and_recovers_operands():
     """Rescue fires on wide underselection and recovers operands."""
     X, y = _wide_interaction()
@@ -36,7 +36,7 @@ def test_rescue_fires_on_wide_underselection_and_recovers_operands():
     assert {"a", "b"} <= out, "the rescue should recover the zero-marginal interaction operands the greedy missed"
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_rescue_noop_on_narrow_frame():
     """Rescue noop on narrow frame."""
     X, y = _wide_interaction(p_noise=25)  # 28 cols <= tree_rescue_min_p (60) -> gate cannot fire
@@ -45,7 +45,7 @@ def test_rescue_noop_on_narrow_frame():
     assert list(m1.support_) == list(m0.support_), "narrow frame must be a byte-identical no-op vs MRMR"
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_rescue_off_equals_mrmr():
     """Rescue off equals mrmr."""
     X, y = _wide_interaction()
@@ -54,7 +54,7 @@ def test_rescue_off_equals_mrmr():
     assert list(m1.support_) == list(m0.support_), "tree_rescue=False must behave exactly like MRMR"
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_rescue_transform_pickle_and_support_consistency():
     """Rescue transform pickle and support consistency."""
     import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
@@ -92,7 +92,7 @@ def test_varargs_ctor_get_params_and_clone_preserve_tree_rescue_params():
     assert cloned.tree_rescue_top_k == 13
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_bizvalue_rescue_lifts_downstream_auc_on_interaction_data():
     """Bizvalue rescue lifts downstream auc on interaction data."""
     from sklearn.model_selection import train_test_split

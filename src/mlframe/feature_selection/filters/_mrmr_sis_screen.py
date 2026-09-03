@@ -268,6 +268,16 @@ def sis_screen(
         yf = np.nan_to_num(y_mi.astype(np.float64), nan=0.0, posinf=0.0, neginf=0.0)
         edges = np.quantile(yf, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
         y_mi = np.searchsorted(edges, yf).astype(np.int64)  # continuous/high-card -> quantile bins
+    else:
+        # Gap between the two integer branches above: an integer target whose cardinality is
+        # moderate (> n_rows//20 but <= max(nbins, 2)) previously reached _mi_classif_batch
+        # unencoded. _plugin_mi_classif_njit tolerates non-dense labels via a y_max-y_min+1 span
+        # rather than requiring 0-based codes, so this was not silently WRONG for ordinary small
+        # label sets -- but a large-magnitude/sparse integer target here sized its MI histogram by
+        # the raw span instead of the true class count (memory/perf cliff on an otherwise-cheap
+        # screen). Factorise unconditionally to close the gap: cardinality is already <= max(nbins, 2)
+        # here (guaranteed by the elif chain above), so nominal-class treatment is always correct.
+        _, y_mi = np.unique(y_mi, return_inverse=True)
     y_mi = np.ascontiguousarray(y_mi)
     # CAVEAT (continuous target): the MI channel scores against this quantile-binned ``y_mi`` while ``second_moment_propensity`` keeps the RAW continuous ``y_arr`` and takes
     # the moment path (|corr(x^2,y)|+|corr(x,y^2)|). The two channels therefore use slightly DIFFERENT y representations - they are not on a strictly comparable y-grid. This

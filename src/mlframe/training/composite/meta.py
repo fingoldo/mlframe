@@ -34,7 +34,7 @@ the standalone composite on OOS RMSE.
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 
@@ -68,11 +68,13 @@ def _row_subset(X: Any, idx: np.ndarray) -> Any:
     return np.asarray(X)[idx]
 
 
-def _fit_nnls_2col(oof: np.ndarray, y: np.ndarray) -> np.ndarray:
+def _fit_nnls_2col(oof: np.ndarray, y: np.ndarray, sample_weight: Optional[np.ndarray] = None) -> np.ndarray:
     """NNLS fit of a 2-column OOF matrix against y; returns weights summing to 1 (convex) when positive.
 
     Reuses ``scipy.optimize.nnls``. Rows with any non-finite OOF / y are dropped before the solve so a
-    single domain-violation prediction cannot poison the weights. Degenerate fallbacks:
+    single domain-violation prediction cannot poison the weights. ``sample_weight`` (row weights, if given)
+    is applied via the standard weighted-least-squares trick -- scale each row of A and b by sqrt(weight)
+    before the NNLS solve, since NNLS itself has no native weighting. Degenerate fallbacks:
       * no finite rows / both columns constant -> equal split [0.5, 0.5];
       * NNLS returns all-zero (both columns anti-correlated with y) -> equal split.
     """
@@ -83,6 +85,10 @@ def _fit_nnls_2col(oof: np.ndarray, y: np.ndarray) -> np.ndarray:
         return np.array([0.5, 0.5])
     A = oof[finite]
     b = y[finite]
+    if sample_weight is not None:
+        sw = np.sqrt(np.clip(sample_weight[finite], 0.0, None))
+        A = A * sw[:, None]
+        b = b * sw
     try:
         w, _residual = nnls(A, b)
     except Exception as exc:  # pragma: no cover - solver edge
@@ -94,7 +100,7 @@ def _fit_nnls_2col(oof: np.ndarray, y: np.ndarray) -> np.ndarray:
     return np.asarray(w / total)
 
 
-class CompositeOrRawStacker(BaseEstimator, RegressorMixin):
+class CompositeOrRawStacker(RegressorMixin, BaseEstimator):
     """Blend a composite-target model with a raw-``y`` model, weighted by leakage-free OOF performance.
 
     Parameters
@@ -170,10 +176,16 @@ class CompositeOrRawStacker(BaseEstimator, RegressorMixin):
 
     # -- fit ----------------------------------------------------------------
 
-    def fit(self, X: Any, y: Any) -> "CompositeOrRawStacker":
+    def fit(self, X: Any, y: Any, sample_weight: Optional[np.ndarray] = None) -> "CompositeOrRawStacker":
         """Fit both the composite and raw estimators, computing OOF predictions from each and NNLS-blending them into ``weights_``."""
         y_arr = _as_1d_y(y)
         n = y_arr.shape[0]
+        if n < 2:
+            # max(2, min(self.n_splits, n)) still returns 2 for n=0 or n=1, so KFold(n_splits=2) would
+            # raise sklearn's raw internal ValueError ("Cannot have number of splits n_splits=2 greater
+            # than the number of samples") instead of a clear, class-named error naming the actual cause.
+            raise ValueError(f"CompositeOrRawStacker.fit: need at least 2 samples for a meaningful OOF split, got {n}.")
+        w_arr = np.asarray(sample_weight, dtype=np.float64) if sample_weight is not None else None
 
         # Effective split count: cannot exceed n, must be >= 2 for a meaningful OOF.
         n_splits = int(max(2, min(self.n_splits, n)))
@@ -184,23 +196,25 @@ class CompositeOrRawStacker(BaseEstimator, RegressorMixin):
             X_tr = _row_subset(X, train_idx)
             X_te = _row_subset(X, test_idx)
             y_tr = y_arr[train_idx]
+            fit_kwargs = {"sample_weight": w_arr[train_idx]} if w_arr is not None else {}
 
             comp = self._make_composite()
-            comp.fit(X_tr, y_tr)
+            comp.fit(X_tr, y_tr, **fit_kwargs)
             oof[test_idx, 0] = np.asarray(comp.predict(X_te), dtype=float).reshape(-1)
 
             raw = self._make_raw()
-            raw.fit(X_tr, y_tr)
+            raw.fit(X_tr, y_tr, **fit_kwargs)
             oof[test_idx, 1] = np.asarray(raw.predict(X_te), dtype=float).reshape(-1)
 
         self.oof_matrix_ = oof
-        self.weights_ = _fit_nnls_2col(oof, y_arr)
+        self.weights_ = _fit_nnls_2col(oof, y_arr, sample_weight=w_arr)
 
         # FULL-data models for prediction (NOT used to fit the weights -> no leakage).
+        full_fit_kwargs = {"sample_weight": w_arr} if w_arr is not None else {}
         self.composite_ = self._make_composite()
-        self.composite_.fit(X, y_arr)
+        self.composite_.fit(X, y_arr, **full_fit_kwargs)
         self.raw_ = self._make_raw()
-        self.raw_.fit(X, y_arr)
+        self.raw_.fit(X, y_arr, **full_fit_kwargs)
 
         n_feat = getattr(self.composite_, "n_features_in_", None)
         if n_feat is None:

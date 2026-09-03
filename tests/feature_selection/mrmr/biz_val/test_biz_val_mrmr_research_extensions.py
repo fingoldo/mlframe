@@ -396,7 +396,11 @@ class TestMRMRWiredKnobs:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = self._toy()
-        sel = MRMR(uaed_auto_size=True, verbose=0)
+        # The uaed elbow only needs a >=3-round greedy gains_ trace and a populated support_ (see
+        # ``_fit_impl_core.py``'s uaed_auto_size block) -- neither depends on FE/CV depth, so the same
+        # default-config wall time (dominated by FE search + CV folds, not this tiny n=200/p=5 frame) is
+        # cut with the standard speed knobs without touching the code path under test.
+        sel = MRMR(uaed_auto_size=True, fe_max_steps=0, cv=2, verbose=0)
         sel.fit(X, y)
         # The post-fit step is best-effort; passes as long as it does not
         # raise and the standard fit attributes are populated.

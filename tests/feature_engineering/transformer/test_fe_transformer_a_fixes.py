@@ -13,7 +13,21 @@ import logging
 import numpy as np
 import pytest
 
-logging.disable(logging.CRITICAL)
+@pytest.fixture(autouse=True, scope="module")
+def _suppress_noisy_logging_during_this_module():
+    """Suppress WARNING-and-below logging while this module's tests run, then restore.
+
+    A bare module-level ``logging.disable(logging.CRITICAL)`` used to sit here with no matching
+    ``logging.disable(logging.NOTSET)`` -- ``logging.disable`` is a process-wide, manager-level
+    override (not scoped to one logger), so it fired at IMPORT time and stayed in effect for the
+    rest of this pytest-xdist worker's lifetime, silently swallowing every later test's
+    ``logger.warning(...)``/``logger.debug(...)`` calls regardless of that test's own
+    handler/level setup -- see the identical fix + incident writeup in
+    test_x_ml_correctness_meta_fixes.py.
+    """
+    logging.disable(logging.CRITICAL)
+    yield
+    logging.disable(logging.NOTSET)
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +268,7 @@ def test_p8_local_curvature_logs_on_fit_failure(caplog):
 
 def test_p9_apriori_itemsets_logs_on_fpgrowth_failure(monkeypatch, caplog):
     """P9 apriori itemsets logs on fpgrowth failure."""
+    pytest.importorskip("mlxtend")
     import mlframe.feature_engineering.transformer.apriori_itemsets as ai
     import mlxtend.frequent_patterns
 

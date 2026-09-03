@@ -195,7 +195,7 @@ def _mi(xb, yb):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_search_recovers_near_optimal_cd_form(seed):
     """The engineered (c,d) feature MRMR returns must carry near-maximal target MI.

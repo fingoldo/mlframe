@@ -88,9 +88,10 @@ def test_biz_val_detect_expanding_window_feature_leakage_auto_remediate_eliminat
     )
 
     assert result["remediation_verified"] is True
-    assert result["leaky_row_ranges"], "expected at least one flagged leaking row range on a planted-leak dataset"
-    for start, end in result["leaky_row_ranges"]:
-        assert 0 <= start < end <= len(df)
+    assert result["leaky_row_positions"], "expected at least one flagged leaking row position array on a planted-leak dataset"
+    for positions in result["leaky_row_positions"]:
+        assert positions.size > 0
+        assert positions.min() >= 0 and positions.max() < len(df)
 
     remediated_feature = result["remediated_feature"]
     assert remediated_feature.shape == (len(df),)

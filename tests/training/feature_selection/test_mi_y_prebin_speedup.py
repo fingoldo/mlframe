@@ -31,6 +31,7 @@ import time
 import numpy as np
 import pytest
 
+from tests.conftest import skip_under_numba_disabled_jit
 from mlframe.training.composite.discovery.screening import (
     _mi_pair_bin,
     _mi_per_feature_y_fixed,
@@ -98,6 +99,7 @@ def test_y_fixed_empty_columns() -> None:
     assert out.dtype == np.float64
 
 
+@skip_under_numba_disabled_jit
 def test_y_fixed_speedup_gate() -> None:
     """Soft speedup gate: at moderate scale the hoisted helper must be
     >= 1.2x faster than the naive loop. Production-scale gain reaches

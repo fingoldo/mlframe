@@ -14,6 +14,7 @@ import logging
 import os
 from typing import Any, Sequence
 
+from mlframe._output_paths import ensure_parent_dir
 import numpy as np
 import pandas as pd
 
@@ -301,7 +302,7 @@ def report_regression_model_perf(
         try:
             from mlframe.metrics.core import (
                 fast_rmsle, fast_mdape, fast_spearman_corr,
-                fast_kendall_tau, fast_huber_loss,
+                fast_kendall_tau, fast_concordance_index, fast_huber_loss,
             )
             from mlframe.metrics.regression import fast_rmspe, fast_logcosh_loss
             # RMSLE only on non-negative targets; otherwise NaN is the right
@@ -315,10 +316,13 @@ def report_regression_model_perf(
             # dominate the whole evaluation pass.
             if targets_arr.shape[0] <= 50_000:
                 _ext_Kendall = fast_kendall_tau(targets_arr, preds_arr)
-                # C-index == (tau_b + 1) / 2 exactly; derive it from the Kendall tau just computed on the SAME
-                # (targets, preds) instead of calling fast_concordance_index, which recomputes the full tau-b
-                # (a duplicate O(N log N) scipy.kendalltau pass / numba O(N^2) kernel) on identical inputs.
-                _ext_Cindex = (_ext_Kendall + 1.0) / 2.0 if np.isfinite(_ext_Kendall) else np.nan
+                # C-index is NOT (tau_b + 1) / 2 once preds carry ties (common for tree-ensemble
+                # scores): tau-b's denominator is the geometric mean of pairs-not-tied-in-targets
+                # and pairs-not-tied-in-preds, while the C-index denominator is pairs-not-tied-in-
+                # targets alone -- the two formulas only coincide in the fully tie-free case. Call
+                # fast_concordance_index directly (its own O(N log N) Fenwick-tree kernel, same
+                # complexity class as fast_kendall_tau's scipy fallback, so no perf regression).
+                _ext_Cindex = fast_concordance_index(targets_arr, preds_arr)
             # Huber loss: delta=1.0 default (callers can override via
             # ReportingConfig in a future iteration). Pure 1-pass kernel.
             _ext_Huber = fast_huber_loss(targets_arr, preds_arr, delta=1.0)
@@ -678,8 +682,12 @@ def report_regression_model_perf(
                     if os.path.splitext(plot_file)[1].lower() not in (
                         ".png", ".pdf", ".svg", ".jpg", ".jpeg", ".tif", ".tiff", ".webp",
                     ):
-                        _save_path = plot_file + ".png"
-                    fig.savefig(_save_path)
+                        # Resolved, not concatenated: a flat name lands beside the png/ directory the rest of
+                        # the run writes into.
+                        from mlframe.reporting.renderers.save import resolve_output_path
+
+                        _save_path = resolve_output_path(plot_file, "matplotlib", "png", multi_output=False)
+                    fig.savefig(ensure_parent_dir(_save_path))
 
                 if show_perf_chart:
                     # block=False (not plt.ion()) so the process-global interactive flag is not leaked into the user session.

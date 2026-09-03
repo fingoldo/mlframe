@@ -5,7 +5,7 @@ disagreement signal). Bands partition rows by structural ambiguity, not fitting 
 
 Mechanism:
 1. Fit 3 baselines: LGB d=3, LGB d=5, Ridge/LogReg.
-2. Per train row: compute in-sample predictions (p1, p2, p3) and disagreement = std(p1, p2, p3).
+2. Per train row: compute OOF predictions (p1, p2, p3) via an inner KFold(3), and disagreement = std(p1, p2, p3).
 3. Partition train rows into 5 quintile bands by disagreement:
    - Band Q1: all 3 baselines agree (consensus region)
    - Band Q5: max disagreement (structurally ambiguous region)
@@ -33,44 +33,66 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from ._squared_dists_shared import squared_dists as _squared_dists
 from ._utils import require_seed, validate_numeric_input, softmax
 
 logger = logging.getLogger(__name__)
 
 
-def _fit_3baselines_in_sample(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int) -> np.ndarray:
-    """Fit 3 baselines on (Xt, y_t), return in-sample predictions as (n_train, 3)."""
+def _fit_3baselines_oof(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int) -> np.ndarray:
+    """Fit 3 baselines on (Xt, y_t) via an inner KFold(3), return OUT-OF-FOLD predictions as (n_train, 3).
+
+    An in-sample prediction is close to y_t almost by construction (the model was just fit on these exact
+    rows), which systematically understates each baseline's true disagreement and biases which rows land
+    in the high-disagreement (Q5) band -- the same leakage class already fixed for the sibling
+    ``bidir_residual_band.py::_fit_baseline_predict``. Falls back to a single in-sample fit when there are
+    too few rows for a 3-fold inner split.
+    """
     try:
         import lightgbm as lgb
     except ImportError as exc:
         raise ImportError("disagreement_band requires lightgbm") from exc
     from sklearn.linear_model import Ridge, LogisticRegression
 
-    preds = np.zeros((Xt.shape[0], 3), dtype=np.float32)
-    if task == "binary":
-        m1 = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
-        m1.fit(Xt, y_t.astype(np.int32))
-        preds[:, 0] = np.asarray(m1.predict_proba(Xt))[:, 1].astype(np.float32)
-        m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
-        m2.fit(Xt, y_t.astype(np.int32))
-        preds[:, 1] = np.asarray(m2.predict_proba(Xt))[:, 1].astype(np.float32)
-        try:
-            m3 = LogisticRegression(max_iter=200, solver="liblinear", random_state=int(seed) + 2)
-            m3.fit(Xt, y_t.astype(np.int32))
-            preds[:, 2] = m3.predict_proba(Xt)[:, 1].astype(np.float32)
-        except Exception as exc:
-            logger.info("disagreement_band: LogisticRegression fit failed (%s); falling back to constant rate.", exc)
-            preds[:, 2] = float(y_t.mean())
-    else:
-        m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
-        m1.fit(Xt, y_t)
-        preds[:, 0] = np.asarray(m1.predict(Xt)).astype(np.float32)
-        m2 = lgb.LGBMRegressor(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
-        m2.fit(Xt, y_t)
-        preds[:, 1] = np.asarray(m2.predict(Xt)).astype(np.float32)
-        m3 = Ridge(alpha=1.0, random_state=int(seed) + 2)
-        m3.fit(Xt, y_t)
-        preds[:, 2] = m3.predict(Xt).astype(np.float32)
+    def _fit_predict_fold(X_fit: np.ndarray, y_fit: np.ndarray, X_pred: np.ndarray, rs: int) -> np.ndarray:
+        """Fit the 3 baselines on (X_fit, y_fit), return their predictions on X_pred as (n_pred, 3)."""
+        preds = np.zeros((X_pred.shape[0], 3), dtype=np.float32)
+        if task == "binary":
+            m1 = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(rs), verbose=-1, n_jobs=-1)
+            m1.fit(X_fit, y_fit.astype(np.int32))
+            preds[:, 0] = np.asarray(m1.predict_proba(X_pred))[:, 1].astype(np.float32)
+            m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(rs) + 1, verbose=-1, n_jobs=-1)
+            m2.fit(X_fit, y_fit.astype(np.int32))
+            preds[:, 1] = np.asarray(m2.predict_proba(X_pred))[:, 1].astype(np.float32)
+            try:
+                m3 = LogisticRegression(max_iter=200, solver="liblinear", random_state=int(rs) + 2)
+                m3.fit(X_fit, y_fit.astype(np.int32))
+                preds[:, 2] = m3.predict_proba(X_pred)[:, 1].astype(np.float32)
+            except Exception as exc:
+                logger.info("disagreement_band: LogisticRegression fit failed (%s); falling back to constant rate.", exc)
+                preds[:, 2] = float(y_fit.mean())
+        else:
+            m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(rs), verbose=-1, n_jobs=-1)
+            m1.fit(X_fit, y_fit)
+            preds[:, 0] = np.asarray(m1.predict(X_pred)).astype(np.float32)
+            m2 = lgb.LGBMRegressor(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(rs) + 1, verbose=-1, n_jobs=-1)
+            m2.fit(X_fit, y_fit)
+            preds[:, 1] = np.asarray(m2.predict(X_pred)).astype(np.float32)
+            m3 = Ridge(alpha=1.0, random_state=int(rs) + 2)
+            m3.fit(X_fit, y_fit)
+            preds[:, 2] = m3.predict(X_pred).astype(np.float32)
+        return preds
+
+    n = Xt.shape[0]
+    if n < 3:
+        return _fit_predict_fold(Xt, y_t, Xt, seed)
+
+    from sklearn.model_selection import KFold
+
+    preds = np.zeros((n, 3), dtype=np.float32)
+    inner_splitter = KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11)
+    for inner_idx, (in_tr, in_val) in enumerate(inner_splitter.split(Xt)):
+        preds[in_val] = _fit_predict_fold(Xt[in_tr], y_t[in_tr], Xt[in_val], int(seed) + 7 + inner_idx)
     return preds
 
 
@@ -103,7 +125,7 @@ def compute_disagreement_band_features(
     effective_n_bands = n_bands
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
-        """Standardize, fit the 3 in-sample baselines to get per-row disagreement, bucket train rows into disagreement-quintile bands, then soft-assign query rows to bands (by centroid distance) and aggregate each band's y/std/disagreement into the final feature row."""
+        """Standardize, fit the 3 OOF baselines to get per-row disagreement, bucket train rows into disagreement-quintile bands, then soft-assign query rows to bands (by centroid distance) and aggregate each band's y/std/disagreement into the final feature row."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -112,7 +134,7 @@ def compute_disagreement_band_features(
         else:
             Xt_s = Xt
             Xq_s = Xq
-        preds_tr = _fit_3baselines_in_sample(Xt_s, y_t, task=task, seed=fold_seed)  # (n, 3)
+        preds_tr = _fit_3baselines_oof(Xt_s, y_t, task=task, seed=fold_seed)  # (n, 3)
         disagreement = preds_tr.std(axis=1).astype(np.float32)
 
         quantiles = np.quantile(disagreement, np.linspace(0.0, 1.0, effective_n_bands + 1))
@@ -148,8 +170,7 @@ def compute_disagreement_band_features(
             band_y_std[b] = float(y_band.std()) + 1e-9
             band_disagreement_mean[b] = float(d_band.mean())
 
-        diffs = Xq_s[:, None, :] - band_centroids[None, :, :]
-        sq = (diffs**2).sum(axis=-1)
+        sq = _squared_dists(Xq_s, band_centroids)  # (n_q, n_total)
         scores = -sq
         weights = softmax(scores, temp=temp)
         entropy = -np.sum(weights * np.log(weights + 1e-9), axis=-1).astype(np.float32)

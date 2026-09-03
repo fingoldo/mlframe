@@ -16,7 +16,24 @@ import numpy as np
 import pandas as pd
 import pytest
 
-logging.disable(logging.CRITICAL)
+
+@pytest.fixture(autouse=True, scope="module")
+def _suppress_noisy_logging_during_this_module():
+    """Suppress WARNING-and-below logging while this module's tests run, then restore.
+
+    A bare module-level ``logging.disable(logging.CRITICAL)`` used to sit here with no matching
+    ``logging.disable(logging.NOTSET)`` -- ``logging.disable`` is a process-wide, manager-level
+    override (not scoped to one logger), so it fired at IMPORT time and stayed in effect for the
+    rest of this pytest-xdist worker's lifetime, silently swallowing every later test's
+    ``logger.warning(...)`` calls regardless of that test's own handler/level setup. Reproduced
+    live: tests/training/test_schema_drift_perf.py's two tests attach their own StreamHandler and
+    assert on captured WARNING text, and failed with an EMPTY captured stream
+    (``assert 'dtype different' in ''``) whenever this module was imported into the same worker
+    first. Scoping the disable to a fixture restores logging on module teardown instead.
+    """
+    logging.disable(logging.CRITICAL)
+    yield
+    logging.disable(logging.NOTSET)
 
 
 # ---------------------------------------------------------------------------
@@ -52,11 +69,20 @@ def test_f1_combine_probs_median_weight_and_none_identical():
 
 
 def test_f1_axis_mismatch_confirmed_in_raw_numpy():
-    """Sanity: confirms the pre-fix failure mode really is a numpy ValueError (shape mismatch), not a hypothetical."""
+    """Sanity: confirms the pre-fix failure mode really is a numpy error tied to weights/axis, not a hypothetical.
+
+    ``np.quantile``'s ``weights`` parameter only exists from numpy 2.0 -- on an older numpy (this
+    project's own floor for python<3.10 is ``numpy<2.0``, see pyproject.toml) the call raises
+    ``TypeError: unexpected keyword argument 'weights'`` before ever reaching the shape-mismatch
+    check ``ValueError`` this sanity pin was written against on numpy>=2.0. Both are the numpy-level
+    confirmation this test exists to pin (the combination is rejected one way or another); which one
+    depends only on which numpy the caller's own interpreter has, not on anything mlframe controls.
+    """
     rng = np.random.default_rng(0)
     stacked = rng.uniform(0.1, 0.9, size=(4, 100))
     sw = rng.uniform(0.5, 2.0, size=100)
-    with pytest.raises(ValueError, match="weights"):
+    expected_exc = ValueError if np.lib.NumpyVersion(np.__version__) >= "2.0.0" else TypeError
+    with pytest.raises(expected_exc, match="weights"):
         np.quantile(stacked, 0.5, axis=0, weights=sw, method="inverted_cdf")
 
 

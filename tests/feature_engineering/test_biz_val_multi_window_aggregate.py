@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score
 
@@ -82,6 +83,43 @@ def test_multi_window_aggregate_matches_manual_windowed_sum():
     assert row["amount_count_last_10"] == 2.0
     assert row["amount_mean_last_10"] == 45.0
     assert row["amount_sum_last_100"] == 150.0  # all 5 rows
+
+
+def test_multi_window_aggregate_guards_against_catastrophic_cancellation():
+    """FE_ROOT_B-6 (2026-08-05 audit): windowed sum/mean is derived as the difference of two independently-
+    computed CUMULATIVE aggregates (upper - lower); when an entity's history span greatly exceeds the
+    horizon, both cumulative snapshots can be large and nearly equal, so plain float64 subtraction can lose
+    most (or all) of the result's significant digits.
+
+    Concretely: one huge early-history row (1e18) dominates BOTH the upper (cumulative-to-cutoff) and lower
+    (cumulative-to-window-start) snapshots, so a naive ``upper - lower`` silently returns 0.0 instead of the
+    true windowed sum 8.3 (0.9 + 4.1 + 3.3, the three rows actually inside the 10-unit window) -- verified
+    directly below via plain float64 arithmetic on the exact same numbers. The fix must recover the exact
+    windowed sum regardless of the dominating early-history magnitude.
+    """
+    # Sanity: confirm the naive difference really does lose the signal at this magnitude (not testing our
+    # own fix's math twice -- this is the ground-truth failure mode being guarded against).
+    upper_naive = 1e18 + 1.3 + 2.7 + 0.9 + 4.1 + 3.3
+    lower_naive = 1e18 + 1.3 + 2.7
+    assert upper_naive - lower_naive == 0.0, "the naive-subtraction repro no longer demonstrates cancellation at this magnitude"
+
+    history_df = pd.DataFrame(
+        {
+            "entity": ["a"] * 6,
+            "t": [0.0, 850.0, 900.0, 993.0, 996.0, 999.0],
+            "amount": [1e18, 1.3, 2.7, 0.9, 4.1, 3.3],
+        }
+    )
+    query_df = pd.DataFrame({"entity": ["a"], "as_of": [1000.0]})
+
+    result = multi_window_aggregate(
+        history_df, entity_col="entity", time_col="t", as_of=query_df, agg_funcs={"amount": ["sum", "count", "mean"]}, lookback_horizons=[10]
+    )
+    row = result.iloc[0]
+
+    assert row["amount_sum_last_10"] == pytest.approx(8.3, abs=1e-9), f"expected the exact windowed sum 8.3, got {row['amount_sum_last_10']}"
+    assert row["amount_count_last_10"] == 3.0
+    assert row["amount_mean_last_10"] == pytest.approx(8.3 / 3.0, abs=1e-9)
 
 
 def test_multi_window_aggregate_empty_horizons_raises():

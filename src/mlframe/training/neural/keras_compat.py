@@ -60,7 +60,10 @@ def build_keras_mlp(
     )
     layers.append(BatchNormalization())
     layers.append(Dropout(dropout_rate))
-    for _ in range(num_layers):
+    # The block above is hidden layer 1 of num_layers; this loop adds the remaining num_layers-1 so the
+    # total hidden-layer count matches the parameter (pre-fix this ran num_layers times, building
+    # num_layers+1 hidden layers total).
+    for _ in range(num_layers - 1):
         layers.append(
             Dense(
                 num_neurons,
@@ -89,7 +92,7 @@ def build_keras_mlp(
     return model
 
 
-class KerasCompatibleMLP(BaseEstimator, RegressorMixin):
+class KerasCompatibleMLP(RegressorMixin, BaseEstimator):
     """sklearn wrapper over a Keras Sequential MLP."""
 
     def __init__(

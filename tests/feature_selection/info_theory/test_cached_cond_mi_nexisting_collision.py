@@ -62,11 +62,14 @@ def test_cache_raw_value_independent_of_nexisting():
     factors_data = np.column_stack([col0, col1, col2]).astype(np.int32)
     factors_nbins = np.array([3, 4, 2], dtype=np.int32)
 
-    # ``evaluate_gain`` does ``np.array(selected_vars, ...)`` internally and uses X/y
-    # as multiset index sequences, so pass plain Python lists (the types the fit feeds it).
+    # ``evaluate_gain`` is @njit; X/y are used as multiset index sequences and stay plain Python
+    # lists (the types the fit feeds it -- reflected-list typing works fine for read-only iteration).
+    # ``selected_vars`` is different: the kernel calls ``.astype(np.int32)`` on it directly (a
+    # plain-Python-list reflected-list type has no such ndarray method), so it must already be an
+    # ndarray here -- matches every production call site, which converts before calling in.
     X = [0]
     y = [1]
-    selected_vars = [2]
+    selected_vars = np.array([2], dtype=np.int64)
 
     def _score(nexisting: int, cache) -> float:
         """Helper that score."""

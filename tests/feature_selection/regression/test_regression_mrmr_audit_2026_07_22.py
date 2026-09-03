@@ -729,6 +729,36 @@ def test_regression_dy_device_cache_has_lock():
     assert isinstance(bng_gpu._DY_DEVICE_CACHE_LOCK, type(threading.Lock()))
     assert isinstance(bng_gpu._DY_DEVICE_CACHE_CUPY_LOCK, type(threading.Lock()))
 
+    # A lock that EXISTS is not a lock that is USED, and the defect this guards was unguarded LRU bookkeeping,
+    # not an absent lock object -- `isinstance(..., Lock)` passes for a lock nothing ever acquires. Assert it is
+    # actually ACQUIRED during a real cache call, by counting acquisitions on a spy.
+    _acquired = {"n": 0}
+    _real_lock = bng_gpu._DY_DEVICE_CACHE_LOCK
+
+    class _CountingLock:
+        """Delegates to the real lock, counting context-manager entries."""
+
+        def __enter__(self):
+            """Count and acquire."""
+            _acquired["n"] += 1
+            return _real_lock.__enter__()
+
+        def __exit__(self, *exc):
+            """Release."""
+            return _real_lock.__exit__(*exc)
+
+    import unittest.mock as _mock
+
+    _classes_y = np.arange(16, dtype=np.int64) % 2
+    with _mock.patch.object(bng_gpu, "_DY_DEVICE_CACHE_LOCK", _CountingLock()):
+        try:
+            bng_gpu._resident_y_all_device(_classes_y, _classes_y, base_seed=0, nperm=0, n=16, P=1)
+        except Exception:
+            # No CUDA on this box: the upload fails, but the lookup under the lock has already happened, which
+            # is the property being asserted. The eviction half is exercised wherever CUDA is present.
+            pass
+    assert _acquired["n"] >= 1, "the device-cache lock was never acquired during a cache call; it is decorative"
+
 
 # ---------------------------------------------------------------------------
 # GPU_INFRA_B-1 (P1): gpu_materialise_discretize_codes_host / gpu_discretize_codes_host both called
@@ -801,7 +831,7 @@ def test_regression_grand_fused_pair_mi_threads_random_seed():
     Post-fix: a random_seed kwarg exists and is threaded through to the permutation-null base_seed."""
     import inspect
 
-    from mlframe.feature_selection.filters._gpu_resident_basis import grand_fused_pair_mi
+    from mlframe.feature_selection.filters._gpu_resident_pair_mi import grand_fused_pair_mi
 
     sig = inspect.signature(grand_fused_pair_mi)
     assert "random_seed" in sig.parameters
@@ -1277,11 +1307,28 @@ def test_regression_mdlp_recurse_oos_validated_no_dead_present_parent_branch():
     splits: list = []
     counts_parent = np.bincount(y, minlength=2).astype(np.int64)
     present_parent = np.array([0, 1], dtype=np.int64)
-    # Must not raise (the removed branch's absence must not break the both-given call pattern).
+
+    # Interleave rather than halve. `x` is SORTED, so `x[:100]` is the whole negative tail and `y[:100]` is
+    # single-class -- the recursion correctly finds nothing to cut, which is why `splits` came back empty and
+    # why passing it in and never looking at it hid that this call exercised no recursion at all. Odd/even
+    # positions give both the train and the OOS slice both classes and a real boundary at x = 0.
+    _tr = np.arange(0, n, 2)
+    _oos = np.arange(1, n, 2)
     _mdlp_recurse_oos_validated(
-        x[:100], y[:100], x[100:], y[100:], splits, 0, 5, 8, 0.3,
+        x[_tr], y[_tr], x[_oos], y[_oos], splits, 0, 5, 8, 0.3,
         counts_parent=counts_parent, present_parent=present_parent,
     )
+
+    # `splits` was passed in and never inspected, so the "still works correctly" half of this test's own
+    # docstring was unasserted -- and "does not raise" held before the dead-branch removal too, since the
+    # combination exercised here (both counts_parent AND present_parent supplied) is the one that always worked.
+    assert isinstance(splits, list), f"splits is not a list: {type(splits).__name__}"
+    assert splits, "the MDLP recursion produced no cut points on a fixture with a clean class boundary at x=0"
+    assert all(np.isfinite(c) for c in splits), f"non-finite cut point(s): {splits}"
+    assert list(splits) == sorted(splits), f"cut points are not in ascending order: {splits}"
+    assert len(set(splits)) == len(splits), f"duplicate cut point(s): {splits}"
+    # The planted boundary is at x = 0; the recursion must find a cut near it rather than an arbitrary one.
+    assert min(abs(float(c)) for c in splits) < 0.5, f"no cut point near the planted boundary at x=0: {splits}"
 
 
 # ---------------------------------------------------------------------------
@@ -1289,7 +1336,6 @@ def test_regression_mdlp_recurse_oos_validated_no_dead_present_parent_branch():
 # default argsort, so two categories tied exactly at the cutoff boundary could swap non-deterministically
 # across numpy versions/architectures.
 # ---------------------------------------------------------------------------
-
 
 def test_regression_cap_categorical_cardinality_stable_tie_break():
     """Post-fix: kind='stable' argsort on negated counts gives a deterministic, reproducible tie-break
@@ -1666,13 +1712,45 @@ def test_regression_scorer_zoo_preprocess_params_except_is_logged(modname):
 
 
 def test_regression_route_basis_exception_is_logged():
-    """Post-fix: _route_basis's fallback logs at debug level before returning 'hermite'."""
+    """Post-fix: _route_basis's fallback is AUDIBLE (warning, not debug) before it freezes 'hermite'.
+
+    Asserted structurally rather than by searching the source for a message, which is what the previous form
+    did and why it broke: rewording the message to say what the fallback actually costs (a train/serve skew
+    on that leg) left the test failing while the behaviour it guards got strictly better. The branch is
+    defensive and not reachable end-to-end -- every leg of a winning recipe is a seed_sources member, so the
+    cached lookup covers it -- so a caplog test cannot drive it without contriving internal state. What
+    matters, and what this pins, is the LEVEL and the fallback value, neither of which prose can drift.
+    """
+    import ast
     import inspect
 
-    from mlframe.feature_selection.filters._orthogonal_adaptive_arity_fe import hybrid_orth_mi_adaptive_arity_fe_with_recipes
+    from mlframe.feature_selection.filters import _orthogonal_adaptive_arity_fe as mod
 
-    src = inspect.getsource(hybrid_orth_mi_adaptive_arity_fe_with_recipes)
-    assert "_route_basis: failed to route column" in src
+    tree = ast.parse(inspect.getsource(mod))
+    route = next(
+        (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_route_basis"),
+        None,
+    )
+    assert route is not None, "_route_basis is gone; the routing fallback it guards needs a new home for this check"
+
+    handlers = [n for n in ast.walk(route) if isinstance(n, ast.ExceptHandler)]
+    assert handlers, "_route_basis no longer has an except handler, so the routing failure is unguarded"
+
+    levels = {
+        n.func.attr
+        for h in handlers
+        for n in ast.walk(h)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and isinstance(n.func.value, ast.Name) and n.func.value.id == "logger"
+    }
+    assert "warning" in levels, (
+        f"_route_basis's fallback logs at {sorted(levels) or 'no level at all'}. It must warn: the frozen basis "
+        f"is replayed by transform(), so recording 'hermite' for a column the fit routed elsewhere is a "
+        f"train/serve skew, and debug is not emitted in production."
+    )
+    assert "debug" not in levels, "the routing fallback was downgraded back to debug, where production will not see it"
+
+    returns = {n.value.value for n in ast.walk(route) if isinstance(n, ast.Return) and isinstance(n.value, ast.Constant)}
+    assert "hermite" in returns, "the documented fallback basis is no longer returned"
 
 
 # ---------------------------------------------------------------------------
@@ -2613,15 +2691,42 @@ def test_regression_greedy_cmi_fe_construct_seed_varies_permutation():
     assert not np.array_equal(perm_a, perm_b)
 
 
-def test_regression_fit_impl_core_passes_random_seed_to_cmi_greedy():
-    """Post-fix: _fit_impl_core.py's greedy_cmi_fe_construct_with_recipes call site threads
-    self.random_seed through as the seed= kwarg, instead of leaving the hardcoded default."""
-    import inspect
+def test_regression_fit_impl_core_passes_random_seed_to_cmi_greedy(monkeypatch):
+    """Post-fix: the fe_mi_greedy_cmi_enable call site threads self.random_seed through as the
+    seed= kwarg to greedy_cmi_fe_construct_with_recipes, instead of leaving the hardcoded 0xC011
+    default -- verified behaviorally (captured kwarg across two different random_seed values), not
+    by matching source text (the call site has since moved out of _fit_impl_core.py during an
+    unrelated monolith split, which broke the original inspect.getsource() assertion)."""
+    import mlframe.feature_selection.filters._mi_greedy_cmi_fe as cmi_mod
+    from mlframe.feature_selection.filters.mrmr import MRMR
 
-    from mlframe.feature_selection.filters._mrmr_fit_impl import _fit_impl_core as mod
+    captured_seeds = []
+    _orig = cmi_mod.greedy_cmi_fe_construct_with_recipes
 
-    src = inspect.getsource(mod)
-    assert 'seed=int(getattr(self, "random_seed", 0) or 0),' in src
+    def _spy(*args, **kwargs):
+        """Capture the seed= kwarg the call site passes, then delegate to the real implementation."""
+        captured_seeds.append(kwargs.get("seed"))
+        return _orig(*args, **kwargs)
+
+    monkeypatch.setattr(cmi_mod, "greedy_cmi_fe_construct_with_recipes", _spy)
+
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame({f"x{i}": rng.standard_normal(200) for i in range(6)})
+    y = (X["x0"] + X["x1"] > 0).astype(int).to_numpy()
+
+    for seed in (11, 22):
+        m = MRMR(
+            verbose=0,
+            max_runtime_mins=1,
+            n_workers=1,
+            quantization_nbins=5,
+            use_simple_mode=True,
+            random_seed=seed,
+            fe_mi_greedy_cmi_enable=True,
+        )
+        m.fit(X, y)
+
+    assert captured_seeds == [11, 22], f"seed= kwarg not threaded from self.random_seed at the fe_mi_greedy_cmi_enable call site: {captured_seeds}"
 
 
 # ---------------------------------------------------------------------------
@@ -3124,8 +3229,30 @@ def test_regression_validate_inputs_skips_integer_columns_before_copy():
     m = MRMR(verbose=0)
     X_int = pd.DataFrame({"a": np.arange(20, dtype=np.int64), "b": np.arange(20, 40, dtype=np.int64)})
     y = np.arange(20) % 2
-    # Must not raise (no inf possible in an int frame) and must not crash despite no float columns.
-    m._validate_inputs(X_int, y)
+
+    # "Does not raise" held BEFORE the fix too -- the pre-fix code did not raise on an integer frame either, it
+    # merely built a float64 copy of the whole thing. So the implicit assertion could never distinguish the two,
+    # and a regression reinstating the whole-frame upcast was invisible. On this project's frame sizes that is
+    # the memory rule's central prohibition, so the ALLOCATION is what has to be asserted.
+    _converted: list = []
+    _orig_asarray = np.asarray
+
+    def _spy_asarray(a, *args, **kwargs):
+        """Record any call that would materialise this frame as a float array."""
+        if a is X_int or (hasattr(a, "shape") and getattr(a, "shape", None) == X_int.shape and not isinstance(a, pd.Series)):
+            _converted.append((type(a).__name__, kwargs.get("dtype", args[0] if args else None)))
+        return _orig_asarray(a, *args, **kwargs)
+
+    import unittest.mock as _mock
+
+    with _mock.patch.object(np, "asarray", _spy_asarray):
+        m._validate_inputs(X_int, y)
+
+    _float_conversions = [c for c in _converted if c[1] is not None and np.dtype(c[1]).kind == "f"]
+    assert not _float_conversions, (
+        f"the all-integer frame was upcast to float for the inf check ({_float_conversions}); only floating "
+        "columns should be selected before any array construction, or a 100+ GB frame is copied for nothing"
+    )
 
 
 def test_regression_validate_inputs_still_catches_inf_in_float_column():
@@ -3435,9 +3562,14 @@ def test_regression_group_aware_mrmr_default_params_still_fit():
 # ---------------------------------------------------------------------------
 
 
-def test_regression_pyproject_pins_py_ci_shared_commit():
-    """Regression: pyutilz/py-ci-shared were declared as bare git URLs with no pinned commit SHA -- pip install resolved to whatever the default branch
-    happened to be.
+def test_regression_pyproject_pins_pyutilz_commit():
+    """Regression: pyutilz was declared as a bare git URL with no pinned commit SHA -- pip install resolved to
+    whatever the default branch happened to be.
+
+    py-ci-shared was deliberately UNPINNED later (commit 5526d8250, 2026-08-23): it is first-party CI tooling
+    that never reaches a PyPI consumer of mlframe, and a moved ref there needs an attacker who could already
+    push to this account -- see that commit's message for the full rationale. Only pyutilz's pin is still a
+    real regression risk (a third-party-consumable runtime dependency), so only it is asserted here.
     """
     from pathlib import Path
 
@@ -3445,7 +3577,7 @@ def test_regression_pyproject_pins_py_ci_shared_commit():
     if not pyproject_path.exists():
         pytest.skip("pyproject.toml not found at expected repo-root-relative path")
     text = pyproject_path.read_text(encoding="utf-8")
-    assert "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@" in text
+    assert "pyutilz @ git+https://github.com/fingoldo/pyutilz.git@" in text
 
 
 # ---------------------------------------------------------------------------

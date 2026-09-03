@@ -108,10 +108,68 @@ def test_row_attention_free_device_wrapped() -> None:
 
 
 def test_logging_transformers_psutil_wrapped() -> None:
-    """Logging transformers psutil wrapped."""
-    src = _read("training/logging_transformers.py")
-    # The fix wraps rss read in try/except defaulting to 0.0.
-    assert "rss1 = proc.memory_info().rss / 1024 ** 2\n                except Exception:\n                    rss1 = 0.0" in src
+    """``log_resources``'s post-call RSS re-measurement is wrapped in try/except defaulting to 0.0
+    (P2 fix #5 above): a ``psutil.NoSuchProcess`` on a zombie pool worker must not mask the wrapped
+    call's own exception, and the emitted log record must still carry a usable (zeroed) ``rss_mb`` /
+    ``d_rss_mb`` rather than propagating. Behavioural sensor (not a source-text pin): patches
+    ``psutil.Process.memory_info`` to raise only on its SECOND call (the post-call re-measurement;
+    the pre-call baseline read must still succeed) and asserts the decorated function's own exception
+    is what actually propagates, plus the log record's rss_mb defaults to 0.0."""
+    import logging
+
+    import psutil
+    import pytest
+
+    from mlframe.training.logging_transformers import log_resources
+
+    class _Boom(RuntimeError):
+        """The wrapped call's own failure -- must survive the finally-block RSS re-measurement failure."""
+
+    class _Dummy:
+        """Bare host object for the ``log_resources`` decorator under test."""
+
+        @log_resources(stage="probe")
+        def method(self):
+            """Always raise, so the finally block's RSS failure has a real in-flight exception to (not) mask."""
+            raise _Boom("inner failure")
+
+    _call_count = {"n": 0}
+    _real_memory_info = psutil.Process.memory_info
+
+    def _flaky_memory_info(self):
+        """Succeed on the pre-call baseline read, fail on the post-call re-measurement (2nd+ call)."""
+        _call_count["n"] += 1
+        if _call_count["n"] >= 2:
+            raise psutil.NoSuchProcess(pid=0)
+        return _real_memory_info(self)
+
+    records: list = []
+
+    class _CapturingHandler(logging.Handler):
+        """Collects emitted LogRecords for direct inspection of the ``extra`` payload."""
+
+        def emit(self, record):
+            """Append the record; no formatting/output needed for this sensor."""
+            records.append(record)
+
+    handler = _CapturingHandler()
+    logger = logging.getLogger("mlframe.training.logging_transformers")
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    try:
+        psutil.Process.memory_info = _flaky_memory_info
+        with pytest.raises(_Boom):
+            _Dummy().method()
+    finally:
+        psutil.Process.memory_info = _real_memory_info
+        logger.removeHandler(handler)
+
+    assert records, "log_resources must still emit a record when post-call RSS read fails"
+    # rss1 (the post-call re-measurement) defaults to 0.0 on failure; rss0 (the pre-call baseline)
+    # still succeeded (a real, positive process RSS), so d_rss_mb = rss1 - rss0 = -rss0 is negative,
+    # not necessarily 0.0 -- only rss1 itself is pinned to the 0.0 default.
+    assert records[0].rss_mb == 0.0
+    assert records[0].d_rss_mb < 0.0
 
 
 def test_pipeline_temp_target_drop_wrapped() -> None:

@@ -279,3 +279,38 @@ def test_cprofile_hotspot(tmp_path):
     s = io.StringIO()
     pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats(20)
     print(s.getvalue())
+
+
+def test_sis_screen_encodes_moderate_cardinality_integer_y_gap(monkeypatch):
+    """MRMR-8: an integer y whose cardinality falls between the nominal-factorise threshold
+    (n_rows // 20) and the quantile-bin threshold (max(nbins, 2)) must still be class-encoded to
+    small dense codes before reaching _mi_classif_batch, not passed through raw/unencoded.
+
+    n=60 -> n_rows // 20 == 3 (skips the low-cardinality-integer factorise branch); y has 5 distinct
+    LARGE-magnitude values (1000..5000, skips the >max(nbins, 2)=10 quantile-bin branch too) -- this
+    combination previously fell through all three branches with no else, reaching the MI kernel with
+    y spanning [1000, 5000] instead of small dense codes."""
+    import mlframe.feature_selection.filters._mrmr_sis_screen as sis_mod
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe import _orth_mi_backends
+
+    rng = np.random.default_rng(0)
+    n, p = 60, 4
+    X = rng.standard_normal((n, p)).astype(np.float32)
+    classes = np.array([1000, 2000, 3000, 4000, 5000])
+    y = classes[rng.integers(0, 5, size=n)]
+
+    captured = {}
+    real_mi_batch = _orth_mi_backends._mi_classif_batch
+
+    def _spy(block, y_mi, **kwargs):
+        """Capture the y_mi array _mi_classif_batch actually receives, then delegate to the real kernel."""
+        captured["y_mi"] = y_mi.copy()
+        return real_mi_batch(block, y_mi, **kwargs)
+
+    monkeypatch.setattr(_orth_mi_backends, "_mi_classif_batch", _spy)
+    sis_mod.sis_screen(X, y, k_target=2)
+
+    assert "y_mi" in captured, "sis_screen never reached the MI kernel (block loop skipped)"
+    y_mi = captured["y_mi"]
+    assert y_mi.max() < 5, f"y_mi was not encoded to small dense codes: max={y_mi.max()} (raw y spans up to 5000)"
+    assert set(np.unique(y_mi)) == {0, 1, 2, 3, 4}, f"y_mi codes must be exactly {{0..4}}; got {sorted(np.unique(y_mi))}"

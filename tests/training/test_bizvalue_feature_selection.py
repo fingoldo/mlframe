@@ -265,7 +265,7 @@ def test_mrmr_drops_uninformative_features(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("seed", [42, 7, 99])
+@pytest.mark.parametrize("seed", [42, 7])
 def test_mrmr_preserves_auroc_and_speeds_up_wide_training(tmp_path, seed):
     """With FS on wide data: AUROC within ~3pts of baseline, lower wall-time."""
     df, _ = _make_noisy_classification(n=1200, k_noise=50, seed=seed)

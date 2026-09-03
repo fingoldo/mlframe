@@ -49,7 +49,16 @@ def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed:
         # The CPU half of the seed pair (random / numpy / numba above)
         # is already set; silently degrade rather than poison every
         # downstream estimator that just wants reproducible CPU paths.
-        logger.debug("cupy.random.seed() failed, CUDA RNG left unseeded: %s", e)
+        # WARNING, not debug. `ImportError` is already split out above, so reaching here means cupy IS
+        # installed and its RNG backend is unusable -- and this function's entire purpose is determinism. A
+        # caller who invoked `set_random_seed(...)` and saw nothing reasonably believes the run is reproducible;
+        # every cupy-backed stochastic path in the process is not.
+        logger.warning(
+            "set_random_seed: cupy.random.seed() failed (%s: %s). The CUDA RNG is UNSEEDED, so any cupy-backed "
+            "stochastic path in this process is NOT reproducible; the CPU seeds (random / numpy / numba) are set.",
+            type(e).__name__,
+            e,
+        )
     try:
         set_numba_random_seed(seed)
     except (TypeError, ValueError, RuntimeError):

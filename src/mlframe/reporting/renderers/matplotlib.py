@@ -9,8 +9,9 @@ calls so we don't init a GUI backend on headless / parallel runs.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, ClassVar
 
+from mlframe._output_paths import ensure_parent_dir
 import numpy as np
 
 from mlframe.reporting.spec import (
@@ -19,36 +20,87 @@ from mlframe.reporting.spec import (
     ScatterPanelSpec, ViolinPanelSpec,
 )
 
-from ._shared_helpers import _HEATMAP_MAX_TICKS, _finite_range, _per_series_flags, _thin_tick_positions  # noqa: F401 -- re-exported for callers importing the tick-thinning constant from this module
+from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
+    _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, heatmap_value_to_index,
+    _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
+    _TITLE_REF_WIDTH_IN, histogram_bar_extent, low_evidence_mask, panel_title_wrap_chars, select_per_point, truncate_bar_label,
+    wrap_annotation_text, wrap_text_to_width, wrap_title_lines,
+)
 
+from mlframe.reporting.colors import TREND_LINE
 logger = logging.getLogger(__name__)
 
-# Panel-title rendering: wrap long titles onto multiple lines (so a verbose diagnostic title doesn't
-# overflow a narrow panel) and cap the font so it can't dwarf the panel. ~46 chars/line is a good fit
-# for the default ~6-inch panel width.
-_TITLE_WRAP_CHARS = 46
+# Panel-title font cap so a verbose diagnostic title can't dwarf the panel. The chars-per-line budget is
+# width-scaled and shared with the plotly renderer (``_shared_helpers.panel_title_wrap_chars``).
 _TITLE_FONTSIZE = 10
 
 
+def _bar_colors(colors, values):
+    """Colour argument for a single-series bar call: the whole per-bar sequence when it matches, else one colour."""
+    if not colors:
+        return "steelblue"
+    try:
+        if len(colors) == len(values) and len(colors) > 1:
+            return list(colors)
+    except TypeError:
+        pass
+    return colors[0]
+
+
 def _set_panel_title(ax, title) -> None:
-    """Set an axes title, wrapping long titles to ``_TITLE_WRAP_CHARS``/line and capping the font size so a verbose diagnostic title can't overflow or dwarf a narrow panel. No-op when ``title`` is falsy."""
+    """Set an axes title, wrapped to the panel's REAL width by measuring the font, and capped in size.
+
+    Three behaviours the flat ``textwrap.wrap(s, _TITLE_WRAP_CHARS)`` form got wrong, in the order they were
+    found:
+
+    * ``textwrap.wrap`` treats ``\\n`` as ordinary whitespace, so any explicit line break the CALLER put in
+      the title was silently collapsed and re-flowed. Each line is now wrapped independently, so deliberate
+      breaks survive.
+    * ``_TITLE_WRAP_CHARS`` is calibrated for a ~6-inch panel but was applied at any panel width, so a wide
+      panel folded its title into a narrow ragged column with most of the width left empty.
+    * Scaling that budget with panel width fixed the second point but kept the assumption underneath it --
+      that every character is as wide as the calibration's average. A diagnostic title is mostly digits,
+      percent signs and CamelCase identifiers, none of which are that average, so the line still broke in the
+      wrong place. The budget is now the measured width of the actual glyphs.
+    """
     if not title:
         return
-    import textwrap
-    s = str(title)
-    if len(s) > _TITLE_WRAP_CHARS:
-        s = "\n".join(textwrap.wrap(s, width=_TITLE_WRAP_CHARS, break_long_words=False))
-    ax.set_title(s, fontsize=_TITLE_FONTSIZE)
+    # ``ax.get_position().width`` is the axes' width as a FRACTION of the figure, so multiplying by the
+    # figure width yields this panel's real width in inches -- the quantity being filled.
+    try:
+        panel_w = float(ax.get_position().width) * float(ax.figure.get_size_inches()[0])
+    except Exception:
+        logger.debug("could not measure panel width for title wrapping; falling back to the unscaled budget", exc_info=True)
+        panel_w = None
+    fallback = panel_title_wrap_chars((panel_w, 0), 1) if panel_w else panel_title_wrap_chars(None, 1)
+    # Explicit rather than ``panel_w or REF``: a measured width of exactly 0 is a degenerate axes, not a
+    # missing measurement, and the two deserve the same fallback for DIFFERENT reasons -- said once, here.
+    width_in = panel_w if (panel_w is not None and panel_w > 0.0) else _TITLE_REF_WIDTH_IN
+    lines = wrap_text_to_width(title, fontsize=_TITLE_FONTSIZE, width_in=width_in, fallback_chars=fallback)
+    ax.set_title("\n".join(lines), fontsize=_TITLE_FONTSIZE)
+
+
+# Wrap budgets, mirroring the plotly renderer: ~90 chars for the full-figure suptitle, ~110 for the
+# wider caption band beneath it.
+_SUPTITLE_WRAP_CHARS = 90
+_CAPTION_WRAP_CHARS = 110
+# Caption point size, shared by the renderer and the width measurement that wraps it.
+_CAPTION_FONTSIZE = 7
+# A point within this fraction of an axis edge gets its inline label flipped to the other side, so the text
+# stays inside the panel instead of being clipped mid-word.
+_EDGE_LABEL_FLIP_FRACTION = 0.08
+# Bar-category label policy, matching the plotly renderer: past this many categories show ~_BAR_TICK_KEEP
+# evenly-spaced labels, and cap any single label so a long generated feature name cannot run off the axis.
+_BAR_TICK_THIN_THRESHOLD = 25
+_BAR_TICK_KEEP = 20
+# _BAR_LABEL_MAXLEN / truncate_bar_label come from ._shared_helpers (one definition, both backends).
 
 
 # Above this many raw scatter points, cap (downsample preserving extremes) and rasterize so the saved vector
 # file (pdf/svg) doesn't embed millions of DOM nodes (3.2s + bloat at 2M).
-_SCATTER_MAX_POINTS = 50_000
 # Pre-bin a raw histogram above this n with np.histogram + ax.bar instead of letting ax.hist re-scan full n.
-_HIST_PREBIN_THRESHOLD = 50_000
 # Above this many heatmap cells the per-cell text turns to unreadable soup; skip it (also keeps the plotly
 # per-annotation O(cells) loop from stalling on a degenerate huge-K grid).
-_HEATMAP_CELL_TEXT_MAX = 400
 
 
 def _err_to_mpl(err):
@@ -67,13 +119,15 @@ class MatplotlibRenderer:
     """Renders a ``FigureSpec`` to a ``matplotlib.figure.Figure`` via a headless ``Figure`` + ``FigureCanvasAgg`` (never through pyplot), dispatching each panel to a per-type ``_<kind>`` method."""
 
     backend = "matplotlib"
+    # Bound at the bottom of this module from ``._matplotlib_scatter``.
+    _scatter: ClassVar[Any]
 
     def render(self, spec: FigureSpec, *, static_legend: bool = False) -> Any:
         """Build the grid of subplots described by ``spec`` (row/col ratios, optional suptitle/caption), render every panel into its cell, and return the assembled ``Figure``."""
         # static_legend is a plotly-only concept (see PlotlyRenderer.render); matplotlib legends
         # are always static, so this backend accepts and ignores the flag to satisfy the Renderer Protocol.
         del static_legend
-        # 2026-05-11: REMOVED ``matplotlib.use("Agg", force=False)``
+        # REMOVED ``matplotlib.use("Agg", force=False)``
         # here. The renderer creates its own ``FigureCanvasAgg(fig)``
         # explicitly below, so the global-backend mutation is
         # redundant -- AND it broke inline FI display in Jupyter
@@ -120,7 +174,9 @@ class MatplotlibRenderer:
                 if panel is None:
                     row_axes.append(None)
                     continue
-                ax = fig.add_subplot(gs[r, c])
+                share_x = axes_grid[0][c] if (spec.sharex and r > 0 and c < len(axes_grid[0]) and axes_grid[0][c] is not None) else None
+                share_y = row_axes[0] if (spec.sharey and c > 0 and row_axes and row_axes[0] is not None) else None
+                ax = fig.add_subplot(gs[r, c], sharex=share_x, sharey=share_y)
                 row_axes.append(ax)
                 col_axes.setdefault(c, []).append(ax)
             axes_grid.append(row_axes)
@@ -135,32 +191,47 @@ class MatplotlibRenderer:
                 cbar_axes = col_axes[c] if (spec.sharex and len(col_axes[c]) > 1) else ax
                 self._render_panel(ax, panel, fig, cbar_axes=cbar_axes)
 
+        # Title and caption both live in bands reserved OUTSIDE the axes rectangle, and both bands are measured
+        # from the wrapped line count rather than assumed. constrained_layout is documented to make room for a
+        # suptitle, but it under-reserves for a multi-line one: a three-line model identity on a 12x6 figure
+        # started 25 px BELOW the top of the axes, printing the run's own metrics across its own chart.
+        _dpi = fig.get_dpi()
+        _h_px = fig.get_size_inches()[1] * (_dpi if _dpi > 0 else 100.0)
+        _top_band = 0.0
+        _bottom_band = 0.0
+        _sup_text = ""
+        _cap = ""
         if spec.suptitle:
-            # Wrap a long suptitle so it doesn't overflow the figure width (a verbose model identity
-            # like "TEST LGBMRegressor TVT basic_new ... trained on 4.1M rows @iter=298 training curves"
-            # ran off the right edge). Wrap each author-supplied line independently so explicit newlines
-            # are preserved; ~90 chars suits the full figure width (vs ~46 for a single panel).
-            import textwrap
-            _sup_lines = []
-            for _ln in str(spec.suptitle).split("\n"):
-                _sup_lines.extend(textwrap.wrap(_ln, width=90, break_long_words=False) or [""])
-            fig.suptitle("\n".join(_sup_lines), fontsize=spec.suptitle_fontsize)
+            # Broken at the real edge of the canvas, not at a character count. The fixed ~90-char budget this
+            # replaces was calibrated at one width and one font size and then applied at every width, so a
+            # wide figure folded a verbose model identity into a narrow ragged column with a third of the
+            # figure unused -- the text was being broken by an assumption rather than by the page.
+            _sup_lines = wrap_text_to_width(spec.suptitle, fontsize=spec.suptitle_fontsize, width_in=fig.get_size_inches()[0], fallback_chars=_SUPTITLE_WRAP_CHARS)
+            _sup_text = "\n".join(_sup_lines)
+            _top_band = min(0.35, (len(_sup_lines) * (spec.suptitle_fontsize + 3.0) + 12.0) / _h_px)
         if spec.caption:
             # How-to-read footnote, small + dim, in a reserved bottom band so it never overlaps the x-axis label.
-            # constrained_layout (forced on above when a caption is present) is told to leave the band free via rect.
-            import textwrap
-            _cap_lines = textwrap.wrap(str(spec.caption), width=110, break_long_words=False) or [""]
+            # Wrap through the shared helper so an author-supplied line break in a caption SURVIVES.
+            # ``textwrap.wrap`` treats a newline as ordinary whitespace and re-flows it away, silently
+            # collapsing the deliberate structure captions are written with (one clause per line, a VERDICT
+            # sentence on its own).
+            _cap_lines = wrap_text_to_width(spec.caption, fontsize=_CAPTION_FONTSIZE, width_in=fig.get_size_inches()[0], fallback_chars=_CAPTION_WRAP_CHARS)
             _cap = "\n".join(_cap_lines)
-            _h_px = fig.get_size_inches()[1] * (fig.get_dpi() or 100.0)
-            _band = min(0.30, (len(_cap_lines) * 11.0 + 12.0) / _h_px)  # bottom fraction reserved for the caption
+            _bottom_band = min(0.30, (len(_cap_lines) * 11.0 + 12.0) / _h_px)
+        if _top_band or _bottom_band:
             _eng = fig.get_layout_engine()
             if _eng is not None:
                 try:
-                    _eng.set(rect=(0.0, _band, 1.0, 1.0))  # type: ignore[call-arg]  # matplotlib stubs type _eng as the base LayoutEngine; constrained_layout was forced on above so this is always a ConstrainedLayoutEngine, whose .set() does accept rect
+                    _eng.set(rect=(0.0, _bottom_band, 1.0, 1.0 - _bottom_band - _top_band))  # type: ignore[call-arg]  # matplotlib stubs type _eng as the base LayoutEngine; constrained_layout was forced on above so this is always a ConstrainedLayoutEngine, whose .set() does accept rect
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                     logger.debug("suppressed: %s", e)
                     pass
-            fig.text(0.5, _band * 0.5, _cap, ha="center", va="center", fontsize=7, color="0.35")
+        if _sup_text:
+            # Centred in its own band. Left to constrained_layout's own placement the multi-line case lands on
+            # the axes; anchored here it cannot, because the band is exactly what the axes rectangle excludes.
+            fig.suptitle(_sup_text, fontsize=spec.suptitle_fontsize, y=1.0 - _top_band * 0.5, va="center")
+        if _cap:
+            fig.text(0.5, _bottom_band * 0.5, _cap, ha="center", va="center", fontsize=_CAPTION_FONTSIZE, color="0.35")
         return fig
 
     def save(self, fig: Any, path: str, fmt: str) -> None:
@@ -172,7 +243,7 @@ class MatplotlibRenderer:
         # and any annotations outside the axes box land inside the saved
         # PNG. Without this the renderer crops at the figure box and long
         # ytick labels (FI plots) / suptitles get clipped.
-        fig.savefig(path, format=fmt, bbox_inches="tight", pad_inches=0.15)
+        fig.savefig(ensure_parent_dir(path), format=fmt, bbox_inches="tight", pad_inches=0.15)
 
     def show(self, fig: Any) -> None:
         """Display ``fig`` inline in an IPython/Jupyter kernel via ``IPython.display.display``, or best-effort pop a GUI window outside a kernel when matplotlib is in interactive mode; a no-op in headless / non-interactive contexts."""
@@ -235,117 +306,20 @@ class MatplotlibRenderer:
             raise TypeError(f"unknown panel type: {type(panel).__name__}")
 
     def _annotation(self, ax, p: AnnotationPanelSpec) -> None:
-        """Render a free-text panel (no axes/data): centered wrapped text, no ticks, no spines."""
-        ax.text(0.5, 0.5, p.text, ha="center", va="center", fontsize=p.fontsize, transform=ax.transAxes, wrap=True)
+        """Render a free-text panel (no axes/data): centered text wrapped to the panel's own width, no ticks/spines."""
+        # Wrap here rather than via matplotlib's `wrap=True`, which measures against the FIGURE box and never breaks
+        # long tokens -- see wrap_annotation_text for the measured numbers.
+        bbox = ax.get_window_extent()
+        _dpi = float(ax.figure.dpi)
+        panel_w_in = float(bbox.width) / (_dpi if _dpi > 0 else 100.0)
+        text = wrap_annotation_text(p.text, panel_w_in, p.fontsize)
+        family = "monospace" if getattr(p, "monospace", False) else None
+        ax.text(0.5, 0.5, text, ha="center", va="center", fontsize=p.fontsize, transform=ax.transAxes, family=family)
         _set_panel_title(ax, p.title)
         ax.set_xticks([])
         ax.set_yticks([])
         for spine in ax.spines.values():
             spine.set_visible(False)
-
-    def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
-        """Render a scatter panel: subsamples above ``_SCATTER_MAX_POINTS`` (preserving extremes, rasterized), then layers optional error bars, highlighted worst-K points, trend line, overlay band/line, y=x reference and inline labels/colorbar/legend on top."""
-        import matplotlib
-        x = np.asarray(p.x)
-        y = np.asarray(p.y)
-        n = len(x)
-        size_arr = p.point_size if isinstance(p.point_size, np.ndarray) else None
-        color_arr = p.point_color if isinstance(p.point_color, np.ndarray) else None
-
-        rasterized = False
-        if n > _SCATTER_MAX_POINTS:
-            from mlframe.reporting.charts import subsample_preserving_extremes
-            idx = subsample_preserving_extremes(x, y, sample_size=_SCATTER_MAX_POINTS)
-            x, y = x[idx], y[idx]
-            if size_arr is not None and len(size_arr) == n:
-                size_arr = size_arr[idx]
-            if color_arr is not None and len(color_arr) == n:
-                color_arr = color_arr[idx]
-            rasterized = True  # capped scatter still rasterized so a vector export stays small.
-
-        # Per-point error bars (e.g. Wilson CIs on reliability bins). Drawn before the scatter so the markers
-        # sit on top. Subsample never reorders for these CI panels (n is bin-count, well under the cap), so the
-        # error arrays align with x/y as-passed.
-        if p.y_err is not None or p.x_err is not None:
-            yerr = _err_to_mpl(p.y_err)
-            xerr = _err_to_mpl(p.x_err)
-            ax.errorbar(x, y, yerr=yerr, xerr=xerr, fmt="none", ecolor="gray", elinewidth=1.0, capsize=3, alpha=0.7, zorder=1)
-
-        kw: dict[str, Any] = {"alpha": p.point_alpha, "rasterized": rasterized}
-        kw["s"] = size_arr if size_arr is not None else float(p.point_size)
-        if color_arr is not None:
-            kw["c"] = color_arr
-            kw["cmap"] = matplotlib.colormaps[p.colormap]
-        elif p.point_color is not None:
-            kw["color"] = p.point_color
-        sc = ax.scatter(x, y, **kw)
-
-        # Emphasised subset (worst-K errors): drawn on top, larger + colored. Indices are positions into the
-        # ORIGINAL arrays, so resolve against the pre-subsample data (``p.x`` / ``p.y``), not the capped ``x``/``y``.
-        if p.highlight_indices is not None:
-            hi_idx = np.asarray(p.highlight_indices, dtype=np.int64)
-            ox, oy = np.asarray(p.x), np.asarray(p.y)
-            hi_idx = hi_idx[(hi_idx >= 0) & (hi_idx < len(ox))]
-            if hi_idx.size:
-                base_s = float(p.point_size) if size_arr is None else float(np.median(np.asarray(p.point_size)))
-                ax.scatter(ox[hi_idx], oy[hi_idx], s=base_s * 4.0, facecolors="none", edgecolors=p.highlight_color, linewidths=1.5, zorder=5, label="worst-K")
-
-        if p.trend_line is not None and n > 1:
-            from mlframe.reporting.renderers._trend import robust_fit_endpoints
-            ends = robust_fit_endpoints(np.asarray(p.x), np.asarray(p.y), p.trend_line)
-            if ends is not None:
-                (tx0, ty0), (tx1, ty1) = ends
-                ax.plot([tx0, tx1], [ty0, ty1], color="darkorange", linestyle="-", linewidth=1.6, zorder=4, label=f"robust fit ({p.trend_line})")
-
-        if p.overlay_band is not None:
-            bx, blo, bhi = (np.asarray(a) for a in p.overlay_band)
-            ax.fill_between(bx, blo, bhi, color="purple", alpha=0.18, zorder=3, linewidth=0, label="curve 95% band")
-
-        if p.overlay_line is not None:
-            ox_grid, oy_grid, olabel = p.overlay_line
-            ax.plot(np.asarray(ox_grid), np.asarray(oy_grid), color="purple", linestyle="-", linewidth=1.8, zorder=4, label=olabel)
-
-        if p.perfect_fit_line and n > 0:
-            # Span y=x over the UNION of both axes (so it stays the diagonal even when prediction collapse makes
-            # y constant) and square the panel so y=x is a true 45-degree line.
-            lo = float(min(np.min(x), np.min(y)))
-            hi = float(max(np.max(x), np.max(y)))
-            ax.plot([lo, hi], [lo, hi], "g--", label="Perfect fit")
-            if not p.equal_aspect:
-                # Probability-vs-probability (calibration): the diagonal spans corner-to-corner at any aspect, so let
-                # the panel fill its cell width and align with the histogram below; xlim/ylim are applied just after.
-                pass
-            elif p.xlim is not None or p.ylim is not None:
-                # Explicit limits given: "datalim" would discard set_xlim to satisfy equal aspect (large bubble
-                # markers then drive x far past the data); "box" keeps the fixed limits and squares via the box.
-                ax.set_aspect("equal", "box")
-            else:
-                # Equal lo..hi limits on both axes already make the diagonal a true 45-degree line; square via the box
-                # ("box" respects the fixed limits). "datalim" would instead adjust the limits to satisfy the aspect and
-                # log "Ignoring fixed x limits to fulfill fixed data aspect" on every scatter panel.
-                ax.set_xlim(lo, hi)
-                ax.set_ylim(lo, hi)
-                ax.set_aspect("equal", "box")
-        if p.xlim is not None:
-            ax.set_xlim(*p.xlim)
-        if p.ylim is not None:
-            ax.set_ylim(*p.ylim)
-
-        if p.inline_labels:
-            for lx, ly, txt in p.inline_labels:
-                ax.text(lx, ly, txt, fontsize=8, ha="right", va="bottom")
-
-        if p.colorbar_label and color_arr is not None:
-            cbar = fig.colorbar(sc, ax=(cbar_axes if cbar_axes is not None else ax))
-            cbar.set_label(p.colorbar_label)
-
-        ax.set_xlabel(p.xlabel)
-        ax.set_ylabel(p.ylabel)
-        _set_panel_title(ax, p.title)
-        if p.legend_label or p.perfect_fit_line or p.trend_line or p.overlay_line is not None or p.overlay_band is not None or p.highlight_indices is not None:
-            ax.legend(loc="best", fontsize=8, framealpha=0.7)
-        if p.grid:
-            ax.grid(True, alpha=0.3)
 
     def _histogram(self, ax, p: HistogramPanelSpec) -> None:
         """Render a histogram panel: uses pre-binned ``bin_centers`` when given (or pre-bins above ``_HIST_PREBIN_THRESHOLD`` rather than letting ``ax.hist`` re-scan the full array), else falls back to ``ax.hist`` on finite values only; optionally overlays a fitted Normal PDF."""
@@ -362,7 +336,13 @@ class MatplotlibRenderer:
         if bin_centers is not None:
             if heights is None:
                 heights = np.asarray(p.values)
-                width = float(p.bin_width or (bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0)
+                if isinstance(p.bin_width, np.ndarray):
+                    width = np.asarray(p.bin_width, dtype=float)
+                else:
+                    # `is not None`, matching the plotly twin: `bin_width=0.0` is a deliberate spec value, and
+                    # `or` read it as "unset" and derived a width from the centre spacing instead -- one spec,
+                    # two pictures.
+                    width = float(p.bin_width if p.bin_width is not None else ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
             colors_kw: dict[str, Any] = {"color": p.color}
             if p.bar_colors is not None:
                 cm = matplotlib.colormaps[p.colormap]
@@ -374,8 +354,7 @@ class MatplotlibRenderer:
             ax.bar(bin_centers, heights, width=width, align="center", edgecolor="white", linewidth=0.5, **colors_kw)
             if len(bin_centers) > 0:
                 assert width is not None
-                overlay_x_lo = float(bin_centers[0] - width / 2.0)
-                overlay_x_hi = float(bin_centers[-1] + width / 2.0)
+                overlay_x_lo, overlay_x_hi = histogram_bar_extent(bin_centers, width)
         else:
             # ax.hist autodetects its range from the data and raises on empty / all-non-finite input; drop
             # non-finite first and fall back to an empty axes when nothing is left to bin.
@@ -395,7 +374,10 @@ class MatplotlibRenderer:
                 assert overlay_x_hi is not None
                 x_grid = np.linspace(overlay_x_lo, overlay_x_hi, 200)
                 normal_pdf = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((x_grid - mu) / sigma) ** 2)
-                label = p.overlay_label or f"Normal(mu={mu:.2g}, sigma={sigma:.2g})"
+                # `overlay_label=""` is a deliberate blank, which plotly honours; `or` substituted the auto label.
+                # This cluster recognises the empty-string-means-no-label distinction elsewhere (see
+                # `calibration.py`'s `colorbar_label`).
+                label = p.overlay_label if p.overlay_label is not None else f"Normal(mu={mu:.2g}, sigma={sigma:.2g})"
                 ax.plot(x_grid, normal_pdf, "r--", linewidth=1.4, label=label)
                 ax.legend(loc="best", fontsize=8, framealpha=0.7)
 
@@ -403,6 +385,20 @@ class MatplotlibRenderer:
         ax.set_ylabel(p.ylabel)
         _set_panel_title(ax, p.title)
         ax.set_yscale(p.yscale)
+        if p.yscale == "linear":
+            # A short panel gets matplotlib's sparsest tick set -- two or three labels for the whole axis, which
+            # is not enough to read a bar's value off. Ask for a denser set that still lands on round numbers.
+            from matplotlib.ticker import MaxNLocator
+
+            ax.yaxis.set_major_locator(MaxNLocator(nbins=6, min_n_ticks=4, steps=[1, 2, 2.5, 5, 10]))
+        if p.yscale == "log":
+            # matplotlib's default log locator only labels decades, so a histogram spanning a decade and a bit
+            # gets ONE labelled tick -- the axis then carries a scale name and no readable values. Asking for
+            # several ticks plus the 2/5 subdivisions puts numbers back on it.
+            from matplotlib.ticker import LogFormatterSciNotation, LogLocator
+
+            ax.yaxis.set_major_locator(LogLocator(base=10.0, subs=(1.0, 2.0, 5.0), numticks=8))
+            ax.yaxis.set_major_formatter(LogFormatterSciNotation(base=10.0))
         if p.xlim is not None:
             ax.set_xlim(*p.xlim)
         if p.grid:
@@ -427,7 +423,7 @@ class MatplotlibRenderer:
         ax.set_yticklabels([p.row_labels[i] for i in _yt], fontsize=8)
         rng = _finite_range(p.matrix)
         if p.cell_text is not None and rng is not None and p.matrix.size <= _HEATMAP_CELL_TEXT_MAX:
-            from mlframe.reporting.colors import auto_text_color
+            from mlframe.reporting.colors import auto_text_colors_batch
             # Compute global vmin / vmax so each cell's text color reflects
             # its position in the actual color range — naive
             # ``< 0.5`` threshold fails when the matrix range is e.g.
@@ -435,21 +431,31 @@ class MatplotlibRenderer:
             # the colormap and white text becomes invisible).
             mat = p.matrix
             vmin, vmax = rng
+            # One vectorized colormap sample for the whole grid instead of one matplotlib call per cell
+            # (bit-identical to the per-cell auto_text_color -- same pattern PlotlyRenderer._heatmap uses).
+            text_colors = auto_text_colors_batch(np.where(np.isfinite(mat), mat, vmin), cmap_name, vmin=vmin, vmax=vmax)
             for i in range(mat.shape[0]):
                 for j in range(mat.shape[1]):
-                    cell = float(mat[i, j])
-                    text_color = auto_text_color(cell if np.isfinite(cell) else vmin, cmap_name, vmin=vmin, vmax=vmax)
-                    ax.text(j, i, format(p.cell_text[i, j], p.text_format), ha="center", va="center", fontsize=7, color=text_color)
+                    ax.text(j, i, format(p.cell_text[i, j], p.text_format), ha="center", va="center", fontsize=7, color=text_colors[i, j])
         # Iso-value contour overlays at named matrix levels (PSI 0.10 / 0.25 triage lines on the drift heatmap).
         # Contour coords are the imshow cell-center grid (0..ncols-1, 0..nrows-1) so lines land between cells.
         if p.threshold_contours:
             mat = np.asarray(p.matrix, dtype=float)
             if mat.ndim == 2 and mat.shape[0] >= 2 and mat.shape[1] >= 2:
                 gx, gy = np.meshgrid(np.arange(mat.shape[1]), np.arange(mat.shape[0]))
-                for level, color in p.threshold_contours:
-                    lo, hi = float(np.nanmin(mat)), float(np.nanmax(mat))
+                # Hoisted out of the loop: both are full-matrix reductions over the same unchanged matrix,
+                # so recomputing them per contour level was O(levels * cells) for an O(cells) answer. The
+                # plotly twin already hoists them.
+                lo, hi = float(np.nanmin(mat)), float(np.nanmax(mat))
+                for _entry in p.threshold_contours:
+                    level, color = _entry[0], _entry[1]
+                    dash = _entry[2] if len(_entry) > 2 else "solid"
+                    label = _entry[3] if len(_entry) > 3 else ""
                     if lo < level < hi:  # contour only exists when the level is crossed
-                        ax.contour(gx, gy, mat, levels=[level], colors=[color], linewidths=1.4)
+                        cs = ax.contour(gx, gy, mat, levels=[level], colors=[color], linewidths=1.4,
+                                        linestyles={"solid": "-", "dash": "--", "dot": ":", "dashdot": "-."}.get(dash, "-"))
+                        if label:
+                            ax.clabel(cs, fmt={level: label}, fontsize=7)
         if p.trend_line is not None and p.trend_xy is not None:
             from mlframe.reporting.renderers._trend import robust_fit_endpoints
             # The imshow axes live in BIN-INDEX space (0..nbins-1); robust_fit_endpoints + the y=x
@@ -464,9 +470,8 @@ class MatplotlibRenderer:
                 _lo = float(min(_xv[_fin].min(), _yv[_fin].min()))
                 _hi = float(max(_xv[_fin].max(), _yv[_fin].max()))
                 if _hi > _lo:
-                    def _to_idx(v: float) -> float:
-                        """Map a value-space coordinate to bin-index space using the panel's own (lo, hi) binning range."""
-                        return (float(v) - _lo) / (_hi - _lo) * (_nb - 1)
+                    # Shared with the plotly renderer so the two backends cannot drift on this map again.
+                    _to_idx = heatmap_value_to_index(_lo, _hi, _nb)
                     # y=x reference in index space (origin="lower" -> bottom-left to top-right).
                     ax.plot([0, _nb - 1], [0, _nb - 1], color="0.4", linestyle=":", linewidth=1.0, label="y=x")
                     ends = robust_fit_endpoints(_xv, _yv, p.trend_line)
@@ -474,7 +479,7 @@ class MatplotlibRenderer:
                         (tx0, ty0), (tx1, ty1) = ends
                         ax.plot(
                             [_to_idx(tx0), _to_idx(tx1)], [_to_idx(ty0), _to_idx(ty1)],
-                            color="darkorange", linestyle="-", linewidth=1.6,
+                            color=TREND_LINE, linestyle="-", linewidth=1.6,
                             label=f"robust fit ({p.trend_line})",
                         )
                     ax.set_xlim(-0.5, _nb - 0.5)
@@ -504,21 +509,26 @@ class MatplotlibRenderer:
         ax_right = fig.add_subplot(gs[1, 1])
 
         im = ax_hm.imshow(p.matrix, cmap=cm, aspect="auto")
-        ax_hm.set_xticks(range(len(p.col_labels)))
-        ax_hm.set_xticklabels(p.col_labels, rotation=45, ha="right", fontsize=8)
-        ax_hm.set_yticks(range(len(p.row_labels)))
-        ax_hm.set_yticklabels(p.row_labels, fontsize=8)
+        # Thin to the shared ceiling on BOTH axes. One tick per class smears past ~30 classes, and the plotly
+        # twin already thins to _HEATMAP_MAX_TICKS -- so a large-K confusion matrix rendered with a readable
+        # axis on one backend and an unreadable band on the other, from the same spec.
+        _xt = _thin_tick_positions(len(p.col_labels))
+        _yt = _thin_tick_positions(len(p.row_labels))
+        ax_hm.set_xticks(_xt)
+        ax_hm.set_xticklabels([p.col_labels[i] for i in _xt], rotation=45, ha="right", fontsize=8)
+        ax_hm.set_yticks(_yt)
+        ax_hm.set_yticklabels([p.row_labels[i] for i in _yt], fontsize=8)
         ax_hm.set_xlabel(p.xlabel)
         ax_hm.set_ylabel(p.ylabel)
         rng = _finite_range(p.matrix)
         if p.cell_text is not None and rng is not None and p.matrix.size <= _HEATMAP_CELL_TEXT_MAX:
-            from mlframe.reporting.colors import auto_text_color
+            from mlframe.reporting.colors import auto_text_colors_batch
             vmin, vmax = rng
+            # One vectorized colormap sample for the whole grid instead of one matplotlib call per cell.
+            text_colors = auto_text_colors_batch(np.where(np.isfinite(p.matrix), p.matrix, vmin), cmap_name, vmin=vmin, vmax=vmax)
             for i in range(K):
                 for j in range(p.matrix.shape[1]):
-                    cell = float(p.matrix[i, j])
-                    tc = auto_text_color(cell if np.isfinite(cell) else vmin, cmap_name, vmin=vmin, vmax=vmax)
-                    ax_hm.text(j, i, format(p.cell_text[i, j], p.text_format), ha="center", va="center", fontsize=7, color=tc)
+                    ax_hm.text(j, i, format(p.cell_text[i, j], p.text_format), ha="center", va="center", fontsize=7, color=text_colors[i, j])
 
         pos = np.arange(K)
         # Top bar: predicted-class volume, aligned to the heatmap columns (shared x, ticks hidden -- the heatmap owns them).
@@ -539,7 +549,7 @@ class MatplotlibRenderer:
         if p.colorbar_label:
             cbar.set_label(p.colorbar_label, fontsize=8)
         title = p.title if not p.note else f"{p.title}\n{p.note}"
-        ax_top.set_title(title, fontsize=10)
+        _set_panel_title(ax_top, title)
 
     def _bar(self, ax, p: BarPanelSpec) -> None:
         """Render a bar panel: grouped bars when ``values`` is a tuple of series, single-series otherwise; supports a perpendicular reference line and thins x-tick labels above 25 categories so they don't overlap."""
@@ -551,9 +561,11 @@ class MatplotlibRenderer:
             thickness = 0.8 / n_series
             for i, series in enumerate(p.values):
                 offset = (i - (n_series - 1) / 2) * thickness
-                kw = {}
+                kw: dict = {}
                 if p.colors is not None and i < len(p.colors):
                     kw["color"] = p.colors[i]
+                if p.hatches is not None and i < len(p.hatches) and p.hatches[i]:
+                    kw["hatch"] = p.hatches[i]
                 lbl = p.series_labels[i] if p.series_labels else None
                 if horizontal:
                     ax.barh(pos + offset, series, height=thickness, label=lbl, **kw)
@@ -562,7 +574,14 @@ class MatplotlibRenderer:
             if p.series_labels:
                 ax.legend(loc="best", fontsize=8, framealpha=0.7)
         else:
-            kw = {"color": p.colors[0] if p.colors else "steelblue"}
+            # A colours tuple as long as ``values`` is PER-BAR, not per-series: matplotlib's bar/barh accept a
+            # sequence. Reading ``colors[0]`` painted every bar the colour of the first one.
+            kw = {"color": _bar_colors(p.colors, p.values)}
+            if p.hatches and p.hatches[0]:
+                kw["hatch"] = p.hatches[0]
+            if p.value_err is not None:
+                kw["xerr" if horizontal else "yerr"] = np.vstack(p.value_err)
+                kw["error_kw"] = dict(ecolor="black", elinewidth=0.9, capsize=2)
             if horizontal:
                 ax.barh(pos, p.values, **kw)
             else:
@@ -580,26 +599,43 @@ class MatplotlibRenderer:
                 ax.legend(loc="best", fontsize=8, framealpha=0.7)
 
         if horizontal:
-            ax.set_yticks(pos)
-            ax.set_yticklabels(p.categories, fontsize=8)
+            # Thin AND truncate, as the vertical branch below and both plotly orientations do. A 200-category horizontal feature-importance chart otherwise smears its
+            # y axis into an unreadable band of overlapping text, and a long generated feature name runs off
+            # the left edge. The bars stay 1-per-category; only the LABELS are subsampled.
+            n_cat = len(p.categories)
+            _cats = [truncate_bar_label(c) for c in p.categories]
+            if n_cat > _BAR_TICK_THIN_THRESHOLD:
+                step = int(np.ceil(n_cat / _BAR_TICK_KEEP))
+                sel = np.arange(0, n_cat, step)
+                ax.set_yticks(pos[sel])
+                ax.set_yticklabels([_cats[i] for i in sel], fontsize=8)
+            else:
+                ax.set_yticks(pos)
+                ax.set_yticklabels(_cats, fontsize=8)
             ax.invert_yaxis()  # first category on top -> worst-first ranking reads top-down
         else:
             # Thin the x-tick labels when there are many categories so they don't overlap into an
             # unreadable smear (e.g. a 50-lag residual-ACF bar chart). Keep ~20 evenly-spaced labels;
             # the bars themselves stay 1-per-category, only the LABELS are subsampled.
+            # TRUNCATE here too. The horizontal branch's comment above says this branch already did, and the
+            # plotly twin truncates on both orientations -- but it passed labels through untouched, so a
+            # pathological generated column name ran off the bottom of the axis: exactly what
+            # ``truncate_bar_label`` exists as a safety valve against. The two thinning constants are the module
+            # ones now rather than 25 and 20 written out again, so the same numbers stop living in four places.
             n_cat = len(p.categories)
-            if n_cat > 25:
-                step = int(np.ceil(n_cat / 20))
+            _cats_v = [truncate_bar_label(c) for c in p.categories]
+            if n_cat > _BAR_TICK_THIN_THRESHOLD:
+                step = int(np.ceil(n_cat / _BAR_TICK_KEEP))
                 sel = np.arange(0, n_cat, step)
                 ax.set_xticks(pos[sel])
                 ax.set_xticklabels(
-                    [p.categories[i] for i in sel],
+                    [_cats_v[i] for i in sel],
                     rotation=p.xtick_rotation or 0,
                     ha="right" if p.xtick_rotation else "center", fontsize=8,
                 )
             else:
                 ax.set_xticks(pos)
-                ax.set_xticklabels(p.categories, rotation=p.xtick_rotation, ha="right" if p.xtick_rotation else "center", fontsize=8)
+                ax.set_xticklabels(_cats_v, rotation=p.xtick_rotation, ha="right" if p.xtick_rotation else "center", fontsize=8)
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         _set_panel_title(ax, p.title)
@@ -615,7 +651,7 @@ class MatplotlibRenderer:
         xs_per_series = isinstance(p.x, tuple)
         labels = p.series_labels or (None,) * len(ys)
         styles = p.line_styles or ("-",) * len(ys)
-        cols = p.colors or tuple(line_color(i) for i in range(len(ys)))
+        cols = p.colors if p.colors else tuple(line_color(i) for i in range(len(ys)))
         sec = _per_series_flags(p.secondary_y, len(ys))
         fills = _per_series_flags(p.fill_to_baseline, len(ys))
 
@@ -630,7 +666,7 @@ class MatplotlibRenderer:
         if p.band is not None:
             lower, upper = np.asarray(p.band[0]), np.asarray(p.band[1])
             band_color = p.band_color or cols[0]
-            ax.fill_between(_xi(0) if not xs_per_series else p.x[0], lower, upper, color=band_color, alpha=0.2, label=p.band_label, zorder=0)
+            ax.fill_between(_xi(0), lower, upper, color=band_color, alpha=0.2, label=p.band_label, zorder=0)
 
         for i, y in enumerate(ys):
             token = styles[i % len(styles)]
@@ -686,17 +722,65 @@ class MatplotlibRenderer:
         _set_panel_title(ax, p.title)
         if p.grid:
             ax.grid(True, alpha=0.3)
-        if p.x_is_time and fig is not None:
-            fig.autofmt_xdate()
+        # LinePanelSpec carries ylim and builders set it deliberately (decision_curve clips the y-window so
+        # a steeply-diving reference cannot crush the informative band near 0), but only _scatter ever read
+        # it -- a line panel's window was silently discarded on BOTH backends.
+        if p.ylim is not None:
+            ax.set_ylim(*p.ylim)
+        if p.x_is_time:
+            # The numeric x carries epoch NANOSECONDS, which read as "1.62e18" unless converted.
+            _tickvals, _ticktext = epoch_ns_ticks(_xi(0))
+            if _tickvals is not None:
+                ax.set_xticks(_tickvals)
+                ax.set_xticklabels(_ticktext)
+            # Rotate THIS axes only. ``fig.autofmt_xdate()`` is a FIGURE-level call: it hides the x tick
+            # labels of every non-last-row axes and clears their xlabel, so on a multi-row grid it erased
+            # the date ticks just computed here AND stripped the labels off unrelated panels sharing the
+            # row. Its sole remaining contribution was rotation, which this does per-axes instead.
+            ax.tick_params(axis="x", rotation=30)
 
     def _violin(self, ax, p: ViolinPanelSpec) -> None:
-        """Render a per-group violin panel (medians shown when ``show_box``, extrema and mean markers suppressed)."""
-        ax.violinplot(p.groups, showmeans=False, showextrema=False, showmedians=p.show_box)
-        ax.set_xticks(range(1, len(p.group_labels) + 1))
-        ax.set_xticklabels(p.group_labels, rotation=30, ha="right", fontsize=8)
+        """Render a per-group violin panel (medians shown when ``show_box``, extrema and mean markers suppressed).
+
+        Groups are coloured from the shared palette so they match the plotly twin, which already cycles a
+        colour per group -- matplotlib drew every violin in one default blue, losing the group identity the
+        chart exists to show.
+        """
+        from mlframe.reporting.colors import line_color
+
+        # ``ax.violinplot`` raises on an EMPTY group (it computes a kernel over no points), so a spec with one
+        # empty group crashed matplotlib while plotly rendered the rest happily. Drop empty groups and mark
+        # them in the tick label rather than failing the whole figure.
+        kept = [(np.asarray(g, dtype=float), lab) for g, lab in zip(p.groups, p.group_labels)]
+        kept = [(g[np.isfinite(g)], lab) for g, lab in kept]
+        drawable = [(g, lab) for g, lab in kept if g.size > 0]
+        if not drawable:
+            ax.set_axis_off()
+            ax.text(0.5, 0.5, "no finite values in any group", ha="center", va="center", transform=ax.transAxes)
+            _set_panel_title(ax, p.title)
+            return
+        parts = ax.violinplot([g for g, _ in drawable], showmeans=False, showextrema=False, showmedians=False)
+        if p.show_box:
+            # A median LINE here against a full quartile box on plotly meant one spec produced two different amounts
+            # of information. Both backends now show the quartile box.
+            ax.boxplot([g for g, _ in drawable], widths=0.12, showfliers=False, whis=(5, 95),
+                       medianprops=dict(color="black", linewidth=1.2),
+                       boxprops=dict(color="black", linewidth=0.9),
+                       whiskerprops=dict(color="black", linewidth=0.9),
+                       capprops=dict(color="black", linewidth=0.9))
+        for i, body in enumerate(parts.get("bodies", [])):
+            body.set_facecolor(line_color(i))
+            body.set_alpha(0.6)
+        labels = [lab for _, lab in drawable]
+        empty = [str(lab) for g, lab in kept if g.size == 0]
+        # Name the dropped groups in the title: a violin that silently vanishes reads as "this group has no
+        # spread", which is a different statement from "this group has no data".
+        _violin_title = f"{p.title} (no data: {', '.join(empty)})" if (empty and p.title) else p.title
+        ax.set_xticks(range(1, len(labels) + 1))
+        ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=8)
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
-        _set_panel_title(ax, p.title)
+        _set_panel_title(ax, _violin_title)
         if p.grid:
             ax.grid(True, alpha=0.3, axis="y")
 
@@ -765,3 +849,11 @@ class MatplotlibRenderer:
 
 
 __all__ = ["MatplotlibRenderer"]
+
+
+# ``_scatter`` lives in a sibling module (this file crossed the 1000-LOC house limit once the low-evidence
+# split and the per-label contrast landed); bound back onto the class here so the ``_render_panel`` dispatch
+# and any external ``MatplotlibRenderer._scatter`` reference keep resolving unchanged.
+from ._matplotlib_scatter import _scatter as _scatter_impl
+
+MatplotlibRenderer._scatter = _scatter_impl

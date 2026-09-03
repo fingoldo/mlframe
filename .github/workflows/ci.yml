@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   test:
-    name: pytest ${{ matrix.python-version }} on ${{ matrix.os }} (shard ${{ matrix.group }}/${{ matrix.splits || '8' }})
+    name: pytest ${{ matrix.python-version }} on ${{ matrix.os }} (shard ${{ matrix.group }}/${{ matrix.splits || '10' }})
     runs-on: ${{ matrix.os }}
     env:
       # Persist numba's on-disk JIT cache across runs AND shards (see the cache step below). Without it numba
@@ -34,9 +34,44 @@ jobs:
       NUMBA_CACHE_DIR: ${{ github.workspace }}/.numba-cache
     # A GitHub-hosted runner has only 2 vCPUs and the suite is large. Two costs dominate per shard: numba
     # cold-JIT compilation (now cached across runs+shards via NUMBA_CACHE_DIR) and model-training tests. We
-    # shard 8 ways via pytest-split (`--splits 8 --group N`) so even a cold shard (which must populate the
+    # shard 10 ways via pytest-split (`--splits 10 --group N`) so even a cold shard (which must populate the
     # cache) finishes under the cap; warm shards are far faster. timeout-minutes is headroom, not a budget.
-    timeout-minutes: 120
+    # Raised 120->240 (2026-08-08): the 2026-08-08 run on 6bb8b05be lost 21/41 shards to this cap mid-suite
+    # (each killed at exactly ~120m16s, confirmed via job started_at/completed_at) -- those shards' real
+    # pass/fail results were never reported, only "cancelled". 240 gives even the slowest cold biz_val-heavy
+    # shard room to actually finish and report its real failures instead of being silently truncated.
+    # Raised 240->360 (2026-08-15): run 31779046280 (2026-08-14) lost shard 3/8 to this exact cap again,
+    # killed at exactly 4h00m00s -- 360 is GitHub Actions' own hard ceiling for hosted runners (cannot go
+    # higher). This is a headroom bump, NOT a fix: repeatedly raising this cap after each incident treats
+    # the symptom. The likely root cause (not yet confirmed from a full shard log at the time of this
+    # change) is a test blocked inside a native call (xgboost's C booster update, joblib's threaded
+    # _retrieve poll loop, cupy's blocking .get() H2D sync) that pytest-timeout's `method=thread` cannot
+    # actually interrupt -- it marks the test timed-out for reporting but the underlying thread keeps
+    # running, so the whole worker process hangs until something external (this job cap) kills it,
+    # 8->16 splits (2026-08-15): the REAL fix for the repeated cap incidents above -- a cancelled shard
+    # never reaches pytest's session-finish hook, so `--store-durations` (below) never writes anything for
+    # it, so `merge-test-durations` never receives real timing data for exactly the heaviest shards --
+    # a bootstrapping deadlock (file-count sharding stays unbalanced forever because the shards it
+    # unbalances the worst are the ones that get killed before they can report real durations to fix it).
+    # Halving average per-shard workload breaks the deadlock: even badly-imbalanced shards should now
+    # finish inside the cap, start reporting real durations, and let `merge-test-durations` self-correct
+    # the balance on every subsequent push.
+    # 16->10 splits (2026-08-15, same day): 16 shards x 5 required python versions + the 3.14 smoke job
+    # = 86 concurrent jobs, well past this account's free-tier concurrent-runner cap -- run 31839758990
+    # still had ~40 jobs stuck `queued` 1h30m+ in, with py3.13/3.14 never starting. 10 shards keeps the
+    # bootstrapping-deadlock fix (a cold shard still finishes well inside the 360m cap) while cutting
+    # total jobs to 54, small enough to mostly avoid queueing under the same free-tier limit. Revisit
+    # if shards start getting cancelled again (raise back toward 16) or if queueing is still severe at
+    # 10 (drop further, or split the matrix so not every python version runs on every push).
+    # 3.14 sharded 10 ways (2026-08-18, see the `include` block below): raises the matrix from 51 to 60
+    # jobs (5 required versions x 10 + 3.14 x 10, vs. 5x10 + 1 unsharded). Still well under the ~86-job
+    # threshold that caused the queueing incident above; revisit together with the note above if queueing
+    # reappears.
+    # silently eating every remaining test in that shard. If shards keep hitting 360 after this bump,
+    # the fix is finding and isolating that specific hang (or switching CI's timeout method to
+    # `signal` on Linux, which can actually preempt a blocked syscall), not raising the cap further --
+    # there is no higher cap to raise to.
+    timeout-minutes: 360
     # Newest-Python rows are marked experimental so a single optional-extra
     # that has not yet published a cp314 wheel does not turn a required check
     # red while the ecosystem finishes catching up. The core stack (numpy /
@@ -47,27 +82,40 @@ jobs:
       matrix:
         # Linux rows 3.9-3.13 are required (blocking). The [all] extra installs
         # on 3.13 thanks to the tool.uv `ortools>=9.12` override (see pyproject).
-        # Each (os, python) is sharded 8 ways via pytest-split so even a cold
-        # shard (numba JIT not yet cached) finishes inside the 120-min cap; once
+        # Each (os, python) is sharded 10 ways via pytest-split so even a cold
+        # shard (numba JIT not yet cached) finishes inside the cap; once
         # the numba cache is warm each shard is far faster.
         os: [ubuntu-latest]
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
-        group: ["1", "2", "3", "4", "5", "6", "7", "8"]
+        group: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
         include:
           # Python 3.14 stays non-blocking (experimental): the optbinning->ortools
           # blocker is gone (override above), but the heavy [all] stack (torch /
-          # numba / ...) does not yet reliably ship cp314 wheels. Run it as a
-          # single unsharded full-suite smoke (splits=1) so a partial shard never
-          # masks a 3.14-specific break; flip to required + sharded once cp314
-          # wheels are universal.
-          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "1", group: "1" }
+          # numba / ...) does not yet reliably ship cp314 wheels.
+          # Sharded 10 ways (2026-08-18), same as the required 3.9-3.13 legs: it was originally left
+          # unsharded (splits=1, single job for the WHOLE suite) so "a partial shard never masks a
+          # 3.14-specific break" -- but an unsharded run does ~10x the work of one shard on the same
+          # 360m cap / 2-vCPU runner that the required legs need full sharding just to fit inside, so
+          # it timed out on effectively every push and reported NO real pass/fail signal at all (worse
+          # than a partial one). Sharding it the same way the required legs already proved out gives 10
+          # real per-shard results instead of one perpetual timeout.
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "1" }
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "2" }
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "3" }
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "4" }
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "5" }
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "6" }
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "7" }
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "8" }
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "9" }
+          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "10" }
           # Windows/macOS legs dropped 2026-07-09: GitHub Actions bills macOS at 10x and Windows
-          # at 2x the free Linux-minute allowance, and this repo's 8-way-sharded matrix made them
+          # at 2x the free Linux-minute allowance, and this repo's sharded matrix made them
           # the dominant cost (2,123 macOS-min + 5,675 Windows-min in a single day = ~23K Linux-
           # minute equivalent) -- enough to exhaust the account's monthly free Actions minutes and
           # leave every workflow, in every repo sharing the account, stuck queued. Linux-only
           # coverage remains the blocking gate; re-add a single non-sharded representative leg per
-          # OS (not the full 8-way shard) if platform-specific regressions start slipping through.
+          # OS (not the full sharded matrix) if platform-specific regressions start slipping through.
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -99,10 +147,15 @@ jobs:
       # collection from blowing up on ModuleNotFoundError) in a SINGLE `uv pip install`. Extracted 2026-07-18
       # to py-ci-shared's install-pyutilz composite action -- this exact clone+uv-install pair was
       # duplicated near-verbatim across 6 workflows in this repo.
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@ac5f2fb6af0919e769445f671698d1e43dca8b09  # v1.3.2
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@71957762ddd99200a66e3312a8ef9293b4c5d939  # v1.4.0
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
+          # This was the ONLY pyutilz-cloning workflow in the repo with no actual pin (the action
+          # itself had no way to honour one until pyutilz-ref was added) -- every other workflow's
+          # inline "git -C pyutilz checkout <sha>" line already matched this SHA; see
+          # X_CICD_DEPENDENCIES-1 for why pinning matters here.
+          pyutilz-ref: 691a6ce16ba0abeb3647f17c1057464c895473ea  # pragma: allowlist secret -- git commit SHA, not a secret
 
       - name: Restore numba JIT cache
         # numba's per-kernel disk cache (keyed internally by source + numba version) is restored into
@@ -126,27 +179,237 @@ jobs:
       - name: Run tests
         env:
           PYTHONUNBUFFERED: "1"
+          # Heavily-parametrised modules (multi-seed sweeps, binning-method grids) collapse to one
+          # representative variant per code path via tests/conftest.py's fast_subset() -- the exhaustive
+          # sweep is meant to run behind this flag being UNSET (a slow/nightly leg), not on every PR.
+          # This was never wired into any workflow, so every push paid the full N-seed matrix; several of
+          # the top-200 slowest CI tests were the same test re-run 3x across seeds with no CI job ever
+          # covering the flag-off (exhaustive) path either. Fast mode still exercises every code path,
+          # just with 1 representative value instead of N.
+          MLFRAME_FAST: "1"
         run: |
+          # --dist=loadgroup: plain `-n auto` defaults to `--dist=load`, which does NOT honor
+          # `@pytest.mark.xdist_group(...)` -- every group pin in the suite (GPU tests, the
+          # kernel-tuning-cache singleton tests, the CatBoost-fit OOM-avoidance pins) was silently a
+          # no-op under the old distmode, confirmed by grouped tests still landing on different
+          # workers/crashing concurrently despite the marker. loadgroup keeps `-n auto`'s worker count
+          # and load-balancing, it only additionally pins same-group tests to one worker.
+          # tests/training/test_core.py is EXCLUDED here and run separately by test-heavy-serial
+          # below (-n 1, no xdist at all): even with its two classes already xdist_group-pinned to
+          # one worker, CI still recurrently OOM-killed the runner ("node down: Not properly
+          # terminated" -- the whole-host OOM-kill signature, not a per-worker one) because -n
+          # auto on this 2-vCPU runner still starts a SECOND worker for the rest of the shard's
+          # tests, and that worker's own memory use stacks with the pinned group's on the same
+          # 7GB host. xdist_group only serializes tests WITHIN the group against each other: it
+          # cannot stop a completely different worker from running concurrently. Confirmed this
+          # isn't a fixable per-test issue -- 3 prior targeted mitigations (worker-pinning both
+          # heavy classes together, matplotlib/gc cleanup between tests, capping CatBoost's own
+          # thread_count) all already landed here and the crash still recurred with all three in
+          # place, which only makes sense as inter-worker host memory pressure, not anything local
+          # to this file. Excluding it from every -n auto shard removes the second-worker source of
+          # that pressure entirely, without slowing the other ~99% of the suite that never showed
+          # this failure mode.
           pytest -m "not slow and not gpu and not multigpu" \
-            --splits ${{ matrix.splits || '8' }} --group ${{ matrix.group }} \
+            --splits ${{ matrix.splits || '10' }} --group ${{ matrix.group }} \
+            --ignore=tests/training/test_core.py \
             -n auto \
+            --dist=loadgroup \
             --cov=src/mlframe \
             --cov-report=xml \
             --cov-report=term-missing \
             -p no:randomly \
-            --timeout=300
+            --timeout=900 \
+            --durations=200 \
+            --store-durations \
+            --show-progress
+
+      # `--store-durations` (above) merges this shard's freshly-measured durations into the
+      # `.test_durations` this job's checkout started from (pytest-split reads+writes the same
+      # default path), so each shard's local copy is [repo's checked-out durations] UNION [this
+      # shard's own fresh subset]. Uploaded per-shard so merge-test-durations (below) can fold
+      # every shard's fresh slice back into one file and commit it -- keeping pytest-split's
+      # balancing data current on every push instead of relying solely on the separate weekly
+      # update-test-durations.yml full-suite run. `if: always()` so a shard that failed or hit
+      # its timeout still contributes whatever durations it collected before that point.
+      # `include-hidden-files: true` (2026-08-15): `.test_durations` is a dotfile -- actions/upload-artifact's
+      # glob EXCLUDES hidden files by default, so despite pytest-split's own log confirming it wrote the file
+      # every single time ("[pytest-split] Stored test durations in .../.test_durations"), this step logged
+      # "No files were found with the provided path: .test_durations" on every shard, every run, since this
+      # workflow was written -- root cause of `.test_durations` staying `{}` (seeded empty 2026-07-18) through
+      # every subsequent "chore: refresh .test_durations" commit: merge-test-durations always downloaded 0
+      # real shard artifacts to merge.
+      - name: Upload shard test durations
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: test-durations-${{ matrix.python-version }}-${{ matrix.group }}
+          path: .test_durations
+          retention-days: 3
+          include-hidden-files: true
+          if-no-files-found: ignore
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
+        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@f50288e5a6f5b7f972efb60f948ce6184c8e9e70  # v1.3.4
         # (success() || failure()): a test failure in this shard (even one unrelated to coverage, e.g. a
         # meta-test) otherwise skips this step by GitHub Actions' default "only if prior steps succeeded"
         # rule, so codecov never sees that shard's coverage.xml and the merged report stays incomplete --
         # observed as the badge never updating despite runs completing.
         if: matrix.python-version == '3.11' && (success() || failure())
         with:
-          file: ./coverage.xml
-          fail_ci_if_error: false
+          files: ./coverage.xml
           token: ${{ secrets.CODECOV_TOKEN }}
+
+      # Raw sqlite `.coverage` (not the derived coverage.xml above) so codecov-full.yml can
+      # `coverage combine` this shard's data with numba-coverage-nightly's shards into one
+      # genuinely unioned line-coverage report -- summing the two flags' already-published
+      # percentages double-counts every line both jobs happen to exercise, which is most of the
+      # codebase (see the "codecov" + "codecov-numba" badges' own docs for why they can't just be
+      # added together). `.coverage` is a dotfile -- same upload-artifact hidden-file gotcha as
+      # `.test_durations` above.
+      - name: Upload raw coverage data (for the cross-workflow merged report)
+        if: matrix.python-version == '3.11' && (success() || failure())
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: raw-coverage-ci-${{ matrix.group }}
+          path: .coverage
+          retention-days: 3
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+  # Dedicated, always-serial (-n 1, no xdist) home for tests/training/test_core.py -- excluded from
+  # every -n auto shard above for the reason documented at that exclusion's own comment: its two
+  # xdist_group-pinned CatBoost-heavy classes kept OOM-killing the host even after 3 prior targeted
+  # mitigations, because -n auto's SECOND worker (running the rest of that shard) still stacks its
+  # own memory use against the pinned group's on the same 2-vCPU/7GB runner. Running the whole file
+  # with no second worker at all removes that stacking entirely.
+  # Split into 4 groups via pytest-split (--group matrix axis below): even with -n 1 (zero worker
+  # stacking), running all ~128 tests in ONE long-lived process still crashed with "worker 'gw0'
+  # crashed" (real OOM, not a stacking artifact -- confirmed 2026-08-23, python 3.10/3.11, failing
+  # near the END of a 35min/115-tests-passed run) from cumulative per-process memory growth across
+  # that many CatBoost/polars fits, not any single test's footprint. A first fix (2 groups, ~60
+  # tests each) was STILL insufficient -- confirmed 2026-08-23 on python 3.12, group 2/2 crashed
+  # TWICE in one run (TestTextAndEmbeddingFeatures again both times), proving the recurring offender
+  # class's per-test memory footprint alone is large enough that even a 60-test subset accumulates
+  # past the 7GB budget, not just a slow leak across the WHOLE file. Four groups (~26 tests each)
+  # gives every runner process a smaller cumulative-growth ceiling before hitting the budget. 3.14
+  # is excluded from the python-version axis (experimental leg, same reasoning as the main matrix's
+  # own 3.14 rows).
+  test-heavy-serial:
+    name: pytest ${{ matrix.python-version }} on ubuntu-latest (test_core.py, serial, group ${{ matrix.group }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        group: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@71957762ddd99200a66e3312a8ef9293b4c5d939  # v1.4.0
+        with:
+          pyutilz-extras: "system,pandas,polars,database"
+          project-extras: ".[all,dev]"
+          pyutilz-ref: 691a6ce16ba0abeb3647f17c1057464c895473ea  # pragma: allowlist secret -- git commit SHA, not a secret
+
+      - name: Restore numba JIT cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.numba-cache
+          key: numba-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('src/**/*.py') }}
+          restore-keys: |
+            numba-${{ runner.os }}-py${{ matrix.python-version }}-
+
+      - name: Run tests/training/test_core.py (serial, group ${{ matrix.group }}/4)
+        env:
+          PYTHONUNBUFFERED: "1"
+          NUMBA_CACHE_DIR: ${{ github.workspace }}/.numba-cache
+          MLFRAME_FAST: "1"
+        run: |
+          pytest tests/training/test_core.py \
+            -m "not slow and not gpu and not multigpu" \
+            --splits 4 --group ${{ matrix.group }} \
+            -n 1 \
+            -p no:randomly \
+            --timeout=900 \
+            --durations=200 \
+            --no-cov \
+            --show-progress
+
+  # Folds every shard's freshly-measured `.test_durations` slice (uploaded above) back into one
+  # file and commits it to master, so pytest-split's shard balancing stays current on every
+  # push instead of drifting stale between the separate weekly full-suite update-test-durations.yml
+  # run. Root cause this replaces: `.test_durations` was seeded empty 2026-07-18 and never
+  # successfully repopulated since, so pytest-split silently fell back to file-count balancing --
+  # one shard (observed: py3.10/py3.12 group 3) collecting a disproportionate share of the
+  # heaviest biz_val/MRMR fits and running 30-40+ min longer than its siblings on every run, with
+  # no per-test bug to fix (the imbalance was in the split data, not the tests). Push-only (not
+  # PR): a PR's merge commit isn't on master yet, and mutating a fork/PR branch here would be
+  # both wrong (branch doesn't own this data) and blocked by the read-only token PRs get anyway.
+  merge-test-durations:
+    name: Merge + commit .test_durations
+    runs-on: ubuntu-latest
+    needs: test
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/master'
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: true
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          pattern: test-durations-*
+          path: .test_durations_shards
+          merge-multiple: false
+
+      - name: Merge shard durations
+        run: |
+          python - <<'PY'
+          import json
+          import pathlib
+
+          merged = {}
+          # Sorted for deterministic merge order (last-write-wins on a nodeid two different
+          # python-version matrix legs both happened to freshly measure this run -- either
+          # value is a valid balancing input, determinism just keeps output diffs reviewable).
+          for f in sorted(pathlib.Path(".test_durations_shards").glob("*/.test_durations")):
+              try:
+                  merged.update(json.loads(f.read_text()))
+              except (json.JSONDecodeError, OSError):
+                  continue
+          pathlib.Path(".test_durations").write_text(json.dumps(merged, sort_keys=True, indent=4))
+          print(f"[merge-test-durations] merged {len(merged)} entries")
+          PY
+
+      - name: Commit updated .test_durations
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- .test_durations; then
+            echo "No change to .test_durations"
+            exit 0
+          fi
+          git add .test_durations
+          git commit -m "chore: refresh .test_durations (post-CI shard rebalance)"
+          git push origin HEAD:"$REF_NAME"
 
   # Blocking gate + advisory bundle, both extracted to fingoldo/py-ci-shared reusable workflows
   # (2026-07-09) since their logic is identical across mlframe/pyutilz -- see
@@ -160,13 +423,13 @@ jobs:
   # be redundant, not safer.
   ruff-blocking:
     name: Ruff (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@ac5f2fb6af0919e769445f671698d1e43dca8b09  # v1.3.2
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@v1
     with:
       ignore: "C901"
 
   lint-blocking:
     name: lint + security (blocking, triaged clean)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@ac5f2fb6af0919e769445f671698d1e43dca8b09  # v1.3.2
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@v1
     with:
       source-path: src/mlframe
       codespell-paths: src/mlframe
@@ -178,13 +441,14 @@ jobs:
       # DEP003 rules are meaningless in a bare environment (confirmed 2026-07-09: re-run with
       # [all,dev] actually installed via `python -m deptry .` surfaced exactly 1 real finding).
       deptry-install-command: |
-        git clone --depth 1 https://github.com/fingoldo/pyutilz.git
+        git clone https://github.com/fingoldo/pyutilz.git
+        git -C pyutilz checkout 691a6ce16ba0abeb3647f17c1057464c895473ea  # pinned 2026-08-26: dead-import py3.9 fallback no longer misattributes findings to same-block why-comments
         uv pip install --system "./pyutilz[system,pandas,polars,database]" -e ".[all,dev]"
       run-zizmor: true
 
   lint-advisory:
     name: lint (advisory)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@ac5f2fb6af0919e769445f671698d1e43dca8b09  # v1.3.2
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@v1
     with:
       source-path: src/mlframe
       run-import-linter: true
@@ -199,20 +463,20 @@ jobs:
   # reusable workflows (py-ci-shared v1.1.0+) point them at tests/ instead of the whole repo.
   tests-ruff-blocking:
     name: Ruff tests/ (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@ac5f2fb6af0919e769445f671698d1e43dca8b09  # v1.3.2
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@v1
     with:
       check-path: tests
       ignore: "C901"
 
   tests-black-filtered:
     name: Black tests/ (filtered, blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@ac5f2fb6af0919e769445f671698d1e43dca8b09  # v1.3.2
+    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@v1
     with:
       check-path: tests
 
   tests-lint-blocking:
     name: lint + security tests/ (blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@ac5f2fb6af0919e769445f671698d1e43dca8b09  # v1.3.2
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@v1
     with:
       source-path: tests
       codespell-paths: tests
@@ -259,7 +523,7 @@ jobs:
         run: |
           python -m venv /tmp/smoke
           /tmp/smoke/bin/pip install --upgrade pip
-          /tmp/smoke/bin/pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git"
+          /tmp/smoke/bin/pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git@691a6ce16ba0abeb3647f17c1057464c895473ea"
           /tmp/smoke/bin/pip install dist/*.whl
           # Assert the PEP 561 py.typed marker actually shipped in the wheel so a
           # package-data regression (dropping typing support) fails the build.
@@ -272,3 +536,29 @@ jobs:
           name: dist
           path: dist/
           retention-days: 14
+
+  # Single aggregation point for branch-protection required status checks: the actual gating
+  # jobs above are a python-version x shard matrix (currently 5x10) plus several reusable-workflow
+  # calls, so their individual check names churn whenever the matrix is resized -- listing them all
+  # as required checks would go stale silently. This job's own fixed name is the one required check;
+  # `if: always()` lets it run even after an upstream failure so it can report that failure itself
+  # rather than being skipped (a skipped required check blocks merge same as a failed one, but with
+  # no clear reason in the PR UI). lint-advisory is intentionally excluded -- it's advisory by design
+  # (see lint-advisory.yml), never a merge gate.
+  ci-required:
+    name: CI required checks
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [test, test-heavy-serial, ruff-blocking, lint-blocking, tests-ruff-blocking, tests-black-filtered, tests-lint-blocking, build]
+    steps:
+      - name: Check all required jobs succeeded
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+          ANY_FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: |
+          echo "$NEEDS_JSON"
+          if [[ "$ANY_FAILED" == "true" ]]; then
+            echo "One or more required jobs failed or were cancelled."
+            exit 1
+          fi

@@ -95,7 +95,11 @@ def _robust_slope(base_f: np.ndarray, y_f: np.ndarray) -> float:
     med = float(np.median(resid))
     mad = float(np.median(np.abs(resid - med)))
     sigma_mad = mad * 1.4826
-    if sigma_mad <= 0.0 or not np.isfinite(sigma_mad):
+    # Noise floor, not a literal ==0 check: see the identical guard in linear.py / _multi_extra.py --
+    # an exact-plane fit's residuals are only zero up to the host BLAS's rounding.
+    _resid_scale_raw = float(np.median(np.abs(resid)))
+    resid_scale = _resid_scale_raw if _resid_scale_raw > 0.0 else 1.0
+    if sigma_mad <= max(1e-12, 1e-9 * resid_scale) or not np.isfinite(sigma_mad):
         return alpha1
     keep = np.abs(resid - med) <= _CAUSAL_ANCHOR_MAD_K * sigma_mad
     n_kept = int(keep.sum())

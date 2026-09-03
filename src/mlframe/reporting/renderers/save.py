@@ -1,15 +1,21 @@
 """Save dispatch: render once per backend in the PlotOutputSpec, save in
 all requested formats. In an interactive IPython / Jupyter session, the
-figures are ALSO shown inline before save so the operator sees the
-plot in the notebook cell (verified detected via ``__IPYTHON__`` builtin
-or ``sys.ps1``).
+figures of INTERACTIVE backends are also shown inline (session detected via
+``__IPYTHON__`` builtin or ``sys.ps1``); see ``_SAVE_ONLY_BACKENDS`` for why
+matplotlib is written to disk but never rendered into the cell.
 
 File-naming policy:
 - Single backend × single format: ``<base_path>.<fmt>`` (e.g. ``plot.png``).
-  Mirrors the pre-2026-05-08 single-output convention.
+  Mirrors the historical single-output convention, kept working for existing callers.
 - Otherwise: ``<base_path>.<backend>.<fmt>`` so the operator sees which
   backend produced which file (e.g. ``plot.plotly.html`` +
   ``plot.matplotlib.pdf``).
+- With ``format_subfolders`` on, each file then lands in a per-format
+  SUBFOLDER of that directory (``png/plot.matplotlib.png``,
+  ``html/plot.plotly.html``), so a suite emitting an interactive and a static
+  copy of every figure does not leave the two kinds interleaved in one
+  listing. The SUITE turns this on (``ReportingConfig.plot_format_subfolders``,
+  default True); a direct library call stays flat unless it asks.
 """
 
 from __future__ import annotations
@@ -17,10 +23,12 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from typing import Any, Dict, Optional, Tuple
 
 from mlframe.reporting.output import PlotOutputSpec
 from mlframe.reporting.renderers.base import get_renderer
+from mlframe.reporting.renderers._render_timings import chart_type_of, record_chart_render
 from mlframe.reporting.spec import FigureSpec
 from mlframe.utils.log_throttle import log_throttle
 
@@ -40,8 +48,92 @@ def _thread_inline_override():
     val = getattr(_INLINE_OVERRIDE, "value", _UNSET)
     return None if val is _UNSET else val
 
+# Per-format output subfolders. A suite emitting both backends writes an interactive HTML and a static PNG of every
+# figure into ONE directory, so a 4-model x VAL/TEST x N-ensemble run leaves hundreds of files of two kinds
+# interleaved, and the operator who wants "the PNGs" has to filter by extension by eye. Writing each format into its
+# own subfolder (``<dir>/html/name.html``, ``<dir>/png/name.png``) keeps the two kinds apart at no cost to either.
+# Thread-local for the same reason the inline-display override is (concurrent suites must not flip each other's mode),
+# with an env fallback for runs that cannot reach the config.
+_SUBFOLDER_OVERRIDE = threading.local()
+# LIBRARY default is flat, and the SUITE turns it on via ``ReportingConfig.plot_format_subfolders`` (default
+# True). The mixed-directory problem this solves is a property of a suite run writing hundreds of figures in
+# two formats; a direct ``render_and_save`` caller has its own on-disk contract and should not have its layout
+# changed underneath it by a library upgrade.
+_FORMAT_SUBFOLDERS_DEFAULT = False
+
+
+def _thread_subfolder_override() -> Optional[bool]:
+    """Tri-state per-thread override for the per-format subfolder layout: True / False if set, else None."""
+    val = getattr(_SUBFOLDER_OVERRIDE, "value", _UNSET)
+    return None if val is _UNSET else bool(val)
+
+
+def set_format_subfolders(enabled: Optional[bool]) -> None:
+    """Set (or clear, with ``None``) this thread's per-format-subfolder override."""
+    if enabled is None:
+        if hasattr(_SUBFOLDER_OVERRIDE, "value"):
+            del _SUBFOLDER_OVERRIDE.value
+    else:
+        _SUBFOLDER_OVERRIDE.value = bool(enabled)
+
+
+def get_format_subfolders() -> Optional[bool]:
+    """This thread's per-format-subfolder override, or None when unset (so the caller can restore it)."""
+    return _thread_subfolder_override()
+
+
+def _use_format_subfolders() -> bool:
+    """Whether saved files go into a per-format subfolder: thread override, else env var, else the default."""
+    override = _thread_subfolder_override()
+    if override is not None:
+        return bool(override)
+    env = os.environ.get("MLFRAME_PLOT_FORMAT_SUBFOLDERS")
+    if env is not None:
+        env_lo = env.strip().lower()
+        if env_lo in ("1", "true", "yes", "on"):
+            return True
+        if env_lo in ("0", "false", "no", "off"):
+            return False
+    return _FORMAT_SUBFOLDERS_DEFAULT
+
+
+def resolve_output_path(base_path: str, backend: str, fmt: str, *, multi_output: bool, subfolders: Optional[bool] = None) -> str:
+    """Full path for one saved figure, honouring the per-format subfolder layout.
+
+    The filename is unchanged by the layout, so a caller that knows the flat name can find the file by prepending
+    the format directory rather than by re-deriving the name.
+    """
+    stem = f"{base_path}.{backend}.{fmt}" if multi_output else f"{base_path}.{fmt}"
+    if not (subfolders if subfolders is not None else _use_format_subfolders()):
+        return stem
+    directory, name = os.path.split(stem)
+    return os.path.join(directory, fmt, name)
+
+
 # Static (non-interactive) export formats: no hover, so plotly legends must be enabled for these to be readable.
 _STATIC_FORMATS = frozenset({"png", "svg", "pdf", "jpg", "jpeg"})
+
+# Backends that are NEVER shown inline in a notebook cell -- they are save-only artifact producers.
+#
+# The default ``plot_outputs`` requests both backends ("plotly[html] + matplotlib[png]"), and inline display
+# used to fire for each, so every chart appeared TWICE in the cell: the interactive plotly figure and a
+# static matplotlib duplicate of the same data. The static copy adds nothing a reader can act on in a
+# notebook (plotly already renders there, with hover), so matplotlib stays a file-producing backend: its PNG
+# is still written to disk exactly as before.
+_SAVE_ONLY_BACKENDS = frozenset({"matplotlib"})
+
+
+def _backend_is_needed(backend: str, *, will_save: bool, interactive: bool, keep_handles: bool) -> bool:
+    """Whether ``backend`` has any consumer for its figure, i.e. whether rendering it is worth the time.
+
+    A backend earns its render when the figure will be written to disk, returned to the caller via
+    ``keep_handles``, or shown inline. A save-only backend (see ``_SAVE_ONLY_BACKENDS``) is never shown, so
+    with saving switched off it has NO consumer at all -- rendering it then is pure cost, which on a
+    multi-model suite is seconds of matplotlib work whose output is discarded unseen.
+    """
+    if keep_handles or will_save:
+        return True
+    return interactive and backend not in _SAVE_ONLY_BACKENDS
 
 # Process-wide counter of charts dropped by the multi-backend render thread (timeout OR exception). On timeout the
 # worker thread is abandoned and the chart is silently lost; this counter (mirror of plotly's kaleido oneshot stats)
@@ -172,6 +264,7 @@ def render_and_save(
     *,
     keep_handles: bool = False,
     interactive: Optional[bool] = None,
+    format_subfolders: Optional[bool] = None,
 ) -> Optional[Dict[str, Any]]:
     """Render the spec on each backend in ``output`` and save in all formats.
 
@@ -190,6 +283,14 @@ def render_and_save(
         so callers can show / further-tweak the figures. Default False
         releases handles for matplotlib (frees memory; matplotlib leaks
         ~1MB per figure in long-running suites).
+    format_subfolders : bool, optional
+        When True, each file is written to a per-format subdirectory of
+        ``base_path``'s directory (``png/plot.png``, ``html/plot.html``)
+        instead of alongside every other format. ``None`` (default) reads
+        the thread override the suite sets from
+        ``ReportingConfig.plot_format_subfolders``, then
+        ``MLFRAME_PLOT_FORMAT_SUBFOLDERS``, then the module default (False --
+        see that constant for why the library stays flat).
     interactive : bool, optional
         When True, also call ``renderer.show(fig)`` per backend so the
         figure renders inline in the notebook cell (in addition to the
@@ -203,9 +304,18 @@ def render_and_save(
     """
     if interactive is None:
         interactive = _detect_interactive_session()
+    _subfolders = _use_format_subfolders() if format_subfolders is None else bool(format_subfolders)
 
-    multi_output = (len(output.backends) > 1) or any(len(fmts) > 1 for _, fmts in output.backends)
+    # An empty ``base_path`` is how callers say "do not persist this figure"; with nothing to write, a
+    # save-only backend has no consumer left and is skipped entirely rather than rendered and discarded.
+    will_save = bool(base_path)
+    _backends = [(b, f) for b, f in output.backends if _backend_is_needed(b, will_save=will_save, interactive=bool(interactive), keep_handles=keep_handles)]
     handles: Dict[str, Any] = {}
+    if not _backends:
+        return handles if keep_handles else None
+
+    # Filtering cannot change the on-disk names: a backend is only dropped when nothing is being saved.
+    multi_output = (len(_backends) > 1) or any(len(fmts) > 1 for _, fmts in _backends)
 
     # Parallelize render+save across backends: each builds its OWN renderer
     # + fig from the frozen FigureSpec (no shared mutable state). Both Agg
@@ -216,26 +326,34 @@ def render_and_save(
 
     def _do_backend(backend: str, fmts) -> "Tuple[str, Any]":
         """Render ``spec`` once on ``backend`` and save it to every format in ``fmts``; runs on a worker thread so multiple backends render+save concurrently (see the note above on GIL release during Agg/write_html)."""
+        # Timed per backend rather than per call: the two backends render concurrently, so one wall time for both
+        # would attribute the slower one's cost to the faster one as well.
+        _t0 = time.perf_counter()
         renderer = get_renderer(backend)
         # plotly legends default off (hover identifies series interactively); enable them when a static format
-        # is in this backend's save set since a png/svg/pdf export has no hover (INV-28).
+        # is in this backend's save set since a png/svg/pdf export has no hover.
         if backend == "plotly" and (set(fmts) & _STATIC_FORMATS):
             fig = renderer.render(spec, static_legend=True)
         else:
             fig = renderer.render(spec)
-        for fmt in fmts:
-            if multi_output:
-                path = f"{base_path}.{backend}.{fmt}"
-            else:
-                path = f"{base_path}.{fmt}"
+        # ``will_save`` gates the WRITE too, not just the backend selection above. A backend kept alive by
+        # ``keep_handles`` or an interactive session still reached this loop with an empty ``base_path``, and
+        # ``resolve_output_path`` then composed a name out of the extension alone -- writing ``.matplotlib.png``
+        # and ``.html`` into the process's working directory. Dot-prefixed, so ``ls`` never showed them.
+        for fmt in fmts if will_save else ():
+            path = resolve_output_path(base_path, backend, fmt, multi_output=multi_output, subfolders=_subfolders)
+            _dir = os.path.dirname(path)
+            if _dir:
+                os.makedirs(_dir, exist_ok=True)
             renderer.save(fig, path, fmt)
+        record_chart_render(chart_type_of(base_path), time.perf_counter() - _t0, backend=backend)
         return backend, fig
 
-    if len(output.backends) > 1:
+    if len(_backends) > 1:
         from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutureTimeout
         # max_workers = backend count; each task = one render+save pipeline.
-        with ThreadPoolExecutor(max_workers=len(output.backends)) as _ex:
-            _futures = [_ex.submit(_do_backend, backend, fmts) for backend, fmts in output.backends]
+        with ThreadPoolExecutor(max_workers=len(_backends)) as _ex:
+            _futures = [_ex.submit(_do_backend, backend, fmts) for backend, fmts in _backends]
             _results = []
             for f in _futures:
                 try:
@@ -263,7 +381,7 @@ def render_and_save(
         # render_and_save -- some call sites outside this cluster invoke it with no wrapping try/except of
         # their own.
         _results = []
-        for backend, fmts in output.backends:
+        for backend, fmts in _backends:
             try:
                 _results.append(_do_backend(backend, fmts))
             except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate (see the multi-backend branch above)
@@ -277,7 +395,10 @@ def render_and_save(
     # Main-thread post-processing: interactive show + cleanup. Both touch
     # pyplot / Jupyter display hooks that are NOT thread-safe.
     for backend, fig in _results:
-        if interactive:
+        # Save-only backends are never shown inline: with the default two-backend ``plot_outputs`` the cell
+        # otherwise received the interactive plotly figure AND a static matplotlib duplicate of the same
+        # data. Their files are written exactly as before -- only the redundant cell output is dropped.
+        if interactive and backend not in _SAVE_ONLY_BACKENDS:
             try:
                 renderer = get_renderer(backend)
                 renderer.show(fig)
@@ -288,7 +409,10 @@ def render_and_save(
                 )
         if keep_handles:
             handles[backend] = fig
-        elif backend == "matplotlib" and not interactive:
+        elif backend == "matplotlib":
+            # Unconditional now: the figure was never handed to a display hook, so nothing else holds a
+            # reference. Previously the interactive branch left it open, leaking ~1MB per chart in a
+            # notebook session precisely where suites emit the most figures.
             try:
                 import matplotlib.pyplot as plt
                 plt.close(fig)

@@ -66,7 +66,7 @@ def _stack_embedding_column(series, dim: Optional[int]):
     return out, dim
 
 
-class NeuralEmbeddingTextEncoder(BaseEstimator, TransformerMixin):
+class NeuralEmbeddingTextEncoder(TransformerMixin, BaseEstimator):
     """Expand embedding-list columns and HF-embed text columns into numeric columns for the tabular neural models.
 
     ``transform`` drops the original embedding/text columns and appends ``{col}__e{j}`` (embedding components) and

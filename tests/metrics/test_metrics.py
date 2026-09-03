@@ -815,12 +815,14 @@ class TestCalibration:
         )
 
     def test_default_token_sequence(self):
-        """Default mirrors the calibration report layout - ICE first, BR with decomp, then ECE.
-        2026-05-28: KS, MCC, BSS appended per audit batch (single-number
-        summaries beyond the calibration / AUC family)."""
+        """Default mirrors the calibration report layout - ICE first, then BARE Brier, then ECE.
+
+        ``BR``, not ``BR_DECOMP``: the decomposition renders as ``BR=20.5%(RL0.0%+U23.8%-RS3.2%)``, the longest
+        token in the headline and the one a reader cannot decode without knowing the Murphy identity. It stays
+        available as an explicit token."""
         assert DEFAULT_TITLE_METRICS_TOKENS == (
             "ICE",
-            "BR_DECOMP",
+            "BR",
             "ECE",
             "CMAEW",
             "LL",

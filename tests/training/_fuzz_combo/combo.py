@@ -6,6 +6,7 @@ See the package __init__ docstring for the canonicalisation contract.
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -396,7 +397,6 @@ class FuzzCombo:
     ens_rank_average_cfg: bool = False
     enable_prediction_envelope_clip_cfg: bool = True
     # 2026-05-27 iter332 audit-driven new-functionality axes.
-    ensembling_force_legacy_cfg: bool = False
     ensembling_quantile_budget_bytes_cfg: int = 500 * 1024 * 1024
     ensembling_flag_degenerate_conf_subset_cfg: bool = True
     mlp_extreme_ar_group_aware_skip_cfg: bool = False
@@ -1443,7 +1443,6 @@ class FuzzCombo:
             (self.enable_prediction_envelope_clip_cfg if self.target_type == "regression" else True),
             # 2026-05-27 iter332 audit-driven canons.
             # Ensembling knobs only meaningful when use_ensembles is True.
-            (self.ensembling_force_legacy_cfg if self.use_ensembles else False),
             (self.ensembling_quantile_budget_bytes_cfg if self.use_ensembles else 500 * 1024 * 1024),
             # flag_degenerate_conf_subset is binary-classification-only;
             # collapse to default for other target types.
@@ -2313,12 +2312,6 @@ class FuzzCombo:
         # 'multilabel-indicator'". Multilabel is not in scope for RFECV.
         if self.target_type == "multilabel_classification":
             return None
-        # Rare imbalance (rare_5pct / rare_1pct on small n) lets RFECV's
-        # internal CV folds land on single-class y, raising "Invalid
-        # classes inferred from unique values of y. Expected: [0], got
-        # [1]". Disable RFECV unless the target distribution is balanced.
-        if self.target_type == "binary_classification" and self.imbalance_ratio != "balanced":
-            return None
         return rfe
 
     def _canonical_prep_ext(self, name: str) -> "Any":
@@ -2459,11 +2452,39 @@ class FuzzCombo:
         # (~4 minority rows expected in the smallest slice).
         if frac * 0.1 * effective_n < 4:
             # Try the next-safer rarity level.
+            #
+            # NOTE on coverage: at the n=1000 tier this collapses `rare_1pct` all the way to `balanced`
+            # (0.01 * 0.1 * 1000 = 1 < 4, and 0.05 * 0.1 * 1000 = 5 >= 4 only rescues it to rare_5pct). n=1000 is
+            # also the only tier where the `n_rows <= 1000`-gated slow paths run -- RFECV, the recurrent model --
+            # so those paths never saw a 1%-positive target at all. The collapse itself is correct and must stay:
+            # ~1 expected minority row in the smallest slice produces a degenerate split, not a useful test. The
+            # coverage gap is closed on the other side, by `rare_1pct_min_rows` below, which raises n instead of
+            # lowering the rarity so the combination actually gets exercised.
             if imb == "rare_1pct":
                 return "rare_5pct" if 0.05 * 0.1 * effective_n >= 4 else "balanced"
             if imb == "rare_5pct":
                 return "balanced"
         return imb
+
+    def rare_1pct_min_rows(self) -> int:
+        """Rows needed for a 1%-positive target to survive canonicalisation at this combo's settings.
+
+        The suite's smallest tier cannot carry a 1% minority: the canonicalisation above collapses it to
+        `balanced`, so every `n_rows <= 1000`-gated model -- RFECV, the recurrent model -- has never been fuzzed
+        against a rare target. This reports the n that WOULD keep it, so a combo generator (or a reviewer
+        reading a combo id) can tell the difference between "this combo does not exercise 1%" and "this combo
+        asked for 1% and silently got balanced".
+        """
+        shrink = 1.0
+        if self.trainset_aging_limit_cfg is not None:
+            shrink *= self.trainset_aging_limit_cfg
+        if self.outlier_detection is not None:
+            shrink *= 0.95
+        return math.ceil(4.0 / (0.01 * 0.1 * max(shrink, 1e-9)))
+
+    def imbalance_was_downgraded(self) -> bool:
+        """True when this combo ASKED for a rarity level it did not get, so a reader is not misled by the axis."""
+        return self._canonical_imbalance() != self.imbalance_ratio
 
     def short_id(self) -> str:
         """Short id."""

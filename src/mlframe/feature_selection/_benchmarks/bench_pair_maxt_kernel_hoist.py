@@ -91,10 +91,6 @@ def main():
     r_h = K_HOIST(data, pa, pb, nbins, yp, fy)
     print("max|diff| =", float(np.max(np.abs(r_cur - r_h))))
 
-    def best(fn, reps=6):
-        return min(( (lambda: (time.perf_counter(), fn(), time.perf_counter()))() and 0 for _ in range(0))  or
-                   [ (lambda s=time.perf_counter(): (fn(), time.perf_counter() - s)[1])() for _ in range(reps)])
-
     # interleaved paired A/B
     tc, th = [], []
     for _ in range(8):

@@ -337,6 +337,24 @@ def add_ohlcv_ta_indicators(
     if ohlcv_fields_mapping is None:
         ohlcv_fields_mapping = dict(_DEFAULT_TA_OHLCV_FIELDS)
 
+    # Count the nulls BEFORE they become zeros. The zero-fill below is forced by a polars limitation, not by
+    # intent, and the comment at the fill site tells the caller to forward-fill upstream -- but nothing checked
+    # whether they did. A single missing `low` becomes a 0.0 price, so that bar reads as a 100%-of-price range
+    # to ATR / Stochastic / Williams %R and divides to inf in the `high / low.shift(lag) - 1` ratios, silently,
+    # for exactly the rows a user would most want flagged.
+    _ohlcv_cols = [f"{prefix}{ohlcv_fields_mapping.get(f)}" for prefix in market_action_prefixes for f in ("open", "high", "low", "close", "volume")]
+    _present = [c for c in _ohlcv_cols if c in ohlcv.columns]
+    if _present:
+        _null_counts = {c: int(v) for c, v in zip(_present, ohlcv.select(pl.col(_present).null_count()).row(0)) if v}
+        if _null_counts:
+            logger.warning(
+                "add_ohlcv_ta_indicators: %d OHLCV column(s) contain nulls (%s) and are about to be filled with 0.0, "
+                "which TA indicators read as a real zero price -- a bar with a 100%%-of-price range, or an infinite "
+                "high/low ratio. Forward-fill these columns before calling; see the note at the fill site.",
+                len(_null_counts),
+                ", ".join(f"{c}={n}" for c, n in sorted(_null_counts.items())),
+            )
+
     ta_expressions: list = []
     unnests: List[str] = []
 

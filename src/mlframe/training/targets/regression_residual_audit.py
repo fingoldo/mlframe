@@ -178,8 +178,7 @@ SKEW_HIGH: float = 0.8  # tightened from 1.0 -> 0.8
 # is NOT well-behaved Gaussian; calling it so is profanation, the user
 # was right to flag.
 EXCESS_KURT_NEAR_GAUSSIAN: float = 0.5  # < 0.5 -> truly Normal-like
-EXCESS_KURT_MILD: float = 1.5  # 0.5-1.5 -> mild leptokurtosis
-EXCESS_KURT_HEAVY: float = 1.5  # > 1.5 -> heavy tails (was 3.0!)
+EXCESS_KURT_HEAVY: float = 1.5  # 0.5-1.5 -> mild leptokurtosis; > 1.5 -> heavy tails (was 3.0!)
 EXCESS_KURT_EXTREME: float = 10.0  # > 10 -> outlier contamination
 HETERO_SPEARMAN_THRESHOLD: float = 0.30
 """|Spearman corr(|residuals|, y_hat)| above this -> heteroscedasticity
@@ -372,10 +371,27 @@ def _diagnose(
         )
         return "Near-Gaussian (platykurtic)", "MSE (default) - mild tail-thinning is tolerable", rationale
 
-    # Mild asymmetry without nonneg constraint - flag but Gaussian still ok.
+    # Asymmetry without a non-negativity constraint. This branch is TERMINAL: it used to append a rationale and
+    # fall through, so any skew whatever -- +2.0 included -- reached the final block and was reported as
+    # "residuals look ~Gaussian: |skew|=2.00 (< 0.3)", a sentence contradicted by its own number, under the
+    # verdict "Gaussian (well-behaved)" and the advice that MSE is appropriate. That text is rendered into the
+    # default regression log block and into the residual-histogram panel title.
     if abs_skew >= SKEW_MODERATE:
         rationale.append(
-            f"mild skew ({skew:+.2f}); within Gaussian tolerance but worth investigating " "if the target has a natural non-negativity constraint."
+            f"skew ({skew:+.2f}) exceeds the near-Normal band (|skew| < {SKEW_MODERATE}); "
+            "kurtosis and heteroscedasticity are within tolerance, so the shape is Normal-like apart from the "
+            "asymmetry. Worth investigating whether the target has a natural non-negativity constraint."
+        )
+        if abs_skew >= SKEW_HIGH:
+            return (
+                "Skewed (strongly asymmetric)",
+                f"Huber (robust to the {'right' if skew > 0 else 'left'} tail; pick delta ~ 1-2 * MAD) or a variance-stabilising transform",
+                rationale,
+            )
+        return (
+            "Near-Gaussian (mildly skewed)",
+            "MSE (default) - mild asymmetry is tolerable, but compare against Huber if the tail matters",
+            rationale,
         )
 
     # True Gaussian verdict reserved for tight near-Normal:

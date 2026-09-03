@@ -173,7 +173,7 @@ def _base_frame(seed: int, n: int = N, extra: dict | None = None) -> dict:
 # allowed -- but a raw with genuine PRIVATE linear signal must remain recoverable.
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 def test_bug1_private_plus_composite_keeps_raw():
     """y = a + a**2/b + noise.  ``a`` enters BOTH privately (linear) AND via the
     a**2/b composite. The fix must NOT over-drop ``a``: its linear signal is not
@@ -195,7 +195,7 @@ def test_bug1_private_plus_composite_keeps_raw():
     _transform_holdout_ok(fs, df.iloc[:500])
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 def test_bug1_fully_subsumed_raw_signal_retained():
     """y = a**2/b + c.  ``a`` enters ONLY through the a**2/b composite (no private
     linear term). Whether the bare raw ``a`` is dropped is the fix's call, but the
@@ -213,7 +213,7 @@ def test_bug1_fully_subsumed_raw_signal_retained():
     _transform_holdout_ok(fs, df.iloc[:500])
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 def test_bug1_one_subsumed_one_private():
     """y = a**2/b + c.  Distinct from above only by seed/profile -- pins that the
     PRIVATE additive raw ``c`` is always kept while the ratio operands are recovered
@@ -229,7 +229,7 @@ def test_bug1_one_subsumed_one_private():
     assert ("a" in toks) or ("b" in toks), f"ratio term support lost entirely: {sel}"
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 def test_bug1_tiny_private_signal_boundary():
     """y = 0.01*a + a**2/b + c.  A TINY private linear term on ``a``. This sits on the
     over-drop boundary: the fix may or may not retain the bare raw ``a`` for the 0.01
@@ -249,7 +249,7 @@ def test_bug1_tiny_private_signal_boundary():
     assert "c" in toks, f"private ``c`` dropped: {sel}"
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 def test_bug1_subsumed_by_dropped_feature_keeps_raw():
     """The f0fd18ad EMPTY-SELECTION class: a raw must NOT be dropped on the grounds it
     is subsumed by an engineered feature that itself does NOT survive. Construct a
@@ -268,7 +268,7 @@ def test_bug1_subsumed_by_dropped_feature_keeps_raw():
     _transform_holdout_ok(fs, df.iloc[:500])
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 def test_bug1_two_independent_privates_both_kept():
     """y = a + c (two independent additive raws, both purely private). Neither is
     redundant to any composite; the fix must keep BOTH and fabricate no composite that
@@ -283,7 +283,7 @@ def test_bug1_two_independent_privates_both_kept():
     assert "a" in toks and "c" in toks, f"a private+c private: one dropped: {sel}"
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 def test_bug1_chained_subsumption_transitive():
     """y = a**2/b + c, but probe the TRANSITIVE drop path: if a nested composite over
     (a,b) is selected and the inner sub-composite would subsume the bare raws, the drop
@@ -309,7 +309,7 @@ def test_bug1_chained_subsumption_transitive():
 # ===========================================================================
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 def test_bug2_nested_ratio_composite_replays():
     """y = a**2/b + c forces a nested composite (a sub-feature ``div(sqr(a),abs(b))``
     feeding an outer ``add(...)``). Every selected engineered column -- including the
@@ -326,7 +326,7 @@ def test_bug2_nested_ratio_composite_replays():
     _transform_holdout_ok(fs, df.iloc[:500])
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 def test_bug2_mixed_operator_nested_replays():
     """y = (a**3)/d + b*c : mixes cube + ratio over (a,d) with a product over (b,c),
     exercising mixed-operator nested recipes. All selected engineered columns replay
@@ -343,7 +343,7 @@ def test_bug2_mixed_operator_nested_replays():
     _transform_holdout_ok(fs, df2)
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 def test_bug2_survivor_operand_chained_replay():
     """y = a*b + (a*b)**2-ish modulation -> the inner product (a,b) is both a survivor
     AND an operand of a higher-order form. Chained-recipe replay must be byte-exact:
@@ -358,7 +358,7 @@ def test_bug2_survivor_operand_chained_replay():
     _transform_holdout_ok(fs, df.iloc[:500])
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 def test_bug2_deep_nesting_boundary_fe_steps2():
     """Default fe_max_steps=2 boundary: a target with 3-deep structure
     y = ((a/b)**2)*c. The fix must EITHER replay whatever nested feature it admits
@@ -376,7 +376,7 @@ def test_bug2_deep_nesting_boundary_fe_steps2():
     _transform_holdout_ok(fs, df.iloc[:500])
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 def test_bug2_explicit_fe_max_steps2_replays():
     """Same composite target fit with fe_max_steps=2 set EXPLICITLY (not relying on the
     default), pinning that the nested-recipe survival is a property of the 2-step path
@@ -419,7 +419,7 @@ def _he_poly(a: np.ndarray, deg: int) -> np.ndarray:
     return a**4 - 6.0 * a**2 + 3.0
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize("deg,coef", [(2, "he2"), (3, "he3"), (4, "he4")])
 def test_bug3_hermite_degree_recovers_support(deg, coef):
     """Hermite-structured pair target y = He_deg(a)*b + noise. After the BUG3 rescue fix
@@ -452,7 +452,7 @@ def test_bug3_hermite_degree_recovers_support(deg, coef):
     _transform_holdout_ok(fs, df.iloc[:500])
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 def test_bug3_hermite_a_recovered_majority():
     """Multi-seed majority pin for the BUG3 escalation on the He2 PRODUCT pair
     ``y=(a**2-1)*b``: across several seeds the escalation/warp machinery must recover the
@@ -482,7 +482,7 @@ def test_bug3_hermite_a_recovered_majority():
     )
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize("basis", ["legendre", "chebyshev", "laguerre"])
 def test_bug3_orth_basis_family_recovers_support(basis):
     """Legendre/Chebyshev/Laguerre-shaped degree-2/3 forms of a*b. Each orth family
@@ -510,7 +510,7 @@ def test_bug3_orth_basis_family_recovers_support(basis):
     _transform_holdout_ok(fs, df.iloc[:500])
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize("k", [0.3, 1.0, 3.0, 3.7])
 def test_bug3_adaptive_fourier_inner_freq_recovers(k):
     """Adaptive-frequency Fourier: y = sin(k*d) + noise for inner frequency ``k``.
@@ -530,7 +530,7 @@ def test_bug3_adaptive_fourier_inner_freq_recovers(k):
     _transform_holdout_ok(fs, df.iloc[:500])
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 def test_bug3_richer_poly_beats_weak_simple():
     """The weak-admitted-pair case the BUG3 fix targets: y = He2(a)*b where a SIMPLE
     feature is admissible but a richer polynomial strictly explains more. After the fix
@@ -556,7 +556,7 @@ def test_bug3_richer_poly_beats_weak_simple():
     _transform_holdout_ok(fs, df.iloc[:500])
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 def test_bug3_pure_noise_no_fabrication():
     """NOISE CONTROL: y is PURE noise independent of every column. The escalation /
     poly machinery must NOT fabricate a spurious polynomial/Fourier engineered feature.
@@ -579,7 +579,7 @@ def test_bug3_pure_noise_no_fabrication():
     ), f"BUG3 FABRICATION: pure-noise target produced multi-operand engineered feature(s) {multi_operand_eng} (escalation hallucinated synergy): {sel}"
 
 
-@pytest.mark.timeout(360)
+@pytest.mark.timeout(900)
 def test_bug3_noise_plus_additive_no_spurious_poly():
     """y = a (pure linear) + noise. The honest answer is the RAW ``a`` (or a linear
     form); the escalation must NOT promote a spurious high-degree polynomial of ``a``

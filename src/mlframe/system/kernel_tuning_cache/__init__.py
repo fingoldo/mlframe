@@ -9,6 +9,8 @@ Commands:
   mlframe-tune-kernels clear <kernel>   - Evict cache for one spec
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import sys
@@ -21,7 +23,8 @@ __all__ = ["main"]
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point for mlframe-tune-kernels."""
-    argv = argv or sys.argv[1:]
+    if argv is None:
+        argv = sys.argv[1:]
     parser = argparse.ArgumentParser(
         prog="mlframe-tune-kernels",
         description="Kernel tuning registry CLI for mlframe.",

@@ -44,8 +44,21 @@ def factorize(group_ids: Any) -> tuple[np.ndarray, list]:
         codes, uniq = pd.factorize(np.asarray(group_ids), sort=False)
         return np.asarray(codes, dtype=np.int64), list(uniq)
     arr = np.asarray(group_ids)
-    uniq, codes = np.unique(arr, return_inverse=True)
-    return np.asarray(codes, dtype=np.int64), list(uniq)
+    # NaN / null labels must map to code -1, matching the pandas branch's documented contract -- plain
+    # np.unique(..., return_inverse=True) gives NaN its own real code instead (NaN sorts to the end of a
+    # float array and forms its own unique group), which would silently treat a NaN group as real data in
+    # this fallback-only (no-pandas) path.
+    if arr.dtype.kind == "f":
+        nan_mask = np.isnan(arr)
+    elif arr.dtype.kind in ("U", "S", "O"):
+        nan_mask = np.array([v is None or (isinstance(v, float) and v != v) for v in arr], dtype=bool)
+    else:
+        nan_mask = np.zeros(arr.shape[0], dtype=bool)
+    valid = ~nan_mask
+    uniq, valid_codes = np.unique(arr[valid], return_inverse=True)
+    codes = np.full(arr.shape[0], -1, dtype=np.int64)
+    codes[valid] = valid_codes
+    return codes, list(uniq)
 
 
 def pct(x: Optional[float]) -> str:

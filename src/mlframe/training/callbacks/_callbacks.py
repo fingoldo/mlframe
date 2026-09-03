@@ -48,6 +48,8 @@ class UniversalCallback:
     slice_persist_history: bool
     slice_diagnostic_only: bool
     max_iter: int | None
+    progress_widget: Any
+    report_progress_to_log: bool
 
     # Runtime state set in __init__ / on_start / should_stop (not constructor params).
     start_time: float | None
@@ -98,6 +100,18 @@ class UniversalCallback:
         # wired directly into the lgb / xgb / cb shims (byte-identical across backends + the sklearn /
         # lightning wrappers). ``None`` disables the diagnostic.
         max_iter: int | None = None,
+        # Live per-metric progress widget for notebooks (tabs per metric, one curve per eval dataset, RAM on a
+        # secondary axis, a star on the running optimum, and a two-step stop button). ``True`` builds one with
+        # defaults; pass a ``TrainingProgressWidget`` instance to tune the refresh rate / metric subset / height.
+        # Outside a notebook -- or without plotly+ipywidgets -- it self-disables and costs two list appends per
+        # iteration, so it is safe to leave on in code that also runs headless.
+        progress_widget: Any = None,
+        # Whether to emit the PERIODIC progress line ("iter=126, validation ICE: current=... best=... @126.
+        # RAM usage 57.2GB.") to the log. Separate from ``verbose`` on purpose: verbose=0 would also silence
+        # the start banner, the auto-selected-metric line and the early-stop REASON, which an operator needs.
+        # This flag silences only the repeating line, whose whole content is already recorded on the callback
+        # (``metric_history`` / ``iter_history`` / ``ram_history``) and drawn by the progress widget.
+        report_progress_to_log: bool = True,
     ) -> None:
 
         params = get_parent_func_args()
@@ -123,6 +137,22 @@ class UniversalCallback:
         # reintroduce the memory-growth slice_persist_history=False was added to avoid.
         self._last_slice_shard_values: list[float] | None = None
         self.slice_resolved_dataset_names: list[str] | None = None
+
+        # Shared x axis for the widget: the BOOSTER's own iteration index, which differs from a callback-call
+        # counter whenever metric_period > 1 (CatBoost reports every k-th iteration). Subclasses pass the real
+        # one into update_history; the dense counter is only a fallback.
+        self.iter_history: list[int] = []
+        # RAM is sampled on the widget's refresh throttle, not per iteration: get_own_memory_usage() measures at
+        # ~21 us/call, which is 2.1% of wall time at 1000 iterations/sec. The series therefore carries its own
+        # (iteration, GB) pairs rather than being padded out to the metric series' length.
+        self.ram_history: list[tuple[int, float]] = []
+        self._last_ram_sample_ts: float = 0.0
+        self._widget = self._resolve_progress_widget(progress_widget)
+        if self._widget is not None:
+            # Route the widget's stop button through the SAME stop_flag the loop already polls every iteration,
+            # rather than giving the widget its own path into the training loop.
+            _user_stop = self.stop_flag
+            self.stop_flag = lambda: _user_stop() or self._widget.stop_requested()
 
         # Tracks whether the booster ran to (almost) its full iteration budget without our
         # ES ever firing. When True at finalize time, the val curve was still improving at
@@ -168,6 +198,35 @@ class UniversalCallback:
                 slice_k, slice_aggregate_mode if slice_k else None,
             )
 
+    @staticmethod
+    def _resolve_progress_widget(spec: Any) -> Any:
+        """Turn the ``progress_widget`` param into a live widget, or None when it cannot render anything.
+
+        Accepts ``True`` (build one with defaults), an already-configured ``TrainingProgressWidget``, or
+        ``None``/``False``. A widget that reports ``enabled=False`` (headless, or plotly/ipywidgets missing) is
+        discarded here so the per-iteration path never has to test for it again.
+        """
+        if not spec:
+            return None
+        from .progress_widget import TrainingProgressWidget
+
+        widget = TrainingProgressWidget() if spec is True else spec
+        return widget if getattr(widget, "enabled", False) else None
+
+    def _refresh_widget(self, force: bool = False) -> None:
+        """Sample RAM and repaint the widget, both throttled by the widget's own refresh interval."""
+        widget = self._widget
+        if widget is None:
+            return
+        now = timer()
+        if force or (now - self._last_ram_sample_ts) >= widget.refresh_secs:
+            self._last_ram_sample_ts = now
+            if self.iter_history:
+                self.ram_history.append((self.iter_history[-1], get_own_memory_usage()))
+        widget.monitor_dataset = self.monitor_dataset
+        modes = {str(self.monitor_metric): str(self.mode)} if self.monitor_metric and self.mode else None
+        widget.update(self.iter_history, self.metric_history, self.ram_history, modes, force=force)
+
     def on_start(self) -> None:
         """Record the training start timestamp for the time-budget check and log initial RAM usage when verbose."""
         self.start_time = timer()
@@ -175,8 +234,14 @@ class UniversalCallback:
             self.last_reporting_ts = self.start_time
             logger.info("Training started. Timer initiated. RAM usage %.1fGB.", get_own_memory_usage())
 
-    def update_history(self, metrics_dict: dict[str, dict[str, float]]) -> None:
-        """Append this iteration's per-dataset/per-metric values onto the running ``metric_history`` series."""
+    def update_history(self, metrics_dict: dict[str, dict[str, float]], iteration: int | None = None) -> None:
+        """Append this iteration's per-dataset/per-metric values onto the running ``metric_history`` series.
+
+        ``iteration`` is the booster's OWN iteration index (LightGBM ``env.iteration``, XGBoost ``epoch``,
+        CatBoost ``info.iteration``). It is recorded separately because it is the x axis a reader expects, and
+        it diverges from the number of callback invocations whenever the booster reports every k-th iteration.
+        """
+        self.iter_history.append(int(iteration) if iteration is not None else len(self.iter_history))
         for dataset in metrics_dict:
             if dataset not in self.metric_history:
                 self.metric_history[dataset] = {}
@@ -184,6 +249,7 @@ class UniversalCallback:
                 self.metric_history[dataset].setdefault(metric, []).append(value)
         if self.verbose > 1:
             logger.debug("Updated metric history: %s", metrics_dict)
+        self._refresh_widget()
 
     def derive_mode(self, metric_name: str) -> str:
         """Wave 20 fix: delegate to ``metric_name_higher_is_better`` instead
@@ -331,6 +397,36 @@ class UniversalCallback:
         se = std / math.sqrt(len(shard_values))
         return float(self.slice_min_delta_in_se) * se
 
+    @property
+    def training_curves(self) -> dict[str, Any]:
+        """The full per-iteration training trajectory, for the run metadata and for offline plotting.
+
+        This is what makes ``live_trainperf_report=False`` a free default: the periodic log line's entire
+        content lives here regardless of whether it was ever printed or charted, so silencing the log costs
+        no information.
+
+        Keys: ``iterations`` (the booster's own round indices), ``metrics`` (``{dataset: {metric: [...]}}``,
+        aligned to ``iterations``), ``ram_gb`` (sparse ``[(iteration, GB)]``, sampled on the widget throttle
+        rather than per iteration), plus the monitored metric's identity and its best value / round.
+        """
+        return {
+            "iterations": list(self.iter_history),
+            "metrics": {ds: {m: list(v) for m, v in per.items()} for ds, per in self.metric_history.items()},
+            "ram_gb": list(self.ram_history),
+            "monitor_dataset": self.monitor_dataset,
+            "monitor_metric": self.monitor_metric,
+            "mode": self.mode,
+            "best_metric": self.best_metric,
+            "best_iter": self.best_iter if self.best_metric is not None else None,
+        }
+
+    def finalize_widget(self, stopped_early: bool) -> None:
+        """Force a last widget repaint and stamp the outcome; safe (and free) when no widget is attached."""
+        if self._widget is None:
+            return
+        self._refresh_widget(force=True)
+        self._widget.finalize(best_iter=self.best_iter if self.best_metric is not None else None, best_metric=self.best_metric, stopped_early=stopped_early)
+
     def should_stop(self) -> bool:
         """Evaluate all early-stop triggers in order (time budget, external stop flag, then the metric-plateau/patience logic) and return whether training should halt now."""
         cur_ts = timer()
@@ -388,7 +484,7 @@ class UniversalCallback:
                         self.mode == "max" and current_value > self.best_metric + effective_delta
                     )
                     # Pre-compute reporting condition (used in both branches)
-                    should_report = self.verbose > 0 and (
+                    should_report = self.verbose > 0 and self.report_progress_to_log and (
                         not self.reporting_interval_mins or (cur_ts - self.last_reporting_ts) >= self.reporting_interval_mins * 60
                     )
                     if improved:
@@ -432,7 +528,7 @@ class LightGBMCallback(UniversalCallback):
         for entry in env.evaluation_result_list or []:
             dataset, metric, value = entry[0], entry[1], entry[2]
             metrics_dict.setdefault(dataset, {})[metric] = value
-        self.update_history(metrics_dict)
+        self.update_history(metrics_dict, iteration=getattr(env, "iteration", None))
 
         if self.monitor_metric is None:
             self.set_default_monitor_metric(metrics_dict)
@@ -442,6 +538,7 @@ class LightGBMCallback(UniversalCallback):
             else:
                 best_iter = 0
             best_metric = self.best_metric if self.best_metric is not None else 0.0
+            self.finalize_widget(stopped_early=True)
             raise lgb.callback.EarlyStopException(best_iter, [(dataset, metric, best_metric, False)])
 
 
@@ -463,7 +560,7 @@ class XGBoostCallback(UniversalCallback, TrainingCallback):
             self.first_iteration = False
         metrics_dict = {dataset: {metric: values[-1] for metric, values in metric_dict.items()} for dataset, metric_dict in evals_log.items()}
 
-        self.update_history(metrics_dict)  # type: ignore[arg-type]  # XGBoost's evals_log values are list[tuple] only for confidence-interval eval metrics, which this project's callbacks don't use; runtime shape is always list[float]
+        self.update_history(metrics_dict, iteration=epoch)  # type: ignore[arg-type]  # XGBoost's evals_log values are list[tuple] only for confidence-interval eval metrics, which this project's callbacks don't use; runtime shape is always list[float]
 
         if self.monitor_metric is None:
             self.set_default_monitor_metric(metrics_dict)  # type: ignore[arg-type]  # same list[tuple] confidence-interval shape as line above; unused here
@@ -474,6 +571,7 @@ class XGBoostCallback(UniversalCallback, TrainingCallback):
             else:
                 best_iter = 0
             model.set_attr(best_score=self.best_metric, best_iteration=best_iter)
+            self.finalize_widget(stopped_early=True)
             return True
         return False
 
@@ -492,11 +590,14 @@ class CatBoostCallback(UniversalCallback):
             self.first_iteration = False
 
         metrics_dict = {dataset: {metric: values[-1] for metric, values in metric_dict.items()} for dataset, metric_dict in info.metrics.items()}
-        self.update_history(metrics_dict)
+        self.update_history(metrics_dict, iteration=getattr(info, "iteration", None))
 
         if self.monitor_metric is None:
             self.set_default_monitor_metric(metrics_dict)
-        return not self.should_stop()
+        stop = self.should_stop()
+        if stop:
+            self.finalize_widget(stopped_early=True)
+        return not stop
 
 
 __all__ = [

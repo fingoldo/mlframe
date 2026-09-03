@@ -26,10 +26,10 @@ Contract
 
 The base estimator's parameter NAME for the quantile level varies by
 library; we probe at fit-time in this order:
-  1. ``"quantile_alpha"``  (XGB, takes a list -- only used by XGB
-     native path; not relevant here since XGB has its own native path)
-  2. ``"alpha"``           (LightGBM, NGBoost, sklearn QuantileRegressor)
-  3. ``"quantile"``        (sklearn HistGradientBoostingRegressor)
+  1. ``"alpha"``           (LightGBM, NGBoost, sklearn QuantileRegressor)
+  2. ``"quantile"``        (sklearn HistGradientBoostingRegressor)
+``"quantile_alpha"`` (XGB's list-of-quantiles param) is intentionally NOT probed here -- XGB has its own
+native multi-quantile path and skips this wrapper entirely.
 """
 
 from __future__ import annotations
@@ -101,7 +101,7 @@ def _resolve_n_jobs(requested: int | str, k: int) -> int:
     raise ValueError(f"_QuantileMultiOutputWrapper.n_jobs must be int or 'auto'; " f"got {requested!r}")
 
 
-class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
+class _QuantileMultiOutputWrapper(RegressorMixin, BaseEstimator):
     """Fits ``len(alphas)`` independent regressors and stacks their
     predictions into ``(N, K)``.
 

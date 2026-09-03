@@ -32,7 +32,13 @@ PNG = "matplotlib[png]"
 
 def _png_exists(base: str) -> bool:
     """Helper: Png exists."""
-    return os.path.exists(base + ".png") or os.path.exists(base + ".matplotlib.png")
+    # Charts land in a per-format subfolder by default (``png/name.png``); these tests care that the chart was
+    # PRODUCED, not which layout the run used.
+    directory, name = os.path.split(base)
+    return any(os.path.exists(c) for c in (
+        base + ".png", base + ".matplotlib.png",
+        os.path.join(directory, "png", name + ".png"), os.path.join(directory, "png", name + ".matplotlib.png"),
+    ))
 
 
 @pytest.fixture
@@ -338,7 +344,10 @@ def test_combined_html_stitches_rendered_charts(tmp_path, binary_frame):
     assert out and os.path.exists(out)
     assert md["charts"].get("combined_report") == out
     html = open(out, encoding="utf-8").read()
-    assert "m report" in html and "decision_curve" in html
+    # Entries are grouped into named sections and labelled in words now, not filed under one section
+    # literally called "charts" and labelled by raw filename basename.
+    assert "m report" in html and "decision curve" in html
+    assert "Decision quality" in html
 
 
 def test_combined_html_orders_weak_slices_before_weak_segments(tmp_path):
@@ -353,4 +362,28 @@ def test_combined_html_orders_weak_slices_before_weak_segments(tmp_path):
     out = build_combined_html_report(base_path=base, chart_paths=paths, plot_outputs=PNG, title="m report", metrics_dict=md)
     assert out and os.path.exists(out)
     html = open(out, encoding="utf-8").read()
-    assert html.index("m_weak_slices") < html.index("m_weak_segments")
+    # Match the per-entry alt text, not bare words: the section heading is itself "Errors and weak
+    # segments", so a substring search for "weak segments" finds the heading rather than the entry.
+    assert html.index('alt="m weak slices"') < html.index('alt="m weak segments"')
+
+
+def test_combined_html_resolves_plotly_suffixed_png(tmp_path):
+    """REPORTING_A-3: a multi-backend plot_outputs (e.g. 'plotly[html,png] + matplotlib[pdf]') makes
+    renderers/save.py write '<base>.plotly.png', not '<base>.png' or '<base>.matplotlib.png' -- the
+    resolver must find it instead of silently embedding a broken <img> link."""
+    base = str(tmp_path / "m")
+    path = base + "_shap"
+    # Minimal-but-real PNG bytes (1x1 transparent pixel), so a resolved-vs-unresolved image
+    # shows up as a non-empty vs. empty base64 payload in the stitched HTML.
+    png_bytes = bytes.fromhex(
+        "89504e470d0a1a0a0000000d49484452000000010000000108020000009077"  # pragma: allowlist secret
+        "53de0000000c4944415478da6360000002000155ad4b2c0000000049454e44ae426082"  # pragma: allowlist secret
+    )
+    with open(path + ".plotly.png", "wb") as f:
+        f.write(png_bytes)
+    md = {}
+    out = build_combined_html_report(base_path=base, chart_paths=[path], plot_outputs=PNG, title="m report", metrics_dict=md)
+    assert out and os.path.exists(out)
+    html = open(out, encoding="utf-8").read()
+    assert "missing image" not in html, "the .plotly.png sibling was not resolved; report shows a broken/missing image placeholder"
+    assert 'src="data:image/png;base64,"' not in html, "resolved to an empty file; base64 payload should be non-empty"

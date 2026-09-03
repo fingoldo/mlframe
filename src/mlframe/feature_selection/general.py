@@ -199,6 +199,12 @@ def estimate_features_relevancy(
     # How many times should we evaluate permuted MIs to have a baseline?
 
     feature_columns = cs.expand_selector(bins, cs.all() - cs.by_name(target_columns))
+    if not feature_columns:
+        # A bins frame containing only target columns (no candidate features) has nothing to
+        # evaluate -- len(feature_columns) is later used as a division denominator (expected
+        # permutation-count sizing); return gracefully instead of a raw ZeroDivisionError.
+        logger.warning("estimate_features_relevancy: no candidate feature columns found (only target_columns present); nothing to evaluate.")
+        return [], original_mi_results, {}, mi_algorithms_ranking
 
     expected_evaluations_num = 0
     if permuted_mutual_informations:

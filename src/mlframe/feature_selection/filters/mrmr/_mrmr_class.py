@@ -18,7 +18,7 @@ import os
 import threading
 import warnings
 from collections import OrderedDict
-from typing import Any, Callable, ClassVar, Iterable, NoReturn, Optional, Sequence, cast
+from typing import Any, Callable, ClassVar, Iterable, MutableMapping, NoReturn, Optional, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -177,7 +177,7 @@ from ._mrmr_class_fit_helpers import _MRMRFitHelpersMixin
 _MRMR_SCHEMA_VERSION = 1
 
 
-class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, _MRMRConfigMixin, _MRMRFitHelpersMixin):
+class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, _MRMRConfigMixin, _MRMRFitHelpersMixin):
     """Finds subset of features having highest impact on target and least redundancy.
 
     Parameters
@@ -264,6 +264,13 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
     # (must never appear in ``get_params()``/``clone()``); declared here at class scope only so mypy
     # resolves the attribute.
     _skip_fit_cache: bool = False
+
+    # External provenance-recording hook: not a constructor param (MRMR is a standalone selector with no
+    # suite-level metadata dict of its own), a caller wanting fit provenance tracked sets
+    # ``instance._provenance_sink_ = suite_metadata_dict`` before calling ``fit()``; ``record_provenance``
+    # is a documented no-op when its sink is ``None``. Declared here (default ``None``) purely so
+    # mypy/static-analysis see this as a known attribute, not an undeclared getattr default.
+    _provenance_sink_: Optional[MutableMapping[str, Any]] = None
 
     # Fast-search sub-knob overrides applied for the duration of a fit when ``fe_fast_search=True``.
     # Each entry is (attr, fast_value). The override is applied ONLY when the current attr value still
@@ -1198,6 +1205,10 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         cat_fe_config=None,
         # Bound on the process-wide _FIT_CACHE. Strong refs hold every fitted MRMR; long-lived workers (web services, JupyterHub kernels) leaked memory unboundedly pre-2026-05-15. Default 4 covers a typical model suite (RFECV+MRMR x catboost+linear+mlp) without thrashing.
         fit_cache_max: int = 4,
+        # Byte-size cap on top of fit_cache_max (a 1k-feature suite carrying 4 cached MRMR instances can
+        # exceed 1 GB of process RSS). ``None`` (default) falls back to the ``MLFRAME_MRMR_FIT_CACHE_MAX_MB``
+        # env var (default 1024 MB); set explicitly for a per-instance override.
+        fit_cache_max_mb: Optional[float] = None,
         # #5: adaptive FE threshold relaxation. When the first-pass
         # FE produces 0 engineered features (typically because pair-level MI
         # is near the individual-MI sum on heavily-correlated features and
@@ -3343,6 +3354,30 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         Wrapper / _fit_impl forwarding asymmetry: ``sample_weight`` is CONSUMED at this wrapper level (via ``_maybe_resample_for_sample_weight`` before the ``_fit_impl`` call); ``groups`` is FORWARDED into ``_fit_impl`` which then silently drops them. A future refactor moving ``groups`` consumption into ``_fit_impl`` must also remove or downgrade the wrapper-level warning, otherwise the two ends would emit duplicate / contradictory messages.
 
         Cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``."""
+        # Row-count guard, first thing: no length-validation existed anywhere before the MI/screening
+        # pipeline, so a mismatched (X, y) reached numba-njit kernels (bounds checking compiled OUT for
+        # speed) with an out-of-bounds row index instead of a Python exception. Off the JIT-disabled
+        # fallback path this happened to raise a clean pandas ValueError from an unrelated internal
+        # column assignment deep in the pipeline (accidental, not an intentional guard); WITH jit
+        # enabled the same out-of-bounds read reached compiled code first and corrupted the process --
+        # "Windows fatal exception: access violation", reproduced live via
+        # ``test_selectors_shared.py::TestSharedDegenerateInputs::test_y_length_mismatch_raises[MRMR]``.
+        # Validating here, before anything touches a kernel, makes the failure mode a clean ValueError
+        # unconditionally (JIT on or off) instead of an accident of which code path happens to run first.
+        # A polars LazyFrame has neither .shape nor len() (row count is unknown until materialised) --
+        # duck-typed via .collect (present on LazyFrame, absent on pandas/polars-eager/ndarray) so this
+        # guard skips it without a hard polars import (polars stays an optional dependency throughout
+        # this module). The auto-collect step downstream turns it into an eager frame, and the row-count
+        # check still fires there (this guard's whole point -- reaching the mismatch as a clean
+        # ValueError before any njit kernel -- is preserved, just deferred to after collection).
+        _is_lazyframe = hasattr(X, "collect") and not hasattr(X, "shape")
+        if _is_lazyframe:
+            _n_rows_X = None
+        else:
+            _n_rows_X = X.shape[0] if hasattr(X, "shape") else len(X)
+        _n_rows_y = len(y)
+        if _n_rows_X is not None and _n_rows_X != _n_rows_y:
+            raise ValueError(f"MRMR.fit: X has {_n_rows_X} rows but y has {_n_rows_y} -- X and y must have the same length.")
         # groups contract check and polars validate+bridge each moved
         # verbatim to a named helper on _MRMRFitHelpersMixin (see their docstrings for the original
         # rationale) - zero behavior change, pure extraction. The GPU-breaker re-arm now happens in the
@@ -3494,7 +3529,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             raise ValueError(f"multioutput_strategy must be None, 'joint', 'union', or 'intersect'; got {_mo_strategy!r}.")
         # 09_error_messages_ux.md: 'joint' is intentionally EQUIVALENT to None here (both fall through to
         # the legacy merged-target path below, per the ctor docstring: "None / 'joint': legacy
-        # merged-target behaviour, byte-identical to pre-2026-06-20") - not a validation-accepts-but-
+        # merged-target behaviour, byte-identical to the prior form") - not a validation-accepts-but-
         # runtime-ignores gap. Only 'union'/'intersect' route through the per-column multioutput path.
         if _mo_strategy in ("union", "intersect") and _mrmr_y_is_multioutput(y):
             return self._fit_multioutput(X, y, groups, sample_weight, _mo_strategy, fit_params)
@@ -3583,7 +3618,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         self._fit_sample_weight_ = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64)
         X, y = self._maybe_resample_for_sample_weight(X, y, self._fit_sample_weight_)
 
-        # INPUT-MUTATION ISOLATION (P1, 2026-06-11): ``_fit_impl`` injects temporary
+        # INPUT-MUTATION ISOLATION (P1): ``_fit_impl`` injects temporary
         # ``targ_*`` columns into the working pandas frame (X.loc[:, target_names] = ...)
         # AND the FE pipeline appends engineered columns in place (X[name]=..., pd.concat
         # rebinds, hinge/cat-FE generators). The targ_* injection is reversed in the finally
@@ -3912,7 +3947,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
             # Record the fit's row/column counts so the AUTO (unset MLFRAME_FE_GPU_STRICT) size-gated STRICT
             # default can engage GPU-resident FE on large-n fits (selection-equivalent to CPU by ~50k, ~2.5x
             # faster) OR on a wide-but-under-the-row-threshold fit whose total (n, p) work already clears the
-            # same floor a per-call dispatch would need (2026-07-11 fix - the row-only gate ignored column
+            # same floor a per-call dispatch would need (a fix for when the row-only gate ignored column
             # count entirely), and stay on the exact CPU path otherwise. Cleared in finally so it never leaks
             # to a later fit.
             _fit_shape = getattr(X, "shape", None)

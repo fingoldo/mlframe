@@ -13,6 +13,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import numba_disabled_timeout
+
 SEEDS = [0, 1, 7]
 
 
@@ -187,6 +189,7 @@ def test_varying_query_sizes_recover_signal(seed):
     assert conf not in ga_cols, f"group-aware MRMR must reject the confounder under mixed sizes; got {ga_cols}"
 
 
+@pytest.mark.timeout(numba_disabled_timeout(3600, factor=2))
 @pytest.mark.parametrize("seed", SEEDS)
 def test_many_signals_vs_many_confounders_and_noise(seed):
     """Two genuine within-query signals + two query-constant confounders + two noise columns: group-aware keeps BOTH

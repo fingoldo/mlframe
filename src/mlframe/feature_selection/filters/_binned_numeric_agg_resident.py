@@ -43,7 +43,8 @@ default path untouched). NEVER ``free_all_blocks`` (mempool teardown owns that).
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any, Callable, Optional
 
 import numpy as np
 import pandas as pd
@@ -71,43 +72,57 @@ def binagg_fold_ids(n: int, n_folds: int, random_state: int) -> np.ndarray:
     return fold_ids
 
 
-def _per_cell_raw_moments_gpu(cp, codes_g, v_g, n_cells: int):
-    """Per-cell raw moments ``(cnt, s1, s2, s3, s4)`` on the device via ``cp.bincount`` - the device twin of
-    ``_per_cell_raw_moments_njit``. Each ``s_k = sum(v**k)`` per cell; powers built by repeated multiply
-    (``x2 = v*v``; ``s3 = bincount(v*x2)``; ``s4 = bincount(x2*x2)``) so the raw moments match the host njit
-    accumulator to the last ULP (the SAME approved trade vs numpy ``v**3``/``v**4``)."""
+def _per_cell_moments_stable_gpu(cp, codes_g, v_g, n_cells: int):
+    """Per-cell ``(cnt, mean, cm2, cm3, cm4)`` on the device -- the device twin of
+    :func:`_per_cell_moments_stable` (host). Two ``resident_bincount`` passes: pass 1 gets ``cnt``/``mean``
+    (a plain additive sum, safe from cancellation); pass 2 scatter-adds CENTERED powers
+    ``(x-mean_c)**2/3/4`` directly, gathering each row's cell mean via ``mean[codes_g]`` (a known-size,
+    sync-free gather -- same pattern as the OOF fold loop's existing ``per_s[codes_g]`` row lookup).
+    Replaces the old raw-power ``(cnt, s1, s2, s3, s4)`` form: that form's skew/kurt derivation
+    is catastrophically unstable on large-offset/small-scale columns -- see :func:`_derive_cell_stats`
+    (host) for the confirmed failure mode this device twin shared (same arithmetic FORM, by design, for
+    bit-parity -- which meant the same bug)."""
     nc = int(n_cells)
-    x = v_g
-    x2 = x * x
-    # resident_bincount: codes_g are joint cell ids in [0, nc) so the bin count is known - skip cupy.bincount's
-    # per-call int(cupy.max) D2H sync (these 5 reductions were the largest single scalar-sync cluster in the trace).
-    cnt = resident_bincount(cp, codes_g, nc)
-    s1 = resident_bincount(cp, codes_g, nc, weights=x)
-    s2 = resident_bincount(cp, codes_g, nc, weights=x2)
-    s3 = resident_bincount(cp, codes_g, nc, weights=x2 * x)
-    s4 = resident_bincount(cp, codes_g, nc, weights=x2 * x2)
-    return cnt.astype(cp.float64, copy=False), s1, s2, s3, s4
+    cnt = resident_bincount(cp, codes_g, nc).astype(cp.float64, copy=False)
+    s1 = resident_bincount(cp, codes_g, nc, weights=v_g)
+    mean = s1 / cp.maximum(cnt, 1.0)
+    mean_row = mean[codes_g]
+    d = v_g - mean_row
+    d2 = d * d
+    cm2 = resident_bincount(cp, codes_g, nc, weights=d2)
+    cm3 = resident_bincount(cp, codes_g, nc, weights=d2 * d)
+    cm4 = resident_bincount(cp, codes_g, nc, weights=d2 * d2)
+    return cnt, mean, cm2, cm3, cm4
 
 
-def _per_cell_raw_moments_masked_gpu(cp, codes_g, v_safe, w, n_cells: int):
-    """Per-cell raw moments over ONLY the rows where ``w != 0``, computed WITHOUT materialising a row index.
+def _per_cell_moments_stable_masked_gpu(cp, codes_g, v_safe, w, n_cells: int):
+    """Per-cell ``(cnt, mean, cm2, cm3, cm4)`` over ONLY the rows where ``w != 0``, computed WITHOUT
+    materialising a row index (mirrors :func:`_per_cell_moments_stable_gpu`'s two-pass scheme, masked).
 
-    The gathered form ``_per_cell_raw_moments_gpu(codes[idx], v[idx])`` needs ``idx = cp.where(mask)`` - a
-    blocking D2H sync to size the index. Instead scatter-add the FULL arrays with a 0/1 row weight ``w``:
-    an excluded row adds exactly ``0.0`` to its cell (floating-point identity), so the moments are ULP-identical
-    to the gathered version but no index / gather / sync is needed. ``v_safe`` MUST already be finite everywhere
-    (the caller zeroes non-finite entries once via ``cp.where(finite, v, 0.0)``) so that ``v_safe * w`` never
-    forms ``inf * 0 = nan`` on the excluded rows.
+    The gathered form would need ``idx = cp.where(mask)`` - a blocking D2H sync to size the index. Instead
+    scatter-add the FULL arrays with a 0/1 row weight ``w``: an excluded row's ``d2 * w`` contributes exactly
+    ``0.0`` to its cell (floating-point identity -- ``v_safe``/``mean_row`` are both already finite, so
+    ``d = v_safe - mean_row`` is finite and ``d2 * 0.0`` is exactly ``0.0``, never ``inf * 0 = nan``), so the
+    moments are ULP-identical to the gathered version but no index / gather-by-mask / sync is needed.
+    ``v_safe`` MUST already be finite everywhere (the caller zeroes non-finite entries once via
+    ``cp.where(finite, v, 0.0)``).
+
+    CENTERED moments are NOT additive across row subsets, so unlike the old raw-power form this masked TRAIN
+    pass cannot be derived from a cached FULL pass minus a TEST pass -- it always recomputes directly on the
+    masked TRAIN rows (mirrors the host OOF fold loop's identical correctness-over-the-old-optimization
+    tradeoff, see ``fit_binned_numeric_agg`` in ``_binned_numeric_agg_fe.py``).
     """
     nc = int(n_cells)
-    x = v_safe
-    x2 = x * x
     cnt = resident_bincount(cp, codes_g, nc, weights=w)
-    s1 = resident_bincount(cp, codes_g, nc, weights=x * w)
-    s2 = resident_bincount(cp, codes_g, nc, weights=x2 * w)
-    s3 = resident_bincount(cp, codes_g, nc, weights=x2 * x * w)
-    s4 = resident_bincount(cp, codes_g, nc, weights=x2 * x2 * w)
-    return cnt, s1, s2, s3, s4
+    s1 = resident_bincount(cp, codes_g, nc, weights=v_safe * w)
+    mean = s1 / cp.maximum(cnt, 1.0)
+    mean_row = mean[codes_g]
+    d = v_safe - mean_row
+    d2 = d * d
+    cm2 = resident_bincount(cp, codes_g, nc, weights=d2 * w)
+    cm3 = resident_bincount(cp, codes_g, nc, weights=d2 * d * w)
+    cm4 = resident_bincount(cp, codes_g, nc, weights=d2 * d2 * w)
+    return cnt, mean, cm2, cm3, cm4
 
 
 # cupy.fuse kernel cache (2026-07-02, cProfile-driven): _stats_from_moments_gpu was the #1 host hotspot
@@ -132,40 +147,35 @@ def _get_fused_stats(cp) -> dict:
     nan = cp.nan
 
     @cp.fuse()
-    def _mean_k(cnt, s1):
-        """Fused per-cell mean from raw moment ``s1`` (sum) and count; NaN where the cell is empty."""
-        safe = cp.maximum(cnt, 1.0)
-        mean = s1 / safe
+    def _mean_k(cnt, mean):
+        """Fused per-cell mean pass-through with the empty-cell NaN guard."""
         return cp.where(cnt > 0, mean, nan)
 
     @cp.fuse()
-    def _std_k(cnt, s1, s2):
-        """Fused per-cell std from raw moments ``s1``/``s2`` and count, clamping the variance to >=0 against FP cancellation; NaN where the cell is empty."""
+    def _std_k(cnt, cm2):
+        """Fused per-cell std from CENTERED moment ``cm2`` and count; NaN where the cell is empty."""
         safe = cp.maximum(cnt, 1.0)
-        mean = s1 / safe
-        m2 = cp.maximum(s2 / safe - mean * mean, 0.0)
+        m2 = cp.maximum(cm2 / safe, 0.0)
         std = cp.sqrt(m2)
         return cp.where(cnt > 0, std, nan)
 
     @cp.fuse()
-    def _skew_k(cnt, s1, s2, s3):
-        """Fused per-cell skewness from raw moments ``s1``-``s3``; guards against a near-zero std denominator (returns 0.0 rather than a blown-up ratio), NaN where the cell is empty."""
+    def _skew_k(cnt, cm2, cm3):
+        """Fused per-cell skewness from CENTERED moments ``cm2``/``cm3``; guards against a near-zero std denominator (returns 0.0 rather than a blown-up ratio), NaN where the cell is empty."""
         safe = cp.maximum(cnt, 1.0)
-        mean = s1 / safe
-        m2 = cp.maximum(s2 / safe - mean * mean, 0.0)
+        m2 = cp.maximum(cm2 / safe, 0.0)
         std = cp.sqrt(m2)
-        m3 = s3 / safe - 3.0 * mean * (s2 / safe) + 2.0 * mean**3
-        raw = cp.where(std > 1e-9, m3 / (std**3 + 1e-12), 0.0)
+        m3 = cm3 / safe
+        raw = cp.where(std > 1e-9, m3 / std**3, 0.0)
         return cp.where(cnt > 0, raw, nan)
 
     @cp.fuse()
-    def _kurt_k(cnt, s1, s2, s3, s4):
-        """Fused per-cell excess kurtosis from raw moments ``s1``-``s4``; guards against a near-zero variance denominator (returns 0.0), NaN where the cell is empty."""
+    def _kurt_k(cnt, cm2, cm4):
+        """Fused per-cell excess kurtosis from CENTERED moments ``cm2``/``cm4``; guards against a near-zero variance denominator (returns 0.0), NaN where the cell is empty."""
         safe = cp.maximum(cnt, 1.0)
-        mean = s1 / safe
-        m2 = cp.maximum(s2 / safe - mean * mean, 0.0)
-        m4 = s4 / safe - 4.0 * mean * (s3 / safe) + 6.0 * mean**2 * (s2 / safe) - 3.0 * mean**4
-        raw = cp.where(m2 > 1e-12, m4 / (m2 * m2 + 1e-12) - 3.0, 0.0)
+        m2 = cm2 / safe
+        m4 = cm4 / safe
+        raw = cp.where(m2 > 1e-12, m4 / (m2 * m2) - 3.0, 0.0)
         return cp.where(cnt > 0, raw, nan)
 
     _FUSED_STATS = {"mean": _mean_k, "std": _std_k, "skew": _skew_k, "kurt": _kurt_k}
@@ -173,38 +183,38 @@ def _get_fused_stats(cp) -> dict:
 
 
 def _stats_from_moments_gpu(cp, moments, stats: Sequence[str]) -> dict:
-    """Per-cell ``{stat: cupy(n_cells)}`` from PRECOMPUTED raw moments ``(cnt, s1..s4)``. Split out of
-    ``_per_cell_stats_gpu`` so a caller that shares one bincount pass across several stats of the SAME
-    (pair, fold) derives each stat from the cached moments instead of re-running the 5 bincounts per stat
+    """Per-cell ``{stat: cupy(n_cells)}`` from PRECOMPUTED CENTERED moments ``(cnt, mean, cm2, cm3, cm4)``
+    (see :func:`_per_cell_moments_stable_gpu` / :func:`_per_cell_moments_stable_masked_gpu`). Split out of
+    ``_per_cell_stats_gpu`` so a caller that shares one moment pass across several stats of the SAME
+    (pair, fold) derives each stat from the cached moments instead of re-running the bincounts per stat
     (the launch-count monster the NVTX trace flagged: binagg was 37k GPU ops at 200k).
 
-    FUSED: each stat is now derived by a SINGLE cupy.fuse kernel (``_get_fused_stats``) that
-    computes its whole per-cell chain (safe/mean/m2/std -> raw -> the cnt>0 NaN guard) in one launch, instead of
-    ~4-8 separate elementwise launches per stat. Same arithmetic FORM / same guards / same NaN placement - the
-    per-op mean/safe/m2/std are recomputed inside each fused body (GPU-cheap) rather than shared as host arrays,
-    trading a few extra GPU FLOPs for a large drop in HOST launch-issue time (the measured hotspot)."""
-    cnt, s1, s2, s3, s4 = moments
+    FUSED: each stat is derived by a SINGLE cupy.fuse kernel (``_get_fused_stats``) that computes its whole
+    per-cell chain in one launch, instead of ~2-4 separate elementwise launches per stat. No ``+1e-12``
+    epsilon pad on the skew/kurt denominators (see :func:`_derive_cell_stats`, host, for why the pad itself
+    was a second bug once cancellation was fixed)."""
+    cnt, mean, cm2, cm3, cm4 = moments
     K = _get_fused_stats(cp)
     out: dict = {}
     for stat in stats:
         if stat == "mean":
-            out[stat] = K["mean"](cnt, s1)
+            out[stat] = K["mean"](cnt, mean)
         elif stat == "std":
-            out[stat] = K["std"](cnt, s1, s2)
+            out[stat] = K["std"](cnt, cm2)
         elif stat == "skew":
-            out[stat] = K["skew"](cnt, s1, s2, s3)
+            out[stat] = K["skew"](cnt, cm2, cm3)
         elif stat == "kurt":
-            out[stat] = K["kurt"](cnt, s1, s2, s3, s4)
+            out[stat] = K["kurt"](cnt, cm2, cm4)
         else:
             raise ValueError(f"binned_numeric_agg stat {stat!r} not supported")
     return out
 
 
 def _per_cell_stats_gpu(cp, codes_g, v_g, n_cells: int, stats: Sequence[str]) -> dict:
-    """Device twin of ``per_cell_stats_bincount``: per-cell ``{stat: cupy(n_cells)}`` from ``cp.bincount`` raw
-    moments. Empty cells -> NaN (caller substitutes the global). Same arithmetic FORM as the host (so the WHERE
-    structure / NaN placement is bit-identical); the moment VALUES differ only at ULP."""
-    return _stats_from_moments_gpu(cp, _per_cell_raw_moments_gpu(cp, codes_g, v_g, n_cells), stats)
+    """Device twin of ``per_cell_stats_bincount``: per-cell ``{stat: cupy(n_cells)}`` from numerically-stable
+    centered moments. Empty cells -> NaN (caller substitutes the global). Same arithmetic FORM as the host
+    (so the WHERE structure / NaN placement is bit-identical); the moment VALUES differ only at ULP."""
+    return _stats_from_moments_gpu(cp, _per_cell_moments_stable_gpu(cp, codes_g, v_g, n_cells), stats)
 
 
 def build_binagg_oof_matrix_gpu(
@@ -304,7 +314,7 @@ def build_binagg_oof_matrix_gpu(
                 # (fold_g != f) is the only per-fold term. Moments -> ALL of the pair's stats in one pass (cached),
                 # so every stat column of this (pair, fold) reuses the single derivation instead of re-launching.
                 w = cp.where(fold_g != f, finite_f, 0.0)
-                moments = _per_cell_raw_moments_masked_gpu(cp, codes_g, v_safe, w, n_cells)
+                moments = _per_cell_moments_stable_masked_gpu(cp, codes_g, v_safe, w, n_cells)
                 per_s_all = _stats_from_moments_gpu(cp, moments, _pstats)
                 fold_stat_cache[_skey] = per_s_all
             per_s = per_s_all[stat]

@@ -204,6 +204,10 @@ def find_best_mps_sequence(
       positions: int8 array length (n-1) with values -1,0,1 representing position held on interval t->t+1
       profits: float64 array length (n-1) of per-interval profit (after transaction costs)
     """
+    if shift < 0:
+        # numba njit exception messages must be compile-time constants -- no f-string/dynamic value here.
+        raise ValueError("find_best_mps_sequence: shift must be >= 0 (only left-shift is supported)")
+
     n = prices.shape[0]
     if n < 2:
         return np.empty(0, dtype=np.int8), np.empty(0, dtype=dtype)

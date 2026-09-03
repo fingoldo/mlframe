@@ -62,7 +62,7 @@ class _TrunkResidualMLPModule(nn.Module):
         return out
 
 
-class TrunkResidualMLPRegressor(BaseEstimator, RegressorMixin):
+class TrunkResidualMLPRegressor(RegressorMixin, BaseEstimator):
     """sklearn-compatible regressor: a shared trunk representation re-injected into every deeper block.
 
     Parameters

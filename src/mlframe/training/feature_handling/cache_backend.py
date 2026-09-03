@@ -78,8 +78,10 @@ class LocalDiskBackend:
 
     ``key`` is treated as an opaque string (the cache layer hashes
     column names + provider signatures into safe filenames before
-    handing them in). Path traversal defence sits at the cache layer,
-    not here -- this class is a primitive.
+    handing them in). ``_validate_key`` additionally rejects any key
+    containing a path separator, ``..`` segment, or absolute path, so
+    a caller bypassing the cache layer's own hashing cannot escape
+    ``root``.
     """
 
     def __init__(
@@ -127,12 +129,22 @@ class LocalDiskBackend:
 
     # ---- path helpers ------------------------------------------------
 
+    @staticmethod
+    def _validate_key(key: str) -> None:
+        """Reject keys that could escape ``root`` (path separators, ``..`` segments, absolute paths, empty)."""
+        if not key:
+            raise ValueError("cache key must be non-empty")
+        if os.path.isabs(key) or "/" in key or "\\" in key or os.pardir in key.split("/") or os.pardir in key.split("\\"):
+            raise ValueError(f"unsafe cache key {key!r}: must be a single path component with no separators or '..'")
+
     def _value_path(self, key: str) -> str:
         """Resolve ``key`` to its on-disk ``.bin`` value path under ``root``."""
+        self._validate_key(key)
         return os.path.join(self.root, f"{key}.bin")
 
     def _lock_path(self, key: str) -> str:
         """Resolve ``key`` to its per-key lock-file path under ``.locks``."""
+        self._validate_key(key)
         return os.path.join(self._locks_dir, f"{key}.lock")
 
     # ---- Protocol methods -------------------------------------------

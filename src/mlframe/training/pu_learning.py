@@ -115,7 +115,7 @@ def estimate_c_from_unbiased_positives(
     raise ValueError(f"Unknown c-estimation method: {method!r}")
 
 
-class PULearningWrapper(BaseEstimator, ClassifierMixin):
+class PULearningWrapper(ClassifierMixin, BaseEstimator):
     """Selection-bias-aware classifier for positive-mostly training data.
 
     Wraps a sklearn-compatible binary classifier and trains it under one

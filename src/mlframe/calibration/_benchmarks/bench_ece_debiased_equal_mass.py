@@ -2,10 +2,10 @@
 
 Both ECE estimators in mlframe (``compute_ece_and_brier_decomposition`` and the bias-corrected
 ``compute_ece_debiased``) bin predictions on an equal-WIDTH grid over [min(p), max(p)]. When the
-predicted-probability distribution is concentrated (the common case -- most rows pile near the base
+predicted-probability distribution is concentrated (the common case - most rows pile near the base
 rate), equal-width bins dump nearly all mass into 1-2 bins and leave the rest near-empty and
-high-variance. The literature (Nixon et al. 2019 "Measuring Calibration in Deep Learning" -- Adaptive
-Calibration Error; Roelofs et al. AISTATS 2022 -- "Mitigating bias in calibration error estimation")
+high-variance. The literature (Nixon et al. 2019 "Measuring Calibration in Deep Learning" - Adaptive
+Calibration Error; Roelofs et al. AISTATS 2022 - "Mitigating bias in calibration error estimation")
 shows equal-MASS (quantile / adaptive) binning gives a LOWER-bias, LOWER-variance ECE estimate because
 every bin holds ~N/nbins samples, so the per-bin Bernoulli noise is bounded and uniform.
 
@@ -15,13 +15,13 @@ equal-mass. Ground truth: on a perfectly-calibrated model true ECE == 0, so the 
 |estimate - 0| on calibrated scenarios; on miscalibrated scenarios we additionally require the
 miscalibration is STILL flagged (estimate stays well above 0).
 
-VERDICT (2026-06-15, qual-4): REJECTED -- equal-mass does NOT win a majority of scenarios/seeds once the
+VERDICT (2026-06-15, qual-4): REJECTED - equal-mass does NOT win a majority of scenarios/seeds once the
 Bernoulli noise-floor debiasing (qual-1) is already applied. The noise-floor subtraction removes most of the
 equal-width sparsity penalty, so the residual binning-grid choice is scenario-dependent and reverses with n:
 
     n=500   equal-mass closer to true 0 in 46/84 calibrated cells (55%); but loses ALL 3 bimodal cells.
-    n=2000  44/96 (46%) -- beta_mid flips to width in all cells.
-    n=5000  45/96 (47%) -- equal-mass loses the per-cell majority outright.
+    n=2000  44/96 (46%) - beta_mid flips to width in all cells.
+    n=5000  45/96 (47%) - equal-mass loses the per-cell majority outright.
 
 Equal-mass helps the heavy-tail / rare-event scenarios (beta_rare) but hurts uniform@small-nbins and the
 bimodal scenario (where equal-width separates the two modes cleanly while quantile edges land mid-gap). No
@@ -90,7 +90,7 @@ def _make_calibrated(rng: Any, n: int, kind: str) -> Any:
     if kind == "uniform":
         p = rng.uniform(0, 1, n)
     elif kind == "beta_rare":
-        p = rng.beta(0.5, 8.0, n)  # concentrated near 0 -- worst case for equal-width
+        p = rng.beta(0.5, 8.0, n)  # concentrated near 0 - worst case for equal-width
     elif kind == "beta_mid":
         p = rng.beta(2.0, 2.0, n)  # bell around 0.5
     elif kind == "bimodal":

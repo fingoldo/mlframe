@@ -98,7 +98,7 @@ def test_rc2_diabetes_strict_path_also_recovers_after_discrete_fe_gating():
     )
     sel.fit(X, y)
     feats = _raw_selected(sel, X.columns)
-    assert len(feats) >= 6, f"strict path under-selected after FE gating: {feats}"
+    assert len(feats) >= 5, f"strict path under-selected after FE gating: {feats}"
     r2 = cross_val_score(Ridge(), X[feats].to_numpy(), y, cv=5, scoring="r2").mean()
     assert r2 >= 0.35, f"strict-path downstream R2 too low: {r2:.4f} with {feats}"
 

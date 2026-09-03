@@ -136,7 +136,26 @@ def _finalize_per_target_ensembling(
             # Skip any key starting with ``_`` to leave the model list clean.
             if isinstance(_ens_method, str) and _ens_method.startswith("_"):
                 continue
-            _target_models.append(_ens_result)
+            # ``score_ensemble``'s values are the raw ``train_and_evaluate_model`` return --
+            # ``(entry_namespace, train_df, val_df, test_df)`` -- not a bare namespace (mirrors the
+            # same unwrap ``process_method.py`` already does to stamp ``member_test_preds``). Every
+            # OTHER entry in this per-target model list (the raw per-family models) is a bare
+            # namespace, so appending the 4-tuple as-is here silently broke any consumer of
+            # ``models[target_type][target_name]`` expecting namespace-like ``.model``/``.test_preds``
+            # attributes on an ensemble entry. Unwrap to the namespace before appending; the full
+            # tuple (incl. the split frames) stays available via ``ctx.ensembles``.
+            _entry_ns = _ens_result[0] if isinstance(_ens_result, tuple) else _ens_result
+            # Stamp the flavour name onto the result object itself. Before this, the dict key
+            # (the only place the flavour lived) was dropped the moment the value went into the
+            # flat per-target model list -- a caller holding one of these entries had no way to
+            # tell WHICH ensemble flavour it was short of parsing the flavour token back out of a
+            # saved chart filename (``metrics[...]['charts']['paths']``), which silently stopped
+            # working the moment chart rendering was disabled (``OutputConfig.save_charts=False``).
+            try:
+                _entry_ns.name = _ens_method
+            except Exception as _name_stamp_err:
+                logger.debug("could not stamp flavour name %r onto ensemble result: %s", _ens_method, _name_stamp_err)
+            _target_models.append(_entry_ns)
         # Stamp the winning ensemble flavour so the predict path picks the same flavour the
         # training selection rule would have picked. Predict reads ``ensembles_chosen``
         # (see core/predict.py::_resolve_chosen_flavour) which expects the nested layout

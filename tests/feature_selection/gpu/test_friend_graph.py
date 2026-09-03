@@ -15,6 +15,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.conftest import skip_under_numba_disabled_jit
+
 from mlframe.feature_selection.filters import info_theory as it
 from mlframe.feature_selection.filters.friend_graph import (
     build_friend_graph,
@@ -262,6 +264,7 @@ def test_figurespec_hovertext_exposes_inf_fs_centrality():
     assert f"Inf-FS centrality={by_name[hub_name].centrality:.4f}" in hub_hovertext
 
 
+@skip_under_numba_disabled_jit
 def test_pairwise_mi_edge_cached_marginals_bit_identical():
     """iter469: pairwise_mi_edge(h_a, h_b) must equal the full-mi() path
     bit-for-bit. The cached-marginals path recovers MI as
@@ -270,7 +273,14 @@ def test_pairwise_mi_edge_cached_marginals_bit_identical():
     _node_entropy, so the edge weight -- and therefore the significance-floor
     keep/drop decision and the whole graph topology -- is unchanged. This
     pins the equivalence so a future mi()/merge_vars refactor can't silently
-    diverge the two paths."""
+    diverge the two paths.
+
+    Skipped under NUMBA_DISABLE_JIT=1: same class as test_joint_entropy_2var_byte_identical --
+    bit-identity between two independently-computed-but-compiled paths is only a meaningful
+    contract when both sides are actually compiled; interpreted execution can legitimately land
+    a few ULPs apart (confirmed live: 1.3863219320537121 vs 1.3863219320537117, ~4e-16) with no
+    effect on the significance-floor decision this test protects.
+    """
     from mlframe.feature_selection.filters.friend_graph import (
         pairwise_mi_edge,
         _node_entropy,

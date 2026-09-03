@@ -35,7 +35,10 @@ def test_psi_matrix_shape_and_labels():
     matrix, rows, cols = drift.compute_psi_matrix(X, ts, n_time_buckets=8)
     assert matrix.shape == (5, 8)
     assert len(rows) == 5 and len(cols) == 8
-    assert cols[0] == "t0" and cols[-1] == "t7"
+    # Bucket identity, then its support on a second line: PSI's noise floor scales as 1/n_bucket, so a cell value
+    # is unreadable without the count that produced it.
+    assert cols[0].startswith("t0") and cols[-1].startswith("t7")
+    assert cols[0].splitlines()[1] == "(n=5,000)"
     # No drift in an iid frame: 10-bin PSI is bounded by finite-sample noise (~0.03 at 5k/bucket); stays under the
     # moderate-drift line. (Baseline bucket==t0 is exactly self-compared => 0.)
     assert float(matrix[0, 0]) == 0.0
@@ -218,11 +221,15 @@ def _resid_series(n, r, delta, seed):
 
 
 def _cusum_cross_row(fig):
-    """Detected change-point ordered-row parsed from the panel title, or None if none detected."""
+    """Detected change-point ordered-row parsed from the panel title, or None if none detected.
+
+    The title now leads with WHEN the break happened (a date on a real time axis) because "ordered-row 4173" is an
+    internal index a reader cannot act on; the row is still carried alongside it for exactly this kind of lookup.
+    """
     import re
 
-    m = re.search(r"ordered-row (\d+)", fig.panels[0][0].title)
-    return int(m.group(1)) if m else None
+    m = re.search(r"ordered row ([\d,]+) of", fig.panels[0][0].title)
+    return int(m.group(1).replace(",", "")) if m else None
 
 
 def test_cusum_returns_line_panel_with_arms_and_limits():
@@ -292,6 +299,20 @@ def test_cusum_handles_nan_rows():
     yt[::50] = np.nan  # scattered missing rows must be dropped, not crash
     fig = drift.cusum_residual_drift(yt, yp, np.arange(2000), decision_h=10.0)
     assert isinstance(fig.panels[0][0], LinePanelSpec)
+
+
+def test_cusum_filters_nat_timestamps():
+    """REPORTING_B-8: a NaT datetime64 timestamp row must be filtered like a NaN residual row, not silently
+    kept and sorted to an arbitrary position by np.argsort. With n=20 rows and one NaT injected, the filtered
+    row count must be 19, not 20 (the pre-fix `mask &= mask` no-op for non-numeric dtypes kept it)."""
+    n = 20
+    yt, yp = _resid_series(n, n, 1.0, 3)
+    ts = np.array([np.datetime64("2024-01-01") + np.timedelta64(i, "D") for i in range(n)], dtype="datetime64[ns]")
+    ts[5] = np.datetime64("NaT")
+    fig = drift.cusum_residual_drift(yt, yp, ts, decision_h=1e9)  # huge h -> never crosses, no marker appended
+    panel = fig.panels[0][0]
+    assert isinstance(panel, LinePanelSpec)
+    assert panel.x.size == n - 1, f"expected {n - 1} rows after dropping the NaT row, got {panel.x.size}"
 
 
 def test_cusum_decimates_plotted_points():
@@ -479,6 +500,30 @@ def test_adversarial_auc_shapes():
     assert fpr.shape == tpr.shape and fpr.ndim == 1
     assert imp.shape == (4,)
     assert len(names) == 4
+
+
+def test_adversarial_auc_lgbm_n_jobs_not_unbounded(monkeypatch):
+    """adversarial_auc's diagnostic LGBMClassifier must not request n_jobs=-1 -- under any concurrent-
+    worker environment (CI xdist shards, several dev sessions at once) an unbounded thread pool here
+    causes severe CPU oversubscription that can block LightGBM's native booster-update call
+    indefinitely; pytest-timeout's thread-based method can't preempt a blocked native call, so this
+    silently hangs the whole worker instead of failing loudly. Regression test for that hang, pinned
+    at the config level since the symptom itself is an indefinite hang, not a wrong value."""
+    lgb = pytest.importorskip("lightgbm")
+    captured = {}
+    real_init = lgb.LGBMClassifier.__init__
+
+    def _spy_init(self, **kwargs):
+        """Spy init."""
+        captured.update(kwargs)
+        real_init(self, **kwargs)
+
+    monkeypatch.setattr(lgb.LGBMClassifier, "__init__", _spy_init)
+    rng = np.random.default_rng(41)
+    Xa = rng.normal(size=(200, 3))
+    Xb = rng.normal(size=(200, 3))
+    drift.adversarial_auc(Xa, Xb, n_splits=2)
+    assert captured.get("n_jobs") != -1, f"expected a bounded n_jobs, got {captured.get('n_jobs')!r}"
 
 
 def test_adversarial_validation_returns_roc_and_bar():

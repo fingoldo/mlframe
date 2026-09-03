@@ -8,6 +8,7 @@ from __future__ import annotations
 # LOGGING
 # ----------------------------------------------------------------------------------------------------------------------------
 
+import warnings
 import logging
 
 logger = logging.getLogger(__name__)
@@ -159,17 +160,13 @@ def read_trained_models(
     # Containment check runs ALWAYS: when the caller passes no trusted_root, default it to
     # inference_folder so a malicious featureset ("../.." or an absolute path) cannot escape and make
     # read_trained_models joblib.load an arbitrary pickle. The intended model dir is always inside
-    # inference_folder, so this never rejects a legitimate call.
-    abs_root = os.path.abspath(trusted_root if trusted_root is not None else inference_folder)
-    abs_fpath = os.path.abspath(fpath)
-    try:
-        common = os.path.commonpath([abs_root, abs_fpath])
-    except ValueError as e:
-        # preserve the original ValueError ("Paths don't have the same drive" on Windows) via `from e`
-        # so cross-drive root mismatches don't masquerade as path-traversal.
-        raise ValueError(f"Path {abs_fpath} is not inside trusted_root {abs_root}") from e
-    if common != abs_root:
-        raise ValueError(f"Path {abs_fpath} is not inside trusted_root {abs_root}")
+    # inference_folder, so this never rejects a legitimate call. Delegates the actual commonpath check to
+    # the single shared implementation (mlframe.core.helpers.validate_trusted_path) so this call site
+    # can't independently drift from the other three in the codebase -- only the effective-root
+    # substitution above (inference_folder, a genuinely narrow/safe default) stays local to this function.
+    from mlframe.core.helpers import validate_trusted_path as _validate_trusted_path
+
+    _validate_trusted_path(fpath, trusted_root if trusted_root is not None else inference_folder)
     if not isdir(fpath):
         return models, X
 
@@ -247,8 +244,13 @@ def read_trained_models(
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-def get_models_raw_predictions(trained_models: dict, X, Y):
+def get_models_raw_predictions(trained_models: dict, X, Y=None):
     """X should already contain only right features in right order.
+
+    ``Y`` is DEPRECATED and unused: nothing here is scored or aligned against ground truth, so a caller passing a
+    misaligned ``Y`` got neither an error nor an effect. It is kept as an optional parameter so existing
+    positional callers keep working, and is validated for length when supplied so a genuine misalignment is
+    surfaced rather than ignored.
 
     For classifiers this returns PROBABILITIES (not hard labels): the positive-class column for binary,
     the full (n, n_classes) matrix for multiclass -- consistent with ``explainability.py`` which scores on
@@ -259,6 +261,15 @@ def get_models_raw_predictions(trained_models: dict, X, Y):
     fitted feature-name attribute against ``X``'s columns so a caller that skips ``read_trained_models`` (builds
     ``trained_models``/``X`` itself) still gets the same silent-wrong-prediction protection.
     """
+    if Y is not None:
+        warnings.warn(
+            "get_models_raw_predictions(Y=...) is deprecated and unused; predictions are not scored or aligned "
+            "against ground truth here. Drop the argument.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if len(Y) != len(X):
+            raise ValueError(f"get_models_raw_predictions: Y has {len(Y)} rows but X has {len(X)}.")
     predictions = {}
     expected_features = list(X.columns) if hasattr(X, "columns") else None
     for model_name, model in tqdmu(trained_models.items(), desc="Getting raw predictions"):

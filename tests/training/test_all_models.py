@@ -1045,12 +1045,21 @@ class TestPredictionValidation:
         # Get predictions
         model_entry = models[TargetTypes.REGRESSION]["target"][0]
 
-        # Verify predictions are not all NaN
+        # The prediction arrays must EXIST and be non-empty before "not all NaN" means anything. Wrapping the
+        # assertion in `if hasattr(...)` + `if preds is not None` + `if len(preds) > 0` meant a suite that
+        # stopped producing predictions altogether -- the regression these tests are the last line of defence
+        # against -- passed every one of them by satisfying none of the guards.
+        assert hasattr(model_entry, "test_preds"), "the model entry carries no test_preds at all"
+        _test_preds = getattr(model_entry, "test_preds")
+        assert _test_preds is not None and len(_test_preds) > 0, f"test_preds is empty or None: {_test_preds!r}"
+
         for attr in ["train_preds", "val_preds", "test_preds"]:
-            if hasattr(model_entry, attr):
-                preds = getattr(model_entry, attr)
-                if preds is not None and len(preds) > 0:
-                    assert not np.all(np.isnan(preds)), f"{attr} should not be all NaN"
+            if not hasattr(model_entry, attr):
+                continue  # not every split is produced in every configuration
+            preds = getattr(model_entry, attr)
+            if preds is None or len(preds) == 0:
+                continue
+            assert not np.all(np.isnan(preds)), f"{attr} should not be all NaN"
 
     def test_predictions_not_all_same(self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations):
         """Test that predictions are not all identical (model learned something)."""

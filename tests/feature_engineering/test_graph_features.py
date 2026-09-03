@@ -112,3 +112,67 @@ def test_biz_val_clustering_separates_clique_from_bridge():
     assert bridge <= 0.01, f"bridge node clustering {bridge:.3f} should be ~0"
     # node 6 has the same degree (2) as the clique members but a very different clustering -> distinct signal
     assert f["degree"][6] == f["degree"][1]
+
+
+# ---------------------------------------------------------------- sum/max/min agg + directed (previously untested)
+
+
+def test_neighbor_aggregate_sum():
+    """agg='sum': raw sum of neighbour values, not averaged."""
+    edges = np.array([[0, 1], [0, 2]])
+    vals = np.array([0.0, 3.0, 4.0])
+    s = graph_neighbor_aggregate(3, edges, vals, agg="sum")
+    assert s[0] == 7.0
+
+
+def test_neighbor_aggregate_max_and_min():
+    """agg='max'/'min': the largest/smallest neighbour value."""
+    edges = np.array([[0, 1], [0, 2]])
+    vals = np.array([0.0, 3.0, 4.0])
+    assert graph_neighbor_aggregate(3, edges, vals, agg="max")[0] == 4.0
+    assert graph_neighbor_aggregate(3, edges, vals, agg="min")[0] == 3.0
+
+
+def test_neighbor_aggregate_max_min_isolated_node_gets_fill():
+    """An isolated node under agg='max'/'min' gets the fill value, not a spurious 0/-inf."""
+    edges = np.array([[0, 1]])
+    vals = np.array([1.0, 1.0, 1.0])
+    assert graph_neighbor_aggregate(3, edges, vals, agg="max", fill=-99.0)[2] == -99.0
+    assert graph_neighbor_aggregate(3, edges, vals, agg="min", fill=-99.0)[2] == -99.0
+
+
+def test_neighbor_aggregate_directed_is_asymmetric():
+    """directed=True: node aggregates are computed only over OUTGOING edges, not symmetrized."""
+    # 0 -> 1 only: node 0 has an outgoing neighbour (1), node 1 has none.
+    edges = np.array([[0, 1]])
+    vals = np.array([0.0, 5.0])
+    directed = graph_neighbor_aggregate(2, edges, vals, agg="mean", directed=True, fill=-1.0)
+    assert directed[0] == 5.0  # 0's only outgoing neighbour is 1
+    assert directed[1] == -1.0  # 1 has no outgoing edges -> fill
+    # Undirected: the same edge list treats the connection as symmetric -> both nodes see each other.
+    undirected = graph_neighbor_aggregate(2, edges, vals, agg="mean", directed=False, fill=-1.0)
+    assert undirected[0] == 5.0
+    assert undirected[1] == 0.0
+
+
+def test_structural_features_strength_is_weighted_degree():
+    """graph_structural_features' 'strength' is the sum of incident edge weights, distinct from plain degree."""
+    edges = np.array([[0, 1], [0, 2]])
+    weights = np.array([2.0, 5.0])
+    f = graph_structural_features(3, edges, weights=weights)
+    assert f["degree"][0] == 2.0
+    assert f["strength"][0] == 7.0  # 2.0 + 5.0
+    assert f["strength"][1] == 2.0
+    assert f["strength"][2] == 5.0
+
+
+def test_structural_features_directed_uses_symmetric_view_for_clustering():
+    """directed=True: degree/strength come from the directed CSR, but clustering/triangles still use the
+    symmetrized (undirected) view -- per the function's own docstring."""
+    # A directed 3-cycle: 0->1->2->0. Each node has out-degree 1 (directed), but the undirected view
+    # (used for clustering) sees a genuine triangle.
+    edges = np.array([[0, 1], [1, 2], [2, 0]])
+    f = graph_structural_features(3, edges, directed=True)
+    assert np.all(f["degree"] == 1.0)  # directed out-degree
+    assert np.allclose(f["clustering"], 1.0)  # undirected view: a full triangle
+    assert np.allclose(f["triangles"], 1.0)

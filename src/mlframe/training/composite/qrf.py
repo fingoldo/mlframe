@@ -69,16 +69,23 @@ except ImportError:  # pragma: no cover - numba is a project dep but guard anywa
 
 
 def _leaf_weights_kernel(
-    q_leaves: np.ndarray, train_leaves: np.ndarray, leaf_inv: np.ndarray, n_train: int,
+    q_leaves: np.ndarray,
+    leaf_inv: np.ndarray,
+    sorted_train_idx: np.ndarray,
+    leaf_offsets: np.ndarray,
+    n_train: int,
 ) -> np.ndarray:
-    """Meinshausen forest weights ``(n_query, n_train)`` without a per-tree bool matrix.
+    """Meinshausen forest weights ``(n_query, n_train)`` via a leaf-bucketed lookup.
 
     For each (query i, tree t) the query falls in leaf ``q_leaves[i, t]`` whose inverse
-    size is ``leaf_inv[t, leaf]``; every training row sharing that leaf gets that weight
-    added. Looping (tree, query, train) in machine code avoids allocating the dense
-    ``(n_query, n_train)`` boolean per tree that the numpy broadcast builds -- it walks
-    the integer leaf ids directly. Parallel over query rows. Falls back to the same
-    numpy broadcast when numba is unavailable.
+    size is ``leaf_inv[t, leaf]``; only the training rows ACTUALLY IN that leaf get the
+    weight added, read directly from ``sorted_train_idx[t, leaf_offsets[t, leaf] :
+    leaf_offsets[t, leaf + 1]]`` (a fit-time CSR-style bucketing of training row indices
+    by leaf, see ``_LeafResidualForest.fit``) -- O(n_query * n_trees * avg_leaf_size)
+    instead of the previous O(n_query * n_trees * n_train) full-array scan per (query,
+    tree) pair that re-checked every training row's leaf membership from scratch. Parallel
+    over query rows. Falls back to a vectorised numpy path (also leaf-bucketed via
+    argsort-grouping) when numba is unavailable.
     """
     n_query = q_leaves.shape[0]
     n_trees = q_leaves.shape[1]
@@ -89,9 +96,11 @@ def _leaf_weights_kernel(
             inv = leaf_inv[t, leaf]
             if inv <= 0.0:
                 continue
-            for j in range(n_train):
-                if train_leaves[j, t] == leaf:
-                    w[i, j] += inv
+            lo = leaf_offsets[t, leaf]
+            hi = leaf_offsets[t, leaf + 1]
+            for p in range(lo, hi):
+                j = sorted_train_idx[t, p]
+                w[i, j] += inv
     if n_trees > 0:
         w /= n_trees
     return w
@@ -283,10 +292,22 @@ class _LeafResidualForest:
         # 1/|leaf| (0 for empty leaf ids in the padded tail). One contiguous array the
         # njit kernel can index without a python list of ragged bincounts.
         self._leaf_inv_ = np.zeros((n_trees, max_leaf), dtype=np.float64)
+        # Leaf-bucketed CSR layout so predict-time weight assembly only ever touches the
+        # training rows actually sharing a query's leaf, not every training row: for each
+        # tree, sorted_train_idx[t] is a permutation of row indices grouped by leaf id
+        # (stable sort so within-leaf order is deterministic, though weight assembly is
+        # order-invariant), and leaf_offsets[t, l]:leaf_offsets[t, l+1] slices out leaf
+        # l's member rows within that permutation.
+        n_train = self.train_leaves_.shape[0]
+        self._sorted_train_idx_ = np.empty((n_trees, n_train), dtype=np.int64)
+        self._leaf_offsets_ = np.zeros((n_trees, max_leaf + 1), dtype=np.int64)
         for t in range(n_trees):
-            counts = np.bincount(self.train_leaves_[:, t], minlength=max_leaf)
+            leaves_t = self.train_leaves_[:, t]
+            counts = np.bincount(leaves_t, minlength=max_leaf)
             nz = counts > 0
             self._leaf_inv_[t, nz] = 1.0 / counts[nz]
+            self._leaf_offsets_[t, 1:] = np.cumsum(counts)
+            self._sorted_train_idx_[t] = np.argsort(leaves_t, kind="stable")
         # Train leaves transposed to (n_train, n_trees) is already the apply() layout;
         # the kernel reads train_leaves[j, t], so keep it as-is.
         return self
@@ -302,18 +323,24 @@ class _LeafResidualForest:
         q_leaves = np.ascontiguousarray(self.forest_.apply(Xa))  # (n_query, n_trees)
         n_train = self.train_leaves_.shape[0]
         if _HAS_NUMBA:
-            # njit(parallel) kernel: walks leaf ids directly, no per-tree bool matrix.
-            return _leaf_weights_kernel(q_leaves, self.train_leaves_, self._leaf_inv_, n_train)
-        # numpy fallback: one vectorised (n_query x n_train) boolean broadcast per tree.
+            # njit(parallel) kernel: leaf-bucketed lookup via the fit-time CSR layout.
+            return _leaf_weights_kernel(q_leaves, self._leaf_inv_, self._sorted_train_idx_, self._leaf_offsets_, n_train)
+        # numpy fallback: leaf-bucketed via the same CSR layout, using np.add.at per tree
+        # instead of a dense (n_query x n_train) boolean broadcast -- each query row only
+        # scatters into the training rows actually in its leaf.
         n_query = q_leaves.shape[0]
         n_trees = q_leaves.shape[1]
         w = np.zeros((n_query, n_train), dtype=np.float64)
         for t in range(n_trees):
-            tl = self.train_leaves_[:, t]
             ql = q_leaves[:, t]
-            match = ql[:, None] == tl[None, :]
             inv = self._leaf_inv_[t, ql]
-            w += match * inv[:, None]
+            lo = self._leaf_offsets_[t, ql]
+            hi = self._leaf_offsets_[t, ql + 1]
+            for i in range(n_query):
+                if inv[i] <= 0.0:
+                    continue
+                members = self._sorted_train_idx_[t, lo[i] : hi[i]]
+                w[i, members] += inv[i]
         if n_trees > 0:
             w /= n_trees
         return w
@@ -394,7 +421,7 @@ def _make_backend(
     )
 
 
-class _QuantileForestAdapter(BaseEstimator, RegressorMixin):  # pragma: no cover - exercised only when quantile-forest installed
+class _QuantileForestAdapter(RegressorMixin, BaseEstimator):  # pragma: no cover - exercised only when quantile-forest installed
     """Adapt ``quantile_forest.RandomForestQuantileRegressor`` to the inner contract.
 
     Maps ``predict_quantile(X, alpha)`` onto the package's ``predict(X, quantiles=...)``
@@ -430,7 +457,7 @@ class _QuantileForestAdapter(BaseEstimator, RegressorMixin):  # pragma: no cover
         return out.reshape(-1) if scalar else out
 
 
-class CompositeQRFEstimator(BaseEstimator, RegressorMixin):
+class CompositeQRFEstimator(RegressorMixin, BaseEstimator):
     """Quantile-regression-forest distributional composite: full UQ from ONE fit.
 
     Parameters

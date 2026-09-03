@@ -59,7 +59,7 @@ def test_global_kill_switch_disables_binning(monkeypatch):
 
 def test_binning_ktc_kernel_registered():
     """The dedicated binning crossover helpers exist and are distinct from the pair-MI ones."""
-    from mlframe.feature_selection.filters import _gpu_resident_basis as b
+    from mlframe.feature_selection.filters import _gpu_resident_fe as b
 
     assert callable(b.fe_gpu_binning_backend_choice)
     assert callable(b._run_fe_gpu_binning_sweep)
@@ -72,7 +72,7 @@ def test_binning_ktc_kernel_registered():
 def test_binning_fallback_crossover_math(monkeypatch):
     """The pre-sweep fallback routes large work to GPU, tiny work to CPU (lower crossover than the
     full MI path: binning is a cheaper op)."""
-    from mlframe.feature_selection.filters import _gpu_resident_basis as b
+    from mlframe.feature_selection.filters import _gpu_resident_fe as b
 
     monkeypatch.delenv("MLFRAME_FE_GPU_BINNING_MIN_NK", raising=False)
     assert b._fe_gpu_binning_fallback_choice(100_000, 256) == "gpu"  # 2.56e7 >= 1e6

@@ -129,6 +129,12 @@ def compute_y_quintile_baseline_knn_features(
             y_for_strata = pred_train  # use baseline OOF prob for binary (target is 0/1)
         else:
             strata_edges = np.quantile(y_t, np.linspace(0.0, 1.0, _N_STRATA + 1))
+            # Make edges strictly increasing in case of ties (discrete/heavily-repeated regression
+            # target): a non-increasing edge pair otherwise produces a fully-empty stratum that silently
+            # degrades to (mean=0, std=0) features -- mirrors target_quantile.py's same guard.
+            for i in range(1, len(strata_edges)):
+                if strata_edges[i] <= strata_edges[i - 1]:
+                    strata_edges[i] = strata_edges[i - 1] + 1e-9
             y_for_strata = y_t
 
         feats = np.zeros((Xq.shape[0], _N_STRATA * 2), dtype=np.float32)
@@ -141,6 +147,13 @@ def compute_y_quintile_baseline_knn_features(
                 mask = (y_for_strata >= lo) & (y_for_strata < hi)
             X_q = Xt_s[mask]
             pred_q = pred_train[mask]
+            if X_q.shape[0] == 0:
+                # A genuinely-empty stratum (can happen even with edge-separation on heavily-tied
+                # regression targets: adjacent edges are distinct but no y value falls strictly between
+                # them) falls back to the whole train fold's pool rather than degrading to a silent
+                # (mean=0, std=0) feature pair.
+                X_q = Xt_s
+                pred_q = pred_train
             m, s = _knn_pred_stats(X_q, pred_q, Xq_s, k=_K_NEIGHBOURS)
             feats[:, q * 2 + 0] = m
             feats[:, q * 2 + 1] = s

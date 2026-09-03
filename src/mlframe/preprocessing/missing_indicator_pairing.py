@@ -14,7 +14,11 @@ from __future__ import annotations
 from typing import Any, Dict, Optional, Sequence, Union
 
 import numpy as np
+import logging
+
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def _mode_or_nan(s: pd.Series) -> Union[int, float, str]:
@@ -54,6 +58,18 @@ def fit_missing_indicator_imputation(
     fill_values = fill_values or {}
 
     cols = list(columns) if columns is not None else [c for c in df.columns if df[c].isna().any()]
+    if group_col is not None and group_col in cols:
+        # The docstring promises ``group_col`` "itself is never imputed by this call", and with the default
+        # column list it was: a nullable grouping column landed in ``cols``, got a group-kind state grouped by
+        # ITSELF (so the NaN group's own stat is NaN), and the apply step then filled those rows from the global
+        # fallback -- silently altering the grouping key and adding an indicator column nobody asked for.
+        if columns is not None:
+            raise ValueError(
+                f"fit_missing_indicator_imputation: group_col={group_col!r} is also in `columns`. The grouping key "
+                "cannot be imputed by the same call that groups by it -- impute it separately first."
+            )
+        logger.debug("fit_missing_indicator_imputation: excluding group_col %r from the imputed columns.", group_col)
+        cols = [c for c in cols if c != group_col]
     group_by = df.groupby(group_col, dropna=False) if group_col is not None else None
 
     columns_state: Dict[str, Dict[str, Any]] = {}

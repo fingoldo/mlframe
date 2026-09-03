@@ -174,7 +174,7 @@ def _transform_inverse_decreasing(transform_name: str) -> bool:
     return bool(y_probe[0] > y_probe[1] > y_probe[2])
 
 
-class CompositeQuantileEstimator(BaseEstimator, RegressorMixin):
+class CompositeQuantileEstimator(RegressorMixin, BaseEstimator):
     """Native pinball composite: one inner per quantile on the transform ``T``.
 
     Parameters

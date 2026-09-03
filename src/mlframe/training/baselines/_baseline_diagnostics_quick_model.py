@@ -117,12 +117,18 @@ def _fit_quick_and_score(
                     model.booster_.predict(X_va, raw_score=True),
                 ).reshape(-1)
             full_logit = tree_logit + np.asarray(init_score_va_local).reshape(-1)
-            # Numerically safe sigmoid.
-            y_pred = np.where(
-                full_logit >= 0,
-                1.0 / (1.0 + np.exp(-full_logit)),
-                np.exp(full_logit) / (1.0 + np.exp(full_logit)),
-            )
+            # Numerically safe sigmoid. np.where evaluates BOTH branches eagerly (no short-circuit),
+            # so a large-magnitude full_logit overflows np.exp() in whichever branch np.where ends
+            # up discarding for that element (e.g. exp(full_logit) overflows for large positive
+            # full_logit even though the >=0 branch is the one actually selected there) -- the
+            # SELECTED value is always the safe, non-overflowing one, so this is spurious, not a
+            # real correctness issue; suppressed rather than left to spam CI's warning summary.
+            with np.errstate(over="ignore"):
+                y_pred = np.where(
+                    full_logit >= 0,
+                    1.0 / (1.0 + np.exp(-full_logit)),
+                    np.exp(full_logit) / (1.0 + np.exp(full_logit)),
+                )
         else:
             y_pred = model.predict_proba(X_va)[:, 1]
     else:

@@ -28,22 +28,51 @@ def test_patch_is_noop_on_shap_ge_052():
     # shap's _tree module does not define a module-global ``float`` -- the legacy
     # patch was what introduced one. So the invariant is: the patch must NOT
     # leave a non-builtin ``float`` attribute behind on shap >= 0.52.
-    saved_flag = spe._SHAP_XGB_PATCHED
     had_attr = "float" in _shap_tree.__dict__
     saved_attr = _shap_tree.__dict__.get("float")
     try:
-        spe._SHAP_XGB_PATCHED = False
         _shap_tree.__dict__.pop("float", None)
-        spe._maybe_patch_shap_xgb_base_score()
-        assert (
-            _shap_tree.__dict__.get("float", builtins.float) is builtins.float
-        ), "patch clobbered shap._tree.float on shap >= 0.52; np.asarray(base_score, dtype=float) will break"
+        with spe._maybe_patch_shap_xgb_base_score():
+            assert (
+                _shap_tree.__dict__.get("float", builtins.float) is builtins.float
+            ), "patch clobbered shap._tree.float on shap >= 0.52; np.asarray(base_score, dtype=float) will break"
     finally:
         if had_attr:
             _shap_tree.float = saved_attr
         else:
             _shap_tree.__dict__.pop("float", None)
-        spe._SHAP_XGB_PATCHED = saved_flag
+
+
+def test_patch_restores_shap_tree_float_after_the_with_block():
+    """CI regression: a plain function call left ``shap.explainers._tree.float`` monkeypatched to
+    ``_safe_float`` for the rest of the process, so an unrelated LATER ``TreeExplainer`` construction on
+    a DIFFERENT model (LightGBM, not XGBoost -- reproduced live in
+    ``test_shap_proxy_treeshap_lightgbm.py::test_lightgbm_interaction_parity``) that happened to run in
+    the same pytest session hit shap's shared ``_tree`` module's now-patched ``float`` name and crashed
+    with ``AttributeError: 'TreeEnsemble' object has no attribute 'values'`` (``_safe_float`` is a plain
+    function, not a type, and something inside shap's tree-loading machinery needs ``float`` usable as a
+    numpy dtype). The context-manager form must restore (or remove) the name on exit so no later,
+    unrelated ``TreeExplainer`` call in the same process is affected."""
+    ver = tuple(int(p) for p in shap.__version__.split(".")[:2])
+    if ver >= (0, 52):
+        pytest.skip("the patch is a no-op on shap >= 0.52 -- nothing to restore")
+
+    from shap.explainers import _tree as _shap_tree
+
+    had_attr_before = "float" in _shap_tree.__dict__
+    saved_attr_before = _shap_tree.__dict__.get("float")
+    try:
+        _shap_tree.__dict__.pop("float", None)
+        with spe._maybe_patch_shap_xgb_base_score():
+            assert (
+                _shap_tree.__dict__.get("float") is spe._SafeFloatCallable
+            ), "patch must install _SafeFloatCallable (not the plain _safe_float function) inside the with block on shap < 0.52"
+        assert "float" not in _shap_tree.__dict__, "patch must remove its own float name after the with block exits (none was present before)"
+    finally:
+        if had_attr_before:
+            _shap_tree.float = saved_attr_before
+        else:
+            _shap_tree.__dict__.pop("float", None)
 
 
 def test_xgb_treeexplainer_smoke_no_dtype_error():
@@ -57,7 +86,7 @@ def test_xgb_treeexplainer_smoke_no_dtype_error():
     model = xgb.XGBClassifier(n_estimators=8, max_depth=3, verbosity=0)
     model.fit(X, y)
 
-    spe._maybe_patch_shap_xgb_base_score()
-    explainer = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
-    phi = explainer.shap_values(X, check_additivity=False)
+    with spe._maybe_patch_shap_xgb_base_score():
+        explainer = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
+        phi = explainer.shap_values(X, check_additivity=False)
     assert np.asarray(phi).shape[0] == X.shape[0]

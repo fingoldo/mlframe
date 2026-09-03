@@ -107,6 +107,21 @@ def test_per_group_correctness():
     assert res["A"]["coverage"] == 1.0 and res["A"]["n"] == 2
 
 
+def test_per_group_drops_nan_group_ids():
+    """TRAINING_COMPOSITE_CORE_A-6: a NaN group label must be dropped, matching the docstring's documented
+    contract ('Null / NaN group labels are dropped') and the sibling composite-report modules' shared
+    _composite_report_shared.factorize behavior. The pre-fix numpy-fallback path (used when pandas is
+    unavailable) independently reimplemented factorization via bare np.unique, which gives NaN its own real
+    group code instead of excluding it."""
+    y = np.zeros(3)
+    lo = np.array([-1.0, -1.0, -1.0])
+    hi = np.array([1.0, 1.0, 1.0])
+    g = np.array(["A", "A", np.nan], dtype=object)
+    res = winkler_score_per_group(y, lo, hi, 0.1, g)
+    assert set(res.keys()) == {"A"}, f"expected only group 'A' (NaN group dropped), got {set(res.keys())}"
+    assert res["A"]["n"] == 2
+
+
 def test_alpha_out_of_range_raises():
     """Alpha out of range raises."""
     y = np.zeros(3)

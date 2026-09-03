@@ -74,6 +74,7 @@ def test_biz_val_core_refine_recovers_weak_over_greedy():
     assert auc_core >= auc_greedy - 0.005, f"core downstream AUC ({auc_core:.4f}) regressed more than 0.005 below greedy ({auc_greedy:.4f})"
 
 
+@pytest.mark.timeout(900)
 def test_biz_val_core_refine_drops_true_redundancy():
     """core_refine still prunes exact-duplicate redundancy -- it doesn't just 'keep everything'.
 
@@ -81,20 +82,33 @@ def test_biz_val_core_refine_drops_true_redundancy():
     leave-one-out coalition barely changes the coalition value (v(N \\ dup) approx= v(N)), so its
     least-core share collapses toward zero and core_refine drops it, same as greedy would.
     """
+    # n_noise 20 -> 8 (2026-08-18, perf): cProfile showed this test spending ~197s of its ~244s wall
+    # in brute_force_top_n's njit combo enumeration (cProfile attributes the njit callee's native time
+    # to this Python caller frame -- no Python-level inefficiency, genuine combinatorial cost). The old
+    # p=28 (4 info + 4 dup + 20 noise) sat exactly at _DEFAULT_BRUTE_FORCE_MAX_FEATURES=28, the widest
+    # input this path ever brute-forces exhaustively (C(28, 14) ~= 40.1M subsets at the worst
+    # cardinality alone). The 20 noise columns were never load-bearing for the invariant under test --
+    # per the comment below, clustering engagement here is FORCED by the explicit cluster_features=True
+    # flag, not by crossing the p>=40 auto-threshold that noise-column count would otherwise gate. p=16
+    # (C(16, 8) ~= 12.9k, ~3100x fewer combos at the peak cardinality) still exercises the exact same
+    # code path -- clustering forced on, brute-force still selected over beam (well under both the
+    # brute_force_max_features and n_sub_gate caps) -- while a duplicate column's leave-one-out
+    # coalition-value argument (the mechanism this test pins) is unaffected by how much unrelated noise
+    # surrounds it. Verified: still passes, wall time drops from ~244s to a few seconds.
     rng = np.random.default_rng(1)
     n, n_info = 2000, 4
     X_info = rng.standard_normal((n, n_info)).astype(np.float32)
     noise = rng.standard_normal((n, n_info)).astype(np.float32) * np.sqrt(1 - 0.98**2)
     X_dup = (0.98 * X_info + noise).astype(np.float32)
-    X_noise = rng.standard_normal((n, 20)).astype(np.float32)
+    X_noise = rng.standard_normal((n, 8)).astype(np.float32)
     X = np.concatenate([X_info, X_dup, X_noise], axis=1)
-    cols = [f"info{i}" for i in range(n_info)] + [f"dup{i}" for i in range(n_info)] + [f"noise{i}" for i in range(20)]
+    cols = [f"info{i}" for i in range(n_info)] + [f"dup{i}" for i in range(n_info)] + [f"noise{i}" for i in range(8)]
     Xdf = pd.DataFrame(X, columns=cols)
     logit = X_info.sum(axis=1)
     logit = logit / logit.std() * 2.0
     y = (rng.random(n) < 1 / (1 + np.exp(-logit))).astype(int)
 
-    # cluster_features=True forces the clustering stage to engage on this small (p=28) fixture -- it
+    # cluster_features=True forces the clustering stage to engage on this small (p=16) fixture -- it
     # only fires "auto"-mode by default above cluster_auto_threshold=40 -- which is what surfaces
     # unit_to_members / member_groups (and hence any per-unit intra-cluster redundancy) for refine to see.
     sel_core, _ = _fit_selected(Xdf, pd.Series(y), refine_mode="core", cluster_features=True)
@@ -103,13 +117,35 @@ def test_biz_val_core_refine_drops_true_redundancy():
     )
 
 
+@pytest.mark.timeout(900)  # lowered back 1800->900 (2026-08-22, perf): cProfile showed this test's
+# ~83s local wall (was ~1267s in a contended CI run) almost entirely inside native XGBoost fit/update
+# calls across 5 internal stages (prefilter, oof_shap, refine, revalidation, trust_guard), each fit at
+# the library's own default n_estimators (100, trust_guard 25) -- no first-party Python-level cost to
+# fuse. ShapProxiedFS already exposes each stage's estimator count as a constructor kwarg specifically
+# so callers can trade fit quality for speed; the honest-gate fallback this test pins is a LOGIC branch
+# (adversarial core_drop_threshold=0.9 rejects the core proposal -> falls back to greedy, byte-for-byte
+# match), not an accuracy claim about any one stage's model quality, so cutting every stage's estimator
+# count ~3-5x cannot weaken what the test actually asserts. Verified directly: fallback still trips and
+# sel_core_adversarial still equals sel_greedy exactly across seeds 0-2 at these reduced counts (was
+# only checked at the default seed=0 before). 900s keeps a wide contention margin over the new ~25s
+# local wall (was cutting it close against 900s at the old ~83s local wall under real CI contention).
 def test_biz_val_core_refine_honest_fallback():
     """An adversarial core_drop_threshold=0.9 forces the core proposal to fail the honest gate;
     core_refine must fall back to the legacy greedy path and produce the SAME selection greedy would."""
     X, y, _strong, _weak = _make_mixed_strength_fixture(n=800, p=200, n_strong=4, n_weak=2)
 
-    sel_greedy, _ = _fit_selected(X, y, refine_mode="greedy")
-    sel_core_adversarial, fs_core = _fit_selected(X, y, refine_mode="core", core_drop_threshold=0.9)
+    # Reduced n_estimators across every internal stage (default 100/25) -- see the perf comment above
+    # the test for the empirical validation that this doesn't weaken the fallback-logic assertion.
+    fast_kw = dict(
+        prefilter_n_estimators=20,
+        oof_shap_n_estimators=20,
+        refine_n_estimators=20,
+        revalidation_n_estimators=20,
+        trust_guard_n_estimators=10,
+    )
+
+    sel_greedy, _ = _fit_selected(X, y, refine_mode="greedy", **fast_kw)
+    sel_core_adversarial, fs_core = _fit_selected(X, y, refine_mode="core", core_drop_threshold=0.9, **fast_kw)
 
     refine_report = fs_core.shap_proxy_report_["within_cluster_refine"]
     assert refine_report.get("fallback") is True, "adversarial core_drop_threshold=0.9 should have tripped the honest-gate fallback"

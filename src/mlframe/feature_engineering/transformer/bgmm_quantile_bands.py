@@ -6,7 +6,6 @@ Mechanism (regression):
 1. Split y into 5 quantile bands: Q1=[0-20%], Q2=[20-40%], Q3=[40-60%], Q4=[60-80%], Q5=[80-100%].
 2. For each band b: fit BGM on X[band_b] (n_components=3), sample virtuals.
 3. Per query: distance to k=1,3,5,10-th nearest virtual in each band → 5 bands × 4 k-scales = 20 features.
-4. Plus pairwise cross-band log-ratios: log(dist_Q5 / dist_Q1), log(dist_Q4 / dist_Q2), log(dist_Q3 / dist_Q1) — 3 ratios × 4 k-scales = 12 features.
 
 Mechanism (binary):
 - 2 bands (positive Q5 + negative Q1) — degenerates to iter 55 dual-class BGM but with explicit quantile labeling.

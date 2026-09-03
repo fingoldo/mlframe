@@ -6,11 +6,11 @@ directly; plotly uses ``plotly.colors.sample_colorscale`` with a
 matplotlib-compatible name.
 
 Conventions:
-- ``CALIBRATION``: ``RdYlBu`` (blue=high population, red=low) — used in
-  the calibration scatter + bin-population histogram so both panels
-  read against the same colorbar.
-- ``CONFUSION``: ``RdBu_r`` (sequential, red diagonal = confusion good)
-- ``HEATMAP_GENERIC``: ``viridis`` for non-confusion heatmaps
+- ``CALIBRATION``: diverging ``RdYlBu`` -- the reliability scatter colours its bubbles by the SIGNED
+  calibration gap, so the palette needs a meaningful midpoint. Overridable per run via
+  ``calibration_cmap`` / ``set_calibration_cmap`` (suite: ``ReportingConfig.calibration_colormap``).
+- ``CONFUSION``: ``RdBu_r`` (diverging, centred on zero; red diagonal = confusion good)
+- ``HEATMAP_GENERIC``: the "no preference" sentinel; resolves to ``HEATMAP_CMAP`` (viridis)
 - ``BAR_PRIMARY``: ``"steelblue"`` (single-series bar default)
 - ``LINE_PALETTE``: discrete categorical palette for overlaid line
   plots (per-class ROC, multi-line NDCG@k etc.)
@@ -19,13 +19,57 @@ Conventions:
 from __future__ import annotations
 
 import logging
+import os
+import threading
 from typing import Optional, Tuple
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# Diverging, because the reliability diagram's colour channel now carries the SIGNED calibration gap
+# (observed - predicted), whose midpoint -- zero, i.e. calibrated -- is exactly the meaningful one. Red reads as
+# over-confident, blue as under-confident, pale as calibrated. Callers that colour by bin population instead pass
+# the same map with autoscaled limits, matching the palette the long-standing matplotlib calibration plot used.
 CALIBRATION = "RdYlBu"
+
+# Per-thread override for the calibration colormap, same shape and same reason as the renderers' output-layout
+# override: two suites running concurrently in one process must not repaint each other's charts mid-run.
+_CALIBRATION_CMAP_OVERRIDE = threading.local()
+
+
+def set_calibration_cmap(name: Optional[str]) -> None:
+    """Set (or clear, with ``None``) this thread's calibration-colormap override."""
+    if name is None:
+        if hasattr(_CALIBRATION_CMAP_OVERRIDE, "value"):
+            del _CALIBRATION_CMAP_OVERRIDE.value
+    else:
+        _CALIBRATION_CMAP_OVERRIDE.value = str(name)
+
+
+def get_calibration_cmap_override() -> Optional[str]:
+    """This thread's calibration-colormap override, or None when unset (so a caller can restore it)."""
+    return getattr(_CALIBRATION_CMAP_OVERRIDE, "value", None)
+
+
+def calibration_cmap() -> str:
+    """The colormap the calibration charts should use: thread override, else env var, else ``CALIBRATION``.
+
+    Resolved per call rather than captured at import: the suite sets the override while building its charts, and a
+    module-level constant read at import time would be fixed before that ever happens.
+    """
+    override = get_calibration_cmap_override()
+    # `is not None`, so the tri-state contract is str / None with `set_calibration_cmap(None)` as the one CLEAR
+    # path. `if override:` made an empty string behave as a silent second clear rather than as the invalid
+    # colormap name it is -- and the two sibling overrides in `save.py` already use an explicit sentinel.
+    if override is not None:
+        if not override.strip():
+            raise ValueError("calibration_cmap: the thread override is an empty string; pass None to clear it.")
+        return override
+    env = (os.environ.get("MLFRAME_CALIBRATION_CMAP") or "").strip()
+    return env if env else CALIBRATION
+
+
 CONFUSION = "RdBu_r"
 # CB-safe heatmap defaults. ``HEATMAP_CMAP`` (viridis) is perceptually uniform and colourblind-safe for
 # unsigned magnitude heatmaps (confusion / PSI drift / weak-segment / co-occurrence / per-label threshold /
@@ -35,16 +79,27 @@ HEATMAP_CMAP = "viridis"
 DIVERGING_CMAP = "RdBu_r"
 # Generic-heatmap placeholder kept as the spec-field default; renderers resolve it to ``HEATMAP_CMAP`` so an
 # un-overridden HeatmapPanelSpec renders CB-safe on both backends. Builders that want a specific map pass it.
-HEATMAP_GENERIC = "Blues"
+# A sentinel meaning "the caller expressed no preference", NOT a colormap name. It used to be the literal string
+# "Blues", which made it indistinguishable from a builder genuinely asking for matplotlib's Blues -- the resolver
+# below silently turned that request into viridis with no way to express the difference. The token is deliberately
+# not a valid colormap name so the two can never be confused again.
+HEATMAP_GENERIC = "__mlframe_default_heatmap__"
 
 BAR_PRIMARY = "steelblue"
+# Overlay colours shared by BOTH renderers. These were hardcoded as literals at nine call sites across the
+# two backends, so a palette change had to be made nine times consistently or the backends drifted apart.
+TREND_LINE = "darkorange"
+OVERLAY_LINE = "purple"
+OVERLAY_BAND = "purple"
 PERFECT_FIT_LINE = "green"
 NORMAL_OVERLAY = "red"
 ZERO_LINE = "green"
 
-# Discrete categorical palette. First 10 are matplotlib tab10 (kept stable so existing snapshots don't shift); the next
-# 10 extend to the full tab20 set so classes stop colliding before K=20. Plotly aliases tab10 via ``qualitative.Plotly``
-# (visually similar, not identical) -- cross-backend renderings won't pixel-match here.
+# Discrete categorical palette: matplotlib tab10. The tab20 lightness variants that used to extend it are gone --
+# under simulated deuteranopia/protanopia a hue and its lighter twin separate by as little as 2.8 (against 14.6 for
+# the worst tab10 pair), so they read as one colour to a red-green colourblind viewer. Past 10 series the dash cycle
+# in ``line_style`` distinguishes the wrap instead, which survives any colour vision. Plotly aliases tab10 via
+# ``qualitative.Plotly`` (visually similar, not identical) -- cross-backend renderings won't pixel-match here.
 LINE_PALETTE: Tuple[str, ...] = (
     "#1f77b4",  # tab:blue
     "#ff7f0e",  # tab:orange
@@ -56,16 +111,6 @@ LINE_PALETTE: Tuple[str, ...] = (
     "#7f7f7f",  # tab:gray
     "#bcbd22",  # tab:olive
     "#17becf",  # tab:cyan
-    "#aec7e8",  # tab20 light blue
-    "#ffbb78",  # tab20 light orange
-    "#98df8a",  # tab20 light green
-    "#ff9896",  # tab20 light red
-    "#c5b0d5",  # tab20 light purple
-    "#c49c94",  # tab20 light brown
-    "#f7b6d2",  # tab20 light pink
-    "#c7c7c7",  # tab20 light gray
-    "#dbdb8d",  # tab20 light olive
-    "#9edae5",  # tab20 light cyan
 )
 
 
@@ -74,11 +119,28 @@ def line_color(idx: int) -> str:
     return LINE_PALETTE[idx % len(LINE_PALETTE)]
 
 
+def line_style(idx: int) -> str:
+    """Line style that varies on each palette WRAP, so colour reuse past 20 series is still distinguishable.
+
+    ``line_color`` cycles at ``len(LINE_PALETTE)``, so a 25-class overlay draws classes 0 and 20 in the exact
+    same colour with nothing else to tell them apart. Advancing the dash pattern once per wrap keeps every
+    series visually distinct up to 20 * len(_LINE_STYLE_CYCLE) of them, at no cost for the common K <= 20 case
+    (wrap 0 is a solid line, which is what every existing caller already draws).
+    """
+    return _LINE_STYLE_CYCLE[(idx // len(LINE_PALETTE)) % len(_LINE_STYLE_CYCLE)]
+
+
+# Dash patterns applied once per LINE_PALETTE wrap; both renderers accept these matplotlib-style tokens.
+_LINE_STYLE_CYCLE: Tuple[str, ...] = ("-", "--", ":", "-.")
+
+
 def resolve_heatmap_cmap(colormap: Optional[str]) -> str:
     """Resolve a HeatmapPanelSpec colormap to the CB-safe default when it was left at the generic placeholder.
 
     An un-overridden ``HeatmapPanelSpec.colormap`` is ``HEATMAP_GENERIC``; mapping it to ``HEATMAP_CMAP`` here
     means both renderers default heatmaps to perceptually-uniform viridis while an explicit override is honoured.
+
+    ``HEATMAP_GENERIC`` is a sentinel token, not a colormap: passing ``"Blues"`` now means Blues and gets Blues.
     """
     if colormap is None or colormap == HEATMAP_GENERIC:
         return HEATMAP_CMAP
@@ -163,12 +225,17 @@ def auto_text_colors_batch(values: np.ndarray, colormap: str, vmin: float = 0.0,
         return np.where(luminance > 0.5, "black", "white")
     except Exception as exc:
         logger.debug("auto_text_colors_batch: colormap lookup for %r failed, falling back to 'black': %s", colormap, exc)
-        return np.full(arr.shape, "black", dtype=object)
+        # Same dtype as the success path above (``np.where`` on two str literals yields '<U5'). Returning
+        # object dtype here made the result's dtype depend on whether matplotlib happened to load, so a
+        # caller doing dtype-sensitive work saw different behaviour in the two branches.
+        return np.full(arr.shape, "black", dtype="<U5")
 
 
 __all__ = [
     "CALIBRATION", "CONFUSION", "HEATMAP_GENERIC", "HEATMAP_CMAP", "DIVERGING_CMAP",
     "BAR_PRIMARY", "PERFECT_FIT_LINE", "NORMAL_OVERLAY", "ZERO_LINE",
-    "LINE_PALETTE", "line_color", "auto_text_color", "resolve_heatmap_cmap",
+    "TREND_LINE", "OVERLAY_LINE", "OVERLAY_BAND",
+    "LINE_PALETTE", "line_color", "line_style", "auto_text_color", "auto_text_colors_batch", "resolve_heatmap_cmap",
+    "calibration_cmap", "set_calibration_cmap", "get_calibration_cmap_override",
     "FRIEND_GRAPH_NODE_COLORS", "FRIEND_GRAPH_EDGE_CMAP", "friend_graph_node_color",
 ]

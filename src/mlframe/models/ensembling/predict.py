@@ -42,6 +42,9 @@ logger = logging.getLogger("mlframe.models.ensembling")
 # so ``id()`` cannot be reused for a different array while the entry is live. Bounded to the last few member sets (3 splits
 # x a couple of in-flight ensembles); cleared on demand for tests.
 _GATE_CACHE_MAXSIZE = 16
+# Values sampled per member when fingerprinting its predictions. Bounded so the signature is O(1) in row count;
+# 1024 strided values over a (N, K) prediction block is far more than enough to separate distinct members.
+_FINGERPRINT_SAMPLES = 1024
 _gate_cache: "dict[tuple, tuple]" = {}
 _gate_cache_order: list = []
 
@@ -50,6 +53,24 @@ def _clear_gate_cache() -> None:
     """Empty the module-level outlier-gate LRU cache and its eviction-order tracker (used by tests / callers that need a clean-slate gate computation)."""
     _gate_cache.clear()
     _gate_cache_order.clear()
+
+
+def _member_fingerprint(p) -> tuple:
+    """Content signature of one member's predictions: shape, dtype and a strided value sample.
+
+    Replaces an ``id()`` key, which is only meaningful while the object is both alive and unmutated -- and
+    defending that assumption is what drove the cache to freeze its caller's arrays. Sampling a bounded number
+    of values keeps the cost O(1) in the number of rows, and a member that was mutated in place simply
+    fingerprints differently and is recomputed.
+    """
+    if not isinstance(p, np.ndarray):
+        return ("obj", id(p))
+    flat = p.reshape(-1)
+    if flat.size == 0:
+        return (p.shape, p.dtype.str, 0)
+    step = max(1, flat.size // _FINGERPRINT_SAMPLES)
+    sample = np.ascontiguousarray(flat[::step][:_FINGERPRINT_SAMPLES])
+    return (p.shape, p.dtype.str, int(flat.size), hash(sample.tobytes()))
 
 
 def _compute_outlier_gate(
@@ -63,13 +84,12 @@ def _compute_outlier_gate(
     """Flavour-invariant outlier-member gate. Returns (skipped_indices: frozenset, median_mae, median_std, rel_mae_threshold,
     rel_std_threshold, per_member_mae, per_member_std). Memoised on the member-array identities + thresholds (CPX17)."""
     key = (
-        tuple(id(p) for p in preds),
+        tuple(_member_fingerprint(p) for p in preds),
         float(max_mae), float(max_std), float(max_mae_relative), float(max_std_relative),
     )
     cached = _gate_cache.get(key)
     if cached is not None:
-        # Retained refs (cached[0]) keep the arrays alive so the id()-key cannot alias a freed-then-reused array.
-        return cast(tuple, cached[1])
+        return cast(tuple, cached)
 
     # Cross-member median used as outlier-filter anchor: median along the MEMBER axis (axis=0 of (M, N, K)). ``sample_weight``
     # is a per-ROW vector so it is meaningless on this member-axis reduction (the member axis is uniformly weighted by
@@ -100,7 +120,14 @@ def _compute_outlier_gate(
         median_mae, median_std, rel_mae_threshold, rel_std_threshold,
         per_member_mae, per_member_std,
     )
-    _gate_cache[key] = (preds, result)  # hold ``preds`` so the id()-key stays valid for the entry's lifetime.
+    # No freeze and no retained arrays. The key used to be ``id()``-based, which is only valid while the objects
+    # are alive and unmutated, so the cache defended itself by marking the CALLER's prediction arrays read-only
+    # and holding a reference to each -- a public entry point that silently made its inputs immutable for the
+    # rest of the process (the caller's next in-place clip or calibration raised, with a traceback pointing
+    # nowhere near this function), and pinned up to _GATE_CACHE_MAXSIZE complete member sets in memory. A
+    # content fingerprint needs neither: an in-place mutation simply produces a different key and a fresh
+    # computation, which is the correct answer rather than a loud one.
+    _gate_cache[key] = result
     _gate_cache_order.append(key)
     if len(_gate_cache_order) > _GATE_CACHE_MAXSIZE:
         _gate_cache.pop(_gate_cache_order.pop(0), None)

@@ -32,11 +32,13 @@ from typing import Callable, Dict, List, Optional, Tuple, cast
 
 import numpy as np
 
+from ._captions import caption_for_tokens
+
 from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels, parse_panel_template,
 )
 from mlframe.reporting.spec import (
-    BarPanelSpec, FigureSpec, HistogramPanelSpec, LinePanelSpec, PanelSpec,
+    AnnotationPanelSpec, BarPanelSpec, FigureSpec, HistogramPanelSpec, LinePanelSpec, PanelSpec,
     ViolinPanelSpec,
 )
 
@@ -110,8 +112,11 @@ def bootstrap_ndcg_ci(
     Returns ``(mean, lower, upper)`` of the per-query NDCG over the ``1-alpha`` percentile bootstrap. Resampling is the
     correct unit here -- queries, not rows -- because rows within a query are dependent. Fully vectorised: one
     ``(n_boot, n_eff)`` integer gather of resampled query indices, ``mean(axis=1)``, then two percentiles; no python
-    bootstrap loop. ``n_eff`` is capped at ``_BOOTSTRAP_QUERY_CAP`` so a huge query count subsamples per resample
-    (the CI narrows with the true query count, which the cap preserves up to its bound). NaN-bracket when no valid query.
+    bootstrap loop. ``n_eff`` is capped at ``_BOOTSTRAP_QUERY_CAP`` so a huge query count does not need a
+    ``(n_boot, 1e6)`` gather. Resampling only ``n_eff`` of ``nq`` queries estimates the standard error of a MEAN OF
+    n_eff, which is ``sqrt(nq / n_eff)`` times too wide -- at nq = 1e6 that is a 4.5x overstated interval, and the
+    old docstring's claim that the cap "preserves" the narrowing was simply wrong. The half-width is therefore
+    rescaled by ``sqrt(n_eff / nq)`` back onto the full query count. NaN-bracket when no valid query.
     """
     vals = np.asarray(per_query_ndcg, dtype=np.float64)
     vals = vals[~np.isnan(vals)]
@@ -127,10 +132,15 @@ def bootstrap_ndcg_ci(
     boot_means = vals[idx].mean(axis=1)
     lo = float(np.percentile(boot_means, 100.0 * alpha / 2.0))
     hi = float(np.percentile(boot_means, 100.0 * (1.0 - alpha / 2.0)))
-    return float(vals.mean()), lo, hi
+    mean = float(vals.mean())
+    if n_eff < nq:
+        shrink = float(np.sqrt(n_eff / nq))
+        lo = mean + (lo - mean) * shrink
+        hi = mean + (hi - mean) * shrink
+    return mean, lo, hi
 
 
-def _ndcg_k_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> LinePanelSpec:
+def _ndcg_k_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> PanelSpec:
     """Mean NDCG@k across queries, k=1..max_per_query.
 
     One batched kernel pass with ``eval_ks=1..max_k`` replaces the prior
@@ -141,7 +151,11 @@ def _ndcg_k_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> 
     sorted_y_true, sorted_y_score, group_starts, sizes = _sorted_layout(y_true, y_score, group_ids, shared)
     n_groups = len(group_starts) - 1
     if n_groups == 0 or int(sizes.max(initial=0)) < 1:
-        return LinePanelSpec(x=np.array([1]), y=np.array([0.0]), title="NDCG@k", xlabel="k", ylabel="Mean NDCG@k")
+        # A single plotted (1, 0.0) point reads as "this ranker scores zero"; say there was nothing to rank instead.
+        return AnnotationPanelSpec(
+            text="NDCG@k unavailable: no query group has any document. Check that group_ids partitions the rows.",
+            title="NDCG@k",
+        )
     max_k = min(int(sizes.max()), 50)  # cap for plot readability
     eval_ks = np.arange(1, max_k + 1, dtype=np.int64)
     ndcg_sums, ndcg_counts, _, _, _, _ = _summary_batched_kernel(sorted_y_true, sorted_y_score, group_starts, eval_ks)
@@ -151,11 +165,11 @@ def _ndcg_k_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> 
         y=ndcgs,
         title=f"NDCG@k curve (max k = {max_k})",
         xlabel="k",
-        ylabel="Mean NDCG@k",
+        ylabel="Mean NDCG@k (higher is better)",
     )
 
 
-def _ndcg_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> ViolinPanelSpec:
+def _ndcg_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> PanelSpec:
     """Per-query NDCG@10 (or full-query) distribution as a single violin.
 
     Tail at low NDCG = query types where the model is failing.
@@ -165,19 +179,28 @@ def _ndcg_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) 
     ndcg10 = _per_query_ndcg10(y_true, y_score, group_ids, shared)
     per_q = ndcg10[(sizes >= 2) & ~np.isnan(ndcg10)]
     if per_q.size == 0:
-        per_q = np.array([0.0])
+        # A placeholder [0.0] fed the bootstrap and printed "mean=0.000, 95% CI [0.000, 0.000]" -- a confidently
+        # bracketed number entirely manufactured by the placeholder, indistinguishable from a real measurement.
+        return AnnotationPanelSpec(
+            text=(
+                "Per-query NDCG@10 unavailable: no query has at least 2 documents AND a defined NDCG (a query needs "
+                "at least one relevant document). Singleton queries are excluded here by design -- see the "
+                "by-query-size panel, which includes them."
+            ),
+            title="Per-query NDCG@10",
+        )
     # Bootstrap-over-queries 95% CI on the mean: the violin shows the spread, this brackets how well the MEAN is pinned.
     mean, lo, hi = bootstrap_ndcg_ci(per_q)
     return ViolinPanelSpec(
         groups=(per_q,),
         group_labels=(f"all queries (n={per_q.size})",),
         title=f"Per-query NDCG@10 (mean={mean:.3f}, 95% CI [{lo:.3f}, {hi:.3f}])",
-        xlabel="",
-        ylabel="NDCG@10",
+        xlabel="query population",
+        ylabel="NDCG@10 (higher is better)",
     )
 
 
-def _ndcg_by_qsize_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> BarPanelSpec:
+def _ndcg_by_qsize_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> PanelSpec:
     """Mean NDCG@10 binned by query size (log2-spaced bins) with per-bin query counts.
 
     Tiny groups score trivially high NDCG (a 1-doc query with any positive item is a guaranteed 1.0), so a high overall mean can be pure
@@ -188,11 +211,9 @@ def _ndcg_by_qsize_panel(y_true, y_score, group_ids, shared: Optional[dict] = No
     ndcg10 = _per_query_ndcg10(y_true, y_score, group_ids, shared)
     valid = ~np.isnan(ndcg10)
     if sizes.size == 0 or not valid.any():
-        return BarPanelSpec(
-            categories=("(no data)",), values=np.array([0.0]),
+        return AnnotationPanelSpec(
+            text="Mean NDCG@10 by query size unavailable: no query has a defined NDCG (none has a relevant document).",
             title="Mean NDCG@10 by query size",
-            xlabel="Query size (docs per query, log2 bins)",
-            ylabel="Mean NDCG@10",
         )
     sizes_v = sizes[valid].astype(np.int64)
     vals_v = ndcg10[valid]
@@ -213,7 +234,7 @@ def _ndcg_by_qsize_panel(y_true, y_score, group_ids, shared: Optional[dict] = No
         values=np.asarray(means),
         title=f"Mean NDCG@10 by query size (small groups inflate NDCG; overall 95% CI [{olo:.3f}, {ohi:.3f}])",
         xlabel="Query size (docs per query, log2 bins)",
-        ylabel="Mean NDCG@10",
+        ylabel="Mean NDCG@10 (higher is better)",
         xtick_rotation=30.0,
     )
 
@@ -232,16 +253,18 @@ def _lift_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> Li
         max_k = 1
     lift_sums, counts = _lift_curve_kernel(sorted_y_true, sorted_y_score, group_starts, max_k)
     lift = lift_sums / np.maximum(counts, 1)
+    top_lift = float(lift[0]) if lift.size else float("nan")
+    at10 = float(lift[min(9, lift.size - 1)]) if lift.size else float("nan")
     return LinePanelSpec(
         x=np.arange(1, max_k + 1, dtype=np.float64),
         y=lift,
-        title="Cumulative-relevance lift",
+        title=(f"Cumulative-relevance lift (rank 1 captures {top_lift:.1%} of the ideal, " f"rank 10 {at10:.1%})"),
         xlabel="Rank position (1-indexed)",
         ylabel="Cumulative relevance / ideal",
     )
 
 
-def _mrr_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> HistogramPanelSpec:
+def _mrr_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> PanelSpec:
     """Per-query reciprocal rank distribution.
 
     For each query, reciprocal of the 1-indexed rank of the first relevant doc in the score-sorted order; queries with no relevant doc
@@ -253,24 +276,32 @@ def _mrr_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -
 
     sorted_y_true, sorted_y_score, group_starts, _ = _sorted_layout(y_true, y_score, group_ids, shared)
     rrs_raw = _per_query_mrr_kernel(sorted_y_true, sorted_y_score, group_starts)
-    rrs = np.where(np.isnan(rrs_raw), 0.0, rrs_raw)
+    # The kernel returns NaN for a query with NO relevant document. Mapping that to 0.0 conflated "the ranker buried
+    # the answer" with "there was no answer to find", and silently dragged MRR down in proportion to how many such
+    # queries the evaluation set happened to contain.
+    undefined = int(np.isnan(rrs_raw).sum())
+    rrs = rrs_raw[~np.isnan(rrs_raw)]
     if rrs.size == 0:
-        rrs = np.array([0.0])
+        return AnnotationPanelSpec(
+            text=(f"MRR unavailable: none of the {undefined:,} queries has a relevant document, so reciprocal rank is " "undefined for every one of them."),
+            title="Reciprocal rank distribution",
+        )
     mrr = float(np.mean(rrs))
+    excluded_note = f"; {undefined:,} queries with no relevant doc excluded" if undefined else ""
     heights, centers, width = prebin_histogram(rrs, 20, True)
     return HistogramPanelSpec(
         values=heights if centers is not None else rrs,
         bins=20,
         bin_centers=centers,
         bin_width=width,
-        title=f"Per-query Reciprocal Rank (MRR={mrr:.3f})",
+        title=f"Per-query Reciprocal Rank (MRR={mrr:.3f} over {rrs.size:,} queries{excluded_note})",
         xlabel="Reciprocal rank (1 = first hit at top)",
         ylabel="Density",
         density=True,
     )
 
 
-def _score_by_rel_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> ViolinPanelSpec:
+def _score_by_rel_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> PanelSpec:
     """Predicted-score distribution per relevance grade.
 
     Well-separated violins = ranker correctly orders grades. Heavily
@@ -358,8 +389,10 @@ def _score_by_rel_panel(y_true, y_score, group_ids, shared: Optional[dict] = Non
                 labels.append(f"rel={g} (n={int(mask.sum()):_})")
 
     if not groups:
-        groups = [np.array([0.0])]
-        labels = ["(no data)"]
+        return AnnotationPanelSpec(
+            text="Predicted score by relevance grade unavailable: no row carries both a finite score and a relevance grade.",
+            title="Predicted score by relevance grade",
+        )
 
     return ViolinPanelSpec(
         groups=tuple(groups),
@@ -370,60 +403,62 @@ def _score_by_rel_panel(y_true, y_score, group_ids, shared: Optional[dict] = Non
     )
 
 
-def _top1_by_qsize_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> LinePanelSpec:
-    """Top-1 accuracy bucketed by query size.
+def _top1_by_qsize_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> PanelSpec:
+    """Top-1 accuracy bucketed by query size, as a categorical bar.
 
-    For each query size bucket [2,3], [4,5], [6,8], [9,15], [16+]:
-    the fraction of queries where the top-scored doc has the highest
-    relevance. Reveals whether model degrades on tiny / huge queries.
+    For each query-size bucket, the fraction of queries whose top-scored document also holds the highest relevance
+    in that query. Reveals whether the model degrades on tiny or huge queries.
+
+    Two things this used to get wrong. It rebuilt the query grouping with its own full sort instead of reading the
+    shared one every other panel uses; and it drew a LINE against fabricated bucket MIDPOINTS (``16+`` became 21),
+    so the x axis carried invented positions and the line interpolated between buckets that have no meaningful
+    distance between them. A bar over the bucket labels states exactly what was measured.
     """
-    queries = _per_query_groups(group_ids)
-    y_true = np.asarray(y_true)
-    y_score = np.asarray(y_score, dtype=np.float64)
+    sorted_y_true, sorted_y_score, group_starts, sizes = _sorted_layout(y_true, y_score, group_ids, shared)
     buckets = [(2, 3), (4, 5), (6, 8), (9, 15), (16, 10**9)]
     correct = [0] * len(buckets)
     counts = [0] * len(buckets)
-    for q_idx in queries:
-        n = len(q_idx)
+    for gi in range(int(sizes.size)):  # group_starts is a BOUNDARY array (n_groups + 1 entries); sizes is per group
+        n = int(sizes[gi])
         if n < 2:
             continue
-        rels_q = y_true[q_idx]
-        scores_q = y_score[q_idx]
-        if rels_q.max() <= 0:
+        lo_i = int(group_starts[gi])
+        rels_q = sorted_y_true[lo_i : lo_i + n]
+        scores_q = sorted_y_score[lo_i : lo_i + n]
+        rel_max = rels_q.max()
+        if rel_max <= 0:
             continue  # no relevant doc -> degenerate query
-        # Wave 21 P2: nan-safe argmax. NaN score picked as top would
-        # under-report correct@1 silently.
+        # nan-safe argmax: a NaN score picked as top would under-report correct@1 silently.
         _finite = np.isfinite(scores_q)
         if not _finite.any():
-            continue  # all-NaN query: cannot pick top
-        if _finite.all():
-            top_pred_idx = int(np.argmax(scores_q))
-        else:
-            top_pred_idx = int(np.nanargmax(scores_q))
-        # "Correct" = predicted top has the maximum relevance in the query
-        # (allow ties: the top-pred relevance equals the max relevance).
-        is_correct = rels_q[top_pred_idx] == rels_q.max()
-        for b_idx, (lo, hi) in enumerate(buckets):
-            if lo <= n <= hi:
+            continue  # all-NaN query: cannot pick a top document
+        top_pred_idx = int(np.argmax(scores_q)) if _finite.all() else int(np.nanargmax(scores_q))
+        # "Correct" = the predicted top holds the maximum relevance in the query (ties count as correct).
+        is_correct = rels_q[top_pred_idx] == rel_max
+        for b_idx, (blo, bhi) in enumerate(buckets):
+            if blo <= n <= bhi:
                 counts[b_idx] += 1
                 if is_correct:
                     correct[b_idx] += 1
                 break
     accs = np.array([(c / n_) if n_ > 0 else np.nan for c, n_ in zip(correct, counts)])
-    bucket_labels = [f"{lo}-{hi}" if hi < 10**9 else f"{lo}+" for lo, hi in buckets]
-    # Use an integer x for the line plot; xlabels get attached via the
-    # bar variant of LinePanelSpec? Simpler: keep numeric x; renderers
-    # don't read tick labels from LinePanelSpec. Use the bucket midpoint.
-    midpoints = np.array([(lo + hi) / 2 if hi < 10**9 else lo + 5 for lo, hi in buckets], dtype=np.float64)
-    title = "Top-1 accuracy by query size"
-    return LinePanelSpec(
-        x=midpoints,
-        y=accs,
-        title=title + " (buckets: " + " ".join(bucket_labels) + ")",
-        xlabel="Query size (bucket midpoint)",
-        ylabel="Top-1 correct",
+    populated = np.flatnonzero(np.array(counts) > 0)
+    if populated.size == 0:
+        return AnnotationPanelSpec(
+            text=("Top-1 accuracy by query size unavailable: no query has at least 2 documents AND at least one "
+                  "relevant document, so there is no top-1 decision to score."),
+            title="Top-1 accuracy by query size",
+        )
+    cats = tuple((f"{buckets[b][0]}-{buckets[b][1]}" if buckets[b][1] < 10**9 else f"{buckets[b][0]}+") + f"\n(n={counts[b]:,} queries)" for b in populated)
+    return BarPanelSpec(
+        categories=cats,
+        values=accs[populated],
+        title="Top-1 accuracy by query size (correct = the top-scored doc holds the query's max relevance)",
+        xlabel="Query size (documents per query)",
+        ylabel="Top-1 accuracy (higher is better)",
+        colors=("steelblue",),
+        hovertext=tuple(f"{cats[i].splitlines()[0]}: {correct[b]:,} of {counts[b]:,} queries correct" for i, b in enumerate(populated)),
     )
-
 
 # ----------------------------------------------------------------------------
 # Token registry + composer
@@ -441,6 +476,25 @@ _TOKEN_BUILDERS: Dict[str, Callable] = {
 }
 
 ALLOWED_LTR_PANEL_TOKENS = frozenset(_TOKEN_BUILDERS)
+
+# One sentence per token, joined for the tokens ACTUALLY rendered (see ``_captions.caption_for_tokens``). The
+# figure-level caption used to describe the DEFAULT template, so a caller asking for a narrower mix read about
+# panels that were not on their figure.
+_TOKEN_CAPTIONS: Dict[str, str] = {
+    "NDCG_K": ("NDCG@k discounts a relevant document by its rank, so improvements at the top of a list count for more than the same move deeper down."),
+    "NDCG_DIST": (
+        "The per-query NDCG distribution shows whether an average is carried by most queries or rescued by a few; a long left tail is queries the ranker fails outright."
+    ),
+    "NDCG_BY_QSIZE": (
+        "NDCG by query size separates ranking skill from list length: short lists score high mechanically, because there is less room to be wrong."
+    ),
+    "MRR_DIST": ("MRR looks only at the FIRST relevant hit, so it is the metric to read when a user stops at the first useful result."),
+    "TOP1_BY_QSIZE": (
+        "Top-1 accuracy by query size carries each bucket's query count, because a bucket of a dozen queries is not comparable to one of thousands."
+    ),
+    "LIFT": ("Lift compares the ranker against a random ordering of the same lists; a lift near 1 means the score adds nothing over shuffling."),
+    "SCORE_BY_REL": ("Score by relevance grade checks that the model's scores are MONOTONE in the label, which the aggregate metrics assume but never verify."),
+}
 
 
 def compose_ltr_figure(
@@ -483,6 +537,11 @@ def compose_ltr_figure(
         suptitle=suptitle,
         panels=grid,
         figsize=figsize_for_grid(n_rows, n_cols, cell_width=cell_width, cell_height=cell_height),
+        caption=caption_for_tokens(
+            "How to read: these panels score a RANKING within each query group, so every number is an average over queries and the per-query spread matters as much as its mean.",
+            tokens,
+            _TOKEN_CAPTIONS,
+        ),
     )
 
 

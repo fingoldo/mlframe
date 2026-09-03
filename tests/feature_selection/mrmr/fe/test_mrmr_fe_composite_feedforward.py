@@ -269,7 +269,7 @@ def test_fe_max_steps_2_discovers_additive_composite_of_two_engineered():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_fe_max_steps_1_fuses_to_single_compound():
     """``fe_max_steps=1`` recovers the additively-separable canonical signal (y = a**2/b + f/5 +
     log(c)*sin(d)) as ONE clean fused compound. SUPERSEDED PREMISE (2026-07-01): the prior contract here was

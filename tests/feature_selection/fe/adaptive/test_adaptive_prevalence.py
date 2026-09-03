@@ -48,7 +48,7 @@ def _fit_linear_mae(prevalence, df, y, seed=0, *, synergy=None):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(500)
+@pytest.mark.timeout(900)
 def test_auto_prevalence_no_mean_harm_on_bilinear_multiseed():
     """The bilinear FE selection is RNG-unstable (MRMR.fit consumes global np.random), so a
     single-draw comparison is dominated by noise -- measured per-seed "auto" can win big (seed 2:
@@ -77,7 +77,7 @@ def test_auto_prevalence_no_mean_harm_on_bilinear_multiseed():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_auto_prevalence_does_not_harm_additive():
     """On an additive-only target "auto" must not degrade vs the fixed 1.05 bar (no-harm direction)."""
     n = 6000
@@ -92,7 +92,7 @@ def test_auto_prevalence_does_not_harm_additive():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(900)
 def test_auto_synergy_prevalence_runs_and_no_harm_additive():
     """fe_synergy_min_prevalence="auto" shares the prevalence MM-debias mechanism (verified to give the
     same multi-seed mean win on bilinear as fe_min_pair_mi_prevalence="auto"); here we pin that it is

@@ -6,7 +6,7 @@ an HW-tuned crossover; this script populates that cache entry by timing
 CPU/GPU on a sweep of (N, d) shapes.
 
 Run once on dev hardware (or per-machine in production):
-    D:/ProgramData/anaconda3/python.exe -m mlframe.feature_engineering._benchmarks.bench_rff_matmul
+    python -m mlframe.feature_engineering._benchmarks.bench_rff_matmul
 
 Result: writes a `work_threshold` entry to `kernel_tuning_cache` keyed by
 hw_fingerprint(). The auto-dispatch picks it up next call. Falls back to the
@@ -115,7 +115,11 @@ def main() -> int:
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
         cache = KernelTuningCache.load_or_create()
-        cache.store("rff_matmul", {"work_threshold": int(threshold), "calibrated_at": time.time()})
+        # A single region with no axis-constraint keys applies uniformly across every (n, d) shape --
+        # this bench measures one scalar work_threshold crossover, not a per-shape sweep of distinct
+        # regions. cache.lookup("rff_matmul", ...) strips the declared axes' constraint keys and
+        # returns the rest of the region dict, i.e. {"work_threshold": ...} here.
+        cache.update("rff_matmul", axes=["work"], regions=[{"work_threshold": int(threshold)}])
         print("Cache updated. random_features._should_use_gpu_rff will use this value next call.")
         return 0
     except Exception as e:

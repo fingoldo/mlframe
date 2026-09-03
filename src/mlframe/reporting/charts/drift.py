@@ -22,9 +22,12 @@ and decimate curves so a 1M-row time-ordered frame stays cheap. New behaviour de
 
 from __future__ import annotations
 
+import logging
 from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:
     from numba import njit
@@ -32,8 +35,14 @@ try:
 except ImportError:
     _NUMBA_AVAILABLE = False
 
+# ``_adversarial_auc_bar`` is imported from HERE by tests/reporting/test_charts_statistical_regressions.py,
+# so the carve keeps it reachable at its old home.
+from ._drift_shared import _adversarial_auc_bar  # noqa: F401
+from ._drift_shared import (
+    ADV_MAX_ROWS_PER_SIDE, ADV_N_ESTIMATORS, ADV_TOP_FEATURES, _frame_columns,
+)
 from mlframe.reporting.spec import (
-    AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec, PanelSpec,
+    AnnotationPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec, PanelSpec,
 )
 
 # PSI triage thresholds (DataRobot / H2O / Arize industry standard): < 0.10 stable, 0.10-0.25 moderate shift,
@@ -47,6 +56,9 @@ PSI_DEFAULT_BINS: int = 10
 # Floor every bucket-bin proportion at this fraction before the log ratio so an empty bucket bin does not blow PSI to
 # +inf (the standard PSI epsilon; 1e-4 corresponds to "<1 in 10k" which is below any actionable per-bucket mass).
 PSI_EPS: float = 1e-4
+# Past this many cells, per-cell numeric annotations overlap into an unreadable smear; the confusion-matrix and
+# multiclass heatmaps apply the same ceiling.
+_HEATMAP_CELL_TEXT_MAX: int = 400
 
 
 def _quantile_edges(baseline: np.ndarray, nbins: int) -> np.ndarray:
@@ -88,6 +100,21 @@ def _psi_one(baseline_props: np.ndarray, bucket_props: np.ndarray, eps: float = 
     e = np.clip(baseline_props, eps, None)
     b = np.clip(bucket_props, eps, None)
     return float(np.sum((b - e) * np.log(b / e)))
+
+
+def _psi_verdict(matrix, noise_floor: float, row_labels) -> str:
+    """One-line pass/fail over the whole PSI grid: how many features drift, and which is worst."""
+    per_feature = np.nanmax(matrix, axis=1) if matrix.size else np.empty(0)
+    real = per_feature[np.isfinite(per_feature)]
+    if real.size == 0:
+        return " -- no feature has a computable PSI"
+    bar = max(PSI_SIGNIFICANT, noise_floor)
+    drifting = int(np.sum(real > bar))
+    w = int(np.nanargmax(per_feature))
+    worst = f"{row_labels[w]} (peak PSI {per_feature[w]:.2f})" if w < len(row_labels) else f"peak PSI {per_feature[w]:.2f}"
+    if drifting == 0:
+        return f" -- no feature drifts past {bar:.2f}; worst is {worst}"
+    return f" -- {drifting} of {real.size} features drift past {bar:.2f}; worst is {worst}"
 
 
 def compute_psi_matrix(
@@ -136,48 +163,60 @@ def compute_psi_matrix(
 
     rows: List[np.ndarray] = []
     peak: List[float] = []
-    for col in cols:
-        col = np.asarray(col, dtype=np.float64)
-        edges = _quantile_edges(col[base_sel], nbins)
-        base_props = _binned_proportions(col[base_sel], edges)
+    kept_names: List[str] = []
+    skipped: List[str] = []
+    for _name, col in zip(names, cols):
+        # PSI here is quantile-binned, which only means anything for an ordered numeric column. A string /
+        # categorical column used to reach ``np.asarray(..., dtype=float64)`` and take the whole diagnostic
+        # down with "could not convert string to float: 'FIXED'" -- one unusable column costing every other
+        # column its chart. Categorical drift has its own report (categorical PSI over level frequencies);
+        # here such a column is skipped and named.
+        try:
+            col = np.asarray(col, dtype=np.float64)
+        except (TypeError, ValueError):
+            skipped.append(_name)
+            continue
+        base_vals = col[base_sel]
+        edges = _quantile_edges(base_vals, nbins)
         per_bucket = np.empty(n_buckets, dtype=np.float64)
-        for b in range(n_buckets):
-            per_bucket[b] = _psi_one(base_props, _binned_proportions(col[bucket_of == b], edges))
+        if edges.size < 3:
+            # A baseline with fewer than two distinct finite values has no distribution to compare against: every
+            # later value falls in the single [-inf, +inf] bin and PSI is identically 0. Reporting 0 there said
+            # "stable" about a feature that was constant during the baseline and exploded afterwards -- the exact
+            # case this chart exists to catch. NaN renders blank, which is the honest answer.
+            per_bucket[:] = np.nan
+        else:
+            base_props = _binned_proportions(base_vals, edges)
+            # One contiguous sweep over the time-sorted column instead of a full-n boolean mask + copy per bucket:
+            # the `order` permutation and `bucket_bounds` above already describe every bucket as a slice.
+            col_sorted = col[order]
+            for b in range(n_buckets):
+                block = col_sorted[bucket_bounds[b] : bucket_bounds[b + 1]]
+                per_bucket[b] = _psi_one(base_props, _binned_proportions(block, edges))
         rows.append(per_bucket)
-        peak.append(float(np.nanmax(per_bucket)) if per_bucket.size else 0.0)
+        kept_names.append(_name)
+        peak.append(float(np.nanmax(per_bucket)) if per_bucket.size and np.isfinite(per_bucket).any() else 0.0)
 
     matrix = np.vstack(rows) if rows else np.zeros((0, n_buckets), dtype=np.float64)
+    if skipped:
+        logger.info(
+            "psi_heatmap: %d non-numeric column(s) skipped (quantile PSI needs an ordered numeric column; "
+            "categorical drift is covered by the categorical-PSI report): %s",
+            len(skipped), ", ".join(skipped[:10]) + (", ..." if len(skipped) > 10 else ""),
+        )
+    # Row labels track the columns that actually produced a row: a skipped column must not shift every
+    # later name onto the wrong row.
+    names = kept_names
     if matrix.shape[0] > max_features:
         keep = np.argsort(peak)[::-1][:max_features]
         keep = keep[np.argsort(keep)]  # preserve original feature order among the kept set
         matrix = matrix[keep]
         names = [names[i] for i in keep]
 
-    col_labels = tuple(f"t{b}" for b in range(n_buckets))
+    # Bucket size belongs on the axis: PSI's null expectation is ~(nbins-1)/n_bucket, so the same cell value means
+    # "drifted" at 5000 rows and "pure noise" at 50. Without the count on the label the reader cannot tell which.
+    col_labels = tuple(f"t{b}\n(n={int(bucket_bounds[b + 1] - bucket_bounds[b]):,})" for b in range(n_buckets))
     return matrix, tuple(names), col_labels
-
-
-def _frame_columns(feature_frame: Any, feature_names: Optional[Sequence[str]]) -> Tuple[List[np.ndarray], List[str]]:
-    """Yield per-column ndarrays + names from ndarray / pandas / polars without copying the whole frame.
-
-    ``feature_names`` (when given) RESTRICTS + ORDERS the pulled columns for a DataFrame
-    too -- not only the ndarray-labelling path. Ignoring it on frames silently trained
-    PSI / adversarial validation on every column (target / id leakage, mismatched order).
-    """
-    if hasattr(feature_frame, "columns") and hasattr(feature_frame, "__getitem__") and not isinstance(feature_frame, np.ndarray):
-        selected = list(feature_names) if feature_names is not None else list(feature_frame.columns)
-        # polars exposes ``to_numpy`` per Series; pandas ``.values``. Pull one column at a time (narrow ndarray pull).
-        cols = []
-        for c in selected:
-            s = feature_frame[c]
-            arr = s.to_numpy() if hasattr(s, "to_numpy") else np.asarray(s)
-            cols.append(arr)
-        return cols, [str(c) for c in selected]
-    arr = np.asarray(feature_frame)
-    if arr.ndim == 1:
-        arr = arr.reshape(-1, 1)
-    names = list(feature_names) if feature_names is not None else [f"f{i}" for i in range(arr.shape[1])]
-    return [arr[:, i] for i in range(arr.shape[1])], names
 
 
 def psi_heatmap(
@@ -192,7 +231,7 @@ def psi_heatmap(
     title: str = "Feature drift (PSI vs baseline)",
     figsize: Optional[Tuple[float, float]] = None,
 ) -> FigureSpec:
-    """PSI feature x time-bucket drift heatmap (R-12).
+    """PSI feature x time-bucket drift heatmap.
 
     Each cell is the 10-bin PSI of a feature's distribution in that time bucket vs the baseline slice. Color is the raw
     PSI on an RdYlGn_r scale (green = stable, red = drifted); the 0.10 / 0.25 triage thresholds are noted in the title
@@ -206,16 +245,28 @@ def psi_heatmap(
     )
     if matrix.size == 0:
         panel: PanelSpec = AnnotationPanelSpec(text="PSI heatmap: no features / rows", title=title)
-        return FigureSpec(suptitle="", panels=((panel,),), figsize=figsize or (8.0, 3.0))
+        return FigureSpec(suptitle="", panels=((panel,),), figsize=(8.0, 3.0) if figsize is None else figsize)
 
     n_feat, n_buckets = matrix.shape
-    # cell_text shows the PSI numerically so an operator can read the exact value past the color (red cells matter).
-    cell_text = matrix.copy()
+    n_rows_total = int(np.asarray(timestamps).shape[0])
+    n_per_bucket = max(1, n_rows_total // max(1, n_buckets))
+    # PSI is a chi-square-like statistic: under NO drift its expectation is about (bins-1)/n_bucket. At 50 rows per
+    # bucket that floor is ~0.18, well past the "moderate" line, so i.i.d. data painted the grid orange.
+    psi_noise_floor = (max(1, int(nbins)) - 1) / float(n_per_bucket)
+    # cell_text shows the PSI numerically so an operator can read the exact value past the color (red cells matter),
+    # but past a few hundred cells the numbers overlap into an unreadable smear -- the same ceiling the confusion
+    # matrix and multiclass heatmaps already apply.
+    cell_text = matrix.copy() if matrix.size <= _HEATMAP_CELL_TEXT_MAX else None
+    suppressed = "" if cell_text is not None else f"; per-cell values hidden above {_HEATMAP_CELL_TEXT_MAX} cells"
     heat = HeatmapPanelSpec(
         matrix=matrix,
         row_labels=row_labels,
         col_labels=col_labels,
-        title=f"{title}\n(stable < {PSI_MODERATE:g}; moderate {PSI_MODERATE:g}-{PSI_SIGNIFICANT:g}; drift > {PSI_SIGNIFICANT:g})",
+        title=(
+            f"{title}{_psi_verdict(matrix, psi_noise_floor, row_labels)}\n(stable < {PSI_MODERATE:g}; moderate {PSI_MODERATE:g}-{PSI_SIGNIFICANT:g}; "
+            f"drift > {PSI_SIGNIFICANT:g}; no-drift noise floor at {n_per_bucket:,} rows/bucket "
+            f"= {psi_noise_floor:.3f}{suppressed})"
+        ),
         xlabel="time bucket (earliest -> latest)",
         ylabel="feature",
         colormap="RdYlGn_r",
@@ -224,10 +275,34 @@ def psi_heatmap(
         colorbar_label="PSI",
         # Iso-PSI triage contours: the renderer draws a line only where the heatmap crosses 0.10 / 0.25, so the
         # moderate / significant drift boundaries are visible directly on the grid rather than read off the colorbar.
-        threshold_contours=((PSI_MODERATE, "orange"), (PSI_SIGNIFICANT, "red")),
+        threshold_contours=(
+            (PSI_MODERATE, "orange", "dash", f"moderate {PSI_MODERATE:g}"),
+            (PSI_SIGNIFICANT, "red", "solid", f"significant {PSI_SIGNIFICANT:g}"),
+        ),
     )
-    fs = figsize or (max(8.0, 0.6 * n_buckets + 4.0), max(3.0, 0.32 * n_feat + 1.5))
-    return FigureSpec(suptitle="", panels=((heat,),), figsize=fs)
+    fs = (max(8.0, 0.6 * n_buckets + 4.0), max(3.0, 0.32 * n_feat + 1.5)) if figsize is None else figsize
+    n_flagged = int(np.nansum(matrix > PSI_SIGNIFICANT))
+    n_blank = int(np.isnan(matrix).sum())
+    caption = (
+        f"PSI compares each feature's distribution in a time bucket against its baseline-period distribution using "
+        f"{nbins} equal-frequency baseline bins: 0 = identical, > {PSI_MODERATE:g} moderate, "
+        f"> {PSI_SIGNIFICANT:g} significant. PSI is INFLATED at small bucket sizes -- its no-drift expectation is "
+        f"about (bins-1)/rows-per-bucket, which is {psi_noise_floor:.3f} here, so read any cell below that as noise. "
+        f"Column t0 is the baseline compared against itself and is 0 by construction. "
+        f"{n_flagged} feature-buckets exceed {PSI_SIGNIFICANT:g}"
+        + (f"; {n_blank} cells are blank (baseline constant, so PSI is undefined for that feature)." if n_blank else ".")
+    )
+    return FigureSpec(suptitle="", panels=((heat,),), figsize=fs, caption=caption)
+
+
+def _format_x(v: float) -> str:
+    """Render an x-axis position as a date when the axis carries epoch nanoseconds, else as a plain number."""
+    # Epoch-ns timestamps are the only values reaching this module at ~1e18; anything smaller is a real number.
+    if np.isfinite(v) and abs(v) > 1e15:
+        import datetime as _dt
+
+        return _dt.datetime.fromtimestamp(v / 1e9, tz=_dt.timezone.utc).strftime("%Y-%m-%d")
+    return f"{v:.6g}"
 
 
 def _time_bucket_edges(ts: np.ndarray, n_buckets: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -261,7 +336,7 @@ def residual_vs_time(
     title: str = "Regression residual drift over time",
     figsize: Tuple[float, float] = (10.0, 4.0),
 ) -> FigureSpec:
-    """Regression residual mean +- std per time bin (INV-26).
+    """Regression residual mean +- std per time bin.
 
     Residual = y_true - y_pred is bucketed into equal-count time bins; the line is the per-bin mean residual and the
     band is mean +- std. A mean drifting off zero is bias drift (model goes stale); a band that widens over time is
@@ -285,19 +360,33 @@ def residual_vs_time(
     counts = np.bincount(bucket_of, minlength=nb).astype(np.float64)
     counts_safe = np.where(counts > 0, counts, 1.0)
     mean = np.bincount(bucket_of, weights=resid, minlength=nb) / counts_safe
-    mean_sq = np.bincount(bucket_of, weights=resid * resid, minlength=nb) / counts_safe
-    var = np.clip(mean_sq - mean * mean, 0.0, None)
-    std = np.sqrt(var)
+    # Two-pass centred variance, NOT E[x^2]-E[x]^2. Residuals of a price/revenue model sit far from zero relative to
+    # their spread, and the raw-moment form then subtracts two nearly-equal large numbers: at centre 1e8 / true std
+    # 0.01 it returned per-bucket stds of [5.1, 0, 0, 0, 7.6]. The clip to zero made that silent -- a negative computed
+    # variance became a zero-width band, which reads as "this bucket's errors are perfectly consistent".
+    centred = resid - mean[bucket_of]
+    var = np.bincount(bucket_of, weights=centred * centred, minlength=nb) / counts_safe
+    std = np.sqrt(np.clip(var, 0.0, None))
     empty = counts == 0
     mean[empty] = np.nan
     std[empty] = np.nan
 
     zero = np.zeros_like(centers)
+    # The docstring names both failure modes (bias drift and spread drift) but the title was the caller's static
+    # string, so the reader had to eyeball the very comparison the per-bucket statistics already answer.
+    third = max(1, nb // 3)
+    first_ok, last_ok = np.isfinite(mean[:third]), np.isfinite(mean[-third:])
+    if first_ok.any() and last_ok.any():
+        d_bias = float(np.nanmean(mean[-third:]) - np.nanmean(mean[:third]))
+        d_spread = float(np.nanmean(std[-third:]) - np.nanmean(std[:third]))
+        drift_note = f" (last third vs first: bias {d_bias:+.3g}, spread {d_spread:+.3g})"
+    else:
+        drift_note = " (too few populated buckets to compare the ends of the timeline)"
     line = LinePanelSpec(
         x=centers,
         y=(mean, zero),
         series_labels=("mean residual", "zero"),
-        title=title,
+        title=title + drift_note,
         xlabel="time",
         ylabel="residual (y_true - y_pred)",
         line_styles=("lines+markers", "--"),
@@ -307,7 +396,13 @@ def residual_vs_time(
         band_color="steelblue",
         band_label="+/- 1 std",
     )
-    return FigureSpec(suptitle="", panels=((line,),), figsize=figsize)
+    caption = (
+        "Line = mean residual (y_true - y_pred) per equal-count time bucket; the band is plus/minus one standard "
+        "deviation of the residuals IN that bucket -- the spread of the errors, not a confidence interval on the "
+        "mean, so it does not narrow as the bucket grows. The mean drifting off the green zero line is bias drift; "
+        f"the band widening is variance drift. Buckets hold about {int(n // max(nb, 1)):,} rows each."
+    )
+    return FigureSpec(suptitle="", panels=((line,),), figsize=figsize, caption=caption)
 
 
 # Two-sided tabular CUSUM defaults (Page 1954 / Montgomery SPC): slack k=0.5 sigma is tuned to detect a 1-sigma
@@ -317,6 +412,28 @@ def residual_vs_time(
 # standardized first so k/h are in sigma units regardless of the residual scale.
 CUSUM_SLACK_K: float = 0.5
 CUSUM_DECISION_H: float = 8.0
+# Target probability that a genuinely drift-free series raises a change-point anywhere along its length. h=8 was
+# chosen for "ARL_0 in the tens of thousands", but Siegmund's approximation puts the TWO-SIDED ARL_0 at h=8, k=0.5
+# near 9,500, so a 6000-row series false-alarms about 47% of the time -- measured: 3 of 4 pure-noise seeds crossed.
+# Series length is what decides whether a fixed h is quiet, so h is solved from the length instead of fixed.
+CUSUM_FALSE_ALARM_TARGET: float = 0.05
+
+
+def cusum_h_for_length(n: int, k: float = CUSUM_SLACK_K, alpha: float = CUSUM_FALSE_ALARM_TARGET) -> float:
+    """Decision interval h (in sigma) holding the whole-series false-alarm probability near ``alpha`` at length ``n``.
+
+    Inverts Siegmund's ARL_0 approximation ``(exp(u) - u - 1) / (2k^2)`` with ``u = 2k(h + 1.166)``, targeting a
+    two-sided ARL_0 of ``n / alpha``. Never returns less than :data:`CUSUM_DECISION_H`, so this only ever makes the
+    chart QUIETER than the previous fixed default -- it cannot cause a real shift to be missed that was caught before.
+    """
+    if n <= 0 or k <= 0:
+        return CUSUM_DECISION_H
+    target_one_arm = 2.0 * n / max(alpha, 1e-6)  # two arms each get half the alarm budget
+    rhs = 2.0 * k * k * target_one_arm
+    u = np.log(rhs + 1.0)
+    for _ in range(60):  # exp(u) - u - 1 = rhs, converging from below
+        u = np.log(rhs + u + 1.0)
+    return float(max(CUSUM_DECISION_H, u / (2.0 * k) - 1.166))
 # Robust in-control mean/std from the FIRST in_control_frac of the time-ordered residuals (the period assumed drift-
 # free); median + MAD (scaled to sigma by 1.4826) resist the very mean-shift we are trying to detect downstream.
 CUSUM_IN_CONTROL_FRAC: float = 0.25
@@ -365,14 +482,14 @@ def cusum_residual_drift(
     timestamps: Optional[np.ndarray] = None,
     *,
     slack_k: float = CUSUM_SLACK_K,
-    decision_h: float = CUSUM_DECISION_H,
+    decision_h: Optional[float] = None,
     in_control_frac: float = CUSUM_IN_CONTROL_FRAC,
     max_vertices: int = 2000,
     x_is_time: bool = True,
     title: str = "Residual drift CUSUM (sustained mean shift)",
     figsize: Tuple[float, float] = (11.0, 4.0),
 ) -> FigureSpec:
-    """Two-sided tabular CUSUM of standardized regression residuals -- detects a SUSTAINED mean shift (INV-).
+    """Two-sided tabular CUSUM of standardized regression residuals -- detects a SUSTAINED mean shift.
 
     Residual = y_true - y_pred is standardized by a robust in-control mean/std (median + MAD over the first
     ``in_control_frac`` of the time-ordered rows, the period assumed drift-free), then run through the classic
@@ -393,7 +510,15 @@ def cusum_residual_drift(
     mask = np.isfinite(yt) & np.isfinite(yp)
     if timestamps is not None:
         ts = np.asarray(timestamps).ravel()
-        mask &= np.isfinite(ts.astype(np.float64)) if np.issubdtype(ts.dtype, np.number) else mask
+        # The prior `else mask` branch for non-numeric timestamps was a no-op (`mask &= mask`), so a
+        # datetime64 NaT timestamp was never filtered and could land at an arbitrary sorted position in the
+        # CUSUM's time-ordered residual sequence (np.argsort sorts NaT to the end, silently shifting every
+        # subsequent row's time-order). Filter NaT explicitly for datetime64; other non-numeric dtypes fall
+        # through unfiltered (unchanged from before -- no known non-finite sentinel for them).
+        if np.issubdtype(ts.dtype, np.number):
+            mask &= np.isfinite(ts.astype(np.float64))
+        elif np.issubdtype(ts.dtype, np.datetime64):
+            mask &= ~np.isnat(ts)
     yt, yp = yt[mask], yp[mask]
     n = yt.size
     if n < 8:
@@ -424,6 +549,9 @@ def cusum_residual_drift(
         return FigureSpec(suptitle="", panels=((ann,),), figsize=figsize)
 
     z = (resid - center) / sigma
+    # Solve h from the series length unless the caller pinned one, so the whole-series false-alarm probability stays
+    # near CUSUM_FALSE_ALARM_TARGET instead of growing with n.
+    decision_h = cusum_h_for_length(n, float(slack_k)) if decision_h is None else float(decision_h)
     sp, sm, cross = _cusum_tabular(z, float(slack_k), float(decision_h))
     # Signed CUSUM for a readable single curve: positive arm minus negative arm. Both arms are >= 0 and only one is
     # active at a time once drift sets in, so the difference shows direction (up-shift positive, down-shift negative).
@@ -450,9 +578,13 @@ def cusum_residual_drift(
         direction = "up" if sp[cross] > sm[cross] else "down"
         vlines = ((cx, "red", f"change-point @ {direction}-shift"),)
         vspans = ((cx, float(x_full[-1]), "red", 0.07, "post-change"),)
-        subtitle = f"\nchange-point detected at ordered-row {cross} ({direction}-shift); h={decision_h:g}, k={slack_k:g} sigma"
+        # "ordered-row 4173" is an internal index nobody can act on; report WHEN it happened.
+        subtitle = f"\nchange-point detected at {_format_x(cx)} ({direction}-shift, ordered row {cross:,} of {n:,});" f" h={decision_h:g}, k={slack_k:g} sigma"
     else:
         subtitle = f"\nno sustained shift detected (CUSUM stayed within +/-{decision_h:g} sigma); k={slack_k:g}"
+    # The in-control window is an ASSUMPTION, not a measurement: if the model was already drifting there, sigma is
+    # inflated and no alarm can ever fire. Stating the span is what lets a reader check that assumption.
+    subtitle += f"; in-control baseline = first {in_control_frac:.0%}" f" ({_format_x(float(x_full[0]))} .. {_format_x(float(x_full[n_ic - 1]))})"
 
     line = LinePanelSpec(
         x=x_plot,
@@ -467,7 +599,14 @@ def cusum_residual_drift(
         vlines=vlines,
         vspans=vspans,
     )
-    return FigureSpec(suptitle="", panels=((line,),), figsize=figsize)
+    caption = (
+        "Two-sided tabular CUSUM of residuals standardised by a robust median/MAD estimated from the FIRST part of "
+        "the series, which is ASSUMED drift-free -- if the model was already drifting there, sigma is inflated and "
+        "no alarm will ever fire. S+ accumulates sustained over-prediction, S- sustained under-prediction; either "
+        "crossing the control limit signals a structural break that a per-bucket mean chart is too noisy to catch, "
+        "because a small persistent bias accumulates long before any single bucket's mean looks abnormal."
+    )
+    return FigureSpec(suptitle="", panels=((line,),), figsize=figsize, caption=caption)
 
 
 def metric_over_time(
@@ -486,7 +625,7 @@ def metric_over_time(
     figsize: Tuple[float, float] = (11.0, 4.0),
     max_vertices: int = 2000,
 ) -> FigureSpec:
-    """Rolling metric per time bucket as a LinePanelSpec with split / regime shading (INV-9).
+    """Rolling metric per time bucket as a LinePanelSpec with split / regime shading.
 
     Wraps ``training.evaluation.compute_ml_perf_by_time`` (numpy-fast, byte-identical day-divisor path) to compute the
     chosen metric per ``freq`` time bucket, then renders it as a single line with optional shaded ``regimes`` (e.g.
@@ -502,7 +641,7 @@ def metric_over_time(
     # only meaningful when at least one bucket cleared min_samples and produced a finite metric.
     if perf is None or len(perf) == 0 or metric not in perf.columns or not np.isfinite(perf[metric].to_numpy(dtype=np.float64)).any():
         panel: PanelSpec = AnnotationPanelSpec(
-            text=f"metric_over_time: no buckets with >= {min_samples} samples", title=title or metric,
+            text=f"metric_over_time: no buckets with >= {min_samples} samples", title=metric if title is None else title,
         )
         return FigureSpec(suptitle="", panels=((panel,),), figsize=figsize)
 
@@ -523,7 +662,7 @@ def metric_over_time(
         x=x,
         y=yvals,
         series_labels=(metric,),
-        title=title or f"{metric} over time ({direction})",
+        title=f"{metric} over time ({direction})" if title is None else title,
         xlabel="time",
         ylabel=metric,
         line_styles=("lines+markers",),
@@ -531,7 +670,13 @@ def metric_over_time(
         x_is_time=x_is_time,
         vspans=vspans,
     )
-    return FigureSpec(suptitle="", panels=((line,),), figsize=figsize)
+    caption = (
+        f"One point per '{freq}' time bucket, computed only on buckets holding at least {min_samples} rows -- a "
+        "bucket below that is left blank rather than plotted as a low score. A step DOWN that persists across "
+        "several buckets is staleness (the world moved); a single low bucket is usually just sample size. Shaded "
+        "spans mark the split / regime boundaries passed in by the caller."
+    )
+    return FigureSpec(suptitle="", panels=((line,),), figsize=figsize, caption=caption)
 
 
 def _is_datetime_index(idx: Any) -> bool:
@@ -578,202 +723,9 @@ def _coerce_x(v: Any, pd: Any) -> float:
         return float(v)
 
 
-# Per-side row cap for the adversarial classifier. A LightGBM split-classifier converges on distribution-shift signal
-# long before 200k rows/side; sampling caps the fit cost at large n without changing the verdict.
-ADV_MAX_ROWS_PER_SIDE: int = 200_000
-ADV_TOP_FEATURES: int = 20
-# Trees in the adversarial LightGBM separator. The adversarial AUC is a COARSE drift signal (is it ~0.5, or elevated?),
-# not a tuned predictor, so it saturates far below 200 trees: reducing 200 -> 75 shifts the OOF AUC by <=0.007 and never
-# flips the drift verdict (validated across 12 drift regimes from no-drift to heavy), while cutting the fit ~2x (the
-# separator is trained 3x for CV + once for importances, and this was ~17s across a report's drift panels at 300k).
-ADV_N_ESTIMATORS: int = 75
-# Minimum rows per side for the adversarial CV: a stratified 2-fold needs >= 2 of each class per fold, so fewer
-# rows per side makes cross_val_predict raise on a 0-sample fold.
-MIN_ADV_ROWS_PER_SIDE: int = 4
-
-
-def _subsample_rows(n: int, cap: int, seed: int) -> np.ndarray:
-    """Return a sorted random index subsample of size ``min(n, cap)`` (sorted so downstream row-order-sensitive ops stay stable); the full index range if ``n`` is already within ``cap``."""
-    if n <= cap:
-        return np.arange(n, dtype=np.int64)
-    return np.sort(np.random.default_rng(seed).choice(n, size=cap, replace=False))
-
-
-def adversarial_auc(
-    feature_frame_a: Any,
-    feature_frame_b: Any,
-    *,
-    feature_names: Optional[Sequence[str]] = None,
-    max_rows_per_side: int = ADV_MAX_ROWS_PER_SIDE,
-    n_splits: int = 3,
-    seed: int = 0,
-    lgbm_params: Optional[dict] = None,
-) -> Tuple[float, np.ndarray, np.ndarray, np.ndarray, Tuple[str, ...]]:
-    """Train a LightGBM classifier to separate side-A (label 0) from side-B (label 1) on a shuffled union.
-
-    Returns ``(auc, fpr, tpr, importances, names)`` where ``auc`` is the cross-validated out-of-fold ROC AUC
-    (the honest "can a model tell the two sets apart" estimate -- in-sample AUC overstates separability), ``fpr/tpr``
-    are the OOF ROC-curve points, and ``importances`` are the model's gain importances aligned to ``names``. Each side
-    is subsampled to ``max_rows_per_side`` first so a 1M-row union stays cheap. AUC ~0.5 => same distribution;
-    AUC >> 0.5 => the sets are distinguishable (CV will not transfer / covariate shift present).
-    """
-    import lightgbm as lgb
-    import pandas as pd
-    from mlframe.metrics.core import fast_roc_auc, fast_roc_curve
-    from sklearn.model_selection import StratifiedKFold, cross_val_predict
-
-    cols_a, names_a = _frame_columns(feature_frame_a, feature_names)
-    cols_b, names_b = _frame_columns(feature_frame_b, feature_names)
-    if names_a != names_b:
-        raise ValueError("adversarial_auc: the two sides must share the same feature columns")
-    names = tuple(names_a)
-
-    na = cols_a[0].shape[0] if cols_a else 0
-    nb = cols_b[0].shape[0] if cols_b else 0
-    ia = _subsample_rows(na, max_rows_per_side, seed)
-    ib = _subsample_rows(nb, max_rows_per_side, seed + 1)
-
-    def _encode_pair(ca, cb):
-        """Return (a, b) as 1-D float64 arrays, or ``None`` to skip a non-scalar column. Numeric columns pass through;
-        string / categorical / object columns are label-encoded against the A+B union so the same category maps to the
-        same code on both sides (categorical drift -- a level present only in one side -- is a real adversarial signal,
-        not a reason to crash). NaN / None map to the -1 sentinel, which LightGBM treats as missing. Non-scalar columns
-        (embedding ``List(...)`` columns materialised as object arrays of Python lists / ndarrays) are skipped: they
-        have no single scalar value to feed the separating classifier."""
-        a = np.asarray(ca)
-        b = np.asarray(cb)
-        if a.ndim > 1 or b.ndim > 1:
-            return None  # 2-D (fixed-width embedding) -> not a scalar drift feature
-        if a.dtype == object and len(a) and isinstance(a.flat[0], (list, tuple, np.ndarray, dict)):
-            return None  # object column of per-row sequences (ragged embedding / nested)
-        try:
-            return a.astype(np.float64), b.astype(np.float64)
-        except (ValueError, TypeError):
-            sa = pd.Series(a).astype("string")
-            sb = pd.Series(b).astype("string")
-            codes, _ = pd.factorize(pd.concat([sa, sb], ignore_index=True), use_na_sentinel=True)
-            return codes[: len(a)].astype(np.float64), codes[len(a) :].astype(np.float64)
-
-    _enc, _kept_names = [], []
-    for j, nm in enumerate(names):
-        e = _encode_pair(cols_a[j], cols_b[j])
-        if e is not None:
-            _enc.append(e)
-            _kept_names.append(nm)
-    names = tuple(_kept_names)
-    Xa = np.column_stack([e[0][ia] for e in _enc]) if _enc else np.empty((len(ia), 0))
-    Xb = np.column_stack([e[1][ib] for e in _enc]) if _enc else np.empty((len(ib), 0))
-    X = np.vstack([Xa, Xb])
-    y = np.concatenate([np.zeros(len(ia), dtype=np.int64), np.ones(len(ib), dtype=np.int64)])
-
-    params: dict = dict(n_estimators=ADV_N_ESTIMATORS, num_leaves=31, learning_rate=0.05, subsample=0.8,
-                  colsample_bytree=0.8, n_jobs=-1, random_state=seed, verbosity=-1, importance_type="gain")
-    if lgbm_params:
-        params.update(lgbm_params)
-    clf = lgb.LGBMClassifier(**params)
-
-    # Need at least 2 of each class per fold; clamp n_splits to the minority count so a tiny synthetic still runs.
-    k = max(2, min(int(n_splits), int(min(len(ia), len(ib)))))
-    cv = StratifiedKFold(n_splits=k, shuffle=True, random_state=seed)
-    oof = cross_val_predict(clf, X, y, cv=cv, method="predict_proba")[:, 1]
-    auc = float(fast_roc_auc(y, oof))
-    fpr, tpr, _ = fast_roc_curve(y, oof)
-
-    # Importances come from a single full-data fit (the per-fold models are discarded by cross_val_predict); a full fit
-    # gives the most stable ranking of which features carry the separating signal.
-    clf.fit(X, y)
-    importances = np.asarray(clf.feature_importances_, dtype=np.float64)
-    return auc, fpr, tpr, importances, names
-
-
-def adversarial_validation(
-    train_frame: Any,
-    test_frame: Any,
-    *,
-    val_frame: Any = None,
-    feature_names: Optional[Sequence[str]] = None,
-    max_rows_per_side: int = ADV_MAX_ROWS_PER_SIDE,
-    top_features: int = ADV_TOP_FEATURES,
-    n_splits: int = 3,
-    seed: int = 0,
-    lgbm_params: Optional[dict] = None,
-    figsize: Tuple[float, float] = (12.0, 5.0),
-) -> FigureSpec:
-    """Adversarial-validation panel (R-1): "will my CV transfer?".
-
-    Trains a LightGBM classifier to separate train (label 0) from test (label 1) -- and, when ``val_frame`` is given,
-    train-vs-val too -- on a shuffled union, reports the out-of-fold ROC + AUC, and ranks the top-``top_features``
-    drifting features by classifier importance. AUC ~0.5 means train and test are indistinguishable (CV estimates
-    transfer); AUC well above ~0.6-0.7 means the sets differ and the top-importance features are the drift drivers.
-
-    Returns a 2-panel FigureSpec: left a ROC LinePanelSpec (train-vs-test, plus train-vs-val when supplied, + the
-    chance diagonal, AUCs in the title), right a BarPanelSpec of the top drifting features (train-vs-test importances).
-    """
-    # Stratified CV needs >= MIN_ADV_ROWS_PER_SIDE rows per side and >= 1 feature column; an empty / tiny side makes
-    # cross_val_predict raise on a 0-sample fold. Surface an honest placeholder instead of crashing the report.
-    cols_a, _ = _frame_columns(train_frame, feature_names)
-    cols_b, _ = _frame_columns(test_frame, feature_names)
-    na = cols_a[0].shape[0] if cols_a else 0
-    nb = cols_b[0].shape[0] if cols_b else 0
-    if not cols_a or not cols_b or min(na, nb) < MIN_ADV_ROWS_PER_SIDE:
-        ann = AnnotationPanelSpec(
-            text=f"Adversarial validation skipped: needs >= {MIN_ADV_ROWS_PER_SIDE} rows/side and >= 1 feature "
-            f"(got train={na}, test={nb}, n_features={len(cols_a)})",
-            title="Adversarial validation",
-        )
-        return FigureSpec(suptitle="", panels=((ann,),), figsize=figsize)
-
-    auc_tt, fpr_tt, tpr_tt, imp_tt, names = adversarial_auc(
-        train_frame, test_frame, feature_names=feature_names,
-        max_rows_per_side=max_rows_per_side, n_splits=n_splits, seed=seed, lgbm_params=lgbm_params,
-    )
-
-    series_x = [fpr_tt, np.array([0.0, 1.0])]
-    series_y = [tpr_tt, np.array([0.0, 1.0])]
-    labels = [f"train-vs-test (AUC={auc_tt:.3f})", "chance"]
-    styles = ["-", "--"]
-    colors = ["crimson", "gray"]
-    title_bits = [f"train-vs-test AUC={auc_tt:.3f}"]
-
-    if val_frame is not None:
-        auc_tv, fpr_tv, tpr_tv, _, _ = adversarial_auc(
-            train_frame, val_frame, feature_names=feature_names,
-            max_rows_per_side=max_rows_per_side, n_splits=n_splits, seed=seed + 100, lgbm_params=lgbm_params,
-        )
-        series_x.insert(1, fpr_tv)
-        series_y.insert(1, tpr_tv)
-        labels.insert(1, f"train-vs-val (AUC={auc_tv:.3f})")
-        styles.insert(1, "-")
-        colors.insert(1, "steelblue")
-        title_bits.append(f"train-vs-val AUC={auc_tv:.3f}")
-
-    # Each ROC curve has its own fpr grid (different per train-vs-test / train-vs-val pair); LinePanelSpec carries a
-    # tuple of per-series x arrays so every curve keeps its native vertices instead of being resampled onto a shared grid.
-    series_x = [np.asarray(fx, dtype=np.float64) for fx in series_x]
-    verdict = "shift => CV may NOT transfer" if auc_tt >= 0.6 else "indistinguishable => CV transfers"
-    roc = LinePanelSpec(
-        x=tuple(series_x),
-        y=tuple(series_y),
-        series_labels=tuple(labels),
-        line_styles=tuple(styles),
-        colors=tuple(colors),
-        title="Adversarial validation: " + "; ".join(title_bits) + f"\n({verdict})",
-        xlabel="False Positive Rate",
-        ylabel="True Positive Rate",
-    )
-
-    order = np.argsort(imp_tt)[::-1][: max(1, min(top_features, imp_tt.size))]
-    bar = BarPanelSpec(
-        categories=tuple(names[i] for i in order),
-        values=imp_tt[order],
-        title=f"Top {len(order)} drifting features (train-vs-test gain importance)",
-        xlabel="feature",
-        ylabel="LightGBM gain importance",
-        colors=("crimson",),
-        xtick_rotation=60.0,
-    )
-    return FigureSpec(suptitle="", panels=((roc, bar),), figsize=figsize)
-
+# Re-exported so every existing ``from ...drift import adversarial_auc`` keeps working. Imported at the BOTTOM
+# because the sibling imports this module's frame helpers and ADV_* constants back.
+from ._drift_adversarial import adversarial_auc, adversarial_validation
 
 __all__ = [
     "PSI_MODERATE",

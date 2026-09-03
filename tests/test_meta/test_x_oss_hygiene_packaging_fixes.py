@@ -55,7 +55,12 @@ def test_f2_manifest_referenced_files_all_exist():
 
 def test_f3_antropy_not_duplicated_in_signal_extra():
     """F3 antropy not duplicated in signal extra."""
-    import tomllib
+    import sys
+
+    if sys.version_info >= (3, 11):
+        import tomllib
+    else:  # pragma: no cover - repo's own floor is py39, but this test file itself runs under whatever collects it
+        import tomli as tomllib  # type: ignore[no-redef]
 
     with open(REPO_ROOT / "pyproject.toml", "rb") as f:
         doc = tomllib.load(f)

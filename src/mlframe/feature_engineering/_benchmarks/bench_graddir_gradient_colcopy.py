@@ -71,11 +71,13 @@ if __name__ == "__main__":
         model = _LinModel(d, 1)
         eps = 0.05
         go = grad_old(model, X.copy(), eps)
-        gn = grad_new(model, X.copy(), eps)
+        X_before = X.copy()
+        gn = grad_new(model, X, eps)
         identical = np.array_equal(go, gn)
-        unchanged = np.array_equal(X, rng.standard_normal((n, d)).astype(np.float32)) is False  # X is caller's; new must restore
+        unchanged = np.array_equal(X, X_before)  # grad_new mutates+restores in place; X must be intact afterward
+        assert unchanged, "grad_new must fully restore X after gradient computation"
         # OLD never mutates X (it copies); NEW mutates+restores so X is intact after each call.
         # Both can safely reuse the same X across timing iterations.
         to = best_of(grad_old, model, X, eps)
         tn = best_of(grad_new, model, X, eps)
-        print(f"n={n:>6} d={d:>3}  OLD={to*1e3:8.3f}ms  NEW={tn*1e3:8.3f}ms  speedup={to/tn:5.2f}x  identical={identical}")
+        print(f"n={n:>6} d={d:>3}  OLD={to*1e3:8.3f}ms  NEW={tn*1e3:8.3f}ms  speedup={to/tn:5.2f}x  identical={identical}  unchanged={unchanged}")

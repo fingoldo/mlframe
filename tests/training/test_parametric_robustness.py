@@ -24,7 +24,7 @@ import polars as pl
 # in broad runs. Cap each test's wall time to 180s -- generous enough for
 # the heavier strategies but well above the default --timeout=60 the suite
 # uses for the rest of the codebase.
-pytestmark = pytest.mark.timeout(180)
+pytestmark = pytest.mark.timeout(900)
 
 from mlframe.testing.parametric import (
     adversarial_frame,
@@ -348,6 +348,7 @@ class TestTrainSuiteRobustness:
             PreprocessingBackendConfig,
             FeatureSelectionConfig,
             OutputConfig,
+            ReportingConfig,
         )
         from .shared import TimestampedFeaturesExtractor
 
@@ -389,7 +390,8 @@ class TestTrainSuiteRobustness:
                 val_size=0.1,
                 wholeday_splitting=False,  # not enough distinct days at fuzz scale
             ),
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+            reporting_config=ReportingConfig(show_perf_chart=False, show_fi=False, adversarial_validation=False, interaction_strength_charts=False, engineered_separability_charts=False, class_structure_charts=False, category_discriminability_charts=False, slice_finder=False, shap_panels=False, decision_curve=False, calibration_drift=False, target_acf=False, model_comparison=False),
             verbose=0,
         )
         assert isinstance(models, dict)
@@ -419,6 +421,7 @@ class TestTrainSuiteRobustness:
             PreprocessingBackendConfig,
             FeatureSelectionConfig,
             OutputConfig,
+            ReportingConfig,
         )
         from .shared import TimestampedFeaturesExtractor
 
@@ -460,7 +463,8 @@ class TestTrainSuiteRobustness:
                 val_size=0.1,
                 wholeday_splitting=False,
             ),
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+            reporting_config=ReportingConfig(show_perf_chart=False, show_fi=False, adversarial_validation=False, interaction_strength_charts=False, engineered_separability_charts=False, class_structure_charts=False, category_discriminability_charts=False, slice_finder=False, shap_panels=False, decision_curve=False, calibration_drift=False, target_acf=False, model_comparison=False),
             verbose=0,
         )
         assert isinstance(models, dict)

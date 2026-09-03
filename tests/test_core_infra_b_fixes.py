@@ -15,7 +15,21 @@ import logging
 import numpy as np
 import pytest
 
-logging.disable(logging.CRITICAL)
+@pytest.fixture(autouse=True, scope="module")
+def _suppress_noisy_logging_during_this_module():
+    """Suppress WARNING-and-below logging while this module's tests run, then restore.
+
+    A bare module-level ``logging.disable(logging.CRITICAL)`` used to sit here with no matching
+    ``logging.disable(logging.NOTSET)`` -- ``logging.disable`` is a process-wide, manager-level
+    override (not scoped to one logger), so it fired at IMPORT time and stayed in effect for the
+    rest of this pytest-xdist worker's lifetime, silently swallowing every later test's
+    ``logger.warning(...)``/``logger.debug(...)`` calls regardless of that test's own
+    handler/level setup -- see the identical fix + incident writeup in
+    test_x_ml_correctness_meta_fixes.py.
+    """
+    logging.disable(logging.CRITICAL)
+    yield
+    logging.disable(logging.NOTSET)
 
 
 # ---------------------------------------------------------------------------
@@ -25,6 +39,7 @@ logging.disable(logging.CRITICAL)
 
 def test_b1_b2_dtw_dispatch_falls_back_to_cpu_when_cupy_raises(monkeypatch):
     """A cupy backend raising at call time must fall back to CPU, not propagate."""
+    pytest.importorskip("dtaidistance")
     from mlframe.signal import dtw
 
     monkeypatch.setattr(dtw, "_HAS_CUPY", True)
@@ -44,6 +59,7 @@ def test_b1_b2_dtw_dispatch_falls_back_to_cpu_when_cupy_raises(monkeypatch):
 
 def test_b1_b2_dtw_dispatch_falls_back_to_cpu_when_cuda_raises(monkeypatch):
     """A numba.cuda backend raising at call time must fall back to CPU, not propagate."""
+    pytest.importorskip("dtaidistance")
     from mlframe.signal import dtw
 
     monkeypatch.setattr(dtw, "_HAS_NB_CUDA", True)
@@ -63,6 +79,7 @@ def test_b1_b2_dtw_dispatch_falls_back_to_cpu_when_cuda_raises(monkeypatch):
 
 def test_b1_b2_dtw_dispatch_cpu_choice_unaffected():
     """Baseline: the ordinary CPU-choice path is unaffected by the new try/except wrapping."""
+    pytest.importorskip("dtaidistance")
     from mlframe.signal import dtw
 
     x = np.array([0.0, 1.0, 2.0, 1.0, 0.0])

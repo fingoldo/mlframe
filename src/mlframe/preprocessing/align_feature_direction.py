@@ -17,6 +17,78 @@ import pandas as pd
 FlipSpec = Union[int, Tuple[str, float, int]]  # int: plain sign flip; ("fold", center, sign): non-monotonic fold transform
 
 
+try:
+    from numba import njit, prange
+
+    _HAVE_NUMBA = True
+except ImportError:  # pragma: no cover - numba is a hard dep here, this is the documented optional-install path
+    _HAVE_NUMBA = False
+
+
+if _HAVE_NUMBA:
+
+    @njit(cache=True, nogil=True)
+    def _midranks_one_column_njit(Xt, order_t, ranks, j):  # pragma: no cover - compiled body is invisible to coverage
+        """Average ranks for column ``j``, averaging within each tie block of its sorted order.
+
+        Split out of the ``prange`` body deliberately. numba's parfor pass builds a CFG for everything inside
+        a ``prange`` loop, and the nested ``while`` scan below defeats it on CPython 3.9-3.11 -- the pass dies
+        with "Cannot add edge as dest node N not in nodes {...}" out of ``_replace_loop_access_indices``.
+        CPython 3.12+ emits bytecode it happens to cope with, so this compiled locally and broke only in CI.
+        A plain ``njit`` callee is compiled by the normal pipeline instead, which handles the loop fine, and
+        the outer ``prange`` still parallelises across columns.
+        """
+        n = Xt.shape[1]
+        i = 0
+        while i < n:
+            k = i
+            v = Xt[j, order_t[j, i]]
+            while k + 1 < n and Xt[j, order_t[j, k + 1]] == v:
+                k += 1
+            avg = (i + k) * 0.5 + 1.0
+            for t in range(i, k + 1):
+                ranks[j, order_t[j, t]] = avg
+            i = k + 1
+
+    @njit(parallel=True, cache=True, nogil=True)
+    def _midranks_from_order_njit(Xt, order_t):  # pragma: no cover - compiled body is invisible to coverage
+        """Average ranks per column, walking each column's sorted order and averaging within each tie block.
+
+        Both inputs are TRANSPOSED to ``(n_cols, n_rows)`` so each column's scan is contiguous; measured 1.4x
+        over the column-major form at (50k, 200) and (200k, 100).
+        """
+        p, n = Xt.shape
+        ranks = np.empty((p, n), dtype=np.float64)
+        for j in prange(p):
+            _midranks_one_column_njit(Xt, order_t, ranks, j)
+        return ranks
+
+
+def _midranks(X: np.ndarray) -> np.ndarray:
+    """Per-column 1-based AVERAGE ranks, the tie handling ``roc_auc_score`` itself uses.
+
+    Ranks used to come straight off ``np.argsort`` with no tie correction, so within any tied block the rank a
+    row received was decided by its position in the input rather than by its value. On a binary indicator, a
+    count column with a large zero mass, or any low-cardinality feature, the Mann-Whitney sum over positives
+    then landed on either side of 0.5 essentially at random -- and the caller turns that into a sign flip, or
+    reports the resulting per-fold churn as if it measured sampling noise. A genuinely constant column has a
+    true AUC of exactly 0.5 and got whatever the positive rows' positions dictated.
+
+    Correct AND faster than what it replaces: one unstable ``np.argsort`` plus one linear tie-block pass per
+    column, parallel over columns, measured 1.42x / 1.46x / 1.12x over the old untied ranks at (50k, 200),
+    (200k, 100) and (500k, 50), and bit-identical to ``scipy.stats.rankdata(X, axis=0)``, which is itself 1.4x
+    slower again. Sort stability is not needed: averaging within a tie block makes the result independent of
+    how the block was ordered (verified identical against ``kind="stable"``, which costs 4.3x more).
+    """
+    xt = np.ascontiguousarray(X.T)
+    order_t = np.ascontiguousarray(np.argsort(xt, axis=1))
+    if _HAVE_NUMBA:
+        return np.ascontiguousarray(_midranks_from_order_njit(xt, order_t).T)
+    from scipy import stats
+
+    return np.asarray(stats.rankdata(X, axis=0), dtype=np.float64)
+
+
 def batch_univariate_auc(X: np.ndarray, y_arr: np.ndarray) -> np.ndarray:
     """Per-column univariate AUC against a binary target, for the WHOLE ``(n_rows, n_cols)`` matrix at once.
 
@@ -37,11 +109,14 @@ def batch_univariate_auc(X: np.ndarray, y_arr: np.ndarray) -> np.ndarray:
         # erroring.
         raise ValueError(f"batch_univariate_auc: y_arr is single-class (n_pos={n_pos}, n_neg={n_neg}); AUC is undefined. Filter to a genuinely two-class y before calling.")
 
-    order = np.argsort(X, axis=0)
-    ranks = np.empty_like(order, dtype=np.float64)
-    rank_values = np.broadcast_to((np.arange(X.shape[0]) + 1)[:, None], order.shape)
-    np.put_along_axis(ranks, order, rank_values, axis=0)  # 1-based ranks; ties broken arbitrarily (matches roc_auc_score's tie handling closely enough for a sign/threshold decision)
+    if not np.isfinite(X).all():
+        # A non-finite cell sorts LAST under argsort and so receives the maximal rank. A column whose
+        # missingness correlates with the positive class then scores a spuriously high AUC, and the sign
+        # decision downstream is made on it. Refuse rather than answer wrongly, matching the single-class guard
+        # above and ``batch_mutual_information``, which rejects non-finite input too.
+        raise ValueError("batch_univariate_auc: X contains non-finite values; a NaN sorts last and takes the maximal rank, inflating that column's AUC. Drop or impute them before calling.")
 
+    ranks = _midranks(X)
     sum_ranks_pos = ranks[is_pos].sum(axis=0)
     return np.asarray((sum_ranks_pos - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg))
 

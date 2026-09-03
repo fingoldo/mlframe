@@ -48,6 +48,18 @@ def test_compute_iia_processes_the_last_model():
     assert calls["n"] == expected, f"expected {expected} ranking calls, got {calls['n']}"
 
 
+def test_compute_iia_fewer_than_3_models_raises():
+    """VOTENRANK-13: fewer than 3 models must raise a clear ValueError, not silently return result=0
+    (which looks like 'zero IIA violations' rather than 'IIA is undefined here')."""
+    import pytest
+
+    table = _table(2)
+    models_order = table.index.tolist()
+    weights = pd.Series(np.ones(table.shape[1]), index=table.columns)
+    with pytest.raises(ValueError, match="at least 3 models"):
+        iia_exp.compute_iia_for_fixed_models("borda", table, models_order, weights)
+
+
 def test_leaderboard_getattr_dispatch_runs():
     # Exercises getattr-based dispatch in elect_all / rank_all (formerly eval(...)).
     """Leaderboard getattr dispatch runs."""

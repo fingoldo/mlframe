@@ -18,7 +18,7 @@ immediately while the sweep measures in a background thread and persists the win
 
 Env override: ``MLFRAME_ODDS_COMBINE_BACKEND=njit_single|njit_parallel|cupy``.
 
-This module does NOT also check ``MLFRAME_DISABLE_GPU`` -- that convention (``feature_selection.filters.
+This module does NOT also check ``MLFRAME_DISABLE_GPU`` - that convention (``feature_selection.filters.
 _gpu_policy.gpu_globally_disabled``) is used exclusively via relative imports from within
 ``feature_selection/filters/**`` (verified by grep: every call site lives there), so it is a
 package-internal convention for that subsystem, not a repo-wide contract. A caller who wants CPU-only
@@ -35,6 +35,8 @@ from typing import Any, Callable
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 _ENV_KEY = "MLFRAME_ODDS_COMBINE_BACKEND"
@@ -46,13 +48,36 @@ def _get_cache() -> Any:
     """Return the shared ``KernelTuningCache`` singleton, or ``None`` if pyutilz/FS is unavailable."""
     try:
         from mlframe.feature_selection.filters import get_kernel_tuning_cache
-    except Exception as exc:  # pyutilz / FS package unavailable -> hardcoded fallback.
+    except ImportError as exc:  # the one genuine package-absent case.
         logger.debug("odds_ratio_combine: kernel_tuning_cache unavailable (%s); using hardcoded fallback.", exc)
+        return None
+    except Exception as exc:
+        # Narrowed to ImportError above and WARNED here, mirroring the `_select_mi_backend` fix. That module
+        # imports the FS package, which probes CUDA at import time, so a transient device fault surfaces here as
+        # something other than an ImportError -- and a bare `except Exception` at debug level then downgraded the
+        # backend choice from the measured per-host winner to a hardcoded size threshold for the rest of the
+        # process, invisibly. The measured spread between backends on this host is up to 9x.
+        log_throttle(
+            logger,
+            "odds_combine_ktc_import_failed",
+            logging.WARNING,
+            "odds_ratio_combine: importing the kernel-tuning cache raised %s (%s), which is not the package-absent "
+            "case; falling back to the hardcoded size threshold for the rest of this process.",
+            type(exc).__name__,
+            exc,
+        )
         return None
     try:
         return get_kernel_tuning_cache()
     except Exception as exc:  # pragma: no cover - defensive; singleton already guards.
-        logger.debug("odds_ratio_combine: get_kernel_tuning_cache() failed (%s); using hardcoded fallback.", exc)
+        log_throttle(
+            logger,
+            "odds_combine_ktc_singleton_failed",
+            logging.WARNING,
+            "odds_ratio_combine: get_kernel_tuning_cache() failed (%s: %s); using the hardcoded fallback.",
+            type(exc).__name__,
+            exc,
+        )
         return None
 
 
@@ -126,7 +151,15 @@ def choose_odds_combine_backend(n: int, k: int, *, fallback: str) -> str:
         if bc in _VALID_BACKENDS:
             return bc
     except Exception as exc:  # any cache hiccup -> hardcoded fallback, never raise.
-        logger.debug("odds_ratio_combine KTC lookup failed: %s", exc)
+        # Throttled to one line per process, so a REPEATED hiccup is surfaced once rather than never.
+        log_throttle(
+            logger,
+            "odds_combine_ktc_lookup_failed",
+            logging.WARNING,
+            "odds_ratio_combine: KTC lookup failed (%s: %s); using the hardcoded size threshold instead of the measured winner.",
+            type(exc).__name__,
+            exc,
+        )
     return fallback
 
 

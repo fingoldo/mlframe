@@ -60,13 +60,18 @@ def test_permutation_fi_still_warns_on_genuine_failure(caplog) -> None:
     y = np.random.default_rng(3).standard_normal(50)
     with caplog.at_level(logging.WARNING, logger="mlframe.training._feature_importances"):
         _permutation_feature_importances(_BrokenEstimator(), X, y)
-    # Either the function returns None silently (predict raises -> -inf
-    # scorer -> permutation still runs but produces uninformative FI),
-    # or it warns. Either is acceptable; we just want the None-model
-    # path NOT to suppress real failures.
-    # No assertion here; this test exists so the None-model fix above
-    # cannot accidentally regress into a blanket silent-skip on all
-    # failures.
+
+    # The caplog fixture was entered and never read, so this test asserted NOTHING -- which is the exact
+    # opposite of its purpose: it exists so the `model is None` short-circuit cannot regress into a blanket
+    # silent skip on ALL failures, and "either behaviour is acceptable" admits precisely that regression.
+    #
+    # A genuine estimator failure must be AUDIBLE. Its sibling above asserts the None-model path stays silent;
+    # this one asserts the broken-model path does not.
+    warning_msgs = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warning_msgs, (
+        "a genuinely broken estimator produced no WARNING. The None-model short-circuit has widened into a "
+        "blanket silent skip, which is the regression this file exists to prevent."
+    )
 
 
 def test_permutation_fi_return_std_tuple_shape_on_none_model() -> None:

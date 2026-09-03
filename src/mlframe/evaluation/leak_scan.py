@@ -14,6 +14,7 @@ from itertools import combinations
 
 import numpy as np
 import pandas as pd
+from scipy.stats import rankdata
 
 
 def _rank_columns(x: np.ndarray) -> np.ndarray:
@@ -41,9 +42,14 @@ def _rank_columns(x: np.ndarray) -> np.ndarray:
 def _spearman_against(x_mat: np.ndarray, y: np.ndarray) -> np.ndarray:
     """Vectorised Spearman-style rank correlation of every column of ``x_mat`` against ``y``."""
     ranks_x = _rank_columns(x_mat)
-    # y is a plain 1-D vector, so it goes through the SAME single-argsort+scatter _rank_columns path as
-    # every column of x_mat (reshaped to a single-column matrix, then flattened back).
-    ranks_y = _rank_columns(y[:, None]).ravel()
+    # y (split_labels) is documented as possibly "a binary train=0/test=1 indicator" or a small ordinal
+    # fold-id set -- maximal tie density. _rank_columns' ordinal (non-averaged, tie-broken-by-row-order)
+    # ranks inject spurious ordering among tied y values, systematically inflating the correlation
+    # (confirmed ~15% relative vs scipy.stats.spearmanr's tie-aware result on a binary-label fixture).
+    # y is always exactly one column, so a proper tie-averaged rank costs one extra O(n log n) pass
+    # regardless of how many columns x_mat has -- unlike x_mat's own ordinal-rank tradeoff (documented in
+    # _rank_columns, justified there by the O(k) column count this fast path exists to amortise).
+    ranks_y = rankdata(y, method="average")
 
     rx_centered = ranks_x - ranks_x.mean(axis=0, keepdims=True)
     ry_centered = ranks_y - ranks_y.mean()

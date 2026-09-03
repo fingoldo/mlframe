@@ -90,6 +90,39 @@ def test_biz_val_nw_beats_boxcar_moving_average_on_curved_signal():
     assert rmse_g <= rmse_b + 1e-9, f"gaussian NW {rmse_g:.3f} should be <= boxcar {rmse_b:.3f} on a curved peak"
 
 
+@pytest.mark.parametrize("kernel", ["epanechnikov", "boxcar", "tricube"])
+def test_compact_kernel_windowed_path_matches_full_scan(kernel):
+    """Compact-support kernels' binary-search windowed fast path must be bit-identical to a brute-force
+    O(n) full scan over every sample -- unsorted x, ties, and sample_weight all exercised."""
+    rng = np.random.default_rng(7)
+    x = rng.permutation(np.concatenate([np.linspace(0, 20, 800), np.full(30, 5.0)]))
+    y = rng.normal(size=x.shape[0])
+    w = rng.uniform(0.1, 2.0, size=x.shape[0])
+    xq = rng.uniform(-2, 22, size=200)
+    h = 0.7
+
+    out = nadaraya_watson_smooth(x, y, x_query=xq, bandwidth=h, kernel=kernel, sample_weight=w)
+
+    def _brute_force(xq_arr):
+        """Reference O(n_query*n_train) full-scan NW estimate, independent of the module under test."""
+        out_ref = np.empty(xq_arr.shape[0])
+        for qi, xqv in enumerate(xq_arr):
+            u = np.abs(xqv - x) / h
+            if kernel == "epanechnikov":
+                k = np.where(u < 1.0, 1.0 - u * u, 0.0)
+            elif kernel == "boxcar":
+                k = np.where(u <= 1.0, 1.0, 0.0)
+            else:
+                k = np.where(u < 1.0, (1.0 - u**3) ** 3, 0.0)
+            wi = k * w
+            den = wi.sum()
+            out_ref[qi] = wi @ y / den if den > 0.0 else np.nan
+        return out_ref
+
+    ref = _brute_force(xq)
+    assert np.allclose(out, ref, equal_nan=True, atol=1e-9)
+
+
 def test_biz_val_per_group_smoothing_denoises_each_entity():
     """Per-entity NW smoothing denoises each road-arc's speed series independently (no cross-entity leakage)."""
     rng = np.random.default_rng(2)

@@ -59,7 +59,7 @@ def _select_columns(X: Any, mask: np.ndarray, columns: Optional[Sequence[Any]]) 
     return X_arr
 
 
-class SegmentRoutedEstimator(BaseEstimator, RegressorMixin):
+class SegmentRoutedEstimator(RegressorMixin, BaseEstimator):
     """Route data-sparse rows to a reduced-feature specialist model, splice its predictions back by rank.
 
     Parameters

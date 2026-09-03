@@ -37,6 +37,20 @@ cProfile note: every op here is a handful of numpy reductions on small (n_oof)
 residual arrays -- microseconds at screening scale (n_oof <= tiny_model_sample_n).
 The dominant discovery cost is the K-fold tiny-model fits that PRODUCE the
 residuals, not this scoring; no actionable speedup (profiled trivial).
+
+INTEGRATION STATUS (TRAINING_COMPOSITE_DISCOVERY-1): not yet wired into any discovery gate. The natural
+call site is ``_tiny_rerank.py``'s ``_rerank_one_spec`` closure, which drives the tiny-CV fold loop via
+``_tiny_cv_rmse_y_scale_multiseed`` -- but that helper only returns AGGREGATED per-fold RMSE (``fam_rmses``
+/ ``per_seed_by_family``), not the raw per-row OOF residual arrays this module needs. Wiring this in
+correctly requires ``_tiny_cv_rmse_y_scale_multiseed`` (and its per-family/per-seed callers) to grow a
+``return_residuals`` option threading the fold-level ``y_true - y_pred`` arrays back out, without
+disturbing the existing multiseed / per-bin / Wilcoxon / early-stop paths in that ~1k-line hot loop.
+That is a real architectural change to a heavily-optimized, heavily-tested engine, not something to
+shoehorn in as a side effect of fixing this module's own dead-code status -- fabricating a shallow or
+incorrect residual feed would silently corrupt spec rankings, worse than leaving the gate unwired.
+Tracked as a follow-up integration task; this module's own contract (pure function, no-harm default via
+``CALIBRATION_GATE_DEFAULT_ENABLED = False``, opt-in only) is unchanged and ready to consume real OOF
+residuals whenever that plumbing lands.
 """
 from __future__ import annotations
 

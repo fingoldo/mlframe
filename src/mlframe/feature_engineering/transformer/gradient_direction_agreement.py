@@ -19,7 +19,10 @@ def _fit_3baselines(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int):
     """Fit 3 structurally different baselines (shallow LGBM, deeper LGBM, linear) so their gradient directions can be compared.
 
     The linear baseline (LogisticRegression / Ridge) can fail to converge on pathological folds; on failure ``m3`` is
-    ``None`` and the caller substitutes a zero gradient rather than aborting the whole feature.
+    ``None`` and the caller substitutes a zero gradient rather than aborting the whole feature. This is the same
+    fallback as the sibling ``_fit_3baselines*`` helpers' constant-class-prior substitution (a constant function
+    has a zero gradient everywhere), not an inconsistency -- each call site substitutes the shape its own output
+    needs (a scalar prediction there, a gradient here) for what is the same underlying degenerate model.
     """
     try:
         import lightgbm as lgb
@@ -32,7 +35,7 @@ def _fit_3baselines(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int):
         try:
             m3 = LogisticRegression(max_iter=200, solver="liblinear", random_state=int(seed) + 2).fit(Xt, y_t.astype(np.int32))
         except Exception as e:
-            logger.debug("LogisticRegression member fit failed: %s", e)
+            logger.info("gradient_direction_agreement: LogisticRegression member fit failed (%s); substituting a zero gradient.", e)
             m3 = None
         is_binary = True
     else:

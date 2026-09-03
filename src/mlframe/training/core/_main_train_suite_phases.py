@@ -94,7 +94,7 @@ def validate_suite_inputs(
 ) -> Any:
     """Validate the four required positional kwargs of ``train_mlframe_models_suite``.
 
-    Wave 29 P2 fix (2026-05-20): pre-fix rejected ``pathlib.Path`` with a confusing "must be ... path string" message. Path is a natural caller idiom (yaml config + Path / Click + Path); coerce to str at the boundary so the downstream parquet-read path stays unchanged.
+    Pre-fix rejected ``pathlib.Path`` with a confusing "must be ... path string" message. Path is a natural caller idiom (yaml config + Path / Click + Path); coerce to str at the boundary so the downstream parquet-read path stays unchanged.
 
     Returns the (possibly-coerced) ``df`` so callers can rebind their local in one statement.
     """
@@ -507,6 +507,7 @@ def run_distribution_analyzer_and_estimator_injection(
     *, enable_target_distribution_analyzer: bool, target_by_type: Any, train_idx: Any, group_ids: Any,
     timestamps: Any, train_df: Any, val_df: Any, test_df: Any, verbose: Any, metadata: dict,
     hyperparams_config: Any, behavior_config: Any, mlframe_models: list, ctx: Any,
+    preprocessing_config: Any = None,
 ) -> tuple:
     """Run the target-distribution analyzer, then optionally inject the E3 distribution-driven composite estimator.
 
@@ -524,6 +525,7 @@ def run_distribution_analyzer_and_estimator_injection(
         target_by_type=target_by_type, train_idx=train_idx, group_ids=group_ids, timestamps=timestamps,
         train_df=train_df, val_df=val_df, test_df=test_df, verbose=verbose, metadata=metadata,
         hyperparams_config=hyperparams_config, behavior_config=behavior_config, ctx=ctx,
+        preprocessing_config=preprocessing_config,
     )
     mlframe_models = maybe_inject_distribution_driven_estimator(
         ctx=ctx, metadata=metadata, mlframe_models=mlframe_models, target_by_type=target_by_type,

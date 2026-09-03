@@ -17,11 +17,6 @@ from timeit import default_timer as timer
 from typing import Any
 
 try:
-    import psutil as _ps_module
-except ImportError:  # pragma: no cover
-    _ps_module = None
-
-try:
     import polars as pl
 except ImportError:
     pl = None  # type: ignore[assignment]
@@ -169,7 +164,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
     if not hasattr(ctx, "_cache_stats") or ctx._cache_stats is None:
         ctx._cache_stats = {}
 
-    # bench-attempt-rejected (2026-05-24): dropping the two outer ``tqdmu_lazy_start`` bars (keeping only the innermost weight-schema bar) saved ~1.1ms
+    # bench-attempt-rejected: dropping the two outer ``tqdmu_lazy_start`` bars (keeping only the innermost weight-schema bar) saved ~1.1ms
     # of the 2.6ms per outer iteration in a synthetic 2x3x4 nested loop. Reverted because the outer bars give users visible per-pre_pipeline + per-model
     # progress on long suites; the small per-iter saving does not offset the diagnostic loss. ``tqdmu_lazy_start`` already suppresses single-item bars.
     for pre_pipeline, pre_pipeline_name in tqdmu_lazy_start(zip(pre_pipelines, pre_pipeline_names), desc="pre_pipeline", total=len(pre_pipelines)):
@@ -298,16 +293,24 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # PSUTIL-IMPORT-HOT: ``psutil`` is now imported at module level (``_ps_module``);
                 # the prior in-loop import paid ImportError lookup costs on every iter.
                 try:
-                    _ram_gb_now = _ps_module.Process().memory_info().rss / (1024**3) if _ps_module is not None else 0.0
+                    # Same measure as every other "RAM usage" line: a raw rss read here reported 6.2GB one line
+                    # after the suite printed 45.2GB, because on Windows rss is the working set and clean_ram
+                    # evicts it.
+                    from mlframe.training._ram_helpers import get_reported_memory_gb, memory_measure_name
+
+                    _ram_gb_now = get_reported_memory_gb()
+                    _ram_measure = memory_measure_name()
                 except Exception as e:
-                    logger.debug("psutil RSS probe failed: %s", e)
+                    logger.debug("memory probe failed: %s", e)
                     _ram_gb_now = 0.0
+                    _ram_measure = "?"
                 logger.info(
-                    "  process_model(%s) START -- model %d/%d, RAM=%.1fGB",
+                    "  process_model(%s) START -- model %d/%d, RAM=%.1fGB (%s)",
                     mlframe_model_name,
                     _model_idx_in_run,
                     _total_models_in_run,
                     _ram_gb_now,
+                    _ram_measure,
                 )
 
             if _model_entry not in models_params:
@@ -406,8 +409,9 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # within a tier, which would otherwise undo the lazy pandas conversion downstream.
             # See _compute_pipeline_cache_key for the features-digest contract (frozenset, order-invariant).
             # Pass the polars train frame (if present) so dtype changes between targets / runs
-            # invalidate the cache; pandas frames don't reach this branch typed-distinct enough to
-            # need the suffix (handled upstream in split_features), so it's safe to skip there.
+            # invalidate the cache; for a non-polars strategy, train_df_pd is passed instead so the
+            # same dtype/schema discriminator applies to pandas-consuming strategies too (see
+            # compute_model_pipeline_cache_key's docstring for the incident this closes).
             cache_key = compute_model_pipeline_cache_key(
                 strategy=strategy,
                 pre_pipeline_name=pre_pipeline_name,
@@ -415,6 +419,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 text_features=text_features,
                 embedding_features=embedding_features,
                 train_df_polars=train_df_polars,
+                train_df_pd=train_df_pd,
                 cur_target_name=cur_target_name,
                 current_train_target=current_train_target,
                 _compute_pipeline_cache_key=_compute_pipeline_cache_key,
@@ -623,7 +628,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # mutate the suite-level models_params template and the next target would inherit
                 # this iteration's overrides.
 
-                # F-34 (2026-05-31): MULTI_TARGET_REGRESSION build-time wiring.
+                # MULTI_TARGET_REGRESSION build-time wiring.
                 # Two things to do BEFORE the cloned_model lands in
                 # current_model_params:
                 #   * Native strategies (CatBoost / XGBoost): inject the
@@ -812,30 +817,6 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     _train_idx=_train_idx,
                 )
 
-                # After the first model trains, if the pre_pipeline is identity-equivalent (kept all
-                # columns) AND the ordinary branch is in the suite, the remaining models would see
-                # identical data - skip them.
-                if (
-                    _model_idx_in_run == 1
-                    and _pp_name_stripped
-                    and use_ordinary_models
-                    and feature_selection_config.skip_identity_equivalent_pre_pipelines
-                    and getattr(pre_pipeline, "_mlframe_identity_equivalent", False)
-                ):
-                    _skip_remaining = _total_models_in_run - 1
-                    if _skip_remaining > 0:
-                        logger.info(
-                            "[Dedup] pre_pipeline '%s' is "
-                            "identity-equivalent to ordinary (kept "
-                            "all %d columns); skipping remaining "
-                            "%d model(s) for this target.",
-                            _pp_name_stripped,
-                            train_df_transformed.shape[1] if train_df_transformed is not None else 0,
-                            _skip_remaining,
-                        )
-                    _break_model_loop = True
-                    break  # exit weight_schema loop
-
                 # Hand the dataset-reuse cache from cloned_model back to the template so the next
                 # weight-schema iteration's clone() carries it forward (symmetric to the forward-transfer
                 # block above). Without this the cache would be born and die in a single iteration.
@@ -864,6 +845,35 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
 
                 if cached_dfs is None:
                     pipeline_cache.set(cache_key, train_df_transformed, val_df_transformed, test_df_transformed)
+
+                # After the first model trains, if the pre_pipeline is identity-equivalent (kept all
+                # columns) AND the ordinary branch is in the suite, the remaining models would see
+                # identical data - skip them. Checked AFTER _build_and_record_model_schema /
+                # pipeline_cache.set above (not before, as this used to be ordered): the model that
+                # JUST trained and triggered this dedup detection must still get its own schema
+                # recorded and its transformed frames cached like every other model does -- breaking
+                # before those calls silently left it with no metadata['model_schemas'] entry,
+                # disabling predict-time schema-drift hard-fail protection for it specifically.
+                if (
+                    _model_idx_in_run == 1
+                    and _pp_name_stripped
+                    and use_ordinary_models
+                    and feature_selection_config.skip_identity_equivalent_pre_pipelines
+                    and getattr(pre_pipeline, "_mlframe_identity_equivalent", False)
+                ):
+                    _skip_remaining = _total_models_in_run - 1
+                    if _skip_remaining > 0:
+                        logger.info(
+                            "[Dedup] pre_pipeline '%s' is "
+                            "identity-equivalent to ordinary (kept "
+                            "all %d columns); skipping remaining "
+                            "%d model(s) for this target.",
+                            _pp_name_stripped,
+                            train_df_transformed.shape[1] if train_df_transformed is not None else 0,
+                            _skip_remaining,
+                        )
+                    _break_model_loop = True
+                    break  # exit weight_schema loop
 
             # Preserve a fitted feature-selector across same-bucket tree iterations. Tree strategies return
             # just the base_pipeline from build_pipeline(); non-tree strategies wrap it in a full Pipeline

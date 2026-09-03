@@ -310,7 +310,7 @@ tolerance `_derive_cell_stats` already accepts for this stat family). 12.04x spe
 best-of-10) on the common all-4-stats request. Full existing test suite for the file (9 tests, incl. the
 pre-existing `test_global_stats_all_matches_global_stat`) passes.
 
-OPEN FOLLOW-UP: `_derive_cell_stats`'s own per-cell skew/kurt (lines ~129-133) uses the SAME raw-moment
+FOLLOW-UP (CLOSED): `_derive_cell_stats`'s own per-cell skew/kurt used the SAME raw-moment
 binomial-expansion formula just proven catastrophically unstable — per-cell offsets are typically smaller
 than a whole-column global, but this is unverified, not yet stress-tested, and is a real candidate for the
 exact same bug on production data with large per-cell offsets. Needs its own dedicated A/B sweep before
@@ -440,12 +440,11 @@ Added `test_skew_kurt_stable_on_large_offset_small_scale_target` (pins per-categ
 scipy's direct computation on exactly this large-offset regime) to `test_multistat_target_encoding.py`.
 Full target-encoding suite (39 tests across `target_encoding/` + the mrmr biz_val kfold-TE suite) passes.
 
-OPEN FOLLOW-UP (unchanged from the earlier entry): `_binned_numeric_agg_fe.py`'s `_derive_cell_stats` still
-uses the original catastrophically-unstable raw-moment-expansion formula for its per-cell skew/kurt and has
-not yet been fixed — now THREE confirmed/suspected instances of this exact bug class across the codebase
-(`_global_stats_all` fixed, target-encoding fixed here, `_derive_cell_stats` still open). Worth a dedicated
-sweep for any other `s3 = ... ; m3 = s3/n - 3*mean*(s2/n) + 2*mean**3`-shaped code before assuming these
-three are the only occurrences.
+FOLLOW-UP (CLOSED 2026-09-02): `_derive_cell_stats` and its GPU twin `_per_cell_moments_stable_gpu` were both
+converted to centred moments; all three originally-named instances are fixed. The follow-up sweep this entry
+asked for was run and found the class alive one order down — `var = E[x^2] - E[x]^2` is the same cancellation
+at k=2, and nine live sites had gone unnoticed because the earlier rounds grepped only for skew and kurt.
+**Grep for `sum(x^k)` minus a power of the mean at ANY k >= 2, not just k in {3, 4}.**
 
 ## INVESTIGATION LEAD (2026-08-04, NOT yet actionable): `resident_operand`'s GPU cache shows an ~84% miss rate under a wide pairwise-modular/conditional-gate FE sweep — `cupy.array` cost 1697.9s / 29346 calls (~25% of the ENTIRE 6827s run) on combo `c0605` (5 models, multilabel, wide pair search)
 `resident_operand` (`_fe_resident_operands.py`) is an already-sophisticated content-hash LRU cache (192-entry
@@ -710,6 +709,27 @@ n=50/500/5000) and 1345x faster in isolation at n=1.6M (69.2s -> 0.051s). Full `
 
 ## Coverage cannot see inside `@njit`
 numba-compiled bodies never reach the Python trace hook, so every `@njit` function reads as uncovered no matter how heavily it is exercised. Measure them with `NUMBA_DISABLE_JIT=1`, and expect the run to be much slower.
+
+## PERF WIN (2026-08-24): plotly `add_annotation`/`add_shape` per-item loops are O(n^2) -- batch into one tuple assignment
+`fig.add_annotation(...)` internally does `layout.annotations = layout.annotations + (new,)`, which re-validates
+the WHOLE growing tuple (pydantic-style schema validation) on every call -- O(n) per call, O(n^2) over a loop.
+`ax.text()`/`ax.annotate()` in matplotlib do NOT have this problem (`Axes.text()` is a plain O(1)
+`self.texts.append(...)`) -- this is a plotly-specific trap, not a general "per-item annotation" one.
+Found via cProfile on `test_catboost_trains_on_mixed_dtypes`: 697 `add_annotation` calls costing 389s (43% of an
+895s profile). Root cause: `PlotlyRenderer._heatmap`'s per-cell text loop (up to `_HEATMAP_CELL_TEXT_MAX=400`
+cells) and the network-diagram directed-edge-arrow loop (up to `_NETWORK_MAX_ARROWS=500`), both in
+`reporting/renderers/plotly.py`. Fix: keep the FIRST `add_annotation` call as-is only when the xref/yref for that
+subplot still need discovering (row/col -> axis-ref resolution is plotly-internal); build every remaining
+annotation as a plain `go.layout.Annotation(...)` object and assign the whole batch in ONE
+`fig.layout.annotations = fig.layout.annotations + tuple(rest)`. When xref/yref are already known up front (no
+row/col resolution needed), skip the discovery call entirely and batch from the start. Verified bit-identical
+annotation content/order against the original per-call loop; measured 534x at n=400 (`bench_annotation.py`).
+Before writing a `_MAX_*` cap as "good enough" on a plotly per-item annotation/shape loop, check whether it can
+be batched instead of just capped -- the cap treats the symptom, batching removes the O(n^2) cause. Grepped
+`add_annotation`/`add_shape` across all of `src/mlframe`: these were the only two per-loop call sites; the one
+remaining `add_trace` loop (network-diagram edges) was already O(bins) by design (edges pre-binned into <=8
+buckets, `xs`/`ys` built via plain-Python `.extend()` with no plotly call inside the inner loop) and needed no
+change.
 
 ## PERF cycle REJECT (2026-08-01): c0011 2M-row profile, all fresh candidates already documented/sub-material
 2M-row cProfile on combo `c0011_903f1399` (LGB+XGB, multi_target_regression, polars_nullable, 15 cats;

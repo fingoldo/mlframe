@@ -14,14 +14,24 @@ from functools import lru_cache
 import numpy as np
 from scipy import stats
 
+_SQRT_2 = float(np.sqrt(2.0))
+
 
 @lru_cache(maxsize=64)
-def _two_sided_z(alpha: float) -> float:
-    """Cached ``z_{1-alpha/2}``. scipy's ``norm.ppf`` dominates ~76% of this module's wall time in a hot
-    selection loop (profiled: 40k calls at n_folds=5 -> 10.9s of 14.3s total) despite ``alpha`` almost always
-    being the same default value call after call — the underlying computation is a pure function of ``alpha``.
+def _two_sided_t(alpha: float, df: int) -> float:
+    """Cached ``t_{df, 1-alpha/2}``.
+
+    The standard error this multiplies is ESTIMATED from ``df + 1`` fold scores, not known, so the correct
+    quantile is Student-t, not normal. At the usual k=5 the difference is not cosmetic: ``t_{4,0.975} = 2.776``
+    against ``z_{0.975} = 1.960``, so a z-based band is 29% too narrow and covers ~86% rather than the
+    documented 95%. An under-wide band ACCEPTS noise, which is the one failure this module exists to prevent.
+    ``calibration/policy._heldout_ece_ci`` already made this same correction for the same reason.
+
+    Caching is unchanged in kind: ``df`` is as stable as ``alpha`` inside a selection loop (the fold count does
+    not vary), and scipy's ``ppf`` dominated ~76% of this module's wall time when called per comparison
+    (profiled: 40k calls at n_folds=5 -> 10.9s of 14.3s).
     """
-    return float(stats.norm.ppf(1.0 - alpha / 2.0))
+    return float(stats.t.ppf(1.0 - alpha / 2.0, df))
 
 
 def cv_score_equivalence_band(
@@ -41,7 +51,7 @@ def cv_score_equivalence_band(
         Two-sided miscoverage for the ``"sem"`` method (0.05 -> the band is the half-width of a 95% CI on the
         mean fold score). Ignored by ``"std"``.
     method
-        ``"sem"`` (default) — ``z_{1-alpha/2} * standard_error_of_the_mean``. This is the natural band for
+        ``"sem"`` (default) — ``t_{n-1, 1-alpha/2} * standard_error_of_the_mean``. This is the natural band for
         comparing two candidates' MEAN CV scores (what selection loops actually compare): a difference smaller
         than this is statistically indistinguishable from resampling noise at the given confidence level.
         ``"std"`` — the raw (ddof=1) standard deviation of the fold scores. More conservative (typically
@@ -76,7 +86,41 @@ def cv_score_equivalence_band(
         raise ValueError(f"cv_score_equivalence_band: method must be 'sem' or 'std'; got {method!r}")
     sem = std / float(np.sqrt(n))
     corrected_alpha = alpha / float(n_comparisons)
-    return _two_sided_z(corrected_alpha) * sem
+    return _two_sided_t(corrected_alpha, n - 1) * sem
+
+
+def two_sample_score_band(
+    fold_scores_a: np.ndarray,
+    fold_scores_b: np.ndarray,
+    alpha: float = 0.05,
+    n_comparisons: int = 1,
+) -> float:
+    """Half-width of the band for the DIFFERENCE of two fold-score means, from both candidates' fold scores.
+
+    :func:`cv_score_equivalence_band` is the band for ONE mean. A selection loop compares two of them, and the
+    difference of two independent means has standard error ``sqrt(var_a/n + var_b/n)`` -- up to ``sqrt(2)`` wider
+    than either one alone. Holding a difference to a one-mean band makes it too easy to clear, and clearing the
+    band is what makes a candidate "actionable", so the error runs in the direction of accepting noise.
+
+    This is the classic equal-size two-sample t band: the pooled standard error above with
+    ``t_{2n-2, 1-alpha/2}``. It deliberately does NOT use the per-fold differences, which would be exact under
+    pairing but collapse to a zero band whenever a candidate beats the baseline by the same amount in every
+    fold -- a real pattern on quantised metrics, and one that would then make every delta actionable and zero
+    out any multiplier applied to the band downstream.
+
+    Returns ``0.0`` when fewer than 2 folds are supplied, matching :func:`cv_score_equivalence_band`.
+    """
+    a = np.asarray(fold_scores_a, dtype=np.float64).ravel()
+    b = np.asarray(fold_scores_b, dtype=np.float64).ravel()
+    if a.shape != b.shape:
+        raise ValueError(f"two_sample_score_band: fold score arrays must have the same shape; got {a.shape} and {b.shape}")
+    if n_comparisons < 1:
+        raise ValueError(f"two_sample_score_band: n_comparisons must be a positive integer; got {n_comparisons!r}")
+    n = a.shape[0]
+    if n < 2:
+        return 0.0
+    se = float(np.sqrt((np.var(a, ddof=1) + np.var(b, ddof=1)) / n))
+    return _two_sided_t(alpha / float(n_comparisons), 2 * n - 2) * se
 
 
 def is_within_noise_band(
@@ -86,6 +130,7 @@ def is_within_noise_band(
     alpha: float = 0.05,
     method: str = "sem",
     n_comparisons: int = 1,
+    both_estimated: bool = True,
 ) -> bool:
     """``True`` when ``|score_a - score_b|`` is not distinguishable from CV resampling noise.
 
@@ -93,10 +138,21 @@ def is_within_noise_band(
     to estimate the noise band — the band is a property of the CV scheme's variance, not of the specific
     comparison, so either candidate's fold scores are a reasonable proxy as long as they were produced by the
     same splitter/data/model family. ``n_comparisons`` is passed straight through to
-    :func:`cv_score_equivalence_band`; default ``1`` is bit-identical to the pre-existing behavior.
+    :func:`cv_score_equivalence_band`.
+
+    ``both_estimated`` (default ``True``) says that ``score_a`` and ``score_b`` are BOTH means estimated from
+    CV folds, which is the usual case in a selection loop. The difference of two such means has standard error
+    ``sqrt(2)`` times that of either one, so the one-mean band :func:`cv_score_equivalence_band` returns is
+    scaled accordingly — without it the comparison is held to a band 29% narrower than the quantity it is
+    testing, and an under-wide band accepts noise. Set it to ``False`` only when ``score_b`` is a fixed
+    reference rather than an estimate. When BOTH candidates' per-fold scores are available, prefer
+    :func:`mlframe.evaluation.cv_delta_triage.triage_cv_delta`: it uses the per-fold differences and so is
+    exact rather than assuming the two are independent.
     """
     band = cv_score_equivalence_band(fold_scores, alpha=alpha, method=method, n_comparisons=n_comparisons)
+    if both_estimated:
+        band *= _SQRT_2
     return bool(abs(score_a - score_b) <= band)
 
 
-__all__ = ["cv_score_equivalence_band", "is_within_noise_band"]
+__all__ = ["cv_score_equivalence_band", "is_within_noise_band", "two_sample_score_band"]

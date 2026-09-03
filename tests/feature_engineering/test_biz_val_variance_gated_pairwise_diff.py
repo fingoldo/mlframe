@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 
@@ -105,3 +106,30 @@ def test_biz_val_variance_gated_diff_target_aware_prune_cuts_noise_keeps_signal(
         LogisticRegression(max_iter=500).fit(target_aware[["c1__diff__c2"]], y).predict_proba(target_aware[["c1__diff__c2"]])[:, 1],
     )
     assert auc_target_aware > 0.95, f"expected the retained informative diff to still strongly recover the target, got AUC={auc_target_aware:.4f}"
+
+
+def test_variance_gated_diff_raises_memory_error_instead_of_silent_oom(monkeypatch):
+    """FE_ROOT_B-3 (2026-08-05 audit): the module docstring promised chunk-bounded peak memory, but pruning
+    now happens up-front for ALL pairs via a covariance matrix and every surviving pair's diff column is
+    accumulated into one dict before returning -- chunk_size no longer bounds peak memory at all, so a low
+    variance threshold with many columns could still blow up to O(C(n_cols,2)*n_rows) silently. An explicit
+    projected-size ceiling (mirroring calibration.policy._build_resample_indices) must now raise a clear
+    MemoryError before allocating, instead of risking a silent OOM."""
+    rng = np.random.default_rng(4)
+    n, n_cols = 200, 30  # C(30, 2) = 435 surviving pairs at a near-zero threshold
+    df = pd.DataFrame({f"c{i}": rng.normal(size=n) for i in range(n_cols)})
+
+    # Set the ceiling far below the projected output (200 rows x 435 pairs x 8 bytes ~= 700 KB) to force
+    # the guard to fire without needing a real multi-GB allocation in the test.
+    monkeypatch.setenv("MLFRAME_VARIANCE_GATED_DIFF_MAX_BYTES", "1000")
+
+    with pytest.raises(MemoryError, match="exceeding"):
+        variance_gated_pairwise_diff(df, list(df.columns), min_variance=1e-9)
+
+
+def test_variance_gated_diff_stays_under_default_ceiling(monkeypatch):
+    """Sanity: a normal-sized call (well under the default ~1 GiB ceiling) is unaffected by the new guard."""
+    monkeypatch.delenv("MLFRAME_VARIANCE_GATED_DIFF_MAX_BYTES", raising=False)
+    df, _y = _make_dataset(n=500, seed=5)
+    out = variance_gated_pairwise_diff(df, list(df.columns), min_variance=1e-4)
+    assert out.shape[1] > 0

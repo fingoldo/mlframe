@@ -9,7 +9,7 @@ padding the last row with ``None`` cells when needed.
 from __future__ import annotations
 
 import os
-from typing import List, Sequence, Tuple
+from typing import Optional, List, Sequence, Tuple
 
 from mlframe.reporting.spec import PanelSpec
 
@@ -18,18 +18,19 @@ def pack_panels(
     panels: Sequence[PanelSpec],
     *,
     max_cols: int = 2,
-) -> Tuple[Tuple[PanelSpec, ...], ...]:
+) -> Tuple[Tuple[Optional[PanelSpec], ...], ...]:
     """Pack a flat list of panels into a row-major grid.
 
-    Returns a tuple-of-tuples (rows × cols). Last row is padded with
-    ``None`` so all rows are equal-width (the renderers skip ``None``
-    cells).
+    Returns a tuple-of-tuples (rows x cols). The last row is padded with ``None`` so every row is equal-width, which
+    is why the element type is Optional: the renderers skip ``None`` cells. The annotation used to claim
+    non-optional panels while the function padded with ``None``, so mypy could not see the very case every renderer
+    guards against.
     """
     if not panels:
         return ()
-    rows: List[Tuple[PanelSpec, ...]] = []
+    rows: List[Tuple[Optional[PanelSpec], ...]] = []
     for i in range(0, len(panels), max_cols):
-        chunk = list(panels[i : i + max_cols])
+        chunk: List[Optional[PanelSpec]] = list(panels[i : i + max_cols])
         # Pad last partial row with None to keep grid rectangular.
         while len(chunk) < max_cols:
             chunk.append(None)

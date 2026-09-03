@@ -28,6 +28,18 @@ except ImportError:  # pragma: no cover
         return list(values)
 
 
+# Every test in this file exercises train_mlframe_models_suite end-to-end, which routes through
+# mlframe's reporting pipeline (report_model_perf alone builds 5+ matplotlib figures per call, see
+# tests/conftest.py's cleanup_memory fixture -- the SAME leak this marker exists to prevent). None
+# of this file's 104 tests carried uses_matplotlib, so cleanup_memory took its fast path (a single
+# gc.collect(), no plt.close('all')) after every one of them -- figures accumulated monotonically
+# across the whole file instead of being released, a plausible contributor to CI (both ci.yml and
+# numba-coverage-nightly, --dist=loadgroup-serialized, single-worker) OOM-killing the worker on this
+# file's later, heavier integration tests ("node down: Not properly terminated", no other diagnostic
+# available -- 2026-08-22).
+pytestmark = pytest.mark.uses_matplotlib
+
+
 # In --fast mode, the model-name sweep collapses to ``ridge`` (smallest, fastest fit).
 _MODEL_NAMES_FAST = fast_subset(["ridge", "xgb", "cb", "lgb", "mlp"], representative="ridge")
 _TREE_MODEL_NAMES_FAST = fast_subset(["hgb", "cb", "xgb"], representative="cb")
@@ -2464,6 +2476,13 @@ class TestCustomPrePipelines:
         _assert_trained_target_entries(models[TargetTypes.BINARY_CLASSIFICATION]["target"], target_type_label="BINARY_CLASSIFICATION")
 
 
+# Pinned to the same xdist worker as TestTextAndEmbeddingFeatures below (2026-08-21): this class
+# also fits real CatBoost models (Polars-native fastpath) and hit the identical "node down: Not
+# properly terminated" OOM-kill signature on CI once TestTextAndEmbeddingFeatures's own pin removed
+# it from the concurrent mix -- confirming the crash isn't specific to text/embedding features, just
+# to running multiple real CatBoost fits concurrently on the 2-vCPU/7GB hosted runner. See that
+# class's own comment for the full rationale.
+@pytest.mark.xdist_group(name="catboost_text_embedding_heavy")
 class TestPolarsNativeFastpath:
     """Tests for CatBoost Polars native fastpath — no pandas conversion."""
 
@@ -3695,6 +3714,16 @@ def _make_text_embedding_polars_df(n=200, n_cat_unique=5, n_text_unique=100):
     )
 
 
+# Pinned to one xdist worker (2026-08-21): CI (both ci.yml and numba-coverage-nightly, multiple
+# shards) repeatedly showed several of these tests' workers dying mid-fit with "node down: Not
+# properly terminated" and no Python traceback -- the signature of an OOM-kill, not a real bug in
+# this file. Each test here fits real CatBoost models with text_features/embedding_features
+# (CatBoost's own text tokenizer/dictionary build is memory-heavy), and under -n auto several of
+# these can land on DIFFERENT workers and run concurrently on the same 2-vCPU/7GB hosted runner
+# alongside the rest of the suite. Forcing them onto one worker caps the peak concurrent CatBoost-
+# text-fit memory at 1x instead of up to 7x. Mirrors the existing xdist_group(name="gpu") pattern
+# in tests/conftest.py.
+@pytest.mark.xdist_group(name="catboost_text_embedding_heavy")
 class TestTextAndEmbeddingFeatures:
     """Tests for text_features and embedding_features support (CatBoost)."""
 
@@ -3747,8 +3776,13 @@ class TestTextAndEmbeddingFeatures:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             feature_types_config=FeatureTypesConfig(text_features=["text_feat"]),
-            reporting_config=common_init_params,
-            hyperparams_config={"iterations": 10},
+            # pdp_ice disabled: CatBoost's predict_proba on a text-feature model, called from PDP-ICE's
+            # grid-batched-predict path, has native-crashed the CI worker (segfault, not a Python
+            # exception) on 3.9/3.11/3.13 shards. This test only asserts on fit_params plumbing, not
+            # diagnostic chart content -- see common_init_params' own docstring: pdp_ice is left ON by
+            # default "in case any consuming test's own local override still wants it".
+            reporting_config=common_init_params.model_copy(update={"pdp_ice": False}),
+            hyperparams_config={"iterations": 10, "cb_kwargs": {"thread_count": 2}},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,
@@ -3805,8 +3839,10 @@ class TestTextAndEmbeddingFeatures:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             feature_types_config=FeatureTypesConfig(embedding_features=["emb_feat"]),
-            reporting_config=common_init_params,
-            hyperparams_config={"iterations": 10},
+            # pdp_ice disabled: same native-crash risk as the sibling text_features test above
+            # (CatBoost predict_proba on a non-plain-numeric feature model, called from PDP-ICE).
+            reporting_config=common_init_params.model_copy(update={"pdp_ice": False}),
+            hyperparams_config={"iterations": 10, "cb_kwargs": {"thread_count": 2}},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,
@@ -3945,7 +3981,7 @@ class TestTextAndEmbeddingFeatures:
                 mlframe_models=["cb"],
                 feature_types_config=FeatureTypesConfig(text_features=["text_feat"], embedding_features=["text_feat"]),
                 reporting_config=common_init_params,
-                hyperparams_config={"iterations": 10},
+                hyperparams_config={"iterations": 10, "cb_kwargs": {"thread_count": 2}},
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
                 verbose=0,
@@ -3970,7 +4006,7 @@ class TestTextAndEmbeddingFeatures:
             mlframe_models=["cb"],
             feature_types_config=FeatureTypesConfig(),
             reporting_config=common_init_params,
-            hyperparams_config={"iterations": 10},
+            hyperparams_config={"iterations": 10, "cb_kwargs": {"thread_count": 2}},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,
@@ -4111,7 +4147,7 @@ class TestTextAndEmbeddingFeatures:
             mlframe_models=["cb"],
             feature_types_config=FeatureTypesConfig(text_features=["text_feat"], embedding_features=["emb_feat"]),
             reporting_config=common_init_params,
-            hyperparams_config={"iterations": 10},
+            hyperparams_config={"iterations": 10, "cb_kwargs": {"thread_count": 2}},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,
@@ -4172,7 +4208,7 @@ class TestTextAndEmbeddingFeatures:
             mlframe_models=["cb", "ridge"],
             feature_types_config=FeatureTypesConfig(text_features=["text_feat"], embedding_features=["emb_feat"]),
             reporting_config=common_init_params,
-            hyperparams_config={"iterations": 10},
+            hyperparams_config={"iterations": 10, "cb_kwargs": {"thread_count": 2}},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,
@@ -4268,7 +4304,7 @@ class TestTextAndEmbeddingFeatures:
             mlframe_models=["ridge", "cb"],
             feature_types_config=FeatureTypesConfig(text_features=["text_feat"], embedding_features=["emb_feat"]),
             reporting_config=common_init_params,
-            hyperparams_config={"iterations": 10},
+            hyperparams_config={"iterations": 10, "cb_kwargs": {"thread_count": 2}},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,
@@ -4366,7 +4402,14 @@ class TestTextAndEmbeddingFeatures:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             reporting_config=common_init_params,
-            hyperparams_config={"iterations": 10},
+            # thread_count capped: CatBoost defaults to os.cpu_count() threads per fit; under
+            # pytest-xdist's "-n auto" (one worker per vCPU) on a 2-vCPU CI runner, N concurrent
+            # workers each spawning an unthrottled CatBoost thread pool oversubscribes the 2 real
+            # cores and has been observed crashing the native xdist worker outright ("node down: Not
+            # properly terminated") -- the same xdist/CatBoost contention class already documented next
+            # to CB_GENERAL_PARAMS's allow_writing_files=False (_helpers_training_configs.py), here on
+            # the threading axis instead of the file-I/O axis.
+            hyperparams_config={"iterations": 10, "cb_kwargs": {"thread_count": 2}},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,
@@ -4437,7 +4480,7 @@ class TestTextAndEmbeddingFeatures:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             reporting_config=common_init_params,
-            hyperparams_config={"iterations": 10},
+            hyperparams_config={"iterations": 10, "cb_kwargs": {"thread_count": 2}},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,
@@ -4455,15 +4498,15 @@ class TestTextAndEmbeddingFeatures:
         pl_df = _make_text_embedding_polars_df()
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-        captured_ncols = {}
+        captured_columns = {}
         import mlframe.training.trainer as trainer_mod
 
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
             """Spy train."""
-            ncols = train_df.shape[1] if hasattr(train_df, "shape") else 0
-            captured_ncols[model_type_name] = ncols
+            cols = list(train_df.columns) if hasattr(train_df, "columns") else []
+            captured_columns[model_type_name] = cols
             return original_train(
                 model=model,
                 model_obj=model_obj,
@@ -4500,12 +4543,17 @@ class TestTextAndEmbeddingFeatures:
             output_config=OutputConfig(data_dir=temp_data_dir),
         )
 
-        # Ridge DF should have 2 fewer columns (text_feat + emb_feat dropped)
-        for name, ncols in captured_ncols.items():
+        # Ridge's tier-trimmed frame must not carry text_feat / emb_feat (or any column
+        # derived from them by name) through to training -- the real "select not drop"
+        # contract this test pins. A raw total-column-count bound (e.g. "< 4") is NOT a
+        # valid proxy: row_wise_summary_stats_enabled / row_wise_extreme_columns_enabled
+        # (both default ON, see PreprocessingExtensionsConfig) additively inject their own
+        # numeric columns on top of num_feat/cat_feat, so the total column count on a tier-
+        # trimmed frame can legitimately exceed the raw pre-trim feature count.
+        for name, cols in captured_columns.items():
             if "Ridge" in name:
-                # Original has num_feat, cat_feat, text_feat, emb_feat = 4 feature columns
-                # After dropping text + emb = 2 feature columns remain
-                assert ncols < 4, f"Ridge should have fewer columns after tier trimming, got {ncols}"
+                leaked = [c for c in cols if "text_feat" in c or "emb_feat" in c]
+                assert not leaked, f"Ridge should not train on text/emb-derived columns after tier trimming, got {leaked} in {cols}"
 
     def test_polars_originals_freed_after_tier1(self, temp_data_dir, common_init_params, monkeypatch):
         """B5: Pre-pipeline Polars originals released after all Polars-native models finish."""
@@ -4554,7 +4602,9 @@ class TestTextAndEmbeddingFeatures:
             mlframe_models=["cb", "ridge"],
             feature_types_config=FeatureTypesConfig(text_features=["text_feat"], embedding_features=["emb_feat"]),
             reporting_config=common_init_params,
-            hyperparams_config={"iterations": 10},
+            # thread_count capped -- see test_no_clone_when_skip_categorical_encoding's identical note
+            # (xdist/CatBoost thread-oversubscription crash class on 2-vCPU CI runners).
+            hyperparams_config={"iterations": 10, "cb_kwargs": {"thread_count": 2}},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,
@@ -4590,7 +4640,7 @@ class TestTextAndEmbeddingFeatures:
             mlframe_models=["cb"],
             feature_types_config=FeatureTypesConfig(text_features=["text_feat"]),
             reporting_config=common_init_params,
-            hyperparams_config={"iterations": 20},
+            hyperparams_config={"iterations": 20, "cb_kwargs": {"thread_count": 2}},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,
@@ -4618,7 +4668,7 @@ class TestTextAndEmbeddingFeatures:
             mlframe_models=["cb"],
             feature_types_config=FeatureTypesConfig(embedding_features=["emb_feat"]),
             reporting_config=common_init_params,
-            hyperparams_config={"iterations": 20},
+            hyperparams_config={"iterations": 20, "cb_kwargs": {"thread_count": 2}},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             verbose=0,

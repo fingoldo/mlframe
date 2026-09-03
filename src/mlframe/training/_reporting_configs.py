@@ -35,7 +35,7 @@ from .diagnostics import LearningCurveConfig
 _REPORTING_ALLOWED_TITLE_TOKENS: FrozenSet[str] = frozenset({
     "ICE", "BR", "BR_DECOMP", "ECE", "CMAEW",
     "COV", "LL", "ROC_AUC", "PR_AUC", "DENS",
-    # 2026-05-28 audit batch additions (binary classification title tokens).
+    # (binary classification title tokens).
     # Gini deliberately NOT a token: =2*AUC-1, redundant with ROC_AUC for
     # chart-title use; available in metrics dict as "Gini" anyway.
     "KS", "MCC", "BSS",
@@ -73,11 +73,13 @@ class ReportingConfig(BaseConfig):
     rejected. Unknown tokens rejected. Empty string is legal (title gets
     only the user-supplied prefix).
 
-    Histogram subplot (``show_prob_histogram``, default True) draws a
+    Histogram subplot (``show_prob_histogram``, default False) draws a
     predicted-probability histogram under the reliability scatter, sharing
-    the X axis. Y-scale auto-picks log when ``max(hits)/max(min(hits),1) >
-    100`` and linear otherwise; override via
-    ``prob_histogram_yscale="log" | "linear"``. Inline per-bin population
+    the X axis. It is off by default because bubble area and the inline
+    label already state each bin's population, so the panel spends a third
+    of the figure restating it. Y-scale defaults to linear; override via
+    ``prob_histogram_yscale="log" | "auto"`` (``"auto"`` picks log when
+    ``max(hits)/max(min(hits),1) > 100``). Inline per-bin population
     text labels next to scatter points are independently controlled by
     ``show_inline_population_labels`` so users can keep both, drop both, or
     keep only one.
@@ -109,23 +111,28 @@ class ReportingConfig(BaseConfig):
 
     # Histogram subplot - independent toggles for the histogram itself and
     # for the inline population annotations on the scatter plot.
-    show_prob_histogram: bool = True
-    prob_histogram_yscale: Literal["auto", "log", "linear"] = "auto"
+    show_prob_histogram: bool = False
+    # Linear, not "auto". The auto rule flipped to log whenever the population skew exceeded 100x, which on a
+    # rare-event target is always -- and a log axis whose only labelled tick reads "10^2" states a scale and no
+    # values. "auto" is still available for a caller who wants the old behaviour.
+    prob_histogram_yscale: Literal["auto", "log", "linear"] = "linear"
     show_inline_population_labels: bool = True
 
     # Title-metrics template. Validator parses + populates title_metrics_tokens.
-    # 2026-05-28 audit: added KS / MCC / BSS to the default per user
+    # added KS / MCC / BSS to the default per user
     # preference - the most informative single-number summaries beyond
     # the calibration / AUC family. Gini is available as a token but
     # not in default (it's algebraically derivable from ROC_AUC).
-    title_metrics_template: str = "ICE BR_DECOMP ECE CMAEW LL ROC_AUC PR_AUC KS MCC BSS"
+    # ``BR`` rather than ``BR_DECOMP``: the decomposition renders as ``BR=20.5%(RL0.0%+U23.8%-RS3.2%)``, the
+    # longest token in the headline and the one a reader cannot decode without knowing the Murphy identity.
+    title_metrics_template: str = "ICE BR ECE CMAEW LL ROC_AUC PR_AUC KS MCC BSS"
     # Populated by the model_validator after title_metrics_template is validated.
     # Stored as a tuple so downstream hot-path code (fast_calibration_report)
     # never has to re-parse the string. Do not set directly - it is overwritten
     # at construction.
     title_metrics_tokens: Tuple[str, ...] = ()
 
-    # 2026-05-28 audit: token-based regression chart title. Default keeps
+    # token-based regression chart title. Default keeps
     # the historical 4 tokens (MAE/RMSE/MaxError/R2) and adds RMSLE,
     # Spearman, MBE per user feedback. Empty tokens (e.g. RMSLE on a
     # signed target) gracefully render as empty fragments.
@@ -134,7 +141,7 @@ class ReportingConfig(BaseConfig):
         "RMSLE", "Spearman", "MBE",
     )
 
-    # 2026-05-28 audit batch: MASE seasonality (Hyndman & Koehler 2006).
+    # MASE seasonality (Hyndman & Koehler 2006).
     # The MASE *value* is only computed when the caller plumbs the
     # precomputed train-fold naive-MAE scale into the regression-report
     # signature (``mase_naive_mae=``); this knob sets the seasonality the
@@ -147,6 +154,19 @@ class ReportingConfig(BaseConfig):
     #
     # Default keeps interactive plotly HTML (for sharing / jupyter) + matplotlib PNG (10-20x faster, no Chromium). Routing PNG export through kaleido spends 12-15s per figure on a Chromium ``page.reload()``; on a 4-model x VAL+TEST x N-ensemble suite this ballooned to MINUTES of pure chart-export wall-time. Users who need plotly PNG explicitly set ``"plotly[html,png]"``.
     plot_outputs: str = "plotly[html] + matplotlib[png]"
+
+    # Per-format output subfolders. With the default ``plot_outputs`` every figure is written twice -- an interactive
+    # HTML and a static PNG -- into ONE directory, so a multi-model suite leaves hundreds of files of two kinds
+    # interleaved and "give me the PNGs" becomes a manual filter. True (default) writes each format into its own
+    # subfolder of the report directory (``png/...png``, ``html/...html``); the file NAMES are unchanged, so a caller
+    # that knows the flat name finds the file by prepending the format directory. False restores the flat layout.
+    plot_format_subfolders: bool = True
+
+    # Colormap for the reliability diagram's bubbles (and the bin-population panel when it is enabled). The library
+    # default is the diverging ``RdYlBu``, which suits the signed calibration gap the bubbles are coloured by: red
+    # over-confident, pale calibrated, blue under-confident. ``None`` keeps that default; any matplotlib colormap
+    # name overrides it for the run, so a report can be matched to a house palette without editing the chart.
+    calibration_colormap: Optional[str] = None
 
     # Opt-out for jupyter inline plot display.
     # ``None`` (default): auto-detect via ``__IPYTHON__`` / ``sys.ps1`` in ``render_and_save`` - inside a notebook kernel, figures render inline in the cell output AFTER on-disk save (the saved file is the artifact; the inline render is the operator-feedback path).
@@ -232,6 +252,27 @@ class ReportingConfig(BaseConfig):
     # self-skips for slow ones instead of forcing every user to opt in.
     interaction_strength_charts: bool = True
     interaction_strength_max_features: int = 8
+    # Wall-clock budget for the post-fit diagnostics block AS A WHOLE, checked between diagnostics.
+    # Without it only one member carried a cap, so a run skipped that one for being projected at 20s and then
+    # spent six and a half minutes on the uncapped rest -- longer than the model fit it was describing.
+    # 0 disables the budget and renders everything regardless of cost.
+    # Which models get the expensive model-explanation diagnostics (SHAP, PDP/ICE, slice finder,
+    # interaction strength). "best" renders them for the primary model only; ensemble variants keep their
+    # metric and calibration panels, which is what actually distinguishes them. "all" restores rendering
+    # them for every model -- a production run drew five identical SHAP surfaces for five aggregations of
+    # two members correlated at 0.996.
+    heavy_diagnostics_for: str = "best"
+
+    diagnostics_max_seconds: float = 300.0
+
+    # Cost of one false positive vs one false negative, e.g. ``{"fp": 1.0, "fn": 12.0}``. Only the RATIO matters.
+    # Every crisp classification metric in the report describes a decision rule at 0.5 -- a default nobody chose,
+    # and a poor one at a 2.6% base rate. With costs given, the honest-diagnostics threshold block selects the
+    # cost-minimising threshold on OOF and reports it beside the 0.5 rule; without them it falls back to F1 and
+    # says so, because F1 silently prices the two mistakes equally. The block REPORTS only: the predictions the
+    # rest of the suite scores are untouched either way.
+    decision_costs: Optional[dict] = None
+
     interaction_strength_max_seconds: float = 20.0
     # PZAD case_visual/case_sdsj diagnostics: cheap njit-kernel charts, default-ON and skip-safe (each fires only when
     # its inputs fit -- a categorical column for group-structure / discriminability, a binary target for WoE).
@@ -264,6 +305,14 @@ class ReportingConfig(BaseConfig):
     calibration_drift: bool = True
     # Target ACF/PACF when the split carries timestamps (serial-dependence diagnostic on the target series).
     target_acf: bool = True
+    # Adversarial-validation panel (train-vs-test/val "will my CV transfer?" check): trains its own LightGBM
+    # classifier(s) on the full feature frame, so cost scales with column count independent of the fitted
+    # model's own cost -- measured ~275s (163s classifier fit + panel render) on a 549-column / 100k-row frame,
+    # dwarfing a 20-iteration CatBoost fit's own ~5s. Unlike every other diagnostic in this file it had no
+    # opt-out until this flag was added -- it always fired whenever train+test/val frames were available.
+    # Default ON (unchanged behavior for existing callers); set False for wide-frame hot loops / integration
+    # tests that don't need the drift read.
+    adversarial_validation: bool = True
     # SHAP beeswarm + top-K dependence. Default-ON for TREE models (exact fast TreeExplainer, cost scales with the
     # explained-row cap not n); for NON-tree models the slow KernelExplainer path is OFF unless ``shap_allow_kernel``.
     shap_panels: bool = True
@@ -499,7 +548,7 @@ class RegressionCalibrationConfig(BaseConfig):
     # test/val predictions of weakly-discriminative targets toward a neutral value before they ship.
     # Meaningful mainly for multi-target/multi-output suites where per-target confidence genuinely varies;
     # a no-op on a single-target run other than shrinking that one target toward neutral if its OOF
-    # confidence is low. Default ON (2026-07-12): pulling weakly-discriminative targets toward neutral before
+    # confidence is low. Default ON: pulling weakly-discriminative targets toward neutral before
     # they ship is a strict safety improvement (it only ever moves a low-confidence target's predictions
     # closer to neutral, never degrades a genuinely discriminative one), so it is enabled unconditionally
     # rather than requiring every caller to opt in explicitly.

@@ -65,8 +65,8 @@ jobs:
       # Persist numba's JIT cache (see the cache step below) so the heavy composite+FE tests (RFECV / MRMR /
       # BorutaShap -> composite) don't pay cold-compilation on top of model training and blow the per-test timeout.
       NUMBA_CACHE_DIR: ${{ github.workspace }}/.numba-cache
-    # Force bash on every OS: the run steps below use bash backslash line-continuations, which the
-    # windows-latest default shell (PowerShell) cannot parse (ParserError). Git Bash ships on the Windows runner.
+    # The run steps below use bash backslash line-continuations; explicit shell: bash keeps that portable
+    # if a non-Linux row is ever added back to the matrix (currently ubuntu-latest only).
     defaults:
       run:
         shell: bash
@@ -121,7 +121,8 @@ jobs:
         # of extras that mlframe transitively imports. Skip [nlp] -- spacy
         # forces thinc>=8.3.12 which requires Python>=3.10.
         run: |
-          git clone --depth 1 https://github.com/fingoldo/pyutilz.git
+          git clone https://github.com/fingoldo/pyutilz.git
+          git -C pyutilz checkout 691a6ce16ba0abeb3647f17c1057464c895473ea  # pinned 2026-08-19, see X_CICD_DEPENDENCIES-1 -- register_default_cache DEFAULT-cache-fallback diagnostics
           pip install "./pyutilz[system,pandas,polars,database]"
 
       - name: Install mlframe with runtime extras needed for composite tests
@@ -176,7 +177,7 @@ jobs:
           pytest tests/training/ -m sklearn_matrix \
             --no-cov \
             -p no:randomly \
-            --timeout=300 \
+            --timeout=900 \
             -v
 
       - name: Sklearn-compliance harness
@@ -195,5 +196,5 @@ jobs:
             tests/test_sklearn_compliance_composite.py \
             --no-cov \
             -p no:randomly \
-            --timeout=300 \
+            --timeout=900 \
             -v

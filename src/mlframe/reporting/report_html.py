@@ -24,6 +24,12 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 # moved); larger ones are referenced by relative path so the HTML stays light. 256 KB keeps a typical
 # 80-100 KB chart inline while a heavy hexbin/heatmap stays external.
 DEFAULT_INLINE_PNG_MAX_BYTES: int = 256 * 1024
+# Cumulative cap on base64-inlined image bytes for ONE report. The per-file cap above bounds a single
+# image; without a total, a 200-chart report inlines ~50 MB into one document. Past this, charts still
+# render -- they just reference their PNG on disk instead of carrying it.
+DEFAULT_INLINE_TOTAL_MAX_BYTES: int = 16 * 1024 * 1024
+# Marker plotly writes at the head of an inlined bundle, used to spot (and drop) repeated copies.
+_PLOTLY_JS_MARKER: str = "plotly.js v"
 
 
 @dataclass(frozen=True)
@@ -70,23 +76,41 @@ def _slug(text: str, used: Dict[str, int]) -> str:
     return base if n == 0 else f"{base}-{n}"
 
 
-def _img_tag(png_path: str, out_dir: str, inline_png_max_bytes: int) -> str:
+def _img_tag(
+    png_path: str,
+    out_dir: str,
+    inline_png_max_bytes: int,
+    alt: str = "",
+    budget: Optional[list] = None,
+) -> str:
     """``<img>`` tag for a PNG: base64-inline when small enough, else a relative-path reference.
 
     Reading a small PNG to inline it is the only IO this module does; it never opens a large PNG (size is
     checked via ``os.path.getsize`` first), so a heavy chart costs one ``stat`` and a relative-path string.
+
+    ``alt`` is the chart's label + caption. Every image used to ship ``alt=""``, which is unreadable to a
+    screen reader and leaves a blank box when the file fails to load -- for a report whose entire content is
+    images, that is the whole document.
+
+    ``budget`` is a one-element mutable carrying the bytes inlined SO FAR. The per-file cap bounds one image
+    but says nothing about the total, so a 200-chart report could inline ~50 MB into a single document that no
+    browser opens comfortably. Once the cumulative budget is spent later charts fall back to relative
+    references even when individually small; ``None`` disables the accounting.
     """
     try:
         size = os.path.getsize(png_path)
     except OSError:
         return f'<div class="missing">missing image: {html.escape(png_path)}</div>'
-    if size <= inline_png_max_bytes:
+    alt_attr = html.escape(alt, quote=True)
+    if size <= inline_png_max_bytes and (budget is None or budget[0] + size <= DEFAULT_INLINE_TOTAL_MAX_BYTES):
         with open(png_path, "rb") as fh:
             b64 = base64.b64encode(fh.read()).decode("ascii")
-        return f'<img loading="lazy" alt="" src="data:image/png;base64,{b64}"/>'
+        if budget is not None:
+            budget[0] += size
+        return f'<img loading="lazy" alt="{alt_attr}" src="data:image/png;base64,{b64}"/>'
     rel = os.path.relpath(png_path, out_dir) if out_dir else png_path
     rel = rel.replace(os.sep, "/")
-    return f'<img loading="lazy" alt="" src="{html.escape(rel)}"/>'
+    return f'<img loading="lazy" alt="{alt_attr}" src="{html.escape(rel)}"/>'
 
 
 _PAGE_CSS = """\
@@ -163,6 +187,10 @@ def build_combined_report(
     # Preserve section order of first appearance; group panels under their section. Malformed entries
     # never crash the report -- they land in a synthetic section as a visible skipped-entry note.
     section_order: List[str] = []
+    # Per-report state for the two cross-entry economies below: cumulative inlined bytes, and whether an
+    # inline plotly.js bundle has already been emitted. Both are threaded into every entry render.
+    inline_budget: list = [0]
+    seen_plotly_js: set = set()
     section_ids: Dict[str, str] = {}
     by_section: Dict[str, List[Tuple[str, Optional[ChartEntry], Optional[str]]]] = {}
     for raw in chart_entries:
@@ -182,7 +210,7 @@ def build_combined_report(
 
     nav_parts: List[str] = ['<div class="toctitle">Contents</div>']
     main_parts: List[str] = []
-    for idx, sec in enumerate(section_order):
+    for sec in section_order:
         sec_id = section_ids[sec]
         nav_parts.append(f'<a href="#{sec_id}">{html.escape(sec)}</a>')
 
@@ -190,13 +218,16 @@ def build_combined_report(
         for anchor, e, err in by_section[sec]:
             label = e.label if e else "(malformed)"
             nav_parts.append(f'<a class="child" href="#{anchor}">{html.escape(label)}</a>')
-            body = f'<div class="missing">{html.escape(err or "unknown error")}</div>' if e is None else _render_entry_body(e, out_dir, inline_png_max_bytes)
+            body = f'<div class="missing">{html.escape(err or "unknown error")}</div>' if e is None else _render_entry_body(e, out_dir, inline_png_max_bytes, inline_budget, seen_plotly_js)
             cap = f'<p class="cap">{html.escape(e.caption)}</p>' if (e and e.caption) else ""
             panel_parts.append(f'<section class="panel" id="{anchor}">' f"<h3>{html.escape(label)}</h3>{cap}{body}</section>")
 
         desc = descriptions.get(sec, "")
         desc_html = f'<p class="secdesc">{html.escape(desc)}</p>' if desc else ""
-        is_open = " open" if idx == 0 else ""
+        # Every section opens. With only the first one open, a sidebar anchor jumped to a COLLAPSED
+        # <details> (so the target was invisible), and printing or exporting to PDF captured exactly one
+        # section of content. The sections are collapsible by hand; they just do not start that way.
+        is_open = " open"
         main_parts.append(
             f'<details class="section" id="{sec_id}"{is_open}>'
             f"<summary>{html.escape(sec)}</summary>{desc_html}"
@@ -223,14 +254,49 @@ def build_combined_report(
     return out_path
 
 
-def _render_entry_body(entry: ChartEntry, out_dir: str, inline_png_max_bytes: int) -> str:
+def _render_entry_body(
+    entry: ChartEntry,
+    out_dir: str,
+    inline_png_max_bytes: int,
+    budget: Optional[list] = None,
+    seen_plotly_js: Optional[set] = None,
+) -> str:
     """Inner HTML for one chart: PNG ``<img>`` (preferred) or embedded plotly fragment, else a missing note."""
     if entry.png_path:
-        return _img_tag(entry.png_path, out_dir, inline_png_max_bytes)
+        alt = entry.label if not entry.caption else f"{entry.label}. {entry.caption}"
+        return _img_tag(entry.png_path, out_dir, inline_png_max_bytes, alt=alt, budget=budget)
     if entry.plotly_html_fragment:
-        # Fragment is reused verbatim -- the renderer already produced it; we do not re-render or sanitise the chart.
-        return entry.plotly_html_fragment
+        # Fragment is reused verbatim -- the renderer already produced it; we do not re-render or sanitise the
+        # chart. The ONE thing stripped is a REPEATED inline plotly.js bundle: a fragment written with
+        # include_plotlyjs=True carries the whole library, so an N-chart report shipped N copies and made the
+        # browser parse and re-run the loader N times. Keep the first, drop the rest -- they define the same global.
+        return _dedupe_plotly_js(entry.plotly_html_fragment, seen_plotly_js)
     return '<div class="missing">no png_path or plotly_html_fragment provided</div>'
+
+
+def _dedupe_plotly_js(fragment: str, seen: Optional[set]) -> str:
+    """Drop an inline ``plotly.js`` bundle from ``fragment`` when an earlier fragment already carried one.
+
+    Detected by the marker plotly writes at the head of its inlined bundle. Fragments that merely REFERENCE a
+    CDN copy, or that were written with ``include_plotlyjs=False``, carry no bundle and pass through untouched.
+    ``seen`` is the caller's per-report set; ``None`` disables the deduplication.
+    """
+    if seen is None or _PLOTLY_JS_MARKER not in fragment:
+        return fragment
+    if "plotly.js" in seen:
+        # Find the script CONTAINING the marker, rather than assuming the bundle is the FIRST script. It is not
+        # when plotly emits a config or `require` shim ahead of it: the marker check then ran against that first
+        # script, came back False, and the fragment passed through whole -- so a 20-chart report still shipped 20
+        # copies of a 3-4 MB bundle, the exact cost this function exists to avoid. `seen` was already marked, so
+        # no later fragment was stripped either.
+        marker_at = fragment.find(_PLOTLY_JS_MARKER)
+        start = fragment.rfind("<script", 0, marker_at)
+        end = fragment.find("</script>", marker_at)
+        if start != -1 and end != -1:
+            return fragment[:start] + fragment[end + len("</script>") :]
+        return fragment
+    seen.add("plotly.js")
+    return fragment
 
 
 __all__ = [

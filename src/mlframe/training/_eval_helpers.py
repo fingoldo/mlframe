@@ -52,10 +52,16 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
     happens not to match across, or imbalanced rare cat levels that
     randomly land in only val/test.
 
-    Fix: compute the UNION of category levels across all three splits
-    per column, then re-cast each split's column to that union. XGBoost
-    now sees val/test as a subset of the train cat universe -- no
-    "unseen category" rejections.
+    Fix: compute the UNION of category levels across train + val ONLY
+    (deliberately excluding test -- test categories must never feed back
+    into the train-time cat universe, that's the canonical leak; val is
+    fair game since it already participates in early-stopping / model
+    selection), then re-cast train/val to that union. A test row carrying
+    a category unseen in train+val gets cast to NaN under pandas'
+    Categorical semantics rather than raising -- XGBoost still requires
+    upfront train+val alignment to avoid its hard "unseen category"
+    rejection, but test intentionally stays OUT of the union so no test-set
+    information ever reaches the fit.
 
     No-op for non-XGB models. CB / HGB / LGB tolerate unseen
     categories natively.
@@ -429,7 +435,7 @@ def _compute_split_metrics(
     details: str = "",
     has_other_splits: bool = False,
     n_features: int | None = None,
-    show_prob_histogram: bool = True,
+    show_prob_histogram: bool = False,
     prob_histogram_yscale: str = "auto",
     show_inline_population_labels: bool = True,
     title_metrics_tokens: tuple[str, ...] | None = None,
@@ -651,7 +657,12 @@ def _render_split_diagnostics(
         timestamps=split_ts,
     )
     if isinstance(metrics_dict, dict) and res.get("worst_k_table") is not None:
-        metrics_dict["worst_k_table"] = res["worst_k_table"]
+        # Qualify the key with the split. val, test and OOF mean different things -- val is the early-stopping
+        # split and is optimistically biased, test/OOS is the honest estimate -- so an unqualified
+        # "worst_k_table" leaves a reader of the artifact with no way to tell which split produced it.
+        # `split_name` was accepted by this function and passed by its caller but never read at all.
+        metrics_dict[f"worst_k_table_{split_name}" if split_name else "worst_k_table"] = res["worst_k_table"]
+        metrics_dict["worst_k_table"] = res["worst_k_table"]  # unqualified alias, for existing readers
         metrics_dict["worst_k_indices"] = res["worst_k_indices"]
 
     # Temporal per-split panels (residual-vs-time / metric-over-time) only when timestamps cover this split.

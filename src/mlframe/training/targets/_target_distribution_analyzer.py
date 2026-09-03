@@ -78,7 +78,15 @@ _LOW_VAR_REL_STD: float = 1e-3  # std / (|mean|+eps) below this -> near-constant
 _LOW_VAR_NUNIQUE: int = 2  # binary features with imbalance flagged separately
 _REDUNDANT_CORR_THRESHOLD: float = 0.95  # |Pearson| above this -> redundant pair
 _HIGH_CARDINALITY_MAX: int = 100  # categorical features above this -> recommend encoder
-_NAN_FRACTION_THRESHOLD: float = 0.5  # 50%+ NaN rate -> structural issue, not random missingness
+# Feature NaN rate at/above which a column is reported as nan-heavy (and, when auto-drop is on, removed).
+# 0.99, not the former 0.5: at 50% this rule alone discarded whole feature families whose missingness is
+# STRUCTURAL rather than random -- a field that only applies to a subset of rows (hourly rate on
+# fixed-price jobs, AI-prompt stats on non-AI posts) is missing by construction, and its presence/absence
+# is itself predictive. Observed on a production run: 35 of 118 columns (30%) dropped, every one of them
+# for this rule and nothing else. Tree models consume NaN natively, so dropping such a column removes
+# signal rather than noise. At 0.99 the rule keeps its genuine purpose -- catching a column that is
+# essentially empty and cannot carry information -- without acting as a de-facto feature selector.
+_NAN_FRACTION_THRESHOLD: float = 0.99
 _LEAKAGE_CORR_THRESHOLD: float = 0.99  # feature-target |corr| (regression/binary) or per-class AUC (multiclass) above this -> suspected leakage
 _LEAKAGE_MAX_CLASSES_FOR_AUC: int = 20  # multiclass leakage detector cap: avoids an O(n_features * n_classes) AUC sweep on high-cardinality integer-coded columns
 # Computing the full correlation matrix is O(n_features^2). Cap to keep the analyzer
@@ -132,7 +140,7 @@ class TargetDistributionReport:
 
 
 # ---------------------------------------------------------------------------
-# Feature-side detectors (mini-HPT v2, 2026-05-21).
+# Feature-side detectors (mini-HPT v2).
 #
 # Inspect the FEATURE matrix for pathologies that distort downstream training:
 #
@@ -149,9 +157,12 @@ class TargetDistributionReport:
 # - High-cardinality categorical features (n_unique > 100): one-hot blows up
 #   the feature space; recommend target / hashing encoders.
 #
-# - NaN-heavy features (fraction > 50%): random missingness or structural?
-#   At >=50% the imputer is dominating the column; the operator should pick a
-#   strategy explicitly rather than rely on the default.
+# - NaN-heavy features (fraction >= _NAN_FRACTION_THRESHOLD, which is 0.99): random missingness or structural?
+#   At that fraction the imputer is producing essentially the whole column, so the operator should pick a
+#   strategy explicitly rather than rely on the default. The threshold is 0.99 and not the former 0.5 for the
+#   structural-missingness reason written out at the constant's own definition above -- at 50% this rule alone
+#   discarded whole feature families whose missingness is meaningful. This block said "> 50%" long after that
+#   change, so a reader wondering why a 60%-NaN column was not flagged concluded the detector was broken.
 #
 # - Suspected target leakage (|Pearson(x, y)| > 0.99 for regression OR
 #   per-class AUC > 0.99 for classification): a feature should NOT predict

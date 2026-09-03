@@ -1,4 +1,4 @@
-"""CPX22 — confirm `_average_rank_inplace` tie loop is O(n), NOT O(n^2).
+"""CPX22 -- confirm `_average_rank_inplace` tie loop is O(n), NOT O(n^2).
 
 Claim under investigation: the tie-handling loop in
 ``mlframe.metrics.rank_correlation._average_rank_inplace`` (lines ~108-118)

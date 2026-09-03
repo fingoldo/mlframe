@@ -93,7 +93,13 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 # term. 0.15 sat with >=2x margin both sides across the validated cells.
 DEFAULT_RAW_RETAIN_FRAC = 0.15
 
-# SUPERSET multiple (RETIRED 2026-06-12; formerly "keep leg B", 2026-06-10). Kept
+# LEAF-PAIR retention fraction: a stricter bar than ``RAW_SELF_RETAIN_FRAC``, scoped ONLY to a raw
+# whose EVERY conditioning consumer's clean sub-expression is a direct elementary composite over
+# exactly {this raw, one other raw} (``_clean_subexpr_leaf_pair`` - see ``_fe_raw_redundancy_anchors.py``).
+# See the KEEP-RULE comment at the call site for the measured evidence this bar is based on.
+_LEAF_PAIR_RETAIN_FRAC = 0.08
+
+# SUPERSET multiple (RETIRED; formerly "keep leg B"). Kept
 # as a module constant only for back-compat / provenance. Leg B
 # (``max_anchor <= RAW_SUPERSET_MULT x raw_marg_excess`` -> KEEP) was removed: the
 # DPI-trap consumer filter (step 0) already and correctly protects the case it
@@ -275,6 +281,7 @@ def drop_redundant_raw_operands(
     _eng_signal_parents = _ctx.eng_signal_parents
     _clean_subexpr_bin = _ctx.clean_subexpr_bin
     _clean_subexpr_bin_dev = _ctx.clean_subexpr_bin_dev
+    _clean_subexpr_leaf_pair = _ctx.clean_subexpr_leaf_pair
     _raw_marginal = _ctx.raw_marginal
     _raw_codes = _ctx.raw_codes
     _raw_dev = _ctx.raw_dev
@@ -297,7 +304,7 @@ def drop_redundant_raw_operands(
         # multi-source consumer remains, the raw is NOT redundancy-dropped here (the
         # protective retention stands) - this is what restores the genuine ``x_a``/``x_b``
         # (interaction-product operands carrying a private LINEAR term) and ``x0``
-        # (paired with a noise column in ``add(exp(x0),sign(x3))``) the 2026-06-08
+        # (paired with a noise column in ``add(exp(x0),sign(x3))``) an earlier
         # blanket sweep wrongly dropped, while the true ``a**2/b`` ratio operands - whose
         # subsumer ``div(neg(a),sqrt(b))`` is a genuine two-source combination - still drop.
         # GATE / BINAGG / ARGMAX pseudo-remix EXCLUSION. A conditional-gate /
@@ -338,6 +345,10 @@ def drop_redundant_raw_operands(
         # capture from the fused composite's second signal term so a fully-subsumed
         # operand's conditional excess collapses (DROP) while a genuine private term keeps
         # its residual (KEEP).
+        # LEAF-PAIR gate: True iff EVERY consumer conditions this raw on the tightest possible
+        # subsumption evidence - a DIRECT elementary sub-expression over exactly {rname, one other
+        # raw}, not a further-nested composite. See ``_LEAF_PAIR_RETAIN_FRAC`` below.
+        _all_leaf_pair = bool(consumers) and all(_clean_subexpr_leaf_pair.get((rname, ei), False) for ei in consumers)
         _cond_bins = [_clean_subexpr_bin.get((rname, ei), eng_bin[ei]) for ei in consumers]
         # RESIDENT twin of each conditioning column (clean sub-expr dev if that column used one, else eng dev),
         # for the device-born support join. None-safe: any missing twin -> host support scored.
@@ -346,7 +357,7 @@ def drop_redundant_raw_operands(
         z_support_dev = _join_dev(*_cond_bins_dev)
         cmi, floor, excess = _excess_and_floor(rb_cand, y_arr, z_support, seed=seed, z_support_dev=z_support_dev,
                                                kx=(int(rb.max()) + 1 if getattr(rb, "size", 0) else 1), kz=int(_zcard))
-        # SIBLING-OPERAND CONDITIONING (BUG1 non-invertible-fusion subsumer, 2026-06-16). A
+        # SIBLING-OPERAND CONDITIONING (non-invertible-fusion subsumer). A
         # consuming composite can FUSE ``rname`` with a SECOND signal-bearing operand in a
         # form that is not invertible from the composite alone - e.g. ``add(a, sin(c))``
         # carries ``a`` LINEARLY plus a ``sin(c)`` nuisance term. Conditioning ``a`` on the
@@ -439,7 +450,7 @@ def drop_redundant_raw_operands(
         _r_mcmi, _r_mfloor, raw_marg_excess = _raw_marginal(rname)
         # Strongest consuming engineered survivor's own debiased marginal excess.
         max_anchor = max(eng_anchor_excess[ei] for ei in consumers)
-        # KEEP RULE (2026-06-12 simplification of the 2026-06-10 two-leg form). The raw
+        # KEEP RULE (simplification of an earlier two-leg form). The raw
         # survives the redundancy drop iff it carries a SIGNIFICANT INDEPENDENT RESIDUAL
         # given the combination child(ren): its conditional CMI clears the within-stratum
         # permutation floor AND its debiased conditional excess retains >=
@@ -477,8 +488,27 @@ def drop_redundant_raw_operands(
         # and is the operand a multi-operand survivor structurally subsumes (I4b: ``b`` inside
         # ``sin(b)`` of ``div(qubed(a),sin(b))``, cmi 0.0023 vs floor 0.0018 -> ratio 1.28).
         passes_floor = cmi > floor * float(floor_margin_mult)
-        keep = passes_floor and (excess >= RAW_SELF_RETAIN_FRAC * max(0.0, raw_marg_excess))
-        # LINEAR-USABILITY KEEP-LEG (variant-3, 2026-06-20). The CMI legs above DROP a raw whose
+        # LEAF-PAIR TIGHTENED RETENTION BAR. When the ONLY conditioning evidence available for this
+        # raw is the tightest possible subsumption anchor - a direct elementary sub-expression fusing
+        # rname with exactly ONE other raw (e.g. ``mul(log(c),sin(d))``, not a further-nested
+        # composite) - a residual that merely grazes the generic 5% bar is far more likely to be
+        # finite-sample noise than a genuine private term: with only two raw sources feeding the
+        # conditioning column, there is no room for a THIRD, independent signal path the composite
+        # could be missing. Measured on the F2 ``with_outliers`` adversarial profile (multiple
+        # independently-contaminated raw operands feeding the SAME compound): the fully-subsumed ``d``
+        # operand's debiased conditional excess given its clean leaf-pair sub-expression
+        # ``mul(log(c),sin(d))`` sits at 5.9-6.0% of its own marginal excess - just OVER the generic
+        # 5% bar - and this margin does NOT shrink under 8x more conditional-permutation-null draws
+        # (200-400 vs the default 25) or extra sibling conditioning (adding the compound's other raw
+        # operands to the support leaves the excess unchanged to 5 decimals), so it is not floor
+        # imprecision or an under-conditioned support - it is the calibrated 5% bar itself sitting
+        # just inside the noise band this specific pattern produces. Every clean (non-outlier) F2
+        # profile's equivalent leaf-pair raw stays comfortably under 5% (heavy_tailed 4.3%, mixed
+        # 1.8%, uniform 1.7%, scaled_1_5 0%), so the tightened bar only changes the verdict in the
+        # adversarial multi-contamination regime this constant was never validated against.
+        _retain_frac = _LEAF_PAIR_RETAIN_FRAC if _all_leaf_pair else RAW_SELF_RETAIN_FRAC
+        keep = passes_floor and (excess >= _retain_frac * max(0.0, raw_marg_excess))
+        # LINEAR-USABILITY KEEP-LEG (variant-3). The CMI legs above DROP a raw whose
         # conditional excess collapses given the engineered children - correct in FULL FE mode
         # (the caller opted into replacing subsumed raws with engineered survivors: I4b drops
         # ``a`` in ``a**2/b``), but WRONG in SIMPLE mode where the user wants a robust raw set and

@@ -13,12 +13,21 @@ def ranking2top(ranking):
 
 
 def kendall_tau(df):
-    """Kendall tau rank correlation between the arithmetic-mean ("AM") ranking and every other ranking method in ``df``."""
+    """Kendall tau rank correlation between the arithmetic-mean ("AM") ranking and every other ranking method in ``df``.
+
+    scipy>=1.18's array-api promotion rejects raw string labels (``ValueError: could not convert string to
+    float``), so labels are mapped to AM's own integer rank codes before scoring -- only relative order
+    matters for Kendall tau, and every method column is a permutation of the same label set as AM.
+    """
     res_d = {}
     for method, subset in df.items():
         res_d[method] = subset.apply(lambda x: x.split(":")[1].strip()).tolist()
 
-    return {method: round(stats.kendalltau(res_d["AM"], method_top_k)[0], 3) for method, method_top_k in res_d.items() if method != "AM"}
+    am_codes = {label: idx for idx, label in enumerate(res_d["AM"])}
+    am_ranks = [am_codes[label] for label in res_d["AM"]]
+    return {
+        method: round(stats.kendalltau(am_ranks, [am_codes[label] for label in method_top_k])[0], 3) for method, method_top_k in res_d.items() if method != "AM"
+    }
 
 
 def agreement_rate(df, k, top_k=True):
@@ -43,6 +52,27 @@ def tracker_filename(model, task, dirpath):
     return f"{dirpath}/{model}_{task}_0/"
 
 
+def _parse_tracker_dirname(dirname, known_models):
+    """Split a ``tracker_filename``-produced directory name (``"{model}_{task}_{run_index}"``) back into
+    ``(model, task)``, or ``None`` if it can't be parsed.
+
+    A naive ``dirname.split("_")`` into exactly 3 parts breaks the moment model or task itself contains an
+    underscore. The trailing run-index suffix is always numeric, so it's peeled off from the right first;
+    the remaining ``"{model}_{task}"`` is then split at the underscore position whose prefix matches a
+    KNOWN model name in ``known_models`` -- the only source of truth for where the model/task boundary
+    actually is (task names may themselves contain underscores; model names are the closed, known set).
+    """
+    parts = dirname.rsplit("_", 1)
+    if len(parts) != 2 or not parts[1].isdigit():
+        return None
+    segments = parts[0].split("_")
+    for split_at in range(1, len(segments)):
+        candidate_model = "_".join(segments[:split_at])
+        if candidate_model in known_models:
+            return candidate_model, "_".join(segments[split_at:])
+    return None
+
+
 def get_tracker_table(data, dirpath):
     """Load per-model/per-task compute-cost metrics (runtime, carbon, power, GPU-hours) from experiment-impact-tracker logs under ``dirpath`` into a DataFrame aligned to ``data``'s index."""
 
@@ -61,9 +91,10 @@ def get_tracker_table(data, dirpath):
     tracker_res = pd.DataFrame(columns=tracker_cols, index=data.index)
 
     for f in tqdm(os.listdir(dirpath)):
-        model, task, _ = f.split("_")
-        if model not in data.index:
+        parsed = _parse_tracker_dirname(f, data.index)
+        if parsed is None:
             continue
+        model, task = parsed
 
         fname = tracker_filename(model, task, dirpath)
         datain = DataInterface([fname + "impacttracker"])

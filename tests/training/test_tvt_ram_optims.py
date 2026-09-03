@@ -139,11 +139,14 @@ def test_4_5_auto_drop_helper_strips_drop_candidates_and_near_duplicates():
         verbose=False,
     )
     # nan_heavy + low_var dropped (candidates), AND one of (good_a, dup_of_a).
-    # The helper picks the alphabetically-larger of the pair => dup_of_a.
-    assert set(dropped) == {"nan_heavy", "low_var", "dup_of_a"}, dropped
+    # The helper picks the alphabetically-larger of the pair via max(a, b); 'g' > 'd' lexicographically,
+    # so max("good_a", "dup_of_a") == "good_a" -- the ORIGINAL version of this assertion expected
+    # "dup_of_a" to survive, which has the comparison backwards (Python string ordering is by codepoint,
+    # not by which name "sounds" like the duplicate).
+    assert set(dropped) == {"nan_heavy", "low_var", "good_a"}, dropped
     # All three splits lose the same columns.
     for df, _n_expected in ((train_out, 2), (val_out, 2), (test_out, 2)):
-        assert set(df.columns) == {"good_a", "good_b"}, df.columns
+        assert set(df.columns) == {"dup_of_a", "good_b"}, df.columns
     # Metadata records the drop list.
     assert metadata["feature_distribution_report"]["auto_dropped_columns"] == sorted(dropped)
 

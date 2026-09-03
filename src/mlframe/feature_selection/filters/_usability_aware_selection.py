@@ -39,7 +39,12 @@ def _scrub(v: np.ndarray, dtype: Any = np.float64) -> np.ndarray:
     # machinery): 764us -> 269us on a 100k float32 column. _scrub is called ~17k+/retention fit on full-n
     # columns, so this is a direct cut to the pool-build cost. Verified bit-identical over float32/float64 +
     # nan/inf fuzz.
-    a = np.asarray(v, dtype=dtype)
+    # A cast to a narrower dtype (e.g. float64 -> float32) can overflow to +-inf on an extreme
+    # input value -- numpy warns "overflow encountered in cast" even though that's exactly the
+    # non-finite case this function's whole job is to zero out right below. Harmless, suppressed
+    # locally rather than at every caller.
+    with np.errstate(over="ignore"):
+        a = np.asarray(v, dtype=dtype)
     return np.where(np.isfinite(a), a, 0)
 
 
@@ -227,7 +232,7 @@ def build_usability_candidate_pool(
             then combines their quantile codes into one joint code (``code_a * nbins + code_b``) before scoring."""
             return float(marginal_mi_binned_fixed_y(_pj_codes[p[0]] * _nb + _pj_codes[p[1]], *y_terms))
 
-        # DEVICE-BATCHED pair ranking (kernel-residency, 2026-07-02): under the resident strict path score ALL
+        # DEVICE-BATCHED pair ranking (kernel-residency): under the resident strict path score ALL
         # pair joint MIs in ONE fused device call (binned_mi_from_codes_gpu computes the SAME plain plug-in MI,
         # no MM bias) instead of the per-pair host loop. The per-base codes are already the device binner's
         # partition (host copies of the strict _quantile_bin route), so the joint codes are identical; the MI
@@ -256,7 +261,7 @@ def build_usability_candidate_pool(
         pairs.sort(key=lambda p: marg[p[0]] + marg[p[1]], reverse=True)
         pairs = pairs[:max_pairs]
 
-    # FUSED njit PER-PAIR ENUMERATION (retention path only, 2026-06-18). On the retention path
+    # FUSED njit PER-PAIR ENUMERATION (retention path only). On the retention path
     # (``rank_pairs_by_joint_mi=True``) the per-pair ``|unary|^2*|binary|`` value+quantile-bin+MI triple
     # is Python-dispatched per combo (~3.5s/pair at n=10000, ~62s of a structured fit). When every
     # preset op is njit-coded, score ALL combos for a pair in ONE njit(parallel) kernel
@@ -493,6 +498,7 @@ def usability_greedy(
     n_folds: int = 4,
     mae_improve_rel: float = 0.01,
     shortlist: int = 40,
+    shortlist_diversity_corr: float = 0.97,
     classification: bool = False,
 ) -> list[UsableCandidate]:
     """CROSS-VALIDATED forward selection for the LINEAR downstream: greedily add the candidate that
@@ -508,6 +514,18 @@ def usability_greedy(
     A cheap usability pre-rank (``MI + |corr with the post-dominant residual|``) shortlists the pool
     to ``shortlist`` candidates so the per-step CV cost is bounded; ``w`` weights the MI vs the
     residual-corr in that pre-rank only (the COMMIT decision is always the CV-MAE improvement).
+    The shortlist ranking applies the SAME near-duplicate diversity filter (``shortlist_diversity_corr``,
+    default matches ``build_usability_candidate_pool``'s ``diversity_corr``) that pool construction
+    already uses: multiple candidates sharing one true underlying signal but differing only in an
+    algebraically-equivalent secondary transform (e.g. ``div(log(c),rint(d))`` /
+    ``div(invcbrt(c),rint(d))`` / ``div(invsqrt(c),rint(d))`` -- three near-identical views of the
+    SAME coarse rint(d)-driven relationship) can otherwise crowd several of the ``shortlist`` slots
+    with redundant near-duplicates, starving room for a genuinely DIFFERENT-signal candidate that
+    the CV-MAE commit stage would have correctly preferred had it been given the chance to compete
+    (root-caused 2026-08-22: a smooth mul(log(c),sqrt(d))-class candidate measured at CV-MAE 0.024 --
+    near the true floor -- never reached the greedy's CV evaluation at all because three
+    algebraically-redundant rint(d)-based candidates, each individually weak (CV-MAE ~0.077, barely
+    better than no candidate), occupied 3 of the shortlist's slots ahead of it).
 
     GPU-RESIDENT DISPATCH (``MLFRAME_FE_GPU_STRICT`` + ``MLFRAME_FE_GPU_STRICT_RESIDENT``, default OFF):
     under the resident flag the REGRESSION greedy is computed by the resident twin
@@ -523,7 +541,8 @@ def usability_greedy(
             from ._usability_greedy_gpu_resident import usability_greedy_gpu_resident
             _res = usability_greedy_gpu_resident(
                 pool, y_cont, w=w, K=K, seed=seed, n_folds=n_folds,
-                mae_improve_rel=mae_improve_rel, shortlist=shortlist, classification=classification,
+                mae_improve_rel=mae_improve_rel, shortlist=shortlist, shortlist_diversity_corr=shortlist_diversity_corr,
+                classification=classification,
             )
             if _res is not None:
                 return _res
@@ -603,7 +622,7 @@ def usability_greedy(
         logger.debug("shortlist auto-sizing failed, keeping the caller-provided shortlist: %s", e)
 
     rng = np.random.default_rng(int(seed))
-    # BALANCED PARTITION (audit fix, 2026-06-13): a random ``rng.integers(0, n_folds)`` multinomial
+    # BALANCED PARTITION (audit fix): a random ``rng.integers(0, n_folds)`` multinomial
     # assignment can leave a fold EMPTY at small n / large n_folds -> an empty TRAIN fold crashes
     # ``fit`` and an empty TEST fold yields a NaN MAE that poisons the per-fold consistency gate. A
     # shuffled ``arange(n) % k`` partition guarantees every fold has floor/ceil(n/k) >= 1 rows.
@@ -612,7 +631,7 @@ def usability_greedy(
     rng.shuffle(folds)
     mi_max = max((c.mi for c in pool), default=1.0) or 1.0
 
-    # INCREMENTAL CV (2026-06-18, was PERF TODO 2026-06-13): the regression scorer no longer refits a
+    # INCREMENTAL CV (was a PERF TODO): the regression scorer no longer refits a
     # StandardScaler+LinearRegression for every (candidate, fold). ``StandardScaler -> LinearRegression
     # (fit_intercept=True)`` predictions are INVARIANT to per-column affine scaling, so they equal a raw
     # mean-CENTERED OLS-with-intercept fit; that lets us work with the centered normal equations directly.
@@ -755,7 +774,7 @@ def usability_greedy(
         indicator minus its predicted probability; with no prior selection it falls back to the (train-fold) mean/
         prior-centered residual over all rows. This pre-rank only bounds the candidate pool the greedy's expensive
         per-step CV evaluates - the actual commit decision is always the CV-MAE/logloss improvement."""
-        # HELD-OUT residual (audit fix, 2026-06-13): fit on the fold-0-out train rows but score the
+        # HELD-OUT residual (audit fix): fit on the fold-0-out train rows but score the
         # candidate correlation on the HELD-OUT fold-0 residual only - the prior code predicted over
         # ALL rows (in-sample for the ~(k-1)/k training rows), which is the leakage the module's
         # "held-out residual" design explicitly avoids. The no-selection case uses the mean residual
@@ -817,9 +836,29 @@ def usability_greedy(
         scored = []
         for k, i in enumerate(cand_ids):
             use = float(uses[k]) if uses is not None else _abscorr(pool[i].values[rows], resid)
-            scored.append((i, (1.0 - w) * (pool[i].mi / mi_max) + w * use))
+            scored.append((i, (1.0 - w) * (pool[i].mi / mi_max) + w * use, pool[i].mi, use))
         scored.sort(key=lambda t: t[1], reverse=True)
-        return [i for i, _ in scored[: max(1, shortlist)]]
+        if logger.isEnabledFor(logging.DEBUG):
+            top = ", ".join(f"{pool[i].name}(score={s:.4f},mi={m:.4f},use={u:.4f})" for i, s, m, u in scored[:10])
+            logger.debug("usability_greedy._shortlist(sel=%r): top10=[%s]", [pool[j].name for j in sel_idx], top)
+        # Greedy diversity filter (mirrors build_usability_candidate_pool's per-pair dedup): several
+        # top-scored candidates can be near-duplicate views of the SAME underlying signal (e.g. one
+        # coarse rint(d)-driven relationship expressed via 3+ algebraically-different c-side wraps),
+        # which would otherwise occupy multiple `shortlist` slots and starve room for a genuinely
+        # different-signal candidate the CV-MAE commit stage never gets a chance to evaluate. Walk the
+        # score-sorted list, keep a candidate only if it is NOT a near-duplicate (|corr| >
+        # shortlist_diversity_corr) of an already-kept one.
+        out: list[int] = []
+        kept_vals: list[np.ndarray] = []
+        for i, _s, _m, _u in scored:
+            v = pool[i].values[rows]
+            if any(_abscorr(v, kv) > shortlist_diversity_corr for kv in kept_vals):
+                continue
+            out.append(i)
+            kept_vals.append(v)
+            if len(out) >= max(1, shortlist):
+                break
+        return out
 
     import math
     # a committed feature must improve a MAJORITY of folds (>=75%), not just the mean - a noise-

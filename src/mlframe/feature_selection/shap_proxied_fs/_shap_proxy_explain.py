@@ -26,6 +26,8 @@ of scope for v1 because the coalition value is a single scalar margin per row.
 from __future__ import annotations
 
 import logging
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Optional, Union, cast
 
@@ -89,9 +91,6 @@ def _build_oof_fold_fit_disk_key(model_template, X_tr_fold, y_tr_fold, classific
         return None
 
 
-_SHAP_XGB_PATCHED = False
-
-
 def _safe_float(x=0.0):
     """Bracket-aware float coercer for XGBoost 2.x / 3.x base_score serialised as a JSON array string (``"[0.5]"`` / ``"[5.06E-1, ...]"``); coerces to the first scalar, scalars pass through unchanged.
 
@@ -107,6 +106,33 @@ def _safe_float(x=0.0):
     return builtins.float(x)
 
 
+class _SafeFloatMeta(type):
+    """Metaclass making ``_SafeFloatCallable`` usable as a drop-in for the builtin ``float`` name in shap's ``_tree`` module: calling it coerces (bracket-aware), but ``isinstance(x, _SafeFloatCallable)`` still delegates to the REAL ``float`` via ``__instancecheck__``.
+
+    Needed because ``shap.explainers._tree`` (shap<0.52) uses its module-global ``float`` name for BOTH purposes in the same file: as a coercer (``XGBTreeModelLoader`` parsing ``base_score``) and as an ``isinstance`` type target
+    (``SingleTree``'s LightGBM ``tree_structure`` branch: ``isinstance(vertex["threshold"], (int, float))``). A plain-function replacement (the original ``_safe_float``) breaks the second usage: ``isinstance(x, some_function)`` raises
+    ``TypeError``, which the LightGBM branch's own ``except Exception: self.trees = None`` silently swallows, leaving ``TreeEnsemble.values`` never set -- surfaces downstream as ``AttributeError: 'TreeEnsemble' object has no
+    attribute 'values'`` on the FIRST LightGBM explain in the process, not just via cross-call contamination from an earlier XGBoost call as originally assumed (reproduced with a fresh, isolated process: a bare, unpatched
+    ``shap.TreeExplainer`` on a plain LightGBM model succeeds; the same construction under the (old, plain-function) patch fails identically).
+    """
+
+    def __call__(cls, x=0.0):
+        return _safe_float(x)
+
+    def __instancecheck__(cls, instance):
+        return isinstance(instance, float)
+
+
+class _SafeFloatCallable(metaclass=_SafeFloatMeta):
+    """See ``_SafeFloatMeta``: callable coercer that also satisfies ``isinstance(x, float)`` checks against real floats/ints."""
+
+
+# Serializes ``_maybe_patch_shap_xgb_base_score``'s patch-install/restore window across threads -- see
+# that function's docstring for the race this closes (module-global monkey-patch + threaded fold dispatch).
+_SHAP_XGB_PATCH_LOCK = threading.Lock()
+
+
+@contextmanager
 def _maybe_patch_shap_xgb_base_score():
     """Workaround for shap<0.52 + xgboost>=2.0 base_score incompatibility (NO-OP on shap>=0.52).
 
@@ -115,17 +141,24 @@ def _maybe_patch_shap_xgb_base_score():
     bracket-aware ``_safe_float`` onto the shap tree module's ``float`` name there. shap >= 0.52 (PR #3530) parses the array natively AND uses ``float`` as a numpy DTYPE
     (``np.asarray(base_score, dtype=float)``) - replacing it would break that - so the patch is a strict NO-OP on >=0.52 (it must not touch ``_shap_tree.float``).
 
-    Idempotent (gated on ``_SHAP_XGB_PATCHED``); a no-op if shap is unavailable.
+    A context manager, NOT a permanent global patch: earlier (idempotent, gated on ``_SHAP_XGB_PATCHED``) versions patched ``shap.explainers._tree.float`` ONCE and left
+    it patched for the rest of the process, risking cross-call contamination for any LATER ``TreeExplainer`` construction on a different model in the same process.
+    Scoping the patch to just the ``with`` block around the ``TreeExplainer(...)`` call that actually needs it, and restoring the original name (or removing it if
+    shap's ``_tree`` module never defined one) on exit, avoids that.
+
+    The installed replacement is ``_SafeFloatCallable`` (see its docstring), NOT the plain function ``_safe_float`` directly: shap's ``_tree`` module (shap<0.52) uses
+    its module-global ``float`` name for BOTH coercion (``XGBTreeModelLoader`` parsing ``base_score``) AND as an ``isinstance`` type target (``SingleTree``'s LightGBM
+    ``tree_structure`` branch: ``isinstance(vertex["threshold"], (int, float))``). A plain-function replacement breaks the second usage even for a same-process,
+    freshly-constructed LightGBM explain with NO earlier XGBoost call at all -- confirmed live (``AttributeError: 'TreeEnsemble' object has no attribute 'values'``,
+    reproduced in an isolated process with only this patch + a LightGBM ``TreeExplainer`` construction, no XGBoost call anywhere in the process).
+    A no-op (yields without touching anything) if shap is unavailable or resolves >=0.52.
     """
-    global _SHAP_XGB_PATCHED
-    if _SHAP_XGB_PATCHED:
-        return
     try:
         import shap
         from shap.explainers import _tree as _shap_tree
     except ImportError as e:
         logger.debug("shap import failed, skipping the xgboost patch: %s", e)
-        _SHAP_XGB_PATCHED = True
+        yield
         return
 
     try:
@@ -135,11 +168,33 @@ def _maybe_patch_shap_xgb_base_score():
         _shap_ver = (0, 0)
     # shap >= 0.52 handles the array base_score natively and uses ``float`` as a numpy dtype; touching it is harmful + unnecessary -> no-op.
     if _shap_ver >= (0, 52):
-        _SHAP_XGB_PATCHED = True
+        yield
         return
 
-    _shap_tree.float = _safe_float
-    _SHAP_XGB_PATCHED = True
+    # ``_shap_tree.float`` is a MODULE-GLOBAL, and compute_shap_matrix's out-of-fold loop dispatches folds
+    # via ``joblib.Parallel(prefer="threads")`` (n_jobs=-1 by default, real threads sharing this process's
+    # module state, not separate processes). Without serializing patch-install/restore, two folds racing
+    # this context manager on different threads can interleave: fold B's ``_had_attr`` snapshot reads
+    # fold A's already-installed patch as "the original", so B's restore leaves A's patch permanently in
+    # place, OR A's restore fires while B's TreeExplainer construction is still mid-flight, yanking the
+    # patch out from under it -- either way a later/concurrent TreeExplainer sees the RAW unpatched
+    # ``float`` and crashes on xgboost's array-string base_score exactly as this patch exists to prevent
+    # (observed live: ``ValueError: could not convert string to float: '[4.72E-1]'`` from a bias-corrector
+    # fit whose default n_jobs=-1 + n_splits=3 triggers this exact threaded fold dispatch). The lock
+    # serializes the whole patch/yield/restore window across threads; each fold's TreeExplainer
+    # construction + shap_values call is fast relative to that fold's own model fit (which happens
+    # earlier, outside this context manager), so the added serialization here is cheap.
+    with _SHAP_XGB_PATCH_LOCK:
+        _had_attr = "float" in _shap_tree.__dict__
+        _saved = _shap_tree.__dict__.get("float")
+        _shap_tree.float = _SafeFloatCallable
+        try:
+            yield
+        finally:
+            if _had_attr:
+                _shap_tree.float = _saved
+            else:
+                _shap_tree.__dict__.pop("float", None)
 
 
 # Relative deviation of expected_value from the empirical mean margin above which we warn about a
@@ -272,9 +327,9 @@ def _shap_phi_and_base(explainer_base, X: pd.DataFrame, backend: str = "auto"):
 
     import shap
 
-    _maybe_patch_shap_xgb_base_score()
-    explainer = shap.TreeExplainer(explainer_base, feature_perturbation="tree_path_dependent")
-    phi = explainer.shap_values(X, check_additivity=False)
+    with _maybe_patch_shap_xgb_base_score():
+        explainer = shap.TreeExplainer(explainer_base, feature_perturbation="tree_path_dependent")
+        phi = explainer.shap_values(X, check_additivity=False)
     base = explainer.expected_value
 
     # Binary classifiers: SHAP may return a list [class0, class1] or a 3-D array (n, f, classes).

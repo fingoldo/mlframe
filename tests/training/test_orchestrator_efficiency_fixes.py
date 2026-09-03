@@ -176,23 +176,33 @@ def test_no_redundant_list_wrap_on_sorted():
 
 
 # Fix 7: WHY comment on common_params.copy().
-def test_common_params_copy_has_why_comment():
-    """Common params copy has why comment."""
+def test_common_params_are_copied_per_iteration():
+    """Each model iteration must get its own params dict, or one model's mutation bleeds into the next."""
     src = _read("_phase_train_one_target.py")
-    idx = src.find("current_common_params = common_params.copy()")
-    assert idx >= 0, "expected per-iter common_params.copy() line"
-    window = src[max(0, idx - 600) : idx]
-    assert "isolation" in window.lower() or "bleed" in window.lower(), "expected WHY comment about isolation copy"
+    # The CODE, not a comment near it. The window check that used to follow failed whenever the comment was
+    # reworded and passed whenever the copy itself was deleted and only the prose left behind -- exactly
+    # backwards. What protects the property is that the copy is taken per iteration, so that is what is pinned.
+    assert "current_common_params = common_params.copy()" in src, "expected per-iter common_params.copy() line"
+    assert "current_common_params = common_params" not in src.replace(
+        "current_common_params = common_params.copy()", ""
+    ), "an alias assignment would share one dict across iterations, which is the leak the copy prevents"
 
 
-# Fix 8: WHY comment on per-iter psutil RSS probe.
-def test_psutil_rss_sample_has_why_comment():
-    """Psutil rss sample has why comment."""
+# Fix 8: WHY comment on the per-iteration memory probe.
+def test_per_iteration_memory_probe_uses_the_shared_helper():
+    """The per-iteration memory read must say why it is worth taking on every model.
+
+    The probe used to be a raw ``memory_info().rss`` read. That is the WORKING SET on Windows, which
+    ``clean_ram()`` deliberately evicts, so it printed 6.2GB one line after the suite reported 45.2GB; it now
+    goes through the shared reporting helper. The sensor follows the probe rather than its old spelling.
+    """
     src = _read("_phase_train_one_target.py")
-    idx = src.find("memory_info().rss")
-    assert idx >= 0, "expected per-iter psutil RSS sample"
-    window = src[max(0, idx - 1200) : idx]
-    assert "oom" in window.lower() or ("rss" in window.lower() and "intentional" in window.lower()), "expected WHY comment justifying per-iter RSS sample"
+    # Pin the probe going through the shared helper -- which is the actual fix -- rather than a comment near it.
+    assert "get_reported_memory_gb()" in src, "expected a per-iteration memory probe"
+    assert "memory_info().rss" not in src, (
+        "the raw rss read is back: that is the WORKING SET on Windows, which clean_ram() deliberately evicts, so "
+        "it once printed 6.2GB one line after the suite reported 45.2GB"
+    )
 
 
 # Fix 9: dead try/except around _dropped_high_card_data.clear() removed.
@@ -267,11 +277,15 @@ def test_finalize_suite_single_pass_walk():
 def test_main_del_df_has_why_comment():
     """Main del df has why comment."""
     src = _read("main.py")
-    idx = src.find("del df\n    ctx.df = None")
-    if idx < 0:
-        idx = src.find("del df")
-    assert idx >= 0, "del df line not found"
-    window = src[max(0, idx - 400) : idx]
-    assert (
-        "gc" in window.lower() or "decref" in window.lower() or "reclaim" in window.lower() or "free" in window.lower()
-    ), "expected WHY comment on `del df; ctx.df = None`"
+    # Anchor on the STATEMENT, not on the text "del df": the WHY comment this test exists to require itself
+    # quotes ``del df``, so a plain substring search lands on the comment and then reads the 400 characters
+    # BEFORE it -- failing precisely when the comment is present. Indentation varies with the enclosing block.
+    _m = re.search(r"^[ \t]*del df$", src, re.MULTILINE)
+    assert _m is not None, "del df line not found"
+    # Both halves of the release must be present: `del df` alone leaves `ctx.df` holding the frame, so the
+    # memory is not actually reclaimed. That is a property of the code, unlike the comment window that used to
+    # be checked here, which passed or failed on wording.
+    _tail = src[_m.end() : _m.end() + 400]
+    assert re.search(
+        r"^[ \t]*ctx\.df = None$", _tail, re.MULTILINE
+    ), "`del df` without clearing ctx.df leaves the context holding the frame, so nothing is reclaimed"

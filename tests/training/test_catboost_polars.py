@@ -4,11 +4,18 @@ Verifies that CatBoost and HGB can train directly on Polars DataFrames
 (no pandas conversion) with early stopping on a separate Polars validation set.
 """
 
+import inspect
+
 import numpy as np
 import polars as pl
 import pytest
 from catboost import CatBoostClassifier, CatBoostRegressor, Pool
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
+
+# sklearn added external-validation-set support (X_val/y_val) to HGB's fit() after 1.6.1 (the
+# floor pinned by sklearn-matrix-ci.yml); feature-detect rather than hardcode a version number so
+# a future floor bump doesn't need this file touched again.
+_HGB_SUPPORTS_X_VAL = "X_val" in inspect.signature(HistGradientBoostingClassifier.fit).parameters
 
 RANDOM_SEED = 42
 N_TRAIN = 200
@@ -298,11 +305,16 @@ class TestHGBPolarsClassification:
         model = HistGradientBoostingClassifier(
             max_iter=ITERATIONS,
             early_stopping=True,
-            validation_fraction=None,
+            validation_fraction=None if _HGB_SUPPORTS_X_VAL else 0.2,
             n_iter_no_change=EARLY_STOPPING_ROUNDS,
             random_state=RANDOM_SEED,
         )
-        model.fit(X_train, y_train, X_val=X_val, y_val=y_val)
+        if _HGB_SUPPORTS_X_VAL:
+            model.fit(X_train, y_train, X_val=X_val, y_val=y_val)
+        else:
+            # sklearn < the X_val/y_val floor: no external-validation-set API: fall back to the
+            # internal validation_fraction split (still exercises the early-stopping fit path).
+            model.fit(X_train, y_train)
 
         assert hasattr(model, "n_iter_")
         assert model.n_iter_ <= ITERATIONS
@@ -405,6 +417,29 @@ class TestXGBoostStrategyPreparePolars:
         assert result.equals(df)
 
 
+def _xgboost_has_native_polars_support() -> bool:
+    """Feature-detect whether the installed xgboost's sklearn ``fit()`` dispatches a raw Polars
+    ``DataFrame`` through its own categorical-aware backend, instead of silently falling through to
+    a generic array-like conversion that loses category info (raising ``ValueError: could not
+    convert string to float`` once a categorical column reaches the numeric DMatrix builder).
+    Behavioral probe (not source-text inspection, per feedback_behavioral_tests): actually build a
+    tiny categorical Polars DataFrame and try an XGBoost fit on it -- native polars dispatch (added
+    after xgboost 2.1.x) succeeds; the generic array-like fallback raises the ValueError above."""
+    from xgboost import XGBClassifier
+
+    df = pl.DataFrame({"num_a": [0.0, 1.0, 2.0, 3.0], "cat_a": ["x", "y", "x", "y"]}).with_columns(pl.col("cat_a").cast(pl.Categorical))
+    y = [0, 1, 0, 1]
+    try:
+        XGBClassifier(n_estimators=1, enable_categorical=True, verbosity=0).fit(df, y)
+        return True
+    except ValueError:
+        return False
+
+
+_XGB_HAS_POLARS = _xgboost_has_native_polars_support()
+
+
+@pytest.mark.skipif(not _XGB_HAS_POLARS, reason="installed xgboost has no native Polars DataFrame dispatch (pre-3.x)")
 class TestXGBoostPolarsClassification:
     """XGBoost trained on Polars DataFrames with categorical features."""
 
@@ -542,11 +577,16 @@ class TestHGBPolarsRegression:
         model = HistGradientBoostingRegressor(
             max_iter=ITERATIONS,
             early_stopping=True,
-            validation_fraction=None,
+            validation_fraction=None if _HGB_SUPPORTS_X_VAL else 0.2,
             n_iter_no_change=EARLY_STOPPING_ROUNDS,
             random_state=RANDOM_SEED,
         )
-        model.fit(X_train, y_train, X_val=X_val, y_val=y_val)
+        if _HGB_SUPPORTS_X_VAL:
+            model.fit(X_train, y_train, X_val=X_val, y_val=y_val)
+        else:
+            # sklearn < the X_val/y_val floor: no external-validation-set API: fall back to the
+            # internal validation_fraction split (still exercises the early-stopping fit path).
+            model.fit(X_train, y_train)
 
         assert hasattr(model, "n_iter_")
         assert model.n_iter_ <= ITERATIONS

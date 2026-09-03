@@ -84,3 +84,16 @@ def test_biz_val_mode_identity_stable_on_unimodal():
     mode = per_group_recency_weighted_mode(vals, groups, order=order, scheme="poly", param=0.0, broadcast=False)
     mean = per_group_recency_weighted_mean(vals, groups, order=order, scheme="poly", param=0.0, broadcast=False)
     assert np.max(np.abs(mode - mean)) < 3.0, "mode and mean should be close on clean unimodal data"
+
+
+def test_per_group_recency_weighted_mode_n_grid_1_raises_clear_valueerror():
+    """FE_ROOT_B-8: n_grid=1 must raise a clear ValueError instead of dividing by (n_grid-1)==0 inside the
+    njit KDE grid construction and silently producing inf/NaN grid points."""
+    import pytest
+
+    vals = np.array([1.0, 2.0, 3.0, 4.0])
+    groups = np.array([0, 0, 0, 0])
+    with pytest.raises(ValueError, match="n_grid"):
+        per_group_recency_weighted_mode(vals, groups, n_grid=1)
+    with pytest.raises(ValueError, match="n_grid"):
+        per_group_behavioral_stability(vals, groups, n_grid=1)

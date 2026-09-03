@@ -4,10 +4,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 import sys, time
+from pathlib import Path
 import numpy as np
 
 if __name__ == "__main__":
-    sys.path.insert(0, r"D:/Upd/Programming/PythonCodeRepository/mlframe/src")
+    # Derived from __file__, not a dev-machine-specific absolute path -- see h1_bench.py's sibling comment.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
     from mlframe.feature_selection._benchmarks.wide_data_scaling._progress_shared import ck
 

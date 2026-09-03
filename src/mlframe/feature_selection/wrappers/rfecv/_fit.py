@@ -177,6 +177,13 @@ def _precompute_prescreen_fold_universes(self, *, X, y, groups, cv, full_feature
 
 def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, sample_weight: Union[np.ndarray, pd.Series, None] = None, **fit_params):
     """Fit RFECV: densifies a sparse ``X`` (refusing inputs whose dense form would exceed ~2 GB), applies the optional prescreen, precomputes per-fold train-only prescreen universes, then drives the recursive elimination loop to select the final feature subset."""
+    # No estimator configured (neither estimators= nor estimator=) is a caller error; check it FIRST,
+    # before anything downstream (_init_fit_state's is_classifier(None) check, or the
+    # stability_selection dispatch's sklearn.base.clone(None)) hits it as a confusing AttributeError
+    # instead of this clear ValueError.
+    if not (list(self.estimators) if self.estimators else ([self.estimator] if self.estimator is not None else [])):
+        raise ValueError("RFECV requires either estimator= or estimators=.")
+
     # scipy.sparse X is not first-class across the dense-frame-centric FS pipeline; densify at the boundary so the
     # existing ndarray path handles it. Gated on dense size per the project RAM rule - a sparse matrix whose dense
     # form would exceed ~2 GB is refused with a clear error rather than silently doubling host memory.
@@ -284,17 +291,19 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
                 X_estimator = None
                 col_pos = None
 
-    # Stability selection branch: uses bootstrap voting instead of the MBH+CV-fold-voting search. Returns early after setting
-    # support_ / n_features_ / cv_results_-shim / feature_names_in_ etc.
-    if self.stability_selection:
-        return self._fit_stability_selection(X=X, y=y, signature=signature)
-
     # ``estimators`` (list) supersedes the singular ``estimator``. Work with a list internally; singular path is a len-1 list.
     # Score per fold = mean across estimators; FI runs stored under separate keys so the voting layer treats each estimator's
     # importance as an independent "run".
     estimators_list = list(self.estimators) if self.estimators else ([self.estimator] if self.estimator is not None else [])
     if not estimators_list:
         raise ValueError("RFECV requires either estimator= or estimators=.")
+
+    # Stability selection branch: uses bootstrap voting instead of the MBH+CV-fold-voting search. Returns early after setting
+    # support_ / n_features_ / cv_results_-shim / feature_names_in_ etc. Dispatched AFTER the estimators_list presence check
+    # above -- _fit_stability_selection clones self.estimator internally, so with no estimator configured it crashed with a
+    # confusing AttributeError from sklearn.base.clone(None) instead of this function's own clear ValueError.
+    if self.stability_selection:
+        return self._fit_stability_selection(X=X, y=y, signature=signature)
     # ``estimator`` retained for legacy code paths inside fit() that need a single object for type-dispatch (CV stratification,
     # scoring, importance_getter resolution). First estimator is the representative.
     estimator = estimators_list[0]

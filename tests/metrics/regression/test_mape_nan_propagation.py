@@ -44,6 +44,15 @@ def test_mape_clean_input_unchanged():
     assert abs(mape(y, p) - 0.25) < 1e-12
 
 
+def test_mape_empty_input_returns_nan_instead_of_crashing():
+    # Pre-fix, np.nanmax on the kernel's empty `mape` array raised
+    # ValueError: zero-size array to reduction operation fmax which has no identity.
+    """Mape empty input returns nan instead of crashing."""
+    y = np.array([], dtype=float)
+    p = np.array([], dtype=float)
+    assert np.isnan(mape(y, p))
+
+
 def test_mape_parallel_path_propagates_nan():
     # Force the >=500k parallel kernel path; one NaN row must still yield NaN.
     """Mape parallel path propagates nan."""

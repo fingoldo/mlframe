@@ -188,7 +188,21 @@ def _mrmr_instance_state_size_bytes(instance: Any) -> int:
     """
     total = 0
     try:
-        _attrs = vars(instance)
+        # ``.copy()`` (a single C-level bulk operation that never releases the GIL mid-call), NOT
+        # ``list(vars(instance).values())`` -- the latter still walks the LIVE dict via the normal
+        # iterator protocol (checked against a mutation counter on every ``next()``) and can raise the
+        # exact same ``RuntimeError: dictionary changed size during iteration`` while building the list
+        # that ``.copy()`` avoids by not using that protocol at all. This is a best-effort byte estimate
+        # called from inside the process-wide cache lock while other in-flight fits on OTHER instances
+        # proceed unlocked (the lock only ever serialised the ``_FIT_CACHE`` container itself, never a
+        # stored value's own further attribute writes) -- a cross-thread interleaving that adds/removes
+        # an attribute on THIS instance mid-walk raised the RuntimeError on the live view (reproduced
+        # live via ``test_concurrent_real_fits_no_exception_and_bounded_cache``, intermittent -- not fully
+        # closed by relocating the cache-store site to publish only a fully-finalised instance, since
+        # ``vars()`` gives no atomicity guarantee against ANY concurrent write to this specific object).
+        # Worst case with the snapshot is a slightly stale byte estimate, already the documented
+        # "best-effort" contract.
+        _attrs = vars(instance).copy()
     except TypeError:
         return 0
     for _v in _attrs.values():
@@ -446,3 +460,13 @@ def fe_decide_on_subsample(
     # are materialised, never a copy of X.
     X_aug = fe_append_columns(X, _full_cols)
     return (X_aug, *_middle, recipes)
+
+
+def _pgn_raw_budget(ceiling: int, n_engineered: int) -> int:
+    """Raw-feature budget under the p>=n FP-control cap: the total ``ceiling`` (= ``max(20, p//3)``) minus the
+    engineered survivors that already reach the transform output, floored at 0. Engineered features are charged
+    against the ceiling so the p>=n total (raw + engineered) never exceeds it; a higher ``n_engineered`` therefore
+    tightens the raw budget. Pulled out as a pure function so the cap arithmetic is unit-testable in isolation.
+    Shared by ``_assign_support`` and ``_assign_support_tail`` (moved here 2026-08-15 when the latter was split
+    off, to avoid a circular import between the two sibling files)."""
+    return max(0, int(ceiling) - int(n_engineered))

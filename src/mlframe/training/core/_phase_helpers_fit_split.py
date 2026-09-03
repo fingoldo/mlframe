@@ -1,6 +1,6 @@
 """``_phase_fit_pipeline`` + ``_phase_train_val_test_split`` -- the heavy training phases.
 
-Wave 105 (2026-05-21): split out from ``training/core/_phase_helpers.py`` to
+split out from ``training/core/_phase_helpers.py`` to
 keep that file below the 1k-line monolith threshold. Behaviour preserved
 bit-for-bit; both functions are re-exported from ``_phase_helpers`` so
 existing imports continue to work.
@@ -26,7 +26,7 @@ try:
 except ImportError:
     pl = None  # type: ignore[assignment]
 
-# 2026-05-21: wave-105 split-out forgot to mirror the parent's imports +
+# The split-out forgot to mirror the parent's imports +
 # NamedTuple defs, so every call into ``_phase_fit_pipeline`` /
 # ``_phase_train_val_test_split`` raised NameError. Mirroring the parent
 # module's imports here so this file is genuinely self-contained.
@@ -526,13 +526,21 @@ def _phase_train_val_test_split(
         if verbose:
             logger.info("Split sequences: train=%d, val=%d, test=%d", len(train_sequences), len(val_sequences) if val_sequences else 0, len(test_sequences))
 
-    if verbose:
-        logger.info("Deleting original DataFrame to free RAM...")
-
     # Refresh baseline so the next maybe_clean_ram_and_gpu in the caller sees the post-del state.
-    baseline_rss_mb = get_process_rss_mb()
-    baseline_rss_mb = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="post-split (del df)")
+    _rss_before_mb = get_process_rss_mb()
+    baseline_rss_mb = maybe_clean_ram_and_gpu(_rss_before_mb, df_size_mb, verbose=verbose, reason="post-split (del df)")
     if verbose:
+        # Report what the cleanup ACTUALLY released rather than announcing an intention: a production log printed
+        # "Deleting original DataFrame to free RAM..." and then the same 45.4GB it printed before, because the
+        # split frames are views over the source buffers and the source name is dropped by the caller, not here.
+        _freed_mb = _rss_before_mb - get_process_rss_mb()
+        if _freed_mb >= 64.0:
+            logger.info("Post-split cleanup released %.1fGB.", _freed_mb / 1024.0)
+        else:
+            logger.info(
+                "Post-split cleanup released no measurable RAM (%.0fMB): the split frames reference the same "
+                "buffers as the source, so dropping the source name alone frees nothing.", max(_freed_mb, 0.0),
+            )
         log_ram_usage()
 
     return TrainValTestSplitResult(
@@ -627,7 +635,7 @@ def _phase_auto_detect_feature_types(
 
     # Capture pre-drop column data so dummy_baselines per_group_mean can use these as group
     # keys downstream (tree models drop them to avoid XGB QuantileDMatrix OOM).
-    # Audit D P1-6 (2026-05-18): pre-fix loop ran ``_frame[c].to_numpy()`` per column per
+    # Pre-fix loop ran ``_frame[c].to_numpy()`` per column per
     # split -- N independent Arrow batches per split. Now we do ONE ``_frame.select(cols)``
     # per split, materialise that 2D matrix through ``get_pandas_view_of_polars_df`` (split-
     # blocks Arrow bridge, ~32x faster than naive to_pandas on multi-col selects), then
@@ -696,16 +704,16 @@ def _phase_auto_detect_feature_types(
     metadata["cat_features"] = cat_features
 
     # One-time Polars string->Enum cast so XGB's arrow bridge doesn't choke on large_string.
-    # Use pl.Enum (per-Series, no global cache impact) keyed off the train-only unique set;
-    # val/test cast non-strict so OOV becomes null (matches the alignment semantics elsewhere
-    # in the suite). pl.Categorical would widen the process-wide string cache (memory rule:
+    # Use pl.Enum (per-Series, no global cache impact); the domain and the strictness are described at the
+    # cast site below, which is where they are decided. pl.Categorical would widen the process-wide string
+    # cache (memory rule:
     # reference_polars_global_string_cache). Fixes audit B-P0-3 / Low-B11.
     if was_polars_input and all_models_polars_native and pipeline_config.skip_categorical_encoding and train_df is not None:
         _string_types = (pl.Utf8, pl.String) if hasattr(pl, "String") else (pl.Utf8,)
         _keep_as_string = text_emb_set
         _str_cols = [c for c, dt in zip(train_df.columns, train_df.dtypes) if dt in _string_types and c not in _keep_as_string]
         if _str_cols:
-            # Wave 72 (2026-05-21): build per-column Enum domain from train+val
+            # build per-column Enum domain from train+val
             # uniques (NOT train-only). val is the early-stopping detector --
             # if a val-only categorical value gets cast to null silently, ES is
             # biased away from val-rare-cat-sensitive splits. test stays
@@ -734,7 +742,7 @@ def _phase_auto_detect_feature_types(
                     logger.debug("swallowed exception in _phase_helpers_fit_split.py: %s", e)
                     pass
             if _val_only_diag:
-                # INFO-level. Per Wave 72 contract this widening is intentional (val=ES detector must not silently null-cast); the log only surfaces what was previously invisible.
+                # INFO-level. This widening is intentional (val=ES detector must not silently null-cast); the log only surfaces what was previously invisible.
                 _summary = ", ".join(f"{c}:{n}" for c, (n, _) in _val_only_diag.items())
                 _samples = ", ".join(f"{c}={vs}" for c, (_, vs) in list(_val_only_diag.items())[:3])
                 logger.info(
@@ -758,7 +766,7 @@ def _phase_auto_detect_feature_types(
                     _affected_cols.append(_c)
                 if not _exprs:
                     return df
-                # Wave 72 (2026-05-21): quantify silent OOV-nulling so operators
+                # quantify silent OOV-nulling so operators
                 # can see how many rows got cast-failed (was invisible before).
                 _null_pre = {c: int(df[c].null_count()) for c in _affected_cols}
                 out = df.with_columns(_exprs)

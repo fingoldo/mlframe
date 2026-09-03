@@ -33,9 +33,17 @@ speedup: the lone sort is irreducible for rank-threshold curves.
 
 from __future__ import annotations
 
+import logging
+
+import hashlib
 from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
+
+from ._binary_shared import _finite_binary
+from ._captions import caption_for_tokens
+
+logger = logging.getLogger(__name__)
 
 from mlframe.metrics import trapezoid
 from mlframe.reporting.charts._layout import (
@@ -61,25 +69,14 @@ _AP_BOOTSTRAP_B: int = 500
 _AP_BOOTSTRAP_ROW_CAP: int = 50_000
 # Below this many rows (or positives) a bootstrap AP CI is too noisy to be informative; annotate AP only.
 _AP_BOOTSTRAP_MIN_N: int = 30
+# Resample-index rows drawn at a time. One (B, m) matrix is 200 MB at B=500 / m=50k for a buffer consumed one
+# row at a time; chunking keeps the peak small without changing the draw order (so the interval is unchanged).
+_AP_BOOTSTRAP_IDX_CHUNK: int = 32
 
 
 # ----------------------------------------------------------------------------
 # Shared data prep
 # ----------------------------------------------------------------------------
-
-
-def _finite_binary(y_true, y_score) -> Tuple[np.ndarray, np.ndarray]:
-    """Return finite (y_true in {0,1}, y_score) pairs as float64 / int8 arrays.
-
-    Non-finite scores and labels outside {0, 1} are dropped (the binary panels are one-vs-rest
-    on the positive class), mirroring how the regression panels drop non-finite pairs up front.
-    """
-    yt = np.asarray(y_true).ravel()
-    ys = np.asarray(y_score, dtype=np.float64).ravel()
-    mask = np.isfinite(ys)
-    yt_f = np.asarray(yt, dtype=np.float64)
-    mask &= np.isfinite(yt_f) & ((yt_f == 0.0) | (yt_f == 1.0))
-    return yt_f[mask].astype(np.int8), ys[mask]
 
 
 def _decimate(x: np.ndarray, *ys: np.ndarray, cap: int = _CURVE_VERTEX_CAP):
@@ -222,6 +219,7 @@ def bootstrap_ap_ci(
     n_boot: int = _AP_BOOTSTRAP_B,
     alpha: float = 0.05,
     seed: int = 0,
+    sort: Optional["_ScoreSort"] = None,
 ) -> Tuple[float, float, float]:
     """Bootstrap percentile CI for PR-AUC (average precision), resampling rows with replacement.
 
@@ -234,6 +232,10 @@ def bootstrap_ap_ci(
 
     Deterministic given ``seed``. Returns ``(ap, nan, nan)`` when n < ``_AP_BOOTSTRAP_MIN_N`` or one class is absent
     (AP undefined / CI uninformative); the caller annotates AP without an interval there.
+
+    ``sort``: the caller's existing ``_ScoreSort`` over the SAME rows. The full-data AP needs the labels in
+    descending-score order, which that object already holds, so passing it skips a second full-n argsort on the
+    default-on path. Optional and keyword-only -- callers that do not have one are unaffected.
     """
     yt = np.asarray(y_true).ravel().astype(np.int8)
     ys = np.asarray(y_score, dtype=np.float64).ravel()
@@ -241,7 +243,13 @@ def bootstrap_ap_ci(
     n_pos_full = int(yt.sum())
     if n == 0 or n_pos_full == 0 or n_pos_full == n:
         return float("nan"), float("nan"), float("nan")
-    full_ap = _ap_from_labels_desc(yt[np.argsort(ys, kind="stable")[::-1]])
+    if sort is not None and sort.n == n:
+        # cum_tp is the 1-based prefix count of positives in descending-score order, so its first difference IS the
+        # descending label sequence -- the same array the argsort below would produce, without the sort.
+        labels_desc = np.diff(np.concatenate(([0], sort.cum_tp)))
+    else:
+        labels_desc = yt[np.argsort(ys, kind="stable")[::-1]]
+    full_ap = _ap_from_labels_desc(labels_desc)
     if n < _AP_BOOTSTRAP_MIN_N:
         return full_ap, float("nan"), float("nan")
     rng = np.random.default_rng(seed)
@@ -252,12 +260,18 @@ def bootstrap_ap_ci(
     # Sort the subsample by score ONCE (descending); resamples then index into this fixed rank order.
     order = np.argsort(ys, kind="stable")[::-1]
     yt_desc = yt[order].astype(np.int64)
-    idx = rng.integers(0, m, size=(n_boot, m))
+    # Draw the resample indices in CHUNKS. One ``(n_boot, m)`` matrix is 200 MB at B=500 / m=50k, allocated up
+    # front and then consumed one row at a time -- against the house RAM rule for a buffer nothing needs whole.
+    # Chunking keeps the peak at ``_AP_BOOTSTRAP_IDX_CHUNK`` rows while drawing from the SAME rng in the same
+    # order, so the interval is unchanged.
     boot_ap = np.empty(n_boot, dtype=np.float64)
     pos_desc = yt_desc.astype(np.float64)
+    idx_chunk: np.ndarray = np.empty((0, 0), dtype=np.int64)
     for b in range(n_boot):
+        if b % _AP_BOOTSTRAP_IDX_CHUNK == 0:
+            idx_chunk = rng.integers(0, m, size=(min(_AP_BOOTSTRAP_IDX_CHUNK, n_boot - b), m))
         # Multiplicity of each fixed-rank row in resample b (a row can be drawn 0..k times); scatter-add to its rank.
-        mult = np.bincount(idx[b], minlength=m).astype(np.float64)
+        mult = np.bincount(idx_chunk[b % _AP_BOOTSTRAP_IDX_CHUNK], minlength=m).astype(np.float64)
         tp = np.cumsum(mult * pos_desc)
         total = np.cumsum(mult)
         n_pos = tp[-1]
@@ -273,6 +287,15 @@ def bootstrap_ap_ci(
         return full_ap, float("nan"), float("nan")
     lo = float(np.percentile(boot_ap, 100.0 * alpha / 2.0))
     hi = float(np.percentile(boot_ap, 100.0 * (1.0 - alpha / 2.0)))
+    if m < n:
+        # The point estimate is computed on all n rows but the interval was bootstrapped from m of them, so the
+        # title paired a full-n AP with the uncertainty of an m-row study -- about 6x too wide at n=2M against
+        # the 50k cap. A bootstrap standard error scales as 1/sqrt(rows), so rescale the half-width back onto
+        # the real row count. The interval stays centred on the point estimate the title actually reports.
+        shrink = float(np.sqrt(m / n))
+        centre = float(np.median(boot_ap))
+        lo = full_ap + (lo - centre) * shrink
+        hi = full_ap + (hi - centre) * shrink
     return full_ap, lo, hi
 
 
@@ -316,7 +339,7 @@ def _pr_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: fl
     baseline = np.full_like(x_thin, prevalence)
     title = f"Precision-Recall (AP={ap:.3f})"
     if ap_ci:
-        _, lo, hi = bootstrap_ap_ci(yt, ys, seed=ap_ci_seed)
+        _, lo, hi = bootstrap_ap_ci(yt, ys, seed=ap_ci_seed, sort=sort)
         if np.isfinite(lo) and np.isfinite(hi):
             title = f"Precision-Recall (AP={ap:.3f} [{lo:.3f}, {hi:.3f}], 95% CI)"
     markers = None
@@ -358,8 +381,14 @@ def _score_dist_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, thres
     return LinePanelSpec(
         x=centers,
         y=(h_neg, h_pos),
-        series_labels=("y=0", "y=1"),
-        title="Score distribution by class",
+        # Densities each integrate to 1, so a 1000:1 imbalance draws two equally tall humps and the reader
+        # cannot see it at all. The shape comparison is still what the panel is FOR, so keep the density and
+        # put the counts and shares in the labels, where the imbalance becomes readable.
+        series_labels=(
+            f"y=0 (n={neg.size:,}, {neg.size / max(sort.n, 1):.1%})",
+            f"y=1 (n={pos.size:,}, {pos.size / max(sort.n, 1):.1%})",
+        ),
+        title="Score distribution by class (density: each curve integrates to 1, so heights are NOT counts)",
         xlabel="Predicted score",
         ylabel="Density",
         line_styles=("-", "-"),
@@ -379,12 +408,19 @@ def _ks_curve(sort: _ScoreSort) -> Tuple[np.ndarray, np.ndarray, np.ndarray, flo
     fraction of each class with score <= grid value (ascending), ks_stat = max |cdf_neg - cdf_pos|,
     and ks_score is the score at which that maximum occurs. O(n) given the precomputed descending cumsums.
     """
-    # cum_tp / cum_fp are descending-prefix counts (score >= rank); reverse to ascending CDFs (score <= rank).
-    pos_le = sort.n_pos - np.concatenate(([0], sort.cum_tp[:-1]))[::-1]
-    neg_le = sort.n_neg - np.concatenate(([0], sort.cum_fp[:-1]))[::-1]
-    grid = sort.scores_desc[::-1]
-    cdf_pos = pos_le / max(1, sort.n_pos)
-    cdf_neg = neg_le / max(1, sort.n_neg)
+    # Evaluate at DISTINCT scores only. The per-ROW form below stepped the ECDFs through the interior of a
+    # tied block, i.e. at cut points no threshold can actually realise, which biases KS upward on quantised
+    # scores -- exactly the shape a tree ensemble emits. Measured on 20-level scores: 0.494441 against a
+    # 0.493870 reference computed over realisable thresholds only. `distinct_threshold_counts` already
+    # collapses ties and is memoised, so this is also strictly less work.
+    tps, fps, thr = sort.distinct_threshold_counts()
+    # tps[i] counts positives with score >= thr[i] (thr descending), so positives with score <= thr[i] is
+    # n_pos minus those strictly ABOVE it, which is tps at the previous (higher) distinct threshold.
+    pos_gt = np.concatenate(([0.0], tps[:-1]))
+    neg_gt = np.concatenate(([0.0], fps[:-1]))
+    grid = thr[::-1]
+    cdf_pos = (sort.n_pos - pos_gt)[::-1] / max(1, sort.n_pos)
+    cdf_neg = (sort.n_neg - neg_gt)[::-1] / max(1, sort.n_neg)
     gap = np.abs(cdf_neg - cdf_pos)
     j = int(np.argmax(gap))
     return grid, cdf_pos, cdf_neg, float(gap[j]), float(grid[j])
@@ -469,6 +505,12 @@ def _threshold_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, thresh
         cap=_THRESHOLD_PLOT_CAP,
     )
     prec, rec, f1, queue = ys_list
+    markers: List[tuple] = []
+    _f1_full = sweep["f1"]
+    if _f1_full.size and np.isfinite(_f1_full).any():
+        _bi = int(np.nanargmax(_f1_full))
+        markers.append((float(sweep["thresholds"][_bi]), float(_f1_full[_bi]),
+                        f"F1 optimum @ {sweep['thresholds'][_bi]:.3f} (F1={_f1_full[_bi]:.3f})", "#9467bd", "*"))
     series: List[np.ndarray] = [prec, rec, f1, queue]
     labels: List[str] = ["precision", "recall", "F1", "queue-rate"]
     styles: List[str] = ["-", "-", "-", "--"]
@@ -482,10 +524,19 @@ def _threshold_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, thresh
         else:
             c_fp, c_fn = float(cost_ratio), 1.0
         cost = c_fp * sweep["fp"] + c_fn * sweep["fn"]
-        cmax = float(cost.max()) if cost.size and cost.max() > 0 else 1.0
-        _, (cost_thin,) = _decimate(sweep["thresholds"], cost / cmax, cap=_THRESHOLD_PLOT_CAP)
+        # Min-max, not max-only: a cost that never comes near zero (both error types always present) compressed into
+        # a flat band near the top of an axis it shares with [0,1] metrics, hiding the minimum this series exists to
+        # show. Normalising to its own range puts that minimum on the axis.
+        cmin = float(cost.min()) if cost.size else 0.0
+        cmax = float(cost.max()) if cost.size else 1.0
+        span = (cmax - cmin) if cmax > cmin else 1.0
+        cost_norm = (cost - cmin) / span
+        _, (cost_thin,) = _decimate(sweep["thresholds"], cost_norm, cap=_THRESHOLD_PLOT_CAP)
+        if cost.size:
+            _ci = int(np.argmin(cost))
+            markers.append((float(sweep["thresholds"][_ci]), float(cost_norm[_ci]), f"min cost @ {sweep['thresholds'][_ci]:.3f}", "#d62728", "D"))
         series.append(cost_thin)
-        labels.append(f"cost (c_fp={c_fp:g}, c_fn={c_fn:g}, norm)")
+        labels.append(f"cost (c_fp={c_fp:g}, c_fn={c_fn:g}, min-max normalised)")
         styles.append(":")
         colors.append("#d62728")
         secondary.append(False)
@@ -500,6 +551,7 @@ def _threshold_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, thresh
         colors=tuple(colors),
         secondary_y=tuple(secondary),
         secondary_ylabel="Queue rate (fraction flagged)",
+        point_markers=tuple(markers) or None,
     )
 
 
@@ -533,14 +585,30 @@ def _gain_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: 
 
 
 def _pit_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: float, cost_ratio=None) -> PanelSpec:
-    """Probability-integral-transform histogram for the binary score; uniform = perfect calibration.
+    """Randomised probability-integral-transform histogram; uniform = perfect calibration.
 
-    PIT value = score when y=1 else (1 - score). A well-calibrated model makes PIT ~ Uniform(0,1), so a
-    flat histogram at density 1 is the target; humps reveal over/under-confidence. KS-vs-uniform in the title.
+    The PIT is only uniform when the outcome is CONTINUOUS. A binary outcome makes the predictive CDF a step
+    function, so the plain transform ``score if y==1 else 1 - score`` is not uniform even for a perfectly
+    calibrated model: it yields a triangular density rising from 0.10 to 1.90 across the deciles, and a
+    KS-vs-uniform of 0.247 (measured on 200k rows drawn as ``y ~ Bernoulli(p)``, i.e. calibrated by
+    construction). The panel therefore condemned exactly the models it was built to certify.
+
+    Czado/Gneiting-Held randomisation restores uniformity for a discrete outcome by drawing within the CDF's
+    jump at the realised value: ``U ~ Uniform(F(y-1), F(y))``, which for Bernoulli(p) is ``Uniform(0, 1-p)``
+    when y=0 and ``Uniform(1-p, 1)`` when y=1. On the same calibrated sample that gives KS 0.002 and a flat
+    density, while genuine over/under-confidence still shows as the same humps it always did. The draw is
+    seeded so a re-render of the same data reproduces the same figure.
     """
     if sort.n == 0:
         return AnnotationPanelSpec(text="PIT undefined\n(no finite pairs)", title="PIT diagram")
-    pit = np.where(yt == 1, ys, 1.0 - ys)
+    p = np.clip(ys, 0.0, 1.0)
+    # Seed from the DATA, not a fixed constant. A constant seed is reproducible but can silently reproduce the
+    # caller's own stream: a test generating scores from default_rng(0) and a panel drawing from default_rng(0)
+    # get u == p exactly, the randomisation cancels, and the KS jumps back to the 0.25 this fix exists to remove.
+    # Hashing the scores keeps the figure reproducible for a given dataset while making that collision impossible.
+    _digest = hashlib.blake2b(np.ascontiguousarray(p).tobytes(), digest_size=8).digest()
+    u = np.random.default_rng(int.from_bytes(_digest, "little")).random(p.shape[0])
+    pit = np.where(yt == 1, (1.0 - p) + u * p, u * (1.0 - p))
     pit = np.clip(pit, 0.0, 1.0)
     edges = np.linspace(0.0, 1.0, _PIT_BINS + 1)
     heights, _ = np.histogram(pit, bins=edges, density=True)
@@ -569,176 +637,6 @@ def _ks_vs_uniform(pit: np.ndarray) -> float:
 
 
 # ----------------------------------------------------------------------------
-# Decile table (data the integrator surfaces in metrics, not a panel)
-# ----------------------------------------------------------------------------
-
-
-def binary_decile_table(y_true, y_score, *, n_deciles: int = 10) -> Dict[str, np.ndarray]:
-    """Per-decile gains/lift/KS table for a binary scorer (score-sorted, decile 1 = highest scores).
-
-    Returns a dict of length-``n_deciles`` arrays:
-        decile        : 1..n_deciles (1 = top-scored group)
-        count         : rows in the decile
-        positives     : positive rows in the decile
-        response_rate : positives / count
-        gain          : cumulative fraction of all positives captured by deciles 1..d
-        lift          : (cumulative positive rate through decile d) / overall prevalence
-        cum_ks        : cumulative |%positives - %negatives| captured through decile d (the decile-resolution KS)
-
-    The gains/lift toolkit that completes the existing lift curve; the integrator surfaces this
-    as a metrics table rather than a chart panel.
-    """
-    yt, ys = _finite_binary(y_true, y_score)
-    n = len(yt)
-    out = {
-        "decile": np.arange(1, n_deciles + 1, dtype=np.int64),
-        "count": np.zeros(n_deciles, dtype=np.int64),
-        "positives": np.zeros(n_deciles, dtype=np.int64),
-        "response_rate": np.full(n_deciles, np.nan),
-        "gain": np.full(n_deciles, np.nan),
-        "lift": np.full(n_deciles, np.nan),
-        "cum_ks": np.full(n_deciles, np.nan),
-    }
-    if n == 0:
-        return out
-    order = np.argsort(ys, kind="stable")[::-1]
-    y_desc = yt[order].astype(np.int64)
-    # Split the score-sorted rows into ~equal deciles via integer boundaries (handles n not divisible by n_deciles).
-    bounds = (np.arange(n_deciles + 1) * n / n_deciles).round().astype(np.int64)
-    n_pos_total = int(y_desc.sum())
-    n_neg_total = n - n_pos_total
-    prevalence = n_pos_total / n if n else 0.0
-    cum_pos = 0
-    cum_neg = 0
-    cum_count = 0
-    for d in range(n_deciles):
-        lo, hi = bounds[d], bounds[d + 1]
-        seg = y_desc[lo:hi]
-        cnt = len(seg)
-        pos = int(seg.sum())
-        out["count"][d] = cnt
-        out["positives"][d] = pos
-        if cnt > 0:
-            out["response_rate"][d] = pos / cnt
-        cum_pos += pos
-        cum_neg += cnt - pos
-        cum_count += cnt
-        if n_pos_total > 0:
-            out["gain"][d] = cum_pos / n_pos_total
-        if prevalence > 0 and cum_count > 0:
-            out["lift"][d] = (cum_pos / cum_count) / prevalence
-        frac_pos = cum_pos / n_pos_total if n_pos_total > 0 else 0.0
-        frac_neg = cum_neg / n_neg_total if n_neg_total > 0 else 0.0
-        out["cum_ks"][d] = abs(frac_pos - frac_neg)
-    return out
-
-
-# Columns drawn in the decile table, in order: (table-header, source-key-or-None, value-formatter).
-_DECILE_TABLE_COLUMNS: Tuple[Tuple[str, str, Callable], ...] = (
-    ("decile", "decile", lambda v: f"{int(v)}"),
-    ("n", "count", lambda v: f"{int(v):,}"),
-    ("positives", "positives", lambda v: f"{int(v):,}"),
-    ("response", "response_rate", lambda v: "-" if not np.isfinite(v) else f"{v:.1%}"),
-    ("cum gain", "gain", lambda v: "-" if not np.isfinite(v) else f"{v:.1%}"),
-    ("lift", "lift", lambda v: "-" if not np.isfinite(v) else f"{v:.2f}"),
-    ("cum KS", "cum_ks", lambda v: "-" if not np.isfinite(v) else f"{v:.3f}"),
-)
-
-
-def binary_decile_table_figure(
-    y_true,
-    y_score,
-    *,
-    n_deciles: int = 10,
-    highlight_top: int = 3,
-    title: str = "Decile gain / lift table",
-    figsize: Optional[Tuple[float, float]] = None,
-):
-    """Render the score-sorted decile gain/lift/KS table (decile 1 = top scores) as a styled matplotlib table figure.
-
-    The tabular complement to the GAIN curve: stakeholders read the exact per-decile capture / lift / cumulative-KS
-    numbers a curve only shows graphically. All numbers come from ONE call to ``binary_decile_table`` (a single
-    O(n log n) score sort) -- no per-decile rescans. The top ``highlight_top`` deciles are tinted, the cumulative-gain
-    column carries a light value-proportional shade, and a TOTAL row sums n / positives with the overall response rate.
-
-    Edge cases mirror the iter-1 guard style: a single-class target (gain/lift undefined) or fewer than ``n_deciles``
-    finite rows renders a centered annotation instead of a misleading table. Returns a matplotlib ``Figure`` (the
-    SHAP-style direct-matplotlib path; the heavy aggregation stays spec-pure in ``binary_decile_table``).
-    """
-    from matplotlib.figure import Figure
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-
-    yt, ys = _finite_binary(y_true, y_score)
-    n = len(yt)
-    n_pos = int(yt.sum()) if n else 0
-
-    def _annotated(msg: str):
-        """Render a bare, title-only figure carrying a centered explanatory message in place of a table (degenerate-input fallback)."""
-        fig = Figure(figsize=figsize or (8.0, 2.4))
-        FigureCanvasAgg(fig)
-        ax = fig.add_subplot(111)
-        ax.axis("off")
-        ax.set_title(title, fontsize=11)
-        ax.text(0.5, 0.5, msg, ha="center", va="center", fontsize=11, transform=ax.transAxes)
-        return fig
-
-    if n == 0:
-        return _annotated("Decile table undefined\n(no finite (label, score) pairs)")
-    if n_pos == 0 or n_pos == n:
-        return _annotated("Decile gain / lift undefined\n(only one class present)")
-    # With fewer rows than deciles every decile would hold <=1 row -- the per-decile rates are noise; bin to n rows.
-    eff_deciles = n_deciles if n >= n_deciles else max(1, n)
-    note = "" if n >= n_deciles else f" (n={n} < {n_deciles}: {eff_deciles} bins)"
-
-    tbl = binary_decile_table(yt, ys, n_deciles=eff_deciles)
-    n_rows = len(tbl["decile"])
-
-    col_headers = [c[0] for c in _DECILE_TABLE_COLUMNS]
-    cells: List[List[str]] = [[fmt(tbl[key][d]) for _, key, fmt in _DECILE_TABLE_COLUMNS] for d in range(n_rows)]
-    total_pos = int(tbl["positives"].sum())
-    total_n = int(tbl["count"].sum())
-    total_resp = total_pos / total_n if total_n else float("nan")
-    # TOTAL row: cumulative gain/KS are 100% / 0 by construction at the full population; lift is 1.0 (the baseline).
-    total_row = ["TOTAL", f"{total_n:,}", f"{total_pos:,}", "-" if not np.isfinite(total_resp) else f"{total_resp:.1%}", "100.0%", "1.00", "0.000"]
-    cells.append(total_row)
-
-    fig = Figure(figsize=figsize or (8.0, 0.42 * (n_rows + 3)))
-    FigureCanvasAgg(fig)
-    ax = fig.add_subplot(111)
-    ax.axis("off")
-    ax.set_title(title + note, fontsize=11)
-    table = ax.table(cellText=cells, colLabels=col_headers, loc="center", cellLoc="center")
-    table.auto_set_font_size(False)
-    table.set_fontsize(9)
-    table.scale(1.0, 1.35)
-
-    gain_col = col_headers.index("cum gain")
-    gain_vals = tbl["gain"]
-    header_color = "#34495e"
-    highlight = "#fff3cd"
-    total_color = "#d6eaf8"
-    gain_shade = (0.66, 0.78, 0.91)
-    for (row, col), cell in table.get_celld().items():
-        cell.set_edgecolor("#cccccc")
-        if row == 0:
-            cell.set_facecolor(header_color)
-            cell.set_text_props(color="white", fontweight="bold")
-        elif row == n_rows + 1:
-            cell.set_facecolor(total_color)
-            cell.set_text_props(fontweight="bold")
-        else:
-            d = row - 1
-            if col == gain_col and np.isfinite(gain_vals[d]):
-                a = 0.18 + 0.55 * float(gain_vals[d])
-                cell.set_facecolor((gain_shade[0], gain_shade[1], gain_shade[2], a))
-            elif d < highlight_top:
-                cell.set_facecolor(highlight)
-            else:
-                cell.set_facecolor("white")
-    return fig
-
-
-# ----------------------------------------------------------------------------
 # Token registry + composer
 # ----------------------------------------------------------------------------
 
@@ -754,6 +652,28 @@ _TOKEN_BUILDERS: Dict[str, Callable] = {
 }
 
 ALLOWED_BINARY_PANEL_TOKENS = frozenset(_TOKEN_BUILDERS)
+
+# One sentence per token, joined for the tokens ACTUALLY rendered (see ``_captions.caption_for_tokens``). The
+# figure-level caption used to describe the DEFAULT template, so a caller asking for a narrower mix read about
+# panels that were not on their figure.
+_TOKEN_CAPTIONS: Dict[str, str] = {
+    "ROC": (
+        "ROC plots the true-positive rate against the false-positive rate over every threshold: it answers RANKING, not calibration, and its negative-heavy denominator flatters a model at a low base rate."
+    ),
+    "PR": (
+        "The PR curve trades precision against recall and, unlike ROC, its baseline moves with the positive rate, which makes it the honest curve on rare positives."
+    ),
+    "KS": (
+        "The KS statistic is the widest vertical gap between the two class score distributions; it summarises separation as one number and says nothing about where to cut."
+    ),
+    "GAIN": ("The gain curve reads bottom-up: how much of the positive mass you capture by contacting the top X% of the ranking."),
+    "SCORE_DIST": ("The score distributions show the two classes separately; overlap here is exactly what the ranking metrics are summarising."),
+    "PIT": ("The PIT histogram is flat when the predicted probabilities are calibrated; a U shape means over-confidence and a hump means under-confidence."),
+    "THRESHOLD": (
+        "The threshold panel answers OPERATION -- where to cut -- and a model can rank well while being badly calibrated, so a strong AUC is not permission to use the scores as probabilities."
+    ),
+}
+
 
 DEFAULT_BINARY_PANELS: str = "ROC PR SCORE_DIST KS THRESHOLD GAIN"
 
@@ -810,12 +730,30 @@ def compose_binary_figure(
     grid = pack_panels(panels, max_cols=max_cols)
     n_rows = len(grid)
     n_cols = max_cols if grid else 0
+    # RUX-21 class: a constant score column still produces real-looking panels (KS 1.000, AUC 0.500) with nothing
+    # saying the score never varies -- the one fact that explains every number on the figure.
+    n_unique = int(np.unique(ys).size) if ys.size else 0
+    degenerate_note = (
+        f"  |  WARNING: the score has a single distinct value ({ys[0]:.6g}) over {ys.size:,} rows, so every "
+        "ranking metric here is the degenerate no-ordering case, not a measurement of this model."
+        if n_unique == 1 else ""
+    )
     return FigureSpec(
-        suptitle=suptitle,
+        suptitle=suptitle + degenerate_note,
         panels=grid,
         figsize=figsize_for_grid(n_rows, n_cols, cell_width=cell_width, cell_height=cell_height),
+        caption=caption_for_tokens(
+            "How to read: each panel answers one of three separate questions -- ranking, calibration, or operation -- and a model can be strong at one while failing another.",
+            tokens,
+            _TOKEN_CAPTIONS,
+        ),
     )
 
+
+# Re-exported so ``from mlframe.reporting.charts.binary import binary_decile_table`` keeps working: the table moved
+# to its own module because it is the one builder here that bypasses the spec layer, not because callers should
+# start importing it from somewhere else. Imported at the BOTTOM because the sibling imports _finite_binary back.
+from ._binary_decile_table import binary_decile_table, binary_decile_table_figure
 
 __all__ = [
     "ALLOWED_BINARY_PANEL_TOKENS",

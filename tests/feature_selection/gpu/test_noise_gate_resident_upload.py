@@ -23,8 +23,20 @@ import mlframe.feature_selection.filters.batch_mi_noise_gate_gpu as bg
 from mlframe.feature_selection.filters.info_theory import batch_mi_with_noise_gate, merge_vars
 from mlframe.feature_selection.filters._fe_resident_operands import clear_fe_resident_operands
 
+def _gpu_available() -> bool:
+    """Gpu available."""
+    try:
+        import cupy as cp
+
+        return cp.cuda.runtime.getDeviceCount() >= 1
+    except Exception:  # pragma: no cover - no driver / no GPU
+        return False
+
+
 _HAS_CUDA = bg._CUDA_AVAIL
-_HAS_CUPY = bg._CUPY_AVAIL
+# ``bg._CUPY_AVAIL`` only checks that the cupy PACKAGE imports -- it stays True on a host with cupy
+# installed but no CUDA device, so combine it with a real device probe.
+_HAS_CUPY = bg._CUPY_AVAIL and _gpu_available()
 
 
 @pytest.fixture(autouse=True)

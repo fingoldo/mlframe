@@ -1,6 +1,6 @@
 """``_run_composite_target_wrapping`` -- composite-target ensemble wrapping.
 
-Wave 100 (2026-05-21): split out from
+split out from
 ``training/core/_phase_composite_post.py`` to keep that file below the
 1k-line monolith threshold. Behaviour preserved bit-for-bit; the symbol
 is re-exported from ``_phase_composite_post`` so existing imports
@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple  # noqa: F401
 
 import numpy as np
 
-# Wave 100: dependencies needed by the moved _run_composite_target_wrapping.
+# dependencies needed by the moved _run_composite_target_wrapping.
 # _ADDITIVE_TRANSFORMS is defined inside the function body itself, not at
 # module scope of any sibling -- the static analyzer flagged it as a missing
 # reference but Python resolves it from function-local scope.
@@ -291,7 +291,7 @@ def _run_composite_target_wrapping(
     without re-calling ``.predict`` on the wrapped models. Folding the frame identity into the key defends against ``id()`` recycling across GC cycles when wrappers
     or frames get freed between the wrap pass and the ensemble pass on long-lived suites.
 
-    ``skip_predict=True`` (Pack 2026-05-18): skip the 3-split predict() calls used to compute y-scale RMSE/MAE/R2 metrics. The wrap step (replacing each entry's inner with ``CompositeTargetEstimator``) still runs so downstream predict-path consumers see y-scale predictions; only the metric computation block is bypassed. Pack G watchdog (additive transforms: T-MAE == y-MAE) already covers the correctness check, so the y-scale metrics are redundant when watchdog is on -- skipping them saves up to ~30 predict() calls on multi-million-row frames per composite target.
+    ``skip_predict=True`` (Pack): skip the 3-split predict() calls used to compute y-scale RMSE/MAE/R2 metrics. The wrap step (replacing each entry's inner with ``CompositeTargetEstimator``) still runs so downstream predict-path consumers see y-scale predictions; only the metric computation block is bypassed. Pack G watchdog (additive transforms: T-MAE == y-MAE) already covers the correctness check, so the y-scale metrics are redundant when watchdog is on -- skipping them saves up to ~30 predict() calls on multi-million-row frames per composite target.
     """
     _train_pred_cache: dict[tuple, np.ndarray] = {}
     _train_frame_key = (id(filtered_train_df), getattr(filtered_train_df, "shape", None))
@@ -402,8 +402,8 @@ def _run_composite_target_wrapping(
                 )
                 # Even when the heavy multi-split metric block is skipped,
                 # emit a SINGLE test-split y-scale chart per composite entry
-                # so the operator gets the chart the user asked for in the
-                # 2026-05-27 bug report. Cost: one wrapper.predict(test_df)
+                # so the operator gets the chart the user asked for.
+                # Cost: one wrapper.predict(test_df)
                 # per entry (~0.1s booster, ~5s MLP). Cheap relative to the
                 # full 3-split metric block (~5-15 min).
                 if target_name is not None and test_idx is not None and test_df_pd is not None:
@@ -535,7 +535,7 @@ def _run_composite_target_wrapping(
                             "MAE_raw": _mae_raw,
                             "MAE_wrapped": _mae_wrapped,
                         }
-                        # 2026-05-27 user requirement: emit a Y-SCALE
+                        # emit a Y-SCALE
                         # chart for composite models on the TEST split
                         # so it is directly comparable to raw-target
                         # charts (same MTTR/MTTS units, same scatter
@@ -562,7 +562,7 @@ def _run_composite_target_wrapping(
                                     _composite_name,
                                     _chart_err,
                                 )
-                        # HIGH#4 2026-05-18: watchdog short-circuit when caller disabled it.
+                        # Watchdog short-circuit when caller disabled it.
                         # The check below does an extra wrapper.predict + inner.predict
                         # per (entry, split) so a wide model zoo can pay 10s+ on 4M-row
                         # frames. Caller passes ``enable_watchdog=False`` to skip.

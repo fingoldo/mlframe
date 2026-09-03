@@ -68,18 +68,22 @@ def test_numba_coverage_workflow_collects_coverage() -> None:
     assert "--cov-report=xml" in text, "workflow must produce coverage.xml for upload/artifact"
 
 
-def test_numba_coverage_workflow_nightly_gate_is_intentionally_off() -> None:
-    """F6 (audits/full_audit_2026-07-21/x_cicd_dependencies.md): the job body is gated behind
-    `if: inputs.run`, which is falsy on the schedule trigger -- so the nightly cron fires the workflow
-    shell every night but the job never actually runs unless a human manually dispatches with the
-    checkbox ticked. This is a documented, intentional Actions-minutes-budget stopgap, not a bug -- but
-    the OTHER numba-coverage tests above only pin the trigger's mere EXISTENCE, which can't detect this
-    effectively-permanent-off state. Pin the `default: false` explicitly so a future accidental flip to
-    `true` (restoring real nightly runs, presumably deliberately once the budget allows) is a visible,
-    intentional test change -- not a silent drift either direction."""
+def test_numba_coverage_workflow_nightly_gate_is_intentionally_on() -> None:
+    """F6 (audits/full_audit_2026-07-21/x_cicd_dependencies.md), re-enabled: the job's `if:` gate used
+    to be `inputs.run` alone, which is falsy on EVERY schedule trigger regardless of the declared
+    `workflow_dispatch` default -- so the nightly cron fired the workflow shell every night but the job
+    body never actually ran, and GitHub's workflow-level badge rendered that permanent 'skipped' as a
+    misleading red 'failing' pill. Re-enabled: the gate is now `github.event_name != 'workflow_dispatch'
+    || inputs.run`, so the schedule leg runs for real; `workflow_dispatch`'s `run` input still lets a
+    manual invocation opt OUT without touching the cron itself. Pin the actual gate expression and the
+    `default: true` explicitly so a future accidental narrowing back to the old always-skip pattern (e.g.
+    if Actions-minutes budget needs relief again) is a visible, intentional test change -- not silent
+    drift either direction."""
     text = _workflow_text()
-    assert "if: inputs.run" in text, "job must stay gated behind the manual-dispatch input (see file header comment for why)"
-    assert "default: false" in text, (
-        "inputs.run's default must stay 'false' while the Actions-minutes budget stopgap is in effect; "
-        "flip both this default AND the assertion together once nightly runs are meant to resume"
+    assert (
+        "github.event_name != 'workflow_dispatch' || inputs.run" in text
+    ), "job must stay gated so the schedule trigger runs for real while workflow_dispatch can still opt out (see file header comment for why)"
+    assert "default: true" in text, (
+        "inputs.run's default must stay 'true' so a manual dispatch also runs by default; "
+        "flip both this default AND the assertion together if the nightly needs to go back to disabled"
     )

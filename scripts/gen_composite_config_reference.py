@@ -59,7 +59,53 @@ def _type_repr(annotation: object) -> str:
     text = str(annotation)
     # Strip the leading ``typing.`` qualifier that ``str(...)`` keeps so the
     # table reads ``Optional[str]`` rather than ``typing.Optional[str]``.
-    return text.replace("typing.", "")
+    text = text.replace("typing.", "")
+    return _canonicalise_union_syntax(text)
+
+
+def _split_top_level(text: str, sep: str) -> "list[str] | None":
+    """Split ``text`` on ``sep`` at bracket-depth 0 only; ``None`` if ``sep`` never occurs there
+    (so a nested ``|`` inside e.g. ``Literal['a|b']`` or ``Dict[str, int | None]`` isn't split)."""
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    i = 0
+    n = len(text)
+    sep_len = len(sep)
+    while i < n:
+        ch = text[i]
+        if ch in "[(":
+            depth += 1
+        elif ch in "])":
+            depth -= 1
+        elif depth == 0 and text[i : i + sep_len] == sep:
+            parts.append(text[start:i])
+            i += sep_len
+            start = i
+            continue
+        i += 1
+    parts.append(text[start:])
+    return parts if len(parts) > 1 else None
+
+
+def _canonicalise_union_syntax(text: str) -> str:
+    """Canonicalise PEP 604 ``A | B`` union syntax (``types.UnionType``) to ``typing.Union``'s
+    ``Union[A, B]`` / ``Optional[A]`` form.
+
+    The SAME source annotation renders as either form depending on Python/pydantic version
+    (observed: py3.14 dev -> "Optional[str]" / "Union[List[str], str]", py3.11-3.13 CI ->
+    "str | None" / "List[str] | str"), which made the committed doc's drift test flaky across
+    the CI matrix. Splits only at bracket-depth 0 so a nested ``|`` (inside ``Literal[...]``,
+    ``Dict[str, int | None]``, etc.) is left alone -- only the OUTERMOST union gets rewritten.
+    """
+    arms = _split_top_level(text, " | ")
+    if arms is None:
+        return text
+    arms = [_canonicalise_union_syntax(a) for a in arms]
+    if len(arms) == 2 and "None" in arms:
+        other = arms[0] if arms[1] == "None" else arms[1]
+        return f"Optional[{other}]"
+    return f"Union[{', '.join(arms)}]"
 
 
 def _default_repr(field) -> str:

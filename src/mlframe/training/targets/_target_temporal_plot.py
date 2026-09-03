@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, TYPE_CHECKING
+from mlframe._output_paths import ensure_parent_dir
 if TYPE_CHECKING:
     from .target_temporal_audit import TemporalAuditResult
 
@@ -62,6 +63,10 @@ def plot_target_over_time(
         from mlframe.reporting.renderers import render_and_save
         spec = build_temporal_audit_spec(result, figsize=figsize)
         render_and_save(spec, parse_plot_output_dsl(plot_outputs), base_path)
+        # Record the path before returning. Only the legacy matplotlib-PNG branch below ever set this, so under
+        # the DEFAULT `plot_outputs` configuration the chart was written and the audit metadata still serialised
+        # a null `plot_path` -- a downstream consumer reading it concludes no temporal audit chart exists.
+        result.plot_path = base_path
         return None
 
     try:
@@ -108,7 +113,12 @@ def plot_target_over_time(
                 color="orange", linestyle="-", linewidth=2.0, alpha=0.6,
             )
 
-    ax.set_ylim(-0.02, 1.05)
+    # target_rate is P(y=1) in [0, 1] for classification, but an unbounded mean(y) for regression --
+    # a hardcoded [-0.02, 1.05] y-limit clips or flattens a regression target's actual range into an
+    # unreadable near-horizontal line. Let matplotlib auto-scale to the data for regression; keep the
+    # classification convention (small padding around the valid [0, 1] rate range) unchanged.
+    if result.target_type != "regression":
+        ax.set_ylim(-0.02, 1.05)
     ax.set_xlabel(f"{result.timestamp_col} ({result.granularity})")
     ax.set_ylabel("target rate")
     ax.set_title(f"target_temporal_audit: {result.target_name} " f"({result.granularity}-binned, {len(result.segments)} segments)")
@@ -118,7 +128,7 @@ def plot_target_over_time(
     fig.tight_layout()
 
     if save_path:
-        fig.savefig(save_path, dpi=110, bbox_inches="tight")
+        fig.savefig(ensure_parent_dir(save_path), dpi=110, bbox_inches="tight")
         plt.close(fig)
         result.plot_path = save_path
         return None

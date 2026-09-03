@@ -85,6 +85,18 @@ class TestEffectiveNJobsResolution:
         m = MRMR(n_jobs=3)
         assert m._effective_n_jobs() == 3
 
+    def test_n_jobs_minus_one_falls_back_when_psutil_physical_count_is_none(self, monkeypatch):
+        """MRMR-7: psutil.cpu_count(logical=False) returns None on some hosts (containers/VMs);
+        _effective_n_jobs must fall back to os.cpu_count() instead of crashing with
+        TypeError: int() argument must be ... not 'NoneType'."""
+        import psutil
+
+        monkeypatch.setattr(psutil, "cpu_count", lambda logical=True: None)
+        m = MRMR(n_jobs=-1)
+        resolved = m._effective_n_jobs()
+        assert isinstance(resolved, int)
+        assert resolved >= 1
+
 
 class TestClearFitCache:
     """clear_fit_cache() drains the process-wide fit cache and returns the dropped entry count."""

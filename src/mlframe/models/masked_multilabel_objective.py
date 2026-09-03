@@ -77,12 +77,52 @@ def masked_multilabel_logloss_objective(
         supplies the sentinel-masked label array) -- pass directly as ``xgb.train(..., obj=this_callable)``.
     """
 
-    def objective(y_pred_margin: np.ndarray, dtrain: object) -> Tuple[np.ndarray, np.ndarray]:
+    return _MaskedMultilabelLogloss(sentinel=sentinel, use_sample_weight=use_sample_weight)
+
+
+class _MaskedMultilabelLogloss:
+    """Sentinel-masked, optionally sample-weighted logloss gradient/hessian, as an XGBoost ``obj=`` callable.
+
+    A CLASS rather than the closure this replaces. A nested function is unpicklable, so a model configured with
+    ``objective=masked_multilabel_logloss_objective()`` could not be pickled or joblib-dumped; the bundle writer
+    falls back to dill, which serialises bytecode, and a bundle written under one interpreter or xgboost version
+    is then not guaranteed to load under another -- precisely the fragility the safe-load allowlist exists to
+    avoid. An instance of a module-level class pickles by reference to the class, so the fallback never fires.
+
+    ``__slots__`` keeps it as cheap as the closure was; the two attributes ARE the closed-over values.
+    """
+
+    __slots__ = ("sentinel", "use_sample_weight")
+    # xgboost reads ``__name__`` off a custom objective for its own error messages; a class attribute satisfies
+    # that for every instance without shadowing ``type(self).__name__`` in a traceback.
+    __name__ = "masked_multilabel_logloss_objective"
+
+    def __init__(self, sentinel: float, use_sample_weight: bool) -> None:
+        self.sentinel = sentinel
+        self.use_sample_weight = use_sample_weight
+
+    def __getstate__(self) -> tuple:
+        """Explicit state: ``__slots__`` leaves no ``__dict__`` for the default protocol to find."""
+        return (self.sentinel, self.use_sample_weight)
+
+    def __setstate__(self, state: tuple) -> None:
+        """Restore from :meth:`__getstate__`."""
+        self.sentinel, self.use_sample_weight = state
+
+    def __call__(self, y_pred_margin: np.ndarray, dtrain: object) -> Tuple[np.ndarray, np.ndarray]:
         """Compute sentinel-masked, optionally sample-weighted logloss gradient and hessian for XGBoost."""
+        sentinel = self.sentinel
+        use_sample_weight = self.use_sample_weight
         y_pred_margin_arr = np.asarray(y_pred_margin, dtype=np.float64)
         y_true_arr = np.asarray(dtrain.get_label(), dtype=np.float64)  # type: ignore[attr-defined]
 
-        care_mask = y_true_arr != sentinel
+        # dtrain.get_label() has round-tripped through XGBoost's internal float32 label storage, so a
+        # sentinel not exactly representable in float32 would compare unequal here even for a genuine
+        # sentinel cell (float64(sentinel) != float64(float32(sentinel)) in general). Quantize the sentinel
+        # through float32 too before comparing, so both sides are compared at the precision the label
+        # array actually survived at -- the default sentinel (2.0) is exactly representable either way, so
+        # this is a no-op for it and only matters for a caller-supplied non-default sentinel.
+        care_mask = y_true_arr != np.float64(np.float32(sentinel))
         prob = 1.0 / (1.0 + np.exp(-y_pred_margin_arr))
 
         grad = np.where(care_mask, prob - y_true_arr, 0.0)
@@ -100,8 +140,6 @@ def masked_multilabel_logloss_objective(
             hess = hess * weight_arr
 
         return grad, hess
-
-    return objective
 
 
 def flatten_masked_multilabel_class_weights(y_multilabel: np.ndarray, dont_care_mask: np.ndarray, class_weights: Optional[np.ndarray] = None) -> np.ndarray:

@@ -126,15 +126,17 @@ def test_throughput_sourced_not_hardcoded():
 
 
 def test_force_ignores_budget():
-    # "force" means the user accepts the wall-time: it fires regardless of the budget WHEN a GPU is present,
-    # and declines ONLY for lack of a GPU (CPU exhaustive is never run). Contrast test_auto_declines_when_over_budget.
+    # "force" means the user accepts the wall-time: it fires regardless of the budget AND regardless of
+    # GPU presence -- decide_exhaustive_sweep's own "force" branch returns True unconditionally, predicting
+    # cost on whichever backend (CUDA or CPU njit-prange) is actually available so the decision stays
+    # hardware-independent (a CPU fallback backend was added 2026-06-22, commit 58a2a3582; this test's
+    # earlier GPU-gated expectation predates that change and was never updated). Contrast
+    # test_auto_declines_when_over_budget, whose "auto" mode DOES still gate on affordability.
     """Force ignores budget."""
     use, reason = decide_exhaustive_sweep(_Knobs("force", budget=1e-9), n_samples=200_000, n_raw=5_000, verbose=0)
-    if _HAS_CUDA:
-        assert use is True, reason  # budget ignored under force
-        assert "force" in reason.lower()
-    else:
-        assert use is False and "no cuda" in reason.lower()
+    assert use is True, reason  # budget (and GPU absence) ignored under force
+    assert "force" in reason.lower()
+    assert ("cuda" if _HAS_CUDA else "cpu") in reason.lower()
 
 
 @_skip_no_cuda

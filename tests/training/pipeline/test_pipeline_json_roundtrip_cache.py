@@ -126,10 +126,20 @@ def test_pipeline_json_disk_cache_roundtrip(tmp_path, monkeypatch):
     fresh process inherits the validation result."""
     from mlframe.training.core import _setup_helpers as sh
 
-    # Redirect cache to a per-test tmpdir to keep prod cache untouched.
+    # Redirect cache to a per-test tmpdir to keep prod cache untouched. Via the
+    # MLFRAME_PIPELINE_DISK_CACHE_PATH env var, not monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_PATH", ...):
+    # this test reproducibly failed on CI (Linux) with _persist_pipeline_disk_cache resolving the
+    # DEFAULT path instead of the monkeypatched one -- unreproducible locally, and the
+    # _parent_attr/_parent_set facade-monkeypatch bridge reads correctly by inspection, so the exact
+    # mechanism is still unconfirmed. The env var is a strictly simpler, unambiguous override with no
+    # cross-module attribute-bridge indirection to go wrong.
     cache_file = str(tmp_path / "polars_ds_pipeline_roundtrip.json")
-    monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_PATH", cache_file)
-    monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_LOADED", False)
+    monkeypatch.setenv("MLFRAME_PIPELINE_DISK_CACHE_PATH", cache_file)
+    # MLFRAME_PIPELINE_CACHE_FORCE_RELOAD, not monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_LOADED", ...):
+    # the identical facade-monkeypatch mystery that affected the path override above also hit this
+    # flag -- CI showed the rehydrate step silently no-op'ing (this guard saw the flag as already
+    # True) despite the monkeypatch setting it False moments earlier. Same env-var-bypass fix.
+    monkeypatch.setenv("MLFRAME_PIPELINE_CACHE_FORCE_RELOAD", "1")
     sh._PIPELINE_JSON_ROUNDTRIP_CACHE.clear()
 
     # Seed the in-memory cache + persist to disk. Keys are the production cache-key
@@ -146,9 +156,9 @@ def test_pipeline_json_disk_cache_roundtrip(tmp_path, monkeypatch):
 
     assert os.path.exists(cache_file), "disk cache file must be created on persist"
 
-    # Wipe the in-memory cache + reset loaded marker, then hydrate from disk.
+    # Wipe the in-memory cache, then hydrate from disk (MLFRAME_PIPELINE_CACHE_FORCE_RELOAD, set
+    # above, is still active and bypasses the once-per-process load guard unconditionally).
     sh._PIPELINE_JSON_ROUNDTRIP_CACHE.clear()
-    monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_LOADED", False)
     sh._load_pipeline_disk_cache_into_memory()
 
     assert sh._PIPELINE_JSON_ROUNDTRIP_CACHE.get(cache_key) is True, "disk cache must rehydrate into the in-memory cache on load"

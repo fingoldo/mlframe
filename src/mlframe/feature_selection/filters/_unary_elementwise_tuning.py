@@ -21,6 +21,7 @@ all are bandwidth-bound maps with the same breakeven.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import numpy as np
 
@@ -109,23 +110,33 @@ def unary_elementwise_backend_choice(n_samples: int, location: str = "host") -> 
     the spec's one-call choose() (env -> code-version-checked cache -> on-miss sweep
     -> the _unary_fallback_choice heuristic; memoized per dims). The caller MUST
     still gate a "cupy" result on live CUDA + per-op compatibility before GPU."""
+    if _UNARY_SPEC is None:
+        return _unary_fallback_choice(int(n_samples), location)
     return str(_UNARY_SPEC.choose(n_samples=int(n_samples), location=location))
 
 
 # Register with the kernel-tuner registry so retune_all / mlframe-tune-kernels
-# discover + batch-tune unary_elementwise (GPU-capable; residency-aware).
-from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+# discover + batch-tune unary_elementwise (GPU-capable; residency-aware). Wrapped: a missing/broken
+# pyutilz.performance.kernel_tuning.registry would otherwise crash this module's import
+# unconditionally; unary_elementwise_backend_choice above falls back to the same heuristic
+# (_unary_fallback_choice) the spec itself would have used on a cache miss.
+_UNARY_SPEC: Any | None = None
+try:
+    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
-_UNARY_SPEC = kernel_tuner(
-    kernel_name="unary_elementwise",
-    variant_fns=(_unary_numpy, _unary_cupy),  # both always-defined -> auto-invalidate
-    tuner=_run_unary_sweep,
-    axes={"n_samples": list(_UNARY_SWEEP_N), "location": ["host", "device"]},
-    fallback=_unary_fallback_choice,  # callable (n_samples, location) -> str
-    gpu_capable=True,
-    salt=_UNARY_SALT,
-    cli_label="unary_elementwise",
-)
+    _UNARY_SPEC = kernel_tuner(
+        kernel_name="unary_elementwise",
+        variant_fns=(_unary_numpy, _unary_cupy),  # both always-defined -> auto-invalidate
+        tuner=_run_unary_sweep,
+        axes={"n_samples": list(_UNARY_SWEEP_N), "location": ["host", "device"]},
+        fallback=_unary_fallback_choice,  # callable (n_samples, location) -> str
+        gpu_capable=True,
+        salt=_UNARY_SALT,
+        cli_label="unary_elementwise",
+    )
+except Exception as _e:
+    logger.warning("unary_elementwise: @kernel_tuner registration failed (%s); using the static fallback heuristic.", _e)
+    _UNARY_SPEC = None
 
 # Public alias for the sweep (registry + external retune callers).
 run_unary_sweep = _run_unary_sweep

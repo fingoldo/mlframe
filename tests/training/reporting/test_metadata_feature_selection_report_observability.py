@@ -288,10 +288,10 @@ def synthetic_binary_8feat():
     return df
 
 
-def test_feature_selection_report_lands_on_metadata_with_mrmr(synthetic_binary_8feat):
+def test_feature_selection_report_lands_on_metadata_with_mrmr(synthetic_binary_8feat, tmp_path):
     """End-to-end: train_mlframe_models_suite with FeatureSelectionConfig(use_mrmr_fs=True) stamps the report."""
     from mlframe.training import train_mlframe_models_suite
-    from mlframe.training.configs import FeatureSelectionConfig
+    from mlframe.training.configs import FeatureSelectionConfig, OutputConfig, ReportingConfig
     from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
     df = synthetic_binary_8feat
@@ -311,6 +311,27 @@ def test_feature_selection_report_lands_on_metadata_with_mrmr(synthetic_binary_8
             feature_selection_config=fs_cfg,
             use_mlframe_ensembles=False,
             verbose=0,
+            output_config=OutputConfig(
+                data_dir=str(tmp_path),
+                models_dir="models",
+                save_charts=False,
+                run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"],
+            ),
+            reporting_config=ReportingConfig(
+                show_perf_chart=False,
+                show_fi=False,
+                adversarial_validation=False,
+                interaction_strength_charts=False,
+                engineered_separability_charts=False,
+                class_structure_charts=False,
+                category_discriminability_charts=False,
+                slice_finder=False,
+                shap_panels=False,
+                decision_curve=False,
+                calibration_drift=False,
+                target_acf=False,
+                model_comparison=False,
+            ),
         )
 
     # train_mlframe_models_suite returns (models, metadata, ...) tuple or a ctx; normalise.

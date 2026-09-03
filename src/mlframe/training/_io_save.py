@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import logging
+import threading
 from types import SimpleNamespace
 from typing import Optional, Dict, Any
 
@@ -23,6 +24,59 @@ import dill  # nosec B403 - pickle used only for trusted same-process/dev-local 
 import zstandard as zstd
 
 logger = logging.getLogger("mlframe.training.io")
+
+# _collect_pre_dump_swaps mutates the SHARED nested object graph IN PLACE (torch.compile swap,
+# Lightning-bloat nulling) and restores only in a `finally` block; `lean=True` only shallow-copies the
+# TOP-LEVEL SimpleNamespace, so nested sub-objects are the same live references the caller's model still
+# holds. Two concurrent save_mlframe_model calls on bundles sharing a nested sub-object (e.g. parallel
+# per-model saves referencing a shared preprocessing pipeline) could otherwise interleave their
+# strip/restore windows -- one call's dump could see the other's stripped/nulled state, or a restore
+# could race a strip. Serializing the strip-dump-restore critical section process-wide is the safe fix;
+# saves are I/O-bound and infrequent, so losing save/save parallelism is a non-issue. RLock (not Lock):
+# the auto_lean_retry path recurses into save_mlframe_model from the SAME thread while still inside this
+# lock's critical section.
+_SAVE_MUTATION_LOCK = threading.RLock()
+
+
+def _describe_unpicklable(payload, error) -> str:
+    """Best-effort description of WHAT in ``payload`` pickle rejected.
+
+    The fallback used to log only ``type(err).__name__`` -- "AttributeError" and nothing else -- which names
+    neither the attribute nor the object holding it, so the dill fallback stayed a permanent mystery rather
+    than a lead. pickle's own message usually carries the qualified name of the offending local/lambda, and
+    for an object graph the offending ATTRIBUTE can be found by pickling each one on its own.
+
+    Never raises: this runs on an error path whose job is to fall back, not to diagnose perfectly.
+    """
+    import pickle as _pk  # nosec B403 - probing only, nothing is loaded
+
+    detail = str(error).strip().splitlines()[0] if str(error).strip() else ""
+    culprits = []
+    try:
+        state = getattr(payload, "__dict__", None)
+        if isinstance(state, dict):
+            for name, value in state.items():
+                try:
+                    _pk.dumps(value, protocol=_pk.HIGHEST_PROTOCOL)
+                except Exception as exc:  # noqa: PERF203 -- per-attribute isolation IS the diagnostic; this runs once, on an error path
+                    logger.debug("attribute %r is unpicklable (%s: %s)", name, type(exc).__name__, exc)
+                    culprits.append(name)
+        elif isinstance(payload, dict):
+            for name, value in payload.items():
+                try:
+                    _pk.dumps(value, protocol=_pk.HIGHEST_PROTOCOL)
+                except Exception as exc:  # noqa: PERF203 -- per-attribute isolation IS the diagnostic; this runs once, on an error path
+                    logger.debug("key %r is unpicklable (%s: %s)", name, type(exc).__name__, exc)
+                    culprits.append(str(name))
+    except Exception as exc:
+        logger.debug("pickle-culprit walk failed (%s: %s); the report keeps whatever it found", type(exc).__name__, exc)
+    parts = []
+    if detail:
+        parts.append(detail[:200])
+    if culprits:
+        parts.append("offending attribute(s): " + ", ".join(sorted(culprits)[:8]))
+    # Explicit: an empty ``parts`` is the "we learned nothing" case, not a falsy value to be defaulted away.
+    return "; ".join(parts) if parts else "no further detail available"
 
 
 def save_mlframe_model(
@@ -257,6 +311,9 @@ def save_mlframe_model(
                 continue
             _collect_pre_dump_swaps(_v)
 
+    # Acquired here (not via `with`, to avoid re-indenting the whole strip/dump/restore body below) and
+    # released at the very end of the `finally:` block further down -- see _SAVE_MUTATION_LOCK's docstring.
+    _SAVE_MUTATION_LOCK.acquire()
     try:
         _collect_pre_dump_swaps(_payload)
     except Exception as e:
@@ -285,9 +342,16 @@ def save_mlframe_model(
         except (TypeError, AttributeError, _pickle.PicklingError) as _pickle_err:
             # Non-picklable object in the graph -- dill handles closures /
             # lambdas / generators that vanilla pickle rejects.
-            logger.info(
-                "save_mlframe_model: pickle rejected the payload " "(%s); falling back to dill.dumps for %s",
+            # WARNING, not INFO: dill is slower, produces a larger artefact and is far more fragile to load in
+            # another environment, so a silent downgrade is a liability the operator should get to act on. The
+            # message names the offending attribute, because "AttributeError" alone gave nothing to fix -- and
+            # an unpicklable attribute is usually a runtime cache that belongs in ``__getstate__``'s exclusions.
+            logger.warning(
+                "save_mlframe_model: pickle rejected the payload (%s: %s); falling back to dill for %s. dill is "
+                "slower and less portable across environments -- exclude the offending attribute in the object's "
+                "__getstate__ (a warmed kernel, memo dict, device buffer or open handle) to stay on pickle.",
                 type(_pickle_err).__name__,
+                _describe_unpicklable(_payload, _pickle_err),
                 file,
             )
             _payload_bytes = dill.dumps(_payload)
@@ -410,3 +474,7 @@ def save_mlframe_model(
                 logger.debug(
                     "save_mlframe_model: could not restore Lightning bloat attr %r", _k,
                 )
+        # Release LAST, after every restore above has run -- see _SAVE_MUTATION_LOCK's docstring.
+        # The recursive auto_lean_retry call (if any) already ran and returned by this point (its own
+        # RLock acquire/release happened entirely within this call's held lock), so releasing here is safe.
+        _SAVE_MUTATION_LOCK.release()

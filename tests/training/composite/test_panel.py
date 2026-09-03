@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.linear_model import LinearRegression, Ridge
 
 from mlframe.training.composite.panel import CompositePanelEstimator
@@ -156,3 +157,38 @@ def test_biz_val_panel_beats_pooled_on_fixed_effect_panel():
 
     assert rmse_panel < rmse_pool * 0.90, f"panel RMSE {rmse_panel:.4f} should beat pooled {rmse_pool:.4f} by >=10%"
     assert np.all(np.isfinite(p_pred))
+
+
+def test_compute_offsets_matches_dict_loop_reference():
+    """TRAINING_COMPOSITE_CORE_B-4: _compute_offsets' vectorized np.unique+bincount groupby must be
+    bit-identical to the removed plain Python dict-accumulation loop it replaces."""
+    rng = np.random.default_rng(3)
+    n_entities = 50
+    ids = rng.choice([f"e{i}" for i in range(n_entities)], size=2000)
+    y = rng.normal(size=2000)
+    alpha = 7.5
+
+    est = CompositePanelEstimator(inner_estimator=LinearRegression(), entity_column="entity", shrinkage_alpha=alpha)
+    est._compute_offsets(ids, y)
+
+    # Reference: the removed plain Python dict-accumulation loop.
+    global_mean = float(y.mean())
+    sums, counts = {}, {}
+    for e, val in zip(ids.tolist(), y.tolist()):
+        if e in sums:
+            sums[e] += val
+            counts[e] += 1
+        else:
+            sums[e] = val
+            counts[e] = 1
+    ref_offsets = {}
+    for e, c in counts.items():
+        mean_e = sums[e] / c
+        w = c / (c + alpha) if (c + alpha) > 0 else 0.0
+        ref_offsets[e] = w * mean_e + (1.0 - w) * global_mean
+
+    assert est.global_mean_ == pytest.approx(global_mean)
+    assert set(est.entity_offsets_.keys()) == set(ref_offsets.keys())
+    for e in ref_offsets:
+        assert est.entity_offsets_[e] == pytest.approx(ref_offsets[e], abs=1e-12)
+        assert est.entity_counts_[e] == counts[e]

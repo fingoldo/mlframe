@@ -115,6 +115,36 @@ def _group_blocked_mi(
     return total_mi / total_w
 
 
+def _group_mi_bin_cap(group_offsets: np.ndarray, min_rows: int) -> int:
+    """Bin-count cap for group-blocked MI codes, derived from the SMALLEST group that will actually be counted
+    (the smallest ``n_g >= min_rows`` among ``group_offsets`` segment sizes - falling back to ``min_rows`` itself
+    when no group clears the floor, since the kernel returns ``nan`` in that case anyway and the exact cap is
+    moot) so that ``(cap-1)**2 <= n_g_min``: the Miller-Madow debias term is ``(kx-1)(ky-1)/(2*n_g)``, which this
+    keeps bounded by roughly half a nat even when BOTH axes saturate the cap simultaneously on the SMALLEST
+    counted group - comfortably below the ``log(cap)`` a real signal needs to clear. Deriving the cap from
+    ``min_rows`` alone (rather than the actual group sizes) over-coarsens whenever groups are much larger than
+    the floor - e.g. a single 4000-row group with ``min_rows=10`` would wrongly cap an 8-bin column down to 4
+    bins, breaking the "1-group blocked MI equals global MI" identity. Never below 2 (binary split is still
+    informative).
+    """
+    sizes = np.diff(np.asarray(group_offsets))
+    qualifying = sizes[sizes >= int(min_rows)]
+    n_ref = int(qualifying.min()) if qualifying.size else int(min_rows)
+    return max(2, int(1 + math.sqrt(max(n_ref, 1))))
+
+
+def _coarsen_codes(codes: np.ndarray, n_bins: int, cap: int) -> tuple[np.ndarray, int]:
+    """Merge ``codes`` (values in ``[0, n_bins)`` or the ``-1`` sentinel) down to at most ``cap`` ordinal buckets
+    via ``code * cap // n_bins`` - a monotonic many-to-one remap, so any monotonic (or sign-flipping-but-per-
+    group-monotonic) X-Y relationship the fine codes captured survives coarsening. No-op (identity, same array)
+    when ``n_bins <= cap`` - the common case for MRMR's default global quantization, so byte-identical there.
+    """
+    if n_bins <= cap:
+        return codes, n_bins
+    coarse = np.where(codes < 0, -1, (codes.astype(np.int64) * cap) // n_bins)
+    return coarse.astype(codes.dtype, copy=False), cap
+
+
 def group_blocked_mi(
     codes_x: np.ndarray,
     codes_y: np.ndarray,
@@ -135,11 +165,26 @@ def group_blocked_mi(
     row-align to the codes (``group_offsets[-1] != len(codes_x)`` - e.g. the greedy screen subsampled rows but groups
     did not), so a caller cannot confuse either case with a genuine 0.0 within-group signal (a real between-group-only
     leak); it falls back to the global-MI path / skips the leak-exempt demotion instead.
+
+    ``codes_x``/``codes_y`` are the caller's GLOBAL bin codes (MRMR's own adaptive/supervised discretization,
+    tuned to maximise cross-group information - e.g. MDLP can pick 50+ bins for a column whose relationship to
+    y only exists WITHIN each group and looks like noise globally). Fed straight into the per-group joint
+    histogram, that fine a code space makes ``kx`` (distinct codes actually present in one ``n_g``-row group)
+    approach ``n_g`` itself, so the Miller-Madow debias term ``(kx-1)(ky-1)/(2*n_g)`` swamps the raw plug-in MI
+    and every group's contribution gets floored to 0 - a real within-group signal reads as exactly zero even
+    though a handful of coarser bins would resolve it fine (verified: a sign-flipping-within-group feature
+    computed group MI 0.0 at the global adaptive 69-bin code, 1.17 nats after this coarsening, both against the
+    SAME per-group data). Coarsen BOTH axes to ``_group_mi_bin_cap(group_offsets, min_rows)`` bins first - a monotonic remap of
+    the existing global codes, not a per-group rebin, so bin edges stay comparable across groups exactly as the
+    module docstring requires; a no-op when the caller's codes are already coarse enough.
     """
     cx = np.ascontiguousarray(codes_x)
     cy = np.ascontiguousarray(codes_y)
     if int(group_offsets[-1]) != cx.shape[0] or cy.shape[0] != cx.shape[0]:
         return float("nan")
+    _cap = _group_mi_bin_cap(group_offsets, min_rows)
+    cx, n_bins_x = _coarsen_codes(cx, int(n_bins_x), _cap)
+    cy, n_bins_y = _coarsen_codes(cy, int(n_bins_y), _cap)
     return float(_group_blocked_mi(
         cx, cy, np.ascontiguousarray(sort_idx), np.ascontiguousarray(group_offsets),
         int(n_bins_x), int(n_bins_y), int(min_rows), bool(size_weighted), bool(use_mm),

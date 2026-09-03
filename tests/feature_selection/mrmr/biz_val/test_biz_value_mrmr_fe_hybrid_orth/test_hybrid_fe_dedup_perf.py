@@ -64,6 +64,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import perf_time_budget
+
 warnings.filterwarnings("ignore")
 
 # Perf budget. 5.0s is ~3.5x the warm-cache median (1.4s) on the
@@ -181,10 +183,11 @@ class TestPerfBudget:
             )
             timings.append(time.perf_counter() - t0)
         elapsed = min(timings)
-        assert elapsed <= PERF_BUDGET_SECS, (
+        budget = perf_time_budget(PERF_BUDGET_SECS)
+        assert elapsed <= budget, (
             f"hybrid_orth_mi_fe at p={P_COLS} n={N_ROWS} degrees=(2,3,4) "
             f"took {elapsed:.3f}s on warm cache, budget is "
-            f"{PERF_BUDGET_SECS:.1f}s. If the regression is intentional, "
+            f"{budget:.1f}s. If the regression is intentional, "
             f"document the new bench number AND bump PERF_BUDGET_SECS in a "
             f"separate commit. Otherwise check that "
             f"_dedup_collinear_source_cols still uses the bulk-corrcoef "

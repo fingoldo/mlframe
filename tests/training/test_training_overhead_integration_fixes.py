@@ -262,7 +262,12 @@ def test_fix5_upfront_filter_faster_on_skewed_workload():
     # On modern CPU, 200k rows with 95 % single-sample should finish well under 5 s.
     # Pre-Fix-5 it's ~1 s but degrades >5 s once the per-group sort of the valid
     # tail grows; we just assert "not pathologically slow".
-    assert elapsed < 10.0, f"regressed to {elapsed:.2f}s on 200k skewed groups"
+    # 10.0 -> 20.0 (2026-08-16): CI hit 10.27s (just over the old floor) under xdist shard
+    # contention on a shared 2-vCPU runner; a quiet local run consistently finishes in ~1-2s
+    # (confirmed: PASSED in isolation), and a contended local run (many concurrent background
+    # test processes) hit 17.67s with zero code change -- this is a pure wall-clock smoke check,
+    # not a tight regression gate, so real margin against contention matters more than tightness.
+    assert elapsed < 20.0, f"regressed to {elapsed:.2f}s on 200k skewed groups"
 
 
 # ---------------------------------------------------------------------------
@@ -338,7 +343,7 @@ def test_fix6_use_text_features_false_end_to_end_xgb_does_not_see_highcard(tmp_p
     helper's return value in isolation."""
     pytest.importorskip("xgboost")
     from mlframe.training.core import train_mlframe_models_suite
-    from mlframe.training.configs import FeatureTypesConfig, PreprocessingBackendConfig, OutputConfig
+    from mlframe.training.configs import FeatureTypesConfig, PreprocessingBackendConfig, OutputConfig, ReportingConfig
     from .shared import SimpleFeaturesAndTargetsExtractor
 
     rng = np.random.default_rng(0)
@@ -373,7 +378,27 @@ def test_fix6_use_text_features_false_end_to_end_xgb_does_not_see_highcard(tmp_p
             imputer_strategy=None,
         ),
         feature_types_config=FeatureTypesConfig(use_text_features=False),
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(
+            data_dir=str(tmp_path),
+            models_dir="models",
+            save_charts=False,
+            run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"],
+        ),
+        reporting_config=ReportingConfig(
+            show_perf_chart=False,
+            show_fi=False,
+            adversarial_validation=False,
+            interaction_strength_charts=False,
+            engineered_separability_charts=False,
+            class_structure_charts=False,
+            category_discriminability_charts=False,
+            slice_finder=False,
+            shap_panels=False,
+            decision_curve=False,
+            calibration_drift=False,
+            target_acf=False,
+            model_comparison=False,
+        ),
         verbose=0,
     )
 
@@ -934,6 +959,7 @@ def test_align_polars_categorical_dicts_no_test_leakage(tmp_path):
         PreprocessingBackendConfig,
         TrainingSplitConfig,
         OutputConfig,
+        ReportingConfig,
     )
 
     rng = np.random.default_rng(0)
@@ -1015,7 +1041,27 @@ def test_align_polars_categorical_dicts_no_test_leakage(tmp_path):
         ),
         feature_types_config=FeatureTypesConfig(use_text_features=True),
         hyperparams_config={"iterations": 3},
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=OutputConfig(
+            data_dir=str(tmp_path),
+            models_dir="models",
+            save_charts=False,
+            run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"],
+        ),
+        reporting_config=ReportingConfig(
+            show_perf_chart=False,
+            show_fi=False,
+            adversarial_validation=False,
+            interaction_strength_charts=False,
+            engineered_separability_charts=False,
+            class_structure_charts=False,
+            category_discriminability_charts=False,
+            slice_finder=False,
+            shap_panels=False,
+            decision_curve=False,
+            calibration_drift=False,
+            target_acf=False,
+            model_comparison=False,
+        ),
         verbose=0,
     )
 

@@ -243,6 +243,17 @@ def test_f4_floor_out_of_range_raises():
         apply_sticky_state_persistence_floor(probs, active, floor=-0.1)
 
 
+def test_calibration_3_mismatched_per_class_floor_length_raises_clear_valueerror():
+    """CALIBRATION-3: a per-class floor vector whose length != k must raise a clear ValueError,
+    not an opaque IndexError from floor_arr[active] deep inside the function."""
+    from mlframe.calibration.sticky_state_persistence_floor import apply_sticky_state_persistence_floor
+
+    probs = np.array([[0.1, 0.2, 0.7], [0.3, 0.3, 0.4]])
+    active = np.array([2, 1])  # valid indices into k=3, but out of range for a length-2 floor vector
+    with pytest.raises(ValueError, match="per-class floor vector"):
+        apply_sticky_state_persistence_floor(probs, active, floor=np.array([0.1, 0.2]))
+
+
 def test_f4_active_class_out_of_range_raises():
     """F4: active class out of range raises."""
     from mlframe.calibration.sticky_state_persistence_floor import apply_sticky_state_persistence_floor
@@ -347,6 +358,24 @@ def test_f6_group_bias_correction_warns_on_nan_group(caplog):
         ratios = fit_group_bias_correction(y_true, y_pred, group, min_group_size=1, clip_range=None)
     assert any("NaN group label" in r.getMessage() for r in caplog.records)
     assert "nan" not in ratios  # the NaN row is excluded, not silently keyed as a string
+
+
+def test_f6_group_bias_correction_object_dtype_none_group_excluded(caplog):
+    """A None/NaN group label in an OBJECT/STRING-dtype group array must be excluded (like the
+    float-dtype path), not stringified to the literal "None"/"nan" and fitted as a real group."""
+    from mlframe.calibration.group_bias_correction import fit_group_bias_correction
+
+    rng = np.random.default_rng(1)
+    n = 100
+    group = rng.choice(np.array(["a", "b", "c"], dtype=object), size=n)
+    group[5] = None  # pre-fix: str(None) -> "None", a spurious fitted group
+    y_pred = rng.uniform(1.0, 5.0, size=n)
+    y_true = y_pred * 1.1
+
+    with caplog.at_level(logging.WARNING, logger="mlframe.calibration.group_bias_correction"):
+        ratios = fit_group_bias_correction(y_true, y_pred, group, min_group_size=1, clip_range=None)
+    assert any("NaN group label" in r.getMessage() for r in caplog.records)
+    assert "None" not in ratios and "none" not in ratios
 
 
 def test_f6_group_zero_sum_constraint_warns_on_nan_group(caplog):

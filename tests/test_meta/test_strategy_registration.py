@@ -43,6 +43,7 @@ _TRAINER_EXTRA_ALIASES: dict[str, str] = {
     "gru": "ditto for GRU",
     "rnn": "ditto for vanilla RNN",
     "transformer": "ditto for transformer recurrent variant",
+    "recurrent": "generic recurrent-family alias recognized by is_neural_model(); registered so get_strategy('recurrent') routes correctly instead of falling through to the tree strategy, not yet exposed via mlframe_models",
     # Canonical long-form aliases for the short tree-strategy keys.
     # 2026-05-24: get_strategy('CATBOOST') was previously falling through
     # to the unknown-model UserWarning + TreeStrategy fallback. Adding

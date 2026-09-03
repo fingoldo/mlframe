@@ -613,3 +613,101 @@ class TestCheckProspectiveFePairs:
         assert (0, 1) in res
         this_pair_features, _transformed_vals, _new_cols, _new_nbins, _messages = res[(0, 1)]
         assert isinstance(this_pair_features, set)
+
+    @pytest.mark.fast
+    def test_non_numeric_column_leaked_into_pool_does_not_crash_external_validation(self):
+        """A datetime64 column reaching the external-validation operand pool (as if the upstream
+        numeric-dtype filter had missed it) must be skipped, not fed into a binary ufunc.
+
+        Reproduces a live CI failure (unsharded py3.14 full-suite job):
+        ``numpy._core._exceptions._UFuncBinaryResolutionError: ufunc 'multiply' cannot use operands
+        with types dtype('float32') and dtype('<M8[ns]')`` from
+        ``_pairs_emit.py::_emit_pair_features``'s external-validation tie-break loop, which fetches
+        ``_ext_factors_sorted = numeric_vars_to_consider - raw_vars_pair`` and feeds every entry
+        straight into ``binary_transformations`` (plain numpy ufuncs) via ``_extval_raw_col``. That
+        loop trusted ``numeric_vars_to_consider`` to already exclude every non-numeric column and had
+        no dtype guard of its own; ``_extval_raw_col``'s raw-operand branch now re-validates dtype at
+        the point of use and returns ``None`` (silently skipped, same contract as an unresolvable
+        engineered operand) for a non-numeric raw column.
+
+        This test drives ``check_prospective_fe_pairs`` directly (bypassing MRMR's own upstream
+        ``_non_numeric_column_indices`` filter) with a datetime64 column explicitly INCLUDED in
+        ``numeric_vars_to_consider`` -- simulating exactly the leaked-pool state CI hit -- and two
+        binary transforms that always agree bit-for-bit (``mul``/``mul2``), which forces the
+        external-validation tie-break loop to actually run (a unique MI leader skips it, see the
+        ``_ev_configs`` hoist comment in ``_pairs_emit.py``). Verified empirically: raises the exact
+        ``UFuncTypeError`` above on the pre-fix code, passes cleanly here post-fix.
+        """
+        from mlframe.feature_selection.filters.info_theory import merge_vars
+
+        # RandomState (not default_rng) + this exact draw order: verified empirically to admit the
+        # (0, 1) pair (clearing fe_min_engineered_mi_prevalence) so the external-validation tie-break
+        # loop -- the one that leaked "ts" -- actually runs; a different RNG can reject the pair
+        # earlier and never exercise the guarded code path at all.
+        rng = np.random.RandomState(0)
+        n = 200
+        a = (rng.rand(n) * 10).astype(np.float32)
+        b = (rng.rand(n) * 10).astype(np.float32)
+        c = (rng.rand(n) * 10).astype(np.float32)
+        ts = pd.to_datetime("2021-01-01") + pd.to_timedelta(rng.randint(0, 1000, n), unit="h")
+        df = pd.DataFrame({"a": a, "b": b, "c": c, "ts": ts})
+
+        from mlframe.feature_selection.filters.discretization import discretize_array
+
+        data = np.column_stack(
+            [
+                discretize_array(df["a"].to_numpy(), n_bins=4, method="quantile", dtype=np.int32),
+                discretize_array(df["b"].to_numpy(), n_bins=4, method="quantile", dtype=np.int32),
+                discretize_array(df["c"].to_numpy(), n_bins=4, method="quantile", dtype=np.int32),
+            ]
+        )
+        target_col = (df["a"].to_numpy() > df["a"].mean()).astype(np.int32)
+        data = np.column_stack([data, target_col])
+        nbins = np.array([4, 4, 4, 2], dtype=np.int64)
+        target_indices = np.array([3], dtype=np.int64)
+        classes_y, freqs_y, _ = merge_vars(
+            factors_data=data,
+            vars_indices=target_indices,
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
+        )
+        classes_y_safe = classes_y.copy()
+
+        unary = {"identity": lambda x: x}
+        # Two binary transforms that always agree bit-for-bit force a tied MI leader, which is the
+        # precondition for the external-validation loop (the one that leaked "ts") to actually run.
+        binary = {"mul": np.multiply, "mul2": lambda x, y: np.multiply(x, y)}
+
+        cols_names = ["a", "b", "c", "ts"]
+        original_cols = {0: 0, 1: 1, 2: 2, 3: 3}
+        prospective_pairs = {((0, 1), 1.0): 1.5}
+        times_spent: dict = defaultdict(float)
+
+        res = check_prospective_fe_pairs(
+            prospective_pairs=prospective_pairs,
+            X=df,
+            unary_transformations=unary,
+            binary_transformations=binary,
+            classes_y=classes_y,
+            classes_y_safe=classes_y_safe,
+            freqs_y=freqs_y,
+            num_fs_steps=0,
+            cols=cols_names,
+            original_cols=original_cols,
+            fe_max_steps=1,
+            fe_npermutations=1,
+            fe_max_pair_features=2,
+            fe_print_best_mis_only=True,
+            fe_min_nonzero_confidence=0.0,
+            fe_min_engineered_mi_prevalence=0.0,
+            fe_good_to_best_feature_mi_threshold=0.5,
+            fe_max_external_validation_factors=0,
+            numeric_vars_to_consider=[0, 1, 2, 3],  # "ts" (index 3) leaked into the numeric pool
+            quantization_nbins=4,
+            quantization_method="quantile",
+            quantization_dtype=np.int32,
+            times_spent=times_spent,
+            verbose=0,
+        )
+        assert (0, 1) in res

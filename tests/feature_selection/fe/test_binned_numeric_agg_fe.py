@@ -220,7 +220,7 @@ def test_fit_binned_numeric_agg_matches_pre_fusion_reference():
     from mlframe.feature_selection.filters._binned_numeric_agg_fe import (
         _derive_cell_stats,
         _global_stat,
-        _raw_moments,
+        _per_cell_moments_stable,
     )
 
     def _old_reference(X, y, *, group_num_cols, agg_num_cols, stats=("mean", "std", "skew", "kurt"), nbins_base=10, n_folds=5, random_state=0):
@@ -256,7 +256,6 @@ def test_fit_binned_numeric_agg_matches_pre_fusion_reference():
                 if globals_ is None:
                     globals_ = {s: _global_stat(av[finite], s) for s in kept_stats}
                     _globals_cache[_gk] = globals_
-                full_cnt, full_s1, full_s2, full_s3, full_s4 = _raw_moments(codes[finite], av[finite], n_cells)
                 oof = {s: np.full(n, globals_[s], dtype=np.float64) for s in kept_stats}
                 for f in range(int(n_folds)):
                     tr = _fold_ne[f] & finite
@@ -264,9 +263,9 @@ def test_fit_binned_numeric_agg_matches_pre_fusion_reference():
                         continue
                     test = _fold_test[f]
                     ct = _ct_by_fold[f]
-                    test_fin = test[finite[test]]
-                    t_cnt, t_s1, t_s2, t_s3, t_s4 = _raw_moments(codes[test_fin], av[test_fin], n_cells)
-                    per = _derive_cell_stats(full_cnt - t_cnt, full_s1 - t_s1, full_s2 - t_s2, full_s3 - t_s3, full_s4 - t_s4, kept_stats)
+                    train_idx = np.where(tr)[0]
+                    t_cnt, t_mean, t_cm2, t_cm3, t_cm4 = _per_cell_moments_stable(codes[train_idx], av[train_idx], n_cells)
+                    per = _derive_cell_stats(t_cnt, t_mean, t_cm2, t_cm3, t_cm4, kept_stats)
                     for s in kept_stats:
                         vals = per[s][ct]
                         oof[s][test] = np.where(np.isfinite(vals), vals, globals_[s])
@@ -288,3 +287,54 @@ def test_fit_binned_numeric_agg_matches_pre_fusion_reference():
     for c in ref.columns:
         worst = float(np.max(np.abs(ref[c].to_numpy() - feat_df[c].to_numpy())))
         assert worst < 1e-9, f"{c}: diverges {worst:.3e} from the pre-fusion reference"
+
+
+def test_per_cell_skew_kurt_stable_on_large_offset_small_scale_column():
+    # Same bug class already fixed for _global_stats_all (whole-column) and _target_encoding_fe.py
+    # (per-category): the raw-power binomial-expansion form (s3/n - 3*mean*s2/n + 2*mean**3, ...)
+    # catastrophically cancels on large-offset/small-scale data. Pin per-cell skew/kurt against scipy's
+    # direct per-cell computation on exactly that regime.
+    """Per cell skew kurt stable on large offset small scale column."""
+    from scipy.stats import kurtosis, skew
+
+    rng = np.random.default_rng(7)
+    n_cells = 6
+    per_cell_n = 400
+    offset = 8.5e3
+    scale = 0.06
+    codes = np.repeat(np.arange(n_cells), per_cell_n)
+    v = offset + scale * rng.standard_normal(codes.shape[0])
+
+    got = per_cell_stats_bincount(codes, v, n_cells, ("mean", "std", "skew", "kurt"))
+    worst = {"skew": 0.0, "kurt": 0.0}
+    for c in range(n_cells):
+        cell_v = v[codes == c]
+        ref_skew = float(skew(cell_v))
+        ref_kurt = float(kurtosis(cell_v))
+        worst["skew"] = max(worst["skew"], abs(got["skew"][c] - ref_skew))
+        worst["kurt"] = max(worst["kurt"], abs(got["kurt"][c] - ref_kurt))
+        assert np.isclose(got["mean"][c], cell_v.mean(), rtol=1e-9)
+        assert np.isclose(got["std"][c], cell_v.std(), rtol=1e-9)
+    assert worst["skew"] < 1e-6, f"per-cell skew diverges {worst['skew']:.3e} from scipy on a large-offset/small-scale column"
+    assert worst["kurt"] < 1e-6, f"per-cell kurt diverges {worst['kurt']:.3e} from scipy on a large-offset/small-scale column"
+
+
+def test_fit_binned_numeric_agg_oof_skew_kurt_stable_on_large_offset_agg_column():
+    # Same regime as the per-cell unit test above, but through the real OOF fold loop
+    # (fit_binned_numeric_agg) to pin the TRAIN-direct-computation fix (centered moments are not
+    # additive across row subsets, unlike the old raw-power full-minus-test subtraction).
+    """Fit binned numeric agg oof skew kurt stable on large offset agg column."""
+    rng = np.random.default_rng(11)
+    n = 3000
+    X = pd.DataFrame(
+        {
+            "g0": rng.uniform(0, 1, n),
+            "a0": 8.5e3 + 0.06 * rng.standard_normal(n),
+        }
+    )
+    y = rng.standard_normal(n)
+    feat_df, _recipes = fit_binned_numeric_agg(X, y, group_num_cols=["g0"], agg_num_cols=["a0"], stats=("skew", "kurt"))
+    for c in feat_df.columns:
+        vals = feat_df[c].to_numpy()
+        assert np.isfinite(vals).all()
+        assert np.abs(vals).max() < 50.0, f"{c}: OOF value blew up to {np.abs(vals).max():.3e} -- large-offset raw-moment cancellation regressed"

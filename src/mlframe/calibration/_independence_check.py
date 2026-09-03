@@ -14,7 +14,7 @@ real but bounded effect; a redundant/near-duplicate member's logit tracks the co
 tightly because both are measuring (up to noise) the same underlying quantity.
 
 NOTE: naively regressing a member's logit on the consensus and looking at the RESIDUAL correlation
-(an earlier version of this check) does not work -- for a clean near-duplicate case the consensus
+(an earlier version of this check) does not work - for a clean near-duplicate case the consensus
 already explains nearly all of the shared factor, so the residual is left with only the (by
 construction independent) per-member noise and reports near-zero correlation despite the members
 being almost entirely redundant. The member-vs-consensus correlation itself (not its residual) is
@@ -31,10 +31,19 @@ def _member_consensus_correlations(logits: np.ndarray) -> np.ndarray:
     Closed-form via sufficient statistics rather than a per-member O(n) Python loop: the leave-one-out mean
     for member j, ``(row_sum - logits[:, j]) / (k - 1)``, is an affine function of ``logits[:, j]`` and the
     row sum, so its correlation with ``logits[:, j]`` reduces to column sums/sums-of-squares plus a single
-    ``logits.T @ row_sum`` matrix-vector product -- one BLAS-backed O(n*k) pass instead of k separate O(n)
+    ``logits.T @ row_sum`` matrix-vector product - one BLAS-backed O(n*k) pass instead of k separate O(n)
     reductions.
     """
     n, k = logits.shape
+    # Centre each column ONCE before forming the sufficient statistics. Pearson correlation is
+    # translation-invariant and the leave-one-out identity above is translation-covariant, so the closed form
+    # and its single BLAS pass survive intact -- but `E[x^2] - E[x]^2` on uncentred logits does not. A
+    # near-saturated member (essentially the same confident logit on every row, +16.0 +- 1e-7 under the default
+    # clip) has mean_a**2 ~ 259 and a cancellation floor of 5.7e-14 against a true variance of ~1e-14, so
+    # `var_a` came out noise-signed; a negative one was clipped to 0.0 and the member reported a correlation of
+    # exactly 0.0. That INVERTS the diagnostic: the most redundant member possible is declared perfectly
+    # independent and survives any downstream pruning rule.
+    logits = logits - logits.mean(axis=0, keepdims=True)
     row_sum = logits.sum(axis=1)
     col_sum = logits.sum(axis=0)
     col_sumsq = np.sum(logits * logits, axis=0)
@@ -53,8 +62,14 @@ def _member_consensus_correlations(logits: np.ndarray) -> np.ndarray:
     var_a = col_sumsq / n - mean_a * mean_a
     var_b = sum_b2 / n - mean_b * mean_b
 
-    denom = np.sqrt(np.clip(var_a * var_b, 0.0, None))
-    return np.asarray(np.divide(cov_ab, denom, out=np.zeros(k, dtype=np.float64), where=denom > 1e-300))
+    # A degenerate member is surfaced as NaN, not laundered into a clean 0.0 ("independent"). The variances are
+    # now centred, so a non-positive one means the member really is constant -- which is maximal redundancy, the
+    # opposite of what a 0.0 correlation says.
+    var_prod = var_a * var_b
+    degenerate = ~(var_prod > 0.0)
+    denom = np.sqrt(np.where(degenerate, 1.0, var_prod))
+    out = np.divide(cov_ab, denom, out=np.zeros(k, dtype=np.float64), where=denom > 1e-300)
+    return np.asarray(np.where(degenerate, np.nan, out))
 
 
 def member_residual_correlation(member_probs: np.ndarray, clip: float = 1e-7) -> dict:

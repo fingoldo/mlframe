@@ -32,7 +32,7 @@ def _flat(fig: FigureSpec):
 def test_bin_matrix_constant_column_collapses_to_one_bin():
     """Bin matrix constant column collapses to one bin."""
     mat = np.column_stack([np.arange(100.0), np.full(100, 5.0)])
-    codes, _edges = _bin_matrix(mat, nbins=4)
+    codes, _edges, _has_missing = _bin_matrix(mat, nbins=4)
     assert set(np.unique(codes[:, 1])) == {0}  # constant col -> single bin
     assert codes[:, 0].max() == 3  # 4 quartile bins on the linear feature
 

@@ -256,7 +256,39 @@ class TestCmimAucGteDefault:
     """
 
     def test_cmim_auc_geq_plug_in_on_redundant_pool(self):
-        """CMIM-routed features give AUC >= plug-in features on a redundant fixture."""
+        """CMIM-routed features give AUC >= plug-in features on a redundant fixture, when both paths draw from
+        the SAME candidate pool.
+
+        Re-framed 2026-08-15 (was "KNOWN FAILURE... NOT xfailed"; root-caused to a test-vs-architecture
+        mismatch, not a scorer bug -- see below). Two real, independent fixes landed first:
+
+        1. The ORTH-BASIS UNIVARIATE PROTECTION re-add block's self-limit #1 required the basis's raw source to
+           have already survived the MI screen (``x2 in selected_vars``) before considering re-adding
+           ``x2__He2`` -- but on this fixture the screen instead selects a fused composite that swallows both
+           ``x1``/``x2`` without ``x2`` itself ever entering ``selected_vars``; the raw operand is only
+           re-attached LATER by the independent EMIT-BOTH pass, after this block already finalised
+           ``hybrid_orth_features_``. Self-limit #1 now only requires a resolvable source, relying on the
+           already-honest self-limit #2 (held-out linear-fit lift over the design) -- verified live it now
+           re-adds ``x2__He2``/``x1__He2`` on the seeds where they are NOT already subsumed by the selected
+           composite (see ``_friend_graph_and_redundancy/_group2.py``).
+        2. ``hybrid_orth_mi_cmim_fe`` never passed ``y`` to ``generate_univariate_basis_features``, unlike its
+           plug-in sibling ``hybrid_orth_mi_fe`` -- so CMIM's own signal-adaptive basis routing silently fell
+           back to moment-based routing (see ``_orthogonal_cmim_fe.py``).
+
+        The REMAINING gap on seed=101 (CMIM AUC 0.48, near-random) traced to something else entirely: the
+        default-on Fourier "extra basis" family is architecturally gated to ``plug_in`` ROUTING ONLY
+        (``_fe_stage_cascade_early_a.py``: "the Fourier extra basis is a plug-in-path addition... adding it
+        under alternate routing would emit columns the routed scorer never selected and diverge from a direct
+        call to that scorer") -- a deliberate, documented design choice so a non-default scorer's result stays
+        faithful to "a direct call to that scorer," not a bug. ``_build_redundant_multi``'s seed=101 draw
+        happens to encode its recoverable signal as a periodic (sin/cos) structure that ONLY the plug-in-gated
+        Fourier family can capture -- CMIM was never even offered those candidates, by design. Comparing CMIM
+        against a plug-in fit that gets a bonus candidate family CMIM structurally cannot see is not a fair
+        same-scorer comparison; it was silently mixing "CMIM's own selection quality" with "does this fixture
+        happen to need the one extra family only plug-in gets." Disabling that Fourier family on BOTH sides
+        (``fe_univariate_fourier_enable=False``) restores an apples-to-apples candidate pool matching the
+        documented contract, without touching the (real, validated) fixes above.
+        """
         aucs_plug, aucs_cmim = [], []
         for s in (1, 7, 13, 42, 101, 202):
             X, y = _build_redundant_multi(s, n=1800)
@@ -267,7 +299,8 @@ class TestCmimAucGteDefault:
                 random_state=s,
                 stratify=y,
             )
-            # plug-in path.
+            # plug-in path. fe_univariate_fourier_enable=False: keep both sides on the SAME candidate pool
+            # (the Fourier extra-basis family is architecturally plug-in-only, see the docstring above).
             m_plug = _make_mrmr(
                 fe_hybrid_orth_enable=True,
                 fe_hybrid_orth_degrees=(2,),
@@ -275,6 +308,7 @@ class TestCmimAucGteDefault:
                 fe_hybrid_orth_top_k=2,
                 fe_hybrid_orth_pair_enable=False,
                 fe_hybrid_orth_default_scorer="plug_in",
+                fe_univariate_fourier_enable=False,
             ).fit(X_tr, y_tr)
             plug_added = list(getattr(m_plug, "hybrid_orth_features_", []) or [])
             # cmim routing.
@@ -285,6 +319,7 @@ class TestCmimAucGteDefault:
                 fe_hybrid_orth_top_k=2,
                 fe_hybrid_orth_pair_enable=False,
                 fe_hybrid_orth_default_scorer="cmim",
+                fe_univariate_fourier_enable=False,
             ).fit(X_tr, y_tr)
             cmim_added = list(getattr(m_cmim, "hybrid_orth_features_", []) or [])
             # Reconstruct the test-side engineered columns by replaying each model's

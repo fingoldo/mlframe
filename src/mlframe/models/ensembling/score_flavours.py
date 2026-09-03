@@ -221,7 +221,7 @@ def collapse_to_single_flavour_if_identical(
         _ref = _stack[0]
         _all_close = all(np.allclose(_stack[i], _ref, atol=1e-9, rtol=1e-9) for i in range(1, _stack.shape[0]))
     except Exception as e:  # pragma: no cover -- defensive
-        logger.debug("gate-predictions closeness check failed: %s", e)
+        logger.warning("gate-predictions closeness check failed: %s", e)
         _all_close = False
     if _all_close:
         if verbose:
@@ -409,6 +409,12 @@ def apply_quality_gate_kn(
             }
     if _excluded and not _gate_stats.get("filter_too_restrictive"):
         level_models_and_predictions = [level_models_and_predictions[i] for i in _kept_idx]
+        # Slice the tag lists the SAME way: downstream consumers (compute_high_correlation_pairs ->
+        # _emit_pairs_above_threshold) index member_tags[i] by POSITION against the member list, not
+        # by any .index()-based realignment -- leaving these unsliced silently paired the wrong tag
+        # name with each surviving member's correlation stats once earlier members had been dropped.
+        _ensemble_member_tags = [_ensemble_member_tags[i] for i in _kept_idx]
+        _ensemble_short_tags = [_ensemble_short_tags[i] for i in _kept_idx]
         # 2026-05-11: refresh ``ensemble_name`` to reflect the kept
         # members so downstream model_name_prefix / report titles
         # show [cb+xgb+lgb] (gate-survivors) instead of the original
@@ -419,7 +425,8 @@ def apply_quality_gate_kn(
         # format ([cb+xgb+lgb] for <=4, [N=K] otherwise).
         try:
             # F2 fix (2026-05-11): use the SHORT tag list (cb / xgb / lgb / ...) for the rebuilt ensemble label rather than the full class names; matches the original short-label contract from core.py:5483 and keeps chart titles compact.
-            _kept_tags = [_ensemble_short_tags[i] for i in _kept_idx]
+            # _ensemble_short_tags is already sliced to the kept members above -- use it directly.
+            _kept_tags = list(_ensemble_short_tags)
             _re_label = "[" + "+".join(_kept_tags) + "]" if len(_kept_tags) <= 4 else f"[N={len(_kept_tags)}]"
             # Replace any [...] / [N=k] in ``ensemble_name`` with
             # the new label. The caller pattern is
@@ -449,7 +456,7 @@ def apply_quality_gate_kn(
                 # surviving members instead of advertising the original full member list.
                 ensemble_name = f"{_re_label} {ensemble_name}".rstrip() if ensemble_name else _re_label
         except Exception as e:  # pragma: no cover -- defensive
-            logger.debug("swallowed exception in score_flavours.py: %s", e)
+            logger.warning("swallowed exception in score_flavours.py: %s", e)
             pass
         # Disable the embedded per-flavor filter -- members are already
         # gated, so re-running it would just reprint the same exclusion
@@ -458,12 +465,9 @@ def apply_quality_gate_kn(
         max_std = 0.0
         max_mae_relative = 0.0
         max_std_relative = 0.0
-    # Tag lists left unchanged when the gate didn't materially fire (caller's references stay valid).
-    # When the gate dropped members we deliberately do NOT slice them here -- the caller's downstream
-    # diversity / stacking / for-loop code reads tags using the same indices as level_models_and_predictions
-    # AFTER the slice, but the original score_ensemble body kept the pre-gate tag lists intact and the
-    # downstream code already realigns via _ensemble_member_tags.index(...). Returning them unchanged
-    # preserves the original behavioural contract.
+    # Tag lists left unchanged when the gate didn't fire (caller's references stay valid); sliced
+    # in lockstep with level_models_and_predictions above when it did (downstream consumers like
+    # compute_high_correlation_pairs index member_tags by POSITION, not by identity lookup).
     return (
         level_models_and_predictions,
         _ensemble_member_tags,

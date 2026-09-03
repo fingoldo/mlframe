@@ -126,10 +126,10 @@ def _build_details(timestamps, idx, sequential_idx, n_shuffled, unit) -> str:
     *outside* the sequential date window, mixed into this split." It lets
     the user know at a glance that the split is not purely contiguous.
     ``unit`` is a single letter:
-      * ``R`` -- ``N`` additional **rows** (row-based splitting)
+      * ``Rnd`` -- ``N`` additional **randomly sampled rows** (row-based splitting)
       * ``D`` -- ``N`` additional **days** (whole-day splitting)
 
-    Example: ``90_000 val rows 2014-01-20/2014-04-05 +45000R`` =
+    Example: ``90_000 val rows 2014-01-20/2014-04-05 +45000Rnd`` =
     45k val rows from outside the Jan-Apr 2014 window were shuffled in
     on top of the sequential 45k that fell inside the window.
     """

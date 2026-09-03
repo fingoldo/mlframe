@@ -51,7 +51,7 @@ def test_level_woe_matches_bruteforce_groupby():
     rates = np.linspace(0.1, 0.9, n_levels)
     y = (rng.random(n) < rates[codes]).astype(np.float64)
     base = float(y.mean())
-    woe, counts = level_woe(codes, y, n_levels, base, alpha=0.5)
+    woe, counts, _pos = level_woe(codes, y, n_levels, base, alpha=0.5)
     ref = _brute_woe(codes, y, n_levels, base, alpha=0.5)
     assert np.allclose(woe, ref, atol=1e-12)
     assert np.array_equal(counts, np.bincount(codes, minlength=n_levels).astype(np.float64))
@@ -61,7 +61,7 @@ def test_level_woe_skips_missing_codes():
     """Level woe skips missing codes."""
     y = np.array([1.0, 0.0, 1.0, 0.0])
     codes = np.array([-1, 0, 0, -1], dtype=np.int64)  # two missing rows must not contribute
-    _woe, counts = level_woe(codes, y, 1, base_rate=0.5, alpha=0.5)
+    _woe, counts, _pos = level_woe(codes, y, 1, base_rate=0.5, alpha=0.5)
     assert counts[0] == 2.0  # only the two non-missing rows counted
 
 
@@ -138,6 +138,21 @@ def test_high_cardinality_and_numeric_columns_skipped():
     assert feats == {"cat"}
 
 
+def test_pandas_string_dtype_column_is_detected_as_categorical():
+    """A column explicitly typed as pandas' dedicated StringDtype (not plain object) must still be
+    auto-detected as categorical -- some pandas versions/configs infer this dtype by default for
+    plain-string columns instead of object, and the old is_object_dtype-only check missed it
+    entirely, silently dropping every string column from the table."""
+    rng = np.random.default_rng(3)
+    n = 500
+    X = pd.DataFrame({"cat": pd.array(rng.choice(["x", "y", "z"], size=n), dtype="string")})
+    assert isinstance(X["cat"].dtype, pd.StringDtype)
+    y = (rng.random(n) < 0.5).astype(int)
+    rows = category_discriminability_table(X, y, top_k=10)
+    feats = {feat for feat, *_ in rows}
+    assert feats == {"cat"}, f"StringDtype column was not detected as categorical; rows={rows}"
+
+
 # ----------------------------------------------------------------------------
 # biz_value: strong level surfaces #1; pure noise stays below a small floor
 # ----------------------------------------------------------------------------
@@ -157,7 +172,7 @@ def test_biz_val_strong_level_ranks_first():
 
     # Measured reference for the floor.
     codes = pd.Categorical(col, categories=["A", "B", "C", "D"]).codes.astype(np.int64)
-    measured, _ = level_woe(codes, y.astype(float), 4, float(y.mean()))
+    measured, _counts, _pos = level_woe(codes, y.astype(float), 4, float(y.mean()))
     measured_A = abs(measured[0])
 
     rows = category_discriminability_table(X, y, top_k=10, min_support=30)
@@ -260,3 +275,46 @@ def test_list_valued_embedding_column_does_not_raise():
 
     feats = {feat for feat, *_ in rows}
     assert feats == {"cat_0"}, "the embedding/numeric columns must be filtered out, not crash or leak through"
+
+
+def test_seed_actually_threaded_through_subsample(monkeypatch):
+    """REPORTING_A-5: category_discriminability_table's seed kwarg must actually control the row
+    subsample RNG when the frame exceeds _COUNT_SUBSAMPLE_CAP -- different seeds must produce a
+    different subsample (and thus, generically, different WoE rows/order) on the same data."""
+    import mlframe.reporting.charts.category_discriminability as cd_mod
+
+    monkeypatch.setattr(cd_mod, "_COUNT_SUBSAMPLE_CAP", 50)  # force the subsample branch cheaply
+
+    rng = np.random.default_rng(0)
+    n = 500
+    X = pd.DataFrame({"cat_0": rng.choice([f"lvl_{i}" for i in range(20)], size=n)})
+    y = rng.integers(0, 2, size=n)
+
+    rows_seed0 = category_discriminability_table(X, y, features=["cat_0"], top_k=15, min_support=1, seed=0)
+    rows_seed1 = category_discriminability_table(X, y, features=["cat_0"], top_k=15, min_support=1, seed=1)
+
+    assert rows_seed0 != rows_seed1, "different seeds should yield a different subsample and thus different rows"
+
+
+def test_compose_and_panel_forward_seed_to_table(monkeypatch):
+    """compose_category_discriminability_figure and category_discriminability_panel must forward their
+    seed kwarg all the way down to category_discriminability_table's RNG, not hardcode seed=0."""
+    import mlframe.reporting.charts.category_discriminability as cd_mod
+
+    captured_seeds = []
+    real_table = cd_mod.category_discriminability_table
+
+    def _spy(*args, **kwargs):
+        """Record the seed kwarg the caller was given, then delegate to the real function."""
+        captured_seeds.append(kwargs.get("seed"))
+        return real_table(*args, **kwargs)
+
+    monkeypatch.setattr(cd_mod, "category_discriminability_table", _spy)
+
+    rng = np.random.default_rng(1)
+    n = 300
+    X = pd.DataFrame({"cat_0": rng.choice(["a", "b", "c"], size=n)})
+    y = rng.integers(0, 2, size=n)
+
+    cd_mod.compose_category_discriminability_figure(X, y, features=["cat_0"], seed=7)
+    assert captured_seeds == [7]

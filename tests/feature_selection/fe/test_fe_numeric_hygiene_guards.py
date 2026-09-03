@@ -88,7 +88,10 @@ class TestSafePowEpsilonFloor:
         ut = create_unary_transformations(preset)
         out = np.asarray(ut[name](x))
         expected = np.power(x, exponent)
-        np.testing.assert_array_equal(out, expected)
+        # ut[name] is @njit(cache=True) internally and calls np.power inside the numba-compiled body; numba's
+        # LLVM-lowered pow intrinsic is not guaranteed bit-identical to numpy's libm pow across platforms (matches
+        # on this Windows build, diverges by ~1 ULP on CI's ubuntu-latest) -- allow ~1 ULP, not exact equality.
+        np.testing.assert_allclose(out, expected, rtol=1e-14, atol=0.0)
 
     def test_reciproc_scalar_exact(self):
         """Reciproc scalar exact."""

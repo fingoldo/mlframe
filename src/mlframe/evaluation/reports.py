@@ -25,6 +25,7 @@ import pandas as pd, numpy as np
 from matplotlib import pyplot as plt
 
 from sklearn.calibration import calibration_curve
+from mlframe._output_paths import ensure_parent_dir
 from mlframe.reporting.charts import confusion_matrix_counts, plot_confusion_matrix
 from mlframe.metrics.core import (
     fast_mean_absolute_error,
@@ -87,9 +88,13 @@ def train_test_split_from_generator(gen: Any, X=None, y=None, groups=None):
 def get_predicted_classes(predictions: np.ndarray, thresholds: Optional[np.ndarray] = None):
     """
     Turns scores predicted by regression into class labels, knowing thresholds used to encode labels.
-    >>>_,preds=get_predicted_classes(predictions=np.array([0.83157152, 0.91605568, 0.34691267, 0.01739674]),thresholds=np.array([0.0,0.1,0.5,1.0]));preds
-    >>>preds
-    [3, 3, 2, 0]
+
+    >>> _, preds = get_predicted_classes(
+    ...     predictions=np.array([0.83157152, 0.91605568, 0.34691267, 0.01739674]),
+    ...     thresholds=np.array([0.0, 0.1, 0.5, 1.0]),
+    ... )
+    >>> list(preds)
+    [np.int64(3), np.int64(3), np.int64(2), np.int64(0)]
     """
     if thresholds is None:
         thresholds = np.array([0.0, 0.1, 0.5, 1.0])
@@ -286,7 +291,12 @@ def evaluate_estimators(
                         _bal_acc = balanced_accuracy_score(y_test_test, preds)
                     mes = f"Balanced accuracy on {test_size} samples: {_bal_acc:.2%}"
                     if classification_thresholds is not None:
-                        mes += "\n" + regression_stats(pd.Series(y_test_test).map(classification_thresholds), pd.Series(preds).map(classification_thresholds))
+                        # classification_thresholds is documented as a list (see the regressor branch below,
+                        # which uses it as bin-edge cut points): class index i's representative value is
+                        # classification_thresholds[i]. Series.map() needs a dict/callable/Series, not a bare
+                        # list -- passing the list directly raised "TypeError: 'list' object is not callable".
+                        _thresholds_map = dict(enumerate(classification_thresholds))
+                        mes += "\n" + regression_stats(pd.Series(y_test_test).map(_thresholds_map), pd.Series(preds).map(_thresholds_map))
 
                 else:
 
@@ -309,8 +319,6 @@ def evaluate_estimators(
                 # ----------------------------------------------------------------------------------------------------------------------------
 
                 if mes:
-                    # print(mes)
-                    # logger.info(mes)
                     display(Markdown(f"*Model*: **{est_name}**, {mes}"))
 
                 # ----------------------------------------------------------------------------------------------------------------------------
@@ -390,7 +398,7 @@ def evaluate_estimators(
 
                         ax_cm.grid(visible=None)
                         if confusion_matrix_file:
-                            fig_cm.savefig(confusion_matrix_file, dpi=dpi, bbox_inches="tight")
+                            fig_cm.savefig(ensure_parent_dir(confusion_matrix_file), dpi=dpi, bbox_inches="tight")
 
                         # Library code must not leave figures open (memory leak under repeated evaluation) nor block on plt.show().
                         plt.close(fig_cm or plt.gcf())
@@ -706,7 +714,7 @@ def plot_pr_curve(
             logger.warning("calibration overlay failed: %s", exc)
 
     if save_as:
-        fig.savefig(save_as, bbox_inches="tight")
+        fig.savefig(ensure_parent_dir(save_as), bbox_inches="tight")
 
     try:
         logger.info("classification report at thresh=%s:\n%s", thresh, format_classification_report(y, (preds > thresh).astype(np.int64), nclasses=2))
@@ -761,6 +769,6 @@ def plot_roc_curve(
             logger.warning("calibration overlay failed: %s", exc)
 
     if save_as:
-        fig.savefig(save_as, bbox_inches="tight")
+        fig.savefig(ensure_parent_dir(save_as), bbox_inches="tight")
 
     return fig

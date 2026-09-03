@@ -255,13 +255,21 @@ class TestMiscDegenerate:
     def test_all_noise_falls_back_not_garbage(self):
         """y independent of every column -> screening returns 0 -> the documented
         min_features_fallback keeps ONE real raw feature, never garbage / empty."""
-        rng = np.random.default_rng(7)
+        # data_seed=1 (re-probed 2026-08-10): seed=7's noise draw let one column's spurious relevance
+        # clear the screen by chance regardless of MRMR's own random_seed, so the fallback path never
+        # fired here -- confirmed across a 6x5 seed sweep that seed=1 reliably drives the pool to 0
+        # screened features (the scenario this test's docstring actually wants to exercise).
+        rng = np.random.default_rng(1)
         n = 500
         X = pd.DataFrame({f"n{i}": rng.normal(size=n) for i in range(6)})
         y = pd.Series(rng.integers(0, 2, n))
         with _q():
             warnings.simplefilter("ignore")
-            sel = MRMR(verbose=0, fe_max_steps=0).fit(X, y)
+            # random_seed pinned (MRMR's own internal RNG defaults to None/unseeded): without it, whether a
+            # noise column's spurious relevance clears the screen by chance -- and therefore whether the
+            # fallback path fires at all -- is itself non-deterministic across runs, making fallback_used_
+            # flake independent of the actual no-garbage-output contract (which held either way).
+            sel = MRMR(verbose=0, fe_max_steps=0, random_seed=7).fit(X, y)
         names = list(sel.get_feature_names_out())
         assert _no_garbage_names(names)
         assert all(n0 in X.columns for n0 in names), f"fallback returned a non-raw / garbage name: {names}"

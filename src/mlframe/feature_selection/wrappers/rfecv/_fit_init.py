@@ -170,7 +170,7 @@ def _init_fit_state(
             )
     # Single-class y for classification is a fold-collapse trap.
     if is_classifier(self.estimator if self.estimator is not None else (self.estimators[0] if self.estimators else None)):
-        unique_y = np.unique(y_arr)
+        unique_y, _class_counts = np.unique(y_arr, return_counts=True)
         if len(unique_y) < 2:
             raise ValueError(
                 f"y has only {len(unique_y)} unique class(es) "
@@ -178,28 +178,47 @@ def _init_fit_state(
                 f"least 2 classes. Check that y is not constant or that "
                 f"upstream filtering didn't drop the minority class."
             )
-        # Minority-class size must support the requested CV.
-        class_counts = np.bincount(y_arr.astype(int)) if y_arr.dtype.kind in "iu" else None
-        if class_counts is not None and len(class_counts) > 0:
-            min_class = int(class_counts[class_counts > 0].min())
-            cv_n = self.cv if isinstance(self.cv, int) else getattr(self.cv, "n_splits", 3)
-            if min_class < cv_n:
+        # Minority-class size must support the requested CV. Counts come from the same np.unique() call
+        # above, so this applies uniformly to int/uint/bool/float/object-coded y instead of only integer
+        # dtypes (the prior np.bincount(y.astype(int)) path silently no-op'd for float/bool y, letting a
+        # skewed-minority fit crash much later, deep inside the wrapped classifier or StratifiedKFold.split,
+        # with a far less actionable message).
+        min_class = int(_class_counts.min())
+        cv_n = self.cv if isinstance(self.cv, int) else getattr(self.cv, "n_splits", 3)
+        if min_class < cv_n:
+            # Reduce the fold count to what the minority class can actually support instead of refusing to
+            # run. A rare-positive target is the normal case for this selector, not an error: at a 1% rate on
+            # 1000 rows there are ~10 positives, which after the outer split leaves fewer than the requested
+            # 5 per inner fold. Refusing meant RFECV simply did not work on imbalanced targets -- and the
+            # fuzz harness had a canonicalisation rule disabling RFECV for every non-balanced binary target
+            # for exactly this reason, so no combo ever exercised the combination.
+            #
+            # Below 2 there is no stratified split at all, so that still raises.
+            if min_class < 2 or not isinstance(self.cv, int):
                 raise ValueError(
                     f"Minority class has {min_class} samples but cv={cv_n}. "
-                    f"StratifiedKFold requires at least n_splits samples per "
-                    f"class. Reduce cv or oversample the minority class."
+                    f"StratifiedKFold requires at least n_splits samples per class, and a minority of "
+                    f"{min_class} cannot be split at all. Oversample the minority class, or pass an explicit "
+                    f"CV splitter sized for it."
                 )
-            # E7: warn when minority just barely meets
-            # n_splits; ROC AUC / log_loss likely to NaN on the all-train-no-test
-            # minority fold split. Hard floor 2*cv_n recommended.
-            if min_class < 2 * cv_n and getattr(self, "verbose", False):
-                logger.warning(
-                    "RFECV: minority class has %d samples vs cv=%d. With 1-2 "
-                    "minority per fold, the test fold may have 0 minority -> "
-                    "ROC AUC / log_loss NaN on that fold. Increase n or use "
-                    "RepeatedStratifiedKFold to mitigate.",
-                    min_class, cv_n,
-                )
+            logger.warning(
+                "RFECV: minority class has %d samples, fewer than the requested cv=%d; reducing to cv=%d so the "
+                "stratified inner CV can be built. Each fold will hold 1 minority row, so per-fold ROC AUC / "
+                "log_loss are unstable -- treat the ranking as indicative.",
+                min_class, cv_n, min_class,
+            )
+            self.cv = cv_n = min_class
+        # E7: warn when minority just barely meets
+        # n_splits; ROC AUC / log_loss likely to NaN on the all-train-no-test
+        # minority fold split. Hard floor 2*cv_n recommended.
+        if min_class < 2 * cv_n and getattr(self, "verbose", False):
+            logger.warning(
+                "RFECV: minority class has %d samples vs cv=%d. With 1-2 "
+                "minority per fold, the test fold may have 0 minority -> "
+                "ROC AUC / log_loss NaN on that fold. Increase n or use "
+                "RepeatedStratifiedKFold to mitigate.",
+                min_class, cv_n,
+            )
 
     # must_include + must_exclude intersection is a confusing config error.
     if self.must_include and self.must_exclude:

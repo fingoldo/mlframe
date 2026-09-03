@@ -101,7 +101,7 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
-def _warmup_numba_kernels(verbose: bool = False) -> None:
+def _warmup_numba_kernels(verbose: bool = False, include_feature_selection: bool = True, include_heavy_libs=None) -> None:
     """Trigger numba JIT compilation of all dummy_baselines kernels.
 
     Pre-warms ``_numba_macro_log_loss``, ``_numba_micro_log_loss``,
@@ -133,12 +133,12 @@ def _warmup_numba_kernels(verbose: bool = False) -> None:
         return
     _warmup_numba_kernels._in_progress = True  # type: ignore[attr-defined]  # function-level reentrancy flag; Callable has no such attr statically
     try:
-        _warmup_numba_kernels_body(verbose)
+        _warmup_numba_kernels_body(verbose, include_feature_selection=include_feature_selection, include_heavy_libs=include_heavy_libs)
     finally:
         _warmup_numba_kernels._in_progress = False  # type: ignore[attr-defined]
 
 
-def _warmup_numba_kernels_body(verbose: bool = False) -> None:
+def _warmup_numba_kernels_body(verbose: bool = False, include_feature_selection: bool = True, include_heavy_libs=None) -> None:
     """Run every numba-jitted dummy-baseline kernel once on tiny synthetic inputs to pay the JIT-compile cost up front rather than on the first real fit; called under the in-progress guard in ``_warmup_numba_kernels``."""
     import time as _time
     log = logger.info if verbose else logger.debug
@@ -193,7 +193,7 @@ def _warmup_numba_kernels_body(verbose: bool = False) -> None:
     try:
         from ...metrics.core import prewarm_numba_cache as _prewarm_metric_kernels
         _t1 = _time.time()
-        _prewarm_metric_kernels()
+        _prewarm_metric_kernels(include_feature_selection=include_feature_selection, include_heavy_libs=include_heavy_libs)
         log(
             "[dummy-baselines] metric kernel cache pre-warmed in %.2fs",
             _time.time() - _t1,
@@ -311,6 +311,15 @@ from ._dummy_timeseries import (  # noqa: F401
     _resolve_ts_periods,
 )
 
+
+def _overlay_png_path(prefix: str) -> str:
+    """``prefix`` resolved to the dummy-overlay png under the active per-format layout.
+
+    Concatenating the name wrote it beside the png/ directory the rest of the run uses.
+    """
+    from mlframe.reporting.renderers.save import resolve_output_path
+
+    return resolve_output_path(prefix + "dummy_overlay", "matplotlib", "png", multi_output=False)
 
 def compute_dummy_baselines(
     target_type: str,
@@ -582,7 +591,7 @@ def compute_dummy_baselines(
     # Optional dedicated pre-training overlay (off by default; standard reports cover the floor).
     # BaselineReport is an immutable NamedTuple, so rebuild it with the saved path via _replace.
     if getattr(config, "overlay_plot", False) and strongest is not None:
-        _ov_save = (plot_file_prefix + "dummy_overlay.png") if plot_file_prefix else None
+        _ov_save = _overlay_png_path(plot_file_prefix) if plot_file_prefix else None
         try:
             _fig = plot_best_dummy_baseline_overlay(
                 report, val_y=val_y_arr, test_y=test_y_arr,

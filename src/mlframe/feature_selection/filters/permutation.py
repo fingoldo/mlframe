@@ -360,57 +360,19 @@ def parallel_mi_besag_clifford_with_null(
     return nfailed, i + 1, sum_perm_mi
 
 
-@njit(parallel=True, nogil=True, cache=True)
-def parallel_mi_prange(
-    classes_x: np.ndarray,
-    freqs_x: np.ndarray,
-    classes_y: np.ndarray,
-    freqs_y: np.ndarray,
-    npermutations: int,
-    original_mi: float,
-    base_seed: np.uint64,
-    dtype: type = np.int32,
-    use_su: bool = False,  # SU normalization toggle threaded from mi_direct.
-) -> tuple:
-    """Inner-loop parallel permutation test.
-
-    Runs ``npermutations`` shuffles in a numba ``prange``. Each iteration owns a private ``classes_y`` copy and a private LCG seeded with
-    ``base_seed * 2654435761 + i`` (Knuth's multiplicative hash). The seeding scheme is **independent of n_workers**, so the ``(nfailed, nchecked)`` output is
-    bit-exact across ``n_workers in {1, 2, 4, 8}`` for the same ``base_seed`` (verified by ``test_phase1_reproducibility``).
-
-    Differences from ``parallel_mi`` (joblib-process worker):
-    * No early termination on ``nfailed >= max_failed`` - every permutation in the budget runs because ``prange`` iterations are independent. For short budgets
-      (npermutations < 30) the early-exit win was negligible anyway.
-    * No global ``np.random.shuffle``; manual Fisher-Yates with a per-iteration LCG so the parallel race that legacy code hit under multi-thread numba is gone
-      by construction.
-    """
-    if npermutations == 0:
-        return 0, 0
-
-    n = len(classes_y)
-    nfailed_arr = np.zeros(npermutations, dtype=np.int64)
-
-    for i in prange(npermutations):
-        # Per-iteration LCG state. Knuth multiplicative hash + fold of i gives a deterministic, n_workers-independent stream.
-        state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(i + 1)
-
-        local = classes_y.copy()
-        # Fisher-Yates shuffle with the per-iter LCG.
-        for j in range(n - 1, 0, -1):
-            # PCG-like step.
-            state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
-            k = int(state >> np.uint64(33)) % (j + 1)
-            tmp = local[j]
-            local[j] = local[k]
-            local[k] = tmp
-
-        mi_perm = compute_relevance_score(
-            use_su, classes_x, freqs_x, local, freqs_y, dtype=dtype,
-        )
-        if mi_perm >= original_mi:
-            nfailed_arr[i] = 1
-
-    return int(nfailed_arr.sum()), npermutations
+# Inner-loop prange permutation-test kernel (serial + parallel) + its per-host dispatch: carved into
+# ._mi_prange_kernel (this file was over the 1k-LOC monolith threshold, CLAUDE.md's "Monolith split
+# via re-export"). Every moved name is re-exported here so existing `from .permutation import
+# parallel_mi_prange` (and its siblings) call sites are unaffected.
+from ._mi_prange_kernel import (  # noqa: F401 -- re-exported for existing call sites, not used directly here
+    parallel_mi_prange,
+    _parallel_mi_prange_serial,
+    _mi_prange_dispatch,
+    _mi_prange_fallback_choice,
+    _MI_PRANGE_PARALLELISM_SPEC,
+    _make_mi_prange_inputs,
+    _run_mi_prange_sweep,
+)
 
 
 @njit(parallel=True, nogil=True, cache=True)
@@ -482,7 +444,7 @@ def parallel_mi(
     dtype: type = np.int32,
     base_seed: np.uint64 = _DEFAULT_BASE_SEED,
     use_su: bool = False,  # SU normalization toggle threaded from mi_direct.
-    perm_offset: int = 0,  # 2026-05-30 Wave 9.1 iter 18: cumulative permutation index offset for n_workers-independent seeding.
+    perm_offset: int = 0,  # cumulative permutation index offset for n_workers-independent seeding.
 ) -> tuple[int, int]:
     """Worker for the joblib pool used by ``mi_direct``. Returns ``(n_failed, n_checked)`` so the caller can aggregate across pool members. ``npermutations=0`` returns ``(0, 0)`` cleanly.
 
@@ -672,7 +634,7 @@ def mi_direct(
         assert freqs_y is not None  # the None branch above always sets classes_y/freqs_y together
         _n_rows = int(factors_data.shape[0])
         _by = int(freqs_y.shape[0])
-        # FUSED single-var fast path (wasted-per-call-work audit, 2026-07-05): the analytic branch
+        # FUSED single-var fast path (wasted-per-call-work audit): the analytic branch
         # needs only the MI scalar + the occupied-x-bin count - it DISCARDS the length-n classes_x
         # that merge_vars(x) builds. For the single-variable relevance x (every MRMR/FE caller passes
         # x=(var,) / x=[0]), ``_relevance_mi_1var_fused`` builds the joint histogram + MI + bx in ONE
@@ -896,7 +858,7 @@ def mi_direct(
                 original_mi = 0.0
         elif parallelism == "inner" and npermutations > NMAX_NONPARALLEL_ITERS:
             # Inner parallelism via numba prange. Single function call returns (nfailed, npermutations) - matches outer-pool aggregation contract.
-            nfailed, n_checked = parallel_mi_prange(
+            nfailed, n_checked = _mi_prange_dispatch(
                 classes_x=classes_x,
                 freqs_x=freqs_x,
                 classes_y=classes_y_safe if classes_y_safe is not None else classes_y,
@@ -950,7 +912,7 @@ def mi_direct(
         #     if nfailed >= max_failed:
         #         original_mi = 0.0
         else:
-            # 2026-05-30 iter573: route to ``parallel_mi_prange`` (the
+            # Route to ``parallel_mi_prange`` (the
             # njit @njit(parallel=True) kernel) for the n_workers<=1 /
             # parallelism="outer" fallback. The kernel was previously
             # gated by ``parallelism == "inner" AND npermutations >
@@ -963,15 +925,15 @@ def mi_direct(
             # MRMR.fit). ``parallel_mi_prange`` implements the SAME
             # per-iter LCG (Knuth multiplicative hash + PCG step) so
             # the (nfailed, n_checked) output is bit-equivalent to what
-            # the legacy Python loop produced - the Wave 9.1 iter-18
-            # fix (PRESERVED in this routing) aligned the seeding
-            # schemes for exactly this reason. Below the kernel call
+            # the legacy Python loop produced - the two seeding schemes
+            # were deliberately aligned (PRESERVED in this routing) for
+            # exactly this reason. Below the kernel call
             # the early-stop ``if nfailed >= max_failed: original_mi = 0``
             # branch is preserved because ``parallel_mi_prange`` runs
             # the full budget (no early exit - prange iterations are
             # independent), matching the inner-parallel contract at
             # line 412-427.
-            nfailed, n_checked = parallel_mi_prange(
+            nfailed, n_checked = _mi_prange_dispatch(
                 classes_x=classes_x,
                 freqs_x=freqs_x,
                 classes_y=classes_y_safe if classes_y_safe is not None else classes_y,

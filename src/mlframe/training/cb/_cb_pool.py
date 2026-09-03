@@ -448,6 +448,24 @@ def _predict_with_fallback(
     _pl_df = _pl_DataFrame()
     _is_cb = _model_type in CATBOOST_MODEL_TYPES
     if _pl_df is not type(None) and isinstance(X, _pl_df) and _is_cb and getattr(model, "_mlframe_polars_fastpath_broken", False):
+        # Say WHY the frame is being converted. A production run showed this fallback on every predict with
+        # no preceding failure in the log, which reads as "CatBoost cannot take polars" -- and a probe of the
+        # installed build says otherwise. The flag is sticky per MODEL, set by one earlier dispatch miss, so
+        # naming both facts distinguishes a library limitation from this model's own history.
+        try:
+            from mlframe.training._polars_native_support import accepts_polars
+
+            _native = accepts_polars("catboost")
+        except Exception as exc:
+            logger.debug("polars-native probe failed (%s: %s); the message omits the library's own answer", type(exc).__name__, exc)
+            _native = None
+        log_throttle(
+            logger, "cb_sticky_pandas_predict", logging.INFO,
+            "  [predict] this model is flagged as having missed the CatBoost polars fastpath earlier, so its "
+            "frames are converted to pandas from here on. The installed CatBoost %s accept a polars frame in "
+            "a probe, so this is a per-model condition (dtype mix on the failing call), not a library limit.",
+            {True: "DOES", False: "does NOT", None: "could not be probed to"}.get(_native, "could not be probed to"),
+        )
         X_pd = _cb_polars_to_pandas(model, X, method, verbose=verbose)
         with phase(method, model=_model_type, n_rows=n_rows):
             return _wrap_predict_result(fn(X_pd), method=method, classes_=getattr(model, "classes_", None))
@@ -572,6 +590,10 @@ def _cached_gpu_info() -> list:
 
 
 _CB_GPU_USABLE_CACHE: bool | None = None
+# The one failure that IS a permanent property of the installed wheel; anything else is a transient condition.
+_CB_GPU_ABSENT_SIGNATURE = "Environment for task type [GPU] not found"
+# Attempts inside ONE probe call before a transient fault is accepted as the process-wide answer.
+_CB_GPU_PROBE_ATTEMPTS = 2
 
 
 def _cb_gpu_usable() -> bool:
@@ -608,17 +630,38 @@ def _cb_gpu_usable() -> bool:
         if _cvd is not None and _cvd.strip() in ("", "-1"):
             _CB_GPU_USABLE_CACHE = False
             return False
-        try:
-            from catboost import CatBoostRegressor
-            import numpy as _np
-            _probe = CatBoostRegressor(
-                iterations=1, task_type="GPU", devices="0",
-                allow_writing_files=False, verbose=False,
+        for _attempt in range(_CB_GPU_PROBE_ATTEMPTS):
+            try:
+                from catboost import CatBoostRegressor
+                import numpy as _np
+                _probe = CatBoostRegressor(
+                    iterations=1, task_type="GPU", devices="0",
+                    allow_writing_files=False, verbose=False,
+                )
+                _probe.fit(_np.zeros((2, 1), dtype=_np.float32), _np.array([0.0, 1.0], dtype=_np.float32))
+                _CB_GPU_USABLE_CACHE = True
+                break
+            except Exception as e:
+                if _CB_GPU_ABSENT_SIGNATURE in str(e):
+                    logger.debug("CatBoost GPU usability probe fit failed: %s. This wheel has no GPU support.", e)
+                    _CB_GPU_USABLE_CACHE = False
+                    break
+                # A GPU OOM while a concurrent process holds VRAM, a WDDM TDR reset, a driver hiccup: a moment,
+                # not a fact about the machine. Latching on the first one pinned EVERY CatBoost model in the
+                # process to CPU for the rest of the run, at debug level. Retry inside this call rather than
+                # re-probing per caller -- the probe fit costs ~4s, and an answer that changes between callers is
+                # worse than a stable one. Genuine absence is already short-circuited above (``_cached_gpu_info``,
+                # ``CUDA_VISIBLE_DEVICES``), so this handler guards only the real fit.
+                logger.warning(
+                    "CatBoost GPU usability probe attempt %d raised %s: %s -- transient device condition, retrying.",
+                    _attempt + 1, type(e).__name__, e,
+                )
+        if _CB_GPU_USABLE_CACHE is None:
+            logger.warning(
+                "CatBoost GPU usability probe failed %d times with transient device errors; treating GPU CatBoost as "
+                "unusable for this process so the routing stays consistent. Set CUDA_VISIBLE_DEVICES='' to force CPU.",
+                _CB_GPU_PROBE_ATTEMPTS,
             )
-            _probe.fit(_np.zeros((2, 1), dtype=_np.float32), _np.array([0.0, 1.0], dtype=_np.float32))
-            _CB_GPU_USABLE_CACHE = True
-        except Exception as e:
-            logger.debug("CatBoost GPU usability probe fit failed, treating GPU as unusable: %s", e)
             _CB_GPU_USABLE_CACHE = False
         return _CB_GPU_USABLE_CACHE
 
@@ -798,3 +841,4 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
 # 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
 from ._cb_pool_build import _maybe_get_or_build_cb_pool  # noqa: F401
+from mlframe.utils.log_throttle import log_throttle

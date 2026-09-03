@@ -690,6 +690,17 @@ def gpu_materialise_discretize_codes_host(
     one (the bandwidth-bound strided-gather op the GPU is good at) while keeping the buffer the rest of the
     pipeline expects. Pass ``out_cand=None`` to skip the float D2H (codes-only, when no downstream
     continuous read is needed). Inputs are finite by construction (the kernel scrubs NaN/inf inline)."""
+    # Validate BEFORE importing cupy: this check is pure numpy/dtype arithmetic, unrelated to whether a
+    # GPU/cupy is even present, but used to sit after ``import cupy as cp`` -- a caller on a cupy-less host
+    # got ``ModuleNotFoundError: No module named 'cupy'`` instead of this function's own intended
+    # ``ValueError`` (CI: cupy is not installed on some py-version legs, breaking
+    # ``test_regression_gpu_materialise_discretize_rejects_narrow_dtype_for_nbins``, which exists purely to
+    # pin this validation and has nothing to do with GPU execution).
+    _dt = np.dtype(dtype)
+    if np.issubdtype(_dt, np.integer) and np.iinfo(_dt).max < nbins - 1:
+        # a future direct caller passing a dtype too narrow for
+        # nbins would otherwise silently wrap around instead of raising.
+        raise ValueError(f"dtype {_dt} cannot represent codes up to nbins-1={nbins - 1} (max={np.iinfo(_dt).max})")
     import cupy as cp
 
     # This used to call clear_resident_codes_handoff with NO
@@ -698,11 +709,6 @@ def gpu_materialise_discretize_codes_host(
     # consumed/cleared its OWN entry; this was meant only as a dead-man's-switch, not a normal-path event).
     # Rely on the bounded-FIFO eviction (_DEFERRED_HOST_FILL_MAX) to age out any truly-abandoned entry instead.
     from ._gpu_resident_discretize import _gpu_resident_discretize_codes  # carve sibling (lazy: avoid cycle)
-    _dt = np.dtype(dtype)
-    if np.issubdtype(_dt, np.integer) and np.iinfo(_dt).max < nbins - 1:
-        # a future direct caller passing a dtype too narrow for
-        # nbins would otherwise silently wrap around instead of raising.
-        raise ValueError(f"dtype {_dt} cannot represent codes up to nbins-1={nbins - 1} (max={np.iinfo(_dt).max})")
     tv = np.ascontiguousarray(transformed_vars, dtype=np.float32)
     a_cols = np.ascontiguousarray(a_cols, dtype=np.int64)
     b_cols = np.ascontiguousarray(b_cols, dtype=np.int64)
@@ -859,14 +865,20 @@ def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype: Any = np.i
     dominant per-pair cost at large n) onto the GPU. Inputs are assumed finite (caller scrubs NaN/inf).
 
     VRAM-chunked over columns so a wide candidate block never over-allocates device memory."""
-    import cupy as cp
-
-    from ._gpu_resident_discretize import _gpu_resident_discretize_codes  # carve sibling (lazy: avoid cycle)
+    # Validate BEFORE importing cupy: this check is pure numpy/dtype arithmetic, unrelated to whether a
+    # GPU/cupy is even present, but used to sit after ``import cupy as cp`` -- a caller on a cupy-less host
+    # got ``ModuleNotFoundError: No module named 'cupy'`` instead of this function's own intended
+    # ``ValueError`` (CI: cupy is not installed on some py-version legs, breaking
+    # ``test_regression_gpu_materialise_discretize_rejects_narrow_dtype_for_nbins``, which exists purely to
+    # pin this validation and has nothing to do with GPU execution).
     _dt = np.dtype(dtype)
     if np.issubdtype(_dt, np.integer) and np.iinfo(_dt).max < nbins - 1:
         # a future direct caller passing a dtype too narrow for
         # nbins would otherwise silently wrap around instead of raising.
         raise ValueError(f"dtype {_dt} cannot represent codes up to nbins-1={nbins - 1} (max={np.iinfo(_dt).max})")
+    import cupy as cp
+
+    from ._gpu_resident_discretize import _gpu_resident_discretize_codes  # carve sibling (lazy: avoid cycle)
     cand = np.ascontiguousarray(cand)  # keep native dtype (float32 FE buffer) - no f64 up-cast
     n, K = cand.shape
     out = np.empty((n, K), dtype=dtype)

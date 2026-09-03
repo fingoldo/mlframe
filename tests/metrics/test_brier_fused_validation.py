@@ -34,7 +34,16 @@ def test_brier_bit_identical_valid(n):
     p = rng.random(n)
     got = fast_brier_score_loss(y, p)
     ref = _old_kernel(y, p)
-    assert got == ref, f"n={n}: {got!r} != {ref!r}"
+    # allclose, not ==: at n=1_000_000 both kernels dispatch to their PARALLEL (prange) variant, and
+    # the fused kernel (validation inlined into the same sweep) accumulates the sum in a different
+    # loop structure than the old kernel (validation done as separate numpy passes beforehand) --
+    # floating-point addition is not associative, so two differently-structured parallel reductions
+    # over the same million values can land a handful of ULPs apart even though both are correct.
+    # CI (Linux) reproducibly diverges by ~1e-16 relative at this n; smaller n never hits it (fewer
+    # prange chunks -> less room for reduction-order drift). rtol=1e-12 is far tighter than any
+    # genuine kernel bug (a real validation/formula regression moves the result by orders of
+    # magnitude more) while accepting this machine-epsilon-scale reassociation noise.
+    assert np.isclose(got, ref, rtol=1e-12, atol=1e-12), f"n={n}: {got!r} != {ref!r}"
 
 
 @pytest.mark.parametrize("bad", [1.2, np.nan, np.inf, -0.1, -np.inf])

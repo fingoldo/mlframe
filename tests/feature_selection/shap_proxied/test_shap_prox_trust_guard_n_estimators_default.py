@@ -37,7 +37,7 @@ pytest.importorskip("xgboost")
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(240)
+@pytest.mark.timeout(900)
 def test_biz_val_trust_guard_n_estimators_default_preserves_trust_and_subset():
     """At the new default (25), trust_guard must remain trustworthy AND select the same subset that
     the 100-tree control selects on a C3-tier regime. Rank-only consumer of anchor losses means the

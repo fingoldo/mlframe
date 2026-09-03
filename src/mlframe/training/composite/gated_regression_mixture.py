@@ -41,6 +41,25 @@ _LOW = "low"
 _HIGH = "high"
 
 
+def _subset_rows(X: Any, mask: np.ndarray) -> Any:
+    """Row-subset ``X`` by a boolean ``mask``, flavour-native: polars ``DataFrame[idx]`` / pandas ``.iloc`` /
+    ndarray fancy index. The prior fallback (``np.asarray(X)[mask]`` for anything lacking ``.iloc``)
+    silently down-converted a polars DataFrame -- which ``_concat_feature`` a few lines below DOES handle
+    explicitly, showing polars support was intended here too -- to an untyped/object ndarray, breaking
+    feature-name and dtype consistency for the fitted branch regressor."""
+    try:
+        import polars as pl
+
+        if isinstance(X, pl.DataFrame):
+            return X[np.flatnonzero(mask).tolist()]
+    except ImportError:
+        pass
+    iloc = getattr(X, "iloc", None)
+    if iloc is not None:
+        return iloc[np.flatnonzero(mask)]
+    return np.asarray(X)[mask]
+
+
 def _concat_feature(X: Any, col_name: str, values: np.ndarray) -> Any:
     """Append ``values`` as a new column named ``col_name`` to ``X``, matching its frame type."""
     if isinstance(X, pd.DataFrame):
@@ -56,7 +75,7 @@ def _concat_feature(X: Any, col_name: str, values: np.ndarray) -> Any:
     return np.concatenate([np.asarray(X, dtype=np.float64), values.reshape(-1, 1)], axis=1)
 
 
-class GatedRegressionMixture(BaseEstimator, RegressorMixin):
+class GatedRegressionMixture(RegressorMixin, BaseEstimator):
     """Gate classifier hard-routes rows to branch regressors; gate probability is stacked as a feature.
 
     Parameters
@@ -126,22 +145,29 @@ class GatedRegressionMixture(BaseEstimator, RegressorMixin):
         """Return the positive-class probability column from a classifier's ``predict_proba``."""
         return np.asarray(model.predict_proba(X), dtype=np.float64)[:, 1]
 
-    def fit(self, X: Any, y: Any, subpop_label: np.ndarray) -> "GatedRegressionMixture":
-        """Fit the gate classifier via OOF probabilities, then fit a branch regressor per routed subpopulation."""
+    def fit(self, X: Any, y: Any, subpop_label: np.ndarray, sample_weight: Optional[np.ndarray] = None) -> "GatedRegressionMixture":
+        """Fit the gate classifier via OOF probabilities, then fit a branch regressor per routed subpopulation.
+
+        ``sample_weight`` (per-row, if given) is multiplied with the fixed per-branch scalar from
+        ``branch_sample_weight`` -- the two compose rather than one overriding the other.
+        """
         y_arr = np.asarray(y, dtype=np.float64)
         label_arr = np.asarray(subpop_label)
         weights = self.branch_sample_weight or {_LOW: 1.0, _HIGH: 1.0}
+        w_arr = np.asarray(sample_weight, dtype=np.float64) if sample_weight is not None else None
 
         # composite_oof_predictions calls .predict(), a poor proxy for a probability (a classifier's hard-
         # label predict discards calibration); use cross_val_predict(method="predict_proba") directly so the
         # gate feature/route reflects the classifier's true probabilistic output.
         from sklearn.model_selection import KFold, cross_val_predict
 
+        gate_fit_kwargs = {"sample_weight": w_arr} if w_arr is not None else {}
         kf = KFold(n_splits=self.n_splits, shuffle=True, random_state=self.random_state)
-        oof_proba = cross_val_predict(clone(self.gate_classifier), X, label_arr, cv=kf, method="predict_proba")[:, 1]
+        cv_params = {"sample_weight": w_arr} if w_arr is not None else None
+        oof_proba = cross_val_predict(clone(self.gate_classifier), X, label_arr, cv=kf, method="predict_proba", params=cv_params)[:, 1]
 
         self.gate_model_ = clone(self.gate_classifier)
-        self.gate_model_.fit(X, label_arr)
+        self.gate_model_.fit(X, label_arr, **gate_fit_kwargs)
 
         route = np.where(oof_proba >= self.threshold, _HIGH, _LOW)
         self.branch_models_: Dict[str, Any] = {}
@@ -150,11 +176,13 @@ class GatedRegressionMixture(BaseEstimator, RegressorMixin):
             if not mask.any():
                 log_throttle(logger, "gated_regression_mixture_branch_no_routed_rows", logging.WARNING, "GatedRegressionMixture: branch %s has no routed rows at fit time.", branch)
                 continue
-            X_branch = X.iloc[np.flatnonzero(mask)] if hasattr(X, "iloc") else np.asarray(X)[mask]
+            X_branch = _subset_rows(X, mask)
             if self.use_gate_feature:
                 X_branch = _concat_feature(X_branch, "gate_proba", oof_proba[mask])
             model = clone(regressor)
             sw = np.full(int(mask.sum()), weights.get(branch, 1.0), dtype=np.float64)
+            if w_arr is not None:
+                sw = sw * w_arr[mask]
             try:
                 model.fit(X_branch, y_arr[mask], sample_weight=sw)
             except TypeError:
@@ -164,7 +192,7 @@ class GatedRegressionMixture(BaseEstimator, RegressorMixin):
 
     def _predict_branch(self, branch: str, X: Any, proba: np.ndarray, mask: np.ndarray) -> np.ndarray:
         """Predict with the given branch's model on the rows selected by ``mask``."""
-        X_branch = X.iloc[np.flatnonzero(mask)] if hasattr(X, "iloc") else np.asarray(X)[mask]
+        X_branch = _subset_rows(X, mask)
         if self.use_gate_feature:
             X_branch = _concat_feature(X_branch, "gate_proba", proba[mask])
         return np.asarray(self.branch_models_[branch].predict(X_branch), dtype=np.float64)

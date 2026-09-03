@@ -401,6 +401,12 @@ class FeatureCache:
         if free_bytes >= evict_below_gb * 1e9:
             return
         target_free_bytes = max(0.0, getattr(self._cfg, "disk_min_free_gb", 0.0) or 0.0) * 1e9
+        if free_bytes >= target_free_bytes:
+            # Nothing to evict: the loop below breaks on this same condition at its FIRST iteration. Between the
+            # trigger (50 GB free by default) and the floor (5 GB) the pass used to run anyway -- a full listdir
+            # plus one getmtime stat per .bin file, then a sort -- and delete nothing, after every disk write.
+            # A dev box or container volume sitting at 30 GB free is squarely in that band.
+            return
         try:
             entries = [(os.path.join(d, fn), os.path.getmtime(os.path.join(d, fn))) for fn in os.listdir(d) if fn.endswith(".bin")]
         except Exception as exc:

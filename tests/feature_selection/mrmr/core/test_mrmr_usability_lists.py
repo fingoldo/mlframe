@@ -29,7 +29,7 @@ def _case2(n: int, seed: int = 0):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(300)  # two MRMR fits (FE) + the CV-MAE usability greedy; see PERF TODO
+@pytest.mark.timeout(900)  # two MRMR fits (FE) + the CV-MAE usability greedy; see PERF TODO
 def test_mrmr_usability_lists_linear_floor_and_byte_identical_support():
     """usability_aware_lists=True populates a replayable support_linear_ with a genuine (c,d) interaction, reaching near the f/5 MAE floor, while leaving the pure-MI support_ byte-identical to the pass being off."""
     from mlframe.feature_selection.filters import MRMR

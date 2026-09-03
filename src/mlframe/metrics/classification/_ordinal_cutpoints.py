@@ -85,6 +85,13 @@ def optimal_ordinal_cutpoints(
     -------
     (np.ndarray, float)
         ``(thresholds, best_score)``. Digitize new predictions with :func:`apply_cutpoints`.
+
+    HOLDOUT CONTRACT: this FITS parameters (the cut thresholds) by maximizing ``metric`` on the exact
+    ``(y_true, y_pred)`` supplied -- an in-sample call is optimistically biased and ``best_score``
+    overstates deployed performance. The function cannot detect which rows are training vs. holdout --
+    the CALLER must pass a holdout/OOF split to get honest thresholds and an honest score, the same
+    discipline this package's own ``quantile.coverage``/``quantile.pit_values`` already document for
+    their (lower-risk, read-only) calibration checks.
     """
     if metric not in CUTPOINT_METRICS:
         raise ValueError(f"optimal_ordinal_cutpoints: metric must be one of {CUTPOINT_METRICS}, got {metric!r}.")

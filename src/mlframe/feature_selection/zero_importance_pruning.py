@@ -51,7 +51,14 @@ def iterative_zero_importance_pruning(
     max_rounds: int = 20,
     importance_fn: Optional[Callable[[Any, pd.DataFrame, np.ndarray], np.ndarray]] = None,
 ) -> list[Any]:
-    """Repeatedly drop the WHOLE batch of near-zero-importance features per round, stopping on CV degradation.
+    """Repeatedly drop the WHOLE batch of near-zero-importance features per round, for up to ``max_rounds``.
+
+    The loop does NOT stop on CV degradation -- this summary line used to say it did, contradicting both the
+    module docstring and the code. Every round's candidate set becomes the next round's working set regardless
+    of its score; what the score controls is only which set is REMEMBERED as ``best_remaining`` and returned at
+    the end. That is a deliberate design (a round that hurts CV can still be a step toward a better set two
+    rounds later, and the best-so-far bookkeeping means a bad detour costs time rather than quality), but an
+    operator who read only this line and set ``max_rounds=50`` expecting early termination got 50 rounds.
 
     Parameters
     ----------

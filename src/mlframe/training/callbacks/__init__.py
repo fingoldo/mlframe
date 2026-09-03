@@ -8,6 +8,10 @@ Groups the two callback families used by the training loop:
 - ``stop_file`` -- the cooperative stop-file callbacks
   (``stop_file`` predicate factory + per-library
   ``*StopFileCallback`` adapters) for out-of-band training shutdown.
+- ``progress_widget`` -- the live notebook progress widget
+  (``TrainingProgressWidget``: per-metric tabs, per-dataset curves, RAM on a
+  secondary axis, a star on the running optimum, and a two-step stop button),
+  attached by passing ``progress_widget=True`` to any callback above.
 
 The public surface is re-exported here so existing
 ``from mlframe.training.callbacks import X`` import sites resolve from the
@@ -21,6 +25,7 @@ from ._callbacks import (
     XGBoostCallback,
     CatBoostCallback,
 )
+from .progress_widget import TrainingProgressWidget
 from .stop_file import (
     stop_file,
     CatBoostStopFileCallback,
@@ -34,6 +39,7 @@ __all__ = [
     "LightGBMCallback",
     "XGBoostCallback",
     "CatBoostCallback",
+    "TrainingProgressWidget",
     "stop_file",
     "CatBoostStopFileCallback",
     "LightGBMStopFileCallback",

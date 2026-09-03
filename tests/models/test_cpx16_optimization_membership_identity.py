@@ -109,3 +109,39 @@ def test_membership_set_matches_ndarray_for_np_scalar_keys():
     for idx in (3, 4, 17, 18, 999, 1000, 50000, 50001):
         x = search_space[idx]  # numpy scalar, as in suggest_candidate
         assert (x in known_set) == (x in known), f"membership mismatch at {idx}"
+
+
+def test_known_candidates_preserve_float_dtype_on_continuous_search_space():
+    """MODELS-1 (2026-08-05 audit): submit_evaluations force-cast known_candidates to int (twice --
+    once for the live tracker, once for the plotting-only temp array), corrupting/mis-tracking a
+    continuous (non-integer) search_space. Once truncated to int, `next_candidate not in
+    known_candidates_set` (built from the same truncated ints) can never recognise an already-evaluated
+    FRACTIONAL candidate as known, so the optimizer keeps re-suggesting points it already evaluated.
+    Drives a real optimization loop over a fractional search_space and asserts every suggested candidate
+    is genuinely new, and known_candidates keeps its float dtype throughout."""
+    search_space = np.linspace(0.0, 10.0, 401)  # step 0.025 -- every value fractional
+    ground_truth = np.sin(search_space)
+    opt = MBHOptimizer(
+        search_space=search_space,
+        ground_truth=ground_truth,
+        model_name="ETR",
+        model_params={"n_estimators": 8, "random_state": 0},
+        init_num_samples=8,
+        random_state=0,
+    )
+    suggested_so_far = set()
+    rng = np.random.default_rng(1)
+    n_resuggested = 0
+    for _ in range(80):
+        c = opt.suggest_candidate()
+        if c is None or c is NOT_READY:
+            seed_pt = float(rng.choice(search_space))
+            opt.submit_evaluations([seed_pt], [float(np.sin(seed_pt))], [0.0])
+            continue
+        if c in suggested_so_far:
+            n_resuggested += 1
+        suggested_so_far.add(c)
+        opt.submit_evaluations([c], [float(np.sin(c))], [0.0])
+
+    assert n_resuggested == 0, f"{n_resuggested} already-evaluated fractional candidates were re-suggested"
+    assert opt.known_candidates.dtype.kind == "f", f"expected known_candidates to retain float dtype, got {opt.known_candidates.dtype}"

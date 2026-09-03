@@ -250,7 +250,6 @@ P²-Quantile streaming sketch is planned (Session-3).
 ## Out-of-scope (Session 3+)
 
 - Recurrent / NeuralNet multilabel sigmoid head
-- Per-class isotonic calibration for multi-output
 - Polars-native `pl.Array(pl.Int8, K)` schema integration through full pipeline
 - Native XGB 3.x multilabel as default (waiting for v3.1 stable)
 - P²-Quantile / T-Digest streaming quantile accumulators

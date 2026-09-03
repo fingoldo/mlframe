@@ -27,10 +27,17 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
 
+from ._pdp_carrier import (
+    _carrier_with_categoricals,
+    _categorical_grid,
+    _model_text_feature_names,  # noqa: F401 -- re-export: a meta-test reaches for it through this module
+    _substitute_column,
+)
 import numpy as np
 
 from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels
 from mlframe.reporting.charts._coerce_shared import coerce_float_2d as _coerce_float_2d
+from mlframe.reporting.charts._catboost_guards import catboost_pool_rebuild_risk
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec, PanelSpec,
 )
@@ -184,122 +191,114 @@ def _native_row_subset(carrier: Any, idx: np.ndarray) -> Any:
     return np.asarray(carrier)[idx]
 
 
-def _model_text_feature_names(model: Any, carrier_columns: Optional[List[str]]) -> set:
-    """Column names the model registered as native TEXT features (CatBoost's ``text_features``), so
-    ``_carrier_with_categoricals`` can leave them alone.
+# Row cap for the batched grid predict (_predict_grid_batched): bounds the transient (grid*sample, n_cols)
+# stacked block so a pathological caller-supplied grid/sample can't blow up memory on a very wide frame.
+# 200k matches the row-cap convention used elsewhere in this reporting package (e.g. adversarial_validation's
+# ADV_MAX_ROWS_PER_SIDE) -- comfortably above the default grid=20 x sample=2000=40_000.
+_PDP_BATCH_MAX_ROWS = 200_000
 
-    A CatBoost model with ``text_features=[...]`` rejects a 'category'-dtype column for one of those names at
-    Pool-build time ("has dtype 'category' but is not in cat_features list") -- or, on a polars carrier, crashes
-    the process with a native access violation instead of raising cleanly (caught live via a fuzz combo whose PDP
-    diagnostic swept a numeric feature while a sibling text column was present). ``_carrier_with_categoricals``
-    used to blanket-cast every non-numeric object column to category, which is exactly the wrong dtype for a
-    text-feature column. Unwraps a Pipeline's final estimator the same way ``_training_loop.py`` does.
+
+def _predict_grid_batched(
+    predict: Callable[[Any], np.ndarray],
+    carrier_sample: Any,
+    base: np.ndarray,
+    col_idx: int,
+    grid_vals: np.ndarray,
+    cat_labels: Optional[list],
+    m: int,
+    g: int,
+    col_name: Optional[str],
+    categorical_dtype: Any,
+) -> Optional[np.ndarray]:
+    """Predict all ``g`` grid steps in ONE call instead of ``g`` separate ones.
+
+    Stacks ``g`` row-major copies of the ``m``-row sample into one ``(g*m, n_cols)`` block (row-block ``k``
+    gets the swept column pinned to grid step ``k``, matching the per-step loop's semantics exactly), predicts
+    ONCE, and reshapes to ``(g, m)``. Purely a fusion of the existing per-step substitution logic -- same
+    values fed to the same stateless ``predict`` callable, so the result is bit-identical to the per-step
+    loop; only the number of ``predict``/Pool-construction calls changes (g -> 1). This matters most for
+    tree-model wrappers (CatBoost/LightGBM) whose ``predict`` pays a fixed per-call Pool/Dataset construction
+    cost that dominates at wide (500+ column) frames -- profiled at ~350ms/call fixed overhead, independent
+    of row count, so consolidating g calls into 1 removes (g-1)/g of it.
+
+    Falls back to the per-step loop (returns ``None``) when the stacked block would exceed
+    ``_PDP_BATCH_MAX_ROWS`` rows, or for a carrier type this fusion does not special-case.
     """
-    inner = model
-    steps = getattr(model, "steps", None)
-    if steps:
-        inner = steps[-1][1]
-    get_text = getattr(inner, "get_text_feature_indices", None)
-    if not callable(get_text):
-        return set()
-    try:
-        idx = get_text()
-    except Exception as exc:
-        logger.debug("text-feature index probe failed, treating as no text features: %s", exc)
-        return set()
-    if not idx:
-        return set()
-    names = getattr(inner, "feature_names_", None) or carrier_columns
-    if not names:
-        return set()
-    return {names[i] for i in idx if 0 <= i < len(names)}
-
-
-def _carrier_with_categoricals(carrier: Any, model: Any = None) -> Any:
-    """Cast a pandas carrier's object/string columns to 'category' (new frame via assign -- untouched blocks reused,
-    caller frame not mutated) so a categorical model can predict on it. Non-pandas / already-numeric-or-category
-    carriers are returned unchanged."""
-    try:
-        import pandas as pd
-    except ImportError:
-        return carrier
-    if not isinstance(carrier, pd.DataFrame):
-        return carrier
-    obj_cols = [c for c in carrier.columns if not (carrier[c].dtype.kind in "iufb" or isinstance(carrier[c].dtype, pd.CategoricalDtype))]
-    # An object column holding non-scalar elements (e.g. a materialized embedding column reaching pandas as a
-    # list per row) makes pandas' Categorical factorize() raise "unhashable type: 'numpy.ndarray'" -- lists/arrays
-    # can't hash into the category-uniquing table. Drop such columns from the cast set (a single embedding vector
-    # isn't a meaningful category anyway); they stay their original object dtype and the model call downstream
-    # either handles them natively or fails on its own terms, same as any other unsupported dtype.
-    obj_cols = [c for c in obj_cols if not any(isinstance(v, (list, tuple, np.ndarray)) for v in carrier[c])]
-    text_cols = _model_text_feature_names(model, list(carrier.columns)) if model is not None else set()
-    obj_cols = [c for c in obj_cols if c not in text_cols]
-    return carrier.assign(**{c: carrier[c].astype("category") for c in obj_cols}) if obj_cols else carrier
-
-
-def _categorical_grid(carrier: Any, col_name: Optional[str]) -> Tuple[Optional[list], Any]:
-    """If ``col_name`` is a categorical column of the (pandas / polars) ``carrier``, return ``(category_labels,
-    dtype)`` so the sweep can iterate the NATIVE categories and substitute native labels; else ``(None, None)``.
-
-    Sweeping a numeric grid value into a categorical column produces an invalid model input (CatBoost:
-    "cat_features must be integer or string ... =0.0" -- an outright error at Pool build for a string-category
-    column, and a native-predict hang for an int-coded one). The labels come straight from the carrier's own
-    category set (no float-code round-trip), so the substituted value is always a value the model saw at fit time.
-    """
-    if col_name is None or isinstance(carrier, np.ndarray):
-        return None, None
-    try:
-        import pandas as pd
-        if isinstance(carrier, pd.DataFrame):
-            if col_name in carrier.columns and isinstance(carrier[col_name].dtype, pd.CategoricalDtype):
-                return list(carrier[col_name].cat.categories), carrier[col_name].dtype
-            return None, None
-    except ImportError:
-        pass
-    if type(carrier).__module__.startswith("polars"):
-        import polars as pl
-        dt = carrier.schema.get(col_name) if hasattr(carrier, "schema") else None
-        is_cat = dt is not None and (dt == pl.Categorical or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum)))
-        if is_cat and dt is not None:
-            labels = carrier[col_name].cat.get_categories().to_list() if dt == pl.Categorical else list(dt.categories)
-            return labels, dt
-    return None, None
-
-
-def _substitute_column(carrier_sample: Any, base_vals: Optional[np.ndarray], col_idx: int, value: Any,
-                       col_name: Optional[str] = None, categorical_dtype: Any = None) -> Any:
-    """Return a model-input block with column ``col_idx`` set to ``value`` for every row.
-
-    For a pandas / polars ``carrier_sample`` (already the native-dtype subsampled rows), set the swept column to
-    ``value`` while PRESERVING every other column's dtype (so categorical models predict) -- via ``assign`` /
-    ``with_columns`` on the small (sample, n_cols) subsample, never the caller's full frame. When
-    ``categorical_dtype`` is supplied the swept column is itself categorical: ``value`` is a native category label
-    and is assigned back as that categorical dtype (never a bare float, which breaks categorical model predict).
-    For an ndarray carrier the float ``base_vals`` block path is exact and kept.
-    """
+    if g * m > _PDP_BATCH_MAX_ROWS:
+        return None
+    if cat_labels is not None:
+        # A categorical/discrete grid sweep -- NOT batched, ever (falls straight to the per-step loop below).
+        # Investigating an intermittent "Windows fatal exception: access violation" (stack rooted
+        # in catboost's Pool._init, triggered from a PDP predict call) surfaced on
+        # tests/training/test_core.py's TestPolarsNativeFastpath / TestTextAndEmbeddingFeatures classes (a
+        # polars carrier, CatBoost fit with cat_features=[...]). IMPORTANT: this crash reproduced via BOTH
+        # this batched path AND the original (pre-fix) per-step loop below -- it is a pre-existing bug
+        # in compute_pdp's CatBoost/polars predict path, not something this batching optimization introduced,
+        # and this restriction is NOT proven to fix it (it only narrows this function's own contribution to
+        # the risk surface). It reproduced 2/4 times on an identical repro command and did NOT reproduce on
+        # isolated raw-catboost/raw-polars minimal repros outside the full mlframe pipeline -- consistent with
+        # a native memory-safety/GC-timing race rather than a deterministic logic bug, and matches the
+        # signature of two prior fixed incidents of the same crash class (d0d7fa7de: PDP/ICE crashed CatBoost
+        # on a text-feature column; c825c0c8b: SHAP crashed CatBoost with embedding_features) -- both were
+        # "downstream code feeds CatBoost a carrier that doesn't match what the model registered at fit time".
+        # The exact trigger for THIS incident is not yet pinned down; kept as an open, tracked issue. Skipping
+        # batching for categorical sweeps still removes the one path (a large multi-thousand-row repeated-
+        # category block predicted in one call) that plausibly amplifies whatever the underlying race is,
+        # while keeping the validated numeric-sweep win (test_catboost_trains_on_mixed_dtypes, 214s -> 93s
+        # PDP time, which swept mostly numeric top-importance features) fully intact.
+        return None
+    # categorical_dtype is always None here (the categorical branch above already returned); every remaining
+    # path is a purely numeric column substitution.
+    repeat_vals = np.repeat(grid_vals, m)
     if isinstance(carrier_sample, np.ndarray):
-        assert base_vals is not None
-        block = base_vals.copy()
-        block[:, col_idx] = value
-        return block
-    if hasattr(carrier_sample, "assign"):  # pandas subsample
-        import pandas as pd
-        name = col_name if col_name is not None else list(carrier_sample.columns)[col_idx]
-        if categorical_dtype is not None:
-            arr = ([value] * len(carrier_sample)) if np.ndim(value) == 0 else list(value)
-            return carrier_sample.assign(**{name: pd.Categorical(arr, dtype=categorical_dtype)})
-        return carrier_sample.assign(**{name: value})
-    mod = type(carrier_sample).__module__
-    if mod.startswith("polars"):  # polars subsample
+        big = np.tile(base, (g, 1))
+        big[:, col_idx] = repeat_vals
+        return np.asarray(predict(big), dtype=np.float64).reshape(g, m)
+    import pandas as pd
+
+    if isinstance(carrier_sample, pd.DataFrame):
+        big = pd.concat([carrier_sample] * g, ignore_index=True)
+        name = col_name if col_name is not None else list(big.columns)[col_idx]
+        big[name] = repeat_vals
+        return np.asarray(predict(big), dtype=np.float64).reshape(g, m)
+    if type(carrier_sample).__module__.startswith("polars"):
         import polars as pl
+
+        # pl.concat defaults to rechunk=False: concatenating the SAME frame g times produces a
+        # multi-chunk column whose g chunks all alias the identical underlying Arrow buffer. Every
+        # native segfault caught chasing this crash (4 independent CI failures, 3.9/3.11/3.13,
+        # TestTextAndEmbeddingFeatures) traced to this exact line -- consistent with CatBoost's
+        # native embedding/text-column extraction not being safe against multi-chunk (let alone
+        # buffer-aliased) Arrow input, matching two prior fixed incidents of the same class
+        # (d0d7fa7de, c825c0c8b: CatBoost fed a carrier that doesn't match what it registered at
+        # fit time). rechunk=True materialises ONE contiguous, non-aliased buffer before the
+        # column substitution below, at the cost of one extra copy of an already-small
+        # (g*sample, n_cols) block -- negligible next to the predict call it feeds.
+        big = pl.concat([carrier_sample] * g, rechunk=True)
         name = col_name if col_name is not None else carrier_sample.columns[col_idx]
-        if categorical_dtype is not None:
-            expr = (pl.lit(value) if np.ndim(value) == 0 else pl.Series(name, list(value))).cast(categorical_dtype)
-            return carrier_sample.with_columns(expr.alias(name))
-        return carrier_sample.with_columns(pl.lit(value).alias(name))
-    assert base_vals is not None
-    block = base_vals.copy()
-    block[:, col_idx] = value
+        expr = pl.Series(name, repeat_vals)
+        big = big.with_columns(expr.alias(name))
+        return np.asarray(predict(big), dtype=np.float64).reshape(g, m)
+    return None  # unrecognised carrier type -> caller falls back to the per-step loop
+
+
+def _set_column_inplace(block: Any, col_idx: int, value: Any, col_name: Optional[str] = None, categorical_dtype: Any = None) -> Any:
+    """Mutate a pandas ``block``'s single column in place instead of taking the ``_substitute_column`` copy path.
+
+    ``DataFrame.assign``/``.copy()`` walks every column's block manager even when only one column actually
+    changes (profiled: on a 500+-column frame, half the PDP sweep's wall time was these per-grid-step full-frame
+    copies, not the predict calls themselves) -- a direct violation of the project's no-whole-frame-copy-per-step
+    convention. ``block`` here is always a private working copy the caller made once before the sweep loop (never
+    the caller's original frame), so mutating it in place is safe: each grid step's predict reads the column
+    right after this call, and the next step overwrites the same column again, so no restore is needed."""
+    import pandas as pd
+
+    name = col_name if col_name is not None else list(block.columns)[col_idx]
+    if categorical_dtype is not None:
+        arr = ([value] * len(block)) if np.ndim(value) == 0 else list(value)
+        block[name] = pd.Categorical(arr, dtype=categorical_dtype)
+    else:
+        block[name] = value
     return block
 
 
@@ -349,14 +348,28 @@ def compute_pdp(
     g = grid_vals.shape[0]
     m = base.shape[0]
 
-    # ice_full[k] = predictions of all m rows with the feature pinned to grid_vals[k]; one predict per grid value.
-    ice_full = np.empty((g, m), dtype=np.float64)
-    for k in range(g):
-        if _cat_labels is not None:
-            block = _substitute_column(carrier_sample, base, col_idx, _cat_labels[k], col_name=_col_name, categorical_dtype=_cat_dtype)
-        else:
-            block = _substitute_column(carrier_sample, base, col_idx, float(grid_vals[k]), col_name=_col_name)
-        ice_full[k] = predict(block)
+    # ice_full[k] = predictions of all m rows with the feature pinned to grid_vals[k]. Tries the ONE-CALL batched
+    # path first (_predict_grid_batched): stacks all g grid steps into one (g*m, n_cols) block and predicts once,
+    # eliminating g-1 of the g fixed-per-call Pool/Dataset construction costs a tree-model wrapper's predict()
+    # otherwise pays on every grid step (dominant at 500+-column frames -- see that function's docstring).
+    ice_full = _predict_grid_batched(predict, carrier_sample, base, col_idx, grid_vals, _cat_labels, m, g, _col_name, _cat_dtype)
+    if ice_full is None:
+        # Fallback: per-step loop (pathological grid*sample size, or an unrecognised carrier type). A pandas
+        # carrier gets ONE private working copy mutated in place per grid step (see _set_column_inplace) --
+        # avoids g full-frame `.assign()` copies on a wide model-input frame. ndarray/polars keep the existing
+        # per-step _substitute_column path (ndarray's own copy is already O(1)-column; polars' with_columns is
+        # already columnar-cheap for a single column, so there is no equivalent whole-frame-copy cost to avoid there).
+        import pandas as pd
+        _pd_working = carrier_sample.copy() if isinstance(carrier_sample, pd.DataFrame) else None
+
+        ice_full = np.empty((g, m), dtype=np.float64)
+        for k in range(g):
+            _value = _cat_labels[k] if _cat_labels is not None else float(grid_vals[k])
+            if _pd_working is not None:
+                block = _set_column_inplace(_pd_working, col_idx, _value, col_name=_col_name, categorical_dtype=_cat_dtype)
+            else:
+                block = _substitute_column(carrier_sample, base, col_idx, _value, col_name=_col_name, categorical_dtype=_cat_dtype)
+            ice_full[k] = predict(block)
 
     pdp = ice_full.mean(axis=1)  # PDP mean over ALL sampled rows (not the drawn subset)
 
@@ -434,11 +447,26 @@ def compute_pdp_2d(
     else:
         carrier_sample = _native_row_subset(carrier, idx)
         tiled_native = _native_row_subset(carrier_sample, np.repeat(np.arange(m), g1))
-        for a in range(g0):
+        # i1's column is CONSTANT across the g0 outer loop (only i0 varies per outer step) -- the prior form
+        # re-substituted it on every iteration anyway, paying a redundant full-frame copy each time on a pandas
+        # carrier. Substitute it once, then (for pandas) mutate i0's column in place per step instead of taking
+        # another full-frame `.assign()` copy (see _set_column_inplace) -- halves the per-step copy count and
+        # removes the O(n_cols) cost from the remaining ones.
+        import pandas as pd
+        if isinstance(tiled_native, pd.DataFrame):
+            block = tiled_native.copy()
+            block = _set_column_inplace(block, i1, inner_values, col_name=name1, categorical_dtype=_cat1_dtype)
+            for a in range(g0):
+                outer_val = _cat0_labels[a] if _cat0_labels is not None else float(grid0[a])
+                block = _set_column_inplace(block, i0, outer_val, col_name=name0, categorical_dtype=_cat0_dtype)
+                surface[a] = np.asarray(predict(block)).reshape(m, g1).mean(axis=0)
+        else:
             block = _substitute_column(tiled_native, None, i1, inner_values, col_name=name1, categorical_dtype=_cat1_dtype)
-            outer_val = _cat0_labels[a] if _cat0_labels is not None else float(grid0[a])
-            block = _substitute_column(block, None, i0, outer_val, col_name=name0, categorical_dtype=_cat0_dtype)
-            surface[a] = np.asarray(predict(block)).reshape(m, g1).mean(axis=0)
+            for a in range(g0):
+                outer_val = _cat0_labels[a] if _cat0_labels is not None else float(grid0[a])
+                surface[a] = np.asarray(
+                    predict(_substitute_column(block, None, i0, outer_val, col_name=name0, categorical_dtype=_cat0_dtype))
+                ).reshape(m, g1).mean(axis=0)
 
     return {"grid0": grid0, "grid1": grid1, "surface": surface, "kind": kind, "feature_index": (i0, i1)}
 
@@ -471,6 +499,12 @@ def pdp_panel(
     feature) returns an AnnotationPanelSpec.
     """
     _, _, names = _as_2d(X)
+    risk = catboost_pool_rebuild_risk(model)
+    if risk:
+        return AnnotationPanelSpec(
+            text=f"PDP / ICE not computed: {risk}",
+            title="PDP / ICE",
+        )
     res = compute_pdp(model, X, feature, grid=grid, sample=sample, ice=ice, centered=centered, seed=seed)
     label = _feat_label(feature, names, res["feature_index"])
     gv = res["grid"]
@@ -479,7 +513,7 @@ def pdp_panel(
 
     ylab = "predicted P(y=1)" if res["kind"] == "proba" else "prediction"
     ice_draw = res["ice_centered"] if (centered and res["ice_centered"] is not None) else res["ice"]
-    pdp_curve = res["pdp"] - res["pdp"][0] if (centered and ice_draw is not None) else res["pdp"]
+    pdp_curve = res["pdp"] - res["pdp"][0] if centered else res["pdp"]
 
     series: List[np.ndarray] = []
     styles: List[str] = []
@@ -500,11 +534,26 @@ def pdp_panel(
     if style_for_discrete is not None:
         styles = [style_for_discrete if s == "-" else s for s in styles]
 
+    support_note = ""
+    try:
+        _arr, _, _ = _as_2d(X)
+        _vals = np.asarray(_arr[:, res["feature_index"]], dtype=np.float64)
+        _vals = _vals[np.isfinite(_vals)]
+        if _vals.size and gv.shape[0] > 1:
+            _edges = (gv[1:] + gv[:-1]) / 2.0
+            _counts = np.bincount(np.searchsorted(_edges, _vals), minlength=gv.shape[0])
+            _empty = int(np.sum(_counts == 0))
+            _thinnest = int(_counts.min())
+            support_note = (f"; grid support: thinnest point holds {_thinnest:,} of {_vals.size:,} rows"
+                            + (f", {_empty} of {gv.shape[0]} grid points hold none" if _empty else ""))
+    except Exception as exc:  # best-effort enrichment: a caveat must never break the panel
+        logger.debug("pdp support note failed (%s: %s)", type(exc).__name__, exc)
+
     return LinePanelSpec(
         x=gv,
         y=tuple(series),
         series_labels=tuple(labels),
-        title=f"PDP / ICE: {label}",
+        title=f"PDP / ICE: {label}{support_note}",
         xlabel=label,
         ylabel=ylab + (" (centered)" if centered else ""),
         line_styles=tuple(styles),
@@ -523,6 +572,9 @@ def pdp_2d_panel(
 ) -> PanelSpec:
     """HeatmapPanelSpec of the two-feature partial-dependence interaction surface (rows = f0, cols = f1)."""
     _, _, names = _as_2d(X)
+    risk = catboost_pool_rebuild_risk(model)
+    if risk:
+        return AnnotationPanelSpec(text=f"2-D PDP not computed: {risk}", title="2-D partial dependence")
     res = compute_pdp_2d(model, X, features, grid=grid, sample=sample, seed=seed)
     i0, i1 = res["feature_index"]
     lab0 = _feat_label(features[0], names, i0)
@@ -538,7 +590,61 @@ def pdp_2d_panel(
         ylabel=lab0,
         colormap="viridis",
         colorbar_label=cbar,
+        cell_hovertext=_pdp_2d_support_text(X, i0, i1, grid0, grid1),
     )
+
+
+def pdp_2d_support_counts(X: Any, i0: int, i1: int, grid0: np.ndarray, grid1: np.ndarray) -> Optional[Tuple[np.ndarray, int]]:
+    """``(counts, n_total)`` of rows falling in each 2-D PDP grid cell, or ``None`` when it cannot be computed.
+
+    Each row is assigned to the NEAREST grid value on each axis (midpoints between consecutive grid values are the
+    bin edges), which matches how a reader interprets a cell: the region the cell stands for.
+    """
+    try:
+        arr, _, _ = _as_2d(X)
+        v0 = np.asarray(arr[:, i0], dtype=np.float64)
+        v1 = np.asarray(arr[:, i1], dtype=np.float64)
+        finite = np.isfinite(v0) & np.isfinite(v1)
+        v0, v1 = v0[finite], v1[finite]
+        n_total = int(v0.size)
+        if n_total == 0:
+            return None
+        e0 = (np.asarray(grid0, dtype=np.float64)[1:] + np.asarray(grid0, dtype=np.float64)[:-1]) / 2.0
+        e1 = (np.asarray(grid1, dtype=np.float64)[1:] + np.asarray(grid1, dtype=np.float64)[:-1]) / 2.0
+        r = np.searchsorted(e0, v0)
+        c = np.searchsorted(e1, v1)
+        counts = np.zeros((len(grid0), len(grid1)), dtype=np.int64)
+        np.add.at(counts, (r, c), 1)
+        return counts, n_total
+    except Exception as exc:  # best-effort: a support overlay must never break the chart
+        logger.debug("pdp_2d support counting failed (%s: %s)", type(exc).__name__, exc)
+        return None
+
+
+def _pdp_2d_support_text(X: Any, i0: int, i1: int, grid0: np.ndarray, grid1: np.ndarray) -> Optional[np.ndarray]:
+    """Per-cell ``"N rows (P%)"`` support strings for a 2-D PDP surface, or ``None`` if it can't be computed.
+
+    A partial-dependence surface is evaluated on a REGULAR grid, so it reports a value for every cell --
+    including combinations the training data barely contains or never contains at all. Those cells are pure
+    model extrapolation and read exactly like well-supported ones. Putting the real row count behind the
+    tooltip lets a reader tell "this interaction is real" from "this corner of the grid has 3 rows in it".
+
+    Counting assigns each row to the nearest grid value on each axis (the grid is what the surface was
+    evaluated on), which matches how a reader interprets a cell: the region the cell stands for.
+    """
+    try:
+        got = pdp_2d_support_counts(X, i0, i1, grid0, grid1)
+        if got is None:
+            return None
+        counts, n_total = got
+        pct = counts / float(n_total) * 100.0
+        return np.array(
+            [[f"{counts[i, j]:,} rows ({pct[i, j]:.1f}% of {n_total:,})" for j in range(counts.shape[1])] for i in range(counts.shape[0])],
+            dtype=object,
+        )
+    except Exception as exc:  # best-effort enrichment: a tooltip must never break the chart
+        logger.debug("pdp_2d support-text computation failed (%s: %s); tooltip falls back to axes+value", type(exc).__name__, exc)
+        return None
 
 
 def compose_pdp_figure(
@@ -591,6 +697,13 @@ def compose_pdp_figure(
         suptitle=suptitle,
         panels=packed,
         figsize=figsize_for_grid(n_rows, n_cols, cell_width=cell_width, cell_height=cell_height),
+        caption=(
+            "How to read: the bold line is the average predicted response as ONE feature is swept with the others "
+            "held at their observed values; the faint lines are individual rows. Fanning ICE lines mean the effect "
+            "depends on the rest of the row, so the average curve hides as much as it shows. These are model "
+            "behaviour, not causal effects, and the sweep manufactures feature combinations the data may never "
+            "contain -- treat the far ends of the grid with suspicion."
+        ),
     )
 
 

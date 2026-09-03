@@ -86,11 +86,11 @@ def _bootstrap_batch_auc_brier_ll_ece(
             rk = base_rank[idx[k]]
             counts[rk] += 1
             ones[rk] += y_by_rank[rk]
-        last_fps = 0
-        last_tps = 0
-        tps = 0
-        fps = 0
-        auc = 0
+        last_fps = np.int64(0)
+        last_tps = np.int64(0)
+        tps = np.int64(0)
+        fps = np.int64(0)
+        auc = np.int64(0)
         for rk in range(n - 1, -1, -1):
             c = counts[rk]
             if c == 0:
@@ -148,11 +148,11 @@ def _bootstrap_batch_auc_brier_ll_ece_grouped(
             g = group_of_base[bi]
             counts[g] += 1
             ones[g] += y_base[bi]
-        last_fps = 0
-        last_tps = 0
-        tps = 0
-        fps = 0
-        auc = 0
+        last_fps = np.int64(0)
+        last_tps = np.int64(0)
+        tps = np.int64(0)
+        fps = np.int64(0)
+        auc = np.int64(0)
         for g in range(ngroups - 1, -1, -1):
             c = counts[g]
             if c == 0:
@@ -292,6 +292,16 @@ def bootstrap_auc_brier_ll_ece_batch(
         if finite.shape[0] == 0:
             results[name] = {"error": f"all {n_bootstrap} resamples failed for {name!r}"}
             continue
+        n_failed = n_bootstrap - finite.shape[0]
+        if n_failed > n_bootstrap // 4:
+            # Same diagnostic contract as the documented-'bit-identical' sibling bootstrap_metrics
+            # (evaluation/bootstrap.py): AUC can legitimately go NaN on unstratified resamples of
+            # imbalanced binary targets, so a high failure rate here is exactly the case where the
+            # surviving-sample CI is most likely biased and worth surfacing.
+            logger.warning(
+                "bootstrap_auc_brier_ll_ece_batch: %d/%d resamples failed for %r; CI computed over %d surviving samples may be biased.",
+                n_failed, n_bootstrap, name, finite.shape[0],
+            )
         jackknife = None
         if method == "bca":
             if name == "roc_auc":

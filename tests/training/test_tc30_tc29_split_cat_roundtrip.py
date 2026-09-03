@@ -116,3 +116,55 @@ def test_tc29_alignment_makes_codes_agree():
         assert train2["k"].cat.categories.get_loc(s) == val2["k"].cat.categories.get_loc(s)
     # train2 retains 'a', val2 union retains 'd' -- both present in the shared list.
     assert "a" in train2["k"].cat.categories and "d" in train2["k"].cat.categories
+
+
+def test_tc29_test_categories_excluded_from_union():
+    """TRAINING_LOOSE_A-2: a category present ONLY in test must NOT be folded into the train/val union --
+    the union is deliberately train+val ONLY (leak-safe); a test-only category surfaces as NaN under
+    pandas' Categorical semantics rather than being silently absorbed into the fit-time cat universe."""
+    train = get_pandas_view_of_polars_df(pl.DataFrame({"k": ["a", "b", "c", "a"]}).with_columns(pl.col("k").cast(pl.Categorical)))
+    val = get_pandas_view_of_polars_df(pl.DataFrame({"k": ["b", "c", "a", "b"]}).with_columns(pl.col("k").cast(pl.Categorical)))
+    test = get_pandas_view_of_polars_df(pl.DataFrame({"k": ["z", "a", "z", "b"]}).with_columns(pl.col("k").cast(pl.Categorical)))
+
+    train2, val2, test2 = _align_xgb_cat_categories("XGBClassifier", train, val_df=val, test_df=test)
+
+    assert "z" not in train2["k"].cat.categories
+    assert "z" not in val2["k"].cat.categories
+    # 'z' was never fed back into train/val's fit-time universe -- must not leak into their category lists.
+    assert set(train2["k"].cat.categories) == set(val2["k"].cat.categories) == {"a", "b", "c"}
+    # test2 itself is untouched by the train/val union -- its own 'z' rows still carry their own category,
+    # not silently absorbed into (or rejected against) the train+val universe.
+    assert "z" in test2["k"].cat.categories
+
+
+def test_get_pandas_view_of_polars_df_memo_no_stale_cross_call_category():
+    """Regression: ``get_pandas_view_of_polars_df``'s single-entry memo (keyed on id()+shape+columns)
+    once cached the WRONG object's id -- the Categorical->Enum remap rebinds its internal ``df`` local
+    to a short-lived intermediate before the memo-populate code runs, so the cached key never matched
+    a genuine same-frame repeat call, AND (worse) that intermediate's refcount hits zero and its address
+    gets freed almost immediately once the function returns. CPython's small-object allocator commonly
+    reuses a just-freed address for the very next similarly-sized allocation, so a LATER, unrelated call's
+    brand-new small polars frame (same column name/shape -- realistic across many small test fixtures
+    that all use a column named "k") can land at that exact freed address and false-hit the memo,
+    silently returning a stale pandas view carrying a PRIOR call's categories. Exactly this flaked
+    test_tc29_test_categories_excluded_from_union on CI with a 'd' category that belongs only to
+    this file's earlier test_tc29_alignment_makes_codes_agree fixture. Simulates the same call pattern
+    (a 'd'-bearing frame, then unrelated 'a'/'b'/'c'-only frames) across repeated GC cycles to catch a
+    regression even when a given run doesn't happen to reuse the exact freed address."""
+    import gc
+
+    def _run_d_bearing_call():
+        """Helper: convert a short-lived 'd'-bearing frame, mimicking an earlier, unrelated test."""
+        get_pandas_view_of_polars_df(pl.DataFrame({"k": ["b", "c", "d", "b"]}).with_columns(pl.col("k").cast(pl.Categorical)))
+
+    def _run_unrelated_call():
+        """Helper: convert two fresh 'd'-free frames and return the union of their observed categories."""
+        train = get_pandas_view_of_polars_df(pl.DataFrame({"k": ["a", "b", "c", "a"]}).with_columns(pl.col("k").cast(pl.Categorical)))
+        val = get_pandas_view_of_polars_df(pl.DataFrame({"k": ["b", "c", "a", "b"]}).with_columns(pl.col("k").cast(pl.Categorical)))
+        return set(train["k"].cat.categories) | set(val["k"].cat.categories)
+
+    for _trial in range(20):
+        _run_d_bearing_call()
+        gc.collect()
+        union = _run_unrelated_call()
+        assert "d" not in union, f"trial {_trial}: memo leaked a prior call's 'd' category into an unrelated frame: {union}"

@@ -118,6 +118,34 @@ def test_run_honest_diagnostics_calibration_block_emits_plot_when_reports_dir_pr
         assert cal["plot_path"] and os.path.exists(cal["plot_path"]), cal
 
 
+def test_calibration_block_skips_instead_of_mispairing_oof_probs_with_test_target():
+    """TRAINING_LOOSE_C-5 / X_ML_CORRECTNESS_META-1 (2026-08-05 audit): when oof_target is absent,
+    _calibration_block must skip cleanly, not fall back to positionally pairing oof_probs
+    (train-row order) with test_target (a disjoint row set) -- a meaningless diagnostic that used
+    to report status="ok" on garbage data."""
+    from mlframe.training.honest_diagnostics import _calibration_block
+
+    rng = np.random.default_rng(4)
+    n_oof = 400
+    n_test = 100
+    oof_probs = rng.uniform(0, 1, size=n_oof)
+    oof_probs = np.column_stack([1.0 - oof_probs, oof_probs])
+    # test_target is ALL ONES: if the buggy positional pairing fired, the "calibration" would be
+    # computed against a target that has nothing to do with oof_probs's actual train rows.
+    test_target_all_ones = np.ones(n_test, dtype=np.int64)
+
+    model_entry = types.SimpleNamespace(
+        model=types.SimpleNamespace(),
+        oof_probs=oof_probs,
+        test_target=test_target_all_ones,
+        # oof_target deliberately absent.
+    )
+
+    result = _calibration_block(model_entry, target_name="y_dummy", out_dir=None)
+    assert result["status"] == "skipped", result
+    assert "oof_target" in result["reason"]
+
+
 def test_reporting_config_default_honest_diagnostics_on():
     """Reporting config default honest diagnostics on."""
     from mlframe.training._reporting_configs import ReportingConfig

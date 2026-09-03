@@ -592,6 +592,8 @@ def test_fit_and_report_survives_string_categorical_features():
     df["text_und"] = [" ".join(rng.choice(list("abcde"), 2)) for _ in range(n)]
     y = (2.0 * df["x0"] - 1.5 * df["x1"] + rng.standard_normal(n) * 0.5).to_numpy()
 
+    cat0_dtype_before = df["cat0"].dtype
+
     bd = BaselineDiagnostics(BaselineDiagnosticsConfig(enabled=True))
     rep = bd.fit_and_report(
         train_df=df,
@@ -605,5 +607,8 @@ def test_fit_and_report_survives_string_categorical_features():
     # Not skipped, and the ablation actually ran (proves the quick LightGBM fit succeeded on the string cats).
     assert d.get("status") != "skipped", d.get("reason")
     assert len(d.get("ablation", [])) >= 1
-    # Caller frame is untouched (no in-place category cast on the possibly-huge input).
-    assert df["cat0"].dtype == object
+    # Caller frame is untouched (no in-place category cast on the possibly-huge input). Compared
+    # against the dtype captured before the call rather than hardcoded `object`: pandas' opt-in
+    # future string dtype makes `df[c] = rng.choice(...)` infer StringDtype instead of object on
+    # some versions/configs -- the real invariant is "unchanged by fit_and_report".
+    assert df["cat0"].dtype == cat0_dtype_before

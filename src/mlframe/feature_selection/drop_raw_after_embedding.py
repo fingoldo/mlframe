@@ -32,18 +32,38 @@ def _univariate_signal(values: np.ndarray, y_arr: np.ndarray) -> float:
     return 2.0 * abs(auc - 0.5)
 
 
-def _raw_column_signal(df: pd.DataFrame, raw_col: str, y_arr: np.ndarray) -> float:
-    """Signal strength of a raw column: numeric columns are used as-is, categoricals via an in-sample target-mean encoding.
+def _raw_column_signal(df: pd.DataFrame, raw_col: str, y_arr: np.ndarray, n_folds: int = 5, random_state: int = 0) -> float:
+    """Signal strength of a raw column: numeric columns as-is, categoricals via an OUT-OF-FOLD target-mean encoding.
 
-    The target-mean encoding is only used to compute a signal-strength SCORE for this safety check (never written
-    back to ``df``) - an in-sample mean is a fine screening heuristic here since no model is fit on it.
+    Out-of-fold, not in-sample. The in-sample version this replaces gave each row the mean of a group that
+    INCLUDES that row, so for a high-cardinality column -- 50k distinct device ids over 200k rows, i.e. ~4 rows
+    per group -- the encoding largely reproduces y itself and `raw_signal` approaches its ceiling. The derived
+    columns are scored as-is, with no such advantage, so the comparison was not like-for-like and the
+    `verify_against` gate almost never passed for EXACTLY the high-cardinality columns this module exists to
+    drop. That made a safety check inert by construction: it could not clear the raw column, so it could not
+    authorise the drop it was asked about.
+
+    The fold means are computed from the other folds only, which is the same discipline the target-encoding FE
+    family uses, and it costs one extra pass over the column.
     """
     col = df[raw_col]
     if pd.api.types.is_numeric_dtype(col):
         values = col.to_numpy(dtype=np.float64)
     else:
-        group_mean = pd.Series(y_arr, index=df.index).groupby(col).transform("mean")
-        values = group_mean.to_numpy(dtype=np.float64)
+        codes = pd.factorize(col, use_na_sentinel=False)[0]
+        n = codes.shape[0]
+        values = np.full(n, float(np.mean(y_arr)), dtype=np.float64)
+        rng = np.random.default_rng(random_state)
+        folds = rng.permutation(n) % max(1, int(n_folds))
+        for f in range(max(1, int(n_folds))):
+            oof_mask = folds == f
+            fit_mask = ~oof_mask
+            if not fit_mask.any() or not oof_mask.any():
+                continue
+            fit = pd.DataFrame({"c": codes[fit_mask], "y": np.asarray(y_arr, dtype=np.float64)[fit_mask]})
+            means = fit.groupby("c")["y"].mean()
+            prior = float(fit["y"].mean())
+            values[oof_mask] = pd.Series(codes[oof_mask]).map(means).fillna(prior).to_numpy(dtype=np.float64)
     return _univariate_signal(values, y_arr)
 
 

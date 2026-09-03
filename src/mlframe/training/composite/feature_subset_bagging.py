@@ -92,7 +92,7 @@ def correlation_cluster_feature_subsets(
     return subsets
 
 
-class FeatureSubsetBaggingEnsemble(BaseEstimator, RegressorMixin):
+class FeatureSubsetBaggingEnsemble(RegressorMixin, BaseEstimator):
     """Bag several models, each trained on a correlation-cluster-diverse feature subset.
 
     Parameters
@@ -146,17 +146,19 @@ class FeatureSubsetBaggingEnsemble(BaseEstimator, RegressorMixin):
         self.aggregation = aggregation
         self.weighted_cv = weighted_cv
 
-    def fit(self, X: pd.DataFrame, y: np.ndarray) -> "FeatureSubsetBaggingEnsemble":
+    def fit(self, X: pd.DataFrame, y: np.ndarray, sample_weight: Optional[np.ndarray] = None) -> "FeatureSubsetBaggingEnsemble":
         """Fit one estimator per correlation-clustered feature subset, optionally OOF-weighted."""
         if self.aggregation not in ("mean", "weighted"):
             raise ValueError(f"FeatureSubsetBaggingEnsemble: aggregation must be 'mean' or 'weighted', got {self.aggregation!r}.")
         self.feature_subsets_ = correlation_cluster_feature_subsets(X, self.n_subsets, self.subset_size, self.n_clusters, self.random_state)
         self.estimators_ = []
         y_arr = np.asarray(y)
+        w_arr = np.asarray(sample_weight, dtype=np.float64) if sample_weight is not None else None
+        fit_kwargs = {"sample_weight": w_arr} if w_arr is not None else {}
         weights: List[float] = []
         for subset in self.feature_subsets_:
             model = self.estimator_factory()
-            model.fit(X[subset], y_arr)
+            model.fit(X[subset], y_arr, **fit_kwargs)
             self.estimators_.append(model)
             if self.aggregation == "weighted":
                 n_splits = min(self.weighted_cv, len(X))
@@ -164,8 +166,9 @@ class FeatureSubsetBaggingEnsemble(BaseEstimator, RegressorMixin):
                     weights.append(1.0)
                 else:
                     cv = KFold(n_splits=n_splits, shuffle=True, random_state=self.random_state)
-                    oof_pred = cross_val_predict(self.estimator_factory(), X[subset], y_arr, cv=cv)
-                    weights.append(max(0.0, float(r2_score(y_arr, oof_pred))))
+                    cv_params = {"sample_weight": w_arr} if w_arr is not None else None
+                    oof_pred = cross_val_predict(self.estimator_factory(), X[subset], y_arr, cv=cv, params=cv_params)
+                    weights.append(max(0.0, float(r2_score(y_arr, oof_pred, sample_weight=w_arr))))
         if self.aggregation == "weighted":
             total = sum(weights)
             # a fully-degenerate weight set (all subsets score <=0 OOF) falls back to uniform rather than

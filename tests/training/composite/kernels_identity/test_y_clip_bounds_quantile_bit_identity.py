@@ -67,13 +67,19 @@ def test_perf_sentinel_one_call_not_slower():
     one()
     two()
     iters = 200
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        two()
-    t_two = time.perf_counter() - t0
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        one()
-    t_one = time.perf_counter() - t0
+
+    def _timed(fn) -> float:
+        """One 200-iteration timed block; returns elapsed seconds."""
+        t0 = time.perf_counter()
+        for _ in range(iters):
+            fn()
+        return time.perf_counter() - t0
+
+    # best-of-3 (min) per side, not single-shot: a lone 200-iter block can land its window during a
+    # CI contention spike on one side only, making the algorithmically-faster path look slower; taking
+    # the min across repeats filters that transient noise while a genuine regression still loses on
+    # every repeat.
+    t_two = min(_timed(two) for _ in range(3))
+    t_one = min(_timed(one) for _ in range(3))
     # Single-sort path must not be slower than the two-sort path (expect ~2x faster).
     assert t_one <= t_two * 1.10, f"one-call {t_one:.4f}s should be <= two-call {t_two:.4f}s"

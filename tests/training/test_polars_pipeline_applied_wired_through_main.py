@@ -34,7 +34,9 @@ def test_polars_pipeline_applied_received_value_from_phase_fit_pipeline(monkeypa
 
     captured: dict = {}
 
-    real_fit = main_mod._phase_fit_pipeline
+    # _phase_fit_pipeline lives on _suite_mod post-split (main.py never re-exported it -- CI caught this
+    # on shard 8/8 across all required Python versions: AttributeError reading main_mod._phase_fit_pipeline).
+    real_fit = _suite_mod._phase_fit_pipeline
 
     def fake_fit_pipeline(*args, **kwargs):
         # Return shape mirrors the production tuple; ``polars_pipeline_applied`` (10th element)

@@ -670,16 +670,25 @@ def run_fe_auto_escalation(
     _, y_dense = np.unique(y_arr, return_inverse=True)
     y_dense = y_dense.astype(np.int64)
 
-    # RAW-RAW pairs only, bounded by the pair budget. Ranking key: RESCUE pairs first,
-    # then by joint MI. A prevalence-failed-synergy rescue pair (a genuine SMOOTH ratio
-    # interaction the raw-MI ratio under-rates) has LOW raw joint MI BY CONSTRUCTION, so a
-    # plain joint-MI sort buries it below the zero-admission cross-mix pairs and the
-    # ``max_pairs`` cap drops it (measured on F2: the genuine (a,b) at joint MI 0.028 was
-    # squeezed out by 6 higher-MI cross pairs). Rescue pairs are exactly the ones the
-    # escalation EXISTS to recover, so they get first claim on the budget; the held-out
-    # ALS pairness guard + the full admission gates still decide whether each is admitted.
+    # RAW-RAW pairs only, bounded by the pair budget. A prevalence-failed-synergy rescue
+    # pair (a genuine SMOOTH ratio interaction the raw-MI ratio under-rates) has LOW raw
+    # joint MI BY CONSTRUCTION, so a plain joint-MI sort buries it below the zero-admission
+    # cross-mix pairs and the ``max_pairs`` cap drops it (measured on F2: the genuine (a,b)
+    # at joint MI 0.028 was squeezed out by 6 higher-MI cross pairs) - rescue pairs get a
+    # RESERVED half of the budget so this can't happen.
+    #
+    # HALF-RESERVED, not absolute priority: an earlier version sorted rescue pairs strictly
+    # ahead of everything else, which starves the OTHER direction - when many noise-driven
+    # cross pairs spuriously clear the prevalence-failed-synergy gate (var-vs-noise-column
+    # combos landing just below the raw-MI ratio threshold by chance) they can fill the
+    # entire budget and squeeze out a zero-admission pair with a far higher joint MI than
+    # any of them (measured on the sin(3.7*a)*b fixture: pair_mi=1.42, 8/8 higher than every
+    # rescue candidate's 0.19-0.56, still dropped because 8 rescue pairs alone filled
+    # max_pairs=8). Reserving only half the budget for rescue keeps the F2-style low-MI
+    # genuine rescue guaranteed a claim while a high-MI zero-admission pair can never be
+    # fully starved by an arbitrarily large rescue count.
     _rescue = {tuple(p) for p in (rescue_pairs or set())}
-    eligible = []
+    eligible_all = []
     for pair, pair_mi in failed_pairs:
         try:
             na, nb = cols[pair[0]], cols[pair[1]]
@@ -687,7 +696,19 @@ def run_fe_auto_escalation(
             logger.debug("suppressed: %s", e)
             continue
         if na in raw_names and nb in raw_names:
-            eligible.append((pair, float(pair_mi), na, nb))
+            eligible_all.append((pair, float(pair_mi), na, nb))
+    eligible_all.sort(key=lambda e: e[1], reverse=True)
+    _rescue_cap = max(1, max_pairs // 2)
+    eligible: list = []
+    _others: list = []
+    _rescue_taken = 0
+    for _cand in eligible_all:
+        if tuple(_cand[0]) in _rescue and _rescue_taken < _rescue_cap:
+            eligible.append(_cand)
+            _rescue_taken += 1
+        else:
+            _others.append(_cand)
+    eligible.extend(_others[: max_pairs - len(eligible)])
     eligible.sort(key=lambda e: (tuple(e[0]) in _rescue, e[1]), reverse=True)
     eligible = eligible[:max_pairs]
     info["eligible_pairs"] = [(na, nb) for _, _, na, nb in eligible]

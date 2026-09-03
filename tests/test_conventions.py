@@ -1,7 +1,7 @@
 """Meta-tests enforcing repo conventions.
 
 - No stdlib ``json`` imports in test files (MEMORY.md: always orjson).
-- ``mlframe.calibration.post`` exposes a precompiled ``_INCLUDE_RE`` sentinel.
+- ``mlframe.calibration.post._compile_pattern`` actually caches compiled patterns.
 - No ``ensure_installed(...)`` calls in test files (use ``pytest.importorskip``).
 """
 
@@ -76,13 +76,14 @@ def test_no_ensure_installed_in_tests() -> None:
     assert not offenders, "Test files must use pytest.importorskip(...) instead of ensure_installed(...); offenders: " + ", ".join(offenders)
 
 
-def test_postcalibration_include_re_is_compiled() -> None:
-    """Postcalibration include re is compiled."""
+def test_postcalibration_compile_pattern_caches_and_compiles() -> None:
+    """mlframe.calibration.post._compile_pattern compiles a pattern and reuses the cached object on a repeat call."""
     pytest.importorskip("sklearn")
     postcalibration = pytest.importorskip("mlframe.calibration.post")
-    include_re = getattr(postcalibration, "_INCLUDE_RE", None)
-    assert isinstance(include_re, re.Pattern), "mlframe.calibration.post._INCLUDE_RE must be a module-level compiled re.Pattern"
-    # Also validate the lru_cache-wrapped compiler is present and returns a Pattern.
     compile_pattern = getattr(postcalibration, "_compile_pattern", None)
     assert callable(compile_pattern), "_compile_pattern helper must exist"
-    assert isinstance(compile_pattern("foo"), re.Pattern)
+    compiled = compile_pattern("foo.*bar")
+    assert isinstance(compiled, re.Pattern)
+    assert compiled.match("foo123bar") is not None
+    # lru_cache: an identical pattern string must return the SAME compiled object, not just an equal one.
+    assert compile_pattern("foo.*bar") is compiled

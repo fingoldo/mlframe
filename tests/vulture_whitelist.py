@@ -80,6 +80,10 @@ model_out  # test_feature_handling_high_feature_handling.py _pool -- HF pooling-
 encode_categoricals  # test_pysr_column_names_collision_free.py / test_pysr_y_train_wiring.py fake_run_pysr -- real run_pysr signature parity
 train_texts  # test_provider_registry.py fit(self, train_texts) -- provider Protocol signature parity
 evals_log  # test_trainer.py after_iteration -- LightGBM/CatBoost callback signature parity
+ntree_end  # test_cb_iteration_metrics_target_type.py _RankerModel/_ClassifierModel stubs -- CatBoost predict/predict_proba(pool, ntree_end) signature parity
+tokenizer  # test_fairness_computation.py _fake_scorer -- naive_*_score(model, tokenizer, sentence) real scorer signature parity
+y_i8  # test_split_njit_fallback_logs.py _boom -- real _iterative_stratification_njit(y_i8, r, seed_int) signature parity
+seed_int
 
 # --- unsatisfiable-condition findings: intentionally unreachable branches, each with its
 # own inline rationale at the call site (kept as `_NEVER_TRUE`-gated dead code, not deleted,
@@ -90,3 +94,11 @@ evals_log  # test_trainer.py after_iteration -- LightGBM/CatBoost callback signa
 # --- tests/feature_selection/conftest.py: IS_FAST_MODE is a documented re-export (see the
 # comment directly above its import) so subdir tests can keep importing it from this conftest. ---
 IS_FAST_MODE
+
+# --- tests/reporting/test_every_writer_honours_format_subfolders.py: ``subfolders_on`` is a pytest fixture,
+# requested by name in each test signature. vulture sees the parameter as an unused local. ---
+subfolders_on
+
+# --- tests/feature_selection/filters/test_fe_gpu_vram_cushion_no_reprobe.py: ``without_cupy`` is a pytest
+# fixture, requested by name in each test signature. vulture sees the parameter as an unused local. ---
+without_cupy

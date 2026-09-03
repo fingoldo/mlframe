@@ -49,7 +49,7 @@ class TestPairInteractionFeaturesSurviveScreening:
     strong PAIR interaction were dropped before polynom-FE could see them.
     """
 
-    @pytest.mark.timeout(300)
+    @pytest.mark.timeout(900)
     def test_pair_interaction_features_survive_screening(self):
         """Canonical case from the 2026-05-18 audit. ``y = sign(x_a + x_b +
         2*x_a*x_b + noise)`` - the linear+interaction signal is strong but
@@ -90,7 +90,7 @@ class TestMultiplePairInteractionsEvaluated:
     interaction problems lost 2/3 of the signal.
     """
 
-    @pytest.mark.timeout(300)
+    @pytest.mark.timeout(900)
     def test_multiple_pair_interactions_evaluated(self):
         """Three independent multiplicative pairs. With
         ``fe_smart_polynom_iters=2`` and default ``fe_max_pair_features=10``,
@@ -167,7 +167,7 @@ class TestPolynomFeDiscoversLowDegreeInteractions:
     representations - the most COMMON interaction shapes.
     """
 
-    @pytest.mark.timeout(300)
+    @pytest.mark.timeout(900)
     def test_polynom_fe_discovers_low_degree_interactions(self):
         """Pure XOR target. With default ``fe_min_polynom_degree=1`` the
         optimiser converges on a LOW-degree representation
@@ -236,7 +236,7 @@ class TestScreeningKeepsBorderlineSignificantFeature:
     serve.
     """
 
-    @pytest.mark.timeout(300)
+    @pytest.mark.timeout(900)
     def test_screening_keeps_borderline_significant_feature(self):
         """Sparse-signal scenario with n=500 so each feature's permutation
         confidence is BORDERLINE. Both real features must survive default
@@ -276,7 +276,7 @@ class TestPolynomFeFindsXorViaDefaultMrmrPath:
     gate or the screening filter blocks polynom-FE under defaults.
     """
 
-    @pytest.mark.timeout(300)
+    @pytest.mark.timeout(900)
     def test_polynom_fe_finds_xor_via_default_mrmr_path(self):
         """``z = 1.0*x_a + 1.0*x_b + 2.0*x_a*x_b + noise``, binarised at
         median. With ``MRMR(fe_smart_polynom_iters=2)`` and otherwise

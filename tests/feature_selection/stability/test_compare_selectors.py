@@ -10,9 +10,6 @@ Run:
 
 from __future__ import annotations
 
-import cProfile
-import pstats
-import io
 
 import numpy as np
 import pandas as pd
@@ -256,22 +253,29 @@ def test_biz_value_mrmr_vs_rfecv_disagreement_surfaced():
 # --------------------------------------------------------------------------- #
 # cPROFILE: on PRE-FITTED selectors, report assembly is near-0 (no fitting).
 # --------------------------------------------------------------------------- #
-def test_cprofile_report_assembly_is_cheap():
-    """Cprofile report assembly is cheap."""
+def test_report_assembly_does_not_refit_the_selectors():
+    """With ``fit=False`` the report path must not call ``fit`` on any selector -- a CALL-COUNT invariant.
+
+    This used to parse the wall-clock total out of pstats' printed header and compare it to a constant
+    (``float(out.split("in ")[1].split(" seconds")[0]); assert total < 1.0``). That is one un-warmed measurement
+    of 50 cycles: it flakes under xdist and gets repaired by raising the 1.0, and it breaks as an unreadable
+    IndexError if pstats' header wording ever changes. What the test actually cares about is that assembling a
+    report performs no per-selector refit, which is exactly what a counting spy asserts -- with no timing at all.
+    """
     names = [f"f{i}" for i in range(40)]
     X = _frame(names, n=2000)
     rng = np.random.default_rng(1)
-    selectors = {f"S{j}": _SupportMaskSelector(names, list(rng.choice(names, 15, replace=False))) for j in range(4)}
-    pr = cProfile.Profile()
-    pr.enable()
-    for _ in range(50):
-        r = compare_selectors(X, selectors=selectors, fit=False)
-        _ = r.report()
-    pr.disable()
-    s = io.StringIO()
-    pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats(8)
-    out = s.getvalue()
-    # 50 full assemble+report cycles over 4 pre-fitted selectors must be sub-second.
-    total = float(out.split("in ")[1].split(" seconds")[0])
-    assert total < 1.0, total
-    print("\ncProfile (50x assemble+report, pre-fitted):\n", out[:600])
+    fits: list = []
+
+    class _CountingSelector(_SupportMaskSelector):
+        """Records every ``fit`` call so the report path can be checked for hidden refits."""
+
+        def fit(self, X, y=None):
+            """Count the call, then behave normally."""
+            fits.append(1)
+            return super().fit(X, y)
+
+    selectors = {f"S{j}": _CountingSelector(names, list(rng.choice(names, 15, replace=False))) for j in range(4)}
+    for _ in range(5):
+        compare_selectors(X, selectors=selectors, fit=False).report()
+    assert not fits, f"report assembly refitted the selectors {len(fits)} time(s) despite fit=False"

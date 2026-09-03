@@ -16,12 +16,12 @@ heavy-tail targets. Catastrophic predictions poison:
     components).
 
 Documented prod incidents that drove this:
-  * 2026-05-22: Identity-MLP R^2=-326 on a group-aware regression
+  * Identity-MLP R^2=-326 on a group-aware regression
     test split.
-  * 2026-05-24: MLP pred_std=58 vs target_std=645, R^2=-286.
-  * 2026-05-26 (a): MLP pred range [-50k, +250k] on target in
+  * MLP pred_std=58 vs target_std=645, R^2=-286.
+  * MLP pred range [-50k, +250k] on target in
     [10500, 12800], MaxError=781k, R^2=-2624.
-  * 2026-05-26 (b): Ridge on a composite (Yeo-Johnson residual)
+  * Ridge on a composite (Yeo-Johnson residual)
     target produced y-scale predictions in [-400k, +50k] for target
     in similar range, MaxError=1.4M, R^2=-6934.
 
@@ -118,7 +118,7 @@ def clip_predictions_to_train_envelope(
         return arr
     low = stats.y_min - k_sigma * stats.y_std
     high = stats.y_max + k_sigma * stats.y_std
-    # iter433: math.isfinite on Python floats is 7.5x faster than
+    # math.isfinite on Python floats is 7.5x faster than
     # np.isfinite for scalars (1us -> 0.13us). low/high are floats
     # from stats arithmetic; the array-mask uses below still use np.
     if not (math.isfinite(low) and math.isfinite(high)):

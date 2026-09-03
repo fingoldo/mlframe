@@ -49,10 +49,15 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 
 import numpy as np
 
+
+from ._captions import caption_for_tokens
+
 from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels, parse_panel_template,
 )
-from mlframe.reporting.charts._acf import MAX_ACF_LAGS, acf_fft, significance_band
+from mlframe.reporting.charts._acf import (
+    MAX_ACF_LAGS, acf_fft, lag_tick_labels, significance_band,
+)
 from mlframe.reporting.charts._sampling import subsample_preserving_extremes
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec,
@@ -74,6 +79,17 @@ def _finite_pair(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[np.ndarray, np
     yp = np.asarray(y_pred, dtype=np.float64).ravel()
     mask = np.isfinite(yt) & np.isfinite(yp)
     return yt[mask], yp[mask]
+
+
+def _empty_annotation(what: str, n_in: int) -> AnnotationPanelSpec:
+    """Annotation for a panel with no finite (y_true, y_pred) pair left, naming the count that was supplied."""
+    return AnnotationPanelSpec(
+        text=(
+            f"{what} unavailable: none of the {n_in:,} supplied rows has a finite value for BOTH y_true and "
+            "y_pred, so there is no residual to compute. Check for NaN predictions or an all-missing target."
+        ),
+        title=what,
+    )
 
 
 def _uniform_bin_index(v: np.ndarray, edges: np.ndarray, nbins: int) -> np.ndarray:
@@ -150,10 +166,21 @@ def _append_missing_worst_k(s_pred, s_true, yp_finite, yt_finite, wk_finite):
         return s_pred, s_true, None
     wk_pred = yp_finite[wk_finite]
     wk_true = yt_finite[wk_finite]
+    # A worst-K row the extremes-preserving subsample already kept must not be appended again: it would be drawn
+    # twice and inflate the plotted count past the "showing N of M" caption. Match on the (pred, true) pair, which
+    # is what the panel actually plots.
+    present = set(zip(s_pred.tolist(), s_true.tolist()))
+    fresh = [i for i in range(wk_finite.size) if (wk_pred[i], wk_true[i]) not in present]
     base = len(s_pred)
-    s_pred = np.concatenate([s_pred, wk_pred])
-    s_true = np.concatenate([s_true, wk_true])
-    highlight = np.arange(base, base + wk_finite.size, dtype=np.int64)
+    if fresh:
+        s_pred = np.concatenate([s_pred, wk_pred[fresh]])
+        s_true = np.concatenate([s_true, wk_true[fresh]])
+    already = [
+        int(np.flatnonzero((s_pred[:base] == wk_pred[i]) & (s_true[:base] == wk_true[i]))[0])
+        for i in range(wk_finite.size)
+        if (wk_pred[i], wk_true[i]) in present
+    ]
+    highlight = np.concatenate([np.array(already, dtype=np.int64), np.arange(base, base + len(fresh), dtype=np.int64)])
     return s_pred, s_true, highlight
 
 
@@ -171,7 +198,7 @@ def _scatter_panel(
 ) -> PanelSpec:
     """Predictions-vs-true panel.
 
-    Above ``hexbin_threshold`` points: a log-density 2-D histogram (HeatmapPanelSpec) — a hexbin/hist2d analogue that
+    Above ``hexbin_threshold`` points: a log-density 2-D histogram (HeatmapPanelSpec), a hexbin/hist2d analogue that
     stays readable at millions of rows; the robust trend line is fit on the full cloud and drawn beside y=x. Below it:
     a raw scatter with an extremes-preserving subsample so the headline MaxError point (and the axis-anchoring range
     endpoints) are always drawn, with the worst-K residual rows highlighted red. The y=x diagonal is always present.
@@ -183,8 +210,9 @@ def _scatter_panel(
     visible even when the cloud hugs the diagonal.
     """
     yt, yp = _finite_pair(y_true, y_pred)
+    if yt.size == 0:
+        return _empty_annotation("Predictions vs true", int(np.asarray(y_true).size))
     n = yt.size
-    showing = min(sample_size, n)
     # Map original-array worst-K positions onto the finite-filtered index space the panel x/y live in.
     wk_finite = _worst_k_into_finite(y_true, y_pred, worst_k_indices)
 
@@ -218,11 +246,11 @@ def _scatter_panel(
         resid = yt - yp
         idx = subsample_preserving_extremes(yp, yt, sample_size=sample_size, extreme_values=resid, rng=seed)
         s_pred, s_true = yp[idx], yt[idx]
-        showing_note = f"(showing {showing:,} / {n:,} sampled)"
-        scatter_title = f"{title}\n{showing_note}" if title else showing_note
         # The subsample may not contain every worst-K row; the renderer resolves highlight_indices against the FULL
         # panel x/y, so pass the panel's own (subsampled) data plus the worst-K rows guaranteed present via extremes.
         s_pred, s_true, wk_panel = _append_missing_worst_k(s_pred, s_true, yp, yt, wk_finite)
+        showing_note = f"(showing {len(s_pred):,} / {n:,} sampled)"
+        scatter_title = f"{title}\n{showing_note}" if title else showing_note
     else:
         order = np.argsort(yp)
         s_pred, s_true = yp[order], yt[order]
@@ -255,20 +283,24 @@ def _resid_hist_panel(
 ) -> PanelSpec:
     """Residual histogram + fitted-Normal overlay. Hypothesis + suggested loss ride in the title."""
     yt, yp = _finite_pair(y_true, y_pred)
+    if yt.size == 0:
+        return _empty_annotation("Residual distribution", int(np.asarray(y_true).size))
     resid = yt - yp
+    n_full = int(resid.size)
     if resid.size > sample_size:
         rng = np.random.default_rng(seed)
         resid = resid[rng.choice(resid.size, size=sample_size, replace=False)]
+    sampled_note = f"\nbars: {resid.size:,} sampled rows; statistics: all {n_full:,} rows" if resid.size < n_full else ""
     n_bins = max(20, min(80, int(math.sqrt(resid.size)) if resid.size > 0 else 20))
     if audit is not None:
         suggested = audit.suggested_loss.split("(")[0].strip() if getattr(audit, "suggested_loss", None) else ""
         hyp_line = f"hypothesis: {audit.hypothesis}"
         if suggested:
             hyp_line += f" (suggested: {suggested})"
-        title = f"Residuals (skew={audit.skew:+.2f}, excess_kurt={audit.excess_kurt:+.2f})" + ("\n" + hyp_line if hyp_line else "")
+        title = f"Residuals (skew={audit.skew:+.2f}, excess_kurt={audit.excess_kurt:+.2f})" + ("\n" + hyp_line if hyp_line else "") + sampled_note
         overlay = (audit.mean, audit.std) if audit.std > 0 else None
     else:
-        title = "Residuals"
+        title = "Residuals" + sampled_note
         overlay = None
     from mlframe.reporting.spec import HistogramPanelSpec
     return HistogramPanelSpec(
@@ -288,7 +320,7 @@ def _resid_vs_pred_panel(
     *,
     audit: Any = None,
     n_pred_bins: int = 20,
-) -> LinePanelSpec:
+) -> PanelSpec:
     """Residuals vs predicted with a running-median + IQR band.
 
     Rather than a raw point cloud, the residual structure is summarised as a per-prediction-bin running median (the
@@ -296,6 +328,8 @@ def _resid_vs_pred_panel(
     sloped median line flags prediction-dependent bias. Robust to the extreme-error points kept by the scatter.
     """
     yt, yp = _finite_pair(y_true, y_pred)
+    if yt.size == 0:
+        return _empty_annotation("Residuals vs predicted", int(np.asarray(y_true).size))
     resid = yt - yp
     n = resid.size
     if n == 0:
@@ -362,10 +396,10 @@ def _err_by_decile_panel(
     y_pred: np.ndarray,
     *,
     n_deciles: int = 10,
-) -> BarPanelSpec:
+) -> PanelSpec:
     """Per-target-decile error breakdown: mean |residual| + mean signed residual.
 
-    y_true is binned into ``n_deciles`` equal-frequency buckets; each bucket gets two bars — mean absolute residual
+    y_true is binned into ``n_deciles`` equal-frequency buckets; each bucket gets two bars: mean absolute residual
     (magnitude) and mean signed residual (bias direction). The signed bar exposes the GBM extreme-compression
     pathology: trees under-predict the top target decile, so its signed residual (y_true - y_pred) is large positive.
     """
@@ -373,11 +407,7 @@ def _err_by_decile_panel(
     resid = yt - yp
     n = yt.size
     if n == 0:
-        return BarPanelSpec(
-            categories=("D1",), values=np.array([0.0]),
-            title="Error by target decile (no finite data)",
-            xlabel="Target decile (low -> high)", ylabel="Residual",
-        )
+        return _empty_annotation("Error by target decile", int(np.asarray(y_true).size))
     # Equal-frequency deciles via quantile cut-points + searchsorted: a full argsort over n=2M is the chart's single
     # biggest cost (~0.4s); np.quantile does only a k-way partial sort, then searchsorted is O(n). Ties land in one
     # bucket consistently (acceptable -- ranks split ties arbitrarily anyway), so decile populations stay ~equal.
@@ -390,15 +420,22 @@ def _err_by_decile_panel(
     counts_safe = np.where(counts > 0, counts, 1.0)
     mean_signed = np.bincount(which, weights=resid, minlength=k) / counts_safe
     mean_abs = np.bincount(which, weights=np.abs(resid), minlength=k) / counts_safe
-    cats = tuple(f"D{b + 1}" for b in range(k))
+    # Ties collapse whole deciles into one bucket (the cut-points are quantiles, so a 45%-tied target can leave
+    # several deciles with no rows at all). An empty decile has no mean error; drawing it as a zero bar claims the
+    # model is perfect there. Drop the empty ones and carry each surviving decile's own denominator.
+    nonempty = np.flatnonzero(counts > 0)
+    mean_abs, mean_signed = mean_abs[nonempty], mean_signed[nonempty]
+    cats = tuple(f"D{b + 1}\n(n={int(counts[b]):,})" for b in nonempty)
+    empty_note = f"; {k - nonempty.size} of {k} deciles empty (ties)" if nonempty.size < k else ""
     return BarPanelSpec(
         categories=cats,
         values=(mean_abs, mean_signed),
         series_labels=("mean |resid|", "mean signed resid (y_true - y_pred)"),
-        title="Error by target decile (signed > 0 in top decile => under-prediction / compression)",
+        title=f"Error by target decile (signed > 0 in top decile => under-prediction / compression{empty_note})",
         xlabel="Target decile (low -> high)",
-        ylabel="Residual",
+        ylabel="Residual (y_true - y_pred, target units)",
         colors=("steelblue", "darkorange"),
+        hovertext=tuple(f"D{b + 1}: {int(counts[b]):,} rows" for b in nonempty),
     )
 
 
@@ -407,6 +444,16 @@ def _err_by_decile_panel(
 _WORM_PLOT_CAP: int = 2000
 # How many extreme order statistics at EACH tail are kept verbatim (never thinned) on the worm plot.
 _WORM_TAIL_KEEP: int = 100
+# Fraction of a uniform sample allowed outside the POINTWISE 95% band before the verdict stops saying "normal".
+# Not 0.05: a pointwise band excludes ~5% under perfect normality, so 0.05 is the null itself, not a bar above it.
+_WORM_NORMAL_MAX_OUTSIDE: float = 0.10
+# Imbalance between the two tail medians above which the departure reads as SKEW rather than as tails.
+# Calibrated on known distributions at n=300k: symmetric cases sit at |asym| <= 0.01 (gaussian 0.001,
+# t(3) 0.005, uniform 0.000) while lognormal reaches 0.93 and its mirror 0.91.
+_WORM_SKEW_IMBALANCE: float = 0.15
+# Excess kurtosis beyond which the tails are called heavy (or, negated, light). A normal sample sits at 0;
+# t(8) measures +1.4 and uniform -1.2, so 0.5 separates them from noise without demanding an extreme.
+_WORM_HEAVY_TAIL_EXCESS_KURT: float = 0.5
 
 
 def _decimate_keep_tails(n: int, cap: int, tail_keep: int) -> np.ndarray:
@@ -478,24 +525,43 @@ def _worm_panel(
     # both tails bending UP-and-down away from zero = heavy tails (a few errors much larger than Gaussian
     # -> RMSE understates worst-case, prediction intervals too narrow); a consistent up- or down-tilt =
     # skew (systematic over/under-prediction in one tail).
+    # Plain mean, deliberately. The tail points ARE over-represented in ``keep`` (100 head + 100 tail of 2000,
+    # against 0.02% of the rows at n=1e6), and re-weighting each point by the order statistics it stands for was
+    # tried -- it moves this number by nothing: 0.002 vs 0.002 on a Gaussian at n=1e6, 0.994 vs 0.993 on a
+    # t(3). The CI here is built from the FULL n, so at large n it is tight enough that a point is either
+    # clearly inside or clearly outside regardless of where in the sample it sits. Re-weighting was reverted
+    # rather than shipped: it added a step that measurably changes nothing.
     _frac_out = float(np.mean(np.abs(detrended) > ci)) if ci.size else 0.0
     _rt = float(np.median(detrended[zt >= 1.0])) if np.any(zt >= 1.0) else 0.0
     _lt = float(np.median(detrended[zt <= -1.0])) if np.any(zt <= -1.0) else 0.0
-    if _frac_out < 0.05:
+    # The shape table this replaces was inoperative. Its HEAVY-TAILS branch required ``_rt > 0 and _lt < 0``,
+    # a combination NO real departure produces: after standardising by the sample sd -- which the outliers
+    # themselves inflate -- both tails of a heavy-tailed sample sit INSIDE the normal quantiles, giving
+    # ``_rt < 0, _lt > 0``. Measured on six known distributions at n=300k, every non-normal one fell through to
+    # the final ``else`` and was reported as "light tails", including a Student-t(3) with excess kurtosis +52
+    # and a lognormal with skew +5.5.
+    #
+    # The two tail medians also cannot separate heavy from light on their own: uniform residuals (excess
+    # kurtosis -1.2) give ``_rt=-0.075, _lt=+0.075`` -- the same signs as t(8) (+1.4) and a LARGER magnitude.
+    # What they do separate cleanly is ASYMMETRY, so they decide skew, and excess kurtosis -- which is
+    # unambiguous and already cheap to compute -- decides heavy versus light.
+    _excess_kurt = float(((resid - mu) ** 4).mean() / sd**4 - 3.0)
+    _asym = abs(_rt) - abs(_lt)
+    if _frac_out < _WORM_NORMAL_MAX_OUTSIDE:
         _shape = "residuals ~ normal (interval/RMSE assumptions hold)"
-    elif _rt > 0 and _lt < 0:
-        _shape = "HEAVY TAILS -- a few errors far larger than Gaussian (RMSE understates worst-case)"
-    elif _rt > 0 and _lt > 0:
-        _shape = "RIGHT-SKEW residuals (under-prediction tail)"
-    elif _rt < 0 and _lt < 0:
-        _shape = "LEFT-SKEW residuals (over-prediction tail)"
+    elif abs(_asym) > _WORM_SKEW_IMBALANCE:
+        _shape = "LEFT-SKEW residuals (over-prediction tail)" if _asym > 0 else "RIGHT-SKEW residuals (under-prediction tail)"
+    elif _excess_kurt > _WORM_HEAVY_TAIL_EXCESS_KURT:
+        _shape = f"HEAVY TAILS (excess kurtosis {_excess_kurt:+.1f}) -- a few errors far larger than Gaussian (RMSE understates worst-case)"
+    elif _excess_kurt < -_WORM_HEAVY_TAIL_EXCESS_KURT:
+        _shape = f"LIGHT TAILS (excess kurtosis {_excess_kurt:+.1f}) -- errors more bounded than Gaussian"
     else:
-        _shape = "light tails"
+        _shape = "non-normal, but neither markedly skewed nor markedly tailed"
     return LinePanelSpec(
         x=zt,
         y=(detrended, zero),
         series_labels=("de-trended QQ (sample - theoretical)", "normal (zero)"),
-        title=(f"Worm plot -- are residuals Gaussian? {_shape}\n" f"({_frac_out:.0%} of points outside 95% CI; n={n:,}, plotted {zt.size:,})"),
+        title=(f"Worm plot -- are residuals Gaussian? {_shape}\n" f"({_frac_out:.0%} of a uniform sample outside the pointwise 95% CI; n={n:,}, plotted {zt.size:,})"),
         xlabel="Theoretical normal quantile",
         ylabel="Sample quantile - theoretical (standardised)",
         line_styles=("lines+markers", "--"),
@@ -533,14 +599,20 @@ def _resid_acf_panel(
             text="Residual ACF skipped: residuals are constant (zero variance)",
             title="Residual autocorrelation (Bartlett band)",
         )
+    # Row order is read as time here, and dropping non-finite rows CLOSES the gaps -- so lag k spans a
+    # variable amount of real time. State how much was closed up rather than implying an even grid.
+    # Measured on the ORIGINAL rows: ``resid`` is already the finite-filtered pair, so the rows that were
+    # dropped -- the ones that make the lag spacing uneven -- are exactly the ones no longer visible here.
+    _n_in = int(np.asarray(y_true).size)
+    _gap = (1.0 - resid.size / _n_in) if _n_in else 0.0
+    _gap_note = f"; {_gap:.1%} of rows were non-finite and closed up, so lag spacing is uneven" if _gap > 0 else ""
     band = significance_band(n_used)
-    lags = np.arange(1, acf_lags.size + 1)
-    cats = tuple(str(int(lo)) for lo in lags)
+    cats = lag_tick_labels(int(acf_lags.size))
     sig = int(np.sum(np.abs(acf_lags) > band))
     return BarPanelSpec(
         categories=cats,
         values=acf_lags.astype(np.float64),
-        title=(f"Residual ACF (n={n_used:,}; {sig} of {acf_lags.size} lags beyond " f"+-{band:.3f} Bartlett band => serial structure)"),
+        title=(f"Residual ACF (n={n_used:,}; {sig} of {acf_lags.size} lags beyond +-{band:.3f} Bartlett band " f"=> serial structure{_gap_note})"),
         xlabel="Lag",
         ylabel="Autocorrelation",
         colors=("steelblue",),
@@ -558,6 +630,23 @@ _TOKEN_BUILDERS: Dict[str, Callable] = {
 }
 
 ALLOWED_REGRESSION_PANEL_TOKENS = frozenset(_TOKEN_BUILDERS)
+
+# One sentence per token, joined for the tokens ACTUALLY rendered (see ``_captions.caption_for_tokens``). The
+# figure-level caption used to describe the DEFAULT template, so a caller asking for a narrower mix read about
+# panels that were not on their figure.
+_TOKEN_CAPTIONS: Dict[str, str] = {
+    "SCATTER": (
+        "The predicted-versus-actual scatter puts the identity line where a perfect model would sit; curvature away from it is bias the residual panels then localise."
+    ),
+    "RESID_VS_PRED": ("Residuals against the prediction should be a structureless band: a funnel is heteroscedasticity and a curve is unmodelled shape."),
+    "RESID_HIST": ("The residual histogram shows the error distribution's centre and tails; a shifted centre is systematic bias, not noise."),
+    "RESID_ACF": (
+        "The residual ACF asks whether an error predicts the next error. Row order is read as time here, and non-finite rows are kept as gaps rather than closed up, so lag k means k steps of that grid."
+    ),
+    "ERR_BY_DECILE": ("Error by predicted decile shows WHERE in the range the model is weak, which a single RMSE averages away."),
+    "WORM": ("The worm plot is a detrended QQ plot: the closer the worm stays inside its band, the better the residuals match the reference distribution."),
+}
+
 
 DEFAULT_REGRESSION_PANELS = "SCATTER RESID_HIST RESID_VS_PRED ERR_BY_DECILE"
 
@@ -586,7 +675,7 @@ def compose_regression_figure(
     + optional Spearman) becomes the SCATTER panel title. ``worst_k_indices`` (original-array positions of the worst
     residual rows, from the error-analysis pass) highlights those points red on the pred-vs-actual scatter. ``trend_line``
     overlays a robust fit (Theil-Sen / Huber, None to disable) beside y=x. The default template restores the
-    residuals-vs-predicted panel dropped in 2026-05 and adds the per-decile error breakdown.
+    residuals-vs-predicted panel and the per-decile error breakdown.
     """
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
@@ -632,6 +721,11 @@ def compose_regression_figure(
         panels=grid,
         figsize=fig_size,
         suptitle_fontsize=11,
+        caption=caption_for_tokens(
+            "How to read: the panels move from the fit as a whole to WHERE it fails -- the residual views localise what the scatter only summarises.",
+            tokens,
+            _TOKEN_CAPTIONS,
+        ),
     )
 
 

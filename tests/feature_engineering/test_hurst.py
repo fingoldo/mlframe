@@ -270,3 +270,43 @@ def test_hurst_closed_form_fit_matches_lstsq(seed):
 
     assert abs(h_new - h_ref) < 1e-9, f"slope diverged: {h_new} vs {h_ref}"
     assert abs(c_new - c_ref) / max(abs(c_ref), 1e-12) < 1e-9, f"intercept diverged: {c_new} vs {c_ref}"
+
+
+@pytest.mark.parametrize("seed", [0, 1, 7, 42])
+@pytest.mark.parametrize("n", [20, 25, 50, 200])
+def test_hurst_rs_single_matches_compute_hurst_rs_ddof(seed, n):
+    """FE_ROOT_B-2 (2026-08-05 audit): ``_hurst_rs_single``'s docstring claims 'Same definition as
+    compute_hurst_rs', but it computed std with ``x.std()`` (ddof=0) while ``compute_hurst_rs``
+    explicitly documents and uses ddof=1 (sample std, the Mandelbrot/Hurst-1951 convention) --
+    a real formula divergence (~2.6% bias at K=20) between the rolling and multi-scale Hurst
+    families. ``_hurst_rs_single`` returns ``log(R/S)/log(n)`` while ``compute_hurst_rs`` returns
+    the raw ``R/S`` value, so the dispersion (std) formula is compared via that same transform."""
+    from mlframe.feature_engineering.hurst import _hurst_rs_single
+
+    rng = np.random.default_rng(seed)
+    x = np.cumsum(rng.standard_normal(n)).astype(np.float64)
+
+    single = _hurst_rs_single(x)
+    ref_rs = compute_hurst_rs(x)
+    ref = np.log(ref_rs) / np.log(n)
+
+    assert np.isfinite(single) and np.isfinite(ref)
+    assert single == pytest.approx(ref, rel=1e-9, abs=1e-12)
+
+
+def test_hurst_rs_single_ddof0_would_diverge_from_reference():
+    """Sanity check on the bug's magnitude: an explicit ddof=0 (population std) recomputation of the
+    same log(R/S)/log(n) statistic must NOT match the ddof=1 reference -- confirming the pre-fix
+    formula really did diverge (not just a benign reduction-order difference)."""
+    rng = np.random.default_rng(3)
+    n = 20
+    x = np.cumsum(rng.standard_normal(n)).astype(np.float64)
+
+    mu = x.mean()
+    y = x - mu
+    z = np.cumsum(y)
+    rng_v = z.max() - z.min()
+    ddof0_single = np.log(rng_v / x.std(ddof=0)) / np.log(n)
+    ref = np.log(compute_hurst_rs(x)) / np.log(n)
+
+    assert ddof0_single != pytest.approx(ref, rel=1e-9)

@@ -58,6 +58,16 @@ def test_easy_ensemble_missing_class_raises():
         easy_ensemble_fit_predict(X, y, X, model_factory=lambda: LogisticRegression())
 
 
+def test_easy_ensemble_n_bags_zero_raises_clear_error():
+    """TRAINING_LOOSE_A-6: n_bags<=0 must raise a clear, function-specific ValueError instead of an
+    opaque 'zero-size array to reduction operation' from np.mean(bag_preds, axis=0) on an empty list."""
+    import pytest
+
+    X_train, y_train, X_test, _y_test = _make_imbalanced_data(seed=0)
+    with pytest.raises(ValueError, match="n_bags"):
+        easy_ensemble_fit_predict(X_train, y_train, X_test, model_factory=lambda: LogisticRegression(), n_bags=0)
+
+
 def test_easy_ensemble_negative_ratio_controls_bag_size():
     """Easy ensemble negative ratio controls bag size."""
     rng = np.random.default_rng(1)

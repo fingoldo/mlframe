@@ -3,6 +3,12 @@
 The individual submodules are the source of truth; this file curates what
 downstream code should depend on so internal refactors (e.g. splitting
 ``filters.py``) don't break imports silently.
+
+Constructor shape: ``RFECV`` is the sole selector in the ``wrappers`` family that mixes three grouped
+pydantic config objects (``search_config``/``fi_config``/``robustness_config``) with ~60 additional flat
+kwargs for the same/overlapping settings (documented back-compat rationale at its own constructor). Every
+sibling selector (``BorutaShap``, ``HybridSelector``, ``ACESelector``) uses purely flat kwargs -- prefer
+that simpler, consistent pattern for any new selector rather than following ``RFECV``'s hybrid shape.
 """
 
 from __future__ import annotations

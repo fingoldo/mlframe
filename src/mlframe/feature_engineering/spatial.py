@@ -122,6 +122,7 @@ def knn_aggregate(
     distance_weighted: bool = False,
     weight_eps: float = 1.0,
     leaf_size: int = 40,
+    query_is_ref: Optional[bool] = None,
 ) -> dict:
     """For each query row, aggregate ``ref_labels`` over its k nearest neighbours.
 
@@ -139,6 +140,15 @@ def knn_aggregate(
         Neighbour count. The actual query asks for ``k + 1`` and skips
         the self-match if the same point appears in both pools (so
         ``query is ref`` is leak-safe by construction).
+    query_is_ref
+        Whether the query pool IS the reference pool, which is what makes
+        the rank-0 self-match removal correct. ``None`` (the default)
+        infers it by identity (``query_coords is ref_coords``). Pass it
+        explicitly when the two arrays hold the same rows without being
+        the same object. When it is False the removal is skipped, because
+        a distance-0 hit is then a genuine coincident neighbour -- two
+        different entities at one address, an ordinary condition in
+        geocoded data -- and dropping it shifts the whole k-ring outward.
     agg_fns
         Iterable of aggregator names to compute. Default is the
         canonical four (median / iqr / std / mean).
@@ -170,6 +180,7 @@ def knn_aggregate(
     except Exception as e:
         raise ImportError("knn_aggregate requires scikit-learn (KDTree). Install via " "`pip install scikit-learn`.") from e
 
+    _query_is_ref = (query_coords is ref_coords) if query_is_ref is None else bool(query_is_ref)
     ref_coords = np.ascontiguousarray(ref_coords, dtype=np.float64)
     ref_labels = np.ascontiguousarray(ref_labels, dtype=np.float64)
     query_coords = np.ascontiguousarray(query_coords, dtype=np.float64)
@@ -216,14 +227,50 @@ def knn_aggregate(
         compact_indices = np.take_along_axis(indices, keep_idx, axis=1)
         compact_dist = np.take_along_axis(distances, keep_idx, axis=1)
         compact_mask = ~np.take_along_axis(same_group, keep_idx, axis=1)
+        # The overquery cap (q_k = min(ref pool, k*4+1)) is a heuristic sized for "typical" panel data
+        # (1-5 same-group members). A query row whose own group is unusually dense can exhaust the
+        # entire q_k candidate window with same-group hits, silently degrading that row's aggregates to
+        # partial-k / all-NaN with no signal to the caller that the cap (not genuine data sparsity) was
+        # the cause -- surface a count/warning so this is diagnosable instead of silent.
+        n_valid = compact_mask.sum(axis=1)
+        starved = (n_valid < k) & (q_k < ref_coords.shape[0])
+        if starved.any():
+            logger.warning(
+                "knn_aggregate: %d/%d query row(s) got fewer than k=%d valid (different-group) neighbours "
+                "because the overquery cap q_k=%d was exhausted by same-group hits, not because the "
+                "reference pool ran out; consider increasing k*4+1 for denser groups.",
+                int(starved.sum()),
+                q_group_ids.shape[0],
+                k,
+                q_k,
+            )
         # Where mask is False (no valid neighbour for that slot),
         # carry NaN; aggregators below handle NaN via np.nanmean / etc.
         labels_arr = np.where(
             compact_mask, ref_labels[compact_indices], np.nan,
         )
     else:
-        compact_indices = indices[:, :k]
-        compact_dist = distances[:, :k]
+        # Exclude at most one distance-0 self-match per query row (the
+        # `query is ref` case the docstring promises is leak-safe): the
+        # KDTree returns neighbours sorted by distance ascending, so a
+        # self-match always lands at rank 0 and would otherwise always
+        # survive the naive `indices[:, :k]` truncation, silently
+        # replacing the true k-th neighbour with the query point itself.
+        # ...but ONLY when the query pool really is the reference pool. Keying on distance alone dropped a
+        # genuine coincident neighbour whenever two different reference entities shared a location, which
+        # geocoded data produces constantly (one address, several entities): the k-ring then shifted outward by
+        # one and the aggregate was computed over a farther set than the k nearest, with nothing to show for it.
+        is_zero_dist = (distances <= 0.0) if _query_is_ref else np.zeros(distances.shape, dtype=bool)
+        first_zero = is_zero_dist & (np.cumsum(is_zero_dist, axis=1) == 1)
+        if first_zero.any():
+            sorted_mask = np.where(first_zero, np.iinfo(np.int64).max, np.arange(q_k))
+            order = np.argsort(sorted_mask, axis=1)
+            keep_idx = order[:, :k]
+            compact_indices = np.take_along_axis(indices, keep_idx, axis=1)
+            compact_dist = np.take_along_axis(distances, keep_idx, axis=1)
+        else:
+            compact_indices = indices[:, :k]
+            compact_dist = distances[:, :k]
         labels_arr = ref_labels[compact_indices]
 
     # Aggregate. Use nan-aware variants if same-group filter introduced NaN.
@@ -255,7 +302,10 @@ def knn_aggregate(
                 out_aggs[name] = np.nanpercentile(labels_arr, 90, axis=1)
             else:
                 raise ValueError(f"unknown agg_fn={name!r}")
-        out_aggs["_nearest_distance"] = compact_dist[:, 0]
+        # Consistent with the aggregates above. A query row whose own group exhausts the whole q_k window has
+        # correctly-NaN aggregates but was still handed `compact_dist[:, 0]` -- a SAME-group distance, i.e. a
+        # within-group proximity value leaking into a column documented as group-filtered.
+        out_aggs["_nearest_distance"] = np.where(compact_mask[:, 0], compact_dist[:, 0], np.nan)
     else:
         out_aggs = _resolve_aggs(labels_arr, agg_fns)
         if distance_weighted and "mean" in agg_fns:
@@ -385,6 +435,14 @@ def knn_within_bucket_aggregate(
                 q25 = np.nanpercentile(labels_arr, 25, axis=1) if use_nan else np.percentile(labels_arr, 25, axis=1)
                 q75 = np.nanpercentile(labels_arr, 75, axis=1) if use_nan else np.percentile(labels_arr, 75, axis=1)
                 out_aggs[name][q_idx] = q75 - q25
+            elif name == "min":
+                out_aggs[name][q_idx] = np.nanmin(labels_arr, axis=1) if use_nan else labels_arr.min(axis=1)
+            elif name == "max":
+                out_aggs[name][q_idx] = np.nanmax(labels_arr, axis=1) if use_nan else labels_arr.max(axis=1)
+            elif name == "p10":
+                out_aggs[name][q_idx] = np.nanpercentile(labels_arr, 10, axis=1) if use_nan else np.percentile(labels_arr, 10, axis=1)
+            elif name == "p90":
+                out_aggs[name][q_idx] = np.nanpercentile(labels_arr, 90, axis=1) if use_nan else np.percentile(labels_arr, 90, axis=1)
             else:
                 raise ValueError(f"agg_fn={name!r} not supported in bucket mode")
         out_aggs["_nearest_distance"][q_idx] = compact_dist[:, 0]
@@ -769,10 +827,27 @@ def knn_gradient_features(
     XtX = np.einsum("ijk,ijl->ikl", X_all, Wx)
     Xty = np.einsum("ijk,ij->ik", X_all, w_all * y_all)[:, :, None]
     eye = np.eye(d + 1, dtype=np.float64) * 1e-12
-    try:
-        beta_all = np.linalg.solve(XtX + eye, Xty)[:, :, 0]
-    except np.linalg.LinAlgError:
-        beta_all = np.full((n_q, d + 1), np.nan, dtype=np.float64)
+    XtX_reg = XtX + eye
+    # np.linalg.solve on a stacked (n_q, d+1, d+1) batch raises LinAlgError for the ENTIRE batch if ANY
+    # single query's design matrix is singular (e.g. duplicate/quantized reference coordinates collapsing
+    # a neighborhood's direction) -- silently NaN-ing every OTHER query's gradient too. Even short of that
+    # (the fixed 1e-12 ridge above already prevents an outright LinAlgError in most degenerate cases), a
+    # rank-deficient neighborhood still solves "successfully" to a spurious near-zero gradient in the
+    # collapsed direction, silently masking that no reliable local gradient exists there. Detect (near-)
+    # singular matrices up front via their batched singular values -- a condition-number check is
+    # scale-invariant (unlike a raw determinant threshold, which is not: det scales with the data's
+    # coordinate/weight magnitude, so a fixed absolute cutoff would misfire on differently-scaled inputs).
+    # Substitute a well-conditioned placeholder (identity) for just the flagged rows so the solve never
+    # raises, then overwrite exactly those rows' betas with NaN afterward -- every other query still gets a
+    # normal, fully-vectorized batched solve.
+    sv = np.linalg.svd(XtX_reg, compute_uv=False)
+    singular = (sv[:, -1] <= 0) | (sv[:, 0] / np.maximum(sv[:, -1], 1e-300) > 1e12)
+    if singular.any():
+        XtX_reg = XtX_reg.copy()
+        XtX_reg[singular] = np.eye(d + 1, dtype=np.float64)
+    beta_all = np.linalg.solve(XtX_reg, Xty)[:, :, 0]
+    if singular.any():
+        beta_all[singular] = np.nan
     pred_all = np.einsum("ijk,ik->ij", X_all, beta_all)
     resid = y_all - pred_all
     if k > 1:

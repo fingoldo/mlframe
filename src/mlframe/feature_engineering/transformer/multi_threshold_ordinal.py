@@ -76,7 +76,11 @@ def compute_multi_threshold_ordinal_features(
             for i, j in enumerate(top3):
                 median_j = float(np.median(Xt_s[:, j]))
                 target = ((y_t > 0.5) & (Xt_s[:, j] > median_j)).astype(np.int32)
-                if target.sum() == 0:
+                # Guard both extremes like the regression branch above: analytically target.sum() ==
+                # target.shape[0] can't happen today (a median-split AND condition bounds the positive
+                # count below half the rows), but a future threshold-logic change could make it possible
+                # -- fitting LGBMClassifier on a single-class target raises, so guard defensively.
+                if target.sum() == 0 or target.sum() == target.shape[0]:
                     preds[:, i] = float(target.mean())
                     continue
                 m = lgb.LGBMClassifier(n_estimators=30, max_depth=3, learning_rate=0.1,

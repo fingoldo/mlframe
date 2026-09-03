@@ -30,6 +30,16 @@ def _big_enough_array():
     return rng.standard_normal(size=(2000, 300)).astype(np.float32)  # 600_000 cells >= the 500k crossover
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_gpu_disable(monkeypatch):
+    """Immunize this file's fully-mocked dispatch tests against the host/CI runner's ambient
+    ``CUDA_VISIBLE_DEVICES``/``MLFRAME_DISABLE_GPU`` -- see the identical fixture in
+    ``test_batch_pair_mi_gpu_vram_guard.py`` for the full root-cause writeup (``gpu_globally_disabled()``
+    silently overrides every mock in this file whenever the ambient env carries the off-switch)."""
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.delenv("MLFRAME_DISABLE_GPU", raising=False)
+
+
 def test_cuda_path_skipped_when_vram_insufficient(monkeypatch, caplog):
     """When the full-upload VRAM guard rejects, the row-chunked GPU path is tried next (see
     ``test_discretize_2d_array_row_chunked.py``); this test isolates just the full-upload REJECT ->

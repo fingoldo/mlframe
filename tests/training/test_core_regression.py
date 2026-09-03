@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from mlframe.training import OutputConfig
 from mlframe.training.core import train_mlframe_models_suite
+from mlframe.training.core.predict import predict_from_models
 from mlframe.training.configs import TargetTypes
 from .shared import SimpleFeaturesAndTargetsExtractor
 
@@ -80,17 +81,37 @@ class TestTrainMLFrameModelsSuiteRegressionSmoke:
             reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
+            # save_charts=False: this smoke test never inspects the saved PNGs, and rendering them
+            # costs ~65s of the ~85s isolated wall (27 matplotlib savefig calls through report_model_perf) --
+            # measured 165s -> 80s (2.06x) with zero assertion change; the short-circuit is a first-class
+            # OutputConfig knob (see ``_phase_config_setup.py``'s "clearing plot_file so chart rendering is
+            # skipped entirely" comment), not a private/undocumented shortcut.
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models", save_charts=False),
             verbose=0,
         )
 
         entries = models[TargetTypes.REGRESSION]["target"]
         _assert_trained_target_entries(entries, target_type_label="REGRESSION")
 
-        # Smoke-level predict: pick the first entry, run predict against features only.
-        first = entries[0]
-        m = first.model
-        Xf = df.drop(columns=["target"])
-        # CatBoost / lgb wrappers expect pandas; ridge accepts plain pandas.
-        y_hat = m.predict(Xf.values)
+        # Smoke-level predict: route through the real predict entry point rather than calling
+        # ``model.predict(Xf.values)`` directly. Row-wise extension columns (row_summary_*/
+        # row_extreme_*, default ON) are appended to the fitted feature set BEFORE the model ever
+        # sees the frame (see ``_apply_row_wise_extensions`` in predict.py), so a fitted Ridge here
+        # expects 18 columns for a 10-raw-feature input, not 10 -- calling ``.predict()`` on the raw
+        # values bypasses that replay and raises "X has 10 features, but Ridge is expecting 18
+        # features". ``predict_from_models`` replays every fit-time transform (row-wise extensions,
+        # pipeline, extensions pipeline) the same way production inference does. Pass the full frame
+        # (target column included) -- ``features_and_targets_extractor.transform`` looks up
+        # ``target_column`` internally; ``predict_from_models`` itself never trains on it.
+        results = predict_from_models(
+            df=df,
+            models=models,
+            metadata=_metadata,
+            features_and_targets_extractor=fte,
+            return_probabilities=False,
+            verbose=0,
+        )
+        assert results["models_used"], f"predict_from_models returned no models_used: {results}"
+        y_hat = results["ensemble_predictions"]
+        assert y_hat is not None
         assert y_hat.shape[0] == len(df)

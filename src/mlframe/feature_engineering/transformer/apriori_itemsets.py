@@ -14,6 +14,13 @@ from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
 
+# numpy>=2.0 removed in1d; mlxtend still uses it. Monkey-patch once at import time (not inside the
+# feature-computation function, which would mutate the process-global numpy module as a repeated side
+# effect of every call) so the compat shim is applied exactly once, the same way a real compat package
+# would install it.
+if not hasattr(np, "in1d"):
+    np.in1d = np.isin  # type: ignore[attr-defined]  # noqa: NPY201 -- this IS the removed-API compat shim, not a use of the removed API
+
 
 def compute_apriori_itemsets_features(
     X_train: np.ndarray,
@@ -41,9 +48,6 @@ def compute_apriori_itemsets_features(
 
     Output: top_k boolean-membership columns + n_matched + n_frequent_total = top_k + 2 features.
     """
-    # numpy>=2.0 removed in1d; mlxtend still uses it. Monkey-patch before import.
-    if not hasattr(np, "in1d"):
-        np.in1d = np.isin  # type: ignore[attr-defined]  # noqa: NPY201 -- this IS the removed-API compat shim, not a use of the removed API
     try:
         import mlxtend  # noqa: F401 -- probe import to fail fast with a clear error if mlxtend is missing
         from mlxtend.frequent_patterns import fpgrowth

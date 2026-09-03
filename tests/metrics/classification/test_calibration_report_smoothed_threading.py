@@ -50,17 +50,19 @@ def _overlay_from_spec(spec):
     return scatter.overlay_line
 
 
-class TestSuiteThreadingDefaultOn:
-    """Groups tests for: TestSuiteThreadingDefaultOn."""
+class TestSuiteThreadingOfTheOverlayFlag:
+    """The overlay is now OFF by default, so what these pin is the THREADING: the flag and the raw arrays have
+    to survive every hop from the report boundary to the spec builder, in both directions."""
     def test_fast_calibration_report_threads_overlay_via_dsl(self, _spec_spy, tmp_path):
         """A suite-style fast_calibration_report call with the DSL render path produces a spec whose reliability panel
-        CARRIES the smoothed overlay -- raw arrays threaded end-to-end with no explicit reliability_smoothed flag."""
+        CARRIES the smoothed overlay -- raw arrays threaded end-to-end when the flag is asked for."""
         y, score = _overconfident()
         fast_calibration_report(
             y_true=y,
             y_pred=score,
             nbins=15,
             show_plots=False,
+            reliability_smoothed=True,
             plot_outputs="matplotlib[png]",
             base_path=str(tmp_path / "cal"),
         )
@@ -73,8 +75,9 @@ class TestSuiteThreadingDefaultOn:
         assert overlay is not None, "smoothed overlay must reach the figure spec on the suite DSL path"
         assert "isotonic" in overlay[2]
 
-    def test_overlay_default_on_without_explicit_flag(self, _spec_spy, tmp_path):
-        """Default-ON: no reliability_smoothed passed anywhere -> overlay still present on the suite path."""
+    def test_overlay_absent_by_default(self, _spec_spy, tmp_path):
+        """Default-OFF: the isotonic curve is a SECOND estimate of the relationship the bubbles already draw, in a
+        second visual language, over the same panel -- so it is asked for rather than assumed."""
         y, score = _overconfident(seed=1)
         fast_calibration_report(
             y_true=y,
@@ -84,7 +87,7 @@ class TestSuiteThreadingDefaultOn:
             plot_outputs="plotly[html]",
             base_path=str(tmp_path / "cal2"),
         )
-        assert _overlay_from_spec(_spec_spy["spec"]) is not None
+        assert _overlay_from_spec(_spec_spy["spec"]) is None
 
     def test_toggle_off_suppresses_overlay_through_chain(self, _spec_spy, tmp_path):
         """reliability_smoothed=False at the report boundary suppresses the overlay end-to-end."""
@@ -115,7 +118,7 @@ class TestReportProbabilisticThreading:
     """Groups tests for: TestReportProbabilisticThreading."""
     def test_report_perf_threads_overlay_per_class(self, _spec_spy, tmp_path):
         """report_probabilistic_model_perf (binary) routes its per-class one-vs-rest raw arrays through the chain so
-        the suite reliability diagram carries the smoothed overlay by default."""
+        the suite reliability diagram can carry the smoothed overlay when it is asked for."""
         from mlframe.training.reporting._reporting_probabilistic import report_probabilistic_model_perf
 
         y, score = _overconfident(seed=3)
@@ -131,6 +134,7 @@ class TestReportProbabilisticThreading:
             print_report=False,
             plot_file=str(tmp_path / "perf"),
             plot_outputs="matplotlib[png]",
+            reliability_smoothed=True,
         )
         # Binary path reports only class_id=1; raw_probs is that positive-class score column (a view), labels are y==1.
         kw = _spec_spy["kwargs"]

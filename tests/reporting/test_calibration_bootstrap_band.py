@@ -42,7 +42,7 @@ class TestBootstrapBandUnit:
         """Band present in spec when raw supplied."""
         y, score = _gen(5000, miscalibrated=True)
         fp, ftr, hits = fast_calibration_binning(y, score, nbins=15)
-        spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y)
+        spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y, reliability_smoothed=True, reliability_band=True)
         scatter = spec.panels[0][0]
         assert isinstance(scatter, ScatterPanelSpec)
         assert scatter.overlay_band is not None
@@ -64,18 +64,30 @@ class TestBootstrapBandUnit:
         _, _, _, sig = bootstrap_reliability_band(score, y)
         assert 0.0 <= sig <= 1.0
 
-    def test_band_annotation_in_title(self):
-        """Band annotation in title."""
+    def test_the_significance_verdict_goes_to_the_log_not_the_title(self, caplog):
+        """It is one number and a range; on the chart it competed with the points it describes."""
+        import logging
+
         y, score = _gen(8000, miscalibrated=True)
         fp, ftr, hits = fast_calibration_binning(y, score, nbins=15)
-        spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y, plot_title="")
-        assert "miscal. significant on" in spec.panels[0][0].title
+        with caplog.at_level(logging.INFO, logger="mlframe.reporting.charts.calibration"):
+            spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y, plot_title="", log_miscalibration_significance=True)
+        assert "miscal" not in spec.panels[0][0].title
+        assert any("miscalibration significant on" in r.message for r in caplog.records)
+
+    def test_nothing_is_computed_for_the_verdict_by_default(self):
+        """The band costs ~3.4s per chart, so neither the drawing nor the log line is on by default."""
+        y, score = _gen(8000, miscalibrated=True)
+        fp, ftr, hits = fast_calibration_binning(y, score, nbins=15)
+        scatter = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y).panels[0][0]
+        assert scatter.overlay_band is None
+        assert scatter.overlay_line is None
 
     def test_band_absent_when_toggle_off(self):
         """Band absent when toggle off."""
         y, score = _gen(5000, miscalibrated=True)
         fp, ftr, hits = fast_calibration_binning(y, score, nbins=15)
-        spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y, reliability_band=False)
+        spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y, reliability_smoothed=True, reliability_band=False)
         scatter = spec.panels[0][0]
         assert scatter.overlay_line is not None  # curve stays
         assert scatter.overlay_band is None  # band gone

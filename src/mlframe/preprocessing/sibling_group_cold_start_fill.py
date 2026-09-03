@@ -10,9 +10,13 @@ whenever such an ordering exists and groups are locally similar.
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
+import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def sibling_group_cold_start_fill(
@@ -67,11 +71,34 @@ def sibling_group_cold_start_fill(
     global_fallback = float(fallback_value) if fallback_value is not None else float(df[value_col].dropna().mean())
 
     if interpolate:
-        # positional (not order_col-value) distance weighting: siblings are equally spaced by construction
-        # once indexed by their rank in ordered_groups, so a plain `.interpolate()` over the positional index
-        # already implements "weighted by how close in the ordering each sibling is". Bfill/ffill the tails.
-        filled_per_group = last_known_per_group.reset_index(drop=True).interpolate(method="linear", limit_area="inside")
-        filled_per_group.index = last_known_per_group.index
+        # order_col-VALUE distance weighting (not positional rank): siblings are generally NOT equally
+        # spaced in order_col (e.g. groups at order=(0, 1, 100)), so interpolating over a reset positional
+        # index would place a missing group's fill value at the positional midpoint between its neighbors
+        # regardless of how close it actually sits to either one. Re-index by the real order_col value
+        # (group_order is already sorted ascending, in the same order as ordered_groups/last_known_per_group)
+        # and use method="index" so pandas weights by that value's distance, not its rank. Bfill/ffill the tails.
+        order_values = group_order.to_numpy()
+        filled_per_group = last_known_per_group.copy()
+        # `method="index"` needs a NUMERIC (or datetime), strictly-ordered, UNIQUE index -- none of which the
+        # documented contract for `order_col` guarantees: it blesses "a sortable ordering across DISTINCT
+        # groups", which a quarter label like "2024Q1" satisfies while producing an object index that raises,
+        # and two groups sharing an order value produce a duplicate index where the distance weighting the
+        # comment above justifies is undefined. Fall back to positional interpolation in those cases, with a
+        # warning, rather than raising or silently weighting by something meaningless.
+        _numeric_order = np.issubdtype(np.asarray(order_values).dtype, np.number) or np.issubdtype(np.asarray(order_values).dtype, np.datetime64)
+        _unique_order = pd.Index(order_values).is_unique
+        if _numeric_order and _unique_order:
+            filled_per_group.index = order_values
+            filled_per_group = filled_per_group.interpolate(method="index", limit_area="inside")
+            filled_per_group.index = last_known_per_group.index
+        else:
+            logger.warning(
+                "sibling_group_cold_start_fill: order_col values are %s%s, so distance weighting by order value "
+                "is not available; interpolating by POSITION instead (equal spacing assumed).",
+                "non-numeric" if not _numeric_order else "numeric",
+                "" if _unique_order else " and non-unique",
+            )
+            filled_per_group = filled_per_group.interpolate(method="linear", limit_area="inside")
         filled_per_group = filled_per_group.ffill().fillna(global_fallback)
     else:
         # forward-fill across groups in sibling order: an entirely-missing group borrows the nearest

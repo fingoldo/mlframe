@@ -219,3 +219,56 @@ def test_biz_val_smoothed_target_encoding_beats_frequency_encoding_on_near_unifo
         f"near-uniform-count categories (corr_te={corr_te_test:.3f} vs corr_freq={corr_freq_test:.3f})"
     )
     assert corr_te_test > abs(corr_freq_test) * 3, "smoothed target encoding should beat frequency encoding by a wide margin here"
+
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# PREPROCESSING-4 (2026-08-05 audit) - smoothed_target_encode_column's in-sample train_encoded leak
+# ----------------------------------------------------------------------------------------------------------------------------
+
+
+def test_preprocessing_4_oof_train_encoded_removes_in_sample_leak_on_pure_noise_target():
+    """PREPROCESSING-4 (2026-08-05 audit): smoothed_target_encode_column computed train_encoded via
+    y_train.groupby(train_series) over the SAME rows it then mapped back onto -- every row's own target
+    informed its own category's shrunk mean (in-sample, non-OOF target encoding). On a target that is PURE
+    NOISE (uncorrelated with category by construction), the leaky (oof=False) train_encoded must still show
+    a spurious correlation with y_train (each row's own label leaking into its own encoded value), while the
+    fixed default (oof=True) K-fold out-of-fold encoding must show a much weaker (near-zero) correlation --
+    the honest answer, since there is no real category signal to find."""
+    rng = np.random.default_rng(0)
+    n = 3000
+    n_cats = 200  # small per-category counts amplify the in-sample leak
+    cats = rng.integers(0, n_cats, n)
+    y = rng.normal(size=n)  # pure noise, independent of category
+    train_series = pd.Series(cats)
+    y_train = pd.Series(y)
+
+    train_oof, _ = smoothed_target_encode_column(train_series, train_series.iloc[:1], y_train, smoothing=0.1, oof=True, random_state=0)
+    train_leaky, _ = smoothed_target_encode_column(train_series, train_series.iloc[:1], y_train, smoothing=0.1, oof=False)
+
+    corr_oof = abs(float(np.corrcoef(train_oof, y)[0, 1]))
+    corr_leaky = abs(float(np.corrcoef(train_leaky, y)[0, 1]))
+
+    assert corr_leaky > 0.15, f"sanity: the in-sample (oof=False) leak should show real spurious correlation on pure noise, got {corr_leaky:.4f}"
+    assert corr_oof < corr_leaky * 0.3, f"expected OOF encoding to strongly suppress the spurious in-sample correlation, got oof={corr_oof:.4f} leaky={corr_leaky:.4f}"
+    assert corr_oof < 0.08, f"expected OOF encoding's correlation with pure noise to be near-zero, got {corr_oof:.4f}"
+
+
+def test_preprocessing_4_oof_is_default_and_test_encoded_unaffected():
+    """oof=True must be the default (no opt-in required to get the honest behavior), and test_encoded
+    (always fit on the FULL train split, applied to genuinely held-out rows) must be identical regardless
+    of the oof flag -- only train_encoded's computation changes."""
+    rng = np.random.default_rng(1)
+    n = 500
+    cats = rng.integers(0, 15, n)
+    y = rng.normal(size=n)
+    train_series = pd.Series(cats)
+    test_series = pd.Series(rng.integers(0, 15, 100))
+    y_train = pd.Series(y)
+
+    train_default, test_default = smoothed_target_encode_column(train_series, test_series, y_train, smoothing=5.0, random_state=0)
+    train_explicit_oof, test_explicit_oof = smoothed_target_encode_column(train_series, test_series, y_train, smoothing=5.0, oof=True, random_state=0)
+    _, test_legacy = smoothed_target_encode_column(train_series, test_series, y_train, smoothing=5.0, oof=False)
+
+    pd.testing.assert_series_equal(train_default, train_explicit_oof)
+    pd.testing.assert_series_equal(test_default, test_explicit_oof)
+    pd.testing.assert_series_equal(test_default, test_legacy)

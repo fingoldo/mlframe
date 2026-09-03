@@ -28,6 +28,10 @@ from sklearn.preprocessing import StandardScaler
 
 import category_encoders as ce
 
+from mlframe.core import ensure_category_encoders_sklearn_tags_shim
+
+ensure_category_encoders_sklearn_tags_shim()
+
 # Mirrors the BorutaShap pattern below -- MRMR transitively pulls in
 # the entire mlframe.feature_selection package (numba kernels + filter wrappers
 # + sklearn estimators), which adds ~10-25s to first-call import time even when
@@ -480,7 +484,7 @@ def _compute_fairness_subgroups(
         if isinstance(df, pl.DataFrame):
             # Arrow-backed split-blocks bridge: ~32x faster than .to_pandas() default on
             # 9M-row frames -- consolidation copy eliminated for numeric / bool columns.
-            # Audit D P1-7 (2026-05-18): the polars->pandas conversion is NEEDED here because
+            # The polars->pandas conversion is NEEDED here because
             # ``create_fairness_subgroups`` from ``mlframe.metrics.core`` consumes a pandas
             # frame (pandas groupby / nunique). The conversion cannot be pushed further. Keep
             # the split-blocks bridge so the hop stays at zero-copy on numeric columns.

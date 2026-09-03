@@ -398,9 +398,8 @@ def _run_sweep_polyeval(n_iters: int = 5) -> list[dict]:
 
     Source-code defaults (50k / 500k, measured ages ago on a 1050 Ti)
     were never re-verified against MKL+numba version drift; the
-    consumer was wired to the cache 2026-05-20 (Wave 23 P2) but no
-    populator existed -- every lookup fell through to the stale source
-    defaults until this sweep registered.
+    consumer was wired to the cache but no populator existed -- every lookup fell through to the stale
+    source defaults until this sweep registered.
     """
     from mlframe.feature_selection.filters.hermite_fe import (
         polyeval_dispatch as _disp,  # noqa: F401  -- import for module init
@@ -526,8 +525,8 @@ def ensure_polyeval_tuning(force: bool = False) -> Optional[list[dict]]:
     via pyutilz KernelTuningCache if missing.
 
     The consumer ``_lookup_polyeval_thresholds`` in
-    ``hermite_fe.py`` was wired to the cache 2026-05-20 (Wave 23 P2)
-    but no populator existed -- this fills the gap. First run
+    ``hermite_fe.py`` was wired to the cache but no populator existed --
+    this fills the gap. First run
     ~20-40s (4 bases x 8 n-points x njit/njit_par/cuda); subsequent
     processes read in ~1ms.
     """
@@ -888,9 +887,8 @@ def _run_sweep_batch_pair_mi(n_iters: int = 3) -> list[dict]:
         return []
 
     # Derive crossover thresholds: smallest measured (n_rows, n_pairs)
-    # where cuda / cupy first wins. The consumer's lookup signature is
-    # buggy (positional dict; see Wave 24 review), but the persisted
-    # threshold fields will work once the consumer kwargs fix lands.
+    # where cuda / cupy first wins. The consumer's lookup signature is buggy (positional dict), but the
+    # persisted threshold fields will work once the consumer kwargs fix lands.
     cuda_min_rows = None
     cuda_min_pairs = None
     cupy_min_rows = None
@@ -935,34 +933,17 @@ def _run_sweep_batch_pair_mi(n_iters: int = 3) -> list[dict]:
     )
     return cast("list[dict]", regions)
 def ensure_batch_pair_mi_tuning(force: bool = False) -> Optional[list[dict]]:
-    # Lazy import of parent-resident helpers: ``.predict`` re-imports
-    # this sibling at its bottom, so a top-level ``from .predict
-    # import ...`` would create a hard cycle the meta-test flags.
-    from .auto_tune import _shared_cache
-    cache = _shared_cache()
-    if cache is None:
-        return None
-    if not force:
-        regions = cache.get_regions("batch_pair_mi")
-        if regions:
-            return cast("list[dict]", regions)
-    logger.info("kernel_tuning_cache: batch_pair_mi sweep starting")
-    t0 = time.perf_counter()
-    try:
-        regions = _run_sweep_batch_pair_mi(n_iters=3)
-    except Exception as e:
-        logger.warning("kernel_tuning_cache: batch_pair_mi sweep failed: %s", e)
-        return None
-    logger.info(
-        "kernel_tuning_cache: batch_pair_mi sweep done in %.2fs",
-        time.perf_counter() - t0,
+    """SUPERSEDED: ``batch_pair_mi`` has migrated to the ``pyutilz.performance.kernel_tuning`` registry
+    (see ``cli.py``'s ``_refresh_via_new_registry`` / ``refresh-batch-pair-mi``). Calling this legacy
+    sweep writes regions without a ``backend_choice``/``code_version`` to the SAME ``"batch_pair_mi"``
+    cache key the new registry owns, silently shadowing it -- raises instead of running.
+    """
+    raise RuntimeError(
+        "ensure_batch_pair_mi_tuning is superseded by the pyutilz.performance.kernel_tuning registry "
+        "(mlframe-tune-kernels refresh-batch-pair-mi / cli.py's _refresh_via_new_registry); calling it "
+        "directly would write a stale-schema region to the same cache key the new registry owns and "
+        "silently shadow it. Use the CLI or pyutilz.performance.kernel_tuning.tune_spec instead."
     )
-    if regions:
-        try:
-            cache.update("batch_pair_mi", axes=["n_samples", "n_pairs"], regions=regions)
-        except OSError as e:
-            logger.warning("kernel_tuning_cache: batch_pair_mi save failed: %s", e)
-    return cast("list[dict]", regions)
 
 
 # Register the multi-field GPU kernels with the unified tuner registry so

@@ -410,8 +410,8 @@ def compute_entropy_features(arr: np.ndarray, sampling_frequency: int = 100, spe
     # num_zerocross(arr),
 
     _entropy_funcs = _get_entropy_funcs()
-    nonzero = (~np.isnan(arr)).sum()
-    if nonzero < 10:
+    n_finite = (~np.isnan(arr)).sum()
+    if n_finite < 10:
         return (0.0,) * len(_entropy_funcs)
     else:
         safe_arr = np.nan_to_num(arr[~np.isnan(arr)], posinf=0, neginf=0)
@@ -488,7 +488,7 @@ def compute_numaggs(
     if hurst_kwargs is None:
         hurst_kwargs = dict(min_window=10, max_window=None, windows_log_step=0.25, take_diffs=False)
     if len(arr) <= 1:
-        return (np.nan,) * len(
+        n_names = len(
             get_numaggs_names(
                 weights=weights,
                 q=q,
@@ -505,6 +505,12 @@ def compute_numaggs(
                 return_lintrend_approx_stats=return_lintrend_approx_stats,
             )
         )
+        # Match the normal path's return type: an np.float32 ndarray when return_float32=True (the
+        # default), not a raw Python tuple regardless of the flag -- a caller downstream that always
+        # expects an ndarray (e.g. np.stack over many rows) would otherwise break on short-input rows.
+        if return_float32:
+            return np.full(n_names, np.nan, dtype=np.float32)
+        return (np.nan,) * n_names
 
     res = compute_numerical_aggregates_numba(
         arr,

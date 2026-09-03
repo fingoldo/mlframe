@@ -127,6 +127,11 @@ def constant_group_target_scan(
         for depth in range(2, combo_max_size + 1):
             rows.extend(_scan_one(combo, combo, df, y, min_group_size, overall_var, variance_ratio_threshold) for combo in combinations(combo_cols, depth))
 
+    # pd.DataFrame([]) has no columns for sort_values to find -- an empty candidate_cols (and no combo
+    # rows either) would otherwise raise KeyError instead of returning an empty, correctly-columned frame.
+    columns = ["column", "n_groups", "min_group_variance_ratio", "worst_group_value", "worst_group_size", "flagged"]
+    if not rows:
+        return pd.DataFrame(columns=columns)
     result = pd.DataFrame(rows)
     return result.sort_values("min_group_variance_ratio", ascending=True, na_position="last").reset_index(drop=True)
 

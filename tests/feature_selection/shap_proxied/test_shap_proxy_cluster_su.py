@@ -187,6 +187,14 @@ def test_pipeline_mrmr_then_shap_proxied_fs_selects_su_backend():
         cluster_auto_threshold=10,  # tiny so 'auto' fires too
         brute_force_max_features=12,
         shap_prefilter_enabled=False,
+        # Every assertion below checks shap_proxy_report_["clustering"]["backend"/"bins_source"] --
+        # structural, never accuracy/selection-quality -- so cutting the internal XGBoost fit cost
+        # (revalidate/trust_guard/run_importance_ablation are already off, leaving prefilter/oof_shap/
+        # refine at the library default 100 each) cannot change what this test checks. Measured
+        # 1.75x (247.3s -> 141.1s) on an isolated repro of this exact fixture + all 3 assertions.
+        oof_shap_n_estimators=20,
+        refine_n_estimators=20,
+        prefilter_n_estimators=20,
     )
 
     # Backend = 'su' when precomputed provided.

@@ -20,7 +20,7 @@ from typing import Any, List, Optional, Sequence
 
 import numpy as np
 
-from mlframe.reporting.spec import FigureSpec, ScatterPanelSpec
+from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, PanelSpec, ScatterPanelSpec
 
 # Bounded scatter cap: matplotlib per-point primitives scale poorly past ~5k points and the Fisher ratio has converged
 # on far fewer, so both the plot and the score run on the same seeded subsample.
@@ -111,6 +111,31 @@ except ImportError:  # numba unavailable: numpy two-pass reduction with the same
         return float(dd @ inv @ dd)
 
 
+def _implied_auc(fisher_j: float) -> float:
+    """Best AUC a linear rule could reach at this Fisher J, under a two-Gaussian model with a shared covariance.
+
+    Fisher J is unbounded and scale-free, so "J = 3.1" tells a reader nothing on its own. Under the Gaussian model
+    the optimal separation is ``Phi(sqrt(J)/2)`` -- a number every data scientist already reads fluently.
+    """
+    if not np.isfinite(fisher_j) or fisher_j <= 0.0:
+        return 0.5
+    from math import erf, sqrt
+
+    return float(0.5 * (1.0 + erf(sqrt(fisher_j) / 2.0 / sqrt(2.0))))
+
+
+def _separability_verdict(fisher_j: float) -> str:
+    """One-clause reading of the implied AUC, so the panel states a conclusion rather than only a statistic."""
+    auc = _implied_auc(fisher_j)
+    if auc < 0.6:
+        return "these two features barely separate the classes"
+    if auc < 0.75:
+        return "weak but real separation"
+    if auc < 0.9:
+        return "clear separation"
+    return "these two features nearly separate the classes on their own"
+
+
 def separability_score(z2: np.ndarray, y: np.ndarray) -> float:
     """2-class Fisher discriminant ratio on the 2-D projection ``z2`` (shape ``(n, 2)``): between- over within-scatter.
 
@@ -154,7 +179,7 @@ def _column_names(X: Any) -> List[Any]:
     return list(range(np.asarray(X).shape[1]))
 
 
-def separability_panel(X: Any, y: np.ndarray, features: Sequence[Any], *, sample: int = DEFAULT_SAMPLE, seed: int = 0) -> ScatterPanelSpec:
+def separability_panel(X: Any, y: np.ndarray, features: Sequence[Any], *, sample: int = DEFAULT_SAMPLE, seed: int = 0) -> PanelSpec:
     """ScatterPanelSpec of the two named ``features`` coloured by ``y``, titled with the 2-D Fisher separability score.
 
     Both features are pulled as narrow float64 views and seeded-subsampled to ``sample`` rows; the score is computed on
@@ -167,6 +192,15 @@ def separability_panel(X: Any, y: np.ndarray, features: Sequence[Any], *, sample
     if z0.shape[0] != yv.shape[0]:
         raise ValueError(f"separability_panel: length mismatch X={z0.shape[0]} y={yv.shape[0]}")
     n = z0.shape[0]
+    if n == 0 or np.unique(yv[np.isfinite(yv)]).size < 2:
+        # One point at the origin with "Fisher ratio 0.00" is a measurement-shaped rendering of no data; the ratio
+        # is a BETWEEN-class quantity, so it needs two classes with rows in them before it means anything.
+        return AnnotationPanelSpec(
+            text=(f"Separability of ({f0}, {f1}) not measurable: {n:,} rows carrying "
+                  f"{int(np.unique(yv[np.isfinite(yv)]).size)} distinct class label(s). The Fisher ratio compares two "
+                  "class means, so it needs at least two populated classes."),
+            title=f"Separability: {f0} vs {f1}",
+        )
     if n > sample:
         rng = np.random.default_rng(seed)
         idx = np.sort(rng.choice(n, size=sample, replace=False))
@@ -177,7 +211,10 @@ def separability_panel(X: Any, y: np.ndarray, features: Sequence[Any], *, sample
         y=z1,
         point_color=yv,
         colormap="coolwarm",
-        title=f"Separability (Fisher J={score:.2f}): {f0} vs {f1}",
+        title=(
+            f"Separability: {f0} vs {f1}\nFisher J={score:.2f} -> best achievable AUC ~{_implied_auc(score):.2f} "
+            f"under a Gaussian model ({_separability_verdict(score)})"
+        ),
         xlabel=str(f0),
         ylabel=str(f1),
         point_alpha=0.4,
@@ -192,13 +229,41 @@ def compose_separability_figure(X: Any, y: np.ndarray, features: Optional[Sequen
     """One-panel FigureSpec wrapping :func:`separability_panel`, picking the top-2 features by importance when given."""
     if features is None:
         names = _column_names(X)
+        if len(names) < 2:
+            # A 2-D scatter needs two axes; indexing names[1] raised IndexError on a single-column X.
+            return FigureSpec(
+                suptitle=suptitle,
+                panels=(
+                    (
+                        AnnotationPanelSpec(
+                            text=(
+                                f"Separability scatter needs two features; X carries {len(names)}. Pass `features=` naming a " "pair, or supply a wider frame."
+                            ),
+                            title="Engineered feature separability",
+                        ),
+                    ),
+                ),
+                figsize=(6.0, 3.0),
+            )
         if feature_importances is not None:
             order = np.argsort(np.asarray(feature_importances, dtype=np.float64))[::-1]
             features = [names[int(order[0])], names[int(order[1])]]
         else:
             features = [names[0], names[1]]
     panel = separability_panel(X, y, features, sample=sample, seed=seed)
-    return FigureSpec(suptitle=suptitle, panels=((panel,),), figsize=(6.0, 5.5))
+    return FigureSpec(
+        suptitle=suptitle,
+        panels=((panel,),),
+        figsize=(6.0, 5.5),
+        caption=(
+            "Each point is one row, positioned by two features and coloured by class. Fisher J is the squared "
+            "Mahalanobis distance between the class means under the pooled within-class covariance: 0 means the two "
+            "clouds are concentric and these features carry no linear separation. J is unbounded and scale-free, so "
+            "the title also states the best AUC a linear rule could reach at that J under a Gaussian model. "
+            "Categorical axes are plotted as integer codes, whose SPACING is arbitrary -- do not read a trend along "
+            "one. The scatter is subsampled for rendering; the score is computed on the same subsample."
+        ),
+    )
 
 
 __all__ = [

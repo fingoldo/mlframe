@@ -27,11 +27,12 @@ jobs:
   mypy-full:
     permissions:
       contents: read
-    uses: fingoldo/py-ci-shared/.github/workflows/mypy-full.yml@ac5f2fb6af0919e769445f671698d1e43dca8b09  # v1.3.2
+    uses: fingoldo/py-ci-shared/.github/workflows/mypy-full.yml@v1
     with:
       package-name: mlframe
       mypy-version: "2.1.0"
       advisory: false
       install-command: |
-        git clone --depth 1 https://github.com/fingoldo/pyutilz.git
+        git clone https://github.com/fingoldo/pyutilz.git
+        git -C pyutilz checkout 691a6ce16ba0abeb3647f17c1057464c895473ea  # pinned 2026-08-19, see X_CICD_DEPENDENCIES-1 -- register_default_cache DEFAULT-cache-fallback diagnostics
         uv pip install --system "./pyutilz[system,pandas,polars,database]" -e ".[all,dev,gpu]"

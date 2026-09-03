@@ -13,10 +13,10 @@
   "training/_predict_guards.py:102",
   "training/_trainer_configure.py:119",
   "training/composite/discovery/_screening_tiny.py:47",
-  "training/composite/discovery/_screening_tiny_perbin.py:42",
   "training/core/_phase_train_one_target_mlp_helpers.py:36",
   "training/core/_setup_helpers_pipeline_cache.py:70",
   "training/mlp_runtime_defaults.py:182",
+  "training/mlp_runtime_defaults.py:338",
   "training/neural/_base_tensor_helpers.py:111",
-  "training/utils.py:425"
+  "training/utils.py:426"
 ]

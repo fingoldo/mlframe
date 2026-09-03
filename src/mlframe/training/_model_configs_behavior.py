@@ -51,6 +51,18 @@ class TrainingBehaviorConfig(BaseConfig):
         Custom regression scoring configuration.
     callback_params : dict, optional
         Parameters for training callbacks (patience, verbose).
+    live_trainperf_plot : bool
+        Draw the live per-iteration training-performance widget in a notebook (per-metric tabs, one curve per
+        eval split, RAM on a secondary axis, a star on the running optimum, and a two-step stop button).
+        Default True; self-disables to a hard no-op headless / without plotly+ipywidgets, so it is safe to
+        leave on in code that also runs in CI. The curves are recorded either way -- see
+        ``live_trainperf_report`` for the log side.
+    live_trainperf_report : bool
+        Also emit the periodic per-iteration progress LINE to the log
+        (``iter=126, validation ICE: current=..., best=... @126. RAM usage 57.2GB.``). Default False: on a long
+        fit that line is pure noise once the same trajectory is on a chart and in the run metadata, and it
+        crowds out the messages an operator actually needs to see. Turning it off does NOT suppress the
+        start / auto-selected-metric / early-stop-reason messages, and does not affect what is recorded.
     prefer_cpu_for_xgboost : bool
         Force XGBoost to CPU even when GPU is available.
     cont_nbins : int
@@ -97,6 +109,11 @@ class TrainingBehaviorConfig(BaseConfig):
     default_classification_scoring: Optional[Dict[str, Any]] = None
     default_regression_scoring: Optional[Dict[str, Any]] = None
     callback_params: Optional[Dict[str, Any]] = None
+    # Live training-performance surfaces. The trajectory is ALWAYS recorded onto the callback (and harvested
+    # into the run metadata); these two only choose how it is surfaced while the fit runs -- as a chart
+    # (default on) and/or as periodic log lines (default off, because they bury everything else on a long fit).
+    live_trainperf_plot: bool = True
+    live_trainperf_report: bool = False
     cb_fit_params: Optional[Dict[str, Any]] = None
     # Default True: faulthandler + Windows WER suppression are pure diagnostics -- they don't change training behavior, only replace the "Python has stopped working" modal with a Python traceback. Users who rely on the WER popup (rare) can opt out.
     enable_crash_reporting: bool = True
@@ -275,6 +292,15 @@ class TrainingBehaviorConfig(BaseConfig):
     target_temporal_audit_save_plot: bool = True
     """Save the time-series chart to the per-target charts folder."""
 
+    target_temporal_audit_unit: Optional[str] = None
+    """Epoch unit of an INTEGER timestamp column: ``"s"``, ``"ms"``, ``"us"`` or ``"ns"``.
+
+    ``None`` (default) auto-detects by trying each unit and taking the coarsest that lands the whole column
+    inside [1970, 2200]. The audit phase already read and documented this knob, but it was declared nowhere --
+    so setting it worked only through ``BaseConfig``'s ``extra="allow"`` escape hatch, which also logged a
+    warning telling the user it looked like a typo, and it was invisible to anyone reading this class alongside
+    its three declared siblings."""
+
     # mini-HPT feature_distribution_analyzer auto-drop knobs. Both flags
     # operate on the TRAIN frame only - the analyzer's drop_candidates list
     # is derived purely from per-column train-side stats (NaN fraction,
@@ -285,6 +311,10 @@ class TrainingBehaviorConfig(BaseConfig):
     # pandas conversion, composite discovery, and model training -- the prod
     # frame regularly carries 40-100 such columns survivable only because
     # downstream filters re-screen them, at material RAM cost.
+    # On a split with a time axis, fit the recency-weighted model only. Uniform weighting asks what the model
+    # would look like if every row mattered equally, which a temporal split has already answered -- and fitting
+    # both doubles the wall time. Set False to keep the uniform fit alongside.
+    temporal_recency_only_weighting: bool = True
     auto_drop_distribution_analyzer_candidates: bool = True
     """When True (default), drop columns the feature_distribution_analyzer
     flagged as NaN-heavy (>=nan_fraction_threshold) or low-variance from

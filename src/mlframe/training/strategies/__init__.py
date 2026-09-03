@@ -123,6 +123,10 @@ MODEL_STRATEGIES: Dict[str, ModelPipelineStrategy] = {
     "gru": _RECURRENT_STRATEGY,
     "rnn": _RECURRENT_STRATEGY,
     "transformer": _RECURRENT_STRATEGY,
+    # is_neural_model() below already recognizes the generic "recurrent" alias; without a matching
+    # MODEL_STRATEGIES entry, get_strategy("recurrent") fell through to the unknown-alias branch
+    # (warns + mis-routes to TreeModelStrategy) even though is_neural_model("recurrent") reported True.
+    "recurrent": _RECURRENT_STRATEGY,
 }
 
 
@@ -165,6 +169,7 @@ def get_strategy(model_name) -> ModelPipelineStrategy:
 # ---------------------------------------------------------------------------
 
 def _catboost_classes():
+    """Lazily import and return CatBoost's classifier/regressor classes, or () if catboost isn't installed."""
     if importlib.util.find_spec("catboost") is None:
         return ()
     from catboost import CatBoostClassifier, CatBoostRegressor
@@ -172,6 +177,7 @@ def _catboost_classes():
 
 
 def _lightgbm_classes():
+    """Lazily import and return LightGBM's classifier/regressor classes, or () if lightgbm isn't installed."""
     if importlib.util.find_spec("lightgbm") is None:
         return ()
     from lightgbm import LGBMClassifier, LGBMRegressor
@@ -179,6 +185,7 @@ def _lightgbm_classes():
 
 
 def _xgboost_classes():
+    """Lazily import and return XGBoost's classifier/regressor classes, or () if xgboost isn't installed."""
     if importlib.util.find_spec("xgboost") is None:
         return ()
     from xgboost import XGBClassifier, XGBRegressor
@@ -186,6 +193,7 @@ def _xgboost_classes():
 
 
 def _hgb_classes():
+    """Return sklearn's HistGradientBoosting classifier/regressor classes (always available, hard dep)."""
     from sklearn.ensemble import (
         HistGradientBoostingClassifier,
         HistGradientBoostingRegressor,

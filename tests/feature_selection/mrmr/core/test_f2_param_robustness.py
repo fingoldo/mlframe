@@ -84,7 +84,7 @@ def _run_f2(full: int, baseline: int, n: int = 10_000, seed: int = 42) -> list:
     raise AssertionError(f"subprocess fit returned no selection (rc={proc.returncode}); stderr tail:\n" + "\n".join(proc.stderr.splitlines()[-15:]))
 
 
-@pytest.mark.timeout(700)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize("full,baseline", [(3, 2), (10, 20), (64, 64)])
 def test_f2_recovery_robust_to_permutation_counts(full, baseline):
     """One clean fused compound on the canonical F2 fixture across a wide perm-count range -- the recovered

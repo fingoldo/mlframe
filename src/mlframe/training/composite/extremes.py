@@ -132,7 +132,7 @@ def gpd_tail_quantile(
     return float(threshold + (beta / xi) * (surv_ratio ** (-xi) - 1.0))
 
 
-class TailCompositeEstimator(BaseEstimator, RegressorMixin):
+class TailCompositeEstimator(RegressorMixin, BaseEstimator):
     """Heavy-tail composite: body point composite + POT/GPD residual tail.
 
     Parameters

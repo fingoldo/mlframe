@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # reuses the heavy binned dataset via set_label / set_weight instead of rebuilding.
 #
 # "_cached_val_datasets" (plural) is lgb_shim's multi-slot val-Dataset cache -- a dict keyed by
-# val content signature, not a single pointer (fixed 2026-07-21: the prior single
+# val content signature, not a single pointer (fixed the prior single
 # "_cached_val_dataset" slot only ever held the LAST eval-set entry across a multi-eval-set fit. The generic getattr/setattr
 # transfer below works unchanged for a dict value; only the skip_none/falsy guard below needed
 # updating so an empty (not just None) source doesn't null out a populated destination.
@@ -322,7 +322,7 @@ def _release_ctx_polars_frames(
     # Drop XGB DMatrix / LightGBM Dataset / CatBoost Pool wrappers from the suite-scoped reuse cache.
     # These wrappers hold binned column tensors that mirror the underlying polars buffers; without
     # this scrub the polars frames "release" succeeds only in name (frames lose their strong ref but
-    # the buffers stay alive behind the dataset cache). Observed in prod 2026-05-29: 9.4 GB expected
+    # the buffers stay alive behind the dataset cache). Observed in prod 9.4 GB expected
     # reclaim showed as 0.0 MB delta because every column pointer was still pinned via dataset_reuse_cache.
     # Also clear the per-target cached pre_pipeline transforms (heavy fitted preprocessing) that pin
     # column-major arrays of the released frames.

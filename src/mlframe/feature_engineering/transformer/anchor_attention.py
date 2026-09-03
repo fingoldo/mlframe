@@ -124,10 +124,11 @@ def compute_anchor_attention(
     Mode A (X_query is None): OOF on X_train via ``splitter``. Anchors refit per-fold on X_train[train_idx]; aggregates from y_train[train_idx]; val rows scored.
     Mode B (X_query given): Anchors fit on full X_train; aggregates from full y_train; X_query rows scored. Splitter ignored.
 
-    Output columns (per row): {n_anchors} similarity columns + {n_anchors * len(aggregate)} per-anchor aggregate columns.
-    Total = n_anchors * (1 + len(aggregate)) features.
+    Output columns (per row): {n_anchors} per-anchor similarity columns + {len(aggregate)} softmax-weighted
+    aggregate columns (one column per aggregate, pooled across all anchors -- not per-anchor).
+    Total = n_anchors + len(aggregate) features.
 
-    For n_anchors=32, aggregate=('y_mean','y_std'): 32 + 64 = 96 columns. Roughly comparable in width to a 4-head row-attention with k=32.
+    For n_anchors=32, aggregate=('y_mean','y_std'): 32 + 2 = 34 columns.
     """
     seed = require_seed(seed)
     validate_numeric_input(X_train, name="X_train", allow_fp16=False)
@@ -170,7 +171,7 @@ def compute_anchor_attention(
         anchors = _fit_anchors(Xt_std, n_anchors=n_anchors, seed=seed)
         # Hard assignment of train rows to nearest anchor for aggregate computation.
         train_dists = _squared_dists(Xt_std, anchors)
-        # Wave 21 P1: np.argmin returns 0 on all-NaN rows (numpy>=1.18),
+        # np.argmin returns 0 on all-NaN rows (numpy>=1.18),
         # silently bucketing NaN-bearing rows under anchor 0 and
         # contaminating anchor 0's per-row aggregate. Use np.nanargmin,
         # which raises only when an entire row is all-NaN; that case is

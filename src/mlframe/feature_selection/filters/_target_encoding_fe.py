@@ -154,10 +154,16 @@ def _smooth_moments_from_centered(
             rawv = std
         elif stat == "skew":
             m3n = m3 / safe
-            rawv = np.where(std > 1e-9, m3n / std**3, 0.0)
+            # `np.where` evaluates BOTH branches, so a zero-variance category (any single-row or all-identical-y
+            # one, routine with high-cardinality categoricals) computes 0.0/0.0 and warns -- per fold, per column.
+            # The discarded value is already correct by `where`; suppressing belongs here rather than at every
+            # caller, matching `_binned_numeric_agg_fe`'s guard on the same arithmetic.
+            with np.errstate(divide="ignore", invalid="ignore"):
+                rawv = np.where(std > 1e-9, m3n / std**3, 0.0)
         elif stat == "kurt":
             m4n = m4 / safe
-            rawv = np.where(var > 1e-12, m4n / (var * var) - 3.0, 0.0)  # excess kurtosis
+            with np.errstate(divide="ignore", invalid="ignore"):
+                rawv = np.where(var > 1e-12, m4n / (var * var) - 3.0, 0.0)  # excess kurtosis
         else:
             raise ValueError(f"target-encoding stat {stat!r} not in {TE_SUPPORTED_STATS}")
         g = float(global_stats[stat])

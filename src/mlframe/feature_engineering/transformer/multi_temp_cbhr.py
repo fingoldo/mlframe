@@ -26,6 +26,7 @@ import numpy as np
 import polars as pl
 
 from ._hard_row_shared import topk_within_subset
+from ._squared_dists_shared import squared_dists as _squared_dists
 from ._utils import require_seed, validate_numeric_input, softmax
 
 logger = logging.getLogger(__name__)
@@ -159,8 +160,7 @@ def compute_multi_temp_cbhr_features(
         anchors_y = y_t[anchors_idx].astype(np.float32)
         anchors_abs = abs_residuals[anchors_idx].astype(np.float32)
 
-        diffs = Xq_s[:, None, :] - anchors_X[None, :, :]
-        sq = (diffs**2).sum(axis=-1)
+        sq = _squared_dists(Xq_s, anchors_X)  # (n_q, n_total)
         scores = -sq
         if pos_side_empty or neg_side_empty:
             scores = scores.copy()

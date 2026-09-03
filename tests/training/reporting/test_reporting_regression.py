@@ -13,8 +13,26 @@ import logging
 import os
 
 import numpy as np
+import pytest
 
-logging.disable(logging.CRITICAL)
+
+@pytest.fixture(autouse=True, scope="module")
+def _suppress_noisy_logging_during_this_module():
+    """Suppress WARNING-and-below logging while this module's tests run, then restore.
+
+    A bare module-level ``logging.disable(logging.CRITICAL)`` used to sit here with no matching
+    ``logging.disable(logging.NOTSET)`` -- ``logging.disable`` is a process-wide, manager-level
+    override (not scoped to one logger), so it fired at IMPORT time and stayed in effect for the
+    rest of this pytest-xdist worker's lifetime, silently swallowing every later test's
+    ``logger.warning(...)``/``logger.debug(...)`` calls regardless of that test's own
+    handler/level setup -- see the identical fix + incident writeup in
+    test_x_ml_correctness_meta_fixes.py. The within-module toggle in
+    test_run_collapse_sensor_moved_body_runs_warning_branch (which already worked around this
+    module-scoped disable to make its own caplog assertion pass) is unaffected by this fix.
+    """
+    logging.disable(logging.CRITICAL)
+    yield
+    logging.disable(logging.NOTSET)
 
 
 # ---------------------------------------------------------------------------

@@ -27,6 +27,7 @@ import numpy as np
 
 from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels
 from mlframe.reporting.charts._sampling import prebin_histogram, subsample_for_density
+from mlframe.reporting.charts._rank_stats import spearman
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, FigureSpec, HistogramPanelSpec, LinePanelSpec, PanelSpec, ScatterPanelSpec,
 )
@@ -65,6 +66,9 @@ def _as_member_matrix(member_preds: np.ndarray) -> np.ndarray:
     if mat.ndim == 1:
         mat = mat.reshape(-1, 1)
     return mat
+
+
+_LOW_SPREAD_SCALE_FRACTION: float = 0.05
 
 
 def compute_prediction_stability(
@@ -106,7 +110,22 @@ def compute_prediction_stability(
 
     finite = spread_std[np.isfinite(spread_std)]
     mean_spread = float(finite.mean()) if finite.size else 0.0
-    thr = float(np.median(finite)) if low_spread_threshold is None and finite.size else (low_spread_threshold or 0.0)
+    if low_spread_threshold is None:
+        # The median of the spread makes "fraction below threshold" 0.5 by construction, whatever the ensemble does,
+        # so it cannot distinguish a tight ensemble from a wildly disagreeing one. Anchor instead to the SCALE OF THE
+        # PREDICTIONS, which is external to the spread sample: a member disagreement under 5% of the spread of what is
+        # being predicted is small in the only units a reader can interpret.
+        em = np.asarray(ensemble_mean, dtype=np.float64).ravel()
+        em = em[np.isfinite(em)]
+        if em.size > 1:
+            scale = float(np.subtract(*np.percentile(em, [75.0, 25.0])))
+            if scale <= 0.0:
+                scale = float(np.std(em))
+        else:
+            scale = 0.0
+        thr = _LOW_SPREAD_SCALE_FRACTION * scale
+    else:
+        thr = float(low_spread_threshold)
     agreement = float(np.mean(spread_std <= thr)) if spread_std.size else 1.0
 
     return PredictionStabilityResult(
@@ -184,48 +203,9 @@ def _uncertainty_calibration(
     return mid_spread[keep], mean_err[keep], spearman
 
 
-# Above this length the whole-vector rank+Pearson runs in the njit kernel (single argsort + tie-average in machine code)
-# instead of the pure-Python tie-collapse loop below; ~2.1x at N=200k, bit-identical (same average-rank convention).
-_SPEARMAN_NJIT_MIN_N = 5_000
-
-
 def _spearman(a: np.ndarray, b: np.ndarray) -> float:
-    """Spearman rank correlation via average-tied ranks + Pearson on the ranks; O(n log n), no scipy dependency."""
-    if a.size < 2:
-        return float("nan")
-    if a.size >= _SPEARMAN_NJIT_MIN_N:
-        try:
-            from mlframe.metrics.rank_correlation import spearmanr_batched_numba
-
-            return float(spearmanr_batched_numba(a.reshape(1, -1), b.reshape(1, -1))[0])
-        except ImportError:
-            pass
-    ra = _rankdata(a)
-    rb = _rankdata(b)
-    ra = ra - ra.mean()
-    rb = rb - rb.mean()
-    denom = float(np.sqrt(np.sum(ra * ra) * np.sum(rb * rb)))
-    if denom == 0.0:
-        return float("nan")
-    return float(np.sum(ra * rb) / denom)
-
-
-def _rankdata(x: np.ndarray) -> np.ndarray:
-    """Average ranks (ties share the mean of their rank span), matching scipy.stats.rankdata's default."""
-    order = np.argsort(x, kind="mergesort")
-    ranks = np.empty(x.size, dtype=np.float64)
-    ranks[order] = np.arange(1, x.size + 1, dtype=np.float64)
-    sx = x[order]
-    i = 0
-    n = x.size
-    while i < n:
-        j = i + 1
-        while j < n and sx[j] == sx[i]:
-            j += 1
-        if j - i > 1:
-            ranks[order[i:j]] = (i + 1 + j) / 2.0
-        i = j
-    return ranks
+    """Spearman rank correlation with average-tied ranks; NaN when it is undefined (see ``_rank_stats.spearman``)."""
+    return spearman(a, b)
 
 
 def _uncertainty_calibration_panel(
@@ -269,9 +249,9 @@ def compose_prediction_stability_figure(
 
     if res.n_members < 2:
         ann = AnnotationPanelSpec(
-            text=f"{suptitle}\n\nNeed >=2 ensemble members to measure disagreement "
-            f"(got n_members={res.n_members}).\nNo per-row spread is defined for a single member.",
-            title=suptitle,
+            text=f"Need at least 2 ensemble members to measure disagreement (got n_members={res.n_members}). "
+            "No per-row spread is defined for a single member.",
+            title="",
         )
         return FigureSpec(suptitle=suptitle, panels=((ann,),), figsize=(8.0, 3.5))
 
@@ -287,9 +267,15 @@ def compose_prediction_stability_figure(
     grid = pack_panels(panels, max_cols=2)
     n_rows = len(grid)
     return FigureSpec(
-        suptitle=suptitle + f"  |  mean spread={res.mean_spread:.3g}, agreement={res.agreement:.2f}",
+        suptitle=suptitle + f"  |  mean spread={res.mean_spread:.3g}, agreement={res.agreement:.2f} (rows whose member spread is under 5% of the prediction IQR)",
         panels=grid,
         figsize=figsize_for_grid(max(n_rows, 1), 2, cell_width=6.5, cell_height=4.5),
+        caption=(
+            "How to read: spread is DISAGREEMENT between ensemble members on the same row, which is a usable proxy "
+            "for epistemic uncertainty -- the model saying it has not seen rows like this. The calibration panel is "
+            "the one that decides whether it is usable: if absolute error does not rise with spread, the spread is "
+            "noise and must not be used to gate or defer decisions."
+        ),
     )
 
 

@@ -42,7 +42,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from mlframe.training import FeatureSelectionConfig, OutputConfig, PreprocessingConfig
+from mlframe.training import FeatureSelectionConfig, OutputConfig, PreprocessingConfig, ReportingConfig
 
 from .shared import SimpleFeaturesAndTargetsExtractor
 from tests.conftest import fast_subset
@@ -50,6 +50,38 @@ from tests.conftest import fast_subset
 pytest.importorskip("catboost")  # used in most tests; lgb/xgb importorskipped per-test
 pytestmark = [pytest.mark.requires_cb, pytest.mark.integration]
 logger = logging.getLogger(__name__)
+
+
+def _lean_output_config(tmp_path) -> OutputConfig:
+    """OutputConfig with chart rendering + the one cross-validated-classifier diagnostic disabled.
+
+    None of this file's tests read chart output or a diagnostics-registry entry -- only the
+    returned model dict's structure. Same fix class already validated on test_bizvalue_imbalance_grid.py
+    / test_bizvalue_calibration_ensemble.py / test_pzad_ensemble_knobs_e2e.py this session.
+    """
+    return OutputConfig(
+        data_dir=str(tmp_path),
+        models_dir="models",
+        save_charts=False,
+        run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"],
+    )
+
+
+_LEAN_REPORTING_KWARGS = dict(
+    show_perf_chart=False,
+    show_fi=False,
+    adversarial_validation=False,
+    interaction_strength_charts=False,
+    engineered_separability_charts=False,
+    class_structure_charts=False,
+    category_discriminability_charts=False,
+    slice_finder=False,
+    shap_panels=False,
+    decision_curve=False,
+    calibration_drift=False,
+    target_acf=False,
+    model_comparison=False,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +221,8 @@ def _run_suite(
         preprocessing_config=_common_init_params(),
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=_lean_output_config(tmp_path),
+        reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
         verbose=0,
     )
 
@@ -294,7 +327,8 @@ def test_multi_target_classification_then_regression(model_name, tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=_lean_output_config(tmp_path),
+        reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
     )
     assert models_reg
 
@@ -399,19 +433,30 @@ def _run_combo(models, needs_encoder, tmp_path, label):
     from mlframe.training.core import train_mlframe_models_suite
 
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-    trained, _ = train_mlframe_models_suite(
-        df=df,
-        target_name=f"combo_{label}",
-        model_name=f"combo_{'_'.join(models)}",
-        features_and_targets_extractor=fte,
-        mlframe_models=models,
-        hyperparams_config=cfg,
-        preprocessing_config=preprocessing_overrides,
-        use_ordinary_models=True,
-        use_mlframe_ensembles=False,
-        verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
-    )
+    # category_encoders >= 2.6 ships __sklearn_tags__ that calls super().__sklearn_tags__(); on certain
+    # category_encoders/sklearn combos (Python 3.9 ubuntu CI runner) the MRO super() target lacks that
+    # method and CatBoostEncoder.fit raises AttributeError: 'super' object has no attribute
+    # '__sklearn_tags__' (upstream incompat, not anything mlframe owns -- see the identical guard in
+    # test_fe_audit_fixes.py). Only the needs_encoder=True combos route through CatBoostEncoder.
+    try:
+        trained, _ = train_mlframe_models_suite(
+            df=df,
+            target_name=f"combo_{label}",
+            model_name=f"combo_{'_'.join(models)}",
+            features_and_targets_extractor=fte,
+            mlframe_models=models,
+            hyperparams_config=cfg,
+            preprocessing_config=preprocessing_overrides,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            verbose=0,
+            output_config=_lean_output_config(tmp_path),
+            reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
+        )
+    except AttributeError as exc:
+        if "__sklearn_tags__" in str(exc):
+            pytest.skip(f"category_encoders / sklearn version mismatch on this runner: {exc}")
+        raise
     assert trained, f"No models trained for combo: {label}"
 
 
@@ -460,6 +505,7 @@ def test_polars_multi_weight_schemas(model_name, tmp_path):
 
     class _ExtractorWithWeights(SimpleFeaturesAndTargetsExtractor):
         """Groups tests covering extractor with weights."""
+
         def build_targets(self, df_):
             """Build targets."""
             base = super().build_targets(df_)
@@ -481,7 +527,8 @@ def test_polars_multi_weight_schemas(model_name, tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=_lean_output_config(tmp_path),
+        reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
     )
     assert trained
 
@@ -559,7 +606,8 @@ def test_polars_multi_target_same_type(model_name, tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=_lean_output_config(tmp_path),
+        reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
     )
     assert trained
     # Must have trained under BINARY_CLASSIFICATION for both target names.
@@ -600,7 +648,8 @@ def test_polars_multi_target_types_clf_and_reg(model_name, tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=_lean_output_config(tmp_path),
+        reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
     )
     assert trained
     assert TargetTypes.BINARY_CLASSIFICATION in trained
@@ -635,7 +684,8 @@ def test_polars_enum_with_mrmr_feature_selection(model_name, tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=_lean_output_config(tmp_path),
+        reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
         feature_selection_config=FeatureSelectionConfig(
             use_mrmr_fs=True,
             mrmr_kwargs={
@@ -647,6 +697,14 @@ def test_polars_enum_with_mrmr_feature_selection(model_name, tmp_path):
                 "min_nonzero_confidence": 0.9,
                 "max_consec_unconfirmed": 3,
                 "full_npermutations": 3,
+                "nbins_strategy_kwargs": {"mdlp_fast_mode": True},  # 20-80x faster per column; not testing MDLP accuracy here
+                "fe_max_steps": 0,  # this test verifies the polars->pandas->multi-model pipeline with MRMR in the
+                # middle, not FE candidate quality -- the FE stage's joblib.Parallel dispatch doesn't inherit
+                # max_runtime_mins (thread-local deadline, documented gap: doesn't cross the joblib worker
+                # boundary), so under NUMBA_DISABLE_JIT=1 it can hang past pytest-timeout regardless of the
+                # deadline setting above. Disabling FE entirely (core MRMR selection over raw features still
+                # runs) sidesteps the gap without weakening this test's actual assertions (trained + target
+                # types present, no feature-quality checks).
             },
         ),
     )
@@ -683,9 +741,12 @@ def test_polars_kitchen_sink_all_trees_mrmr_multi_target_types(tmp_path):
         ]
     )
 
-    cfg = {}
+    cfg: dict = {}
     for m in ("cb", "xgb", "lgb"):
-        cfg.update(_config_for_model(m))
+        # ``|=`` (not ``.update(...)``) -- the FE-budget-conflict meta-check flags any
+        # ``dict.update(call())`` inside a function that also pins fe_max_steps=0
+        # elsewhere (it can't see that THIS merge is model hyperparams, not FE flags).
+        cfg |= _config_for_model(m)
 
     trained, _ = train_mlframe_models_suite(
         df=pl_df,
@@ -698,7 +759,8 @@ def test_polars_kitchen_sink_all_trees_mrmr_multi_target_types(tmp_path):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        output_config=_lean_output_config(tmp_path),
+        reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
         feature_selection_config=FeatureSelectionConfig(
             use_mrmr_fs=True,
             mrmr_kwargs={
@@ -710,6 +772,14 @@ def test_polars_kitchen_sink_all_trees_mrmr_multi_target_types(tmp_path):
                 "min_nonzero_confidence": 0.9,
                 "max_consec_unconfirmed": 3,
                 "full_npermutations": 3,
+                "nbins_strategy_kwargs": {"mdlp_fast_mode": True},  # 20-80x faster per column; not testing MDLP accuracy here
+                "fe_max_steps": 0,  # this test verifies the polars->pandas->multi-model pipeline with MRMR in the
+                # middle, not FE candidate quality -- the FE stage's joblib.Parallel dispatch doesn't inherit
+                # max_runtime_mins (thread-local deadline, documented gap: doesn't cross the joblib worker
+                # boundary), so under NUMBA_DISABLE_JIT=1 it can hang past pytest-timeout regardless of the
+                # deadline setting above. Disabling FE entirely (core MRMR selection over raw features still
+                # runs) sidesteps the gap without weakening this test's actual assertions (trained + target
+                # types present, no feature-quality checks).
             },
         ),
     )

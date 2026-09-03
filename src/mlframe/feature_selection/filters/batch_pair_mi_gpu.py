@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import logging
 
+from mlframe.utils.log_throttle import log_throttle
+
 import numpy as np
 
 # Re-export CPU baseline for callers who want a single import point.
@@ -492,7 +494,23 @@ def dispatch_batch_pair_mi(
             try:
                 return batch_pair_mi_cuda(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cuda"
             except Exception as e:
-                logger.debug("batch_pair_mi_cuda failed, falling back to the next backend: %s", e)
+                # The comment below names three causes and this handler treated them identically. A shape-guard
+                # trip is expected, cheap and PERMANENT for that shape, so it stays at debug; a driver fault or
+                # a kernel bug is neither, and the fallback keeps the answer correct, which is exactly why a
+                # genuine regression would otherwise never be noticed. `_is_shape_guard` separates them.
+                _is_shape_guard = isinstance(e, ValueError) and ("shared" in str(e).lower() or "exceed" in str(e).lower())
+                if _is_shape_guard:
+                    logger.debug("batch_pair_mi_cuda shape guard tripped for this shape, falling back to the next backend: %s", e)
+                else:
+                    log_throttle(
+                        logger,
+                        "batch_pair_mi_cuda_runtime_failure",
+                        logging.WARNING,
+                        "batch_pair_mi_cuda failed with %s (%s) -- NOT a shape-guard trip; falling back to the "
+                        "next backend. The result stays correct, so this would otherwise be invisible.",
+                        type(e).__name__,
+                        e,
+                    )
                 # Shape guard tripped (most commonly max_joint/n_classes_y exceeding the STATIC
                 # shared-memory kernel's compile-time caps) or a runtime/driver fault -> try the single-
                 # launch shared-fused kernel (sidesteps the static caps via opt-in dynamic shared memory,

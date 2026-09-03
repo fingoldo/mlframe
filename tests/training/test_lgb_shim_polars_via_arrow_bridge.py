@@ -12,6 +12,8 @@ shared pyarrow Categorical-cast cost dominates).
 
 from __future__ import annotations
 
+import subprocess  # nosec B404 - used only with a fixed argv (sys.executable + a literal script), no shell
+import sys
 import time
 
 import numpy as np
@@ -60,11 +62,33 @@ def test_raw_lgb_dataset_rejects_polars_proves_bridge_is_required():
 
     The shim's pre-fix docstring claimed polars worked via ``__array__``. It did not on LightGBM 4.x. This test pins the upstream behaviour so a future
     LightGBM release that learns to consume polars natively flips this test red and signals the bridge can be retired.
+
+    Run in an isolated subprocess: newer LightGBM (narwhals-based native dataframe ingestion,
+    ``__init_from_narwhals``) does not always raise a clean ``TypeError`` here anymore -- on a
+    Categorical/dictionary-encoded Arrow column it can instead abort the WHOLE PROCESS (confirmed live
+    via CI crash logs: ``[LightGBM] [Fatal] Unsupported Arrow type: dictionary`` immediately followed by
+    ``terminate called without an active exception`` / ``Fatal Python error: Aborted``, with the C stack
+    showing ``lightgbm.basic.__init_from_narwhals -> _lazy_init -> Dataset.construct()``). A same-process
+    ``pytest.raises`` can never catch a process abort -- it took the whole pytest-xdist worker down with
+    it, silently dropping every other test that worker was mid-running. Isolating the probe means a crash
+    here only fails THIS test (non-zero exit / no success marker), not the whole worker. Either a clean
+    ``TypeError`` OR a native crash proves the raw path is still unsafe without the bridge; only a clean
+    SUCCESS (the marker printed) means LightGBM now handles this natively and the bridge can be retired.
     """
-    df_pl = _make_mixed_polars(100)
-    y = np.zeros(df_pl.height)
-    with pytest.raises(TypeError, match="Cannot initialize Dataset from"):
-        lgb.Dataset(data=df_pl, label=y, free_raw_data=False).construct()
+    script = (
+        "import numpy as np, polars as pl, lightgbm as lgb\n"
+        "from tests.training.test_lgb_shim_polars_via_arrow_bridge import _make_mixed_polars\n"
+        "df_pl = _make_mixed_polars(100)\n"
+        "y = np.zeros(df_pl.height)\n"
+        "lgb.Dataset(data=df_pl, label=y, free_raw_data=False).construct()\n"
+        "print('RAW_LGB_DATASET_CONSTRUCT_SUCCEEDED')\n"
+    )
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=120)  # nosec B603 -- fixed local argv (sys.executable + a literal script), no shell, no untrusted input
+    assert "RAW_LGB_DATASET_CONSTRUCT_SUCCEEDED" not in result.stdout, (
+        "raw lgb.Dataset(polars).construct() now SUCCEEDS -- LightGBM learned to consume polars "
+        "(incl. Categorical) natively; the Arrow split-blocks bridge may be retirable. "
+        f"stdout={result.stdout!r} stderr={result.stderr[-2000:]!r}"
+    )
 
 
 def test_lgb_dataset_from_bridged_polars_keeps_categorical():
@@ -80,21 +104,73 @@ def test_lgb_dataset_from_bridged_polars_keeps_categorical():
         assert isinstance(cached[cat_col].dtype, pd.CategoricalDtype), f"{cat_col} lost Categorical dtype inside the cached Dataset"
 
 
-def test_predict_numerical_equivalence_polars_vs_bridged_pandas():
-    """``model.predict`` output must match (within float epsilon) whether the input is polars or its pre-bridged pandas equivalent."""
+def test_predict_numerical_equivalence_polars_vs_bridged_pandas(monkeypatch):
+    """``model.predict`` output must match (within float epsilon) whether the input is polars or its pre-bridged pandas equivalent.
+
+    ``deterministic=True``/``force_row_wise=True``/``n_jobs=1`` pin LightGBM's own histogram-building order: without them,
+    two separately-fit models with the same ``random_state`` can still diverge (LightGBM's default multi-threaded histogram
+    build is not float-deterministic across threads), which would fail this test for a reason unrelated to the polars bridge
+    under test.
+
+    ``MLFRAME_LGB_CACHE_DISABLE=1`` bypasses ``_LGB_DATASET_CACHE`` (module-level, content-keyed across ALL model
+    instances) for the duration of this test: reusing the SAME cached ``lgb.Dataset`` object across two otherwise-
+    independent ``.fit()`` calls (model_a here, then model_b) was empirically confirmed to make even two fits on the
+    IDENTICAL pandas frame diverge by up to ~2e-3 (verified independently of polars vs pandas by fitting the same
+    bridged frame twice back-to-back) -- a real but SEPARATE nondeterminism concern in the reuse mechanism itself,
+    not something this bridge-equivalence test is meant to characterize. Disabling reuse here isolates the actual
+    contract under test (bridge output equivalence) from that unrelated caching behavior.
+    """
+    monkeypatch.setenv("MLFRAME_LGB_CACHE_DISABLE", "1")
     df_pl = _make_mixed_polars(2_000, seed=3)
     y = np.random.default_rng(4).normal(size=df_pl.height)
 
-    model_a = LGBMRegressorWithDatasetReuse(n_estimators=10, random_state=0, verbose=-1)
+    model_a = LGBMRegressorWithDatasetReuse(n_estimators=10, random_state=0, verbose=-1, deterministic=True, force_row_wise=True, n_jobs=1)
     model_a.fit(df_pl, y)
     pred_polars = model_a.predict(_maybe_bridge_polars_to_pandas(df_pl))
 
     df_pd = _maybe_bridge_polars_to_pandas(df_pl)
-    model_b = LGBMRegressorWithDatasetReuse(n_estimators=10, random_state=0, verbose=-1)
+    model_b = LGBMRegressorWithDatasetReuse(n_estimators=10, random_state=0, verbose=-1, deterministic=True, force_row_wise=True, n_jobs=1)
     model_b.fit(df_pd, y)
     pred_pandas = model_b.predict(df_pd)
 
     np.testing.assert_allclose(pred_polars, pred_pandas, rtol=1e-6, atol=1e-6)
+
+
+def test_predict_bridges_polars_when_model_has_no_categoricals():
+    """Regression: the same bug class fixed in xgb_shim.py's predict/predict_proba.
+
+    ``fit()`` converts a polars X to pandas UNCONDITIONALLY (the "Polars -> pandas" block runs
+    before ``_mlframe_train_cat_dtypes`` is even computed). But ``_align_cats_for_predict`` used to
+    early-return the bare, unconverted X whenever the trained model had no categorical columns
+    (``if not train_cats: return X`` ran BEFORE the polars bridge call) -- so a model trained on an
+    all-numeric polars frame received a raw, unconverted polars X at predict time. Spies on the real
+    ``LGBMRegressor.predict`` (not a fake) to see exactly what X type it receives, matching the
+    xgb_shim regression test's technique.
+    """
+    df_pl = pl.DataFrame({"num0": [1.0, 2.0, 3.0, 4.0], "num1": [4.0, 5.0, 6.0, 7.0]})
+    y = np.array([0.1, 0.2, 0.3, 0.4])
+
+    model = LGBMRegressorWithDatasetReuse(n_estimators=3, verbose=-1)
+    model.fit(df_pl, y)
+    assert not model._mlframe_train_cat_dtypes, "fixture must have no categoricals to exercise the early-return path"
+
+    received = {}
+    real_predict = lgb.LGBMRegressor.predict
+
+    def _spy_predict(self, X_arg, *args, **kwargs):
+        """Record X_arg then delegate to the real (pre-monkeypatch) LGBMRegressor.predict."""
+        received["X"] = X_arg
+        return real_predict(self, X_arg, *args, **kwargs)
+
+    orig = lgb.LGBMRegressor.predict
+    lgb.LGBMRegressor.predict = _spy_predict
+    try:
+        model.predict(df_pl)
+    finally:
+        lgb.LGBMRegressor.predict = orig
+
+    assert isinstance(received["X"], pd.DataFrame), "polars X must be converted to pandas before reaching LightGBM's own predict, even with no trained categoricals"
+    assert list(received["X"].columns) == ["num0", "num1"]
 
 
 @pytest.mark.parametrize("n_rows", [200_000])

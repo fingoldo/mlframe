@@ -266,7 +266,7 @@ def apply_polars_categorical_fixes(
                 # with int raises TypeError on sort, which the broad except below would swallow and the cat-alignment would
                 # be skipped, then XGB/CB would crash later on val DMatrix with a misleading unseen-category error. Coerce
                 # via str-key so the alignment works on heterogeneous input.
-                # bench-attempt-rejected (2026-05-24): guarding ``sorted(key=str)`` behind a homogeneous-str isinstance() check on the union saved only
+                # bench-attempt-rejected: guarding ``sorted(key=str)`` behind a homogeneous-str isinstance() check on the union saved only
                 # ~4% wall on 50k-cardinality unions (28.5ms -> 27.3ms) -- not worth the extra branch; keep the unconditional str-key form.
                 union_sorted = sorted(union, key=str)
                 enum_dt = pl.Enum(union_sorted)

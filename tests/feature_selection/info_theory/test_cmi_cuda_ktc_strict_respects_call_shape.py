@@ -25,6 +25,11 @@ def _isolate(monkeypatch):
     """Helper that isolate."""
     monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
     monkeypatch.delenv("MLFRAME_FE_GPU_STRICT_AUTO_MIN_N", raising=False)
+    # ``gpu_globally_disabled()`` (consulted downstream of the mocked ``_cuda_usable``) otherwise
+    # silently overrides ``_cuda_usable``'s mock whenever the ambient CI/host env carries the off-switch --
+    # see the identical fixture in test_batch_pair_mi_gpu_vram_guard.py for the full root-cause writeup.
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.delenv("MLFRAME_DISABLE_GPU", raising=False)
     _strict_mod.clear_auto_fit_n()
     monkeypatch.setattr(_strict_mod, "_cuda_usable", lambda: True)
     yield

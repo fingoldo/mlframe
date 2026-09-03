@@ -15,6 +15,14 @@ pip install -e ../pyutilz
 # Install mlframe with the extras you need + dev tooling:
 pip install -e ".[boosting,calibration,viz,dev]"
 
+# pyproject.toml's [tool.ruff] extends the shared base ruff config from
+# $PY_CI_SHARED_DIR/configs/ruff-base.toml -- ruff hard-fails with "environment
+# variable not found" if this is unset, so clone py-ci-shared as a sibling too
+# and point the env var at it (any checkout works; it doesn't need pinning).
+# Add the export to your shell profile so it persists across sessions.
+git clone https://github.com/fingoldo/py-ci-shared.git ../py-ci-shared
+export PY_CI_SHARED_DIR="$(cd ../py-ci-shared && pwd)"
+
 # Install pre-commit hooks (detect-secrets + meta-tests):
 pre-commit install
 ```
@@ -63,7 +71,7 @@ Every bug fix needs a regression test that **fails on pre-fix code** and **passe
 
 ## sklearn compatibility
 
-The composite-target wrapper surface (`mlframe.training.composite`, `mlframe.training.composite.estimator`) is tested across scikit-learn 1.5, 1.6, 1.7, 1.8 by the `sklearn-matrix` workflow. When touching that surface, expect that workflow to run and stay green.
+The composite-target wrapper surface (`mlframe.training.composite`, `mlframe.training.composite.estimator`) is tested across scikit-learn 1.6, 1.7, 1.8 by the `sklearn-matrix` workflow. When touching that surface, expect that workflow to run and stay green. (scikit-learn 1.5 cannot import mlframe at all -- the hard dependency floor in `pyproject.toml` is `scikit-learn>=1.6`.)
 
 ## Commits
 

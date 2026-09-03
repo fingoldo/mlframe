@@ -103,12 +103,18 @@ def test_multiclass_largeK_selects_genuinely_worst_classes():
 
 
 def test_multiclass_macro_present_on_all_overlay_panels():
-    """Multiclass macro present on all overlay panels."""
+    """Every top-N overlay carries an aggregate series summarising the classes it had to drop.
+
+    The reliability overlay's aggregate is now a SUPPORT-WEIGHTED pool, not an unweighted macro average over
+    per-class rates -- averaging rates let a 3-row bin count as much as a 300k-row one, while the per-bin counts
+    needed to pool correctly were computed and discarded two lines earlier. The contract this test exists for is
+    "an aggregate series is present", not which estimator it uses, so it accepts either name.
+    """
     y, proba, classes = _multiclass_with_hard_classes()
     fig = compose_multiclass_figure(y, proba, classes, panels_template="ROC PR_CURVES CALIB_GRID", overlay_max_classes=12, overlay_top_n=8)
     for title in ("Per-class ROC", "Per-class PR", "Per-class reliability"):
         panel = _find_line_panel(fig, title)
-        assert any("macro" in s for s in panel.series_labels), f"{title} missing macro-avg"
+        assert any(("macro" in s or "pooled" in s) for s in panel.series_labels), f"{title} missing aggregate series"
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +147,9 @@ def test_multilabel_largeK_switches_to_topN_plus_macro_and_picks_worst():
     for h in hard:
         assert f"lbl{h}" in drawn, f"hard label lbl{h} must be drawn; got {sorted(drawn)}"
     calib = _find_line_panel(fig, "Per-label reliability")
-    assert any("macro" in s for s in calib.series_labels)
+    # The reliability aggregate pools per-bin sums and counts rather than averaging per-label rates, so its label
+    # says "pooled" -- see test_multiclass_macro_present_on_all_overlay_panels for why the estimator changed.
+    assert any(("macro" in s or "pooled" in s) for s in calib.series_labels)
 
 
 def test_overlay_top_n_param_controls_curve_count():

@@ -38,6 +38,8 @@ from typing import Any, Mapping, Optional
 
 import numpy as np
 
+from ._honest_decision_threshold import decision_threshold_block, format_decision_threshold_line
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,10 +80,14 @@ def _derive_seed(master_seed: int, key: str) -> int:
     return derive_seed(master_seed, key)
 
 
-def _bootstrap_block(
-    y_true: np.ndarray, probs: np.ndarray, preds: Optional[np.ndarray] = None, *, rng_seed: int = 0,
-) -> dict[str, Any]:
-    """Compute bootstrap CIs for the binary top-line metrics that apply to ``(y_true, probs)``."""
+def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, *, rng_seed: int = 0) -> dict[str, Any]:
+    """Compute bootstrap CIs for the binary top-line metrics that apply to ``(y_true, probs)``.
+
+    Every metric here is probability-based (roc_auc, brier, log_loss, ece), so crisp predictions are not an
+    input. A ``preds`` parameter was accepted and passed by the caller but never read anywhere in the body,
+    which reads as working plumbing for a crisp-metric CI that does not exist -- so it is gone rather than
+    silently ignored. Adding an accuracy or F1 interval means adding the metric AND the argument together.
+    """
     from mlframe.evaluation.bootstrap import bootstrap_metric, bootstrap_metrics
 
     p = probs
@@ -310,6 +316,15 @@ def _posthoc_calibrated_flag(model_entry: Any) -> Optional[bool]:
     return None
 
 
+def _entry_oof_probs(model_entry: Any) -> Optional[np.ndarray]:
+    """OOF probabilities off the entry, or off its inner model -- some entries expose them only there."""
+    oof = getattr(model_entry, "oof_probs", None)
+    if oof is None:
+        inner = getattr(model_entry, "model", None)
+        oof = getattr(inner, "oof_probs", None) if inner is not None else None
+    return _safe_arr(oof) if oof is not None else None
+
+
 def _calibration_block(model_entry: Any, target_name: str, out_dir: Optional[str], *, rng_seed: int = 0) -> dict[str, Any]:
     """Emit reliability plot + auto-pick verdict for ``model_entry`` when OOF probs are available."""
     _posthoc = _posthoc_calibrated_flag(model_entry)
@@ -323,10 +338,13 @@ def _calibration_block(model_entry: Any, target_name: str, out_dir: Optional[str
     oof_arr = _safe_arr(oof)
     if oof_arr is None:
         return {"status": "skipped", "reason": "oof_probs empty / unreadable", "probs_posthoc_calibrated": _posthoc}
-    # OOF target: prefer attached attribute, fall back to test_target as poor-but-consistent proxy.
+    # OOF target: must be the target actually aligned to oof_probs' TRAIN-row order. A prior
+    # fallback to test_target here silently paired oof_probs[i] (a train-row prediction) with
+    # test_target[i] (an unrelated test-split label) whenever both arrays happened to be truncated
+    # to the same length -- a positional coincidence, not a real correspondence -- producing a
+    # meaningless calibration/ECE diagnostic reported as status=ok. No safe proxy exists; skip
+    # cleanly when oof_target is genuinely absent, matching every other skip path in this function.
     y = getattr(model_entry, "oof_target", None)
-    if y is None:
-        y = getattr(model_entry, "test_target", None)
     y_arr = _safe_arr(y)
     if y_arr is None or y_arr.size < 4:
         return {"status": "skipped", "reason": "oof_target absent / too small"}
@@ -453,6 +471,7 @@ def run_honest_diagnostics(
         "bootstrap_ci": {},
         "drift_psi": {},
         "calibration": {},
+        "decision_threshold": {},
         "provenance": {},
         "reports_dir": reports_dir,
     }
@@ -466,9 +485,7 @@ def run_honest_diagnostics(
             payload["bootstrap_ci"][key] = {"status": "skipped", "reason": "no test_target / test_probs"}
             continue
         try:
-            payload["bootstrap_ci"][key] = _bootstrap_block(
-                y_test, p_test, getattr(entry, "test_preds", None), rng_seed=_derive_seed(master_seed, key),
-            )
+            payload["bootstrap_ci"][key] = _bootstrap_block(y_test, p_test, rng_seed=_derive_seed(master_seed, key))
         except Exception as exc:
             logger.debug("bootstrap CI block failed for key %r, skipping: %s", key, exc)
             payload["bootstrap_ci"][key] = {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
@@ -483,7 +500,26 @@ def run_honest_diagnostics(
             entry, target_name=tname, out_dir=reports_dir, rng_seed=_derive_seed(master_seed, key + "/calib"),
         )
 
-    # Block 4: provenance disposition table.
+    # Block 4: the decision threshold every crisp metric above was computed at, against the one OOF supports.
+    _rep_cfg = getattr(ctx, "reporting_config", None)
+    _costs = getattr(_rep_cfg, "decision_costs", None) if _rep_cfg is not None else None
+    for tt_str, tname, entry in _walk_top_models(models):
+        key = f"{tt_str}/{tname}/{getattr(entry, 'model_name', type(getattr(entry, 'model', entry)).__name__)}"
+        try:
+            _block = decision_threshold_block(
+                entry,
+                oof_probs=_entry_oof_probs(entry),
+                oof_target=_safe_arr(getattr(entry, "oof_target", None)),
+                decision_costs=_costs,
+                rng_seed=_derive_seed(master_seed, key + "/threshold"),
+            )
+        except Exception as exc:
+            logger.debug("decision-threshold block failed for key %r, skipping: %s", key, exc)
+            _block = {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
+        payload["decision_threshold"][key] = _block
+        logger.info("%s", format_decision_threshold_line(key, _block))
+
+    # Block 5: provenance disposition table.
     payload["provenance"] = _provenance_block(metadata)
 
     metadata["honest_diagnostics"] = payload

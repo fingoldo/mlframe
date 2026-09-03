@@ -116,12 +116,19 @@ def shared_attribute_edges(
             skipped += 1
             continue
         mem = members if t is None else members[np.argsort(t[members], kind="stable")]  # ascending time within the group
+        t_mem = t[mem] if t is not None else np.empty(0, dtype=np.float64)
         for pos in range(m):
             i = mem[pos]
             if t is not None:
-                # directed edge i -> each strictly-earlier same-group peer (leakage-safe past); bound the window
-                lo = 0 if max_neighbours is None else max(0, pos - max_neighbours)
-                partners = mem[lo:pos]
+                # STRICTLY earlier by timestamp VALUE, not by position in the sort. Slicing at ``pos`` linked rows
+                # sharing an identical timestamp as if one were in the other's past -- and day-granularity
+                # timestamps are the common case for a transactions or affiliation table, so a group at times
+                # [5, 5, 5] had its third row aggregating two contemporaneous labels through a feature the module
+                # documents as past-only. The sibling ``knn_graph_edges`` in this file already uses the strict
+                # value comparison; this matches it.
+                cut = np.searchsorted(t_mem, t_mem[pos], side="left")
+                lo = 0 if max_neighbours is None else max(0, cut - max_neighbours)
+                partners = mem[lo:cut]
             else:
                 # one undirected edge per pair (upper triangle) -> graph_structural_features symmetrizes correctly
                 hi = m if max_neighbours is None else min(m, pos + 1 + max_neighbours)

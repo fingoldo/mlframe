@@ -30,6 +30,12 @@ from sklearn.linear_model import LinearRegression
 
 from mlframe.reporting.charts import shap_panels as sp
 
+# Every test here asserts an EXACT-EMPTY pyplot figure registry (``plt.get_fignums() == []``), which is
+# only meaningful if the registry actually starts clean -- opt into the conftest-level ``uses_matplotlib``
+# cleanup (``plt.close("all")`` after each test) so THIS file never itself leaks a figure into whatever
+# xdist-worker-shared test runs next.
+pytestmark = pytest.mark.uses_matplotlib
+
 
 def _strong_f0(n: int, n_feat: int = 5, *, coef: float = 3.0, noise: float = 0.1, seed: int = 0):
     """Synthetic where y is a strong monotone-increasing function of f0 alone."""
@@ -46,10 +52,15 @@ def _fit_rf(X, y, *, n_estimators: int = 30, max_depth: int = 6, seed: int = 0) 
 
 @pytest.fixture(autouse=True)
 def _no_leaked_figures():
-    """Every test must leave the pyplot registry as it found it (no figure leak in long sessions)."""
-    before = set(plt.get_fignums())
+    """Every test must leave the pyplot registry EMPTY (this file's own tests assert
+    ``plt.get_fignums() == []`` directly, not just "no new leak"). Close any figures ALREADY open at
+    setup -- an unrelated test running earlier in the same xdist worker (without the ``uses_matplotlib``
+    marker, so conftest's own cleanup skipped it) can leave the pyplot registry non-empty, which would
+    otherwise fail every test in this file's own strict-empty assertion regardless of this file's own
+    behavior."""
+    plt.close("all")
     yield
-    leaked = set(plt.get_fignums()) - before
+    leaked = set(plt.get_fignums())
     for num in leaked:
         plt.close(num)
     assert not leaked, f"test leaked open figures: {sorted(leaked)}"
@@ -191,7 +202,8 @@ def test_empty_input_skips():
     """Zero rows / zero columns is a best-effort skip, not a crash."""
     m = _fit_rf(*_strong_f0(200, seed=0))
     res = sp.shap_summary_and_dependence(m, np.empty((0, 5)), feature_names=[f"f{i}" for i in range(5)])
-    assert res.skipped == "empty input"
+    # The bare reason named no cause; it now says WHICH of the two degeneracies applied.
+    assert res.skipped is not None and res.skipped.startswith("empty input")
     assert res.figures == []
 
 
@@ -338,7 +350,12 @@ def test_biz_value_f0_ranks_first_and_monotone(tmp_path):
 
     # Dependence sign/monotonicity: SHAP_f0 increases with f0's value. Recompute the same SHAP matrix the
     # dependence plot uses (one explainer reused) and assert a strongly positive rank-like correlation.
-    explainer = shap.TreeExplainer(m)
+    # Raw shap.TreeExplainer construction MUST go through _maybe_patch_shap_xgb_base_score -- see
+    # test_shap_xgb_patch_version_gate.py's docstring for the full incident.
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as _spe
+
+    with _spe._maybe_patch_shap_xgb_base_score():
+        explainer = shap.TreeExplainer(m)
     Xs = X.iloc[:2000]
     shap_mat = sp._shap_values_2d(explainer(Xs, check_additivity=False))
     corr = float(np.corrcoef(Xs["f0"].to_numpy(), shap_mat[:, 0])[0, 1])
@@ -395,7 +412,12 @@ def test_shap_default_max_rows_cap_bounded_and_ranking_stable():
     X = rng.standard_normal((n, nf))
     y = 2.0 * X[:, 0] - 1.5 * X[:, 1] + 0.8 * X[:, 2] * X[:, 3] + rng.standard_normal(n) * 0.5
     model = lgb.LGBMRegressor(n_estimators=200, num_leaves=31, verbosity=-1).fit(X, y)
-    expl = shap.TreeExplainer(model)
+    # Raw shap.TreeExplainer construction MUST go through _maybe_patch_shap_xgb_base_score -- see
+    # test_shap_xgb_patch_version_gate.py's docstring for the full incident.
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as _spe
+
+    with _spe._maybe_patch_shap_xgb_base_score():
+        expl = shap.TreeExplainer(model)
 
     def _topk(nrows, k=sp.DEFAULT_TOP_K):
         """Helper: Topk."""

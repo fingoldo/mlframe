@@ -145,8 +145,19 @@ def diversity_ablation_report(
             continue
         is_lower_accuracy = (individual_scores[name] < best_score) if higher_score_is_better else (individual_scores[name] > best_score)
         off_diag = np.delete(corr_matrix[i], i)
-        max_corr = float(np.nanmax(np.abs(off_diag))) if off_diag.size > 0 else 0.0
-        is_low_correlation = max_corr < correlation_threshold
+        # A constant/zero-variance prediction column has undefined correlation with every other model
+        # (Pearson correlation divides by a zero std), so off_diag can be ALL-NaN. np.nanmax on an
+        # all-NaN slice returns NaN, and NaN < correlation_threshold is always False -- pre-fix this
+        # silently EXCLUDED such a model from the diversity report instead of flagging it (a
+        # constant-prediction model is a real degenerate case worth surfacing, not hiding). Treat an
+        # undefined max_corr as low-correlation (worth reviewing) rather than defaulting to "not flagged".
+        if off_diag.size == 0:
+            max_corr = 0.0
+        else:
+            with np.errstate(invalid="ignore"):
+                _raw_max = np.nanmax(np.abs(off_diag)) if not np.all(np.isnan(off_diag)) else np.nan
+            max_corr = float(_raw_max)
+        is_low_correlation = np.isnan(max_corr) or max_corr < correlation_threshold
 
         if is_lower_accuracy and is_low_correlation:
             without_pred = (total_sum - oof_preds[name]) / (n_models - 1)

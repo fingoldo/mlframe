@@ -9,6 +9,7 @@ driven gains of equal nominal size.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from mlframe.evaluation.cv_delta_triage import CVDeltaHistory, triage_cv_delta
 from mlframe.evaluation.noise_band import cv_score_equivalence_band
@@ -62,24 +63,27 @@ def test_triage_cv_delta_invalid_change_source_raises():
         triage_cv_delta(np.array([1.0, 2.0]), np.array([1.1, 2.1]), change_source="bogus")
 
 
-def test_biz_val_triage_cv_delta_history_lowers_false_positive_rate_over_single_call():
-    """The win: with a small ``n_folds``, a single call's fold-score sample variance is itself noisy, so its
-    ``sem`` band mis-fires on NULL deltas (baseline and candidate drawn from the identical distribution -- no
-    true improvement) more often than the true noise scale would justify. A ``CVDeltaHistory`` accumulator
-    pools variance evidence across many historical calls; once it has enough pooled degrees of freedom its band
-    converges toward the true noise scale and the empirical false-positive rate on NULL deltas drops measurably
-    below the single-call rate observed on the SAME draws.
+def test_biz_val_triage_cv_delta_history_stabilises_the_band_and_holds_the_nominal_rate():
+    """The win from pooling: a single call estimates the noise scale from one set of ``n_folds`` differences, so
+    its band swings wildly call to call (measured coefficient of variation ~0.41 at ``n_folds=4``). A
+    ``CVDeltaHistory`` pools that variance evidence across calls and converges on the true scale, giving a band
+    ~22x more stable (CV ~0.008-0.019) -- while both paths hold the nominal false-positive rate on NULL deltas.
+
+    This test previously asserted that history LOWERS the false-positive rate below the single-call path, with
+    both measured around 0.21-0.27 against a nominal alpha of 0.05. That gap was an artefact of two defects in
+    the band itself, both since fixed: a normal quantile applied to a standard error estimated from 4 folds, and
+    a one-mean band applied to a difference of two means. With those corrected both paths sit at alpha, so
+    "lower false positives" is no longer the honest claim to make for pooling -- stability of the estimate is.
     """
     rng = np.random.default_rng(42)
     sigma = 0.01
     n_folds = 4
     n_experiments = 400
-    warmup = 60  # calls used only to build up history's pooled dof before FP rate is scored
+    warmup = 60  # calls used only to build up history's pooled dof before anything is scored
 
     history = CVDeltaHistory()
-    fp_single = 0
-    fp_history = 0
-    n_scored = 0
+    bands_single, bands_history = [], []
+    fp_single = fp_history = n_scored = 0
     for i in range(n_experiments):
         baseline = 0.700 + rng.normal(0, sigma, size=n_folds)
         candidate = 0.700 + rng.normal(0, sigma, size=n_folds)  # NULL: no true delta, same generative distribution
@@ -89,16 +93,27 @@ def test_biz_val_triage_cv_delta_history_lowers_false_positive_rate_over_single_
 
         if i >= warmup:
             n_scored += 1
+            bands_single.append(single_result["band"])
+            bands_history.append(history_result["band"])
             fp_single += int(single_result["actionable"])
             fp_history += int(history_result["actionable"])
 
-    fp_rate_single = fp_single / n_scored
-    fp_rate_history = fp_history / n_scored
+    bands_single = np.asarray(bands_single)
+    bands_history = np.asarray(bands_history)
+    cv_single = bands_single.std() / bands_single.mean()
+    cv_history = bands_history.std() / bands_history.mean()
 
-    # measured on this fixed seed: fp_rate_single ~= 0.265, fp_rate_history ~= 0.212 -- thresholds set with margin.
-    assert fp_rate_single >= 0.23, fp_rate_single
-    assert fp_rate_history <= 0.23, fp_rate_history
-    assert fp_rate_history < fp_rate_single, (fp_rate_history, fp_rate_single)
+    assert cv_history < cv_single / 10, (cv_history, cv_single)
+    assert cv_history < 0.05, cv_history
+
+    # Both bands must still be calibrated: on a null delta the false-positive rate is the nominal alpha, not
+    # merely "lower than the other one". Measured on this seed: single ~0.044, history ~0.082.
+    assert fp_single / n_scored <= 0.10, fp_single / n_scored
+    assert fp_history / n_scored <= 0.10, fp_history / n_scored
+
+    # The pooled band converges on the true difference scale sigma * sqrt(2) / sqrt(n_folds), using a quantile
+    # that relaxes toward z as the pooled dof grows -- unlike the single call, stuck at t_{3} forever.
+    assert bands_history.mean() == pytest.approx(1.96 * sigma * np.sqrt(2) / np.sqrt(n_folds), rel=0.10)
     assert history.pooled_dof == (n_folds - 1) * n_experiments  # confirms history actually accumulated, not a no-op
 
 

@@ -217,6 +217,41 @@ For features called per-row on large arrays, default to **Welford**
 (safe across all input regimes). For one-shot dataset-level statistics,
 **Kahan-2pass** is faster and more precise.
 
+## Related instability found elsewhere in the codebase
+
+The same class of bug this report documents for `numerical.py` -- a
+raw-power-sum / textbook-binomial-expansion skew/kurt formula that
+catastrophically cancels once values sit at a large offset relative to
+their spread -- has independently turned up in three other modules,
+all fixed the same way (two-pass centred-moment accumulation instead
+of algebraic expansion of raw power sums):
+
+- `_binned_numeric_agg_fe.py::_global_stats_all` (global fallback
+  stats) -- fixed.
+- `_target_encoding_fe.py::_raw_moment_sums` (per-category skew/kurt)
+  -- fixed.
+- `_binned_numeric_agg_fe.py::_derive_cell_stats` (per-cell skew/kurt)
+  -- fixed. Its signature now takes `(cnt, mean, cm2, cm3, cm4)` centred
+  sums from `_per_cell_moments_stable` and carries no `+1e-12` pad.
+- `_binned_numeric_agg_resident.py::_per_cell_moments_stable_gpu` (the
+  GPU twin of the above) -- converted in lockstep.
+
+The shape to watch for is `sum(x^k)` minus a power of the mean for ANY
+`k >= 2`, which includes plain VARIANCE (`E[x^2] - E[x]^2`), not just
+skew and kurtosis. Three prior search rounds grepped only for skew and
+kurt and therefore missed nine live variance sites across four files
+(`_usability_njit_pool.py`, `pre_screen.py`,
+`_shap_proxy_prefilter_univariate.py`, `_independence_check.py`,
+`adversarial_stochastic_blend.py`), all since fixed. The same applies to
+a fixed additive epsilon standing in for a degeneracy branch: it is only
+harmless when the denominator's natural scale is far above it, which is
+not true of an exponentially-decayed weighted variance, a band energy in
+squared input units, or the range of a large-offset near-constant window.
+
+Any new moment kernel should default to the two-pass centred form (or
+Welford-Pébay, per the hot-path heuristic above) rather than expanding
+`E[(x-mean)^k]` algebraically in terms of raw power sums.
+
 ## Files
 
 - `mlframe/feature_engineering/_numerical_stable.py` — new reference impls

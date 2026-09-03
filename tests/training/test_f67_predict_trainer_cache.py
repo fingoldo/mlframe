@@ -1,11 +1,17 @@
-"""F-67 prediction-trainer caching was REVERTED (2026-06-02): reusing one
-L.Trainer across predict() calls accumulates Lightning's prediction-loop state
-and every predict past the first raised "Mismatch in number of limits". A fresh
-Trainer is now built per predict(); ``_prediction_trainer_cache`` exists only
-for pickle-state symmetry and stays empty.
+"""F-67 prediction-trainer caching was REVERTED (2026-06-02) then REINSTATED (2026-07-21):
+re-verified against the currently-installed Lightning (2.6.5) that reusing one L.Trainer across
+predict() calls with a FRESH TorchDataModule each time (this codebase's actual pattern) no longer
+reproduces the original "Mismatch in number of limits" error -- the CombinedLoader instance is
+rebuilt per call, only the outer Trainer object is reused. See ``_base_predict.py``'s "F-67
+prediction-trainer caching (2026-07-21 reinstated)" comment and the dedicated
+``tests/training/neural/test_predict_trainer_cache_reuse.py`` (100+ sequential predicts, a real
+multi-feature permutation_importance sweep, a multilabel model, 8-thread concurrent predict) for the
+reinstatement's own validation. ``_prediction_trainer_cache`` now DOES populate (keyed by
+``(accelerator, precision)``) and is pickle-excluded at ``__getstate__`` (F-73b) since a cached
+Trainer isn't picklable -- the next predict() after a load() rebuilds it lazily.
 
-These tests pin the revert's contract: repeated predicts are correct, the cache
-never populates, and the pickle round-trip stays clean (F-73b).
+These tests pin the reinstated caching's contract: repeated predicts are correct and consistent, the
+cache populates (not empty) after a real predict, and the pickle round-trip stays clean (F-73b).
 """
 
 from __future__ import annotations
@@ -64,25 +70,27 @@ def fitted_regressor():
     return reg, X_te
 
 
-def test_prediction_trainer_cache_attribute_exists_and_stays_empty(fitted_regressor):
+def test_prediction_trainer_cache_attribute_exists_and_populates_after_predict(fitted_regressor):
     """The cache attribute must exist on a freshly-constructed estimator (no
-    AttributeError) and stay empty after predict() -- caching is reverted."""
+    AttributeError) and start empty, then populate with exactly one
+    (accelerator, precision)-keyed Trainer after predict() -- caching is reinstated (F-67, 2026-07-21)."""
     reg, X_te = fitted_regressor
     assert hasattr(reg, "_prediction_trainer_cache")
     assert reg._prediction_trainer_cache == {}
     _ = reg.predict(X_te)
-    assert reg._prediction_trainer_cache == {}
+    assert reg._prediction_trainer_cache != {}, "prediction-trainer cache must populate after a real predict"
+    assert len(reg._prediction_trainer_cache) == 1
 
 
-def test_repeated_predict_is_consistent_and_uncached(fitted_regressor):
-    """The revert's core guarantee: many predicts in a row all succeed and
-    return identical results (the caching bug failed every predict past the
-    first), and the cache never grows."""
+def test_repeated_predict_is_consistent_and_reuses_cached_trainer(fitted_regressor):
+    """The reinstated cache's core guarantee: many predicts in a row all succeed and
+    return identical results, and the cache stays at exactly one entry (the SAME
+    (accelerator, precision) key is reused across calls, not rebuilt every time)."""
     reg, X_te = fitted_regressor
     first = reg.predict(X_te)
     for _ in range(4):
         np.testing.assert_allclose(reg.predict(X_te), first, rtol=1e-4, atol=1e-5)
-    assert reg._prediction_trainer_cache == {}
+    assert len(reg._prediction_trainer_cache) == 1
 
 
 def test_f73b_predict_then_pickle_roundtrips_clean(fitted_regressor):

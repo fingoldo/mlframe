@@ -309,6 +309,11 @@ class TestPredictQuantile:
             base_estimator=_StubQuantileRegressor({0.9: 0.5}),
             transform_name="diff",
             base_column="base",
+            # This test pins the pure T + base inversion arithmetic, not the soft base-shrink
+            # OOD guard (own coverage: test_biz_val_soft_base_shrink.py,
+            # test_predict_quantile_soft_shrink_parity.py) -- disable it so base=20/30 (a few
+            # IQRs beyond the N(10, 3) fit range) aren't shrunk toward the fitted envelope.
+            soft_base_shrink=False,
         )
         wrapper.fit(df, y)
         df_test = pd.DataFrame(

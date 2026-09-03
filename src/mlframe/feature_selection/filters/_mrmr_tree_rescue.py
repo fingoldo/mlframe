@@ -96,14 +96,23 @@ class MRMRTreeRescued(MRMR):
             # numeric coercion (best-effort): the rescue augments the NUMERIC informative features the greedy missed.
             if hasattr(X, "columns"):
                 Xf = X.reindex(columns=cols) if cols else X
-                # Fast path for the common all-numeric frame: a single ``np.asarray(..., float)`` gather +
+                # Fast path for the common all-numeric frame: a single ``np.array(..., float, copy=True)`` gather +
                 # in-place NaN->0 replaces the per-column ``apply(pd.to_numeric).fillna().to_numpy()`` (~3
                 # passes). Byte-identical to the slow path on numeric frames (``to_numeric`` is a no-op there,
                 # ``fillna(0.0)`` only touches NaN, never inf - matched by ``isnan``). A non-numeric column
                 # makes ``asarray(float)`` raise; fall back to the lenient coerce-to-NaN-then-zero path so a
                 # mixed frame still rescues exactly as before (the bad column becomes all-zeros, not a skip).
+                # ``copy=True`` (not ``np.asarray``'s copy-if-needed) is required: pandas>=3's Copy-on-Write
+                # makes ``np.asarray(df, dtype=float)`` return a READ-ONLY, non-owning view when the frame is
+                # already float64 (no dtype conversion needed, so no copy is forced) -- the very next in-place
+                # ``Xnum[np.isnan(Xnum)] = 0.0`` then raised ``ValueError: assignment destination is read-only``
+                # on every all-numeric, NaN-containing frame under pandas 3.x (CI: py3.11/3.12 shards resolving
+                # pandas==3.0.5). Silently fell through to the slow ``except`` path there instead of crashing
+                # loudly (both branches are inside the same ``try``), so the fast path was quietly dead on the
+                # entire pandas-3.x matrix leg -- always paying the ~3-pass ``apply``/``to_numeric``/``fillna``
+                # cost this fast path exists to avoid.
                 try:
-                    Xnum = np.asarray(Xf, dtype=float)
+                    Xnum = np.array(Xf, dtype=float, copy=True)
                     if np.isnan(Xnum).any():
                         Xnum[np.isnan(Xnum)] = 0.0
                 except (ValueError, TypeError):

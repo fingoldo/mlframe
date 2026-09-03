@@ -38,7 +38,11 @@ def test_overlay_spec_shape_and_series():
     assert isinstance(panel, LinePanelSpec)
     # perfect + raw + 2 candidates = 4 series.
     assert len(panel.y) == 4
-    assert panel.series_labels == ("perfect", "raw OOF", "Iso ECE=0.0100", "Beta ECE=0.0200")
+    # The raw curve carries the row count it was drawn on: every curve here rests on ONE shared finite mask, so a
+    # reader comparing them needs to know how many rows survived it.
+    assert panel.series_labels[0] == "perfect"
+    assert panel.series_labels[1].startswith("raw OOF (n=")
+    assert panel.series_labels[2:] == ("Iso ECE=0.0100", "Beta ECE=0.0200")
     # First series is the perfect diagonal (== x centers).
     np.testing.assert_allclose(panel.y[0], panel.x, rtol=1e-12)
     # All curves share the 15-bin centre grid.

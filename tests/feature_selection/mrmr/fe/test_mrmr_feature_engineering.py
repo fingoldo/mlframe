@@ -146,8 +146,19 @@ class TestMRMRFeatureEngineering:
         (E[log(c)*sin(d)] over d~U(0,2pi) is ~0). Catches the fragmentation regression (full compound PLUS
         redundant siblings such as raw 'c' / mul(log(c),sin(d)) / div(sqr(a),...)).
         """
+        # n=10_000 -> 30_000 (2026-08-18): CI (Linux) deterministically diverged from local (Windows)
+        # runs at n=10_000, picking a prewarp-wrapped compound over the clean library form -- both are
+        # monotone-MI-equivalent, so the winner is decided by mi_tie_band's noise-tolerant tie-break, and
+        # a single row landing on the opposite side of a quantile-bin boundary (plausible from ~1e-15 ULP
+        # libm differences in log/sin across platforms, compounded through the pipeline) is enough to move
+        # the computed MI outside that band on one platform but not the other. Unable to validate a targeted
+        # tie-break fix without a Linux environment (none available); 3x the row count instead, following
+        # the same evidence-based lever already confirmed to fix an identical-shaped sensitivity in the
+        # sibling test_engineered_unary_binary_transform_is_continuous (a**2/b recovery sharply stabilised
+        # between n=40_000 and n=60_000) -- more rows shrink both the sampling noise AND the relative
+        # weight any single boundary-row carries in the discretised joint distribution.
         rng = np.random.default_rng(42)
-        n = 10_000
+        n = 30_000
         a = rng.random(n) + 0.1
         b = rng.random(n) + 0.1
         c = rng.random(n) + 0.1
@@ -238,9 +249,14 @@ class TestMRMRFeatureEngineering:
         NO selected feature may use a learned ``prewarp`` warp -- the clean library compound
         ``add(div(sqr(a),b), mul(log(c),sin(d)))`` is more linearly usable and must win over the
         monotone-MI-equivalent prewarp distortion (``sub(log(div(sqr(a),neg(b))),prewarp(mul(prewarp(c),
-        sin(d))))``). Guards the exact regression the user flagged."""
+        sin(d))))``). Guards the exact regression the user flagged.
+
+        n=10_000 -> 30_000 (2026-08-18): same platform-crossing tie-break sensitivity fix as the sibling
+        ``test_feature_engineering_example_single_compound`` above -- see that test's docstring for the
+        full mechanism (a monotone-MI-equivalent tie whose winner is decided by mi_tie_band, sensitive to
+        a single quantile-bin-boundary row flip from cross-platform libm ULP differences)."""
         rng = np.random.default_rng(42)
-        n = 10_000
+        n = 30_000
         a = rng.random(n) + 0.1
         b = rng.random(n) + 0.1
         c = rng.random(n) + 0.1

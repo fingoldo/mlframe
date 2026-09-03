@@ -189,11 +189,11 @@ class MuonAdamWHybrid(Optimizer):
         muon_params = [p for p in param_list if p.dim() == 2]
         adamw_params = [p for p in param_list if p.dim() != 2]
 
-        # Optimizer.__init__ needs SOMETHING to call super on; build a
-        # placeholder param_group from all params and override step.
-        defaults = dict(lr=lr)
-        super().__init__([{"params": param_list}], defaults)
-
+        # Build the two REAL wrapped optimizers BEFORE calling Optimizer.__init__ below: the
+        # param_groups property (defined on this class) reads live from self._muon/self._adamw,
+        # and Optimizer.__init__ assigns `self.param_groups = [...]` as part of its own setup --
+        # that assignment must land on the property's setter (a no-op, see below), which requires
+        # self._muon/self._adamw to already exist so the getter never sees them as missing.
         self._muon = Muon(muon_params, lr=muon_lr, momentum=momentum, nesterov=nesterov, ns_steps=ns_steps) if muon_params else None
         self._adamw = (
             torch.optim.AdamW(
@@ -202,6 +202,45 @@ class MuonAdamWHybrid(Optimizer):
             )
             if adamw_params else None
         )
+
+        # Optimizer.__init__ needs a non-empty param_group to call super on, but it must NOT share
+        # any tensor with self._muon/self._adamw's real params: add_param_group() checks the new
+        # group against self.param_groups (already live via the property below, since self._muon/
+        # self._adamw are built above) and raises ValueError on any overlap. A throwaway dummy
+        # parameter, never touched by step()/zero_grad(), sidesteps that check.
+        self._placeholder_param = torch.nn.Parameter(torch.zeros(1), requires_grad=False)
+        defaults = dict(lr=lr)
+        super().__init__([{"params": [self._placeholder_param]}], defaults)
+
+    @property
+    def param_groups(self):
+        """Live view of the REAL param_groups from both wrapped optimizers, not the placeholder
+        ``Optimizer.__init__`` built.
+
+        Without this override, ``self.param_groups`` stayed the single placeholder group
+        ``Optimizer.__init__`` set once at construction, disconnected from
+        ``self._muon.param_groups`` / ``self._adamw.param_groups`` that ``step()`` actually reads
+        ``lr`` from. Any torch LR scheduler attached via ``configure_optimizers``
+        (``scheduler = CosineAnnealingLR(optimizer, ...)``) mutates ``optimizer.param_groups[i]['lr']``
+        in place -- against the placeholder, which had zero effect on the real learning rates the
+        wrapped optimizers used. Concatenating the two real group lists here means a scheduler's
+        in-place mutation lands on the actual dicts Muon/AdamW read from.
+        """
+        groups: list = []
+        _muon = self._muon
+        if _muon is not None:
+            groups.extend(_muon.param_groups)
+        _adamw = self._adamw
+        if _adamw is not None:
+            groups.extend(_adamw.param_groups)
+        return groups
+
+    @param_groups.setter
+    def param_groups(self, value):
+        """No-op: ``Optimizer.__init__`` assigns a placeholder list here during construction, before
+        this class's real param_groups (owned by ``self._muon``/``self._adamw``) are the source of
+        truth. Any assignment (not in-place mutation) is intentionally discarded; the getter above is
+        always what's actually read."""
 
     @torch.no_grad()
     def step(self, closure=None):
