@@ -53,3 +53,25 @@ def test_expanding_variance_matches_stable_reference_on_large_offset_data():
         ref_std = history.std(ddof=1)
         ref_z = (history[-1] - ref_mean) / ref_std
         assert abs(row["x"] - ref_z) < 1e-5, f"entity {entity_id}: got {row['x']}, expected {ref_z}"
+
+
+def test_synthetic_row_keeps_its_truncated_vintage_timestamp():
+    """A synthetic row's `time_col` must stay at the period it was truncated to, not the entity's true last.
+
+    Regression: carrying non-feature columns back from the entity's TRUE last period (so a per-period label is
+    not taken from the truncated vintage) initially excluded only `entity_col`, which swept up `time_col` too.
+    Every synthetic row then claimed the entity's final timestamp while carrying deliberately truncated
+    features, so a caller slicing history by time reconstructed the untruncated window and the augmentation
+    silently did nothing. Nothing raised; the rows simply described a period they did not come from.
+    """
+    df = _make_large_offset_panel(seed=3)
+    out = augment_temporal_drift(df, entity_col="entity_id", time_col="t", feature_cols=["x"], n_drop_options=(1,), min_history=2)
+    synth = out.loc[out["_temporal_drift_augmented"]]
+    assert not synth.empty, "the fixture produced no synthetic rows, so this test would pass vacuously"
+
+    true_last_t = df.groupby("entity_id")["t"].max()
+    for entity_id, group in synth.groupby("entity_id"):
+        # n_drop_options=(1,), so each synthetic row sits exactly one period before that entity's true last.
+        expected = sorted(df.loc[df["entity_id"] == entity_id, "t"].unique())[-2]
+        assert set(group["t"]) == {expected}, f"entity {entity_id}: synthetic t is {sorted(set(group['t']))}, expected {expected}"
+        assert expected != true_last_t[entity_id], "fixture too short to distinguish the truncated vintage from the true last period"

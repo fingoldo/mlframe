@@ -50,7 +50,13 @@ def _make_ctx(train, use_groups=False, group_field=None, protected_group=True):
     ctx.cat_features = None
     ctx.text_features = None
     ctx.embedding_features = None
-    ctx.group_id_col = group_field if (use_groups and protected_group) else None
+    # The real TrainingContext is a slots=True dataclass with no `group_id_col` attribute at all -- the
+    # pre-screen addresses the group column through the `group_ids_raw` Series' own `.name`, which is the
+    # only place that name exists at this point. Setting `group_id_col` on a SimpleNamespace modelled a
+    # context shape production never had, so this stub asserted protection the real code could not perform.
+    ctx.group_ids_raw = pd.Series(train[group_field], name=group_field) if (use_groups and protected_group and group_field) else None
+    ctx.group_ids = None
+    ctx.timestamps = None
     ctx.ts_field = None
     ctx.extractor = None
     ctx.split_config = _SplitCfg(use_groups=use_groups, group_field=group_field)

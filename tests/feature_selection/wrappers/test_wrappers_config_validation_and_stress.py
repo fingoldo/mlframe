@@ -505,21 +505,28 @@ class TestB9_InfInX:
 
 class TestB11_SmallSample:
     """Groups tests covering TestB11_SmallSample."""
-    def test_n_lt_2cv_raises(self):
-        # n=4, cv=3 -> 2*cv=6 > n. Even before A5 catches it via class
-        # imbalance, the b11 check should reject.
-        """N lt 2cv raises."""
+    def test_n_lt_2cv_reduces_cv_and_still_fits(self):
+        """n=4 against cv=3 is now served by reducing the fold count, not by refusing.
+
+        This previously asserted a rejection. The minority-vs-cv check no longer refuses a target whose
+        minority class merely cannot fill the requested folds -- it reduces cv to what the minority supports
+        (2 here) -- so a 4-row balanced problem is fittable and the old assertion pinned a behaviour that had
+        been deliberately removed. What still matters is that the reduction produces a usable, fitted
+        selector rather than a silently degenerate one.
+        """
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((4, 5)), columns=list("abcde"))
         y = np.array([0, 1, 0, 1])
-        with pytest.raises(ValueError):
-            RFECV(
-                estimator=LogisticRegression(max_iter=100),
-                cv=3,
-                max_refits=2,
-                verbose=0,
-                leakage_corr_threshold=None,
-            ).fit(X, y)
+        sel = RFECV(
+            estimator=LogisticRegression(max_iter=100),
+            cv=3,
+            max_refits=2,
+            verbose=0,
+            leakage_corr_threshold=None,
+        ).fit(X, y)
+        assert sel.cv == 2, f"cv should have been reduced to the minority count, got {sel.cv!r}"
+        assert sel.support_.shape[0] == X.shape[1], "support_ must cover every input column"
+        assert int(np.sum(sel.support_)) >= 1, "a fitted selector must keep at least one feature"
 
 
 class TestFsWrappers2MinorityClassDtype:

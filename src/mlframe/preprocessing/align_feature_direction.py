@@ -27,6 +27,29 @@ except ImportError:  # pragma: no cover - numba is a hard dep here, this is the 
 
 if _HAVE_NUMBA:
 
+    @njit(cache=True, nogil=True)
+    def _midranks_one_column_njit(Xt, order_t, ranks, j):  # pragma: no cover - compiled body is invisible to coverage
+        """Average ranks for column ``j``, averaging within each tie block of its sorted order.
+
+        Split out of the ``prange`` body deliberately. numba's parfor pass builds a CFG for everything inside
+        a ``prange`` loop, and the nested ``while`` scan below defeats it on CPython 3.9-3.11 -- the pass dies
+        with "Cannot add edge as dest node N not in nodes {...}" out of ``_replace_loop_access_indices``.
+        CPython 3.12+ emits bytecode it happens to cope with, so this compiled locally and broke only in CI.
+        A plain ``njit`` callee is compiled by the normal pipeline instead, which handles the loop fine, and
+        the outer ``prange`` still parallelises across columns.
+        """
+        n = Xt.shape[1]
+        i = 0
+        while i < n:
+            k = i
+            v = Xt[j, order_t[j, i]]
+            while k + 1 < n and Xt[j, order_t[j, k + 1]] == v:
+                k += 1
+            avg = (i + k) * 0.5 + 1.0
+            for t in range(i, k + 1):
+                ranks[j, order_t[j, t]] = avg
+            i = k + 1
+
     @njit(parallel=True, cache=True, nogil=True)
     def _midranks_from_order_njit(Xt, order_t):  # pragma: no cover - compiled body is invisible to coverage
         """Average ranks per column, walking each column's sorted order and averaging within each tie block.
@@ -37,16 +60,7 @@ if _HAVE_NUMBA:
         p, n = Xt.shape
         ranks = np.empty((p, n), dtype=np.float64)
         for j in prange(p):
-            i = 0
-            while i < n:
-                k = i
-                v = Xt[j, order_t[j, i]]
-                while k + 1 < n and Xt[j, order_t[j, k + 1]] == v:
-                    k += 1
-                avg = (i + k) * 0.5 + 1.0
-                for t in range(i, k + 1):
-                    ranks[j, order_t[j, t]] = avg
-                i = k + 1
+            _midranks_one_column_njit(Xt, order_t, ranks, j)
         return ranks
 
 

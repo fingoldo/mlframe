@@ -132,7 +132,11 @@ def augment_temporal_drift(
         _last_rank_mask = rank_within_entity == (count_within_entity - 1)
         _true_last = ordered.loc[_last_rank_mask]
         if entity_col is not None and not _true_last.empty:
-            _non_feature = [c for c in ordered.columns if c not in feature_cols and c != entity_col]
+            # `time_col` is excluded alongside `entity_col`: it identifies WHICH vintage this synthetic row
+            # is, so carrying the true last period's timestamp back onto a deliberately truncated row makes
+            # the row claim to be from a period whose data it does not contain -- and any caller that slices
+            # history by time then reconstructs the untruncated window, defeating the augmentation entirely.
+            _non_feature = [c for c in ordered.columns if c not in feature_cols and c not in (entity_col, time_col)]
             if _non_feature:
                 _by_entity = _true_last.set_index(entity_col)[_non_feature]
                 _synth_entities = synth[entity_col]

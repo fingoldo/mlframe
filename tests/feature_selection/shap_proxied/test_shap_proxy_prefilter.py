@@ -583,8 +583,19 @@ def test_biz_value_cached_f_scores_avoid_recomputation():
     fresh = np.asarray(fresh, dtype=np.float64)
     fresh[~np.isfinite(fresh)] = -np.inf
 
-    # Cached vector matches a fresh recomputation (same scorer, same -inf sentinel).
-    np.testing.assert_allclose(cached, fresh, rtol=1e-6, atol=1e-6, err_msg="cached F-scores diverged from a fresh f_classif call")
+    # The cache must reproduce THIS library's scorer exactly -- that is the contract the caching claim rests
+    # on, and it admits no tolerance at all.
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter import _rank_univariate
+
+    own = np.asarray(_rank_univariate(X, y, classification=True), dtype=np.float64)
+    np.testing.assert_array_equal(cached, own, err_msg="the cached F-scores are not what this library's own scorer returns")
+
+    # sklearn stays as an independent check that these really are ANOVA F-scores, but only to a tolerance that
+    # reflects a DELIBERATE divergence: `f_classif_chunked` defaults to `stable=True`, which subtracts the
+    # per-column grand mean before accumulating the class sums, while sklearn's f_classif uses the raw-sum
+    # form. That is the same E[x^2]-E[x]^2 cancellation this repo has fixed repeatedly, so the difference is
+    # sklearn's error, not ours; pinning to rtol=1e-6 here pinned mlframe to the less accurate of the two.
+    np.testing.assert_allclose(cached, fresh, rtol=1e-3, atol=1e-3, err_msg="cached F-scores are not ANOVA F-scores at all")
     # Cheap-now win: the cache hit is at least 10x faster than the recomputation. Print the actual
     # numbers so future iterations can see the win evolve under load (-s captures stdout).
     print(

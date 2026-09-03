@@ -1712,13 +1712,45 @@ def test_regression_scorer_zoo_preprocess_params_except_is_logged(modname):
 
 
 def test_regression_route_basis_exception_is_logged():
-    """Post-fix: _route_basis's fallback logs at debug level before returning 'hermite'."""
+    """Post-fix: _route_basis's fallback is AUDIBLE (warning, not debug) before it freezes 'hermite'.
+
+    Asserted structurally rather than by searching the source for a message, which is what the previous form
+    did and why it broke: rewording the message to say what the fallback actually costs (a train/serve skew
+    on that leg) left the test failing while the behaviour it guards got strictly better. The branch is
+    defensive and not reachable end-to-end -- every leg of a winning recipe is a seed_sources member, so the
+    cached lookup covers it -- so a caplog test cannot drive it without contriving internal state. What
+    matters, and what this pins, is the LEVEL and the fallback value, neither of which prose can drift.
+    """
+    import ast
     import inspect
 
-    from mlframe.feature_selection.filters._orthogonal_adaptive_arity_fe import hybrid_orth_mi_adaptive_arity_fe_with_recipes
+    from mlframe.feature_selection.filters import _orthogonal_adaptive_arity_fe as mod
 
-    src = inspect.getsource(hybrid_orth_mi_adaptive_arity_fe_with_recipes)
-    assert "_route_basis: failed to route column" in src
+    tree = ast.parse(inspect.getsource(mod))
+    route = next(
+        (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_route_basis"),
+        None,
+    )
+    assert route is not None, "_route_basis is gone; the routing fallback it guards needs a new home for this check"
+
+    handlers = [n for n in ast.walk(route) if isinstance(n, ast.ExceptHandler)]
+    assert handlers, "_route_basis no longer has an except handler, so the routing failure is unguarded"
+
+    levels = {
+        n.func.attr
+        for h in handlers
+        for n in ast.walk(h)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and isinstance(n.func.value, ast.Name) and n.func.value.id == "logger"
+    }
+    assert "warning" in levels, (
+        f"_route_basis's fallback logs at {sorted(levels) or 'no level at all'}. It must warn: the frozen basis "
+        f"is replayed by transform(), so recording 'hermite' for a column the fit routed elsewhere is a "
+        f"train/serve skew, and debug is not emitted in production."
+    )
+    assert "debug" not in levels, "the routing fallback was downgraded back to debug, where production will not see it"
+
+    returns = {n.value.value for n in ast.walk(route) if isinstance(n, ast.Return) and isinstance(n.value, ast.Constant)}
+    assert "hermite" in returns, "the documented fallback basis is no longer returned"
 
 
 # ---------------------------------------------------------------------------
