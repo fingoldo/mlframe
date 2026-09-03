@@ -216,6 +216,11 @@ _LAZY_IMPORTS = {
     "load_mlframe_model": (".io", "load_mlframe_model"),
     # Splitting utilities
     "make_train_test_split": (".splitting", "make_train_test_split"),
+    # Index-level stratified split kernels — public names over the private ``_split_helpers`` module so
+    # cross-package consumers (benchmarking's honest outer holdout) do not import the underscore module.
+    # Lazy like everything else here: this package's whole surface is deferred via ``_LAZY_IMPORTS``.
+    "stratified_split": ("._split_helpers", "_stratified_split"),
+    "stratified_split_3way": ("._split_helpers", "_stratified_split_3way"),
     # Evaluation utilities
     "evaluate_model": (".evaluation", "evaluate_model"),
     # Training execution functions
@@ -409,6 +414,8 @@ __all__ = [
     "maybe_clean_ram_and_gpu",
     "get_numeric_columns",
     "get_categorical_columns",
+    "stratified_split",
+    "stratified_split_3way",
     # Evaluation
     "evaluate_model",
     # Training execution

@@ -13,6 +13,7 @@ Each returns a similarity in ``[0, 1]`` (Tversky in ``[0, 1]`` for the standard 
 from __future__ import annotations
 
 import logging
+from typing import Any, Iterable, Union
 
 import numpy as np
 
@@ -26,6 +27,7 @@ __all__ = [
     "ochiai",
     "kulczynski",
     "tversky",
+    "kuncheva",
 ]
 
 
@@ -106,3 +108,48 @@ def tversky(a, b, *, alpha: float = 0.5, beta: float = 0.5) -> float:
     b_only = nb - inter
     denom = inter + alpha * a_only + beta * b_only
     return 1.0 if denom == 0.0 else inter / denom
+
+
+def kuncheva(a: Union[np.ndarray, Iterable[Any]], b: Union[np.ndarray, Iterable[Any]], universe_size: int, *, clamp: bool = True) -> float:
+    """Kuncheva stability index: chance-corrected overlap of two EQUAL-cardinality subsets of a universe of ``universe_size`` items.
+
+    ``I_C = (r - k^2/N) / (k - k^2/N)`` where ``r = |A∩B|``, ``k = |A| = |B|`` and ``N = universe_size``
+    (Kuncheva 2007). Subtracting the expected overlap of two random k-subsets, ``k^2/N``, makes the index
+    comparable across different ``k`` -- plain Jaccard/Dice inflate as ``k`` approaches ``N``.
+
+    The natural range is ``(-1, 1]``: ``1`` = identical, ``0`` = chance, negative = systematically LESS
+    overlap than chance. ``clamp=True`` (the default, matching the RFECV ``selection_stability_`` accessor
+    that this kernel was extracted from) folds the whole negative half onto ``0.0``, so a below-chance
+    result is indistinguishable from an exactly-at-chance one; pass ``clamp=False`` to keep the signed value.
+
+    Degenerate cases: ``k == 0`` or ``N == 0`` or ``k == N`` leave the denominator undefined (the only
+    possible k-subset is forced), so the index is reported as ``1.0`` when the two sets are equal and
+    ``0.0`` otherwise.
+
+    Args:
+        a: First set -- a 1-D boolean mask or any iterable of hashable items.
+        b: Second set, same representation as ``a``. Must have the same cardinality as ``a``.
+        universe_size: ``N``, the number of items the two subsets were drawn from. Must be >= ``|A|``.
+        clamp: Fold negative (below-chance) values onto ``0.0``. Default ``True``.
+
+    Returns:
+        The index as a float, in ``[0, 1]`` when ``clamp`` else in ``(-1, 1]``.
+
+    Raises:
+        ValueError: if ``|A| != |B|`` (the index is undefined for unequal cardinalities),
+            if ``universe_size`` is negative, or if ``universe_size < |A|``.
+    """
+    inter, na, nb = _counts(a, b)
+    if na != nb:
+        raise ValueError(f"kuncheva: the index is defined only for equal-cardinality sets; got |A|={int(na)}, |B|={int(nb)}.")
+    n_universe = int(universe_size)
+    if n_universe < 0:
+        raise ValueError(f"kuncheva: universe_size must be >= 0; got {n_universe}.")
+    k = float(na)
+    if n_universe and k > n_universe:
+        raise ValueError(f"kuncheva: universe_size ({n_universe}) must be >= the subset size ({int(k)}).")
+    if k == 0.0 or n_universe == 0 or k == float(n_universe):
+        return 1.0 if inter == k else 0.0
+    expected = k * k / n_universe
+    index = (inter - expected) / (k - expected)
+    return float(max(0.0, index)) if clamp else float(index)

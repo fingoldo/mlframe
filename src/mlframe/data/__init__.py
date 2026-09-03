@@ -11,5 +11,13 @@ from __future__ import annotations
 from mlframe.data.datasets import *
 from mlframe.data.synthetic import *
 
-# Curate the star-import surface explicitly (mirrors mlframe.metrics.__init__'s pattern).
-__all__ = sorted(name for name in globals() if not name.startswith("_"))
+# Literal, not derived from globals(): a comprehension over globals() also picks up this module's own imports (``annotations``)
+# and anything a star-imported submodule leaks, so the curated surface silently drifts whenever a submodule adds an import.
+__all__ = [
+    "assign_classes_from_probability",
+    "generate_modelling_data",
+    "get_sapp_dataset",
+    "indicator",
+    "sample_random_variable",
+    "showcase_pycaret_datasets",
+]

@@ -17,6 +17,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Literal list of string constants: ``mlframe/data/__init__.py`` star-imports this module AFTER ``datasets``, so without an explicit
+# ``__all__`` every public global here -- including the imported ``np`` / ``pd`` / ``stats`` / ``njit`` module objects -- lands in
+# ``mlframe.data.__all__`` and silently shadows whatever ``datasets`` bound under the same name.
+__all__ = [
+    "assign_classes_from_probability",
+    "generate_modelling_data",
+    "sample_random_variable",
+]
+
 try:
     from numba import njit
 

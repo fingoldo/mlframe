@@ -5,7 +5,8 @@ generalisation question: do the production HybridSelector (the 3 default-on hybr
 mrmr_synergy_cap=250, tree_rich_ops) and MRMRTreeRescued (the gated tree-importance rescue) hold an
 advantage over plain mrmr_fe / all-features ACROSS several REAL classification datasets, not just madelon?
 
-It loads several real FS-relevant datasets via fetch_openml (try, skip on failure), and on an honest
+It loads several real FS-relevant datasets from the local checksummed cache built by `_realdata_cache.py`
+(`fetch_openml` is used only when `--allow-network` is passed, so a run is reproducible and offline), and on an honest
 60/40 stratified split compares downstream (lgbm / logit / knn) held-out AUC of:
   all  -- all features, no selection (the do-nothing baseline)
   mrmr_fe  -- MRMR + feature engineering (fe_max_steps=1), the incumbent FS baseline
@@ -99,10 +100,41 @@ def _clean_xy(d, name, feat_budget):
     return X.reset_index(drop=True), y, capped
 
 
+class _Bundle:
+    """Minimal stand-in for a fetch_openml bundle so cached arrays reach `_clean_xy` on the same code path."""
+
+    def __init__(self, data, target):
+        self.data = data
+        self.target = target
+
+
+# Network access is opt-in: the real leg has to be reproducible, and a run that silently reaches OpenML is a run
+# whose inputs nobody can pin. Set by main() from --allow-network.
+ALLOW_NETWORK = False
+
+
+def load_source(name, kw):
+    """Return a bundle for one dataset: the local checksummed cache first, `fetch_openml` only under --allow-network."""
+    from _realdata_cache import load_cached
+    try:
+        X, y, meta = load_cached(name)
+        _chk(f"  (cache hit {name}: rows={meta.get('n_rows')} cols={meta.get('n_cols')} sha256={str(meta.get('sha256'))[:12]})")
+        return _Bundle(X, y)
+    except Exception as e:
+        logger.debug("cache load for %s failed: %s: %s", name, type(e).__name__, e)
+        if not ALLOW_NETWORK:
+            raise RuntimeError(
+                f"{name}: not in the local real-data cache ({type(e).__name__}: {e}); run _realdata_cache.fill_cache() "
+                "once with network access, or re-run this bench with --allow-network"
+            ) from e
+        _chk(f"  (cache miss {name}, falling back to fetch_openml because --allow-network was passed)")
+        from sklearn.datasets import fetch_openml
+        return fetch_openml(as_frame=True, parser="auto", **kw)
+
+
 def load_one(name, kw, row_budget, feat_budget):
-    """Fetch + clean + subsample one OpenML dataset. Returns (X, y, note) or raises (caller skips)."""
-    from sklearn.datasets import fetch_openml
-    d = fetch_openml(as_frame=True, parser="auto", **kw)
+    """Load + clean + subsample one dataset (cache-first). Returns (X, y, note) or raises (caller skips)."""
+    d = load_source(name, kw)
     X, y, capped = _clean_xy(d, name, feat_budget)
     notes = []
     if capped:
@@ -361,6 +393,8 @@ def write_results(df):
 
 
 def main():
+    global ALLOW_NETWORK
+    ALLOW_NETWORK = "--allow-network" in sys.argv
     for p in (PROGRESS, RESULTS):
         try:
             os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -370,6 +404,7 @@ def main():
         pass
     _chk("=== broad real-data FS validation START ===")
     _chk(f"budgets: ROW_BUDGET={ROW_BUDGET} FEAT_BUDGET={FEAT_BUDGET}")
+    _chk(f"source: local checksummed cache; network fallback {'ENABLED (--allow-network)' if ALLOW_NETWORK else 'DISABLED'}")
 
     allrows = []
     loaded_any = False

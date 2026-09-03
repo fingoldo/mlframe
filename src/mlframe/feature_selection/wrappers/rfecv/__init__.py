@@ -296,10 +296,10 @@ class RFECV(TransformerMixin, BaseEstimator):
         # even-N only. So the safer default is True until S9 (proper low-N init design) lands in Wave 2. Set False on imbalanced
         # accuracy/F1 datasets where the dummy ~= model score and the optimizer biases toward small N.
         submit_dummy_to_optimizer: bool = True,
-        # auto rule rationale rewrite (C3): the legacy 'auto' = ('one_se_max' for multi-estimator else 'argmax') uses INVERTED logic - multi-estimator uses
-        # min(scores) across estimators, which has HIGHER variance, WIDER 1-SE band, and 'one_se_max' over-selects MORE. NEW default: plain 'argmax' for
-        # both single and multi. Users wanting parsimony pass 'one_se_min' explicitly. Kept as: rule resolution moved into one block in
-        # select_optimal_nfeatures_, see that file for the dispatch.
+        # The legacy 'auto' = ('one_se_max' for multi else 'argmax') was inverted: multi-estimator scoring takes min() across estimators, so its 1-SE band is
+        # WIDER and 'one_se_max' over-selects MORE there, not less. An interim fix made 'auto' mean plain 'argmax'; a bench (n=8000, p=200, 30 informative,
+        # flat curve) then measured argmax at recall 0.30 against one_se_max's 1.0, so 'auto' resolves to 'one_se_max' for both. The resolution block in
+        # _stability_select.select_optimal_nfeatures_ is the single source of truth and stamps resolved_n_features_rule_.
         # E2 escape hatch: keep swap_top_k active even when val_cv is set (compare ES vs non-ES scores, accepting potential overfit-swaps).
         swap_top_k_allow_no_es: bool = False,
         # ----- Wave 2 search-strategy knobs -----

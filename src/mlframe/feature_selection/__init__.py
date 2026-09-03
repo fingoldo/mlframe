@@ -33,6 +33,8 @@ from mlframe.feature_selection.hybrid_selector import HybridSelector
 from mlframe.feature_selection.compare_selectors import (
     compare_selectors,
     SelectorComparison,
+    extract_selected,
+    support_mask_from_selector,
 )
 from mlframe.feature_selection.structure_discovery import (
     discover_structure,
@@ -73,6 +75,9 @@ __all__ = [
     # read-only diagnostics: compare what each selector keeps (agreement / Jaccard / consensus)
     "compare_selectors",
     "SelectorComparison",
+    # support extraction off any fitted selector: names as reported, and a strict names->boolean-mask map
+    "extract_selected",
+    "support_mask_from_selector",
     # structure discovery / EDA: surface hidden discrete relationships (gcd / modular / regime-switch / argmax) in (X, y)
     "discover_structure",
     "StructureReport",

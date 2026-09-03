@@ -1,0 +1,70 @@
+"""Sapp-Subsemble synthetic regression/classification dataset and the indicator helper its target expression uses."""
+
+from __future__ import annotations
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# LOGGING
+# ----------------------------------------------------------------------------------------------------------------------------
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Normal Imports
+# ----------------------------------------------------------------------------------------------------------------------------
+
+from typing import Tuple
+
+import numpy.typing as npt
+
+from scipy import stats
+import numpy as np, pandas as pd
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Core
+# ----------------------------------------------------------------------------------------------------------------------------
+
+
+def indicator(cond: np.ndarray) -> np.ndarray:
+    """Cast a boolean condition array to 0/1 ints, for use inside `DataFrame.eval` expressions that need a step function."""
+    return cond.astype(int)
+
+
+def get_sapp_dataset(
+    loc: float = 0.0,
+    scale: float = 9.0,
+    distr_name: str = "norm",
+    distr_params: tuple = (),
+    N: int = 1000,
+    add_error: bool = False,
+    random_state: int = 42,
+    dtype: npt.DTypeLike = np.float32,
+    binarize: bool = True,
+) -> Tuple[pd.DataFrame, np.ndarray]:
+    """Used in work
+    Subsemble: an ensemble method for combining subset-specific algorithm fits
+    Stephanie Sapp, Mark J. van der Laan, and John Canny
+    https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4000126/pdf/nihms-539092.pdf
+    """
+
+    # Local Generator — never mutate global numpy state.
+    rng = np.random.default_rng(random_state)
+
+    df = pd.DataFrame()
+    for i in range(20):
+        df[f"X{i+1}"] = getattr(stats, distr_name).rvs(loc, scale, *distr_params, size=N, random_state=rng)
+
+    # Guard |X3| against zero to avoid log(-inf) contaminating target.
+    _safe_abs_x3 = np.maximum(np.abs(df["X3"].values), 1e-12)
+    target = df.eval(
+        "X1+sin(X2)+log(@_safe_abs_x3)+X4**2+X5*X6 +@indicator((X7*X8*X9)<0)+@indicator(X10>0)+X11*@indicator(X11>0)+sqrt(abs(X12)) +cos(X13)+2*X14+abs(X15)+@indicator(X16<-1)+X17*@indicator(X17<-1)-2*X18-X19*X20"
+    )
+
+    if add_error:
+        target = target + getattr(stats, distr_name).rvs(loc, scale, *distr_params, size=N, random_state=rng)
+    if binarize:
+        # Direct int cast, no float32 round-trip.
+        y = (target > target.mean()).astype(np.int8)
+        return df.astype(dtype), y.values if hasattr(y, "values") else np.asarray(y)
+    return df.astype(dtype), target.astype(dtype)

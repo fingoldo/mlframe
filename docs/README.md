@@ -34,6 +34,7 @@ where relevant), not user API documentation.
 
 | File | Topic |
 |---|---|
+| [`BENCHMARK_PREREGISTRATION.md`](BENCHMARK_PREREGISTRATION.md) | Binding pre-registration for the FS/FE/HPO benchmark — kill criterion, null hypothesis, ROPE, reserved seed ranges, control arms, and the falsifiable hypothesis table |
 | [`MRMR_RESEARCH.md`](MRMR_RESEARCH.md) | MRMR / feature-selection literature survey + FS competition matrix; most proposals shipped, 4 open estimator ideas |
 | [`FE_MRMR_IDEAS_BACKLOG.md`](FE_MRMR_IDEAS_BACKLOG.md) | FE gate/operator backlog status note — shipped / rejected / 3 open items |
 | [`pysr_fe_upgrade_research.md`](pysr_fe_upgrade_research.md) | PySR symbolic-regression FE tuning survey + operator-preset design (shipped) |
