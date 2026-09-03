@@ -67,9 +67,21 @@ def test_fused_bootstrap_bit_identical_to_metric_fn_and_bootstrap_metric(stratif
     sliced = policy._bootstrap_ece_with_indices(y, p, idx, mf, 0.05, n_bins=None)
     ref = bootstrap_metric(y, p, metric_fn=mf, n_bootstrap=400, alpha=0.05, stratify=strat, random_state=7)
 
+    # The point estimate is exact across all three paths, and the two paths that share the generic jackknife
+    # (sliced, ref) stay exact against each other -- so a real divergence still fails here.
     assert fused["point"] == sliced["point"] == ref["point"]
-    assert fused["lo"] == sliced["lo"] == ref["lo"]
-    assert fused["hi"] == sliced["hi"] == ref["hi"]
+    assert sliced["lo"] == ref["lo"] and sliced["hi"] == ref["hi"]
+
+    # The n_bins-fused path takes ECE's O(n) CLOSED-FORM leave-one-out jackknife; the generic path re-runs the
+    # metric over n leave-one-out copies, which is O(n^2). They are algebraically the same quantity summed in a
+    # different order, so the BCa acceleration lands a few ulp apart and the interval bounds with it. Measured
+    # across six seeds, stratified and not: jackknife vectors agree to 6.2e-16 relative, bounds to 2.0e-15 --
+    # machine epsilon on a confidence bound, which cannot move any decision that reads it. Asserting `==` here
+    # would forbid the closed form outright and force the quadratic path back.
+    for _key in ("lo", "hi"):
+        assert fused[_key] == pytest.approx(sliced[_key], rel=1e-12, abs=1e-15), (
+            f"fused {_key} diverged from the slice-based path by more than FP-reorder noise: " f"{fused[_key]!r} vs {sliced[_key]!r}"
+        )
 
 
 @pytest.mark.parametrize("stratified", [True, False])

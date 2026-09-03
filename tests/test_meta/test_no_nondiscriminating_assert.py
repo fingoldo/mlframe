@@ -38,6 +38,12 @@ audit (additive-epsilon denominators, non-neutral except fallbacks) apply to the
 that shared ratchet, so their local copies were retired rather than maintained twice.
 Baseline-diffed -- 24k functions cannot be fixed at once, and the value is in stopping NEW ones. Refresh with
 ``--refresh-nondiscriminating-assert-baseline`` after reviewing a finding.
+
+Entries are keyed on ``file:function:reasons``, deliberately WITHOUT the line number. Keying on the line makes
+every entry below an edit look new the moment anything above it grows or shrinks, so a one-line change in a
+4000-line test file reports dozens of untouched functions as fresh violations -- the report is then noise and
+the honest response to it is to refresh the baseline without reading, which is exactly the habit this file
+exists to prevent. The line number is still reported, it just does not form the identity.
 """
 
 from __future__ import annotations
@@ -150,7 +156,7 @@ def _reasons(func: ast.AST) -> list:
 
 
 def _build_offending_set() -> set:
-    """``{"relpath:lineno:func:reasons", ...}`` for every nondiscriminating test function under ``tests/``."""
+    """``{"relpath:func:reasons", ...}`` for every nondiscriminating test function under ``tests/``."""
     out: set = set()
     for py in _TESTS_DIR.rglob("test_*.py"):
         if "__pycache__" in py.parts:
@@ -165,7 +171,7 @@ def _build_offending_set() -> set:
                 continue
             reasons = _reasons(func)
             if reasons:
-                out.add(f"{rel}:{func.lineno}:{func.name}:{','.join(reasons)}")
+                out.add(f"{rel}:{func.name}:{','.join(reasons)}")
     return out
 
 

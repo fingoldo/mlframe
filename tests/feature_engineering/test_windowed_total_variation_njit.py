@@ -25,7 +25,13 @@ def _ref(values, window_K, normalize):
     for _si, wins, wi in per_group_sliding_window(values, g, window_K=window_K):
         tv = np.abs(np.diff(wins, axis=1)).sum(axis=1)
         if normalize:
-            tv = tv / ((wins.max(axis=1) - wins.min(axis=1)) + 1e-12)
+            # An explicit zero-range branch, NOT a `+ 1e-12` pad. The pad this reference used to carry sits on
+            # the same scale as a genuinely tiny window range -- a price column around 1e5, or a sensor pinned
+            # at a setpoint, gives ranges near 1e-11 -- so it reported 0.91 where the true normalised wiggle is
+            # 1.0, and the same signal merely rescaled produced a different feature. Production dropped the pad;
+            # keeping it here would have this reference assert the defect back into place.
+            span = wins.max(axis=1) - wins.min(axis=1)
+            tv = np.where(span > 0.0, tv / np.where(span > 0.0, span, 1.0), 0.0)
         out[wi] = tv
     return out
 
