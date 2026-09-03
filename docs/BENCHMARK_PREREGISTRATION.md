@@ -59,6 +59,19 @@ This is not a pessimistic hedge. The repository's own recorded numbers make it t
 - **Cost axis is `n_model_fits`,** which is deterministic. Wall-clock is advisory and every figure using it
   carries a caption stating the host was contended.
 
+## 3a. Matched K on a real bed, where no target set exists
+
+Section 3 evaluates at one, two and five times the target-set size. A real dataset has no declared target set, so on the real leg that multiplier has no denominator and the runner must not invent one.
+
+On real beds, matched-K is therefore evaluated over a **declared absolute K grid**, fixed here before any run: `K in {5, 10, 20, 50, 100, 200}`, truncated to the bed's feature count. Every arm is asked for exactly K features and scored against `all-features` at each K. The self-chosen-K row is reported separately, as on the synthetic leg.
+
+Two consequences, both accepted deliberately:
+
+- The grid is a free parameter and therefore a rigging surface. It is pinned here, and changing it after seeing results is a POST-HOC deviation that ships labelled as one.
+- An arm that cannot be asked for a specific K (it selects its own set and exposes no ranking -- every `score_kind = "none"` arm) gets no matched-K row on any bed. It is scored on the self-chosen-K row and on set metrics only. This is a property of the arm, not a gap in the protocol, and it is reported as such rather than papered over with a synthesised score.
+
+**Partial ground truth where a published probe design exists.** Some NIPS 2003 beds were built by injecting a known number of artificial "probe" features drawn to match the real features' marginals. Where that count can be verified against the dataset's published description -- verified, not recalled -- the false-discovery rate against the probe block is reported alongside the K grid. That is the only ground truth available on real data, and it is what makes these beds worth more than an ordinary tabular dataset. A bed whose probe design cannot be verified is scored on the K grid alone.
+
 ## 4. Target set
 
 Scored against **`markov_blanket`** as primary. `minimal_sufficient` is reported as a secondary efficiency

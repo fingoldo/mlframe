@@ -29,7 +29,7 @@ from tests.feature_selection._synth.biz_val_synth import _XREF as _XREF
 from tests.feature_selection._synth.biz_val_synth import _build_linear as _build_linear
 from tests.feature_selection._synth.biz_val_synth import _build_quadratic_classif as _build_quadratic_classif
 from tests.feature_selection._synth.biz_val_synth import _build_redundant_multi as _build_redundant_multi
-from tests.feature_selection._synth.biz_val_synth import _build_xor_redundant as _build_xor_redundant
+from tests.feature_selection._synth.biz_val_synth import _build_redundant_quadratic as _build_redundant_quadratic
 from tests.feature_selection._synth.biz_val_synth import _train_holdout_split as _train_holdout_split
 from tests.feature_selection._synth.biz_val_synth import _logreg_auc as _logreg_auc
 from tests.feature_selection._synth.biz_val_synth import _quantile_bin_local as _quantile_bin_local
@@ -59,7 +59,7 @@ __all__ = [
     "_build_linear",
     "_build_quadratic_classif",
     "_build_redundant_multi",
-    "_build_xor_redundant",
+    "_build_redundant_quadratic",
     "_train_holdout_split",
     "_logreg_auc",
     "_quantile_bin_local",

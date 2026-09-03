@@ -331,14 +331,15 @@ def signal_recovery_count(sel, signal: list, top_k: Optional[int] = None, prefix
     >>> signal_recovery_count(Sel(), [0, 1, 2], top_k=1)
     1
     """
-    names = None
-    if hasattr(sel, "get_feature_names_out"):
-        try:
-            names = [str(nm) for nm in sel.get_feature_names_out()]
-        except Exception:
-            names = None
-    if names is None:
+    if not hasattr(sel, "get_feature_names_out"):
+        # Documented fallback: the selector genuinely has no names to offer.
         return signal_overlap(sel, signal, top_k=top_k)
+    # A RAISING ``get_feature_names_out`` used to be swallowed by a bare ``except``
+    # and silently downgraded to the raw-index overlap -- the metric this
+    # docstring calls UNDER-counting -- so a broken selector scored as a merely
+    # compact one. Let the error surface: silent degradation of the metric under
+    # test is the failure mode CLAUDE.md calls out.
+    names = [str(nm) for nm in sel.get_feature_names_out()]
     if top_k is not None:
         names = names[:top_k]
     sig = set(int(i) for i in signal)
@@ -347,7 +348,9 @@ def signal_recovery_count(sel, signal: list, top_k: Optional[int] = None, prefix
     for nm in names:
         # Only count column refs that use this generator's prefix (e.g. "x3").
         if pref != "x":
-            refs = set(int(m.group(1)) for m in _re.finditer(pref + r"(\d+)", nm))
+            # ``_re.escape``: the prefix is caller data, so metacharacters in it
+            # ("x.", "x+", "x(") must match LITERALLY, not compile as a pattern.
+            refs = set(int(m.group(1)) for m in _re.finditer(_re.escape(pref) + r"(\d+)", nm))
         else:
             refs = set(int(m) for m in _XREF.findall(nm))
         recovered |= refs & sig
@@ -469,28 +472,22 @@ def _build_redundant_multi(seed: int, n: int = 2000):
     return X, pd.Series(y, name="y")
 
 
-def _build_xor_redundant(seed: int, n: int = 2000):
-    """Build xor redundant."""
-    rng = np.random.default_rng(int(seed))
-    x1 = rng.standard_normal(n)
-    x_dup_a = x1 + 0.05 * rng.standard_normal(n)
-    x_dup_b = x1 + 0.05 * rng.standard_normal(n)
-    x_dup_c = x1 + 0.05 * rng.standard_normal(n)
-    x2 = rng.standard_normal(n)
-    X = pd.DataFrame(
-        {
-            "x1": x1,
-            "x_dup_a": x_dup_a,
-            "x_dup_b": x_dup_b,
-            "x_dup_c": x_dup_c,
-            "x2": x2,
-            "noise_0": rng.standard_normal(n),
-        }
-    )
-    signal = x1**2 + 0.6 * (x2**2)
-    thr = float(np.median(signal))
-    y = ((signal + 0.05 * rng.standard_normal(n)) > thr).astype(int)
-    return X, pd.Series(y, name="y")
+def _build_redundant_quadratic(seed: int, n: int = 2000):
+    """The heavily-redundant quadratic fixture: identical data to ``_build_redundant_multi``.
+
+    Historically named ``_build_xor_redundant`` after the L75 fixture roster's
+    ``xor_redundant`` label, but the body never contained an XOR: the target is
+    ``y = sign(x1^2 + 0.6*x2^2 - median)`` over a candidate pool whose
+    ``x_dup_a/b/c`` columns are near-copies of ``x1``. What the importing tests
+    actually exercise is the HIGH-REDUNDANCY branch (``inter_x_max_corr >= 0.95``),
+    not synergy, so the name now says what the data is. A genuine synergistic
+    fixture lives in :func:`make_3way_xor`.
+
+    Delegates to :func:`_build_redundant_multi` rather than repeating its body --
+    the two were byte-identical, so the delegation is output-identical for every
+    ``(seed, n)``.
+    """
+    return _build_redundant_multi(seed, n=n)
 
 
 def _train_holdout_split(X: pd.DataFrame, y: pd.Series, *, train_frac: float = 0.6, seed: int = 0):

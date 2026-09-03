@@ -129,7 +129,7 @@ def _build_quadratic(seed: int, n: int = 2000):
     return X, pd.Series(y, name="y")
 
 
-from tests.feature_selection._biz_val_synth import _build_xor_redundant
+from tests.feature_selection._biz_val_synth import _build_redundant_quadratic
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
 
@@ -148,7 +148,7 @@ class TestColdStartMatchesL76:
         [
             (_build_linear_monotone, "plug_in"),
             (_build_quadratic, "hsic"),
-            (_build_xor_redundant, "cmim"),
+            (_build_redundant_quadratic, "cmim"),
         ],
     )
     @pytest.mark.parametrize("seed", SEEDS)
@@ -179,7 +179,7 @@ class TestBenchmarkPopulatesOracle:
     def test_benchmark_records_all_scorers(self):
         """Every scorer in ORACLE_SCORER_NAMES gets a recorded quality row with a quality objective."""
         _, ORACLE_SCORER_NAMES, OracleScorerSelector = _import_selector()
-        X, y = _build_xor_redundant(seed=7)
+        X, y = _build_redundant_quadratic(seed=7)
         sel = OracleScorerSelector(store_path="bench.parquet")
         assert sel.oracle.store.read_rows() == []  # cold store
         qualities = sel.benchmark_all_scorers(
@@ -258,7 +258,7 @@ class TestStatOnlyPersistence:
     def test_store_has_no_raw_arrays(self):
         """Every stored row/fp_bucket value is a scalar, and the store file is smaller than the raw array it summarizes."""
         _, _, OracleScorerSelector = _import_selector()
-        X, y = _build_xor_redundant(seed=42)
+        X, y = _build_redundant_quadratic(seed=42)
         sel = OracleScorerSelector(store_path="stat.parquet")
         sel.benchmark_all_scorers(
             X,
@@ -293,7 +293,7 @@ class TestMrmrAutoOracleEndToEnd:
 
     def test_auto_oracle_appends_and_validates(self):
         """MRMR(default_scorer="auto_oracle") appends engineered columns on the redundant fixture."""
-        X, y = _build_xor_redundant(seed=7)
+        X, y = _build_redundant_quadratic(seed=7)
         m = _make_mrmr(
             fe_hybrid_orth_enable=True,
             fe_hybrid_orth_default_scorer="auto_oracle",
@@ -310,7 +310,7 @@ class TestMrmrAutoOracleEndToEnd:
         """Averaged over SEEDS, auto_oracle's downstream LogReg AUC is within 0.02 of the explicit-best cmim scorer."""
         aucs_oracle, aucs_explicit = [], []
         for s in SEEDS:
-            X, y = _build_xor_redundant(s)
+            X, y = _build_redundant_quadratic(s)
             X_tr, X_te, y_tr, y_te = train_test_split(
                 X,
                 y,
@@ -478,7 +478,7 @@ class TestPickleAndClone:
 
     def test_mrmr_auto_oracle_pickle_roundtrip(self):
         """pickle.dumps/loads round-trip preserves feature_names_in_ and hybrid_orth_features_ for auto_oracle fits."""
-        X, y = _build_xor_redundant(seed=42)
+        X, y = _build_redundant_quadratic(seed=42)
         m = _make_mrmr(
             fe_hybrid_orth_enable=True,
             fe_hybrid_orth_default_scorer="auto_oracle",
