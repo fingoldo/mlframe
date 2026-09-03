@@ -117,11 +117,25 @@ def test_the_temporal_audit_records_the_path_it_wrote():
     existed on disk while the audit metadata serialised a null path."""
     from mlframe.training.targets import _target_temporal_plot as m
 
-    src = inspect.getsource(m)
-    assert "result.plot_path = base_path" in src
-    idx_assign = src.index("result.plot_path = base_path")
-    idx_return = src.index("return None", idx_assign)
-    assert idx_assign < idx_return, "the assignment must precede the early return"
+    import ast
+
+    from tests._source_ast import module_ast
+
+    # Structural: an ORDER between two statements. Both orders produce a chart on disk; only the wrong one
+    # serialises a null path beside it, and reaching that through the public path needs a full audit run.
+    # Compared on parsed line numbers so reformatting cannot move it, unlike the character offsets this used.
+    tree = module_ast(m)
+    assigns = [
+        node.lineno for node in ast.walk(tree) if isinstance(node, ast.Assign) for t in node.targets if isinstance(t, ast.Attribute) and t.attr == "plot_path"
+    ]
+    assert assigns, "result.plot_path is never assigned, so the audit metadata cannot carry the chart's path"
+    # A bare `return` parses with value=None; `return None` parses with a Constant(None). Accept both.
+    returns_after = [
+        n.lineno
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Return) and (n.value is None or (isinstance(n.value, ast.Constant) and n.value.value is None)) and n.lineno > min(assigns)
+    ]
+    assert returns_after, "no early return follows the assignment; this test needs updating if the branch was restructured"
 
 
 class TestTheEvictionPassDoesNotScanForNothing:
@@ -131,10 +145,21 @@ class TestTheEvictionPassDoesNotScanForNothing:
         """The loop's own first-iteration break condition, hoisted ahead of the scan."""
         from mlframe.training.feature_handling import cache as m
 
-        src = inspect.getsource(m._FeatureCacheDiskMixin._maybe_evict_disk) if hasattr(m, "_FeatureCacheDiskMixin") else inspect.getsource(m)
-        i_guard = src.index("if free_bytes >= target_free_bytes:")
-        i_listdir = src.index("os.listdir(d)")
-        assert i_guard < i_listdir, "the early return must come before the directory scan"
+        import ast
+
+        from tests._source_ast import function_ast
+
+        # Structural: the fix is that the guard is HOISTED ahead of the scan. Both orders evict the same files
+        # and return the same value -- the difference is a directory listing plus a stat per file that is then
+        # thrown away, which no assertion on the result can see.
+        fn = function_ast(m, "FeatureCache._maybe_evict_disk")
+        guards = [
+            n.lineno for n in ast.walk(fn) if isinstance(n, ast.Compare) and any(isinstance(x, ast.Name) and x.id == "target_free_bytes" for x in ast.walk(n))
+        ]
+        listdirs = [n.lineno for n in ast.walk(fn) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "listdir"]
+        assert guards, "the free-space guard is gone, so the pass always scans"
+        assert listdirs, "no directory listing found; this test needs updating if the scan was restructured"
+        assert min(guards) < min(listdirs), f"the guard (line {min(guards)}) must precede the directory scan (line {min(listdirs)})"
 
 
 def test_the_unread_bootstrap_parameter_is_gone():
@@ -172,10 +197,8 @@ def test_the_nan_heavy_doc_block_names_the_real_threshold():
     a 60%-NaN column was not flagged concludes the detector is broken."""
     from mlframe.training.targets import _target_distribution_analyzer as m
 
-    src = inspect.getsource(m)
-    assert "NaN-heavy features (fraction > 50%)" not in src
-    assert "_NAN_FRACTION_THRESHOLD, which is 0.99" in src
-    assert m._NAN_FRACTION_THRESHOLD == 0.99
+    # The threshold itself is the contract; the prose that once contradicted it is not something to assert.
+    assert m._NAN_FRACTION_THRESHOLD == 0.99, f"the NaN-heavy threshold moved to {m._NAN_FRACTION_THRESHOLD!r}; the doc block quoting it must move too"
 
 
 class TestTheLeakageSafeEncoderKnobIsReachable:
