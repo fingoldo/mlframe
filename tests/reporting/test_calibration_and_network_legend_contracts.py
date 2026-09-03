@@ -86,12 +86,24 @@ class TestTheNetworkLegendSurvivesRender:
         named = {tr.name for tr in fig.data if tr.showlegend}
         assert {"kept", "dropped", "borderline"} <= named, named
 
-    def test_the_panel_no_longer_sets_the_figure_property(self):
-        """Setting it from inside the panel is what made the outcome depend on ordering."""
-        import pathlib
+    def test_the_legend_does_not_depend_on_panel_ORDER(self):
+        """The panel setting `showlegend` itself is what made the outcome depend on which panel rendered last.
 
-        src = (pathlib.Path(__file__).resolve().parents[2] / "src" / "mlframe" / "reporting" / "renderers" / "_plotly_network.py").read_text(encoding="utf-8")
-        assert "update_layout(showlegend=True)" not in src
+        Asserted by rendering the same two panels in both orders: the legend must be on either way. The old
+        form checked that the renderer's source no longer contains `update_layout(showlegend=True)`, which
+        says nothing about the property -- the figure-level switch still has to end up True, as the sibling
+        above pins, and what broke was only WHERE it was set.
+        """
+        pytest.importorskip("plotly")
+        from mlframe.reporting.renderers.plotly import PlotlyRenderer
+        from mlframe.reporting.spec import FigureSpec, LinePanelSpec
+
+        net = self._spec().panels[0][0]
+        line = LinePanelSpec(x=np.arange(5), y=(np.arange(5).astype(float),), series_labels=("a",), title="plain")
+
+        for order in ((net, line), (line, net)):
+            fig = PlotlyRenderer().render(FigureSpec(suptitle="s", panels=(order,)))
+            assert fig.layout.showlegend, f"the legend is off when the network panel is rendered {'first' if order[0] is net else 'last'}"
 
     def test_a_panel_without_a_legend_does_not_force_one_on(self):
         """The predicate must stay specific, or every multi-panel figure grows legend soup."""

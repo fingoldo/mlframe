@@ -27,6 +27,7 @@ This file ships with sensors covering each helper; see
 ``tests/training/test_nan_propagation_fixes.py`` for the broader wave-21
 contract.
 """
+
 from __future__ import annotations
 
 import logging
@@ -76,16 +77,20 @@ def argmax_classes_safe(
             # A 1-ELEMENT int64 array, matching the documented "(N,) int64 array of class indices". It used to
             # return `np.asarray(np.argmax(...))` -- a 0-d array of dtype intp -- so `len(preds)` raised
             # "len() of unsized object" and the int64 width the docstring promises was unmet wherever intp is
-            # int32. The 2-D path already honours both, so only this degenerate input diverged.
+            # int32. The 2-D path already honours both, so only this degenerate input diverged. The two
+            # non-finite branches below return the same (1,) shape: a caller that indexes the result must not
+            # have to know WHICH 1-D branch produced it, and the all-finite branch alone returning (1,) made
+            # `int(out)` succeed or raise depending on the data.
             return np.asarray([np.argmax(probs)], dtype=np.int64)
         finite_mask = np.isfinite(probs)
         if not finite_mask.any():
             log.warning(
-                "%s: 1-D probs are entirely non-finite; returning "
-                "fallback_class=%d.", context, fallback_class,
+                "%s: 1-D probs are entirely non-finite; returning " "fallback_class=%d.",
+                context,
+                fallback_class,
             )
-            return np.asarray(fallback_class, dtype=np.int64)
-        return np.asarray(np.nanargmax(probs), dtype=np.int64)
+            return np.asarray([fallback_class], dtype=np.int64)
+        return np.asarray([np.nanargmax(probs)], dtype=np.int64)
 
     if probs.ndim != 2:
         raise ValueError(f"{context}: expected 1-D or 2-D probs; got shape={probs.shape}")
@@ -107,7 +112,10 @@ def argmax_classes_safe(
             "unexpected, check upstream model for predict_proba returning "
             "NaN (common shapes: division by zero in softmax, missing "
             "features, NaN-poisoned calibration).",
-            context, n_dead, n_rows, fallback_class,
+            context,
+            n_dead,
+            n_rows,
+            fallback_class,
         )
 
     preds = np.full(n_rows, fallback_class, dtype=np.int64)
@@ -140,7 +148,8 @@ def quantile_safe(
     if arr_np.size == 0 or not np.any(np.isfinite(arr_np)):
         log.warning(
             "%s: input has no finite values; returning fallback=%r.",
-            context, fallback,
+            context,
+            fallback,
         )
         # Mirror nanquantile's output shape: array if q is sequence, scalar otherwise.
         if hasattr(q, "__iter__"):
@@ -168,7 +177,8 @@ def median_safe(
     if arr_np.size == 0 or not np.any(np.isfinite(arr_np)):
         log.warning(
             "%s: input has no finite values; returning fallback=%r.",
-            context, fallback,
+            context,
+            fallback,
         )
         return float(fallback)
     return float(np.nanmedian(arr_np, **kwargs))

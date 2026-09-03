@@ -10,6 +10,8 @@ import warnings
 import numpy as np
 import pandas as pd
 
+from tests.conftest import skip_scale_test_under_numba_disabled_jit
+
 warnings.filterwarnings("ignore")
 
 
@@ -68,6 +70,7 @@ def _wide_clustered(n=4000, n_latents=10, per=5, n_noise=150, seed=0):
     return X, y
 
 
+@skip_scale_test_under_numba_disabled_jit
 def test_dcd_large_p_no_crash_and_prunes():
     # p = 10*5 + 150 = 200 features, n=4000, 10 redundancy clusters. DCD must
     # run, prune redundant members, and transform finite -- no OOM/crash at scale.

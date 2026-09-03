@@ -291,12 +291,14 @@ class TestTheDocumentedContractsMatchTheCode:
 
         m._suggest_dichotomic = _spy
         try:
-            m._suggest_scipy_local([1, 2, 3], {1: 0.5, 2: 0.6}, 3, epsilon=0.01, rng=np.random.default_rng(0), step="midpoint")
-        except Exception:
-            pass
+            # No `except Exception: pass` around this call. It was defensive padding -- the call returns a
+            # suggestion cleanly on this input -- and a broad swallow here would turn a genuine fault inside
+            # the branch into "the step was never forwarded", reporting the wrong defect. Let it raise.
+            suggestion = m._suggest_scipy_local([1, 2, 3], {1: 0.5, 2: 0.6}, 3, epsilon=0.01, rng=np.random.default_rng(0), step="midpoint")
         finally:
             m._suggest_dichotomic = real
 
+        assert suggestion in (1, 2, 3), f"the scipy-local branch returned a suggestion outside the candidate set: {suggestion!r}"
         assert received == ["midpoint"], f"the scipy-local branch did not forward the configured step: {received!r}"
 
     def test_the_ridge_tolerance_is_relative(self):
@@ -417,13 +419,7 @@ class TestTheDocumentedContractsMatchTheCode:
             and node.args[1].value == "stability_subsample_fraction"
         ]
         assert frac_reads, "the subsample fraction is no longer read from config; this test needs updating"
-        or_operands = {
-            id(inner)
-            for node in ast.walk(tree)
-            if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or)
-            for value in node.values
-            for inner in ast.walk(value)
-        }
+        or_operands = {id(inner) for node in ast.walk(tree) if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or) for value in node.values for inner in ast.walk(value)}
         assert not any(id(r) in or_operands for r in frac_reads), "the fraction is read through an `or` default again, so a deliberate 0.0 draws 75% of the rows"
 
     def test_the_pruning_summary_no_longer_promises_a_stop_rule(self):
