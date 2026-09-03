@@ -310,10 +310,12 @@ def test_gpu_subset_scan_agrees_with_the_cpu_scan_on_the_same_input():
     pytest.importorskip("cupy")
     from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_gpu
 
-    assert hasattr(_shap_proxy_gpu, "__doc__")
-    # The mirror's non-finite guard must be present in the device path, not only in the host one.
-    import inspect
+    # The mirror's non-finite guard must be present in the DEVICE path, not only the host one. Structural:
+    # reaching it needs CUDA plus an input that actually produces a non-finite SR1 entry, and the guard's
+    # whole job is that such an entry never leaves the kernel -- so on a healthy input the two paths agree
+    # whether or not it is there.
+    from tests._source_ast import called_names, module_ast
 
-    src = inspect.getsource(_shap_proxy_gpu)
-    assert "cp.isfinite(out_d)" in src, "the SR1 non-finite guard is missing from the GPU path"
-    assert "cp.argpartition(out_d" in src
+    calls = called_names(module_ast(_shap_proxy_gpu))
+    assert "isfinite" in calls, "the SR1 non-finite guard is missing from the GPU path"
+    assert "argpartition" in calls, "the device top-k selection is gone from the GPU path"
