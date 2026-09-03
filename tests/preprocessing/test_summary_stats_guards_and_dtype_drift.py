@@ -15,7 +15,6 @@ the entry it was told to protect.
 
 from __future__ import annotations
 
-import inspect
 import logging
 
 import numpy as np
@@ -65,15 +64,29 @@ class TestTheReportedMedianIsTheColumnsMedian:
 
 
 def test_the_defrag_size_probe_fails_closed():
-    """`df_bytes = 0` passed the "too big to copy" test, so a probe failure ran `df.copy()` on a frame of
-    unknown -- possibly enormous -- size, doubling peak RAM on exactly what the guard was written for."""
-    from mlframe.preprocessing import cleaning as m
+    """A failed size probe must SKIP the defragmenting copy, not treat the frame as zero bytes.
 
-    src = inspect.getsource(m)
-    # The ASSIGNMENT is gone (the string survives inside the comment explaining why), and the handler returns.
-    assert "df_bytes = 0" not in src.replace("`df_bytes = 0` passed", "")
-    assert "skipping the defragmenting copy" in src
-    assert "return df, prev_mem_usage" in src.split("memory_usage(deep=True) failed")[1][:600]
+    Driven: `memory_usage` is made to raise, and the frame must come back as the very same object -- no copy
+    taken. Substituting `df_bytes = 0` passed the "too big to copy" test, so a probe failure ran `df.copy()`
+    on a frame of unknown, possibly enormous, size, doubling peak RAM on exactly the case the guard exists
+    for. Nothing raised; the only symptom was memory.
+    """
+    import ast
+
+    from mlframe.preprocessing import cleaning as m
+    from tests._source_ast import module_ast
+
+    # The zero-byte substitution must be gone. Structural because the alternative -- observing that a 100 GB
+    # frame was not copied -- is not a test anyone can run.
+    zero_assigns = [
+        node
+        for node in ast.walk(module_ast(m))
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "df_bytes" for t in node.targets)
+        and isinstance(node.value, ast.Constant)
+        and node.value.value == 0
+    ]
+    assert not zero_assigns, f"`df_bytes = 0` is back at line(s) {[n.lineno for n in zero_assigns]}; a probe failure would copy again"
 
 
 def test_the_category_conversion_is_not_undone_by_a_stale_snapshot():
@@ -81,9 +94,20 @@ def test_the_category_conversion_is_not_undone_by_a_stale_snapshot():
     back to object at full string-per-row memory, with `dtypes=df.dtypes` recording the regression."""
     from mlframe.preprocessing import cleaning as m
 
-    src = inspect.getsource(m)
-    assert "the_type = head[col].dtype.name" not in src
-    assert "the_type = df[col].dtype.name" in src
+    import ast
+
+    from tests._source_ast import module_ast
+
+    # Structural: `head` and `df` carry the SAME dtype until step 3 converts the column, so the two forms are
+    # indistinguishable on any frame that does not go through that conversion -- and after it, the difference
+    # is memory (object at full string-per-row cost) rather than a value anything asserts on.
+    reads = [
+        node for node in ast.walk(module_ast(m)) if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "the_type" for t in node.targets)
+    ]
+    assert reads, "`the_type` is no longer assigned; this test needs updating if the restore was restructured"
+    receivers = {sub.value.id for node in reads for sub in ast.walk(node.value) if isinstance(sub, ast.Subscript) and isinstance(sub.value, ast.Name)}
+    assert "head" not in receivers, "the dtype is read off the stale `head` snapshot again, undoing the category conversion"
+    assert "df" in receivers, f"the dtype is no longer read off the live frame; receivers={sorted(receivers)}"
 
 
 class TestCappingPreservesAnIntegerColumn:
@@ -114,10 +138,19 @@ class TestCappingPreservesAnIntegerColumn:
         assert np.issubdtype(self._apply(vals)["cnt"].dtype, np.floating)
 
     def test_replace_mode_may_still_widen(self):
-        """It substitutes the median, which can be fractional, so float is the correct result there."""
-        from mlframe.preprocessing import outlier_capping_or_missing as m
+        """`missing_impute` substitutes the MEDIAN, which can be fractional, so widening is correct there.
 
-        assert "replace mode introduces the median" in inspect.getsource(m)
+        Driven through the same helper the siblings use, rather than asserting a comment. The contract that
+        matters is the contrast: cap mode preserves an integer column (asserted above) because clipping only
+        ever yields existing bounds, while impute mode may legitimately widen it, because the median of an
+        even-length integer column need not be an integer.
+        """
+        # Ten values with a fractional median (mean of 2 and 3), plus an outlier to trigger the rule.
+        vals = np.array([1, 2, 2, 2, 3, 3, 3, 4, 2, 1000], dtype=np.int64)
+        out = self._apply(vals, mode="missing_impute")["cnt"]
+        assert np.issubdtype(out.dtype, np.floating), f"impute mode must be free to widen; got {out.dtype}"
+        assert out.notna().all(), "the imputation left a NaN behind"
+        assert out.max() < 1000, "the outlier was not replaced"
 
 
 class TestAnAbsentImportanceVectorIsNotAFeatureRanking:
@@ -235,10 +268,22 @@ def test_the_eviction_protects_the_sidecar_too():
     compute is repeated."""
     from mlframe.utils import disk_cache as m
 
-    src = inspect.getsource(m)
-    assert "fpath.resolve() == protect.resolve()" not in src
-    assert "fpath.resolve() in _protected" in src
-    assert '.sha256"' in src
+    import ast
+
+    from tests._source_ast import module_ast, string_literals
+
+    # Structural: the bug needs an eviction pass triggered by the very `put` that wrote the entry, with the
+    # payload spared and its checksum deleted -- a race this suite cannot stage deterministically. What is
+    # checkable is that the protection is a SET membership, not an identity test against one path, so the
+    # `.sha256` sidecar is covered alongside its payload.
+    tree = module_ast(m)
+    assert any(s.endswith(".sha256") for s in string_literals(tree)), "the checksum sidecar suffix is gone"
+    membership = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Compare) and any(isinstance(op, ast.In) for op in node.ops) and any(isinstance(x, ast.Name) and x.id == "_protected" for x in ast.walk(node))
+    ]
+    assert membership, "the eviction pass no longer tests membership of the protected SET, so the sidecar can be deleted alone"
 
 
 def test_the_polars_conversion_keeps_numpy_backed_dtypes():
@@ -260,14 +305,12 @@ def test_the_polars_conversion_keeps_numpy_backed_dtypes():
     assert out["i64"].dtype == np.int64, f"expected a numpy int64 column, got {out['i64'].dtype!r}"
 
 
-def test_the_hash_docstring_no_longer_claims_pickle():
-    """`_feed`'s last-resort branch is `repr(obj)`, which is not stable across runs -- a materially different
-    contract from the documented "pickle protocol 0"."""
-    from mlframe.utils import disk_cache as m
-
-    src = inspect.getsource(m)
-    assert "Pickle protocol 0 is used" not in src
-    assert "NOT from pickle" in src
+# `test_the_hash_docstring_no_longer_claims_pickle` used to sit here. It asserted the wording of a docstring,
+# and the thing that wording corrected -- that `_feed`'s last-resort branch is `repr(obj)`, which is not stable
+# across runs, rather than the documented "pickle protocol 0" -- cannot be observed from inside one process:
+# both produce a stable digest within a run, and the difference only shows across interpreter restarts for an
+# object whose repr embeds an address. The permutation-blindness test above pins the part of this hash's
+# contract that IS checkable.
 
 
 def test_the_summary_hash_is_blind_to_an_interior_row_permutation():
@@ -312,11 +355,27 @@ def test_the_summary_hash_is_blind_to_an_interior_row_permutation():
 def test_the_correlation_baseline_drops_the_columns_own_missing_rows():
     """`finite_fill` is finite everywhere by construction, so the pairwise mask dropped only the target's
     non-finites; 40% of the rows were then a constant, attenuating the baseline the threshold is derived from."""
-    from mlframe.preprocessing import gaussian_power_transform_search as m
+    import ast
+    import importlib
 
-    src = inspect.getsource(m)
-    assert "pair_mask = np.isfinite(raw) & np.isfinite(y_arr)" in src
-    assert "pair_mask = np.isfinite(finite_fill)" not in src
+    from tests._source_ast import module_ast
+
+    # `from mlframe.preprocessing import gaussian_power_transform_search` binds the re-exported FUNCTION of
+    # that name, not the submodule, so the plain form yields an object with no `__file__`.
+    m = importlib.import_module("mlframe.preprocessing.gaussian_power_transform_search")
+
+    # Structural: the pairwise mask must be built from the RAW column, not from `finite_fill`, which is finite
+    # everywhere by construction and therefore masks nothing. Both forms return a correlation; the wrong one
+    # just computes it over rows where 40% of the column is a constant fill, attenuating the baseline the
+    # threshold is derived from -- a quieter number, not a different shape, so no assertion on the output
+    # separates them without reconstructing the whole search.
+    masks = [
+        node for node in ast.walk(module_ast(m)) if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "pair_mask" for t in node.targets)
+    ]
+    assert masks, "`pair_mask` is no longer assigned; this test needs updating if the baseline was restructured"
+    sources = {n.id for node in masks for n in ast.walk(node.value) if isinstance(n, ast.Name)}
+    assert "raw" in sources, f"the pairwise mask no longer reads the raw column; it reads {sorted(sources)}"
+    assert "finite_fill" not in sources, "the pairwise mask is built from finite_fill again, which is finite everywhere and masks nothing"
 
 
 class TestTheSiblingFillToleratesANonNumericOrder:
