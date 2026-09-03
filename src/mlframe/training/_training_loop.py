@@ -105,7 +105,12 @@ def _ensure_cb_mtr_loss(model, train_target, pool=None) -> None:
     if type(model).__name__ != "CatBoostRegressor":
         return
     try:
-        get = getattr(model, "get_param", None) or getattr(model, "get_params", None)
+        # `get_params` FIRST: CatBoost defines both, and `get_param(key)` takes a required argument, so the
+        # previous `get_param or get_params` always selected the single-key form and `get()` raised TypeError
+        # on every call. That was invisible while the handler substituted an empty dict -- the loss still got
+        # set, for the wrong reason -- and became a silent no-op the moment the handler correctly stopped
+        # treating "params unknown" as "params empty".
+        get = getattr(model, "get_params", None) or getattr(model, "get_param", None)
         params = get() if callable(get) else {}
     except Exception as e:
         # "Params unknown" is not "params empty". Substituting {} made the very next check conclude the caller
@@ -167,7 +172,12 @@ def _ensure_cb_multilabel_loss(model, train_target, pool=None) -> None:
     if type(model).__name__ != "CatBoostClassifier":
         return
     try:
-        get = getattr(model, "get_param", None) or getattr(model, "get_params", None)
+        # `get_params` FIRST: CatBoost defines both, and `get_param(key)` takes a required argument, so the
+        # previous `get_param or get_params` always selected the single-key form and `get()` raised TypeError
+        # on every call. That was invisible while the handler substituted an empty dict -- the loss still got
+        # set, for the wrong reason -- and became a silent no-op the moment the handler correctly stopped
+        # treating "params unknown" as "params empty".
+        get = getattr(model, "get_params", None) or getattr(model, "get_param", None)
         params = get() if callable(get) else {}
     except Exception as e:
         # "Params unknown" is not "params empty". Substituting {} made the very next check conclude the caller

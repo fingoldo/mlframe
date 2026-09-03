@@ -90,29 +90,30 @@ _PAR_KERNELS = (
 # warm from another test in this worker"), but a FRESH SUBPROCESS has no prior compilation state at all, which is
 # exactly the reset mechanism the skip reason said was missing.
 _PROBE = """
-import json
+import orjson
 import mlframe.metrics._core_numba_warmup as warmup
 import mlframe.metrics.core as core
 
 warmup.prewarm_numba_cache()
 names = {names!r}
-print("RESULT " + json.dumps({{n: len(getattr(getattr(core, n, None), "nopython_signatures", [])) for n in names}}))
+print("RESULT " + orjson.dumps({{n: len(getattr(getattr(core, n, None), "nopython_signatures", [])) for n in names}}).decode())
 """
 
 
 def _warm_in_subprocess(skip: str) -> dict:
     """Run the warmup in a clean interpreter with the flag set to ``skip``; return per-kernel signature counts."""
-    import json
     import os
     import subprocess
     import sys
+
+    import orjson
 
     names = [*_PAR_KERNELS, "_fast_mae_seq"]
     env = dict(os.environ, MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL=skip)
     proc = subprocess.run([sys.executable, "-c", _PROBE.format(names=names)], capture_output=True, text=True, env=env, timeout=900, check=False)
     line = next((ln for ln in proc.stdout.splitlines() if ln.startswith("RESULT ")), None)
     assert line is not None, f"probe produced no result (exit {proc.returncode}):\n{proc.stdout[-2000:]}\n{proc.stderr[-2000:]}"
-    return json.loads(line[len("RESULT ") :])
+    return orjson.loads(line[len("RESULT ") :])
 
 
 @pytest.mark.slow
