@@ -976,10 +976,21 @@ class TestEnsureNoInfinityPdHandlesExtensionDtypes:
             }
         )
         out = ensure_no_infinity_pd(pdf)
-        # inf → 0; pd.NA → also 0 (np.nan_to_num collapses NaN to 0 too,
-        # which is the historical behaviour — not a regression of this fix).
-        # The point is the function must NOT raise.
-        assert np.isfinite(out["score"].astype(float)).all()
+        got = out["score"].astype(float).to_numpy()
+
+        # The infinity is replaced...
+        assert not np.isinf(got).any(), f"an infinity survived sanitisation: {got!r}"
+        assert got[1] == 0.0, f"the +inf at position 1 should be the filler, got {got[1]!r}"
+
+        # ...and the MISSING value is still missing. This assertion used to read the other way, pinning
+        # `np.nan_to_num`'s behaviour: its `nan` argument defaults to 0.0, so passing only posinf/neginf
+        # silently rewrote every NaN in the column to zero as well -- and only in columns that happened to
+        # contain an infinity, so two otherwise identical frames could disagree. A missing value is a signal a
+        # tree splits on; turning it into a plausible number is a silent corruption, not sanitisation.
+        assert np.isnan(got[2]), f"pd.NA must survive as NaN, not be rewritten to a number: {got[2]!r}"
+
+        # The untouched values are unchanged.
+        assert got[0] == 1.5 and got[3] == 2.5, f"finite values must pass through unchanged: {got!r}"
 
     def test_categorical_columns_skipped(self):
         """Categorical / object columns must be skipped silently — they
