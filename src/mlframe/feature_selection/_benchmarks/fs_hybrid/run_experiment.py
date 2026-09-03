@@ -213,6 +213,16 @@ def _default_scenarios() -> List[Tuple[str, ScenarioGen]]:
 
         return [("default", lambda seed: make_dataset(n_samples=5000, seed=seed))]
 
+    if spec in ("real", "real_all"):
+        from ._real_beds import real_bed_scenarios
+
+        return list(real_bed_scenarios(include_ineligible=(spec == "real_all")))
+
+    if spec == "adversarial":
+        from .scenarios import ADVERSARIAL_SCENARIOS, make
+
+        return [(name, (lambda nm: (lambda seed: make(nm, seed)))(name)) for name in ADVERSARIAL_SCENARIOS]
+
     from .hard_synth2 import HARD_SCENARIOS
 
     names = list(HARD_SCENARIOS) if spec == "all" else [s.strip() for s in spec.split(",") if s.strip()]
