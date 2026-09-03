@@ -36,6 +36,16 @@ def _handlers(path: pathlib.Path) -> list:
     return [n for n in ast.walk(ast.parse(path.read_text(encoding="utf-8"))) if isinstance(n, ast.ExceptHandler)]
 
 
+def _literals(path: pathlib.Path) -> set:
+    """Every string literal in the module, from its parsed AST.
+
+    Not a substring search over the raw text: that matches a phrase sitting in a COMMENT just as happily as
+    one in an emitted message, so "this warning is produced" and "this warning is described in a note above
+    the handler" become indistinguishable -- and several of these sites carry exactly such a note.
+    """
+    return {n.value for n in ast.walk(ast.parse(path.read_text(encoding="utf-8"))) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+
+
 def _logs_at(handler: ast.ExceptHandler, names: set) -> bool:
     """True when the handler body calls one of `names` (a logging call at or above warning)."""
     for node in ast.walk(handler):
@@ -63,8 +73,8 @@ class TestThePermissiveReAddIsAudible:
 
     def test_it_is_throttled(self):
         """One line per fit, not per candidate."""
-        src = (SRC / "_mrmr_fit_impl" / "_friend_graph_and_redundancy" / "_group1.py").read_text(encoding="utf-8")
-        assert SITES["_mrmr_fit_impl/_friend_graph_and_redundancy/_group1.py"] in src
+        key = SITES["_mrmr_fit_impl/_friend_graph_and_redundancy/_group1.py"]
+        assert key in _literals(SRC / "_mrmr_fit_impl" / "_friend_graph_and_redundancy" / "_group1.py"), f"the throttle key {key!r} is not an emitted literal, so the warning is not throttled per fit"
 
 
 class TestTheBlanketExclusionIsGone:
@@ -82,8 +92,9 @@ class TestTheBlanketExclusionIsGone:
 
     def test_the_outer_handler_warns(self):
         """Its polarity disagreed with the inner one and both were at debug."""
-        src = self.PATH.read_text(encoding="utf-8")
-        assert "RETAINING all" in src and "logger.warning(" in src
+        literals = _literals(self.PATH)
+        assert any("RETAINING all" in s for s in literals), "the outer handler no longer says it retains the whole candidate set"
+        assert any(_logs_at(h, {"warning", "error", "log_throttle"}) for h in _handlers(self.PATH)), "no handler in this module logs above debug"
 
 
 class TestAMislabelledBasisIsAnnounced:
@@ -113,18 +124,18 @@ class TestTheGpuFallbackNamesItself:
 
     def test_the_uninformative_message_is_gone(self):
         """The exact string, which named neither kernel nor fallback nor shape."""
-        assert '"suppressed: %s"' not in self.PATH.read_text(encoding="utf-8")
+        assert "suppressed: %s" not in _literals(self.PATH), "the placeholder message is back; it names no cause and no consequence"
 
     def test_the_fallback_warns_with_a_throttle_key(self):
         """Correctness is preserved by the CPU recomputation, so the cost is the only visible signal."""
-        src = self.PATH.read_text(encoding="utf-8")
-        assert "cmi_gpu_kernel_fallback" in src and "recomputing this CMI on the CPU path" in src
+        literals = _literals(self.PATH)
+        assert "cmi_gpu_kernel_fallback" in literals, "the throttle key is gone, so the fallback warns once per candidate instead of once per fit"
+        assert any("recomputing this CMI on the CPU path" in s for s in literals), "the message no longer says what the fallback actually does"
 
     @pytest.mark.parametrize("rel", sorted(SITES))
     def test_the_throttle_key_is_distinct_per_site(self, rel):
         """Two handlers sharing a key would silence each other."""
-        src = (SRC / rel).read_text(encoding="utf-8")
-        assert src.count(f'"{SITES[rel]}"') >= 1
+        assert SITES[rel] in _literals(SRC / rel), f"{rel} no longer carries the throttle key {SITES[rel]!r}"
 
 
 def test_all_four_modules_still_import():
