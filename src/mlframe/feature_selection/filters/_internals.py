@@ -247,6 +247,11 @@ def group_key_strings(col) -> np.ndarray:
 # compiled dispatcher. Closure-bound lambdas (e.g. ``_order=order`` in the maximal preset)
 # carry distinct closure cells; we include ``__defaults__``/``__closure__`` cell ids in the
 # key so two captures with different bound constants never collide.
+# Deliberately UNLOCKED. A concurrent get-or-compute here races only to compile the same function twice
+# and let one dict write win; both racers then hold dispatchers compiled from the identical code object,
+# defaults and closure cells -- the key is built from exactly those -- so the loser's work is wasted, not
+# wrong. There is no eviction, so no entry can be pulled out from under a reader either. A lock here
+# would serialise every dispatch on the hot path to prevent a duplicated compile.
 _NJIT_DISPATCHER_CACHE: dict = {}
 
 

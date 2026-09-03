@@ -101,6 +101,26 @@ class TestTheKernelTuningCacheRetries:
 class TestTheCudaProbeStaysOptimistic:
     """`_gpu_probe` runs at import and its verdict is cached for the process."""
 
+    @pytest.fixture(autouse=True)
+    def _restore_the_original_probe_module(self):
+        """Snapshot the real `_gpu_probe` module object and put THAT back afterwards.
+
+        These tests must re-import the module to re-run its import-time probe, and the previous form restored
+        by popping and importing again -- which builds a NEW module object. Anything that had already done
+        `from mlframe.training._gpu_probe import CUDA_IS_AVAILABLE` keeps the value it captured, and any later
+        test comparing identities sees two different modules for one name. Restoring the ORIGINAL object leaves
+        every existing holder consistent, which is what the repo's reload rule asks for.
+        """
+        name = "mlframe.training._gpu_probe"
+        original = sys.modules.get(name)
+        try:
+            yield
+        finally:
+            if original is not None:
+                sys.modules[name] = original
+            else:
+                sys.modules.pop(name, None)
+
     def test_a_transient_probe_failure_does_not_disable_gpu(self, monkeypatch):
         """A driver reset or a contended device is not evidence that no GPU exists."""
         import numba.cuda
@@ -108,11 +128,7 @@ class TestTheCudaProbeStaysOptimistic:
         monkeypatch.setattr(numba.cuda, "is_available", lambda: (_ for _ in ()).throw(OSError("device busy")))
         sys.modules.pop("mlframe.training._gpu_probe", None)
         module = importlib.import_module("mlframe.training._gpu_probe")
-        try:
-            assert module.CUDA_IS_AVAILABLE is True, "a transient probe failure disabled GPU for the whole process"
-        finally:
-            sys.modules.pop("mlframe.training._gpu_probe", None)
-            importlib.import_module("mlframe.training._gpu_probe")
+        assert module.CUDA_IS_AVAILABLE is True, "a transient probe failure disabled GPU for the whole process"
 
     def test_a_transient_probe_failure_is_audible(self, monkeypatch, caplog):
         """The one signal an operator has that the run is not deciding GPU support the usual way."""
@@ -122,8 +138,4 @@ class TestTheCudaProbeStaysOptimistic:
         sys.modules.pop("mlframe.training._gpu_probe", None)
         with caplog.at_level(logging.WARNING, logger="mlframe.training._gpu_probe"):
             importlib.import_module("mlframe.training._gpu_probe")
-        try:
-            assert any("transient device/driver condition" in r.getMessage() for r in caplog.records)
-        finally:
-            sys.modules.pop("mlframe.training._gpu_probe", None)
-            importlib.import_module("mlframe.training._gpu_probe")
+        assert any("transient device/driver condition" in r.getMessage() for r in caplog.records)

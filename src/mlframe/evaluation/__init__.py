@@ -17,6 +17,11 @@ from __future__ import annotations
 
 from mlframe.evaluation.bootstrap import auc_ci, auc_variance, bootstrap_metric, bootstrap_metrics, delong_test
 from mlframe.evaluation.noise_band import cv_score_equivalence_band, is_within_noise_band
+# Promoted to the public surface rather than imported across a package boundary by its underscore name:
+# `calibration.policy` needs ECE's O(n) closed-form BCa jackknife, and reaching into
+# `evaluation._bootstrap_jackknife` from another package is what the cross-package underscore rule exists
+# to stop -- the private name is then load-bearing for an outside caller with no promise attached to it.
+from mlframe.evaluation._bootstrap_jackknife import _jackknife_ece as jackknife_ece
 from mlframe.evaluation.cv_delta_triage import triage_cv_delta
 from mlframe.evaluation.leak_scan import scan_temporal_leak
 from mlframe.evaluation.subpopulation_drift import subpopulation_ratio_drift_check

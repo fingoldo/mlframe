@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 import numpy as np
 
@@ -32,7 +32,7 @@ _HEATMAP_CELL_TEXT_MAX = 400
 _BAR_LABEL_MAXLEN = 60
 
 
-def plotly_axis_suffix(fig, row: int, col: int, n_cols: int) -> str:
+def plotly_axis_suffix(fig: Any, row: int, col: int, n_cols: int) -> str:
     """Axis-number suffix for the subplot at 1-based ``(row, col)``: ``""`` for the first, else ``"4"`` etc.
 
     Read from ``fig._grid_ref``, which records the axes plotly ACTUALLY allocated, rather than computed as
@@ -85,7 +85,7 @@ def _finite_range(mat):
     return float(finite.min()), float(finite.max())
 
 
-def heatmap_value_to_index(lo: float, hi: float, n_bins: int):
+def heatmap_value_to_index(lo: float, hi: float, n_bins: int) -> Callable[[float], float]:
     """Return ``value -> bin-index`` for a heatmap axis binned over ``[lo, hi]`` into ``n_bins`` cells.
 
     Both renderers draw the y=x reference and the robust trend line in BIN-INDEX space while
