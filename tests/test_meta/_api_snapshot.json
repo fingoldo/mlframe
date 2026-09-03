@@ -224,8 +224,8 @@
     "kind": "class",
     "module": "mlframe.training.pu_learning",
     "mro": [
-      "sklearn.base.BaseEstimator",
       "sklearn.base.ClassifierMixin",
+      "sklearn.base.BaseEstimator",
       "builtins.object"
     ]
   },
