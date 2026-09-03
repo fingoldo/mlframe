@@ -30,7 +30,9 @@ from __future__ import annotations
 
 import importlib
 import os
+import ast
 import contextlib
+import pytest
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -218,11 +220,62 @@ def test_feature_handling_cache_read_drops_redundant_precheck() -> None:
     assert "if not os.path.exists(path):\n            return None\n        allow_pickle" not in src
 
 
-def test_cache_backend_exists_documents_advisory_contract() -> None:
-    """Cache backend exists documents advisory contract."""
-    src = _read("training/feature_handling/cache_backend.py")
-    assert "Advisory existence check" in src
-    assert "TOCTOU" in src
+def test_exists_really_is_only_advisory() -> None:
+    """A True from exists() must not promise the read that follows it will succeed.
+
+    Behavioural since 2026-09-03. This asserted that the words "Advisory existence check" and
+    "TOCTOU" appear in cache_backend.py. That is the docstring quoting itself: it holds just as
+    well if exists() started taking a lock, or if read() began raising into callers, and it tests
+    nothing about either.
+    """
+    from mlframe.training.feature_handling.cache_backend import LocalDiskBackend
+
+    with tempfile.TemporaryDirectory() as td:
+        backend = LocalDiskBackend(root=td)
+        backend.write("k", b"payload")
+        assert backend.exists("k") is True
+
+        # A concurrent evictor between the probe and the read -- the case the contract is about.
+        os.unlink(backend._value_path("k"))
+
+        assert backend.exists("k") is False
+        # KeyError, not FileNotFoundError: read() translates a vanished entry into a cache miss in
+        # the backend's own vocabulary, so callers can treat every backend uniformly instead of
+        # catching filesystem errors that only the local-disk one can raise.
+        with pytest.raises(KeyError):
+            backend.read("k")
+
+
+def test_no_caller_gates_a_read_on_exists() -> None:
+    """The rule the docstring states: callers MUST NOT branch a read on the advisory probe.
+
+    "Callers MUST NOT rely on a True result implying that a subsequent get(key) will succeed" is
+    the actual contract, and asserting that the sentence is written down does not enforce it. This
+    walks the parse tree for `if <backend>.exists(k):` guarding a read/get of the same key, which
+    is the shape the sentence forbids -- the one that turns an eviction into an exception.
+    """
+    offenders = []
+    for path in sorted(MLFRAME_ROOT.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:  # pragma: no cover - a broken module is a different failure
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.If):
+                continue
+            test = node.test.operand if isinstance(node.test, ast.UnaryOp) else node.test
+            if not (isinstance(test, ast.Call) and isinstance(test.func, ast.Attribute) and test.func.attr == "exists"):
+                continue
+            if not test.args:
+                continue  # a bare Path.exists(), not the keyed backend probe
+            probed = ast.dump(test.args[0])
+            for sub in ast.walk(node):
+                if not (isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)):
+                    continue
+                if sub.func.attr in {"read", "get"} and sub.args and ast.dump(sub.args[0]) == probed:
+                    offenders.append(f"{path.relative_to(MLFRAME_ROOT).as_posix()}:{sub.lineno}")
+
+    assert not offenders, f"a read is gated on the advisory exists() probe at: {offenders}"
 
 
 def _kernel_tuning_cli(monkeypatch, missing_path):
