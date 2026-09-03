@@ -20,6 +20,7 @@ describing behaviour the code does not have.
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 
 import numpy as np
@@ -176,9 +177,29 @@ def test_the_mlflow_lookup_scopes_by_experiment_id():
     looked in the currently-active experiment and a fresh run was created on every call."""
     from mlframe.integrations import mlflow as m
 
-    src = inspect.getsource(m)
-    assert "experiment_ids=[str(experiment_id)]" in src
-    assert "if experiment_id:" in src
+    import mlflow as _mlflow
+
+    # Spy on the search rather than reading the source: the defect was that `experiment_id` was accepted,
+    # forwarded to `start_run`, and IGNORED by the lookup, so the get half searched the currently-active
+    # experiment, found nothing, and created a fresh run on every call -- the one thing a get-or-create must
+    # not do. What matters is the argument the search actually receives.
+    seen: list = []
+    real_search = _mlflow.search_runs
+
+    def _spy(*args, **kwargs):
+        """Record the scoping arguments, then return no matches so the create half runs."""
+        seen.append(kwargs)
+        return []
+
+    _mlflow.search_runs = _spy
+    try:
+        with contextlib.suppress(Exception):
+            m.get_or_create_mlflow_run("probe-run", experiment_id="7")
+    finally:
+        _mlflow.search_runs = real_search
+
+    assert seen, "the lookup never searched at all, so it can only ever create"
+    assert seen[0].get("experiment_ids") == ["7"], f"the search was not scoped by the experiment_id it was given: {seen[0]!r}"
 
 
 class TestTheShapleyDefaultIsReproducible:
@@ -256,15 +277,64 @@ class TestTheDocumentedContractsMatchTheCode:
         from mlframe.feature_selection.wrappers import _helpers as m
 
         assert "step" in inspect.signature(m._suggest_scipy_local).parameters
-        assert "step=step" in inspect.getsource(m._suggest_scipy_local)
+
+        # ...and it is actually PASSED ON. A knob accepted at the boundary and dropped there gives the caller
+        # the adaptive "auto" schedule while they believe they configured "midpoint", with nothing to
+        # indicate it -- and both schedules return a valid suggestion, so no assertion on the result shows it.
+        received: list = []
+        real = m._suggest_dichotomic
+
+        def _spy(*args, **kwargs):
+            """Record the step the scipy-local branch forwards, then defer to the real suggester."""
+            received.append(kwargs.get("step"))
+            return real(*args, **kwargs)
+
+        m._suggest_dichotomic = _spy
+        try:
+            m._suggest_scipy_local([1, 2, 3], {1: 0.5, 2: 0.6}, 3, epsilon=0.01, rng=np.random.default_rng(0), step="midpoint")
+        except Exception:
+            pass
+        finally:
+            m._suggest_dichotomic = real
+
+        assert received == ["midpoint"], f"the scipy-local branch did not forward the configured step: {received!r}"
 
     def test_the_ridge_tolerance_is_relative(self):
-        """Documented as a relative drop, subtracted absolutely."""
-        from mlframe.feature_selection import ridge_forward_prefilter as m
+        """`tol` is a RELATIVE drop from the best score, not an absolute one.
 
-        src = inspect.getsource(m)
-        assert "best_score - abs(best_score) * tol" in src
-        assert "size_scores[size] >= best_score - tol" not in src
+        Driven on data where the two forms disagree outright. The signal is weak, so the best CV r2 is about
+        +0.0033; a relative 1% floor is +0.00331 and only the 3-feature prefix clears it, while an absolute
+        floor of best - 0.01 is -0.0067 and the 1-feature prefix -- scoring -0.0058, i.e. WORSE than predicting
+        the mean -- clears that comfortably. Subtracting absolutely on a small-magnitude score turns `tol` into
+        an enormous relative allowance, which is how a far smaller set than the operator asked for gets
+        through. The gap widens with tol, so all three settings are checked.
+        """
+        import numpy as _np
+        from sklearn.linear_model import Ridge
+        from sklearn.model_selection import cross_val_score
+
+        from mlframe.feature_selection.ridge_forward_prefilter import ridge_coefficient_prefilter
+
+        rng = _np.random.default_rng(0)
+        n, p = 400, 8
+        X = rng.normal(size=(n, p))
+        y = 0.10 * X[:, 0] + 0.08 * X[:, 1] + 0.06 * X[:, 2] + 0.05 * X[:, 3] + rng.normal(0, 1.0, n)
+        names = [f"f{i}" for i in range(p)]
+        sizes = [1, 2, 3, 4, 6, 8]
+
+        # Score each ridge-ranked prefix the way the prefilter does, so the fixture's premise is asserted
+        # rather than assumed.
+        order = _np.argsort(_np.abs(Ridge(alpha=1.0).fit(X, y).coef_))[::-1]
+        scores = {s: float(_np.mean(cross_val_score(Ridge(alpha=1.0), X[:, order[:s]], y, cv=3, scoring="r2"))) for s in sizes}
+        best = max(scores.values())
+        assert 0.0 < best < 0.05, f"the fixture needs a small POSITIVE best score for the two floors to diverge; got {best:+.5f}"
+
+        for tol in (0.01, 0.05, 0.2):
+            relative_pick = next(s for s in sizes if scores[s] >= best - abs(best) * tol)
+            absolute_pick = next(s for s in sizes if scores[s] >= best - tol)
+            assert relative_pick != absolute_pick, f"tol={tol} does not separate the two rules on this fixture"
+            chosen = ridge_coefficient_prefilter(X, y, names, candidate_sizes=sizes, cv=3, tol=tol)
+            assert len(chosen) == relative_pick, f"tol={tol}: kept {len(chosen)} features; the relative floor wants {relative_pick}, an absolute one would give {absolute_pick}"
 
     def test_max_features_counts_the_whole_subset(self):
         """`max_features` bounds the FINAL subset, seeds included -- not the number of columns added to it.
@@ -328,17 +398,47 @@ class TestTheDocumentedContractsMatchTheCode:
         """`0.0 or 0.75` silently drew 75% of the rows."""
         from mlframe.feature_selection.boruta_shap import _fit_explain as m
 
-        src = inspect.getsource(m)
-        assert '"stability_subsample_fraction", 0.75) or 0.75' not in src
-        assert "_frac_cfg is None else float(_frac_cfg)" in src
+        import ast
+
+        from tests._source_ast import module_ast
+
+        # Structural: `0.0 or 0.75` and an explicit None-test both yield 0.75 for every value EXCEPT a
+        # deliberate zero, and a zero fraction means "subsample nothing" -- so the difference shows only for
+        # the caller the old form silently overrode, on a path that needs a full stability run to reach.
+        tree = module_ast(m)
+        frac_reads = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value == "stability_subsample_fraction"
+        ]
+        assert frac_reads, "the subsample fraction is no longer read from config; this test needs updating"
+        or_operands = {
+            id(inner)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or)
+            for value in node.values
+            for inner in ast.walk(value)
+        }
+        assert not any(id(r) in or_operands for r in frac_reads), "the fraction is read through an `or` default again, so a deliberate 0.0 draws 75% of the rows"
 
     def test_the_pruning_summary_no_longer_promises_a_stop_rule(self):
-        """The summary line said it stops on CV degradation; the module docstring and the code say otherwise."""
-        from mlframe.feature_selection import zero_importance_pruning as m
+        """The summary must not claim a stop rule the pruner does not implement.
 
-        src = inspect.getsource(m)
-        assert "stopping on CV degradation" not in src
-        assert "does NOT stop on CV degradation" in src
+        Structural, and narrowly so: this is a LOG LINE's wording against the module's own documented
+        behaviour, and the pruner returns the same columns either way -- the defect was an operator reading
+        "stopping on CV degradation" in a summary and believing a safety rule was in force.
+        """
+        from mlframe.feature_selection import zero_importance_pruning as m
+        from tests._source_ast import module_ast, string_literals
+
+        emitted = " ".join(string_literals(module_ast(m)))
+        assert "stopping on CV degradation" not in emitted, "the summary promises a stop rule the pruner does not implement"
+        assert "does NOT stop on CV degradation" in emitted, "the summary no longer states that it keeps pruning regardless of CV"
 
     def test_the_shapley_stderr_cannot_discriminate_between_models(self):
         """`stderr` is the analytic proxy `|value| / sqrt(n)`, so every model's value/stderr ratio is IDENTICAL.

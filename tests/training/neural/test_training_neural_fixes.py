@@ -117,8 +117,12 @@ def test_f3_recurrent_predict_uses_safe_accelerator(monkeypatch):
     # CREATED the attribute rather than replacing anything, and the line protected nothing while reading as
     # belt-and-braces. The assertion below is what actually proves the spy was reached; if the call ever moves
     # to another module, that assertion fails and says so, which a phantom patch would have hidden.
-    _rdh_src = __import__("inspect").getsource(__import__("mlframe.training.neural.recurrent_dataset_helpers", fromlist=["_"]))
-    assert "safe_accelerator" not in _rdh_src, "recurrent_dataset_helpers now references safe_accelerator; patch it here too"
+    import importlib as _importlib
+
+    from tests._source_ast import loaded_names, module_ast
+
+    _rdh = _importlib.import_module("mlframe.training.neural.recurrent_dataset_helpers")
+    assert "safe_accelerator" not in loaded_names(module_ast(_rdh)), "recurrent_dataset_helpers now references safe_accelerator; patch it here too"
 
     rng = np.random.default_rng(0)
     n = 40
