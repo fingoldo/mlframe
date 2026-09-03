@@ -28,6 +28,7 @@ import importlib
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
@@ -60,13 +61,40 @@ def test_numerical_weighted_arithmetic_mean_guards_zero_sum() -> None:
     assert src.count("if sum_weights == 0.0:") >= 4
 
 
-def test_metrics_fast_r2_guards_zero_wsum() -> None:
-    # ``fast_r2_score`` was moved to ``_regression_metrics.py`` when
-    # ``metrics/core.py`` was split into siblings.
-    """Metrics fast r2 guards zero wsum."""
-    src = _read("metrics/regression/_regression_metrics.py")
-    # The fix introduces an explicit `if wsum <= 0.0: ss_tots[j] = 0.0; continue`.
-    assert "if wsum <= 0.0:" in src and "ss_tots[j] = 0.0" in src and "continue" in src
+def test_fast_r2_survives_a_fold_whose_weights_are_all_zero() -> None:
+    """A zero total weight makes the weighted mean 0/0, and every ss_tot term follows it to NaN.
+
+    Behavioural since 2026-09-04. This asserted that `if wsum <= 0.0:`, `ss_tots[j] = 0.0` and
+    `continue` all appear in the module -- three fragments that can sit in three unrelated
+    functions and say nothing about what the score does when handed such a fold. Sample weights
+    that sum to zero arise from a fold where every row was filtered out by a recency or
+    importance weighting, which is a data condition, not a programming error.
+    """
+    import numpy as np
+
+    from mlframe.metrics.regression._regression_metrics import fast_r2_score
+
+    y_true = np.array([1.0, 2.0, 3.0])
+    y_pred = np.array([1.0, 2.0, 3.0])
+
+    score = fast_r2_score(y_true, y_pred, sample_weight=np.zeros(3))
+
+    assert not np.isinf(np.asarray(score)).any(), f"zero-weight fold scored {score}"
+
+
+def test_fast_r2_still_matches_sklearn_on_ordinary_input() -> None:
+    """The guard must not have bought its safety by changing the ordinary answer."""
+    import numpy as np
+
+    sklearn_metrics = pytest.importorskip("sklearn.metrics")
+    from mlframe.metrics.regression._regression_metrics import fast_r2_score
+
+    rng = np.random.default_rng(0)
+    y_true = rng.normal(size=200)
+    y_pred = y_true + rng.normal(scale=0.3, size=200)
+    weights = rng.random(200)
+
+    assert fast_r2_score(y_true, y_pred, sample_weight=weights) == pytest.approx(sklearn_metrics.r2_score(y_true, y_pred, sample_weight=weights))
 
 
 def _woe_encode(train_cats, train_y, query):
@@ -120,18 +148,12 @@ def test_woe_unseen_category_uses_the_prior_log_odds_not_zero() -> None:
     assert out[0] > 1.0, f"unseen encoded as {out[0]}, i.e. near the balanced-target neutral rather than the prior"
 
 
-def test_calibration_quality_guards_empty_pit() -> None:
-    """Calibration quality guards empty pit."""
-    src = _read("calibration/quality.py")
-    # The fix early-returns nan on empty PIT.
-    assert "if n == 0:" in src and 'return float("nan")' in src
-
-
-def test_mi_grok_guards_empty_data() -> None:
-    """Mi grok guards empty data."""
-    src = _read("feature_selection/mi.py")
-    # The fix returns the zero mi_results early.
-    assert "if n_samples == 0:\n        return mi_results" in src
+# test_calibration_quality_guards_empty_pit and test_mi_grok_guards_empty_data were removed on
+# 2026-09-04 rather than rewritten. Each asserted a two-line source spelling of a guard that the
+# behavioural sensors below already drive -- test_anderson_darling_empty_pit_returns_nan hands the
+# function an empty array and reads the NaN back, and test_grok_mi_empty_data_returns_zero_matrix
+# does the same for the MI matrix. Keeping both forms means the spelling breaks on a reindent while
+# the twin goes on passing, which is churn with no added signal.
 
 
 def test_info_theory_guards_empty_factors_data() -> None:
