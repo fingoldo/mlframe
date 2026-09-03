@@ -175,9 +175,11 @@ class TestTheRawSignalIsScoredOutOfFold:
 def test_the_mlflow_lookup_scopes_by_experiment_id():
     """`experiment_id` was accepted, forwarded to start_run, and ignored by the search -- so the "get" half
     looked in the currently-active experiment and a fresh run was created on every call."""
-    from mlframe.integrations import mlflow as m
+    # mlflow is an OPTIONAL dependency and is absent from the CI test image, where the bare import made
+    # this a hard ModuleNotFoundError on every shard that collected it rather than a skip.
+    _mlflow = pytest.importorskip("mlflow")
 
-    import mlflow as _mlflow
+    from mlframe.integrations import mlflow as m
 
     # Spy on the search rather than reading the source: the defect was that `experiment_id` was accepted,
     # forwarded to `start_run`, and IGNORED by the lookup, so the get half searched the currently-active

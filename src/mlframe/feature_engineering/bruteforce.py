@@ -69,7 +69,7 @@ def _kfold_target_encode(
     return pd.DataFrame(out_arr, index=df.index, columns=cols)
 
 
-def median_fill_polars(frame):
+def median_fill_polars(frame: pl.DataFrame) -> pl.DataFrame:
     """Impute every numeric column's NaN/null with that column's median, inside the Arrow buffer.
 
     Median rather than 0 so PySR's candidate-score ranking does not silently collapse missing rows
@@ -77,24 +77,19 @@ def median_fill_polars(frame):
 
     ``drop_nans()`` BEFORE ``median()`` is required: polars 1.x ``Series.median()`` includes NaN in
     the sort order, so on [1,2,3,4,NaN,6,7,8,9,10] it returns 6.5 (the mid-pair of a 10-element
-    sort) rather than 6.0 (the median of the 9 finite values). Verified on polars 1.x 2026-05-26.
-
-    Extracted 2026-09-04. Its guard was a test asserting that one of two exact expression spellings
-    appears in this file.
+    sort) rather than 6.0 (the median of the 9 finite values). Verified against polars 1.x.
     """
     import polars.selectors as cs
 
     return frame.with_columns([cs.numeric().fill_nan(cs.numeric().drop_nans().median()).fill_null(cs.numeric().drop_nans().median())])
 
 
-def median_fill_pandas(frame):
+def median_fill_pandas(frame: pd.DataFrame) -> pd.DataFrame:
     """Impute numeric columns' NaN with the column median; leave every other dtype alone.
 
     Numeric-only on purpose: ``.fillna(0)`` on a Categorical carrying a NaN raises "Cannot setitem
     on a Categorical with a new category (0)", and categoricals are dropped or encoded downstream
     anyway, so their NaNs stay put here.
-
-    Extracted 2026-09-04, same reason as the polars twin above.
     """
     numeric_cols = frame.select_dtypes(include=[np.number]).columns
     if len(numeric_cols):

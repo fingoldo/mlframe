@@ -80,9 +80,7 @@ def test_compute_test_likeness_flags_drifted_region_correctly():
     is_region_a = x_train < 1.5
     mean_likeness_a = test_likeness[is_region_a].mean()
     mean_likeness_b = test_likeness[~is_region_a].mean()
-    assert (
-        mean_likeness_b > mean_likeness_a
-    ), f"expected region B (test-like) rows to score higher test-likeness, got a={mean_likeness_a:.4f} b={mean_likeness_b:.4f}"
+    assert mean_likeness_b > mean_likeness_a, f"expected region B (test-like) rows to score higher test-likeness, got a={mean_likeness_a:.4f} b={mean_likeness_b:.4f}"
 
 
 def test_adversarial_stochastic_blend_weights_sum_to_one():
@@ -104,9 +102,7 @@ def test_adversarial_stochastic_blend_default_output_unchanged_by_diagnostics_op
     test_likeness = rng.uniform(size=150)
 
     baseline = adversarial_stochastic_blend(preds, y_true, test_likeness, _rmse, n_iterations=15, sample_frac=0.7, n_restarts=1, random_state=3)
-    with_flags_off = adversarial_stochastic_blend(
-        preds, y_true, test_likeness, _rmse, n_iterations=15, sample_frac=0.7, n_restarts=1, random_state=3, track_convergence=False, discriminator_auc=None
-    )
+    with_flags_off = adversarial_stochastic_blend(preds, y_true, test_likeness, _rmse, n_iterations=15, sample_frac=0.7, n_restarts=1, random_state=3, track_convergence=False, discriminator_auc=None)
 
     assert set(baseline.keys()) == {"weights", "ensemble_pred", "loss", "weight_std"}
     assert set(with_flags_off.keys()) == set(baseline.keys())
@@ -149,8 +145,16 @@ def test_biz_val_adversarial_stochastic_blend_convergence_diagnostic_genuine_dri
     # convergence signal is that the curve STABILIZES (bounded relative spread late) rather than that it keeps
     # decreasing forever.
     stable_region = result["convergence_curve"][20:]
-    relative_spread = (stable_region.max() - stable_region.min()) / stable_region.mean()
-    assert relative_spread < 1.0, f"expected the convergence curve to stabilize after burn-in, got relative_spread={relative_spread:.3f}"
+    # Stated as `spread <= mean` rather than `spread / mean < 1.0`. The two agree wherever the mean is
+    # positive, but the ratio is 0/0 exactly when the blend converges PERFECTLY -- every iteration producing
+    # identical weights makes the centred deviations exactly zero, so the whole curve is 0.0. That is the
+    # best possible outcome for this diagnostic, and the ratio form turned it into `relative_spread=nan`,
+    # failing the assertion on the one result it should most clearly accept (seen on the CI 3.9 shard,
+    # where the optimiser lands on identical weights while 3.14 leaves a ~1e-5 band).
+    spread = float(stable_region.max() - stable_region.min())
+    mean = float(stable_region.mean())
+    assert spread <= mean, f"expected the convergence curve to stabilize after burn-in, got spread={spread:.3e} against mean={mean:.3e}"
+    assert np.isfinite(stable_region).all(), "the convergence curve went non-finite after burn-in"
 
 
 def test_biz_val_adversarial_stochastic_blend_convergence_diagnostic_no_drift_flags_untrustworthy():
