@@ -16,6 +16,8 @@ ties per row. And a deadline check that no configuration could reach.
 
 from __future__ import annotations
 
+import ast
+
 import numpy as np
 import pytest
 
@@ -248,30 +250,57 @@ class TestMomentPadsThatGetInvertedAndCubed:
 class TestTheKernelTuningDefaultsAreRetriedAndAnnounced:
     """The flag was set before the attempt, so one transient failure disabled the shipped defaults for good."""
 
-    def _src(self):
-        """The registration module's source."""
-        import inspect
+    def test_a_transient_failure_does_not_latch_the_defaults_off(self, monkeypatch, caplog):
+        """A registration that RAISES must leave the flag unset, so the next call retries.
 
-        from mlframe.feature_selection.filters import _kernel_tuning
+        Driven through the module's own reset hook rather than read out of its source: the flag used to be
+        assigned above the `try`, so one transient fault -- a locked file, a momentary import error --
+        disabled the shipped per-hardware kernel-tuning defaults for the entire process, silently, and every
+        later fit quietly ran on the fallback.
+        """
+        import logging
 
-        return inspect.getsource(_kernel_tuning)
+        from mlframe.feature_selection.filters import _kernel_tuning as kt
 
-    def test_the_flag_is_not_set_before_the_attempt(self):
-        """It was assigned above the `try`, so one transient failure disabled the shipped defaults permanently."""
-        src = self._src()
-        body = src[src.index("with _DEFAULTS_LOCK:") : src.index("register_default_cache(_DEFAULT_TUNING_JSON)")]
-        assert "_DEFAULTS_REGISTERED = True  # never re-attempt" not in body
-        # The only assignments before the attempt are the two genuinely-permanent cases: no file, no package.
-        assert body.count("_DEFAULTS_REGISTERED = True") == 2, body
+        kt._reset_for_tests()
+        calls = {"n": 0}
 
-    def test_a_registration_failure_warns(self):
-        """It logged at debug, which production logging does not emit."""
-        src = self._src()
-        assert "logger.warning(" in src and "NOT registered" in src
+        def _boom(*_a, **_k):
+            """Fail the first registration attempt the way a transient fault would."""
+            calls["n"] += 1
+            raise RuntimeError("transient registration fault")
 
-    def test_the_flag_is_set_on_the_success_path(self):
-        """An `else:` on the try, so a success still fires exactly once per process."""
-        assert "        else:\n            _DEFAULTS_REGISTERED = True" in self._src()
+        monkeypatch.setattr("pyutilz.performance.kernel_tuning.cache.register_default_cache", _boom, raising=False)
+        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.filters._kernel_tuning"):
+            kt._register_default_tuning_cache()
+
+        assert calls["n"] == 1, f"registration was not attempted exactly once, got {calls['n']}"
+        assert kt._DEFAULTS_REGISTERED is False, "a transient failure latched the flag, so the defaults are disabled for the whole process"
+        assert any("NOT registered" in r.getMessage() for r in caplog.records), [r.getMessage() for r in caplog.records]
+
+        # ...and the next call really does retry rather than short-circuiting on the flag.
+        kt._register_default_tuning_cache()
+        assert calls["n"] == 2, "the second call did not retry, so the failure latched after all"
+        kt._reset_for_tests()
+
+    def test_a_successful_registration_fires_exactly_once(self, monkeypatch):
+        """Success DOES latch: the shipped defaults are registered once per process, not once per call."""
+        from mlframe.feature_selection.filters import _kernel_tuning as kt
+
+        kt._reset_for_tests()
+        calls = {"n": 0}
+
+        def _ok(*_a, **_k):
+            """Register successfully."""
+            calls["n"] += 1
+
+        monkeypatch.setattr("pyutilz.performance.kernel_tuning.cache.register_default_cache", _ok, raising=False)
+        kt._register_default_tuning_cache()
+        kt._register_default_tuning_cache()
+
+        assert calls["n"] == 1, f"a successful registration re-ran; it should latch. calls={calls['n']}"
+        assert kt._DEFAULTS_REGISTERED is True
+        kt._reset_for_tests()
 
 
 class TestThePrunedCountSumKernelMatchesTheFullOne:
@@ -311,36 +340,63 @@ def test_the_device_shuffle_keys_are_float64():
     """float32 uniforms have ~1.68e7 grid points, so at n=600k each row carries ~10,700 tied keys whose relative
     order `argsort` resolves by index -- a small positive correlation with the identity permutation, not a
     uniform draw, and a different estimator from the CPU Fisher-Yates floor."""
-    import inspect
-
     from mlframe.feature_selection.filters import _permutation_null_resident
 
-    src = inspect.getsource(_permutation_null_resident)
-    assert "dtype=cp.float64)" in src
-    assert "_rng.random((nperm, n), dtype=cp.float32)" not in src
+    from tests._source_ast import module_ast
+
+    # Structural: this is a cupy path, so the observable difference needs a GPU AND n large enough for the
+    # float32 grid to collide (~1.68e7 points; at n=600k each row carries ~10,700 tied keys, which argsort
+    # resolves by index -- a small positive correlation with the identity permutation rather than a uniform
+    # draw). What is checkable everywhere is that the keys are drawn at float64.
+    tree = module_ast(_permutation_null_resident)
+    dtypes = {
+        kw.value.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        for kw in node.keywords
+        if kw.arg == "dtype" and isinstance(kw.value, ast.Attribute)
+    }
+    assert "float64" in dtypes, "the device shuffle keys are no longer drawn at float64"
+    assert "float32" not in dtypes, f"a float32 dtype is back in the shuffle-key path: {sorted(dtypes)}"
 
 
 def test_the_polynom_deadline_is_passed_explicitly_into_the_workers():
     """`_fe_deadline`'s state is a `threading.local`, which crosses neither the loky process boundary nor the
     big-stack sub-thread `_eval_one_pair` runs the impl on -- so the check was unreachable in EVERY
     configuration, serial included, not only under `n_jobs > 1` as the module assumed."""
-    import inspect
-
     from mlframe.feature_selection.filters import polynom_pair_fe
 
-    src = inspect.getsource(polynom_pair_fe)
-    assert "def _eval_one_pair(raw_vars_pair, X_arr, y_arr, fe_deadline=None):" in src
-    assert "def _eval_one_pair_impl(raw_vars_pair, X_arr, y_arr, fe_deadline=None):" in src
-    assert "set_fe_deadline(fe_deadline)" in src
-    assert src.count("_fe_deadline_value") >= 4  # resolved once on the main thread, forwarded to all three call sites
+    from tests._source_ast import called_names, module_ast
+
+    # Structural: the deadline has to survive a loky process boundary AND the big-stack sub-thread the impl
+    # runs on, so observing it requires standing up both -- and the defect was that the check was unreachable
+    # in EVERY configuration, serial included, which is precisely why no behavioural test caught it.
+    # Both are NESTED functions, so they are unreachable via getattr and only visible in the parsed module.
+    tree = module_ast(polynom_pair_fe)
+    defs = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name.startswith("_eval_one_pair")}
+    for fn_name in ("_eval_one_pair", "_eval_one_pair_impl"):
+        assert fn_name in defs, f"{fn_name} is gone; this test needs updating if the worker was restructured"
+        params = {a.arg for a in defs[fn_name].args.args} | {a.arg for a in defs[fn_name].args.kwonlyargs}
+        assert "fe_deadline" in params, f"{fn_name} no longer accepts fe_deadline, so it cannot be forwarded across the boundary"
+
+    assert "set_fe_deadline" in called_names(module_ast(polynom_pair_fe)), "the worker no longer re-establishes the deadline in its own thread, so the check is unreachable again"
 
 
 def test_the_target_encoding_moment_divisions_are_guarded():
     """`np.where` evaluates both branches, so a zero-variance category computes 0.0/0.0 and warns per fold per
     column -- noise rather than wrongness, but it would hard-fail any suite under `-W error`."""
-    import inspect
-
     from mlframe.feature_selection.filters import _target_encoding_fe
+    from tests._source_ast import module_ast
 
-    src = inspect.getsource(_target_encoding_fe)
-    assert src.count('with np.errstate(divide="ignore", invalid="ignore"):') >= 2
+    # Structural: `np.errstate` suppresses a WARNING, and a warning is not part of any return value -- the
+    # numbers are identical with and without it. What it prevents is a suite run under `-W error` hard-failing
+    # per fold per column on a zero-variance category, where `np.where` evaluates both branches and the dead
+    # one computes 0.0/0.0.
+    guards = [
+        node
+        for node in ast.walk(module_ast(_target_encoding_fe))
+        if isinstance(node, ast.With)
+        for item in node.items
+        if isinstance(item.context_expr, ast.Call) and isinstance(item.context_expr.func, ast.Attribute) and item.context_expr.func.attr == "errstate"
+    ]
+    assert len(guards) >= 2, f"the moment divisions are no longer wrapped in np.errstate (found {len(guards)} guard(s))"
