@@ -54,11 +54,9 @@ class TestTheReportedMedianIsTheColumnsMedian:
         old = float(np.nanmedian(np.asarray(vc.index, dtype=np.float64)))
         assert abs(old - float(np.median(col.to_numpy()))) > 100.0, old
 
-    def test_the_source_no_longer_medians_the_index(self):
-        """The exact expression the finding names."""
-        from mlframe.preprocessing import cleaning as m
-
-        assert "np.nanmedian(col_unique_values.index)" not in inspect.getsource(m)
+    # `test_the_source_no_longer_medians_the_index` used to sit here. It is redundant: the two siblings above
+    # already drive the property end-to-end -- the weighted median matches the real median, and the unweighted
+    # form (which is what taking the median of the distinct-value index amounts to) is off by more than 100.
 
     def test_a_uniform_column_is_unaffected(self):
         """Where every value occurs once, the two forms agree -- so the fix must not move that case."""
@@ -272,12 +270,43 @@ def test_the_hash_docstring_no_longer_claims_pickle():
     assert "NOT from pickle" in src
 
 
-def test_the_summary_hash_states_its_permutation_blindness():
-    """It cannot distinguish two arrays differing only by an interior row permutation, which is right for a
-    permutation-invariant consumer and wrong for any other -- so the contract has to say which."""
-    from mlframe.utils import disk_cache as m
+def test_the_summary_hash_is_blind_to_an_interior_row_permutation():
+    """Two arrays differing only by a permutation of their INTERIOR rows hash identically.
 
-    assert "PERMUTATION-INVARIANT consumers" in inspect.getsource(m)
+    Driven rather than read off the docstring. `hash_array_summary` is deliberately sub-O(N) -- shape, dtype,
+    the first and last 64 rows, and per-column sum/min/max -- so an interior reordering leaves every one of
+    those unchanged. That is right for a consumer whose output does not depend on row order (MRMR bin edges)
+    and wrong for one whose output does, and the only way to know which side you are on is for this property
+    to be pinned rather than described.
+    """
+    from mlframe.utils.disk_cache import hash_array_summary
+
+    rng = np.random.default_rng(0)
+    # Integer dtype: the per-column sum is EXACT, which is the regime where the invariance actually holds.
+    arr = rng.integers(-1000, 1000, size=(400, 3))
+
+    # Permute only the interior, leaving the first and last 64 rows in place.
+    permuted = arr.copy()
+    interior = np.arange(64, arr.shape[0] - 64)
+    permuted[interior] = arr[rng.permutation(interior)]
+
+    assert not np.array_equal(arr, permuted), "the fixture did not actually reorder anything"
+    assert hash_array_summary(arr) == hash_array_summary(permuted), "the summary hash distinguished an interior permutation of an INTEGER array"
+
+    # A change it MUST see, so the assertion above is not simply reporting a constant hash.
+    changed = arr.copy()
+    changed[0, 0] += 1
+    assert hash_array_summary(arr) != hash_array_summary(changed), "the summary hash missed a changed value in the first rows"
+
+    # ...and the limit of the guarantee, which the module docstring used to overstate. On FLOAT data the
+    # per-column sum is order-dependent -- addition is not associative -- so the same interior reordering
+    # shifts it by a few ulp and the key changes. The direction is safe (an unnecessary miss and a recompute,
+    # never a wrong hit), but a caller must not expect a reordered float frame to hit the cache.
+    farr = rng.normal(size=(400, 3))
+    fpermuted = farr.copy()
+    fpermuted[interior] = farr[rng.permutation(interior)]
+    assert not np.array_equal(farr.sum(axis=0), fpermuted.sum(axis=0)), "the float fixture summed identically, so it cannot show the limit"
+    assert hash_array_summary(farr) != hash_array_summary(fpermuted), "float permutation-invariance now holds exactly; the docstring caveat can be dropped"
 
 
 def test_the_correlation_baseline_drops_the_columns_own_missing_rows():
