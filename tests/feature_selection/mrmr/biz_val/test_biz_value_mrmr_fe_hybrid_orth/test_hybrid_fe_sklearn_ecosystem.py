@@ -410,14 +410,38 @@ class TestCrossValWithHybridFE:
             ), f"fold={fold_idx}: hybrid_orth_features_ empty on a quadratic signal; FE pipeline failed to engage on this fold's training slice"
             _per_fold_recipes.append(tuple(m.hybrid_orth_features_))
 
-        # Non-emptiness alone cannot demonstrate the LEAKAGE contract this test is named for -- a builder that
-        # ran once on the full frame and reused one recipe for every fold produces a non-empty list on every
-        # fold too. What distinguishes per-fold fitting is that different training slices produce DIFFERENT
-        # recipes; identical output across all folds is the signature of a builder that is not seeing the folds.
-        assert len(set(_per_fold_recipes)) > 1, (
-            "every fold produced an identical recipe, which is what a builder fitted ONCE on the full frame "
-            f"would produce. Per-fold recipes: {_per_fold_recipes}"
-        )
+        # Non-emptiness alone cannot demonstrate that the builder RESPONDS to the slice it was handed. An
+        # earlier version of this check asserted the five fold recipes must DIFFER, which is wrong: on a clean
+        # single-column quadratic signal every training slice should discover the same He_2 feature, and it
+        # does (all five return `('x1__He2',)`). Identical output there is the correct answer, not evidence of
+        # a leaky global fit -- and a global fit is not even reachable here, since the loop builds a fresh
+        # MRMR per fold.
+        #
+        # Demonstrate it directly instead: two disjoint slices whose signal lives in DIFFERENT columns must
+        # produce recipes naming those different columns. A builder ignoring the data it is given cannot do
+        # that.
+        rng = np.random.default_rng(11)
+        n_split = 1800
+        half = n_split // 2
+        c1 = rng.standard_normal(n_split)
+        c2 = rng.standard_normal(n_split)
+        y_split = np.empty(n_split, dtype=np.int64)
+        y_split[:half] = (c1[:half] ** 2 > 1.0).astype(np.int64)  # first half: signal in c1
+        y_split[half:] = (c2[half:] ** 2 > 1.0).astype(np.int64)  # second half: signal in c2
+        X_split = pd.DataFrame({"c1": c1, "c2": c2, "na": rng.standard_normal(n_split), "nb": rng.standard_normal(n_split)})
+        ys_split = pd.Series(y_split, name="y")
+
+        def _recipe_for(idx):
+            """The hybrid recipe MRMR builds when fitted on just these rows."""
+            m_slice = _make_mrmr(fe_hybrid_orth_enable=True, fe_hybrid_orth_pair_enable=False, fe_hybrid_orth_top_k=5)
+            m_slice.fit(X_split.iloc[idx], ys_split.iloc[idx])
+            return tuple(m_slice.hybrid_orth_features_)
+
+        recipe_a = _recipe_for(np.arange(0, half))
+        recipe_b = _recipe_for(np.arange(half, n_split))
+        assert recipe_a != recipe_b, f"both slices produced the same recipe {recipe_a}, so the builder is not reading its training slice"
+        assert any(name.startswith("c1__") for name in recipe_a), f"the c1-signal slice should engineer a c1 feature, got {recipe_a}"
+        assert any(name.startswith("c2__") for name in recipe_b), f"the c2-signal slice should engineer a c2 feature, got {recipe_b}"
 
     def test_no_y_leakage_across_folds(self):
         """Permuting the target inside the holdout slice MUST NOT

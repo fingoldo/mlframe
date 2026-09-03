@@ -159,12 +159,45 @@ class TestAConvergedBlendDoesNotClaimPerfectStability:
 
 
 def test_the_blend_convergence_curve_is_wired_to_the_exported_score():
-    """The artifact reached the caller through `stability_score`, so the real call path must be exercised."""
+    """A converged blend must not report a PERFECT `stability_score` of exactly 1.0.
+
+    The class above validates the centred formula against a local reference; this exercises the real call
+    path, where the artifact actually reached callers. `stability_score` is `1 / (1 + curve[-1])`, so an
+    exact 1.0 means the convergence curve's last value was exactly 0.0 -- which is what the raw
+    `E[w^2] - E[w]^2` form produced when its cancellation floor swallowed a real spread and
+    `np.maximum(..., 0.0)` clamped the result. Nearly identical per-iteration weights are precisely the
+    regime that triggered it, so that is what this drives, through the public function rather than by
+    searching its source for the expression.
+    """
     pytest.importorskip("sklearn")
-    import inspect
+    from mlframe.votenrank.adversarial_stochastic_blend import adversarial_stochastic_blend
 
-    from mlframe.votenrank import adversarial_stochastic_blend as mod
+    rng = np.random.default_rng(0)
+    n = 400
+    y = rng.integers(0, 2, n).astype(np.float64)
+    # Three near-interchangeable members: every resample lands on almost the same weights, so the spread the
+    # curve measures is tiny but real -- exactly where the raw form clamped to zero.
+    base = y * 0.6 + rng.normal(0.0, 0.30, n)
+    preds = [np.clip(base + rng.normal(0.0, 1e-6, n), 0.0, 1.0) for _ in range(3)]
 
-    src = inspect.getsource(mod)
-    assert "np.nanmean(per_iter_cov, axis=1)" in src
-    assert "cum_sq_mean" not in src, "the raw cumulative second moment is back"
+    def _mse(a, b):
+        """Plain MSE loss for the blend search."""
+        return float(np.mean((np.asarray(a) - np.asarray(b)) ** 2))
+
+    out = adversarial_stochastic_blend(
+        preds,
+        y,
+        test_likeness=np.ones(n),
+        loss_fn=_mse,
+        n_iterations=40,
+        n_restarts=1,
+        random_state=0,
+        track_convergence=True,
+    )
+    score = out["stability_score"]
+    curve = np.asarray(out["convergence_curve"], dtype=np.float64)
+
+    assert 0.0 < score <= 1.0, f"stability_score out of range: {score!r}"
+    assert score != 1.0, "stability_score is exactly 1.0, i.e. the convergence curve ended at exactly 0.0 -- the clamped-variance artifact is back"
+    assert curve.shape[0] == 40, f"one curve point per iteration expected, got {curve.shape}"
+    assert np.isfinite(curve[-1]) and curve[-1] > 0.0, f"the final convergence value should be a small POSITIVE spread, got {curve[-1]!r}"

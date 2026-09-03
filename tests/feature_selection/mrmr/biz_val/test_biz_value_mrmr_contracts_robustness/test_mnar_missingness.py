@@ -47,6 +47,29 @@ import pandas as pd
 import pytest
 
 
+def _build_mnar_colliding_with_the_imputation_constant(n: int = 2500, miss_rate: float = 0.30, seed: int = 7001):
+    """MNAR where every OBSERVED value already equals the value ``fillna_zero`` would impute.
+
+    ``_build_pure_mnar`` cannot show the contrast this file's contrast test is named for. Its observed values
+    are continuous Gaussians, so imputing NaN with 0.0 puts a point mass at exactly 0.0 on precisely the y=1
+    rows -- the missingness signal survives the imputation intact, sharper if anything, and ``fillna_zero``
+    selects the feature just as ``separate_bin`` does. Whether the imputation destroys the signal is a property
+    of the DATA (does the fill constant collide with the observed values?), not of the two strategies.
+
+    Here the observed values are all exactly 0.0, so ``fillna_zero`` collapses the column to a constant and the
+    NaN-as-signal is destroyed outright, while ``separate_bin`` still tells NaN apart from 0. That is the
+    regime where the default earns its keep: a column whose recorded value is a constant sentinel and whose
+    only information is whether it was recorded at all.
+    """
+    rng = np.random.default_rng(seed)
+    is_missing = rng.random(n) < miss_rate
+    x_mnar = np.zeros(n)
+    x_mnar[is_missing] = np.nan
+    noise = rng.standard_normal((n, 5))
+    X = pd.DataFrame({"x_mnar": x_mnar, **{f"noise{i}": noise[:, i] for i in range(5)}})
+    return X, pd.Series(is_missing.astype(np.int64), name="y")
+
+
 def _build_pure_mnar(n: int = 2500, miss_rate: float = 0.30, seed: int = 7001):
     """Pure MNAR: observed values of ``x_mnar`` are i.i.d. Gaussian (no
     value-signal). NaN appears for a random subset of rows; y=1 EXACTLY
@@ -244,7 +267,7 @@ class TestNaNStrategyContrast:
         """Check test separate bin beats fillna zero on pure mnar."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
-        X, y = _build_pure_mnar()
+        X, y = _build_mnar_colliding_with_the_imputation_constant()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel_sep = MRMR(
@@ -263,17 +286,13 @@ class TestNaNStrategyContrast:
         names_fz = list(sel_fz.get_feature_names_out())
         # separate_bin MUST surface x_mnar.
         assert "x_mnar" in names_sep, f"separate_bin failed to detect pure-MNAR signal; support={names_sep}"
-        # fillna_zero destroys the NaN-as-signal (it maps NaN to 0,
-        # which now collides with the surrounding Gaussian values and
-        # the signal is lost). We assert it has STRICTLY LESS signal:
-        # either x_mnar absent, or if present, separate_bin has a
-        # different (better) overall composition. We pin the strong,
-        # business-meaningful contract: separate_bin selects it.
         # The comparison in this test's NAME -- separate_bin BEATS fillna_zero -- was written as an `if` whose
-        # body is `pass`, followed by a comment saying "either way". So the only live assertion was that
-        # separate_bin works, and the strategy it is supposed to beat was never actually compared against:
-        # a regression making fillna_zero preserve the MNAR signal just as well would have left this green
-        # while the test's premise silently stopped being true.
+        # body is `pass`, followed by a comment saying "either way", so the strategy it is supposed to beat was
+        # never actually compared against. Making it a real assertion also required fixing the premise the old
+        # comment stated: on the general MNAR fixture, mapping NaN to 0 does NOT collide with the surrounding
+        # Gaussian values -- it puts a point mass at exactly 0.0 on precisely the y=1 rows, so the signal
+        # survives and fillna_zero selects the feature too. The contrast is real only where the fill constant
+        # is indistinguishable from the observed values, which is what this fixture arranges.
         assert "x_mnar" not in names_fz, (
             f"fillna_zero selected the pure-MNAR feature (support={names_fz}). Mapping NaN to 0 should collide "
             "it with the surrounding Gaussian values and destroy the NaN-as-signal, which is the whole reason "
