@@ -69,12 +69,55 @@ def test_metrics_fast_r2_guards_zero_wsum() -> None:
     assert "if wsum <= 0.0:" in src and "ss_tots[j] = 0.0" in src and "continue" in src
 
 
-def test_target_encoders_woe_clips_p_and_q() -> None:
-    """Target encoders woe clips p and q."""
-    src = _read("training/feature_handling/target_encoders.py")
-    # The fix clips p, q with the same Laplace cushion (1e-12) the kfold path uses.
-    assert "p_safe = float(min(max(p, 1e-12), 1.0 - 1e-12))" in src
-    assert "q_safe = float(min(max(q, 1e-12), 1.0 - 1e-12))" in src
+def _woe_encode(train_cats, train_y, query):
+    """Fit a WoE encoder with smoothing off and encode ``query``."""
+    import numpy as _np
+
+    from mlframe.training.feature_handling.target_encoders import LeakageSafeEncoder
+
+    encoder = LeakageSafeEncoder(method="woe", smoothing=0.0, woe_smoothing=0.0)
+    encoder.fit(_np.array(train_cats), _np.array(train_y, dtype=float))
+    return encoder.transform(_np.array(query))
+
+
+def test_woe_stays_finite_for_a_category_with_no_positives() -> None:
+    """log(0) is -inf and the subtraction is nan; both reach the model as a feature value.
+
+    Behavioural since 2026-09-04. This asserted that the two clip lines
+    `p_safe = float(min(max(p, 1e-12), 1.0 - 1e-12))` and its q twin appear in the module. Two
+    spellings of one cushion, silent about the number that reaches the caller, and passing just as
+    well if the branch holding them were unreachable.
+
+    With smoothing=0 a category whose train rows are all negative has p == 0 exactly, which is the
+    input the cushion exists for.
+    """
+    import numpy as np
+
+    out = _woe_encode(["a", "a", "b", "b"], [0.0, 0.0, 1.0, 1.0], ["a", "b"])
+
+    assert np.all(np.isfinite(out)), f"WoE emitted {out} -- an infinite feature poisons every downstream fit"
+
+
+def test_woe_still_orders_the_clipped_extremes_correctly() -> None:
+    """Clipping must not flatten the two ends onto each other: an all-negative category still has
+    to encode below an all-positive one, or the cushion has destroyed the signal it protects."""
+    out = _woe_encode(["a", "a", "b", "b"], [0.0, 0.0, 1.0, 1.0], ["a", "b"])
+
+    assert out[0] < out[1]
+
+
+def test_woe_unseen_category_uses_the_prior_log_odds_not_zero() -> None:
+    """0.0 is the neutral log-odds only for a balanced target. On a 99/1 split the true no-
+    information point is log(99) ~= 4.6, so a 0.0 baseline was wildly biased toward the minority
+    class for every test-time unseen string."""
+    import numpy as np
+
+    cats = ["a"] * 99 + ["b"]
+    ys = [1.0] * 99 + [0.0]
+    out = _woe_encode(cats, ys, ["never_seen_in_train"])
+
+    assert np.isfinite(out[0])
+    assert out[0] > 1.0, f"unseen encoded as {out[0]}, i.e. near the balanced-target neutral rather than the prior"
 
 
 def test_calibration_quality_guards_empty_pit() -> None:
