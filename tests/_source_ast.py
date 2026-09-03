@@ -87,3 +87,23 @@ def numeric_literals(node: ast.AST) -> list[float]:
 def string_literals(node: ast.AST) -> list[str]:
     """Every string literal under ``node``, docstrings included."""
     return [n.value for n in ast.walk(node) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+
+
+def getattr_literals(node: ast.AST, obj: str | None = None) -> set[str]:
+    """Every ``getattr(<obj>, "<name>", ...)`` literal read under ``node``.
+
+    ``obj`` restricts to a particular receiver (``"ctx"``), which is what makes this useful for the
+    slots=True class of defect: a probe for a name the object does not have returns the default silently, so
+    the only way to see it is to ask which names are probed.
+    """
+    out: set[str] = set()
+    for sub in ast.walk(node):
+        if not isinstance(sub, ast.Call) or not isinstance(sub.func, ast.Name) or sub.func.id != "getattr":
+            continue
+        if len(sub.args) < 2 or not isinstance(sub.args[1], ast.Constant) or not isinstance(sub.args[1].value, str):
+            continue
+        receiver = sub.args[0]
+        if obj is not None and not (isinstance(receiver, ast.Name) and receiver.id == obj):
+            continue
+        out.add(sub.args[1].value)
+    return out

@@ -19,36 +19,49 @@ code they describe.
 
 from __future__ import annotations
 
-import inspect
-
 import numpy as np
 
 
 class TestTheGroupAndTimestampColumnsAreActuallyProtected:
     """The protected set has to be reachable, not merely constructed."""
 
-    def _src(self):
-        """The pre-screen phase's source."""
+    def _probed(self):
+        """Every attribute name the pre-screen phase probes off ``ctx``."""
         from mlframe.training.core import _phase_train_one_target_pre_screen as m
+        from tests._source_ast import getattr_literals, module_ast
 
-        return inspect.getsource(m)
+        return getattr_literals(module_ast(m), obj="ctx")
 
     def test_no_probe_reads_a_name_that_is_not_a_context_slot(self):
-        """`slots=True` turns a typo into silence, which is what hid this for as long as it did."""
+        """`slots=True` turns a typo into silence, which is what hid this for as long as it did.
+
+        Structural of necessity: a probe for a name the context does not have returns the DEFAULT rather than
+        raising, so the protection it was supposed to build simply comes back empty and every downstream
+        assertion still passes. Nothing observable distinguishes "protected nothing" from "protected the right
+        thing" except asking which names are probed.
+        """
         from mlframe.training.core._training_context import TrainingContext
 
         slots = set(getattr(TrainingContext, "__slots__", ()) or ())
-        src = self._src()
+        probed = self._probed()
         for dead in ("group_id_col", "ts_field", "features_and_targets_extractor"):
             assert dead not in slots, f"{dead} became a real slot; this test needs updating"
-            assert f'getattr(ctx, "{dead}"' not in src, dead
+            assert dead not in probed, f"the phase still probes ctx.{dead}, which is not a slot, so the probe silently yields the default"
 
     def test_the_names_come_from_the_series_the_context_carries(self):
         """`group_ids_raw` / `group_ids` / `timestamps` are the real slots, and a pandas Series knows its name."""
-        src = self._src()
-        assert 'getattr(ctx, "group_ids_raw", None)' in src
-        assert 'getattr(ctx, "timestamps", None)' in src
-        assert 'getattr(_series, "name", None)' in src
+        from mlframe.training.core._training_context import TrainingContext
+
+        slots = set(getattr(TrainingContext, "__slots__", ()) or ())
+        probed = self._probed()
+        for real in ("group_ids_raw", "timestamps"):
+            assert real in slots, f"{real} is no longer a context slot; the phase cannot read it"
+            assert real in probed, f"the phase no longer reads ctx.{real}, so the group/ts column cannot be protected"
+        # ...and the column NAME comes off the Series itself, which is the only place it exists at this point.
+        from mlframe.training.core import _phase_train_one_target_pre_screen as _m
+        from tests._source_ast import getattr_literals, module_ast
+
+        assert "name" in getattr_literals(module_ast(_m), obj="_series"), "the phase no longer reads the Series' own .name, so no column name reaches the protected set"
 
     def test_a_named_group_series_reaches_the_protected_set(self):
         """The behaviour, not the text: a pandas Series' name is the column name."""
@@ -70,11 +83,17 @@ def test_the_composite_test_chart_reads_its_real_config_slot():
     from mlframe.training.core import _phase_train_one_target_post as m
     from mlframe.training.core._training_context import TrainingContext
 
-    src = inspect.getsource(m)
-    assert 'plot_file=getattr(ctx, "plot_file", None)' not in src
-    assert 'getattr(getattr(ctx, "output_config", None), "plot_file", None)' in src
-    assert "plot_file" not in set(getattr(TrainingContext, "__slots__", ()) or ())
-    assert "output_config" in set(getattr(TrainingContext, "__slots__", ()) or ())
+    from tests._source_ast import getattr_literals, module_ast
+
+    slots = set(getattr(TrainingContext, "__slots__", ()) or ())
+    assert "plot_file" not in slots, "plot_file became a real slot; this test needs updating"
+    assert "output_config" in slots
+
+    # Structural: reading a name the context does not have yields None rather than raising, so the chart is
+    # simply never written and the metric log line still prints -- the run looks healthy either way.
+    probed = getattr_literals(module_ast(m), obj="ctx")
+    assert "plot_file" not in probed, "the phase still probes ctx.plot_file, which is not a slot, so the path is always None"
+    assert "output_config" in probed, "the phase no longer reads ctx.output_config, so it cannot reach the real plot_file"
 
 
 def test_the_unreachable_configs_fallbacks_are_gone():
@@ -82,9 +101,11 @@ def test_the_unreachable_configs_fallbacks_are_gone():
     from mlframe.training.core import _phase_finalize, _phase_finalize_calibration
     from mlframe.training.core._training_context import TrainingContext
 
+    from tests._source_ast import getattr_literals, module_ast
+
     assert "configs" not in set(getattr(TrainingContext, "__slots__", ()) or ())
     for mod in (_phase_finalize, _phase_finalize_calibration):
-        assert 'getattr(ctx, "configs", None)' not in inspect.getsource(mod), mod.__name__
+        assert "configs" not in getattr_literals(module_ast(mod), obj="ctx"), f"{mod.__name__} still probes ctx.configs, which is not a slot and can never resolve"
 
 
 class TestThePurgeIsChargedOnlyForRealBoundaries:
@@ -215,20 +236,28 @@ class TestTheStatedContractsMatchTheCode:
         ]
         assert strict_true, "no call passes strict=True, so an out-of-domain category is silently nulled instead of raising"
 
-    def test_the_ar1_veto_no_longer_calls_val_an_honest_holdout(self):
-        """Val is the early-stopping split, and the bias points the same way as the decision the veto makes."""
-        from mlframe.training.core import _ar1_failsafe_veto as m
-
-        src = inspect.getsource(m)
-        assert "SAME honest-holdout regime as test" not in src
-        assert "early-stopping split" in src.lower()
+    # `test_the_ar1_veto_no_longer_calls_val_an_honest_holdout` used to sit here, asserting the wording of a
+    # docstring. What that wording was correcting -- that val is the early-stopping split, so the trained arm's
+    # val RMSE is biased low while zero-parameter lag_predict's is not, and the bias points the same way as the
+    # decision the veto makes -- is a statement about the SPLIT, not about behaviour any call can expose. The
+    # sibling below pins what is observable: the realised margin is logged, so the headroom the tolerance is
+    # absorbing can be read off a run instead of assumed.
 
     def test_the_ar1_veto_logs_its_realised_margin(self):
-        """The finding's point that nothing measured how much ES optimism was present."""
-        from mlframe.training.core import _ar1_failsafe_veto as m
+        """The realised margin must be LOGGED, so the ES optimism the tolerance absorbs is observable.
 
-        src = inspect.getsource(m)
-        assert "veto threshold=" in src and "logger.info(" in src
+        Structural: the line is emitted from inside a veto decision that needs a fitted suite and both arms'
+        val RMSEs to reach, and the finding's point was that nothing MEASURED the optimism -- so what matters
+        is that the numbers reach a log record at info level, not what a particular run's values are.
+        """
+        from mlframe.training.core import _ar1_failsafe_veto as m
+        from tests._source_ast import called_names, module_ast, string_literals
+
+        tree = module_ast(m)
+        assert "info" in called_names(tree), "the veto no longer logs at info level, so its margin is invisible on a normal run"
+        emitted = " ".join(string_literals(tree))
+        for token in ("veto threshold=", "val RMSE="):
+            assert token in emitted, f"the veto log line no longer reports {token!r}, so the realised margin cannot be read off a run"
 
 
 def test_the_split_diagnostics_table_is_labelled_by_split():
@@ -236,6 +265,13 @@ def test_the_split_diagnostics_table_is_labelled_by_split():
     emitted worst-K table carried no in-artifact indication of which split produced it."""
     from mlframe.training import _eval_helpers as m
 
-    src = inspect.getsource(m)
-    assert 'metrics_dict[f"worst_k_table_{split_name}"' in src
-    assert "split_name" in inspect.signature(m._render_split_diagnostics).parameters
+    import inspect as _inspect
+
+    from tests._source_ast import function_ast, loaded_names
+
+    # The parameter must still be accepted...
+    assert "split_name" in _inspect.signature(m._render_split_diagnostics).parameters
+    # ...and actually READ. It was accepted and passed and never used, so the emitted worst-K table carried no
+    # in-artifact indication of which split produced it -- and val, test and OOF mean different things.
+    body = function_ast(m, "_render_split_diagnostics")
+    assert "split_name" in loaded_names(body), "split_name is accepted but never read, so the worst-K table is unlabelled again"
