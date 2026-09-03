@@ -45,14 +45,22 @@ def test_mismatched_lengths_are_refused_for_a_unary_transform_too():
         _estimator(transform_name="log_y").fit(X, y)
 
 
-@pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
-def test_non_finite_y_is_refused(bad):
-    """NaN and both infinities are rejected, and the message says how many rows are affected."""
+def test_a_nan_in_y_is_accepted_because_recurrent_transforms_produce_them():
+    """A NaN target row must NOT be refused: it is how the recurrent transforms start.
+
+    An earlier version of this validation rejected any non-finite y, to satisfy sklearn's
+    `check_supervised_y_no_nan`. That was wrong -- EWMA-residual, frac-diff and seasonal-residual targets carry
+    NaN warm-up rows by construction, and fit carry-forward-fills them. The sklearn check is pinned as an
+    expected failure with that reason instead of the capability being broken to satisfy it.
+    """
     X = _frame(40)
-    y = np.linspace(1.0, 2.0, 40)
-    y[7] = bad
-    with pytest.raises(ValueError, match=r"y contains 1 non-finite value"):
-        _estimator().fit(X, y)
+    y = X["__base__"].to_numpy() + np.linspace(0.0, 1.0, 40)
+    y[:3] = np.nan  # the warm-up rows a recurrent transform would leave undefined
+
+    est = _estimator().fit(X, y)
+    preds = est.predict(X)
+    assert preds.shape == (40,)
+    assert np.isfinite(preds[3:]).all(), "a NaN warm-up row poisoned the fitted predictions"
 
 
 def test_y_none_names_the_broken_contract():

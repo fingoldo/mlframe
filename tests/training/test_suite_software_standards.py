@@ -270,6 +270,11 @@ _CTE_EXPECTED_FAILED = {
         "check_regressors_int",
         "check_regressors_no_decision_function",
         "check_regressors_train",
+        # NOT a gap: this estimator deliberately ACCEPTS a non-finite y. The recurrent transforms
+        # (EWMA residual, frac-diff, seasonal residual) produce NaN warm-up rows in the target by
+        # construction and fit carry-forward-fills them, so rejecting NaN y -- which an earlier version of
+        # this wave briefly did -- refuses a supported capability to satisfy a generic check.
+        "check_supervised_y_no_nan",
         "check_supervised_y_2d",
         "check_sample_weight_equivalence_on_dense_data",
         "check_sample_weights_list",

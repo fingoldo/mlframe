@@ -568,13 +568,12 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         _n_x = getattr(X, "shape", (None,))[0] if hasattr(X, "shape") else (len(X) if hasattr(X, "__len__") else None)
         if _n_x is not None and _n_x != len(_y_check):
             raise ValueError(f"CompositeTargetEstimator.fit: X has {_n_x} rows but y has {len(_y_check)} -- " f"caller passed misaligned inputs.")
-        if _y_check.size and not np.isfinite(_y_check).all():
-            _bad = int((~np.isfinite(_y_check)).sum())
-            raise ValueError(
-                f"CompositeTargetEstimator.fit: y contains {_bad} non-finite value(s) (NaN or inf). The "
-                f"composite transform would carry them into the fitted target, so the inner estimator would "
-                f"train on them silently. Drop or impute those rows before fitting."
-            )
+        # NO non-finite-y guard here, deliberately. sklearn's `check_supervised_y_no_nan` wants one, and an
+        # earlier version of this validation added it -- wrongly. The recurrent transforms (EWMA residual,
+        # frac-diff, seasonal residual) produce NaN warm-up rows in the TARGET by construction, and the fit
+        # below carry-forward-fills them (`_carry_forward_fill(y_arr, np.isfinite(y_arr))`). Rejecting a
+        # non-finite y therefore refuses a supported capability, and the check is pinned as an expected sklearn
+        # failure with that reason rather than satisfied by breaking the feature.
 
         transform = get_transform(self.transform_name)
         # Validate the fallback strategy in fit (sklearn convention) rather than lazily on the first predict that hits a domain violation, which may be weeks into prod.

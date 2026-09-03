@@ -59,7 +59,11 @@ def test_catboost_returns_multirmse():
     """CatBoost MultiRMSE for joint K-target regression."""
     cb = CatBoostStrategy()
     kwargs = cb.get_multi_target_objective_kwargs()
-    assert kwargs == {"loss_function": "MultiRMSE"}
+    # `eval_metric` moves WITH the loss. The clone these kwargs are applied to has already been through
+    # `_cb_sklearn_clone`, which stamps a single-output `eval_metric="RMSE"` on it, and CatBoost refuses
+    # that pair outright at fit time -- "metric [RMSE] and loss [MultiRMSE] are incompatible" -- so every
+    # multi-target fit raised until the metric was paired with the loss here.
+    assert kwargs == {"loss_function": "MultiRMSE", "eval_metric": "MultiRMSE"}
 
 
 def test_xgboost_returns_multi_output_tree():
