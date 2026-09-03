@@ -103,14 +103,30 @@ def test_dropped_member_decision_consistent_across_flavours():
         assert np.array_equal(np.asarray(a), np.asarray(b))
 
 
-def test_cached_member_arrays_are_frozen_against_in_place_mutation():
-    """MODELS-12: the gate cache is keyed by id() + thresholds with no content fingerprint, so an in-place
-    mutation of a still-cached member array would otherwise silently serve a stale gate decision for the
-    mutated content. Cached arrays must be marked read-only so the mutation attempt raises loudly instead."""
+def test_in_place_mutation_of_a_cached_member_is_not_served_a_stale_gate():
+    """MODELS-12: mutating a still-cached member must not return that member's PREVIOUS gate decision.
+
+    Previously asserted the mechanism rather than the property: the cache keyed on ``id()``, which is only
+    meaningful while the object is both alive and unmutated, and defended that assumption by marking the
+    caller's arrays read-only. Freezing data the caller still owns is an intrusive side effect, and the test
+    pinned it directly (`flags.writeable`, `pytest.raises(ValueError)`). The key is a content fingerprint now,
+    so a mutated member simply hashes differently and is recomputed -- and the arrays stay writeable. What
+    matters either way is that a changed member never reuses the old answer, which is what this asserts.
+    """
     preds = _make_members(with_outlier=True)
-    _compute_outlier_gate(preds, np.asarray(preds, dtype=np.float64), 0.0, 0.0, 2.5, 2.5)
-    assert not preds[0].flags.writeable, "member array 0 must be frozen while its gate decision is cached"
-    with pytest.raises(ValueError, match="read-only"):
-        preds[0][0, 0] = 0.999
-    _clear_gate_cache()
-    assert preds[0].flags.writeable, "clearing the cache must restore writeability"
+    arr = np.asarray(preds, dtype=np.float64)
+    first = _compute_outlier_gate(preds, arr, 0.0, 0.0, 2.5, 2.5)
+
+    # The caller's data is its own; the cache must not confiscate write access to it.
+    assert preds[0].flags.writeable, "the cache must not freeze arrays the caller still owns"
+
+    # Same content -> the memo is genuinely reused (otherwise this test could pass with no caching at all).
+    assert _compute_outlier_gate(preds, arr, 0.0, 0.0, 2.5, 2.5) == first
+
+    # Mutate ONLY rows near the END, leaving every other value untouched. This is precisely the region a
+    # bounded strided sample cannot see: 8000 values at stride 7 capped to 1024 samples reaches flat index
+    # 7161, so anything past it is never read and a sampled signature is unchanged -- the stale answer would
+    # come back with nothing raised. Verified: the sampled form does not change here, the full-buffer hash does.
+    preds[0][3900:3906, :] = 1e6
+    mutated = _compute_outlier_gate(preds, np.asarray(preds, dtype=np.float64), 0.0, 0.0, 2.5, 2.5)
+    assert mutated != first, "the mutated member was served its pre-mutation gate decision -- the cache is stale"

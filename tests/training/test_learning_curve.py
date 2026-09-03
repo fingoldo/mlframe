@@ -199,7 +199,16 @@ def test_panel_is_pure_data_figurespec():
     assert len(fig.panels) == 1
     panel = fig.panels[0][0]
     assert isinstance(panel, LinePanelSpec)
-    assert panel.series_labels == ("train score", "holdout score")
+    # "fit-subset", not "train": this curve is computed once per REPORTED split, so on a test report both
+    # series are scores on disjoint subsets of the TEST rows and calling either one "train score" named a
+    # split it never touched. `source_split` stamps the actual source into the label when the caller supplies
+    # one; omitted here, so the bare form.
+    assert panel.series_labels == ("fit-subset score", "held-out score")
+
+    stamped = learning_curve_panel(res, source_split="test").panels[0][0]
+    assert stamped.series_labels == ("fit-subset score (test)", "held-out score (test)"), (
+        f"the source split must be visible in the labels, got {stamped.series_labels!r}"
+    )
     # Two parallel y series, x = train sizes.
     assert len(panel.y) == 2
     assert len(panel.x) == len(res.train_sizes)
