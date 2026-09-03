@@ -358,17 +358,73 @@ class TestTheDocumentedContractsMatchTheCode:
         # ...and the shared ratio IS sqrt(n_permutations), which is what makes it a pure restatement of the value.
         assert _np.isclose(ratios[0], _np.sqrt(30.0), rtol=1e-8), f"the proxy is no longer |value|/sqrt(n): ratio={ratios[0]!r}"
 
-    def test_the_backend_precedence_is_documented_as_implemented(self):
-        """The docstring said the env var is checked first; the argument wins."""
-        import mlframe.votenrank.confidence_gated_blend as m
+    def test_the_backend_argument_wins_over_the_env_var(self, monkeypatch):
+        """`force_backend` beats `MLFRAME_CONFIDENCE_BLEND_BACKEND`; the docstring had it the other way round.
 
-        src = inspect.getsource(m)
-        assert "checked first" not in src
+        Every backend returns the same numbers, so which one ran is invisible in the result. Observed by
+        making the numpy path raise: with `force_backend` set to something else the call must succeed, and
+        with it left as None the env var takes over and the same call must hit numpy and raise. A caller who
+        passes an explicit backend and happens to have the env var set was, per the old docstring, going to be
+        silently overridden -- which only surfaces when a benchmark refuses to use the backend you asked for.
+        """
+        import importlib
 
-    def test_the_override_docstring_describes_the_unconditional_write(self):
-        """It described an "already above threshold" guard the code has never had."""
-        from mlframe.competition import known_label_override as m
+        import numpy as _np
+        import pytest as _pytest
 
-        src = inspect.getsource(m)
-        assert "isn't already >= positive threshold" not in src
-        assert "INCLUDING rows already predicted" in src
+        # NOT `import mlframe.votenrank.confidence_gated_blend as m`: the package binds the re-exported
+        # FUNCTION under that name, so the plain import form hands back a callable with no `_blend_numpy` on
+        # it. `import_module` reaches the submodule itself.
+        m = importlib.import_module("mlframe.votenrank.confidence_gated_blend")
+
+        def _boom(*_a, **_k):
+            """Stand in for the numpy backend so its use is observable."""
+            raise AssertionError("the numpy backend ran")
+
+        monkeypatch.setattr(m, "_blend_numpy", _boom)
+        monkeypatch.setenv("MLFRAME_CONFIDENCE_BLEND_BACKEND", "numpy")
+
+        rng = _np.random.default_rng(0)
+        n = 4_000  # above _DISPATCH_MIN_N, so the backend ladder is actually consulted (see below)
+        args = (rng.random(n), rng.random(n), rng.random(n), 0.5, 0.3)
+
+        # The env var alone routes to numpy -> the stand-in fires.
+        with _pytest.raises(AssertionError, match="the numpy backend ran"):
+            m.confidence_gated_blend(*args)
+
+        # The explicit argument overrides it -> a different backend runs and the call completes.
+        out = m.confidence_gated_blend(*args, force_backend="njit")
+        assert out.shape == (n,), f"the forced backend did not produce a full result: {out.shape}"
+        assert _np.all(_np.isfinite(out))
+
+        # ...and the precedence is three-deep, not two: the SIZE guard sits above both. Below
+        # `_DISPATCH_MIN_N` the function returns numpy before any backend is resolved, so `force_backend` is
+        # ignored there. That is deliberate -- dispatch overhead dominates on a tiny input -- but it means an
+        # explicit backend is silently not honoured, which a benchmark forcing a backend on small data needs
+        # to know. Pinned so the guard cannot quietly move.
+        small = (rng.random(64), rng.random(64), rng.random(64), 0.5, 0.3)
+        with _pytest.raises(AssertionError, match="the numpy backend ran"):
+            m.confidence_gated_blend(*small, force_backend="njit")
+        assert m._DISPATCH_MIN_N == 2_000, f"the dispatch floor moved to {m._DISPATCH_MIN_N}; the note above needs updating"
+
+    def test_the_override_writes_unconditionally_in_the_safe_direction(self):
+        """A positive recovered label overwrites the prediction even when it is ALREADY above threshold.
+
+        The docstring used to describe an "isn't already >= positive threshold" guard the code has never had.
+        Driven instead of read: a row already predicted 0.98 and recovered as positive comes back as exactly
+        the positive value, not left at 0.98. That distinction is invisible in aggregate metrics -- both are
+        "confidently positive" -- and it is the whole reason the claim mattered.
+        """
+        import numpy as _np
+
+        from mlframe.competition.known_label_override import known_label_override
+
+        preds = _np.array([0.98, 0.10, 0.50, 0.99])
+        # Row 0 is already far above threshold; row 1 is below it; row 3 is above and recovered as NEGATIVE.
+        out = known_label_override(preds, {0: 1.0, 1: 1.0, 3: 0.0}, asymmetric_safe_direction="positive")
+
+        assert out[0] == 1.0, f"an already-confident row was left at {out[0]!r} instead of being overwritten"
+        assert out[1] == 1.0, f"a below-threshold row was not overridden: {out[1]!r}"
+        assert out[2] == 0.50, "a row with no recovered label must be untouched"
+        assert out[3] == 0.99, "a negative-direction recovered label must NOT overwrite, which is the asymmetry"
+        assert preds[0] == 0.98, "the caller's array was mutated in place"
