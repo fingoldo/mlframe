@@ -355,9 +355,34 @@ class TestTheSiblingFillToleratesANonNumericOrder:
 
 
 def test_the_synthetic_rows_take_their_label_from_the_true_last_period():
-    """Only `feature_cols` were overwritten, so the label came from the truncated vintage -- for a per-period
-    label every synthetic row was trained against the earlier period's answer."""
-    from mlframe.preprocessing import temporal_drift_augment as m
+    """A synthetic row's LABEL comes from the entity's true last period, not from the truncated vintage.
 
-    src = inspect.getsource(m)
-    assert "_true_last" in src and "entity's TRUE last period" in src
+    Driven rather than read out of the source. Only `feature_cols` used to be overwritten, so every other
+    column -- the label above all -- kept the value of the earlier row the synthetic vintage was built from.
+    For an entity-level label the two coincide and nothing breaks; for a PER-PERIOD label (a rolling default
+    flag, a next-period target) every synthetic row was trained against the earlier period's answer. The
+    fixture below gives each period a distinct label so the two sources are never the same value.
+    """
+    from mlframe.preprocessing.temporal_drift_augment import augment_temporal_drift
+
+    rng = np.random.default_rng(0)
+    rows = []
+    for entity in range(6):
+        for t in range(5):
+            # `label` is per-PERIOD and strictly increasing, so the truncated vintage's label and the true
+            # last period's label can never coincide by accident.
+            rows.append({"entity_id": entity, "t": t, "x": float(rng.normal()), "label": float(10 * entity + t)})
+    df = pd.DataFrame(rows)
+
+    out = augment_temporal_drift(df, entity_col="entity_id", time_col="t", feature_cols=["x"], n_drop_options=(1,), min_history=2)
+    synth = out.loc[out["_temporal_drift_augmented"]]
+    assert not synth.empty, "the fixture produced no synthetic rows, so this test would pass vacuously"
+
+    true_last_label = df.loc[df.groupby("entity_id")["t"].idxmax()].set_index("entity_id")["label"]
+    for entity_id, group in synth.groupby("entity_id"):
+        expected = true_last_label[entity_id]
+        assert set(group["label"]) == {expected}, f"entity {entity_id}: label is {sorted(set(group['label']))}, expected the true last period's {expected}"
+        # ...and that is genuinely a DIFFERENT value from the truncated vintage's own label.
+        vintage_t = sorted(df.loc[df["entity_id"] == entity_id, "t"].unique())[-2]
+        vintage_label = float(df.loc[(df["entity_id"] == entity_id) & (df["t"] == vintage_t), "label"].iloc[0])
+        assert vintage_label != expected, "the fixture cannot distinguish the two label sources"
