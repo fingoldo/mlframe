@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import contextlib
 import tempfile
 from pathlib import Path
 
@@ -46,12 +47,75 @@ def _read(rel: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_composite_cache_invalidate_uses_try_remove() -> None:
-    """Composite cache invalidate uses try remove."""
-    src = _read("training/composite/cache_store.py")
-    # The fix replaces exists+remove with try/remove.
-    assert "if os.path.exists(path):\n            os.remove(path)" not in src
-    assert "try:\n            os.remove(path)\n        except FileNotFoundError:\n            return False" in src
+# ---------------------------------------------------------------------------
+# The race itself.
+#
+# Behavioural since 2026-09-03. These asserted exact source spellings -- an `if os.path.exists`
+# / `os.remove` pair absent, an `except FileNotFoundError` / `return False` pair present, and so
+# on. Two problems with that. They break on any reindent or rename while the behaviour is
+# untouched; and, more to the point, the behavioural sensors further down do NOT cover what they
+# stood in for. Every one of those exercises the file-NEVER-EXISTED case, which a redundant
+# `if exists()` precheck satisfies exactly as happily as the try/except does.
+#
+# The defect is the file vanishing BETWEEN the check and the use: a parallel hyperopt suite
+# sharing cache_dir invalidating the same key, an external cleanup cron clearing checkpoints
+# mid-fit. So these make the probe lie -- existence answers yes, the file is really gone. A
+# precheck implementation then walks into the operation and raises FileNotFoundError; one that
+# simply performs the operation and catches does not. That is the difference the source pins were
+# encoding, and unlike the pins it is observable.
+# ---------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def _existence_probes_lie():
+    """Answer yes to every existence probe while the file is really gone.
+
+    Kept narrowly scoped around the single call under test: os.path.exists is consulted by plenty
+    of unrelated machinery, so this must not be left installed.
+    """
+    import os.path
+
+    real_exists, real_isfile = os.path.exists, os.path.isfile
+    real_p_exists, real_p_isfile = Path.exists, Path.is_file
+    os.path.exists = lambda _p: True
+    os.path.isfile = lambda _p: True
+    Path.exists = lambda _self, **_kw: True
+    Path.is_file = lambda _self: True
+    try:
+        yield
+    finally:
+        os.path.exists, os.path.isfile = real_exists, real_isfile
+        Path.exists, Path.is_file = real_p_exists, real_p_isfile
+
+
+def test_invalidate_survives_the_entry_vanishing_mid_call() -> None:
+    """Two parallel suites sharing cache_dir invalidate the same key; the loser must not crash."""
+    from mlframe.training.composite.cache import DiscoveryCache
+
+    with tempfile.TemporaryDirectory() as td:
+        c = DiscoveryCache(cache_dir=td)
+        with _existence_probes_lie():
+            assert c.invalidate("a_key_that_is_not_there") is False
+
+
+def test_rfecv_load_checkpoint_survives_the_checkpoint_vanishing_mid_call() -> None:
+    """An external cleanup cron clears the checkpoint between the probe and the open, mid-fit."""
+    from mlframe.feature_selection.wrappers.rfecv import RFECV
+
+    rf = RFECV.__new__(RFECV)
+    with tempfile.TemporaryDirectory() as td:
+        rf.checkpoint_path = str(Path(td) / "gone.pkl")
+        with _existence_probes_lie():
+            assert rf._load_checkpoint() is None
+
+
+def test_load_save_meta_sidecar_survives_the_sidecar_vanishing_mid_call() -> None:
+    """A concurrent bundle rewrite replaces the sidecar; the reader falls through to None."""
+    from mlframe.training.io import load_save_meta_sidecar
+
+    with tempfile.TemporaryDirectory() as td:
+        with _existence_probes_lie():
+            assert load_save_meta_sidecar(str(Path(td) / "bundle.bin")) is None
 
 
 def test_key_bank_save_uses_uuid_tmp_dir() -> None:
@@ -63,47 +127,29 @@ def test_key_bank_save_uses_uuid_tmp_dir() -> None:
     assert "tmp_dir.rename(final_dir)" in src and "except OSError as _rn_err" in src
 
 
-def test_rfecv_load_checkpoint_tolerates_missing_file() -> None:
-    """Rfecv load checkpoint tolerates missing file."""
-    src = _read("feature_selection/wrappers/rfecv/__init__.py")
-    # The pre-fix `if not path or not os.path.exists(path)` is replaced
-    # with `if not path: return None` plus FileNotFoundError on open.
-    assert "if not path or not os.path.exists(path):" not in src
-    assert "except FileNotFoundError:\n            return None" in src
-    # The broader except now includes OSError.
-    assert "OSError" in src
+def test_verify_sidecar_survives_the_sidecar_vanishing_mid_call(monkeypatch) -> None:
+    """The pickle-integrity sidecar check must not raise when the sidecar goes mid-verification.
 
+    Behavioural since 2026-09-03. This concatenated estimators/pipelines.py, utils/safe_pickle.py
+    and the pyutilz implementation, then asserted one old spelling absent and either of two newer
+    ones present -- a pin already rewritten twice as the helper moved between those three files,
+    and one that says nothing about what happens when the sidecar disappears mid-call. The
+    tolerated-miss path is fail-closed by default and opens only under
+    MLFRAME_ALLOW_UNVERIFIED_PICKLE, so the test sets it rather than depending on the environment.
 
-def test_pipelines_verify_sidecar_tolerates_missing() -> None:
-    """The verify_sidecar helper moved out of estimators/pipelines.py into
-    utils/safe_pickle.py, then further out into pyutilz.core.safe_pickle (mlframe's
-    utils/safe_pickle.py now only wraps it), and the implementation switched from
-    ``try/except FileNotFoundError`` to a direct ``if not isfile(sidecar)``
-    branch. Functionally equivalent: missing sidecar is tolerated (returns
-    True under MLFRAME_ALLOW_UNVERIFIED_PICKLE=1 env var, False default
-    fail-closed; the test's "tolerate" intent matches the env-opt-in
-    path). Accept either source shape so the sensor stays valid post-move.
+    `test_rfecv_load_checkpoint_tolerates_missing_file` and
+    `test_io_load_save_meta_sidecar_drops_redundant_precheck` were removed here rather than
+    rewritten: their subjects are now covered by a race test above plus the never-existed sensor
+    below, which together say strictly more than the spellings did.
     """
-    import pyutilz.core.safe_pickle as _pyutilz_safe_pickle
+    monkeypatch.setenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", "1")
+    from mlframe.utils.safe_pickle import verify_sidecar
 
-    facade = _read("estimators/pipelines.py")
-    sibling = _read("utils/safe_pickle.py")
-    upstream = Path(_pyutilz_safe_pickle.__file__).read_text(encoding="utf-8")
-    src = facade + "\n" + sibling + "\n" + upstream
-    # Old leak-through pattern (silent-true on missing) must still be gone.
-    assert "if not os.path.isfile(sidecar):\n        return True" not in src
-    # Post-fix: either the old try/except FileNotFoundError shape OR the
-    # new ``if not isfile(sidecar):`` direct branch with explicit env-var
-    # gate.
-    assert "except FileNotFoundError:" in src or "if not isfile(sidecar):" in src
-    assert "return True" in src
-
-
-def test_io_load_save_meta_sidecar_drops_redundant_precheck() -> None:
-    """Io load save meta sidecar drops redundant precheck."""
-    src = _read("training/io.py")
-    assert "if not os.path.exists(sidecar):\n        return None\n    try:" not in src
-    assert "except FileNotFoundError:\n        return None" in src
+    with tempfile.TemporaryDirectory() as td:
+        bundle = Path(td) / "bundle.pkl"
+        bundle.write_bytes(b"payload")
+        with _existence_probes_lie():
+            assert verify_sidecar(str(bundle)) is True
 
 
 def test_feature_handling_cache_read_drops_redundant_precheck() -> None:
