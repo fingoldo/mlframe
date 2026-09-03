@@ -181,7 +181,7 @@ def run_pysr_feature_engineering(
         sampled = df.sample(n, seed=random_state) if random_state is not None else df.sample(n)
         # Polars-side per-column median imputation: keeps the fill inside the Arrow buffer so the downstream ``to_pandas()`` allocates exactly once. Numeric-only because non-numeric columns (Utf8 / Datetime / Duration) hit the dtype-mismatch path on polars 1.x and would either be dropped or encoded downstream anyway. Median (not 0) preserves central tendency so PySR's candidate-score ranking does not silently collapse NaN rows onto real-0 rows.
         #
-        # ``drop_nans()`` BEFORE ``median()`` is required: polars 1.x ``Series.median()`` includes NaN in the sort order, so on [1,2,3,4,NaN,6,7,8,9,10] it returns 6.5 (mid-pair of the 10-element sort) instead of 6.0 (median of the 9 finite values). Verified on polars 1.x 2026-05-26.
+        # ``drop_nans()`` BEFORE ``median()`` is required: polars 1.x ``Series.median()`` includes NaN in the sort order, so on [1,2,3,4,NaN,6,7,8,9,10] it returns 6.5 (mid-pair of the 10-element sort) instead of 6.0 (median of the 9 finite values). Verified against polars 1.x.
         sampled = median_fill_polars(sampled)
         sampled_bytes = sampled.estimated_size()
         if sampled_bytes > _bytes_limit:
@@ -272,7 +272,9 @@ def run_pysr_feature_engineering(
                 cat_cols,
             )
             tmp_df[cat_cols] = _kfold_target_encode(
-                tmp_df, cat_cols, target,
+                tmp_df,
+                cat_cols,
+                target,
                 n_splits=leakage_free_n_splits,
                 random_state=random_state,
             )

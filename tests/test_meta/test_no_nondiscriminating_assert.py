@@ -86,7 +86,10 @@ def _has_any_check(func: ast.AST) -> bool:
         if isinstance(node, ast.Call):
             fn = node.func
             name = fn.attr if isinstance(fn, ast.Attribute) else (fn.id if isinstance(fn, ast.Name) else "")
-            if name in _ASSERTING_CALLS or name.startswith("assert"):
+            # lstrip("_") so a PRIVATE assertion helper counts: a suite naming its shared checker
+            # _assert_traceback_preserved is doing the refactor this check should encourage, and
+            # matching only the public spelling reported a whole file of delegating tests as no-assert.
+            if name in _ASSERTING_CALLS or name.lstrip("_").startswith("assert"):
                 return True
     return False
 
