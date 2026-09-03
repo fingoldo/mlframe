@@ -36,6 +36,7 @@ for chained exceptions.
 from __future__ import annotations
 
 import ast
+import functools
 import importlib
 from pathlib import Path
 
@@ -60,6 +61,24 @@ def _read(rel: str) -> str:
     return _path.read_text(encoding="utf-8")
 
 
+@functools.lru_cache(maxsize=1)
+def _corpus() -> "tuple[tuple[Path, str, ast.Module], ...]":
+    """Every parseable module under ``mlframe/``, read and parsed once for the whole file.
+
+    Eighteen call sites ask the same question of the same tree; without this each one re-read and
+    re-parsed several hundred modules.
+    """
+    out = []
+    for path in sorted(MLFRAME_ROOT.rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:  # pragma: no cover - a syntactically broken module is a different failure
+            continue
+        out.append((path, text, tree))
+    return tuple(out)
+
+
 def _logs_message_with_traceback(message: str) -> list[str]:
     """Every call site under ``mlframe/`` that logs ``message``, and whether it keeps the traceback.
 
@@ -72,13 +91,8 @@ def _logs_message_with_traceback(message: str) -> list[str]:
     whether that call carries exception info.
     """
     out: list[str] = []
-    for path in sorted(MLFRAME_ROOT.rglob("*.py")):
-        text = path.read_text(encoding="utf-8")
+    for path, text, tree in _corpus():
         if message not in text:
-            continue
-        try:
-            tree = ast.parse(text)
-        except SyntaxError:  # pragma: no cover - a syntactically broken module is a different failure
             continue
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -102,74 +116,34 @@ def _assert_traceback_preserved(message: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Source-level sensors: each fix should be present.
+# Contract sensors: every handler that logs one of these messages keeps its traceback.
+#
+# These read the parse tree, not the text. Until 2026-09-03 each of them asserted a pair of exact
+# call spellings -- the pre-fix f-string absent, the post-fix call present -- in a hand-maintained
+# concatenation of the files the handler had lived in across three monolith splits. That is three
+# things the contract does not care about (which file it is in, which logger method it reaches,
+# how the arguments are spelled) and one it does: whether exception info survives. It also meant
+# every split had to be chased through this file, and a handler deleted outright still passed the
+# "old form absent" half.
+#
+# `_assert_traceback_preserved` asks the only question that matters, anywhere in the tree, and
+# fails if the handler disappears entirely.
 # ---------------------------------------------------------------------------
 
 
 def test_io_save_uses_logger_exception() -> None:
-    # ``save_mlframe_model`` was carved from ``io.py`` into the ``_io_save.py`` sibling;
-    # read both so the structural pin matches wherever the save-fail handler lives.
-    """Io save uses logger exception."""
-    src = _read("training/io.py") + "\n" + _read("training/_io_save.py")
-    # The bad pattern (f-string with {e}) must be gone for the save-fail path.
-    assert 'logger.error(f"Could not save model to file {file}: {e}")' not in src
-    # The good pattern must be present.
-    assert 'logger.exception("Could not save model to file %s", file)' in src
+    """A failed model save keeps its traceback."""
+    _assert_traceback_preserved("Could not save model to file %s")
 
 
 def test_predict_per_model_loop_uses_exc_info() -> None:
-    # The per-model predict loop moved out of ``predict.py`` into the
-    # sibling ``_predict_main_from_models.py`` during the 2026-05-22
-    # predict-monolith split. Read both modules so the structural pin
-    # tolerates either location.
-    """Predict per model loop uses exc info."""
-    import pathlib
-    import mlframe as _mlframe
-
-    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
-    src = ""
-    for nm in ("predict.py", "_predict_main_from_models.py", "_predict_main.py", "_predict_pre_pipeline.py"):
-        p = _core / nm
-        if p.exists():
-            src += p.read_text(encoding="utf-8")
-            src += "\n"
-    assert 'logger.error(f"Error predicting with model {model_name}: {e}")' not in src
+    """The per-model predict loop keeps its traceback; the twin path at 995 always did."""
     _assert_traceback_preserved("Error predicting with model %s")
 
 
-def test_inference_predict_uses_raise_from() -> None:
-    """Inference predict uses raise from.
-
-    The trusted-root containment check moved out of ``inference/predict.py`` into the shared
-    ``mlframe.core.helpers.validate_trusted_path`` (``_data_helpers._validate_trusted_path`` re-exports
-    it) during a later refactor; read both so this structural pin tolerates either location.
-    """
-    src = _read("inference/predict.py") + _read("core/helpers.py")
-    # The fix wraps the original ValueError with `from e`.
-    assert "is not inside trusted_root" in src
-    # Must NOT be the bare raise.
-    assert 'is not inside trusted_root {abs_root}")\n        if common' not in src
-    # Must include `from e`.
-    assert "from exc\n" in src or "from e\n        if common" in src or 'is not inside trusted_root {abs_root}") from e' in src
-
-
 def test_trainer_cache_load_preserves_traceback() -> None:
-    # The cache-load helper moved out of ``trainer.py`` into the sibling
-    # ``_trainer_train_and_evaluate.py`` during the 2026-05-22 trainer split.
-    # Read both so the structural pin tolerates either location.
-    """Trainer cache load preserves traceback."""
-    import pathlib
-    import mlframe as _mlframe
-
-    _root = pathlib.Path(_mlframe.__file__).resolve().parent / "training"
-    src = ""
-    for nm in ("trainer.py", "_trainer_train_and_evaluate.py", "_trainer_configure.py"):
-        p = _root / nm
-        if p.exists():
-            src += p.read_text(encoding="utf-8")
-            src += "\n"
-    assert 'logger.warning(f"Failed to load cached model from {model_file_name}: {e}. Will retrain instead.")' not in src
-    assert 'logger.warning("Failed to load cached model from %s; will retrain instead.", model_file_name, exc_info=True)' in src
+    """Falling back from a cached model to a retrain keeps its traceback."""
+    _assert_traceback_preserved("Failed to load cached model from %s")
 
 
 def test_flat_metric_compute_uses_logger_exception() -> None:
@@ -183,92 +157,104 @@ def test_recurrent_checkpoint_load_preserves_traceback() -> None:
 
 
 def test_mlflow_start_run_final_giveup_logs_traceback() -> None:
-    """Mlflow start run final giveup logs traceback (via log_throttle's exc_info passthrough)."""
-    src = _read("integrations/mlflow.py")
-    assert '"mlflow.start_run failed after %d retries", nfailed, exc_info=True' in src
+    """Giving up on mlflow.start_run keeps its traceback (through log_throttle's passthrough)."""
+    _assert_traceback_preserved("mlflow.start_run failed after %d retries")
 
 
 def test_automl_import_uses_logger_exception() -> None:
-    """Automl import uses logger exception."""
-    src = _read("training/automl.py")
-    assert 'logger.error(f"AutoGluon not available: {e}")' not in src
-    assert 'logger.exception("AutoGluon not available")' in src
-    assert 'logger.error(f"LightAutoML not available: {e}")' not in src
-    assert 'logger.exception("LightAutoML not available")' in src
+    """Both optional-AutoML import failures keep their tracebacks."""
+    _assert_traceback_preserved("AutoGluon not available")
+    _assert_traceback_preserved("LightAutoML not available")
 
 
 def test_automl_auc_fi_use_exc_info() -> None:
-    """Automl auc fi use exc info."""
-    src = _read("training/automl.py")
-    # 4 sites total: 2 AUC + 2 FI, both AutoGluon and LAMA paths.
-    assert src.count('logger.warning("Could not compute AUC", exc_info=True)') == 2
-    assert src.count('logger.warning("Could not compute feature importance", exc_info=True)') == 2
+    """Four handlers -- AUC and feature importance, on both the AutoGluon and the LAMA path."""
+    for message, expected in (("Could not compute AUC", 2), ("Could not compute feature importance", 2)):
+        sites = _logs_message_with_traceback(message)
+        assert len(sites) == expected, f"{message!r} is logged at {len(sites)} site(s), expected {expected}: {sites}"
+        _assert_traceback_preserved(message)
 
 
 def test_evaluation_plot_fi_uses_exc_info() -> None:
-    # ``plot_model_feature_importances`` was carved out of training/evaluation.py
-    # into sibling training/_feature_importances.py (1k-LOC monolith split);
-    # check both files so the source sensor remains valid after the split.
-    """Evaluation plot fi uses exc info."""
-    src = _read("training/evaluation.py")
-    sibling = MLFRAME_ROOT / "training/_feature_importances.py"
-    if sibling.exists():
-        src += "\n" + sibling.read_text(encoding="utf-8")
-    assert 'logger.warning(f"Could not plot feature importances: {e}.' not in src
-    assert 'logger.warning("Could not plot feature importances. Maybe data shape changed within a pipeline?", exc_info=True)' in src
+    """The feature-importance plot failure keeps its traceback."""
+    _assert_traceback_preserved("Could not plot feature importances. Maybe data shape changed within a pipeline?")
 
 
 def test_reporting_predict_proba_fallback_uses_exc_info() -> None:
-    """The predict_proba fallback log moved from training/_reporting.py to the
-    sibling training/_reporting_probabilistic.py during the monolith split."""
-    src_parent = _read("training/reporting/_reporting.py")
-    src_sibling = _read("training/reporting/_reporting_probabilistic.py")
-    src = src_parent + "\n" + src_sibling
-    assert 'logger.warning(f"predict_proba not available for {type(model).__name__}, using predict() instead: {e}")' not in src
-    assert 'logger.warning("predict_proba not available for %s, using predict() instead", type(model).__name__, exc_info=True)' in src
+    """Falling back from predict_proba to predict keeps its traceback."""
+    _assert_traceback_preserved("predict_proba not available for %s, using predict() instead")
 
 
 def test_training_loop_best_iter_uses_exc_info() -> None:
-    """Training loop best iter uses exc info."""
-    src = _read("training/_training_loop.py")
-    assert 'logger.warning(f"Could not get best iteration: {e}")' not in src
-    assert 'logger.warning("Could not get best iteration", exc_info=True)' in src
+    """Failing to read the best iteration keeps its traceback."""
+    _assert_traceback_preserved("Could not get best iteration")
 
 
 def test_neural_base_example_input_uses_exc_info() -> None:
-    """Neural base example input uses exc info."""
-    src = _read("training/neural/base.py")
-    assert 'logger.warning(f"Failed to prepare example_input_array: {e}")' not in src
-    assert 'logger.warning("Failed to prepare example_input_array", exc_info=True)' in src
+    """Failing to build example_input_array keeps its traceback."""
+    _assert_traceback_preserved("Failed to prepare example_input_array")
 
 
 def test_neural_flat_compile_fallback_uses_exc_info() -> None:
-    # MLPTorchModel was carved out of neural/flat.py into sibling
-    # neural/_flat_torch_module.py; the torch.compile fallback line moved
-    # with it. Concatenate both so the source sensor still works.
-    """Neural flat compile fallback uses exc info."""
-    src = _read("training/neural/flat.py") + "\n" + _read("training/neural/_flat_torch_module.py")
-    assert 'logger.warning(f"Failed to apply torch.compile: {e}. Using uncompiled network.")' not in src
-    assert 'logger.warning("Failed to apply torch.compile. Using uncompiled network.", exc_info=True)' in src
+    """Falling back to the uncompiled network keeps its traceback."""
+    _assert_traceback_preserved("Failed to apply torch.compile. Using uncompiled network.")
 
 
 def test_pipeline_polars_ds_import_narrowed_and_exc_info() -> None:
-    """Pipeline polars ds import narrowed and exc info."""
-    src = _read("training/pipeline.py")
-    # Must be narrowed to ImportError and must use exc_info.
-    assert 'logger.warning(f"Could not import polars-ds: {e}")' not in src
-    assert 'logger.warning("Could not import polars-ds", exc_info=True)' in src
+    """The optional polars-ds import failure keeps its traceback."""
+    _assert_traceback_preserved("Could not import polars-ds")
 
 
 def test_mps_print_replaced_with_logger_exception() -> None:
-    """Mps print replaced with logger exception."""
-    src = _read("feature_engineering/mps.py")
-    # The print line at :652 must be gone.
-    assert 'print(f"Error with {f}: {e}")' not in src
-    assert 'logger.exception("Error processing MPS file %s", f)' in src
-    # The :679 warning must use exc_info.
-    assert 'logger.warning(f"File {fpath}, error {e}")' not in src
-    assert 'logger.warning("Failed to read MPS parquet file %s", fpath, exc_info=True)' in src
+    """Both MPS handlers log rather than print, and both keep their tracebacks."""
+    _assert_traceback_preserved("Error processing MPS file %s")
+    _assert_traceback_preserved("Failed to read MPS parquet file %s")
+
+
+def test_trusted_path_rejection_chains_its_cause() -> None:
+    """A cross-drive commonpath failure must not masquerade as a plain traversal rejection.
+
+    Behavioural since 2026-09-03. This asserted that "is not inside trusted_root" appears in a
+    concatenation of two files, that one exact two-line spelling does not, and that one of three
+    `from`-clause spellings does -- none of which says the raised error actually carries a cause.
+    `commonpath` raises ValueError for "paths don't have the same drive", and losing that cause
+    turns a misconfigured trusted_root into what looks like an attempted escape.
+    """
+    import os
+
+    import pytest
+
+    from mlframe.core.helpers import validate_trusted_path
+
+    def _cross_drive(_paths):
+        """Stand in for the real commonpath, which raises this on a cross-drive comparison."""
+        raise ValueError("Paths don't have the same drive")
+
+    real = os.path.commonpath
+    try:
+        os.path.commonpath = _cross_drive
+        with pytest.raises(ValueError) as excinfo:
+            validate_trusted_path("D:/elsewhere/model.pkl", "C:/trusted")
+    finally:
+        os.path.commonpath = real
+
+    assert "is not inside trusted_root" in str(excinfo.value)
+    assert excinfo.value.__cause__ is not None, "the commonpath failure was swallowed; a cross-drive root reads as an escape attempt"
+    assert "same drive" in str(excinfo.value.__cause__)
+
+
+def test_a_path_outside_the_trusted_root_is_rejected(tmp_path) -> None:
+    """The ordinary rejection, so the chaining test above cannot be the only thing holding it up."""
+    import pytest
+
+    from mlframe.core.helpers import validate_trusted_path
+
+    trusted = tmp_path / "trusted"
+    trusted.mkdir()
+    outside = tmp_path / "elsewhere" / "model.pkl"
+
+    with pytest.raises(ValueError, match="is not inside trusted_root"):
+        validate_trusted_path(str(outside), str(trusted))
 
 
 # ---------------------------------------------------------------------------
