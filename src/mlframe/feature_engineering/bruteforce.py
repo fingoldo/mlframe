@@ -69,6 +69,39 @@ def _kfold_target_encode(
     return pd.DataFrame(out_arr, index=df.index, columns=cols)
 
 
+def median_fill_polars(frame):
+    """Impute every numeric column's NaN/null with that column's median, inside the Arrow buffer.
+
+    Median rather than 0 so PySR's candidate-score ranking does not silently collapse missing rows
+    onto real-zero rows -- a fill of 0 invents a mode at 0 and shifts central tendency.
+
+    ``drop_nans()`` BEFORE ``median()`` is required: polars 1.x ``Series.median()`` includes NaN in
+    the sort order, so on [1,2,3,4,NaN,6,7,8,9,10] it returns 6.5 (the mid-pair of a 10-element
+    sort) rather than 6.0 (the median of the 9 finite values). Verified on polars 1.x 2026-05-26.
+
+    Extracted 2026-09-04. Its guard was a test asserting that one of two exact expression spellings
+    appears in this file.
+    """
+    import polars.selectors as cs
+
+    return frame.with_columns([cs.numeric().fill_nan(cs.numeric().drop_nans().median()).fill_null(cs.numeric().drop_nans().median())])
+
+
+def median_fill_pandas(frame):
+    """Impute numeric columns' NaN with the column median; leave every other dtype alone.
+
+    Numeric-only on purpose: ``.fillna(0)`` on a Categorical carrying a NaN raises "Cannot setitem
+    on a Categorical with a new category (0)", and categoricals are dropped or encoded downstream
+    anyway, so their NaNs stay put here.
+
+    Extracted 2026-09-04, same reason as the polars twin above.
+    """
+    numeric_cols = frame.select_dtypes(include=[np.number]).columns
+    if len(numeric_cols):
+        frame[numeric_cols] = frame[numeric_cols].fillna(frame[numeric_cols].median())
+    return frame
+
+
 def run_pysr_feature_engineering(
     df: Union[pd.DataFrame, pl.DataFrame],
     target_col: str,
@@ -144,13 +177,12 @@ def run_pysr_feature_engineering(
     _bytes_limit = int(os.environ.get("MLFRAME_PYSR_INPUT_BYTES_LIMIT", _DEFAULT_PYSR_INPUT_BYTES_LIMIT))
 
     if isinstance(df, pl.DataFrame):
-        import polars.selectors as cs
         n = min(sample_size, len(df))
         sampled = df.sample(n, seed=random_state) if random_state is not None else df.sample(n)
         # Polars-side per-column median imputation: keeps the fill inside the Arrow buffer so the downstream ``to_pandas()`` allocates exactly once. Numeric-only because non-numeric columns (Utf8 / Datetime / Duration) hit the dtype-mismatch path on polars 1.x and would either be dropped or encoded downstream anyway. Median (not 0) preserves central tendency so PySR's candidate-score ranking does not silently collapse NaN rows onto real-0 rows.
         #
         # ``drop_nans()`` BEFORE ``median()`` is required: polars 1.x ``Series.median()`` includes NaN in the sort order, so on [1,2,3,4,NaN,6,7,8,9,10] it returns 6.5 (mid-pair of the 10-element sort) instead of 6.0 (median of the 9 finite values). Verified on polars 1.x 2026-05-26.
-        sampled = sampled.with_columns([cs.numeric().fill_nan(cs.numeric().drop_nans().median()).fill_null(cs.numeric().drop_nans().median())])
+        sampled = median_fill_polars(sampled)
         sampled_bytes = sampled.estimated_size()
         if sampled_bytes > _bytes_limit:
             raise ValueError(
@@ -174,9 +206,7 @@ def run_pysr_feature_engineering(
                 "Either lower sample_size, drop columns before calling, or raise MLFRAME_PYSR_INPUT_BYTES_LIMIT."
             )
         # Pandas-side per-column median imputation on numeric columns only. ``.fillna(0)`` on a Categorical with a NaN would raise ``Cannot setitem on a Categorical with a new category (0)``; categoricals get dropped or encoded downstream anyway, so leave their NaNs alone here.
-        numeric_cols = tmp_df.select_dtypes(include=[np.number]).columns
-        if len(numeric_cols):
-            tmp_df[numeric_cols] = tmp_df[numeric_cols].fillna(tmp_df[numeric_cols].median())
+        tmp_df = median_fill_pandas(tmp_df)
     else:
         raise TypeError(f"Input must be a pandas or polars DataFrame, got {type(df).__name__}.")
 
