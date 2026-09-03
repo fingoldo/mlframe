@@ -29,21 +29,34 @@ class TestAContinuousTargetIsNotTruncatedToClasses:
 
         return _conditional_gate_fe
 
-    def test_no_bare_int64_target_cast_survives(self):
-        """The three module-boundary casts the finding names."""
-        import inspect
-        import re
+    def test_every_target_boundary_goes_through_the_encoder(self):
+        """No module-boundary cast may reach for `np.asarray(y).astype(np.int64)` directly.
 
-        src = inspect.getsource(self._module())
-        offenders = re.findall(r"^\s*yi = np\.asarray\(y\)\.astype\(np\.int64\)\s*$", src, re.M)
-        assert offenders == [], offenders
+        Structural: a bare int64 cast and the encoder agree on already-dense integer codes, so the two are
+        indistinguishable on the classification path -- the divergence only shows on the targets the sibling
+        behavioural tests below cover. What this pins is that no THIRD boundary reintroduces the raw cast,
+        which no single call can demonstrate. Asserted on the parsed module rather than its text.
+        """
+        import ast
 
-    def test_the_encoder_is_used_instead(self):
-        """Idempotent on already-dense integer codes, so the classification path is unaffected."""
-        import inspect
+        from tests._source_ast import called_names, module_ast
 
-        src = inspect.getsource(self._module())
-        assert src.count("yi = encode_y_for_classif_mi(y)") == 3, src.count("yi = encode_y_for_classif_mi(y)")
+        tree = module_ast(self._module())
+        calls = called_names(tree)
+        assert calls.count("encode_y_for_classif_mi") >= 3, f"expected every target boundary to use the encoder, saw {calls.count('encode_y_for_classif_mi')}"
+
+        bare_casts = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "astype"
+            and isinstance(node.func.value, ast.Call)
+            and isinstance(node.func.value.func, ast.Attribute)
+            and node.func.value.func.attr == "asarray"
+            and any(isinstance(a, ast.Name) and a.id == "y" for a in node.func.value.args)
+        ]
+        assert not bare_casts, f"a bare np.asarray(y).astype(...) target cast is back at line(s) {[n.lineno for n in bare_casts]}"
 
     def test_a_unit_interval_target_does_not_collapse_to_one_class(self):
         """The concrete consequence: `astype(np.int64)` leaves exactly one distinct class, so MI is 0.0."""
@@ -91,24 +104,95 @@ class TestTheIdentityCacheCannotCollideOrGuess:
         assert self._fp(base) == self._fp(base.copy())
 
     def test_both_fingerprints_use_the_same_sample_size(self):
-        """One rule, one constant -- the divergence is what left this side unfixed."""
-        import inspect
+        """One rule, one constant -- the divergence is exactly what left one side unfixed.
+
+        Structural: two fingerprints sampling different numbers of positions agree on most inputs, so the
+        defect shows only on the frames that fall between the two sample sizes. Pin the shared constant.
+        """
+        import ast
 
         from mlframe.feature_selection.filters import _mrmr_fingerprints
+        from tests._source_ast import module_ast
 
-        src = inspect.getsource(_mrmr_fingerprints)
-        assert "_CELL_SAMPLE_POSITIONS = 1024" in src
-        assert "min(10, n_rows)" not in src
+        tree = module_ast(_mrmr_fingerprints)
+        sample_consts = {
+            t.id: node.value.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)
+            for t in node.targets
+            if isinstance(t, ast.Name) and t.id == "_CELL_SAMPLE_POSITIONS"
+        }
+        assert sample_consts.get("_CELL_SAMPLE_POSITIONS") == 1024, f"the shared sample-position constant is missing or changed: {sample_consts}"
+        assert "_CELL_SAMPLE_POSITIONS" in {n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}, "the constant is defined but never read"
+
+    def test_a_failed_y_fingerprint_also_refuses_to_key_on_id(self):
+        """The y fingerprint had the SAME id()-fallback the X side was fixed for, and still logged at debug.
+
+        Found by widening the structural check below from the one X-side literal it named to any f-string
+        keyed on `id(...)`. Two failures must never collide, and the token must not be derived from an
+        address: CPython reuses addresses after collection, so a y built once its predecessor was dropped
+        very commonly lands on the same id -- and the identity cache then serves the earlier target's fit.
+        """
+        from mlframe.feature_selection.filters._mrmr_fingerprints import _mrmr_compute_y_fingerprint_sample
+
+        class _Unfingerprintable:
+            """A y whose array conversion raises, driving the failure branch."""
+
+            def __array__(self, *args, **kwargs):
+                """Refuse conversion so the fingerprint falls back."""
+                raise ValueError("no array for you")
+
+        a, b = _Unfingerprintable(), _Unfingerprintable()
+        tok_a = _mrmr_compute_y_fingerprint_sample(a)
+        tok_b = _mrmr_compute_y_fingerprint_sample(b)
+        assert tok_a != tok_b, "two failed y fingerprints collided, so the identity cache can serve the wrong fit"
+        assert _mrmr_compute_y_fingerprint_sample(a) != tok_a, "a failed y fingerprint is stable across calls, i.e. it can still produce a cache HIT"
+        for tok in (tok_a, tok_b):
+            assert "uncacheable" in tok, f"the failure token should announce that the cache is disabled, got {tok!r}"
+            assert f"{id(a):x}" not in tok and f"{id(b):x}" not in tok, f"the failure token is derived from an object address: {tok!r}"
+
+    def test_a_failed_y_fingerprint_is_audible(self, caplog):
+        """It logged at debug, which production logging does not emit, while silently changing which fit runs."""
+        import logging
+
+        from mlframe.feature_selection.filters._mrmr_fingerprints import _mrmr_compute_y_fingerprint_sample
+
+        class _Unfingerprintable:
+            """A y whose array conversion raises, driving the failure branch."""
+
+            def __array__(self, *args, **kwargs):
+                """Refuse conversion so the fingerprint falls back."""
+                raise ValueError("no array for you")
+
+        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.filters._mrmr_fingerprints"):
+            _mrmr_compute_y_fingerprint_sample(_Unfingerprintable())
+        assert any("disabling the identity cache" in r.getMessage() for r in caplog.records), [r.getMessage() for r in caplog.records]
 
     def test_a_fingerprint_failure_yields_a_never_matching_token(self):
-        """An `id()` key is reused after a collection; a fingerprint failure must disable the cache, not risk a hit."""
-        import inspect
+        """A failed fingerprint must disable the cache, never key on `id()`, which is reused after a collection.
+
+        Structural: the sibling below already shows two failures never match each other, but that holds for an
+        `id()` key too whenever the two objects happen to be alive at once -- the dangerous case is an id
+        REUSED after a collection, which a test cannot force deterministically.
+        """
+        import ast
 
         from mlframe.feature_selection.filters import _mrmr_fingerprints
+        from tests._source_ast import called_names, module_ast, string_literals
 
-        src = inspect.getsource(_mrmr_fingerprints)
-        assert "fp_uncacheable_" in src
-        assert 'f"fp_id{id(X):x}"' not in src
+        tree = module_ast(_mrmr_fingerprints)
+        assert any("fp_uncacheable_" in s for s in string_literals(tree)), "the never-matching failure token is gone"
+        id_keyed = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.JoinedStr)
+            for part in node.values
+            if isinstance(part, ast.FormattedValue)
+            for call in ast.walk(part.value)
+            if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == "id"
+        ]
+        assert not id_keyed, f"a fingerprint is being keyed on id() again at line(s) {[n.lineno for n in id_keyed]}"
+        assert "id" not in set(called_names(tree)) or not id_keyed, "id() is used to build a cache key"
 
     def test_two_failed_fingerprints_never_match_each_other(self):
         """The property that matters, stated directly."""
@@ -208,14 +292,19 @@ class TestThePrunedCountSumKernelMatchesTheFullOne:
         assert np.array_equal(cnt, cnt_ref) and np.array_equal(s1, s1_ref)
 
     def test_the_stable_path_uses_the_pruned_kernel(self):
-        """An unused fast variant delivers no speedup."""
-        import inspect
+        """An unused fast variant delivers no speedup, and the discarded outputs are the whole point.
 
+        Structural: both kernels return identical counts and sums -- the sibling above proves that -- so which
+        one the stable path calls is invisible in the OUTPUT and visible only in the work done. Asserted on
+        the parsed function.
+        """
         from mlframe.feature_selection.filters import _binned_numeric_agg_fe
+        from tests._source_ast import called_names, function_ast
 
-        src = inspect.getsource(_binned_numeric_agg_fe._per_cell_moments_stable)
-        assert "_per_cell_count_sum_njit" in src
-        assert "cnt, s1, _, _, _" not in src
+        fn = function_ast(_binned_numeric_agg_fe, "_per_cell_moments_stable")
+        calls = called_names(fn)
+        assert "_per_cell_count_sum_njit" in calls, f"the stable path is not calling the pruned kernel; calls={sorted(set(calls))}"
+        assert "_per_cell_raw_moments_njit" not in calls, "the stable path still calls the full kernel and discards three of its outputs"
 
 
 def test_the_device_shuffle_keys_are_float64():
