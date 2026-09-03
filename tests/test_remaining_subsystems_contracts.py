@@ -132,15 +132,11 @@ class TestAConstantRunProducesNoChangepoint:
 class TestTheRawSignalIsScoredOutOfFold:
     """An in-sample target encoding on a high-cardinality column nearly reproduces y."""
 
-    def test_the_encoding_is_out_of_fold(self):
-        """The whole point: the raw side must not get an advantage the derived side does not have."""
-        import importlib
-
-        # `import ... as m` binds the re-exported FUNCTION of the same name, not the submodule.
-        m = importlib.import_module("mlframe.feature_selection.drop_raw_after_embedding")
-        src = inspect.getsource(m._raw_column_signal)
-        assert "OUT-OF-FOLD" in src
-        assert 'groupby(col).transform("mean")' not in src
+    # `test_the_encoding_is_out_of_fold` used to sit here, asserting that the helper's source says
+    # "OUT-OF-FOLD" and no longer contains an in-sample groupby-transform. The two siblings below drive the
+    # consequence directly and are what an in-sample encoding would actually break: a near-unique column stops
+    # scoring near-perfectly, and a genuinely predictive one still scores. A source phrase adds nothing to
+    # that, and the phrase could be present while the encoding was in-sample anyway.
 
     def test_a_near_unique_column_no_longer_scores_near_perfectly(self):
         """~4 rows per group is the regime this module targets, and where in-sample encoding is worst."""
@@ -271,11 +267,28 @@ class TestTheDocumentedContractsMatchTheCode:
         assert "size_scores[size] >= best_score - tol" not in src
 
     def test_max_features_counts_the_whole_subset(self):
-        """`max_features=5, initial_selected=[a, b, c]` could return 8 columns."""
-        from mlframe.feature_selection import forward_select as m
+        """`max_features` bounds the FINAL subset, seeds included -- not the number of columns added to it.
 
-        src = inspect.getsource(m)
-        assert "cap = max_features if max_features is not None else len(all_candidates) + len(selected)" in src
+        Driven: with three seeded columns and `max_features=5`, the result must be at most five columns in
+        total. Counting only the additions returns eight, which is the defect -- and a caller sizing a model
+        by `max_features` gets a subset over half again as wide as asked for, silently.
+        """
+        import numpy as _np
+        import pandas as _pd
+        from sklearn.linear_model import LinearRegression
+
+        from mlframe.feature_selection.forward_select import forward_select
+
+        rng = _np.random.default_rng(0)
+        n = 300
+        X = _pd.DataFrame({f"f{i}": rng.normal(size=n) for i in range(10)})
+        y = X["f0"] + 0.8 * X["f1"] + 0.6 * X["f2"] + 0.4 * X["f3"] + 0.2 * X["f4"] + rng.normal(0, 0.1, n)
+
+        seeds = ["f0", "f1", "f2"]
+        chosen = forward_select(X, y.to_numpy(), LinearRegression, cv=3, max_features=5, initial_selected=seeds)
+
+        assert len(chosen) <= 5, f"max_features=5 with 3 seeds returned {len(chosen)} columns: {chosen}"
+        assert set(seeds) <= set(chosen), f"the seeded columns were dropped: {chosen}"
 
     def test_the_simplex_solver_raises_instead_of_returning_none(self):
         """Every restart failing must RAISE, naming the cause -- not hand back `None`.
