@@ -188,13 +188,11 @@ def test_the_mlflow_lookup_scopes_by_experiment_id():
 class TestTheShapleyDefaultIsReproducible:
     """Two calls on identical inputs returned different values, and anything pruning on them inherited that."""
 
-    def test_the_default_rng_is_seeded(self):
-        """`np.random.default_rng()` with no argument draws from OS entropy."""
-        import mlframe.votenrank.shapley_blend as m
-
-        src = inspect.getsource(m)
-        assert "np.random.default_rng(_DEFAULT_SHAPLEY_SEED)" in src
-        assert "rng = np.random.default_rng()" not in src
+    # `test_the_default_rng_is_seeded` used to sit here, asserting that the module's source contains
+    # `default_rng(_DEFAULT_SHAPLEY_SEED)`. It was redundant with the behavioural sibling below, which drives
+    # the actual contract -- two default calls agree -- and it had become wrong in a second way: it reached the
+    # module via `import mlframe.votenrank.shapley_blend as m`, which resolves to the re-exported FUNCTION, not
+    # the submodule, so `inspect.getsource` was reading the wrong object entirely.
 
     def test_two_default_calls_agree(self):
         """The property, asserted end-to-end."""
@@ -279,13 +277,39 @@ class TestTheDocumentedContractsMatchTheCode:
         src = inspect.getsource(m)
         assert "cap = max_features if max_features is not None else len(all_candidates) + len(selected)" in src
 
-    def test_the_simplex_solver_raises_instead_of_asserting(self):
-        """Under `python -O` the bare assert vanished and the function returned None."""
-        import mlframe.votenrank.constrained_weight_blend as m
+    def test_the_simplex_solver_raises_instead_of_returning_none(self):
+        """Every restart failing must RAISE, naming the cause -- not hand back `None`.
 
-        src = inspect.getsource(m)
-        assert "assert best_weights is not None" not in src
-        assert "raise ValueError(" in src
+        Driven rather than read: a loss function that returns NaN makes every restart fail the
+        `loss < best_loss` test (any comparison against NaN is False), which is the exact state the guard
+        exists for. It used to be a bare `assert`, so under `python -O` it vanished and the function returned
+        `None`; the caller then crashed somewhere far from the cause. A `raise` holds under -O too, and the
+        message says WHY -- non-finite losses throughout, typically a NaN in the predictions.
+        """
+        import numpy as _np
+        import pytest as _pytest
+
+        from mlframe.votenrank.constrained_weight_blend import constrained_weight_blend
+
+        rng = _np.random.default_rng(0)
+        n = 120
+        y = rng.integers(0, 2, n).astype(float)
+        preds = [_np.clip(y * 0.6 + rng.normal(0, s, n), 0.0, 1.0) for s in (0.2, 0.4)]
+
+        def _always_nan(_a, _b):
+            """A loss that never returns a finite value, so no restart can ever win."""
+            return float("nan")
+
+        with _pytest.raises(ValueError, match="none of the .* restarts produced a finite loss"):
+            constrained_weight_blend(preds, y, loss_fn=_always_nan, n_restarts=3, random_state=0)
+
+        # A finite loss still solves, so the guard is not simply refusing everything.
+        def _mse(a, b):
+            """Ordinary MSE, which the solver can minimise."""
+            return float(_np.mean((_np.asarray(a) - _np.asarray(b)) ** 2))
+
+        out = constrained_weight_blend(preds, y, loss_fn=_mse, n_restarts=3, random_state=0)
+        assert out is not None, "a well-posed blend returned None"
 
     def test_a_zero_subsample_fraction_is_honoured(self):
         """`0.0 or 0.75` silently drew 75% of the rows."""
@@ -303,14 +327,36 @@ class TestTheDocumentedContractsMatchTheCode:
         assert "stopping on CV degradation" not in src
         assert "does NOT stop on CV degradation" in src
 
-    def test_the_shapley_stderr_is_documented_as_a_proxy(self):
-        """`|value| / sqrt(n)` makes every model's value/stderr ratio identical, so it cannot discriminate."""
-        import mlframe.votenrank.shapley_blend as m
+    def test_the_shapley_stderr_cannot_discriminate_between_models(self):
+        """`stderr` is the analytic proxy `|value| / sqrt(n)`, so every model's value/stderr ratio is IDENTICAL.
 
-        src = inspect.getsource(m)
-        assert "ANALYTIC PROXY" in src
-        # The CLAIM must be gone; the corrected docstring quotes the old wording to say it was never true.
-        assert "holding ``stderr`` (per-model, two-branch running stats)" not in src
+        Measured rather than read out of the docstring. This is the property that matters to a caller: a
+        "keep the model if its value exceeds 2 stderr" rule compares the same number for every model, so it
+        keeps all of them or none and can never rank one above another. A genuine per-model standard error
+        would vary with that model's own coalition spread.
+        """
+        import numpy as _np
+
+        from mlframe.votenrank.shapley_blend import shapley_model_values
+
+        rng = _np.random.default_rng(0)
+        n = 300
+        y = rng.integers(0, 2, n).astype(float)
+        # Three members of deliberately different quality, so a real stderr would differ between them.
+        preds = _np.vstack([_np.clip(y * 0.6 + rng.normal(0, s, n), 0, 1) for s in (0.2, 0.35, 0.5)])
+
+        values, info = shapley_model_values(preds, y, n_permutations=30, rng=_np.random.default_rng(1))
+        values = _np.asarray(values, dtype=float)
+        stderr = _np.asarray(info["stderr"], dtype=float)
+
+        assert values.shape == (3,) and stderr.shape == (3,)
+        assert _np.all(_np.isfinite(stderr)) and _np.all(stderr > 0.0), stderr
+        assert len(set(_np.round(_np.abs(values), 6))) > 1, "the three members scored identically, so this fixture proves nothing"
+
+        ratios = _np.abs(values) / stderr
+        assert _np.allclose(ratios, ratios[0], rtol=1e-8), f"value/stderr differs between models, so stderr is no longer the |value|/sqrt(n) proxy: {ratios!r}"
+        # ...and the shared ratio IS sqrt(n_permutations), which is what makes it a pure restatement of the value.
+        assert _np.isclose(ratios[0], _np.sqrt(30.0), rtol=1e-8), f"the proxy is no longer |value|/sqrt(n): ratio={ratios[0]!r}"
 
     def test_the_backend_precedence_is_documented_as_implemented(self):
         """The docstring said the env var is checked first; the argument wins."""
