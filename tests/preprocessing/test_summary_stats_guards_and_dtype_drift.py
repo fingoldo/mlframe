@@ -180,13 +180,21 @@ class TestTheArgmaxHelperHonoursItsDocumentedShape:
 
 
 def test_the_ascending_topk_branch_does_not_copy():
-    """After that line `arr` is only read, so the docstring's no-mutation promise holds without a copy that
-    doubled peak memory on a large score matrix."""
-    from mlframe.core import arrays as m
+    """After that line `arr` is only read, so the no-mutation promise holds without a defensive copy.
 
-    src = inspect.getsource(m.topk_by_partition)
-    assert "np.asarray(arr).copy()" not in src
-    assert "arr = np.asarray(arr)" in src
+    Structural, and deliberately so: the copy was pure peak-memory cost on a large score matrix and produced
+    IDENTICAL output, so no assertion on the result can see it -- the sibling below already covers the half
+    that is observable, that the caller's array is not mutated. Asserted on the parsed function rather than
+    its text, so a reformat or a renamed local does not move it.
+    """
+    import ast
+
+    from mlframe.core import arrays as m
+    from tests._source_ast import function_ast
+
+    fn = function_ast(m, "topk_by_partition")
+    copies = [node for node in ast.walk(fn) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "copy"]
+    assert not copies, f"a defensive .copy() is back in topk_by_partition: {[n.lineno for n in copies]}"
 
 
 def test_topk_still_does_not_mutate_the_caller():
@@ -235,13 +243,23 @@ def test_the_eviction_protects_the_sidecar_too():
     assert '.sha256"' in src
 
 
-def test_the_polars_conversion_is_the_zero_copy_form():
-    """A plain `.to_pandas()` materialises every column into numpy-backed blocks -- a full second copy of the
-    frame, inside a helper whose dispatch table promised otherwise."""
-    from mlframe.core import frame_compat as m
+def test_the_polars_conversion_keeps_numpy_backed_dtypes():
+    """`to_pandas_or_array` must hand back NUMPY-backed columns, not pyarrow-backed ones.
 
-    src = inspect.getsource(m)
-    assert "to_pandas(use_pyarrow_extension_array=True)" in src
+    This previously asserted the opposite: `use_pyarrow_extension_array=True` was introduced to make the
+    conversion genuinely zero-copy, since a plain `.to_pandas()` materialises a second copy of the frame. The
+    memory concern is real, but that form changes the dtype family every caller receives -- `float[pyarrow]`
+    where it used to be `np.float32` -- and this helper sits under sklearn, numba and CatBoost call sites that
+    expect numpy-backed columns. Choosing the Arrow view is the caller's decision at the suite boundary, not a
+    shared normaliser's, so it was reverted and the docstring now says plainly that it copies.
+    """
+    import polars as pl
+
+    from mlframe.core.frame_compat import to_pandas_or_array
+
+    out = to_pandas_or_array(pl.DataFrame({"f32": pl.Series([1.0, 2.0, 3.0], dtype=pl.Float32), "i64": pl.Series([10, 20, 30], dtype=pl.Int64)}))
+    assert out["f32"].dtype == np.float32, f"expected a numpy float32 column, got {out['f32'].dtype!r}"
+    assert out["i64"].dtype == np.int64, f"expected a numpy int64 column, got {out['i64'].dtype!r}"
 
 
 def test_the_hash_docstring_no_longer_claims_pickle():
