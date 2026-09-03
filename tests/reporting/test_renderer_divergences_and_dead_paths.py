@@ -66,13 +66,18 @@ class TestTheTwoBackendsAgreeOnAnEmptyViolinGroup:
         assert not any("no data" in (a.text or "") for a in fig.layout.annotations)
 
     def test_the_matplotlib_side_still_drops_and_names(self):
-        """The behaviour plotly was aligned TO must not have moved."""
-        import inspect
+        """The behaviour plotly was aligned TO must not have moved -- asserted by rendering it, not reading it."""
+        import matplotlib
 
+        matplotlib.use("Agg")
         from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
+        from mlframe.reporting.spec import FigureSpec
 
-        src = inspect.getsource(MatplotlibRenderer._violin)
-        assert "no data:" in src and "whis=(5, 95)" in src
+        fig = MatplotlibRenderer().render(FigureSpec(suptitle="s", panels=((self._spec(),),)))
+        ax = fig.axes[0]
+        assert len(ax.collections) == 2, f"the empty group should not be drawn; got {len(ax.collections)} violin bodies"
+        assert [t.get_text() for t in ax.get_xticklabels()] == ["a", "b"], [t.get_text() for t in ax.get_xticklabels()]
+        assert "no data: class_c" in ax.get_title(), f"the dropped group must be named in the title, got {ax.get_title()!r}"
 
 
 class TestPerPointHovertextSurvivesASplitTrace:
@@ -223,37 +228,77 @@ class TestTheBarLabelIsTruncatedOnBothOrientations:
     """The horizontal branch's own comment claimed the vertical branch already did this."""
 
     def test_the_vertical_branch_truncates(self):
-        """A 200-char generated column name otherwise runs off the bottom of the axis."""
-        import inspect
+        """A 200-char generated column name otherwise runs off the bottom of the axis.
 
+        Rendered and measured rather than counted in the source: the old form asserted the helper appeared
+        exactly twice, which says nothing about whether the VERTICAL branch is one of the two.
+        """
+        import matplotlib
+
+        matplotlib.use("Agg")
         from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
+        from mlframe.reporting.spec import BarPanelSpec, FigureSpec
 
-        src = inspect.getsource(MatplotlibRenderer._bar)
-        assert src.count("truncate_bar_label(c)") == 2, src.count("truncate_bar_label(c)")
+        long_name = "col_" + "x" * 200
+        for orientation, getter in (("vertical", "get_xticklabels"), ("horizontal", "get_yticklabels")):
+            spec = BarPanelSpec(categories=(long_name, "short"), values=(1.0, 2.0), title="t", orientation=orientation)
+            fig = MatplotlibRenderer().render(FigureSpec(suptitle="s", panels=((spec,),)))
+            labels = [t.get_text() for t in getattr(fig.axes[0], getter)()]
+            assert labels[1] == "short", f"{orientation}: a short label must be left alone, got {labels[1]!r}"
+            assert len(labels[0]) < len(long_name), f"{orientation}: the long label was not truncated ({len(labels[0])} chars)"
 
     def test_the_thinning_constants_are_not_written_out_again(self):
-        """25 and 20 lived in four places across two backends."""
-        import inspect
+        """25 and 20 lived in four places across two backends; both branches must read the shared names.
 
-        from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
+        Structural by necessity: "this literal is not written out a second time" has no behavioural signature,
+        because a re-inlined 25 renders identically right up until someone changes one copy. Asserted on the
+        parsed function rather than its text, so reformatting and renamed locals do not move it.
+        """
+        from mlframe.reporting.renderers import matplotlib as _mpl_renderer
+        from tests._source_ast import function_ast, loaded_names, numeric_literals
 
-        src = inspect.getsource(MatplotlibRenderer._bar)
-        assert "n_cat > 25" not in src and "n_cat / 20" not in src
-        assert src.count("_BAR_TICK_THIN_THRESHOLD") == 2 and src.count("_BAR_TICK_KEEP") == 2
+        bar = function_ast(_mpl_renderer, "MatplotlibRenderer._bar")
+        names = loaded_names(bar)
+        assert "_BAR_TICK_THIN_THRESHOLD" in names, "the tick-thinning threshold is not read from the shared constant"
+        assert "_BAR_TICK_KEEP" in names, "the tick-keep count is not read from the shared constant"
+        inlined = {v for v in numeric_literals(bar) if v in (20, 25)}
+        assert not inlined, f"a thinning constant is inlined again in _bar: {sorted(inlined)}"
 
 
 class TestFalsyValuedSpecFieldsAreHonoured:
     """`x or default` cannot represent a deliberate 0.0 or empty string."""
 
     def test_the_histogram_bin_width_and_overlay_label_use_is_not_none(self):
-        """matplotlib treated 0.0 as unset and "" as absent; plotly honoured both. One spec, two pictures."""
-        import inspect
+        """matplotlib treated 0.0 as unset and "" as absent; plotly honoured both. One spec, two pictures.
 
-        from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
+        Structural: `x or default` versus `x is not None` differs observably only for a caller who
+        deliberately passes the falsy value -- which is precisely the caller the old code silently overrode,
+        and reaching that path end-to-end needs a bin geometry this test would then be pinning by accident.
+        """
+        import ast
 
-        src = inspect.getsource(MatplotlibRenderer._histogram)
-        assert "p.bin_width or" not in src and "p.overlay_label or" not in src
-        assert "p.bin_width is not None" in src and "p.overlay_label is not None" in src
+        from mlframe.reporting.renderers import matplotlib as _mpl_renderer
+        from tests._source_ast import function_ast
+
+        hist = function_ast(_mpl_renderer, "MatplotlibRenderer._histogram")
+        or_operands = {
+            id(inner)
+            for node in ast.walk(hist)
+            if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or)
+            for value in node.values
+            for inner in ast.walk(value)
+        }
+        for field in ("bin_width", "overlay_label"):
+            reads = [n for n in ast.walk(hist) if isinstance(n, ast.Attribute) and n.attr == field]
+            assert reads, f"_histogram no longer reads {field!r} at all"
+            assert not any(id(r) in or_operands for r in reads), f"{field} is still read through an `or` default, so a deliberate falsy value is overridden"
+            compared_to_none = any(
+                isinstance(n, ast.Compare)
+                and any(isinstance(o, (ast.Is, ast.IsNot)) for o in n.ops)
+                and any(isinstance(x, ast.Attribute) and x.attr == field for x in ast.walk(n))
+                for n in ast.walk(hist)
+            )
+            assert compared_to_none, f"{field} is not tested against None, so 'unset' and 'set to a falsy value' are still conflated"
 
     def test_an_empty_calibration_cmap_override_is_rejected(self):
         """`""` behaved as a silent second clear rather than as the invalid colormap name it is."""
@@ -306,34 +351,75 @@ def test_the_bundle_is_still_stripped_when_it_is_first():
 
 
 def test_the_perfect_fit_diagonal_comes_from_the_colour_module():
-    """The one overlay colour that escaped the centralisation done to stop exactly this drift."""
-    import inspect
+    """The one overlay colour that escaped the centralisation done to stop exactly this drift.
+
+    Structural: the drawn line looks the same whether its colour came from the shared constant or from a
+    hardcoded "g--", so the only thing worth pinning is WHERE the value comes from. Asserted on the parsed
+    module rather than its text.
+    """
+    import ast
 
     from mlframe.reporting.renderers import _matplotlib_scatter
+    from tests._source_ast import loaded_names, module_ast, string_literals
 
-    src = inspect.getsource(_matplotlib_scatter)
-    assert '"g--"' not in src
-    assert "PERFECT_FIT_LINE" in src
+    tree = module_ast(_matplotlib_scatter)
+    assert "PERFECT_FIT_LINE" in loaded_names(tree), "the perfect-fit diagonal no longer reads the shared colour constant"
+    assert "g--" not in set(string_literals(tree)), "the hardcoded matplotlib colour/style shorthand is back"
+    # ...and the constant is imported from the colour module rather than redefined here.
+    imported = {alias.name for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) for alias in node.names}
+    assert "PERFECT_FIT_LINE" in imported, "PERFECT_FIT_LINE is read but not imported, so a local redefinition has crept back"
 
 
 def test_the_dead_per_point_text_scaffolding_is_gone():
-    """`text` was assigned None once and never reassigned, so four dependent expressions were unreachable -- and
-    the surviving scaffolding read as a live per-point-text feature that does not exist."""
-    import inspect
+    """`text` was assigned None once and never reassigned, so four dependent expressions were unreachable.
+
+    Structural by nature: dead code has no behaviour to observe -- that is what made it dead, and what let it
+    read as a live per-point-text feature that does not exist. Asserted on the parsed module: no binding of a
+    `text` name that nothing ever reassigns.
+    """
+    import ast
 
     from mlframe.reporting.renderers import _plotly_scatter
+    from tests._source_ast import module_ast
 
-    src = inspect.getsource(_plotly_scatter)
-    assert "text = None" not in src
-    assert 'mode="markers+text" if text else "markers"' not in src
+    tree = module_ast(_plotly_scatter)
+    none_bound_text = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "text" for t in node.targets)
+        and isinstance(node.value, ast.Constant)
+        and node.value.value is None
+    ]
+    assert not none_bound_text, f"`text = None` scaffolding is back at line(s) {[n.lineno for n in none_bound_text]}"
 
 
-def test_the_slice_finder_ordering_comment_matches_the_code():
-    """Two adjacent blocks stated opposite rules; the code implements the second."""
-    import inspect
+def test_the_slice_finder_displays_in_score_order_not_mean_error_order():
+    """Display order is degradation x sqrt(support share), NOT raw mean error.
 
-    from mlframe.reporting.charts import slice_finder
+    Two adjacent comment blocks used to state opposite rules, and the old test asserted the WORDING of the
+    surviving one -- which passes for code whose ordering is wrong so long as the prose was updated, and fails
+    for correct code that was merely rephrased. This pins the emitted order instead, on data where the two
+    rules disagree: a thin slice can carry a higher mean error than a broad one and still rank below it,
+    because sorting by mean error alone hands the top bar to the thinnest slice that cleared the support
+    floor -- the opposite of what a reader should look at first.
+    """
+    import pandas as pd
 
-    src = inspect.getsource(slice_finder)
-    assert "worst-ERROR-first" not in src
-    assert "Display order matches the SCORE" in src
+    from mlframe.reporting.charts.slice_finder import find_weak_slices
+
+    rng = np.random.default_rng(0)
+    n = 4000
+    X = pd.DataFrame({"f_thin": rng.uniform(0.0, 1.0, n), "f_broad": rng.uniform(0.0, 1.0, n)})
+    err = rng.normal(0.0, 0.10, n)
+    err[X["f_thin"].to_numpy() > 0.97] += 12.0  # ~3% of rows, huge error
+    err[X["f_broad"].to_numpy() > 0.60] += 2.0  # ~40% of rows, moderate error
+    y_true = np.zeros(n)
+
+    table = find_weak_slices(X, y_true, y_true + err, task="regression", top_k=6, min_support_fraction=0.01).table
+    scores = list(table["score"])
+    errors = list(table["mean_error"])
+
+    assert scores == sorted(scores, reverse=True), f"the table is not in descending score order: {scores}"
+    # ...and the two rules genuinely disagree on this data, so the assertion above is not satisfied trivially.
+    assert errors != sorted(errors, reverse=True), f"mean-error order coincides with score order here, so this fixture proves nothing: {errors}"
