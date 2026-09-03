@@ -147,33 +147,73 @@ def test_the_dead_ensembling_knob_and_its_fuzz_axis_are_gone_together():
 class TestTheStatedContractsMatchTheCode:
     """Four places described behaviour the code does not implement."""
 
-    def test_the_jaggedness_docstring_names_the_statistic_the_code_computes(self):
-        """It described a SECOND-difference count over LENGTH; the code counts first-difference sign changes
-        over the number of NON-ZERO first differences, which is smaller on any curve with flat segments -- so a
-        threshold set against the documented denominator is systematically too permissive."""
-        from mlframe.training import _overlapping_walk_forward_cv as m
+    def test_the_jaggedness_denominator_excludes_flat_segments(self):
+        """The ratio is sign changes over NON-ZERO first differences, not over the curve length.
 
-        src = inspect.getsource(m)
-        assert "second-difference sign-change count, divided by its length" not in src.lower()
-        assert "NON-ZERO first differences" in src
+        Asserted by measuring the statistic rather than by reading its docstring, which is what the old form
+        did. The two denominators differ on any curve with flat segments -- the documented one is larger, so a
+        threshold set against it is systematically too permissive -- and this drives a curve built so the two
+        land on opposite sides of the same threshold.
+        """
+        import numpy as np
 
-    def test_the_precompute_args_do_not_promise_forwarding(self):
-        """Three parameters were documented as "forwarded to the stub"; the body never calls either stub."""
-        from mlframe.training import _precompute as m
+        from mlframe.training._overlapping_walk_forward_cv import cv_stability_check
 
-        src = inspect.getsource(m)
-        assert "forwarded to the dummy stub" not in src and "forwarded to the composite stub" not in src
-        assert "NOT consumed" in src
+        # Eight points: four alternating steps then three flat ones. First differences are
+        # [+, -, +, -, 0, 0, 0]: four non-zero, three sign changes -> 3/4 = 0.75 under the real rule, but
+        # 3/7 = 0.43 if the denominator were the full length. A threshold of 0.6 separates them.
+        curve = np.array([0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0])
+        curves = np.vstack([curve, curve, curve])
+        out = cv_stability_check(curves, max_sign_change_ratio=0.6)
+        assert out["jagged_seed_fraction"] == 1.0, (
+            "the flat tail is being counted in the denominator: 3 sign changes over 7 first differences is 0.43 "
+            f"and would read smooth at a 0.6 threshold, but over the 4 NON-ZERO ones it is 0.75. Got "
+            f"jagged_seed_fraction={out['jagged_seed_fraction']!r}"
+        )
 
-    def test_the_enum_domain_comment_pair_no_longer_contradicts_itself(self):
-        """One comment said the domain is train-only with non-strict val; the code unions train and val and
-        casts both strictly. A future edit trusting the stale one would reintroduce the ES bias the other
-        comment exists to prevent."""
+        # A genuinely smooth curve must still read smooth, so the assertion above is not trivially satisfied.
+        smooth = np.linspace(0.0, 1.0, 8)
+        assert cv_stability_check(np.vstack([smooth, smooth, smooth]), max_sign_change_ratio=0.6)["jagged_seed_fraction"] == 0.0
+
+    def test_the_precompute_stubs_raise_rather_than_being_forwarded_to(self):
+        """Three parameters were documented as "forwarded to the stub"; both stubs raise unconditionally.
+
+        The contract the stale docstring misdescribed is testable directly: a parameter cannot be forwarded to
+        a callable that refuses every call, so asserting the refusal is what the documentation should have
+        said and what a caller actually experiences.
+        """
+        import pytest as _pytest
+
+        from mlframe.training._precompute import precompute_composite_target_specs, precompute_dummy_baselines
+
+        # Called with real arguments, so the refusal cannot be mistaken for an arity error.
+        with _pytest.raises(NotImplementedError):
+            precompute_composite_target_specs(train_df=None, target_by_type={}, config=None)
+        with _pytest.raises(NotImplementedError):
+            precompute_dummy_baselines(None, {}, config=None)
+
+    def test_the_enum_cast_is_strict_on_the_shared_domain(self):
+        """The domain unions train and val, and both are cast strictly.
+
+        Structural: this cast sits inside a phase helper that needs a fully built split context to reach, and
+        a non-strict cast NULLS an out-of-domain value rather than raising -- so the difference surfaces
+        downstream as missing categories, far from here. Asserted on the parsed module: the cast helper is
+        invoked with `strict=True`, which is the half a stale comment had claimed was non-strict.
+        """
+        import ast
+
         from mlframe.training.core import _phase_helpers_fit_split as m
+        from tests._source_ast import module_ast
 
-        src = inspect.getsource(m)
-        assert "keyed off the train-only unique set" not in src
-        assert "strict=True" in src
+        tree = module_ast(m)
+        strict_true = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            for kw in node.keywords
+            if kw.arg == "strict" and isinstance(kw.value, ast.Constant) and kw.value.value is True
+        ]
+        assert strict_true, "no call passes strict=True, so an out-of-domain category is silently nulled instead of raising"
 
     def test_the_ar1_veto_no_longer_calls_val_an_honest_holdout(self):
         """Val is the early-stopping split, and the bias points the same way as the decision the veto makes."""
