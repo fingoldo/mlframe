@@ -116,34 +116,80 @@ def test_discretization_nan_filler_supports_raise() -> None:
     assert "biases MI by mixing" in src
 
 
-def test_target_temporal_audit_drops_nan_before_rate() -> None:
-    """The per-bin positive-rate lambda moved to sibling
-    _target_temporal_audit_aggregate.py after the audit module split;
-    concat so the source sensor matches the post-carve layout."""
-    src = _read("training/targets/target_temporal_audit.py")
-    _sib = MLFRAME_ROOT / "training" / "targets" / "_target_temporal_audit_aggregate.py"
-    if _sib.exists():
-        src += "\n" + _sib.read_text(encoding="utf-8")
-    # Pre-fix lambda was `(c.fillna(0) > 0).mean()` -- gone.
-    assert "(c.fillna(0) > 0).mean()" not in src
-    # Post-fix is `(c.dropna() > 0).mean()` with a notna gate.
-    assert "(c.dropna() > 0).mean()" in src
+def test_a_bin_s_positive_rate_ignores_missing_rows_rather_than_counting_them_negative() -> None:
+    """NaN is not a negative. Counting it as one deflates the rate by the missing fraction.
+
+    Behavioural since 2026-09-04. This asserted that `(c.fillna(0) > 0).mean()` is absent from the
+    module and `(c.dropna() > 0).mean()` present -- two spellings of one lambda, already chased
+    once through a module split, and silent about the number that comes out.
+    """
+    import pandas as pd
+
+    from mlframe.training.targets._target_temporal_audit_aggregate import _aggregate_by_time_pandas
+
+    # One bin: two positives, two negatives, two missing. The honest rate is 2/4.
+    frame = pd.DataFrame({"ts": pd.to_datetime(["2026-01-01"] * 6), "y": [1.0, 1.0, 0.0, 0.0, float("nan"), float("nan")]})
+    out = _aggregate_by_time_pandas(frame, "ts", "y", "day", target_type="binary_classification")
+    rate = float(out["target_rate"].iloc[0])
+
+    assert rate == 0.5, f"rate {rate} -- fillna(0) would give {2 / 6:.3f} by counting the missing rows as negatives"
 
 
-def test_bruteforce_fill_uses_median_not_zero() -> None:
-    """Bruteforce fill uses median not zero."""
-    src = _read("feature_engineering/bruteforce.py")
-    # Polars path uses median instead of 0. The current shape wraps the
-    # median inputs in ``.drop_nans()`` so a column that is all-NaN
-    # doesn't poison the median calc (NaN-of-empty would still be NaN
-    # and re-poison the fill). The legacy shape without ``drop_nans``
-    # is also accepted as a fallback for older builds.
-    assert (
-        "cs.numeric().fill_nan(cs.numeric().drop_nans().median()).fill_null(cs.numeric().drop_nans().median())" in src
-        or "cs.numeric().fill_nan(cs.numeric().median()).fill_null(cs.numeric().median())" in src
-    )
-    # Pandas path uses median too.
-    assert "tmp_df[numeric_cols].fillna(tmp_df[numeric_cols].median())" in src
+def test_an_all_missing_bin_reports_nan_not_zero() -> None:
+    """A bin with nothing observed has no rate. Zero would read as "nobody converted"."""
+    import math
+
+    import pandas as pd
+
+    from mlframe.training.targets._target_temporal_audit_aggregate import _aggregate_by_time_pandas
+
+    frame = pd.DataFrame({"ts": pd.to_datetime(["2026-01-01"] * 3), "y": [float("nan")] * 3})
+    out = _aggregate_by_time_pandas(frame, "ts", "y", "day", target_type="binary_classification")
+
+    assert math.isnan(float(out["target_rate"].iloc[0]))
+
+
+def test_median_fill_uses_the_median_of_the_FINITE_values() -> None:
+    """The polars trap this fix exists for, and the reason drop_nans() precedes median().
+
+    Behavioural since 2026-09-04. This asserted that one of two exact expression spellings appears
+    in bruteforce.py. On [1,2,3,4,NaN,6,7,8,9,10] polars 1.x ``Series.median()`` includes the NaN
+    in its sort order and returns 6.5 -- the mid-pair of a ten-element sort -- where the median of
+    the nine finite values is 6.0. The spelling check cannot tell those two numbers apart.
+    """
+    pl = pytest.importorskip("polars")
+
+    from mlframe.feature_engineering.bruteforce import median_fill_polars
+
+    filled = median_fill_polars(pl.DataFrame({"x": [1.0, 2.0, 3.0, 4.0, float("nan"), 6.0, 7.0, 8.0, 9.0, 10.0]}))
+
+    assert filled["x"].to_list()[4] == 6.0, "the NaN was included in the sort, so the fill is the mid-pair not the median"
+
+
+def test_median_fill_never_substitutes_zero() -> None:
+    """Filling with 0 invents a mode at zero and collapses missing rows onto real-zero rows, which
+    is what PySR's candidate-score ranking then reads as signal."""
+    pd = pytest.importorskip("pandas")
+
+    from mlframe.feature_engineering.bruteforce import median_fill_pandas
+
+    filled = median_fill_pandas(pd.DataFrame({"x": [10.0, 20.0, 30.0, float("nan")]}))
+
+    assert filled["x"].iloc[3] == 20.0
+
+
+def test_median_fill_leaves_non_numeric_columns_alone() -> None:
+    """A Categorical carrying a NaN raises "Cannot setitem on a Categorical with a new category"
+    if it is filled here; those columns are dropped or encoded downstream instead."""
+    pd = pytest.importorskip("pandas")
+
+    from mlframe.feature_engineering.bruteforce import median_fill_pandas
+
+    frame = pd.DataFrame({"x": [1.0, float("nan")], "c": pd.Categorical(["a", None])})
+    filled = median_fill_pandas(frame)
+
+    assert filled["x"].iloc[1] == 1.0
+    assert pd.isna(filled["c"].iloc[1])
 
 
 # ---------------------------------------------------------------------------
