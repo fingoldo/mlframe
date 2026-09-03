@@ -33,6 +33,7 @@ import os
 import contextlib
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
@@ -118,13 +119,72 @@ def test_load_save_meta_sidecar_survives_the_sidecar_vanishing_mid_call() -> Non
             assert load_save_meta_sidecar(str(Path(td) / "bundle.bin")) is None
 
 
-def test_key_bank_save_uses_uuid_tmp_dir() -> None:
-    """Key bank save uses uuid tmp dir."""
-    src = _read("feature_engineering/transformer/_key_bank.py")
-    # The fix introduces UUID-stamped tmp + ignore_errors / try-except on rename.
-    assert 'fingerprint + ".tmp."' in src and "_uuid.uuid4().hex[:8]" in src
-    # The rename must be wrapped in try/except OSError.
-    assert "tmp_dir.rename(final_dir)" in src and "except OSError as _rn_err" in src
+def _save_a_key_bank(cache_dir, fingerprint="fp0"):
+    """Save a minimal KeyBank into ``cache_dir``; returns the scratch dir it wrote through."""
+    import numpy as _np
+
+    from mlframe.feature_engineering.transformer._key_bank import save_key_bank
+
+    bank = SimpleNamespace(
+        projections=_np.zeros((2, 2), dtype=_np.float32),
+        k_proj=_np.zeros((2, 2), dtype=_np.float32),
+        y_train=_np.zeros(2, dtype=_np.float32),
+        seed=0,
+        standardiser=None,
+        ann_indices=[],
+    )
+    scratch: list = []
+    real_mkdir = Path.mkdir
+
+    def _record(self, *a, **kw):
+        """Note every directory the save creates, so the scratch path is observable."""
+        scratch.append(Path(self))
+        return real_mkdir(self, *a, **kw)
+
+    Path.mkdir = _record
+    try:
+        save_key_bank(bank, Path(cache_dir), fingerprint, ann_space="l2", ann_backend="pynndescent")
+    finally:
+        Path.mkdir = real_mkdir
+    return [p for p in scratch if ".tmp." in p.name]
+
+
+def test_two_writers_of_the_same_fingerprint_get_separate_scratch_dirs(tmp_path) -> None:
+    """Parallel workers building the same bank must not write through one shared "<fp>.tmp".
+
+    Behavioural since 2026-09-03. This asserted that `fingerprint + ".tmp."` and
+    `_uuid.uuid4().hex[:8]` both appear in _key_bank.py -- two fragments that say a uuid is
+    mentioned somewhere near a tmp name, not that two concurrent saves get different directories.
+    Interleaved writes into one shared scratch dir produce a bank made of both workers' bytes.
+    """
+    first = _save_a_key_bank(tmp_path)
+    second = _save_a_key_bank(tmp_path)
+
+    assert first and second, "no uuid-stamped scratch dir was created"
+    assert first[0].name.startswith("fp0.tmp."), first
+    assert first[0] != second[0], "both writers shared one scratch dir"
+
+
+def test_losing_the_final_rename_is_not_an_error(tmp_path, monkeypatch) -> None:
+    """The caches are content-addressable, so the loser discards its scratch and moves on.
+
+    The old pin asserted `tmp_dir.rename(final_dir)` and `except OSError as _rn_err` both appear
+    in the file -- true of a handler nothing reaches, and silent about the two things that matter:
+    that losing the race does not raise, and that the loser's multi-hundred-MB scratch dir is
+    cleaned up rather than orphaned.
+    """
+    real_rename = Path.rename
+
+    def _lost(self, target):
+        """A sibling worker won the rename a moment ago."""
+        raise OSError("target exists")
+
+    monkeypatch.setattr(Path, "rename", _lost)
+    scratch = _save_a_key_bank(tmp_path)
+    monkeypatch.setattr(Path, "rename", real_rename)
+
+    assert scratch, "no scratch dir was created"
+    assert not scratch[0].exists(), "the loser orphaned its scratch dir; nothing ever reclaims it"
 
 
 def test_verify_sidecar_survives_the_sidecar_vanishing_mid_call(monkeypatch) -> None:
@@ -165,13 +225,46 @@ def test_cache_backend_exists_documents_advisory_contract() -> None:
     assert "TOCTOU" in src
 
 
-def test_kernel_tuning_cli_show_and_clear_tolerate_missing() -> None:
-    """Kernel tuning cli show and clear tolerate missing."""
-    src = _read("feature_selection/_benchmarks/kernel_tuning_cache/cli.py")
-    # _cmd_show now uses try/open; the missing file message branches via FileNotFoundError.
-    assert 'except FileNotFoundError:\n        print(f"# no cache at {path}"' in src
-    # _cmd_clear similarly tolerates a race.
-    assert 'except FileNotFoundError:\n        print(f"# already removed:' in src
+def _kernel_tuning_cli(monkeypatch, missing_path):
+    """Point the kernel-tuning CLI at a path that does not exist, and hand back the module."""
+    import pyutilz.performance.kernel_tuning.cache as _cache
+
+    from mlframe.feature_selection._benchmarks.kernel_tuning_cache import cli
+
+    monkeypatch.setattr(_cache, "cache_path", lambda: str(missing_path))
+    return cli
+
+
+def test_kernel_tuning_show_survives_the_cache_vanishing_mid_call(monkeypatch, capsys, tmp_path) -> None:
+    """`show` reports a missing cache rather than dying on it, even if a probe said it was there.
+
+    Behavioural since 2026-09-03. This asserted that two exact `except FileNotFoundError:` /
+    `print(f"# ...")` two-line spellings appear in cli.py -- which passes against handlers nothing
+    reaches, and breaks if the message is reworded or the branch reindented. Both commands are
+    plain functions taking an args namespace, so there was nothing stopping them being called.
+    """
+    cli = _kernel_tuning_cli(monkeypatch, tmp_path / "no_such_cache.json")
+
+    with _existence_probes_lie():
+        rc = cli._cmd_show(SimpleNamespace())
+
+    assert rc == 1
+    assert "no cache at" in capsys.readouterr().err
+
+
+def test_kernel_tuning_clear_survives_the_cache_vanishing_mid_call(monkeypatch, capsys, tmp_path) -> None:
+    """`clear` racing a concurrent clear (or an external cleanup) is a success, not a crash.
+
+    The entry probe says the file is there and it is gone by the time remove runs -- exactly what
+    two operators clearing the same cache, or a cleanup cron, produce.
+    """
+    cli = _kernel_tuning_cli(monkeypatch, tmp_path / "no_such_cache.json")
+
+    with _existence_probes_lie():
+        rc = cli._cmd_clear(SimpleNamespace(yes=True))
+
+    assert rc == 0, "losing the race to another clear still leaves the cache cleared"
+    assert "already removed" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------
