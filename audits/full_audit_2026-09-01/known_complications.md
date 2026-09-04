@@ -80,11 +80,43 @@ reproducibility. The magnitude is unchanged to all eight digits with both contro
 is not RNG, not allocator state, not workspace/algorithm selection as exposed by torch's determinism switches,
 and not a mutated global. It survives everything reachable from outside the training loop.
 
-**Next action if picked up:** stop probing globals and bisect INSIDE training instead -- record per-batch loss
-(and the first weight tensor) for fit 1 and fit 2 and find the first batch at which they diverge. That
-distinguishes "diverges from the very first backward pass" (a kernel-selection difference on the cold call)
-from "identical for N batches then drifts" (state accumulating somewhere reachable), which no amount of
-further global-flag guessing can separate. The five eliminations above are already spent; do not re-run them.
+### ROOT CAUSE: the GPU dropout mask draw on a cold CUDA generator
+
+The in-training bisect was run and it lands the cause exactly.
+
+**Dropout is necessary and sufficient.** With `dropout=0.0`, all four fits are bit-identical including the
+first. With the shipped default `dropout=0.1`, only fit 1 diverges, by the usual `0.00631118`. Nothing else
+about the estimator changes between those two runs.
+
+**The divergence is in the CUDA generator, not the data and not the CPU.** Instrumenting the first training
+batch:
+
+| measured at first training batch | fit 1 vs fit 2 |
+|---|---|
+| batch CONTENT (hash of the tensors handed to the step) | byte-identical |
+| CPU RNG state | identical |
+| **CUDA RNG state** | **DIFFERENT** |
+| module device | same (`cuda:0`) |
+| batch 0 loss | `0.7212307453` vs `0.7187753320` |
+
+So the very first backward pass already differs, on identical weights and byte-identical input, purely
+because the GPU dropout masks differ. That also explains the magnitude: `2.5e-3` on a `0.72` loss is far too
+large for float32 kernel-selection noise, and always was a hint that the earlier hardware-level hypotheses
+were looking in the wrong place.
+
+**Partial fix, measured but NOT shipped.** Re-seeding the CUDA generator from a Lightning `on_train_start`
+callback shrinks the gap 16x, from `0.00631118` to `0.00038409`, but does not close it -- so device
+randomness is still consumed differently between train start and the first dropout draw. It is left
+unshipped for the same reason the cuBLAS pair was: it mutates global CUDA RNG, which is precisely the
+process-wide mutation `ranker.py`'s own note removed, and a partial fix does not buy reproducibility anyway.
+Eagerly seeding CUDA at `torch.manual_seed` time (rather than letting it happen lazily) changes nothing,
+which rules out lazy CUDA seeding as the mechanism.
+
+**Next action if picked up:** find what consumes CUDA randomness between `on_train_start` and the first
+dropout draw -- capture the CUDA RNG state at both points and diff the count of device RNG consumers in
+between. Once that is pinned, the correct fix is a per-fit generator for dropout (pass an explicit
+`torch.Generator(device=...)` seeded from `random_state`, so the masks never depend on process-global device
+state) rather than re-seeding a global, which is both exact and free of the global-mutation objection.
 
 ---
 

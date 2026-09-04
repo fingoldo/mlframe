@@ -400,14 +400,24 @@ def test_f10_mlp_ranker_same_seed_gives_the_same_initialisation_and_a_matching_f
     fits 2, 3 and 4 are bit-identical to each other -- but fit 1 differs from them by 6.3e-3, reproducibly and
     by exactly the same amount on every run.
 
-    So the seeding is correct and the divergence is in TRAINING, not initialisation. It is not thread count
-    (single-threading only appeared to fix it because that probe ran after a warm-up), not `cudnn.benchmark`
-    (already False, and forcing `cudnn.deterministic` changes nothing), and not CUDA context init
-    (pre-initialising the context and allocating on the device first changes nothing). What remains, and what
-    fits a first-call-only, deterministic-magnitude difference, is workspace-dependent cuBLAS algorithm
-    selection, whose documented control is `torch.use_deterministic_algorithms(True)` plus
-    `CUBLAS_WORKSPACE_CONFIG` -- both of which carry a real throughput cost and are the caller's decision, not
-    something an estimator should impose process-wide.
+    So the seeding is correct and the divergence is in TRAINING, not initialisation. The cause is now
+    measured rather than guessed: it is the DROPOUT mask draw on a cold CUDA generator. With `dropout=0.0`
+    every fit including the first is bit-identical; with the shipped default of 0.1 only the first diverges.
+    Captured at the first training batch, the CPU generator state matches across fits while the CUDA
+    generator state does NOT, and the batch contents are byte-identical -- so identical weights and identical
+    data produce a different loss purely because the GPU dropout masks differ.
+
+    Ruled out by direct measurement, each leaving the magnitude unchanged to all eight digits: thread count
+    (single-threading only appeared to fix it because that probe ran after a warm-up), `cudnn.benchmark`
+    (already False, and forcing `cudnn.deterministic` does nothing), CUDA context init, a pre-seeded and
+    pre-drawn device generator, `empty_cache()` before every fit, and -- despite being the previously
+    suspected cause -- `torch.use_deterministic_algorithms(True)` together with `CUBLAS_WORKSPACE_CONFIG`.
+    No global precision switch is mutated by the first fit either.
+
+    Re-seeding the CUDA generator at Lightning's `on_train_start` shrinks the gap 16x (6.3e-3 -> 3.8e-4) but
+    does not close it, so something still consumes device randomness between train start and the first
+    dropout draw. It is not shipped: it is a partial fix that mutates global CUDA RNG, which is exactly the
+    process-wide mutation `ranker.py`'s own note removed.
 
     This test therefore pins what the estimator DOES control: identical initial weights from an identical
     seed, different weights from a different seed, and predictions that agree far more closely than two
