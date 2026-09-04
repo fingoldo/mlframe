@@ -81,24 +81,35 @@ def test_the_selection_stays_compact(_fitted):
     assert 0 < len(selected) <= _MAX_SELECTED, f"expected a compact selection, got {len(selected)}: {selected}"
 
 
-def test_the_default_still_drops_the_operands():
-    """The shipped default is unchanged: in full mode the operands are still dropped.
+def test_the_default_keeps_fewer_raw_operands_than_the_opt_in(_fitted):
+    """The shipped default is unchanged: in full mode the raw operands are still dropped.
 
-    The keep leg is opt-in, not on by default, because CI measured its cost on other fixtures -- the F2
-    single-compound profiles expect `scaled_1_5` to collapse to ONE fused compound and a bare `d` survives
-    beside it with the leg active, and the make_classification hybrid support grows from 4 to 15. Those are
-    correct drops the leg undoes. This test pins the default so that trade-off cannot be flipped silently,
-    and it is also what makes the two tests above meaningful: the fixture discriminates rather than passing
-    whatever the code happens to do.
+    Discriminates on the SELECTION, not on a downstream-AUC threshold. An AUC floor looked like it separated
+    the two behaviours locally (0.8969 default vs 0.9649 opt-in) and did not travel: on CI the default scored
+    0.9459, above the floor, so the assertion inverted and failed for a reason that had nothing to do with the
+    contract. How many raw signal columns survive the drop sweep IS the contract, and it does not depend on a
+    logistic model's fold split.
+
+    The keep leg is opt-in rather than default because CI measured its cost across the suite: subsumed raws
+    kept alongside the composite that captures them (I4b), the canonical BUG1 fixtures re-adding a fully
+    subsumed `a`, and -- worst -- the group-aware leak guard resurrecting a demoted `x_leak`. Those are all
+    correct drops the leg undoes.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
 
-    X, y = _fixture()
+    X, y, opt_in_model = _fitted
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        model = MRMR(verbose=0).fit(X, y)
-    got = _downstream_auc(pd.DataFrame(model.transform(X)), y)
-    assert got < _MIN_DOWNSTREAM_AUC, (
-        f"the default scored {got:.4f}, at or above the floor only the opt-in should clear -- either the keep leg "
-        "became the default, or this fixture no longer separates the two behaviours and needs rebuilding"
+        default_model = MRMR(verbose=0).fit(X, y)
+
+    def _raw_signals(model) -> set:
+        """The bare `sigN` columns that survived, ignoring engineered composites built from them."""
+        return {name for name in model.get_feature_names_out() if name in {f"sig{k}" for k in range(5)}}
+
+    default_raws = _raw_signals(default_model)
+    opt_in_raws = _raw_signals(opt_in_model)
+    assert len(default_raws) < len(opt_in_raws), (
+        f"the default kept {sorted(default_raws)} and the opt-in kept {sorted(opt_in_raws)} -- the keep leg is "
+        "supposed to be what preserves raw operands, so either it became the default or this fixture no longer "
+        "separates the two behaviours and needs rebuilding"
     )
