@@ -22,6 +22,22 @@ from __future__ import annotations
 import numpy as np
 
 
+def _context_field_names() -> set:
+    """Every attribute the training context actually declares.
+
+    Read from the dataclass fields rather than ``__slots__``: ``@dataclass(slots=True)`` is 3.10+, and
+    _training_context.py guards it accordingly, so on 3.9 the attribute is simply absent and the old
+    ``getattr(..., "__slots__", ())`` yielded an EMPTY set. That silently turned every "this name IS a real
+    slot" assertion into a failure and every "this name is NOT a slot" assertion into a vacuous pass. The
+    declared fields are the contract these tests actually care about, and they exist on every version.
+    """
+    import dataclasses
+
+    from mlframe.training.core._training_context import TrainingContext
+
+    return {f.name for f in dataclasses.fields(TrainingContext)}
+
+
 class TestTheGroupAndTimestampColumnsAreActuallyProtected:
     """The protected set has to be reachable, not merely constructed."""
 
@@ -40,9 +56,8 @@ class TestTheGroupAndTimestampColumnsAreActuallyProtected:
         assertion still passes. Nothing observable distinguishes "protected nothing" from "protected the right
         thing" except asking which names are probed.
         """
-        from mlframe.training.core._training_context import TrainingContext
 
-        slots = set(getattr(TrainingContext, "__slots__", ()) or ())
+        slots = _context_field_names()
         probed = self._probed()
         for dead in ("group_id_col", "ts_field", "features_and_targets_extractor"):
             assert dead not in slots, f"{dead} became a real slot; this test needs updating"
@@ -50,9 +65,8 @@ class TestTheGroupAndTimestampColumnsAreActuallyProtected:
 
     def test_the_names_come_from_the_series_the_context_carries(self):
         """`group_ids_raw` / `group_ids` / `timestamps` are the real slots, and a pandas Series knows its name."""
-        from mlframe.training.core._training_context import TrainingContext
 
-        slots = set(getattr(TrainingContext, "__slots__", ()) or ())
+        slots = _context_field_names()
         probed = self._probed()
         for real in ("group_ids_raw", "timestamps"):
             assert real in slots, f"{real} is no longer a context slot; the phase cannot read it"
@@ -81,11 +95,10 @@ class TestTheGroupAndTimestampColumnsAreActuallyProtected:
 def test_the_composite_test_chart_reads_its_real_config_slot():
     """`ctx.plot_file` is not a slot, so the chart was never written and nothing warned."""
     from mlframe.training.core import _phase_train_one_target_post as m
-    from mlframe.training.core._training_context import TrainingContext
 
     from tests._source_ast import getattr_literals, module_ast
 
-    slots = set(getattr(TrainingContext, "__slots__", ()) or ())
+    slots = _context_field_names()
     assert "plot_file" not in slots, "plot_file became a real slot; this test needs updating"
     assert "output_config" in slots
 
@@ -99,11 +112,10 @@ def test_the_composite_test_chart_reads_its_real_config_slot():
 def test_the_unreachable_configs_fallbacks_are_gone():
     """Eight sites read as a working two-source resolution while `configs` is not a slot at all."""
     from mlframe.training.core import _phase_finalize, _phase_finalize_calibration
-    from mlframe.training.core._training_context import TrainingContext
 
     from tests._source_ast import getattr_literals, module_ast
 
-    assert "configs" not in set(getattr(TrainingContext, "__slots__", ()) or ())
+    assert "configs" not in _context_field_names()
     for mod in (_phase_finalize, _phase_finalize_calibration):
         assert "configs" not in getattr_literals(module_ast(mod), obj="ctx"), f"{mod.__name__} still probes ctx.configs, which is not a slot and can never resolve"
 
@@ -227,13 +239,7 @@ class TestTheStatedContractsMatchTheCode:
         from tests._source_ast import module_ast
 
         tree = module_ast(m)
-        strict_true = [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            for kw in node.keywords
-            if kw.arg == "strict" and isinstance(kw.value, ast.Constant) and kw.value.value is True
-        ]
+        strict_true = [node for node in ast.walk(tree) if isinstance(node, ast.Call) for kw in node.keywords if kw.arg == "strict" and isinstance(kw.value, ast.Constant) and kw.value.value is True]
         assert strict_true, "no call passes strict=True, so an out-of-domain category is silently nulled instead of raising"
 
     # `test_the_ar1_veto_no_longer_calls_val_an_honest_holdout` used to sit here, asserting the wording of a
