@@ -59,7 +59,7 @@ def _fitted():
     X, y = _fixture()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        model = MRMR(verbose=0).fit(X, y)
+        model = MRMR(verbose=0, fe_keep_linearly_usable_raw_operands=True).fit(X, y)
     return X, y, model
 
 
@@ -81,21 +81,24 @@ def test_the_selection_stays_compact(_fitted):
     assert 0 < len(selected) <= _MAX_SELECTED, f"expected a compact selection, got {len(selected)}: {selected}"
 
 
-def test_the_opt_out_restores_the_previous_behaviour():
-    """`fe_keep_linearly_usable_raw_operands=False` must still reach the old, lossier selection.
+def test_the_default_still_drops_the_operands():
+    """The shipped default is unchanged: in full mode the operands are still dropped.
 
-    Pins the escape hatch as a real one: a caller depending on the previous behaviour has somewhere to go, and
-    this is also what makes the two tests above meaningful -- it demonstrates the fixture actually discriminates
-    rather than passing whatever the code does.
+    The keep leg is opt-in, not on by default, because CI measured its cost on other fixtures -- the F2
+    single-compound profiles expect `scaled_1_5` to collapse to ONE fused compound and a bare `d` survives
+    beside it with the leg active, and the make_classification hybrid support grows from 4 to 15. Those are
+    correct drops the leg undoes. This test pins the default so that trade-off cannot be flipped silently,
+    and it is also what makes the two tests above meaningful: the fixture discriminates rather than passing
+    whatever the code happens to do.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     X, y = _fixture()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        model = MRMR(verbose=0, fe_keep_linearly_usable_raw_operands=False).fit(X, y)
+        model = MRMR(verbose=0).fit(X, y)
     got = _downstream_auc(pd.DataFrame(model.transform(X)), y)
     assert got < _MIN_DOWNSTREAM_AUC, (
-        f"the opt-out scored {got:.4f}, at or above the floor the default must clear -- either the drop sweep no "
-        "longer runs at all, or this fixture no longer separates the two behaviours and needs rebuilding"
+        f"the default scored {got:.4f}, at or above the floor only the opt-in should clear -- either the keep leg "
+        "became the default, or this fixture no longer separates the two behaviours and needs rebuilding"
     )
