@@ -120,12 +120,32 @@ it to. Delivering it means a custom dropout module (`torch.rand(shape, generator
 SEQUENCE for every such model, so every pinned prediction/metric in the suite moves. It is an architecture
 change with a package-wide blast radius, not a local fix, and it should be agreed before it is written.
 
-**Next action if picked up:** decide whether bitwise cold-fit reproducibility is worth a custom dropout
-module in the shared MLP trunk. If yes, the change is well-defined (custom module + per-fit generator seeded
-from `random_state`, plus a rebaseline of the pinned neural tests). If no, the honest close is to document
-that the FIRST fit in a process is not bitwise reproducible when `dropout > 0` on CUDA, which the F10 test
-already pins at the strength the estimator genuinely delivers. What should NOT be done is any further
-probing of process-global switches: seven have now been eliminated by measurement, and the cause is known.
+### CLOSED: documented, not fixed
+
+Decided by the maintainer: the custom dropout module is not worth its cost, and this is documented as a known
+limitation instead.
+
+**The limitation, stated plainly.** With `dropout > 0` on CUDA, the FIRST `MLPRanker` fit in a process is not
+bitwise reproducible against later fits in that same process. Fits after the first are bitwise reproducible,
+and with `dropout=0.0` every fit including the first is. This is not a correctness defect: both fits are valid
+trainings that differ only in which dropout masks they drew.
+
+**Why it was not fixed.** Neither `nn.Dropout` nor `F.dropout` accepts a `generator`, so pinning the mask
+stream means a custom dropout module in `training/neural/flat.py` -- the trunk every flat MLP in the package
+builds on. That changes the mask sequence for every such model and moves every pinned prediction and metric in
+the suite. The benefit is confined to one scenario (reproducing a single cold fit bit-for-bit), which nothing
+in the pipeline depends on.
+
+**What holds the line.** The F10 test pins what the estimator genuinely delivers -- bit-identical initial
+weights from an identical seed, different weights from a different seed, and same-seed predictions far closer
+than two different initialisations -- and its docstring carries the measured cause so the next reader does not
+re-derive it. `benchmarks/mlp_ranker_cold_fit_probe.py` and `benchmarks/mlp_ranker_batch_bisect.py` reproduce
+the finding on demand.
+
+**Do not reopen by probing process-global switches.** Seven were eliminated by measurement (thread count,
+`cudnn.benchmark`/`deterministic`, CUDA context init, `use_deterministic_algorithms` + `CUBLAS_WORKSPACE_CONFIG`,
+a pre-seeded device generator, `empty_cache()` per fit, and any mutated precision flag), and the cause is known
+to be the GPU dropout mask draw. Reopening is only worthwhile if the decision above changes.
 
 ---
 
@@ -178,7 +198,26 @@ suite-wide before/after this note already said the change needs, and it is a sep
 audit round. What has changed is the status: this is no longer a vague "redundancy-gate calibration question"
 but a located one-parameter defect with a measured fix.
 
-**Next action if picked up:** flip the default in a scratch branch, run the full suite, and count what moves --
-the expectation is that selected-feature-set pins shift while quality assertions improve. If the blast radius is
-tolerable, the better fix is narrower than a flag flip: keep an operand whenever the composite is lossy with
-respect to it (the composite cannot reconstruct the operand), rather than dropping on name-containment alone.
+### CLOSED: fixed narrowly, not by flipping the coarse flag
+
+The narrow fix turned out to need no new machinery. `_fe_raw_redundancy_drop` already carried exactly the right
+instrument -- `raw_retains_linear_signal_given_children`, a permutation-floored partial rank-correlation that
+keeps a raw retaining private linear signal given its children, so a pure-noise raw still drops. It was gated
+to `use_simple_mode` only, on the argument (in its own comment) that a subsumed monotone operand and a genuine
+linear term are statistically indistinguishable per-raw. That argument holds per-raw and still cost real
+accuracy in aggregate, on the very shape the comment's own example describes.
+
+The leg now runs in full mode as well, under `fe_keep_linearly_usable_raw_operands` (default True).
+
+| Arm | AUC | Selected |
+|---|---|---|
+| five raw signals (baseline) | 0.9648 | 5 |
+| default, after the fix | 0.9649 | 5 |
+| `fe_keep_linearly_usable_raw_operands=False` (previous behaviour) | 0.8969 | 2 |
+| `fe_drop_redundant_raw_operands=False` (coarse off-switch) | 0.9649 | 25 |
+
+The last row is why the narrow fix is the better one: the coarse flag reaches the same accuracy by keeping
+five times as many features, because it disables the sweep for genuinely-subsumed operands too. Pinned by
+`tests/feature_selection/mrmr/test_linearly_usable_raw_operands_kept.py`, which asserts the outcome (recovered
+accuracy, still-compact selection) rather than the mechanism, and pins the opt-out so the fixture is shown to
+discriminate rather than passing whatever the code happens to do.

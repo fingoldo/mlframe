@@ -13,6 +13,8 @@ history.
 
 ### Fixed
 
+- MRMR no longer drops a raw feature that a selected engineered composite cannot actually replace. The raw-redundancy sweep treats a composite as subsuming the columns it was built from, but an additive mixture preserves the sum and destroys the individual contributions -- so when signals enter the target with different coefficients, the operands are still the features a downstream model needs. The permutation-floored linear-usability keep leg that already handled this ran only in `use_simple_mode`; it now runs in full mode too. On the 5-signal/15-noise ranking benchmark, downstream AUC goes from 0.8969 to 0.9649 against a 0.9648 five-raw-signal baseline, and the selection stays compact at 5 features rather than the 25 that disabling the drop sweep entirely produces. Opt out with `fe_keep_linearly_usable_raw_operands=False`.
+
 - Time axes now show dates instead of raw epoch nanoseconds in both renderers: spec builders pass numeric nanoseconds and set `x_is_time`, but that flag only ROTATED the tick labels -- nothing converted them back -- so a metric-over-time chart rendered its x axis as `1.62e18 ... 1.78e18`.
 
 - plotly figures are no longer 20% smaller than their matplotlib twins built from the same spec: `figsize` is in matplotlib inches and matplotlib renders at 100 dpi, but the plotly renderer used 80 px/inch.

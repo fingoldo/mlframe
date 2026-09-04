@@ -10,6 +10,7 @@ Tolerates FE-engineered feature names in the post-fit support index map (routes 
 ``__setstate__`` shim that injects defaults for newer kwargs / attributes so old joblib / cloudpickle pipelines
 unpickle cleanly.
 """
+
 from __future__ import annotations
 
 import copy
@@ -18,7 +19,8 @@ import os
 import threading
 import warnings
 from collections import OrderedDict
-from typing import Any, Callable, ClassVar, Iterable, MutableMapping, NoReturn, Optional, Sequence, cast
+from collections.abc import Iterable, MutableMapping, Sequence
+from typing import Any, Callable, ClassVar, NoReturn, Optional, cast
 
 import numpy as np
 import pandas as pd
@@ -108,11 +110,24 @@ from .._mrmr_validate_transform import transform as _mrmr_transform_impl
 from ..info_theory._state_and_dispatch import set_group_mi as _set_group_mi
 from ..info_theory._group_mi import prepare_group_segments as _prepare_group_segments
 from ..info_theory import (
-    set_su_normalization, set_jmim_aggregator, set_bur_lambda, set_mi_miller_madow,
-    set_mi_chao_shen, use_mi_chao_shen,
-    set_relaxmrmr_alpha, set_pid_synergy_bonus, set_cmi_perm_stop, set_cpt_test,
-    use_su_normalization, use_jmim_aggregator, get_bur_lambda, use_mi_miller_madow,
-    get_relaxmrmr_alpha, get_pid_synergy_bonus, get_cmi_perm_stop, get_cpt_test,
+    set_su_normalization,
+    set_jmim_aggregator,
+    set_bur_lambda,
+    set_mi_miller_madow,
+    set_mi_chao_shen,
+    use_mi_chao_shen,
+    set_relaxmrmr_alpha,
+    set_pid_synergy_bonus,
+    set_cmi_perm_stop,
+    set_cpt_test,
+    use_su_normalization,
+    use_jmim_aggregator,
+    get_bur_lambda,
+    use_mi_miller_madow,
+    get_relaxmrmr_alpha,
+    get_pid_synergy_bonus,
+    get_cmi_perm_stop,
+    get_cpt_test,
 )
 from mlframe.training.provenance import record_provenance as _record_provenance
 
@@ -254,7 +269,6 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
     # fitted attributes onto ``self`` and return early; constructor params are NEVER overwritten (the key
     # already includes the params signature, so a hit guarantees matching state).
     _FIT_CACHE: "ClassVar[OrderedDict[tuple, MRMR]]" = OrderedDict()  # noqa: RUF012 - intentional shared class-level LRU cache, not a per-instance mutable-default bug
-
 
     # Private, non-BaseEstimator instance flag: when set True by a
     # caller BEFORE ``fit()`` (e.g. the stability-selection outer loop's throwaway bootstrap-replicate
@@ -597,6 +611,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # carries genuine independent signal. ON by default; set False to restore the
         # pre-fix behaviour (the small-n protective retention re-adds subsumed operands).
         fe_drop_redundant_raw_operands: bool = True,
+        fe_keep_linearly_usable_raw_operands: bool = True,
         # Raw-vs-engineered redundancy POLICY. "drop" (default): minimal-set behaviour - prune raw
         # operands a surviving engineered feature subsumes (the I4b invariant; right for tree downstreams
         # and minimal-redundancy selection). "emit_both": ALSO keep the SIGNAL-bearing raw operands of a
@@ -2335,7 +2350,11 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # callers that previously pinned the 4-tuple keep the old
         # behaviour, the default now leverages all five scorers.
         fe_hybrid_orth_ensemble_scorers: tuple = (
-            "plug_in", "ksg", "copula", "dcor", "hsic",
+            "plug_in",
+            "ksg",
+            "copula",
+            "dcor",
+            "hsic",
         ),
         # META-SCORER auto-selection that LEARNS
         # from cheap signal characteristics (sibling module
@@ -3187,18 +3206,20 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
     # switches default ON for new fits but must stay OFF / at the old contract when an
     # attribute-less legacy pickle is resurrected). These are NOT sourced from
     # ``_ctor_defaults()``; every other shared key IS, so it cannot drift.
-    _SETSTATE_LEGACY_OVERRIDES = frozenset({
-        "max_confirmation_cand_nbins",          # legacy 50; ctor None (adaptive)
-        "fe_fallback_to_all",                   # legacy True; ctor False
-        "mrmr_identity_cache_ycorr_threshold",  # legacy 0.0 (gate off); ctor 0.5
-        "fe_pair_prewarp_enable",               # legacy OFF; ctor ON
-        "fe_hybrid_orth_enable",                # legacy OFF; ctor ON
-        "fe_hybrid_orth_triplet_enable",        # legacy OFF; ctor ON
-        "fe_hybrid_orth_quadruplet_enable",     # legacy OFF; ctor ON
-        "fe_kfold_te_enable",                   # legacy OFF; ctor ON
-        "fe_conditional_dispersion_enable",     # legacy OFF; ctor ON
-        "fe_wavelet_enable",                    # legacy OFF; ctor ON
-    })
+    _SETSTATE_LEGACY_OVERRIDES = frozenset(
+        {
+            "max_confirmation_cand_nbins",  # legacy 50; ctor None (adaptive)
+            "fe_fallback_to_all",  # legacy True; ctor False
+            "mrmr_identity_cache_ycorr_threshold",  # legacy 0.0 (gate off); ctor 0.5
+            "fe_pair_prewarp_enable",  # legacy OFF; ctor ON
+            "fe_hybrid_orth_enable",  # legacy OFF; ctor ON
+            "fe_hybrid_orth_triplet_enable",  # legacy OFF; ctor ON
+            "fe_hybrid_orth_quadruplet_enable",  # legacy OFF; ctor ON
+            "fe_kfold_te_enable",  # legacy OFF; ctor ON
+            "fe_conditional_dispersion_enable",  # legacy OFF; ctor ON
+            "fe_wavelet_enable",  # legacy OFF; ctor ON
+        }
+    )
 
     @property
     def _fit_reentrancy_lock(self) -> threading.Lock:
@@ -3353,7 +3374,8 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
 
         Wrapper / _fit_impl forwarding asymmetry: ``sample_weight`` is CONSUMED at this wrapper level (via ``_maybe_resample_for_sample_weight`` before the ``_fit_impl`` call); ``groups`` is FORWARDED into ``_fit_impl`` which then silently drops them. A future refactor moving ``groups`` consumption into ``_fit_impl`` must also remove or downgrade the wrapper-level warning, otherwise the two ends would emit duplicate / contradictory messages.
 
-        Cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``."""
+        Cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``.
+        """
         # Row-count guard, first thing: no length-validation existed anywhere before the MI/screening
         # pipeline, so a mismatched (X, y) reached numba-njit kernels (bounds checking compiled OUT for
         # speed) with an out-of-bounds row index instead of a Python exception. Off the JIT-disabled
@@ -3490,7 +3512,10 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         if _stab_method != "classic":
             try:
                 _stab_result = self._stability_outer_fit(
-                    X, y, groups=groups, sample_weight=sample_weight,
+                    X,
+                    y,
+                    groups=groups,
+                    sample_weight=sample_weight,
                     **fit_params,
                 )
             except Exception as _exc:
@@ -3516,11 +3541,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             _n_nan = int(np.isnan(_y_check).sum())
             _n_inf = int(np.isinf(_y_check).sum())
             if _n_nan or _n_inf:
-                raise ValueError(
-                    f"MRMR.fit: y contains {_n_nan} NaN and {_n_inf} +/-inf values. "
-                    f"MI estimation silently degrades on NaN; drop or impute these rows "
-                    f"before fitting."
-                )
+                raise ValueError(f"MRMR.fit: y contains {_n_nan} NaN and {_n_inf} +/-inf values. " f"MI estimation silently degrades on NaN; drop or impute these rows " f"before fitting.")
 
         # Multi-output (2D y) opt-in. MRMR's merged-target greedy under-selects the 2nd genuine feature on a 2D y (the lazy confirmation step
         # drops it even though per-column MI is high), so fit one single-target selector per output column (the correct 1D path) and aggregate.
@@ -3598,18 +3619,20 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
                         _ycorr_ok = False
                 if _ycorr_ok:
                     logger.info(
-                        "[MRMR] cross-target identity cache HIT for X fingerprint=%s (y-corr=%s, thr=%.3g) -- "
-                        "prior fit returned identity, skipping ~minute(s) of FE pipeline.",
-                        _x_fp, ("%.3f" % _measured_corr) if _measured_corr is not None else "n/a", _ycorr_thr,
+                        "[MRMR] cross-target identity cache HIT for X fingerprint=%s (y-corr=%s, thr=%.3g) -- " "prior fit returned identity, skipping ~minute(s) of FE pipeline.",
+                        _x_fp,
+                        ("%.3f" % _measured_corr) if _measured_corr is not None else "n/a",
+                        _ycorr_thr,
                     )
                     self._fit_identity_shortcut(X)
                     self._fit_sample_weight_ = None
                     self._identity_cache_ycorr_ = _measured_corr
                     return self
                 logger.info(
-                    "[MRMR] cross-target identity cache candidate REFUSED for X fingerprint=%s: "
-                    "|y-corr|=%.3f < threshold %.3g; running a full fit for this distinct target.",
-                    _x_fp, abs(_measured_corr) if _measured_corr is not None else float("nan"), _ycorr_thr,
+                    "[MRMR] cross-target identity cache candidate REFUSED for X fingerprint=%s: " "|y-corr|=%.3f < threshold %.3g; running a full fit for this distinct target.",
+                    _x_fp,
+                    abs(_measured_corr) if _measured_corr is not None else float("nan"),
+                    _ycorr_thr,
                 )
 
         # Persist user-supplied weights so cached _cat_fe_state_ / FE replay can introspect; cache key
@@ -3733,10 +3756,17 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # instead of hardcoded literals: a nested / outer MRMR fit (the worker path already does this in
         # _evaluation_driver.py) must not have its toggles clobbered to False/0.0 when an inner fit exits.
         _toggles_snapshot = (
-            use_su_normalization(), use_jmim_aggregator(), get_bur_lambda(),
-            use_mi_miller_madow(), get_relaxmrmr_alpha(), get_pid_synergy_bonus(),
-            get_cmi_perm_stop(), get_cpt_test(), use_mi_chao_shen(),
+            use_su_normalization(),
+            use_jmim_aggregator(),
+            get_bur_lambda(),
+            use_mi_miller_madow(),
+            get_relaxmrmr_alpha(),
+            get_pid_synergy_bonus(),
+            get_cmi_perm_stop(),
+            get_cpt_test(),
+            use_mi_chao_shen(),
         )
+
         def _restore_toggles_snapshot_and_raise(exc: BaseException) -> NoReturn:
             """Restore the MI-correction thread-locals to their fit-entry snapshot then re-raise ``exc``.
 
@@ -3994,11 +4024,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             # Stash X-fingerprint -> identity-bool in cross-target cache so a SUBSEQUENT fit (different y, same X) can early-skip the FE pipeline.
             if _identity_skip and _x_fp is not None:
                 try:
-                    _is_id = (
-                        getattr(self, "support_", None) is not None
-                        and len(self.support_) == X.shape[1]
-                        and len(getattr(self, "_engineered_features_", []) or []) == 0
-                    )
+                    _is_id = getattr(self, "support_", None) is not None and len(self.support_) == X.shape[1] and len(getattr(self, "_engineered_features_", []) or []) == 0
                     # Store (is_id, y_sample) so a later candidate hit can apply the y-correlation gate
                     # (A1-06): the "prior identity implies new identity" assumption only holds for a target
                     # correlated with the one that produced this entry. y_sample is a deterministic strided
@@ -4012,9 +4038,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
                         # shortcuts instead of the coarse cross-target identity-shortcut above.
                         self._own_last_identity_fp_ = _x_fp
                         logger.info(
-                            "[MRMR] cross-target identity cache STORED for X fingerprint=%s "
-                            "(no features dropped, no engineered features); subsequent "
-                            "fits on this X will short-circuit.",
+                            "[MRMR] cross-target identity cache STORED for X fingerprint=%s " "(no features dropped, no engineered features); subsequent " "fits on this X will short-circuit.",
                             _x_fp,
                         )
                 except Exception as exc:
@@ -4190,7 +4214,9 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
                     def _drop_target_cleanup_columns() -> None:
                         """Drop the temporary targ_* columns this fit injected into the caller's own frame."""
                         with pd.option_context("mode.chained_assignment", None):
-                            frame.drop(columns=present, inplace=True)  # noqa: PD002 - must mutate the caller's stored frame OBJECT in place by identity (see the enclosing comment); rebinding a local would silently not clean up the caller's actual frame
+                            # `inplace=True` is required here, not a habit: this must mutate the caller's stored frame OBJECT
+                            # by identity, and rebinding a local would silently not clean up the caller's actual frame.
+                            frame.drop(columns=present, inplace=True)  # noqa: PD002
 
                     _safe_restore(_drop_target_cleanup_columns, "target-cleanup column drop on caller frame")
             self._pandas_frame_for_target_cleanup = None

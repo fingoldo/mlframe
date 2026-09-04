@@ -144,7 +144,7 @@ def _assign_support(
                         replayable_eng_names=set(_recipe_names),
                         recipes=_ne_recipes,
                         raw_X=X,
-                        linear_usability_keep=bool(getattr(self, "use_simple_mode", False)),
+                        linear_usability_keep=bool(getattr(self, "fe_keep_linearly_usable_raw_operands", True)),
                         seed=int(getattr(self, "random_seed", 0) or 0), verbose=0,
                     )
                     _subsumed_operand_names = set(_ne_dropped or ())
