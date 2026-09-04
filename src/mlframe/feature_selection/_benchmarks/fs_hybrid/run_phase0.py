@@ -41,6 +41,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--seeds", type=int, default=1, help="how many dataset seeds from the mode's range")
     parser.add_argument("--include-ineligible", action="store_true", help="also run beds excluded from the kill criterion")
     parser.add_argument("--arms", default="", help="comma-separated arm subset; empty means the full roster")
+    parser.add_argument("--retry-failed", action="store_true", help="re-run cells recorded as anything other than ok")
     parser.add_argument("--out", default="", help="results JSONL; defaults to a mode-specific file under _results/")
     args = parser.parse_args(list(argv) if argv is not None else None)
 
@@ -67,7 +68,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         logger.warning("arm subset requested: fixed-cardinality arms are sized for the widest bed (%s features)", widest)
 
     logger.info("mode=%s seeds=%s beds=%s out=%s", args.mode, seeds, [n for n, _ in beds], out)
-    executed = run_grid(scenarios=beds, roster=roster, dataset_seeds=seeds, cv_seeds=(0,), results_path=out, resume=True)
+    executed = run_grid(scenarios=beds, roster=roster, dataset_seeds=seeds, cv_seeds=(0,), results_path=out, resume=True, retry_failed=args.retry_failed)
     logger.info("cells executed this run: %s", executed)
     return executed
 

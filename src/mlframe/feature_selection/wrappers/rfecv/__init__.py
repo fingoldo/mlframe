@@ -145,12 +145,14 @@ class RFECV(TransformerMixin, BaseEstimator):
         Names of features seen during :term:`fit`. Defined only when `X`
         has feature names that are all strings.
 
-    ranking_ ?: narray of shape (n_features,)
-        The feature ranking, such that `ranking_[i]`
-        corresponds to the ranking
-        position of the i-th feature.
-        Selected (i.e., estimated best)
-        features are assigned rank 1.
+    ranking_ : ndarray of shape (n_features,)
+        sklearn's contract: every selected feature has rank 1, the rest follow the consensus order from 2.
+        ``ranking_ == 1`` is the canonical way to ask which features survived.
+
+    consensus_ranking_ : list of feature NAMES, best first
+        The vote-based ranking in its native form. ``support_`` is derived from it by membership, so the
+        name order is load-bearing rather than incidental. It is exposed under its own name because it
+        used to be handed out as ``ranking_``, where it silently broke every sklearn-shaped caller.
 
     support_ : ndarray of shape (n_features,)
         The mask of selected features.

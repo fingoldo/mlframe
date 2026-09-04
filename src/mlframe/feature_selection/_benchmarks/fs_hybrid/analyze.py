@@ -42,9 +42,21 @@ from .run_experiment import RESULTS_PATH
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["MATCHED_K_LABELS", "DISCLAIMER", "WALL_CLOCK_CAPTION", "format_report", "main"]
+__all__ = ["MATCHED_K_LABELS", "matched_k_labels_present", "DISCLAIMER", "WALL_CLOCK_CAPTION", "format_report", "main"]
 
 MATCHED_K_LABELS: Sequence[str] = ("1k", "2k", "5k")
+
+# The multiplier labels above only exist on a bed that declares a target set. A real bed uses the absolute
+# grid (`k5`, `k10`, ...), so a hardcoded label list silently renders the PRIMARY outcome as empty there --
+# which is how the first confirmatory run came back with a self-chosen-K section and nothing else.
+def matched_k_labels_present(records: Sequence[Dict[str, Any]]) -> List[str]:
+    """Every non-self K label actually present in `records`, multiplier labels first then the absolute grid."""
+    labels: set = set()
+    for rec in records:
+        labels.update(str(k) for k in (rec.get("scores") or {}) if str(k) != SELF_CHOSEN_K)
+    ordered = [lab for lab in MATCHED_K_LABELS if lab in labels]
+    absolute = sorted((lab for lab in labels if lab.startswith("k") and lab[1:].isdigit()), key=lambda lab: int(lab[1:]))
+    return ordered + absolute
 
 DISCLAIMER = (
     "This benchmark was designed and run by the author of one of the arms it judges (MRMR). The scenario "
@@ -147,7 +159,7 @@ def _cost_block(records: Sequence[Dict[str, Any]]) -> List[str]:
 def format_report(records: Sequence[Dict[str, Any]], models: Sequence[str] = PANEL_MEMBERS) -> str:
     """Build the full text report for a set of cell records."""
     lines: List[str] = [DISCLAIMER, "", f"null hypothesis: {NULL_ARM}", f"cells: {len(records)}"]
-    matched = leaderboard(records, models=models, k_labels=MATCHED_K_LABELS)
+    matched = leaderboard(records, models=models, k_labels=matched_k_labels_present(records))
     lines += _headline_block(matched)
 
     self_k = leaderboard(records, models=models, k_labels=[SELF_CHOSEN_K])

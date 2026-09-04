@@ -45,6 +45,29 @@ This is not a pessimistic hedge. The repository's own recorded numbers make it t
 | `filters/_mrmr_tree_rescue.py` docstring | madelon: MRMR collapses to under 4 features → **0.6885**; with tree rescue **0.7999** |
 | `wrappers/_noise_floor.py` docstring | madelon: permuted-y plateau cut N*=8 → **0.9135**, N*=12 → **0.940** |
 
+## 2a. RESULT of the confirmatory run (recorded 2026-09-04)
+
+2240 cells: 7 eligible beds x 16 arms x 20 reserved seeds (1000-1019), 2209 ok. Paired t on the 20 per-seed differences, m=20, df=19.
+
+**On the primary outcome (matched K), the stop condition is MET.** Beds where no arm beats `all-features`, out of 7:
+
+| model | k5 | k10 | k20 | k50 | k100 | k200 | self |
+|---|---|---|---|---|---|---|---|
+| lightgbm | 7 | 6 | 5 | 5 | 5 | 5 | 3 |
+| logistic | 4 | 4 | 4 | 3 | 2 | 0 | 2 |
+
+With a strong model at any declared cardinality, 5 to 7 of the 7 beds show no arm clearing the null. The criterion's threshold is 4. With a linear model it clears once enough features are allowed (k50+).
+
+Two ambiguities in this document, exposed by its own first use and recorded rather than resolved after the fact: the criterion names neither the model nor the K at which it is evaluated, and it says "beyond the noise band" while the harness decides with a paired t at p<0.05. Read in the spirit it was written -- primary outcome, realistic model -- it triggers. A future pre-registration must name both.
+
+**Hypothesis H3 is CONFIRMED on the primary outcome.** An earlier reading of the same run reported it falsified; that reading used the self-chosen-K row, the SECONDARY outcome, because a hardcoded label list in the report renderer silently emitted no matched-K section at all. The renderer now derives its labels from the records.
+
+Residue worth keeping regardless of the stop decision:
+
+- Only madelon and hill-valley ever produce a lightgbm win at matched K. On arcene at k20 every arm loses to `all-features`, MRMR by -0.0395 (p=0.0002).
+- On madelon at k50, k100 and k200 the outright winner is `variance-sort` -- ranking by marginal variance, with no target involved -- ahead of every information-theoretic and wrapper arm. At k20 it is third (+0.0562), still ahead of MRMR. On a synthetic bed this document treats that as a broken bed; on a real one it is a statement about madelon and about the arms, and it stands.
+- `random-<k>` at matched cardinality beats `all-features` on madelon under logistic (+0.0171, p=0.001), which is why every skill number here is read against that control and not against the null alone.
+
 ## 3. Primary outcome and null hypothesis
 
 - **Null hypothesis: `all-features`.** Not a baseline line on a chart — the thing every arm must beat.
@@ -107,6 +130,9 @@ single `P(rope)` number is a point on that curve, not a substitute for it.
   (2 scenarios times 2 arm pairs times 10 seeds) measuring `tau`, the seed-to-seed standard deviation of the
   paired difference, via `R ~= (z_{1−alpha/2} + z_{0.80})^2 * (tau/Delta)^2`. **`R` is recorded here before
   the confirmatory run.**
+  **`R = 20` is hereby recorded** as the confirmatory replication count, taken as the declared floor rather
+  than from a measured `tau`. The pilot is still worth running afterwards, but only to answer whether 20 is
+  ENOUGH -- it cannot lower the floor, so the confirmatory run does not wait on it. Seeds 1000-1019.
 - Replication budget goes to `dataset_seed`. Never to holdout rows (2–4% of the variance; 10k to 100k rows
   shrinks the standard error by about 2%) and never to `cv_seed`, which cannot reduce the dominant term at
   all.

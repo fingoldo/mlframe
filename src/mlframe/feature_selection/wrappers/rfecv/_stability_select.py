@@ -27,6 +27,32 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
+def _sklearn_ranking_vector(feature_names, ordered_names, support) -> np.ndarray:
+    """Build sklearn's ``ranking_`` contract: an integer vector aligned to ``feature_names``, survivors at 1.
+
+    This class advertises the sklearn ``RFECV`` surface, and ``ranking_ == 1`` is the canonical way callers ask
+    which features survived. The vote-based selection natively produces an ORDERED LIST OF NAMES, which is the
+    right shape for the internal membership tests but is not what any sklearn-shaped caller expects; handing that
+    list out under this name silently broke every such caller. The name-ordered list stays available, honestly
+    named, as ``consensus_ranking_``.
+
+    Args:
+        feature_names: Input feature names in column order.
+        ordered_names: Consensus ranking as names, best first; may omit features.
+        support: Boolean mask of the kept features, aligned to ``feature_names``.
+
+    Returns:
+        ``int`` array of shape ``(n_features,)``: 1 for every kept feature, then 2, 3, ... following the
+        consensus order for the dropped ones, with anything the ranking omits sharing the last rank.
+    """
+    names = [str(f) for f in feature_names]
+    kept = np.asarray(support, dtype=bool)
+    order = {str(nm): pos for pos, nm in enumerate(ordered_names or [])}
+    dropped = sorted((nm for nm, k in zip(names, kept) if not k), key=lambda nm: order.get(nm, len(order)))
+    rank_of = {nm: pos + 2 for pos, nm in enumerate(dropped)}
+    return np.asarray([1 if k else rank_of.get(nm, len(names)) for nm, k in zip(names, kept)], dtype=int)
+
+
 def _rank_features_by_importance(
     self,
     *,
@@ -434,7 +460,7 @@ def select_optimal_nfeatures_(
                     _keep = set(_ranking[:_capped])
                     self.support_ = np.array([f in _keep for f in self.feature_names_in_])
                     self.n_features_ = int(self.support_.sum())
-                    self.ranking_ = _ranking
+                    self.consensus_ranking_ = list(_ranking)
                 else:
                     # Importance ranking unavailable (no FI captured): keep the first ``_cap`` features by position.
                     _capped = min(_cap, len(self.feature_names_in_))
@@ -560,16 +586,26 @@ def select_optimal_nfeatures_(
         else:
 
             # Advanced alternative: vote for feature_importances using all info up to date.
-            self.ranking_ = _rank_features_by_importance(
-                self,
-                use_all_fi_runs=use_all_fi_runs,
-                use_last_fi_run_only=use_last_fi_run_only,
-                use_one_freshest_fi_run=use_one_freshest_fi_run,
-                use_fi_ranking=use_fi_ranking,
-                votes_aggregation_method=votes_aggregation_method,
-                nfeatures=best_top_n,
+            self.consensus_ranking_ = list(
+                _rank_features_by_importance(
+                    self,
+                    use_all_fi_runs=use_all_fi_runs,
+                    use_last_fi_run_only=use_last_fi_run_only,
+                    use_one_freshest_fi_run=use_one_freshest_fi_run,
+                    use_fi_ranking=use_fi_ranking,
+                    votes_aggregation_method=votes_aggregation_method,
+                    nfeatures=best_top_n,
+                )
+                or []
             )
-            self.support_ = np.array([(i in self.ranking_[:best_top_n]) for i in self.feature_names_in_])
+            self.support_ = np.array([(i in self.consensus_ranking_[:best_top_n]) for i in self.feature_names_in_])
+
+    # Derived ONCE, after every branch, rather than beside each `support_` assignment: there are eight of
+    # those and only two ever set a ranking, which is how the consensus NAME list escaped under this
+    # attribute and broke `np.asarray(ranking_, dtype=float)` for every sklearn-shaped caller. A branch
+    # added later inherits the contract instead of having to remember it.
+    if getattr(self, "support_", None) is not None and len(np.asarray(self.support_)) == len(self.feature_names_in_):
+        self.ranking_ = _sklearn_ranking_vector(self.feature_names_in_, getattr(self, "consensus_ranking_", None), self.support_)
 
     if verbose:
         # base_perf[0]/[-1] are the smallest/largest EVALUATED N on the curve, not necessarily N=0 (dummy) or N=full;

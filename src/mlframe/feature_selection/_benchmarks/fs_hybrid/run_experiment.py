@@ -241,6 +241,7 @@ def run_grid(
     cv_seeds: Sequence[int] = CV_SEEDS,
     results_path: str = RESULTS_PATH,
     resume: bool = True,
+    retry_failed: bool = False,
 ) -> int:
     """Run the whole grid, appending one JSONL record per cell. Returns the number of cells executed."""
     scenarios = list(scenarios if scenarios is not None else _default_scenarios())
@@ -248,7 +249,10 @@ def run_grid(
         raise ValueError(f"the roster must contain the null hypothesis {NULL_ARM!r} on every cell")
 
     store = JsonlCellStore(results_path)
-    done = store.completed_keys() if resume else set()
+    # A failure caused by a fixed adapter bug must be retried, or the arm keeps carrying a reliability penalty
+    # and a seed count it no longer deserves. A deterministic crash simply re-pays its cost; that is the trade
+    # this flag makes explicit instead of deciding it for the caller.
+    done = store.completed_keys({"ok"} if retry_failed else None) if resume else set()
     executed = 0
 
     for scenario_name, gen in scenarios:

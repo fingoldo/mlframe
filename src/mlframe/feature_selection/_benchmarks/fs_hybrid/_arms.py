@@ -515,6 +515,39 @@ class MRMRArm(BaseArm):
         }
 
 
+def _rfecv_rank_vector(model: Any, names: Sequence[str], selected: Sequence[str]) -> np.ndarray:
+    """Rank vector for an mlframe RFECV, tolerating the three shapes its ``ranking_`` actually takes.
+
+    The class docstring promises sklearn's contract -- an integer array where ``ranking_[i]`` is the i-th
+    feature's rank and every survivor is 1 -- but the attribute is set from
+    ``_rank_features_by_importance``, which returns an ordered list of feature NAMES, and on the ordinary
+    (p < n) path it is not set at all. Reading it blindly as float raised
+    ``could not convert string to float: 'f453'`` on every wide bed. All three shapes are handled here
+    rather than in a guard at the call site, because the shape depends on which internal branch the fit
+    took and is not knowable in advance.
+
+    Args:
+        model: A fitted RFECV.
+        names: The input feature names, in column order.
+        selected: The names the selector kept, already intersected with ``names``.
+
+    Returns:
+        A float rank vector aligned to ``names``, lower meaning better, never containing NaN.
+    """
+    raw = getattr(model, "ranking_", None)
+    if raw is not None and len(np.asarray(raw, dtype=object).ravel()) > 0:
+        arr = np.asarray(raw, dtype=object).ravel()
+        if np.issubdtype(np.asarray(raw).dtype, np.number) and arr.shape[0] == len(names):
+            return np.asarray(raw, dtype=np.float64)
+        order = {str(nm): pos for pos, nm in enumerate(arr)}
+        if set(order) & set(names):
+            # An ordered NAME list: position in it IS the rank, and anything it omits ranks after all of it.
+            return np.asarray([float(order.get(str(nm), len(order))) for nm in names], dtype=np.float64)
+    # Attribute absent or unusable: fall back to the only ordering still available, kept-vs-dropped.
+    keep = set(str(c) for c in selected)
+    return np.asarray([0.0 if str(nm) in keep else 1.0 for nm in names], dtype=np.float64)
+
+
 class RFECVArm(BaseArm):
     """mlframe ``wrappers.RFECV`` driven BARE, with an explicit refit/runtime budget.
 
@@ -550,10 +583,8 @@ class RFECVArm(BaseArm):
             random_state=self.random_state,
         )
         model.fit(X, pd.Series(np.asarray(y)))
-        ranking = np.asarray(getattr(model, "ranking_", np.ones(len(names))), dtype=np.float64)
-        if ranking.shape[0] != len(names):
-            raise ValueError(f"RFECV.ranking_ has length {ranking.shape[0]} but {len(names)} features were passed; an 'ordinal' arm may not be padded.")
         selected = [str(c) for c in extract_selected(model, names) if str(c) in set(names)]
+        ranking = _rfecv_rank_vector(model, names, selected)
         best = getattr(model, "best_score_", None)
         return {
             "support": _mask_from_names(names, selected),
