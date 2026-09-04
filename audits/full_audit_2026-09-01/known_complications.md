@@ -81,6 +81,35 @@ this session is implementing contains no finding about it. Changing the redundan
 would alter selection behaviour across the whole suite, which needs its own before/after measurement rather
 than a change made in passing.
 
-**Next action if picked up:** re-run with the FE families disabled to confirm the compression is what costs the
-AUC (expect the gap to close if so), then look at whether the subsumption discriminator is treating
-`sub(add(neg(sig0),neg(sig1)), ...)` as redundant with its own operands rather than complementary to them.
+### Root-caused 2026-09-04: `fe_drop_redundant_raw_operands`
+
+The next action below was carried out, and it isolates the cause to a single default. All four arms on the same
+fixture (seed 200), downstream 5-fold ROC-AUC against the five-raw-signal baseline of `0.9648`:
+
+| Arm | AUC | Gap | Selected |
+|---|---|---|---|
+| baseline (5 raw signals) | 0.9648 | -- | 5 |
+| default (full mode, FE on) | 0.8969 | +0.0679 | 2 |
+| `use_simple_mode=True` (FE off) | 0.9639 | +0.0009 | 25 |
+| `fe_drop_redundant_raw_operands=False` (FE ON) | 0.9649 | -0.0001 | 5 |
+| `fe_raw_retention_max_n=25` | 0.8969 | +0.0679 | 2 |
+
+Disabling FE closes the gap, which confirms the compression reading. But the fourth arm is the informative one:
+with FE still fully ON and only the operand-drop rule disabled, the selection lands on exactly five features and
+recovers the baseline AUC outright. So the loss is not caused by engineering the composites -- it is caused by
+DROPPING their raw operands afterwards. The subsumption rule treats a composite as covering the columns it was
+built from, but an algebraic mixture like `add(add(neg(sig0),neg(sig1)),add(neg(sig2),neg(sig4)))` is lossy: it
+preserves the sum and destroys the individual contributions, which is precisely what a downstream linear model
+needs when the five signals carry different coefficients (`0.8 - 0.1k` here). Raising the retention cap does not
+help (fifth arm, unchanged at 0.8969), confirming it is the drop rule and not a cap.
+
+**Still not changed here, deliberately.** `fe_drop_redundant_raw_operands` defaults to True package-wide, so
+flipping it changes selection for every MRMR user and every test that pins a selected-feature set. That is the
+suite-wide before/after this note already said the change needs, and it is a separate piece of work from the
+audit round. What has changed is the status: this is no longer a vague "redundancy-gate calibration question"
+but a located one-parameter defect with a measured fix.
+
+**Next action if picked up:** flip the default in a scratch branch, run the full suite, and count what moves --
+the expectation is that selected-feature-set pins shift while quality assertions improve. If the blast radius is
+tolerable, the better fix is narrower than a flag flip: keep an operand whenever the composite is lossy with
+respect to it (the composite cannot reconstruct the operand), rather than dropping on name-containment alone.
