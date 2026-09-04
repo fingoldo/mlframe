@@ -61,7 +61,7 @@ jobs:
           project-extras: ".[all,dev]"
           # See ci.yml's identical pin for why -- this action had no way to honour a pin until
           # pyutilz-ref was added; matches the SHA every other pyutilz-cloning workflow already pins.
-          pyutilz-ref: 691a6ce16ba0abeb3647f17c1057464c895473ea  # pragma: allowlist secret -- git commit SHA, not a secret
+          pyutilz-ref: ec016b15e76e5582ba1a083c02b33029663c2296  # pragma: allowlist secret -- git commit SHA, not a secret
 
       - name: Restore numba JIT cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
