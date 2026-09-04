@@ -112,11 +112,20 @@ process-wide mutation `ranker.py`'s own note removed, and a partial fix does not
 Eagerly seeding CUDA at `torch.manual_seed` time (rather than letting it happen lazily) changes nothing,
 which rules out lazy CUDA seeding as the mechanism.
 
-**Next action if picked up:** find what consumes CUDA randomness between `on_train_start` and the first
-dropout draw -- capture the CUDA RNG state at both points and diff the count of device RNG consumers in
-between. Once that is pinned, the correct fix is a per-fit generator for dropout (pass an explicit
-`torch.Generator(device=...)` seeded from `random_state`, so the masks never depend on process-global device
-state) rather than re-seeding a global, which is both exact and free of the global-mutation objection.
+**The obvious fix is not available.** A per-fit `torch.Generator` seeded from `random_state` would be exact
+and would carry no global-mutation objection -- but neither `nn.Dropout` (`p`, `inplace`) nor
+`F.dropout` (`input`, `p`, `training`, `inplace`) accepts a `generator` argument, so there is nothing to pass
+it to. Delivering it means a custom dropout module (`torch.rand(shape, generator=g) > p`, rescaled) in
+`training/neural/flat.py`, which is the trunk every flat MLP in the package builds on. That changes the mask
+SEQUENCE for every such model, so every pinned prediction/metric in the suite moves. It is an architecture
+change with a package-wide blast radius, not a local fix, and it should be agreed before it is written.
+
+**Next action if picked up:** decide whether bitwise cold-fit reproducibility is worth a custom dropout
+module in the shared MLP trunk. If yes, the change is well-defined (custom module + per-fit generator seeded
+from `random_state`, plus a rebaseline of the pinned neural tests). If no, the honest close is to document
+that the FIRST fit in a process is not bitwise reproducible when `dropout > 0` on CUDA, which the F10 test
+already pins at the strength the estimator genuinely delivers. What should NOT be done is any further
+probing of process-global switches: seven have now been eliminated by measurement, and the cause is known.
 
 ---
 
