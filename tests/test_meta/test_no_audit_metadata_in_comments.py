@@ -70,8 +70,30 @@ def _refresh_requested() -> bool:
     return "--refresh-audit-metadata-baseline" in sys.argv
 
 
+def _comment_fingerprint(comment: str) -> str:
+    """A stable, short identity for a comment: its own text, normalised and hashed.
+
+    Whitespace is collapsed and the leading ``#`` dropped so a rewrap or a re-indent is not a new comment.
+    Hashed rather than embedded verbatim to keep baseline keys short and free of quotes/newlines.
+    """
+    import hashlib
+    import re as _re
+
+    normalised = _re.sub(r"\s+", " ", comment.lstrip("#").strip())
+    return hashlib.blake2b(normalised.encode("utf-8"), digest_size=8).hexdigest()
+
+
 def _build_offending_set() -> set[str]:
-    """``{"relpath:lineno:kind", ...}`` for every banned metadata marker in a comment."""
+    """``{"relpath::fingerprint:kind", ...}`` for every banned metadata marker in a comment.
+
+    Keyed on the COMMENT's own text, not on the line it sits at. A line-numbered key made this ratchet fail on
+    edits that added no finding whatsoever: inserting one constructor parameter shifted 26 comments and every
+    one of them read as brand new, while the file's marker count was unchanged at 27. That happened three
+    times in a single session, and each time the response is to refresh the baseline -- which is exactly the
+    motion through which a REAL new finding would eventually be waved through unexamined.
+
+    The line number is not part of the identity of "this comment carries a date stamp"; the comment is.
+    """
     out: set[str] = set()
     for py in MLFRAME_DIR.rglob("*.py"):
         if any(frag in py.parts for frag in _EXEMPT_PATH_FRAGMENTS):
@@ -80,12 +102,12 @@ def _build_offending_set() -> set[str]:
         if text is None:
             continue
         rel = py.relative_to(MLFRAME_DIR).as_posix()
-        for lineno, comment in _comment_lines(text):
+        for _lineno, comment in _comment_lines(text):
             if _SANCTIONED.search(comment):
                 continue
             for kind, pat in _BANNED.items():
                 if pat.search(comment):
-                    out.add(f"{rel}:{lineno}:{kind}")
+                    out.add(f"{rel}::{_comment_fingerprint(comment)}:{kind}")
     return out
 
 

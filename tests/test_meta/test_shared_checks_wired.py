@@ -108,6 +108,55 @@ def test_dev_requirements_git_dependencies_are_pinned_or_first_party():
     assert_all_git_dependencies_pinned(req, allow_unpinned_url_prefixes=_FIRST_PARTY_GIT_PREFIXES)
 
 
+def test_repo_hygiene():
+    """No tracked generated files, and no numeric CI gate that passes when its own input broke.
+
+    This one paid for itself immediately: `codecov-full.yml` compared `$count` numerically without proving it
+    non-empty, so a failed `gh api` query printed "Skipping run N (0 artifacts)" -- reporting a BROKEN QUERY as
+    a confirmed absence and walking past a run that may have had the data.
+    """
+    from py_ci_shared.repo_hygiene import assert_repo_hygiene
+
+    assert_repo_hygiene(REPO_ROOT, workflows_dir=WORKFLOWS_DIR)
+
+
+def test_workflow_paths_exist():
+    """Every path a workflow references resolves; a renamed script silently stops being run otherwise."""
+    from py_ci_shared.ci_workflow_paths import assert_workflow_paths_exist
+
+    assert_workflow_paths_exist(WORKFLOWS_DIR, REPO_ROOT)
+
+
+def test_no_count_claim_mismatches():
+    """A prose sentence claiming "N of them" must match the list it introduces."""
+    from py_ci_shared.phantom_code_references import assert_no_count_claim_mismatches
+
+    assert_no_count_claim_mismatches([REPO_ROOT / name for name in PROSE_FILES if (REPO_ROOT / name).exists()])
+
+
+# Nothing here is intentionally excluded from CI: the main run is PATHLESS (`pytest -m "not slow and not
+# gpu ..."` collects from rootdir), so every tests/<subdir> is reached. An empty set therefore means any
+# NEW subdir that no job collects has to be justified here rather than silently gating nothing.
+_INTENTIONALLY_UNREACHED_TEST_DIRS: set = set()
+
+
+def test_every_test_subdir_is_reachable_from_ci():
+    """A new tests/<subdir> that no CI job collects gates nothing.
+
+    Wiring this needed an upstream fix first (py-ci-shared 407cc90): the pathless-invocation detector read
+    pytest-split's `--splits 10 --group 1` values as positional test paths, so this repo's pathless run
+    looked targeted and all 20 subdirs came back unreached. Whitelisting them would have recorded a
+    falsehood -- they are collected -- so the check was fixed rather than silenced.
+    """
+    from py_ci_shared.ci_test_dir_reachability import assert_every_test_subdir_reachable
+
+    assert_every_test_subdir_reachable(
+        repo_root=REPO_ROOT,
+        workflows_dir=WORKFLOWS_DIR,
+        intentionally_unreached=_INTENTIONALLY_UNREACHED_TEST_DIRS,
+    )
+
+
 # Stale comments are RATCHETED rather than gated outright: `src/` carries 23 of them, and a hard gate would
 # simply be red from the day the check is wired, which teaches everyone to ignore it. The baseline freezes
 # what exists so no NEW stale TODO or commented-out call can appear, and the set can only shrink.

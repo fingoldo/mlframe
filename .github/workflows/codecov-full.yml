@@ -83,7 +83,11 @@ jobs:
           for candidate in $(gh run list --repo "${{ github.repository }}" --workflow numba-coverage.yml \
               --status completed --limit 10 --json databaseId --jq '.[].databaseId'); do
             count=$(gh api "repos/${{ github.repository }}/actions/runs/$candidate/artifacts" \
-              --jq '[.artifacts[] | select(.name | startswith("raw-coverage-numba-"))] | length')
+              --jq '[.artifacts[] | select(.name | startswith("raw-coverage-numba-"))] | length') || count=""
+            if [ -z "$count" ]; then
+              echo "Could not read artifacts for run $candidate (API query failed) -- not the same as zero artifacts"
+              continue
+            fi
             if [ "$count" -gt 0 ]; then
               run_id="$candidate"
               echo "Using run $run_id ($count raw-coverage-numba-* artifact(s))"
@@ -129,7 +133,11 @@ jobs:
           for candidate in $(gh run list --repo "${{ github.repository }}" --workflow ci.yml --branch master \
               --status completed --limit 10 --json databaseId --jq '.[].databaseId'); do
             count=$(gh api "repos/${{ github.repository }}/actions/runs/$candidate/artifacts" \
-              --jq '[.artifacts[] | select(.name | startswith("raw-coverage-ci-"))] | length')
+              --jq '[.artifacts[] | select(.name | startswith("raw-coverage-ci-"))] | length') || count=""
+            if [ -z "$count" ]; then
+              echo "Could not read artifacts for run $candidate (API query failed) -- not the same as zero artifacts"
+              continue
+            fi
             if [ "$count" -gt 0 ]; then
               run_id="$candidate"
               echo "Using run $run_id ($count raw-coverage-ci-* artifact(s))"
@@ -168,7 +176,7 @@ jobs:
             i=$((i + 1))
             cp "$f" "combined_input/.coverage.shard$i"
           done < <(find raw-coverage -name '.coverage' -print0)
-          if [ "$i" -eq 0 ]; then
+          if [ "${i:-0}" -eq 0 ]; then
             echo "No raw coverage data downloaded from either workflow -- nothing to combine."
             exit 1
           fi
