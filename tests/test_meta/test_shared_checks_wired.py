@@ -187,10 +187,10 @@ def test_no_new_stale_todos():
     Refresh via `python tests/test_meta/regen_baselines.py` -- and only after confirming the new entries are
     genuinely accepted, never to get past a failure.
     """
-    import json
+    import orjson
 
     found = _stale_comment_keys()
-    accepted = json.loads(_STALE_COMMENT_BASELINE.read_text(encoding="utf-8")) if _STALE_COMMENT_BASELINE.exists() else {}
+    accepted = orjson.loads(_STALE_COMMENT_BASELINE.read_bytes()) if _STALE_COMMENT_BASELINE.exists() else {}
 
     new = {k: v for k, v in found.items() if k not in accepted}
     assert not new, "new stale comment(s) -- do it, delete it, or reference an issue:\n  " + "\n  ".join(f"{k}: {v}" for k, v in sorted(new.items()))
@@ -202,7 +202,7 @@ def test_no_new_stale_todos():
 
 def regenerate_baseline() -> None:
     """Rewrite the stale-comment baseline from the current tree. Called by `regen_baselines.py`."""
-    import json
+    import orjson
 
-    payload = json.dumps(dict(sorted(_stale_comment_keys().items())), indent=2, ensure_ascii=False)
+    payload = orjson.dumps(dict(sorted(_stale_comment_keys().items())), option=orjson.OPT_INDENT_2).decode("utf-8")
     _STALE_COMMENT_BASELINE.write_text(payload + chr(10), encoding="utf-8")
