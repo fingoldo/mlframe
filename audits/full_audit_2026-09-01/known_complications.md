@@ -53,10 +53,38 @@ from a different seed, and same-seed predictions closer than different-seed pred
 bitwise prediction identity, which the code cannot deliver on a cold CUDA context, and the docstring records
 the measurements above so the next reader does not repeat the three ruled-out hypotheses.
 
-**Next action if picked up:** confirm the cuBLAS hypothesis by running the same four-fit comparison with
-`CUBLAS_WORKSPACE_CONFIG=:4096:8` and `torch.use_deterministic_algorithms(True)` set before the first fit. If
-that makes fit 1 match fits 2+, document the pair as the supported way to obtain bitwise-reproducible ranker
-fits and add an opt-in `deterministic=True` constructor flag that sets them.
+### 2026-09-04: the cuBLAS hypothesis is REFUTED, and four more with it
+
+The next action below was carried out. It does not work, and neither do four further candidates. Each arm is
+run in its own cold process (`benchmarks/mlp_ranker_cold_fit_probe.py`), because anything that warms the
+process first destroys the effect -- the same trap that invalidated the original thread-count probe.
+
+| Arm | fit 1 vs fit 2 | fits 2-4 |
+|---|---|---|
+| control (shipped defaults) | maxdiff `0.00631118` | bit-identical |
+| `use_deterministic_algorithms(True)` + `CUBLAS_WORKSPACE_CONFIG=:4096:8` | maxdiff `0.00631118` | bit-identical |
+| device generator seeded and drawn before fit 1 | maxdiff `0.00631118` | bit-identical |
+| `torch.cuda.empty_cache()` before EVERY fit | maxdiff `0.00631118` | bit-identical |
+| **CPU only (`CUDA_VISIBLE_DEVICES=""`)** | **bit-identical** | **bit-identical** |
+
+Two further direct measurements, both negative: the CUDA generator state is BYTE-IDENTICAL immediately before
+all four fits (so the divergence is not an RNG-state difference), and no global precision switch
+(`matmul.allow_tf32`, `cudnn.allow_tf32`, `float32_matmul_precision`, `cudnn.benchmark`, `cudnn.deterministic`)
+is mutated by the first fit, ruling out a first-Trainer-construction side effect on a global.
+
+**The actionable part:** do NOT build the opt-in `deterministic=True` constructor flag proposed below. It would
+set exactly the pair that was just measured to change nothing, so it would cost throughput and deliver no
+reproducibility. The magnitude is unchanged to all eight digits with both controls active.
+
+**What is now established:** the effect is CUDA-specific (CPU is fully deterministic across all four fits), it
+is not RNG, not allocator state, not workspace/algorithm selection as exposed by torch's determinism switches,
+and not a mutated global. It survives everything reachable from outside the training loop.
+
+**Next action if picked up:** stop probing globals and bisect INSIDE training instead -- record per-batch loss
+(and the first weight tensor) for fit 1 and fit 2 and find the first batch at which they diverge. That
+distinguishes "diverges from the very first backward pass" (a kernel-selection difference on the cold call)
+from "identical for N batches then drifts" (state accumulating somewhere reachable), which no amount of
+further global-flag guessing can separate. The five eliminations above are already spent; do not re-run them.
 
 ---
 
