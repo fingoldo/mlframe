@@ -40,9 +40,16 @@ def _cupy_raising(monkeypatch, exc: BaseException | None):
             """Return a host scalar, completing the round-trip."""
             return 0.0
 
+        def item(self):
+            """The transformer probe reduces then unwraps; without this the stub reads as a broken device."""
+            return 1.0
+
     stub = types.SimpleNamespace(
         cuda=types.SimpleNamespace(runtime=types.SimpleNamespace(getDeviceCount=lambda: 1)),
         zeros=lambda *a, **k: _Arr(),
+        # The transformer probe also round-trips an asarray; without it the stub raises AttributeError and
+        # the probe reads a working device as a broken one.
+        asarray=lambda *a, **k: _Arr(),
         float32="float32",
     )
 
@@ -131,6 +138,44 @@ class TestClusterSuProbe:
         _cupy_raising(monkeypatch, ImportError("no module named cupy"))
         assert m.cluster_su_gpu_available() is False
         assert m._GPU_AVAILABLE_CACHE is False
+
+
+class TestTransformerGpuProbe:
+    """`feature_engineering.transformer._utils.is_gpu_available`.
+
+    Found by the check written after the two probes above, not by review: the same broad `except` caching
+    the same verdict, one package over.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clean(self):
+        """Start and finish unprobed."""
+        from mlframe.feature_engineering.transformer import _utils as m
+
+        m.reset_gpu_probe()
+        yield
+        m.reset_gpu_probe()
+
+    def test_a_transient_failure_is_not_cached(self, monkeypatch, caplog):
+        """A driver fault must leave the cache unset so a later call can succeed."""
+        from mlframe.feature_engineering.transformer import _utils as m
+
+        _cupy_raising(monkeypatch, RuntimeError("nvrtc DLL retry failed"))
+        with caplog.at_level(logging.WARNING, logger=m.logger.name):
+            assert m.is_gpu_available() is False
+        assert any("transiently" in r.getMessage() for r in caplog.records)
+        assert m._GPU_AVAILABLE is None, "a transient failure disabled GPU for the process"
+
+        _cupy_raising(monkeypatch, None)
+        assert m.is_gpu_available() is True
+
+    def test_an_absent_cupy_is_cached(self, monkeypatch):
+        """ImportError still latches."""
+        from mlframe.feature_engineering.transformer import _utils as m
+
+        _cupy_raising(monkeypatch, ImportError("no module named cupy"))
+        assert m.is_gpu_available() is False
+        assert m._GPU_AVAILABLE is False
 
 
 def test_the_fit_entry_rearm_covers_every_circuit_breaker_in_the_package():

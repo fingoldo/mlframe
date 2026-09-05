@@ -149,6 +149,21 @@ def test_no_epsilon_padded_power_denominators():
         exclude=("_benchmarks", "_cpx36_baseline"),
     )
 
+def test_no_hash_is_fed_by_an_array_copy():
+    """`h.update(a.tobytes())` allocates a second copy of the whole array purely to be hashed.
+
+    `h.update(np.ascontiguousarray(a).data)` hands the hash the existing buffer and produces the identical
+    digest. The sites this replaced hashed whole training frames -- a KeyBank fingerprint over X_train, a
+    collinearity cache key over the feature matrix, an RFECV signature over X and y -- on data this package
+    sizes in the tens of gigabytes, with the copy paid on every cache lookup.
+
+    Sites where the rewrite does not apply are not reported: `hash()` and dict keys need a hashable object
+    and a memoryview is not one, and a `+`-joined payload has to be restructured rather than substituted.
+    """
+    from py_ci_shared.hash_fed_by_array_copy import assert_no_hash_fed_by_array_copy
+
+    assert_no_hash_fed_by_array_copy([REPO_ROOT / "src"], exclude=("_benchmarks", "_cpx36_baseline"))
+
 def test_repo_hygiene():
     """No tracked generated files, and no numeric CI gate that passes when its own input broke.
 

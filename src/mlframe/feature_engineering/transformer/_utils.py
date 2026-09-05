@@ -116,11 +116,17 @@ def is_gpu_available() -> bool:
         _ = cp.asarray([1.0], dtype=cp.float32).sum().item()
         _GPU_AVAILABLE = True
         logger.info("GPU (cupy) detected and usable.")
-    except Exception as exc:  # pragma: no cover - environment-dependent
-        # Broad catch: ImportError, CUDARuntimeError, RecursionError from
-        # broken nvrtc DLL retry loop, any driver/runtime mismatch.
+    except ImportError as exc:  # pragma: no cover - environment-dependent
+        # cupy genuinely absent: a fact about the install, so caching it for the process is correct.
         _GPU_AVAILABLE = False
-        logger.info("GPU (cupy) unavailable, falling back to CPU. Reason: %s: %s", type(exc).__name__, exc)
+        logger.info("GPU (cupy) not importable, falling back to CPU. Reason: %s: %s", type(exc).__name__, exc)
+    except Exception as exc:  # pragma: no cover - environment-dependent
+        # A CUDARuntimeError, a RecursionError out of a broken nvrtc DLL retry loop, a driver/runtime
+        # mismatch, another process holding the device: none of these is a fact about the machine, and
+        # caching the first one to land puts every later caller in this process on the CPU. Left uncached
+        # so the next call re-probes; one extra failed probe is far cheaper than a run-long degradation.
+        logger.warning("GPU (cupy) probe failed transiently (%s: %s); will re-probe rather than disabling GPU for the process", type(exc).__name__, exc)
+        return False
     return _GPU_AVAILABLE
 
 

@@ -606,7 +606,7 @@ def _pit_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: f
     # caller's own stream: a test generating scores from default_rng(0) and a panel drawing from default_rng(0)
     # get u == p exactly, the randomisation cancels, and the KS jumps back to the 0.25 this fix exists to remove.
     # Hashing the scores keeps the figure reproducible for a given dataset while making that collision impossible.
-    _digest = hashlib.blake2b(np.ascontiguousarray(p).tobytes(), digest_size=8).digest()
+    _digest = hashlib.blake2b(np.ascontiguousarray(p).data, digest_size=8).digest()
     u = np.random.default_rng(int.from_bytes(_digest, "little")).random(p.shape[0])
     pit = np.where(yt == 1, (1.0 - p) + u * p, u * (1.0 - p))
     pit = np.clip(pit, 0.0, 1.0)

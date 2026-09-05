@@ -123,7 +123,7 @@ def _discretize_2d_array_col_cached(arr, *, n_bins, method, min_ncats, dtype, di
         keys.extend(_xxh3_128(arrT[j]) + _param_tag for j in range(n_cols))
     else:
         for j in range(n_cols):
-            hh = hashlib.blake2b(arrT[j].tobytes(), digest_size=16)
+            hh = hashlib.blake2b(np.ascontiguousarray(arrT[j]).data, digest_size=16)
             hh.update(_param_tag)
             keys.append(hh.digest())
 

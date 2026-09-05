@@ -34,6 +34,7 @@ Status starts at TODO for all.
 | LATCH-01 | P1 | `src/mlframe/feature_selection/filters/polynom_pair_fe.py:388` | fe-deadline-republished-in-loky-worker-never-cleared | TODO |
 | LATCH-02 | P1 | `src/mlframe/metrics/_gpu_metrics.py:72` | gpu-metrics-availability-latched-on-broad-except | RESOLVED (ImportError still cached, any other exception warns and re-probes; reset_gpu_metrics_probe added; regression tests/metrics/test_gpu_probe_does_not_latch_on_transient_failure.py, verified failing pre-fix) |
 | LATCH-03 | P1 | `src/mlframe/metrics/_core_auc_brier.py:126` | metrics-argsort-gpu-availability-latched-on-broad-except | RESOLVED (ImportError still cached, other exceptions warn and re-probe; reset_gpu_argsort_probe added) |
+| LATCH-06 | P1 | `feature_engineering/transformer/_utils.py:122` | is-gpu-available-latched-on-broad-except (found by `py_ci_shared.latched_availability_flags`, not by the auditors) | RESOLVED (ImportError still cached, anything else warns and re-probes; guard in tests/test_gpu_probes_do_not_latch_on_transient_faults.py) |
 | LATCH-04 | P1 | `src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_cluster_su.py:64` | cluster-su-gpu-availability-latched-on-broad-except | RESOLVED (same narrowing as the sibling _shap_proxy_prefilter; reset_cluster_su_gpu_probe added) |
 | LATCH-05 | P1 | `src/mlframe/feature_selection/filters/mrmr/_mrmr_class_fit_helpers.py:91` | two-gpu-circuit-breakers-omitted-from-the-fit-entry-rearm | RESOLVED (KSG and order-1 maxT breakers re-armed; a meta-test now asserts the re-arm covers every reset_*_gpu_circuit_breaker the package defines) |
 | NT-15 | P1 | `tests/competition/test_biz_val_naive_bayes_log_odds.py:112, tests/competition/test_biz_val_naive_bayes_log_odds.py:87` | naive-bayes-log-odds-honest-negative-0.0005-auc-margin | TODO |
@@ -177,8 +178,8 @@ triage here -- the copy-free form is never worse -- so this is a mechanical batc
 
 | ID | Sites | Summary | Status |
 |----|-------|---------|--------|
-| HASHCOPY-01 | `feature_selection/wrappers/rfecv/_fit_init.py:38,43,320` | X and y hashed through a full copy at RFECV init | TODO |
-| HASHCOPY-02 | `utils/disk_cache.py:129,133,134,144,145,146,153` | seven array copies in the disk-cache fingerprint | TODO |
-| HASHCOPY-03 | `training/composite/cache.py:414,436,586` | three copies in the composite cache signature | TODO |
-| HASHCOPY-04 | `feature_selection/filters/cat_interactions.py:68`, `discretization/_discretization_dataset.py:126` | per-column copies inside a loop | TODO |
-| HASHCOPY-05 | `training/baselines/dummy.py:237`, `reporting/charts/binary.py:609` | one copy each | TODO |
+| HASHCOPY-01 | `feature_selection/wrappers/rfecv/_fit_init.py:38,43,320` | X and y hashed through a full copy at RFECV init | RESOLVED (23 conversions; digests verified identical against the pre-change modules) |
+| HASHCOPY-02 | `utils/disk_cache.py:129,133,134,144,145,146,153` | seven array copies in the disk-cache fingerprint | RESOLVED (23 conversions; digests verified identical against the pre-change modules) |
+| HASHCOPY-03 | `training/composite/cache.py:414,436,586` | three copies in the composite cache signature | RESOLVED (23 conversions; digests verified identical against the pre-change modules) |
+| HASHCOPY-04 | `feature_selection/filters/cat_interactions.py:68`, `discretization/_discretization_dataset.py:126` | per-column copies inside a loop | RESOLVED (23 conversions; digests verified identical against the pre-change modules) |
+| HASHCOPY-05 | `training/baselines/dummy.py:237`, `reporting/charts/binary.py:609` | one copy each | RESOLVED (23 conversions; digests verified identical against the pre-change modules) |
