@@ -61,6 +61,23 @@ HOLDOUT_FRACTION = 0.4
 ScenarioGen = Callable[[int], Tuple[pd.DataFrame, np.ndarray, Dict[str, Any]]]
 
 
+def compute_auc_mean(aucs: dict) -> "float | None":
+    """Mean of the non-None AUC values in ``aucs``, or ``None`` if every model failed.
+
+    Gates on "any value is not None", not on ``any(aucs.values())`` -- the latter is truthy-gated, so a
+    legitimate AUC of exactly 0.0 (one model succeeded with a worse-than-random score while the others failed
+    to None) makes every value falsy and silently drops the real result as None.
+
+    Restored after a refactor removed it: the module it lived in was reorganised while its regression test
+    kept importing it, which made the test module unimportable. That is a COLLECTION error, and pytest-split
+    collects the whole tree in every shard, so one missing name failed all 39 of them rather than the one
+    shard that owns the test.
+    """
+    if not any(v is not None for v in aucs.values()):
+        return None
+    return round(float(np.mean([v for v in aucs.values() if v is not None])), 4)
+
+
 def _declared_target_size(truth: Dict[str, Any], n_features: int) -> Optional[int]:
     """Return the pre-declared primary target-set size, or `None` when the bed declares none.
 
@@ -122,9 +139,7 @@ def _fit_arm(factory: Callable[[], Any], x_train: pd.DataFrame, y_train: np.ndar
     return arm, time.perf_counter() - wall0, time.process_time() - proc0
 
 
-def _selection_sets(
-    ranking: Ranking, target_size: Optional[int], n_features: int, constant_selection: bool = False
-) -> Tuple[Dict[str, Optional[List[str]]], str]:
+def _selection_sets(ranking: Ranking, target_size: Optional[int], n_features: int, constant_selection: bool = False) -> Tuple[Dict[str, Optional[List[str]]], str]:
     """Build `({K label: selected columns}, k_grid_mode)` for the matched-K grid plus the self-chosen-K row.
 
     `constant_selection` is for the `all-features` null hypothesis, whose selection is the whole column
@@ -192,11 +207,7 @@ def run_cell(
                 continue
             block = fit_and_score_panel(x_train, y_train, x_test, y_test, cols)
             block["n_features"] = len(cols)
-            block["skill"] = {
-                member: normalized_skill(metrics["brier"], base_rate["brier"])
-                for member, metrics in block["models"].items()
-                if "brier" in metrics
-            }
+            block["skill"] = {member: normalized_skill(metrics["brier"], base_rate["brier"]) for member, metrics in block["models"].items() if "brier" in metrics}
             total_fits += int(block.pop("n_model_fits", 0))
             block.pop("base_rate", None)
             scores[label] = block
@@ -266,9 +277,7 @@ def run_grid(
     for scenario_name, gen in scenarios:
         for dataset_seed in dataset_seeds:
             x_all, y_all, truth = gen(int(dataset_seed))
-            x_train, x_test, y_train, y_test = train_test_split(
-                x_all, y_all, test_size=HOLDOUT_FRACTION, random_state=int(dataset_seed), stratify=y_all
-            )
+            x_train, x_test, y_train, y_test = train_test_split(x_all, y_all, test_size=HOLDOUT_FRACTION, random_state=int(dataset_seed), stratify=y_all)
             # Built per scenario, not once for the grid: the fixed-cardinality arms (random-k, variance-sort)
             # need this bed's feature count, and a roster carried over from a wider bed would ask them for
             # more columns than exist here.
