@@ -17,7 +17,8 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import (
-    _apply_min_selected_ratio, _resolve_adaptive_prescreen_width, _resolve_adaptive_n_anchors, _resolve_knee_prescreen_cap)
+    _apply_min_selected_ratio, _resolve_adaptive_prescreen_width, _resolve_adaptive_n_anchors, _resolve_knee_prescreen_cap,
+    ShapProxiedNoCandidatesError, resolve_effective_min_features, unit_importance_to_feature_map)
 from mlframe.utils.misc import rng_hygienic_fit
 
 logger = logging.getLogger(__name__)
@@ -462,6 +463,21 @@ class ShapProxiedFitMixin:
         residual_rescue_proxy_idx, residual_blend_importance, residual_protected_working_cols = run_residual_pass(
             self, phi, base, y_phi, X_proxy, model_template, unit_to_members, working_cols, X_cols, report, _stage)
 
+        # Persist the per-feature mean |SHAP| the subset search ranks by. Computed HERE, on the
+        # PRE-prescreen phi, so it covers every column the SHAP pass actually attributed - after the
+        # prescreen narrows phi the tail columns are gone and the map would be a top-K slice. Values are
+        # unit-level (a clustering unit is accepted/rejected whole, so its members share the number the
+        # search saw); features the prefilter dropped BEFORE the SHAP pass are absent rather than
+        # zero-filled - no attribution was ever computed for them. ``mean_abs_shap_coverage`` states
+        # exactly how much of the input frame the map spans so a consumer never has to guess.
+        _mean_abs_shap = unit_importance_to_feature_map(np.abs(phi).mean(axis=0), unit_to_members, working_cols, self.feature_names_in_)
+        report["mean_abs_shap"] = _mean_abs_shap
+        report["mean_abs_shap_coverage"] = dict(
+            n_covered=len(_mean_abs_shap), n_input_features=int(n_features),
+            complete=bool(len(_mean_abs_shap) == int(n_features)),
+            unit_level=bool(unit_to_members is not None and len(unit_to_members) < len(_mean_abs_shap)),
+        )
+
         # Adaptive prescreen narrowing (iter59): when SHAP per-fold ranks are unstable, NARROW the
         # cap so noisy mid-rank features don't get injected into beam's candidate pool. The lever is
         # measurement-driven (median pairwise Spearman of per-fold mean |phi| feature ranks) and only
@@ -569,6 +585,10 @@ class ShapProxiedFitMixin:
                     report["prescreen"]["banzhaf_stderr_max"] = banzhaf_stderr_max
 
         optimizer = self._resolve_optimizer(phi.shape[1])
+        # One clamp, reused by the search AND by every downstream stage that samples subsets of the
+        # SAME phi (trust-guard anchors): min_features is an original-feature-space floor, phi is in
+        # proxy space, and an unsatisfiable floor empties their candidate/anchor pools alike.
+        _effective_min_card = resolve_effective_min_features(self.min_features, int(phi.shape[1]))
         with _stage("search"):
             candidates = self._run_search(optimizer, phi, base, y_phi)
 
@@ -585,8 +605,15 @@ class ShapProxiedFitMixin:
         # proxy-column space (units/pre-screened columns).
         n_proxy_cols = phi.shape[1]
         candidates = _apply_min_selected_ratio(candidates, n_proxy_cols, self.min_selected_ratio)
+        if _effective_min_card != int(self.min_features):
+            report["min_features_clamped"] = dict(requested=int(self.min_features), effective=int(_effective_min_card), n_proxy_cols=int(n_proxy_cols))
         if not candidates:
-            raise RuntimeError("ShapProxiedFS: search produced no candidate subsets.")
+            # Distinct type (still a RuntimeError subclass) so a caller can tell "this selector found
+            # nothing it was allowed to return" apart from "this selector crashed".
+            raise ShapProxiedNoCandidatesError(
+                f"ShapProxiedFS: search produced no candidate subsets "
+                f"(optimizer={optimizer}, proxy_cols={n_proxy_cols}, min_card={_effective_min_card}, "
+                f"max_features={self.max_features}, min_selected_ratio={self.min_selected_ratio}).")
 
         report.update(optimizer=optimizer, n_candidates=len(candidates), proxy_best=dict(features=tuple(candidates[0][1]), proxy_loss=candidates[0][0]))
 
@@ -681,7 +708,7 @@ class ShapProxiedFitMixin:
             with _stage("trust_guard"):
                 report["trust"] = proxy_trust_guard(
                     phi, base, y_phi, model_template, X_search, X_hold, y_hold,
-                    n_anchors=resolved_n_anchors, rng=self._rng, min_card=self.min_features,
+                    n_anchors=resolved_n_anchors, rng=self._rng, min_card=_effective_min_card,
                     max_card=self.max_features, fidelity_floor=effective_floor,
                     n_estimators_cap=self.trust_guard_n_estimators,
                     unit_f_scores=unit_f_scores,

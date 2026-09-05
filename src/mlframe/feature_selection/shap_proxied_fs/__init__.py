@@ -34,7 +34,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import (
     _resolve_adaptive_prescreen_thresholds, _resolve_adaptive_prescreen_width,
     _resolve_adaptive_n_anchors, _resolve_knee_prescreen_cap,
     _resolve_brute_force_max_features, _resolve_brute_force_n_sub_gate,
-    _resolve_cluster_su_auto_max_features,
+    _resolve_cluster_su_auto_max_features, ShapProxiedNoCandidatesError,
 )
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit import ShapProxiedFitMixin
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_methods import ShapProxiedMethodsMixin
@@ -868,6 +868,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, TransformerMix
 __all__ = [
     "ShapProxiedFS",
     "restrict_artifacts",
+    "ShapProxiedNoCandidatesError",
     "_resolve_brute_force_max_features",
     "_resolve_brute_force_n_sub_gate",
     "_resolve_cluster_su_auto_max_features",

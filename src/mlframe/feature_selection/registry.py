@@ -212,15 +212,22 @@ def _instantiate_cascade_select(**kwargs):
 def _report_extract_shap_proxied_fs(selector, kept) -> dict:
     """Per-feature ShapProxiedFS report fragment consumed by ``_build_feature_selection_report``.
 
-    Surfaces the mean-|phi| importances the selector ranked subsets by (when present) as ``scores``,
-    and a kept/dropped reason map. Kept/dropped names are computed by the central builder; this only
+    Surfaces ``shap_proxy_report_['mean_abs_shap']`` (the per-feature mean-|phi| the selector's subset
+    search ranked by) as ``scores``, plus a kept/dropped reason map. Coverage is every feature the SHAP
+    pass attributed, stated exactly in the selector's companion ``mean_abs_shap_coverage`` block;
+    prefilter-dropped features are absent rather than zero-filled. Kept/dropped names come from the central builder; this only
     adds selector-specific signal. Every read is defensive: a failed extraction must never abort training.
     """
     out: dict = {"scores": None, "reason_per_feature": None}
     try:
         _rep = getattr(selector, "shap_proxy_report_", None)
         if isinstance(_rep, dict):
-            _imp = _rep.get("mean_abs_shap") or _rep.get("importances")
+            # Explicit ``is None`` chain, never ``a or b``: an EMPTY dict and a legitimately falsy
+            # value both fall through an ``or`` to the fallback key (pyutilz.dev.code_audit's
+            # ``default_via_or`` scanner flags exactly this shape).
+            _imp = _rep.get("mean_abs_shap")
+            if _imp is None:
+                _imp = _rep.get("importances")
             if isinstance(_imp, dict) and _imp:
                 out["scores"] = {str(k): float(v) for k, v in _imp.items()}
     except Exception as e:
