@@ -62,6 +62,19 @@ HOLDOUT_FRACTION = 0.4
 ScenarioGen = Callable[[int], Tuple[pd.DataFrame, np.ndarray, Dict[str, Any]]]
 
 
+def compute_auc_mean(aucs: Dict[str, Optional[float]]) -> Optional[float]:
+    """Return the mean of the panel's non-``None`` AUCs, or ``None`` when every model failed.
+
+    The gate is "any value is not None", never ``any(aucs.values())``. A model that legitimately scores
+    exactly 0.0 -- a systematically inverted classifier, rare but real -- is falsy, so the truthy form
+    reports ``None`` for a cell that produced a genuine result and drops the only surviving measurement.
+    """
+    present = [value for value in aucs.values() if value is not None]
+    if not present:
+        return None
+    return round(float(np.mean(present)), 4)
+
+
 def _declared_target_size(truth: Dict[str, Any], n_features: int) -> Optional[int]:
     """Return the pre-declared primary target-set size, or `None` when the bed declares none.
 
@@ -230,6 +243,7 @@ def run_cell(
             block["skill"] = {
                 member: normalized_skill(metrics["brier"], base_rate["brier"]) for member, metrics in block["models"].items() if "brier" in metrics
             }
+            block["auc_mean"] = compute_auc_mean({member: metrics.get("roc_auc") for member, metrics in block["models"].items()})
             total_fits += int(block.pop("n_model_fits", 0))
             block.pop("base_rate", None)
             scores[label] = block
