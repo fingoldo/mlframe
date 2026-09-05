@@ -129,6 +129,26 @@ def test_every_from_import_resolves():
     )
 
 
+def test_no_epsilon_padded_power_denominators():
+    """`a / (b + 1e-12)` is safe while b's scale sits near 1, and unsafe the moment b is a power.
+
+    A power falls off geometrically, so a fixed pad stops being negligible at ordinary inputs and starts
+    deciding the result -- with nothing raising. Both instances this caught lived in spatial.py and passed
+    their own suites, whose fixtures used coordinates of order 1 where the pad genuinely is negligible:
+    `k / (r**d + 1e-12)` returned 9.999e12 for a true 1e17 at d=8, r=0.01, and `1.0 / (dist**power + 1e-12)`
+    turned inverse-distance weights into [0.282, 0.282, 0.266, 0.170] where the true weights were
+    [0.940, 0.059, 0.0015, 0.0001] -- an almost unweighted average.
+
+    `_benchmarks` is excluded: a frozen bench copy is meant to keep the shape it was frozen with, which is
+    the whole point of comparing against it.
+    """
+    from py_ci_shared.epsilon_padded_denominators import assert_no_epsilon_padded_power_denominators
+
+    assert_no_epsilon_padded_power_denominators(
+        [REPO_ROOT / "src"],
+        exclude=("_benchmarks", "_cpx36_baseline"),
+    )
+
 def test_repo_hygiene():
     """No tracked generated files, and no numeric CI gate that passes when its own input broke.
 

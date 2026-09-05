@@ -583,8 +583,19 @@ def inverse_distance_weighted_aggregate(
     else:
         compact_indices = indices[:, :k]
         compact_dist = distances[:, :k]
-    weights = 1.0 / (compact_dist**power + 1e-12)
-    w_sum = weights.sum(axis=1, keepdims=True) + 1e-12
+    # No additive epsilon on the denominator. `d**power` falls off geometrically, so a fixed 1e-12 stops
+    # being negligible at entirely ordinary distances -- at power=4 it already dominates by d=1e-3 -- and it
+    # does so UNEVENLY across a row, which is what corrupts inverse-distance weighting: near neighbours whose
+    # d**power sits below the pad all collapse onto the same weight while farther ones keep theirs.
+    # Dividing by the row's own nearest distance first is exact (the common row factor cancels in the
+    # normalisation below), lands every weight in (0, 1], and cannot overflow.
+    _dmin = compact_dist.min(axis=1, keepdims=True)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        weights = np.divide(_dmin, compact_dist, out=np.zeros_like(compact_dist), where=compact_dist > 0.0) ** power
+    # A row containing a coincident reference point: the limit of 1/d^p puts all the mass on that point.
+    weights = np.where(_dmin == 0.0, (compact_dist == 0.0).astype(np.float64), weights)
+    # Strictly positive by construction -- every row has at least one weight equal to 1 -- so no pad is needed.
+    w_sum = weights.sum(axis=1, keepdims=True)
     weights_norm = weights / w_sum
     label_arr = labels[compact_indices]
     idw = (label_arr * weights_norm).sum(axis=1)
@@ -592,7 +603,12 @@ def inverse_distance_weighted_aggregate(
     # nearest), compare to the nearest's label.
     if k >= 2:
         loo_w = weights[:, 1:]
-        loo_sum = loo_w.sum(axis=1, keepdims=True) + 1e-12
+        # The slice can be all-zero only when the nearest neighbour was the sole coincident point; fall back
+        # to a uniform vote there rather than padding, which would otherwise divide by zero.
+        loo_sum = loo_w.sum(axis=1, keepdims=True)
+        _degenerate = loo_sum <= 0.0
+        loo_w = np.where(_degenerate, 1.0, loo_w)
+        loo_sum = np.where(_degenerate, float(loo_w.shape[1]), loo_sum)
         loo_pred = (label_arr[:, 1:] * (loo_w / loo_sum)).sum(axis=1)
         loo_residual = label_arr[:, 0] - loo_pred
     else:

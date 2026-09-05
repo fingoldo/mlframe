@@ -19,7 +19,7 @@ import pytest
 
 pytest.importorskip("sklearn")
 
-from mlframe.feature_engineering.spatial import local_density_features
+from mlframe.feature_engineering.spatial import inverse_distance_weighted_aggregate, local_density_features
 
 
 def _grid(d: int, spacing: float, n: int = 64):
@@ -76,3 +76,48 @@ def test_non_finite_query_coordinates_still_give_a_finite_density():
     q = np.full((4, 3), np.nan)
     out = local_density_features(q, ref, k=4)
     assert np.all(np.isfinite(out["local_density"])), "an origin-mapped query row produced a non-finite density"
+
+
+def test_idw_still_weights_by_distance_at_fine_coordinate_scales():
+    """The sibling of the density bug, found by the check written to catch that one.
+
+    `inverse_distance_weighted_aggregate` guarded its weights with `1.0 / (d**power + 1e-12)`. `d**power`
+    falls off geometrically, so at power=4 the pad already dominates by d=1e-3, and it dominates UNEVENLY
+    across a row: near neighbours whose d**power sits under the pad collapse onto one weight while farther
+    ones keep theirs. Measured on distances (1, 2, 5, 9) * 1e-4 at power=4, the old weights came out
+    [0.282, 0.282, 0.266, 0.170] -- an almost unweighted average -- against the true
+    [0.940, 0.059, 0.0015, 0.0001]. The nearest neighbour's influence had been given away entirely.
+    """
+    # Two reference points, one much nearer the query than the other, at a fine coordinate scale.
+    scale = 1e-4
+    # A fourth reference: the lookup requires strictly more refs than k.
+    ref = np.array([[0.0, 0.0], [3.0 * scale, 0.0], [9.0 * scale, 0.0], [50.0 * scale, 0.0]])
+    labels = np.array([10.0, 0.0, 0.0, 0.0])
+    q = np.array([[1.0 * scale, 0.0]])
+
+    out = inverse_distance_weighted_aggregate(q, ref, labels, k=3, power=4.0)
+    d = np.array([1.0, 2.0, 8.0]) * scale
+    w = (d.min() / d) ** 4.0
+    expected = float((labels[:3] * (w / w.sum())).sum())  # k=3: only the three nearest are aggregated
+    assert float(out["idw"][0]) == pytest.approx(expected, rel=1e-9), f"{out['idw'][0]} against the unpadded {expected}"
+    # The point of the metric: the nearest neighbour must dominate, not be averaged away.
+    assert float(out["idw"][0]) > 9.0, "the nearest label barely counted; the weighting has flattened"
+
+
+def test_idw_is_unchanged_on_well_conditioned_distances():
+    """The fix must move only the regime the pad was corrupting."""
+    ref = np.array([[0.0, 0.0], [3.0, 0.0], [9.0, 0.0], [50.0, 0.0]])
+    labels = np.array([10.0, 0.0, 0.0, 0.0])
+    q = np.array([[1.0, 0.0]])
+    out = inverse_distance_weighted_aggregate(q, ref, labels, k=3, power=2.0)
+    d = np.array([1.0, 2.0, 8.0])
+    w = 1.0 / d**2.0
+    assert float(out["idw"][0]) == pytest.approx(float((labels[:3] * (w / w.sum())).sum()), rel=1e-9)
+
+
+def test_idw_gives_a_coincident_reference_point_the_whole_vote():
+    """A zero distance is the limit of 1/d^p, not a value the guard should cap."""
+    ref = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0], [3.0, 0.0]])
+    labels = np.array([7.0, 0.0, 0.0, 0.0])
+    out = inverse_distance_weighted_aggregate(np.array([[0.0, 0.0]]), ref, labels, k=3, power=2.0)
+    assert float(out["idw"][0]) == pytest.approx(7.0)
