@@ -71,7 +71,7 @@ def _declared_target_size(truth: Dict[str, Any], n_features: int) -> Optional[in
     """
     base = truth.get("base")
     if base is not None:
-        return int(len(base))
+        return len(base)
     declared = truth.get("declared_target_size")
     if declared is None:
         return None
@@ -112,7 +112,7 @@ def _fit_arm(factory: Callable[[], Any], x_train: pd.DataFrame, y_train: np.ndar
     """
     arm = factory()
     if hasattr(arm, "cv_seed"):
-        setattr(arm, "cv_seed", cv_seed)
+        arm.cv_seed = cv_seed
     runner = getattr(arm, "run", None)
     if callable(runner):
         result = runner(x_train, y_train)
@@ -174,7 +174,14 @@ def run_cell(
         record["base_rate"] = base_rate
 
         scores: Dict[str, Any] = {}
-        total_fits = int(getattr(arm, "n_model_fits_", 0) or 0)
+        # The field on ArmResult is `n_model_fits`, no trailing underscore. Reading the sklearn-style name
+        # made the ARM term silently zero, so the pre-registered primary cost axis was measuring the
+        # downstream panel alone -- rfecv and variance-sort reported the same cost while their wall-clock
+        # differed by four orders of magnitude. Unmeasured is recorded as unknown, never as zero: an arm
+        # whose fits nobody counted is not a free arm.
+        arm_fits = getattr(arm, "n_model_fits", None)
+        arm_fits_known = arm_fits is not None
+        total_fits = int(arm_fits) if arm_fits is not None else 0
         selection_sets, k_grid_mode = _selection_sets(ranking, target_size, len(feature_names), constant_selection=(spec.arm == NULL_ARM))
         record["k_grid_mode"] = k_grid_mode
         for label, cols in selection_sets.items():
@@ -195,7 +202,8 @@ def run_cell(
             scores[label] = block
 
         record["scores"] = scores
-        record["n_model_fits"] = total_fits
+        record["n_model_fits"] = total_fits if arm_fits_known else None
+        record["n_model_fits_panel_only"] = not arm_fits_known
         record["status"] = "ok"
     except BaseException as exc:  # a crashed cell is data, not an absence -- record and continue
         record["status"] = classify_exception(exc)

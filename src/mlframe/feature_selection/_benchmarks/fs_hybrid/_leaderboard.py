@@ -35,6 +35,7 @@ __all__ = [
     "selector_by_model_interaction",
     "reliability_table",
     "cost_table",
+    "COST_NOT_MEASURED",
     "DIRECTIONAL_VERDICTS",
 ]
 
@@ -211,29 +212,51 @@ def reliability_table(records: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]
     return out
 
 
+#: Why an arm's `n_model_fits` cell is empty. A mean over 3 of 140 cells and a mean over 140 of 140 are
+#: not the same number, and "no cell reported a count" is not "this arm is free" -- both distinctions are
+#: carried explicitly rather than left to a blank column.
+COST_NOT_MEASURED = "NOT-MEASURED"
+
+
 def cost_table(records: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Per arm: total and mean `n_model_fits`, the primary (deterministic) cost axis.
+    """Per arm: total and mean `n_model_fits`, the primary (deterministic) cost axis, WITH its denominator.
+
+    The mean is meaningless without the count it was taken over: the wrapper arms are exactly the ones
+    whose cells fail most often, so their cost mean can be an average over a handful of surviving cells
+    while a cheap arm's is an average over all of them. Every row therefore carries `n_cells`,
+    `n_cells_measured` and, when nothing was measured, an explicit reason -- never a bare empty cell that
+    reads as "free".
 
     Wall-clock is carried alongside as advisory only; every figure using it must state that the host was
     contended.
     """
     fits: Dict[str, List[float]] = defaultdict(list)
     wall: Dict[str, List[float]] = defaultdict(list)
+    cells: Dict[str, int] = defaultdict(int)
+    unmeasured_status: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for rec in records:
         arm = str(rec.get("arm"))
+        cells[arm] += 1
         if rec.get("n_model_fits") is not None:
             fits[arm].append(float(rec["n_model_fits"]))
+        else:
+            unmeasured_status[arm][str(rec.get("status"))] += 1
         if rec.get("wall_time_s") is not None:
             wall[arm].append(float(rec["wall_time_s"]))
     out: List[Dict[str, Any]] = []
-    for arm in sorted(set(fits) | set(wall)):
+    for arm in sorted(cells):
         f = fits.get(arm, [])
         w = wall.get(arm, [])
+        by_status = dict(unmeasured_status.get(arm, {}))
         out.append(
             {
                 "arm": arm,
+                "n_cells": cells[arm],
+                "n_cells_measured": len(f),
                 "n_model_fits_total": sum(f) if f else None,
                 "n_model_fits_mean": (sum(f) / len(f)) if f else None,
+                "n_model_fits_reason": None if f else f"no cell of this arm reported a fit count (statuses: {by_status})",
+                "unmeasured_by_status": by_status,
                 "wall_time_s_mean_advisory": (sum(w) / len(w)) if w else None,
             }
         )

@@ -47,13 +47,13 @@ This is not a pessimistic hedge. The repository's own recorded numbers make it t
 
 ## 2a. RESULT of the confirmatory run (recorded 2026-09-04)
 
-2240 cells: 7 eligible beds x 16 arms x 20 reserved seeds (1000-1019), 2209 ok. Paired t on the 20 per-seed differences, m=20, df=19.
+2240 cells: 7 eligible beds x 16 arms x 20 reserved seeds (1000-1019), 2220 ok after the failed cells were re-run against a fixed adapter. The 20 that remain are shap-proxied on hill-valley, failing deterministically on every seed rather than flaking. Paired t on the 20 per-seed differences, m=20, df=19.
 
 **On the primary outcome (matched K), the stop condition is MET.** Beds where no arm beats `all-features`, out of 7:
 
 | model | k5 | k10 | k20 | k50 | k100 | k200 | self |
 |---|---|---|---|---|---|---|---|
-| lightgbm | 7 | 6 | 5 | 5 | 5 | 5 | 3 |
+| lightgbm | 7 | 6 | 5 | 5 | 5 | 4 | 3 |
 | logistic | 4 | 4 | 4 | 3 | 2 | 0 | 2 |
 
 With a strong model at any declared cardinality, 5 to 7 of the 7 beds show no arm clearing the null. The criterion's threshold is 4. With a linear model it clears once enough features are allowed (k50+).

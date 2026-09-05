@@ -26,9 +26,12 @@ The roster spans the paradigms Phase 0 needs a verdict on:
 
 from __future__ import annotations
 
+import importlib
 import logging
+import threading
 import time
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from types import TracebackType
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Type
 
 import numpy as np
 import pandas as pd
@@ -38,6 +41,121 @@ from mlframe.feature_selection import extract_selected, support_mask_from_select
 from ._arm_result import ArmResult
 
 logger = logging.getLogger(__name__)
+
+
+# ------------------------------------------------------------------------------------------------- fit counting
+# `n_model_fits` is the PRE-REGISTERED PRIMARY cost axis, chosen because it is deterministic while
+# wall-clock on this contended host is not. The wrapper arms -- rfecv, boruta, boruta-shap, shap-proxied --
+# are precisely the arms whose cost the axis exists to measure, and precisely the arms whose underlying
+# selector publishes no fit count: each of them fans an estimator out internally and reports only its
+# selection. Reporting `None` there and letting `cost_table` skip the row hides the expensive arms from the
+# cost table entirely, which is worse than useless -- a reader compares the cheap arms and concludes
+# wrappers are free.
+#
+# So the count is MEASURED rather than asked for: the estimator classes these selectors fit are patched for
+# the duration of `_compute` and every `fit` call is tallied. Verified applicable here because all four
+# wrapper selectors fan out over THREADS (`RFECV._fit_outer_loop` uses `Parallel(prefer="threads")`,
+# BorutaShap's sub-fit loop uses `backend="threading"`, ShapProxiedFS's fold loop uses `prefer="threads"`),
+# so every fit happens in this process and is visible to the patch. A selector that fanned out over
+# PROCESSES would under-count, which is why the tally is published with its method in `provenance` instead
+# of as a bare number.
+_COUNTED_ESTIMATORS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+    ("sklearn.ensemble", ("RandomForestClassifier", "RandomForestRegressor", "ExtraTreesClassifier", "ExtraTreesRegressor", "IsolationForest")),
+    ("sklearn.ensemble", ("GradientBoostingClassifier", "GradientBoostingRegressor", "HistGradientBoostingClassifier", "HistGradientBoostingRegressor")),
+    ("sklearn.linear_model", ("Ridge", "Lasso", "LogisticRegression", "LinearRegression", "SGDClassifier")),
+    ("sklearn.dummy", ("DummyClassifier", "DummyRegressor")),
+    ("lightgbm", ("LGBMClassifier", "LGBMRegressor")),
+    ("xgboost", ("XGBClassifier", "XGBRegressor")),
+    ("catboost", ("CatBoostClassifier", "CatBoostRegressor")),
+)
+
+#: `provenance["n_model_fits_source"]` values. Each one is a different claim about the same empty-looking
+#: number, and they are never collapsed: a MEASURED zero means "this arm fits no model", while
+#: `not_measured` means nobody counted.
+FITS_SOURCE_COUNTED = "counted_in_process_estimator_fits"
+FITS_SOURCE_DECLARED = "declared_by_the_adapter"
+FITS_SOURCE_NOT_MEASURED = "not_measured"
+
+
+def _resolve_counted_classes() -> Tuple[List[Type[Any]], List[str]]:
+    """Import the estimator classes to instrument, returning `(classes, names_that_could_not_be_imported)`."""
+    classes: List[Type[Any]] = []
+    missing: List[str] = []
+    for module_name, class_names in _COUNTED_ESTIMATORS:
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError:
+            missing.extend(f"{module_name}.{name}" for name in class_names)
+            continue
+        for name in class_names:
+            obj = getattr(module, name, None)
+            if isinstance(obj, type) and callable(getattr(obj, "fit", None)):
+                classes.append(obj)
+            else:
+                missing.append(f"{module_name}.{name}")
+    return classes, missing
+
+
+class FitCounter:
+    """Context manager tallying every in-process estimator `fit` call made inside its body.
+
+    Attributes:
+        by_class: `{qualified class name: call count}`, populated on exit.
+        missing: Estimator classes that could not be imported, so a reader can see the counter's blind spots.
+    """
+
+    def __init__(self) -> None:
+        self.by_class: Dict[str, int] = {}
+        self.missing: List[str] = []
+        self._lock = threading.Lock()
+        self._restore: List[Tuple[Type[Any], bool, Any]] = []
+
+    @property
+    def total(self) -> int:
+        """Total number of counted `fit` calls."""
+        return int(sum(self.by_class.values()))
+
+    @property
+    def instrumented(self) -> bool:
+        """True when at least one estimator class was successfully patched, i.e. the tally means something."""
+        return bool(self._restore)
+
+    def _wrap(self, cls: Type[Any], original: Any) -> Callable[..., Any]:
+        """Build the counting replacement for one class's `fit`."""
+        label = f"{cls.__module__.split('.')[0]}.{cls.__name__}"
+
+        def counting_fit(estimator: Any, *args: Any, **kwargs: Any) -> Any:
+            """Tally this call, then delegate to the estimator's real `fit`."""
+            with self._lock:
+                self.by_class[label] = self.by_class.get(label, 0) + 1
+            return original(estimator, *args, **kwargs)
+
+        return counting_fit
+
+    def __enter__(self) -> "FitCounter":
+        """Patch every resolvable estimator class's `fit` with a counting wrapper."""
+        classes, self.missing = _resolve_counted_classes()
+        for cls in classes:
+            # Recorded as "was it in this class's OWN __dict__" so an inherited `fit` is removed rather than
+            # pinned onto the subclass on exit, which would leave the class permanently shadowed.
+            own = "fit" in cls.__dict__
+            self._restore.append((cls, own, cls.__dict__.get("fit")))
+            try:
+                cls.fit = self._wrap(cls, cls.fit)
+            except (AttributeError, TypeError):  # an immutable/extension type refuses the patch
+                self._restore.pop()
+        return self
+
+    def __exit__(self, exc_type: Optional[Type[BaseException]], exc: Optional[BaseException], tb: Optional[TracebackType]) -> None:
+        """Restore every patched `fit`, leaving no class permanently instrumented."""
+        for cls, own, original in reversed(self._restore):
+            if own:
+                cls.fit = original
+            else:
+                try:
+                    delattr(cls, "fit")
+                except AttributeError:
+                    pass
 
 
 # ------------------------------------------------------------------------------------------------- helpers
@@ -103,7 +221,8 @@ class BaseArm:
     def run(self, X: pd.DataFrame, y: np.ndarray) -> ArmResult:
         """Fit the arm on ``(X, y)`` and return a validated :class:`ArmResult`."""
         t0, p0 = time.perf_counter(), time.process_time()
-        payload = self._compute(X, y)
+        with FitCounter() as counter:
+            payload = self._compute(X, y)
         wall, proc = time.perf_counter() - t0, time.process_time() - p0
         support = np.asarray(payload["support"], dtype=bool)
         score = payload.get("score")
@@ -113,6 +232,7 @@ class BaseArm:
         provenance.setdefault("arm", self.name)
         provenance.setdefault("declared_score_kind", self.score_kind)
         ranked = payload.get("ranked_prefix")
+        n_model_fits = self._resolve_fit_count(payload.get("n_model_fits"), counter, provenance)
         return ArmResult(
             support=support,
             score=score,
@@ -122,9 +242,46 @@ class BaseArm:
             selection_score=payload.get("selection_score"),
             wall_time_s=float(wall),
             process_time_s=float(proc),
-            n_model_fits=payload.get("n_model_fits"),
+            n_model_fits=n_model_fits,
             provenance=provenance,
         )
+
+    @staticmethod
+    def _resolve_fit_count(declared: Optional[int], counter: "FitCounter", provenance: Dict[str, Any]) -> Optional[int]:
+        """Pick the fit count to publish and record HOW it was obtained, so no reader has to guess.
+
+        The measurement wins over the adapter's declaration whenever the counter was live: a declared
+        number is a parameter (`n_trials`, `n_iterations`) and an arm that converges early pays less than
+        it asked for. The declaration is kept in `provenance` alongside, and any gap between the two is
+        itself informative. When nothing could be instrumented the count is `None` WITH a reason -- never a
+        bare `None` a reader could mistake for "this arm is free".
+
+        Args:
+            declared: The count the arm adapter asserted, if any.
+            counter: The (already exited) fit counter that wrapped `_compute`.
+            provenance: Provenance dict, mutated in place with the source, the tally and the caveats.
+
+        Returns:
+            The fit count to publish, or `None` when it genuinely could not be measured or declared.
+        """
+        provenance["n_model_fits_declared"] = declared
+        provenance["n_model_fits_counted"] = counter.total if counter.instrumented else None
+        provenance["n_model_fits_by_class"] = dict(counter.by_class)
+        if counter.missing:
+            provenance["n_model_fits_uninstrumented_classes"] = list(counter.missing)
+        if counter.instrumented:
+            provenance["n_model_fits_source"] = FITS_SOURCE_COUNTED
+            provenance["n_model_fits_caveat"] = (
+                "in-process estimator fits only; a selector fanning out over PROCESSES would under-count. "
+                "Every wrapper arm in this roster fans out over threads, so the tally is complete for them."
+            )
+            return counter.total
+        if declared is not None:
+            provenance["n_model_fits_source"] = FITS_SOURCE_DECLARED
+            return int(declared)
+        provenance["n_model_fits_source"] = FITS_SOURCE_NOT_MEASURED
+        provenance["n_model_fits_reason"] = "no estimator class could be instrumented and the adapter declares no count: this cell's cost is UNMEASURED, not zero"
+        return None
 
 
 # ------------------------------------------------------------------------------------------------- P0 baselines / controls
@@ -716,6 +873,10 @@ def build_arm_roster(n_features: int, *, k: Optional[int] = None, random_state: 
 
 __all__ = [
     "ACEArm",
+    "FITS_SOURCE_COUNTED",
+    "FITS_SOURCE_DECLARED",
+    "FITS_SOURCE_NOT_MEASURED",
+    "FitCounter",
     "AllFeaturesArm",
     "BaseArm",
     "BorutaArm",

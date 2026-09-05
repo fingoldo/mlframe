@@ -185,8 +185,9 @@ def make_latent_reflections(
     - homoscedastic equal loadings -> S1 (mean is the MLE / BLUE);
     - heterogeneous ``loadings`` -> S2 (PCA wins);
     - heterogeneous ``noise_sd`` -> S3 (inverse-variance / factor-score win);
-    - ``distinct_sd>0`` adds a per-reflection distinct signal delta_i that also drives y -> S4
-      (aggregation destroys delta -> the unidimensionality gate / supervised gate must protect);
+    - ``distinct_sd>0`` adds a per-reflection distinct signal delta_i that also drives y through
+      ALTERNATING, UNEQUAL weights -> S4 (aggregation destroys delta -> the unidimensionality gate /
+      supervised gate must protect); ``info["delta_weights"]`` reports those weights;
     - ``shared_noise>0`` makes the reflection noise CORRELATED -> S5 (averaging can't denoise -> reject).
 
     Returns ``(X, y, info)`` with ``info = {"reflections": [0..k-1], "indep": k, "z": z_true}``.
@@ -196,20 +197,29 @@ def make_latent_reflections(
     z = rng.normal(size=n)
     eps_shared = rng.normal(size=n)
     refl_cols = []
+    deltas = []
     for i in range(k):
         eps = noise_sd[i] * ((1.0 - shared_noise) * rng.normal(size=n) + shared_noise * eps_shared)
         col = loadings[i] * z + eps
         if distinct_sd > 0:
-            col = col + distinct_sd * rng.normal(size=n)  # delta_i carried into the column
+            delta = distinct_sd * rng.normal(size=n)  # delta_i carried into the column
+            deltas.append(delta)
+            col = col + delta
         refl_cols.append(col)
     indep = rng.normal(size=n)
     score = z + indep_weight * indep
+    delta_weights = np.zeros(k)
     if distinct_sd > 0:
-        # delta_i also drives y so averaging it away costs predictive info (the dangerous S4 case).
-        score = score + distinct_sd * sum((c - loadings[i] * z) for i, c in enumerate(refl_cols))
+        # The deltas must enter y with ALTERNATING, UNEQUAL weights. Under EQUAL weights the target term is
+        # proportional to sum(delta_i), which the cluster MEAN reproduces exactly -- so aggregation would cost
+        # nothing (measured: 0.0000/-0.0007 AUC across seeds) and the "aggregation destroys delta" premise of S4
+        # would be false. Alternating signs make the mean cancel the deltas instead of preserving them; the
+        # decreasing magnitudes stop any single reflection from standing in for the whole set.
+        delta_weights = np.linspace(1.6, 0.7, k) * np.where(np.arange(k) % 2 == 0, 1.0, -1.0)
+        score = score + np.column_stack(deltas) @ delta_weights
     y = (score > np.median(score)).astype(np.int64)
     X = np.column_stack(refl_cols + [indep] + [rng.normal(size=n) for _ in range(n_noise)])
-    info = {"reflections": list(range(k)), "indep": k, "z": z}
+    info = {"reflections": list(range(k)), "indep": k, "z": z, "delta_weights": delta_weights}
     return X, y, info
 
 

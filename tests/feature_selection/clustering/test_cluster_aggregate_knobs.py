@@ -15,7 +15,7 @@ membership / recipe content / appended-count, never source inspection.
 
 Calibration (measured 2026-06-10, n=4000, nb=8, seed=42): member relevances x0=0.281, x1=0.254,
 x2=0.215, x3=0.190, x4=0.148, x5=0.103; homogeneous cluster PC1 var-ratio 0.671; a distinct_sd=0.9
-heterogeneous cluster var-ratio 0.491 (so tau=0.99 rejects, tau=0.0 appends). All floors here are exact
+heterogeneous cluster var-ratio 0.491 (so tau=0.99 rejects it at discovery, tau=0.0 accepts it). All floors here are exact
 structural facts (membership / lengths / counts), not noisy magnitudes, so they need no margin.
 """
 
@@ -237,9 +237,18 @@ def test_min_member_relevance_drops_weakest_member():
 
 def test_homogeneity_tau_gate_direction_on_heterogeneous_cluster():
     """``distinct_sd=0.9`` injects a per-reflection distinct signal -> the cluster is multi-factor, its
-    PC1 variance-ratio drops to ~0.49 (measured). The unidimensionality gate is then DIRECTIONAL: a
-    strict ``homogeneity_tau=0.99`` rejects it (no aggregate appended), while a permissive ``tau=0.0``
-    accepts and appends. Pins both directions so the gate sense can't silently invert."""
+    PC1 variance-ratio drops (measured ~0.49). The unidimensionality gate is DIRECTIONAL at DISCOVERY: a
+    strict ``homogeneity_tau=0.99`` rejects the cluster, a permissive ``tau=0.0`` accepts it. Pins both
+    directions so the gate sense can't silently invert.
+
+    Appending is a SEPARATE, downstream decision: even under ``tau=0.0`` nothing is appended here, because
+    the supervised MI gate finds no gain -- the per-reflection deltas drive ``y`` through alternating
+    unequal weights, so every aggregate (mean_z, pca_pc1) averages them away. That is the S4 contract
+    working, not a regression: on this fixture a holdout LogReg loses 0.20-0.21 AUC (seeds 7/11/42) when
+    the cluster is replaced by its mean, while the same call on the HOMOGENEOUS fixture does append
+    (``pca_pc1``, mi_gain 0.056). The earlier "permissive tau -> aggregate appended" assertion held only
+    because the generator's deltas used to enter ``y`` with EQUAL weights, which the mean reproduces
+    exactly (aggregation then cost 0.0000 AUC); it conflated the tau knob with the MI gate."""
     Xh, _yh, _infoh, datah, colsh, nbinsh, tih, nbh = _build(distinct_sd=0.9, seed=11)
 
     strict = _discover(datah, colsh, nbinsh, Xh, tih, homogeneity_tau=0.99)
@@ -250,7 +259,11 @@ def test_homogeneity_tau_gate_direction_on_heterogeneous_cluster():
     n_strict, _, rec_strict = _run(datah, colsh, nbinsh, Xh, tih, nbh, methods=("mean_z", "pca_pc1"), homogeneity_tau=0.99)
     n_perm, _, rec_perm = _run(datah, colsh, nbinsh, Xh, tih, nbh, methods=("mean_z", "pca_pc1"), homogeneity_tau=0.0)
     assert n_strict == 0 and not rec_strict, "strict tau -> no aggregate appended"
-    assert n_perm >= 1 and rec_perm, "permissive tau -> aggregate appended"
+    assert n_perm == 0 and not rec_perm, "no aggregate may be appended on S4: averaging destroys the private deltas"
+
+    X0, _y0, _info0, data0, cols0, nbins0, ti0, nb0 = _build()
+    n_homog, _, rec_homog = _run(data0, cols0, nbins0, X0, ti0, nb0, methods=("mean_z", "pca_pc1"), homogeneity_tau=0.0)
+    assert n_homog >= 1 and rec_homog, "the same permissive call must still append on a genuinely unidimensional cluster"
 
 
 # ---------------------------------------------------------------------------

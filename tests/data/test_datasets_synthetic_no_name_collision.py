@@ -31,11 +31,19 @@ def test_datasets_and_synthetic_star_surfaces_do_not_collide():
 
 
 def test_datasets_declares_a_literal_all():
-    """vulture only honours a literal list/tuple of string constants; anything else flags the re-exports as unused."""
+    """vulture only honours a literal list/tuple of string constants; anything else flags the re-exports as unused.
+
+    The legacy loader names must remain exported, because callers import them from here. This deliberately does
+    NOT pin the exact set: an earlier version did, and that turned a guard about SHAPE into a snapshot of
+    CONTENT, so the package could not gain a public name without editing a test that has no opinion on which
+    names exist. What this file is actually for -- literal form, and no collision with `synthetic` -- is
+    unaffected by the surface growing.
+    """
 
     assert isinstance(datasets.__all__, list)
     assert all(isinstance(name, str) for name in datasets.__all__)
-    assert set(datasets.__all__) == {"get_sapp_dataset", "indicator", "showcase_pycaret_datasets"}
+    assert {"get_sapp_dataset", "indicator", "showcase_pycaret_datasets"} <= set(datasets.__all__)
+    assert len(set(datasets.__all__)) == len(datasets.__all__), "duplicate name in __all__"
 
 
 def test_data_package_exports_no_module_objects():

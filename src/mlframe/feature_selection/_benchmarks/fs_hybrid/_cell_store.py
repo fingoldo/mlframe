@@ -50,8 +50,23 @@ class JsonlCellStore:
                 yield obj
 
     def load(self) -> List[Dict[str, Any]]:
-        """Return every well-formed record as a list."""
-        return list(self.iter_records())
+        """Return one record per cell, last write winning.
+
+        The file is append-only, so a retried cell appears twice -- once failed, once succeeded. Returning
+        both would let a cell be counted twice by anything that aggregates over records: reliability would
+        read 20 of 28 instead of 20 of 20, charging an arm for a failure that was subsequently fixed.
+        """
+        latest: Dict[str, Dict[str, Any]] = {}
+        ordered: List[Dict[str, Any]] = []
+        for rec in self.iter_records():
+            key = rec.get("cell_key")
+            if not isinstance(key, str):
+                ordered.append(rec)
+                continue
+            if key not in latest:
+                ordered.append(rec)
+            latest[key] = rec
+        return [latest.get(str(r.get("cell_key")), r) for r in ordered]
 
     def completed_keys(self, statuses: Optional[Set[str]] = None) -> Set[str]:
         """Return the `cell_key`s already present, restricted to `statuses` when given.
