@@ -512,7 +512,17 @@ def local_density_features(
     dist_iqr = q75 - q25
     # d-dim ball volume up to constant: density = k / r^d (drop the
     # pi/Gamma constant; it's the same for every row -> meaningless to ML).
-    local_density = float(k) / (dist_to_kth**d + 1e-12)
+    # The denominator is clamped, not padded. An additive `+ 1e-12` is an ABSOLUTE floor under a quantity whose
+    # scale is arbitrary: r^d falls off geometrically in d, so at d=8 and r=0.01 the true 1e17 came back as
+    # 9.999e12 -- every dense row saturating onto the same value and the feature losing all variation exactly
+    # where it carries the most signal. Clamping to the smallest positive normal instead engages only once r^d
+    # has genuinely underflowed (duplicate points, or coordinates that were non-finite and got mapped to the
+    # origin above), and leaves every representable denominator untouched. Such a row's density is unbounded in
+    # this model, so it saturates at the largest finite double rather than becoming an `inf` that no downstream
+    # estimator accepts -- still the largest value in the column, which is what it should be.
+    _finfo = np.finfo(np.float64)
+    _rd = np.asarray(dist_to_kth, dtype=np.float64) ** d
+    local_density = np.minimum(float(k) / np.maximum(_rd, _finfo.tiny), _finfo.max)
     return {
         "dist_to_kth": dist_to_kth,
         "dist_median": dist_median,
