@@ -112,7 +112,12 @@ def compute_fisher_weighted_residual_features(
         # amortizes LightGBM per-call overhead. Gated on stack size to bound peak RAM.
         stack_elems = d * n * d
         if stack_elems <= _MAX_STACK_ELEMS and d > 1:
-            stack = np.broadcast_to(X, (d, n, d)).reshape(d * n, d).copy()
+            # No `.copy()`. `broadcast_to` gives a zero-stride view, and reshaping a non-contiguous broadcast
+            # view cannot itself be a view -- numpy has already allocated a full, writeable, independent
+            # (d*n, d) array by this point (verified: it shares no memory with X and is writeable). Copying it
+            # again allocated a second one, so the transient peak was twice what `_MAX_STACK_ELEMS` budgets:
+            # 1.02 GB rather than 512 MB at the cap, before `predict_proba`'s own (d*n, n_classes) output.
+            stack = np.broadcast_to(X, (d, n, d)).reshape(d * n, d)
             block_starts = np.arange(d) * n
             for j in range(d):
                 stack[block_starts[j] : block_starts[j] + n, j] += eps

@@ -1243,196 +1243,210 @@ def check_prospective_fe_pairs(
                 if _ex0 is not None:
                     _ex0.shutdown(wait=False)
 
-    # Sweep-wide leader for the live "pair" bar postfix: the best engineered MI found
-    # so far across ALL pairs in this FE step + the feature that produced it. Both are
-    # already computed per pair (``best_mi`` / ``best_config``) - display-only, no extra
-    # MI work. Starts blank so the no-candidate / NaN edge case renders gracefully.
-    _sweep_best_mi = -1.0
-    _sweep_best_name = None
+    # The executor and the double chunk buffer are torn down in a `finally`. They used to be created here
+    # and shut down ~200 lines later at the end of the sweep, with nothing covering the span: any exception
+    # in the pair loop -- a cupy OutOfMemoryError, a kernel launch failure, a KeyboardInterrupt -- skipped the
+    # shutdown. ThreadPoolExecutor registers its worker with threading._register_atexit, so the thread
+    # survived to interpreter exit, and a still-pending future kept the shared buffers alive with it: at a
+    # 2M-row chunk over 40 operands that is 640 MB per buffer, 1.28 GB for the pair, retained for the rest
+    # of the process.
+    try:
 
-    # PER-CALL HOISTS (env-var gate + op-code table + MI tie-band): all three are invariant across
-    # the WHOLE pair loop below (the env var never changes mid-call, the op-code table depends only
-    # on ``binary_transformations``, and the tie-band depends only on quantization_nbins/classes_y/
-    # freqs_y) - computing them once here instead of once per pair (or, for the op-code table, once
-    # per tied-leader inside the emit tail) avoids millions of redundant env reads / dict rebuilds /
-    # float divisions over a wide fit with no behaviour change (every downstream site consumed the
-    # exact same values before this hoist). ``_op_code_arr_all`` is the UNGATED table (feeds the
-    # external-validation njit materialise in the emit tail, which was never gated by the GPU-
-    # materialise escape hatch); ``_op_code_arr`` additionally applies that gate (feeds the per-pair /
-    # per-chunk GPU-fused materialise attempt, which WAS gated) - both derive from one table build.
-    _gpu_mat_on = os.environ.get("MLFRAME_FE_GPU_MATERIALISE", "1").strip().lower() not in ("0", "false", "no", "off")
-    _op_code_arr_all = _njit_binary_op_codes(binary_transformations)
-    _op_code_arr = _op_code_arr_all if _gpu_mat_on else None
-    _mi_band = mi_tie_band(int(quantization_nbins), len(classes_y), int(np.asarray(freqs_y).shape[0]))
-    # Same rationale, for the noise-gate dispatcher's own CUDA-opt-out / resident-gate env reads (it runs
-    # once per pair AND once per chunk AND once per ext-val tied-leader-set - see resolve_fe_dispatch_env_gate).
-    _fe_env_gate = resolve_fe_dispatch_env_gate()
+        # Sweep-wide leader for the live "pair" bar postfix: the best engineered MI found
+        # so far across ALL pairs in this FE step + the feature that produced it. Both are
+        # already computed per pair (``best_mi`` / ``best_config``) - display-only, no extra
+        # MI work. Starts blank so the no-candidate / NaN edge case renders gracefully.
+        _sweep_best_mi = -1.0
+        _sweep_best_name = None
 
-    # For every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM). Record best pairs.
-    for (
-        raw_vars_pair,
-        pair_mi,
-    ), _uplift in (
-        pair_pbar := tqdmu(prospective_pairs.items(), desc="pair", leave=False, disable=not verbose)
-    ):  # better to start considering form the most prospective pairs with highest mis ratio!
+        # PER-CALL HOISTS (env-var gate + op-code table + MI tie-band): all three are invariant across
+        # the WHOLE pair loop below (the env var never changes mid-call, the op-code table depends only
+        # on ``binary_transformations``, and the tie-band depends only on quantization_nbins/classes_y/
+        # freqs_y) - computing them once here instead of once per pair (or, for the op-code table, once
+        # per tied-leader inside the emit tail) avoids millions of redundant env reads / dict rebuilds /
+        # float divisions over a wide fit with no behaviour change (every downstream site consumed the
+        # exact same values before this hoist). ``_op_code_arr_all`` is the UNGATED table (feeds the
+        # external-validation njit materialise in the emit tail, which was never gated by the GPU-
+        # materialise escape hatch); ``_op_code_arr`` additionally applies that gate (feeds the per-pair /
+        # per-chunk GPU-fused materialise attempt, which WAS gated) - both derive from one table build.
+        _gpu_mat_on = os.environ.get("MLFRAME_FE_GPU_MATERIALISE", "1").strip().lower() not in ("0", "false", "no", "off")
+        _op_code_arr_all = _njit_binary_op_codes(binary_transformations)
+        _op_code_arr = _op_code_arr_all if _gpu_mat_on else None
+        _mi_band = mi_tie_band(int(quantization_nbins), len(classes_y), int(np.asarray(freqs_y).shape[0]))
+        # Same rationale, for the noise-gate dispatcher's own CUDA-opt-out / resident-gate env reads (it runs
+        # once per pair AND once per chunk AND once per ext-val tied-leader-set - see resolve_fe_dispatch_env_gate).
+        _fe_env_gate = resolve_fe_dispatch_env_gate()
 
-        _pair_res_entry, best_config, best_mi = _score_one_pair(
-            raw_vars_pair=raw_vars_pair,
-            pair_mi=pair_mi,
-            chunk_state=_chunk_state,
-            rejection_records=_rejection_records,
-            rejection_ledger_out=rejection_ledger_out,
-            X=X,
-            transformed_vars=transformed_vars,
-            vars_transformations=vars_transformations,
-            binary_transformations=binary_transformations,
-            unary_transformations=unary_transformations,
-            pair_combs=pair_combs,
-            final_transformed_vals_shared=final_transformed_vals_shared,
-            _need_recompute_map=_need_recompute_map,
-            _chunk_global_batch=_chunk_global_batch,
-            _chunk_buffer=_chunk_buffer,
-            _pair_to_chunk=_pair_to_chunk,
-            _fe_chunks=_fe_chunks,
-            _pair_valid_combs=_pair_valid_combs,
-            _fe_defer_float=_fe_defer_float,
-            _gpu_mat_on=_gpu_mat_on,
-            _op_code_arr=_op_code_arr,
-            _op_code_arr_all=_op_code_arr_all,
-            _mi_band=_mi_band,
-            _fe_env_gate=_fe_env_gate,
-            classes_y=classes_y,
-            classes_y_safe=classes_y_safe,
-            freqs_y=freqs_y,
-            fe_npermutations=fe_npermutations,
-            fe_min_nonzero_confidence=fe_min_nonzero_confidence,
-            quantization_nbins=quantization_nbins,
-            quantization_method=quantization_method,
-            quantization_dtype=quantization_dtype,
-            num_fs_steps=num_fs_steps,
-            fe_min_engineered_mi_prevalence=fe_min_engineered_mi_prevalence,
-            fe_good_to_best_feature_mi_threshold=fe_good_to_best_feature_mi_threshold,
-            fe_max_external_validation_factors=fe_max_external_validation_factors,
-            numeric_vars_to_consider=numeric_vars_to_consider,
-            fe_max_steps=fe_max_steps,
-            fe_print_best_mis_only=fe_print_best_mis_only,
-            fe_mm_debias_prevalence=fe_mm_debias_prevalence,
-            _prewarp_active=_prewarp_active,
-            prewarp_uplift_threshold=prewarp_uplift_threshold,
-            _PREWARP_UNARY=_PREWARP_UNARY,
-            _corr_y_cont=_corr_y_cont,
-            _corr_y_cont_finite=_corr_y_cont_finite,
-            _NOISE_WRAP_CORR_COLLAPSE_FRAC=_NOISE_WRAP_CORR_COLLAPSE_FRAC,
-            _NOISE_WRAP_MIN_OPERAND_CORR=_NOISE_WRAP_MIN_OPERAND_CORR,
-            fe_multi_emit_max_per_pair=fe_multi_emit_max_per_pair,
-            fe_multi_emit_mi_floor=fe_multi_emit_mi_floor,
-            fe_multi_emit_diversity_corr=fe_multi_emit_diversity_corr,
-            fe_pair_usability_admission_enable=fe_pair_usability_admission_enable,
-            fe_pair_usability_admission_min_corr=fe_pair_usability_admission_min_corr,
-            fe_pair_usability_admission_pairness_margin=fe_pair_usability_admission_pairness_margin,
-            cols=cols,
-            original_cols=original_cols,
-            _use_subsample=_use_subsample,
-            _X_full=_X_full,
-            _full_n_rows=_full_n_rows,
-            _prewarp_spec_by_var=_prewarp_spec_by_var,
-            _gate_med_median_by_var=_gate_med_median_by_var,
-            engineered_operand_values=engineered_operand_values,
-            _rng_extval=_rng_extval,
-            _n_workers=_n_workers,
-            times_spent=times_spent,
-            verbose=verbose,
-            serial_main_thread=serial_main_thread,
-            _extval_raw_col=_extval_raw_col,
-            _safe_abs_corr=_safe_abs_corr,
-            _raw_operand_abs_corr=_raw_operand_abs_corr,
-            _transformed_operand_abs_corr=_transformed_operand_abs_corr,
-            _operand_marginal_mi=_operand_marginal_mi,
-            _operand_discretized=_operand_discretized,
-            batch_mi_with_noise_gate=batch_mi_with_noise_gate,
-            use_su_normalization=use_su_normalization,
-            discretize_array=discretize_array,
-            discretize_2d_quantile_batch=discretize_2d_quantile_batch,
-            mi_direct=mi_direct,
-            get_new_feature_name=get_new_feature_name,
-            _rebuild_full_survivor_col=_rebuild_full_survivor_col,
-            _can_hoist_shared_buffer=_can_hoist_shared_buffer,
-            _fe_gpu_discretize_enabled=_fe_gpu_discretize_enabled,
-        )
-        if _pair_res_entry is not None:
-            res[raw_vars_pair] = _pair_res_entry
-        elif best_config is None:
-            # A pair that produced NO candidate at all leaves no trace otherwise: the rejection ledger only
-            # records candidates that were built and then failed a gate, so a pair whose operator search
-            # emits nothing is invisible in the fitted object and can only be found by instrumenting the
-            # search by hand. That is the exact shape behind the open FE-recovery findings in this audit -
-            # the (c,d) and (x0,x1) pairs each carry the signal, are eligible, and never appear anywhere.
-            try:
-                _barren = {
-                    "gate": "pair_candidate_generation",
-                    "candidate": f"({cols[raw_vars_pair[0]]},{cols[raw_vars_pair[1]]})",
-                    "operands": tuple(cols[i] for i in raw_vars_pair),
-                    "operator": "",
-                    "observed": float(pair_mi) if pair_mi is not None else float("nan"),
-                    "threshold": float("nan"),
-                    "reason": "no candidate produced for this pair",
-                }
-                _rejection_records.append(_barren)
-                if rejection_ledger_out is not None:
-                    rejection_ledger_out.append(_barren)
-            except Exception as e:  # nosec B110 - instrumentation must never break the FE search
-                logger.debug("barren-pair ledger record failed: %s", e)
+        # For every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM). Record best pairs.
+        for (
+            raw_vars_pair,
+            pair_mi,
+        ), _uplift in (
+            pair_pbar := tqdmu(prospective_pairs.items(), desc="pair", leave=False, disable=not verbose)
+        ):  # better to start considering form the most prospective pairs with highest mis ratio!
 
-        # Live progress: surface the best engineered feature found so far in this sweep
-        # (its MI with y) plus the pair just evaluated, on the "pair" bar. ``best_mi`` /
-        # ``best_config`` are already computed for this pair - no extra MI compute. Robust
-        # to the no-config / NaN edge cases (we only adopt a finite, improving best_mi).
-        if verbose:
-            try:
-                _bm = float(best_mi)
-                if best_config is not None and np.isfinite(_bm) and _bm > _sweep_best_mi:
-                    _sweep_best_mi = _bm
-                    _sweep_best_name = get_new_feature_name(fe_tuple=best_config, cols_names=cols)
-                _cur_pair = f"{cols[raw_vars_pair[0]]},{cols[raw_vars_pair[1]]}"
-                _pf = {"pair": _short_fe_name(_cur_pair, 22)}
-                if _sweep_best_name is not None:
-                    _pf["best"] = f"{_short_fe_name(_sweep_best_name)}={_sweep_best_mi:.4f}"
-                pair_pbar.set_postfix(_pf, refresh=False)
-            except (TypeError, ValueError, IndexError):
-                pass
+            _pair_res_entry, best_config, best_mi = _score_one_pair(
+                raw_vars_pair=raw_vars_pair,
+                pair_mi=pair_mi,
+                chunk_state=_chunk_state,
+                rejection_records=_rejection_records,
+                rejection_ledger_out=rejection_ledger_out,
+                X=X,
+                transformed_vars=transformed_vars,
+                vars_transformations=vars_transformations,
+                binary_transformations=binary_transformations,
+                unary_transformations=unary_transformations,
+                pair_combs=pair_combs,
+                final_transformed_vals_shared=final_transformed_vals_shared,
+                _need_recompute_map=_need_recompute_map,
+                _chunk_global_batch=_chunk_global_batch,
+                _chunk_buffer=_chunk_buffer,
+                _pair_to_chunk=_pair_to_chunk,
+                _fe_chunks=_fe_chunks,
+                _pair_valid_combs=_pair_valid_combs,
+                _fe_defer_float=_fe_defer_float,
+                _gpu_mat_on=_gpu_mat_on,
+                _op_code_arr=_op_code_arr,
+                _op_code_arr_all=_op_code_arr_all,
+                _mi_band=_mi_band,
+                _fe_env_gate=_fe_env_gate,
+                classes_y=classes_y,
+                classes_y_safe=classes_y_safe,
+                freqs_y=freqs_y,
+                fe_npermutations=fe_npermutations,
+                fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+                quantization_nbins=quantization_nbins,
+                quantization_method=quantization_method,
+                quantization_dtype=quantization_dtype,
+                num_fs_steps=num_fs_steps,
+                fe_min_engineered_mi_prevalence=fe_min_engineered_mi_prevalence,
+                fe_good_to_best_feature_mi_threshold=fe_good_to_best_feature_mi_threshold,
+                fe_max_external_validation_factors=fe_max_external_validation_factors,
+                numeric_vars_to_consider=numeric_vars_to_consider,
+                fe_max_steps=fe_max_steps,
+                fe_print_best_mis_only=fe_print_best_mis_only,
+                fe_mm_debias_prevalence=fe_mm_debias_prevalence,
+                _prewarp_active=_prewarp_active,
+                prewarp_uplift_threshold=prewarp_uplift_threshold,
+                _PREWARP_UNARY=_PREWARP_UNARY,
+                _corr_y_cont=_corr_y_cont,
+                _corr_y_cont_finite=_corr_y_cont_finite,
+                _NOISE_WRAP_CORR_COLLAPSE_FRAC=_NOISE_WRAP_CORR_COLLAPSE_FRAC,
+                _NOISE_WRAP_MIN_OPERAND_CORR=_NOISE_WRAP_MIN_OPERAND_CORR,
+                fe_multi_emit_max_per_pair=fe_multi_emit_max_per_pair,
+                fe_multi_emit_mi_floor=fe_multi_emit_mi_floor,
+                fe_multi_emit_diversity_corr=fe_multi_emit_diversity_corr,
+                fe_pair_usability_admission_enable=fe_pair_usability_admission_enable,
+                fe_pair_usability_admission_min_corr=fe_pair_usability_admission_min_corr,
+                fe_pair_usability_admission_pairness_margin=fe_pair_usability_admission_pairness_margin,
+                cols=cols,
+                original_cols=original_cols,
+                _use_subsample=_use_subsample,
+                _X_full=_X_full,
+                _full_n_rows=_full_n_rows,
+                _prewarp_spec_by_var=_prewarp_spec_by_var,
+                _gate_med_median_by_var=_gate_med_median_by_var,
+                engineered_operand_values=engineered_operand_values,
+                _rng_extval=_rng_extval,
+                _n_workers=_n_workers,
+                times_spent=times_spent,
+                verbose=verbose,
+                serial_main_thread=serial_main_thread,
+                _extval_raw_col=_extval_raw_col,
+                _safe_abs_corr=_safe_abs_corr,
+                _raw_operand_abs_corr=_raw_operand_abs_corr,
+                _transformed_operand_abs_corr=_transformed_operand_abs_corr,
+                _operand_marginal_mi=_operand_marginal_mi,
+                _operand_discretized=_operand_discretized,
+                batch_mi_with_noise_gate=batch_mi_with_noise_gate,
+                use_su_normalization=use_su_normalization,
+                discretize_array=discretize_array,
+                discretize_2d_quantile_batch=discretize_2d_quantile_batch,
+                mi_direct=mi_direct,
+                get_new_feature_name=get_new_feature_name,
+                _rebuild_full_survivor_col=_rebuild_full_survivor_col,
+                _can_hoist_shared_buffer=_can_hoist_shared_buffer,
+                _fe_gpu_discretize_enabled=_fe_gpu_discretize_enabled,
+            )
+            if _pair_res_entry is not None:
+                res[raw_vars_pair] = _pair_res_entry
+            elif best_config is None:
+                # A pair that produced NO candidate at all leaves no trace otherwise: the rejection ledger only
+                # records candidates that were built and then failed a gate, so a pair whose operator search
+                # emits nothing is invisible in the fitted object and can only be found by instrumenting the
+                # search by hand. That is the exact shape behind the open FE-recovery findings in this audit -
+                # the (c,d) and (x0,x1) pairs each carry the signal, are eligible, and never appear anywhere.
+                try:
+                    _barren = {
+                        "gate": "pair_candidate_generation",
+                        "candidate": f"({cols[raw_vars_pair[0]]},{cols[raw_vars_pair[1]]})",
+                        "operands": tuple(cols[i] for i in raw_vars_pair),
+                        "operator": "",
+                        "observed": float(pair_mi) if pair_mi is not None else float("nan"),
+                        "threshold": float("nan"),
+                        "reason": "no candidate produced for this pair",
+                    }
+                    _rejection_records.append(_barren)
+                    if rejection_ledger_out is not None:
+                        rejection_ledger_out.append(_barren)
+                except Exception as e:  # nosec B110 - instrumentation must never break the FE search
+                    logger.debug("barren-pair ledger record failed: %s", e)
 
-    # Surface the fitted per-operand pre-warp specs (keyed by cols-space var
-    # index) so the caller (``_mrmr_fe_step``) can persist them in each survivor
-    # recipe for leak-safe replay. Only the non-None specs that were actually
-    # fitted are exported. We populate BOTH the optional ``prewarp_specs_out``
-    # side-channel (works for the in-process serial path) AND a reserved key in
-    # the returned ``res`` (survives the loky-parallel path where the side
-    # channel dict cannot be mutated cross-process; the caller merges per-chunk
-    # results). The reserved key is a private 3-tuple that can never collide with
-    # a real ``raw_vars_pair`` (which is always length 2).
-    _fitted_specs = {_v: _s for _v, _s in _prewarp_spec_by_var.items() if _s is not None}
-    if _fitted_specs:
-        if prewarp_specs_out is not None:
-            prewarp_specs_out.update(_fitted_specs)
-        res[_PREWARP_SPECS_RESULT_KEY] = _fitted_specs
+            # Live progress: surface the best engineered feature found so far in this sweep
+            # (its MI with y) plus the pair just evaluated, on the "pair" bar. ``best_mi`` /
+            # ``best_config`` are already computed for this pair - no extra MI compute. Robust
+            # to the no-config / NaN edge cases (we only adopt a finite, improving best_mi).
+            if verbose:
+                try:
+                    _bm = float(best_mi)
+                    if best_config is not None and np.isfinite(_bm) and _bm > _sweep_best_mi:
+                        _sweep_best_mi = _bm
+                        _sweep_best_name = get_new_feature_name(fe_tuple=best_config, cols_names=cols)
+                    _cur_pair = f"{cols[raw_vars_pair[0]]},{cols[raw_vars_pair[1]]}"
+                    _pf = {"pair": _short_fe_name(_cur_pair, 22)}
+                    if _sweep_best_name is not None:
+                        _pf["best"] = f"{_short_fe_name(_sweep_best_name)}={_sweep_best_mi:.4f}"
+                    pair_pbar.set_postfix(_pf, refresh=False)
+                except (TypeError, ValueError, IndexError):
+                    pass
 
-    # Same dual-channel export for the fitted per-operand TRAIN medians so the
-    # caller can persist them in each survivor recipe for leak-safe replay. The
-    # value is a single float per cols-space var index.
-    _fitted_medians = {_v: float(_m) for _v, _m in _gate_med_median_by_var.items()}
-    if _fitted_medians:
-        if gate_med_specs_out is not None:
-            gate_med_specs_out.update(_fitted_medians)
-        res[_GATE_MED_SPECS_RESULT_KEY] = _fitted_medians
+        # Surface the fitted per-operand pre-warp specs (keyed by cols-space var
+        # index) so the caller (``_mrmr_fe_step``) can persist them in each survivor
+        # recipe for leak-safe replay. Only the non-None specs that were actually
+        # fitted are exported. We populate BOTH the optional ``prewarp_specs_out``
+        # side-channel (works for the in-process serial path) AND a reserved key in
+        # the returned ``res`` (survives the loky-parallel path where the side
+        # channel dict cannot be mutated cross-process; the caller merges per-chunk
+        # results). The reserved key is a private 3-tuple that can never collide with
+        # a real ``raw_vars_pair`` (which is always length 2).
+        _fitted_specs = {_v: _s for _v, _s in _prewarp_spec_by_var.items() if _s is not None}
+        if _fitted_specs:
+            if prewarp_specs_out is not None:
+                prewarp_specs_out.update(_fitted_specs)
+            res[_PREWARP_SPECS_RESULT_KEY] = _fitted_specs
 
-    # REJECTION LEDGER export via the reserved result key (survives the loky-parallel path).
-    if _rejection_records:
-        res[_FE_REJECTION_RESULT_KEY] = _rejection_records
+        # Same dual-channel export for the fitted per-operand TRAIN medians so the
+        # caller can persist them in each survivor recipe for leak-safe replay. The
+        # value is a single float per cols-space var index.
+        _fitted_medians = {_v: float(_m) for _v, _m in _gate_med_median_by_var.items()}
+        if _fitted_medians:
+            if gate_med_specs_out is not None:
+                gate_med_specs_out.update(_fitted_medians)
+            res[_GATE_MED_SPECS_RESULT_KEY] = _fitted_medians
 
-    # Tear down the chunk-pipeline executor (all futures resolved by the pair loop; an unconsumed prefetch
-    # - e.g. an early exit - is awaited by shutdown so the worker never outlives the shared buffers).
-    _pl_ex = _chunk_state.pop("pipeline_ex", None)
-    if _pl_ex is not None:
-        _pl_ex.shutdown(wait=True)
+        # REJECTION LEDGER export via the reserved result key (survives the loky-parallel path).
+        if _rejection_records:
+            res[_FE_REJECTION_RESULT_KEY] = _rejection_records
+
+        # Tear down the chunk-pipeline executor (all futures resolved by the pair loop; an unconsumed prefetch
+        # - e.g. an early exit - is awaited by shutdown so the worker never outlives the shared buffers).
+    finally:
+        # All futures are resolved by the pair loop in the normal case; an unconsumed prefetch -- an early
+        # exit, or an exception -- is awaited here so the worker never outlives the buffers it holds.
+        _pl_ex = _chunk_state.pop("pipeline_ex", None)
+        if _pl_ex is not None:
+            _pl_ex.shutdown(wait=True)
+        _chunk_state.pop("pipeline_buffers", None)
+        _chunk_state.pop("pipeline_futures", None)
 
     return res
