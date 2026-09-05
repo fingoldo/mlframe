@@ -45,7 +45,7 @@ Status starts at TODO for all.
 | VG-01 | P1 | `tests/reporting/test_metric_over_time_direction.py:51 (and :59)` | metric-over-time-direction-tests-assert-nothing | RESOLVED (fixture now fills buckets, assertions unconditional; also found rmse/mae were unsupported by the per-bucket dispatcher so the panel could never render) |
 | VG-02 | P1 | `tests/training/test_dataset_cache_fingerprint.py:239 (and :256)` | cache-key-id-scan-reads-only-the-call-header-line | RESOLVED (AST walk of the key= call arguments replaces the physical-line scan; verified catching an id() argument on a continuation line) |
 | VG-03 | P1 | `tests/test_meta/test_enum_exhaustiveness.py:83-96 (skip at :113)` | enum-exhaustiveness-police-has-a-hardcoded-module-allowlist | TODO |
-| VG-04 | P1 | `tests/training/composite/discovery/test_composite_discovery_parallel.py:239` | wilcoxon-serial-vs-parallel-equivalence-is-empty-vs-empty | TODO |
+| VG-04 | P1 | `tests/training/composite/discovery/test_composite_discovery_parallel.py:239` | wilcoxon-serial-vs-parallel-equivalence-is-empty-vs-empty | RESOLVED (root cause was wider: `enabled` defaults to False and neither fixture set it, so `fit` was a no-op and the whole file compared empty against empty) |
 | XGD-04 | P1 | `calibration/_ktc_dispatch.py:101 and inference/_ktc_dispatch.py:52` | ktc-tuner-times-gpu-resident-but-production-pays-h2d | RESOLVED |
 | XGD-05 | P1 | `metrics/_gpu_metrics.py:432` | batch-rmse-gpu-returns-float64-cpu-returns-float32 | RESOLVED |
 | XMC-03 | P1 | ``src/mlframe/feature_engineering/transformer/_key_bank.py:123`` | key-bank-fingerprint-full-tobytes-copy | RESOLVED |

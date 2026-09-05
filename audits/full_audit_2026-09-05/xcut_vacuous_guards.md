@@ -108,6 +108,18 @@ Wilcoxon path is not taken, both dicts stay empty, the comparison is symmetric, 
 100% vacuous, while being the *only* guard against a serial/parallel numeric divergence.
 
 **Evidence:** Read `src/mlframe/training/composite/discovery/_tiny_rerank.py:505-531`
+
+**RESOLVED, and the cause was one level above the one described.** The per-seed dict was empty because
+``_tiny_model_rerank`` never ran at all: ``CompositeTargetDiscoveryConfig.enabled`` defaults to ``False``
+and neither ``_run`` nor ``_run_rerank`` set it, so ``fit()`` returned immediately and every discovery
+object in the file carried ``specs_ == []``. That makes ``test_kept_specs_match_serial`` vacuous for the
+same reason -- it compared ``[] == []`` -- so the file's serial/parallel equivalence coverage was empty in
+full, not in one test. With ``enabled=True`` the fixture yields 6 specs and 4 per-seed Wilcoxon arrays.
+Both tests now assert non-emptiness before comparing. Making them run also surfaced that the comparison
+reported a divergence for every auto-chain spec, which carries ``mi_t``/``mi_y`` as NaN by construction
+(``_opt_in_steps.py:246``): ``np.isclose`` needs ``equal_nan=True`` there, since NaN on both sides is
+agreement. The serial and parallel values are otherwise bit-identical (measured: 0.000e+00 on every
+finite field).
 (population is per-`kept_specs`, per-family, conditional) and the test body at :234-250. The
 sibling test in the same file at :230 has the same unpinned structure.
 Note the contrast: `tests/training/composite/discovery/test_biz_val_discovery_fit.py:222`
