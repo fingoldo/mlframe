@@ -9,6 +9,7 @@ both the canonical lookup (known answers) and the rendered title direction.
 """
 
 import numpy as np
+import pytest
 
 from mlframe.training.metrics_registry import metric_name_higher_is_better
 from mlframe.reporting.charts.drift import metric_over_time
@@ -26,10 +27,18 @@ def test_loss_metrics_are_lower_is_better_in_canonical_table():
 
 
 def _direction_in_title(metric: str) -> str:
-    """Helper: Direction in title."""
+    """Render the chart and return every panel title, joined.
+
+    The timestamps must give each daily bucket at least ``min_samples`` (100) rows. The previous fixture laid
+    400 rows across 400 distinct days -- one sample each -- so no bucket ever cleared the threshold,
+    ``metric_over_time`` returned its bare-metric-name annotation panel, and the two title assertions below
+    sat behind an `if "over time" in title` that was never true. Both tests ran zero assertions, and an
+    inverted direction label would have shipped green.
+    """
     rng = np.random.default_rng(0)
-    n = 400
-    ts = np.arange(n).astype("datetime64[D]").astype("datetime64[ns]")
+    n_days, per_day = 5, 150
+    n = n_days * per_day
+    ts = np.repeat(np.arange(n_days), per_day).astype("datetime64[D]").astype("datetime64[ns]")
     yt = rng.normal(size=n)
     yp = yt + rng.normal(scale=0.3, size=n)
     hib = metric_name_higher_is_better(metric)
@@ -46,18 +55,33 @@ def _direction_in_title(metric: str) -> str:
 def test_rmse_over_time_title_says_lower_is_better():
     """Rmse over time title says lower is better."""
     title = _direction_in_title("rmse")
-    # Either a populated line panel title or the "no buckets" annotation;
-    # when a line renders it must carry the correct direction.
-    if "over time" in title:
-        assert "lower=better" in title, title
-        assert "higher=better" not in title, title
+    assert "over time" in title, f"the line panel did not render, so the direction was never checked: {title!r}"
+    assert "lower=better" in title, title
+    assert "higher=better" not in title, title
 
 
 def test_roc_auc_over_time_title_says_higher_is_better():
     """Roc auc over time title says higher is better."""
     title = _direction_in_title("roc_auc")
-    if "over time" in title:
-        assert "higher=better" in title, title
+    assert "over time" in title, f"the line panel did not render, so the direction was never checked: {title!r}"
+    assert "higher=better" in title, title
+
+
+def test_the_per_bucket_dispatcher_knows_every_metric_these_titles_claim():
+    """A name the dispatcher rejects fails per bucket, is swallowed, and renders as "no buckets".
+
+    That message is about sample counts, so an unsupported metric name is indistinguishable from a genuinely
+    sparse time axis -- which is what hid `rmse` being uncomputable for as long as it was.
+    """
+    import numpy as np_
+
+    from mlframe.training.evaluation import _compute_metric
+
+    yt = np_.array([1.0, 2.0, 3.0, 4.0])
+    yp = np_.array([1.5, 2.5, 2.5, 4.5])
+    assert _compute_metric("rmse", yt, yp) == pytest.approx(0.5)
+    assert _compute_metric("mae", yt, yp) == pytest.approx(0.5)
+    assert _compute_metric("mse", yt, yp) == pytest.approx(0.25)
 
 
 def _captured_hib_from_dispatch(metric, task, monkeypatch):

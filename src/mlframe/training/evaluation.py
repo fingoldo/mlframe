@@ -613,6 +613,14 @@ def _compute_metric(metric: str, y_true: np.ndarray, y_pred: np.ndarray) -> floa
         return float(fast_brier_score_loss(np.asarray(y_true), y_pred))
     if metric == "mse":
         return float(fast_mean_squared_error(y_true, y_pred))
+    # "rmse" and "mae" reach here from `diagnostics_dispatch`, which passes the caller's own metric name
+    # straight through. Without them every bucket raised, was swallowed by the per-bin except, and the chart
+    # rendered "no buckets with >= min_samples samples" -- a message about sample counts for what was really
+    # an unsupported name. `metric_name_higher_is_better` already knows both.
+    if metric == "rmse":
+        return float(np.sqrt(fast_mean_squared_error(y_true, y_pred)))
+    if metric == "mae":
+        return float(np.mean(np.abs(np.asarray(y_true, dtype=np.float64) - np.asarray(y_pred, dtype=np.float64))))
     raise ValueError(f"Unsupported metric: {metric}")
 
 
