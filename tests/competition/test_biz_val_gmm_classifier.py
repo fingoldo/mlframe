@@ -80,6 +80,17 @@ def _make_non_gmm_data(n: int = 4000, n_features: int = 20, seed: int = 0):
     return train_test_split(X, y, test_size=0.5, random_state=seed, stratify=y)
 
 
+def _gmm_advantage_over_gbm(X_train, X_test, y_train, y_test) -> float:
+    """How much better the GMM classifier scores than a GBM baseline on one fixture (negative when GBM wins)."""
+    clf = GaussianMixtureClassifier(n_components_per_class=2, random_state=0)
+    clf.fit(X_train, y_train)
+    auc_gmm = roc_auc_score(y_test, clf.predict_proba(X_test)[:, 1])
+
+    gbm = GradientBoostingClassifier(random_state=0)
+    gbm.fit(X_train, y_train)
+    auc_gbm = roc_auc_score(y_test, gbm.predict_proba(X_test)[:, 1])
+    return float(auc_gmm - auc_gbm)
+
 def test_gmm_classifier_fit_predict_shapes():
     """predict_proba returns a valid (n, 2) probability matrix and predict returns labels in {0, 1}."""
     X, y = _make_gaussian_mixture_data(n=400, seed=0)
@@ -134,8 +145,29 @@ def test_biz_val_gmm_classifier_honest_negative_non_gmm_data():
     gbm.fit(X_train, y_train)
     auc_gbm = roc_auc_score(y_test, gbm.predict_proba(X_test)[:, 1])
 
-    # measured on this fixture: auc_gmm ~= 0.990, auc_gbm ~= 1.000 -- GBM wins clearly
-    assert auc_gbm - auc_gmm >= 0.005, (
-        f"expected GBM ({auc_gbm}) to beat GMM classifier ({auc_gmm}) on non-Gaussian-mixture data, "
-        "but GMM unexpectedly won -- honest-negative fixture no longer demonstrates narrow applicability"
+    # The claim is about WHICH data-generating process favours which model, so the assertion is on the
+    # interaction rather than on one cell of it. `auc_gbm - auc_gmm >= 0.005` was measured at 0.990 against
+    # 1.000: the whole margin lived in the GMM arm being slightly imperfect while GBM sat on the ceiling, so
+    # it was satisfied by ANY small GMM shortfall -- including one where GaussianMixtureClassifier had
+    # regressed into something with no mixture in it at all. A difference-in-differences says what
+    # 'the trick is narrow' actually means, and survives both arms drifting.
+    advantage_here = auc_gmm - auc_gbm
+    # The mixture fixture returns (X, y) and the positive test above splits it by drawing two seeds; the same
+    # split is used here so the two advantages are measured the same way.
+    _mix_train_X, _mix_train_y = _make_gaussian_mixture_data(seed=0)
+    _mix_test_X, _mix_test_y = _make_gaussian_mixture_data(seed=1)
+    advantage_on_a_true_mixture = _gmm_advantage_over_gbm(_mix_train_X, _mix_test_X, _mix_train_y, _mix_test_y)
+    print(f"[gmm honest-negative] advantage on a true mixture={advantage_on_a_true_mixture:+.4f}, here={advantage_here:+.4f}")
+    # A SIGN FLIP, not merely a gap. The difference alone does not discriminate: a GaussianMixtureClassifier
+    # regressed into plain logistic regression scores worse than GBM on both fixtures, and because GBM's own
+    # ceiling differs between them the difference still comes out at +0.105 -- passing a gap-only assertion
+    # while nothing about a Gaussian mixture is being exercised. Requiring it to WIN on the true mixture and
+    # NOT win here is what 'the trick only fires when the data-generating process is literally a mixture' says.
+    assert advantage_on_a_true_mixture >= 0.03, (
+        f"the GMM classifier no longer beats GBM on data literally sampled from a Gaussian mixture "
+        f"({advantage_on_a_true_mixture:+.4f}); the honest-negative claim below is vacuous without it."
+    )
+    assert advantage_here <= 0.0, (
+        f"the GMM classifier beat GBM ({advantage_here:+.4f}) on non-Gaussian-mixture data too, so this fixture "
+        "no longer demonstrates that the trick is narrow."
     )

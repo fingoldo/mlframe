@@ -279,6 +279,15 @@ interaction, not one cell of it: `(auc_gmm - auc_gbm)` on the true-mixture fixtu
 `(auc_gmm - auc_gbm)` on the non-mixture fixture by a wide margin. A difference-in-differences is what
 "the trick is narrow" means, and it is robust to both arms drifting.
 
+**RESOLVED, and the suggested difference-in-differences is not sufficient on its own.** Measured with a
+`GaussianMixtureClassifier` replaced by plain logistic regression -- a regression with no mixture in it at
+all -- the advantage is -0.3938 on the true mixture and -0.4989 on the non-mixture fixture, so the
+difference still comes out at +0.105 and passes a gap-only floor. GBM's own ceiling differs between the two
+fixtures, which is enough to manufacture a gap from a uniformly bad classifier. What the claim actually
+says is a SIGN FLIP: the classifier must WIN on data literally sampled from a mixture (+0.0468 measured)
+and must NOT win on the non-mixture fixture (-0.0096 measured). Both arms are now asserted; the broken
+stand-in fails the first, while the original `auc_gbm - auc_gmm >= 0.005` passed it at +0.4989.
+
 ### NT-17 [P1] conditional-gate-e2e-auc-0.999-and-delta-above-zero
 **File:** tests/feature_selection/biz_val/test_biz_val_e2e_operator_model_lift.py:158
 **Summary:** `auc_on >= 0.999` plus `delta > 0.0` on a held-out LGBM fit, guarding that the
