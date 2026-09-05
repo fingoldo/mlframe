@@ -8,7 +8,7 @@ cost axis, and a resumable JSONL store keyed by a sort-key-stable digest.
 
 from __future__ import annotations
 
-import json
+import orjson
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 
@@ -341,7 +341,7 @@ def test_failed_cells_are_never_silently_dropped_from_the_file(tmp_path: Any) ->
     store.append({"cell_key": "k2", "status": "crashed", "error": "boom"})
     text = (tmp_path / "r.jsonl").read_bytes().decode()
     assert len([line for line in text.splitlines() if line.strip()]) == 2
-    assert json.loads(text.splitlines()[1])["status"] == "crashed"
+    assert orjson.loads(text.splitlines()[1])["status"] == "crashed"
 
 
 def test_zero_variance_delta_is_not_reported_as_too_few_seeds() -> None:

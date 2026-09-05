@@ -31,7 +31,7 @@ instance therefore gets its own behavioural test below, pinned individually, as 
 
 from __future__ import annotations
 
-import json
+import orjson
 import re
 from typing import Any, Dict, List, Optional
 
@@ -223,7 +223,7 @@ def test_a_retried_cell_is_counted_once_not_twice(tmp_path: Any) -> None:
     assert len(loaded) == 1, "a retried cell must collapse to its latest record, not appear twice"
     assert loaded[0]["status"] == "ok"
     assert len(list(store.iter_records())) == 2, "the raw file must still hold both writes"
-    assert json.loads(path.read_bytes().decode().splitlines()[0])["status"] == "crashed"
+    assert orjson.loads(path.read_bytes().splitlines()[0])["status"] == "crashed"
 
 
 @pytest.mark.parametrize("status", [STATUS_NOT_APPLICABLE, STATUS_NOT_COMPUTED])
