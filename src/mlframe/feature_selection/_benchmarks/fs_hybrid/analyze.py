@@ -282,6 +282,10 @@ def format_report(records: Sequence[Dict[str, Any]], models: Sequence[str] = PAN
     lines += _interaction_block(matched + self_k)
     lines += _reliability_block(records)
     lines += _cost_block(records)
+    if k_labels:
+        from ._pareto import pareto_table
+
+        lines += pareto_table(records, models=models, k_label=k_labels[0])
     return "\n".join(lines)
 
 
