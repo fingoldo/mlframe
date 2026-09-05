@@ -221,8 +221,13 @@ def _noise_heavy(n=3000, n_inf=4, n_noise=12, seed=1):
 # ``min_selected_ratio`` floors the candidate's PROXY-column cardinality (``len(c) / phi.shape[1] >=
 # ratio``), NOT the input-feature count -- see shap_proxied_fs/_shap_proxied_fit.py:721-726. With
 # clustering OFF and ``prefilter_top`` capping phi width, the proxy space == the prefilter survivors,
-# so the floor on proxy cols maps directly onto the final selection. Refinement / revalidation are
-# disabled so nothing re-prunes below the floored proxy-best subset.
+# so the floor on proxy cols maps directly onto the final selection. Revalidation is ON: it is what prunes
+# the proxy-best subset down to the informative columns, and with it off the bruteforce search returns the
+# WHOLE proxy space (measured: 10 of 10, and 16 of 16 / 24 of 24 at wider prefilters), leaving the floor
+# nothing to bind on and the test asserting a floor of 10 against a pick of 10. `parsimony_tol` cannot
+# substitute for it -- both of its uses live inside the revalidation branch. Measured with revalidation on:
+# unconstrained picks 4 (the four informative columns), ratio 0.5 floors it at 5, ratio 0.9 at 9, so the
+# floor is respected exactly rather than re-pruned below, which was the worry that switched it off.
 _C_PREFILTER_TOP = 10
 
 
@@ -241,7 +246,7 @@ def _ratio_sel(ratio):
         oof_shap_n_estimators=60,
         cluster_features=False,
         within_cluster_refine=False,
-        revalidate=False,
+        revalidate=True,
         run_importance_ablation=False,
         trust_guard=False,
         optimizer="bruteforce",
@@ -268,12 +273,22 @@ def test_min_selected_ratio_floors_selection_in_proxy_column_space():
     X, y = _noise_heavy()
     n_features = X.shape[1]
     n_proxy = min(_C_PREFILTER_TOP, n_features)
-    ratio = 0.5
+
+    sel0 = _ratio_sel(0.0)
+    sel0.fit(X, y)
+    unconstrained = len(sel0.selected_features_)
+    # The ratio is derived from what the unconstrained run actually keeps, rather than fixed at 0.5. A fixed
+    # ratio only demonstrates anything while the unconstrained pick happens to sit below its floor, and when
+    # that stopped being true the test asserted a floor of 5 against a pick of 5 -- true, and about nothing.
+    # Asking for one more column than the run chose on its own is a floor that must bind by construction.
+    assert unconstrained < n_proxy, (
+        f"the unconstrained proxy pick saturates the proxy space ({unconstrained} of {n_proxy}), so no ratio "
+        "floor can enlarge it and this fixture no longer exercises min_selected_ratio"
+    )
+    ratio = (unconstrained + 1) / n_proxy
 
     sel = _ratio_sel(ratio)
     sel.fit(X, y)
-    sel0 = _ratio_sel(0.0)
-    sel0.fit(X, y)
 
     floor = math.ceil(ratio * n_proxy)  # ratio*phi-width, rounded up (cardinality is integer)
     assert len(sel.selected_features_) >= floor, (
@@ -281,9 +296,9 @@ def test_min_selected_ratio_floors_selection_in_proxy_column_space():
         f"< floor {floor} (n_proxy={n_proxy}); selected={sorted(map(str, sel.selected_features_))}"
     )
     # The floor actually CHANGED the outcome: it kept strictly more than the unconstrained pick.
-    assert len(sel.selected_features_) > len(
-        sel0.selected_features_
-    ), f"ratio floor did not enlarge the subset: ratio={len(sel.selected_features_)} vs default={len(sel0.selected_features_)}"
+    assert len(sel.selected_features_) > unconstrained, (
+        f"ratio floor did not enlarge the subset: ratio={ratio:.2f} kept {len(sel.selected_features_)} " f"against an unconstrained {unconstrained}"
+    )
     # Never empty (the code falls back to the unfiltered candidates if the ratio empties the pool).
     assert len(sel.selected_features_) >= 1
 
