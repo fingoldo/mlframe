@@ -114,7 +114,14 @@ def compute_fisher_weighted_residual_features(
         weighted_query = resid_query * np.sqrt(fisher_query)
 
         quantiles = np.quantile(weighted_train, np.linspace(0.0, 1.0, n_bands + 1))
-        band_y_mean = np.zeros(n_bands, dtype=np.float32)
+        # Carries production's empty-band fallback, which this frozen copy did not. The baseline exists to
+        # pin ONE change -- batched versus per-perturbation predict -- and the identity test asserts
+        # np.array_equal over ALL output columns. With `np.zeros` here, any fold whose weighted residuals
+        # tie enough to collapse a quantile boundary leaves a band empty, and `fishres_band_y_mean` then
+        # differs for every query row in that band: the test would fail, blaming the batching, for a
+        # statistic it never guarded. Replayed on w=[0]*8+[5], y=[1]*8+[9], n_bands=5, the two initialisers
+        # give [1, 0, 0, 0, 9] against [1, 1.8889, 1.8889, 1.8889, 9].
+        band_y_mean = np.full(n_bands, float(y_t.mean()), dtype=np.float32)
         for b in range(n_bands):
             if b == 0:
                 mask = weighted_train <= quantiles[b + 1]

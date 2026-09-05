@@ -75,6 +75,34 @@ def _quantile_bin_with_edges(raw: np.ndarray, n_bins: int) -> tuple:
 # ============================================================================
 
 
+def enumerate_candidate_pairs(candidate_idxs_arr, nbins, max_combined):
+    """Every unordered candidate pair whose combined cardinality clears the budget, in nested-loop order.
+
+    Module-level so a test can execute THIS code rather than a copy of it. The identity test that guards
+    the vectorisation used to hold two hand-copies side by side and import nothing from the package, so
+    dropping the ``< 2**31`` mask or the int64 cast from production left both of its cases green while a
+    46341x46341 pair was admitted and overflowed downstream int32 combined-code arithmetic.
+
+    ``np.triu_indices`` enumerates every (ii, jj) pair in one call instead of a pure-Python nested loop
+    (~125K iterations at p~500), and the cardinality-budget filter is a single boolean mask over the whole
+    pair set rather than an if/continue per iteration. Selection is bit-identical to the loop: the SAME two
+    conditions gate the SAME pairs in the SAME row-major upper-triangle order.
+
+    ``nb_prod`` is computed in int64, NOT numpy's default-width product, so a wide-cardinality pair cannot
+    silently wrap before the ``>= 2**31`` overflow check gets to see it -- which is the whole point of that
+    guard, and load-bearing rather than cosmetic.
+    """
+    n_cand = len(candidate_idxs_arr)
+    if n_cand < 2:
+        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64)
+    ii, jj = np.triu_indices(n_cand, k=1)
+    i_arr = np.asarray(candidate_idxs_arr, dtype=np.int64)[ii]
+    j_arr = np.asarray(candidate_idxs_arr, dtype=np.int64)[jj]
+    nbins_i64 = np.asarray(nbins, dtype=np.int64)
+    nb_prod = nbins_i64[i_arr] * nbins_i64[j_arr]
+    keep = (nb_prod <= int(max_combined)) & (nb_prod < 2**31)
+    return i_arr[keep], j_arr[keep]
+
 def run_cat_interaction_step(
     *,
     data: np.ndarray,
@@ -293,19 +321,7 @@ def run_cat_interaction_step(
     # ``nb_prod`` is computed in int64 (not numpy's default-width product) so a wide-cardinality pair
     # cannot silently wrap before the ``>= 2**31`` overflow check gets to see it - the whole point of
     # that guard.
-    _n_cand = len(candidate_idxs_arr)
-    if _n_cand >= 2:
-        _ii, _jj = np.triu_indices(_n_cand, k=1)
-        _i_arr = np.asarray(candidate_idxs_arr, dtype=np.int64)[_ii]
-        _j_arr = np.asarray(candidate_idxs_arr, dtype=np.int64)[_jj]
-        _nbins_i64 = np.asarray(nbins, dtype=np.int64)
-        nb_prod = _nbins_i64[_i_arr] * _nbins_i64[_j_arr]
-        _keep = (nb_prod <= int(max_combined)) & (nb_prod < 2**31)
-        pairs_a = _i_arr[_keep]
-        pairs_b = _j_arr[_keep]
-    else:
-        pairs_a = np.empty(0, dtype=np.int64)
-        pairs_b = np.empty(0, dtype=np.int64)
+    pairs_a, pairs_b = enumerate_candidate_pairs(candidate_idxs_arr, nbins, max_combined)
     if pairs_a.size == 0:
         if verbose:
             logger.info("cat-FE skipped: 0 pairs cleared cardinality budget %d", max_combined)
