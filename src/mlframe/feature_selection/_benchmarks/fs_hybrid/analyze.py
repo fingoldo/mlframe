@@ -228,6 +228,23 @@ def _cost_block(records: Sequence[Dict[str, Any]]) -> List[str]:
     return lines
 
 
+def _pooled_block(records: Sequence[Dict[str, Any]], models: Sequence[str], k_labels: Sequence[str]) -> List[str]:
+    """Render the hierarchical pooled-effect block, on normalized skill, for the first matched K.
+
+    One K rather than all of them: the pooled fit answers "how large is this arm's advantage across beds and
+    does it depend on the bed", and repeating it per K turns a summary into another leaderboard. The first
+    matched label is the tightest budget, where selection has to earn its place most clearly.
+    """
+    from ._bayes import hierarchical_report
+
+    if not k_labels:
+        return []
+    out: List[str] = ["", "=" * 100, "POOLED ADVANTAGE (hierarchical, normalized skill)", "=" * 100]
+    for model in models:
+        out += hierarchical_report(records, model=model, k_label=k_labels[0]).splitlines()
+    return out
+
+
 def format_report(records: Sequence[Dict[str, Any]], models: Sequence[str] = PANEL_MEMBERS) -> str:
     """Build the full text report for a set of cell records."""
     lines: List[str] = [DISCLAIMER, "", f"null hypothesis: {NULL_ARM}", f"cells: {len(records)}"]
@@ -244,6 +261,7 @@ def format_report(records: Sequence[Dict[str, Any]], models: Sequence[str] = PAN
     # declares `score_kind='none'` and so has NO matched-K row at all, making `self` the only K at which
     # the vs-random column can be computed. Omitting it would leave the whole column empty.
     lines += _control_adjusted_block(records, models=models, k_labels=[*k_labels, SELF_CHOSEN_K])
+    lines += _pooled_block(records, models=models, k_labels=k_labels)
     lines += _interaction_block(matched + self_k)
     lines += _reliability_block(records)
     lines += _cost_block(records)
