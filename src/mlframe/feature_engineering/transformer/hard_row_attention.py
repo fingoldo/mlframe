@@ -6,7 +6,7 @@ hardest training rows by |residual| from a baseline LightGBM, then routes querie
 through those K row positions directly.
 
 Mechanism:
-1. Fit 50-iter LightGBM baseline → in-sample predictions ŷ.
+1. Fit 50-iter LightGBM baseline → out-of-fold predictions ŷ (inner KFold(3)).
 2. Compute |residual| = |y - ŷ|; pick top-K rows (largest |residual| = boosting's hardest cases).
 3. For each hard row i: anchor position μ_i = X[hard_i], y_i, residual_i.
 4. Per query: softmax(−||q − μ_i||² / temp) over K hard-row anchors.
@@ -41,26 +41,14 @@ logger = logging.getLogger(__name__)
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
-    """Fit a shallow LGBM baseline on (Xt, y_t) and return its in-sample train predictions (used to rank rows by residual magnitude, not for out-of-sample evaluation)."""
-    try:
-        import lightgbm as lgb
-    except ImportError as exc:
-        raise ImportError("hard_row_attention requires lightgbm") from exc
-    if task == "binary":
-        model = lgb.LGBMClassifier(
-            n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
-            random_state=int(seed), verbose=-1, n_jobs=-1,
-        )
-        model.fit(Xt, y_t.astype(np.int32))
-        preds = np.asarray(model.predict_proba(Xt))[:, 1].astype(np.float32)
-    else:
-        model = lgb.LGBMRegressor(
-            n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
-            random_state=int(seed), verbose=-1, n_jobs=-1,
-        )
-        model.fit(Xt, y_t)
-        preds = np.asarray(model.predict(Xt)).astype(np.float32)
-    return np.asarray(preds)
+    """Out-of-fold baseline predictions on Xt; see ``_baseline_oof.fit_baseline_predict_oof``.
+
+    Kept as a thin module-local name because this module's own tests and call site refer to it, but the
+    implementation is shared so the cluster cannot drift back apart.
+    """
+    from ._baseline_oof import fit_baseline_predict_oof
+
+    return fit_baseline_predict_oof(Xt, y_t, task, seed, n_estimators=n_estimators, max_depth=max_depth, caller="hard_row_attention")
 
 
 def compute_hard_row_attention_features(

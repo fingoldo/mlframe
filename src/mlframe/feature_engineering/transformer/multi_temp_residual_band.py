@@ -3,7 +3,7 @@
 Iter 61 mechanism. Hybrid of iter 60 (residual-quintile bands) + iter 58 (multi-temperature softmax).
 
 Mechanism:
-1. Fit 50-iter LightGBM baseline on (X_train, y_train) → in-sample predictions ŷ.
+1. Fit 50-iter LightGBM baseline on (X_train, y_train) → out-of-fold predictions ŷ (inner KFold(3)).
 2. Compute |residual| = |y - ŷ|; split into 5 quintile bands.
 3. Per band b: compute X centroid μ_b + per-band y_mean + per-band y_std.
 4. Apply 3 temperatures (sharp 0.3, medium 1.0, soft 3.0) to softmax(−||q − μ_b||²) over 5 bands.
@@ -36,26 +36,14 @@ _DEFAULT_TEMPS: tuple[float, ...] = (0.3, 1.0, 3.0)
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
-    """Fit a small (default 50-iter, depth-3) LightGBM baseline on ``(Xt, y_t)`` and return its IN-SAMPLE predictions (predicted probability for ``task="binary"``, else the raw regression prediction) -- the residual bands are computed against these."""
-    try:
-        import lightgbm as lgb
-    except ImportError as exc:
-        raise ImportError("multi_temp_residual_band requires lightgbm") from exc
-    if task == "binary":
-        model = lgb.LGBMClassifier(
-            n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
-            random_state=int(seed), verbose=-1, n_jobs=-1,
-        )
-        model.fit(Xt, y_t.astype(np.int32))
-        preds = np.asarray(model.predict_proba(Xt))[:, 1].astype(np.float32)
-    else:
-        model = lgb.LGBMRegressor(
-            n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
-            random_state=int(seed), verbose=-1, n_jobs=-1,
-        )
-        model.fit(Xt, y_t)
-        preds = np.asarray(model.predict(Xt)).astype(np.float32)
-    return np.asarray(preds)
+    """Out-of-fold baseline predictions on Xt; see ``_baseline_oof.fit_baseline_predict_oof``.
+
+    Kept as a thin module-local name because this module's own tests and call site refer to it, but the
+    implementation is shared so the cluster cannot drift back apart.
+    """
+    from ._baseline_oof import fit_baseline_predict_oof
+
+    return fit_baseline_predict_oof(Xt, y_t, task, seed, n_estimators=n_estimators, max_depth=max_depth, caller="multi_temp_residual_band")
 
 
 def compute_multi_temp_residual_band_features(

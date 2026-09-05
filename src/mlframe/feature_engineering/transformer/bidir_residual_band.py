@@ -39,41 +39,14 @@ logger = logging.getLogger(__name__)
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
-    """Fit a shallow LightGBM baseline via an inner KFold(3) and return its OUT-OF-FOLD predictions on Xt.
+    """Out-of-fold baseline predictions on Xt; see ``_baseline_oof.fit_baseline_predict_oof``.
 
-    An in-sample prediction is close to y_t almost by construction (the model was just fit on these exact
-    rows), which systematically understates the true baseline residual and distorts which rows look
-    "easy"/"hard" for band assignment. Matches residual_stratified_distance.py's own
-    ``_compute_oof_residuals`` pattern in this same cluster. Falls back to a single in-sample fit when there are
-    too few rows for a 3-fold inner split.
+    Kept as a thin module-local name because this module's own tests and call site refer to it, but the
+    implementation is shared so the cluster cannot drift back apart.
     """
-    try:
-        import lightgbm as lgb
-    except ImportError as exc:
-        raise ImportError("bidir_residual_band requires lightgbm") from exc
-    n = Xt.shape[0]
-    if n < 3:
-        if task == "binary":
-            model = lgb.LGBMClassifier(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
-            model.fit(Xt, y_t.astype(np.int32))
-            return np.asarray(model.predict_proba(Xt))[:, 1].astype(np.float32)
-        model = lgb.LGBMRegressor(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
-        model.fit(Xt, y_t)
-        return np.asarray(model.predict(Xt)).astype(np.float32)
+    from ._baseline_oof import fit_baseline_predict_oof
 
-    from sklearn.model_selection import KFold
-    preds = np.zeros(n, dtype=np.float32)
-    inner_splitter = KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11)
-    for inner_idx, (in_tr, in_val) in enumerate(inner_splitter.split(Xt)):
-        if task == "binary":
-            m = lgb.LGBMClassifier(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1, random_state=int(seed) + 7 + inner_idx, verbose=-1, n_jobs=-1)
-            m.fit(Xt[in_tr], y_t[in_tr].astype(np.int32))
-            preds[in_val] = np.asarray(m.predict_proba(Xt[in_val]))[:, 1].astype(np.float32)
-        else:
-            m = lgb.LGBMRegressor(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1, random_state=int(seed) + 7 + inner_idx, verbose=-1, n_jobs=-1)
-            m.fit(Xt[in_tr], y_t[in_tr])
-            preds[in_val] = np.asarray(m.predict(Xt[in_val])).astype(np.float32)
-    return preds
+    return fit_baseline_predict_oof(Xt, y_t, task, seed, n_estimators=n_estimators, max_depth=max_depth, caller="bidir_residual_band")
 
 
 def compute_bidir_residual_band_features(

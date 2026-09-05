@@ -22,6 +22,20 @@ Note: both seed instances given in the brief are already fixed in this tree (`co
 
 *Alternative reading:* a case can be made for P0 -- these are user-facing feature columns, not an internal decision. Rated P1 because the leak biases which rows the bands/thresholds select rather than writing the target itself into a query-row feature.
 
+**RESOLVED.** An AST sweep of every ``_fit_baseline_predict`` in the package found the leak in **five**
+modules, not three: the finding missed ``prediction_band_attention.py`` (same signature, bands on the
+predictions themselves) and ``y_quintile_baseline_knn.py`` (different signature -- it took a separate
+``Xall`` to predict on, but its one call site passed the train matrix, so the parameter was vestigial and
+the fit was in-sample all the same). The five copies that shared a signature now call one
+``_baseline_oof.fit_baseline_predict_oof``, which is the audit's own preferred fix and removes the drift
+class rather than the instance; ``y_quintile_baseline_knn`` calls it too, with its own deeper baseline
+(100 iterations, depth 5). Copies with a genuinely different shape (``baseline_surprise`` also predicts on
+a held-out Xq, ``class_balanced_hard_row`` refits class-balanced) keep their own bodies -- they are
+already out-of-fold, and folding them in would change what they compute. Reproduced the leak before
+fixing: mean |residual| 0.2092 in-sample against 0.2968 out-of-fold, 244 of 400 rows changing quintile
+band. Guard: tests/feature_engineering/transformer/test_residual_band_baseline_is_out_of_fold.py, 8 of
+whose assertions were verified failing against the pre-fix modules.
+
 ---
 
 ### SRD-02 [P1] ERR reference pins `y_true.max()` after production froze `max_grade = 4.0`

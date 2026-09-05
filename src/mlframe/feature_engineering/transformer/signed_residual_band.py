@@ -5,7 +5,7 @@ overprediction from underprediction. For binary: distinguish false-positives (pr
 from false-negatives (predicted low, true 1) from well-classified rows.
 
 Mechanism:
-1. Fit 50-iter LightGBM baseline on (X_train, y_train) → in-sample predictions ŷ.
+1. Fit 50-iter LightGBM baseline on (X_train, y_train) → out-of-fold predictions ŷ (inner KFold(3)).
 2. Compute signed residual r = y - ŷ; split r into 5 quintile bands.
    - Band R1: r << 0 (overprediction; for binary: y=0 predicted high → false-positive prone)
    - Band R2: r < 0 (mild overprediction)
@@ -40,26 +40,14 @@ logger = logging.getLogger(__name__)
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
-    """Fit a small in-fold LightGBM baseline (classifier for ``task='binary'``, else regressor) and return its in-sample predictions used to derive signed residuals."""
-    try:
-        import lightgbm as lgb
-    except ImportError as exc:
-        raise ImportError("signed_residual_band requires lightgbm") from exc
-    if task == "binary":
-        model = lgb.LGBMClassifier(
-            n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
-            random_state=int(seed), verbose=-1, n_jobs=-1,
-        )
-        model.fit(Xt, y_t.astype(np.int32))
-        preds = np.asarray(model.predict_proba(Xt))[:, 1].astype(np.float32)
-    else:
-        model = lgb.LGBMRegressor(
-            n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
-            random_state=int(seed), verbose=-1, n_jobs=-1,
-        )
-        model.fit(Xt, y_t)
-        preds = np.asarray(model.predict(Xt)).astype(np.float32)
-    return np.asarray(preds)
+    """Out-of-fold baseline predictions on Xt; see ``_baseline_oof.fit_baseline_predict_oof``.
+
+    Kept as a thin module-local name because this module's own tests and call site refer to it, but the
+    implementation is shared so the cluster cannot drift back apart.
+    """
+    from ._baseline_oof import fit_baseline_predict_oof
+
+    return fit_baseline_predict_oof(Xt, y_t, task, seed, n_estimators=n_estimators, max_depth=max_depth, caller="signed_residual_band")
 
 
 def compute_signed_residual_band_features(
