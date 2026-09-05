@@ -167,6 +167,23 @@ def _perm_pvalue(nfailed: int, nchecked: int, full_budget: Optional[int] = None)
     return nfailed / float(denom)
 
 
+def perm_pvalues(nfailed, nchecked: int):
+    """Vectorised twin of :func:`_perm_pvalue` for an array of exceedance counts at one budget.
+
+    Exists so a call site that scores many features at once honours ``MLFRAME_MRMR_ADDONE_PVALUE`` too.
+    Four sites used to hardcode ``(1 + count) / (1 + n)`` inline and consult neither that knob nor the
+    full-budget correction, so an operator setting the var to reproduce legacy selection got a run that mixed
+    two p-value conventions: with the var set, the canonical helper returns 0.0 for 0 failures in 50 while an
+    inline site still returned 1/51, and significance gates then disagreed about the same feature at any alpha
+    between those values.
+    """
+    counts = np.asarray(nfailed, dtype=np.float64)
+    if nchecked <= 0:
+        return np.ones_like(counts)
+    if _addone_pvalue_enabled():
+        return (1.0 + counts) / (float(nchecked) + 1.0)
+    return counts / float(nchecked)
+
 @njit(cache=True)
 def distribute_permutations(npermutations: int, n_workers: int) -> list:
     """Split ``npermutations`` across ``n_workers``; the remainder lands on the last worker."""

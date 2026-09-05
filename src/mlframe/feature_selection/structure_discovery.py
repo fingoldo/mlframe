@@ -141,7 +141,7 @@ def _fmt_lift(lift: float) -> str:
     return "inf" if not np.isfinite(lift) else f"{lift:.1f}x"
 
 
-def _perm_pvalue(feat_col, yb, nbins: int, n_perm: int, seed: int) -> float:
+def _column_perm_pvalue(feat_col, yb, nbins: int, n_perm: int, seed: int) -> float:
     """Deeper permutation p-value for one engineered column vs the (already-binned) target. ``(1 + #{perm_mi >= obs}) / (1 + n_perm)``.
 
     The detectors gate on a cheap 12-perm null (enough for a yes/no decision); this offline EDA pass affords a larger ``n_perm`` so the
@@ -157,7 +157,12 @@ def _perm_pvalue(feat_col, yb, nbins: int, n_perm: int, seed: int) -> float:
         return float("nan")
     rng = np.random.default_rng(int(seed))
     ge = sum(1 for _ in range(int(n_perm)) if _mi(col, rng.permutation(yb), nbins=nbins) >= obs)
-    return (1.0 + ge) / (1.0 + int(n_perm))
+    # Through the canonical helper so `MLFRAME_MRMR_ADDONE_PVALUE` reaches this site too. This function
+    # also SHADOWS the canonical `_perm_pvalue` name with a different signature, which is why the drift was
+    # easy to miss on a grep.
+    from .filters.permutation import _perm_pvalue as _canonical_perm_pvalue
+
+    return _canonical_perm_pvalue(ge, int(n_perm))
 
 
 def _fmt_p(p: float, n_perm: int) -> str:
@@ -195,7 +200,7 @@ def _modular_relations(X, y, names_ok, nbins, seed, max_int_cols, n_perm):
         kind = _modular_kind(h.op, best_m)
         lift = _lift(best_mi, h.baseline_mi)
         cols = tuple(str(c) for c in h.cols)
-        pval = _perm_pvalue(apply_pairwise_modular(X, h.op, h.cols, best_m), y, nbins, n_perm, seed)
+        pval = _column_perm_pvalue(apply_pairwise_modular(X, h.op, h.cols, best_m), y, nbins, n_perm, seed)
         opdesc = {"self": cols[0], "sum": " + ".join(cols), "diff": " - ".join(cols),
                   "prod": " * ".join(cols), "sum3": " + ".join(cols)}.get(h.op, " ? ".join(cols))
         desc = f"y depends on ({opdesc}) mod {best_m}  [{kind}, MI {best_mi:.3f}, lift {_fmt_lift(lift)}{_fmt_p(pval, n_perm)}]"
@@ -219,7 +224,7 @@ def _lattice_relations(X, y, names_ok, nbins, seed, max_int_cols, n_perm):
             continue
         lift = _lift(h.feat_mi, h.operand_floor)
         cols = tuple(str(c) for c in h.cols)
-        pval = _perm_pvalue(apply_integer_lattice(X, h.op, h.cols), y, nbins, n_perm, seed)
+        pval = _column_perm_pvalue(apply_integer_lattice(X, h.op, h.cols), y, nbins, n_perm, seed)
         desc = f"y depends on {h.op}({', '.join(cols)})  [MI {h.feat_mi:.3f}, lift {_fmt_lift(lift)}{_fmt_p(pval, n_perm)}]"
         out.append(DiscoveredRelation(h.op, cols, None, float(h.feat_mi), float(h.operand_floor), lift, desc, pval))
     return out
@@ -237,7 +242,7 @@ def _argmax_relations(X, y, names_ok, nbins, seed, n_perm):
             continue
         lift = _lift(h.feat_mi, h.operand_floor)
         cols = tuple(str(c) for c in h.cols)
-        pval = _perm_pvalue(apply_row_argmax(X, h.cols), y, nbins, n_perm, seed)
+        pval = _column_perm_pvalue(apply_row_argmax(X, h.cols), y, nbins, n_perm, seed)
         desc = f"y depends on which of ({', '.join(cols)}) is largest (argmax)  " f"[MI {h.feat_mi:.3f}, lift {_fmt_lift(lift)}{_fmt_p(pval, n_perm)}]"
         out.append(DiscoveredRelation("argmax", cols, None, float(h.feat_mi), float(h.operand_floor), lift, desc, pval))
     return out
@@ -255,7 +260,7 @@ def _gate_relations(X, y, names_ok, nbins, seed, n_perm):
             continue
         lift = _lift(h.feat_mi, h.baseline_mi)
         cols = tuple(str(c) for c in h.cols)
-        pval = _perm_pvalue(apply_conditional_gate(X, h.mode, h.cols, h.tau), y, nbins, n_perm, seed)
+        pval = _column_perm_pvalue(apply_conditional_gate(X, h.mode, h.cols, h.tau), y, nbins, n_perm, seed)
         if h.mode == "select":
             a, b, c = cols
             kind = "gate_select"

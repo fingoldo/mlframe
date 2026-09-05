@@ -167,7 +167,11 @@ def ksg_mi_with_significance(
 
     # Conservative p-value: (1 + #failures) / (1 + n_perms).
     n_failures = (perm_mi_arr >= observed[None, :]).sum(axis=0)
-    p_values = (1 + n_failures) / (1 + n_permutations)
+    # Through the canonical helper so `MLFRAME_MRMR_ADDONE_PVALUE` reaches this site too; the inline form
+    # here ignored it, and a run with the var set mixed two p-value conventions across one pipeline.
+    from .permutation import perm_pvalues
+
+    p_values = perm_pvalues(n_failures, int(n_permutations))
 
     significant = np.where(p_values <= alpha)[0]
     # Sort the surviving indices by their MI descending.
