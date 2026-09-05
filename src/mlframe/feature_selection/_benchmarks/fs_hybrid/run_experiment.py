@@ -68,6 +68,10 @@ def compute_auc_mean(aucs: Dict[str, Optional[float]]) -> Optional[float]:
     The gate is "any value is not None", never ``any(aucs.values())``. A model that legitimately scores
     exactly 0.0 -- a systematically inverted classifier, rare but real -- is falsy, so the truthy form
     reports ``None`` for a cell that produced a genuine result and drops the only surviving measurement.
+
+    Restored after a refactor removed it while its regression test kept importing it. That is a COLLECTION
+    error, and pytest-split collects the whole tree in every shard, so one missing name failed all of them
+    rather than the single shard that owns the test.
     """
     present = [value for value in aucs.values() if value is not None]
     if not present:
@@ -136,9 +140,7 @@ def _fit_arm(factory: Callable[[], Any], x_train: pd.DataFrame, y_train: np.ndar
     return arm, time.perf_counter() - wall0, time.process_time() - proc0
 
 
-def _selection_sets(
-    ranking: Ranking, target_size: Optional[int], n_features: int, constant_selection: bool = False
-) -> Tuple[Dict[str, Optional[List[str]]], str]:
+def _selection_sets(ranking: Ranking, target_size: Optional[int], n_features: int, constant_selection: bool = False) -> Tuple[Dict[str, Optional[List[str]]], str]:
     """Build `({K label: selected columns}, k_grid_mode)` for the matched-K grid plus the self-chosen-K row.
 
     `constant_selection` is for the `all-features` null hypothesis, whose selection is the whole column
@@ -246,9 +248,7 @@ def run_cell(
                 continue
             block = fit_and_score_panel(x_train, y_train, x_test, y_test, cols)
             block["n_features"] = len(cols)
-            block["skill"] = {
-                member: normalized_skill(metrics["brier"], base_rate["brier"]) for member, metrics in block["models"].items() if "brier" in metrics
-            }
+            block["skill"] = {member: normalized_skill(metrics["brier"], base_rate["brier"]) for member, metrics in block["models"].items() if "brier" in metrics}
             block["auc_mean"] = compute_auc_mean({member: metrics.get("roc_auc") for member, metrics in block["models"].items()})
             total_fits += int(block.pop("n_model_fits", 0))
             block.pop("base_rate", None)

@@ -140,8 +140,9 @@ ARMS = [
 ]
 
 
-@pytest.mark.parametrize("arm_name,factory", ARMS, ids=[n for n, _ in ARMS])
-def test_arm_obeys_result_contract(arm_name, factory, tiny_bed):
+# `_arm_name` is bound only so the tuple unpacks; the name reaches the report through `ids=`, not the body.
+@pytest.mark.parametrize("_arm_name,factory", ARMS, ids=[n for n, _ in ARMS])
+def test_arm_obeys_result_contract(_arm_name, factory, tiny_bed):
     """Every arm returns a full-length boolean support and a score consistent with its declared kind."""
     X, y = tiny_bed
     _check_arm(factory(), X, y)
