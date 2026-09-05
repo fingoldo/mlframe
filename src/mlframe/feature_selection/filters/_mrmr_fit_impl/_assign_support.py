@@ -128,7 +128,7 @@ def _assign_support(
                 # emit_both keeps engineered operands; skip the subsumption restriction so the never-empty re-attach is not narrowed.
                 if getattr(self, "redundancy_policy", "emit_both") != "drop":
                     raise RuntimeError("redundancy_policy=emit_both: skip subsumption restriction")
-                from .._fe_raw_redundancy_drop import drop_redundant_raw_operands as _ne_drop
+                from .._fe_raw_redundancy_drop import _linear_usability_keep_enabled, drop_redundant_raw_operands as _ne_drop
                 _recipe_names = [_ne_recipe_name(r) for r in self._engineered_recipes_]
                 _eng_survivor_cols = [_ne_cols_idx[_nm] for _nm in _recipe_names if _nm in _ne_cols_idx and _nm not in _raw_names_ne]
                 if _eng_survivor_cols and _operand_idxs:
@@ -144,7 +144,7 @@ def _assign_support(
                         replayable_eng_names=set(_recipe_names),
                         recipes=_ne_recipes,
                         raw_X=X,
-                        linear_usability_keep=bool(getattr(self, "fe_keep_linearly_usable_raw_operands", True)),
+                        linear_usability_keep=_linear_usability_keep_enabled(self),
                         seed=int(getattr(self, "random_seed", 0) or 0), verbose=0,
                     )
                     _subsumed_operand_names = set(_ne_dropped or ())

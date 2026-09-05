@@ -611,7 +611,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # carries genuine independent signal. ON by default; set False to restore the
         # pre-fix behaviour (the small-n protective retention re-adds subsumed operands).
         fe_drop_redundant_raw_operands: bool = True,
-        fe_keep_linearly_usable_raw_operands: bool = True,
+        fe_keep_linearly_usable_raw_operands: Optional[bool] = None,
         # Raw-vs-engineered redundancy POLICY. "drop" (default): minimal-set behaviour - prune raw
         # operands a surviving engineered feature subsumes (the I4b invariant; right for tree downstreams
         # and minimal-redundancy selection). "emit_both": ALSO keep the SIGNAL-bearing raw operands of a

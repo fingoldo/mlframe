@@ -101,6 +101,19 @@ def _build_missing_set() -> set[str]:
     return bare
 
 
+def regenerate_baseline() -> None:
+    """Rewrite the annotation baseline from the current tree. Called by `regen_baselines.py`.
+
+    This module was the one entry in that script's table with no regenerator, so the script printed `[skip]`
+    and moved on -- meaning "regenerate every baseline" quietly regenerated all but this one, and the gap was
+    visible only to someone reading the script's own output.
+    """
+    _BASELINE_PATH.write_text(
+        orjson.dumps(sorted(_build_missing_set()), option=orjson.OPT_INDENT_2).decode("utf-8"),
+        encoding="utf-8",
+    )
+
+
 def test_no_new_unannotated_public_functions():
     """No new public top-level function missing a full signature annotation beyond the frozen baseline."""
     current = _build_missing_set()

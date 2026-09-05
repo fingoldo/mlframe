@@ -352,7 +352,7 @@ def _assign_support_tail(
             and getattr(self, "redundancy_policy", "emit_both") == "drop"
             and selected_vars and getattr(self, "_engineered_recipes_", None)):
         try:
-            from .._fe_raw_redundancy_drop import drop_redundant_raw_operands as _post_drop
+            from .._fe_raw_redundancy_drop import _linear_usability_keep_enabled, drop_redundant_raw_operands as _post_drop
             from ..engineered_recipes._recipe_dispatch import apply_recipe as _post_apply
             from .._mi_greedy_cmi_fe import _quantile_bin as _post_qbin
 
@@ -424,7 +424,7 @@ def _assign_support_tail(
                         engineered_continuous=_post_eng_cont,
                         replayable_eng_names=set(_post_recipes.keys()), recipes=_post_recipes,
                         raw_X=X, floor_margin_mult=1.5,
-                        linear_usability_keep=bool(getattr(self, "fe_keep_linearly_usable_raw_operands", True)),
+                        linear_usability_keep=_linear_usability_keep_enabled(self),
                         seed=int(getattr(self, "random_seed", 0) or 0), verbose=verbose,
                     )
                     if _post_dropped:

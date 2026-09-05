@@ -45,7 +45,7 @@ def _friend_graph_and_redundancy_passes_group4(
     See the package docstring for the full section this carves out."""
     if getattr(self, "fe_drop_redundant_raw_operands", True) and getattr(self, "redundancy_policy", "emit_both") == "drop" and len(selected_vars) >= 2:
         try:
-            from ..._fe_raw_redundancy_drop import drop_redundant_raw_operands
+            from ..._fe_raw_redundancy_drop import _linear_usability_keep_enabled, drop_redundant_raw_operands
             _raw_names_for_redund = set(self.feature_names_in_)
             # Only worth running when at least one engineered survivor and one raw operand
             # are both selected (otherwise the helper short-circuits anyway).
@@ -98,7 +98,7 @@ def _friend_graph_and_redundancy_passes_group4(
                     recipes=engineered_recipes,
                     raw_X=X,
                     retain_frac=float(_rrf_redund) if _rrf_redund is not None else 0.15,
-                    linear_usability_keep=bool(getattr(self, "fe_keep_linearly_usable_raw_operands", True)),
+                    linear_usability_keep=_linear_usability_keep_enabled(self),
                     tail_subsume_enable=_fe_family_on("fe_pair_usability_admission_enable", True),
                     tail_subsume_min_corr=float(getattr(self, "fe_raw_tail_subsume_min_corr", 0.85)),
                     tail_subsume_rank_frac=float(getattr(self, "fe_pair_usability_admission_rank_frac", 0.7)),

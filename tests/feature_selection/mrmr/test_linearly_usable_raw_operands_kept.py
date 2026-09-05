@@ -59,7 +59,7 @@ def _fitted():
     X, y = _fixture()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        model = MRMR(verbose=0).fit(X, y)
+        model = MRMR(verbose=0, fe_keep_linearly_usable_raw_operands=True).fit(X, y)
     return X, y, model
 
 
@@ -81,21 +81,35 @@ def test_the_selection_stays_compact(_fitted):
     assert 0 < len(selected) <= _MAX_SELECTED, f"expected a compact selection, got {len(selected)}: {selected}"
 
 
-def test_the_opt_out_restores_the_previous_behaviour():
-    """`fe_keep_linearly_usable_raw_operands=False` must still reach the old, lossier selection.
+def test_the_default_keeps_fewer_raw_operands_than_the_opt_in(_fitted):
+    """The shipped default is unchanged: in full mode the raw operands are still dropped.
 
-    Pins the escape hatch as a real one: a caller depending on the previous behaviour has somewhere to go, and
-    this is also what makes the two tests above meaningful -- it demonstrates the fixture actually discriminates
-    rather than passing whatever the code does.
+    Discriminates on the SELECTION, not on a downstream-AUC threshold. An AUC floor looked like it separated
+    the two behaviours locally (0.8969 default vs 0.9649 opt-in) and did not travel: on CI the default scored
+    0.9459, above the floor, so the assertion inverted and failed for a reason that had nothing to do with the
+    contract. How many raw signal columns survive the drop sweep IS the contract, and it does not depend on a
+    logistic model's fold split.
+
+    The keep leg is opt-in rather than default because CI measured its cost across the suite: subsumed raws
+    kept alongside the composite that captures them (I4b), the canonical BUG1 fixtures re-adding a fully
+    subsumed `a`, and -- worst -- the group-aware leak guard resurrecting a demoted `x_leak`. Those are all
+    correct drops the leg undoes.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
 
-    X, y = _fixture()
+    X, y, opt_in_model = _fitted
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        model = MRMR(verbose=0, fe_keep_linearly_usable_raw_operands=False).fit(X, y)
-    got = _downstream_auc(pd.DataFrame(model.transform(X)), y)
-    assert got < _MIN_DOWNSTREAM_AUC, (
-        f"the opt-out scored {got:.4f}, at or above the floor the default must clear -- either the drop sweep no "
-        "longer runs at all, or this fixture no longer separates the two behaviours and needs rebuilding"
+        default_model = MRMR(verbose=0).fit(X, y)
+
+    def _raw_signals(model) -> set:
+        """The bare `sigN` columns that survived, ignoring engineered composites built from them."""
+        return {name for name in model.get_feature_names_out() if name in {f"sig{k}" for k in range(5)}}
+
+    default_raws = _raw_signals(default_model)
+    opt_in_raws = _raw_signals(opt_in_model)
+    assert len(default_raws) < len(opt_in_raws), (
+        f"the default kept {sorted(default_raws)} and the opt-in kept {sorted(opt_in_raws)} -- the keep leg is "
+        "supposed to be what preserves raw operands, so either it became the default or this fixture no longer "
+        "separates the two behaviours and needs rebuilding"
     )

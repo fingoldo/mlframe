@@ -8,7 +8,7 @@ that no longer matches its recorded digest must raise rather than silently feed 
 from __future__ import annotations
 
 import importlib.util
-import json
+import orjson
 import shutil
 from pathlib import Path
 from typing import Any
@@ -93,9 +93,9 @@ def test_load_cached_rejects_tampered_sidecar_digest(cache_module: Any, populate
     root = cache_module.cache_dir_default()
     shutil.copy2(root / f"{populated_name}.npz", tmp_path / f"{populated_name}.npz")
     json_dst = tmp_path / f"{populated_name}.json"
-    meta = json.loads((root / f"{populated_name}.json").read_text(encoding="utf-8"))
+    meta = orjson.loads((root / f"{populated_name}.json").read_bytes())
     meta["sha256"] = "0" * 64
-    json_dst.write_bytes(json.dumps(meta, indent=2, sort_keys=True).encode("utf-8"))
+    json_dst.write_bytes(orjson.dumps(meta, option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS))
 
     with pytest.raises(ValueError, match="corrupt"):
         cache_module.load_cached(populated_name, cache_dir=tmp_path)

@@ -156,6 +156,28 @@ _TOKEN_SPLIT = re.compile(r"[^A-Za-z0-9_]+")
 _PSEUDO_SRC_SPLIT = re.compile(r"[^A-Za-z0-9]+")
 
 
+def _linear_usability_keep_enabled(estimator) -> bool:
+    """Whether the linear-usability keep leg runs for this fit.
+
+    ``None`` (the default) means "follow ``use_simple_mode``", which is the behaviour this leg shipped with.
+    ``True``/``False`` force it on or off regardless of mode.
+
+    It is NOT on by default in full mode, and the reason is measured rather than assumed. Turning it on there
+    recovers real downstream accuracy where the operands carry independent linear contributions -- on the
+    5-signal/15-noise ranking benchmark, AUC 0.8969 -> 0.9649 against a 0.9648 five-raw baseline -- but it
+    also keeps operands that a compound genuinely subsumes: the F2 single-compound fixtures expect
+    ``scaled_1_5`` to collapse to one fused compound, and with the leg active a bare ``d`` survives beside it,
+    while the make_classification hybrid support grows from 4 to 15. Both are correct drops that this leg
+    undoes. That is exactly the ambiguity the leg's own comment names -- a subsumed monotone operand is as
+    linearly usable as a genuine private term -- so choosing between them needs a discriminator this leg does
+    not have, not a flipped default.
+    """
+    explicit = getattr(estimator, "fe_keep_linearly_usable_raw_operands", None)
+    if explicit is None:
+        return bool(getattr(estimator, "use_simple_mode", False))
+    return bool(explicit)
+
+
 def drop_redundant_raw_operands(
     *,
     data: np.ndarray,
