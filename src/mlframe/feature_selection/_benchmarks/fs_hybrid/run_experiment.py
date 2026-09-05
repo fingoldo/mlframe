@@ -141,6 +141,40 @@ def _selection_sets(
     return sets, mode
 
 
+# A selection wider than this is not stored column by column: the analyses that read selections (stability
+# across seeds, support recovery) are about narrow sets, and a 5000-name list per cell would dominate the
+# results file without answering a question anyone asks of it.
+MAX_STORED_SELECTION = 500
+
+
+def _selection_payload(selection_sets: Dict[str, Optional[List[str]]], constant_selection: bool) -> Dict[str, Any]:
+    """Return the per-`K` selections in a form worth storing, marking what was deliberately not stored."""
+    out: Dict[str, Any] = {}
+    for label, cols in selection_sets.items():
+        if cols is None:
+            out[label] = {"status": "no_ranking"}
+        elif constant_selection:
+            # The null hypothesis selects every column at every label; naming them adds nothing.
+            out[label] = {"status": "all_features", "n": len(cols)}
+        elif len(cols) > MAX_STORED_SELECTION:
+            out[label] = {"status": "omitted_too_large", "n": len(cols)}
+        else:
+            out[label] = {"status": "ok", "columns": list(cols)}
+    return out
+
+
+def _declared_relevant(truth: Dict[str, Any]) -> Optional[List[str]]:
+    """Return the scenario's declared relevant columns, or `None` when the bed declares no truth.
+
+    A real bed has no ground truth, and `None` says so; an empty list would claim the truth is "nothing
+    is relevant", which is a different and false statement.
+    """
+    relevant = truth.get("relevant")
+    base = truth.get("base")
+    names = {str(c) for c in (relevant or [])} | {str(c) for c in (base or [])}
+    return sorted(names) if names else None
+
+
 def run_cell(
     spec: CellSpec,
     factory: Callable[[], Any],
@@ -193,15 +227,19 @@ def run_cell(
             block = fit_and_score_panel(x_train, y_train, x_test, y_test, cols)
             block["n_features"] = len(cols)
             block["skill"] = {
-                member: normalized_skill(metrics["brier"], base_rate["brier"])
-                for member, metrics in block["models"].items()
-                if "brier" in metrics
+                member: normalized_skill(metrics["brier"], base_rate["brier"]) for member, metrics in block["models"].items() if "brier" in metrics
             }
             total_fits += int(block.pop("n_model_fits", 0))
             block.pop("base_rate", None)
             scores[label] = block
 
         record["scores"] = scores
+        # Selections are persisted, not just their sizes: stability across seeds and support recovery
+        # against the declared truth are both properties of WHICH columns were chosen, and neither can be
+        # recovered from a count afterwards. A selection too wide to be worth storing is marked as omitted
+        # rather than dropped, so an analysis can tell "not stored" from "nothing selected".
+        record["selected"] = _selection_payload(selection_sets, spec.arm == NULL_ARM)
+        record["truth_relevant"] = _declared_relevant(truth)
         record["n_model_fits"] = total_fits if arm_fits_known else None
         record["n_model_fits_panel_only"] = not arm_fits_known
         record["status"] = "ok"
@@ -266,9 +304,7 @@ def run_grid(
     for scenario_name, gen in scenarios:
         for dataset_seed in dataset_seeds:
             x_all, y_all, truth = gen(int(dataset_seed))
-            x_train, x_test, y_train, y_test = train_test_split(
-                x_all, y_all, test_size=HOLDOUT_FRACTION, random_state=int(dataset_seed), stratify=y_all
-            )
+            x_train, x_test, y_train, y_test = train_test_split(x_all, y_all, test_size=HOLDOUT_FRACTION, random_state=int(dataset_seed), stratify=y_all)
             # Built per scenario, not once for the grid: the fixed-cardinality arms (random-k, variance-sort)
             # need this bed's feature count, and a roster carried over from a wider bed would ask them for
             # more columns than exist here.

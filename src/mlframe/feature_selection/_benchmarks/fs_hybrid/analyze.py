@@ -141,8 +141,7 @@ def _reliability_block(records: Sequence[Dict[str, Any]]) -> List[str]:
     lines = ["", "=" * 100, "RELIABILITY (a crashed cell is NOT missing at random) + INTENTION-TO-TREAT", "=" * 100]
     for row in reliability_table(records):
         lines.append(
-            f"  {row['arm']:<28} [{row['scenario']}] completed={row['reliability']:.3f} "
-            f"({row['n_ok']}/{row['n_cells']})  statuses={row['by_status']}"
+            f"  {row['arm']:<28} [{row['scenario']}] completed={row['reliability']:.3f} " f"({row['n_ok']}/{row['n_cells']})  statuses={row['by_status']}"
         )
 
     lines.append("")
@@ -262,6 +261,12 @@ def format_report(records: Sequence[Dict[str, Any]], models: Sequence[str] = PAN
     # the vs-random column can be computed. Omitting it would leave the whole column empty.
     lines += _control_adjusted_block(records, models=models, k_labels=[*k_labels, SELF_CHOSEN_K])
     lines += _pooled_block(records, models=models, k_labels=k_labels)
+    if k_labels:
+        from ._stability import recovery_table, stability_table
+
+        lines += ["", "=" * 100, "WHAT THE ARM CHOSE (independent of how it scored)", "=" * 100]
+        lines += stability_table(records, k_label=k_labels[0])
+        lines += recovery_table(records, k_label=k_labels[0])
     lines += _interaction_block(matched + self_k)
     lines += _reliability_block(records)
     lines += _cost_block(records)
