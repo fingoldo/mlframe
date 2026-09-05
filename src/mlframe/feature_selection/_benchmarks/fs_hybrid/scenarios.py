@@ -11,11 +11,22 @@ Each preset returns (X: DataFrame, y: Series, truth: dict). truth keys:
   noise                - pure-noise feature names
   interaction_operands - operands of multiplicative terms (marginal MI ~ 0; the synergy blindspot)
   quadratic_operands   - operands of squared terms
+
+`adversarial_scenarios.py` adds the beds where this repo's own flagship selectors are DOCUMENTED to lose
+(pure XOR/parity, group-additive, jointly-necessary redundancy, probe floods, FDR budgets, and the null
+negative control). Those carry the same `truth` keys plus `expected_to_break` / `pre_std_scale` / `metric`.
+Use `ALL_SCENARIOS` (or `make`) for the full Phase-0 bed; `SCENARIOS` stays the legacy six so the round-2/3
+driver scripts that loop it keep their historical cell list.
 """
 
 from __future__ import annotations
 import numpy as np
 import pandas as pd
+
+try:  # package import
+    from .adversarial_scenarios import ADVERSARIAL_SCENARIOS, GATE_SCENARIOS
+except ImportError:  # pragma: no cover - the round-* driver scripts run this directory as sys.path[0]
+    from adversarial_scenarios import ADVERSARIAL_SCENARIOS, GATE_SCENARIOS  # type: ignore[no-redef]
 
 
 def _gen(seed, n, n_linear, interaction_pairs, n_quadratic, cluster_parents, cluster_size, cluster_noise_sd, n_noise, coef_scale, temperature, monotone):
@@ -86,7 +97,10 @@ def _base(seed, n=5000):  # 4 linear + 1 interaction + 1 quadratic + 3 clusters 
     return _gen(seed, n, 4, 1, 1, [0, 4, 6], 4, 0.30, 32, 1.0, 1.6, False)
 
 
-def _xor2(seed, n=5000):  # interaction-heavy: 2 pairs + 1 quadratic + 2 linear -> synergy blindspot
+def _interaction_heavy(seed, n=5000):  # 2 multiplicative pairs + 1 quadratic + 2 linear -> synergy blindspot
+    # Historically keyed "xor2", which it never was: x*y products have non-zero marginal MI on both operands,
+    # so it never tested the parity blindspot the name promised. The real XOR beds now live in
+    # adversarial_scenarios (`xor2`, `xor3`). Old result files refer to this cell as "xor2"; see _LEGACY_ALIASES.
     return _gen(seed, n, 2, 2, 1, [0], 4, 0.30, 28, 1.0, 1.6, False)
 
 
@@ -108,20 +122,30 @@ def _weakmix(seed, n=5000):  # low SNR (small coef_scale, high temperature) -> t
 
 SCENARIOS = {
     "base": _base,
-    "xor2": _xor2,
+    "interaction_heavy": _interaction_heavy,
     "highnoise": _highnoise,
     "manyredundant": _manyredundant,
     "monotone": _monotone,
     "weakmix": _weakmix,
 }
 
+# Keys under which older result files recorded a cell, so archived JSONL stays resolvable.
+_LEGACY_ALIASES = {"xor2_legacy_interaction": "interaction_heavy"}
+
+# Full Phase-0 bed. The null negative controls come FIRST: they gate leaderboard entry.
+ALL_SCENARIOS = {**{name: ADVERSARIAL_SCENARIOS[name] for name in GATE_SCENARIOS}, **ADVERSARIAL_SCENARIOS, **SCENARIOS}
+
 
 def make(scenario: str, seed: int = 0, n: int = 5000):
-    return SCENARIOS[scenario](seed, n)
+    scenario = _LEGACY_ALIASES.get(scenario, scenario)
+    builder = ALL_SCENARIOS[scenario]
+    if scenario in ADVERSARIAL_SCENARIOS and scenario == "linear_gaussian_lowdim_n200" and n == 5000:
+        return builder(seed)  # this bed's whole point is n=200; do not silently inflate it to the shared default
+    return builder(seed, n)
 
 
 if __name__ == "__main__":
-    for name in SCENARIOS:
+    for name in ALL_SCENARIOS:
         X, y, t = make(name, 0)
         print(
             f"{name:14s} shape={X.shape} pos={float(y.mean()):.3f} base={len(t['base'])} "

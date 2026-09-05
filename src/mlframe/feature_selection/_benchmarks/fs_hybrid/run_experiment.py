@@ -1,191 +1,313 @@
-"""Feature-selection hybrid experiment.
+"""Phase 0 runner for the pre-registered feature-selection benchmark (`docs/BENCHMARK_PREREGISTRATION.md`).
 
-For each (seed, strategy): fit selector on TRAIN, then train 3 downstream model
-families (LightGBM / Logistic / kNN) on the selected (possibly engineered) features
-and score honest AUC on a held-out TEST set the selector never saw. Also record
-ground-truth recovery (vs known causal/redundant/noise blocks), parsimony, cost.
+This benchmark is designed and run by the author of one of the arms it judges. The scenario distribution
+is not a sample from any real problem population.
 
-Writes results.jsonl incrementally and progress.txt checkpoints (one line per cell).
+What one cell is::
+
+    outer:  honest holdout, cut ONCE per (scenario, dataset_seed)
+    arm:    arm.fit(train)  ->  a feature ranking (see `_matched_k`)
+    score:  downstream PANEL {logistic, LightGBM} on the holdout, at matched K = 1x/2x/5x the target-set
+            size, plus the arm's self-chosen K reported separately
+
+`all-features` is the null hypothesis, not a baseline row: it is run as an arm on every single cell so
+that every other arm has a paired partner on the identical holdout. The aggregation in `analyze.py` scores
+each arm as a paired per-`dataset_seed` difference against it and reports every scenario where nothing
+clears it as `FS does not pay here`.
+
+Cost is `n_model_fits`, which is deterministic. Wall-clock is recorded but advisory: this host routinely
+runs over a hundred python processes, so every figure using it must say so.
+
+Results are JSONL, one object per cell, resumable: the cell key is a sha256 over the canonically encoded
+cell spec, and a cell that fails writes its status (`error` / `timeout` / `crashed` / `oom`) rather than
+disappearing from the file.
 """
+
 from __future__ import annotations
+
 import logging
+import os
+import time
+import traceback
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+
+os.environ.setdefault("TQDM_DISABLE", "1")
+
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
+
+from ._cell_store import JsonlCellStore
+from ._leaderboard import NULL_ARM
+from ._matched_k import SELF_CHOSEN_K, Ranking, cut_at_k, k_grid_for_bed, ranking_from_arm_result
+from ._panel import PANEL_MEMBERS, assert_wrapper_estimator_differs, base_rate_scores, fit_and_score_panel, normalized_skill
+from ._protocol_types import PROTOCOL_VERSION, CellSpec, classify_exception
 
 logger = logging.getLogger(__name__)
 
-import os, sys, time, json, traceback
-os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
-import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import make_pipeline
-from sklearn.linear_model import LogisticRegression
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import roc_auc_score
-import lightgbm as lgb
+__all__ = ["OUT_DIR", "RESULTS_PATH", "build_arm_roster", "run_cell", "run_grid", "main"]
 
-try:  # runnable both as ``python -m ...fs_hybrid.run_experiment`` and as a plain script
-    from .synth import make_dataset
-    from . import fs_selectors as S
-    from .hybrid_selector import HybridSelector
-    from .hard_synth2 import HARD_SCENARIOS
-except ImportError:
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from synth import make_dataset
-    import fs_selectors as S
-    from hybrid_selector import HybridSelector
-    from hard_synth2 import HARD_SCENARIOS
+OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_results")
+RESULTS_PATH = os.path.join(OUT_DIR, "protocol_results.jsonl")
 
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_results")
-os.makedirs(OUT, exist_ok=True)
-RESULTS = os.path.join(OUT, "results.jsonl")
-PROGRESS = os.path.join(OUT, "progress.txt")
+# Development range per the pre-registration's reserved seeds; [1000..1099] is report-only.
+DEV_DATASET_SEEDS: Tuple[int, ...] = (0, 1, 2)
+# `cv_seed` is a NUISANCE axis: replication budget never goes here. More than one value only buys the
+# selection-instability spread reported alongside the headline.
+CV_SEEDS: Tuple[int, ...] = (0,)
 
-CORE_SEEDS = [0, 1, 2]
-SHAP_SEEDS = [0]
+HOLDOUT_FRACTION = 0.4
 
-# Scenario plumbing. Default ("default") preserves the original single synth bed exactly. Selecting a hard
-# scenario set (env FS_HYBRID_SCENARIOS="all" or a comma-list of HARD_SCENARIOS keys) loops the whole roster
-# over each named hard bed, writing one results.jsonl row per (scenario, strategy, seed).
-def _resolve_scenarios():
-    """Return ordered list of (scenario_name, generator(seed)->(X,y,truth)). 'default' keeps legacy behavior."""
+ScenarioGen = Callable[[int], Tuple[pd.DataFrame, np.ndarray, Dict[str, Any]]]
+
+
+def _declared_target_size(truth: Dict[str, Any], n_features: int) -> Optional[int]:
+    """Return the pre-declared primary target-set size, or `None` when the bed declares none.
+
+    Synthetic beds carry it in `truth["base"]`; a bed may also state it outright as
+    `truth["declared_target_size"]`. A real bed has no ground truth and declares neither -- that is not an
+    error, it selects the absolute K grid instead (pre-registration section 3a). What stays forbidden is
+    GUESSING a target size from the data, which would let the K grid be chosen after seeing results.
+    """
+    base = truth.get("base")
+    if base is not None:
+        return len(base)
+    declared = truth.get("declared_target_size")
+    if declared is None:
+        return None
+    return int(min(int(declared), n_features))
+
+
+def build_arm_roster(n_features: int, *, k: Optional[int] = None, random_state: int = 0) -> Dict[str, Callable[[], Any]]:
+    """Return `{arm_name: factory}` from the real roster in `_arms`, with `all-features` as the null hypothesis.
+
+    Delegates rather than duplicating: `_arms` is where each arm's verified `score_kind` lives, and a second
+    roster here would drift from it silently -- the arm would keep running while its declared score kind no
+    longer matched what it returns, which is exactly what the `ArmResult` contract exists to make impossible.
+    """
+    from ._arms import build_arm_roster as _real_roster
+
+    roster: Dict[str, Callable[[], Any]] = dict(_real_roster(n_features, k=k, random_state=random_state))
+    if NULL_ARM not in roster:
+        raise ValueError(f"the arm roster must contain the null hypothesis {NULL_ARM!r}; got {sorted(roster)}")
+    return roster
+
+
+# Internal estimator per wrapper arm, so `assert_wrapper_estimator_differs` can refuse a tautological cell.
+WRAPPER_INTERNAL_ESTIMATOR: Dict[str, Optional[str]] = {
+    "rfecv_lgbm": "lightgbm",
+    "rfecv_logit": "logistic",
+}
+
+
+def _fit_arm(factory: Callable[[], Any], x_train: pd.DataFrame, y_train: np.ndarray, cv_seed: int) -> Tuple[Any, float, float]:
+    """Fit one arm, returning `(result_or_fitted_selector, wall_seconds, process_seconds)`.
+
+    An arm exposing a `cv_seed` attribute receives the nuisance seed; the rest simply ignore it.
+
+    Two shapes are accepted. `_arms.BaseArm` exposes `run(X, y) -> ArmResult` and times itself around the
+    selector call only, so its own numbers are tighter than anything measured out here and are preferred.
+    A bare sklearn-style object exposing `fit` is timed here and returned as-is, which is what the protocol
+    tests use; without that fallback every duck-typed test double would have to grow a `run`.
+    """
+    arm = factory()
+    if hasattr(arm, "cv_seed"):
+        arm.cv_seed = cv_seed
+    runner = getattr(arm, "run", None)
+    if callable(runner):
+        result = runner(x_train, y_train)
+        return result, float(getattr(result, "wall_time_s", 0.0)), float(getattr(result, "process_time_s", 0.0))
+    wall0, proc0 = time.perf_counter(), time.process_time()
+    arm.fit(x_train, y_train)
+    return arm, time.perf_counter() - wall0, time.process_time() - proc0
+
+
+def _selection_sets(
+    ranking: Ranking, target_size: Optional[int], n_features: int, constant_selection: bool = False
+) -> Tuple[Dict[str, Optional[List[str]]], str]:
+    """Build `({K label: selected columns}, k_grid_mode)` for the matched-K grid plus the self-chosen-K row.
+
+    `constant_selection` is for the `all-features` null hypothesis, whose selection is the whole column
+    set at every K label: it is the paired partner every other arm is differenced against, so it must
+    carry a value in every matched-K row rather than being skipped as unrankable.
+
+    The mode is returned, not just used, because a synthetic `2k` and a real `k20` label answer different
+    questions -- pooling them would average over two different denominators.
+    """
+    sets: Dict[str, Optional[List[str]]] = {SELF_CHOSEN_K: list(ranking.selected)}
+    grid, mode = k_grid_for_bed(target_size, n_features)
+    for label, k in grid.items():
+        sets[label] = list(ranking.selected) if constant_selection else cut_at_k(ranking, k)
+    return sets, mode
+
+
+def run_cell(
+    spec: CellSpec,
+    factory: Callable[[], Any],
+    x_train: pd.DataFrame,
+    y_train: np.ndarray,
+    x_test: pd.DataFrame,
+    y_test: np.ndarray,
+    truth: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Run one cell and return its record. Never raises: a failure is recorded with its status."""
+    record: Dict[str, Any] = dict(spec.as_dict())
+    record["cell_key"] = spec.key()
+    record["host_contended"] = True
+    record["panel"] = list(PANEL_MEMBERS)
+    try:
+        assert_wrapper_estimator_differs(spec.arm, WRAPPER_INTERNAL_ESTIMATOR.get(spec.arm))
+        feature_names = [str(c) for c in x_train.columns]
+        target_size = _declared_target_size(truth, len(feature_names))
+        record["target_size"] = target_size
+
+        arm, wall_s, proc_s = _fit_arm(factory, x_train, y_train, spec.cv_seed)
+        record["wall_time_s"] = round(wall_s, 3)
+        record["process_time_s"] = round(proc_s, 3)
+
+        ranking = ranking_from_arm_result(arm, feature_names)
+        record["score_kind"] = ranking.score_kind
+        record["ranking_coverage"] = round(ranking.coverage, 4)
+        record["n_selected_self"] = len(ranking.selected)
+
+        base_rate = base_rate_scores(y_train, y_test)
+        record["base_rate"] = base_rate
+
+        scores: Dict[str, Any] = {}
+        # The field on ArmResult is `n_model_fits`, no trailing underscore. Reading the sklearn-style name
+        # made the ARM term silently zero, so the pre-registered primary cost axis was measuring the
+        # downstream panel alone -- rfecv and variance-sort reported the same cost while their wall-clock
+        # differed by four orders of magnitude. Unmeasured is recorded as unknown, never as zero: an arm
+        # whose fits nobody counted is not a free arm.
+        arm_fits = getattr(arm, "n_model_fits", None)
+        arm_fits_known = arm_fits is not None
+        total_fits = int(arm_fits) if arm_fits is not None else 0
+        selection_sets, k_grid_mode = _selection_sets(ranking, target_size, len(feature_names), constant_selection=(spec.arm == NULL_ARM))
+        record["k_grid_mode"] = k_grid_mode
+        for label, cols in selection_sets.items():
+            if cols is None:
+                # `score_kind == "none"`: the arm supplies no order, so it has no matched-K row at all.
+                # Synthesising one would silently compare a different statistic against every other arm.
+                scores[label] = {"skipped": "no_ranking"}
+                continue
+            block = fit_and_score_panel(x_train, y_train, x_test, y_test, cols)
+            block["n_features"] = len(cols)
+            block["skill"] = {
+                member: normalized_skill(metrics["brier"], base_rate["brier"])
+                for member, metrics in block["models"].items()
+                if "brier" in metrics
+            }
+            total_fits += int(block.pop("n_model_fits", 0))
+            block.pop("base_rate", None)
+            scores[label] = block
+
+        record["scores"] = scores
+        record["n_model_fits"] = total_fits if arm_fits_known else None
+        record["n_model_fits_panel_only"] = not arm_fits_known
+        record["status"] = "ok"
+    except BaseException as exc:  # a crashed cell is data, not an absence -- record and continue
+        record["status"] = classify_exception(exc)
+        record["error"] = f"{type(exc).__name__}: {exc}"
+        record["traceback"] = traceback.format_exc()[-2000:]
+        logger.warning("cell %s/%s seed=%s failed (%s): %s", spec.scenario, spec.arm, spec.dataset_seed, record["status"], exc)
+    return record
+
+
+def _default_scenarios() -> List[Tuple[str, ScenarioGen]]:
+    """Return the scenario list: the synthetic beds by default, real cached beds when requested."""
     spec = os.environ.get("FS_HYBRID_SCENARIOS", "default").strip()
     if spec in ("", "default"):
+        from .synth import make_dataset
+
         return [("default", lambda seed: make_dataset(n_samples=5000, seed=seed))]
+
+    if spec in ("real", "real_all"):
+        from ._real_beds import real_bed_scenarios
+
+        return list(real_bed_scenarios(include_ineligible=(spec == "real_all")))
+
+    if spec == "adversarial":
+        from .scenarios import ADVERSARIAL_SCENARIOS, make
+
+        return [(name, (lambda nm: (lambda seed: make(nm, seed)))(name)) for name in ADVERSARIAL_SCENARIOS]
+
+    from .hard_synth2 import HARD_SCENARIOS
+
     names = list(HARD_SCENARIOS) if spec == "all" else [s.strip() for s in spec.split(",") if s.strip()]
-    out = []
-    for nm in names:
-        if nm not in HARD_SCENARIOS:
-            raise SystemExit(f"unknown scenario {nm!r}; available: default, all, {list(HARD_SCENARIOS)}")
-        out.append((nm, (lambda fn: (lambda seed: fn(seed)))(HARD_SCENARIOS[nm])))
+    out: List[Tuple[str, ScenarioGen]] = []
+    for name in names:
+        if name not in HARD_SCENARIOS:
+            raise SystemExit(f"unknown scenario {name!r}; available: default, all, {list(HARD_SCENARIOS)}")
+        out.append((name, (lambda fn: (lambda seed: fn(seed)))(HARD_SCENARIOS[name])))
     return out
 
 
-def downstream_models():
-    return {
-        "lgbm": lambda: lgb.LGBMClassifier(n_estimators=300, num_leaves=31, learning_rate=0.05, n_jobs=-1, verbose=-1),
-        "logit": lambda: make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000, C=1.0)),
-        "knn": lambda: make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)),
-    }
+def run_grid(
+    scenarios: Optional[Sequence[Tuple[str, ScenarioGen]]] = None,
+    roster: Optional[Dict[str, Callable[[], Any]]] = None,
+    dataset_seeds: Sequence[int] = DEV_DATASET_SEEDS,
+    cv_seeds: Sequence[int] = CV_SEEDS,
+    results_path: str = RESULTS_PATH,
+    resume: bool = True,
+    retry_failed: bool = False,
+) -> int:
+    """Run the whole grid, appending one JSONL record per cell. Returns the number of cells executed."""
+    scenarios = list(scenarios if scenarios is not None else _default_scenarios())
+    if roster is not None and NULL_ARM not in roster:
+        raise ValueError(f"the roster must contain the null hypothesis {NULL_ARM!r} on every cell")
+
+    store = JsonlCellStore(results_path)
+    # A failure caused by a fixed adapter bug must be retried, or the arm keeps carrying a reliability penalty
+    # and a seed count it no longer deserves. A deterministic crash simply re-pays its cost; that is the trade
+    # this flag makes explicit instead of deciding it for the caller.
+    done = store.completed_keys({"ok"} if retry_failed else None) if resume else set()
+    executed = 0
+
+    for scenario_name, gen in scenarios:
+        for dataset_seed in dataset_seeds:
+            x_all, y_all, truth = gen(int(dataset_seed))
+            x_train, x_test, y_train, y_test = train_test_split(
+                x_all, y_all, test_size=HOLDOUT_FRACTION, random_state=int(dataset_seed), stratify=y_all
+            )
+            # Built per scenario, not once for the grid: the fixed-cardinality arms (random-k, variance-sort)
+            # need this bed's feature count, and a roster carried over from a wider bed would ask them for
+            # more columns than exist here.
+            cell_roster = dict(roster) if roster is not None else build_arm_roster(int(x_all.shape[1]), random_state=int(dataset_seed))
+            if NULL_ARM not in cell_roster:
+                raise ValueError(f"the roster must contain the null hypothesis {NULL_ARM!r} on every cell")
+            for arm_name, factory in cell_roster.items():
+                for cv_seed in cv_seeds:
+                    spec = CellSpec(
+                        scenario=scenario_name,
+                        arm=arm_name,
+                        dataset_seed=int(dataset_seed),
+                        cv_seed=int(cv_seed),
+                        protocol_version=PROTOCOL_VERSION,
+                        config={"holdout_fraction": HOLDOUT_FRACTION, "panel": list(PANEL_MEMBERS)},
+                    )
+                    if spec.key() in done:
+                        continue
+                    record = run_cell(spec, factory, x_train, np.asarray(y_train), x_test, np.asarray(y_test), truth)
+                    store.append(record)
+                    executed += 1
+                    logger.info(
+                        "cell %s/%s seed=%s cv=%s -> %s (fits=%s)",
+                        scenario_name,
+                        arm_name,
+                        dataset_seed,
+                        cv_seed,
+                        record["status"],
+                        record.get("n_model_fits"),
+                    )
+    return executed
 
 
-def build_roster():
-    """name -> (factory(), seeds). factory builds a fresh unfitted adapter."""
-    R = {}
-    R["all"] = (lambda: S.AllSel(), CORE_SEEDS)
-    R["mrmr_filter"] = (lambda: S.MRMRSel(fe=False), CORE_SEEDS)
-    R["mrmr_fe"] = (lambda: S.MRMRSel(fe=True), CORE_SEEDS)
-    R["boruta"] = (lambda: S.BorutaSel(), CORE_SEEDS)
-    R["boruta_stable"] = (lambda: S.BorutaSel(stability_subsamples=10), CORE_SEEDS)
-    R["rfecv_lgbm"] = (lambda: S.RFECVSel("lgbm"), CORE_SEEDS)
-    R["rfecv_lgbm_perm"] = (lambda: S.RFECVSel("lgbm_perm"), CORE_SEEDS)  # OOF-permutation importance (brainstorm-verified +0.029)
-    R["rfecv_lgbm_perm_fe"] = (lambda: S.RFECVSel("lgbm_perm", survivor_fe=True), CORE_SEEDS)  # R3-1 survivor-FE (+0.015)
-    R["rfecv_logit"] = (lambda: S.RFECVSel("logit"), CORE_SEEDS)
-    R["boruta_fe"] = (lambda: S.Cascade("boruta_fe", S.MRMRSel(fe=True), S.BorutaSel()), CORE_SEEDS)  # B3-4 FE-augmented Boruta
-    # hybrids
-    R["H1_mrmrfilter__rfecv_lgbm"] = (lambda: S.Cascade("H1", S.MRMRSel(fe=False), S.RFECVSel("lgbm")), CORE_SEEDS)
-    R["H2_mrmrfe__rfecv_logit"] = (lambda: S.Cascade("H2", S.MRMRSel(fe=True), S.RFECVSel("logit")), CORE_SEEDS)
-    R["H3_boruta__rfecv_lgbm"] = (lambda: S.Cascade("H3", S.BorutaSel(), S.RFECVSel("lgbm")), CORE_SEEDS)
-    R["H_union_mrmr_boruta"] = (lambda: S.Ensemble("Hu", S.MRMRSel(fe=False), S.BorutaSel(), "union"), CORE_SEEDS)
-    R["H_intersect_mrmr_boruta"] = (lambda: S.Ensemble("Hi", S.MRMRSel(fe=False), S.BorutaSel(), "intersect"), CORE_SEEDS)
-    R["H5_mrmr_boruta__rfecv_lgbm"] = (lambda: S.Cascade("H5", S.MRMRSel(fe=False), S.BorutaSel(), S.RFECVSel("lgbm")), CORE_SEEDS)
-    R["H7_mrmr_borutastable__rfecv_lgbm"] = (lambda: S.Cascade("H7", S.MRMRSel(fe=False), S.BorutaSel(stability_subsamples=10), S.RFECVSel("lgbm")), CORE_SEEDS)
-    # shap-proxied (cost-limited)
-    R["shap_proxied"] = (lambda: S.ShapSel(), SHAP_SEEDS)
-    R["H4_mrmrfilter__shap"] = (lambda: S.Cascade("H4", S.MRMRSel(fe=False), S.ShapSel()), SHAP_SEEDS)
-    R["H6_mrmrfe__shap"] = (lambda: S.Cascade("H6", S.MRMRSel(fe=True), S.ShapSel()), SHAP_SEEDS)
-    # compute-once-share-many hybrid (MI/SU/bins + permutation-FI + clusters computed once, shared to reused members).
-    # vote=1 (any reused member confirms a cluster) is the headline: the members are COMPLEMENTARY so majority
-    # (vote=2) drops base features only one member catches (seed-0: vote2 base 6/8 AUC 0.756 vs vote1 base 8/8 AUC
-    # 0.774). vote=2 kept as the parsimony/precision variant; expand re-emits all cluster members for downstream.
-    # round-3: use_fe=True is now the default (the +0.046 FE win). "hybrid" = FE; hybrid_nofe = the recall-champion mode.
-    R["hybrid"] = (lambda: HybridSelector(vote=1, name="hybrid"), CORE_SEEDS)
-    R["hybrid_nofe"] = (lambda: HybridSelector(vote=1, use_fe=False, name="hybrid_nofe"), CORE_SEEDS)
-    R["hybrid_strict"] = (lambda: HybridSelector(vote=2, name="hybrid_strict"), CORE_SEEDS)
-    R["hybrid_expand"] = (lambda: HybridSelector(vote=1, expand_clusters=True, name="hybrid_expand"), CORE_SEEDS)
-    return R
-
-
-def compute_auc_mean(aucs: dict) -> "float | None":
-    """Mean of the non-None AUC values in ``aucs``, or ``None`` if every model failed.
-
-    Gates on "any value is not None", not on `any(aucs.values())` -- the latter is truthy-gated, so a
-    legitimate AUC of exactly 0.0 (one model succeeded with a worse-than-random score while the others
-    failed to None) makes every value falsy and silently drops the real result as None.
-    """
-    if not any(v is not None for v in aucs.values()):
-        return None
-    return round(float(np.mean([v for v in aucs.values() if v is not None])), 4)
-
-
-def recovery(raw_selected, truth):
-    base = set(truth["base"]); noise = set(truth["noise"]); red = set(truth["relevant"]) - base
-    sel = set(raw_selected)
-    tp = len(sel & base); fn = len(base - sel)
-    n_noise = len(sel & noise); n_red = len(sel & red)
-    prec = tp / max(1, len(sel & (base | noise | red)))
-    rec = tp / max(1, len(base))
-    f1 = 2 * prec * rec / max(1e-9, prec + rec)
-    return dict(base_recall=round(rec, 3), base_found=tp, base_missed=fn,
-                n_noise_selected=n_noise, n_redundant_selected=n_red,
-                precision_on_base=round(prec, 3), f1=round(f1, 3))
-
-
-def log(msg):
-    line = f"[{time.strftime('%H:%M:%S')}] {msg}"
-    with open(PROGRESS, "a", encoding="utf-8") as f:
-        f.write(line + "\n")
-    print(line, flush=True)
-
-
-def main():
-    open(RESULTS, "w").close(); open(PROGRESS, "w").close()
-    roster = build_roster()
-    models = downstream_models()
-    scenarios = _resolve_scenarios()
-    total = sum(len(seeds) for _, seeds in roster.values()) * len(scenarios)
-    log(f"START total_cells={total} strategies={len(roster)} scenarios={[s for s, _ in scenarios]} seeds_core={CORE_SEEDS}")
-    cell = 0
-    for scen_name, gen in scenarios:
-      for name, (factory, seeds) in roster.items():
-        for seed in seeds:
-            cell += 1
-            X, y, truth = gen(seed)
-            Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=seed, stratify=y)
-            row = {"scenario": scen_name, "strategy": name, "seed": seed}
-            try:
-                sel = factory()
-                t0 = time.time()
-                sel.fit(Xtr, ytr)
-                row["fit_seconds"] = round(time.time() - t0, 2)
-                Ztr = sel.transform(Xtr); Zte = sel.transform(Xte)
-                row["n_features"] = int(Ztr.shape[1])
-                row["n_engineered"] = int(getattr(sel, "n_engineered_", 0))
-                row["raw_selected"] = list(getattr(sel, "raw_selected_", []))
-                ms = getattr(sel, "member_selections_", None)
-                if isinstance(ms, dict):
-                    row["member_selections"] = {k: list(v) for k, v in ms.items()}
-                row.update(recovery(getattr(sel, "raw_selected_", []), truth))
-                aucs = {}
-                for mname, mfac in models.items():
-                    try:
-                        clf = mfac(); clf.fit(Ztr, ytr)
-                        aucs[mname] = round(float(roc_auc_score(yte, clf.predict_proba(Zte)[:, 1])), 4)
-                    except Exception as e:
-                        logger.debug("model %s fit/score failed: %s: %s", mname, type(e).__name__, e)
-                        aucs[mname] = None; row[f"err_{mname}"] = f"{type(e).__name__}: {e}"
-                row["auc"] = aucs
-                row["auc_mean"] = compute_auc_mean(aucs)
-                log(f"[{cell}/{total}] {scen_name}/{name} seed={seed} n={row['n_features']} eng={row['n_engineered']} "
-                    f"fit={row['fit_seconds']}s rec={row.get('base_recall')} noise={row.get('n_noise_selected')} auc={aucs}")
-            except Exception as e:
-                logger.debug("cell failed: %s: %s", type(e).__name__, e)
-                row["error"] = f"{type(e).__name__}: {e}"
-                row["traceback"] = traceback.format_exc()[-1500:]
-                log(f"[{cell}/{total}] {scen_name}/{name} seed={seed} ERROR {type(e).__name__}: {e}")
-            with open(RESULTS, "a", encoding="utf-8") as f:
-                f.write(json.dumps(row) + "\n")
-    log("DONE")
+def main() -> None:
+    """Run the grid with the default scenarios, roster and dev seeds, resuming from any existing file."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    os.makedirs(OUT_DIR, exist_ok=True)
+    executed = run_grid()
+    logger.info("DONE executed=%d results=%s", executed, RESULTS_PATH)
 
 
 if __name__ == "__main__":

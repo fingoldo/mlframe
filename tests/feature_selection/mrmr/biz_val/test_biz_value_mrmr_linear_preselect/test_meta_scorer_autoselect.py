@@ -22,14 +22,17 @@ Contracts pinned
   ~ 0, Spearman ~ 0, |x - mean| Pearson > 0) dispatches to ``hsic`` for
   every seed (L75 quadratic winner).
 * ``TestMetaPicksCmimOnRedundant``: heavily-duplicating candidate pool
-  (inter_x_max_corr >= 0.95) dispatches to ``cmim`` for every seed (L75
-  xor_redundant winner).
+  (inter_x_max_corr >= 0.95) dispatches to ``cmim`` for every seed (winner of
+  the L75 slot historically LABELLED ``xor_redundant``; that fixture's data is
+  a quadratic target over near-duplicate columns and contains no XOR, so it is
+  called ``redundant_quadratic`` here and built by
+  ``_build_redundant_quadratic``).
 * ``TestMetaMatchesL75OnAtLeastThree``: for the 5 L75-spec fixtures the
   meta-selected scorer matches an L75 EMPIRICAL winner on >= 3 of 5
   fixtures (under the L75 matrix: plug_in wins linear_monotone &
   heavy_tail [tied with copula]; hsic wins quadratic; jmim wins
   non_monotone_cubic [hsic ties at +0.011 lift over plug_in]; cmim wins
-  xor_redundant).
+  redundant_quadratic).
 * ``TestAucCompetitiveWithEnsemble``: meta-augmented LogReg AUC on a
   mixed-signal fixture >= ensemble (Layer 69)-augmented AUC - 0.01;
   meta saves compute without giving up AUC on routable signals.
@@ -163,7 +166,7 @@ def _build_heavy_tail(seed: int, n: int = 1500):
     return X, pd.Series(y, name="y")
 
 
-from tests.feature_selection._biz_val_synth import _build_xor_redundant
+from tests.feature_selection._biz_val_synth import _build_redundant_quadratic
 
 # L75 empirical winners (or runner-up scorers within 0.011 absolute lift
 # of the winner -- the L75 docstring's documented tie margin). The L76
@@ -175,7 +178,8 @@ _L75_ACCEPTABLE_WINNERS = {
     "quadratic": {"hsic", "plug_in", "copula", "dcor", "jmim", "tc", "cmim"},
     "non_monotone_cubic": {"jmim", "cmim", "tc", "hsic", "dcor"},
     "heavy_tail": {"plug_in", "ksg", "copula", "dcor", "hsic", "jmim", "tc"},
-    "xor_redundant": {"cmim", "jmim", "tc", "hsic"},
+    # L75 called this slot "xor_redundant"; its data is quadratic-over-duplicates, not XOR.
+    "redundant_quadratic": {"cmim", "jmim", "tc", "hsic"},
 }
 
 
@@ -228,19 +232,22 @@ class TestMetaPicksHsicOnQuadratic:
 
 
 class TestMetaPicksCmimOnRedundant:
-    """The L75 xor_redundant fixture is the L74 CMIM-winning case:
+    """The L75 redundant fixture (labelled ``xor_redundant`` in the L75
+    matrix, though it holds no XOR) is the L74 CMIM-winning case:
     inter_x_max_corr >= 0.95 (the x_dup_* columns are near-copies of
-    x1). Rule 1 of the cascade MUST fire and dispatch to 'cmim' for
-    every seed."""
+    x1). Rule 1 of the cascade fires on that CORRELATION alone -- the
+    contract never depended on synergy in the target, which is why
+    renaming the builder to ``_build_redundant_quadratic`` leaves the
+    assertion intact. Rule 1 MUST dispatch to 'cmim' for every seed."""
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_meta_picks_cmim(self, seed):
         """The meta-cascade dispatches the highly-redundant fingerprint to cmim for every seed."""
         _, fingerprint_signal, predict_best_scorer, _, _ = _import_meta_fe()
-        X, y = _build_xor_redundant(seed)
+        X, y = _build_redundant_quadratic(seed)
         fp = fingerprint_signal(X, y.to_numpy(), random_state=int(seed))
         chosen = predict_best_scorer(fp)
-        assert chosen == "cmim", f"seed={seed}: xor_redundant fixture dispatched to {chosen!r}; expected 'cmim'. fingerprint={fp!r}"
+        assert chosen == "cmim", f"seed={seed}: redundant_quadratic fixture dispatched to {chosen!r}; expected 'cmim'. fingerprint={fp!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +276,7 @@ class TestMetaMatchesL75OnAtLeastThree:
             "quadratic": _build_quadratic,
             "non_monotone_cubic": _build_non_monotone_cubic,
             "heavy_tail": _build_heavy_tail,
-            "xor_redundant": _build_xor_redundant,
+            "redundant_quadratic": _build_redundant_quadratic,
         }
         matches: list[str] = []
         mismatches: list[str] = []

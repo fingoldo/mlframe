@@ -535,6 +535,7 @@ markers = [
     "integration: marks integration tests requiring full pipeline",
     "gpu: marks tests requiring GPU hardware",
     "benchmark: pytest-benchmark timing tests",
+    "benchmark_tier1: the pinned, always-on quality tier of the FS/FE benchmark harness -- a fixed arm/scenario/seed set whose whole tier must complete in <=90s, so it runs on every shard rather than nightly. Asserts RESULT QUALITY (recovery, FDR, ranking) only: it carries NO timing assertions, and the 90s figure is a budget for keeping the tier always-on, never a threshold a test may check. Timing belongs to the `benchmark` (pytest-benchmark) marker instead.",
     "multigpu: requires multiple GPUs",
     "windows_only: skip on non-Windows",
     "linux_only: skip on non-Linux",
@@ -722,12 +723,12 @@ skip-checking-raises = true          # our style doesn't require a "Raises" sect
 check-class-attributes = false       # ditto for dataclass/NamedTuple attribute docs (~11 findings: DOC601/DOC603/DOC605).
 
 # ---------------------------------------------------------------------------
-# import-linter (architectural-boundary contracts). Added 2026-07-18 CI/CD architecture review --
-# advisory only (see .github/workflows/lint-advisory.yml / lint-advisory-warn pre-commit hook),
-# not blocking: only 1 contract exists so far, chosen because it's genuinely safe (verified 0
-# findings via a quick import-graph spot-check before adding) rather than a full layered-
-# architecture policy this codebase hasn't been designed against from the start. Run via
-# `lint-imports`.
+# import-linter (architectural-boundary contracts). Advisory only, NOT blocking: `run-import-linter` sits in the
+# lint-advisory CI job and the `import-linter-warn` pre-commit hook is `stages: [manual]`. Contracts here are
+# therefore documentation of intent -- a rule that must actually hold needs its own meta-test under
+# tests/test_meta/ (see test_no_inbound_edge_to_benchmarking.py, which enforces the benchmarking-sink contract).
+# Kept narrow on purpose: each contract is one genuinely safe boundary verified against the real import graph,
+# not a full layered-architecture policy this codebase was never designed against. Run via `lint-imports`.
 #
 # A "vendored third-party code stays isolated" contract was ATTEMPTED but dropped: grimp (the
 # graph library import-linter uses) never discovers leading-underscore SUBDIRECTORIES as packages
@@ -762,6 +763,32 @@ allow_indirect_imports = true
 # specifically so the parent could re-export their names -- a back-import would create a real
 # circular-import risk the split was designed to avoid. Add each new facade/sibling pair here as
 # the monolith-split pattern is applied to more files.
+
+[[tool.importlinter.contracts]]
+name = "The benchmarking harness is a pure sink: production packages must not import it"
+type = "forbidden"
+source_modules = [
+    "mlframe.evaluation",
+    "mlframe.reporting",
+    "mlframe.training",
+    "mlframe.feature_selection",
+    "mlframe.metrics",
+]
+forbidden_modules = [
+    "mlframe.benchmarking",
+]
+# allow_indirect_imports=true restricts the check to DIRECT imports only, for the same reason as the
+# contract above: this is a flat, densely cross-referenced package, so the default transitive check
+# reports long incidental chains rather than the one thing that matters here -- a production module
+# literally importing the harness.
+allow_indirect_imports = true
+# ``benchmarking`` sits at the BOTTOM of the graph on purpose: it pulls ``feature_selection`` (a ~10-25s
+# cold import), so a single inbound edge would drag that cost into every consumer of the importing
+# package, and it would let the harness join an SCC it can never be refactored out of.
+# DOCUMENTATION ONLY -- import-linter is advisory in this repo (see the section header above:
+# `run-import-linter` lives in the lint-advisory CI job, and the local hook is `stages: [manual]`), so
+# this contract never blocks. The enforcing gate is the blocking meta-test
+# tests/test_meta/test_no_inbound_edge_to_benchmarking.py, which runs on every shard.
 
 [tool.deptry.per_rule_ignores]
 # DEP002 (unused declared dependency): many optional extras are declared for callers who reach

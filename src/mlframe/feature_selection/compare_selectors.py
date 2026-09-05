@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, List, Mapping, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -54,12 +54,27 @@ def _is_fitted(selector: Any) -> bool:
     return False
 
 
-def _extract_selected(selector: Any, feature_names: Sequence[str]) -> list[str]:
+def extract_selected(selector: Any, feature_names: Sequence[str]) -> List[str]:
     """Return the list of feature NAMES a fitted selector kept, aligned to ``feature_names``.
 
     Tries accessors in order of reliability: get_feature_names_out -> selected_features_ ->
-    boolean/index support_ (paired with feature_names_in_) -> BorutaShap.accepted. Names are
-    intersected with ``feature_names`` so engineered/extra columns don't pollute the matrix.
+    boolean/index support_ (paired with feature_names_in_) -> BorutaShap.accepted.
+
+    The returned names are NOT intersected with ``feature_names``: a selector that ran with feature
+    engineering enabled (MRMR with FE) answers ``get_feature_names_out()`` with ENGINEERED names that do
+    not exist in ``feature_names_in_``, and this function passes them through. The caller decides what to
+    do with them -- :func:`compare_selectors` intersects, while :func:`support_mask_from_selector` raises.
+
+    Args:
+        selector: A fitted selector exposing any of the recognised support accessors.
+        feature_names: The common feature index the report is aligned on, used as the fallback for
+            ``feature_names_in_`` when the selector does not record it.
+
+    Returns:
+        The list of kept feature names, in the selector's own order.
+
+    Raises:
+        AttributeError: if the selector exposes none of the recognised support accessors.
     """
     names_in = getattr(selector, "feature_names_in_", None)
     names_in = list(np.asarray(names_in, dtype=object)) if names_in is not None else list(feature_names)
@@ -96,6 +111,59 @@ def _extract_selected(selector: Any, feature_names: Sequence[str]) -> list[str]:
     raise AttributeError(
         f"{type(selector).__name__} exposes no recognised support accessor " "(get_feature_names_out / selected_features_ / support_ / accepted)"
     )
+
+
+# Internal alias kept so in-package call sites and older imports keep working after the promotion.
+_extract_selected = extract_selected
+
+
+def support_mask_from_selector(selector: Any, feature_names: Sequence[str]) -> np.ndarray:
+    """Return a boolean support mask over ``feature_names`` for a fitted ``selector``.
+
+    Unlike :func:`extract_selected`, which returns whatever names the selector reports, this maps every
+    reported name back to its position in ``feature_names`` and REFUSES to silently drop one it cannot
+    place. That matters for selectors run with feature engineering (MRMR with FE enabled), whose
+    ``get_feature_names_out()`` answers with engineered names absent from ``feature_names_in_``: a name-set
+    intersection would quietly shrink the support and understate the selector's size, so the mismatch is
+    raised instead.
+
+    ``support_`` given as integer indices (MRMR records ``np.int64`` positions in greedy-selection order,
+    not a boolean mask) is handled by :func:`extract_selected`'s own index branch before this function
+    sees names.
+
+    Args:
+        selector: A fitted selector accepted by :func:`extract_selected`.
+        feature_names: The feature index to align on; defines the mask's length and column order.
+
+    Returns:
+        A 1-D boolean ``np.ndarray`` of length ``len(feature_names)``, True where the selector kept
+        that feature.
+
+    Raises:
+        ValueError: if ``feature_names`` contains duplicates, or if the selector reports a name that is
+            not in ``feature_names`` (typically an engineered column).
+        AttributeError: propagated from :func:`extract_selected` when no support accessor is recognised.
+    """
+    names = [str(c) for c in feature_names]
+    position = {name: i for i, name in enumerate(names)}
+    if len(position) != len(names):
+        raise ValueError("support_mask_from_selector: ``feature_names`` must not contain duplicates.")
+    selected = extract_selected(selector, names)
+    mask = np.zeros(len(names), dtype=bool)
+    unmappable = []
+    for name in selected:
+        idx = position.get(str(name))
+        if idx is None:
+            unmappable.append(str(name))
+        else:
+            mask[idx] = True
+    if unmappable:
+        raise ValueError(
+            f"{type(selector).__name__} reported {len(unmappable)} selected name(s) absent from ``feature_names``: "
+            f"{unmappable[:10]}. These are typically ENGINEERED columns from a selector fitted with feature engineering "
+            "enabled; map them back to their source features (or pass the engineered feature index) rather than dropping them."
+        )
+    return mask
 
 
 @dataclass
@@ -238,7 +306,7 @@ def compare_selectors(
             continue
 
         try:
-            sel = _extract_selected(selector, feature_names)
+            sel = extract_selected(selector, feature_names)
         except Exception as exc:
             logger.debug("selector %r has no readable support: %s", name, exc)
             skipped[name] = f"no readable support: {exc}"

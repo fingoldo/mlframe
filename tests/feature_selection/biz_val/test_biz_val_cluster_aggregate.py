@@ -238,3 +238,40 @@ def test_biz_val_no_harm_correlated_noise():
     refl_kept = sum(c[1:].isdigit() and int(c[1:]) in info["reflections"] for c in names if c.startswith("x"))
     has_agg = any("clusteragg" in c for c in names)
     assert has_agg or refl_kept >= 1, f"correlated-noise cluster should not strip all members for no gain; got {names}"
+
+
+# ---------------------------------------------------------------------------
+# S4 premise: the cluster MEAN must genuinely destroy the private deltas
+# ---------------------------------------------------------------------------
+
+
+def _holdout_auc(mat, y):
+    """Holdout AUC of a fixed 60/40 split of ``mat`` against ``y``."""
+    from sklearn.linear_model import LogisticRegression
+
+    cut = int(0.6 * len(y))
+    rng = np.random.default_rng(0)
+    idx = np.arange(len(y))
+    rng.shuffle(idx)
+    tr, ho = idx[:cut], idx[cut:]
+    model = LogisticRegression(max_iter=1000).fit(mat[tr], y[tr])
+    return float(roc_auc_score(y[ho], model.predict_proba(mat[ho])[:, 1]))
+
+
+def test_biz_val_s4_mean_aggregate_destroys_private_delta():
+    """S4's whole point is that replacing the reflection cluster by its MEAN throws away predictive
+    information. That premise was previously false: the deltas entered ``y`` with EQUAL weights, so the
+    mean reproduced exactly the linear combination driving ``y`` and aggregation cost 0.0000/-0.0007 AUC
+    across seeds 7/11/42. With the alternating unequal ``delta_weights`` the measured full-vs-mean gap is
+    0.2014/0.2030/0.2111 on those same seeds; the floor below sits ~15% under the smallest of them.
+    Also pins that no SINGLE reflection substitutes for the whole cluster."""
+    for seed in (7, 11, 42):
+        X, y, info = make_latent_reflections(n=6000, loadings=(1.0,) * 5, noise_sd=(0.7,) * 5, n_noise=3, distinct_sd=0.9, seed=seed)
+        refl, indep = info["reflections"], info["indep"]
+
+        auc_full = _holdout_auc(X[:, [*refl, indep]], y)
+        auc_single = _holdout_auc(X[:, [refl[0], indep]], y)
+        auc_mean = _holdout_auc(np.column_stack([X[:, refl].mean(axis=1), X[:, indep]]), y)
+
+        assert auc_full - auc_mean >= 0.17, f"[seed={seed}] mean aggregate must destroy the private deltas: full={auc_full:.4f} mean={auc_mean:.4f}"
+        assert auc_full - auc_single >= 0.08, f"[seed={seed}] one reflection must not stand in for the cluster: full={auc_full:.4f} single={auc_single:.4f}"

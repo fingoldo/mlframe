@@ -225,3 +225,7 @@ audit/**/*_commitmsg.txt
 # numba on-disk JIT caches (hundreds of MB of build artifacts)
 .numba-cache/
 .numba_cache/
+
+# local checksummed OpenML dataset cache for the fs_hybrid real-data bench (fill via _realdata_cache.fill_cache)
+.cache/realdata/
+*.npz

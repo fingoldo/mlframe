@@ -627,3 +627,12 @@ def discover_incremental(
 
 
 # ----------------------------------------------------------------------
+# Multiple-testing correction kernels, re-exported so cross-package consumers (benchmarking's FDR
+# leaderboard) reach them through this package's public surface instead of the private ``_eval_stats``
+# sibling. Both are pure array->boolean-mask functions with no discovery state.
+# ----------------------------------------------------------------------
+from ._eval_stats import (
+    benjamini_hochberg_reject,
+    benjamini_yekutieli_reject,
+    bootstrap_gain_p_value,
+)

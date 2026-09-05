@@ -125,7 +125,19 @@ def _paired_bootstrap_ci(diff: np.ndarray, n_boot: int, alpha: float, rng: np.ra
     The p-value is the bootstrap analogue: 2x the smaller tail mass of
     the resampled-mean distribution on the side of zero, i.e. how often
     the resampled mean lands on the opposite side of 0 from the observed
-    mean. Returns (ci_low, ci_high, p_value) on the loss-difference
+    mean. The tail count carries Davison-Hinkley add-one smoothing
+    ``(count + 1) / (n_boot + 1)``, matching
+    :func:`..discovery._eval_stats.bootstrap_gain_p_value`: a saturated
+    tail is a RESOLUTION limit of ``n_boot``, not evidence of
+    impossibility, and an exact 0.0 fed into Benjamini-Hochberg (or any
+    multiple-testing correction) reads as maximal significance with no
+    uncertainty. The returned p-value therefore has a floor of
+    ``2 / (n_boot + 1)`` (a two-sided doubling of the one-sided
+    ``1 / (n_boot + 1)`` floor); at ``n_boot=1000`` the smallest
+    reportable value is ~0.002, and it means "at or below the bootstrap
+    resolution", not "two in a thousand".
+
+    Returns (ci_low, ci_high, p_value) on the loss-difference
     scale (champion_loss - challenger_loss)."""
     n = diff.shape[0]
     # Row-chunk the bootstrap: drawing the (n_boot, n) index matrix + the
@@ -144,9 +156,10 @@ def _paired_bootstrap_ci(diff: np.ndarray, n_boot: int, alpha: float, rng: np.ra
     obs = float(diff.mean())
     # Fraction of bootstrap means on the opposite side of zero from obs.
     if obs >= 0:
-        tail = float(np.mean(boot_means <= 0.0))
+        n_tail = int(np.count_nonzero(boot_means <= 0.0))
     else:
-        tail = float(np.mean(boot_means >= 0.0))
+        n_tail = int(np.count_nonzero(boot_means >= 0.0))
+    tail = (n_tail + 1.0) / (n_boot + 1.0)
     p_value = min(1.0, 2.0 * tail)
     return lo, hi, p_value
 
@@ -194,7 +207,10 @@ def compare_models(
         ``champion_score``, ``challenger_score`` (natural-orientation
         scores), ``delta`` (challenger advantage, positive = better on
         the metric), ``ci_low``, ``ci_high`` (CI on the loss-difference
-        scale, positive = challenger better), ``p_value``,
+        scale, positive = challenger better), ``p_value`` (for the
+        bootstrap test, add-one smoothed and therefore never exactly
+        0.0; floor ``2 / (n_boot + 1)``, so ``n_boot`` must exceed
+        ``2 / alpha - 1`` for significance to be reachable at all),
         ``challenger_wins`` (bool: p < alpha AND challenger actually
         better), plus ``n``, ``metric``, ``test`` for provenance.
     """

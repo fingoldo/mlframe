@@ -11,6 +11,8 @@ from typing import Union
 import numpy as np
 import pandas as pd
 
+from mlframe.core.set_similarity import kuncheva as _kuncheva_index
+
 
 def cv_results_df_(self) -> "pd.DataFrame":
     """Return cv_results_ as a pd.DataFrame for tabular operations (sort_values, query, plot, to_csv). Built lazily on access; raises if fit() has not run."""
@@ -59,14 +61,8 @@ def selection_stability_(self, metric: str = "jaccard") -> float:
             denom = len(a) + len(b)
             return (2 * inter) / denom if denom else 1.0
         if metric == "kuncheva":
-            # Kuncheva's index normalises by chance overlap; needs the universe size N. Range [-1, 1] but clamped to [0, 1] here.
-            k = len(a)  # |a| == |b| == n_features_ by construction
-            N = self.n_features_in_
-            if k == 0 or N == 0 or k == N:
-                return 1.0 if a == b else 0.0
-            expected = k * k / N
-            ki = (inter - expected) / (k - expected)
-            return float(max(0.0, ki))
+            # Chance-corrected; needs the universe size N. Signed range (-1, 1], clamped to [0, 1] by the shared kernel's default.
+            return _kuncheva_index(a, b, self.n_features_in_)
         raise ValueError(f"Unknown stability metric: {metric!r}")
 
     pairs = [_pair_stability(per_fold_top[i], per_fold_top[j]) for i in range(len(per_fold_top)) for j in range(i + 1, len(per_fold_top))]
