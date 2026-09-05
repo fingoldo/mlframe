@@ -53,6 +53,7 @@ class ArmResult:
         ranked_prefix: Feature indices in the arm's own selection order, best first. Set for
             ``selection_order`` arms; may also be set by scored arms as a convenience.
         n_features_selected: ``int(support.sum())``, validated against ``support``.
+        selection_metric: Name of the metric ``selection_score`` is in; ``None`` when the arm does not say.
         selection_score: The arm's OWN reported best score (its internal CV optimum), for the
             winner's-curse column. ``None`` when the arm reports no such number.
         wall_time_s: Wall-clock seconds spent in the arm's fit.
@@ -72,6 +73,10 @@ class ArmResult:
     process_time_s: float
     n_model_fits: Optional[int]
     provenance: Dict[str, Any] = field(default_factory=dict)
+    # The metric `selection_score` is expressed in. Load-bearing rather than decorative: an arm scoring
+    # internally on a probabilistic error and a report reading AUC differ by a unit, not by optimism, so the
+    # winner's-curse comparison refuses to subtract across a mismatch and needs the name to see one.
+    selection_metric: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Validate the support/score/score_kind contract; raise rather than degrade silently."""

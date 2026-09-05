@@ -240,6 +240,7 @@ class BaseArm:
             ranked_prefix=None if ranked is None else tuple(int(i) for i in ranked),
             n_features_selected=int(support.sum()),
             selection_score=payload.get("selection_score"),
+            selection_metric=payload.get("selection_metric"),
             wall_time_s=float(wall),
             process_time_s=float(proc),
             n_model_fits=n_model_fits,
@@ -705,6 +706,34 @@ def _rfecv_rank_vector(model: Any, names: Sequence[str], selected: Sequence[str]
     return np.asarray([0.0 if str(nm) in keep else 1.0 for nm in names], dtype=np.float64)
 
 
+def _rfecv_internal_optimum(model: Any) -> Tuple[Optional[float], Optional[str]]:
+    """Return ``(the CV score RFECV chose on, the name of the metric it is in)``.
+
+    Both halves are needed and the second is the load-bearing one. With ``scoring=None`` this RFECV scores
+    on ``probabilistic_multiclass_error`` (lower is better), not on the AUC the benchmark reports, so
+    differencing the two would produce a number that is a unit mismatch wearing the costume of optimism.
+    The metric travels with the score and the winner's-curse table refuses to subtract across a mismatch.
+    """
+    results = getattr(model, "cv_results_", None)
+    chosen = getattr(model, "n_features_", None)
+    score: Optional[float] = None
+    if isinstance(results, dict) and chosen is not None and "nfeatures" in results and "cv_mean_perf" in results:
+        sizes = list(results["nfeatures"])
+        means = list(results["cv_mean_perf"])
+        for size, mean in zip(sizes, means):
+            if int(size) == int(chosen) and mean is not None and np.isfinite(float(mean)):
+                score = float(mean)
+                break
+    if score is None:
+        fallback = getattr(model, "best_score_", None)
+        score = None if fallback is None else float(fallback)
+
+    scorer = getattr(model, "scoring", None)
+    func = getattr(scorer, "_score_func", None)
+    metric = getattr(func, "__name__", None) or (scorer if isinstance(scorer, str) else None)
+    return score, (str(metric) if metric else None)
+
+
 class RFECVArm(BaseArm):
     """mlframe ``wrappers.RFECV`` driven BARE, with an explicit refit/runtime budget.
 
@@ -742,12 +771,18 @@ class RFECVArm(BaseArm):
         model.fit(X, pd.Series(np.asarray(y)))
         selected = [str(c) for c in extract_selected(model, names) if str(c) in set(names)]
         ranking = _rfecv_rank_vector(model, names, selected)
-        best = getattr(model, "best_score_", None)
+        internal_score, internal_metric = _rfecv_internal_optimum(model)
         return {
             "support": _mask_from_names(names, selected),
             "score": -ranking,
-            "selection_score": None if best is None else float(best),
-            "provenance": {"max_refits": self.max_refits, "max_runtime_mins": self.max_runtime_mins, "n_unique_ranks": int(np.unique(ranking).size)},
+            "selection_score": internal_score,
+            "selection_metric": internal_metric,
+            "provenance": {
+                "max_refits": self.max_refits,
+                "max_runtime_mins": self.max_runtime_mins,
+                "n_unique_ranks": int(np.unique(ranking).size),
+                "selection_metric": internal_metric,
+            },
         }
 
 

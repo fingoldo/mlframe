@@ -216,6 +216,12 @@ def run_cell(
         ranking = ranking_from_arm_result(arm, feature_names)
         record["score_kind"] = ranking.score_kind
         record["ranking_coverage"] = round(ranking.coverage, 4)
+        # The arm's own internal optimum, kept so the winner's-curse column can compare it against the
+        # honest holdout. An arm that reports none records None: unknown is not zero optimism.
+        selection_score = getattr(arm, "selection_score", None)
+        record["selection_score"] = None if selection_score is None else float(selection_score)
+        metric = getattr(arm, "selection_metric", None)
+        record["selection_metric"] = None if metric is None else str(metric)
         record["n_selected_self"] = len(ranking.selected)
 
         base_rate = base_rate_scores(y_train, y_test)
