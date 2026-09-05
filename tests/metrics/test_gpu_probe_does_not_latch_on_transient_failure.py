@@ -113,3 +113,52 @@ def test_the_reset_entry_point_exists_and_clears_both_flags(monkeypatch):
     _gpu_metrics.reset_gpu_metrics_probe()
     assert _gpu_metrics._GPU_AVAILABLE is None
     assert _gpu_metrics._NUMBA_CUDA_AVAILABLE is None
+
+def _numba_cuda_raising(monkeypatch, exc, available: bool = True):
+    """Make `from numba import cuda` yield a stub whose `is_available()` raises `exc`, or answers `available`."""
+    import builtins
+    import types
+
+    real_import = builtins.__import__
+
+    def _is_available():
+        """Stand in for numba.cuda.is_available()."""
+        if exc is not None:
+            raise exc
+        return available
+
+    stub = types.SimpleNamespace(is_available=_is_available)
+
+    def _fake_import(name, globs=None, locs=None, fromlist=(), level=0):
+        """Intercept only `from numba import cuda`. The import machinery passes these positionally."""
+        if name == "numba" and fromlist and "cuda" in fromlist:
+            return types.SimpleNamespace(cuda=stub)
+        return real_import(name, globs, locs, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", _fake_import)
+
+
+def test_a_transient_numba_cuda_failure_is_not_cached(monkeypatch, caplog):
+    """`cuda.is_available()` initialises a context, which faults for reasons that are moments, not facts."""
+    _numba_cuda_raising(monkeypatch, RuntimeError("CUDA_ERROR_SYSTEM_DRIVER_MISMATCH"))
+    with caplog.at_level(logging.WARNING, logger=_gpu_metrics.logger.name):
+        assert _gpu_metrics._is_numba_cuda_available() is False
+    assert any("transiently" in r.getMessage() for r in caplog.records), "a transient probe failure was not reported above debug"
+    assert _gpu_metrics._NUMBA_CUDA_AVAILABLE is None, "a transient failure pinned metrics to the CPU kernels"
+
+    _numba_cuda_raising(monkeypatch, None)
+    assert _gpu_metrics._is_numba_cuda_available() is True, "the probe never re-ran after a transient failure"
+
+
+def test_an_absent_numba_is_cached(monkeypatch):
+    """ImportError is a fact about the install."""
+    _numba_cuda_raising(monkeypatch, ImportError("no module named numba"))
+    assert _gpu_metrics._is_numba_cuda_available() is False
+    assert _gpu_metrics._NUMBA_CUDA_AVAILABLE is False
+
+
+def test_a_device_free_host_is_cached(monkeypatch):
+    """`is_available()` returning False without raising is a stable answer, not a moment."""
+    _numba_cuda_raising(monkeypatch, None, available=False)
+    assert _gpu_metrics._is_numba_cuda_available() is False
+    assert _gpu_metrics._NUMBA_CUDA_AVAILABLE is False

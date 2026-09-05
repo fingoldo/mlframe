@@ -162,8 +162,20 @@ def _is_numba_cuda_available() -> bool:
         if cuda.is_available():
             _NUMBA_CUDA_AVAILABLE = True
             return True
-    except Exception as e:  # nosec B110 - best-effort/optional path, no module logger
-        logger.debug("numba.cuda availability probe failed: %s", e)
+    except ImportError as e:
+        # numba genuinely absent: a fact about the install, so caching it for the process is correct.
+        logger.debug("numba not importable, numba.cuda metrics kernels unavailable: %s", e)
+        _NUMBA_CUDA_AVAILABLE = False
+        return False
+    except Exception as e:  # nosec B110 - best-effort/optional path
+        # `cuda.is_available()` initialises a CUDA context, which faults for reasons that are moments rather
+        # than facts: another process holding the device, a driver reset, an NVRTC hiccup. Caching the first
+        # one puts every later metrics call in this process on the CPU kernels, with a debug line as the only
+        # trace. Left uncached so the next call re-probes -- the same line already drawn for the cupy probe
+        # in this module and for its siblings in _core_auc_brier and transformer/_utils.
+        logger.warning("numba.cuda availability probe failed transiently (%s: %s); will re-probe rather than pinning metrics to the CPU kernels", type(e).__name__, e)
+        return False
+    # `cuda.is_available()` returned False without raising: a genuine, stable 'no visible device' answer.
     _NUMBA_CUDA_AVAILABLE = False
     return False
 

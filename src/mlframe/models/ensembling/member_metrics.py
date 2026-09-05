@@ -19,8 +19,37 @@ _PER_MEMBER_KERNEL_NAME = "per_member_mae_std"
 _PER_MEMBER_NUMBA_FLOOR_ELEMENTS = 10_000
 
 
-@lru_cache(maxsize=256)
 def _per_member_use_numba(elements_per_member: int, n_groups: int, ndim: int = 2) -> bool:
+    """Pick the numba-vs-numpy backend, reading the env on every call and memoising only a real verdict.
+
+    The memo used to sit directly on this function, keyed on the shape alone, while the body read
+    ``MLFRAME_PER_MEMBER_BACKEND`` and ``MLFRAME_PER_MEMBER_AUTOTUNE`` -- so the first call at a given shape
+    froze whatever the env said at that moment, and a later override was ignored for the rest of the process.
+    The env values are now part of the key, so changing one asks a different question rather than being
+    silently discarded.
+
+    The lookup itself can fail for reasons that are moments rather than facts: the tuning JSON being rewritten
+    by a concurrent sweep, a Windows file lock from another mlframe process, a transient nvidia-smi fault. That
+    used to be caught inside the memoised body, pinning the element-count heuristic for that shape for the rest
+    of the process -- and the backends are 5-18x apart across the 2-D regime, so a wrong verdict is not
+    cosmetic. The exception now propagates out of the cached call, which ``lru_cache`` does NOT memoise, so the
+    next call at that shape re-attempts.
+    """
+    env = os.environ.get("MLFRAME_PER_MEMBER_BACKEND", "").strip().lower()
+    autotune = os.environ.get("MLFRAME_PER_MEMBER_AUTOTUNE", "1").strip() != "0"
+    try:
+        return _per_member_backend_cached(elements_per_member, n_groups, ndim, env, autotune)
+    except Exception as e:
+        logger.warning(
+            "per_member backend lookup failed transiently (%s: %s); using the element-count fallback for this call and re-attempting on the next",
+            type(e).__name__,
+            e,
+        )
+        return elements_per_member >= _PER_MEMBER_NUMBA_FLOOR_ELEMENTS
+
+
+@lru_cache(maxsize=256)
+def _per_member_backend_cached(elements_per_member: int, n_groups: int, ndim: int, env: str, autotune: bool) -> bool:
     """Pick the numba-vs-numpy backend for the ``_per_member_mae_std`` path (2-D or 3-D).
 
     The crossover is HW-dependent, so this follows the project dispatch
@@ -59,36 +88,30 @@ def _per_member_use_numba(elements_per_member: int, n_groups: int, ndim: int = 2
     from .base import _HAS_NUMBA_PER_MEMBER
     if not _HAS_NUMBA_PER_MEMBER:
         return False
-    env = os.environ.get("MLFRAME_PER_MEMBER_BACKEND", "").strip().lower()
     if env in ("numpy", "numba"):
         return env == "numba"
-    try:
-        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
-        from .per_member_tuning import run_per_member_sweep, per_member_code_version
-        autotune = os.environ.get("MLFRAME_PER_MEMBER_AUTOTUNE", "1").strip() != "0"
-        # Shared orchestrator: env override -> per-host cache (code-version
-        # checked) -> on-miss sweep (once/process, cross-process locked, logs
-        # winners + persists to ~/.pyutilz/kernel_tuning/<fp>.json) ->
-        # measurement-backed fallback. Replaces the hand-rolled
-        # lookup/miss/sweep/re-lookup dance + the module-level _AUTOTUNE guard
-        # (get_or_tune keys its once-per-process guard on (kernel, cache-path)).
-        result = KernelTuningCache.load_or_create().get_or_tune(
-            _PER_MEMBER_KERNEL_NAME,
-            dims={"elements_per_member": elements_per_member, "n_groups": n_groups, "ndim": ndim},
-            tuner=(lambda: run_per_member_sweep(observed_elements=elements_per_member)) if autotune else (lambda: None),
-            axes=["elements_per_member", "n_groups", "ndim"],
-            fallback={"backend_choice": "numba" if elements_per_member >= _PER_MEMBER_NUMBA_FLOOR_ELEMENTS else "numpy"},
-            env_key="MLFRAME_PER_MEMBER_BACKEND",
-            code_version=per_member_code_version(),
-        )
-        # env_key short-circuits to the raw string "numpy"/"numba"; the sweep or
-        # fallback return a region dict with "backend_choice".
-        if isinstance(result, str):
-            return result.strip().lower() == "numba"
-        return str((result or {}).get("backend_choice", "")) == "numba"
-    except Exception as e:  # pyutilz missing / cache error -> measurement-backed fallback
-        logger.debug("per_member backend get_or_tune failed: %s", e)
-    return elements_per_member >= _PER_MEMBER_NUMBA_FLOOR_ELEMENTS
+    from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+    from .per_member_tuning import run_per_member_sweep, per_member_code_version
+    # Shared orchestrator: env override -> per-host cache (code-version
+    # checked) -> on-miss sweep (once/process, cross-process locked, logs
+    # winners + persists to ~/.pyutilz/kernel_tuning/<fp>.json) ->
+    # measurement-backed fallback. Replaces the hand-rolled
+    # lookup/miss/sweep/re-lookup dance + the module-level _AUTOTUNE guard
+    # (get_or_tune keys its once-per-process guard on (kernel, cache-path)).
+    result = KernelTuningCache.load_or_create().get_or_tune(
+        _PER_MEMBER_KERNEL_NAME,
+        dims={"elements_per_member": elements_per_member, "n_groups": n_groups, "ndim": ndim},
+        tuner=(lambda: run_per_member_sweep(observed_elements=elements_per_member)) if autotune else (lambda: None),
+        axes=["elements_per_member", "n_groups", "ndim"],
+        fallback={"backend_choice": "numba" if elements_per_member >= _PER_MEMBER_NUMBA_FLOOR_ELEMENTS else "numpy"},
+        env_key="MLFRAME_PER_MEMBER_BACKEND",
+        code_version=per_member_code_version(),
+    )
+    # env_key short-circuits to the raw string "numpy"/"numba"; the sweep or
+    # fallback return a region dict with "backend_choice".
+    if isinstance(result, str):
+        return result.strip().lower() == "numba"
+    return str((result or {}).get("backend_choice", "")) == "numba"
 
 
 def _per_member_mae_std(arr: np.ndarray, median_preds: np.ndarray) -> tuple:
