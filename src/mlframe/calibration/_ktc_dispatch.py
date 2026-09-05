@@ -8,6 +8,10 @@ shape AND host hardware (measured on this dev box, 2026-07-03):
     n=100,000  k=20: gpu wins          (5.23ms  vs njit_par 8.38ms vs njit_single 48.3ms)
     n=1,000,000 k=5: njit_par wins     (25.9ms  vs gpu 28.2ms      vs njit_single ~166ms)
 
+The cupy figures above were taken with the input already on the device and are kept only as a record of what
+the kernel itself costs. They are NOT the numbers the tuner now produces: production calls this with a host
+array, so the tuner times the upload and the download too, and the cupy column is correspondingly slower.
+
 None of the three backends dominates uniformly, and the crossovers depend on the host's CPU core count / GPU
 model — exactly the scenario ``pyutilz.performance.kernel_tuning.cache.KernelTuningCache`` exists for. This
 module routes the choice through that cache, with a real (not placeholder) tuner that measures all
@@ -41,7 +45,9 @@ logger = logging.getLogger(__name__)
 
 _ENV_KEY = "MLFRAME_ODDS_COMBINE_BACKEND"
 _VALID_BACKENDS = ("njit_single", "njit_parallel", "cupy")
-_KERNEL_NAME = "calibration_odds_ratio_combine"
+# Bumped when the tuner's measured workload changed: entries persisted before the cupy timing included its
+# H2D/D2H transfers are not comparable with the ones after, so they must not be reused.
+_KERNEL_NAME = "calibration_odds_ratio_combine_v2"
 
 
 def _get_cache() -> Any:
@@ -98,16 +104,20 @@ def _make_tuner(n: int, k: int) -> Callable[[], list[dict]]:
         try:
             import cupy as cp
 
-            p_gpu = cp.asarray(p)
-
             def _gpu_call() -> object:
-                """Run one GPU-resident odds-ratio-combine pass and synchronize before returning."""
+                """Run one end-to-end odds-ratio-combine pass, host array in and host array out."""
+                # The upload and the download are INSIDE the timed region because production's
+                # ``_odds_combine_cupy`` is a host-array-in, host-array-out call: it pays cp.asarray on entry and
+                # cp.asnumpy on exit every time. Hoisting the transfer out measures a GPU-resident workload the
+                # production path never runs, and the persisted crossover then over-selects cupy. The sibling
+                # votenrank/_confidence_gated_blend_ktc_dispatch.py already times it this way. cp.asnumpy is a
+                # blocking copy, so it synchronises the stream on its own -- no explicit synchronize needed.
+                p_gpu = cp.asarray(p)
                 p_c = cp.clip(p_gpu, 1e-7, 1.0 - 1e-7)
                 logits = cp.log(p_c / (1.0 - p_c))
                 combined_logit = logits.sum(axis=1)
                 r = 1.0 / (1.0 + cp.exp(-combined_logit))
-                cp.cuda.Stream.null.synchronize()
-                return r
+                return cp.asnumpy(r)
 
             timings["cupy"] = measure_backend(_gpu_call)
         except Exception as exc:

@@ -46,7 +46,7 @@ Status starts at TODO for all.
 | VG-02 | P1 | `tests/training/test_dataset_cache_fingerprint.py:239 (and :256)` | cache-key-id-scan-reads-only-the-call-header-line | TODO |
 | VG-03 | P1 | `tests/test_meta/test_enum_exhaustiveness.py:83-96 (skip at :113)` | enum-exhaustiveness-police-has-a-hardcoded-module-allowlist | TODO |
 | VG-04 | P1 | `tests/training/composite/discovery/test_composite_discovery_parallel.py:239` | wilcoxon-serial-vs-parallel-equivalence-is-empty-vs-empty | TODO |
-| XGD-04 | P1 | `calibration/_ktc_dispatch.py:101 and inference/_ktc_dispatch.py:52` | ktc-tuner-times-gpu-resident-but-production-pays-h2d | TODO |
+| XGD-04 | P1 | `calibration/_ktc_dispatch.py:101 and inference/_ktc_dispatch.py:52` | ktc-tuner-times-gpu-resident-but-production-pays-h2d | RESOLVED |
 | XGD-05 | P1 | `metrics/_gpu_metrics.py:432` | batch-rmse-gpu-returns-float64-cpu-returns-float32 | RESOLVED |
 | XMC-03 | P1 | ``src/mlframe/feature_engineering/transformer/_key_bank.py:123`` | key-bank-fingerprint-full-tobytes-copy | RESOLVED |
 | XMC-04 | P1 | ``src/mlframe/feature_selection/filters/_fe_accuracy_gate.py:56-57`` | fe-accuracy-gate-baseline-key-double-full-copy-per-candidate | RESOLVED |
