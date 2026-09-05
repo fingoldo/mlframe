@@ -24,6 +24,8 @@ Kept SEPARATE from ``mrmr.py`` so:
 """
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import logging
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -382,43 +384,48 @@ def run_polynom_pair_fe(
             )
 
         best_res = None
-        from ._fe_deadline import fe_deadline_passed, set_fe_deadline
+        from ._fe_deadline import fe_deadline_passed, fe_deadline_scope
 
-        if fe_deadline is not None:
-            set_fe_deadline(fe_deadline)
-
-        for seed_offset in range(fe_smart_polynom_iters):
-            # Optional-enrichment wall-clock budget: stop the multi-seed re-optimisation for this pair once
-            # MRMR.fit's deadline passes; keep the best result found so far. No-op without a budget. Live in every
-            # configuration now that the deadline arrives as an explicit argument and is re-published above.
-            if fe_deadline_passed():
-                break
-            res = optimise_hermite_pair(
-                x_a=vals_a_sub, x_b=vals_b_sub, y=classes_y_sub,
-                discrete_target=True,
-                max_degree=fe_max_polynom_degree,
-                min_degree=fe_min_polynom_degree,
-                n_trials=fe_smart_polynom_optimization_steps,
-                coef_range=(fe_min_polynom_coeff, fe_max_polynom_coeff),
-                l2_penalty=fe_hermite_l2_penalty,
-                n_neighbors=None,
-                seed=42 + seed_offset,
-                sweep_degrees=True,
-                basis=fe_polynomial_basis,
-                mi_estimator=fe_mi_estimator,
-                optimizer=fe_optimizer,
-                warm_start=fe_warm_start,
-                multi_fidelity=fe_multi_fidelity,
-                precomputed_trivial_baseline=_trivial_baseline,
-                precomputed_trivial_name=_trivial_name,
-                precomputed_z_a=_pz_a,
-                precomputed_preprocess_a=_pp_a,
-                precomputed_z_b=_pz_b,
-                precomputed_preprocess_b=_pp_b,
-                precomputed_identity_baseline=_pib,
-            )
-            if res is not None and (best_res is None or res.mi > best_res.mi):
-                best_res = res
+        # Scoped, not just published: this runs in a loky worker, and loky REUSES its worker processes across
+        # `Parallel(...)` invocations. A deadline written here and left behind outlives the call, so once that
+        # absolute timestamp elapses every `fe_deadline_passed()` consumer in the worker returns True for the
+        # rest of its life -- truncating enrichment in later fits that were given no budget at all. The
+        # `finally` in `MRMR.fit` clears the main thread's copy and cannot reach a worker process.
+        # No deadline to publish means nothing to scope: leave whatever the worker already had alone.
+        _budget = fe_deadline_scope(fe_deadline) if fe_deadline is not None else nullcontext()
+        with _budget:
+            for seed_offset in range(fe_smart_polynom_iters):
+                # Optional-enrichment wall-clock budget: stop the multi-seed re-optimisation for this pair once
+                # MRMR.fit's deadline passes; keep the best result found so far. No-op without a budget. Live in every
+                # configuration now that the deadline arrives as an explicit argument and is re-published above.
+                if fe_deadline_passed():
+                    break
+                res = optimise_hermite_pair(
+                    x_a=vals_a_sub, x_b=vals_b_sub, y=classes_y_sub,
+                    discrete_target=True,
+                    max_degree=fe_max_polynom_degree,
+                    min_degree=fe_min_polynom_degree,
+                    n_trials=fe_smart_polynom_optimization_steps,
+                    coef_range=(fe_min_polynom_coeff, fe_max_polynom_coeff),
+                    l2_penalty=fe_hermite_l2_penalty,
+                    n_neighbors=None,
+                    seed=42 + seed_offset,
+                    sweep_degrees=True,
+                    basis=fe_polynomial_basis,
+                    mi_estimator=fe_mi_estimator,
+                    optimizer=fe_optimizer,
+                    warm_start=fe_warm_start,
+                    multi_fidelity=fe_multi_fidelity,
+                    precomputed_trivial_baseline=_trivial_baseline,
+                    precomputed_trivial_name=_trivial_name,
+                    precomputed_z_a=_pz_a,
+                    precomputed_preprocess_a=_pp_a,
+                    precomputed_z_b=_pz_b,
+                    precomputed_preprocess_b=_pp_b,
+                    precomputed_identity_baseline=_pib,
+                )
+                if res is not None and (best_res is None or res.mi > best_res.mi):
+                    best_res = res
         # Return FULL arrays so the injection step applies the polynomial
         # to all rows (subsampling was only for the optimiser's MI loop).
         return (raw_vars_pair, best_res, vals_a_full, vals_b_full)
