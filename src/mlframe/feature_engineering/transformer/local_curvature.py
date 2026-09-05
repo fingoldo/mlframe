@@ -28,6 +28,25 @@ from ._utils import require_seed, validate_numeric_input
 logger = logging.getLogger(__name__)
 
 
+def hessian_from_quad_coefs(quad_coefs: np.ndarray, iu: np.ndarray, ju: np.ndarray, diag_mask: np.ndarray, d: int) -> np.ndarray:
+    """Scatter the upper-triangular quadratic coefficients into a symmetric Hessian.
+
+    Off-diagonal entries carry the raw coefficient on both sides; a diagonal entry is 2*a_ii, since the
+    second derivative of a_ii * x_i**2 is 2*a_ii. At module scope so the identity test can call it rather
+    than keep its own copy of the scatter.
+    """
+    H = np.zeros((d, d), dtype=np.float32)
+    H[iu, ju] = quad_coefs
+    H[ju, iu] = quad_coefs
+    H[iu[diag_mask], ju[diag_mask]] = 2.0 * quad_coefs[diag_mask]
+    return H
+
+
+def quad_design_matrix(A_lin: np.ndarray, dx: np.ndarray, iu: np.ndarray, ju: np.ndarray) -> np.ndarray:
+    """The linear basis extended with the ``dx_i * dx_j`` cross-terms for every ``i <= j``, in ``(i, j)`` order."""
+    return np.concatenate([A_lin, dx[:, iu] * dx[:, ju]], axis=1)
+
+
 def compute_local_curvature_features(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -88,8 +107,7 @@ def compute_local_curvature_features(
                 pred_lin = A_lin @ coef_lin
                 resid_lin = float(np.sum((nbr_y - pred_lin) ** 2))
                 # Quadratic basis: [linear basis, dx_i * dx_j for i <= j]
-                quad = dx[:, iu] * dx[:, ju]  # (k_eff, d*(d+1)/2)
-                A_quad = np.concatenate([A_lin, quad], axis=1)
+                A_quad = quad_design_matrix(A_lin, dx, iu, ju)  # (k_eff, 1 + d + d*(d+1)/2)
                 coef_quad, _, _, _ = np.linalg.lstsq(A_quad, nbr_y, rcond=None)
                 pred_quad = A_quad @ coef_quad
                 resid_quad = float(np.sum((nbr_y - pred_quad) ** 2))
@@ -98,10 +116,7 @@ def compute_local_curvature_features(
                 quad_coefs = coef_quad[1 + d :]
                 # Off-diagonal entries get the raw coef on both sides; diagonal
                 # entries get 2*coef (second derivative = 2*a_ii for the x_i^2 coef).
-                H = np.zeros((d, d), dtype=np.float32)
-                H[iu, ju] = quad_coefs
-                H[ju, iu] = quad_coefs
-                H[iu[diag_mask], ju[diag_mask]] = 2.0 * quad_coefs[diag_mask]
+                H = hessian_from_quad_coefs(quad_coefs, iu, ju, diag_mask, d)
                 trace_H = float(np.trace(H))
                 frob_H = float(np.sqrt(np.sum(H**2)))
                 # Predict at query point (dx = 0): value is the intercept of linear/quadratic.

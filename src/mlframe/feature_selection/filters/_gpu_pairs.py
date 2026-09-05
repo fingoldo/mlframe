@@ -24,6 +24,36 @@ logger = logging.getLogger(__name__)
 _SHARED_MEM_SET_LOCK = threading.Lock()
 
 
+def joint_mi_from_flat_counts(
+    joint_counts_host: np.ndarray,
+    joint_offsets,
+    pair_merged_sizes,
+    nbins_y: int,
+    n_pairs: int,
+    n_total: float,
+    joint_mi_out: np.ndarray,
+) -> np.ndarray:
+    """Per-pair joint MI, in nats, from the flat (offset, merged_size) joint-count buffer the kernel fills.
+
+    MI = sum over non-zero cells of (jc/n) * log(jc * n / (marg_m * marg_y)). At module scope rather than
+    inline in the caller so the identity test can call the reduction it pins instead of retyping it.
+    """
+    for k in range(n_pairs):
+        off = int(joint_offsets[k])
+        merged_size = int(pair_merged_sizes[k])
+        joint_2d = joint_counts_host[off : off + merged_size * nbins_y].reshape(merged_size, nbins_y)
+        marg_m = joint_2d.sum(axis=1)
+        marg_y = joint_2d.sum(axis=0)
+        valid = (joint_2d > 0) & (marg_m[:, None] > 0) & (marg_y[None, :] > 0)
+        if not np.any(valid):
+            continue
+        denom = np.where(valid, marg_m[:, None] * marg_y[None, :], 1.0)
+        ratio = np.where(valid, joint_2d * n_total / denom, 1.0)  # ratio==1.0 -> log==0.0 at invalid cells
+        jf = np.where(valid, joint_2d / n_total, 0.0)
+        joint_mi_out[k] = float(np.sum(jf * np.log(ratio)))
+    return joint_mi_out
+
+
 # ============================================================================
 
 
@@ -249,17 +279,5 @@ def mi_direct_gpu_batched_pairs(
     # ~1.07e9 cells (the 4GB guard elsewhere in this module), which would dominate wall-clock and defeat the
     # point of collapsing per-pair kernel launches into one batched launch. Vectorized per-pair with numpy;
     # SAME formula (sum over non-zero cells of jf * log(jc*n/(mm*my))), zero semantic change.
-    for k in range(n_pairs):
-        off = int(joint_offsets[k])
-        merged_size = int(pair_merged_sizes[k])
-        joint_2d = joint_counts_host[off : off + merged_size * nbins_y].reshape(merged_size, nbins_y)
-        marg_m = joint_2d.sum(axis=1)
-        marg_y = joint_2d.sum(axis=0)
-        valid = (joint_2d > 0) & (marg_m[:, None] > 0) & (marg_y[None, :] > 0)
-        if not np.any(valid):
-            continue
-        denom = np.where(valid, marg_m[:, None] * marg_y[None, :], 1.0)
-        ratio = np.where(valid, joint_2d * n_total / denom, 1.0)  # ratio==1.0 -> log==0.0 at invalid cells
-        jf = np.where(valid, joint_2d / n_total, 0.0)
-        joint_mi_out[k] = float(np.sum(jf * np.log(ratio)))
+    joint_mi_from_flat_counts(joint_counts_host, joint_offsets, pair_merged_sizes, nbins_y, n_pairs, n_total, joint_mi_out)
     return joint_mi_out

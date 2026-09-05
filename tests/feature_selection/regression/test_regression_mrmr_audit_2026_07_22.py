@@ -1063,8 +1063,14 @@ def test_regression_fe_additive_fusion_gpu_ols_margin_uses_full_n_rows():
 
 def test_regression_gpu_pairs_joint_mi_reduction_matches_reference_loop():
     """The vectorized per-pair MI reduction must produce IDENTICAL results to the original triple-nested
-    Python loop formula, for a hand-built joint-count table with zero cells in various positions."""
+    Python loop formula, for a hand-built joint-count table with zero cells in various positions.
+
+    Calls production. The earlier form re-typed the vectorised reduction inline and never imported
+    `_gpu_pairs`, so a regression in the shipped code left it green.
+    """
     import numpy as _np
+
+    from mlframe.feature_selection.filters._gpu_pairs import joint_mi_from_flat_counts
 
     def _reference_loop(joint_counts_host, joint_offsets, pair_merged_sizes, nbins_y, n_pairs, n_total):
         """The straightforward reference implementation the optimised path must agree with."""
@@ -1103,23 +1109,25 @@ def test_regression_gpu_pairs_joint_mi_reduction_matches_reference_loop():
     joint_counts_host[rng.choice(total_cells, size=total_cells // 4, replace=False)] = 0  # sprinkle zeros
 
     ref = _reference_loop(joint_counts_host, offsets, merged_sizes, nbins_y, 2, n_total)
-
-    joint_mi_out = _np.zeros(2, dtype=_np.float64)
-    for k in range(2):
-        off = int(offsets[k])
-        merged_size = int(merged_sizes[k])
-        joint_2d = joint_counts_host[off : off + merged_size * nbins_y].reshape(merged_size, nbins_y)
-        marg_m = joint_2d.sum(axis=1)
-        marg_y = joint_2d.sum(axis=0)
-        valid = (joint_2d > 0) & (marg_m[:, None] > 0) & (marg_y[None, :] > 0)
-        if not _np.any(valid):
-            continue
-        denom = _np.where(valid, marg_m[:, None] * marg_y[None, :], 1.0)
-        ratio = _np.where(valid, joint_2d * n_total / denom, 1.0)
-        jf = _np.where(valid, joint_2d / n_total, 0.0)
-        joint_mi_out[k] = float(_np.sum(jf * _np.log(ratio)))
+    joint_mi_out = joint_mi_from_flat_counts(joint_counts_host, offsets, merged_sizes, nbins_y, 2, n_total, _np.zeros(2, dtype=_np.float64))
 
     np.testing.assert_allclose(joint_mi_out, ref, rtol=1e-12, atol=1e-12)
+    assert (joint_mi_out > 0).all(), "the fixture produced degenerate zero MI, so the comparison is vacuous"
+
+
+def test_regression_gpu_pairs_joint_mi_zeroes_a_pair_with_no_valid_cell():
+    """The `if not np.any(valid): continue` branch: an all-zero pair leaves its slot untouched.
+
+    Uncovered before, and it is the branch that decides whether an empty pair reads as MI 0.0 or as
+    whatever the caller's buffer happened to hold.
+    """
+    import numpy as _np
+
+    from mlframe.feature_selection.filters._gpu_pairs import joint_mi_from_flat_counts
+
+    counts = _np.zeros(2 * 3, dtype=_np.int64)
+    out = joint_mi_from_flat_counts(counts, [0], [2], 3, 1, 100.0, _np.full(1, -7.0))
+    assert out[0] == -7.0, "an all-zero pair must be left alone rather than written with a computed value"
 
 
 # ---------------------------------------------------------------------------

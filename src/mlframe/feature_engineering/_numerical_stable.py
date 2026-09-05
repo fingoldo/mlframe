@@ -8,6 +8,14 @@ Implements:
 
 Used by ``test_numerical_stability_bench.py`` to quantify the precision improvement over the naive accumulators in ``numerical.compute_numerical_aggregates_numba`` and ``numerical.compute_moments_slope_mi``.
 
+No production consumer: these are precision references the bench measures against, not kernels to reach for
+blindly. The bench's own numbers say why. ``kahan_two_pass_var_seq`` is the accuracy winner for variance on
+every distribution tested (exact on four of seven), while ``welford_mean_var_seq`` LOSES to the plain
+two-pass by five orders on a large smooth mean (1.02e-10 vs 6.79e-15), and ``welford_moments_seq``'s skew is
+worse than the naive two-pass in the 1e9 + N(0, 1e-5) regime (3.03 vs a 6.81 reference; naive reads 6.81),
+because the input has already lost its own precision to float64 spacing there. Production's own
+cancellation fixes use a centred two-pass, which is the shape these numbers support.
+
 References:
 - Welford 1962 - single-pass mean+var
 - Pébay 2008 (SAND2008-6212) Eq. 2.1-2.4 - generalised central-moment online formulae (used for skew/kurt)
