@@ -227,6 +227,17 @@ def _cost_block(records: Sequence[Dict[str, Any]]) -> List[str]:
     return lines
 
 
+def _declaration_block(records: Sequence[Dict[str, Any]]) -> List[str]:
+    """Render how the run compares with what its manifest declared before it started."""
+    from ._manifest import check_run_against_manifest, load_manifest
+
+    path = os.environ.get("FS_HYBRID_RESULTS", RESULTS_PATH)
+    notes = check_run_against_manifest(load_manifest(path), records)
+    if not notes:
+        return ["declaration: run matches its manifest on seeds, arms, scenarios, pre-registration and environment"]
+    return ["", "DECLARATION NOTES:", *[f"  - {note}" for note in notes]]
+
+
 def _pooled_block(records: Sequence[Dict[str, Any]], models: Sequence[str], k_labels: Sequence[str]) -> List[str]:
     """Render the hierarchical pooled-effect block, on normalized skill, for the first matched K.
 
@@ -247,6 +258,7 @@ def _pooled_block(records: Sequence[Dict[str, Any]], models: Sequence[str], k_la
 def format_report(records: Sequence[Dict[str, Any]], models: Sequence[str] = PANEL_MEMBERS) -> str:
     """Build the full text report for a set of cell records."""
     lines: List[str] = [DISCLAIMER, "", f"null hypothesis: {NULL_ARM}", f"cells: {len(records)}"]
+    lines += _declaration_block(records)
     k_labels = matched_k_labels_present(records)
     matched = leaderboard(records, models=models, k_labels=k_labels)
     lines += _headline_block(matched)

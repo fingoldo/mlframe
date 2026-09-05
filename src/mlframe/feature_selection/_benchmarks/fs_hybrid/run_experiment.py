@@ -38,6 +38,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from ._cell_store import JsonlCellStore
+from ._manifest import build_manifest, load_manifest, write_manifest
 from ._leaderboard import NULL_ARM
 from ._matched_k import SELF_CHOSEN_K, Ranking, cut_at_k, k_grid_for_bed, ranking_from_arm_result
 from ._panel import PANEL_MEMBERS, assert_wrapper_estimator_differs, base_rate_scores, fit_and_score_panel, normalized_skill
@@ -300,6 +301,7 @@ def run_grid(
     # this flag makes explicit instead of deciding it for the caller.
     done = store.completed_keys({"ok"} if retry_failed else None) if resume else set()
     executed = 0
+    manifest_written = False
 
     for scenario_name, gen in scenarios:
         for dataset_seed in dataset_seeds:
@@ -311,6 +313,23 @@ def run_grid(
             cell_roster = dict(roster) if roster is not None else build_arm_roster(int(x_all.shape[1]), random_state=int(dataset_seed))
             if NULL_ARM not in cell_roster:
                 raise ValueError(f"the roster must contain the null hypothesis {NULL_ARM!r} on every cell")
+            if not manifest_written:
+                # Written once, on the first roster, and never rewritten: a resumed run that re-declared
+                # itself would declare exactly the seeds it ended up running, which is the opposite of a
+                # declaration. An existing manifest is left alone for the same reason.
+                manifest_written = True
+                if load_manifest(results_path) is None:
+                    write_manifest(
+                        results_path,
+                        build_manifest(
+                            results_path=results_path,
+                            scenarios=[name for name, _ in scenarios],
+                            arms=sorted(cell_roster),
+                            dataset_seeds=dataset_seeds,
+                            cv_seeds=cv_seeds,
+                            protocol_version=PROTOCOL_VERSION,
+                        ),
+                    )
             for arm_name, factory in cell_roster.items():
                 for cv_seed in cv_seeds:
                     spec = CellSpec(
