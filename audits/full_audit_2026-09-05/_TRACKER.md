@@ -167,3 +167,18 @@ beyond these and on any entry that no longer drifts, so the list can only shrink
 | DUP-06 | `training/composite/autoconfig.py` +2 | `_frame_columns` duplicated across three composite-discovery modules | TODO |
 | DUP-07 | `feature_selection/filters/_fe_cpu_batch.py` and `shap_proxied_fs/_shap_proxy_prefilter_univariate.py` | `_available_ram_bytes` duplicated | TODO |
 | DUP-08 | `training/composite/classification.py` and `glm.py` | `_inner_raw_margin` duplicated | TODO |
+
+## Array copies made only to feed a hash
+
+`h.update(a.tobytes())` materialises a full copy of the array purely to be hashed;
+`h.update(np.ascontiguousarray(a).data)` consumes the existing buffer and produces the identical digest.
+Three sites were fixed as XMC-03/04/05; a scan of the rest of the tree finds 17 more. There is nothing to
+triage here -- the copy-free form is never worse -- so this is a mechanical batch rather than a judgement.
+
+| ID | Sites | Summary | Status |
+|----|-------|---------|--------|
+| HASHCOPY-01 | `feature_selection/wrappers/rfecv/_fit_init.py:38,43,320` | X and y hashed through a full copy at RFECV init | TODO |
+| HASHCOPY-02 | `utils/disk_cache.py:129,133,134,144,145,146,153` | seven array copies in the disk-cache fingerprint | TODO |
+| HASHCOPY-03 | `training/composite/cache.py:414,436,586` | three copies in the composite cache signature | TODO |
+| HASHCOPY-04 | `feature_selection/filters/cat_interactions.py:68`, `discretization/_discretization_dataset.py:126` | per-column copies inside a loop | TODO |
+| HASHCOPY-05 | `training/baselines/dummy.py:237`, `reporting/charts/binary.py:609` | one copy each | TODO |
