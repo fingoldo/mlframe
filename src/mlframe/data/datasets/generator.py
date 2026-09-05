@@ -33,11 +33,12 @@ import numpy as np
 import pandas as pd
 
 from mlframe.data.datasets._columns import draw_features
+from mlframe.data.datasets._derived import derived_order, realize_derived
 from mlframe.data.datasets._latent import realize_latents
 from mlframe.data.datasets._links import apply_heteroscedasticity, link_score
 from mlframe.data.datasets._noise import apply_corruption
 from mlframe.data.datasets._rng import stream_for
-from mlframe.data.datasets._scm import build_ground_truth
+from mlframe.data.datasets._scm import build_ground_truth, graph_from_spec
 from mlframe.data.datasets._target import bayes_auc, bayes_brier, calibrate_scale, probability_from_score, sample_labels, shift_to_prevalence
 from mlframe.data.datasets.ground_truth import GroundTruth
 from mlframe.data.datasets.spec import DatasetSpec, TargetSpec, resolve_knob
@@ -121,6 +122,13 @@ def generate(spec: DatasetSpec, target_name: Optional[str] = None) -> GeneratedD
     columns.update(latent_columns)
     scales.update(latent_scales)
 
+    # Edges are data, not documentation: a column with declared parents is REALISED from them. Ancestors of
+    # the target are built here, before the link consumes them; descendants are built after the label
+    # exists, further down.
+    graph = graph_from_spec(spec, target_name=target.name)
+    before_target, after_target = derived_order(graph, list(spec.feature_names()), target.name)
+    realize_derived(before_target, graph, columns, scales, target.name, {}, spec.root_seed, spec.name)
+
     # Private deltas are addressable by the link but never emitted as columns: they are what makes the
     # reflections jointly necessary, and exposing them would hand the answer to any selector.
     link_inputs: Dict[str, np.ndarray] = dict(columns)
@@ -166,6 +174,11 @@ def generate(spec: DatasetSpec, target_name: Optional[str] = None) -> GeneratedD
     if used_drivers:
         calibration["variance_drivers"] = used_drivers
     labels = sample_labels(probability, stream_for(spec.root_seed, spec.name, "labels", target.name))
+    if after_target:
+        # A child of the label -- a collider, a downstream measurement -- is realised from the label that
+        # actually happened, not from the probability behind it: an observable of this kind never sees the
+        # probability, and building it from one would make it cleaner than any real measurement can be.
+        realize_derived(after_target, graph, columns, scales, target.name, {target.name: labels}, spec.root_seed, spec.name)
 
     structural = build_ground_truth(spec, target_name=target.name, redundancy_groups=redundancy_groups)
     caveats = list(structural.caveats)

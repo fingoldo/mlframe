@@ -1,0 +1,127 @@
+{
+  "scenarios": {
+    "latent_replicates_private_delta": {
+      "expected_to_break": [
+        "mrmr",
+        "variance-sort",
+        "univariate-mi"
+      ],
+      "family": "redundant",
+      "primary_target_set": "markov_blanket",
+      "purpose": "the members are jointly necessary, so collapsing the cluster destroys signal",
+      "spec_hash": "c6c3ba72132557eb4d8ca6e0bafef71c"
+    },
+    "linear_gaussian_lowdim_n200": {
+      "expected_to_break": [
+        "mrmr",
+        "univariate-mi",
+        "skb-mi",
+        "ace"
+      ],
+      "family": "linear",
+      "primary_target_set": "markov_blanket",
+      "purpose": "small n: a t-statistic uses every row, a binned MI estimate throws most of them away",
+      "spec_hash": "aa5541bf3cafd3c7883586d61d7d5c23"
+    },
+    "linear_k5_p50": {
+      "expected_to_break": [
+        "variance-sort"
+      ],
+      "family": "linear",
+      "primary_target_set": "markov_blanket",
+      "purpose": "control: every method should succeed here, except the one that never looks at the target",
+      "spec_hash": "abe90a5a6102d82ac7201857f66350df"
+    },
+    "mb_spouse_collider": {
+      "expected_to_break": [
+        "univariate-mi",
+        "skb-f",
+        "skb-mi",
+        "select-fdr",
+        "lars-order"
+      ],
+      "family": "causal",
+      "primary_target_set": "markov_blanket",
+      "purpose": "a blanket member that is invisible until one conditions on the collider",
+      "spec_hash": "049b86ca8f762c5429c2a5a8029a4f3c"
+    },
+    "mediator_chain_with_proxy": {
+      "expected_to_break": [
+        "rfecv",
+        "mrmr",
+        "boruta-shap"
+      ],
+      "family": "causal",
+      "primary_target_set": "markov_blanket",
+      "purpose": "the declared answer key, not the method, decides who wins here",
+      "spec_hash": "d2d6d78617e5e9c8f37cb79db7b61b46"
+    },
+    "null_p100": {
+      "expected_to_break": [
+        "select-fdr",
+        "skb-f",
+        "skb-mi",
+        "univariate-mi"
+      ],
+      "family": "null",
+      "primary_target_set": "markov_blanket",
+      "purpose": "false-discovery discipline: nothing is relevant, so anything selected is a false positive",
+      "spec_hash": "da369dd1620b1d7595bcdb9e35e5204d"
+    },
+    "null_p1000": {
+      "expected_to_break": [
+        "select-fdr",
+        "skb-f",
+        "skb-mi",
+        "boruta",
+        "rfecv",
+        "sfm-lgbm"
+      ],
+      "family": "null",
+      "primary_target_set": "markov_blanket",
+      "purpose": "the same discipline where the best-looking noise column is genuinely convincing",
+      "spec_hash": "3d0174f635ea9d08f47c6575f0bf38bb"
+    },
+    "redundant_exact_k5": {
+      "expected_to_break": [
+        "boruta-shap",
+        "sfm-lgbm",
+        "ace"
+      ],
+      "family": "redundant",
+      "primary_target_set": "markov_blanket",
+      "purpose": "importance splits across identical copies, so each looks weaker than the direction is",
+      "spec_hash": "77f47b4fcf39c56fbb13bf7e93deb524"
+    },
+    "xor3": {
+      "expected_to_break": [
+        "mrmr",
+        "univariate-mi",
+        "skb-f",
+        "skb-mi",
+        "lars-order",
+        "select-fdr",
+        "variance-sort"
+      ],
+      "family": "interactions",
+      "primary_target_set": "markov_blanket",
+      "purpose": "operands with zero marginal association: invisible to any one-column-at-a-time ranking",
+      "spec_hash": "8ceb12b3e82e4d28ccb1093fc28d8f62"
+    },
+    "xor3_plus_marginal_decoy": {
+      "expected_to_break": [
+        "mrmr",
+        "univariate-mi",
+        "skb-f",
+        "skb-mi",
+        "boruta"
+      ],
+      "family": "interactions",
+      "primary_target_set": "markov_blanket",
+      "purpose": "separates finding nothing from confidently finding the wrong thing",
+      "spec_hash": "531d7954a8c45636a3868a2623bd0062"
+    }
+  },
+  "schema_version": 1,
+  "seed": 0
+}
