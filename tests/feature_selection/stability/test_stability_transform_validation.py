@@ -96,8 +96,13 @@ def test_transform_missing_fit_column_raises():
     # Drop a column that was likely selected ('b' or 'c'); choose one
     # by inspecting the fitted feature names.
     selected_names = [sel.feature_names_in_[i] for i in sel.support_]
-    if not selected_names:
-        pytest.skip("Empty support_; cannot test missing-column drop")
+    # An assertion, not a skip. Everything below depends on `selected_names[0]`, so an empty support_ retires
+    # the missing-column validation entirely -- and zero-selection is itself a failure mode this repo tracks,
+    # so a selector regression that selects nothing would silence the very test that could notice.
+    assert selected_names, (
+        f"the selector kept no features, so the missing-column raise went unchecked; "
+        f"support_={sel.support_!r} over {len(sel.feature_names_in_)} fitted name(s)"
+    )
     drop_col = selected_names[0]
     X_dropped = X.drop(columns=[drop_col])
     with pytest.raises(ValueError, match="missing"):

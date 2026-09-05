@@ -2271,16 +2271,34 @@ def test_regression_lagged_diff_replay_honours_entity_scoping():
 # ---------------------------------------------------------------------------
 
 
-def test_regression_composite_group_agg_no_dead_two_dot_import():
-    """Post-fix: the always-failing two-dot import is removed; only the correct single-dot import remains."""
-    import inspect
+def test_regression_composite_group_agg_uses_the_shared_detector():
+    """Post-fix: the shared group-column detector is actually reached, not silently fallen past.
 
+    The original defect was a `from .._grouped_agg_fe import ...` at the wrong depth (that module is a
+    SIBLING, one dot) sitting inside a bare `except Exception`: it always failed and fell through to the
+    inline cardinality heuristic, so the Layer-87 detector was dead code that looked live.
+
+    This used to be checked by reading `inspect.getsource` for the import lines, which breaks on any
+    harmless move of the shared implementation -- and did, when the detector was consolidated into
+    `_grouped_coerce_shared`. Substituting the detector and watching for its result tests the thing itself:
+    if the import fails again for any reason, the except swallows it and the inline heuristic answers
+    instead, which this notices.
+    """
+    import mlframe.feature_selection.filters._grouped_coerce_shared as shared
     from mlframe.feature_selection.filters._composite_group_agg_fe import _auto_detect_group_cols
 
-    src = inspect.getsource(_auto_detect_group_cols)
-    assert not any(line.strip().startswith("from .._grouped_agg_fe import") for line in src.splitlines())
-    assert any(line.strip().startswith("from ._grouped_agg_fe import") for line in src.splitlines())
+    sentinel = ["__from_the_shared_detector__"]
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(shared, "auto_detect_group_cols", lambda X, max_cols=6, caller="": list(sentinel))
+    try:
+        # A frame the inline heuristic WOULD answer on, so a fall-through returns real column names rather
+        # than an empty list and cannot be mistaken for the shared detector's reply.
+        df = pd.DataFrame({"g": np.repeat(np.arange(6), 20), "h": np.tile(np.arange(4), 30), "f": np.random.default_rng(0).normal(size=120)})
+        got = _auto_detect_group_cols(df)
+    finally:
+        monkey.undo()
 
+    assert got == sentinel, f"the shared detector was not reached; got {got!r}, which is the inline fallback"
 
 # ---------------------------------------------------------------------------
 # FE_PAIRS_CORE-1 (P1): the chunk-pipeline feature runs chunk k+1's production concurrently with the main
