@@ -79,7 +79,7 @@ def make_data(n: int, seed: int = 0, n_features: int = 10) -> pd.DataFrame:
 
 def workload_baseline_diag(df: pd.DataFrame) -> Callable[[], Any]:
     """Return a no-arg callable that runs BaselineDiagnostics once."""
-    from mlframe.training.baseline_diagnostics import BaselineDiagnostics
+    from mlframe.training.baselines.diagnostics import BaselineDiagnostics
     from mlframe.training.configs import BaselineDiagnosticsConfig
 
     cfg = BaselineDiagnosticsConfig(

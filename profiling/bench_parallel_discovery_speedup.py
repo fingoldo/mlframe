@@ -40,7 +40,7 @@ def _build_problem(n: int = 200_000, seed: int = 42):
 
 
 def _time(n_jobs: int, transforms: list[str]) -> float:
-    from mlframe.training.composite_discovery import CompositeTargetDiscovery
+    from mlframe.training.composite.discovery import CompositeTargetDiscovery
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
     df, y = _build_problem()

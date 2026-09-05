@@ -47,7 +47,7 @@ def diag_thread_overlap(n_jobs: int = 4) -> None:
     """
     from mlframe.training import composite_discovery
     from mlframe.training import composite_transforms
-    from mlframe.training.composite_discovery import CompositeTargetDiscovery
+    from mlframe.training.composite.discovery import CompositeTargetDiscovery
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
     # Use a lock-protected list to record observation events.
@@ -112,7 +112,7 @@ def diag_thread_overlap(n_jobs: int = 4) -> None:
 
 
 def diag_cprofile(n_jobs: int) -> None:
-    from mlframe.training.composite_discovery import CompositeTargetDiscovery
+    from mlframe.training.composite.discovery import CompositeTargetDiscovery
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
     df = _build_problem(n=200_000)

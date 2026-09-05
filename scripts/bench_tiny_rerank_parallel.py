@@ -18,7 +18,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from mlframe.training.composite_discovery import CompositeTargetDiscovery
+from mlframe.training.composite.discovery import CompositeTargetDiscovery
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 

@@ -58,13 +58,13 @@ from mlframe.metrics.regression import (
     fast_huber_loss, fast_pearson_corr, fast_spearman_corr, fast_kendall_tau,
     fast_concordance_index,
 )
-from mlframe.training._callbacks import (
+from mlframe.training.callbacks._callbacks import (
     CatBoostCallback,
     LightGBMCallback,
     XGBoostCallback,
 )
 from mlframe.training._data_helpers import _setup_eval_set
-from mlframe.training._slice_helpers import build_slice_eval_sets
+from mlframe.training.slicing._slice_helpers import build_slice_eval_sets
 
 
 # ---------------------------------------------------------------------------

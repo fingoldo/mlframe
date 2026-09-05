@@ -21,7 +21,7 @@ sys.path.insert(0, 'src')
 import numpy as np
 import pandas as pd
 
-from mlframe.training._target_distribution_analyzer import analyze_feature_distribution
+from mlframe.training.targets._target_distribution_analyzer_features import analyze_feature_distribution
 
 
 def make_synthetic(n_rows: int = 200_000, n_numeric: int = 15, n_cat: int = 3, seed: int = 0):

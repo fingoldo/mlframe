@@ -123,9 +123,20 @@ def test_every_from_import_resolves():
     from py_ci_shared.unresolved_imports import assert_all_from_imports_resolve
 
     assert_all_from_imports_resolve(
-        scan_roots=[REPO_ROOT / "src", REPO_ROOT / "tests"],
+        # scripts/, profiling/ and benchmarks/ are scanned too. They sit outside `testpaths`, so nothing
+        # collects them and CI stays green while they rot: a package reorganisation left 9 dead module paths
+        # across 23 import sites there, and every one of those reproducibility benchmarks was silently
+        # unrunnable -- anyone returning to re-measure a perf claim got a ModuleNotFoundError, not a number.
+        scan_roots=[REPO_ROOT / "src", REPO_ROOT / "tests", REPO_ROOT / "scripts", REPO_ROOT / "profiling", REPO_ROOT / "benchmarks"],
         package_roots=[REPO_ROOT / "src"],
         resolvable_prefixes=("mlframe",),
+        allowlist=(
+            # `_raw_moments` was REMOVED, not renamed: this bench measures a fold gate built on the
+            # additivity of raw power sums (train = full - test), and centred moments -- which replaced them
+            # for numerical correctness -- are not additive across row subsets. Repointing it would change
+            # what it measures, so it needs a decision rather than an import fix. Tracked as BENCH-01.
+            "bench_binned_numeric_agg_fold_gate.py",
+        ),
     )
 
 
