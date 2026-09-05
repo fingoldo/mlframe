@@ -27,9 +27,12 @@ pytest.importorskip("sklearn")
 # The five modules whose `_fit_baseline_predict` shares one signature and now one body.
 SHARED = [
     "bidir_residual_band",
+    "class_balanced_hard_row",
     "hard_row_attention",
+    "multi_temp_cbhr",
     "multi_temp_residual_band",
     "prediction_band_attention",
+    "residual_band_attention",
     "signed_residual_band",
 ]
 

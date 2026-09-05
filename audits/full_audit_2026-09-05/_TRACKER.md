@@ -148,3 +148,22 @@ Status starts at TODO for all.
 | XSD-06 | P3 | `src/mlframe/signal/dtw.py:486` | stale-prose-path-mlframe-signal-dtw-autotune | TODO |
 | XSD-07 | P3 | `src/mlframe/training/_format.py:22` | stale-prose-path-training-core-short-model-tag | TODO |
 | XSD-08 | P3 | `tests/training/test_discovery_cache_version_tuple_expanded.py:20` | stale-prose-path-training-utils-compute-config-signature-v1 | TODO |
+
+## Near-duplicate functions reported by `py_ci_shared.drifted_duplicate_functions`
+
+Found by the shared check written after SRD-01, not by the auditors. Each is a real near-duplicate whose
+copies differ only cosmetically, so the next fix to any of them reaches whichever copies the author opens --
+the same shape that left four of eight `_fit_baseline_predict` copies leaking. Recorded in
+`tests/test_meta/test_no_drifted_duplicate_functions.py::KNOWN_DUPLICATE_GROUPS`, which fails on any group
+beyond these and on any entry that no longer drifts, so the list can only shrink.
+
+| ID | Sites | Summary | Status |
+|----|-------|---------|--------|
+| DUP-01 | `training/_model_factories.py` and `training/trainer.py` | xgb/lgb classifier+regressor class pickers duplicated across the model-factory carve (4 groups, differ only in local import aliases) | TODO |
+| DUP-02 | `feature_engineering/transformer/bgmm_multiscale.py` and `bgmm_virtual.py` | `_fit_bgmm_and_sample` duplicated; not yet compared numerically | TODO |
+| DUP-03 | `feature_selection/shap_proxied_fs/_shap_proxy_gpu.py` +2 | `_block_size` duplicated across three GPU modules | TODO |
+| DUP-04 | `training/_predict_guards.py` and `training/cb/_cb_pool.py` | `_recover_cb_feature_names` duplicated | TODO |
+| DUP-05 | `feature_selection/filters/_composite_group_agg_fe.py` and `_grouped_agg_fe.py` | `_agg_func_for_stat` and `_global_value_for_stat` duplicated (2 groups) | TODO |
+| DUP-06 | `training/composite/autoconfig.py` +2 | `_frame_columns` duplicated across three composite-discovery modules | TODO |
+| DUP-07 | `feature_selection/filters/_fe_cpu_batch.py` and `shap_proxied_fs/_shap_proxy_prefilter_univariate.py` | `_available_ram_bytes` duplicated | TODO |
+| DUP-08 | `training/composite/classification.py` and `glm.py` | `_inner_raw_margin` duplicated | TODO |

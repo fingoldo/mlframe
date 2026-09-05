@@ -531,8 +531,8 @@ def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 6) -> list[str]:
     # not a parent-package member) inside a bare `except Exception`, which always failed and silently fell
     # through to the correct single-dot import below - functionally masked, but dead/misleading code.
     try:
-        from ._grouped_agg_fe import _auto_detect_group_cols as _l87_detect
-        return list(_l87_detect(X, max_cols=max_cols))
+        from ._grouped_coerce_shared import auto_detect_group_cols as _l87_detect
+        return list(_l87_detect(X, max_cols=max_cols, caller='composite_group_agg'))
     except Exception as exc:  # nosec B110 - optional dependency import guard
         logger.debug("_auto_detect_group_cols: Layer-87 detector unavailable; falling back to inline heuristic: %r", exc)
     out: list[str] = []

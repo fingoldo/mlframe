@@ -7,9 +7,11 @@ construction (the model was just fit on these exact rows), which understates the
 distorts which rows look easy or hard. Every column those modules emit is derived from that judgement.
 
 The copies that shared a signature now all call this one function, so the next correction lands everywhere
-at once. Copies with a genuinely different shape -- ``baseline_surprise`` (also predicts on a held-out Xq),
-``y_quintile_baseline_knn`` (predicts on the combined Xall), ``class_balanced_hard_row`` (class-balanced
-refit) -- keep their own, since folding them in would change what they compute rather than how honestly.
+at once. All eight copies sharing this signature turned out to be the same function: three of them factored the body
+through a nested ``_fit_predict`` helper and were described as doing something else -- ``class_balanced_hard_row``
+was believed to refit class-balanced -- but each was verified bit-identical to this implementation on both
+task branches before being replaced. ``baseline_surprise`` keeps its own body because it also predicts on a
+held-out Xq and returns a pair; ``y_quintile_baseline_knn`` calls this one with its own deeper baseline.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ def fit_baseline_predict_oof(
     seed: int,
     n_estimators: int = 50,
     max_depth: int = 3,
-    caller: str = "residual band transformer",
+    caller: str = "the residual-band transformer cluster",
 ) -> np.ndarray:
     """Fit a shallow LightGBM baseline via an inner KFold(3) and return its OUT-OF-FOLD predictions on Xt.
 
@@ -33,7 +35,9 @@ def fit_baseline_predict_oof(
     with fewer than three rows there is no honest split to be had, and the caller's own row-count guards
     keep that path off the sizes these transformers actually run at.
 
-    ``caller`` names the module in the ImportError, which is the only thing the per-module copies varied.
+    ``caller`` names the caller in the ImportError. Modules that need no other difference import this
+    function under their own name rather than wrapping it, since a wrapper differing only in this string is
+    still a near-duplicate body -- the exact drift this consolidation exists to end.
     """
     try:
         import lightgbm as lgb

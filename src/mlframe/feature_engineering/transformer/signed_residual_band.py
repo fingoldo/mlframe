@@ -39,15 +39,9 @@ from ._utils import require_seed, validate_numeric_input, softmax
 logger = logging.getLogger(__name__)
 
 
-def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
-    """Out-of-fold baseline predictions on Xt; see ``_baseline_oof.fit_baseline_predict_oof``.
-
-    Kept as a thin module-local name because this module's own tests and call site refer to it, but the
-    implementation is shared so the cluster cannot drift back apart.
-    """
-    from ._baseline_oof import fit_baseline_predict_oof
-
-    return fit_baseline_predict_oof(Xt, y_t, task, seed, n_estimators=n_estimators, max_depth=max_depth, caller="signed_residual_band")
+# Out-of-fold baseline predictions on Xt. Imported rather than wrapped: a per-module wrapper differing only
+# in one string is still a near-duplicate body, which is the drift this cluster was consolidated to end.
+from ._baseline_oof import fit_baseline_predict_oof as _fit_baseline_predict
 
 
 def compute_signed_residual_band_features(

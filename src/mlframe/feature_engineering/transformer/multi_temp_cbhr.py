@@ -34,44 +34,9 @@ logger = logging.getLogger(__name__)
 _DEFAULT_TEMPS: tuple[float, ...] = (0.3, 1.0, 3.0)
 
 
-def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
-    """Fit a small LightGBM baseline via an inner KFold(3) and return its OUT-OF-FOLD predictions on Xt
-    (probability for binary, raw value for regression), used to derive honest hard-row residuals for anchor
-    selection.
-
-    An in-sample prediction is close to y_t almost by construction, understating the true residual and
-    distorting which rows look "hard". Matches residual_stratified_distance.py's own
-    ``_compute_oof_residuals`` pattern in this same cluster. Falls back to a single in-sample fit when there are
-    too few rows for a 3-fold inner split.
-    """
-    try:
-        import lightgbm as lgb
-    except ImportError as exc:
-        raise ImportError("multi_temp_cbhr requires lightgbm") from exc
-    n = Xt.shape[0]
-    if n < 3:
-        if task == "binary":
-            model = lgb.LGBMClassifier(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
-            model.fit(Xt, y_t.astype(np.int32))
-            return np.asarray(model.predict_proba(Xt))[:, 1].astype(np.float32)
-        model = lgb.LGBMRegressor(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
-        model.fit(Xt, y_t)
-        return np.asarray(model.predict(Xt)).astype(np.float32)
-
-    from sklearn.model_selection import KFold
-    preds = np.zeros(n, dtype=np.float32)
-    inner_splitter = KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11)
-    for inner_idx, (in_tr, in_val) in enumerate(inner_splitter.split(Xt)):
-        if task == "binary":
-            m = lgb.LGBMClassifier(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1, random_state=int(seed) + 7 + inner_idx, verbose=-1, n_jobs=-1)
-            m.fit(Xt[in_tr], y_t[in_tr].astype(np.int32))
-            preds[in_val] = np.asarray(m.predict_proba(Xt[in_val]))[:, 1].astype(np.float32)
-        else:
-            m = lgb.LGBMRegressor(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1, random_state=int(seed) + 7 + inner_idx, verbose=-1, n_jobs=-1)
-            m.fit(Xt[in_tr], y_t[in_tr])
-            preds[in_val] = np.asarray(m.predict(Xt[in_val])).astype(np.float32)
-    return preds
-
+# Out-of-fold baseline predictions on Xt. This module's own copy was verified bit-identical to the shared
+# implementation on both task branches before being replaced by this import.
+from ._baseline_oof import fit_baseline_predict_oof as _fit_baseline_predict
 
 _topk_within_subset = topk_within_subset
 
