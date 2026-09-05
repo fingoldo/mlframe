@@ -149,8 +149,10 @@ def test_multi_base_spec_forward_pre_fix_would_have_failed() -> None:
         n_total=y_full.shape[0],
     )
     valid = transform.domain_check(y_full, base_primary)
-    if not valid.any():
-        pytest.skip("domain_check disqualified all rows for the synthetic data")
+    # An assertion, not a skip. The `pytest.raises` below is the whole test, and it never runs on an empty
+    # selection -- so a domain_check that starts disqualifying every row would retire the missing-`alphas`
+    # validation rather than surface it. The synthetic fixture is built to pass the domain check.
+    assert valid.any(), "domain_check disqualified every row, so the missing-alphas validation was never exercised"
     with pytest.raises(ValueError, match="alphas"):
         transform.forward(y_full[valid], base_primary[valid], spec.fitted_params)
 

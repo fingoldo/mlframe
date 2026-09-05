@@ -88,19 +88,35 @@ def test_stability_selection_method_error_lists_valid_options():
         m.fit(X, y)
 
 
-def test_fe_auto_enabled_generators_emits_userwarning():
-    """When fe_auto enables any generators, the notice must be a user-visible UserWarning, not a log-only message."""
+def test_fe_auto_enabled_generators_emits_userwarning(monkeypatch):
+    """When fe_auto enables any generators, the notice must be a user-visible UserWarning, not log-only.
+
+    The recommender is pinned rather than hoped for. Previously the test fitted a plain fixture and looped
+    over whatever warnings happened to match, so when `recommend_fe_flags_by_rules` stopped choosing anything
+    on that fixture -- it now returns nothing at n=300, 1200 or 3000 -- the loop ran zero times and the test
+    asserted nothing at all. The notice becoming log-only, or its wording drifting past the substring, would
+    have read as a pass. Forcing one flag on makes the branch under test run every time.
+    """
+    import mlframe.feature_selection.filters.mrmr._mrmr_class as mc
+
+    monkeypatch.setattr(mc, "recommend_fe_flags_by_rules", lambda X, y: {"fe_count_encoding_enable": True})
     X, y = _xy(n=300)
     m = MRMR(verbose=0, fe_auto=True, min_features_fallback=1, fe_max_steps=1)
+    assert m.fe_count_encoding_enable is False, "the fixture must start with the flag OFF, or fe_auto has nothing to enable"
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         m.fit(X, y)
+
     matches = [w for w in caught if "fe_auto=True enabled" in str(w.message)]
-    # fe_auto may legitimately choose to enable nothing for this fixture; only assert the
-    # channel exists and fires with the right category when it does.
+    assert matches, (
+        "fe_auto enabled a generator but emitted no 'fe_auto=True enabled' warning, so the user-visible "
+        f"channel is gone; warnings seen: {[str(w.message)[:80] for w in caught]}"
+    )
     for w in matches:
         assert w.category is UserWarning
-
+    assert "fe_count_encoding_enable" in str(matches[0].message), "the notice must name which generator it turned on"
+    # The constructor argument's semantics must survive the fit: fe_auto only widens for the duration.
+    assert m.fe_count_encoding_enable is False, "fe_auto left the flag on after the fit, changing constructor-arg semantics"
 
 def test_transform_usability_missing_list_raises_valueerror_not_attributeerror():
     """Calling transform_usability() without usability_aware_lists must raise ValueError (consistent with its sibling validation), not AttributeError."""
