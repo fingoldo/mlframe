@@ -370,6 +370,45 @@ def group_aware_relevance(cols: list, arr: np.ndarray, y: np.ndarray, groups: np
     return out
 
 
+def greedy_select_indices(rel, red, eff_floor: float, cap: int, redundancy_weight: float) -> list:
+    """The mRMR greedy loop: pick the strongest eligible feature, then repeatedly the best relevance-minus-
+    redundancy candidate until the cap or until no candidate scores above zero.
+
+    Module-level so a test can execute THIS loop. The identity test that guards the vectorisation used to
+    define a reference greedy, an incremental greedy and a vectorised greedy locally and assert the three
+    against each other, importing none of them -- so changing `scores[best_i] <= 0.0` to `< 0.0`, dropping
+    the below-floor mask, or dividing by `ns + 1` left it green while the shipped loop selected differently.
+
+    Incremental redundancy: ``red_sum[i] = sum(red[i, s] for s in selected)`` is maintained vectorised (one
+    ``red_sum += red[:, best_i]`` per selection) instead of recomputing ``np.mean([red[i, s] for s in
+    selected])`` for every candidate every iteration. Same summation order (selection order), so
+    ``red_sum[i] / len(selected)`` is bit-identical to the per-iteration mean. The per-candidate argmax scan
+    is vectorised too -- one ``rel - w*(red_sum/ns)`` pass with below-floor and already-selected masked to
+    -inf, and ``np.argmax``, which returns the FIRST maximum and so matches the strict ``>`` first-wins
+    tie-break of the Python loop. Measured 3.8-6.9x at 200-1500 features.
+    """
+    n = rel.shape[0]
+    eligible = np.where(rel > eff_floor)[0]
+    if eligible.size == 0 or cap <= 0:
+        return []
+    selected: list = [int(eligible[np.argmax(rel[eligible])])]
+    below_floor = rel <= eff_floor
+    alive = np.ones(n, dtype=bool)
+    alive[selected[0]] = False
+    red_sum = red[:, selected[0]].astype(np.float64, copy=True)
+    while len(selected) < cap and alive.any():
+        ns = len(selected)
+        scores = rel - redundancy_weight * (red_sum / ns)
+        scores[below_floor] = -np.inf
+        scores[~alive] = -np.inf
+        best_i = int(np.argmax(scores))
+        if scores[best_i] <= 0.0:
+            break
+        selected.append(best_i)
+        alive[best_i] = False
+        red_sum += red[:, best_i]
+    return selected
+
 def group_aware_mrmr_select(
     X_df: pd.DataFrame,
     y: np.ndarray,
@@ -410,30 +449,7 @@ def group_aware_mrmr_select(
     if eligible.size == 0 or cap <= 0:
         return []  # nothing carries within-query signal, or max_features=0 explicitly caps the selection at zero
 
-    selected: list = [int(eligible[np.argmax(rel[eligible])])]
-    # Incremental redundancy: ``red_sum[i] = sum(red[i, s] for s in selected)`` maintained vectorised (one
-    # ``red_sum += red[:, best_i]`` per selection) instead of recomputing ``np.mean([red[i, s] for s in
-    # selected])`` -- a Python list-comp -- for every candidate every iteration. Same summation order (selection
-    # order) so ``red_sum[i] / len(selected)`` is bit-identical to the per-iteration mean. The per-candidate
-    # argmax scan is also vectorised: score every remaining candidate in one ``rel - w*(red_sum/_ns)`` pass and
-    # ``np.argmax`` (below-floor / already-selected masked to -inf) instead of a Python ``for i in remaining``
-    # loop -- bit-identical (np.argmax returns the FIRST max, matching the strict ``>`` first-wins tie-break),
-    # O(n) numpy vs O(n) Python per iteration (measured 3.8-6.9x on the greedy loop at 200-1500 features).
-    below_floor = rel <= eff_floor
-    alive = np.ones(n, dtype=bool)
-    alive[selected[0]] = False
-    red_sum = red[:, selected[0]].astype(np.float64, copy=True)
-    while len(selected) < cap and alive.any():
-        _ns = len(selected)
-        scores = rel - redundancy_weight * (red_sum / _ns)
-        scores[below_floor] = -np.inf
-        scores[~alive] = -np.inf
-        best_i = int(np.argmax(scores))
-        if scores[best_i] <= 0.0:
-            break
-        selected.append(best_i)
-        alive[best_i] = False
-        red_sum += red[:, best_i]
+    selected = greedy_select_indices(rel, red, eff_floor, cap, redundancy_weight)
     chosen = [cols[i] for i in selected]
     if verbose:
         logger.info("group-aware mRMR (LTR): selected %d/%d features by per-query relevance.", len(chosen), n)
