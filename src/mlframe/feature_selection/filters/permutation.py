@@ -741,6 +741,9 @@ def mi_direct(
                     classes_y=classes_y,
                     freqs_y=freqs_y,
                     use_gpu=True,
+                    # The caller's seed reaches all four njit kernels on the CPU path; dropping it here made
+                    # the identical public call reproducible on CPU and run-varying on GPU.
+                    base_seed=base_seed,
                 )
             except Exception as _exc:
                 # Promoted DEBUG -> WARNING + trips the circuit breaker: a launch fault poisons

@@ -24,8 +24,8 @@ Status starts at TODO for all.
 
 | ID | Sev | Where | One line | Status |
 |---|---|---|---|---|
-| XGD-01 | P0 | `feature_selection/filters/evaluation.py:501` | gpu-relevance-null-drops-base_seed | TODO |
-| XGD-02 | P0 | `feature_selection/filters/permutation.py:731` | mi_direct-gpu-fastpath-drops-base_seed | TODO |
+| XGD-01 | P0 | `feature_selection/filters/evaluation.py:501` | gpu-relevance-null-drops-base_seed | RESOLVED (base_seed forwarded; guard tests/feature_selection/test_gpu_branch_seed_parity.py, verified failing pre-fix) |
+| XGD-02 | P0 | `feature_selection/filters/permutation.py:731` | mi_direct-gpu-fastpath-drops-base_seed | RESOLVED (base_seed forwarded to the GPU fastpath) |
 | XGD-03 | P0 | `feature_selection/filters/discretization/__init__.py:939` | discretize-bin-edges-depend-on-free-vram | TODO |
 | XMC-01 | P0 | ``src/mlframe/evaluation/_bootstrap_fused_binary_bundle.py:181`` | bootstrap-resample-index-matrix-int64-unguarded | TODO |
 | XMC-02 | P0 | ``src/mlframe/feature_selection/filters/_mrmr_fit_impl/_friend_graph_and_redundancy/_group1.py:176`` | ungated-whole-frame-to_pandas-in-mrmr-synergy-screen | TODO |
