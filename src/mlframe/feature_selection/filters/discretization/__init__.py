@@ -11,6 +11,7 @@ Public API
 Polars ``LazyFrame`` is auto-collected at the boundary. Both pandas and polars paths route NaN through a shared ``_handle_missing`` helper - the chosen
 strategy is documented and applied identically to both engines (legacy pandas silently used ``fillna(0.0)``; legacy polars let NaN propagate).
 """
+
 from __future__ import annotations
 
 import logging
@@ -21,6 +22,8 @@ from typing import Any, Optional, Union
 import numpy as np
 import pandas as pd
 from numba import njit, prange
+
+
 # Sklearn / astropy removed from categorize_1d_array hot path.
 # Pure-numpy + numba kernels are ~10x faster than KBinsDiscretizer / OrdinalEncoder
 # (single-threaded estimator-API overhead) and ~12x faster than astropy.histogram
@@ -163,6 +166,7 @@ def _multi_col_factorize_native(categorical_df: "pd.DataFrame") -> np.ndarray:
             # so threads parallelise. prefer='threads' avoids the pickling cost
             # of process workers on a categorical DF view.
             from joblib import Parallel, delayed as _delayed
+
             _results = Parallel(n_jobs=min(8, len(needs_factorize)), prefer="threads")(
                 _delayed(lambda c: pd.factorize(categorical_df[c], use_na_sentinel=True)[0].astype(np.float64))(_c) for _j, _c in needs_factorize
             )
@@ -331,9 +335,9 @@ def categorize_1d_array(
         if nan_filler is None:
             raise ValueError("categorize_1d_array: input contains NaN and nan_filler=None; " "drop NaN upstream or pick a non-colliding sentinel.")
         import warnings as _w
+
         _w.warn(
-            f"categorize_1d_array: filling NaN with {nan_filler!r} biases MI by mixing "
-            "NaN rows with real-equal values. Pass nan_filler=None to raise instead.",
+            f"categorize_1d_array: filling NaN with {nan_filler!r} biases MI by mixing " "NaN rows with real-equal values. Pass nan_filler=None to raise instead.",
             stacklevel=2,
         )
         vals = pd.Series(vals).fillna(nan_filler).values
@@ -382,8 +386,7 @@ def categorize_1d_array(
                 _bins_for_numpy = bins if isinstance(bins, (int, np.integer)) else "auto"
                 bin_edges = np.histogram_bin_edges(vals, bins=_bins_for_numpy)
                 logger.info(
-                    "categorize_1d_array: method='astropy' is deprecated; "
-                    "using numpy histogram_bin_edges(bins=%r). astropy removed from install graph 2026-05-28.",
+                    "categorize_1d_array: method='astropy' is deprecated; " "using numpy histogram_bin_edges(bins=%r). astropy removed from install graph 2026-05-28.",
                     _bins_for_numpy,
                 )
             else:
@@ -411,7 +414,9 @@ def categorize_1d_array(
                     "discretization_categorize_1d_dtype_auto_promoted",
                     logging.WARNING,
                     "categorize_1d_array: max code %d exceeds dtype %s; auto-promoting to %s to avoid silent wraparound.",
-                    out_max, dtype, _candidate,
+                    out_max,
+                    dtype,
+                    _candidate,
                 )
                 dtype = _candidate
                 break
@@ -564,8 +569,12 @@ _UNIFORM_PAR_THRESHOLD = int(os.environ.get("MLFRAME_DISCRETIZE_UNIFORM_PAR_THRE
 
 
 def discretize_array(
-    arr: np.ndarray, n_bins: int = 10, method: str = "quantile",
-    min_value: Optional[float] = None, max_value: Optional[float] = None, dtype: type = np.int8,
+    arr: np.ndarray,
+    n_bins: int = 10,
+    method: str = "quantile",
+    min_value: Optional[float] = None,
+    max_value: Optional[float] = None,
+    dtype: type = np.int8,
 ) -> np.ndarray:
     """Discretise a 1-D continuous array into ordinal bins.
 
@@ -702,7 +711,8 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: typ
                 if _l >= n_rows - 1:
                     _kths_set.add(n_rows - 1)
                 else:
-                    _kths_set.add(int(_l)); _kths_set.add(int(_l) + 1)
+                    _kths_set.add(int(_l))
+                    _kths_set.add(int(_l) + 1)
             _kths = np.array(sorted(_kths_set), dtype=np.int64)
             _quantile_edges_2d_njit(np.ascontiguousarray(arr2d), quantiles, _kths, edges)
     out: np.ndarray = np.empty((n_rows, n_cols), dtype=dtype)
@@ -750,8 +760,12 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: typ
 
 @njit(cache=True)
 def _discretize_array_impl(
-    arr: np.ndarray, n_bins: int = 10, method: str = "quantile",
-    min_value: Optional[float] = None, max_value: Optional[float] = None, dtype: type = np.int8,
+    arr: np.ndarray,
+    n_bins: int = 10,
+    method: str = "quantile",
+    min_value: Optional[float] = None,
+    max_value: Optional[float] = None,
+    dtype: type = np.int8,
 ) -> np.ndarray:
     """Discretize a single 1-D column via ``uniform`` or ``quantile`` binning."""
     if method == "uniform":
@@ -821,20 +835,34 @@ def _run_discretize_sweep() -> list:
     def _cpu(arr):
         """CPU-path timing: the njit-prange 2D discretize kernel."""
         return _discretize_2d_array_njit(
-            arr=arr, n_bins=10, method="quantile", min_ncats=50,
-            min_values=None, max_values=None, dtype=np.int8,
+            arr=arr,
+            n_bins=10,
+            method="quantile",
+            min_ncats=50,
+            min_values=None,
+            max_values=None,
+            dtype=np.int8,
         )
 
     variants = {"cpu": _cpu}
     if cuda_available_for_run():
+
         def _cuda(arr):
             """GPU-path timing: the cupy percentile-binning discretize kernel, for crossover comparison against ``_cpu``."""
             return discretize_2d_array_cuda(arr=arr, n_bins=10, method="quantile", dtype=np.int8)
+
         variants["cuda"] = _cuda
-    return list(sweep_backend_grid(
-        variants, {"n_cells": _DISCRETIZE_SWEEP_CELLS}, _make_discretize_inputs,
-        reference="cpu", repeats=2, equiv_rtol=1e-6, equiv_atol=1e-6,
-    ))
+    return list(
+        sweep_backend_grid(
+            variants,
+            {"n_cells": _DISCRETIZE_SWEEP_CELLS},
+            _make_discretize_inputs,
+            reference="cpu",
+            repeats=2,
+            equiv_rtol=1e-6,
+            equiv_atol=1e-6,
+        )
+    )
 
 
 def _discretize_fallback_choice(n_cells: int) -> str:
@@ -882,16 +910,10 @@ def discretize_2d_array(
     # Uniform method gained a CUDA path (single-pass vectorised
     # arithmetic + RawKernel searchsorted). Both methods route to GPU when
     # min_values/max_values are absent (the CUDA uniform path computes col_min/max).
-    if (
-        prefer_gpu
-        and method in ("quantile", "uniform")
-        and min_values is None
-        and max_values is None
-        and arr.ndim == 2
-        and _DISCRETIZE_SPEC.choose(n_cells=int(arr.size)) == "cuda"
-    ):
+    if prefer_gpu and method in ("quantile", "uniform") and min_values is None and max_values is None and arr.ndim == 2 and _DISCRETIZE_SPEC.choose(n_cells=int(arr.size)) == "cuda":
         try:
             from .._gpu_policy import cuda_available_for_run
+
             if cuda_available_for_run():
                 # VRAM guard: ``discretize_2d_array_cuda`` H2D-uploads the WHOLE ``arr``
                 # unconditionally (``d_arr = cp.asarray(arr)``), then ``cp.percentile`` needs a
@@ -908,12 +930,14 @@ def discretize_2d_array(
                 _free_b: Optional[int] = None
                 try:
                     import cupy as _cp_probe
+
                     _free_b, _total_b = _cp_probe.cuda.runtime.memGetInfo()
                     _free_gb, _total_gb = _free_b / 1024**3, _total_b / 1024**3
                 except Exception as exc:
                     logger.debug("discretize_2d_array: memGetInfo probe failed (%s)", exc)
                 try:
                     from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
+
                     _vram_ok = fe_gpu_has_vram_cushion(_bytes_needed)
                 except Exception as exc:
                     logger.debug("discretize_2d_array: VRAM cushion probe failed (%s); permissive", exc)
@@ -925,7 +949,11 @@ def discretize_2d_array(
                         "discretize_2d_array: GPU upload REJECTED -- requested %.2fGB upload+scratch "
                         "(n_rows=%d, n_cols=%d, in_dtype=%s, out_dtype=%s) exceeds the safe VRAM budget "
                         "(free=%s, total=%s) -- trying a row-chunked GPU path before falling back to CPU prange",
-                        _bytes_needed / 1024**3, arr.shape[0], arr.shape[1], arr.dtype, np.dtype(dtype),
+                        _bytes_needed / 1024**3,
+                        arr.shape[0],
+                        arr.shape[1],
+                        arr.dtype,
+                        np.dtype(dtype),
                         f"{_free_gb:.2f}GB" if _free_gb is not None else "unknown",
                         f"{_total_gb:.2f}GB" if _total_gb is not None else "unknown",
                     )
@@ -937,19 +965,44 @@ def discretize_2d_array(
                         # for one decision. ``None`` (probe failed above) keeps the row-chunked function's own
                         # self-probe unchanged.
                         result = discretize_2d_array_cuda_row_chunked(
-                            arr=arr, n_bins=n_bins, method=method, dtype=dtype, free_bytes=_free_b,
+                            arr=arr,
+                            n_bins=n_bins,
+                            method=method,
+                            dtype=dtype,
+                            free_bytes=_free_b,
                         )
-                        logger.info("discretize_2d_array: completed via row-chunked CUDA (GPU speed preserved, VRAM-safe)")
+                        if method == "quantile":
+                            # The row-chunked path derives quantile edges from a random SUBSAMPLE, while both
+                            # other backends compute exact full-column order statistics. That is a documented,
+                            # selection-equivalence-validated trade -- but WHICH path runs is decided by a
+                            # transient free-VRAM probe, i.e. by what another process happens to be holding.
+                            # So the same frame can be binned exactly on one run and approximately on the next,
+                            # and the old message ("GPU speed preserved, VRAM-safe") never said the edges
+                            # changed at all. Say it, at a level a normal run actually shows.
+                            logger.warning(
+                                "discretize_2d_array: completed via row-chunked CUDA -- quantile bin edges are "
+                                "APPROXIMATE (from a %s-row subsample) because free VRAM was insufficient for the "
+                                "exact path. Bin codes, and therefore selection, may differ from a run where the "
+                                "cushion probe passed.",
+                                "default-sized",
+                            )
+                        else:
+                            # min/max is reducible across chunks, so this path is bit-identical here.
+                            logger.info("discretize_2d_array: completed via row-chunked CUDA (GPU speed preserved, VRAM-safe; edges bit-identical for method=%s)", method)
                         return result
                     except Exception as exc:
                         logger.warning(
                             "discretize_2d_array: row-chunked CUDA also failed (%s: %s) -- falling back to CPU prange",
-                            type(exc).__name__, exc,
+                            type(exc).__name__,
+                            exc,
                         )
                 if _vram_ok:
                     try:
                         return discretize_2d_array_cuda(
-                            arr=arr, n_bins=n_bins, method=method, dtype=dtype,
+                            arr=arr,
+                            n_bins=n_bins,
+                            method=method,
+                            dtype=dtype,
                         )
                     except Exception as exc:
                         logger.debug(
@@ -960,10 +1013,17 @@ def discretize_2d_array(
         except ImportError:
             pass
 
-    return np.asarray(_discretize_2d_array_njit(
-        arr=arr, n_bins=n_bins, method=method, min_ncats=min_ncats,
-        min_values=min_values, max_values=max_values, dtype=dtype,
-    ))
+    return np.asarray(
+        _discretize_2d_array_njit(
+            arr=arr,
+            n_bins=n_bins,
+            method=method,
+            min_ncats=min_ncats,
+            min_values=min_values,
+            max_values=max_values,
+            dtype=dtype,
+        )
+    )
 
 
 from ._discretization_cuda import (
