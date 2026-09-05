@@ -332,9 +332,12 @@ def _maybe_get_or_build_cb_pool(
     pool._mlframe_text_features = list(text_features)
     pool._mlframe_cat_features = list(cat_features)
     pool._mlframe_embedding_features = list(embedding_features)
-    _CB_POOL_CACHE[key] = pool
-    logger.info(
-        "[cb-pool-reuse] miss; stored fresh Pool (cache size=%d)",
-        len(_CB_POOL_CACHE),
-    )
+    from ._cb_pool_budget import admit_pool
+
+    if admit_pool(_CB_POOL_CACHE, "train", key, pool):
+        _CB_POOL_CACHE[key] = pool
+        logger.info(
+            "[cb-pool-reuse] miss; stored fresh Pool (cache size=%d)",
+            len(_CB_POOL_CACHE),
+        )
     return pool

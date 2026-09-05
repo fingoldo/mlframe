@@ -51,7 +51,7 @@ Status starts at TODO for all.
 | XMC-03 | P1 | ``src/mlframe/feature_engineering/transformer/_key_bank.py:123`` | key-bank-fingerprint-full-tobytes-copy | RESOLVED |
 | XMC-04 | P1 | ``src/mlframe/feature_selection/filters/_fe_accuracy_gate.py:56-57`` | fe-accuracy-gate-baseline-key-double-full-copy-per-candidate | RESOLVED |
 | XMC-05 | P1 | ``src/mlframe/training/composite/discovery/_collinear_numba.py:83`` | collinear-keep-mask-hash-2gb-tobytes-copy | RESOLVED |
-| XMC-07 | P1 | ``src/mlframe/training/cb/_cb_pool.py:542-543` and `src/mlframe/training/_predict_guards.py:102`` | cb-pool-caches-capped-on-entry-count-not-bytes | TODO |
+| XMC-07 | P1 | ``src/mlframe/training/cb/_cb_pool.py:542-543` and `src/mlframe/training/_predict_guards.py:102`` | cb-pool-caches-capped-on-entry-count-not-bytes | RESOLVED |
 | XNUM-03 | P1 | ``src/mlframe/feature_engineering/spatial.py:515`` | `+ 1e-12` on a power-law denominator in kNN local density | RESOLVED |
 | XSD-01 | P1 | `src/mlframe/estimators/custom.py:154` | linear-model-module-does-not-exist | RESOLVED (sklearn.linear_model; regression test tests/estimators/test_transformed_target_default_regressor.py, verified failing pre-fix) |
 | XSD-02 | P1 | `src/mlframe/feature_engineering/_benchmarks/bench_group_sort.py:10` | stable-counting-segments-moved-to-grouped-segments | RESOLVED (re-pointed to _grouped_segments) |

@@ -819,13 +819,16 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
         except Exception as e:
             logger.debug("val_pool dtypes signature computation failed, leaving it None: %s", e)
             val_pool._mlframe_dtypes_sig = None
-        _CB_VAL_POOL_CACHE[key] = val_pool
+        from ._cb_pool_budget import admit_pool
+
+        if admit_pool(_CB_VAL_POOL_CACHE, "val", key, val_pool):
+            _CB_VAL_POOL_CACHE[key] = val_pool
+            logger.info(
+                "[cb-val-pool-reuse] miss; stored fresh val Pool (cache size=%d)",
+                len(_CB_VAL_POOL_CACHE),
+            )
         rewritten.append(val_pool)
         changed = True
-        logger.info(
-            "[cb-val-pool-reuse] miss; stored fresh val Pool (cache size=%d)",
-            len(_CB_VAL_POOL_CACHE),
-        )
 
     if changed:
         # Preserve original shape -- single-tuple or list.
