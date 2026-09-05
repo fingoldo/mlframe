@@ -21,6 +21,8 @@ from sklearn.base import clone
 from ..info_theory._cmi_cuda import reset_cmi_gpu_circuit_breaker
 from ..permutation import reset_mi_direct_gpu_circuit_breaker
 from .._permutation_null_pair_resident import reset_pair_maxt_gpu_circuit_breaker
+from .._permutation_null_resident import reset_order1_maxt_gpu_circuit_breaker
+from .._ksg import reset_ksg_gpu_circuit_breaker
 from mlframe.training.utils import get_pandas_view_of_polars_df
 
 from ._mrmr_class_shared import _mrmr_y_columns
@@ -89,7 +91,7 @@ class _MRMRFitHelpersMixin:
             _ACTIVE_FIT_COUNT = max(0, _ACTIVE_FIT_COUNT - 1)
 
     def _rearm_gpu_circuit_breakers(self) -> None:
-        """Re-arm the process-global CMI / mi_direct / pair-maxT GPU circuit breakers. Only called by
+        """Re-arm every process-global GPU circuit breaker in this package. Only called by
         ``_enter_active_fit_scope()`` on the 0->1 in-flight-fit transition
         (originally called unconditionally at every fit() entry).
         These breakers are process-global and, once tripped by one launch fault, permanently disable GPU
@@ -110,6 +112,14 @@ class _MRMRFitHelpersMixin:
             reset_pair_maxt_gpu_circuit_breaker()
         except Exception as exc:  # nosec B110 - see above
             logger.debug("mrmr: pair-maxt-gpu circuit-breaker re-arm skipped: %r", exc)
+        try:
+            reset_ksg_gpu_circuit_breaker()
+        except Exception as exc:  # nosec B110 - see above
+            logger.debug("mrmr: ksg-gpu circuit-breaker re-arm skipped: %r", exc)
+        try:
+            reset_order1_maxt_gpu_circuit_breaker()
+        except Exception as exc:  # nosec B110 - see above
+            logger.debug("mrmr: order1-maxt-gpu circuit-breaker re-arm skipped: %r", exc)
 
     def _check_groups_contract(self, groups) -> None:
         """Enforce MRMR's groups-not-consumed contract (verbatim move from

@@ -85,10 +85,28 @@ def cluster_su_gpu_available() -> bool:
         _ = probe.sum().get()
         _GPU_AVAILABLE_CACHE = True
         return True
-    except Exception as exc:
-        logger.debug("cupy/CUDA probe failed, treating GPU as unavailable: %s", exc)
+    except ImportError as exc:
+        # cupy genuinely absent: a fact about the install, so caching it for the process is correct.
+        logger.debug("cupy not importable, cluster-SU GPU unavailable: %s", exc)
         _GPU_AVAILABLE_CACHE = False
         return False
+    except Exception as exc:
+        # The tiny allocation and its round-trip can fault because another stage or process holds the VRAM at
+        # that instant -- a moment, not a missing device. Caching it puts the whole cluster-SU pair loop on
+        # the CPU for every later fit() in this process, which is exactly the cost the cache was meant to
+        # avoid paying once. Left uncached so the next call re-probes; the sibling
+        # `_shap_proxy_prefilter.gpu_model_available` already draws this line the same way.
+        logger.warning("cupy/CUDA probe failed transiently (%s: %s); will re-probe rather than disabling cluster-SU GPU for the process", type(exc).__name__, exc)
+        return False
+
+
+def reset_cluster_su_gpu_probe() -> None:
+    """Clear the cached probe result so the next call re-probes.
+
+    Mirrors the sibling ``_shap_proxy_prefilter.reset_gpu_model_available_cache``.
+    """
+    global _GPU_AVAILABLE_CACHE
+    _GPU_AVAILABLE_CACHE = None
 
 
 def _gpu_free_memory_bytes() -> int:

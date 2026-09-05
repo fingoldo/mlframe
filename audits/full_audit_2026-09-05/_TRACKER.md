@@ -33,9 +33,9 @@ Status starts at TODO for all.
 | XNUM-02 | P0 | ``src/mlframe/training/composite/streaming.py:133`` | raw prefix-sum segment SSE in the streaming Chow change-point test | RESOLVED (prefix sums centred; regression tests/training/composite/test_streaming_chow_offset_stability.py -- 10 tests, 6 verified failing pre-fix) |
 | LATCH-01 | P1 | `src/mlframe/feature_selection/filters/polynom_pair_fe.py:388` | fe-deadline-republished-in-loky-worker-never-cleared | TODO |
 | LATCH-02 | P1 | `src/mlframe/metrics/_gpu_metrics.py:72` | gpu-metrics-availability-latched-on-broad-except | RESOLVED (ImportError still cached, any other exception warns and re-probes; reset_gpu_metrics_probe added; regression tests/metrics/test_gpu_probe_does_not_latch_on_transient_failure.py, verified failing pre-fix) |
-| LATCH-03 | P1 | `src/mlframe/metrics/_core_auc_brier.py:126` | metrics-argsort-gpu-availability-latched-on-broad-except | TODO |
-| LATCH-04 | P1 | `src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_cluster_su.py:64` | cluster-su-gpu-availability-latched-on-broad-except | TODO |
-| LATCH-05 | P1 | `src/mlframe/feature_selection/filters/mrmr/_mrmr_class_fit_helpers.py:91` | two-gpu-circuit-breakers-omitted-from-the-fit-entry-rearm | TODO |
+| LATCH-03 | P1 | `src/mlframe/metrics/_core_auc_brier.py:126` | metrics-argsort-gpu-availability-latched-on-broad-except | RESOLVED (ImportError still cached, other exceptions warn and re-probe; reset_gpu_argsort_probe added) |
+| LATCH-04 | P1 | `src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_cluster_su.py:64` | cluster-su-gpu-availability-latched-on-broad-except | RESOLVED (same narrowing as the sibling _shap_proxy_prefilter; reset_cluster_su_gpu_probe added) |
+| LATCH-05 | P1 | `src/mlframe/feature_selection/filters/mrmr/_mrmr_class_fit_helpers.py:91` | two-gpu-circuit-breakers-omitted-from-the-fit-entry-rearm | RESOLVED (KSG and order-1 maxT breakers re-armed; a meta-test now asserts the re-arm covers every reset_*_gpu_circuit_breaker the package defines) |
 | NT-15 | P1 | `tests/competition/test_biz_val_naive_bayes_log_odds.py:112, tests/competition/test_biz_val_naive_bayes_log_odds.py:87` | naive-bayes-log-odds-honest-negative-0.0005-auc-margin | TODO |
 | NT-16 | P1 | `tests/competition/test_biz_val_gmm_classifier.py:138` | gmm-honest-negative-0.005-auc-margin-at-ceiling | TODO |
 | NT-17 | P1 | `tests/feature_selection/biz_val/test_biz_val_e2e_operator_model_lift.py:158` | conditional-gate-e2e-auc-0.999-and-delta-above-zero | TODO |
