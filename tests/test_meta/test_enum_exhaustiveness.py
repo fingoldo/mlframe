@@ -73,27 +73,19 @@ def _enumerable_values(annotation) -> list:
 def _enum_literal_fields() -> list[tuple[type[BaseModel], str, list]]:
     """Every Literal/Enum-typed field across every config class."""
     out: list[tuple[type[BaseModel], str, list]] = []
-    # ``configs.py`` was split into sibling modules (``_preprocessing_configs``,
-    # ``_model_configs``, ``_training_runtime_configs``,
-    # ``_composite_target_discovery_config``, ``_reporting_configs``); each
-    # config class lives in its sibling and is re-exported from
-    # ``mlframe.training.configs``. The exhaustiveness contract applies to the
-    # full re-exported surface, so accept classes whose ``__module__`` is
-    # either ``configs`` itself or any of those siblings.
-    _accepted_modules = {
-        configs_module.__name__,
-        f"{configs_module.__package__}._preprocessing_configs",
-        f"{configs_module.__package__}._model_configs",
-        f"{configs_module.__package__}._training_runtime_configs",
-        f"{configs_module.__package__}._composite_target_discovery_config",
-        f"{configs_module.__package__}._reporting_configs",
-        f"{configs_module.__package__}._configs_base",
-        f"{configs_module.__package__}._feature_selection_config",
-    }
+    # ``configs.py`` was split into sibling modules, each config class living in its sibling and re-exported
+    # from ``mlframe.training.configs``. The contract applies to the whole re-exported surface, so membership
+    # is decided by the package a class comes from rather than by a list of sibling names. The previous form
+    # listed eight modules by hand; the package has since gained ``_model_configs_behavior`` and
+    # ``_model_configs_ensembling``, whose 5 config classes were dropped silently -- no skip, no warning, the
+    # test reporting green over a shrunken corpus while an undispatched Literal in any of them shipped.
+    _package_prefix = f"{configs_module.__package__}."
+    foreign: list[str] = []
     for _, obj in inspect.getmembers(configs_module, inspect.isclass):
         if not (issubclass(obj, BaseModel) and obj is not BaseModel):
             continue
-        if obj.__module__ not in _accepted_modules:
+        if obj.__module__ != configs_module.__name__ and not obj.__module__.startswith(_package_prefix):
+            foreign.append(f"{obj.__module__}.{obj.__name__}")
             continue
         for field_name, info in obj.model_fields.items():
             values = _enumerable_values(info.annotation)
@@ -103,6 +95,9 @@ def _enum_literal_fields() -> list[tuple[type[BaseModel], str, list]]:
             string_values = [v for v in values if isinstance(v, str)]
             if string_values:
                 out.append((obj, field_name, string_values))
+    # A config class re-exported from outside the training package would be a real surprise; surfacing it
+    # here keeps the exclusion visible instead of shrinking the corpus quietly, which is the whole defect.
+    assert not foreign, f"config classes re-exported from outside {configs_module.__package__}: {sorted(foreign)}"
     return out
 
 
@@ -110,8 +105,9 @@ def test_every_enum_value_is_dispatched_on():
     """Every enum value is dispatched on."""
     corpus = _consumer_corpus()
     fields = _enum_literal_fields()
-    if not fields:
-        pytest.skip("no Literal/Enum fields found in configs — nothing to police")
+    # A hard failure, not a skip: an empty corpus means the package moved or was renamed, which is exactly
+    # when this police most needs to speak up. Skipping would report green over zero coverage.
+    assert fields, "no Literal/Enum fields found in configs -- the corpus is empty, so this test policed nothing"
 
     undispatched: list[str] = []
     total_values = 0
