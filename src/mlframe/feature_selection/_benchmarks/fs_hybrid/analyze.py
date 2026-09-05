@@ -286,12 +286,29 @@ def format_report(records: Sequence[Dict[str, Any]], models: Sequence[str] = PAN
 
 
 def main() -> None:
-    """Print the report for the default results file."""
+    """Print the report for the default results file, optionally with the arms blinded.
+
+    `FS_HYBRID_BLIND=<salt>` relabels every arm before the report is built and writes the mapping beside the
+    results. The point is to read the tables before knowing which row is one's own method: any explanation
+    found while blind applies to whichever arm it turns out to be. Reveal with `_blinding.unblind_text` once
+    the report is committed.
+    """
     path = os.environ.get("FS_HYBRID_RESULTS", RESULTS_PATH)
     records = JsonlCellStore(path).load()
     if not records:
         print(f"no records at {path}")
         return
+
+    salt = os.environ.get("FS_HYBRID_BLIND", "").strip()
+    if salt:
+        from ._blinding import apply_blinding, blind_labels, write_mapping
+
+        mapping = blind_labels({str(record.get("arm", "")) for record in records}, salt=salt)
+        mapping_path = write_mapping(path, mapping)
+        records = apply_blinding(records, mapping)
+        print(f"BLINDED: arm names replaced; mapping written to {mapping_path}")
+        print()
+
     print(format_report(records))
 
 
