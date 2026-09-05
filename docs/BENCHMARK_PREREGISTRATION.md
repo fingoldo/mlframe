@@ -142,6 +142,27 @@ single `P(rope)` number is a point on that curve, not a substitute for it.
 - `MANIFEST.json` records `n_seeds_declared`. A run containing cells beyond it is flagged in the report as
   optional stopping.
 
+## 6a. POST-HOC: was R = 20 enough? (measured 2026-09-05)
+
+Section 6 recorded `R = 20` as a declared floor and stated that the pilot was still worth running
+afterwards to answer whether 20 is ENOUGH. It was run, off the confirmatory run's own 2 240 cells rather
+than off a fresh 40-cell pilot, which is strictly more information. Full tables:
+[`BENCHMARK_POWER.md`](BENCHMARK_POWER.md), regenerable from
+`mlframe.feature_selection._benchmarks.fs_hybrid._power`.
+
+Measured `tau` (sd of the per-`dataset_seed` paired difference against `all-features`, lightgbm, k10):
+median 0.0205, p90 0.0477. At `R = 20` the minimum detectable effect is therefore **0.013 AUC** on the
+median contrast and **0.031 AUC** on the p90 contrast.
+
+This qualifies section 2a rather than changing it. The kill criterion fired, and it stays fired; what the
+power analysis fixes is the size of the claim it licenses. The confirmatory run establishes that no arm
+delivered a gain LARGER THAN roughly one to three AUC points over `all-features`. It does not establish
+that no arm delivered a gain: detecting a true 0.005 AUC improvement would need 134 seeds at the median
+contrast and 715 at the p90 one, between seven and thirty-six times the executed design.
+
+Recorded here because it cuts against the conclusion the run reached, and section 2a would otherwise read
+as a stronger negative than the design can support.
+
 ## 7. Control arms — permanent members of every leaderboard
 
 | arm | purpose |

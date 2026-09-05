@@ -11,6 +11,11 @@ history.
 
 ## [Unreleased]
 
+### Added
+
+- The feature-selection benchmark can now say how large an effect its own null results rule out. `_power.py` estimates `tau`, the seed-to-seed spread of the paired difference against `all-features`, from executed cells rather than from an assumed pilot, and reports both the seeds an effect needs and the effect a given number of seeds resolves. Measured on the confirmatory run, the pre-registered `R = 20` resolves 0.013 AUC on the median contrast and 0.031 on the p90 one, so the Phase 0 kill criterion licenses "no arm gained more than one to three AUC points" and not "no arm gained". Recorded in `docs/BENCHMARK_POWER.md` and cross-referenced from the pre-registration.
+- `run_synth_control.py` runs the pre-registered roster against the nine known-truth adversarial beds, the control point that separates "selection does not pay on real data" from "selection does not pay for a strong model" -- on these beds an oracle subset exists, so the achievable gap over `all-features` is measured rather than assumed.
+
 ### Fixed
 
 - MRMR gained `fe_keep_linearly_usable_raw_operands` (default: follow `use_simple_mode`, i.e. behaviour unchanged). The raw-redundancy sweep treats a selected composite as subsuming the columns it was built from, which is wrong when the composite is lossy with respect to them: an additive mixture preserves the sum and destroys the individual contributions. Setting this to True runs the existing permutation-floored linear-usability keep leg in full mode, which on a 5-signal/15-noise ranking benchmark takes downstream AUC from 0.8969 to 0.9649 against a 0.9648 five-raw-signal baseline. It is opt-in rather than the default because it also undoes correct drops elsewhere -- the F2 single-compound fixtures expect `scaled_1_5` to collapse to one fused compound, and the leg leaves a bare operand beside it -- so which behaviour is right depends on whether the operands carry independent signal, which this leg cannot yet tell.
