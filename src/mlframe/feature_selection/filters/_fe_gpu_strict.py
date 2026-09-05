@@ -165,35 +165,39 @@ def _auto_gate_passes(fit_n: int | None, fit_p: int | None) -> bool:
 def _cuda_usable() -> bool:
     """Best-effort CUDA-availability probe (mirrors ``_gpu_resident_fe._cuda_present``); any failure -> False.
 
-    Memoised for the process lifetime: device presence does not change mid-run, and this probe shells into
-    pyutilz/numba (~17us/call) which the per-greedy-round dispatch must not pay repeatedly. The CUDA_VISIBLE_DEVICES
-    / MLFRAME_DISABLE_GPU short-circuits are part of the cached result - those are start-of-process device gates,
-    not the runtime STRICT toggle which is read live in ``fe_gpu_strict_enabled``."""
+    Only the DEVICE probe is memoised: it shells into pyutilz/numba (~17us/call), which the per-greedy-round
+    dispatch must not pay repeatedly, and device presence does not change mid-run.
+
+    The ``CUDA_VISIBLE_DEVICES`` / ``MLFRAME_DISABLE_GPU`` short-circuits are read LIVE, because every other
+    call site in the package reads them live through ``gpu_globally_disabled()``. Folding them into the memo
+    meant a process that touched any strict-gated dispatch BEFORE setting the opt-out kept a cached True and
+    went on using the GPU, while the same process's other code paths honoured the flag -- the exact
+    order-dependence this module's own comment on the STRICT toggle warns against. Two dict lookups are
+    nothing beside the probe they guard."""
+    _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
+    if (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1":
+        return False
     global _CUDA_USABLE_CACHE
     if _CUDA_USABLE_CACHE is None:
-        _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
-        if (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1":
-            _CUDA_USABLE_CACHE = False
-        else:
+        try:
+            from ._gpu_policy import cuda_available_for_run
+            _CUDA_USABLE_CACHE = bool(cuda_available_for_run())
+        except Exception as e:
+            logger.debug("cuda_available_for_run() check failed, falling back to numba.cuda.is_available(): %s", e)
             try:
-                from ._gpu_policy import cuda_available_for_run
-                _CUDA_USABLE_CACHE = bool(cuda_available_for_run())
-            except Exception as e:
-                logger.debug("cuda_available_for_run() check failed, falling back to numba.cuda.is_available(): %s", e)
-                try:
-                    from numba import cuda as _c
-                    _CUDA_USABLE_CACHE = bool(getattr(_c, "is_available", lambda: False)())
-                except ImportError as e2:
-                    logger.debug("numba.cuda unavailable (%s); assuming CUDA unusable", e2)
-                    _CUDA_USABLE_CACHE = False
-                except Exception as e2:
-                    # Same reasoning as ``_internals.numba_cuda_can_compile``: an ImportError means the stack is
-                    # genuinely absent, but a device fault raised while another process holds the card is a
-                    # moment, and latching on the first one pinned STRICT-resident mode off for the rest of the
-                    # process at debug level. Retry inside THIS call rather than leaving the answer unresolved:
-                    # a probe that says False now and True on the next call produces a mixed state, where one
-                    # code path uploads to the device and another routes the same arrays into a CPU njit kernel.
-                    _CUDA_USABLE_CACHE = _retry_cuda_available(e2)
+                from numba import cuda as _c
+                _CUDA_USABLE_CACHE = bool(getattr(_c, "is_available", lambda: False)())
+            except ImportError as e2:
+                logger.debug("numba.cuda unavailable (%s); assuming CUDA unusable", e2)
+                _CUDA_USABLE_CACHE = False
+            except Exception as e2:
+                # Same reasoning as ``_internals.numba_cuda_can_compile``: an ImportError means the stack is
+                # genuinely absent, but a device fault raised while another process holds the card is a
+                # moment, and latching on the first one pinned STRICT-resident mode off for the rest of the
+                # process at debug level. Retry inside THIS call rather than leaving the answer unresolved:
+                # a probe that says False now and True on the next call produces a mixed state, where one
+                # code path uploads to the device and another routes the same arrays into a CPU njit kernel.
+                _CUDA_USABLE_CACHE = _retry_cuda_available(e2)
     return _CUDA_USABLE_CACHE
 
 
