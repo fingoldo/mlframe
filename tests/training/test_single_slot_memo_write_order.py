@@ -75,8 +75,12 @@ def test_pd_view_memo_publishes_value_before_key():
         ut.get_pandas_view_of_polars_df(pl.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]}))
     finally:
         ut._PD_VIEW_LAST_CACHE = orig
-    if not rec.set_order:
-        pytest.skip("pd-view memo store path not exercised on this build/config")
+    # An assertion, not a skip, matching the sibling test above. If `get_pandas_view_of_polars_df` stops
+    # writing to the memo -- removed, short-circuited, or gated behind a config that flips -- `set_order` is
+    # empty, and skipping there would retire the write-ordering contract silently: exactly the circumstance
+    # that most needs a red signal, since a torn read pairing a fresh key with a stale view is what the
+    # ordering exists to prevent.
+    assert rec.set_order, "pd-view memo store path did not run, so the write ordering was never checked"
     assert rec.set_order.index("result") < rec.set_order.index(
         "id_key"
     ), "value (result) must be published before key (id_key) so a torn read cannot pair a new id_key with a stale view"

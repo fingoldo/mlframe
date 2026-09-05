@@ -88,7 +88,7 @@ Status starts at TODO for all.
 | SRD-12 | P2 | ``tests/feature_engineering/test_hurst.py:118` (guard at `:121`) (twin: `src/mlframe/feature_engineering/hurst.py:226`)` | DFA reference keeps the pre-fix `n < 20` guard; production moved to `n < 50` | TODO |
 | SRD-13 | P2 | ``tests/feature_engineering/test_numerical_stability_bench.py:113, 138, 157, 180` (twin: `src/mlframe/feature_engineering/_numerical_stable.py`, whole module)` | numerical-stability kernels: four print-only tests over a module with no production consumer | TODO |
 | SRD-14 | P2 | ``tests/feature_engineering/transformer/test_local_curvature_quadterm_broadcast_identity.py:38, 64` (twin: `src/mlframe/feature_engineering/transformer/local_curvature.py:77-104`)` | local-curvature quad-term identity compares two local copies | TODO |
-| VG-05 | P2 | `tests/training/test_single_slot_memo_write_order.py:78` | pd-view-memo-ordering-test-skips-exactly-when-it-should-fail | TODO |
+| VG-05 | P2 | `tests/training/test_single_slot_memo_write_order.py:78` | pd-view-memo-ordering-test-skips-exactly-when-it-should-fail | RESOLVED (skip replaced by the assertion its sibling in the same file already used) |
 | VG-06 | P2 | `tests/training/composite/discovery/test_discovery_unary_base_free.py:175` | unary-spec-base-column-contract-skipped-when-nothing-survives | TODO |
 | VG-07 | P2 | `tests/training/composite/discovery/test_biz_val_training_composite_discovery.py:133` | composite-spec-schema-test-skips-on-empty-specs | TODO |
 | VG-08 | P2 | `tests/feature_selection/mrmr/core/test_mrmr_error_messages_ux_audit.py:101` | fe-auto-userwarning-test-asserts-nothing-when-no-warning-fires | TODO |
@@ -100,9 +100,9 @@ Status starts at TODO for all.
 | XMC-06 | P2 | ``src/mlframe/training/composite/cache.py:586`` | prebin-signature-tobytes-contradicts-its-own-docstring | TODO |
 | XMC-08 | P2 | ``src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py:1155`` | fe-pair-sweep-threadpool-leaked-on-any-exception | TODO |
 | XMC-09 | P2 | ``src/mlframe/feature_engineering/transformer/fisher_weighted_residual.py:115`` | fisher-gradient-stack-materialised-twice | TODO |
-| XNUM-04 | P2 | ``src/mlframe/feature_engineering/spatial.py:576` (also `:577`, `:585` on the weight sums)` | `+ 1e-12` on `dist**power` in inverse-distance weighting | TODO |
-| XNUM-05 | P2 | ``src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_explain.py:752`` | raw-moment model-to-model SHAP variance, clipped to zero | TODO |
-| XNUM-06 | P2 | ``src/mlframe/feature_engineering/cat_cooccurrence_svd.py:115` (and `:117`)` | `sqrt(expected + 1e-12)` in the correspondence-analysis chi-square residual | TODO |
+| XNUM-04 | P2 | ``src/mlframe/feature_engineering/spatial.py:576` (also `:577`, `:585` on the weight sums)` | `+ 1e-12` on `dist**power` in inverse-distance weighting | RESOLVED (same commit as XNUM-03: the IDW weights are normalised by the row's nearest distance, so no epsilon remains) |
+| XNUM-05 | P2 | ``src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_explain.py:752`` | raw-moment model-to-model SHAP variance, clipped to zero | RESOLVED (Welford accumulator; the raw form returns -1.42e-14 at phi=10 with a 1e-7 spread against a true 4.72e-15, which the clip turned into a confident zero) |
+| XNUM-06 | P2 | ``src/mlframe/feature_engineering/cat_cooccurrence_svd.py:115` (and `:117`)` | `sqrt(expected + 1e-12)` in the correspondence-analysis chi-square residual | RESOLVED (masked instead of padded; the pad shrank a rare-by-rare residual 29.3% at marginals of 1e-6 and 90.0% at 1e-7) |
 | XSD-04 | P2 | `see the table below (11 distinct dead module paths, 20 import sites)` | eleven-bench-and-profile-scripts-import-pre-carve-training-modules | TODO |
 | LATCH-10 | P3 | `src/mlframe/feature_selection/filters/_kernel_tuning.py:32` | kernel-tuning-init-attempts-never-decay | TODO |
 | LATCH-11 | P3 | `src/mlframe/training/_iterative_stratification_njit.py:35` | numba-global-rng-seeded-without-save-restore | TODO |
@@ -182,3 +182,9 @@ triage here -- the copy-free form is never worse -- so this is a mechanical batc
 | HASHCOPY-03 | `training/composite/cache.py:414,436,586` | three copies in the composite cache signature | RESOLVED (23 conversions; digests verified identical against the pre-change modules) |
 | HASHCOPY-04 | `feature_selection/filters/cat_interactions.py:68`, `discretization/_discretization_dataset.py:126` | per-column copies inside a loop | RESOLVED (23 conversions; digests verified identical against the pre-change modules) |
 | HASHCOPY-05 | `training/baselines/dummy.py:237`, `reporting/charts/binary.py:609` | one copy each | RESOLVED (23 conversions; digests verified identical against the pre-change modules) |
+
+## Found while verifying other work
+
+| ID | Priority | Site | Summary | Status |
+|----|----------|------|---------|--------|
+| KNOB-01 | P2 | `feature_selection/shap_proxied_fs/_shap_proxied_fit.py` + `tests/feature_selection/shap_proxied/test_shap_proxied_knobs.py` | `test_min_selected_ratio_floors_selection_in_proxy_column_space` fails, and it predates this session (reproduced on HEAD with every local change reverted). The bruteforce subset search returns the WHOLE proxy space in every configuration tried -- 10 of 10, 16 of 16, 24 of 24, with 12 and with 30 noise columns -- so a `min_selected_ratio` floor can never enlarge anything and the test's second assertion cannot hold. `parsimony_tol` at 0.0/0.005/0.01/0.02 changes nothing, which is the part that looks like a defect rather than a stale fixture: a pure performance objective with no working parsimony pressure will always prefer the full set. NOT masked by weakening the assertion, because that would hide the question. Next step: determine whether `parsimony_tol` is wired into the bruteforce objective at all, and fix either it or the test premise accordingly. | TODO |
