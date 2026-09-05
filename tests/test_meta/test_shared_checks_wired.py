@@ -108,6 +108,27 @@ def test_dev_requirements_git_dependencies_are_pinned_or_first_party():
     assert_all_git_dependencies_pinned(req, allow_unpinned_url_prefixes=_FIRST_PARTY_GIT_PREFIXES)
 
 
+def test_every_from_import_resolves():
+    """A `from X import Y` naming something X does not define is invisible until that code loads.
+
+    At module scope it is an ImportError at COLLECTION, and pytest-split collects the whole tree in every
+    shard -- one removed helper took 39 of 40 shards red here. Inside a function it waits for the branch: a
+    `from ..linear_model import LinearRegression` in the `if self.regressor is None:` arm of
+    `ESTransformedTargetRegressor.fit` broke the DOCUMENTED DEFAULT while every test passing an explicit
+    regressor stayed green, and `mlframe.linear_model` never existed at all.
+
+    Static resolution -- the target is parsed, never imported -- so this costs no side effects and covers
+    modules whose imports are expensive or hardware-dependent.
+    """
+    from py_ci_shared.unresolved_imports import assert_all_from_imports_resolve
+
+    assert_all_from_imports_resolve(
+        scan_roots=[REPO_ROOT / "src", REPO_ROOT / "tests"],
+        package_roots=[REPO_ROOT / "src"],
+        resolvable_prefixes=("mlframe",),
+    )
+
+
 def test_repo_hygiene():
     """No tracked generated files, and no numeric CI gate that passes when its own input broke.
 

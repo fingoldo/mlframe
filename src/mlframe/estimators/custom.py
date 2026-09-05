@@ -151,7 +151,7 @@ class ESTransformedTargetRegressor(TransformedTargetRegressor):
 
         y_trans = self._transform_y(y_2d)
         if self.regressor is None:
-            from ..linear_model import LinearRegression
+            from sklearn.linear_model import LinearRegression
 
             self.regressor_ = LinearRegression()
         else:

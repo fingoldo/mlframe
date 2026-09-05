@@ -35,8 +35,12 @@ from mlframe.training import TrainingSplitConfig, OutputConfig
 
 try:
     from tests.training.shared import SimpleFeaturesAndTargetsExtractor
-except ImportError:  # pragma: no cover - allow running from installed tree
-    from mlframe.tests.training.shared import SimpleFeaturesAndTargetsExtractor
+except ImportError as exc:  # pragma: no cover - benchmark needs the repo checkout, not the wheel
+    # The fallback here used to be `from mlframe.tests.training.shared import ...`, which cannot work:
+    # `mlframe.tests` is not a package and tests are not shipped in the distribution, so from an installed
+    # tree BOTH imports fail and the second one raises out of an except handler with nothing to catch it.
+    # Say what is actually required instead of offering a fallback that never resolves.
+    raise ImportError("bench_val_size_default needs the repository checkout on sys.path (it imports tests.training.shared); running it from an installed wheel is not supported") from exc
 
 VAL_SIZES = [0.10, 0.15, 0.20]
 
