@@ -153,6 +153,21 @@ class Prior(_DatasetSubSpec):
 Knob = Union[float, Prior]
 
 
+def resolve_knob(knob: Knob, rng: np.random.Generator) -> float:
+    """Return a knob's value, drawing it when the scenario declared a distribution rather than a point.
+
+    Args:
+        knob: Either a pinned value or a :class:`Prior` to integrate over.
+        rng: Stream the prior is drawn from; unused for a pinned value, so a caller can pass any stream.
+
+    Returns:
+        The resolved value as a float.
+    """
+    if isinstance(knob, Prior):
+        return knob.sample(rng)
+    return float(knob)
+
+
 class GateSpec(_DatasetSubSpec):
     """A region of one column over which a regional effect is active.
 
