@@ -47,10 +47,10 @@ Status starts at TODO for all.
 | VG-03 | P1 | `tests/test_meta/test_enum_exhaustiveness.py:83-96 (skip at :113)` | enum-exhaustiveness-police-has-a-hardcoded-module-allowlist | TODO |
 | VG-04 | P1 | `tests/training/composite/discovery/test_composite_discovery_parallel.py:239` | wilcoxon-serial-vs-parallel-equivalence-is-empty-vs-empty | TODO |
 | XGD-04 | P1 | `calibration/_ktc_dispatch.py:101 and inference/_ktc_dispatch.py:52` | ktc-tuner-times-gpu-resident-but-production-pays-h2d | TODO |
-| XGD-05 | P1 | `metrics/_gpu_metrics.py:432` | batch-rmse-gpu-returns-float64-cpu-returns-float32 | TODO |
-| XMC-03 | P1 | ``src/mlframe/feature_engineering/transformer/_key_bank.py:123`` | key-bank-fingerprint-full-tobytes-copy | TODO |
+| XGD-05 | P1 | `metrics/_gpu_metrics.py:432` | batch-rmse-gpu-returns-float64-cpu-returns-float32 | RESOLVED |
+| XMC-03 | P1 | ``src/mlframe/feature_engineering/transformer/_key_bank.py:123`` | key-bank-fingerprint-full-tobytes-copy | RESOLVED |
 | XMC-04 | P1 | ``src/mlframe/feature_selection/filters/_fe_accuracy_gate.py:56-57`` | fe-accuracy-gate-baseline-key-double-full-copy-per-candidate | TODO |
-| XMC-05 | P1 | ``src/mlframe/training/composite/discovery/_collinear_numba.py:83`` | collinear-keep-mask-hash-2gb-tobytes-copy | TODO |
+| XMC-05 | P1 | ``src/mlframe/training/composite/discovery/_collinear_numba.py:83`` | collinear-keep-mask-hash-2gb-tobytes-copy | RESOLVED |
 | XMC-07 | P1 | ``src/mlframe/training/cb/_cb_pool.py:542-543` and `src/mlframe/training/_predict_guards.py:102`` | cb-pool-caches-capped-on-entry-count-not-bytes | TODO |
 | XNUM-03 | P1 | ``src/mlframe/feature_engineering/spatial.py:515`` | `+ 1e-12` on a power-law denominator in kNN local density | TODO |
 | XSD-01 | P1 | `src/mlframe/estimators/custom.py:154` | linear-model-module-does-not-exist | RESOLVED (sklearn.linear_model; regression test tests/estimators/test_transformed_target_default_regressor.py, verified failing pre-fix) |

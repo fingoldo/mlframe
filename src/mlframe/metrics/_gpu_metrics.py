@@ -464,16 +464,23 @@ def compute_batch_rmse(
     yp = _normalize_scores_2d(np.asarray(y_pred))
     N = yp.shape[0]
 
+    # Both backends accumulate in float64 and return the CALLER's dtype. They used to disagree in both:
+    # the GPU upcast and returned float64 while the CPU reduced in the input's own dtype and returned
+    # float32, so the same public call changed a caller's downstream container dtype depending on whether
+    # a device happened to be available, and the two values sat 1.33e-08 apart on 2M float32 rows.
+    # Widening only the ACCUMULATOR costs no copy of the (N, M) operands: `np.mean(dtype=...)` widens the
+    # reduction, and the GPU path already upcast internally.
+    _out_dtype = np.result_type(yt.dtype, yp.dtype)
     use_gpu = _resolve_backend(force_backend, N, yp.shape[1], "batch_rmse")
     if use_gpu:
         import cupy as cp  # lazy
 
         out = gpu_multiple_rmse_scores(yt, yp)
-        return np.asarray(cp.asnumpy(out))
+        return np.asarray(cp.asnumpy(out)).astype(_out_dtype, copy=False)
     # CPU reference
     if yt.ndim == 1:
         yt = yt[:, np.newaxis]
-    return np.asarray(np.sqrt(np.mean((yt - yp) ** 2.0, axis=0)))
+    return np.asarray(np.sqrt(np.mean((yt - yp) ** 2.0, axis=0, dtype=np.float64))).astype(_out_dtype, copy=False)
 
 
 def compute_batch_aucs(
