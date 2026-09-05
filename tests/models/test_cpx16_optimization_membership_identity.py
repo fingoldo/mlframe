@@ -12,11 +12,6 @@ a fixed seed and asserts the suggested-candidate sequence is bit-identical to th
 sequence produced by the OLD (HEAD) implementation loaded via ``git show``.
 """
 
-import importlib.util
-import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
-import sys
-from pathlib import Path
-
 import numpy as np
 import pytest
 
@@ -50,54 +45,71 @@ def _run_sequence(MBHOpt, n_space: int, n_steps: int, seed: int) -> list:
     return suggested
 
 
-def _new_sequence(n_space, n_steps, seed):
-    """Helper: New sequence."""
-    return _run_sequence(MBHOptimizer, n_space, n_steps, seed)
-
-
-def _old_sequence(n_space, n_steps, seed):
-    """Load the HEAD version of optimization.py and run the same sequence on it."""
-    repo_root = Path(__file__).resolve().parents[2]
-    rel = "src/mlframe/models/optimization.py"
-    out = subprocess.run(  # nosec B603 B607 -- fixed local argv (sys.executable/git + literal args), not a partial/searched path from untrusted input, no shell
-        ["git", "show", f"HEAD:{rel}"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-    )
-    if out.returncode != 0:
-        pytest.skip(f"git show unavailable: {out.stderr.strip()}")
-    old_src = out.stdout
-    tmp = repo_root / "tests" / "models" / "_cpx16_optimization_OLD_tmp.py"
-    tmp.write_text(old_src, encoding="utf-8")
-    try:
-        spec = importlib.util.spec_from_file_location("mlframe.models.optimization", tmp)
-        mod = importlib.util.module_from_spec(spec)
-        saved = sys.modules.get("mlframe.models.optimization")
-        sys.modules["mlframe.models.optimization"] = mod
-        try:
-            spec.loader.exec_module(mod)
-            return _run_sequence(mod.MBHOptimizer, n_space, n_steps, seed)
-        finally:
-            if saved is not None:
-                sys.modules["mlframe.models.optimization"] = saved
-            else:
-                del sys.modules["mlframe.models.optimization"]
-    finally:
-        tmp.unlink(missing_ok=True)
+# The commit that introduced the CPX16 membership set. Its PARENT is the last revision whose
+# ``suggest_candidate`` still tested membership with ``next_candidate not in self.known_candidates``, the
+# O(K) ndarray scan this identity test exists to compare against.
+#
+# It has to be a pinned SHA. The previous form read ``HEAD:src/mlframe/models/optimization.py``, which on a
+# clean worktree is byte-identical to the live file -- and worse, ``MBHOptimizer`` has since moved out of
+# that module entirely, leaving only a re-export, so exec'ing it handed back the live class object. Both
+# sides of the comparison were the same code: reverting the optimization, or reintroducing the int-cast that
+# corrupts fractional search spaces, would have been applied to both and the test could not fail.
 
 
 @pytest.mark.parametrize("seed", [0, 7, 123])
-def test_suggest_sequence_identical_old_vs_new(seed):
-    """Suggest sequence identical old vs new."""
+def test_the_membership_set_agrees_with_the_ndarray_on_every_candidate_a_real_run_considers(seed):
+    """The set membership CPX16 introduced must return the ndarray's verdict on real candidate values.
+
+    This replaces an old-versus-new sequence comparison that could not fail. It exec'd
+    ``git show HEAD:src/mlframe/models/optimization.py`` and called the ``MBHOptimizer`` it found there --
+    but on a clean worktree that file is byte-identical to the live one, and ``MBHOptimizer`` has since
+    moved out of it entirely, leaving a re-export, so both sides of the comparison were the same class
+    object. Reverting the optimization would have been applied to both.
+
+    Pinning the pre-CPX16 revision instead does not work either: that code stores its constructor
+    arguments through ``pyutilz.store_params_in_object`` without ``postfix=""``, and the helper's default
+    postfix has since changed to ``_param_``, so the old class no longer even builds here (it raises
+    ``AttributeError: 'MBHOptimizer' object has no attribute 'direction'``). A historical revision is not a
+    usable reference once its dependencies have moved under it.
+
+    What CPX16 actually had to preserve is testable directly, and on the values a real run produces rather
+    than a fabricated comparison: for every candidate the loop considers, ``x in set(known.tolist())`` must
+    give the same answer as ``x in known``. The numpy scalars coming out of ``search_space[idx]`` are where
+    that equivalence is not obvious.
+    """
+    rng = np.random.default_rng(seed)
     n_space, n_steps = 400, 120
-    new_seq = _new_sequence(n_space, n_steps, seed)
-    old_seq = _old_sequence(n_space, n_steps, seed)
-    assert len(new_seq) > 20, "run too short to be a meaningful identity check"
-    assert new_seq == old_seq, (
-        f"suggested-candidate sequence diverged (seed={seed}): "
-        f"first mismatch at {next((i for i, (a, b) in enumerate(zip(new_seq, old_seq)) if a != b), 'len-only')}"
+    search_space = np.arange(n_space)
+    ground_truth = np.sin(search_space / 7.0) + 0.1 * search_space / n_space
+    opt = MBHOptimizer(
+        search_space=search_space,
+        ground_truth=ground_truth,
+        model_name="ETR",
+        model_params={"n_estimators": 8, "random_state": 0},
+        init_num_samples=8,
+        random_state=seed,
     )
+
+    checked = 0
+    suggested = []
+    for _ in range(n_steps):
+        known = np.asarray(opt.known_candidates)
+        if known.size:
+            known_set = set(known.tolist())
+            for idx in range(n_space):
+                x = search_space[idx]
+                assert (x in known_set) == bool(x in known), f"membership verdicts disagree for {x!r} (seed={seed})"
+                checked += 1
+        c = opt.suggest_candidate()
+        if c is None or c is NOT_READY:
+            seed_pt = int(rng.integers(0, n_space))
+            opt.submit_evaluations([seed_pt], [float(ground_truth[seed_pt])], [0.0])
+            continue
+        suggested.append(int(c))
+        opt.submit_evaluations([int(c)], [float(ground_truth[int(c)])], [0.0])
+
+    assert len(suggested) > 20, f"run too short to be a meaningful check (seed={seed}): {len(suggested)} suggestions"
+    assert checked > 1000, f"the membership equivalence was barely exercised (seed={seed}): {checked} comparisons"
 
 
 def test_membership_set_matches_ndarray_for_np_scalar_keys():

@@ -62,7 +62,17 @@ whose assertions were verified failing against the pre-fix modules.
 
 **Evidence:** replayed the test's own loader with `PYTHONPATH=src`: `mod.MBHOptimizer is mlframe.models.optimization.MBHOptimizer` -> `True`. Both `_new_sequence` and `_old_sequence` call `_run_sequence` on the same class object. `test_membership_set_matches_ndarray_for_np_scalar_keys` (`:103`) is also self-contained, so the only test in the file that touches production is `test_known_candidates_preserve_float_dtype_on_continuous_search_space` (`:114`).
 
-**Suggested fix:** vendor the pre-CPX16 `suggest_candidate` body inline (as every other `_old_*` helper in this tree does), or `git show <pre-CPX16-sha>:src/mlframe/models/_optimization_search.py` with an explicit pinned SHA, never `HEAD`. Add `assert mod.MBHOptimizer is not MBHOptimizer` so this failure mode is self-detecting. Secondary: `_old_sequence` writes `tests/models/_cpx16_optimization_OLD_tmp.py` into the source tree instead of `tmp_path`.
+**Suggested fix:** vendor the pre-CPX16 `suggest_candidate` body inline (as every other `_old_*` helper in this tree does), or `git show <pre-CPX16-sha>:src/mlframe/models/_optimization_search.py` with an explicit pinned SHA, never `HEAD`.
+
+**RESOLVED, and the pinned-SHA half of the suggestion does not work.** Pinning `aae90673a^` (the parent of
+the commit that introduced `known_candidates_set`) does yield a file with the old ndarray scan, and it
+execs and produces a genuinely distinct class -- but that class cannot be constructed today: it stores its
+constructor arguments through `pyutilz.store_params_in_object` without `postfix=""`, and the helper's
+default postfix has since changed to `_param_`, so every attribute lands under the wrong name and the
+constructor dies on `AttributeError: 'MBHOptimizer' object has no attribute 'direction'`. A historical
+revision stops being a usable reference once its dependencies move under it. What CPX16 had to preserve is
+tested directly instead, on the values a real optimization loop produces: for every candidate considered,
+`x in set(known.tolist())` must agree with `x in known` (>1000 comparisons per seed, three seeds). Add `assert mod.MBHOptimizer is not MBHOptimizer` so this failure mode is self-detecting. Secondary: `_old_sequence` writes `tests/models/_cpx16_optimization_OLD_tmp.py` into the source tree instead of `tmp_path`.
 
 ---
 
