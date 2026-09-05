@@ -30,7 +30,7 @@ Status starts at TODO for all.
 | XMC-01 | P0 | ``src/mlframe/evaluation/_bootstrap_fused_binary_bundle.py:181`` | bootstrap-resample-index-matrix-int64-unguarded | TODO |
 | XMC-02 | P0 | ``src/mlframe/feature_selection/filters/_mrmr_fit_impl/_friend_graph_and_redundancy/_group1.py:176`` | ungated-whole-frame-to_pandas-in-mrmr-synergy-screen | TODO |
 | XNUM-01 | P0 | ``src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py:43`` | raw-sum Pearson in the FE-pair correlation gate | RESOLVED (both twins two-pass centred; regression tests/feature_selection/test_abs_corr_offset_stability.py -- 11 tests against np.corrcoef across four offsets) |
-| XNUM-02 | P0 | ``src/mlframe/training/composite/streaming.py:133`` | raw prefix-sum segment SSE in the streaming Chow change-point test | TODO |
+| XNUM-02 | P0 | ``src/mlframe/training/composite/streaming.py:133`` | raw prefix-sum segment SSE in the streaming Chow change-point test | RESOLVED (prefix sums centred; regression tests/training/composite/test_streaming_chow_offset_stability.py -- 10 tests, 6 verified failing pre-fix) |
 | LATCH-01 | P1 | `src/mlframe/feature_selection/filters/polynom_pair_fe.py:388` | fe-deadline-republished-in-loky-worker-never-cleared | TODO |
 | LATCH-02 | P1 | `src/mlframe/metrics/_gpu_metrics.py:72` | gpu-metrics-availability-latched-on-broad-except | TODO |
 | LATCH-03 | P1 | `src/mlframe/metrics/_core_auc_brier.py:126` | metrics-argsort-gpu-availability-latched-on-broad-except | TODO |
