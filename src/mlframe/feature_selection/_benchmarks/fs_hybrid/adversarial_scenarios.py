@@ -175,7 +175,7 @@ def compensable_pair(seed: int = 0, n: int = 5000, n_noise: int = 30) -> Tuple[p
     truth: Dict[str, object] = {
         "base": ["comp_a", "comp_b"],
         "relevant": ["comp_a", "comp_b"],
-        "noise": noise + ["cluster_decoy"],
+        "noise": [*noise, "cluster_decoy"],
         "interaction_operands": ["comp_a", "comp_b"],
         "expected_to_break": ("mrmr", "group_aware_mrmr", "cluster_aggregate", "univariate_ht", "knockoffs"),
         "notes": "The pair is jointly decisive and individually weak; de-duplicating the correlated cluster erases the signal.",
@@ -417,8 +417,8 @@ def latent_replicates_private_delta(
     noise = _noise_block(stream_for(seed, name, "noise"), n, n_noise, cols)
     group = [f"refl_{i}" for i in range(n_replicates)]
     truth: Dict[str, object] = {
-        "base": group + ["indep"],
-        "relevant": group + ["indep"],
+        "base": [*group, "indep"],
+        "relevant": [*group, "indep"],
         "noise": noise,
         "jointly_necessary_group": group,
         "delta_weights": {name: float(delta_weights[i]) for i, name in enumerate(group)},
