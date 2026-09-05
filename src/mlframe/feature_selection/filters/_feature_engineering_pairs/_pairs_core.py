@@ -6,6 +6,7 @@ This is the irreducible single-function body of the ``_feature_engineering_pairs
 subpackage; the supporting kernels / gates / dispatch live in sibling submodules
 and are re-exported from the package ``__init__``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,25 +31,44 @@ def _abs_corr_finite_njit(a, y, yfin, min_n=8):
     sites); callers replicating a masked ``np.corrcoef`` call site with no such floor (e.g. the ratio/log-ratio FE
     redundancy gate, which rejects on ANY finite overlap corrcoef defines, however small) pass ``min_n=2`` -
     the minimum sample size for which variance - and hence Pearson r - is even defined."""
+    # TWO passes, not one. The single-pass form accumulated raw power sums and recovered the variance by
+    # subtraction (``saa - sa*sa/n``), which is catastrophic cancellation whenever the data carries an offset
+    # large relative to its spread -- an epoch timestamp, a price, a count. Measured on this kernel: at
+    # offset/spread 1e7 a true |r| of 0.300 was reported as 0.767, and on one minute of epoch-second ticks a
+    # true |r| of 0.497 came back as EXACTLY 0.0, because the destroyed variance tripped the near-constant
+    # branch below. That 0.0 means "not redundant, keep" in the dedup gate and "no signal, drop" in the
+    # y-gate, so the wrong answer was silently actionable in both directions.
     n = 0
-    sa = 0.0; sy = 0.0; saa = 0.0; syy = 0.0; say = 0.0
+    sa = 0.0
+    sy = 0.0
     for i in range(a.shape[0]):
         av = a[i]
         if yfin[i] and np.isfinite(av):
-            yv = y[i]
             n += 1
-            sa += av; sy += yv; saa += av * av; syy += yv * yv; say += av * yv
+            sa += av
+            sy += y[i]
     if n < min_n:
         return 0.0
-    va = saa - sa * sa / n
-    vy = syy - sy * sy / n
-    # Match the numpy path's std<=1e-12 degeneracy guard (std^2 = va/n, so SS va <= 1e-24 * n).
+    ma = sa / n
+    my = sy / n
+    va = 0.0
+    vy = 0.0
+    cay = 0.0
+    for i in range(a.shape[0]):
+        av = a[i]
+        if yfin[i] and np.isfinite(av):
+            da = av - ma
+            dy = y[i] - my
+            va += da * da
+            vy += dy * dy
+            cay += da * dy
+    # Same std<=1e-12 degeneracy guard as the numpy path (std^2 = va/n, so SS va <= 1e-24 * n).
     if va <= 1e-24 * n or vy <= 1e-24 * n:
         return 0.0
     denom = (va * vy) ** 0.5
     if denom <= 0.0:
         return 0.0
-    r = (say - sa * sy / n) / denom
+    r = cay / denom
     return -r if r < 0.0 else r
 
 
@@ -63,8 +83,14 @@ def _abs_corr_zerofill_njit(a, b):
     nan_to_num-then-corrcoef semantics must keep that exact statistic - masking those rows out instead would
     silently change which rows influence the veto decision. Returns 0.0 when either side is (near-)constant
     post-zero-fill."""
+    # Two-pass centred, for the same reason as the masked twin above: recovering the variance from raw power
+    # sums by subtraction loses the answer entirely once the data carries an offset large relative to its
+    # spread, and the destroyed variance then trips the near-constant branch and returns a confident 0.0.
     n = a.shape[0]
-    sa = 0.0; sb = 0.0; saa = 0.0; sbb = 0.0; sab = 0.0
+    if n == 0:
+        return 0.0
+    sa = 0.0
+    sb = 0.0
     for i in range(n):
         av = a[i]
         bv = b[i]
@@ -72,28 +98,48 @@ def _abs_corr_zerofill_njit(a, b):
             av = 0.0
         if not np.isfinite(bv):
             bv = 0.0
-        sa += av; sb += bv; saa += av * av; sbb += bv * bv; sab += av * bv
-    if n == 0:
-        return 0.0
-    va = saa - sa * sa / n
-    vb = sbb - sb * sb / n
+        sa += av
+        sb += bv
+    ma = sa / n
+    mb = sb / n
+    va = 0.0
+    vb = 0.0
+    cab = 0.0
+    for i in range(n):
+        av = a[i]
+        bv = b[i]
+        if not np.isfinite(av):
+            av = 0.0
+        if not np.isfinite(bv):
+            bv = 0.0
+        da = av - ma
+        db = bv - mb
+        va += da * da
+        vb += db * db
+        cab += da * db
     if va <= 1e-24 * n or vb <= 1e-24 * n:
         return 0.0
     denom = (va * vb) ** 0.5
     if denom <= 0.0:
         return 0.0
-    r = (sab - sa * sb / n) / denom
+    r = cab / denom
     return -r if r < 0.0 else r
+
 
 from ._pairs_chunks import _FE_CHUNK_MAX_COLS_HARD_CAP, _plan_fe_chunks
 from ._pairs_dispatch import resolve_fe_dispatch_env_gate
 from ._pairs_gates import (
-    _FE_REJECTION_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY, _GATE_MED_UNARY,
-    _PREWARP_SPECS_RESULT_KEY, _PREWARP_UNARY, mi_tie_band,
+    _FE_REJECTION_RESULT_KEY,
+    _GATE_MED_SPECS_RESULT_KEY,
+    _GATE_MED_UNARY,
+    _PREWARP_SPECS_RESULT_KEY,
+    _PREWARP_UNARY,
+    mi_tie_band,
 )
 from ._pairs_materialise import _njit_binary_op_codes
 from ._pairs_score import _score_one_pair
 from ._pairs_setup import _build_operand_table, _fit_prewarp_and_gate_med
+
 
 def _short_fe_name(name, maxlen: int = 30) -> str:
     """Truncate a (possibly long engineered) feature expression for live progress-bar
@@ -147,9 +193,7 @@ def _gpu_gate_env_signature() -> str:
     The per-gate tri-state kill-switches (MLFRAME_FE_GPU_DISCRETIZE / MLFRAME_FE_GPU_BINNING) are read LIVE by
     the uncached gates, so they belong in the key too: without them, flipping the discretize switch mid-process
     is silently defeated by a memo entry computed under the old value."""
-    return "|".join(
-        os.environ.get(name, "") for name in ("MLFRAME_FE_GPU_STRICT", "MLFRAME_DISABLE_GPU", "MLFRAME_FE_GPU_DISCRETIZE", "MLFRAME_FE_GPU_BINNING")
-    )
+    return "|".join(os.environ.get(name, "") for name in ("MLFRAME_FE_GPU_STRICT", "MLFRAME_DISABLE_GPU", "MLFRAME_FE_GPU_DISCRETIZE", "MLFRAME_FE_GPU_BINNING"))
 
 
 def _gpu_gate_cached(kind: str, n_rows: int, n_cands: int, compute) -> bool:
@@ -185,6 +229,7 @@ def _fe_gpu_discretize_enabled_uncached(n_rows: int, n_cands: int) -> bool:
         return False
     try:
         from .._gpu_policy import cuda_available_for_run
+
         if not cuda_available_for_run():
             return False
     except Exception as e:
@@ -196,12 +241,14 @@ def _fe_gpu_discretize_enabled_uncached(n_rows: int, n_cands: int) -> bool:
     # The GPU pair-MI path is bit-identical to the CPU analytic dispatch (verified maxdiff 0) -> selection-equivalent.
     try:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
+
         if fe_gpu_strict_enabled(n=int(n_rows), p=int(n_cands)):
             return True
     except Exception as e:  # nosec B110 - optional dependency import guard
         logger.debug("fe_gpu_strict_enabled() check failed, continuing to the crossover-based decision: %s", e)
     try:  # auto: per-host crossover from kernel_tuning_cache (measurement-backed fallback)
         from .._gpu_resident_fe import fe_gpu_pairs_mi_backend_choice  # type: ignore[attr-defined]  # dynamically re-exported via globals()
+
         return bool(fe_gpu_pairs_mi_backend_choice(int(n_rows), int(n_cands)) == "gpu")
     except Exception as e:
         logger.debug("_fe_gpu_discretize_enabled_uncached: KTC backend-choice lookup failed, defaulting to CPU: %s", e)
@@ -235,6 +282,7 @@ def _fe_gpu_binning_enabled_uncached(n_rows: int, n_cands: int) -> bool:
         return False
     try:
         from .._gpu_policy import cuda_available_for_run
+
         if not cuda_available_for_run():
             return False
     except Exception as e:
@@ -246,12 +294,14 @@ def _fe_gpu_binning_enabled_uncached(n_rows: int, n_cands: int) -> bool:
     # crossover. The GPU binning is bit-identical to the CPU njit binning (verified maxdiff 0) -> selection-equivalent.
     try:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
+
         if fe_gpu_strict_enabled(n=int(n_rows), p=int(n_cands)):
             return True
     except Exception as e:  # nosec B110 - optional dependency import guard
         logger.debug("fe_gpu_strict_enabled() check failed, continuing to the crossover-based decision: %s", e)
     try:  # auto: per-host binning crossover from kernel_tuning_cache (measurement-backed fallback)
         from .._gpu_resident_fe import fe_gpu_binning_backend_choice  # type: ignore[attr-defined]  # dynamically re-exported via globals()
+
         return bool(fe_gpu_binning_backend_choice(int(n_rows), int(n_cands)) == "gpu")
     except Exception as e:
         logger.debug("_fe_gpu_binning_enabled_uncached: KTC binning backend-choice lookup failed, defaulting to CPU: %s", e)
@@ -483,10 +533,24 @@ def check_prospective_fe_pairs(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from ..feature_engineering import _FE_BUFFER_RAM_BUDGET_RATIO, _can_hoist_shared_buffer, _estimate_fe_shared_buffer_bytes, _fe_effective_buffer_budget_bytes, _rebuild_full_survivor_col, discretize_array, discretize_2d_quantile_batch, get_new_feature_name, gpu_compatible_unary_names, logger, mi_direct
+    from ..feature_engineering import (
+        _FE_BUFFER_RAM_BUDGET_RATIO,
+        _can_hoist_shared_buffer,
+        _estimate_fe_shared_buffer_bytes,
+        _fe_effective_buffer_budget_bytes,
+        _rebuild_full_survivor_col,
+        discretize_array,
+        discretize_2d_quantile_batch,
+        get_new_feature_name,
+        gpu_compatible_unary_names,
+        logger,
+        mi_direct,
+    )
+
     # Batched FE-candidate MI + permutation noise-gate (bit-identical to the
     # per-candidate mi_direct on the default outer/n_workers=1 path - see kernel docstring).
     from ..info_theory import batch_mi_with_noise_gate, use_su_normalization
+
     # P-SEAM (matrix-native FE replatform): the SINGLE integration point for the framework-agnostic
     # matrix path. GATED behind MLFRAME_FE_MATRIX_P0 - default OFF, so this is a pure no-op and X is
     # byte-untouched (the legacy pandas path runs unchanged). When enabled, X is routed through the
@@ -494,9 +558,11 @@ def check_prospective_fe_pairs(
     # so the SAME numba/cupy path can serve pandas and polars. The float32 cast is the intended P0
     # behaviour change. Wrapped so the experimental path can never break the production FE pipeline.
     from .._fe_matrix_io import fe_matrix_p0_enabled
+
     if fe_matrix_p0_enabled():
         try:
             from .._fe_matrix_io import from_feature_matrix, to_feature_matrix
+
             X = from_feature_matrix(to_feature_matrix(X))
         except Exception:
             logger.warning("FE matrix P-seam round-trip failed; using X unchanged.", exc_info=True)
@@ -584,9 +650,10 @@ def check_prospective_fe_pairs(
         # validation and would crash anyway on a non-integer class table.
         if verbose:
             logger.info(
-                "check_prospective_fe_pairs: subsample_n=%d active (full_n=%d, %.1f%% sample); "
-                "MI sweep runs on the subsample, survivor columns rebuilt at full n.",
-                int(subsample_n), _full_n_rows, 100.0 * subsample_n / _full_n_rows,
+                "check_prospective_fe_pairs: subsample_n=%d active (full_n=%d, %.1f%% sample); " "MI sweep runs on the subsample, survivor columns rebuilt at full n.",
+                int(subsample_n),
+                _full_n_rows,
+                100.0 * subsample_n / _full_n_rows,
             )
 
     # EXTERNAL-VALIDATION raw-column EXTRACTION MEMO (2026-06-07, LEVER 1).
@@ -651,9 +718,9 @@ def check_prospective_fe_pairs(
                     # pool touch point already enforces, rather than let a raw datetime/object column
                     # reach a numeric ufunc.
                     logger.debug(
-                        "_extval_raw_col: var %r resolved to non-numeric raw column dtype %s; skipping "
-                        "(should have been excluded upstream by _non_numeric_column_indices).",
-                        _var, _raw_dtype,
+                        "_extval_raw_col: var %r resolved to non-numeric raw column dtype %s; skipping " "(should have been excluded upstream by _non_numeric_column_indices).",
+                        _var,
+                        _raw_dtype,
                     )
                     _extval_raw_col_cache[_var] = None
                     return None
@@ -684,9 +751,7 @@ def check_prospective_fe_pairs(
             if _vals is None:
                 try:
                     if isinstance(X, pd.DataFrame):
-                        _vals = _densify_nullable(X[_name]) if isinstance(X[_name].dtype, ExtensionDtype) else (
-                            X[_name].to_numpy() if hasattr(X[_name], "to_numpy") else X[_name].values
-                        )
+                        _vals = _densify_nullable(X[_name]) if isinstance(X[_name].dtype, ExtensionDtype) else (X[_name].to_numpy() if hasattr(X[_name], "to_numpy") else X[_name].values)
                     elif hasattr(X, "columns") and _name in getattr(X, "columns", []):
                         _vals = X[_name].to_numpy()  # polars
                     else:
@@ -830,7 +895,8 @@ def check_prospective_fe_pairs(
                         "MemoryError despite passing the available-RAM check (%.1f GiB available, "
                         "%.0f%% budget); switching to recompute-from-metadata fallback (~1%% extra "
                         "bin_func calls per pair).",
-                        _bb / 2**30, _avail / 2**30 if _avail >= 0 else float("nan"),
+                        _bb / 2**30,
+                        _avail / 2**30 if _avail >= 0 else float("nan"),
                         _FE_BUFFER_RAM_BUDGET_RATIO * 100.0,
                     )
         else:
@@ -841,7 +907,8 @@ def check_prospective_fe_pairs(
                     "fallback path (~1%% extra bin_func calls per pair, identical survivors). To force "
                     "the fast path either free RAM or raise _FE_BUFFER_RAM_BUDGET_RATIO; to bound "
                     "compute, pass subsample_n>0 from the MRMR config.",
-                    _bb / 2**30, _avail / 2**30 if _avail >= 0 else float("nan"),
+                    _bb / 2**30,
+                    _avail / 2**30 if _avail >= 0 else float("nan"),
                     _FE_BUFFER_RAM_BUDGET_RATIO * 100.0,
                     (_avail * _FE_BUFFER_RAM_BUDGET_RATIO) / 2**30 if _avail >= 0 else float("nan"),
                 )
@@ -987,15 +1054,21 @@ def check_prospective_fe_pairs(
         if _idx is not None:
             try:
                 _disc = discretize_array(
-                    arr=transformed_vars[:, _idx], n_bins=quantization_nbins,
-                    method=quantization_method, dtype=quantization_dtype,
+                    arr=transformed_vars[:, _idx],
+                    n_bins=quantization_nbins,
+                    method=quantization_method,
+                    dtype=quantization_dtype,
                 )
                 _m, _ = mi_direct(
                     _disc.reshape(-1, 1),
-                    x=np.array([0], dtype=np.int64), y=None,  # type: ignore[arg-type]  # mi_direct (permutation.py, sibling-owned) accepts this call shape at runtime; its x/y annotation (tuple) is stricter than actual usage
+                    x=np.array([0], dtype=np.int64),  # type: ignore[arg-type]  # same reason as `y` below: the annotation is stricter than the accepted call shape
+                    y=None,  # type: ignore[arg-type]  # mi_direct (permutation.py, sibling-owned) accepts this call shape at runtime; its x/y annotation (tuple) is stricter than actual usage
                     factors_nbins=np.array([quantization_nbins], dtype=np.int64),
-                    classes_y=classes_y, classes_y_safe=classes_y_safe, freqs_y=freqs_y,
-                    min_nonzero_confidence=fe_min_nonzero_confidence, npermutations=fe_npermutations,
+                    classes_y=classes_y,
+                    classes_y_safe=classes_y_safe,
+                    freqs_y=freqs_y,
+                    min_nonzero_confidence=fe_min_nonzero_confidence,
+                    npermutations=fe_npermutations,
                 )
                 _mi_val = float(_m)
             except Exception as _mm_exc:
@@ -1033,8 +1106,10 @@ def check_prospective_fe_pairs(
         if _idx is not None:
             try:
                 _codes = discretize_array(
-                    arr=transformed_vars[:, _idx], n_bins=quantization_nbins,
-                    method=quantization_method, dtype=quantization_dtype,
+                    arr=transformed_vars[:, _idx],
+                    n_bins=quantization_nbins,
+                    method=quantization_method,
+                    dtype=quantization_dtype,
                 )
             except Exception as e:
                 logger.debug("discretizing operand %r failed, caching None: %s", _var, e)
@@ -1110,9 +1185,10 @@ def check_prospective_fe_pairs(
                         _pair_to_chunk[_p] = _ci_chunk
                 if verbose:
                     logger.info(
-                        "check_prospective_fe_pairs: cross-pair chunk batching active "
-                        "(%d pairs -> %d chunks, buffer %d cols, widest chunk %d pairs).",
-                        len(prospective_pairs), len(_fe_chunks), _chunk_buf_width,
+                        "check_prospective_fe_pairs: cross-pair chunk batching active " "(%d pairs -> %d chunks, buffer %d cols, widest chunk %d pairs).",
+                        len(prospective_pairs),
+                        len(_fe_chunks),
+                        _chunk_buf_width,
                         max(len(c) for c in _fe_chunks),
                     )
             except MemoryError:
@@ -1120,8 +1196,9 @@ def check_prospective_fe_pairs(
                 _pair_to_chunk = {}
                 if verbose:
                     logger.warning(
-                        "check_prospective_fe_pairs: cross-pair chunk buffer (%d x %d) raised "
-                        "MemoryError; using per-pair batching.", len(X), _chunk_buf_width,
+                        "check_prospective_fe_pairs: cross-pair chunk buffer (%d x %d) raised " "MemoryError; using per-pair batching.",
+                        len(X),
+                        _chunk_buf_width,
                     )
         else:
             _chunk_global_batch = False
@@ -1140,6 +1217,7 @@ def check_prospective_fe_pairs(
         if _pipe_env:
             try:
                 from .._fe_gpu_strict import fe_gpu_strict_enabled
+
                 _pipe_on = bool(fe_gpu_strict_enabled(n=len(X), p=int(_chunk_buf_width)))
             except Exception as e:
                 logger.debug("fe_gpu_strict_enabled() check failed, defaulting _pipe_on to False: %s", e)
@@ -1148,9 +1226,11 @@ def check_prospective_fe_pairs(
             try:
                 import cupy as _pl_cp
                 from concurrent.futures import ThreadPoolExecutor
+
                 _chunk_buffer2 = np.empty_like(_chunk_buffer)
                 from .._gpu_resident_fe import _resident_operand_table  # type: ignore[attr-defined]  # dynamically re-exported via globals()
-                _resident_operand_table(_pl_cp, transformed_vars)   # pre-warm: both threads then only read
+
+                _resident_operand_table(_pl_cp, transformed_vars)  # pre-warm: both threads then only read
                 _chunk_state["pipeline_buffers"] = [_chunk_buffer, _chunk_buffer2]
                 _chunk_state["pipeline_ex"] = ThreadPoolExecutor(max_workers=1)
                 _chunk_state["pipeline_futures"] = {}
