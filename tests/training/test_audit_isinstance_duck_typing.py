@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import pathlib
 
+import pytest
+
 import mlframe as _mlframe
 
 _ROOT = pathlib.Path(_mlframe.__file__).resolve().parent
@@ -111,17 +113,71 @@ def _read(rel: str) -> str:
 # ---- #1 extractors classification_exact_values accepts iterables -------
 
 
-def test_extractors_exact_values_accepts_tuple_and_set():
-    """Extractors exact values accepts tuple and set."""
-    src = _read("training/extractors.py")
-    # Pre-fix shape MUST be gone:
-    assert "exact_vals = exact_val if isinstance(exact_val, list) else [exact_val]" not in src, (
-        "Wave 29 P1 regression: extractors.py reverted to ``isinstance(..., list)`` "
-        "narrow check; tuples / sets in classification_exact_values get wrapped "
-        "as [(tuple,)] and downstream `==` raises."
+def _targets_for(exact_values):
+    """Build targets over a two-row frame with ``classification_exact_values=exact_values``."""
+    import pandas as pd
+
+    from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
+
+    extractor = SimpleFeaturesAndTargetsExtractor(
+        classification_targets=["label"],
+        classification_exact_values=exact_values,
     )
-    # Post-fix marker:
-    assert "isinstance(exact_val, (list, tuple, set, frozenset))" in src
+    built = extractor.build_targets(pd.DataFrame({"label": [1, 2]}))
+    names: set = set()
+    for group in built.values():
+        names |= set(group)
+    return names
+
+
+@pytest.mark.parametrize(
+    "container",
+    [
+        pytest.param([1, 2], id="list"),
+        pytest.param((1, 2), id="tuple"),
+        pytest.param({1, 2}, id="set"),
+        pytest.param(frozenset({1, 2}), id="frozenset"),
+    ],
+)
+def test_exact_values_accepts_any_container_not_only_list(container):
+    """Every iterable container must expand to one target per value.
+
+    Behavioural since 2026-09-03. This asserted that the pre-fix line
+    `exact_vals = exact_val if isinstance(exact_val, list) else [exact_val]` is absent and that
+    `isinstance(exact_val, (list, tuple, set, frozenset))` is present. Both are claims about the
+    text of one branch; neither says a tuple actually produces two targets, and both would pass a
+    branch that had been made unreachable.
+
+    Pre-fix, a tuple was wrapped whole as `[(1, 2)]`, so the comparison became
+    `col_data == (1, 2)` -- which raises on pandas and on polars alike.
+    """
+    names = _targets_for({"label": container})
+
+    assert names == {"label_eq_1", "label_eq_2"}, names
+
+
+def test_a_scalar_exact_value_still_means_one_target():
+    """The other side of the branch: a bare scalar must not be iterated into characters or digits."""
+    assert _targets_for({"label": 1}) == {"label_eq_1"}
+
+
+def test_a_string_exact_value_is_one_target_not_one_per_character():
+    """`str` is iterable, so a container check that used a bare `Iterable` would explode "ab" into
+    two targets. This is why the check enumerates container types rather than duck-typing."""
+    import pandas as pd
+
+    from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
+
+    extractor = SimpleFeaturesAndTargetsExtractor(
+        classification_targets=["label"],
+        classification_exact_values={"label": "ab"},
+    )
+    built = extractor.build_targets(pd.DataFrame({"label": ["ab", "cd"]}))
+    names: set = set()
+    for group in built.values():
+        names |= set(group)
+
+    assert names == {"label_eq_ab"}, names
 
 
 # ---- #2 mrmr polars-coerce ---------------------------------------------

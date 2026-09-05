@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import warnings
 
+import time
+
 import numpy as np
 import pytest
 
@@ -63,15 +65,44 @@ class TestAPassingGateIsDistinguishableFromARejection:
 class TestTheStagedBackendHonoursTheRuntimeCap:
     """The other two backends check the deadline; this one was never given it."""
 
-    def test_the_deadline_reaches_the_staged_fit(self):
-        """A wrapper call with `max_runtime_mins` set must forward it, not drop it on the floor."""
-        import inspect
+    def test_the_deadline_reaches_the_staged_fit(self, monkeypatch):
+        """A wrapper call with `max_runtime_mins` set must FORWARD it to the staged fit, not drop it.
+
+        Observed through a spy on `_fit_staged` rather than by searching `fit`'s source for the call text,
+        which broke on any harmless rewrite of that line while passing for an implementation that computed a
+        deadline and then discarded it.
+        """
+        from sklearn.ensemble import GradientBoostingClassifier
 
         from mlframe.estimators.early_stopping import EarlyStoppingWrapper
 
-        src = inspect.getsource(EarlyStoppingWrapper.fit)
-        assert "_fit_staged(X_train, y_train, X_val, y_val, scoring, deadline)" in src
-        assert "deadline" in inspect.signature(EarlyStoppingWrapper._fit_staged).parameters
+        seen: list = []
+        real = EarlyStoppingWrapper._fit_staged
+
+        def _spy(self, X_train, y_train, X_val, y_val, scoring, deadline, *args, **kwargs):
+            """Record the deadline the wrapper handed down, then run the real staged fit."""
+            seen.append(deadline)
+            return real(self, X_train, y_train, X_val, y_val, scoring, deadline, *args, **kwargs)
+
+        monkeypatch.setattr(EarlyStoppingWrapper, "_fit_staged", _spy)
+
+        rng = np.random.default_rng(0)
+        X = rng.normal(size=(200, 4))
+        y = (X[:, 0] + rng.normal(0, 0.5, 200) > 0).astype(int)
+        kw = dict(base_model=GradientBoostingClassifier(random_state=0), max_iter=5, patience=100)
+
+        EarlyStoppingWrapper(**kw).fit(X, y)
+        assert len(seen) == 1, f"_fit_staged should be called exactly once per fit, got {len(seen)} call(s)"
+        assert seen[0] == float("inf"), f"with no max_runtime_mins the stage sweep must be unbounded, got {seen[0]!r}"
+
+        seen.clear()
+        before = time.monotonic()
+        EarlyStoppingWrapper(**kw, max_runtime_mins=10.0).fit(X, y)
+        assert len(seen) == 1, f"_fit_staged should be called exactly once per fit, got {len(seen)} call(s)"
+        # A real, finite deadline roughly 10 minutes out -- not inf, and not a value the wrapper computed and
+        # then discarded on the way down.
+        assert np.isfinite(seen[0]), f"max_runtime_mins was set but the staged fit received {seen[0]!r}"
+        assert before + 60.0 < seen[0] < before + 11 * 60.0, f"the forwarded deadline is not ~10 minutes out: {seen[0] - before:.1f}s from now"
 
     def test_an_already_expired_deadline_stops_the_stage_sweep_early(self):
         """The observable consequence: the sweep must not walk all `max_iter` stages."""

@@ -125,14 +125,13 @@ def test_main_setattr_block_has_why_comment():
     doc = _bulk_setattr_to_ctx.__doc__
     assert doc, "_bulk_setattr_to_ctx must carry a docstring with the migration WHY"
     low = doc.lower()
-    assert (
-        "migration" in low or "phase-extraction" in low or "ctx-form" in low or "phase->ctx" in low
-    ), f"expected migration-debt WHY rationale in _bulk_setattr_to_ctx.__doc__; got: {doc!r}"
+    assert "migration" in low or "phase-extraction" in low or "ctx-form" in low or "phase->ctx" in low, f"expected migration-debt WHY rationale in _bulk_setattr_to_ctx.__doc__; got: {doc!r}"
 
     # Behavioural pin on the helper's fail-loud contract: a missing slot must raise rather
     # than silently degrade into an ``AttributeError: 'NoneType' has no attribute ...`` later.
     class _Bag:
         """Groups tests covering bag."""
+
         pass
 
     with pytest.raises(KeyError):
@@ -171,8 +170,23 @@ def test_strategy_by_model_hoisted_out_of_inner_loop():
 # Fix 6: len(list(sorted_models)) -> len(sorted_models).
 def test_no_redundant_list_wrap_on_sorted():
     """No redundant list wrap on sorted."""
-    src = _read("_phase_train_one_target.py")
-    assert "len(list(sorted_models))" not in src, "redundant `list()` wrap around already-list sorted_models still present"
+    tree = ast.parse(_read("_phase_train_one_target.py"))
+    # `len(list(x))` and `len(x)` return the same number, so the wrap is invisible in any result -- it just
+    # materialises a second list. Found on the parsed tree: a `len(...)` whose only argument is a `list(...)`
+    # call on `sorted_models`.
+    wrapped = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "len"
+        and len(node.args) == 1
+        and isinstance(node.args[0], ast.Call)
+        and isinstance(node.args[0].func, ast.Name)
+        and node.args[0].func.id == "list"
+        and any(isinstance(a, ast.Name) and a.id == "sorted_models" for a in node.args[0].args)
+    ]
+    assert not wrapped, f"redundant list() wrap around an already-list sorted_models at line(s) {[n.lineno for n in wrapped]}"
 
 
 # Fix 7: WHY comment on common_params.copy().
@@ -182,10 +196,14 @@ def test_common_params_are_copied_per_iteration():
     # The CODE, not a comment near it. The window check that used to follow failed whenever the comment was
     # reworded and passed whenever the copy itself was deleted and only the prose left behind -- exactly
     # backwards. What protects the property is that the copy is taken per iteration, so that is what is pinned.
-    assert "current_common_params = common_params.copy()" in src, "expected per-iter common_params.copy() line"
-    assert "current_common_params = common_params" not in src.replace(
-        "current_common_params = common_params.copy()", ""
-    ), "an alias assignment would share one dict across iterations, which is the leak the copy prevents"
+    tree = ast.parse(src)
+    bindings = [node.value for node in ast.walk(tree) if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "current_common_params" for t in node.targets)]
+    assert bindings, "current_common_params is never bound, so each model iteration no longer gets its own params dict"
+    aliases = [b for b in bindings if isinstance(b, ast.Name)]
+    assert not aliases, "current_common_params is bound to a bare name -- an alias shares ONE dict across iterations, which is the leak the copy prevents"
+    assert any(
+        isinstance(b, ast.Call) and isinstance(b.func, ast.Attribute) and b.func.attr == "copy" for b in bindings
+    ), "the per-iteration copy is gone; one model's mutation would bleed into the next"
 
 
 # Fix 8: WHY comment on the per-iteration memory probe.
@@ -196,12 +214,21 @@ def test_per_iteration_memory_probe_uses_the_shared_helper():
     ``clean_ram()`` deliberately evicts, so it printed 6.2GB one line after the suite reported 45.2GB; it now
     goes through the shared reporting helper. The sensor follows the probe rather than its old spelling.
     """
-    src = _read("_phase_train_one_target.py")
-    # Pin the probe going through the shared helper -- which is the actual fix -- rather than a comment near it.
-    assert "get_reported_memory_gb()" in src, "expected a per-iteration memory probe"
-    assert "memory_info().rss" not in src, (
-        "the raw rss read is back: that is the WORKING SET on Windows, which clean_ram() deliberately evicts, so "
-        "it once printed 6.2GB one line after the suite reported 45.2GB"
+    tree = ast.parse(_read("_phase_train_one_target.py"))
+    calls = [n.func.attr for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)]
+    calls += [n.func.id for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)]
+    assert "get_reported_memory_gb" in calls, "expected a per-iteration memory probe through the shared reporting helper"
+
+    # The raw read is `memory_info().rss` -- an attribute access on the RESULT of a memory_info() call. Both
+    # spellings return a number, so only the SOURCE of that number distinguishes them.
+    raw_rss = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and node.attr == "rss" and isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Attribute) and node.value.func.attr == "memory_info"
+    ]
+    assert not raw_rss, (
+        f"the raw rss read is back at line(s) {[n.lineno for n in raw_rss]}: that is the WORKING SET on Windows, "
+        "which clean_ram() deliberately evicts, so it once printed 6.2GB one line after the suite reported 45.2GB"
     )
 
 
@@ -286,6 +313,4 @@ def test_main_del_df_has_why_comment():
     # memory is not actually reclaimed. That is a property of the code, unlike the comment window that used to
     # be checked here, which passed or failed on wording.
     _tail = src[_m.end() : _m.end() + 400]
-    assert re.search(
-        r"^[ \t]*ctx\.df = None$", _tail, re.MULTILINE
-    ), "`del df` without clearing ctx.df leaves the context holding the frame, so nothing is reclaimed"
+    assert re.search(r"^[ \t]*ctx\.df = None$", _tail, re.MULTILINE), "`del df` without clearing ctx.df leaves the context holding the frame, so nothing is reclaimed"

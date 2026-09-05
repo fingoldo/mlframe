@@ -14,8 +14,9 @@ threads through ``_WelfordAccumulator`` so we never materialise the full
 """
 from __future__ import annotations
 
+import hashlib
 import logging
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 import numpy as np
 
@@ -56,21 +57,27 @@ def _clear_gate_cache() -> None:
 
 
 def _member_fingerprint(p) -> tuple:
-    """Content signature of one member's predictions: shape, dtype and a strided value sample.
+    """EXACT content signature of one member's predictions: shape, dtype and a hash of the whole buffer.
 
     Replaces an ``id()`` key, which is only meaningful while the object is both alive and unmutated -- and
-    defending that assumption is what drove the cache to freeze its caller's arrays. Sampling a bounded number
-    of values keeps the cost O(1) in the number of rows, and a member that was mutated in place simply
-    fingerprints differently and is recomputed.
+    defending that assumption is what drove the cache to freeze its caller's arrays, an intrusive side effect
+    on data the caller still owns. A member mutated in place now simply fingerprints differently and is
+    recomputed, so no freezing is needed.
+
+    Hashes every byte rather than a strided sample. A sample is O(1) in row count, which is tempting, but a
+    mutation that lands between sampled positions leaves the signature unchanged and the cache then serves a
+    stale gate decision for content that has changed -- silently, which is the exact failure the freeze existed
+    to prevent, reintroduced in a form no exception can catch. The full hash is O(n), the same order as the
+    gate computation it guards, and reads the existing buffer without copying it when the array is contiguous.
     """
     if not isinstance(p, np.ndarray):
         return ("obj", id(p))
-    flat = p.reshape(-1)
-    if flat.size == 0:
+    if p.size == 0:
         return (p.shape, p.dtype.str, 0)
-    step = max(1, flat.size // _FINGERPRINT_SAMPLES)
-    sample = np.ascontiguousarray(flat[::step][:_FINGERPRINT_SAMPLES])
-    return (p.shape, p.dtype.str, int(flat.size), hash(sample.tobytes()))
+    # memoryview over a C-contiguous buffer hashes in place; a non-contiguous view has to be materialised
+    # first, which `tobytes()` does.
+    buf: Any = p.data.cast("B") if p.flags.c_contiguous else p.tobytes()
+    return (p.shape, p.dtype.str, int(p.size), hashlib.blake2b(buf, digest_size=16).digest())
 
 
 def _compute_outlier_gate(

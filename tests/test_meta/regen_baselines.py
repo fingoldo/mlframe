@@ -24,6 +24,7 @@ _HERE = Path(__file__).resolve().parent
 # omits one we surface a clear warning rather than silently doing nothing.
 _BASELINES: dict[str, tuple[str, str]] = {
     "_annotation_baseline.json": ("test_public_annotations", "regenerate_baseline"),
+    "_stale_comment_baseline.json": ("test_shared_checks_wired", "regenerate_baseline"),
     "_verbose_gated_except_baseline.json": ("test_no_bare_except", "regenerate_baseline"),
     "_debt_baseline.json": ("test_deferred_drift", "regenerate_baseline"),
     "_docstring_baseline.json": ("test_public_docstrings", "regenerate_baseline"),

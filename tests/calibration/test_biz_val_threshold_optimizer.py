@@ -118,25 +118,29 @@ def test_biz_val_optimize_decision_threshold_cv_report_flags_unstable_threshold(
     stable_result = optimize_decision_threshold(y_stable, proba_stable, metric_fn=f1_score, cv=5, cv_seed=0)
     stable_report = stable_result["cv_report"]
 
-    rng2 = np.random.default_rng(0)
-    nA_pos, nA_neg = 400, 1600
-    segA_pos = rng2.normal(0.75, 0.10, nA_pos)
-    segA_neg = rng2.normal(0.25, 0.10, nA_neg)
-    nB_pos, nB_neg = 400, 1600
-    segB_pos = rng2.normal(0.35, 0.08, nB_pos)
-    segB_neg = rng2.normal(0.12, 0.08, nB_neg)
-    y_mixed = np.concatenate([np.ones(nA_pos), np.zeros(nA_neg), np.ones(nB_pos), np.zeros(nB_neg)])
-    proba_mixed = np.clip(np.concatenate([segA_pos, segA_neg, segB_pos, segB_neg]), 0.0, 1.0)
-    idx2 = rng2.permutation(len(y_mixed))
-    y_mixed, proba_mixed = y_mixed[idx2], proba_mixed[idx2]
-    split = len(y_mixed) // 2
-    mixed_result = optimize_decision_threshold(y_mixed[:split], proba_mixed[:split], metric_fn=f1_score, cv=5, cv_seed=0)
-    mixed_report = mixed_result["cv_report"]
+    # A genuinely unstable operating point: few positives, weak separation, small sample -- so the metric's
+    # maximum really does move from fold to fold. The previous fixture was a 4000-row bimodal mixture, which
+    # WAS flagged unstable only because each fold's threshold was being fitted on the fold's TEST index (n/k
+    # rows at k=5) instead of its train index, inflating the spread about twofold. With the spread measured on
+    # the n - n/k rows the caller's own fit uses, that mixture is stable to four decimals -- every fold picks
+    # 0.683 -- and asserting instability there would be asserting the old measurement bug.
+    rng2 = np.random.default_rng(3)
+    n_unstable = 300
+    n_pos = int(n_unstable * 0.10)
+    y_unstable = np.concatenate([np.ones(n_pos), np.zeros(n_unstable - n_pos)])
+    proba_unstable = np.clip(
+        np.concatenate([rng2.normal(0.55, 0.25, n_pos), rng2.normal(0.50, 0.25, n_unstable - n_pos)]),
+        0.0,
+        1.0,
+    )
+    idx2 = rng2.permutation(n_unstable)
+    y_unstable, proba_unstable = y_unstable[idx2], proba_unstable[idx2]
+    unstable_report = optimize_decision_threshold(y_unstable, proba_unstable, metric_fn=f1_score, cv=5, cv_seed=0)["cv_report"]
 
     assert stable_report["is_stable"] is True
     assert stable_report["cv"] < 0.05
-    assert mixed_report["is_stable"] is False
-    assert mixed_report["cv"] > stable_report["cv"] * 2
+    assert unstable_report["is_stable"] is False, f"a rare-positive, weakly-separated sample should not read stable: cv={unstable_report['cv']:.4f}"
+    assert unstable_report["cv"] > stable_report["cv"] * 2
 
 
 def test_threshold_stability_report_cv_nonnegative_with_negative_threshold_range():

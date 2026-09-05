@@ -50,6 +50,19 @@ def __getattr__(name: str):
     return value
 
 
+# Five exported callables share a name with the submodule that defines them (`shapley_blend`, and the four
+# other `*_blend` entry points). PEP 562's `__getattr__` is consulted ONLY when the attribute is absent -- and
+# importing `mlframe.votenrank.shapley_blend` anywhere sets that submodule as an attribute of this package, so
+# a later `from mlframe.votenrank import shapley_blend` then yields the MODULE instead of the function, purely
+# because something else imported first. That made the resolved object depend on unrelated import order.
+# Binding these eagerly costs the same import the caller was about to trigger anyway and makes the answer
+# deterministic; every non-colliding name stays lazy.
+_SHADOWED_BY_SUBMODULE = tuple(name for name, target in _LAZY_EXPORTS.items() if name == target)
+for _name in _SHADOWED_BY_SUBMODULE:
+    globals()[_name] = __getattr__(_name)
+del _name
+
+
 def __dir__() -> list:
     """Include the lazy names in `dir()` / tab-completion, which `__getattr__` alone does not."""
     return sorted(set(globals()) | set(_LAZY_EXPORTS))

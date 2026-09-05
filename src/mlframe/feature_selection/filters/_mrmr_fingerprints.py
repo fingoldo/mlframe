@@ -132,8 +132,14 @@ def _mrmr_compute_y_fingerprint_sample(y, max_sample: int = 1000) -> str:
         payload = sample.astype(np.float64).tobytes()
         return hashlib.blake2b(payload, digest_size=10).hexdigest()
     except Exception as e:
-        logger.debug("_mrmr_compute_y_fingerprint: content fingerprint failed, falling back to id()-based key: %s", e)
-        return f"yfp_id{id(y):x}"
+        # Same reasoning as the X fingerprint below, and the same fix: CPython reuses object addresses after
+        # collection, so `id(y2) == id(y1)` for a y built after the first was dropped is ordinary rather than
+        # exotic -- and the identity cache then treats a different target as the one already fitted. This
+        # branch is reached exactly when the code knows LEAST about y, which is the worst moment to key on an
+        # address. A never-matching token disables the cache for this call instead. Warned, not debugged: the
+        # substitution silently changes which fit a caller gets, and debug is not emitted in production.
+        logger.warning("_mrmr_compute_y_fingerprint: content fingerprint failed (%s); disabling the identity cache for this call.", e)
+        return f"yfp_uncacheable_{uuid4().hex}"
 
 
 def _mrmr_compute_x_fingerprint(X) -> str:

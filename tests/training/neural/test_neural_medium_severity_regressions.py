@@ -358,7 +358,6 @@ def test_m_neu_11_no_lazy_xxhash_in_cache_key() -> None:
     module that defines _compute_cache_key (carved into _recurrent_cat_embeddings).
     """
     import ast
-    import inspect
 
     import mlframe.training.neural._recurrent_cat_embeddings as ce
 
@@ -368,7 +367,9 @@ def test_m_neu_11_no_lazy_xxhash_in_cache_key() -> None:
     # Presence at module top does not EXCLUDE the per-call import: a module that hoists the names and still
     # runs `import xxhash` inside `_compute_cache_key` satisfies both hasattr checks while the regression --
     # an import executed on every call of a hot-path function -- is fully intact. Assert the absence directly.
-    _tree = ast.parse(inspect.getsource(ce))
+    from tests._source_ast import module_ast
+
+    _tree = module_ast(ce)
     for _fn in [n for n in ast.walk(_tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
         _inner = [
             m
@@ -386,7 +387,6 @@ def test_m_neu_11_no_lazy_import_in_mlp_ranker_fit() -> None:
     the hot fit path.
     """
     import ast
-    import inspect
 
     import mlframe.training.neural.ranker as rk
 
@@ -396,9 +396,10 @@ def test_m_neu_11_no_lazy_import_in_mlp_ranker_fit() -> None:
     # Same shape: the module-top names can exist while `fit` still calls `_import_lightning()` on every fit.
     # Checked on the AST rather than by substring -- the fix's own explanatory comment quotes the old call, so a
     # substring search matches the comment and fails on correct code.
-    import textwrap
 
-    _fit_tree = ast.parse(textwrap.dedent(inspect.getsource(rk.MLPRanker.fit)))
+    from tests._source_ast import function_ast
+
+    _fit_tree = function_ast(rk, "MLPRanker.fit")
     _lazy_calls = [n.lineno for n in ast.walk(_fit_tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "_import_lightning"]
     assert not _lazy_calls, f"MLPRanker.fit re-resolves lightning on every fit at line(s) {_lazy_calls}"
     _inner_imports = [

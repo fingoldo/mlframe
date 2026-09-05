@@ -20,6 +20,7 @@ describing behaviour the code does not have.
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 
 import numpy as np
@@ -132,15 +133,11 @@ class TestAConstantRunProducesNoChangepoint:
 class TestTheRawSignalIsScoredOutOfFold:
     """An in-sample target encoding on a high-cardinality column nearly reproduces y."""
 
-    def test_the_encoding_is_out_of_fold(self):
-        """The whole point: the raw side must not get an advantage the derived side does not have."""
-        import importlib
-
-        # `import ... as m` binds the re-exported FUNCTION of the same name, not the submodule.
-        m = importlib.import_module("mlframe.feature_selection.drop_raw_after_embedding")
-        src = inspect.getsource(m._raw_column_signal)
-        assert "OUT-OF-FOLD" in src
-        assert 'groupby(col).transform("mean")' not in src
+    # `test_the_encoding_is_out_of_fold` used to sit here, asserting that the helper's source says
+    # "OUT-OF-FOLD" and no longer contains an in-sample groupby-transform. The two siblings below drive the
+    # consequence directly and are what an in-sample encoding would actually break: a near-unique column stops
+    # scoring near-perfectly, and a genuinely predictive one still scores. A source phrase adds nothing to
+    # that, and the phrase could be present while the encoding was in-sample anyway.
 
     def test_a_near_unique_column_no_longer_scores_near_perfectly(self):
         """~4 rows per group is the regime this module targets, and where in-sample encoding is worst."""
@@ -178,23 +175,43 @@ class TestTheRawSignalIsScoredOutOfFold:
 def test_the_mlflow_lookup_scopes_by_experiment_id():
     """`experiment_id` was accepted, forwarded to start_run, and ignored by the search -- so the "get" half
     looked in the currently-active experiment and a fresh run was created on every call."""
+    # mlflow is an OPTIONAL dependency and is absent from the CI test image, where the bare import made
+    # this a hard ModuleNotFoundError on every shard that collected it rather than a skip.
+    _mlflow = pytest.importorskip("mlflow")
+
     from mlframe.integrations import mlflow as m
 
-    src = inspect.getsource(m)
-    assert "experiment_ids=[str(experiment_id)]" in src
-    assert "if experiment_id:" in src
+    # Spy on the search rather than reading the source: the defect was that `experiment_id` was accepted,
+    # forwarded to `start_run`, and IGNORED by the lookup, so the get half searched the currently-active
+    # experiment, found nothing, and created a fresh run on every call -- the one thing a get-or-create must
+    # not do. What matters is the argument the search actually receives.
+    seen: list = []
+    real_search = _mlflow.search_runs
+
+    def _spy(*args, **kwargs):
+        """Record the scoping arguments, then return no matches so the create half runs."""
+        seen.append(kwargs)
+        return []
+
+    _mlflow.search_runs = _spy
+    try:
+        with contextlib.suppress(Exception):
+            m.get_or_create_mlflow_run("probe-run", experiment_id="7")
+    finally:
+        _mlflow.search_runs = real_search
+
+    assert seen, "the lookup never searched at all, so it can only ever create"
+    assert seen[0].get("experiment_ids") == ["7"], f"the search was not scoped by the experiment_id it was given: {seen[0]!r}"
 
 
 class TestTheShapleyDefaultIsReproducible:
     """Two calls on identical inputs returned different values, and anything pruning on them inherited that."""
 
-    def test_the_default_rng_is_seeded(self):
-        """`np.random.default_rng()` with no argument draws from OS entropy."""
-        import mlframe.votenrank.shapley_blend as m
-
-        src = inspect.getsource(m)
-        assert "np.random.default_rng(_DEFAULT_SHAPLEY_SEED)" in src
-        assert "rng = np.random.default_rng()" not in src
+    # `test_the_default_rng_is_seeded` used to sit here, asserting that the module's source contains
+    # `default_rng(_DEFAULT_SHAPLEY_SEED)`. It was redundant with the behavioural sibling below, which drives
+    # the actual contract -- two default calls agree -- and it had become wrong in a second way: it reached the
+    # module via `import mlframe.votenrank.shapley_blend as m`, which resolves to the re-exported FUNCTION, not
+    # the submodule, so `inspect.getsource` was reading the wrong object entirely.
 
     def test_two_default_calls_agree(self):
         """The property, asserted end-to-end."""
@@ -262,67 +279,263 @@ class TestTheDocumentedContractsMatchTheCode:
         from mlframe.feature_selection.wrappers import _helpers as m
 
         assert "step" in inspect.signature(m._suggest_scipy_local).parameters
-        assert "step=step" in inspect.getsource(m._suggest_scipy_local)
+
+        # ...and it is actually PASSED ON. A knob accepted at the boundary and dropped there gives the caller
+        # the adaptive "auto" schedule while they believe they configured "midpoint", with nothing to
+        # indicate it -- and both schedules return a valid suggestion, so no assertion on the result shows it.
+        received: list = []
+        real = m._suggest_dichotomic
+
+        def _spy(*args, **kwargs):
+            """Record the step the scipy-local branch forwards, then defer to the real suggester."""
+            received.append(kwargs.get("step"))
+            return real(*args, **kwargs)
+
+        m._suggest_dichotomic = _spy
+        try:
+            # No `except Exception: pass` around this call. It was defensive padding -- the call returns a
+            # suggestion cleanly on this input -- and a broad swallow here would turn a genuine fault inside
+            # the branch into "the step was never forwarded", reporting the wrong defect. Let it raise.
+            suggestion = m._suggest_scipy_local([1, 2, 3], {1: 0.5, 2: 0.6}, 3, epsilon=0.01, rng=np.random.default_rng(0), step="midpoint")
+        finally:
+            m._suggest_dichotomic = real
+
+        assert suggestion in (1, 2, 3), f"the scipy-local branch returned a suggestion outside the candidate set: {suggestion!r}"
+        assert received == ["midpoint"], f"the scipy-local branch did not forward the configured step: {received!r}"
 
     def test_the_ridge_tolerance_is_relative(self):
-        """Documented as a relative drop, subtracted absolutely."""
-        from mlframe.feature_selection import ridge_forward_prefilter as m
+        """`tol` is a RELATIVE drop from the best score, not an absolute one.
 
-        src = inspect.getsource(m)
-        assert "best_score - abs(best_score) * tol" in src
-        assert "size_scores[size] >= best_score - tol" not in src
+        Driven on data where the two forms disagree outright. The signal is weak, so the best CV r2 is about
+        +0.0033; a relative 1% floor is +0.00331 and only the 3-feature prefix clears it, while an absolute
+        floor of best - 0.01 is -0.0067 and the 1-feature prefix -- scoring -0.0058, i.e. WORSE than predicting
+        the mean -- clears that comfortably. Subtracting absolutely on a small-magnitude score turns `tol` into
+        an enormous relative allowance, which is how a far smaller set than the operator asked for gets
+        through. The gap widens with tol, so all three settings are checked.
+        """
+        import numpy as _np
+        from sklearn.linear_model import Ridge
+        from sklearn.model_selection import cross_val_score
+
+        from mlframe.feature_selection.ridge_forward_prefilter import ridge_coefficient_prefilter
+
+        rng = _np.random.default_rng(0)
+        n, p = 400, 8
+        X = rng.normal(size=(n, p))
+        y = 0.10 * X[:, 0] + 0.08 * X[:, 1] + 0.06 * X[:, 2] + 0.05 * X[:, 3] + rng.normal(0, 1.0, n)
+        names = [f"f{i}" for i in range(p)]
+        sizes = [1, 2, 3, 4, 6, 8]
+
+        # Score each ridge-ranked prefix the way the prefilter does, so the fixture's premise is asserted
+        # rather than assumed.
+        order = _np.argsort(_np.abs(Ridge(alpha=1.0).fit(X, y).coef_))[::-1]
+        scores = {s: float(_np.mean(cross_val_score(Ridge(alpha=1.0), X[:, order[:s]], y, cv=3, scoring="r2"))) for s in sizes}
+        best = max(scores.values())
+        assert 0.0 < best < 0.05, f"the fixture needs a small POSITIVE best score for the two floors to diverge; got {best:+.5f}"
+
+        for tol in (0.01, 0.05, 0.2):
+            relative_pick = next(s for s in sizes if scores[s] >= best - abs(best) * tol)
+            absolute_pick = next(s for s in sizes if scores[s] >= best - tol)
+            assert relative_pick != absolute_pick, f"tol={tol} does not separate the two rules on this fixture"
+            chosen = ridge_coefficient_prefilter(X, y, names, candidate_sizes=sizes, cv=3, tol=tol)
+            assert len(chosen) == relative_pick, f"tol={tol}: kept {len(chosen)} features; the relative floor wants {relative_pick}, an absolute one would give {absolute_pick}"
 
     def test_max_features_counts_the_whole_subset(self):
-        """`max_features=5, initial_selected=[a, b, c]` could return 8 columns."""
-        from mlframe.feature_selection import forward_select as m
+        """`max_features` bounds the FINAL subset, seeds included -- not the number of columns added to it.
 
-        src = inspect.getsource(m)
-        assert "cap = max_features if max_features is not None else len(all_candidates) + len(selected)" in src
+        Driven: with three seeded columns and `max_features=5`, the result must be at most five columns in
+        total. Counting only the additions returns eight, which is the defect -- and a caller sizing a model
+        by `max_features` gets a subset over half again as wide as asked for, silently.
+        """
+        import numpy as _np
+        import pandas as _pd
+        from sklearn.linear_model import LinearRegression
 
-    def test_the_simplex_solver_raises_instead_of_asserting(self):
-        """Under `python -O` the bare assert vanished and the function returned None."""
-        import mlframe.votenrank.constrained_weight_blend as m
+        from mlframe.feature_selection.forward_select import forward_select
 
-        src = inspect.getsource(m)
-        assert "assert best_weights is not None" not in src
-        assert "raise ValueError(" in src
+        rng = _np.random.default_rng(0)
+        n = 300
+        X = _pd.DataFrame({f"f{i}": rng.normal(size=n) for i in range(10)})
+        y = X["f0"] + 0.8 * X["f1"] + 0.6 * X["f2"] + 0.4 * X["f3"] + 0.2 * X["f4"] + rng.normal(0, 0.1, n)
+
+        seeds = ["f0", "f1", "f2"]
+        chosen = forward_select(X, y.to_numpy(), LinearRegression, cv=3, max_features=5, initial_selected=seeds)
+
+        assert len(chosen) <= 5, f"max_features=5 with 3 seeds returned {len(chosen)} columns: {chosen}"
+        assert set(seeds) <= set(chosen), f"the seeded columns were dropped: {chosen}"
+
+    def test_the_simplex_solver_raises_instead_of_returning_none(self):
+        """Every restart failing must RAISE, naming the cause -- not hand back `None`.
+
+        Driven rather than read: a loss function that returns NaN makes every restart fail the
+        `loss < best_loss` test (any comparison against NaN is False), which is the exact state the guard
+        exists for. It used to be a bare `assert`, so under `python -O` it vanished and the function returned
+        `None`; the caller then crashed somewhere far from the cause. A `raise` holds under -O too, and the
+        message says WHY -- non-finite losses throughout, typically a NaN in the predictions.
+        """
+        import numpy as _np
+        import pytest as _pytest
+
+        from mlframe.votenrank.constrained_weight_blend import constrained_weight_blend
+
+        rng = _np.random.default_rng(0)
+        n = 120
+        y = rng.integers(0, 2, n).astype(float)
+        preds = [_np.clip(y * 0.6 + rng.normal(0, s, n), 0.0, 1.0) for s in (0.2, 0.4)]
+
+        def _always_nan(_a, _b):
+            """A loss that never returns a finite value, so no restart can ever win."""
+            return float("nan")
+
+        with _pytest.raises(ValueError, match="none of the .* restarts produced a finite loss"):
+            constrained_weight_blend(preds, y, loss_fn=_always_nan, n_restarts=3, random_state=0)
+
+        # A finite loss still solves, so the guard is not simply refusing everything.
+        def _mse(a, b):
+            """Ordinary MSE, which the solver can minimise."""
+            return float(_np.mean((_np.asarray(a) - _np.asarray(b)) ** 2))
+
+        out = constrained_weight_blend(preds, y, loss_fn=_mse, n_restarts=3, random_state=0)
+        assert out is not None, "a well-posed blend returned None"
 
     def test_a_zero_subsample_fraction_is_honoured(self):
         """`0.0 or 0.75` silently drew 75% of the rows."""
         from mlframe.feature_selection.boruta_shap import _fit_explain as m
 
-        src = inspect.getsource(m)
-        assert '"stability_subsample_fraction", 0.75) or 0.75' not in src
-        assert "_frac_cfg is None else float(_frac_cfg)" in src
+        import ast
+
+        from tests._source_ast import module_ast
+
+        # Structural: `0.0 or 0.75` and an explicit None-test both yield 0.75 for every value EXCEPT a
+        # deliberate zero, and a zero fraction means "subsample nothing" -- so the difference shows only for
+        # the caller the old form silently overrode, on a path that needs a full stability run to reach.
+        tree = module_ast(m)
+        frac_reads = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value == "stability_subsample_fraction"
+        ]
+        assert frac_reads, "the subsample fraction is no longer read from config; this test needs updating"
+        or_operands = {id(inner) for node in ast.walk(tree) if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or) for value in node.values for inner in ast.walk(value)}
+        assert not any(id(r) in or_operands for r in frac_reads), "the fraction is read through an `or` default again, so a deliberate 0.0 draws 75% of the rows"
 
     def test_the_pruning_summary_no_longer_promises_a_stop_rule(self):
-        """The summary line said it stops on CV degradation; the module docstring and the code say otherwise."""
+        """The summary must not claim a stop rule the pruner does not implement.
+
+        Structural, and narrowly so: this is a LOG LINE's wording against the module's own documented
+        behaviour, and the pruner returns the same columns either way -- the defect was an operator reading
+        "stopping on CV degradation" in a summary and believing a safety rule was in force.
+        """
         from mlframe.feature_selection import zero_importance_pruning as m
+        from tests._source_ast import module_ast, string_literals
 
-        src = inspect.getsource(m)
-        assert "stopping on CV degradation" not in src
-        assert "does NOT stop on CV degradation" in src
+        emitted = " ".join(string_literals(module_ast(m)))
+        assert "stopping on CV degradation" not in emitted, "the summary promises a stop rule the pruner does not implement"
+        assert "does NOT stop on CV degradation" in emitted, "the summary no longer states that it keeps pruning regardless of CV"
 
-    def test_the_shapley_stderr_is_documented_as_a_proxy(self):
-        """`|value| / sqrt(n)` makes every model's value/stderr ratio identical, so it cannot discriminate."""
-        import mlframe.votenrank.shapley_blend as m
+    def test_the_shapley_stderr_cannot_discriminate_between_models(self):
+        """`stderr` is the analytic proxy `|value| / sqrt(n)`, so every model's value/stderr ratio is IDENTICAL.
 
-        src = inspect.getsource(m)
-        assert "ANALYTIC PROXY" in src
-        # The CLAIM must be gone; the corrected docstring quotes the old wording to say it was never true.
-        assert "holding ``stderr`` (per-model, two-branch running stats)" not in src
+        Measured rather than read out of the docstring. This is the property that matters to a caller: a
+        "keep the model if its value exceeds 2 stderr" rule compares the same number for every model, so it
+        keeps all of them or none and can never rank one above another. A genuine per-model standard error
+        would vary with that model's own coalition spread.
+        """
+        import numpy as _np
 
-    def test_the_backend_precedence_is_documented_as_implemented(self):
-        """The docstring said the env var is checked first; the argument wins."""
-        import mlframe.votenrank.confidence_gated_blend as m
+        from mlframe.votenrank.shapley_blend import shapley_model_values
 
-        src = inspect.getsource(m)
-        assert "checked first" not in src
+        rng = _np.random.default_rng(0)
+        n = 300
+        y = rng.integers(0, 2, n).astype(float)
+        # Three members of deliberately different quality, so a real stderr would differ between them.
+        preds = _np.vstack([_np.clip(y * 0.6 + rng.normal(0, s, n), 0, 1) for s in (0.2, 0.35, 0.5)])
 
-    def test_the_override_docstring_describes_the_unconditional_write(self):
-        """It described an "already above threshold" guard the code has never had."""
-        from mlframe.competition import known_label_override as m
+        values, info = shapley_model_values(preds, y, n_permutations=30, rng=_np.random.default_rng(1))
+        values = _np.asarray(values, dtype=float)
+        stderr = _np.asarray(info["stderr"], dtype=float)
 
-        src = inspect.getsource(m)
-        assert "isn't already >= positive threshold" not in src
-        assert "INCLUDING rows already predicted" in src
+        assert values.shape == (3,) and stderr.shape == (3,)
+        assert _np.all(_np.isfinite(stderr)) and _np.all(stderr > 0.0), stderr
+        assert len(set(_np.round(_np.abs(values), 6))) > 1, "the three members scored identically, so this fixture proves nothing"
+
+        ratios = _np.abs(values) / stderr
+        assert _np.allclose(ratios, ratios[0], rtol=1e-8), f"value/stderr differs between models, so stderr is no longer the |value|/sqrt(n) proxy: {ratios!r}"
+        # ...and the shared ratio IS sqrt(n_permutations), which is what makes it a pure restatement of the value.
+        assert _np.isclose(ratios[0], _np.sqrt(30.0), rtol=1e-8), f"the proxy is no longer |value|/sqrt(n): ratio={ratios[0]!r}"
+
+    def test_the_backend_argument_wins_over_the_env_var(self, monkeypatch):
+        """`force_backend` beats `MLFRAME_CONFIDENCE_BLEND_BACKEND`; the docstring had it the other way round.
+
+        Every backend returns the same numbers, so which one ran is invisible in the result. Observed by
+        making the numpy path raise: with `force_backend` set to something else the call must succeed, and
+        with it left as None the env var takes over and the same call must hit numpy and raise. A caller who
+        passes an explicit backend and happens to have the env var set was, per the old docstring, going to be
+        silently overridden -- which only surfaces when a benchmark refuses to use the backend you asked for.
+        """
+        import importlib
+
+        import numpy as _np
+        import pytest as _pytest
+
+        # NOT `import mlframe.votenrank.confidence_gated_blend as m`: the package binds the re-exported
+        # FUNCTION under that name, so the plain import form hands back a callable with no `_blend_numpy` on
+        # it. `import_module` reaches the submodule itself.
+        m = importlib.import_module("mlframe.votenrank.confidence_gated_blend")
+
+        def _boom(*_a, **_k):
+            """Stand in for the numpy backend so its use is observable."""
+            raise AssertionError("the numpy backend ran")
+
+        monkeypatch.setattr(m, "_blend_numpy", _boom)
+        monkeypatch.setenv("MLFRAME_CONFIDENCE_BLEND_BACKEND", "numpy")
+
+        rng = _np.random.default_rng(0)
+        n = 4_000  # above _DISPATCH_MIN_N, so the backend ladder is actually consulted (see below)
+        args = (rng.random(n), rng.random(n), rng.random(n), 0.5, 0.3)
+
+        # The env var alone routes to numpy -> the stand-in fires.
+        with _pytest.raises(AssertionError, match="the numpy backend ran"):
+            m.confidence_gated_blend(*args)
+
+        # The explicit argument overrides it -> a different backend runs and the call completes.
+        out = m.confidence_gated_blend(*args, force_backend="njit")
+        assert out.shape == (n,), f"the forced backend did not produce a full result: {out.shape}"
+        assert _np.all(_np.isfinite(out))
+
+        # ...and the precedence is three-deep, not two: the SIZE guard sits above both. Below
+        # `_DISPATCH_MIN_N` the function returns numpy before any backend is resolved, so `force_backend` is
+        # ignored there. That is deliberate -- dispatch overhead dominates on a tiny input -- but it means an
+        # explicit backend is silently not honoured, which a benchmark forcing a backend on small data needs
+        # to know. Pinned so the guard cannot quietly move.
+        small = (rng.random(64), rng.random(64), rng.random(64), 0.5, 0.3)
+        with _pytest.raises(AssertionError, match="the numpy backend ran"):
+            m.confidence_gated_blend(*small, force_backend="njit")
+        assert m._DISPATCH_MIN_N == 2_000, f"the dispatch floor moved to {m._DISPATCH_MIN_N}; the note above needs updating"
+
+    def test_the_override_writes_unconditionally_in_the_safe_direction(self):
+        """A positive recovered label overwrites the prediction even when it is ALREADY above threshold.
+
+        The docstring used to describe an "isn't already >= positive threshold" guard the code has never had.
+        Driven instead of read: a row already predicted 0.98 and recovered as positive comes back as exactly
+        the positive value, not left at 0.98. That distinction is invisible in aggregate metrics -- both are
+        "confidently positive" -- and it is the whole reason the claim mattered.
+        """
+        import numpy as _np
+
+        from mlframe.competition.known_label_override import known_label_override
+
+        preds = _np.array([0.98, 0.10, 0.50, 0.99])
+        # Row 0 is already far above threshold; row 1 is below it; row 3 is above and recovered as NEGATIVE.
+        out = known_label_override(preds, {0: 1.0, 1: 1.0, 3: 0.0}, asymmetric_safe_direction="positive")
+
+        assert out[0] == 1.0, f"an already-confident row was left at {out[0]!r} instead of being overwritten"
+        assert out[1] == 1.0, f"a below-threshold row was not overridden: {out[1]!r}"
+        assert out[2] == 0.50, "a row with no recovered label must be untouched"
+        assert out[3] == 0.99, "a negative-direction recovered label must NOT overwrite, which is the asymmetry"
+        assert preds[0] == 0.98, "the caller's array was mutated in place"

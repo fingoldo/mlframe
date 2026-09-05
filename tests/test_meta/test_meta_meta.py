@@ -57,6 +57,27 @@ _PERMITTED_PRIVATE_IMPORTS: set[str] = {
     # make_scenario_data, ...) are real module-level attributes, not trapped inside an
     # `if __name__ == "__main__":` guard -- the private module IS the surface under test.
     "test_benchmarks_datasets_importable::mlframe.feature_selection._benchmarks._datasets",
+    # 2026-09-01 audit meta-tests. Each audits a property of an internal that has no public surface at all --
+    # a fail-closed gate, a latched downgrade flag, a mixin's position in an MRO, the value an except handler
+    # substitutes. Reaching them through the public API would run a whole fit to observe one branch, and would
+    # not distinguish "the gate held" from "the gate was never reached".
+    #
+    # The CUDA fault set and the empty-support fallback: the contract is that a PERMANENT fault latches and a
+    # transient one does not, which is a property of these two objects and of nothing the public API exposes.
+    "test_gates_fail_closed_and_probes_do_not_latch::mlframe.feature_selection.filters._internals",
+    "test_gates_fail_closed_and_probes_do_not_latch::mlframe.feature_selection.filters._internals._PERMANENT_CUDA_FAULTS",
+    "test_gates_fail_closed_and_probes_do_not_latch::mlframe.feature_selection.filters._mrmr_fit_impl._finalise._finalise_empty_support_fallback",
+    "test_gates_fail_closed_and_probes_do_not_latch::mlframe.training._training_loop",
+    "test_gates_fail_closed_and_probes_do_not_latch::mlframe.training.cb._cb_pool",
+    # A mixin's ORDER in the bases is invisible from outside the class; sklearn only reads it through the MRO,
+    # which is exactly what this asserts, and the mixin itself is internal by design.
+    "test_sklearn_mixins_come_first::mlframe.feature_selection.filters.mrmr._mrmr_class_transform._MRMRTransformMixin",
+    # The value an except handler substitutes is observable only by driving that handler, and this helper's
+    # failure branch is not reachable through any public entry point.
+    "test_swallowed_failures_substitute_non_neutral_values::mlframe.feature_selection.filters._group_distance_fe._wasserstein_quantile_approx",
+    # The registration flag is module-level state; the contract under test is that a TRANSIENT registration
+    # failure leaves it unset so a later call retries, which cannot be seen from the cache's public getter.
+    "test_transient_faults_do_not_latch_a_downgrade::mlframe.feature_selection.filters._kernel_tuning",
     # The best-effort marker audit counts `# best-effort:` sites across the preprocessing-extension stages.
     # One of the three (the PySR symbolic-FE stage) was carved into its own private sibling, taking its marker
     # with it, so the audit has to read BOTH modules or it under-counts. The private modules are the surface

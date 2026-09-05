@@ -115,22 +115,29 @@ def test_f3_shortlist_adapter_suite_import_failure_propagates_not_skipped(monkey
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    reason="F4 (x_test_suite_architecture.md): .test_durations is empty -- the weekly "
-    "update-test-durations.yml scheduled job has never completed successfully (cancelled "
-    "after 5h33m per gh run history); pytest-split falls back to file-count sharding until "
-    "it does. Flip this to a hard assertion once that workflow run succeeds.",
-    strict=False,
-)
 def test_f4_test_durations_file_is_populated():
-    """F4: .test_durations must eventually hold real per-test timing data, not stay the seeded {}."""
+    """F4: .test_durations must hold real per-test timing data, not the seeded {}.
+
+    Was xfail(strict=False) while the weekly refresh job had never completed, with its own reason line
+    saying to flip it once that succeeded. It has: the file now carries timings for the whole suite. Held
+    as a hard assertion because an empty file is not cosmetic -- pytest-split silently falls back to
+    file-COUNT sharding, which is what lets one shard draw several hour-long files and run three times as
+    long as its siblings. A shard that overruns is then cancelled, and a cancelled shard never reaches the
+    session-finish hook that writes durations, so the file stays empty and the imbalance persists.
+
+    The floor is deliberately well below the current count rather than pinned to it: the assertion is
+    "real timings are present", and pinning the exact number would fail on every ordinary refresh.
+    """
     from pathlib import Path
 
     import orjson
 
     repo_root = Path(__file__).resolve().parents[2]
     durations = orjson.loads((repo_root / ".test_durations").read_bytes())
-    assert len(durations) > 0, ".test_durations is still the empty seed {} -- the scheduled refresh job has not completed"
+    assert len(durations) > 1000, (
+        f".test_durations holds only {len(durations)} entr(y/ies) -- too few to be a real suite-wide " "measurement, so pytest-split is sharding by file count and the shards will not be balanced"
+    )
+    assert any(v > 0 for v in durations.values()), ".test_durations has entries but every duration is zero, so it carries no timing signal"
 
 
 # ---------------------------------------------------------------------------

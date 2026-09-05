@@ -73,7 +73,12 @@ def test_argmax_classes_safe_1d_array():
 
     p = np.array([0.1, 0.7, 0.2])
     out = argmax_classes_safe(p, context="test")
-    assert int(out) == 1
+    # Shape is asserted alongside the value: all three 1-D branches must agree on it, and they did not --
+    # only the all-finite one returned (1,), so the same `int(out)` that passes here raised
+    # "only 0-dimensional arrays can be converted to Python scalars" on the all-NaN sibling below.
+    assert out.shape == (1,), f"the documented (N,) contract is broken: got shape {out.shape}"
+    assert out.dtype == np.int64
+    assert out[0] == 1
 
 
 def test_argmax_classes_safe_1d_all_nan(caplog):
@@ -83,7 +88,24 @@ def test_argmax_classes_safe_1d_all_nan(caplog):
     p = np.array([np.nan, np.nan, np.nan])
     with caplog.at_level(logging.WARNING, logger="mlframe.utils.nan_safe"):
         out = argmax_classes_safe(p, fallback_class=7, context="test")
-    assert int(out) == 7
+    assert out.shape == (1,), f"the all-NaN branch disagrees with its all-finite sibling: got shape {out.shape}"
+    assert out.dtype == np.int64
+    assert out[0] == 7
+
+
+def test_argmax_classes_safe_1d_partial_nan():
+    """The third 1-D branch: some entries finite, so nanargmax picks the max FINITE index.
+
+    Untested until now, and it was the branch that quietly returned a 0-d array -- the shape assertion is the
+    point, since the value alone reads the same whether the result is 0-d or (1,).
+    """
+    from mlframe.utils.nan_safe import argmax_classes_safe
+
+    p = np.array([0.1, np.nan, 0.9, np.nan])
+    out = argmax_classes_safe(p, context="test")
+    assert out.shape == (1,), f"the partial-NaN branch disagrees with its siblings: got shape {out.shape}"
+    assert out.dtype == np.int64
+    assert out[0] == 2, "nanargmax must pick the index of the largest FINITE entry, not a NaN slot"
 
 
 def test_quantile_safe_finite_input():
@@ -204,8 +226,4 @@ def test_wave21_production_site_migrated(rel, must_contain):
         _p = _root / "feature_engineering" / "_numerical_counts.py"
         if _p.exists():
             src += "\n" + _p.read_text(encoding="utf-8")
-    assert must_contain in src, (
-        f"Wave 21 P1/P2 regression: {rel} no longer contains {must_contain!r}. "
-        f"Pre-fix raw np.argmax/np.quantile/np.median over potentially-NaN "
-        f"input is the bug class."
-    )
+    assert must_contain in src, f"Wave 21 P1/P2 regression: {rel} no longer contains {must_contain!r}. " f"Pre-fix raw np.argmax/np.quantile/np.median over potentially-NaN " f"input is the bug class."

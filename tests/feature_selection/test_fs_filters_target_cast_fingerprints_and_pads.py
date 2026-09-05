@@ -16,6 +16,8 @@ ties per row. And a deadline check that no configuration could reach.
 
 from __future__ import annotations
 
+import ast
+
 import numpy as np
 import pytest
 
@@ -29,21 +31,34 @@ class TestAContinuousTargetIsNotTruncatedToClasses:
 
         return _conditional_gate_fe
 
-    def test_no_bare_int64_target_cast_survives(self):
-        """The three module-boundary casts the finding names."""
-        import inspect
-        import re
+    def test_every_target_boundary_goes_through_the_encoder(self):
+        """No module-boundary cast may reach for `np.asarray(y).astype(np.int64)` directly.
 
-        src = inspect.getsource(self._module())
-        offenders = re.findall(r"^\s*yi = np\.asarray\(y\)\.astype\(np\.int64\)\s*$", src, re.M)
-        assert offenders == [], offenders
+        Structural: a bare int64 cast and the encoder agree on already-dense integer codes, so the two are
+        indistinguishable on the classification path -- the divergence only shows on the targets the sibling
+        behavioural tests below cover. What this pins is that no THIRD boundary reintroduces the raw cast,
+        which no single call can demonstrate. Asserted on the parsed module rather than its text.
+        """
+        import ast
 
-    def test_the_encoder_is_used_instead(self):
-        """Idempotent on already-dense integer codes, so the classification path is unaffected."""
-        import inspect
+        from tests._source_ast import called_names, module_ast
 
-        src = inspect.getsource(self._module())
-        assert src.count("yi = encode_y_for_classif_mi(y)") == 3, src.count("yi = encode_y_for_classif_mi(y)")
+        tree = module_ast(self._module())
+        calls = called_names(tree)
+        assert calls.count("encode_y_for_classif_mi") >= 3, f"expected every target boundary to use the encoder, saw {calls.count('encode_y_for_classif_mi')}"
+
+        bare_casts = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "astype"
+            and isinstance(node.func.value, ast.Call)
+            and isinstance(node.func.value.func, ast.Attribute)
+            and node.func.value.func.attr == "asarray"
+            and any(isinstance(a, ast.Name) and a.id == "y" for a in node.func.value.args)
+        ]
+        assert not bare_casts, f"a bare np.asarray(y).astype(...) target cast is back at line(s) {[n.lineno for n in bare_casts]}"
 
     def test_a_unit_interval_target_does_not_collapse_to_one_class(self):
         """The concrete consequence: `astype(np.int64)` leaves exactly one distinct class, so MI is 0.0."""
@@ -91,24 +106,95 @@ class TestTheIdentityCacheCannotCollideOrGuess:
         assert self._fp(base) == self._fp(base.copy())
 
     def test_both_fingerprints_use_the_same_sample_size(self):
-        """One rule, one constant -- the divergence is what left this side unfixed."""
-        import inspect
+        """One rule, one constant -- the divergence is exactly what left one side unfixed.
+
+        Structural: two fingerprints sampling different numbers of positions agree on most inputs, so the
+        defect shows only on the frames that fall between the two sample sizes. Pin the shared constant.
+        """
+        import ast
 
         from mlframe.feature_selection.filters import _mrmr_fingerprints
+        from tests._source_ast import module_ast
 
-        src = inspect.getsource(_mrmr_fingerprints)
-        assert "_CELL_SAMPLE_POSITIONS = 1024" in src
-        assert "min(10, n_rows)" not in src
+        tree = module_ast(_mrmr_fingerprints)
+        sample_consts = {
+            t.id: node.value.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)
+            for t in node.targets
+            if isinstance(t, ast.Name) and t.id == "_CELL_SAMPLE_POSITIONS"
+        }
+        assert sample_consts.get("_CELL_SAMPLE_POSITIONS") == 1024, f"the shared sample-position constant is missing or changed: {sample_consts}"
+        assert "_CELL_SAMPLE_POSITIONS" in {n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}, "the constant is defined but never read"
+
+    def test_a_failed_y_fingerprint_also_refuses_to_key_on_id(self):
+        """The y fingerprint had the SAME id()-fallback the X side was fixed for, and still logged at debug.
+
+        Found by widening the structural check below from the one X-side literal it named to any f-string
+        keyed on `id(...)`. Two failures must never collide, and the token must not be derived from an
+        address: CPython reuses addresses after collection, so a y built once its predecessor was dropped
+        very commonly lands on the same id -- and the identity cache then serves the earlier target's fit.
+        """
+        from mlframe.feature_selection.filters._mrmr_fingerprints import _mrmr_compute_y_fingerprint_sample
+
+        class _Unfingerprintable:
+            """A y whose array conversion raises, driving the failure branch."""
+
+            def __array__(self, *args, **kwargs):
+                """Refuse conversion so the fingerprint falls back."""
+                raise ValueError("no array for you")
+
+        a, b = _Unfingerprintable(), _Unfingerprintable()
+        tok_a = _mrmr_compute_y_fingerprint_sample(a)
+        tok_b = _mrmr_compute_y_fingerprint_sample(b)
+        assert tok_a != tok_b, "two failed y fingerprints collided, so the identity cache can serve the wrong fit"
+        assert _mrmr_compute_y_fingerprint_sample(a) != tok_a, "a failed y fingerprint is stable across calls, i.e. it can still produce a cache HIT"
+        for tok in (tok_a, tok_b):
+            assert "uncacheable" in tok, f"the failure token should announce that the cache is disabled, got {tok!r}"
+            assert f"{id(a):x}" not in tok and f"{id(b):x}" not in tok, f"the failure token is derived from an object address: {tok!r}"
+
+    def test_a_failed_y_fingerprint_is_audible(self, caplog):
+        """It logged at debug, which production logging does not emit, while silently changing which fit runs."""
+        import logging
+
+        from mlframe.feature_selection.filters._mrmr_fingerprints import _mrmr_compute_y_fingerprint_sample
+
+        class _Unfingerprintable:
+            """A y whose array conversion raises, driving the failure branch."""
+
+            def __array__(self, *args, **kwargs):
+                """Refuse conversion so the fingerprint falls back."""
+                raise ValueError("no array for you")
+
+        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.filters._mrmr_fingerprints"):
+            _mrmr_compute_y_fingerprint_sample(_Unfingerprintable())
+        assert any("disabling the identity cache" in r.getMessage() for r in caplog.records), [r.getMessage() for r in caplog.records]
 
     def test_a_fingerprint_failure_yields_a_never_matching_token(self):
-        """An `id()` key is reused after a collection; a fingerprint failure must disable the cache, not risk a hit."""
-        import inspect
+        """A failed fingerprint must disable the cache, never key on `id()`, which is reused after a collection.
+
+        Structural: the sibling below already shows two failures never match each other, but that holds for an
+        `id()` key too whenever the two objects happen to be alive at once -- the dangerous case is an id
+        REUSED after a collection, which a test cannot force deterministically.
+        """
+        import ast
 
         from mlframe.feature_selection.filters import _mrmr_fingerprints
+        from tests._source_ast import called_names, module_ast, string_literals
 
-        src = inspect.getsource(_mrmr_fingerprints)
-        assert "fp_uncacheable_" in src
-        assert 'f"fp_id{id(X):x}"' not in src
+        tree = module_ast(_mrmr_fingerprints)
+        assert any("fp_uncacheable_" in s for s in string_literals(tree)), "the never-matching failure token is gone"
+        id_keyed = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.JoinedStr)
+            for part in node.values
+            if isinstance(part, ast.FormattedValue)
+            for call in ast.walk(part.value)
+            if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == "id"
+        ]
+        assert not id_keyed, f"a fingerprint is being keyed on id() again at line(s) {[n.lineno for n in id_keyed]}"
+        assert "id" not in set(called_names(tree)) or not id_keyed, "id() is used to build a cache key"
 
     def test_two_failed_fingerprints_never_match_each_other(self):
         """The property that matters, stated directly."""
@@ -164,30 +250,57 @@ class TestMomentPadsThatGetInvertedAndCubed:
 class TestTheKernelTuningDefaultsAreRetriedAndAnnounced:
     """The flag was set before the attempt, so one transient failure disabled the shipped defaults for good."""
 
-    def _src(self):
-        """The registration module's source."""
-        import inspect
+    def test_a_transient_failure_does_not_latch_the_defaults_off(self, monkeypatch, caplog):
+        """A registration that RAISES must leave the flag unset, so the next call retries.
 
-        from mlframe.feature_selection.filters import _kernel_tuning
+        Driven through the module's own reset hook rather than read out of its source: the flag used to be
+        assigned above the `try`, so one transient fault -- a locked file, a momentary import error --
+        disabled the shipped per-hardware kernel-tuning defaults for the entire process, silently, and every
+        later fit quietly ran on the fallback.
+        """
+        import logging
 
-        return inspect.getsource(_kernel_tuning)
+        from mlframe.feature_selection.filters import _kernel_tuning as kt
 
-    def test_the_flag_is_not_set_before_the_attempt(self):
-        """It was assigned above the `try`, so one transient failure disabled the shipped defaults permanently."""
-        src = self._src()
-        body = src[src.index("with _DEFAULTS_LOCK:") : src.index("register_default_cache(_DEFAULT_TUNING_JSON)")]
-        assert "_DEFAULTS_REGISTERED = True  # never re-attempt" not in body
-        # The only assignments before the attempt are the two genuinely-permanent cases: no file, no package.
-        assert body.count("_DEFAULTS_REGISTERED = True") == 2, body
+        kt._reset_for_tests()
+        calls = {"n": 0}
 
-    def test_a_registration_failure_warns(self):
-        """It logged at debug, which production logging does not emit."""
-        src = self._src()
-        assert "logger.warning(" in src and "NOT registered" in src
+        def _boom(*_a, **_k):
+            """Fail the first registration attempt the way a transient fault would."""
+            calls["n"] += 1
+            raise RuntimeError("transient registration fault")
 
-    def test_the_flag_is_set_on_the_success_path(self):
-        """An `else:` on the try, so a success still fires exactly once per process."""
-        assert "        else:\n            _DEFAULTS_REGISTERED = True" in self._src()
+        monkeypatch.setattr("pyutilz.performance.kernel_tuning.cache.register_default_cache", _boom, raising=False)
+        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.filters._kernel_tuning"):
+            kt._register_default_tuning_cache()
+
+        assert calls["n"] == 1, f"registration was not attempted exactly once, got {calls['n']}"
+        assert kt._DEFAULTS_REGISTERED is False, "a transient failure latched the flag, so the defaults are disabled for the whole process"
+        assert any("NOT registered" in r.getMessage() for r in caplog.records), [r.getMessage() for r in caplog.records]
+
+        # ...and the next call really does retry rather than short-circuiting on the flag.
+        kt._register_default_tuning_cache()
+        assert calls["n"] == 2, "the second call did not retry, so the failure latched after all"
+        kt._reset_for_tests()
+
+    def test_a_successful_registration_fires_exactly_once(self, monkeypatch):
+        """Success DOES latch: the shipped defaults are registered once per process, not once per call."""
+        from mlframe.feature_selection.filters import _kernel_tuning as kt
+
+        kt._reset_for_tests()
+        calls = {"n": 0}
+
+        def _ok(*_a, **_k):
+            """Register successfully."""
+            calls["n"] += 1
+
+        monkeypatch.setattr("pyutilz.performance.kernel_tuning.cache.register_default_cache", _ok, raising=False)
+        kt._register_default_tuning_cache()
+        kt._register_default_tuning_cache()
+
+        assert calls["n"] == 1, f"a successful registration re-ran; it should latch. calls={calls['n']}"
+        assert kt._DEFAULTS_REGISTERED is True
+        kt._reset_for_tests()
 
 
 class TestThePrunedCountSumKernelMatchesTheFullOne:
@@ -208,50 +321,82 @@ class TestThePrunedCountSumKernelMatchesTheFullOne:
         assert np.array_equal(cnt, cnt_ref) and np.array_equal(s1, s1_ref)
 
     def test_the_stable_path_uses_the_pruned_kernel(self):
-        """An unused fast variant delivers no speedup."""
-        import inspect
+        """An unused fast variant delivers no speedup, and the discarded outputs are the whole point.
 
+        Structural: both kernels return identical counts and sums -- the sibling above proves that -- so which
+        one the stable path calls is invisible in the OUTPUT and visible only in the work done. Asserted on
+        the parsed function.
+        """
         from mlframe.feature_selection.filters import _binned_numeric_agg_fe
+        from tests._source_ast import called_names, function_ast
 
-        src = inspect.getsource(_binned_numeric_agg_fe._per_cell_moments_stable)
-        assert "_per_cell_count_sum_njit" in src
-        assert "cnt, s1, _, _, _" not in src
+        fn = function_ast(_binned_numeric_agg_fe, "_per_cell_moments_stable")
+        calls = called_names(fn)
+        assert "_per_cell_count_sum_njit" in calls, f"the stable path is not calling the pruned kernel; calls={sorted(set(calls))}"
+        assert "_per_cell_raw_moments_njit" not in calls, "the stable path still calls the full kernel and discards three of its outputs"
 
 
 def test_the_device_shuffle_keys_are_float64():
     """float32 uniforms have ~1.68e7 grid points, so at n=600k each row carries ~10,700 tied keys whose relative
     order `argsort` resolves by index -- a small positive correlation with the identity permutation, not a
     uniform draw, and a different estimator from the CPU Fisher-Yates floor."""
-    import inspect
-
     from mlframe.feature_selection.filters import _permutation_null_resident
 
-    src = inspect.getsource(_permutation_null_resident)
-    assert "dtype=cp.float64)" in src
-    assert "_rng.random((nperm, n), dtype=cp.float32)" not in src
+    from tests._source_ast import module_ast
+
+    # Structural: this is a cupy path, so the observable difference needs a GPU AND n large enough for the
+    # float32 grid to collide (~1.68e7 points; at n=600k each row carries ~10,700 tied keys, which argsort
+    # resolves by index -- a small positive correlation with the identity permutation rather than a uniform
+    # draw). What is checkable everywhere is that the keys are drawn at float64.
+    tree = module_ast(_permutation_null_resident)
+    dtypes = {
+        kw.value.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        for kw in node.keywords
+        if kw.arg == "dtype" and isinstance(kw.value, ast.Attribute)
+    }
+    assert "float64" in dtypes, "the device shuffle keys are no longer drawn at float64"
+    assert "float32" not in dtypes, f"a float32 dtype is back in the shuffle-key path: {sorted(dtypes)}"
 
 
 def test_the_polynom_deadline_is_passed_explicitly_into_the_workers():
     """`_fe_deadline`'s state is a `threading.local`, which crosses neither the loky process boundary nor the
     big-stack sub-thread `_eval_one_pair` runs the impl on -- so the check was unreachable in EVERY
     configuration, serial included, not only under `n_jobs > 1` as the module assumed."""
-    import inspect
-
     from mlframe.feature_selection.filters import polynom_pair_fe
 
-    src = inspect.getsource(polynom_pair_fe)
-    assert "def _eval_one_pair(raw_vars_pair, X_arr, y_arr, fe_deadline=None):" in src
-    assert "def _eval_one_pair_impl(raw_vars_pair, X_arr, y_arr, fe_deadline=None):" in src
-    assert "set_fe_deadline(fe_deadline)" in src
-    assert src.count("_fe_deadline_value") >= 4  # resolved once on the main thread, forwarded to all three call sites
+    from tests._source_ast import called_names, module_ast
+
+    # Structural: the deadline has to survive a loky process boundary AND the big-stack sub-thread the impl
+    # runs on, so observing it requires standing up both -- and the defect was that the check was unreachable
+    # in EVERY configuration, serial included, which is precisely why no behavioural test caught it.
+    # Both are NESTED functions, so they are unreachable via getattr and only visible in the parsed module.
+    tree = module_ast(polynom_pair_fe)
+    defs = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name.startswith("_eval_one_pair")}
+    for fn_name in ("_eval_one_pair", "_eval_one_pair_impl"):
+        assert fn_name in defs, f"{fn_name} is gone; this test needs updating if the worker was restructured"
+        params = {a.arg for a in defs[fn_name].args.args} | {a.arg for a in defs[fn_name].args.kwonlyargs}
+        assert "fe_deadline" in params, f"{fn_name} no longer accepts fe_deadline, so it cannot be forwarded across the boundary"
+
+    assert "set_fe_deadline" in called_names(module_ast(polynom_pair_fe)), "the worker no longer re-establishes the deadline in its own thread, so the check is unreachable again"
 
 
 def test_the_target_encoding_moment_divisions_are_guarded():
     """`np.where` evaluates both branches, so a zero-variance category computes 0.0/0.0 and warns per fold per
     column -- noise rather than wrongness, but it would hard-fail any suite under `-W error`."""
-    import inspect
-
     from mlframe.feature_selection.filters import _target_encoding_fe
+    from tests._source_ast import module_ast
 
-    src = inspect.getsource(_target_encoding_fe)
-    assert src.count('with np.errstate(divide="ignore", invalid="ignore"):') >= 2
+    # Structural: `np.errstate` suppresses a WARNING, and a warning is not part of any return value -- the
+    # numbers are identical with and without it. What it prevents is a suite run under `-W error` hard-failing
+    # per fold per column on a zero-variance category, where `np.where` evaluates both branches and the dead
+    # one computes 0.0/0.0.
+    guards = [
+        node
+        for node in ast.walk(module_ast(_target_encoding_fe))
+        if isinstance(node, ast.With)
+        for item in node.items
+        if isinstance(item.context_expr, ast.Call) and isinstance(item.context_expr.func, ast.Attribute) and item.context_expr.func.attr == "errstate"
+    ]
+    assert len(guards) >= 2, f"the moment divisions are no longer wrapped in np.errstate (found {len(guards)} guard(s))"

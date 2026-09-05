@@ -443,7 +443,6 @@
   "training/test_nan_propagation_fixes.py::best_mean_idx = nz_idx[np.argmax(mean_arr[nz_idx])]",
   "training/test_nan_propagation_fixes.py::np.nanquantile(X_ref[:, j]",
   "training/test_nan_propagation_fixes.py::shadow_threshold = np.nanpercentile(self.Shadow_feature_import",
-  "training/test_orchestrator_efficiency_fixes.py::len(list(sorted_models))",
   "training/test_orchestrator_efficiency_fixes.py::strategies_for_check",
   "training/test_perf_p2low.py::if verbose:",
   "training/test_precomputed_bundle_deepcopy.py::dict(\n                    _cached_payload.get(\"filter_drops\") or {}",

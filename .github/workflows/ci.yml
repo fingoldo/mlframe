@@ -155,7 +155,7 @@ jobs:
           # itself had no way to honour one until pyutilz-ref was added) -- every other workflow's
           # inline "git -C pyutilz checkout <sha>" line already matched this SHA; see
           # X_CICD_DEPENDENCIES-1 for why pinning matters here.
-          pyutilz-ref: 691a6ce16ba0abeb3647f17c1057464c895473ea  # pragma: allowlist secret -- git commit SHA, not a secret
+          pyutilz-ref: ec016b15e76e5582ba1a083c02b33029663c2296  # pragma: allowlist secret -- git commit SHA, not a secret
 
       - name: Restore numba JIT cache
         # numba's per-kernel disk cache (keyed internally by source + numba version) is restored into
@@ -323,7 +323,7 @@ jobs:
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
-          pyutilz-ref: 691a6ce16ba0abeb3647f17c1057464c895473ea  # pragma: allowlist secret -- git commit SHA, not a secret
+          pyutilz-ref: ec016b15e76e5582ba1a083c02b33029663c2296  # pragma: allowlist secret -- git commit SHA, not a secret
 
       - name: Restore numba JIT cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
@@ -442,7 +442,7 @@ jobs:
       # [all,dev] actually installed via `python -m deptry .` surfaced exactly 1 real finding).
       deptry-install-command: |
         git clone https://github.com/fingoldo/pyutilz.git
-        git -C pyutilz checkout 691a6ce16ba0abeb3647f17c1057464c895473ea  # pinned 2026-08-26: dead-import py3.9 fallback no longer misattributes findings to same-block why-comments
+        git -C pyutilz checkout ec016b15e76e5582ba1a083c02b33029663c2296  # see X_CICD_DEPENDENCIES-1 for why this is pinned -- narrowed code_audit scanners + the private-assertion-helper fix
         uv pip install --system "./pyutilz[system,pandas,polars,database]" -e ".[all,dev]"
       run-zizmor: true
 
@@ -523,7 +523,7 @@ jobs:
         run: |
           python -m venv /tmp/smoke
           /tmp/smoke/bin/pip install --upgrade pip
-          /tmp/smoke/bin/pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git@691a6ce16ba0abeb3647f17c1057464c895473ea"
+          /tmp/smoke/bin/pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git@ec016b15e76e5582ba1a083c02b33029663c2296"
           /tmp/smoke/bin/pip install dist/*.whl
           # Assert the PEP 561 py.typed marker actually shipped in the wheel so a
           # package-data regression (dropping typing support) fails the build.

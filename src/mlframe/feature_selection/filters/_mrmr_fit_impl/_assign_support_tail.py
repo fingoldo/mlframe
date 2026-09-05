@@ -424,7 +424,7 @@ def _assign_support_tail(
                         engineered_continuous=_post_eng_cont,
                         replayable_eng_names=set(_post_recipes.keys()), recipes=_post_recipes,
                         raw_X=X, floor_margin_mult=1.5,
-                        linear_usability_keep=bool(getattr(self, "use_simple_mode", False)),
+                        linear_usability_keep=bool(getattr(self, "fe_keep_linearly_usable_raw_operands", True)),
                         seed=int(getattr(self, "random_seed", 0) or 0), verbose=verbose,
                     )
                     if _post_dropped:

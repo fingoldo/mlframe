@@ -16,8 +16,7 @@ Public API
     or numpy ndarray (fallback) WITHOUT silently breaking dtypes. Dispatch
     order:
       1. pandas DataFrame / Series -- returned as-is.
-      2. polars DataFrame -- ``.to_pandas(use_pyarrow_extension_array=True)``, an Arrow-backed VIEW; the
-          copying form is used only on a polars too old to accept the keyword.
+      2. polars DataFrame -- ``.to_pandas()``, which materialises numpy-backed pandas blocks (a copy).
       3. polars LazyFrame -- ``.collect().to_pandas()``.
       4. polars Series -- ``.to_pandas()`` returns a ``pd.Series`` (NOT wrapped into a
          DataFrame; some callers -- quantile / metric helpers -- prefer the Series form and
@@ -104,16 +103,13 @@ def to_pandas_or_array(
         to_pandas = getattr(X, "to_pandas", None)
         if callable(to_pandas):
             try:
-                # `use_pyarrow_extension_array=True` is the actually-zero-copy form, which is what the dispatch
-                # table above promises. A plain `to_pandas()` materialises every column into numpy-backed pandas
-                # blocks -- a full second copy of the frame, so an OOM on a 100 GB one inside a helper whose
-                # docstring says otherwise, and precisely the silent inner-wrapper down-conversion the project's
-                # memory rule forbids. Older polars without the keyword falls back to the copying form, which is
-                # still better than failing.
-                try:
-                    return to_pandas(use_pyarrow_extension_array=True)
-                except TypeError:
-                    return to_pandas()
+                # Deliberately the plain, COPYING form. `use_pyarrow_extension_array=True` is genuinely
+                # zero-copy and was tried here, but it changes the dtype family every caller receives --
+                # `float[pyarrow]` instead of `np.float32` -- and this helper sits under sklearn, numba and
+                # CatBoost call sites that expect numpy-backed columns. Swapping that inside a shared
+                # normaliser is the caller's decision to make at the suite boundary, not one to smuggle in for
+                # a memory win; a caller that needs the view should ask polars for it directly.
+                return to_pandas()
             except Exception as exc:
                 logger.warning("to_pandas_or_array: polars DataFrame.to_pandas() failed, falling back to np.asarray (dtypes may silently degrade): %s", exc)
                 return np.asarray(X)

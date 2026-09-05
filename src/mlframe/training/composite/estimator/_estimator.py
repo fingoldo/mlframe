@@ -551,6 +551,30 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         """
         if self.base_estimator is None:
             raise ValueError("CompositeTargetEstimator: base_estimator must not be None.")
+
+        # sklearn's `check_requires_y_none` looks for this wording specifically; without it a supervised
+        # estimator handed y=None surfaced as "coerce_to_numpy: input is None", which names an internal helper
+        # rather than the contract the caller broke.
+        if y is None:
+            raise ValueError("CompositeTargetEstimator requires y to be passed, but the target y is None.")
+
+        # Validate the X/y pairing BEFORE any transform or base-column work. The length check further down only
+        # runs on the requires_base path and compares y against the extracted base column, so a unary
+        # y-transform accepted a y of the wrong length outright, and a non-finite y was never rejected at all:
+        # it flowed into the transform, and `diff` on an inf produced an inf target the inner estimator then
+        # fitted, so the failure surfaced as a nonsense model rather than an error. sklearn's
+        # `check_regressors_train` and `check_supervised_y_no_nan` both pin exactly these two contracts.
+        _y_check = _to_1d_numpy(y).astype(np.float64)
+        _n_x = getattr(X, "shape", (None,))[0] if hasattr(X, "shape") else (len(X) if hasattr(X, "__len__") else None)
+        if _n_x is not None and _n_x != len(_y_check):
+            raise ValueError(f"CompositeTargetEstimator.fit: X has {_n_x} rows but y has {len(_y_check)} -- " f"caller passed misaligned inputs.")
+        # NO non-finite-y guard here, deliberately. sklearn's `check_supervised_y_no_nan` wants one, and an
+        # earlier version of this validation added it -- wrongly. The recurrent transforms (EWMA residual,
+        # frac-diff, seasonal residual) produce NaN warm-up rows in the TARGET by construction, and the fit
+        # below carry-forward-fills them (`_carry_forward_fill(y_arr, np.isfinite(y_arr))`). Rejecting a
+        # non-finite y therefore refuses a supported capability, and the check is pinned as an expected sklearn
+        # failure with that reason rather than satisfied by breaking the feature.
+
         transform = get_transform(self.transform_name)
         # Validate the fallback strategy in fit (sklearn convention) rather than lazily on the first predict that hits a domain violation, which may be weeks into prod.
         if self.fallback_predict not in ("y_train_median", "nan"):

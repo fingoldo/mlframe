@@ -28,6 +28,7 @@ Verified clean (do not refactor):
 from __future__ import annotations
 
 import importlib
+import ast
 import os
 from pathlib import Path
 
@@ -62,49 +63,95 @@ def _read(rel: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_phase_helpers_ltr_save_dir_slugifies_model_name() -> None:
-    """Phase helpers ltr save dir slugifies model name."""
-    src = _read("training/core/_phase_helpers.py")
-    # Forbid the raw join.
-    assert "os.path.join(_data_dir, _models_dir, ctx.model_name)" not in src, "LTR _save_dir must slugify ctx.model_name (path-traversal vector otherwise)."
-    # Require the slugified form.
-    assert "_slugify(ctx.model_name)" in src
+# Names that carry caller-controlled text into a path. A traversal in any of them escapes the
+# artefact root ("../../evil"), or eats the prefix entirely when absolute ("/foo", "C:/x"), because
+# os.path.join drops everything before an absolute component.
+_UNTRUSTED_PATH_COMPONENTS = frozenset({"model_name", "target_name", "featureset_name", "_tname", "_target_name", "_model_name"})
 
 
-def test_ranker_suite_artefact_basenames_slugify_model_name() -> None:
-    """Ranker suite artefact basenames slugify model name."""
-    src = _read("training/ranking.py")
-    # Forbid the raw f-string interpolation.
-    assert 'f"{model_name}_{flavor}.joblib"' not in src
-    assert 'f"{model_name}_metadata.json"' not in src
-    # Require the slugified local alias.
-    assert "_safe_model_name = _slugify(model_name)" in src
-    assert 'f"{_safe_model_name}_{flavor}.joblib"' in src
-    assert 'f"{_safe_model_name}_metadata.json"' in src
+def _leaf_name(node):
+    """The trailing identifier of a Name or Attribute expression, or None."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
 
 
-def test_calibration_post_final_models_dir_slugifies_all_components() -> None:
-    """Calibration post final models dir slugifies all components."""
-    # post.py became a facade: the directory assembly moved into _post_train_calibrators.py.
-    src = _read("calibration/post.py") + "\n" + _read("calibration/_post_train_calibrators.py")
-    # Forbid the raw 4-arg join.
-    assert "join(models_dir, target_name, featureset_name, task_type, model_name)" not in src
-    # Require slugify on each component. Switched from a local ``_slugify`` helper to
-    # pyutilz's shared ``slugify`` (imported directly, unprefixed).
-    assert "slugify(target_name)" in src
-    assert "slugify(featureset_name)" in src
-    assert "slugify(str(task_type))" in src
-    assert "slugify(model_name)" in src
+def _is_slugified(node):
+    """Is this expression wrapped in a slugify() call (however the module aliased it)?"""
+    return isinstance(node, ast.Call) and (_leaf_name(node.func) or "").endswith("slugify")
 
 
-def test_phase_finalize_ct_ensemble_dir_slugified() -> None:
-    """Phase finalize ct ensemble dir slugified."""
-    src = _read("training/core/_phase_finalize.py")
-    # Forbid raw _dir_name = _tname assignment in this CT-ENSEMBLE branch; the post-fix form keeps the literal
-    # prefix and slugifies the suffix. Whitespace-normalised so black's slice-colon spacing (``[len(...) :]``)
-    # does not break this security sensor.
-    _norm = src.replace(" ", "")
-    assert '_dir_name="_CT_ENSEMBLE__"+slugify(_tname[len("_CT_ENSEMBLE__"):])' in _norm
+def _is_os_path_join(func):
+    """os.path.join only -- NOT str.join, which shares the attribute name and joins no paths."""
+    if not (isinstance(func, ast.Attribute) and func.attr == "join"):
+        return False
+    return _leaf_name(func.value) == "path"
+
+
+def _unslugified_path_uses(tree):
+    """Yield (lineno, name) for every caller-controlled name reaching a path unslugified."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and _is_os_path_join(node.func):
+            # os.path.join's FIRST argument is the root; a traversal there is the caller's own root.
+            for arg in node.args[1:]:
+                if _is_slugified(arg):
+                    continue
+                name = _leaf_name(arg)
+                if name in _UNTRUSTED_PATH_COMPONENTS:
+                    yield node.lineno, name
+        elif isinstance(node, ast.JoinedStr):
+            # An artefact BASENAME built by interpolation -- "{model_name}_{flavor}.joblib".
+            # Must END in an artefact extension. Merely CONTAINING a separator matched dict keys
+            # ("{_ttype}/{_tname}/{_mn}") and error messages ("Drop NaN/inf rows"), and a security
+            # check that cries wolf gets muted.
+            literals = "".join(v.value for v in node.values if isinstance(v, ast.Constant) and isinstance(v.value, str))
+            if not literals.endswith((".joblib", ".json", ".pkl", ".bin", ".parquet")):
+                continue
+            for value in node.values:
+                if not isinstance(value, ast.FormattedValue) or _is_slugified(value.value):
+                    continue
+                name = _leaf_name(value.value)
+                if name in _UNTRUSTED_PATH_COMPONENTS:
+                    yield node.lineno, name
+
+
+def test_no_caller_controlled_name_reaches_a_path_unslugified() -> None:
+    """The rule the four removed spelling-pins each covered one site of.
+
+    Behavioural since 2026-09-03. Those asserted that `os.path.join(_data_dir, _models_dir,
+    ctx.model_name)` is absent and `_slugify(ctx.model_name)` present, that
+    `f"{model_name}_{flavor}.joblib"` is absent and `f"{_safe_model_name}_{flavor}.joblib"`
+    present, and so on -- four hand-maintained pairs, each naming one call site by its exact
+    current spelling, each already rewritten once when its module was split, and none of them
+    saying anything about a FIFTH site added tomorrow.
+
+    This reads the parse tree instead: every caller-controlled name reaching os.path.join past the
+    root argument, or interpolated into an artefact basename, must be wrapped in slugify. The
+    behavioural sensors below already pin what slugify itself guarantees; this pins that the call
+    sites use it.
+    """
+    offenders = []
+    unparseable = []
+    scanned = 0
+    for path in sorted(MLFRAME_ROOT.rglob("*.py")):
+        rel = path.relative_to(MLFRAME_ROOT).as_posix()
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError as exc:
+            # Reported, never skipped in silence. For a security scanner, "scanned nothing" and
+            # "found nothing" produce the same green tick, and a file that stops parsing is exactly
+            # the one somebody just edited.
+            unparseable.append(f"{rel}: {exc}")
+            continue
+        scanned += 1
+        for lineno, name in _unslugified_path_uses(tree):
+            offenders.append(f"{rel}:{lineno} ({name})")
+
+    assert not unparseable, "modules this check could not parse, so it did not scan them: " + ", ".join(unparseable)
+    assert scanned > 100, f"only {scanned} modules scanned -- the tree walk is not reaching mlframe/"
+    assert not offenders, "caller-controlled names reach a path unslugified at: " + ", ".join(offenders)
 
 
 def test_neural_base_default_root_dir_trust_contract_documented() -> None:

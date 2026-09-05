@@ -61,6 +61,7 @@ All MI/CMI uses the production primitives (``_cmi_from_binned`` / ``_quantile_bi
 (``_conditional_perm_null`` from the S5 gate). The function is pure - no live
 framework state captured - so a fitted MRMR stays picklable.
 """
+
 from __future__ import annotations
 
 import logging
@@ -256,6 +257,7 @@ def drop_redundant_raw_operands(
         try:
             from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
             from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
+
             _gate_resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=n_rows, p=len(sel)))
         except Exception as e:
             logger.debug("fe_gpu_strict_resident_enabled/_cmi_gpu_enabled check failed, defaulting to non-resident: %s", e)
@@ -264,10 +266,20 @@ def drop_redundant_raw_operands(
     from ._fe_raw_redundancy_anchors import build_raw_redundancy_anchors
 
     _ctx = build_raw_redundancy_anchors(
-        data=data, cols=list(cols), sel=sel, raw_name_set=raw_name_set, y_binned=y_binned,
-        y_continuous=y_continuous, engineered_continuous=engineered_continuous,
-        replayable_eng_names=replayable_eng_names, recipes=recipes, raw_X=raw_X, seed=seed,
-        verbose=verbose, n_rows=n_rows, gate_resident=_gate_resident,
+        data=data,
+        cols=list(cols),
+        sel=sel,
+        raw_name_set=raw_name_set,
+        y_binned=y_binned,
+        y_continuous=y_continuous,
+        engineered_continuous=engineered_continuous,
+        replayable_eng_names=replayable_eng_names,
+        recipes=recipes,
+        raw_X=raw_X,
+        seed=seed,
+        verbose=verbose,
+        n_rows=n_rows,
+        gate_resident=_gate_resident,
     )
     _early_return: Optional[tuple[list, list]] = _ctx.early_return
     if _early_return is not None:
@@ -321,10 +333,9 @@ def drop_redundant_raw_operands(
         if not consumers:
             if verbose:
                 logger.info(
-                    "raw-redundancy: KEEP %s (no multi-source engineered subsumer; "
-                    "consumers %s are sole-operand self-transforms -- DPI-trap, cannot "
-                    "prove redundancy)",
-                    rname, [cols[e] for e in all_consumers],
+                    "raw-redundancy: KEEP %s (no multi-source engineered subsumer; " "consumers %s are sole-operand self-transforms -- DPI-trap, cannot " "prove redundancy)",
+                    rname,
+                    [cols[e] for e in all_consumers],
                 )
             continue
         # The raw column is binned via ``_raw_codes`` (see its definition): the selector's lossy fit codes
@@ -355,8 +366,7 @@ def drop_redundant_raw_operands(
         _cond_bins_dev = [(_clean_subexpr_bin_dev.get((rname, ei)) if (rname, ei) in _clean_subexpr_bin else eng_bin_dev.get(ei)) for ei in consumers]
         z_support, _zcard = _renumber_joint(*_cond_bins)  # _renumber_joint returns the occupied cardinality
         z_support_dev = _join_dev(*_cond_bins_dev)
-        cmi, floor, excess = _excess_and_floor(rb_cand, y_arr, z_support, seed=seed, z_support_dev=z_support_dev,
-                                               kx=(int(rb.max()) + 1 if getattr(rb, "size", 0) else 1), kz=int(_zcard))
+        cmi, floor, excess = _excess_and_floor(rb_cand, y_arr, z_support, seed=seed, z_support_dev=z_support_dev, kx=(int(rb.max()) + 1 if getattr(rb, "size", 0) else 1), kz=int(_zcard))
         # SIBLING-OPERAND CONDITIONING (non-invertible-fusion subsumer). A
         # consuming composite can FUSE ``rname`` with a SECOND signal-bearing operand in a
         # form that is not invertible from the composite alone - e.g. ``add(a, sin(c))``
@@ -516,9 +526,18 @@ def drop_redundant_raw_operands(
         # (``s0`` in ``y=2*s0-1.3*s1+0.8*s2`` is info-subsumed by a complex child yet still the
         # right feature for a downstream model). Statistically the two cases are indistinguishable
         # per-raw (a subsumed monotone operand is as linearly usable as a genuine linear term), so
-        # the override is gated on the mode: keep a linearly-usable raw ONLY in simple mode. Uses a
+        # this leg was originally gated to simple mode only. It now runs in FULL mode too, under
+        # ``fe_keep_linearly_usable_raw_operands``: gating it off cost real downstream accuracy on
+        # exactly the shape the comment above describes. On the 5-signal/15-noise ranking benchmark
+        # -- y linear in five raws with DIFFERENT coefficients, folded into one additive composite --
+        # the drop took selection to 2 features and downstream AUC to 0.8969 against a 0.9648
+        # five-raw baseline; with this leg active it selects 5 and scores 0.9649. The composite is
+        # lossy with respect to its operands (it preserves the sum and destroys the individual
+        # contributions), so "info-subsumed" and "usable by the downstream model" genuinely differ
+        # here. Compactness is preserved -- 5 features, not the 25 that disabling the whole drop
+        # sweep yields -- because the leg is selective rather than a blanket off-switch. Uses a
         # permutation-floored partial rank-correlation given the children (n-invariant); a pure
-        # noise raw has ~0 residual -> stays dropped even in simple mode.
+        # noise raw has ~0 residual -> stays dropped either way.
         if not keep and linear_usability_keep:
             try:
                 _lin_raw = None
@@ -541,7 +560,9 @@ def drop_redundant_raw_operands(
                             "raw-redundancy: KEEP %s via LINEAR-USABILITY leg (CMI collapsed "
                             "cond_excess=%.5f but raw retains significant private linear signal "
                             "given %s -- nonlinear child is not a linear equivalent)",
-                            rname, excess, [cols[e] for e in consumers],
+                            rname,
+                            excess,
+                            [cols[e] for e in consumers],
                         )
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                 logger.debug("raw-redundancy: linear-usability-leg probe failed: %s", e)
@@ -583,8 +604,7 @@ def drop_redundant_raw_operands(
                     _s_lin = 0.0
                     for _ei in consumers:
                         _enm = cols[_ei]
-                        _sv = (np.asarray(engineered_continuous[_enm], dtype=_uc_dt).ravel()
-                               if (engineered_continuous and _enm in engineered_continuous) else None)
+                        _sv = np.asarray(engineered_continuous[_enm], dtype=_uc_dt).ravel() if (engineered_continuous and _enm in engineered_continuous) else None
                         if _sv is not None and _sv.shape[0] == _yc.shape[0]:
                             _s_lin = max(_s_lin, _abs_pearson(_yc, _sv))
                     if _s_lin >= float(tail_subsume_min_corr) and _r_lin < _s_lin and _r_rank <= float(tail_subsume_rank_frac) * _r_lin:
@@ -594,7 +614,11 @@ def drop_redundant_raw_operands(
                                 "raw-redundancy: DROP %s via TAIL-CONCENTRATION continuous-subsumption "
                                 "(raw rank|corr(y)|=%.3f collapsed vs raw linear|corr|=%.3f while the subsuming "
                                 "survivor's |corr(y)|=%.3f -- binned CMI kept it on phantom tail signal): %s",
-                                rname, _r_rank, _r_lin, _s_lin, [cols[e] for e in consumers],
+                                rname,
+                                _r_rank,
+                                _r_lin,
+                                _s_lin,
+                                [cols[e] for e in consumers],
                             )
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                 logger.debug("raw-redundancy: tail-concentration continuous-subsumption probe failed: %s", e)
@@ -602,10 +626,13 @@ def drop_redundant_raw_operands(
         if keep:
             if verbose:
                 logger.info(
-                    "raw-redundancy: KEEP %s (cmi=%.4f floor=%.4f cond_excess=%.5f "
-                    "marg_excess=%.5f max_child_anchor=%.4f -- carries significant "
-                    "independent residual given %s)",
-                    rname, cmi, floor, excess, raw_marg_excess, max_anchor,
+                    "raw-redundancy: KEEP %s (cmi=%.4f floor=%.4f cond_excess=%.5f " "marg_excess=%.5f max_child_anchor=%.4f -- carries significant " "independent residual given %s)",
+                    rname,
+                    cmi,
+                    floor,
+                    excess,
+                    raw_marg_excess,
+                    max_anchor,
                     [cols[e] for e in consumers],
                 )
             continue
@@ -616,7 +643,12 @@ def drop_redundant_raw_operands(
                 "raw-redundancy: DROP %s (cmi=%.4f floor=%.4f cond_excess=%.5f "
                 "marg_excess=%.5f max_child_anchor=%.4f -- no significant residual AND "
                 "fully subsumed by a strictly-more-informative combination child %s)",
-                rname, cmi, floor, excess, raw_marg_excess, max_anchor,
+                rname,
+                cmi,
+                floor,
+                excess,
+                raw_marg_excess,
+                max_anchor,
                 [cols[e] for e in consumers],
             )
 
@@ -680,15 +712,21 @@ def drop_redundant_raw_operands(
                 if _n_bins_x <= 0:
                     continue
                 _grp_mi = group_blocked_mi(
-                    _codes, _yb_arr, _gsi, _goff, _n_bins_x, _g_n_bins_y,
-                    min_rows=_gmr, size_weighted=_gsw, use_mm=True,
+                    _codes,
+                    _yb_arr,
+                    _gsi,
+                    _goff,
+                    _n_bins_x,
+                    _g_n_bins_y,
+                    min_rows=_gmr,
+                    size_weighted=_gsw,
+                    use_mm=True,
                 )
                 if _grp_mi == _grp_mi and _grp_mi <= 0.0:  # not nan and exactly zero within-group signal
                     _group_leak_names.add(_dname)
             if _group_leak_names and verbose:
                 logger.info(
-                    "raw-redundancy: %s flagged as between-group-only leak(s) under group_aware_mi -- "
-                    "exempt from the no-harm Ridge revert below (stay dropped regardless of linear outcome).",
+                    "raw-redundancy: %s flagged as between-group-only leak(s) under group_aware_mi -- " "exempt from the no-harm Ridge revert below (stay dropped regardless of linear outcome).",
                     sorted(_group_leak_names),
                 )
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
@@ -704,6 +742,7 @@ def drop_redundant_raw_operands(
     if _guard_on:
         assert _yv is not None  # _guard_on requires _yv is not None
         try:
+
             def _cont_of(i):
                 """Continuous (unbinned) values for kept column ``i``, for the downstream no-harm Ridge R2
                 probe: raw columns read from ``raw_X``, engineered survivors from the continuous fit-time
@@ -719,9 +758,7 @@ def drop_redundant_raw_operands(
             # The raw-only baseline EXCLUDES group-aware leak names: a leak's inflated global correlation
             # would otherwise make even a genuinely-lossy NON-leak drop look artificially fine by
             # comparison (or vice versa), and it must never be the reference that revert-restores it.
-            _raw_names = (
-                [c for c in raw_X.columns if c in raw_name_set and c not in _group_leak_names] if (raw_X is not None and hasattr(raw_X, "columns")) else []
-            )
+            _raw_names = [c for c in raw_X.columns if c in raw_name_set and c not in _group_leak_names] if (raw_X is not None and hasattr(raw_X, "columns")) else []
             if _kept_idx and _raw_names and _yv.shape[0] == n_rows:
                 _X_kept = np.column_stack([_cont_of(i) for i in _kept_idx])
                 _X_rawonly = np.column_stack([np.asarray(raw_X[c], dtype=np.float64).ravel() for c in _raw_names])
@@ -736,7 +773,10 @@ def drop_redundant_raw_operands(
                             "raw-redundancy: REVERT drop of %s -- kept-set held-out Ridge R2 %.4f is below raw-only "
                             "%.4f by %.4f > %.4f eps (the engineered child is linearly lossy); keep the raws%s.",
                             [n for n in drop_names if n not in _group_leak_names],
-                            _r_kept, _r_rawonly, _r_rawonly - _r_kept, _RAW_DROP_NO_HARM_EPS,
+                            _r_kept,
+                            _r_rawonly,
+                            _r_rawonly - _r_kept,
+                            _RAW_DROP_NO_HARM_EPS,
                             f" (except the group-aware leak(s) {_final_drop_names}, which stay dropped)" if _final_drop_names else "",
                         )
                     _name_to_idx2 = {cols[i]: i for i in range(len(cols))}

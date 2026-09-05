@@ -1,19 +1,19 @@
 """Four handlers changed the answer and said so only at debug level -- or not at all.
 
-  * The marginal-MI re-add probe returns `True` on failure, re-injecting a screening-confirmed but
-    statistically untested raw column. The permissive policy is defensible; reverting the gate to its
-    pre-fix behaviour on a debug line per candidate is not, because that gate exists precisely because
-    coarse-binning plug-in MI upward-biases pure-noise columns.
-  * The subsumption discriminator's OUTER handler blanket-excluded every candidate raw from the re-attach
-    set on one exception, while the inner per-candidate handler retains on error -- opposite polarities,
-    both at debug, with no way to tell from the logs which had fired.
-  * `_route_basis` returned the hardcoded string "hermite" on any exception, freezing the WRONG basis into
-    the persisted recipe. `transform()` replays that recipe, so train-time and serve-time features diverge
-    for that leg, and the code's own comment described the defect before logging it at debug.
-  * The GPU CMI kernel's handler logged the literal string "suppressed: %s" -- naming neither the kernel,
-    the fallback, nor the shape -- so a cupy import error, a kernel-shape miss, GPU contention and a real
-    numeric regression were indistinguishable afterwards. The CPU recomputation keeps the answer correct,
-    which is exactly why a real regression would never be noticed.
+* The marginal-MI re-add probe returns `True` on failure, re-injecting a screening-confirmed but
+  statistically untested raw column. The permissive policy is defensible; reverting the gate to its
+  pre-fix behaviour on a debug line per candidate is not, because that gate exists precisely because
+  coarse-binning plug-in MI upward-biases pure-noise columns.
+* The subsumption discriminator's OUTER handler blanket-excluded every candidate raw from the re-attach
+  set on one exception, while the inner per-candidate handler retains on error -- opposite polarities,
+  both at debug, with no way to tell from the logs which had fired.
+* `_route_basis` returned the hardcoded string "hermite" on any exception, freezing the WRONG basis into
+  the persisted recipe. `transform()` replays that recipe, so train-time and serve-time features diverge
+  for that leg, and the code's own comment described the defect before logging it at debug.
+* The GPU CMI kernel's handler logged the literal string "suppressed: %s" -- naming neither the kernel,
+  the fallback, nor the shape -- so a cupy import error, a kernel-shape miss, GPU contention and a real
+  numeric regression were indistinguishable afterwards. The CPU recomputation keeps the answer correct,
+  which is exactly why a real regression would never be noticed.
 """
 
 from __future__ import annotations
@@ -36,6 +36,26 @@ def _handlers(path: pathlib.Path) -> list:
     return [n for n in ast.walk(ast.parse(path.read_text(encoding="utf-8"))) if isinstance(n, ast.ExceptHandler)]
 
 
+def _emits(path: pathlib.Path, phrase: str) -> bool:
+    """True when ``phrase`` appears in a string literal the module can actually emit.
+
+    A predicate rather than a set the caller then tests membership on: the assertion is about what the module
+    SAYS, and phrasing it as `phrase in <something derived from read_text>` is the shape that cannot tell an
+    emitted message from a comment -- which is the very confusion these helpers exist to remove.
+    """
+    return any(phrase in lit for lit in _literals(path))
+
+
+def _literals(path: pathlib.Path) -> set:
+    """Every string literal in the module, from its parsed AST.
+
+    Not a substring search over the raw text: that matches a phrase sitting in a COMMENT just as happily as
+    one in an emitted message, so "this warning is produced" and "this warning is described in a note above
+    the handler" become indistinguishable -- and several of these sites carry exactly such a note.
+    """
+    return {n.value for n in ast.walk(ast.parse(path.read_text(encoding="utf-8"))) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+
+
 def _logs_at(handler: ast.ExceptHandler, names: set) -> bool:
     """True when the handler body calls one of `names` (a logging call at or above warning)."""
     for node in ast.walk(handler):
@@ -55,16 +75,14 @@ class TestThePermissiveReAddIsAudible:
     def test_the_handler_warns(self):
         """It returns True -- re-adding an untested column -- so the caller has to be able to see it."""
         path = SRC / "_mrmr_fit_impl" / "_friend_graph_and_redundancy" / "_group1.py"
-        returning_true = [
-            h for h in _handlers(path) if any(isinstance(n, ast.Return) and isinstance(n.value, ast.Constant) and n.value.value is True for n in ast.walk(h))
-        ]
+        returning_true = [h for h in _handlers(path) if any(isinstance(n, ast.Return) and isinstance(n.value, ast.Constant) and n.value.value is True for n in ast.walk(h))]
         assert returning_true, "the permissive re-add handler was not found; this test needs updating"
         assert all(_logs_at(h, {"warning", "error", "log_throttle"}) for h in returning_true)
 
     def test_it_is_throttled(self):
         """One line per fit, not per candidate."""
-        src = (SRC / "_mrmr_fit_impl" / "_friend_graph_and_redundancy" / "_group1.py").read_text(encoding="utf-8")
-        assert SITES["_mrmr_fit_impl/_friend_graph_and_redundancy/_group1.py"] in src
+        key = SITES["_mrmr_fit_impl/_friend_graph_and_redundancy/_group1.py"]
+        assert key in _literals(SRC / "_mrmr_fit_impl" / "_friend_graph_and_redundancy" / "_group1.py"), f"the throttle key {key!r} is not an emitted literal, so the warning is not throttled per fit"
 
 
 class TestTheBlanketExclusionIsGone:
@@ -82,8 +100,9 @@ class TestTheBlanketExclusionIsGone:
 
     def test_the_outer_handler_warns(self):
         """Its polarity disagreed with the inner one and both were at debug."""
-        src = self.PATH.read_text(encoding="utf-8")
-        assert "RETAINING all" in src and "logger.warning(" in src
+        literals = _literals(self.PATH)
+        assert any("RETAINING all" in s for s in literals), "the outer handler no longer says it retains the whole candidate set"
+        assert any(_logs_at(h, {"warning", "error", "log_throttle"}) for h in _handlers(self.PATH)), "no handler in this module logs above debug"
 
 
 class TestAMislabelledBasisIsAnnounced:
@@ -113,18 +132,17 @@ class TestTheGpuFallbackNamesItself:
 
     def test_the_uninformative_message_is_gone(self):
         """The exact string, which named neither kernel nor fallback nor shape."""
-        assert '"suppressed: %s"' not in self.PATH.read_text(encoding="utf-8")
+        assert "suppressed: %s" not in _literals(self.PATH), "the placeholder message is back; it names no cause and no consequence"
 
     def test_the_fallback_warns_with_a_throttle_key(self):
         """Correctness is preserved by the CPU recomputation, so the cost is the only visible signal."""
-        src = self.PATH.read_text(encoding="utf-8")
-        assert "cmi_gpu_kernel_fallback" in src and "recomputing this CMI on the CPU path" in src
+        assert _emits(self.PATH, "cmi_gpu_kernel_fallback"), "the throttle key is gone, so the fallback warns once per candidate instead of once per fit"
+        assert _emits(self.PATH, "recomputing this CMI on the CPU path"), "the message no longer says what the fallback actually does"
 
     @pytest.mark.parametrize("rel", sorted(SITES))
     def test_the_throttle_key_is_distinct_per_site(self, rel):
         """Two handlers sharing a key would silence each other."""
-        src = (SRC / rel).read_text(encoding="utf-8")
-        assert src.count(f'"{SITES[rel]}"') >= 1
+        assert SITES[rel] in _literals(SRC / rel), f"{rel} no longer carries the throttle key {SITES[rel]!r}"
 
 
 def test_all_four_modules_still_import():

@@ -17,28 +17,37 @@ from __future__ import annotations
 import inspect
 import logging
 
-import numpy as np
 import pytest
 
 
 class TestTheCalibrationChartsRegisterWhatTheyWrote:
     """A chart absent from `metrics["charts"]` is absent from the combined report."""
 
-    def _src(self):
-        """The probabilistic-calibration reporting module."""
+    def _tree(self):
+        """The parsed probabilistic-calibration reporting module."""
         from mlframe.training.reporting import _reporting_probabilistic_calib as m
+        from tests._source_ast import module_ast
 
-        return inspect.getsource(m)
+        return module_ast(m)
 
     def test_all_three_families_record_a_saved_path(self):
-        """fairness-calibration, calibration-by-feature and the 2-D heatmap all default to True."""
-        src = self._src()
-        assert src.count("_record_chart(metrics,") >= 6, src.count("_record_chart(metrics,")
+        """fairness-calibration, calibration-by-feature and the 2-D heatmap all record what they wrote.
+
+        Structural: a chart missing from `metrics["charts"]` renders identically on disk and is simply absent
+        from the combined report, so no assertion on the returned metrics of one family can show that another
+        family forgot to register. Counting the recorder's call sites is the check.
+        """
+        from tests._source_ast import called_names
+
+        calls = called_names(self._tree())
+        assert calls.count("_record_chart") >= 6, f"expected at least 6 _record_chart call sites, found {calls.count('_record_chart')}"
 
     def test_a_failure_leaves_a_failed_entry(self):
-        """It was swallowed at DEBUG with nothing recorded, so a broken chart looked like a disabled one."""
-        src = self._src()
-        assert src.count("error=e)") == 3, src.count("error=e)")
+        """A chart that FAILED must be recorded as failed, not swallowed -- else it looks like a disabled one."""
+        import ast
+
+        errored = [node for node in ast.walk(self._tree()) if isinstance(node, ast.Call) and any(kw.arg == "error" for kw in node.keywords)]
+        assert len(errored) == 3, f"expected 3 failure-recording call sites, found {len(errored)}"
 
     def test_the_recorder_populates_saved_and_paths(self):
         """`paths` is what the combined HTML index reads."""
@@ -69,10 +78,15 @@ class TestTheDiagnosticsBudgetSaysWhatItDropped:
     """A truncated report that does not say so is worse than a slow one."""
 
     def test_report_is_actually_called(self):
-        """The method existed, was documented, and had no caller anywhere."""
-        from mlframe.training.reporting import _reporting_diagnostics as m
+        """The method existed, was documented, and had no caller anywhere -- a report nobody asked for.
 
-        assert "_budget.report()" in inspect.getsource(m)
+        Structural: the sibling below drives what `report()` DOES once called, but a method with no caller
+        produces no output to assert on from the reporting side, which is exactly how it went unnoticed.
+        """
+        from mlframe.training.reporting import _reporting_diagnostics as m
+        from tests._source_ast import called_names, module_ast
+
+        assert "report" in called_names(module_ast(m)), "nothing calls the diagnostics budget's report(), so a truncated report still says nothing"
 
     def test_a_skipped_diagnostic_produces_an_incomplete_warning(self, caplog):
         """The behaviour the method promises."""
@@ -117,11 +131,25 @@ def test_the_temporal_audit_records_the_path_it_wrote():
     existed on disk while the audit metadata serialised a null path."""
     from mlframe.training.targets import _target_temporal_plot as m
 
-    src = inspect.getsource(m)
-    assert "result.plot_path = base_path" in src
-    idx_assign = src.index("result.plot_path = base_path")
-    idx_return = src.index("return None", idx_assign)
-    assert idx_assign < idx_return, "the assignment must precede the early return"
+    import ast
+
+    from tests._source_ast import module_ast
+
+    # Structural: an ORDER between two statements. Both orders produce a chart on disk; only the wrong one
+    # serialises a null path beside it, and reaching that through the public path needs a full audit run.
+    # Compared on parsed line numbers so reformatting cannot move it, unlike the character offsets this used.
+    tree = module_ast(m)
+    assigns = [
+        node.lineno for node in ast.walk(tree) if isinstance(node, ast.Assign) for t in node.targets if isinstance(t, ast.Attribute) and t.attr == "plot_path"
+    ]
+    assert assigns, "result.plot_path is never assigned, so the audit metadata cannot carry the chart's path"
+    # A bare `return` parses with value=None; `return None` parses with a Constant(None). Accept both.
+    returns_after = [
+        n.lineno
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Return) and (n.value is None or (isinstance(n.value, ast.Constant) and n.value.value is None)) and n.lineno > min(assigns)
+    ]
+    assert returns_after, "no early return follows the assignment; this test needs updating if the branch was restructured"
 
 
 class TestTheEvictionPassDoesNotScanForNothing:
@@ -131,10 +159,21 @@ class TestTheEvictionPassDoesNotScanForNothing:
         """The loop's own first-iteration break condition, hoisted ahead of the scan."""
         from mlframe.training.feature_handling import cache as m
 
-        src = inspect.getsource(m._FeatureCacheDiskMixin._maybe_evict_disk) if hasattr(m, "_FeatureCacheDiskMixin") else inspect.getsource(m)
-        i_guard = src.index("if free_bytes >= target_free_bytes:")
-        i_listdir = src.index("os.listdir(d)")
-        assert i_guard < i_listdir, "the early return must come before the directory scan"
+        import ast
+
+        from tests._source_ast import function_ast
+
+        # Structural: the fix is that the guard is HOISTED ahead of the scan. Both orders evict the same files
+        # and return the same value -- the difference is a directory listing plus a stat per file that is then
+        # thrown away, which no assertion on the result can see.
+        fn = function_ast(m, "FeatureCache._maybe_evict_disk")
+        guards = [
+            n.lineno for n in ast.walk(fn) if isinstance(n, ast.Compare) and any(isinstance(x, ast.Name) and x.id == "target_free_bytes" for x in ast.walk(n))
+        ]
+        listdirs = [n.lineno for n in ast.walk(fn) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "listdir"]
+        assert guards, "the free-space guard is gone, so the pass always scans"
+        assert listdirs, "no directory listing found; this test needs updating if the scan was restructured"
+        assert min(guards) < min(listdirs), f"the guard (line {min(guards)}) must precede the directory scan (line {min(listdirs)})"
 
 
 def test_the_unread_bootstrap_parameter_is_gone():
@@ -142,8 +181,14 @@ def test_the_unread_bootstrap_parameter_is_gone():
     that does not exist. Every metric in the block is probability-based."""
     from mlframe.training import honest_diagnostics as m
 
+    from tests._source_ast import getattr_literals, module_ast
+
     assert "preds" not in inspect.signature(m._bootstrap_block).parameters
-    assert 'getattr(entry, "test_preds", None)' not in inspect.getsource(m)
+    # ...and the call site no longer reaches for the value it used to pass in. Structural: the parameter was
+    # accepted, passed and never read, so every metric in the block is probability-based and the result was
+    # identical with or without it -- which is what made it read as working plumbing for a crisp-metric CI
+    # that does not exist.
+    assert "test_preds" not in getattr_literals(module_ast(m), obj="entry"), "the unread crisp-prediction read is back at the call site"
 
 
 def test_the_mtr_chart_count_reports_what_was_rendered():
@@ -151,10 +196,17 @@ def test_the_mtr_chart_count_reports_what_was_rendered():
     _target0.._target{K-1} range including files never written."""
     from mlframe.training.reporting._reporting_regression import _mtr as m
 
-    src = inspect.getsource(m)
-    assert "_rendered.append(_k_idx)" in src and "_skipped.append(_k_idx)" in src
-    assert "rendered %d of %d" in src
-    assert "%s_target0 ... %s_target%d" not in src
+    from tests._source_ast import assigned_names, called_names, module_ast, string_literals
+
+    # Structural: the summary line is emitted from inside a per-target render loop that needs real fitted
+    # predictions for K targets to reach, and the defect was that the COUNT it advertised included files never
+    # written -- a wrong number in a log line, not a wrong return value.
+    tree = module_ast(m)
+    assert {"_rendered", "_skipped"} <= assigned_names(tree), "the loop no longer tracks which targets rendered and which were skipped"
+    assert "append" in called_names(tree), "nothing is appended to the rendered/skipped tallies"
+    emitted = " ".join(string_literals(tree))
+    assert "rendered %d of %d" in emitted, "the summary no longer reports rendered-of-total"
+    assert "%s_target0 ... %s_target%d" not in emitted, "the summary advertises a contiguous target range again, including files never written"
 
 
 def test_the_strong_ar_label_names_the_quantity_it_prints():
@@ -162,9 +214,14 @@ def test_the_strong_ar_label_names_the_quantity_it_prints():
     by the `source=global_lag3` token printed right beside it."""
     from mlframe.training.targets import _target_distribution_analyzer_target_fn as m
 
-    src = inspect.getsource(m)
-    assert "strong_AR_target(lag1_corr=" not in src
-    assert "strong_AR_target(max_abs_autocorr=" in src
+    from tests._source_ast import module_ast, string_literals
+
+    # Structural: the label is a format string in a log line, and the VALUE beside it was always the max
+    # absolute autocorrelation over lags 1/2/3/5 -- only the name was wrong, contradicted by the
+    # `source=global_lag3` token printed right next to it. A wrong label is not visible in any return value.
+    emitted = " ".join(string_literals(module_ast(m)))
+    assert "strong_AR_target(lag1_corr=" not in emitted, "the label claims lag-1 again while printing the max over lags 1/2/3/5"
+    assert "strong_AR_target(max_abs_autocorr=" in emitted, "the label no longer names the quantity it prints"
 
 
 def test_the_nan_heavy_doc_block_names_the_real_threshold():
@@ -172,10 +229,8 @@ def test_the_nan_heavy_doc_block_names_the_real_threshold():
     a 60%-NaN column was not flagged concludes the detector is broken."""
     from mlframe.training.targets import _target_distribution_analyzer as m
 
-    src = inspect.getsource(m)
-    assert "NaN-heavy features (fraction > 50%)" not in src
-    assert "_NAN_FRACTION_THRESHOLD, which is 0.99" in src
-    assert m._NAN_FRACTION_THRESHOLD == 0.99
+    # The threshold itself is the contract; the prose that once contradicted it is not something to assert.
+    assert m._NAN_FRACTION_THRESHOLD == 0.99, f"the NaN-heavy threshold moved to {m._NAN_FRACTION_THRESHOLD!r}; the doc block quoting it must move too"
 
 
 class TestTheLeakageSafeEncoderKnobIsReachable:
@@ -190,10 +245,22 @@ class TestTheLeakageSafeEncoderKnobIsReachable:
         assert TargetEncodeParams(kind="target_mean", time_aware=True).time_aware is True
 
     def test_it_is_forwarded_to_the_encoder(self):
-        """A knob that stops at the config boundary is no better than one that does not exist."""
-        from mlframe.training.feature_handling import apply as m
+        """A knob that stops at the config boundary is no better than one that does not exist.
 
-        assert "time_aware=params.time_aware" in inspect.getsource(m)
+        Structural: the forwarding is one keyword on one call, and whether it arrives changes the encoding
+        only on a time-ordered frame large enough for the ordering to matter -- reaching that through the
+        public apply path means standing up a full feature-handling run.
+        """
+        import ast
+
+        from mlframe.training.feature_handling import apply as m
+        from tests._source_ast import module_ast
+
+        forwarded = [kw for node in ast.walk(module_ast(m)) if isinstance(node, ast.Call) for kw in node.keywords if kw.arg == "time_aware"]
+        assert forwarded, "time_aware is never passed on, so the config knob stops at the boundary"
+        assert any(
+            isinstance(kw.value, ast.Attribute) and kw.value.attr == "time_aware" for kw in forwarded
+        ), "time_aware is forwarded, but not from the params object the caller configured"
 
     def test_the_encoder_still_accepts_it(self):
         """Pins the receiving end, so the two cannot drift apart."""
@@ -270,7 +337,21 @@ class TestSettingAnUnconsumedConfigFieldIsNotSilent:
         from mlframe.training.feature_handling import config as m
 
         src_root = pathlib.Path(m.__file__).resolve().parents[3]
-        listed = set(re.findall(r'^\s+"([a-z_]+)",\s*$', inspect.getsource(m.FeatureHandlingConfig._warn_on_declared_but_unconsumed), re.M))
+        # Read the list literal from the parsed method rather than regexing its source: a reformat that puts
+        # two names on one line, or a trailing comment, silently emptied the regex and the loop below then
+        # asserted nothing at all.
+        import ast as _ast
+
+        from tests._source_ast import function_ast
+
+        _fn = function_ast(m, "FeatureHandlingConfig._warn_on_declared_but_unconsumed")
+        listed = {
+            elt.value
+            for node in _ast.walk(_fn)
+            if isinstance(node, (_ast.List, _ast.Tuple, _ast.Set))
+            for elt in node.elts
+            if isinstance(elt, _ast.Constant) and isinstance(elt.value, str)
+        }
         assert listed, "the unconsumed list is empty; this test needs updating"
         for name in listed:
             hits = [
@@ -295,9 +376,24 @@ def test_the_mtr_and_calibration_modules_still_import():
 
 
 def test_the_eviction_guard_does_not_change_a_real_eviction():
-    """Below the floor, the pass must still run."""
-    from mlframe.training.feature_handling import cache as m
+    """Hoisting the free-space guard must not remove the scan for the case that genuinely needs it.
 
-    src = inspect.getsource(m)
-    assert "entries.sort(key=lambda t: t[1])" in src  # the scan is still there for the case that needs it
-    assert np.isfinite(1.0)
+    The complement of the guard test above: that one pins that the pass returns BEFORE listing when free space
+    is already above the floor, and this one pins that the listing-and-sort is still there for when it is
+    below. Structural for the same reason -- both paths evict the same files and return the same value, and the
+    difference is a directory listing plus a stat per file, which no result can show.
+
+    The previous form also closed with `assert np.isfinite(1.0)`, a tautology that could not fail.
+    """
+    import ast
+
+    from mlframe.training.feature_handling import cache as m
+    from tests._source_ast import called_names, function_ast
+
+    fn = function_ast(m, "FeatureCache._maybe_evict_disk")
+    calls = called_names(fn)
+    assert "listdir" in calls, "the eviction pass no longer lists the cache directory, so it cannot evict anything"
+    assert "sort" in calls, "the candidate entries are no longer ordered, so eviction is no longer oldest-first"
+    # ...ordered by a key, not by raw tuple comparison, which is what makes the order deliberate.
+    sorts = [n for n in ast.walk(fn) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "sort"]
+    assert any(kw.arg == "key" for n in sorts for kw in n.keywords), "the eviction sort no longer passes an explicit key"

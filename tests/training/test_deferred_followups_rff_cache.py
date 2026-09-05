@@ -283,13 +283,47 @@ def test_hermite_fe_separate_eval_documented_as_implemented() -> None:
     assert _src_has("separate eval for x_a")
 
 
-def test_plotly_legend_implemented_not_skipped() -> None:
-    # The plotly static legend landed (was a documented TODO/skip): the renderer now wires a
-    # ``static_legend`` flag through to ``showlegend`` for png/svg/pdf exports that have no hover.
-    """Plotly legend implemented not skipped."""
-    src = _read("reporting/renderers/plotly.py")
-    assert "(plotly 5.x feature) — TODO" not in src
-    assert "static_legend" in src and "showlegend=static_legend" in src
+def _rendered(static_legend):
+    """Render a one-panel figure through the plotly renderer with the given legend mode."""
+    import numpy as _np
+
+    from mlframe.reporting.renderers.plotly import PlotlyRenderer
+    from mlframe.reporting.spec import FigureSpec, LinePanelSpec
+
+    panel = LinePanelSpec(
+        x=_np.array([0.0, 1.0]),
+        y=(_np.array([0.0, 1.0]), _np.array([1.0, 0.0])),
+        series_labels=("a", "b"),
+        title="p",
+    )
+    spec = FigureSpec(suptitle="s", panels=((panel,),))
+    return PlotlyRenderer().render(spec, static_legend=static_legend)
+
+
+def test_static_legend_turns_the_legend_on_and_parks_it_below_the_plot() -> None:
+    """A png/svg/pdf export has no hover, so the legend has to carry the series identity.
+
+    Behavioural since 2026-09-03. This asserted that "static_legend" and
+    "showlegend=static_legend" appear in plotly.py -- two fragments that say the flag is threaded
+    somewhere, not that passing it produces a legend, and that survive the branch being dead.
+
+    The parking matters as much as the flag: a default top-right in-plot legend overlaps subplot
+    titles and the suptitle on multi-panel figures, which is why it goes horizontal and below.
+    """
+    fig = _rendered(static_legend=True)
+
+    assert fig.layout.showlegend is True
+    assert fig.layout.legend.orientation == "h"
+    assert fig.layout.legend.y is not None and fig.layout.legend.y < 0, "the legend is still inside the plot area"
+
+
+def test_the_static_legend_is_opt_in() -> None:
+    """Interactive HTML identifies series by hover, and a legend there is pooled-series soup on
+    multi-panel figures. A single labelled panel is the documented exception, so this asserts only
+    that the flag is not what turned it on."""
+    default = _rendered(static_legend=False)
+
+    assert default.layout.legend.orientation != "h" or default.layout.legend.y is None or default.layout.legend.y >= 0
 
 
 def test_ensembling_p2_quantile_design_decision_documented() -> None:

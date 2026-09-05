@@ -4,7 +4,7 @@
   "feature_selection/filters/_gpu_resident_rank_bin.py:70",
   "feature_selection/filters/_gpu_resident_select_kernels.py:849",
   "feature_selection/filters/_hermite_fe_mi.py:293",
-  "feature_selection/filters/_internals.py:206",
+  "feature_selection/filters/_internals.py:255",
   "feature_selection/filters/mrmr/_mrmr_class_config.py:30",
   "feature_selection/filters/mrmr/_mrmr_class_config.py:31",
   "feature_selection/filters/mrmr/_mrmr_class_config.py:32",

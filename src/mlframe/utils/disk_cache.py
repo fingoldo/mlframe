@@ -8,7 +8,7 @@ Both consumers share the same usage pattern: a deterministic transform of
 (X, y, params) whose cost dominates a single fit, called repeatedly across
 hyperparam sweeps / ablations / incremental data updates where (X, y, params)
 recur exactly or near-exactly. Caching the result amortises the cost across
-re-fits with zero correctness loss FOR PERMUTATION-INVARIANT consumers. ``hash_array_summary`` is deliberately sub-O(N) -- shape, dtype, the first and last 64 rows, and per-column sum/min/max -- so two arrays differing only by a permutation of their INTERIOR rows hash identically. That is exactly right for a consumer whose output does not depend on row order (MRMR bin edges), and wrong for one whose output does; such a consumer must fold an order-sensitive term of its own into the key.
+re-fits with zero correctness loss FOR PERMUTATION-INVARIANT consumers. ``hash_array_summary`` is deliberately sub-O(N) -- shape, dtype, the first and last 64 rows, and per-column sum/min/max -- so two arrays differing only by a permutation of their INTERIOR rows hash identically WHEN THE PER-COLUMN SUM IS EXACT, i.e. for integer dtypes. On FLOATING-POINT data the invariance is approximate only: addition is not associative, so a reordering shifts the column sum by a few ulp (measured 2.8e-14 on a 400x3 standard-normal block) and the key changes. That direction is safe -- an unnecessary cache MISS and a recompute, never a wrong hit -- but a caller must not rely on a float frame hitting the cache after its rows are reordered. The design is right for a consumer whose output does not depend on row order (MRMR bin edges), and wrong for one whose output does; such a consumer must fold an order-sensitive term of its own into the key.
 
 Design:
 

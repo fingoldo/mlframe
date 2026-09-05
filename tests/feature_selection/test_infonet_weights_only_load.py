@@ -6,6 +6,8 @@ source loads via that path. We cannot import the vendored module directly (it us
 verify the behavioural contract + the source.
 """
 
+import io
+import tokenize
 from pathlib import Path
 
 import pytest
@@ -40,14 +42,13 @@ def test_infer_never_loads_a_checkpoint_without_weights_only():
     import ast
 
     tree = ast.parse(_INFER.read_text(encoding="utf-8"))
-    loads = [
-        n
-        for n in ast.walk(tree)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "load" and getattr(n.func.value, "id", "") == "torch"
-    ]
+    loads = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "load" and getattr(n.func.value, "id", "") == "torch"]
     assert loads, "no torch.load call found in infer.py; this test needs updating"
 
-    lines = _INFER.read_text(encoding="utf-8").splitlines()
+    # The documented exemption is a COMMENT, so it is read from the token stream rather than by slicing the
+    # source into lines and testing a substring: a comment is exactly what a source-text search cannot tell
+    # apart from a string literal, and the marker is meant to be a comment specifically.
+    _marked_lines = {tok.start[0] for tok in tokenize.generate_tokens(io.StringIO(_INFER.read_text(encoding="utf-8")).readline) if tok.type == tokenize.COMMENT and "torch<1.13 fallback" in tok.string}
     unguarded = []
     for call in loads:
         kw = {k.arg: k.value for k in call.keywords if k.arg is not None}
@@ -61,10 +62,10 @@ def test_infer_never_loads_a_checkpoint_without_weights_only():
         # in the `except TypeError` arm of the guarded call and says so on its own line. Anything else is a real
         # gap -- and is exactly what the regex this replaced could not see, since it only needed ONE matching
         # call anywhere in the file to pass.
-        if "torch<1.13 fallback" in lines[call.lineno - 1]:
+        if call.lineno in _marked_lines:
             continue
         unguarded.append(call.lineno)
     assert not unguarded, f"torch.load without weights_only=True and without the documented torch<1.13 note at line(s) {unguarded}"
 
-    legacy = [c.lineno for c in loads if "torch<1.13 fallback" in lines[c.lineno - 1]]
+    legacy = [c.lineno for c in loads if c.lineno in _marked_lines]
     assert len(legacy) == 1, f"expected exactly one documented legacy fallback, found {legacy}"

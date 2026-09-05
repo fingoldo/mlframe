@@ -98,7 +98,7 @@ def _friend_graph_and_redundancy_passes_group4(
                     recipes=engineered_recipes,
                     raw_X=X,
                     retain_frac=float(_rrf_redund) if _rrf_redund is not None else 0.15,
-                    linear_usability_keep=bool(getattr(self, "use_simple_mode", False)),
+                    linear_usability_keep=bool(getattr(self, "fe_keep_linearly_usable_raw_operands", True)),
                     tail_subsume_enable=_fe_family_on("fe_pair_usability_admission_enable", True),
                     tail_subsume_min_corr=float(getattr(self, "fe_raw_tail_subsume_min_corr", 0.85)),
                     tail_subsume_rank_frac=float(getattr(self, "fe_pair_usability_admission_rank_frac", 0.7)),

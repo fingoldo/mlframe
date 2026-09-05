@@ -28,7 +28,7 @@ from typing import Any, Callable, Iterable, Mapping, Optional, Sequence, cast
 
 import numpy as np
 
-from mlframe.evaluation.bootstrap import _jackknife_ece
+from mlframe.evaluation import jackknife_ece as _jackknife_ece
 from mlframe.evaluation.bootstrap import _ci_from_samples, _jackknife_metric
 from mlframe.utils.log_throttle import log_throttle
 

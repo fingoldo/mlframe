@@ -326,6 +326,19 @@ skip_under_numba_disabled_jit = pytest.mark.skipif(
 )
 
 
+skip_scale_test_under_numba_disabled_jit = pytest.mark.skipif(
+    os.environ.get("NUMBA_DISABLE_JIT") == "1",
+    reason="a SCALE probe cannot run interpreted. Unlike `numba_disabled_timeout`, which widens a budget that "
+    "is merely tight, the work here is quadratic in the probe's own point: the pair-MI permutation null at "
+    "p=200 is ~21k pairs x 25 shuffles x 4000 rows, ~2e9 inner iterations, which no timeout multiplier makes "
+    "reachable in pure Python. Worse, the resulting pytest-timeout kill lands a traceback whose frame carries "
+    "`tb_lineno=None`, and pytest's own formatter divides on it -- so the shard died with an INTERNALERROR "
+    "before writing any coverage, taking the whole nightly job and its codecov merge down with it. The kernel "
+    "these probes exercise is still covered interpreted by the small-p tests in the same run; only the "
+    "at-scale no-crash assertion is dropped, and it is exercised at full size in the JIT-enabled CI.",
+)
+
+
 def perf_speedup_floor(base_ratio: float, *, xdist_factor: float = 0.6) -> float:
     """Speedup-ratio floors compress under ``-n`` contention. A ratio is measured from two arms run back-to-back in the
     same process, so contention hits both and the ratio is more load-robust than an absolute time -- but small absolute
@@ -503,8 +516,7 @@ def pytest_configure(config):
     # ``pytest.warns(ConvergenceWarning)`` can catch the warning instead of having it pre-filtered.
     config.addinivalue_line(
         "markers",
-        "expects_convergence_warning: opt out of the ``suppress_convergence_warnings`` autouse filter; "
-        "use when a test asserts the warning via ``pytest.warns(ConvergenceWarning)``.",
+        "expects_convergence_warning: opt out of the ``suppress_convergence_warnings`` autouse filter; " "use when a test asserts the warning via ``pytest.warns(ConvergenceWarning)``.",
     )
     # pytest-progress defines its pytest_xdist_node_collection_finished hookimpl whenever the
     # xdist PACKAGE is importable, not whether the xdist pytest PLUGIN is registered. Running with
@@ -671,7 +683,8 @@ except (OSError, RuntimeError) as exc:  # pragma: no cover
     # thinc is present but its import side-effects (cupy/CUDA init) failed: surface as a config notice, not a numeric RuntimeWarning.
     warnings.warn(
         f"Skipping optional thinc pytest-randomly seed shim because thinc import failed: {exc}",
-        UserWarning, stacklevel=2,
+        UserWarning,
+        stacklevel=2,
     )
 
 

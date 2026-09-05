@@ -73,7 +73,7 @@ jobs:
         # `pip install -e .` fails resolution with "No matching distribution found for pyutilz>=1.0.0".
         run: |
           git clone https://github.com/fingoldo/pyutilz.git
-          git -C pyutilz checkout 691a6ce16ba0abeb3647f17c1057464c895473ea  # pinned 2026-08-19, see X_CICD_DEPENDENCIES-1 -- register_default_cache DEFAULT-cache-fallback diagnostics
+          git -C pyutilz checkout ec016b15e76e5582ba1a083c02b33029663c2296  # see X_CICD_DEPENDENCIES-1 for why this is pinned -- narrowed code_audit scanners + the private-assertion-helper fix
           pip install "./pyutilz[system,pandas,polars,database]"
 
       - name: Resolve + install the GPU extra (no GPU execution)
