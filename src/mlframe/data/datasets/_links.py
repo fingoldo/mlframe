@@ -27,7 +27,7 @@ from typing import Dict, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
-from mlframe.data.datasets.spec import GateSpec, LinkSpec, resolve_knob
+from mlframe.data.datasets.spec import GateSpec, LinkSpec, Prior, resolve_knob
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +153,13 @@ def link_score(
         # this construction exists to avoid.
         score = np.where(gate_mask(link.region, columns), score, 0.0)
 
-    scale = float(scale_override) if scale_override is not None else resolve_knob(link.scale, knob_rng or np.random.default_rng(0))
+    if scale_override is not None:
+        return float(link.intercept) + float(scale_override) * score
+    # A prior-valued scale needs a stream; an absent one is a caller error rather than something to
+    # paper over with an arbitrary seed, because two runs would then differ for a reason no spec records.
+    if isinstance(link.scale, Prior) and knob_rng is None:
+        raise ValueError("link.scale is a Prior, so link_score needs a knob_rng to draw it from")
+    scale = resolve_knob(link.scale, knob_rng if knob_rng is not None else np.random.default_rng(0))
     return float(link.intercept) + scale * score
 
 

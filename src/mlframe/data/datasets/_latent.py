@@ -110,7 +110,11 @@ def realize_latent(
     noise_sd = resolve_knob(latent.noise_sd, resolver)
 
     values = rng.normal(0.0, 1.0, n) if latent.family == "normal" else rng.standard_t(4.0, n)
-    loadings = latent.loadings or tuple(1.0 for _ in latent.reflections)
+    # Explicit emptiness rather than `or`: the spec validator already refuses a partially specified
+    # loading vector, so an empty tuple means "unspecified" and any other length is exactly the
+    # reflection count. A truthiness fallback would read the same today and silently swallow a
+    # legitimately falsy vector the moment one becomes expressible.
+    loadings = tuple(1.0 for _ in latent.reflections) if len(latent.loadings) == 0 else latent.loadings
 
     reflections: Dict[str, np.ndarray] = {}
     deltas: Dict[str, np.ndarray] = {}
