@@ -268,6 +268,15 @@ left alone rather than quietly redefined here.
 Pinned by ``tests/reporting/test_heatmap_tick_budget.py``; three of its five tests fail with the budget
 reverted to the fixed cap.
 
+**LBL-15 FIXED on plotly only, and that asymmetry is the point.** A plotly colorbar title renders
+HORIZONTALLY above a 12 px bar pinned to the right edge of its subplot under a fixed 40 px right margin, so
+the 55-character label ``error_analysis`` already passes ran off the figure; it is wrapped now, with a test
+that no word is lost. The matplotlib twin was checked by rendering the same spec and needs no change: its
+title is drawn VERTICALLY along the bar, where the room is the panel height, and the same label fits
+comfortably. A test pins that matplotlib still draws it intact, so "making the backends consistent" cannot
+later cost the one that was already right. The wrap was verified in the saved HTML at byte level -- it
+appears as ``<br>``, and a naive substring check for ``<br>`` reports a false negative.
+
 **LBL-09 FIXED.** Violin group labels are truncated on both backends (to the same length, so one spec reads
 the same either way) and thinned by the panel's real width. Confirmed on the case the finding names -- 20
 string class names on a per-class probability violin: the labels were a staircase taking ~40% of the figure

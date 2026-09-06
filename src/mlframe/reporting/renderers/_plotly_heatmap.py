@@ -140,6 +140,21 @@ def _confusion_margins(self, fig, p: ConfusionMarginsPanelSpec, row: int, col: i
         xaxis=tx.replace("axis", ""), yaxis=ty.replace("axis", ""),
     ))
 
+# Characters per line of a wrapped colorbar title. The bar is 12 px wide with a small gutter beside it, so the
+# title's own width is what has to be bounded; this is the width at which it stops reaching past the margin.
+_COLORBAR_TITLE_WRAP = 22
+
+
+def _wrap_colorbar_title(label) -> str:
+    """Break a colorbar label into ``<br>``-separated lines short enough to sit above a 12 px bar."""
+    import textwrap
+
+    text = str(label)
+    if len(text) <= _COLORBAR_TITLE_WRAP:
+        return text
+    return "<br>".join(textwrap.wrap(text, _COLORBAR_TITLE_WRAP) or [text])
+
+
 def _colorbar_placement(fig, row: int, col: int, label) -> dict:
     """Pin a heatmap's colorbar beside ITS OWN subplot instead of plotly's default paper position.
 
@@ -148,7 +163,12 @@ def _colorbar_placement(fig, row: int, col: int, label) -> dict:
     them sits next to the panel it describes. Reading the subplot's own domain and anchoring the bar to
     its right edge keeps each bar with its heatmap regardless of the grid shape.
     """
-    placement: dict = {"title": label} if label else {}
+    # A colorbar title renders HORIZONTALLY above the bar in plotly, and the bar sits at the right edge of the
+    # plot area under a fixed 40 px right margin -- so a label the codebase actually passes
+    # ("mean error (darker = worse); cell number = rows in cell", 55 chars) simply ran off the figure. Wrapping
+    # it keeps it inside; the matplotlib twin needs no equivalent because its title is drawn vertically along
+    # the bar, where the available room is the panel HEIGHT.
+    placement: dict = {"title": _wrap_colorbar_title(label)} if label else {}
     grid = getattr(fig, "_grid_ref", None)
     if not grid:
         return placement
