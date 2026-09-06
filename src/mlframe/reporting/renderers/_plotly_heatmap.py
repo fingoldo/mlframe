@@ -35,6 +35,10 @@ _MARGIN_STRIP_GAP = 0.02
 # The colorbar and its tick labels eat this much of the plot region's width, so the tick budget must not
 # count it as room for axis labels.
 _COLORBAR_ALLOWANCE_PX = 110
+# What must fit between a colorbar's anchor and the next column: the 12 px bar plus its tick labels. The
+# neighbour's own y-axis title and ticks need room on top of this, which is why the column gap adds to it.
+_COLORBAR_GUTTER_PX = 95
+_NEIGHBOUR_AXIS_PX = 60
 
 
 def _cell_domains(fig, row: int, col: int):
@@ -297,14 +301,22 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
             for _entry in p.threshold_contours:
                 level, color = _entry[0], _entry[1]
                 _dash = _entry[2] if len(_entry) > 2 else "solid"
+                # The 4th element is the triage name ("moderate 0.1"); matplotlib draws it with clabel and
+                # this branch used to discard it, leaving the drift heatmap's two thresholds as anonymous
+                # squiggles in the HTML while the PNG named them.
+                _label = _entry[3] if len(_entry) > 3 else ""
                 if not (lo < level < hi):  # contour only exists when the level is crossed
                     continue
                 fig.add_trace(
                     go.Contour(z=mat, x=list(p.col_labels), y=list(p.row_labels),
-                               contours=dict(start=level, end=level, size=1,
-                                             coloring="none", showlabels=False),
+                               # plotly can only write the LEVEL on a contour, never arbitrary text, so the
+                               # triage wording rides in the trace name (legend + hover) while the inline
+                               # label carries the number. Both beat the anonymous squiggle this drew before.
+                               contours=dict(start=level, end=level, size=1, coloring="none",
+                                             showlabels=True, labelfont=dict(size=7, color=color)),
                                line=dict(color=color, width=1.6, dash=_dash),
-                               showscale=False, hoverinfo="skip"),
+                               name=_label or f"{level:g}", showlegend=bool(_label),
+                               showscale=False, hovertemplate=(f"{_label}<extra></extra>" if _label else "skip")),
                     row=row, col=col,
                 )
     if p.trend_line is not None and p.trend_xy is not None:

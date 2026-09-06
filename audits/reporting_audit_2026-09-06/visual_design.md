@@ -261,6 +261,11 @@ and sets `contours=dict(..., showlabels=False)`; the label is never read.
 *Fix:* read `_entry[3]` and pass `contours.showlabels=True` with `contours.labelfont`, or add a legend
 entry per contour level.
 
+**RESOLVED, with a stated limit.** plotly can only write the LEVEL on a contour, never arbitrary text, so
+the two mechanisms are used together: `showlabels=True` puts the number on the line inline, and the triage
+wording ("moderate 0.1") rides in the trace name, which reaches the legend and the hover. Both beat the
+anonymous squiggle. Verified by rendering the drift heatmap on both backends.
+
 ### VIS-18 — P3 — `renderers/_plotly_scatter.py:240`
 **A shared overlay colour hardcoded on one backend only.**
 `fillcolor="rgba(128,0,128,0.18)"` is the literal RGB of `colors.OVERLAY_LINE = "purple"`, while
@@ -270,6 +275,9 @@ matplotlib uses the constant (`renderers/_matplotlib_scatter.py:128`,
 *What the reader sees:* nothing today; on the next repaint of `OVERLAY_LINE` the curve-95%-band is
 recoloured in PNGs and stays purple in HTML. This is the exact drift `colors.py:89-90` documents.
 *Fix:* `fillcolor=_rgba(OVERLAY_LINE, 0.18)`.
+
+**RESOLVED.** `_rgba(OVERLAY_LINE, 0.18)` produces the byte-identical `rgba(128,0,128,0.18)` today, so
+nothing renders differently -- the point is that it now moves when the constant does.
 
 ### VIS-19 — P3 — `renderers/plotly.py:646-648, 730` vs `renderers/matplotlib.py:641-642, 205-207`
 **Gridlines differ in axis coverage and weight between backends.**
@@ -282,6 +290,10 @@ PNG does not have, and all plotly gridlines read heavier. Two charts of the same
 visual density, printed in the same report.
 *Fix:* set `showgrid=False` explicitly on the category axis and pin `gridcolor`/`gridwidth` in the plotly
 layout to match matplotlib's `alpha=0.3`.
+
+**RESOLVED.** `showgrid=False` on the category axis of all four plotly bar branches, and one
+`update_xaxes/update_yaxes(gridcolor=_GRID_COLOR, gridwidth=1)` pass in `render()` -- matplotlib's default
+`#b0b0b0` flattened against white at the `alpha=0.3` every panel draws it with.
 
 ### VIS-20 — P3 — `renderers/_matplotlib_scatter.py:116-117` vs `renderers/_plotly_scatter.py:212-214`
 **The worst-K highlight ring is data-scaled on matplotlib and fixed-size on plotly.**
@@ -530,3 +542,15 @@ to attach per-class legend entries to a point cloud -- it carries either a unifo
 colour array -- so that needs a new spec field and support in both renderers, which is a larger change than
 this finding. The colourbar now at least names the class COUNT so the reader knows the scale is categorical.
 Pinned by ``tests/reporting/test_separability_class_colours.py``.
+
+### VIS-27 -- found by rendering, not in the audit list
+
+**A heatmap colorbar's tick labels landed on the next panel's y-axis title.**
+The colorbar is pinned just outside its own subplot's right edge; its tick labels stick out further still,
+and the default 0.08 column gap (84 px on a 12-inch figure) does not hold the 12 px bar, its labels and the
+neighbour's axis furniture. Seen directly in a two-heatmap render: "feature" written across "0.15".
+
+**RESOLVED.** The column gap is now derived from what has to fit -- `_COLORBAR_GUTTER_PX` (95) plus
+`_NEIGHBOUR_AXIS_PX` (60) over the figure width -- and applies only when a multi-column figure actually
+draws a colorbar, so single-column layouts keep their full width.
+`tests/reporting/test_backend_grid_and_contour_parity.py` (8 tests, every one verified failing pre-fix).

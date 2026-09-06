@@ -15,7 +15,7 @@ import numpy as np
 from mlframe.reporting.colors import OVERLAY_LINE, PERFECT_FIT_LINE, TREND_LINE
 from mlframe.reporting.spec import ScatterPanelSpec
 
-from ._plotly_color import _axis_ref, _mpl_to_plotly_cmap
+from ._plotly_color import _axis_ref, _mpl_to_plotly_cmap, _rgba
 from ._shared_helpers import _SCATTER_MAX_POINTS, low_evidence_mask, select_per_point
 
 logger = logging.getLogger(__name__)
@@ -279,7 +279,7 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
         )
         fig.add_trace(
             go.Scatter(x=bx, y=bhi, mode="lines", line=dict(width=0),
-                       fill="tonexty", fillcolor="rgba(128,0,128,0.18)",
+                       fill="tonexty", fillcolor=_rgba(OVERLAY_LINE, 0.18),
                        name="curve 95% band", showlegend=True, hoverinfo="skip"),
             row=row, col=col,
         )

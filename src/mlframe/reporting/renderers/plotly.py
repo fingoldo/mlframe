@@ -75,6 +75,9 @@ _CAPTION_FONTSIZE = CAPTION_FONTSIZE
 # Subplot-title font. plotly's own default (16) overflows horizontally into the adjacent subplot at a
 # typical 3-column figsize.
 _PANEL_TITLE_FONTSIZE = PANEL_TITLE_FONTSIZE
+# matplotlib's default gridline (#b0b0b0) at the alpha=0.3 every panel draws it with, flattened against the
+# white panel background so plotly's opaque gridlines read at the same weight.
+_GRID_COLOR = "#e7e7e7"
 # One definition in ._shared_helpers: the heatmap tick budget converts a plotly pixel extent back to inches
 # and has to agree with whatever this renderer sized the figure at.
 _PX_PER_INCH = PX_PER_INCH
@@ -302,13 +305,23 @@ class PlotlyRenderer:
         # with the tallest title in ANY row.
         _max_title_lines = max((t.count("<br>") + 1) for t in subplot_titles if t) if any(subplot_titles) else 1
 
+        # A colorbar is pinned just outside its own subplot's right edge, and its TICK LABELS stick out further
+        # still -- straight into the next column's y-axis title. The gap has to hold the bar, its labels and the
+        # neighbour's axis furniture, which the default 0.08 does not on a multi-column figure.
+        _has_colorbar = any(isinstance(pn, HeatmapPanelSpec) for rw in spec.panels for pn in rw if pn is not None)
+        _hspace = 0.08
+        if _has_colorbar and cols > 1:
+            from ._plotly_heatmap import _COLORBAR_GUTTER_PX, _NEIGHBOUR_AXIS_PX
+
+            _hspace = max(_hspace, (_COLORBAR_GUTTER_PX + _NEIGHBOUR_AXIS_PX) / (spec.figsize[0] * _PX_PER_INCH))
+
         subplots_kwargs = dict(
             rows=rows, cols=cols,
             specs=sub_specs,
             subplot_titles=subplot_titles,
             shared_xaxes=spec.sharex,
             shared_yaxes=spec.sharey,
-            horizontal_spacing=0.08,
+            horizontal_spacing=_hspace,
             # Roomier vertical gap so a row's subplot-title annotation (stamped just above the subplot domain) clears the data/xticks of the row above and wrapped multi-line titles don't overlap the row beneath; capped at plotly's 1/(rows-1) ceiling.
             vertical_spacing=(min(0.16 + 0.03 * max(_max_title_lines - 1, 0), 0.9 / max(rows - 1, 1)) if rows > 1 else 0.16),
         )
@@ -403,6 +416,11 @@ class PlotlyRenderer:
                 # TRACK across instead of running one very tall single file down the side.
                 orientation="h" if _ncol > 1 else "v",
             ))
+        # Plotly's cartesian gridlines are drawn at full strength; matplotlib's are alpha=0.3 over the same
+        # data, so the two backends printed the same chart at two visual densities. Pin the weight here, once,
+        # rather than on every axis call.
+        fig.update_xaxes(gridcolor=_GRID_COLOR, gridwidth=1)
+        fig.update_yaxes(gridcolor=_GRID_COLOR, gridwidth=1)
         # Heatmap ticks are budgeted against the axes' real extent, and the margins that decide that extent
         # are only final here -- while the panels were being drawn they were still plotly's defaults.
         from ._plotly_heatmap import apply_heatmap_tick_budget
@@ -674,7 +692,7 @@ class PlotlyRenderer:
             # put "subgroup", "model" and "metric" along the value axis of six chart types in the HTML report
             # while the PNG of the same spec read correctly.
             fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid)
-            fig.update_yaxes(title_text=p.ylabel, row=row, col=col)
+            fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=False)
         else:
             n_cat = len(cats)
             # Rotate + truncate long category labels; thin to ~20 evenly-spaced past 25 categories (matching matplotlib) so they don't smear.
@@ -687,14 +705,14 @@ class PlotlyRenderer:
                                  tickvals=[cats[i] for i in sel],
                                  ticktext=[_truncate_label(cats[i], keep_tail=p.label_keep_tail) for i in sel],
                                  tickangle=tickangle if p.xtick_rotation else -45,
-                                 row=row, col=col, title_text=p.xlabel)
+                                 row=row, col=col, title_text=p.xlabel, showgrid=False)
             elif needs_trunc:
                 fig.update_xaxes(tickmode="array", tickvals=cats,
                                  ticktext=[_truncate_label(c, keep_tail=p.label_keep_tail) for c in cats],
                                  tickangle=tickangle if p.xtick_rotation else -30,
-                                 row=row, col=col, title_text=p.xlabel)
+                                 row=row, col=col, title_text=p.xlabel, showgrid=False)
             else:
-                fig.update_xaxes(title_text=p.xlabel, row=row, col=col, tickangle=tickangle)
+                fig.update_xaxes(title_text=p.xlabel, row=row, col=col, tickangle=tickangle, showgrid=False)
             fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
 
     def _line(self, fig, p: LinePanelSpec, row: int, col: int) -> None:
