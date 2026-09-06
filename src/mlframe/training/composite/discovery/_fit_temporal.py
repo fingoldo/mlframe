@@ -34,9 +34,21 @@ def apply_base_leakage_guard(
     from ._leakage import detect_base_target_leakage
 
     _to_all = np.asarray(time_ordering)
-    _to_train = _to_all[train_idx] if _to_all.shape[0] >= int(np.max(train_idx)) + 1 else None
-    if _to_train is None:
+    _needed = int(np.max(train_idx)) + 1
+    if _to_all.shape[0] < _needed:
+        # The caller asked for this guard (config.detect_base_leakage) and it cannot run: a time_ordering
+        # shorter than the training indices it must be indexed by is a caller-side mismatch, typically an
+        # .iloc[] slice whose ordering was not sliced with it. Returning silently left the guard OFF while
+        # the config said it was on, so same-time re-encodings of y entered discovery as bases with nothing
+        # in the log to explain it.
+        logger.warning(
+            "base-leakage guard SKIPPED: time_ordering has %d rows but the training indices reach %d. "
+            "The guard is configured on but cannot run, so same-time re-encodings of y will not be "
+            "detected -- pass a time_ordering aligned with the frame the training indices refer to.",
+            _to_all.shape[0], _needed,
+        )
         return base_candidates
+    _to_train = _to_all[train_idx]
 
     kept, dropped = [], []
     for _bcand in base_candidates:
