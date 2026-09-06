@@ -332,3 +332,19 @@ identical output, not on the headline number.
 **PERF-11 fixed and independently measured:** `np.unique(ys).size` vs `ys.min() == ys.max()` for the
 constant-score check - 154.1 ms vs 7.2 ms at n=2M (**21.4x**), 13.9 vs 0.77 at 200k (18.1x). Verified the
 warning still fires on a constant column and stays off on a varying one.
+
+**PERF-04 NOT taken, and the reason is not effort.** The proposed two-pass screen computes a cheap
+approximate PSI to pick the `max_features` rows, then the exact PSI only for those. That changes WHICH
+columns the heatmap shows: the current code ranks on the exact per-bucket peak, and an approximation ranks
+on something else, so a column near the cutoff can swap. This repo's rule is that a selection change never
+ships unvalidated, and validating it means showing the kept SET is identical across a spread of real drift
+shapes -- not a one-fixture check. Left open with that as the required evidence rather than taken on the
+speedup alone.
+
+**Rejected here as well, with its bench: skipping `bbox_inches="tight"` when constrained layout already
+ran.** It is 1.30x on savefig (2.10 s -> 1.62 s per multilabel figure) and the outside legend does survive.
+Panel titles do not: constrained layout reserves vertical space for a title but never widens the figure for
+one, so a panel pushed right by long y-tick labels has its centred title cropped mid-word. Seen in the
+rendered PNG, reverted, and the note left at the call site in `matplotlib.py`. It becomes available once
+the title wrap budget is measured after layout instead of before it -- the budget currently reads the
+pre-layout axes width, which is exactly why it overhangs on those panels.

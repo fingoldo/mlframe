@@ -311,10 +311,18 @@ class MatplotlibRenderer:
         fmt = fmt.lower()
         if fmt not in ("png", "pdf", "svg", "jpg", "jpeg"):
             raise ValueError(f"matplotlib doesn't support format {fmt!r}; " "supported: png/pdf/svg/jpg")
-        # bbox_inches="tight" + small pad guarantees suptitle, ytick labels
-        # and any annotations outside the axes box land inside the saved
-        # PNG. Without this the renderer crops at the figure box and long
-        # ytick labels (FI plots) / suptitles get clipped.
+        # bbox_inches="tight" + small pad guarantees suptitle, ytick labels and any annotations outside the axes
+        # box land inside the saved PNG. Without this the renderer crops at the figure box and long ytick labels
+        # (FI plots) / suptitles get clipped.
+        #
+        # bench-attempt-rejected 2026-09-06: skipping this pass when constrained layout already ran is 1.30x on
+        # savefig (2.10 s -> 1.62 s per multilabel figure) and the outside legend survives -- constrained layout
+        # does reserve room for it. Panel TITLES do not survive: constrained layout allots vertical space for a
+        # title but never widens the figure for one, so on a panel pushed right by long y-tick labels the
+        # centred title overhangs the figure edge and is cropped mid-word ("... support n + P(y=1|le"). The
+        # tight crop was what grew the canvas to fit it. Rejected until the title's wrap budget is measured
+        # AFTER layout rather than before it (the budget currently reads the pre-layout axes width, so it is
+        # too generous exactly on the panels where this bites); the bench is profiling/render_every_chart.py.
         fig.savefig(ensure_parent_dir(path), format=fmt, bbox_inches="tight", pad_inches=0.15)
 
     def show(self, fig: Any) -> None:
