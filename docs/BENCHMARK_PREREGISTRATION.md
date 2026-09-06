@@ -68,6 +68,31 @@ Residue worth keeping regardless of the stop decision:
 - On madelon at k50, k100 and k200 the outright winner is `variance-sort` -- ranking by marginal variance, with no target involved -- ahead of every information-theoretic and wrapper arm. At k20 it is third (+0.0562), still ahead of MRMR. On a synthetic bed this document treats that as a broken bed; on a real one it is a statement about madelon and about the arms, and it stands.
 - `random-<k>` at matched cardinality beats `all-features` on madelon under logistic (+0.0171, p=0.001), which is why every skill number here is read against that control and not against the null alone.
 
+## 2b. POST-HOC: the synthetic control point (measured 2026-09-06)
+
+Section 2a recorded that the kill criterion fired. It could not say whether that verdict was about real
+data or about the downstream model, because a real bed has no ground truth and therefore no way to show
+that selection COULD have helped. The control run answers exactly that and nothing more: the same sixteen
+arms, the same protocol, the same panel, on nine adversarial beds whose informative columns are
+constructed. 3 029 cells, 20 seeds per (arm, bed). Full write-up:
+[`BENCHMARK_SYNTH_CONTROL.md`](BENCHMARK_SYNTH_CONTROL.md).
+
+**Result.** With lightgbm, some arm beats the null on 5 of 9 beds at 1k and 2k, and on 7 of 9 at 5k; with
+logistic, on 8 of 9 at 1k. So a gradient-boosted tree does benefit from selection when the truth is
+sparse and known. The Phase 0 verdict is about the DATA, not about the model, and the kill criterion
+stands as a statement about real beds rather than about feature selection in general.
+
+**The qualification, which points the other way.** The gains measured here are +0.0032 to +0.0171 AUC.
+The real leg's minimum detectable effect at R = 20 is 0.013 on the median contrast and 0.031 on the p90
+one (section 6a), so all but the largest of these sit inside the real leg's blind spot. The two legs are
+consistent with "real gains of this size exist and were invisible" as well as with "no real gains". The
+control rules out one explanation -- that a strong model cannot use selection -- and establishes nothing
+about the other.
+
+**The beds where nothing pays were built so nothing would**: the three parity beds and the private-delta
+cluster, each of which declared the arms it expects to defeat before the run. A predicted failure is a
+result; the report distinguishes it from an unexplained one.
+
 ## 3. Primary outcome and null hypothesis
 
 - **Null hypothesis: `all-features`.** Not a baseline line on a chart — the thing every arm must beat.
