@@ -3,6 +3,13 @@
 Iter 64 mechanism. Orthogonal to residual-band family (iters 60-63): partitions rows by what the
 baseline boosting PREDICTS, not by where it makes mistakes.
 
+Being orthogonal in MECHANISM does not mean opting out of the cluster's baseline convention, and this
+module does not: it takes its baseline from the shared ``_baseline_oof.fit_baseline_predict_oof``, i.e.
+inner-KFold(3) out-of-fold predictions. The distinction matters here for a different reason than in the
+residual-band family. There, in-sample predictions understate the residual because the model was just fit
+on those rows. Here the bands are cut on prediction QUANTILES, so an overfit prediction distribution moves
+the band boundaries themselves -- rows are sorted into bands by a ranking the model partly memorised.
+
 Mechanism:
 1. Fit 50-iter LightGBM baseline → out-of-fold predictions ŷ (regression) or p̂ (binary), inner KFold(3).
 2. Partition rows into 5 quintile bands by ŷ (or p̂):
