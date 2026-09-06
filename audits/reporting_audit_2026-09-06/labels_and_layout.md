@@ -390,3 +390,16 @@ the finding suggests is a no-op here -- `get_window_extent()` before draw alread
 rectangle. The real effect is the opposite one and much milder: the text under-uses the panel by about
 20%. Left as it is, with the measurement recorded at the call site, rather than shipping a change that
 demonstrably changes nothing.
+
+**LBL-13 RESOLVED, the targeted way, with the cost measured rather than quoted.** The engine now also comes
+on when a panel carries furniture that needs room reserved for it: a rotated tick axis, horizontal bars, a
+colorbar label, or a heatmap/violin panel. The finding offered "unconditionally" as the other option; the
+figure with none of that furniture genuinely does not need the engine and now pays nothing for it. The
+`~800 ms` in the old comment does not reproduce -- measured on a busy four-panel figure the engine costs
+**156 ms against a 714 ms render**, and on a single rotated-bar figure **181 ms against 203 ms**. Verified
+on the path that has no tight bbox to rescue it: rendered without `bbox_inches`, the lowest tick label now
+sits inside the figure instead of below its bottom edge.
+
+**LBL-14 RESOLVED.** The width is capped at 16in and the height grows by what the longest label actually
+projects at 45 degrees (measured, not assumed), floored at the old 5in and capped at 12in. The plot area
+stops being what the labels eat into.

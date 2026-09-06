@@ -40,6 +40,23 @@ _TITLE_FONTSIZE = PANEL_TITLE_FONTSIZE
 _HEATMAP_TICK_FONTSIZE = 8
 
 
+def _needs_layout_engine(spec) -> bool:
+    """Whether any panel carries axis furniture that needs space reserved for it before drawing."""
+    for row in spec.panels:
+        for panel in row:
+            if panel is None:
+                continue
+            if getattr(panel, "xtick_rotation", None):
+                return True
+            if getattr(panel, "orientation", "vertical") == "horizontal":
+                return True
+            if getattr(panel, "colorbar_label", None):
+                return True
+            if isinstance(panel, (HeatmapPanelSpec, ConfusionMarginsPanelSpec, ViolinPanelSpec)):
+                return True
+    return False
+
+
 def _measured_axis_in(ax, *, horizontal: bool) -> Optional[float]:
     """Length in inches of the axis the category labels run along, or ``None`` when it cannot be measured."""
     try:
@@ -238,10 +255,18 @@ class MatplotlibRenderer:
         # Force constrained_layout whenever a suptitle is present: with the
         # default (None) layout engine the suptitle stamps at y=0.98 figure
         # coords while ax.set_title sits at ax-top which lands at the same
-        # band on figsize=(15, 4-5) — visible collision in saved PNGs.
-        # constrained_layout reserves space for the suptitle. The ~800 ms
-        # cost only fires when caller actually asked for a suptitle.
-        layout = "constrained" if (spec.constrained_layout or spec.suptitle or spec.caption) else None
+        # band on figsize=(15, 4-5) - visible collision in saved PNGs.
+        # constrained_layout reserves space for the suptitle.
+        #
+        # And whenever a panel carries axis furniture that needs room reserved for it. Many builders pass
+        # ``suptitle=""`` deliberately, so those figures had NO layout engine: nothing reserved space for
+        # 45-degree tick labels, a category axis of long names, or a colorbar. ``savefig(bbox_inches="tight")``
+        # rescued the saved file by growing the canvas -- silently producing a figure that is not the
+        # requested figsize -- and the interactive ``display(fig)`` path has no tight bbox at all, so in a
+        # notebook those labels were simply clipped. Measured on a busy four-panel figure, the engine costs
+        # ~156 ms against a 714 ms render (not the ~800 ms this comment used to claim), and a figure with no
+        # such furniture still pays nothing.
+        layout = "constrained" if (spec.constrained_layout or spec.suptitle or spec.caption or _needs_layout_engine(spec)) else None
         fig_kwargs: dict[str, Any] = {"figsize": spec.figsize, "layout": layout}
         if spec.dpi is not None:
             fig_kwargs["dpi"] = spec.dpi
