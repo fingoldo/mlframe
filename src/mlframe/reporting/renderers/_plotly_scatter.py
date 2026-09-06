@@ -25,6 +25,7 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
     """Render a scatter panel: downsamples above ``_SCATTER_MAX_POINTS`` (extremes-preserving), converts mpl marker-area sizing to plotly pixel-diameter, switches to WebGL above ``_SCATTER_WEBGL_THRESHOLD`` points (unless error bars are present, which Scattergl doesn't support), and layers optional highlight points, trend line, uncertainty band, overlay line, and a perfect-fit y=x diagonal on top."""
     # Lazy, function-local, matching ``_plotly_network``: the parent module imports this one at its own bottom,
     # so a module-level ``from .plotly import ...`` would be a hard cycle. By call time the parent is loaded.
+    from .matplotlib import _EDGE_LABEL_FLIP_FRACTION  # the flip fraction is shared so both backends turn a label at the same place
     from .plotly import _SCATTER_WEBGL_THRESHOLD, _err_to_plotly, _go, _warn_scatter_downsample
 
     go = _go()
@@ -86,14 +87,50 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
         return dict(size=8, color=_lab_colors[i]) if i < len(_lab_colors) else dict(size=8)
 
     if _labels:
+        # Both of the matplotlib twin's protections, which this branch had neither of.
+        #
+        # A CONTRAST HALO. ``auto_text_color`` deliberately picks white for a label sitting on a dark bubble;
+        # with no halo and a fixed upward shift, that white text lands on the white panel and disappears
+        # entirely -- the exact failure auto_text_color exists to prevent, defeated by the missing outline.
+        # plotly has no text stroke, so the halo is a tight opaque box in the opposite tone: it keeps the
+        # label legible wherever it lands without hiding the marker underneath.
+        #
+        # EDGE FLIPPING. A fixed anchor puts the text on one side of its point always, so a point in the
+        # busy bottom-left of a reliability diagram had its label clipped by the axis. The anchors flip
+        # against the panel's own range, using the same fraction matplotlib uses.
+        _xs = [float(lx) for lx, _, _ in _labels]
+        _ys = [float(ly) for _, ly, _ in _labels]
+        _xlo, _xhi = min(_xs), max(_xs)
+        _ylo, _yhi = min(_ys), max(_ys)
+        # A zero span is a collapsed axis, not a missing measurement; 1.0 keeps the ratio finite so every
+        # label lands on the "not near an edge" side instead of dividing by zero.
+        _xspan = (_xhi - _xlo) or 1.0
+        _yspan = (_yhi - _ylo) or 1.0
+
+        def _anchors(lx: float, ly: float) -> dict:
+            """Anchor a label away from whichever panel edge it sits against."""
+            near_left = (float(lx) - _xlo) / _xspan < _EDGE_LABEL_FLIP_FRACTION
+            near_top = (_yhi - float(ly)) / _yspan < _EDGE_LABEL_FLIP_FRACTION
+            return {
+                "xanchor": "left" if near_left else "right",
+                "yanchor": "top" if near_top else "bottom",
+                "yshift": -8 if near_top else 8,
+            }
+
+        def _halo(idx: int) -> dict:
+            """Opaque backing in the tone opposite the text, standing in for matplotlib's path-effect stroke."""
+            colour = _lab_colors[idx] if idx < len(_lab_colors) else "black"
+            backing = "rgba(0,0,0,0.55)" if str(colour).lower() == "white" else "rgba(255,255,255,0.75)"
+            return {"bgcolor": backing, "borderpad": 1}
+
         _lx, _ly, _ltext = _labels[0]
-        fig.add_annotation(x=_lx, y=_ly, text=str(_ltext), showarrow=False, font=_lab_font(0), yshift=8, row=row, col=col)
+        fig.add_annotation(x=_lx, y=_ly, text=str(_ltext), showarrow=False, font=_lab_font(0), row=row, col=col, **_anchors(_lx, _ly), **_halo(0))
         if len(_labels) > 1:
             _ref = fig.layout.annotations[-1]
             _rest = tuple(
                 go.layout.Annotation(
-                    x=lx, y=ly, text=str(txt), showarrow=False, font=_lab_font(_i + 1), yshift=8,
-                    xref=_ref.xref, yref=_ref.yref,
+                    x=lx, y=ly, text=str(txt), showarrow=False, font=_lab_font(_i + 1),
+                    xref=_ref.xref, yref=_ref.yref, **_anchors(lx, ly), **_halo(_i + 1),
                 )
                 for _i, (lx, ly, txt) in enumerate(_labels[1:])
             )

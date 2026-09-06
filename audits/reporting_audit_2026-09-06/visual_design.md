@@ -482,3 +482,35 @@ That last case was a hole in the FIX rather than in the original code: gating th
 Found by comparing the three cases against matplotlib rather than only the one the finding describes.
 
 Both pinned by ``tests/reporting/test_scatter_backend_parity.py``.
+
+**VIS-04 FIXED.** The plotly HORIZONTAL bar branch now thins its category labels with the same
+threshold/keep policy matplotlib uses -- and that this renderer's own VERTICAL branch already used, which
+is what made the omission easy to miss. Measured on a 200-row feature-importance chart: matplotlib drew 20
+labels and plotly drew all 200 before; both draw 20 now. Verified at the boundaries too: 12 categories and
+exactly the threshold keep every label, and the vertical branch is unchanged. Truncation and thinning are
+independent guards, so a test pins that thinned labels are still truncated. Pinned by
+``tests/reporting/test_horizontal_bar_tick_thinning.py``; three of seven fail with the thinning disabled.
+
+**VIS-07 FIXED.** Both matplotlib protections are ported to plotly. The contrast halo is a tight opaque box
+in the tone opposite the text (plotly has no text stroke), so a white label chosen by ``auto_text_color``
+for a dark bubble stays legible when it runs off the fill onto the white panel -- previously it vanished
+outright, defeating the very helper that picked the colour. The anchors now flip against the panel range
+using the same fraction matplotlib uses, so a point in the busy bottom-left corner no longer has its label
+clipped by the axis, and a top-edge label shifts DOWN instead of walking out of the panel. Verified on a
+three-point fixture with points at both edges: the left-edge label anchors left, the top-edge one anchors
+top with a negative shift, and each backing is the opposite tone of its own text. Pinned by
+``tests/reporting/test_inline_label_contrast.py``; four of six fail with the halo removed.
+
+**VIS-05 FIXED in the part that misleads; one part left open on purpose.** The class vector is remapped to
+contiguous codes and drawn through ``tab10``, a QUALITATIVE colormap, with the scale pinned to
+``-0.5 .. n_classes - 0.5`` so class k sits in the middle of band k regardless of how many classes a run
+has. That removes what actually misled: classes no longer read as the extremes of one quantity, and the
+middle class of a 3-class problem is no longer on a pale midpoint that vanishes against the panel.
+Confirmed in a rendered PNG on a 3-class fixture.
+
+Left open, and NOT worth pretending otherwise: the finding also asks for a discrete LEGEND instead of a
+colourbar, so the ticks stop falling on values (0.5, 1.5) no row can take. ``ScatterPanelSpec`` has no way
+to attach per-class legend entries to a point cloud -- it carries either a uniform colour or a numeric
+colour array -- so that needs a new spec field and support in both renderers, which is a larger change than
+this finding. The colourbar now at least names the class COUNT so the reader knows the scale is categorical.
+Pinned by ``tests/reporting/test_separability_class_colours.py``.

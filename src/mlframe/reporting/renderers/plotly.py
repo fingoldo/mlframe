@@ -634,7 +634,17 @@ class PlotlyRenderer:
                     fig.add_hline(y=_v, **line_kw)
 
         if horizontal:
-            if any(len(str(c)) > _BAR_XTICK_MAXLEN for c in cats):  # truncate long feature-name labels on the y-axis so they don't crowd the panel
+            # THINNED as well as truncated, matching the matplotlib twin and this renderer's own VERTICAL
+            # branch -- only the horizontal one was left out. A 200-row feature-importance chart had a clean
+            # 20-label axis in the PNG and an unreadable band of overlapping text in the HTML, from one spec.
+            # The bars stay one per category; only the labels subsample.
+            _n_cat = len(cats)
+            if _n_cat > _BAR_XTICK_THIN_THRESHOLD:
+                _step = math.ceil(_n_cat / _BAR_XTICK_KEEP)
+                _sel = list(range(0, _n_cat, _step))
+                fig.update_yaxes(tickmode="array", tickvals=[cats[i] for i in _sel],
+                                 ticktext=[_truncate_label(cats[i], keep_tail=p.label_keep_tail) for i in _sel], row=row, col=col)
+            elif any(len(str(c)) > _BAR_XTICK_MAXLEN for c in cats):  # truncate long feature-name labels on the y-axis so they don't crowd the panel
                 fig.update_yaxes(tickmode="array", tickvals=cats, ticktext=[_truncate_label(c, keep_tail=p.label_keep_tail) for c in cats], row=row, col=col)
             fig.update_yaxes(autorange="reversed", row=row, col=col)
             # ``xlabel`` names the VALUE and ``ylabel`` the CATEGORY, whatever the orientation -- that is what
