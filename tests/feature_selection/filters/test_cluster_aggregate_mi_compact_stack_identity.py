@@ -16,6 +16,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from mlframe.feature_selection.filters._cluster_aggregate import compact_stack_mi
 from mlframe.feature_selection.filters.info_theory import mi
 
 
@@ -33,12 +34,16 @@ def _old_form(data, binned, nbins, target, qnb, dtype=np.int32) -> float:
 
 
 def _new_form(data, binned, nbins, target, qnb, dtype=np.int32) -> float:
-    """New form."""
+    """Production's compact-stack scoring, called rather than re-typed.
+
+    This used to duplicate ``_cluster_aggregate.py``'s two lines, so the identity below compared two local
+    copies: changing production's ``np.arange(_n_t)`` to ``np.array([0])`` -- scoring against only the first
+    target column -- left every test here green.
+    """
     tcols = np.asarray(target, dtype=np.int64)
-    compact = np.column_stack([data[:, tcols], binned.astype(data.dtype)])
     n_t = tcols.shape[0]
     compact_nbins = np.concatenate([np.asarray(nbins)[tcols], [int(qnb)]]).astype(np.int64)
-    return float(mi(compact, np.array([n_t], dtype=np.int64), np.arange(n_t, dtype=np.int64), compact_nbins, dtype=dtype))
+    return compact_stack_mi(data[:, tcols], binned.astype(data.dtype), n_t, compact_nbins, dtype=dtype)
 
 
 @pytest.mark.parametrize("n,n_features,nb", [(600, 20, 8), (2407, 200, 10), (5000, 50, 16)])

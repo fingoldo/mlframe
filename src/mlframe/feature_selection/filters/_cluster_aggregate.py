@@ -445,6 +445,21 @@ def _discover_clusters(
 # ---------------------------------------------------------------------------
 
 
+def compact_stack_mi(target_block: np.ndarray, binned: np.ndarray, n_t: int, compact_nbins: np.ndarray, *, dtype) -> float:
+    """MI between a binned aggregate and the target block, scored on a compact (n, |target|+1) stack.
+
+    ``mi`` reads ONLY the x column (the binned aggregate) and the y columns (the target) through
+    ``merge_vars``, and ``merge_vars`` depends on the read columns' per-sample values and their nbins, not
+    on where those columns sit -- so stacking just those and remapping the indices is bit-identical to
+    passing the full ``(n, n_features)`` matrix, without rebuilding that copy on every method iteration
+    (~25-89x at realistic shapes; bench: _benchmarks/bench_cluster_aggregate_mi_compact_stack.py).
+
+    At module scope so the identity test can call the scoring it pins instead of re-typing it.
+    """
+    compact = np.column_stack([target_block, binned])
+    return float(mi(compact, np.array([n_t], dtype=np.int64), np.arange(n_t, dtype=np.int64), compact_nbins, dtype=dtype))
+
+
 def run_cluster_aggregate_step(
     *, data, cols, nbins, X, target_indices, feature_names_in_, categorical_idx,
     cached_MIs, engineered_recipes, quantization_nbins, quantization_method, quantization_dtype,
@@ -579,8 +594,7 @@ def run_cluster_aggregate_step(
             # nbins, not on column position), skipping the full (n, n_features) copy
             # that was rebuilt EVERY method-iteration. ~25-89x on this score at
             # realistic shapes (bench: _benchmarks/bench_cluster_aggregate_mi_compact_stack.py).
-            _compact = np.column_stack([_target_block, binned.astype(data.dtype)])
-            agg_mi = float(mi(_compact, np.array([_n_t], dtype=np.int64), np.arange(_n_t, dtype=np.int64), _compact_nbins, dtype=dtype))
+            agg_mi = compact_stack_mi(_target_block, binned.astype(data.dtype), _n_t, _compact_nbins, dtype=dtype)
             if best is None or agg_mi > best[0]:
                 best = (agg_mi, recipe, binned, method)
 

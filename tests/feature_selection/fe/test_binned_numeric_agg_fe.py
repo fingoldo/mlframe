@@ -17,6 +17,7 @@ from mlframe.feature_selection.filters._binned_numeric_agg_fe import (
     engineered_name_binned_agg,
     fit_binned_numeric_agg,
     per_cell_stats_bincount,
+    quantile_edges,
     resolve_nbins_and_stats,
 )
 
@@ -236,8 +237,16 @@ def test_fit_binned_numeric_agg_matches_pre_fusion_reference():
         _fold_test = [np.where(fold_ids == f)[0] for f in range(int(n_folds))]
         for gcol in group_num_cols:
             gvals = np.asarray(X[gcol].to_numpy(), dtype=np.float64)
+            # Production's two skip guards, mirrored. Without them a NaN-bearing group column made the
+            # reference emit four columns (np.quantile on NaN data yields NaN edges) where production emits
+            # none, so `set(ref.columns) == set(feat_df.columns)` failed for a reason unrelated to the
+            # fold-gate / global-stats fusion this test pins. The fixture was all-finite, so it stayed latent.
+            if not np.isfinite(gvals).all():
+                continue  # v1 skips NaN-bearing group columns (quantile-edge replay has no NaN bin)
             nbins, kept_stats = resolve_nbins_and_stats(n, stats, nbins_base, k=1)
-            edges = np.unique(np.quantile(gvals, np.linspace(0.0, 1.0, nbins + 1)[1:-1]))
+            edges = quantile_edges(gvals, nbins)
+            if edges.size == 0:
+                continue
             codes = np.searchsorted(edges, gvals, side="right")
             n_cells = int(codes.max()) + 1
             _ct_by_fold = [codes[_ft] for _ft in _fold_test]
@@ -284,9 +293,22 @@ def test_fit_binned_numeric_agg_matches_pre_fusion_reference():
     feat_df, _recipes = fit_binned_numeric_agg(X, y, group_num_cols=group_cols, agg_num_cols=agg_cols)
 
     assert set(ref.columns) == set(feat_df.columns)
+    assert feat_df.columns.size, "the all-finite fixture must emit columns, or the comparison below is vacuous"
     for c in ref.columns:
         worst = float(np.max(np.abs(ref[c].to_numpy() - feat_df[c].to_numpy())))
         assert worst < 1e-9, f"{c}: diverges {worst:.3e} from the pre-fusion reference"
+
+    # A NaN-bearing group column: production skips it entirely, and the reference must agree. This is the
+    # case the guards exist for and the one the all-finite fixture could never reach.
+    X_nan = X.copy()
+    X_nan.loc[X_nan.index[0], "g0"] = np.nan
+    ref_nan = _old_reference(X_nan, y, group_num_cols=group_cols, agg_num_cols=agg_cols)
+    feat_nan, _r2 = fit_binned_numeric_agg(X_nan, y, group_num_cols=group_cols, agg_num_cols=agg_cols)
+    assert set(ref_nan.columns) == set(feat_nan.columns), (
+        f"reference and production disagree on a NaN-bearing group column: " f"{sorted(set(ref_nan.columns) ^ set(feat_nan.columns))[:6]}"
+    )
+    assert not any(c.count("g0") for c in feat_nan.columns), f"g0 carries a NaN and must be skipped; got {[c for c in feat_nan.columns if 'g0' in c][:4]}"
+    assert any("g1" in c for c in feat_nan.columns), "the other, finite group columns must still be engineered"
 
 
 def test_per_cell_skew_kurt_stable_on_large_offset_small_scale_column():
