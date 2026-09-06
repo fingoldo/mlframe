@@ -130,6 +130,29 @@ def _pr_f1_panel(y_true, y_proba, classes, *, y_pred=None) -> BarPanelSpec:
     )
 
 
+# A per-class overlay legend is one row per class plus the reference series, each carrying the class name AND
+# its metric with a CI -- at 12 real class names that is 14 rows of ~45 characters, a box wide enough to
+# cover the region where the curves separate.
+#
+# The width is attacked at the source, by shortening the class name, rather than by pushing the legend out of
+# the axes: measured on a 12-class figure, moving these three legends outside shrank every panel to about a
+# third of its row and made the curves themselves small. The renderer still promotes a legend it measures as
+# genuinely unfittable (see ``_place_legend``); this just stops the entries being needlessly long.
+_LEGEND_CLASS_NAME_MAXLEN = 16
+
+
+def _legend_class_name(name: object) -> str:
+    """Class name shortened for a legend entry, keeping the tail that usually distinguishes generated names."""
+    from mlframe.reporting.renderers._shared_helpers import truncate_bar_label
+
+    return truncate_bar_label(name, _LEGEND_CLASS_NAME_MAXLEN, keep_tail=6)
+
+
+def _overlay_legend_kwargs(n_series: int) -> dict:
+    """Legend options for a per-class overlay; two columns once the stack is taller than most panels."""
+    return {"legend_ncol": 2} if n_series > 10 else {}
+
+
 def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: bool = True, class_subset=None) -> LinePanelSpec:
     """Per-class ROC curves overlaid (one-vs-rest).
 
@@ -174,14 +197,14 @@ def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: 
         # roc_curve rejects non-finite scores; a single class or an all-NaN proba column has no defined curve.
         if bin_y.sum() == 0 or bin_y.sum() == len(bin_y) or not np.isfinite(col).any():
             interpolated.append(np.full_like(x_grid, np.nan))
-            labels.append(f"{classes[k]} (n/a)")
+            labels.append(f"{_legend_class_name(classes[k])} (n/a)")
             colors.append(_class_color(k))
             continue
         finite = np.isfinite(col)
         bin_y, col = bin_y[finite], col[finite]
         if bin_y.sum() == 0 or bin_y.sum() == len(bin_y):
             interpolated.append(np.full_like(x_grid, np.nan))
-            labels.append(f"{classes[k]} (n/a)")
+            labels.append(f"{_legend_class_name(classes[k])} (n/a)")
             colors.append(_class_color(k))
             continue
         fpr, tpr, _ = fast_roc_curve(bin_y, col)
@@ -194,9 +217,9 @@ def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: 
             # DeLong CI from the same stratified subsample (the displayed AUC's data); closed-form, no extra sort cost
             # beyond two midrank argsorts the panel would not otherwise pay.
             _, lo, hi = delong_auc_ci(bin_y, col)
-            labels.append(f"{classes[k]} (AUC={roc_auc:.3f} [{lo:.3f}, {hi:.3f}])")
+            labels.append(f"{_legend_class_name(classes[k])} (AUC={roc_auc:.3f} [{lo:.3f}, {hi:.3f}])")
         else:
-            labels.append(f"{classes[k]} (AUC={roc_auc:.3f})")
+            labels.append(f"{_legend_class_name(classes[k])} (AUC={roc_auc:.3f})")
     chance = x_grid.copy()
     series = [chance, *interpolated]
     series_labels = ["chance", *labels]
@@ -224,6 +247,7 @@ def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: 
         ylabel="True Positive Rate",
         line_styles=tuple(styles),
         colors=tuple(line_colors),
+        **_overlay_legend_kwargs(len(series_labels)),
     )
 
 
@@ -266,7 +290,7 @@ def _pr_curves_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_s
         # No positives, or an all-NaN proba column -> no defined PR curve (sklearn rejects non-finite scores).
         if bin_full == 0 or not finite.any() or int(bin_y[finite].sum()) == 0:
             interpolated.append(np.full_like(x_grid, np.nan))
-            labels.append(f"{classes[k]} (n/a)")
+            labels.append(f"{_legend_class_name(classes[k])} (n/a)")
             baselines.append(np.full_like(x_grid, np.nan))
             baseline_labels.append("")
             continue  # no curve, so no baseline to label either
@@ -277,14 +301,14 @@ def _pr_curves_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_s
         curve = np.interp(x_grid, recall[order], precision[order])
         interpolated.append(curve)
         valid_curves.append(curve)
-        labels.append(f"{classes[k]} (AP={ap:.3f})")
+        labels.append(f"{_legend_class_name(classes[k])} (AP={ap:.3f})")
         # No-skill precision baseline must use the SAME population the AP was computed on (the finite stratified
         # subsample), otherwise AP-vs-baseline compares inconsistent prevalences.
         prevalence = float(int(bin_yf.sum())) / max(1, bin_yf.size)
         baselines.append(np.full_like(x_grid, prevalence))
         # An empty label put K unexplained dotted lines on the panel. Each one is the no-skill precision for ONE
         # class -- its prevalence -- so it has to name the class and the number it draws.
-        baseline_labels.append(f"{classes[k]} no-skill ({prevalence:.3f})")
+        baseline_labels.append(f"{_legend_class_name(classes[k])} no-skill ({prevalence:.3f})")
     n_drawn = len(draw_idx)
     series = list(interpolated)
     series_labels = list(labels)
@@ -312,6 +336,7 @@ def _pr_curves_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_s
         ylabel="Precision",
         line_styles=tuple(styles),
         colors=tuple(line_colors),
+        **_overlay_legend_kwargs(len(series_labels)),
     )
 
 
@@ -362,7 +387,7 @@ def _calib_grid_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_
         series.append(observed)
         pooled_sums += sums
         pooled_counts += counts
-        labels.append(str(classes[k]))
+        labels.append(_legend_class_name(classes[k]))
         colors.append(_class_color(k))
     diag = x_grid.copy()
     all_series = [diag, *series]
@@ -391,6 +416,7 @@ def _calib_grid_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_
         ylabel="Observed P(y=k | bin)",
         line_styles=tuple(styles),
         colors=tuple(all_colors),
+        **_overlay_legend_kwargs(len(all_labels)),
     )
 
 
@@ -432,7 +458,7 @@ def _prob_dist_panel(y_true, y_proba, classes, *, y_pred=None, sub=None) -> Pane
             continue  # drop empty class rather than planting a fake [0.0] violin
         mask = yt_s == k
         groups.append(subsample_for_density(proba_s[mask, k], seed=k))
-        labels.append(f"{classes[k]} (n={int(full_counts[k])})")
+        labels.append(f"{_legend_class_name(classes[k])} (n={int(full_counts[k])})")
     if not groups:
         return AnnotationPanelSpec(
             text="P(y=true_class): no true-class samples\n(every y_true was excluded)",

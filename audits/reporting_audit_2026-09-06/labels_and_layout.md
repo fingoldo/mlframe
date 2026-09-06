@@ -268,6 +268,22 @@ left alone rather than quietly redefined here.
 Pinned by ``tests/reporting/test_heatmap_tick_budget.py``; three of its five tests fail with the budget
 reverted to the fixed cap.
 
+**LBL-08 FIXED, but NOT the way the finding proposes -- the proposed fix was tried, rendered, and rejected.**
+The finding suggests ``legend_outside=True`` on the three overlay panels. Doing that and rendering a
+twelve-class figure shrank every panel to about a third of its row: the curves became small and the legends
+took the space. That trades one unreadable chart for another, so it was reverted.
+
+The width is attacked at its source instead -- the class name inside each entry is shortened to 16
+characters, KEEPING THE TAIL, because "tier_0" versus "tier_11" is the entire difference between two
+generated class names and a head-preserving cut erases it. Entries went from 45+ characters to 43 / 33 / 16
+across the ROC, PR and reliability panels, the panels keep their full size, and the curves are no longer
+covered. ``legend_ncol=2`` past ten entries halves the stack height. The renderer's own promotion still
+applies where a legend genuinely cannot fit, which is what moved the 24-entry PR legend outside.
+
+Pinned by ``tests/reporting/test_multiclass_overlay_legends.py``, including a test that the shortened names
+stay DISTINGUISHABLE -- a head-preserving cut would make every entry end identically, and that test fails
+against it. Four of seven fail with the shortening removed.
+
 **LBL-05 FIXED.** ``truncate_bar_label`` gained a middle-ellipsis mode, and ``BarPanelSpec.label_keep_tail``
 lets a builder say how many trailing characters must survive. ``slice_finder`` (20) and
 ``category_discriminability`` (18) set it, because their own titles tell the reader the label carries the

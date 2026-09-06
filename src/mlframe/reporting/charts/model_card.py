@@ -201,19 +201,34 @@ def _headline_bar(metric_fmt: List[Tuple[str, float, bool]], verdict_color: str)
     cats: List[str] = []
     vals: List[float] = []
     for name, raw, higher in metric_fmt:
-        cats.append(name)
+        # The RAW value rides the category label. The bar length is a rescaled "quality" -- an error metric is
+        # shown as 1 - metric so a long bar always reads as good -- which makes the lengths comparable but the
+        # NUMBERS unreadable: a reader cannot tell a 1-Brier of 0.76 from a Brier of 0.24 by looking, and those
+        # are the same measurement. Naming the raw value next to the bar costs nothing and removes the guess.
+        # Name the metric the raw value BELONGS to. ``metric_fmt`` calls an inverted entry "1-ECE" because
+        # that is what the bar LENGTH shows, but the number beside it is the ECE itself -- printing
+        # "1-ECE 0.275" next to a bar of length 0.725 states something false. The bar stays inverted (long =
+        # good, which is the whole point of the panel) and the label names ECE, as the title explains.
+        cats.append(f"{name.removeprefix('1-')}  {raw:.3f}")
         q = raw if higher else (1.0 - raw)
         vals.append(float(np.clip(q, 0.0, 1.0)))
     color = _verdict_color_hex(verdict_color)
     return BarPanelSpec(
         categories=tuple(cats),
         values=np.asarray(vals, dtype=np.float64),
-        title="Headline quality (longer = better, [0,1])",
+        title="Headline quality (longer = better, [0,1]; raw value beside each name)",
         xlabel="quality (higher is better)",
         ylabel="metric",
         orientation="horizontal",
         colors=(color,) * len(cats),
-        hline=(0.5, "gray", "midpoint"),
+        # No shared reference line. 0.5 is chance for ROC_AUC and for KS, and means nothing at all for a
+        # rescaled 1 - Brier or 1 - ECE, so ONE line across all of them invited a comparison that is not
+        # defined: a 0.5 AUC bar (pure chance) sat level with a 1-Brier of 0.5 (catastrophic) and with the
+        # reference itself, implying the three were commensurate. The raw values in the labels are what the
+        # reader should judge each metric by, against its own baseline.
+        #
+        # Bar ORDER is deliberately the caller's, not sorted by value: a model card is read against other
+        # model cards, and a per-card ordering would put the same metric in a different row on each one.
     )
 
 
@@ -416,9 +431,12 @@ def compose_model_card_figure(
             caption=(
                 "Every headline bar is rescaled so LONGER = BETTER on [0, 1]: higher-is-better metrics are shown "
                 "directly and error metrics as 1 - metric, which is what makes otherwise incomparable quantities "
-                "readable side by side. The grey line at 0.5 is the midpoint of that scale, not a pass mark -- for "
-                "ROC_AUC 0.5 does mean no discrimination, but for a rescaled error metric it means nothing in "
-                "particular. The mini panels below carry the distributional detail the single bars cannot. "
+                "readable side by side -- but only the LENGTHS are comparable, so each bar names its own raw "
+                "value. There is no shared reference line: 0.5 is chance for ROC_AUC and for KS and means "
+                "nothing for a rescaled error metric, so one line across all of them would invite a comparison "
+                "that is not defined. Judge each metric against its own baseline, using the raw value beside "
+                "its name. The bars keep a fixed order so two cards can be read against each other. The mini "
+                "panels below carry the distributional detail the single bars cannot. "
                 f"VERDICT: {verdict.reason}"
             ),
         )
@@ -462,9 +480,12 @@ def compose_model_card_figure(
             caption=(
                 "Every headline bar is rescaled so LONGER = BETTER on [0, 1]: higher-is-better metrics are shown "
                 "directly and error metrics as 1 - metric, which is what makes otherwise incomparable quantities "
-                "readable side by side. The grey line at 0.5 is the midpoint of that scale, not a pass mark -- for "
-                "ROC_AUC 0.5 does mean no discrimination, but for a rescaled error metric it means nothing in "
-                "particular. The mini panels below carry the distributional detail the single bars cannot. "
+                "readable side by side -- but only the LENGTHS are comparable, so each bar names its own raw "
+                "value. There is no shared reference line: 0.5 is chance for ROC_AUC and for KS and means "
+                "nothing for a rescaled error metric, so one line across all of them would invite a comparison "
+                "that is not defined. Judge each metric against its own baseline, using the raw value beside "
+                "its name. The bars keep a fixed order so two cards can be read against each other. The mini "
+                "panels below carry the distributional detail the single bars cannot. "
                 f"VERDICT: {verdict.reason}"
             ),
         )

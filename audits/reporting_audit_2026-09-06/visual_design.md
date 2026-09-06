@@ -411,3 +411,25 @@ coefficient, where the structure sits at about -0.6 and every informative lag pr
 to be judged against. Pinned by ``tests/reporting/test_acf_symmetric_band.py``, which includes a guard that
 the fixture really does have lags below the lower bound -- without it the test would pass on any series and
 prove nothing; three of its six tests fail with the flag turned off.
+
+**VIS-13 FIXED in part, and the parts NOT taken are deliberate.**
+
+Taken: the shared 0.5 reference line is gone -- 0.5 is chance for ROC_AUC and for KS and means nothing for a
+rescaled 1-Brier or 1-ECE, so one line across all of them invited a comparison that is not defined -- and
+each bar now names its own raw value, because the bar LENGTH is a rescaled quality and the number behind it
+was unrecoverable from the panel.
+
+Caught while doing it: the first version labelled the bars from ``metric_fmt``'s own names, printing
+"1-ECE 0.275" beside a bar of length 0.725. That states something false; 0.275 is the ECE. The label now
+names the metric the raw value belongs to, and a test pins ``bar_length == 1 - labelled_value`` for the
+inverted metrics.
+
+NOT taken -- sort the bars by value. A model card is read against OTHER model cards, and a per-card
+ordering puts the same metric on a different row on each one, which costs more than it buys. The fixed
+order is now pinned by a test comparing two cards with different metrics.
+
+NOT taken -- give the bars per-metric colours. One colour is the honest encoding when nothing per-bar is
+being encoded; the finding's concern (a reader hunting for a meaning that is not there) is answered by the
+title and caption saying what the length means, not by inventing a colour channel.
+
+Pinned by ``tests/reporting/test_model_card_headline_bar.py``.
