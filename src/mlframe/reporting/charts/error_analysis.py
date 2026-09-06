@@ -88,6 +88,10 @@ def _per_row_error(
     return np.asarray((yt != yp).astype(np.float64))
 
 
+# Released columns are replaced with this rather than ``None`` so the list stays homogeneous for mypy.
+_EMPTY_COLUMN: np.ndarray = np.empty(0, dtype=np.float64)
+
+
 def _resolve_feature_matrix(
     X: Any,
     feature_names: Optional[Sequence[str]],
@@ -95,7 +99,8 @@ def _resolve_feature_matrix(
     """Coerce ``X`` (pandas / polars / ndarray) to a 2-D float matrix + name list without a full frame copy.
 
     Columns are pulled one at a time (narrow ndarray views), never via a whole-frame ``to_pandas`` / ``to_numpy``
-    on a 100+ GB carrier. Non-numeric columns are label-encoded to integer codes so the tree can still split on them.
+    on a 100+ GB carrier, and are written straight into one preallocated plane so the gathered columns and the
+    result never both exist in full. Non-numeric columns are label-encoded to integer codes so the tree can still split on them.
     Object-dtype columns holding non-scalar elements (e.g. list-valued embedding columns surfaced as pandas
     object dtype) can't be stringified by ``astype(str)`` -- numpy raises "setting an array element with a
     sequence" trying to broadcast the list into a fixed-width string array -- so those columns are dropped
@@ -112,7 +117,11 @@ def _resolve_feature_matrix(
                 f"_resolve_feature_matrix: feature_names has {len(all_names)} entries but X has {len(cols)} columns; "
                 "they must correspond one-to-one, otherwise columns are silently dropped from the diagnostics."
             )
-        mats: List[np.ndarray] = []
+        # Filled column by column into ONE preallocated plane rather than collected into a list and
+        # ``column_stack``ed: that call materialises a second dense copy of everything already gathered and
+        # holds the list alive beside it, so peak memory was ~2x the result -- against a docstring promising
+        # no full-frame copy. F-order because every consumer of this matrix reads it by column.
+        columns: List[np.ndarray] = []
         names: List[str] = []
         for c, name in zip(cols, all_names):
             col = X[c]
@@ -121,11 +130,16 @@ def _resolve_feature_matrix(
                 codes = ordinal_codes(arr)
                 if codes is None:
                     continue  # list / tuple / array cells: no ordering a chart can use
-                mats.append(codes)
+                columns.append(codes)
             else:
-                mats.append(arr.astype(np.float64))
+                columns.append(arr)
             names.append(name)
-        mat = np.column_stack(mats) if mats else np.empty((len(X), 0), dtype=np.float64)
+        mat = np.empty((len(X), len(columns)), dtype=np.float64, order="F")
+        for j, arr in enumerate(columns):
+            # Assigning into the plane converts to float64 in place; the source column is dropped straight
+            # afterwards so the gathered set is never fully materialised alongside the result.
+            mat[:, j] = arr
+            columns[j] = _EMPTY_COLUMN
         return mat, names
     mat = np.asarray(X, dtype=np.float64)
     if mat.ndim == 1:

@@ -490,7 +490,12 @@ def find_weak_slices(
         logger.info("slice_finder cap: %s", msg)
 
     # Horizontal bars, worst on top: bar length = mean error, annotated label carries the support fraction + ratio.
-    cats = tuple(f"{table['bounds'].iloc[i]}  (n={int(table['support'].iloc[i]):_}, {table['error_ratio'].iloc[i]:.2g}x)" for i in range(len(table)))
+    # Read the three columns out once instead of re-resolving each Series and doing a positional lookup per
+    # row: the same per-element DataFrame access in a loop this module avoids everywhere else.
+    cats = tuple(
+        f"{bound}  (n={int(support):_}, {ratio:.2g}x)"
+        for bound, support, ratio in zip(table["bounds"].to_numpy(), table["support"].to_numpy(), table["error_ratio"].to_numpy())
+    )
     vals = table["mean_error"].to_numpy()
     err_lo = np.clip(vals - np.asarray(ci_lo, dtype=np.float64), 0.0, None)
     err_hi = np.clip(np.asarray(ci_hi, dtype=np.float64) - vals, 0.0, None)

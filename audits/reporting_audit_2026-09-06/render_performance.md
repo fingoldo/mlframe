@@ -393,3 +393,23 @@ MEASURED, paired and interleaved, median of four: the second backend's render of
 the finding measured. `tests/reporting/test_trend_fit_memoised.py` (6 tests). Both halves probed
 separately: removing the memoisation fails three of them, and removing the weak-reference confirmation
 fails the stale-entry test on its own.
+
+**PERF-11 was already RESOLVED** by earlier work in this wave; the `min == max` idiom is in place with its
+measurement (21x at n=2M on this host) recorded at the call site.
+
+**PERF-14 RESOLVED, the second way** -- the docstring was right about what it should do, so the code was
+changed rather than the promise. Columns are written into one preallocated F-order plane and released as
+they go. MEASURED on 60k x 150 mixed dtypes: **peak 144 MB -> 73 MB against a 72 MB result (2.00x -> 1.01x)**,
+output bit-identical to the stacked version (`array_equal`, NaN included). F-order because every consumer
+reads this matrix by column, which is the choice `_bin_matrix` already documents.
+
+**PERF-16 RESOLVED.** The membership test and the index of the match are one lookup, so they are done
+together: a single `lexsort` plus `searchsorted` over the plotted `(pred, true)` pairs replaces a Python set
+over the whole subsample and a full scan per already-present worst-K row. MEASURED at a 50k subsample with
+50 worst-K rows: **48.1 ms -> 24.7 ms (2.0x)**, identical highlighted points. This is a pure performance
+change -- the old code was correct, just quadratic in K -- so the new tests are guards on the rewrite rather
+than proof of a prior defect, and they say so.
+
+**PERF-17 RESOLVED.** One `zip` over three `to_numpy()` reads instead of three Series re-resolutions and
+three positional lookups per row. Negligible today at `top_k=7`; taken because it is the per-element
+DataFrame access idiom this module avoids everywhere else.
