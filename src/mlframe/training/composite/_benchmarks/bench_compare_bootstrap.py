@@ -23,7 +23,12 @@ def _old_monolithic(diff, n_boot, alpha, rng):
     lo = float(np.quantile(boot_means, alpha / 2.0))
     hi = float(np.quantile(boot_means, 1.0 - alpha / 2.0))
     obs = float(diff.mean())
-    tail = float(np.mean(boot_means <= 0.0)) if obs >= 0 else float(np.mean(boot_means >= 0.0))
+    # Davison-Hinkley add-one smoothing, matching production's `_paired_bootstrap_ci`. The raw fraction
+    # `count / n_boot` was left here after production adopted `(count + 1) / (n_boot + 1)`, so the identity
+    # print below reported False for EVERY input -- the two can only agree when count == n_boot -- and a
+    # reader had no way to tell a real divergence from the known convention change.
+    n_tail = int(np.sum(boot_means <= 0.0)) if obs >= 0 else int(np.sum(boot_means >= 0.0))
+    tail = (n_tail + 1) / (n_boot + 1)
     return lo, hi, min(1.0, 2.0 * tail)
 
 
@@ -77,6 +82,7 @@ def main():
     a = _old_monolithic(diff, n_boot, alpha, np.random.default_rng(123))
     b = _paired_bootstrap_ci(diff, n_boot, alpha, np.random.default_rng(123))
     print(f"\nCI identity OLD={a} NEW={b}  bit-identical={a == b}")
+    assert a == b, f"the monolithic reference no longer matches production: OLD={a} NEW={b}"  # nosec B101 - internal invariant check in src/mlframe/training/composite/_benchmarks, not reachable with untrusted input
 
 
 if __name__ == "__main__":
