@@ -94,6 +94,25 @@ class TestDeclarationChecks:
         notes = check_run_against_manifest(_manifest(tmp_path, [0]), _records([0], arm="late-addition"))
         assert any("UNDECLARED ARMS" in note and "late-addition" in note for note in notes)
 
+    def test_a_matched_cardinality_control_is_not_reported_as_undeclared(self, tmp_path: Path) -> None:
+        """`random-<k>` is named after the bed's answer-key size, so its literal name varies per bed.
+
+        Comparing raw names would report every bed but the first as carrying an undeclared arm, and a check
+        that cries wolf on every run teaches a reader to skip the line where a real one appears.
+        """
+        manifest = _manifest(tmp_path, [0])
+        manifest["arms"] = ["mrmr", "all-features", "random-5"]
+        manifest["arm_families"] = ["all-features", "mrmr", "random-<k>"]
+        notes = check_run_against_manifest(manifest, _records([0], arm="random-250"))
+        assert not any("UNDECLARED ARMS" in note for note in notes), notes
+
+    def test_a_genuinely_new_arm_is_still_reported(self, tmp_path: Path) -> None:
+        """The family rule must not become a blanket amnesty: an arm from no declared family still shows."""
+        manifest = _manifest(tmp_path, [0])
+        manifest["arm_families"] = ["all-features", "mrmr", "random-<k>"]
+        notes = check_run_against_manifest(manifest, _records([0], arm="late-addition"))
+        assert any("UNDECLARED ARMS" in note for note in notes)
+
     def test_an_undeclared_scenario_is_named(self, tmp_path: Path) -> None:
         """A scenario added after the fact is the cheapest way to change a conclusion, so it is surfaced."""
         notes = check_run_against_manifest(_manifest(tmp_path, [0]), _records([0], scenario="added-later"))

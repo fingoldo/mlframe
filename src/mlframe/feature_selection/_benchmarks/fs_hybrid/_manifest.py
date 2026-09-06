@@ -38,6 +38,7 @@ __all__ = [
     "write_manifest",
     "load_manifest",
     "environment_tuple",
+    "arm_family",
     "check_run_against_manifest",
 ]
 
@@ -48,6 +49,19 @@ _PREREG_RELATIVE = os.path.join("docs", "BENCHMARK_PREREGISTRATION.md")
 def manifest_path_for(results_path: str) -> str:
     """Return the manifest path that belongs to a results file."""
     return f"{results_path}.manifest.json"
+
+
+def arm_family(arm: str) -> str:
+    """Return the declared FAMILY of an arm name.
+
+    The matched-cardinality control is named after the cardinality it matches -- `random-5` on a five-column
+    answer key, `random-250` on a wide bed -- so its literal name is fixed by the bed, not chosen by whoever
+    declared the run. Comparing raw names would report every bed but the first as carrying an undeclared arm,
+    which is a false alarm that trains a reader to ignore the real ones.
+    """
+    if arm.startswith("random-") and arm[len("random-") :].isdigit():
+        return "random-<k>"
+    return arm
 
 
 def _git_sha() -> str:
@@ -136,6 +150,7 @@ def build_manifest(
         "cv_seeds": [int(s) for s in cv_seeds],
         "scenarios": [str(s) for s in scenarios],
         "arms": [str(a) for a in arms],
+        "arm_families": sorted({arm_family(str(a)) for a in arms}),
         "environment": environment_tuple(),
     }
 
@@ -185,8 +200,9 @@ def check_run_against_manifest(manifest: Optional[Dict[str, Any]], records: Sequ
         notes.append(f"OPTIONAL STOPPING: {len(extra)} dataset seed(s) beyond the declared set were run ({extra[:8]}{'...' if len(extra) > 8 else ''})")
 
     declared_arms = set(manifest.get("arms", []))
+    declared_families = set(manifest.get("arm_families", [])) or {arm_family(a) for a in declared_arms}
     present_arms = {str(r["arm"]) for r in records if "arm" in r}
-    undeclared = sorted(present_arms - declared_arms)
+    undeclared = sorted(arm for arm in present_arms - declared_arms if arm_family(arm) not in declared_families)
     if declared_arms and undeclared:
         notes.append(f"UNDECLARED ARMS: {undeclared}")
 

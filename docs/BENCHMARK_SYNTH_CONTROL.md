@@ -103,5 +103,10 @@ property of this bed list and not an estimate of anything. What transfers is the
 strong model CAN benefit from selection -- and the negative controls, which are structural rather than
 distributional.
 
-This run carries no manifest: it predates the manifest mechanism, so its declaration is the command line
-above and the report says so explicitly rather than claiming otherwise.
+The run carries a manifest, and the report's declaration block flags two things about it, both true:
+
+* **`null_p1000` is undeclared.** Twelve of its cells were written by a duplicate copy of an earlier run
+  that survived a stop signal and kept appending to this file. They are gate cells, excluded from every
+  aggregate here, and the mechanism catching them is the mechanism working.
+* **The pre-registration changed after the run started.** Sections 6a and 2b were added afterwards, so the
+  document as it stands today did not bind this run. Recorded rather than papered over.
