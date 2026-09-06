@@ -410,9 +410,18 @@ def segments_bar(
     groups = df[group_col].astype(str).to_numpy()
     metric = df[metric_col].to_numpy().astype(np.float64)
     count_col = next((c for c in cols if str(c).lower() in ("count", "n", "size", "support")), None)
+
+    # numpy sorts NaN to the END ascending, so reversing for a higher-is-worse metric put every group with an
+    # unmeasurable metric FIRST -- the worst-first chart led with blank slots that keep their tick label, and
+    # the title read "worst segment <name> is nan x the global". A missing measurement is not the worst
+    # result. Dropped here rather than after the sort so the weighted global reference is finite too.
+    _finite = np.isfinite(metric)
+    _n_dropped = int((~_finite).sum())
+    groups, metric = groups[_finite], metric[_finite]
+
     if global_value is None:
         if count_col is not None:
-            w = df[count_col].to_numpy().astype(np.float64)
+            w = df[count_col].to_numpy().astype(np.float64)[_finite]
             global_value = float(np.average(metric, weights=w)) if w.sum() > 0 else float(np.nanmean(metric))
         else:
             global_value = float(np.nanmean(metric))
@@ -441,6 +450,8 @@ def segments_bar(
         "point estimates with NO uncertainty attached, so a short bar over a small subgroup may be sample size "
         "rather than a real weakness -- read each bar together with its group size before acting on it."
     )
+    if _n_dropped:
+        caption += f" {_n_dropped} subgroup(s) had no finite {metric_name} and are not shown."
     return FigureSpec(suptitle="", panels=((bar,),), figsize=(max(8.0, len(cats) * 0.5), 5.0), caption=caption)
 
 

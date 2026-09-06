@@ -304,6 +304,10 @@ it is meant to highlight and disappears inside it.
 *Fix:* convert `base_s * 4.0` through the same `sqrt(area) * 1.33` mapping the file already applies at
 line 56-58.
 
+**RESOLVED.** The ring is sized from the panel's own point area through the file's existing
+area-to-diameter mapping, with an 8 px floor so a fine scatter still gets a visible ring. Confirmed by
+rendering a 200 pt^2 bubble panel: the ring encloses the point instead of sitting inside it.
+
 ### VIS-21 — P3 — `charts/shap_panels.py:399,425,500`, `charts/shap_interactions.py:70,173,203`, `charts/shap_per_instance.py:195,221`, `charts/confusion_matrix_plot.py:157,177`, `charts/_binary_decile_table.py:123,151`
 **The raw-matplotlib charts ignore the report's DPI and figure conventions.**
 `FigureSpec.dpi` (`spec.py:459`) exists so `ReportingConfig.plot_dpi` can set one DPI for the run; only
@@ -339,6 +343,9 @@ is not imported by any chart or renderer (both renderers instead hardcode the li
 `renderers/matplotlib.py:41` and `renderers/plotly.py:600`).
 *Fix:* use `colors.BAR_PRIMARY` for both panels, and replace the two renderer literals with the constant.
 
+**RESOLVED.** Both panels take `BAR_PRIMARY`, and the two renderer literals now read the constant, so the
+package has one definition of "single-series bar" again.
+
 ### VIS-24 — P3 — `charts/error_analysis.py:419-425`
 **NaN subgroup metrics sort to the "worst" end and are rendered as empty slots.**
 `order = np.argsort(metric)` then `order = order[::-1]` when `higher_is_worse`. numpy sorts NaN to the
@@ -349,6 +356,12 @@ keeps its tick label), and the title computed at line 430 reads
 *Fix:* drop non-finite metrics before sorting and note the count in the caption, per the package's own
 "a silently dropped group reads as 'no problem here'" convention (see the violin handling at
 `renderers/matplotlib.py:768-771`).
+
+**RESOLVED, and the filter had to move further up than the audit said.** Dropping non-finite metrics just
+before the sort fixes the bars, but `global_value` is a weighted mean over the SAME array, so the title
+still read "global reference = nan; worst segment c is nanx the global". The filter now runs immediately
+after the metric column is read, and the weights are filtered with it. The caption names the dropped
+count.
 
 ### VIS-25 — P3 — `renderers/plotly.py:826-829` (docstring and code) vs `renderers/matplotlib.py:756-762`
 **The violin inner box claims 5th/95th-percentile whiskers on plotly but does not deliver them.**
@@ -364,6 +377,11 @@ divergence invisible to the next maintainer.
 (`go.Box` with `lowerfence`/`upperfence`, or a shape), or correct the docstring and accept the
 difference explicitly.
 
+**RESOLVED, the first way.** `box_visible` is off and an explicit `go.Box` per group carries
+`q1`/`median`/`q3` plus `lowerfence`/`upperfence` at the 5th/95th percentiles -- the quantities
+matplotlib's `whis=(5, 95)` draws, not an approximation of them. The test asserts the upper fence is
+strictly inside the data max, which is the exact defect the old code had.
+
 ### VIS-26 — P3 — `renderers/plotly.py:604-607` vs `renderers/matplotlib.py:626-635`
 **A bar reference line becomes a legend entry on matplotlib and a floating corner annotation on plotly.**
 matplotlib draws `axhline`/`axvline` with `label=hlabel` and calls `ax.legend(loc="best")`. Plotly uses
@@ -374,6 +392,12 @@ matplotlib puts it in a legend box that `loc="best"` moves out of the way.
 *Fix:* place the plotly annotation at the line's own coordinate (`annotation_position="top"` for a vline)
 or add a legend proxy trace, matching the `vspan` proxy pattern already used at
 `renderers/plotly.py:756-762`.
+
+**RESOLVED, but not with `annotation_position="top"` -- that produced a new collision.** Rendered, "top"
+puts the label in the same strip as the subplot title and the two print over each other; plotly offers no
+"inside top" for a vline annotation. The label is placed by hand at the line's x, anchored to the top of
+the plot area and hanging INSIDE it. The horizontal (hline) case was already on its own value and is
+unchanged.
 
 ---
 

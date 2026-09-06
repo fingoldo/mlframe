@@ -122,3 +122,11 @@ wider -- pinning equality would pin one engine's margins into the other's test.
 `"CI["` appears in `panel.categories`, which is where the interval used to be glued. It is an error bar
 plus hovertext now. Reframed to the real contract: the CI must still be THERE (non-zero error bars on
 every bin, wording on hover) and must NOT be back in the tick labels.
+
+**And one the rotated-pitch fix opened, caught by the same suite.** Giving matplotlib's -30-degree violin
+labels the room they need means it now thins a 20-class panel to 18, while plotly drew all 20 overlapping
+-- only matplotlib ever thinned violin labels. `PlotlyRenderer._violin_tick_budget` thins them the same
+way, from the panel's own post-layout extent. `test_both_backends_draw_the_same_label_text` asserted equal
+label LISTS; the counts legitimately differ (plotly's violin panel is wider than matplotlib's), so it is
+reframed to the contract its own name states -- the same truncation vocabulary, and the same classes
+anchoring both ends of the axis.

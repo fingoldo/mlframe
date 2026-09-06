@@ -29,6 +29,8 @@ from typing import Any, Callable, Dict, List, Tuple
 import numpy as np
 
 
+from mlframe.reporting.colors import BAR_PRIMARY
+
 from ._captions import caption_for_tokens
 
 from mlframe.reporting.charts._acf import (
@@ -219,7 +221,7 @@ def _target_acf_panel(y: np.ndarray, *, nlags: int = MAX_ACF_LAGS) -> PanelSpec:
         title=f"Target ACF (n={n_used:,}; {sig} of {acf_lags.size} lags beyond +-{band:.3f})",
         xlabel="Lag",
         ylabel="Autocorrelation",
-        colors=("steelblue",),
+        colors=(BAR_PRIMARY,),
         hline=(band, "red", f"+-1.96/sqrt(n) = {band:.3f}"),
         # Both bounds: the title counts lags with |acf| > band, so a negative lag is judged against a line the
         # reader could not see when only the positive bound was drawn.
@@ -248,7 +250,7 @@ def _target_pacf_panel(y: np.ndarray, *, nlags: int = MAX_ACF_LAGS) -> PanelSpec
         title=f"Target PACF (n={n_used:,}; {sig} of {pacf_lags.size} lags beyond +-{band:.3f})",
         xlabel="Lag",
         ylabel="Partial autocorrelation",
-        colors=("seagreen",),
+        colors=(BAR_PRIMARY,),
         hline=(band, "red", f"+-1.96/sqrt(n) = {band:.3f}"),
         # Both bounds: the title counts lags with |acf| > band, so a negative lag is judged against a line the
         # reader could not see when only the positive bound was drawn.

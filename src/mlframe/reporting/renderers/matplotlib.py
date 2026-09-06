@@ -28,7 +28,7 @@ from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported f
     wrap_annotation_text, wrap_text_to_width, wrap_title_lines,
 )
 
-from mlframe.reporting.colors import CONFUSION_COL_MARGIN, CONFUSION_ROW_MARGIN, TREND_LINE, resolve_heatmap_cmap
+from mlframe.reporting.colors import BAR_PRIMARY, CONFUSION_COL_MARGIN, CONFUSION_ROW_MARGIN, TREND_LINE, resolve_heatmap_cmap
 logger = logging.getLogger(__name__)
 
 # Panel-title font cap so a verbose diagnostic title can't dwarf the panel. The chars-per-line budget is
@@ -42,7 +42,7 @@ _HEATMAP_TICK_FONTSIZE = 8
 def _bar_colors(colors, values):
     """Colour argument for a single-series bar call: the whole per-bar sequence when it matches, else one colour."""
     if not colors:
-        return "steelblue"
+        return BAR_PRIMARY
     try:
         if len(colors) == len(values) and len(colors) > 1:
             return list(colors)

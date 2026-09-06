@@ -250,9 +250,14 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
         ox, oy = np.asarray(p.x), np.asarray(p.y)
         hi_idx = hi_idx[(hi_idx >= 0) & (hi_idx < len(ox))]
         if hi_idx.size:
+            # matplotlib rings at 4x the point's own AREA. A constant 12 px diameter is smaller than the
+            # point it highlights on any panel with large bubbles, so the ring disappears inside it. Same
+            # area-to-diameter mapping the marker sizing above uses.
+            _base_area = float(p.point_size) if size_arr is None else float(np.median(np.asarray(p.point_size, dtype=float)))
+            _ring_px = math.sqrt(max(_base_area, 0.0) * 4.0) * 1.33
             fig.add_trace(
                 go.Scatter(x=ox[hi_idx], y=oy[hi_idx], mode="markers",
-                           marker=dict(symbol="circle-open", size=12,
+                           marker=dict(symbol="circle-open", size=max(_ring_px, 8.0),
                                        line=dict(color=p.highlight_color, width=2)),
                            name="worst-K", showlegend=True),
                 row=row, col=col,
