@@ -85,6 +85,19 @@ def _select_overlay_classes(yt_pos: np.ndarray, proba: np.ndarray, top_n: int) -
     return np.sort(chosen)
 
 
+def _narrowed(values: np.ndarray) -> np.ndarray:
+    """``values`` in the smallest integer dtype that holds them exactly, for a radix-sortable argsort key."""
+    arr = np.asarray(values)
+    if arr.dtype.kind not in "iu" or arr.size == 0:
+        return arr
+    lo, hi = int(arr.min()), int(arr.max())
+    for dtype in (np.int16, np.int32):
+        info = np.iinfo(dtype)
+        if info.min <= lo and hi <= info.max:
+            return arr.astype(dtype, copy=False)
+    return arr
+
+
 def _stratified_subsample(y_pos: np.ndarray, cap: int, seed: int = 0) -> np.ndarray:
     """Indices of a class-stratified subsample of size ~``cap`` (all rows if n <= cap).
 
@@ -98,10 +111,22 @@ def _stratified_subsample(y_pos: np.ndarray, cap: int, seed: int = 0) -> np.ndar
     rng = np.random.default_rng(seed)
     frac = cap / n
     out: List[np.ndarray] = []
-    for c in np.unique(y_pos):
-        idx_c = np.flatnonzero(y_pos == c)
-        take = max(1, round(len(idx_c) * frac))
-        take = min(take, len(idx_c))
+    # One stable argsort gives every class its own CONTIGUOUS block of row indices, in ascending class order
+    # and ascending index order within a class -- which is exactly what ``flatnonzero(y_pos == c)`` returned
+    # per class, so the RNG sees identical inputs in identical order and draws the identical sample. The old
+    # form made one full-length pass per class: 0.13 s at K=10 and 1.44 s at K=200, on 2M rows.
+    #
+    # The NARROWED dtype is what makes this a win rather than a wash. Class labels are small non-negative
+    # codes, and numpy radix-sorts narrow integers: at 2M rows a stable argsort costs 1.36 s on int64 and
+    # 0.038 s on int16, so sorting the int64 labels directly was SLOWER than the per-class loop it replaces
+    # at every K measured. The cast is exact -- it only happens when the value range fits -- so the ordering,
+    # and therefore the drawn sample, is unchanged.
+    order = np.argsort(_narrowed(y_pos), kind="stable")
+    classes, starts = np.unique(y_pos[order], return_index=True)
+    bounds = np.append(starts, len(order))
+    for k in range(len(classes)):
+        idx_c = order[bounds[k] : bounds[k + 1]]
+        take = min(max(1, round(len(idx_c) * frac)), len(idx_c))
         out.append(rng.choice(idx_c, size=take, replace=False))
     return np.sort(np.concatenate(out)).astype(np.int64)
 

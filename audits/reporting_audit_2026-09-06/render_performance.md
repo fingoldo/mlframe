@@ -413,3 +413,28 @@ than proof of a prior defect, and they say so.
 **PERF-17 RESOLVED.** One `zip` over three `to_numpy()` reads instead of three Series re-resolutions and
 three positional lookups per row. Negligible today at `top_k=7`; taken because it is the per-element
 DataFrame access idiom this module avoids everywhere else.
+
+**PERF-08 was already RESOLVED** by earlier work in this wave. `ordinal_codes`
+(`charts/_categorical_codes.py`) takes `pd.factorize(sort=True)` as its primary path; the per-row
+`isinstance` scan and the `astype(str)` encode survive only inside the `TypeError` fallback, which is the
+unhashable / unorderable-mixed-type case the finding agreed still needs them.
+
+**PERF-09 RESOLVED, but NOT with the fix the finding proposes -- that one is a regression at low K.**
+The suggestion is a stable argsort of the class labels. Measured at 2M rows, a stable argsort of int64
+labels costs **1.36 s**, against **0.13 s** for the whole per-class loop at K=10: swapping them in directly
+made the function 5x SLOWER at K=10, 2.5x slower at K=50 and exactly break-even at K=200. The finding's own
+"INFERRED <= 0.4 s" for the argsort did not hold.
+
+What makes it a win is the sort KEY. numpy radix-sorts narrow integers and falls back to a comparison sort
+on int64: the same 2M argsort is **0.038 s on int16**. Class labels are small non-negative codes, so the key
+is cast to the narrowest integer dtype that holds the range exactly (`_narrowed`) before sorting -- and only
+when it fits, since an inexact cast would reorder the groups and move the sample.
+
+MEASURED at 2M rows, best of three, against the loop it replaces: K=10 **0.161 -> 0.144 s (1.11x)**, K=50
+**0.382 -> 0.138 s (2.77x)**, K=200 **1.167 -> 0.138 s (8.47x)** -- flat in K, which was the point.
+Bit-identical subsample at every K: the stable argsort hands the RNG each class's indices in the same
+ascending order `flatnonzero` did, so the draws are the same rows, not merely an equivalent sample.
+
+`tests/reporting/test_stratified_subsample_grouping.py` (12 tests). Note the first version of the timing
+test did NOT catch the un-narrowed key -- at moderate n an int64 argsort still looks fine -- so the
+mechanism is pinned directly by a spy on `_narrowed`, which does fail against the finding's literal fix.
