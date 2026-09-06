@@ -443,3 +443,20 @@ Measured on rendered figures afterwards: both backends now emit ``#4c72b0`` and 
 ``tests/reporting/test_confusion_margin_colours.py``, which checks the two strips differ, that neither
 borrows the trend-line colour, and that the backends agree; two of four fail with the plotly fills put
 back on TREND_LINE.
+
+**VIS-12 FIXED, with one correction to the finding and one departure from its fix.**
+
+Both private palette copies are gone; the charts call ``colors.line_color`` now, so a repaint of the shared
+palette reaches them. That half is exactly as reported -- the tuples were byte-identical to LINE_PALETTE.
+
+Correction: the stated symptom ("subgroup 0 and subgroup 10 drawn as two solid lines in the identical
+blue") is NOT reachable on defaults. ``max_groups`` defaults to 6, so the palette cannot wrap unless a
+caller raises it past 10. It is reachable through the public argument, so it was still worth fixing, but
+the finding overstates how easily it fires.
+
+Departure: the proposed fix passes ``line_style(i)`` for every curve. In these two charts ``line_styles``
+carries the DRAW MODE ("lines+markers"), not a dash pattern, so doing that would strip the markers from
+every ordinary chart -- the 6-group default, where no colour repeats and nothing is gained. The style
+switches only past the wrap, where colour has genuinely stopped identifying a group. Verified at 13
+subgroups: the three repeated colours come back with distinct styles, and a separate test pins that a
+4-group chart keeps its markers.
