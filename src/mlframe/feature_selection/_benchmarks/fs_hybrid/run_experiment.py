@@ -80,7 +80,7 @@ def compute_auc_mean(aucs: Dict[str, Optional[float]]) -> Optional[float]:
 
 
 def _declared_target_size(truth: Dict[str, Any], n_features: int) -> Optional[int]:
-    """Return the pre-declared primary target-set size, or `None` when the bed declares none.
+    """Return the predeclared primary target-set size, or `None` when the bed declares none.
 
     Synthetic beds carry it in `truth["base"]`; a bed may also state it outright as
     `truth["declared_target_size"]`. A real bed has no ground truth and declares neither -- that is not an
@@ -334,7 +334,7 @@ def run_grid(
             if NULL_ARM not in cell_roster:
                 raise ValueError(f"the roster must contain the null hypothesis {NULL_ARM!r} on every cell")
             if not manifest_written:
-                # Written once, on the first roster, and never rewritten: a resumed run that re-declared
+                # Written once, on the first roster, and never rewritten: a resumed run that redeclared
                 # itself would declare exactly the seeds it ended up running, which is the opposite of a
                 # declaration. An existing manifest is left alone for the same reason.
                 manifest_written = True

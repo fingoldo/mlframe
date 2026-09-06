@@ -18,6 +18,8 @@ import pandas as pd
 
 from sklearn.base import clone
 
+from mlframe.feature_selection.filters._mrmr_fit_impl._fe_roster_attrs import seed_empty_fe_rosters
+
 from ..info_theory._cmi_cuda import reset_cmi_gpu_circuit_breaker
 from ..permutation import reset_mi_direct_gpu_circuit_breaker
 from .._permutation_null_pair_resident import reset_pair_maxt_gpu_circuit_breaker
@@ -564,6 +566,12 @@ class _MRMRFitHelpersMixin:
         self.n_features_ = int(self.support_.size)
         self._engineered_features_ = []
         self._engineered_recipes_ = []
+        # Every per-family roster, emptied on THIS object. The engineering happened inside the per-target
+        # clones above and this path returns before the single-target body that would otherwise seed them, so
+        # without this the outer estimator came back from a successful fit with no ``*_features_`` attributes
+        # at all -- callers reading one got AttributeError, and callers reading it through a getattr default
+        # got an answer indistinguishable from "the family ran and produced nothing".
+        seed_empty_fe_rosters(self)
         self.multioutput_supports_ = per_column_selected
         self.multioutput_strategy_ = strategy
         # No in-object skip signature for the multioutput path: this method always re-runs the per-column sub-fits (it never consults a content
