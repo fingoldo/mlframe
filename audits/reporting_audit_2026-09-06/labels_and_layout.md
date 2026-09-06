@@ -267,3 +267,31 @@ left alone rather than quietly redefined here.
 
 Pinned by ``tests/reporting/test_heatmap_tick_budget.py``; three of its five tests fail with the budget
 reverted to the fixed cap.
+
+**LBL-05 FIXED.** ``truncate_bar_label`` gained a middle-ellipsis mode, and ``BarPanelSpec.label_keep_tail``
+lets a builder say how many trailing characters must survive. ``slice_finder`` (20) and
+``category_discriminability`` (18) set it, because their own titles tell the reader the label carries the
+support and the ratio -- and the head-preserving cut deleted exactly that on a two-feature slice, which is
+what slice_finder produces by default. Verified on a rendered figure: labels now read
+``job_posted_at_day_of_year_component_0...14]  (n=5_000, 1.7x)``. Deliberately opt-in rather than global:
+two existing tests pin that an ordinary truncated label ends in an ellipsis, and that shape is fine for a
+label with no payload. Pinned by ``tests/reporting/test_label_payload_survives_truncation.py``; both
+end-to-end parametrisations fail with the flag turned off.
+
+**LBL-01 FIXED.** Node labels are capped and truncated on both backends. The cap is spent on the LARGEST
+nodes, because ``node_size`` carries the importance the graph is drawn to show; every other node keeps its
+marker, size, colour and its full name in the hover. Confirmed by rendering a friend-graph-shaped panel at
+120 nodes (the family default is 200): 120 names of ~35 chars were a single illegible mat across the middle
+of the panel, and 25 truncated ones read cleanly. A graph smaller than the cap still names everything.
+
+## Found by rendering, not in the audit list (parent, 2026-09-06)
+
+**NET-01 [P1] a network panel CRASHED matplotlib on its own defaults.** ``NetworkPanelSpec.colormap``
+defaults to ``HEATMAP_GENERIC``, a sentinel token rather than a colormap name, and the matplotlib network
+branch subscripted ``matplotlib.colormaps[p.colormap]`` directly instead of going through
+``resolve_heatmap_cmap`` the way every other lookup in that renderer does. Any network panel that did not
+name a colormap raised ``KeyError('__mlframe_default_heatmap__')``. The plotly twin survived, but through
+its unknown-name fallback (Viridis, with a WARN) -- right by accident, and it would have diverged silently
+the moment the default changed. Both branches resolve the sentinel now. Found while rendering the panel for
+LBL-01, not by reading the spec; pinned by ``tests/reporting/test_network_labels_and_colormap.py``, whose
+render tests fail against the raw subscript.

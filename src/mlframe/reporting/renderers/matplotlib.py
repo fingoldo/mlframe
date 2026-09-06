@@ -23,11 +23,11 @@ from mlframe.reporting.spec import (
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
     _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, heatmap_value_to_index,
     _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
-    _TITLE_REF_WIDTH_IN, histogram_bar_extent, low_evidence_mask, panel_title_wrap_chars, select_per_point, ticks_that_fit, truncate_bar_label,
+    _TITLE_REF_WIDTH_IN, histogram_bar_extent, network_label_indices, low_evidence_mask, panel_title_wrap_chars, select_per_point, ticks_that_fit, truncate_bar_label,
     wrap_annotation_text, wrap_text_to_width, wrap_title_lines,
 )
 
-from mlframe.reporting.colors import TREND_LINE
+from mlframe.reporting.colors import TREND_LINE, resolve_heatmap_cmap
 logger = logging.getLogger(__name__)
 
 # Panel-title font cap so a verbose diagnostic title can't dwarf the panel. The chars-per-line budget is
@@ -73,6 +73,7 @@ def _pad_sparse_category_axis(ax, n_categories: int, *, horizontal: bool) -> Non
 # and has to be asked for per panel, so the panels that grew long labels never got it. Decide from the labels
 # and the panel's real width instead: the axes position is fixed by the gridspec before any draw, so this needs
 # no renderer pass (measuring after ``draw()`` would fight constrained layout, which has not run yet).
+_NETWORK_LABEL_MAXLEN = 24  # shorter than the bar-axis cap: these sit ON the graph, not along an axis
 _LEGEND_MAX_PANEL_FRACTION = 0.62  # widest entry may claim at most this share of the panel
 _LEGEND_MAX_INSIDE_ENTRIES = 8  # beyond this the stack is taller than most panels regardless of width
 _LEGEND_CHAR_WIDTH_RATIO = 0.6  # mean glyph advance as a fraction of font size, DejaVu Sans at these sizes
@@ -425,7 +426,7 @@ class MatplotlibRenderer:
                     width = float(p.bin_width if p.bin_width is not None else ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
             colors_kw: dict[str, Any] = {"color": p.color}
             if p.bar_colors is not None:
-                cm = matplotlib.colormaps[p.colormap]
+                cm = matplotlib.colormaps[resolve_heatmap_cmap(p.colormap)]  # same resolver as every other lookup; a sentinel default must not reach matplotlib
                 _h_min = float(np.min(p.bar_colors))
                 _h_max = float(np.max(p.bar_colors))
                 if _h_max <= _h_min:
@@ -487,7 +488,6 @@ class MatplotlibRenderer:
     def _heatmap(self, ax, p: HeatmapPanelSpec, fig) -> None:
         """Render a matrix heatmap: cell text (auto-flipped color by luminance) when the grid is small enough, iso-value threshold contours, and an optional trend/y=x line mapped from value-space into bin-index space via the panel's own binning range."""
         import matplotlib
-        from mlframe.reporting.colors import resolve_heatmap_cmap
         cmap_name = resolve_heatmap_cmap(p.colormap)
         cm = matplotlib.colormaps[cmap_name]
         # A density panel carrying ``trend_xy`` (the regression pred-vs-true heatmap) reads "bottom-up"
@@ -716,7 +716,7 @@ class MatplotlibRenderer:
             # y axis into an unreadable band of overlapping text, and a long generated feature name runs off
             # the left edge. The bars stay 1-per-category; only the LABELS are subsampled.
             n_cat = len(p.categories)
-            _cats = [truncate_bar_label(c) for c in p.categories]
+            _cats = [truncate_bar_label(c, keep_tail=p.label_keep_tail) for c in p.categories]
             if n_cat > _BAR_TICK_THIN_THRESHOLD:
                 step = int(np.ceil(n_cat / _BAR_TICK_KEEP))
                 sel = np.arange(0, n_cat, step)
@@ -737,7 +737,7 @@ class MatplotlibRenderer:
             # ``truncate_bar_label`` exists as a safety valve against. The two thinning constants are the module
             # ones now rather than 25 and 20 written out again, so the same numbers stop living in four places.
             n_cat = len(p.categories)
-            _cats_v = [truncate_bar_label(c) for c in p.categories]
+            _cats_v = [truncate_bar_label(c, keep_tail=p.label_keep_tail) for c in p.categories]
             if n_cat > _BAR_TICK_THIN_THRESHOLD:
                 step = int(np.ceil(n_cat / _BAR_TICK_KEEP))
                 sel = np.arange(0, n_cat, step)
@@ -919,7 +919,11 @@ class MatplotlibRenderer:
             segments = [[tuple(nx_pos[a]), tuple(nx_pos[b])] for a, b in zip(e_src, e_dst)]
             wmin, wmax = float(weights.min()), float(weights.max())
             norm = Normalize(vmin=wmin, vmax=wmax if wmax > wmin else wmin + 1e-9)
-            cmap = matplotlib.colormaps[p.colormap]
+            # Through the resolver, like every other colormap lookup here: ``NetworkPanelSpec.colormap``
+            # defaults to the HEATMAP_GENERIC sentinel, which is a token rather than a colormap name, so the
+            # raw subscript raised KeyError('__mlframe_default_heatmap__') on any network panel that did not
+            # name a colormap -- while the plotly twin silently fell back to Viridis with a warning.
+            cmap = matplotlib.colormaps[resolve_heatmap_cmap(p.colormap)]
             lo, hi = p.edge_width_range
             if wmax > wmin:
                 lws = lo + (weights - wmin) / (wmax - wmin) * (hi - lo)
@@ -949,8 +953,13 @@ class MatplotlibRenderer:
                 cbar.set_label(p.colorbar_label)
 
         ax.scatter(nx_pos[:, 0], nx_pos[:, 1], s=np.asarray(p.node_size, dtype=float), c=list(p.node_color), edgecolors="black", linewidths=0.5, zorder=3)
-        for (x, y), label in zip(nx_pos, p.node_label):
-            ax.annotate(label, (x, y), fontsize=7, ha="center", va="center", zorder=4)
+        # Only the biggest nodes are named, and the names are truncated. Every node used to be labelled at
+        # full length, centred on its own marker, so a friend graph rendered its names as a single illegible
+        # mat over the middle of the panel. The unlabelled nodes keep their marker, their size and their
+        # colour -- the graph still shows them, it just does not try to name all 200.
+        for _i in network_label_indices(p.node_size):
+            _x, _y = nx_pos[_i]
+            ax.annotate(truncate_bar_label(p.node_label[_i], _NETWORK_LABEL_MAXLEN), (_x, _y), fontsize=7, ha="center", va="center", zorder=4)
 
         if p.node_legend:
             handles = [Line2D([0], [0], marker="o", color="w", markerfacecolor=col, markersize=8, label=lbl) for lbl, col in p.node_legend]

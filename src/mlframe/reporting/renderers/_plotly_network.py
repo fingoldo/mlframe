@@ -16,6 +16,8 @@ from ._shared_helpers import plotly_axis_suffix
 from mlframe.reporting.spec import NetworkPanelSpec
 
 from ._plotly_color import _mpl_to_plotly_cmap
+from mlframe.reporting.colors import resolve_heatmap_cmap
+from ._shared_helpers import network_label_indices, truncate_bar_label
 
 import logging
 
@@ -26,6 +28,15 @@ logger = logging.getLogger(__name__)
 # annotation; beyond this the topology still renders (lines + nodes) but
 # arrowheads are skipped so a large opt-in graph doesn't bloat the layout.
 _NETWORK_MAX_ARROWS = 500
+
+
+_NETWORK_LABEL_MAXLEN = 24  # shorter than the bar-axis cap: these sit ON the graph, not along an axis
+
+
+def _network_label_text(node_label, node_size) -> list:
+    """Per-node printed text: a truncated name for the biggest nodes, empty for the rest."""
+    keep = set(network_label_indices(node_size))
+    return [truncate_bar_label(lbl, _NETWORK_LABEL_MAXLEN) if i in keep else "" for i, lbl in enumerate(node_label)]
 
 
 def _network(self, fig, p: NetworkPanelSpec, row: int, col: int) -> None:
@@ -50,7 +61,10 @@ def _network(self, fig, p: NetworkPanelSpec, row: int, col: int) -> None:
         # span could never actually pass here since it's always >= 0.
         wspan = raw_wspan if raw_wspan else 1.0
         lo, hi = p.edge_width_range
-        colorscale = _mpl_to_plotly_cmap(p.colormap)
+        # Resolve the HEATMAP_GENERIC sentinel first: passing the raw token made this fall back to Viridis
+        # through the unknown-name path (with a WARN), which happened to be right but for the wrong reason --
+        # and would silently diverge from matplotlib the moment the default changes.
+        colorscale = _mpl_to_plotly_cmap(resolve_heatmap_cmap(p.colormap))
         # Bin edges by MI into a handful of width/color buckets: one Scattergl
         # line trace per non-empty bucket keeps trace count O(bins) regardless
         # of edge count (a single line trace can't vary width/color per segment).
@@ -136,9 +150,10 @@ def _network(self, fig, p: NetworkPanelSpec, row: int, col: int) -> None:
         go.Scattergl(
             x=node_x, y=node_y,
             mode="markers+text",
-            marker=dict(size=sizes, color=list(p.node_color),
-                        line=dict(width=0.5, color="black")),
-            text=list(p.node_label), textposition="top center", textfont=dict(size=8),
+            marker=dict(size=sizes, color=list(p.node_color), line=dict(width=0.5, color="black")),
+            # Same rule as the matplotlib twin: name only the biggest nodes, truncated. Every node's full
+            # label stays in ``hovertext`` above, so nothing is lost -- it just is not all printed at once.
+            text=_network_label_text(p.node_label, p.node_size), textposition="top center", textfont=dict(size=8),
             hovertext=hovertext, hoverinfo="text", showlegend=False),
         row=row, col=col,
     )

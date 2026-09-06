@@ -511,6 +511,9 @@ def find_weak_slices(
         xlabel="Slice mean error",
         ylabel="slice",
         orientation="horizontal",
+        # The title tells the reader the label carries "(n=..., ratio)"; a head-preserving cut deletes exactly
+        # that on a two-feature slice, whose bounds string alone runs past the cap.
+        label_keep_tail=20,
         colors=("crimson",),
         value_err=(err_lo, err_hi),
         hline=(global_error, "black", f"global = {global_error:.3g}"),

@@ -286,6 +286,10 @@ class BarPanelSpec:
     # reference, while the label and the title both talk about "+-": the negative lags of an ACF were being
     # counted as significant in the title against a bound the reader could not see.
     hline_symmetric: bool = False
+    # Characters of the category label that must survive truncation, counted from the END. Builders that
+    # append a payload their own title refers to ("... (n=12_345, 2.31x)") set this, so the cap takes the
+    # middle of a long name rather than the annotation the reader was told to read.
+    label_keep_tail: int = 0
     # Per-point / per-bar tooltip text (plotly only -- matplotlib has no hover layer). This is where a builder
     # attaches the DENOMINATOR behind an aggregate: without it a rate computed from 3 rows renders identically to
     # one from 300k, and the count is usually already in hand at the point the bar is built.

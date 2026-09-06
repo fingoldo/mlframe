@@ -630,7 +630,7 @@ class PlotlyRenderer:
 
         if horizontal:
             if any(len(str(c)) > _BAR_XTICK_MAXLEN for c in cats):  # truncate long feature-name labels on the y-axis so they don't crowd the panel
-                fig.update_yaxes(tickmode="array", tickvals=cats, ticktext=[_truncate_label(c) for c in cats], row=row, col=col)
+                fig.update_yaxes(tickmode="array", tickvals=cats, ticktext=[_truncate_label(c, keep_tail=p.label_keep_tail) for c in cats], row=row, col=col)
             fig.update_yaxes(autorange="reversed", row=row, col=col)
             # ``xlabel`` names the VALUE and ``ylabel`` the CATEGORY, whatever the orientation -- that is what
             # every horizontal-bar builder in charts/ passes ("ECE (lower = better calibrated)" / "subgroup",
@@ -649,12 +649,12 @@ class PlotlyRenderer:
                 sel = list(range(0, n_cat, step))
                 fig.update_xaxes(tickmode="array",
                                  tickvals=[cats[i] for i in sel],
-                                 ticktext=[_truncate_label(cats[i]) for i in sel],
+                                 ticktext=[_truncate_label(cats[i], keep_tail=p.label_keep_tail) for i in sel],
                                  tickangle=tickangle if p.xtick_rotation else -45,
                                  row=row, col=col, title_text=p.xlabel)
             elif needs_trunc:
                 fig.update_xaxes(tickmode="array", tickvals=cats,
-                                 ticktext=[_truncate_label(c) for c in cats],
+                                 ticktext=[_truncate_label(c, keep_tail=p.label_keep_tail) for c in cats],
                                  tickangle=tickangle if p.xtick_rotation else -30,
                                  row=row, col=col, title_text=p.xlabel)
             else:

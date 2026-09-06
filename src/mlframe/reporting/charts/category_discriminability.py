@@ -303,6 +303,8 @@ def category_discriminability_panel(
         xlabel="Weight of Evidence  ln[ (p/(1-p)) / (base/(1-base)) ]",
         ylabel="feature=level",
         orientation="horizontal",
+        # Same reason as slice_finder: the title promises "(n=..., p=...)" at the end of every label.
+        label_keep_tail=18,
         colors=colors,
         hline=(0.0, "black", "WoE = 0 (base rate)"),
     )

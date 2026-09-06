@@ -34,6 +34,20 @@ _BAR_LABEL_MAXLEN = 60
 # the same px-per-inch or one spec yields two differently-sized figures -- and anything that converts a plotly
 # pixel extent back to inches (the heatmap tick budget) has to use the same number.
 PX_PER_INCH = 100
+# How many node labels a network panel may print. Edges are already capped; the LABELS never were, so a
+# friend graph at its default 200 nodes printed 200 names of ~35 chars over each other in the middle of the
+# panel -- at 120 nodes it is already an unreadable mat. The kept names are the biggest nodes, because
+# node_size carries the importance the graph is drawn to show; the rest keep their marker and their hover.
+_NETWORK_MAX_LABELS = 25
+
+
+def network_label_indices(node_size, max_labels: int = _NETWORK_MAX_LABELS):
+    """Indices of the nodes worth labelling: the ``max_labels`` largest, in drawing order."""
+    sizes = np.asarray(node_size, dtype=float).ravel()
+    if sizes.size <= max_labels:
+        return list(range(sizes.size))
+    keep = np.argpartition(sizes, sizes.size - max_labels)[sizes.size - max_labels :]
+    return sorted(int(i) for i in keep)
 
 
 def plotly_axis_suffix(fig: Any, row: int, col: int, n_cols: int) -> str:
@@ -58,15 +72,28 @@ def plotly_axis_suffix(fig: Any, row: int, col: int, n_cols: int) -> str:
         return "" if idx == 1 else str(idx)
 
 
-def truncate_bar_label(label: Any, maxlen: int = _BAR_LABEL_MAXLEN) -> str:
-    """Shorten one bar-category label to ``maxlen`` chars, ellipsis-suffixed.
+def truncate_bar_label(label: Any, maxlen: int = _BAR_LABEL_MAXLEN, keep_tail: int = 0) -> str:
+    """Shorten one bar-category label to ``maxlen`` chars.
+
+    ``keep_tail`` > 0 switches to a MIDDLE ellipsis, preserving that many trailing characters: for a label
+    whose builder appended a payload the panel title refers to, cutting the tail throws away the part the
+    reader was told to look for.
 
     Single definition on purpose: both renderers need byte-identical label text or the same spec yields two
     differently-labelled charts, and two copies of a truncation rule is exactly the drift this module exists
     to prevent (see the shared threshold constants above).
     """
     s = str(label)
-    return s if len(s) <= maxlen else s[: maxlen - 1] + "..."
+    if len(s) <= maxlen:
+        return s
+    if keep_tail > 0:
+        # Middle ellipsis. Some builders append the payload their own panel title promises the label carries
+        # -- slice_finder's "(n=12_345, 2.31x)", category_discriminability's "(n=248, p=0.35)" -- and a
+        # head-preserving cut deletes exactly that, leaving the chart documenting a field it does not render.
+        # Keeping both ends costs the middle of a long generated name, which is the least identifying part.
+        head = max(1, maxlen - keep_tail - 3)
+        return s[:head] + "..." + s[-keep_tail:]
+    return s[: maxlen - 1] + "..."
 
 
 # Vertical room one horizontal tick label needs, in inches, at the 8pt the heatmap axes use: the glyph height
