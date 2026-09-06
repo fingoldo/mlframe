@@ -17,7 +17,7 @@ import pytest
 from mlframe.calibration.policy import _ece_score
 from mlframe.evaluation._bootstrap_fused_binary_bundle import bootstrap_auc_brier_ll_ece_batch
 from mlframe.evaluation.bootstrap import bootstrap_metrics
-from mlframe.evaluation._bootstrap_jackknife import _jackknife_auc
+from mlframe.evaluation._bootstrap_jackknife import _jackknife_auc, _jackknife_ece
 from mlframe.metrics.core import (
     fast_brier_score_loss as _fast_brier,
     fast_log_loss as _fast_ll,
@@ -61,7 +61,12 @@ def _reference_bootstrap_metrics(y_true, p_pos, n_bootstrap, random_state):
 
     metric_fns = {"brier": _brier, "log_loss": _ll, "ece": lambda yy, pp: _ece_score(yy, pp)}
     per_row_fns = {"log_loss": (_ll_per_row, True, None), "brier": (_brier_per_row, False, None)}
-    jackknife_fns = {"roc_auc": lambda yy, ss: _jackknife_auc(yy, ss)}
+    # ECE's closed-form jackknife is part of the wiring this reference claims to replicate: production's
+    # ``_bootstrap_block`` sets ``jackknife_fns["ece"]`` too (added 2026-07-31), and the fused bundle uses it.
+    # Omitting it here left ECE on the generic gather jackknife, so the two paths differed by ~5.6e-17 --
+    # absorbed by the 1e-9 tolerance below, which meant a genuine BCa-acceleration divergence in the closed
+    # form was only visible above 1e-9, and the docstring's "mirrors prod wiring" claim was already false.
+    jackknife_fns = {"roc_auc": lambda yy, ss: _jackknife_auc(yy, ss), "ece": lambda yy, pp: _jackknife_ece(yy, pp)}
     metric_fns_idx = {"roc_auc": make_bootstrap_auc_resampler(y_true, p_pos)}
     return bootstrap_metrics(
         y_true, p_pos, metric_fns, n_bootstrap=n_bootstrap, alpha=0.05, stratify=y_true,
@@ -83,6 +88,13 @@ def test_fused_bundle_matches_bootstrap_metrics(n, n_bootstrap):
         assert abs(r["lo"] - f["lo"]) < _TOL, f"{name} lo mismatch"
         assert abs(r["hi"] - f["hi"]) < _TOL, f"{name} hi mismatch"
         assert np.allclose(np.sort(r["samples"]), np.sort(f["samples"]), atol=_TOL), f"{name} samples mismatch"
+        if name == "ece":
+            # Both sides now use the same closed-form ECE jackknife, so this is EXACT -- measured 0.0 at
+            # both fixture sizes. It was 5.6e-17 while the reference omitted that wiring and fell back to
+            # the generic gather jackknife: absorbed by _TOL, which meant a genuine BCa-acceleration
+            # divergence in the closed form only became visible once it exceeded 1e-9.
+            for stat in ("point", "lo", "hi"):
+                assert r[stat] == f[stat], f"ece {stat} is no longer bit-identical: reference {r[stat]!r} vs fused {f[stat]!r}"
 
 
 @pytest.mark.parametrize("n,n_bootstrap", [(2_000, 100), (20_000, 100)])
@@ -103,6 +115,13 @@ def test_fused_bundle_matches_bootstrap_metrics_on_tied_scores(n, n_bootstrap):
         assert abs(r["lo"] - f["lo"]) < _TOL, f"{name} lo mismatch"
         assert abs(r["hi"] - f["hi"]) < _TOL, f"{name} hi mismatch"
         assert np.allclose(np.sort(r["samples"]), np.sort(f["samples"]), atol=_TOL), f"{name} samples mismatch"
+        if name == "ece":
+            # Both sides now use the same closed-form ECE jackknife, so this is EXACT -- measured 0.0 at
+            # both fixture sizes. It was 5.6e-17 while the reference omitted that wiring and fell back to
+            # the generic gather jackknife: absorbed by _TOL, which meant a genuine BCa-acceleration
+            # divergence in the closed form only became visible once it exceeded 1e-9.
+            for stat in ("point", "lo", "hi"):
+                assert r[stat] == f[stat], f"ece {stat} is no longer bit-identical: reference {r[stat]!r} vs fused {f[stat]!r}"
 
 
 def test_fused_bundle_handles_all_tied_scores():
