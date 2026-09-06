@@ -78,6 +78,7 @@ _PANEL_TITLE_FONTSIZE = 11
 # and has to agree with whatever this renderer sized the figure at.
 _PX_PER_INCH = PX_PER_INCH
 # Past this many bar categories thin x-tick labels to ~20 evenly-spaced (matches matplotlib); truncate labels over _BAR_XTICK_MAXLEN chars so long feature names don't crowd.
+_VIOLIN_LABEL_MAXLEN = 20  # matches the matplotlib twin; a 30-deg rotated label projects most of its length
 _BAR_XTICK_THIN_THRESHOLD = 25
 _BAR_XTICK_KEEP = 20
 # 60, not 24: the matplotlib renderer truncates nothing at all and stays readable at the same figsize
@@ -851,7 +852,12 @@ class PlotlyRenderer:
             color = line_color(i)
             fig.add_trace(
                 go.Violin(
-                    y=group, name=label, box_visible=p.show_box, meanline_visible=False, line_color=color, fillcolor=color, opacity=0.6, showlegend=False
+                    # The trace NAME is the category label on the x axis, so it is truncated here the same way
+                    # and to the same length as the matplotlib twin -- 20 rotated 30-char class names overlap
+                    # into a staircase on either backend. The full name stays on the hover.
+                    y=group, name=_truncate_label(label, _VIOLIN_LABEL_MAXLEN, keep_tail=6), box_visible=p.show_box,
+                    meanline_visible=False, line_color=color, fillcolor=color, opacity=0.6, showlegend=False,
+                    hovertext=str(label), hoverinfo="y+text",
                 ),
                 row=row,
                 col=col,

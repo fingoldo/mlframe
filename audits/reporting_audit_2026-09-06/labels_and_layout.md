@@ -268,6 +268,16 @@ left alone rather than quietly redefined here.
 Pinned by ``tests/reporting/test_heatmap_tick_budget.py``; three of its five tests fail with the budget
 reverted to the fixed cap.
 
+**LBL-09 FIXED.** Violin group labels are truncated on both backends (to the same length, so one spec reads
+the same either way) and thinned by the panel's real width. Confirmed on the case the finding names -- 20
+string class names on a per-class probability violin: the labels were a staircase taking ~40% of the figure
+height and now read cleanly. The truncation keeps the TAIL, since ``tier_0`` versus ``tier_19`` is the whole
+difference between two generated names; a test asserts the shortened labels stay distinct, which a
+head-preserving cut would fail. On plotly the full name moves to the hover. The thinning does not fire on
+this 20-group case and should not: once the labels are short they all fit. Pinned by
+``tests/reporting/test_violin_group_labels.py``; two of six fail with the truncation removed, including the
+backend-parity one.
+
 **LBL-08 FIXED, but NOT the way the finding proposes -- the proposed fix was tried, rendered, and rejected.**
 The finding suggests ``legend_outside=True`` on the three overlay panels. Doing that and rendering a
 twelve-class figure shrank every panel to about a third of its row: the curves became small and the legends

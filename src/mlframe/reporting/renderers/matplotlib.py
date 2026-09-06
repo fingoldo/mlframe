@@ -73,6 +73,7 @@ def _pad_sparse_category_axis(ax, n_categories: int, *, horizontal: bool) -> Non
 # and has to be asked for per panel, so the panels that grew long labels never got it. Decide from the labels
 # and the panel's real width instead: the axes position is fixed by the gridspec before any draw, so this needs
 # no renderer pass (measuring after ``draw()`` would fight constrained layout, which has not run yet).
+_VIOLIN_LABEL_MAXLEN = 20  # rotated 30 deg under the axis, so a long name projects most of its length horizontally
 _NETWORK_LABEL_MAXLEN = 24  # shorter than the bar-axis cap: these sit ON the graph, not along an axis
 _LEGEND_MAX_PANEL_FRACTION = 0.62  # widest entry may claim at most this share of the panel
 _LEGEND_MAX_INSIDE_ENTRIES = 8  # beyond this the stack is taller than most panels regardless of width
@@ -892,8 +893,18 @@ class MatplotlibRenderer:
         # Name the dropped groups in the title: a violin that silently vanishes reads as "this group has no
         # spread", which is a different statement from "this group has no data".
         _violin_title = f"{p.title} (no data: {', '.join(empty)})" if (empty and p.title) else p.title
-        ax.set_xticks(range(1, len(labels) + 1))
-        ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=8)
+        # Truncated AND thinned, the two guards the bar branches have and this one had neither of. A per-class
+        # violin on 20 string class names put 20 rotated 30-char labels under the axis: they overlap into a
+        # staircase and eat ~40% of the figure height. The violins stay one per group; only the LABELS
+        # subsample, and the tail is kept because that is what distinguishes generated names.
+        try:
+            _panel_w = float(ax.get_position().width) * float(ax.figure.get_size_inches()[0])
+        except Exception:
+            logger.debug("could not measure violin panel width for label thinning", exc_info=True)
+            _panel_w = None
+        _keep = _thin_tick_positions(len(labels), ticks_that_fit(_panel_w, len(labels)))
+        ax.set_xticks([i + 1 for i in _keep])
+        ax.set_xticklabels([truncate_bar_label(labels[i], _VIOLIN_LABEL_MAXLEN, keep_tail=6) for i in _keep], rotation=30, ha="right", fontsize=8)
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         _set_panel_title(ax, _violin_title)
