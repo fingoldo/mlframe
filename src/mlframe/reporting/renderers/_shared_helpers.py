@@ -30,6 +30,10 @@ _HEATMAP_CELL_TEXT_MAX = 400
 # Cap for ONE bar-category label. Both backends rotate these labels already, so the cap is a safety valve
 # against a pathological generated name (a 200-char column) blowing out the axis, not routine shortening.
 _BAR_LABEL_MAXLEN = 60
+# matplotlib's default figure dpi. ``FigureSpec.figsize`` is in matplotlib inches, so both backends must use
+# the same px-per-inch or one spec yields two differently-sized figures -- and anything that converts a plotly
+# pixel extent back to inches (the heatmap tick budget) has to use the same number.
+PX_PER_INCH = 100
 
 
 def plotly_axis_suffix(fig: Any, row: int, col: int, n_cols: int) -> str:
@@ -63,6 +67,25 @@ def truncate_bar_label(label: Any, maxlen: int = _BAR_LABEL_MAXLEN) -> str:
     """
     s = str(label)
     return s if len(s) <= maxlen else s[: maxlen - 1] + "..."
+
+
+# Vertical room one horizontal tick label needs, in inches, at the 8pt the heatmap axes use: the glyph height
+# plus the leading a reader needs to tell two rows apart.
+_TICK_LABEL_PITCH_IN = 0.18
+
+
+def ticks_that_fit(extent_in: Optional[float], n: int, *, floor: int = _HEATMAP_MAX_TICKS) -> int:
+    """How many tick labels fit along an axis ``extent_in`` inches long, never fewer than ``floor``.
+
+    A fixed cap is wrong in both directions. A drift heatmap deliberately GROWS its figure with the feature
+    count -- 40 rows over 14 inches -- and then named 8 of them, wasting the height it just bought and leaving
+    the reader unable to tell which feature a row is. A small panel, meanwhile, cannot hold 8 rotated names.
+    Deriving the count from the axis's real extent tracks both, and the floor keeps the old behaviour whenever
+    the extent is unknown or tiny.
+    """
+    if not extent_in or extent_in <= 0:
+        return floor
+    return max(floor, min(n, int(extent_in / _TICK_LABEL_PITCH_IN)))
 
 
 def _thin_tick_positions(n: int, max_ticks: int = _HEATMAP_MAX_TICKS):

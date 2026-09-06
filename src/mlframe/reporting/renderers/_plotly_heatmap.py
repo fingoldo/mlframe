@@ -25,7 +25,7 @@ from mlframe.reporting.spec import ConfusionMarginsPanelSpec, HeatmapPanelSpec
 
 from mlframe.reporting.colors import TREND_LINE
 from ._plotly_color import _mpl_to_plotly_cmap
-from ._shared_helpers import _HEATMAP_CELL_TEXT_MAX, _finite_range, _thin_tick_positions
+from ._shared_helpers import _HEATMAP_CELL_TEXT_MAX, PX_PER_INCH, _finite_range, _thin_tick_positions, ticks_that_fit, truncate_bar_label
 
 # Share of the subplot cell each marginal strip takes, and the gap between a strip and the grid it annotates.
 _MARGIN_STRIP_FRAC = 0.18
@@ -203,6 +203,10 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
                    # ``<extra></extra>`` suppresses the trace-name box ("trace 804").
                    hovertemplate=(f"{_xname}: %{{x}}<br>{_yname}: %{{y}}<br>{_zname}: %{{z:.4g}}" f"{_hover_extra}<extra></extra>"),
                    colorscale=_mpl_to_plotly_cmap(cmap_name),
+                   # Mirrors the matplotlib twin's vmin/vmax: an unanchored diverging scale puts its midpoint
+                   # colour wherever the data lands, which reads as a sign the values do not have.
+                   **({"zmin": p.color_vmin} if p.color_vmin is not None else {}),
+                   **({"zmax": p.color_vmax} if p.color_vmax is not None else {}),
                    colorbar=self._colorbar_placement(fig, row, col, p.colorbar_label),
                    showscale=True),
         row=row, col=col,
@@ -219,6 +223,13 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
         from mlframe.reporting.colors import auto_text_colors_batch
         mat = p.matrix
         vmin, vmax = rng
+        # Same scale the cells were drawn with, when the builder pinned it (see the matplotlib twin): the text
+        # colour samples the colormap at the cell's position, so reading a different range than the image puts
+        # white labels on a pale fill.
+        if p.color_vmin is not None:
+            vmin = float(p.color_vmin)
+        if p.color_vmax is not None:
+            vmax = float(p.color_vmax)
         # One vectorized colormap sample for the whole grid instead of one matplotlib call per cell
         # (bit-identical to the per-cell auto_text_color -- verified in bench_auto_text_colors_batch.py).
         text_colors = auto_text_colors_batch(np.where(np.isfinite(mat), mat, vmin), cmap_name, vmin=vmin, vmax=vmax)
@@ -315,15 +326,26 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
                         row=row, col=col,
                     )
 
-    # A density heatmap has ~80 cell labels per axis; one tick each overlaps into soup. Thin to <= _HEATMAP_MAX_TICKS
-    # evenly-spaced category ticks (the full grid is still drawn).
-    _xt = _thin_tick_positions(len(p.col_labels))
-    _yt = _thin_tick_positions(len(p.row_labels))
-    fig.update_xaxes(title_text=p.xlabel, row=row, col=col, tickangle=-45, tickmode="array", tickvals=[p.col_labels[i] for i in _xt])
+    # A density heatmap has ~80 cell labels per axis; one tick each overlaps into soup. The budget comes from the
+    # subplot's real extent rather than a fixed cap, matching the matplotlib twin: a drift heatmap that grows its
+    # figure with the feature count otherwise names 8 of 40 rows and wastes the height it just bought. Labels are
+    # truncated here too, which this branch never did and both bar branches always have.
+    _dom = _cell_domains(fig, row, col)
+    _w_px, _h_px = fig.layout.width, fig.layout.height
+    _w_in = _h_in = None
+    if _dom is not None and _w_px and _h_px:
+        (_x0, _x1), (_y0, _y1), _, _ = _dom
+        _w_in = (float(_x1) - float(_x0)) * float(_w_px) / PX_PER_INCH
+        _h_in = (float(_y1) - float(_y0)) * float(_h_px) / PX_PER_INCH
+    _xt = _thin_tick_positions(len(p.col_labels), ticks_that_fit(_w_in, len(p.col_labels)))
+    _yt = _thin_tick_positions(len(p.row_labels), ticks_that_fit(_h_in, len(p.row_labels)))
+    fig.update_xaxes(title_text=p.xlabel, row=row, col=col, tickangle=-45, tickmode="array",
+                     tickvals=[p.col_labels[i] for i in _xt], ticktext=[truncate_bar_label(p.col_labels[i]) for i in _xt])
     # Row order must match matplotlib, which switches to origin="lower" for a density panel carrying
     # `trend_xy` (it reads bottom-up, row 0 = lowest value) and keeps the top-down matrix order otherwise.
     # Reversing unconditionally rendered the pred-vs-actual density heatmap VERTICALLY MIRRORED between the
     # two backends -- the same figure, with the trend running the opposite way.
     _reversed = p.trend_xy is None
     _y_kw = {"autorange": "reversed"} if _reversed else {}
-    fig.update_yaxes(title_text=p.ylabel, row=row, col=col, tickmode="array", tickvals=[p.row_labels[i] for i in _yt], **_y_kw)
+    fig.update_yaxes(title_text=p.ylabel, row=row, col=col, tickmode="array", tickvals=[p.row_labels[i] for i in _yt],
+                     ticktext=[truncate_bar_label(p.row_labels[i]) for i in _yt], **_y_kw)

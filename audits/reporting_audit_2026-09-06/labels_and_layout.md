@@ -243,3 +243,27 @@ in proportion to the wrapped width, the same way `top_margin` already grows with
 - Date axes: `epoch_ns_ticks` picks a format by span and emits 6 ticks (`_shared_helpers.py:366-404`); both backends rotate.
 - Numeric tick density on histograms is capped via `MaxNLocator`/`LogLocator` (`matplotlib.py:388-401`).
 - Static plotly exports park the legend below the plot area (`plotly.py:377-383`).
+
+---
+
+## Dispositions (parent, 2026-09-06)
+
+**LBL-02 FIXED.** The tick budget is no longer the constant 8. ``ticks_that_fit(extent_in, n)`` derives it
+from the axis's real extent (one label per 0.18 in at the 8 pt these axes use), keeping 8 as a floor for an
+unmeasurable or tiny axis. Verified on the case the finding names: the 40-feature drift heatmap sizes its
+figure to 10 x 14.3 in and now names all 40 rows on BOTH backends, where it named 8. The small heatmaps in
+the same sweep (6 x 6 multilabel co-occurrence) are unchanged.
+
+Plotly needed one more thing to get there: panels are drawn before ``update_layout`` sets width/height, so a
+panel asking how much room it has read ``None`` and silently took the floor. The renderer now stamps the
+requested size on the figure before drawing, at the same px-per-inch the final layout uses -- and that
+constant, previously declared in ``plotly.py`` alone, moved to ``_shared_helpers`` so the two cannot drift.
+
+**LBL-03 FIXED.** Heatmap tick labels are truncated on both backends, which the bar branches have always
+done and this one never did. Noted while writing the test: ``truncate_bar_label`` keeps ``maxlen - 1``
+characters and appends an ellipsis, so a truncated label is two characters OVER its nominal cap. That is
+pre-existing and deliberate -- ``test_renderer_audit_regressions.py`` documents the allowance -- so it was
+left alone rather than quietly redefined here.
+
+Pinned by ``tests/reporting/test_heatmap_tick_budget.py``; three of its five tests fail with the budget
+reverted to the fixed cap.

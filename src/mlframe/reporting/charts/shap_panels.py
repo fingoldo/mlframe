@@ -397,7 +397,7 @@ def _write_skip_notice(reason: str, plot_file: Optional[str], plot_outputs: Opti
         return []
     try:
         fig = plt.figure(figsize=(9.0, 2.2))
-        fig.text(0.5, 0.5, "SHAP panels not produced:' + BS + 'n" + reason, ha="center", va="center", fontsize=10, wrap=True)
+        fig.text(0.5, 0.5, "SHAP panels not produced:\n" + reason, ha="center", va="center", fontsize=10, wrap=True)
         written = _save_figure(fig, plot_file, plot_outputs)
         plt.close(fig)
         return written

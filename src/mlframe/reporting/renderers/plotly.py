@@ -44,7 +44,7 @@ from ._kaleido import (
 from ._plotly_interactivity import apply_interactivity, html_config
 from ._plotly_color import _rgba, _mpl_to_plotly_cmap
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
-    _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS,
+    _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, PX_PER_INCH,
     _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
     histogram_bar_extent, low_evidence_mask, panel_title_wrap_chars, select_per_point, truncate_bar_label, wrap_annotation_text,
     wrap_text_to_width, wrap_title_lines,
@@ -74,9 +74,9 @@ _CAPTION_FONTSIZE = 10
 # Subplot-title font. plotly's own default (16) overflows horizontally into the adjacent subplot at a
 # typical 3-column figsize; 11 matches matplotlib's panel titles.
 _PANEL_TITLE_FONTSIZE = 11
-# matplotlib's default figure dpi; ``FigureSpec.figsize`` is in matplotlib inches, so both backends must
-# use the same px-per-inch or the same spec yields two differently-sized figures.
-_PX_PER_INCH = 100
+# One definition in ._shared_helpers: the heatmap tick budget converts a plotly pixel extent back to inches
+# and has to agree with whatever this renderer sized the figure at.
+_PX_PER_INCH = PX_PER_INCH
 # Past this many bar categories thin x-tick labels to ~20 evenly-spaced (matches matplotlib); truncate labels over _BAR_XTICK_MAXLEN chars so long feature names don't crowd.
 _BAR_XTICK_THIN_THRESHOLD = 25
 _BAR_XTICK_KEEP = 20
@@ -314,6 +314,11 @@ class PlotlyRenderer:
             subplots_kwargs["column_widths"] = [c / total for c in spec.col_width_ratios]
 
         fig = make_subplots(**subplots_kwargs)
+        # Panels are drawn before ``update_layout`` sets width/height below, so a panel that needs to know how
+        # much room it has (the heatmap's tick budget) cannot read it off the figure yet. Stamp the requested
+        # size on the figure now, in the same px-per-inch the final layout uses, so the two agree.
+        fig.layout.width = int(spec.figsize[0] * _PX_PER_INCH)
+        fig.layout.height = int(spec.figsize[1] * _PX_PER_INCH)
 
         for ann in fig.layout.annotations:
             ann.font = dict(size=_PANEL_TITLE_FONTSIZE)
@@ -622,8 +627,13 @@ class PlotlyRenderer:
             if any(len(str(c)) > _BAR_XTICK_MAXLEN for c in cats):  # truncate long feature-name labels on the y-axis so they don't crowd the panel
                 fig.update_yaxes(tickmode="array", tickvals=cats, ticktext=[_truncate_label(c) for c in cats], row=row, col=col)
             fig.update_yaxes(autorange="reversed", row=row, col=col)
-            fig.update_xaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
-            fig.update_yaxes(title_text=p.xlabel, row=row, col=col)
+            # ``xlabel`` names the VALUE and ``ylabel`` the CATEGORY, whatever the orientation -- that is what
+            # every horizontal-bar builder in charts/ passes ("ECE (lower = better calibrated)" / "subgroup",
+            # "quality (higher is better)" / "metric") and what the matplotlib twin draws. Swapping them here
+            # put "subgroup", "model" and "metric" along the value axis of six chart types in the HTML report
+            # while the PNG of the same spec read correctly.
+            fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid)
+            fig.update_yaxes(title_text=p.ylabel, row=row, col=col)
         else:
             n_cat = len(cats)
             # Rotate + truncate long category labels; thin to ~20 evenly-spaced past 25 categories (matching matplotlib) so they don't smear.

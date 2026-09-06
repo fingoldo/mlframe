@@ -169,6 +169,14 @@ class HeatmapPanelSpec:
     cell_text: Optional[np.ndarray] = None
     text_format: str = ".2f"
     colorbar_label: Optional[str] = None
+    # Explicit colour-scale bounds, same meaning and same names as the scatter spec's. A DIVERGING colormap
+    # (RdBu_r and friends) reads its midpoint colour as "zero"; with the bounds left to autoscale, that midpoint
+    # lands wherever the data happens to sit. A Spearman matrix of 0.20-1.00 therefore rendered every
+    # off-diagonal cell deep blue -- the colour a reader takes for a strong NEGATIVE correlation -- when the
+    # true values were weak POSITIVE ones. Any builder using a diverging map should pin the bounds symmetrically
+    # about the value its midpoint is meant to mean.
+    color_vmin: Optional[float] = None
+    color_vmax: Optional[float] = None
     # Contour overlays at named matrix levels (e.g. PSI 0.10 / 0.25 triage lines on a drift heatmap):
     # (value, color) or (value, color, dash, label). Two levels separated by colour alone are indistinguishable
     # under protanopia, which is why the dash is part of the field rather than a renderer default.

@@ -323,6 +323,16 @@ def _corr_heatmap_panel(per_model: Mapping[str, Mapping[str, Any]], subsample: i
         col_labels=tuple(names),
         title="Between-model prediction correlation (Spearman)",
         colormap="RdBu_r",
+        # Spearman rho lives in [-1, 1] and RdBu_r's white midpoint means "no rank agreement", so the scale is
+        # pinned to that range rather than to the observed one. Left to autoscale, a matrix of genuinely weak
+        # positive correlations (0.20-0.25 off-diagonal, 1.00 on it) put white at ~0.6 and painted every
+        # off-diagonal cell deep blue -- read as strong ANTI-correlation, the opposite of what the data says.
+        color_vmin=-1.0,
+        color_vmax=1.0,
+        # Spearman rho lives in [-1, 1] and RdBu_r's white midpoint means "no rank agreement", so the scale is
+        # pinned to that range rather than to the observed one. Left to autoscale, a matrix of genuinely weak
+        # positive correlations (0.20-0.25 off-diagonal, 1.00 on it) put white at ~0.6 and painted every
+        # off-diagonal cell deep blue -- read as strong ANTI-correlation, the opposite of what the data says.
         cell_text=corr,
         text_format=".2f",
         colorbar_label="Spearman rho",

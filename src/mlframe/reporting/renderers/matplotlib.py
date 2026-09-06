@@ -9,7 +9,7 @@ calls so we don't init a GUI backend on headless / parallel runs.
 from __future__ import annotations
 
 import logging
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Optional
 
 from mlframe._output_paths import ensure_parent_dir
 import numpy as np
@@ -23,7 +23,7 @@ from mlframe.reporting.spec import (
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
     _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, heatmap_value_to_index,
     _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
-    _TITLE_REF_WIDTH_IN, histogram_bar_extent, low_evidence_mask, panel_title_wrap_chars, select_per_point, truncate_bar_label,
+    _TITLE_REF_WIDTH_IN, histogram_bar_extent, low_evidence_mask, panel_title_wrap_chars, select_per_point, ticks_that_fit, truncate_bar_label,
     wrap_annotation_text, wrap_text_to_width, wrap_title_lines,
 )
 
@@ -494,13 +494,33 @@ class MatplotlibRenderer:
         # (row 0 = lowest value), so it needs origin="lower"; other heatmaps (confusion / drift) keep the
         # default top-down matrix orientation.
         _heatmap_origin = "lower" if getattr(p, "trend_xy", None) is not None else "upper"
-        im = ax.imshow(p.matrix, cmap=cm, aspect="auto", origin=_heatmap_origin)
-        _xt = _thin_tick_positions(len(p.col_labels))
+        # Explicit colour bounds when the builder pinned them: a diverging colormap's midpoint means nothing
+        # unless the scale is anchored, and autoscale anchors it to whatever the data happens to span.
+        _clim = {}
+        if p.color_vmin is not None:
+            _clim["vmin"] = p.color_vmin
+        if p.color_vmax is not None:
+            _clim["vmax"] = p.color_vmax
+        im = ax.imshow(p.matrix, cmap=cm, aspect="auto", origin=_heatmap_origin, **_clim)
+        # How many names the axis can actually hold, from its real size rather than a fixed 8. A drift heatmap
+        # grows its figure with the feature count (40 rows over ~14 inches) and then named 8 of them, so the
+        # height it bought went to unlabelled rows. Labels are truncated as well, which the bar branches have
+        # always done and this one never did -- a generated feature name runs off the left edge otherwise.
+        try:
+            _pos = ax.get_position()
+            _fig_w, _fig_h = (float(v) for v in ax.figure.get_size_inches())
+            _w_in: Optional[float] = float(_pos.width) * _fig_w
+            _h_in: Optional[float] = float(_pos.height) * _fig_h
+        except Exception:
+            logger.debug("could not measure heatmap axes for tick budgeting; falling back to the fixed cap", exc_info=True)
+            _w_in = _h_in = None
+        # A rotated x label consumes horizontal room roughly like a stacked one consumes vertical room.
+        _xt = _thin_tick_positions(len(p.col_labels), ticks_that_fit(_w_in, len(p.col_labels)))
         ax.set_xticks(_xt)
-        ax.set_xticklabels([p.col_labels[i] for i in _xt], rotation=45, ha="right", fontsize=8)
-        _yt = _thin_tick_positions(len(p.row_labels))
+        ax.set_xticklabels([truncate_bar_label(p.col_labels[i]) for i in _xt], rotation=45, ha="right", fontsize=8)
+        _yt = _thin_tick_positions(len(p.row_labels), ticks_that_fit(_h_in, len(p.row_labels)))
         ax.set_yticks(_yt)
-        ax.set_yticklabels([p.row_labels[i] for i in _yt], fontsize=8)
+        ax.set_yticklabels([truncate_bar_label(p.row_labels[i]) for i in _yt], fontsize=8)
         rng = _finite_range(p.matrix)
         if p.cell_text is not None and rng is not None and p.matrix.size <= _HEATMAP_CELL_TEXT_MAX:
             from mlframe.reporting.colors import auto_text_colors_batch
@@ -511,6 +531,14 @@ class MatplotlibRenderer:
             # the colormap and white text becomes invisible).
             mat = p.matrix
             vmin, vmax = rng
+            # The bounds the CELLS were drawn with, when the builder pinned them. The text colour is chosen by
+            # sampling the colormap at the cell's position in the scale, so it has to use the same scale the
+            # image did -- otherwise a pinned range paints pale cells while the text colour still believes the
+            # data range, and white labels land on a near-white fill.
+            if p.color_vmin is not None:
+                vmin = float(p.color_vmin)
+            if p.color_vmax is not None:
+                vmax = float(p.color_vmax)
             # One vectorized colormap sample for the whole grid instead of one matplotlib call per cell
             # (bit-identical to the per-cell auto_text_color -- same pattern PlotlyRenderer._heatmap uses).
             text_colors = auto_text_colors_batch(np.where(np.isfinite(mat), mat, vmin), cmap_name, vmin=vmin, vmax=vmax)

@@ -346,3 +346,34 @@ matplotlib puts it in a legend box that `loc="best"` moves out of the way.
 *Fix:* place the plotly annotation at the line's own coordinate (`annotation_position="top"` for a vline)
 or add a legend proxy trace, matching the `vspan` proxy pattern already used at
 `renderers/plotly.py:756-762`.
+
+---
+
+## Dispositions (parent, 2026-09-06)
+
+**VIS-01 FIXED.** `HeatmapPanelSpec` gained `color_vmin` / `color_vmax` -- the same field names and meaning
+the scatter spec already had -- and both renderers now pass them through (`imshow(vmin=, vmax=)`,
+`go.Heatmap(zmin=, zmax=)`). The correlation panel pins the scale to [-1, 1], the range rho can occupy, so
+RdBu_r's white midpoint means "no rank agreement" instead of landing wherever the data happens to sit.
+Confirmed in the rendered PNG: weak positive correlations (0.17-0.25) were deep blue and now read as pale
+positive, with 1.00 on the diagonal dark red.
+
+Pinning the image alone was not enough, and the render is what showed it: the per-cell TEXT colour samples
+the colormap to decide black-or-white, and it was still sampling the data range, so the labels stayed white
+on the newly pale cells and became unreadable. Both renderers now sample the same pinned scale. Pinned by
+`tests/reporting/test_heatmap_scale_and_notice.py`, including a luminance assertion on the off-diagonal
+labels; all five tests fail against the pre-fix code.
+
+**VIS-03 FIXED.** The separator was a mangled escape that printed
+``SHAP panels not produced:' + BS + 'n`` onto a figure handed to a user -- source-level debris, not a
+formatting nit. Now a real newline. The test reads the text back off the FIGURE the production code built
+rather than rebuilding the expression, which would have asserted against itself.
+
+**VIS-02 FIXED.** ``xlabel`` names the VALUE and ``ylabel`` the CATEGORY whatever the orientation -- that is
+what every horizontal-bar builder in ``charts/`` passes ("ECE (lower = better calibrated)" / "subgroup",
+"quality (higher is better)" / "metric", "Weight of Evidence ..." / "feature=level") and what matplotlib
+draws. The plotly branch had them the other way round, so the HTML report labelled the value axis "subgroup"
+/ "model" / "metric" while the PNG of the SAME spec read correctly. Confirmed on a real figure before fixing:
+the WoE panel's x axis carried "feature=level". Pinned by
+``tests/reporting/test_horizontal_bar_axis_titles.py``, which asserts the two backends agree rather than
+just checking plotly in isolation; all four tests fail with the swap restored.
