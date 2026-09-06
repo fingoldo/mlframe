@@ -12,6 +12,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from tests.conftest import perf_time_budget
+
 
 def _three_way_noisy_bed(n=3000, flip_frac=0.12, seed=0):
     """Two-blob binary classification bed with label noise injected only into the train split."""
@@ -100,4 +102,4 @@ def test_scale_wall_clock_bounded_past_the_subsample_cap():
     wall = time.perf_counter() - t0
 
     assert w.shape == (n_train,)
-    assert wall < 30.0, f"capped adapter took {wall:.2f}s at n_train={n_train} -- expected well under 30s with max_valued_rows=5000"
+    assert wall < perf_time_budget(30.0), f"capped adapter took {wall:.2f}s at n_train={n_train} -- expected well under 30s with max_valued_rows=5000"

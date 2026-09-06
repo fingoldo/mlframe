@@ -12,6 +12,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from tests.conftest import perf_time_budget
+
 torch = pytest.importorskip("torch")
 pytest.importorskip("lightning")
 
@@ -354,7 +356,7 @@ def test_h_neu_15_extract_sequences_speedup_and_equivalence() -> None:
 
     # Perf sanity: must extract 1000 rows in under 2s on CPU.
     elapsed = timeit.timeit(lambda: extract_sequences(df), number=1)
-    assert elapsed < 5.0, f"extract_sequences too slow: {elapsed:.2f}s for 1000 rows"
+    assert elapsed < perf_time_budget(5.0), f"extract_sequences too slow: {elapsed:.2f}s for 1000 rows"
 
 
 # ---------------------------------------------------------------------------

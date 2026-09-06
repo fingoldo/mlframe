@@ -22,6 +22,8 @@ from mlframe.reporting.spec import (
     ScatterPanelSpec,
 )
 
+from tests.conftest import perf_time_budget
+
 BACKENDS = ["matplotlib", "plotly"]
 
 
@@ -198,7 +200,7 @@ class TestTrendLine:
         (x0, y0), (x1, y1) = ends
         slope = (y1 - y0) / (x1 - x0)
         assert abs(slope - 2.0) < 0.2, f"capped fit slope {slope} should still recover ~2.0"
-        assert elapsed < 5.0, f"capped robust fit took {elapsed:.2f}s; should stay well under 5s at 2M points"
+        assert elapsed < perf_time_budget(5.0), f"capped robust fit took {elapsed:.2f}s; should stay well under 5s at 2M points"
 
 
 # ----------------------------------------------------------------------------

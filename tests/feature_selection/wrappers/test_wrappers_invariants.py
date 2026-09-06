@@ -37,6 +37,8 @@ from mlframe.feature_selection.wrappers import (
 
 from tests.feature_selection.conftest import fast_subset
 
+from tests.conftest import perf_time_budget
+
 
 # Common minimal RFECV factory: fast, deterministic, log-quiet.
 def _make_rfecv(**overrides):
@@ -447,4 +449,4 @@ class TestSelectFeaturesFdrEdgeCases:
         select_features_fdr(W, q=0.1)
         elapsed = time.perf_counter() - t0
 
-        assert elapsed < 1.5, f"select_features_fdr at p={n} took {elapsed:.3f}s -- expected sub-second (pre-fix O(p^2) measured ~6.4s)"
+        assert elapsed < perf_time_budget(1.5), f"select_features_fdr at p={n} took {elapsed:.3f}s -- expected sub-second (pre-fix O(p^2) measured ~6.4s)"

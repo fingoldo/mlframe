@@ -28,6 +28,8 @@ import pytest
 from mlframe.training.composite.estimator import _update
 from mlframe.training.composite.estimator._update import _RingBuffer
 
+from tests.conftest import perf_time_budget
+
 # ===========================================================================
 # _RingBuffer unit correctness vs the legacy deque(maxlen) semantics
 # ===========================================================================
@@ -205,4 +207,4 @@ class TestBizValueArrayReuse:
         # 2000 small updates on a full 10k window: generous 2.0 s ceiling (the
         # ring path runs in well under 0.5 s; the floor only guards against a
         # reintroduced O(buffer_n) per-call cost or a per-call reallocation).
-        assert elapsed < 2.0, f"2000 small updates took {elapsed:.3f}s (perf regression?)"
+        assert elapsed < perf_time_budget(2.0), f"2000 small updates took {elapsed:.3f}s (perf regression?)"
