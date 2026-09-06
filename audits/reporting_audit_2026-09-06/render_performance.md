@@ -348,3 +348,30 @@ one, so a panel pushed right by long y-tick labels has its centred title cropped
 rendered PNG, reverted, and the note left at the call site in `matplotlib.py`. It becomes available once
 the title wrap budget is measured after layout instead of before it -- the budget currently reads the
 pre-layout axes width, which is exactly why it overhangs on those panels.
+
+**PERF-02 RESOLVED, and the headline number corrected.** The ranker is a depth-1 split-gain histogram
+(`charts/_split_gain_ranking.py`): quantile bin codes per column, `bincount` of count and error-sum per
+bin, cumsum, best variance reduction over the bin boundaries. Written in the `sum^2/n` form rather than as
+an explicit SSE, because `sum(y^2)` is identical for every candidate cut of a column and cancels.
+
+The audit's **4.6x is the ISOLATED ranking step, not the chart.** Measured end to end on the shape the
+dispatch actually feeds it (100k x 200, paired and interleaved, best of five): `weak_segment_heatmap`
+**2.41 s -> 1.73 s, 1.39x**, with both paths returning the same `('f137',)`. The tree fit is simply a
+smaller share of this chart on this host than the audit's profile showed.
+
+Two things had to change beyond the swap:
+
+* **Edge placement was the whole cost.** `np.quantile` sorts what it is given, so binning 200 columns cost
+  more than the tree did. The edges only decide where the candidate cuts sit -- the gain at each cut is
+  still computed over every row -- so they are estimated from a strided sample (`EDGE_SAMPLE_ROWS`).
+  Without that the ranker was 1.19x, i.e. barely worth shipping.
+* **A noise column was being promoted into the chart.** Every column has a positive best-split gain (the
+  luckiest cut in pure noise separates something), so `gain > 0` gave the heatmap a second axis the data
+  does not have, where sklearn's tree scored those columns exactly zero and drew a 1-D grid. A runner-up
+  now has to reach 5% of the winner's gain. With that in place both paths return the identical feature set
+  on the fixture.
+
+Validation: across 12 seeds with three planted discriminating features, the ranker recovers at least as
+many of them as the tree does on every seed. sklearn remains the fallback, and the median-split surrogate
+the fallback below that. `tests/reporting/test_split_gain_ranking.py` (12 tests; the runner-up floor and the
+relative-threshold semantics verified failing pre-fix).
