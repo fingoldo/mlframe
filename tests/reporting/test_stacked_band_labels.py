@@ -34,12 +34,24 @@ def _label_shifts(fig, prefix: str):
 
 
 def test_adjacent_regime_labels_do_not_share_one_height():
-    """Four touching bands: neighbours must land on different rows."""
-    spans = tuple((float(a), float(a + 2.0), c, 0.15, f"regime_{i}") for i, (a, c) in enumerate(zip([0, 2, 4, 6], COLORS)))
+    """Bands whose labels would land on each other must go on different rows.
+
+    The rows are chosen by MEASUREMENT now, not by alternating on the index, so the fixture has to put the
+    bands close enough that their labels really do collide -- ``regime_0`` is about 0.6 data units wide on
+    this axis, so bands a third of a unit apart overlap and bands two units apart do not.
+    """
+    spans = tuple((i * 0.3, i * 0.3 + 0.25, c, 0.15, f"regime_{i}") for i, c in enumerate(COLORS))
     shifts = _label_shifts(PlotlyRenderer().render(_panel(vspans=spans)), "regime_")
     assert len(shifts) == 4, f"expected four band labels, got {shifts}"
     for (name_a, ya), (name_b, yb) in zip(shifts, shifts[1:]):
         assert ya != yb, f"{name_a} and {name_b} are both at yshift={ya}, so they overprint"
+
+
+def test_well_separated_bands_are_not_stacked():
+    """Guard: stacking costs vertical room, so it must only happen where the labels actually collide."""
+    spans = tuple((float(a), float(a + 2.0), c, 0.15, f"regime_{i}") for i, (a, c) in enumerate(zip([0, 3, 6, 9], COLORS)))
+    shifts = {s for _, s in _label_shifts(PlotlyRenderer().render(_panel(vspans=spans)), "regime_")}
+    assert len(shifts) == 1, f"bands three units apart were stacked across {len(shifts)} rows anyway"
 
 
 def test_neighbouring_change_point_labels_do_not_share_one_height():

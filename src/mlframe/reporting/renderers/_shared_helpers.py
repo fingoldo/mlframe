@@ -162,6 +162,37 @@ def non_colliding_label_indices(
     return sorted(kept)
 
 
+def stagger_label_rows(xs: Any, texts: Any, *, fontsize: float, x_span: float, width_in: float, max_rows: int = 3) -> list:
+    """Which stacked row each label should sit in so that no two on the same row touch.
+
+    Alternating by INDEX keeps a pair of neighbours apart and does nothing for three change points a few
+    pixels apart -- rows 0, 1, 0 puts the first and third back on top of each other. Walking the labels in
+    x order and giving each the lowest row whose current occupant it clears handles any number of them,
+    and falls back to the alternating behaviour once ``max_rows`` is exhausted.
+    """
+    xs_a = np.asarray(xs, dtype=float).ravel()
+    labels = [str(t) for t in texts]
+    n = min(xs_a.size, len(labels))
+    rows = [0] * n
+    if n == 0 or width_in <= 0 or not np.isfinite(x_span) or x_span <= 0:
+        return rows
+    x_per_in = x_span / width_in
+    right_edge = [-np.inf] * max(int(max_rows), 1)
+    for i in sorted(range(n), key=lambda k: xs_a[k]):
+        if not np.isfinite(xs_a[i]):
+            continue
+        width = (_measured_text_width_pt(labels[i], fontsize) / 72.0) * x_per_in
+        for r, edge in enumerate(right_edge):
+            if xs_a[i] >= edge:
+                rows[i] = r
+                right_edge[r] = xs_a[i] + width
+                break
+        else:
+            rows[i] = i % len(right_edge)
+            right_edge[rows[i]] = xs_a[i] + width
+    return rows
+
+
 def label_width_pitch_in(labels: Any, fontsize: float) -> float:
     """Spacing an axis of UNROTATED, side-by-side tick labels needs: the widest label plus a gutter.
 

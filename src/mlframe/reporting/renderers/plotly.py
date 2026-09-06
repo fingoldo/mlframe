@@ -45,7 +45,7 @@ from ._plotly_color import _rgba, _mpl_to_plotly_cmap
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
     _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, PX_PER_INCH,
     CAPTION_FONTSIZE, CAPTION_WRAP_CHARS, PANEL_TITLE_FONTSIZE, SUPTITLE_WRAP_CHARS,
-    _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks, label_width_pitch_in, plotly_axis_suffix, rotated_tick_pitch_in, ticks_that_fit,
+    _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks, label_width_pitch_in, plotly_axis_suffix, rotated_tick_pitch_in, stagger_label_rows, ticks_that_fit,
     histogram_bar_extent, low_evidence_mask, panel_title_wrap_chars, select_per_point, truncate_bar_label, wrap_annotation_text,
     wrap_text_to_width, wrap_title_lines,
 )
@@ -83,7 +83,10 @@ _PX_PER_INCH = PX_PER_INCH
 # Past this many bar categories thin x-tick labels to ~20 evenly-spaced (matches matplotlib); truncate labels over _BAR_XTICK_MAXLEN chars so long feature names don't crowd.
 # Labels stamped just above a panel (vspan regimes, vline change points) all share one y, so neighbours
 # overprint. Staggering across a few rows separates them without arrows or a de-collision solver.
-_STACKED_LABEL_ROWS = 2
+# How many rows a stack of marker labels may use. Three, not two: a threshold sweep routinely carries three
+# operating points within a percent of each other, and two rows put the first and third back on top of one
+# another.
+_STACKED_LABEL_ROWS = 3
 _STACKED_LABEL_SHIFT_PX = 11
 _VIOLIN_LABEL_MAXLEN = 20  # matches the matplotlib twin; a 30-deg rotated label projects most of its length
 # Past this many categories the vertical branch switches to explicit, rotated tick text; how many of
@@ -811,6 +814,11 @@ class PlotlyRenderer:
                 row=row, col=col, **sec_kw,
             )
 
+        _vspan_rows = self._label_rows(
+            [sp[0] for sp in (p.vspans or ())],
+            [(sp[4] if len(sp) > 4 else "") for sp in (p.vspans or ())],
+            fig, p,
+        )
         for _vspan_i, span in enumerate(p.vspans or ()):
             vx0, vx1, vcolor, valpha = span[0], span[1], span[2], span[3]
             vlabel = span[4] if len(span) > 4 else ""
@@ -829,13 +837,14 @@ class PlotlyRenderer:
                 # so two adjacent regimes -- which is what a regime chart is FOR -- printed on top of each
                 # other. Alternating rows keeps neighbours apart; the colour still ties each label to its band.
                 fig.add_annotation(x=vx0, y=1.0, yref="y domain", yanchor="bottom", xanchor="left",
-                                   yshift=_STACKED_LABEL_SHIFT_PX * (_vspan_i % _STACKED_LABEL_ROWS),
+                                   yshift=_STACKED_LABEL_SHIFT_PX * _vspan_rows[_vspan_i],
                                    text=vlabel, showarrow=False, font=dict(size=8, color=vcolor),
                                    row=row, col=col)
+        _vline_rows = self._label_rows([v[0] for v in (p.vlines or ())], [v[2] for v in (p.vlines or ())], fig, p)
         for _vline_i, (vx, vcolor, vlabel) in enumerate(p.vlines or ()):
             # add_vline does arithmetic on x that raises on a datetime axis; a line-shape with the x in data coords
             # and y spanning the panel's y-domain works on numeric AND datetime axes alike.
-            self._add_vline_datetime_safe(fig, vx, vcolor, vlabel, row, col, label_row=_vline_i % _STACKED_LABEL_ROWS)
+            self._add_vline_datetime_safe(fig, vx, vcolor, vlabel, row, col, label_row=_vline_rows[_vline_i])
 
         for mx, my, mlabel, mcolor, msym in p.point_markers or ():
             fig.add_trace(
@@ -875,6 +884,59 @@ class PlotlyRenderer:
             return True
         return False
 
+    @classmethod
+    def _panel_x_span(cls, p, marker_xs) -> Optional[float]:
+        """Width of the panel's x axis in data units: the pinned xlim, else the plotted x, else the markers."""
+        if getattr(p, "xlim", None):
+            _lim = cls._as_numeric_axis(list(p.xlim))
+            if _lim is not None and _lim.size >= 2:
+                return max(float(_lim[1]) - float(_lim[0]), 1e-9)
+        _x = getattr(p, "x", None)
+        if _x is not None:
+            _flat = cls._as_numeric_axis(np.asarray(_x[0] if isinstance(_x, tuple) else _x).ravel())
+            if _flat is not None:
+                _finite = _flat[np.isfinite(_flat)]
+                if _finite.size:
+                    return max(float(_finite.max()) - float(_finite.min()), 1e-9)
+        _m = np.asarray(marker_xs, dtype=float)
+        return max(float(_m.max()) - float(_m.min()), 1e-9) if _m.size else None
+
+    @staticmethod
+    def _as_numeric_axis(values) -> Optional[np.ndarray]:
+        """``values`` as plain floats, mapping datetimes onto epoch nanoseconds, or ``None`` if neither works."""
+        arr = np.asarray(values)
+        if arr.size == 0:
+            return None
+        try:
+            if np.issubdtype(arr.dtype, np.datetime64):
+                return arr.astype("datetime64[ns]").astype("int64").astype(float)
+            return arr.astype(float)
+        except (TypeError, ValueError):
+            try:
+                import pandas as pd
+
+                return np.asarray(pd.to_datetime(list(values)).astype("int64"), dtype=float)
+            except Exception:
+                logger.debug("could not read the marker axis for label staggering; falling back to alternating rows", exc_info=True)
+                return None
+
+    def _label_rows(self, xs, texts, fig, p) -> list:
+        """Stacked row per label, measured against the panel's own x range so neighbours never overprint."""
+        _xs = [x for x in xs if x is not None]
+        if not _xs:
+            return [0] * len(xs)
+        # The AXIS range, not the range of the markers themselves: three change points 0.01 apart on a
+        # unit axis are 1% of the panel, and measuring their labels against their own 0.02-wide extent
+        # makes every one of them look as though it has the whole panel to itself.
+        _num_xs = self._as_numeric_axis(_xs)
+        _x_span = self._panel_x_span(p, _num_xs) if _num_xs is not None else None
+        if _num_xs is None or _x_span is None:
+            # Nothing measurable on this axis; alternate, which is what this did before it could measure.
+            return [i % _STACKED_LABEL_ROWS for i in range(len(xs))]
+        _cols = len(fig._grid_ref[0]) if getattr(fig, "_grid_ref", None) else 1
+        _w_in = float(fig.layout.width or 600) / _PX_PER_INCH / max(_cols, 1)
+        return stagger_label_rows(_num_xs, texts, fontsize=8, x_span=_x_span, width_in=_w_in, max_rows=_STACKED_LABEL_ROWS)
+
     def _add_vline_datetime_safe(self, fig, vx, vcolor, vlabel, row: int, col: int, label_row: int = 0) -> None:
         """Vertical reference line that works on numeric AND datetime x-axes.
 
@@ -888,15 +950,24 @@ class PlotlyRenderer:
                 type="line", x0=x_coord, x1=x_coord, y0=0, y1=1, yref="y domain", xref="x", line=dict(color=vcolor, dash="dot", width=1.2), row=row, col=col
             )
             if vlabel:
-                # ``label_row`` staggers labels of neighbouring vlines, which otherwise share one y and overprint.
-                fig.add_annotation(x=x_coord, y=1, yref="y domain", yanchor="bottom", text=vlabel, showarrow=False,
-                                   yshift=_STACKED_LABEL_SHIFT_PX * int(label_row), font=dict(size=9), row=row, col=col)
+                self._vline_label(fig, x_coord, vlabel, vcolor, row, col, label_row)
         else:
-            # ``annotation_yshift`` staggers this label against its neighbours: the datetime branch above does
-            # the same, and without it two change points a few pixels apart print on top of each other.
-            fig.add_vline(x=vx, line=dict(color=vcolor, dash="dot", width=1.2), annotation_text=vlabel or None,
-                          annotation_position="top", annotation_yshift=_STACKED_LABEL_SHIFT_PX * int(label_row),
-                          row=row, col=col)
+            fig.add_vline(x=vx, line=dict(color=vcolor, dash="dot", width=1.2), row=row, col=col)
+            if vlabel:
+                self._vline_label(fig, vx, vlabel, vcolor, row, col, label_row)
+
+    @staticmethod
+    def _vline_label(fig, x_coord, text, colour, row: int, col: int, label_row: int) -> None:
+        """Name a vertical marker at its own x, stacked clear of its neighbours and inside the plot area.
+
+        ``label_row`` staggers labels of neighbouring vlines, which otherwise share one y and overprint. The
+        stack hangs DOWNWARD from the top of the plot area rather than upward from it: stacking upward put
+        the first row in the same strip as the subplot title, so fixing the labels' collision with each
+        other created a collision with the title instead -- visible in the rendered PNG.
+        """
+        fig.add_annotation(x=x_coord, y=1.0, yref="y domain", yanchor="top", xanchor="left", xshift=3,
+                           yshift=-3 - _STACKED_LABEL_SHIFT_PX * int(label_row), text=text, showarrow=False,
+                           font=dict(size=9, color=colour), row=row, col=col)
 
     def _violin(self, fig, p: ViolinPanelSpec, row: int, col: int) -> None:
         """Render one ``go.Violin`` trace per group in ``p.groups`` (tab10 color cycle for cross-backend parity with matplotlib), with an optional inner box overlay.

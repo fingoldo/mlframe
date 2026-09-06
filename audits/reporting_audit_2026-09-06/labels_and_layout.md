@@ -403,3 +403,21 @@ sits inside the figure instead of below its bottom edge.
 **LBL-14 RESOLVED.** The width is capped at 16in and the height grows by what the longest label actually
 projects at 45 degrees (measured, not assumed), floored at the old 5in and capped at 12in. The plot area
 stops being what the labels eat into.
+
+**LBL-12 RESOLVED.** The matplotlib half is already closed -- `point_markers` labels ride the legend entry
+and are not printed beside the marker at all. On plotly the labels were staggered by INDEX, which fixes a
+pair and does nothing for three: rows 0, 1, 0 puts the first and third of three change points a percent
+apart straight back on top of each other, and a threshold sweep routinely carries exactly that (F1-optimal,
+Youden-optimal, cost-optimal). Rows are chosen by measurement now -- each label takes the lowest row whose
+occupant it clears, against the panel's own AXIS range rather than the range of the markers, which was the
+second bug: three points spanning 2% of a unit axis looked as though each had the whole panel to itself.
+
+Fixing the labels' collision with each other created one with the subplot title -- seen in the render --
+so the stack hangs DOWNWARD from the top of the plot area instead of upward out of it. The datetime vline
+path needed the marker positions mapped onto epoch nanoseconds to be measurable at all; without that it
+fell back to alternating, which is what it did before.
+
+`test_adjacent_regime_labels_do_not_share_one_height` pinned the alternating mechanism (four bands two
+units apart, whose labels do not in fact collide). Reframed to bands that really do overlap, plus a new
+guard that well-separated bands are NOT stacked -- stacking costs vertical room and must only happen where
+it is needed.
