@@ -483,7 +483,10 @@ def set_dtw_dispatch_threshold(n_cells: int) -> None:
 
     Useful for tests; production callers should rely on the
     ``kernel_tuning_cache`` lookup instead (which holds HW-specific
-    crossovers calibrated via ``mlframe.signal._dtw_autotune``).
+    crossovers measured per host). There is no ``_dtw_autotune`` module and there never was -- the
+    source-code default above (~5K-cell crossover, 50K-cell fallback for a 5x margin) comes from
+    ``mlframe.signal._benchmarks.bench_dtw_gpu_banded``, which stays committed so the measurement is
+    reproducible.
     """
     global _DEFAULT_GPU_MIN_CELLS
     _DEFAULT_GPU_MIN_CELLS = int(n_cells)
