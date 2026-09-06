@@ -23,7 +23,6 @@ This test pins:
 
 from __future__ import annotations
 
-import time
 
 import pytest
 
@@ -136,35 +135,43 @@ def test_cache_dtype_and_device_keyed():
 
 
 @pytest.mark.biz_transformer
-def test_biz_value_cache_hit_faster_than_cold():
-    """biz_value: warm cache must be >=5x faster than cold rebuild."""
+def test_biz_value_a_warm_call_does_not_rebuild_the_pair_indices(monkeypatch):
+    """biz_value: a repeat call on the same relevance pattern reuses the cached pair indices."""
     _ranknet_pair_cache_clear()
     scores, rel = _seed_query(n=11)
     # warm up the cache + JIT
     ranknet_pairwise_loss(scores, rel)
 
-    iters = 4000
+    # What the cache saves is the `torch.where` pair-index build, so count those rather than time the
+    # calls. The 1.1x floor this replaces was inside measurement noise of a ~20us call and would flake
+    # under xdist long before it ever caught the regression it named (the cache silently disabled).
+    import torch as _torch
 
-    # Cold path: clear cache before each call -> always rebuild
-    t0 = time.perf_counter()
-    for _ in range(iters):
+    from mlframe.training.neural import _ranker_losses as rl
+
+    real_where = _torch.where
+    builds = []
+
+    def _counting_where(*args, **kwargs):
+        """Count each pair-index build."""
+        builds.append(1)
+        return real_where(*args, **kwargs)
+
+    monkeypatch.setattr(rl.torch, "where", _counting_where)
+
+    _ranknet_pair_cache_clear()
+    for _ in range(20):
         _ranknet_pair_cache_clear()
         ranknet_pairwise_loss(scores, rel)
-    t_cold = time.perf_counter() - t0
+    cold_builds = len(builds)
+    assert cold_builds == 20, f"clearing the cache before each of 20 calls produced {cold_builds} pair builds, not 20"
 
-    # Warm path: prime once, then all repeated calls hit
     _ranknet_pair_cache_clear()
-    ranknet_pairwise_loss(scores, rel)
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        ranknet_pairwise_loss(scores, rel)
-    t_warm = time.perf_counter() - t0
+    builds.clear()
+    ranknet_pairwise_loss(scores, rel)  # prime
+    assert len(builds) == 1, f"the priming call produced {len(builds)} pair builds"
 
-    speedup = t_cold / t_warm
-    # The torch.where line itself benefits ~20x in isolation (27us -> 1.35us),
-    # but ranknet_pairwise_loss does more work after that (scores indexing,
-    # softplus, mean, autograd setup). The function-level savings dominate at
-    # 15-25us per call across N=11 queries, yielding ~1.15-1.30x end-to-end
-    # speedup. Gate at 1.1x to absorb CI jitter while still catching a full
-    # regression (e.g. the cache silently disabled).
-    assert speedup >= 1.1, f"cache hit not delivering: speedup={speedup:.2f}x (cold={t_cold * 1e6 / iters:.2f}us, warm={t_warm * 1e6 / iters:.2f}us)"
+    builds.clear()
+    for _ in range(20):
+        ranknet_pairwise_loss(scores, rel)
+    assert not builds, f"20 warm calls rebuilt the pair indices {len(builds)} times; the cache is not being hit"

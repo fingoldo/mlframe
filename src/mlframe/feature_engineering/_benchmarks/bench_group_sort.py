@@ -7,7 +7,7 @@ import numba  # noqa
 import time
 import numpy as np
 
-from mlframe.feature_engineering.grouped import _stable_counting_segments_int as _stable_counting_argsort_int
+from mlframe.feature_engineering._grouped_segments import _stable_counting_segments_int as _stable_counting_argsort_int
 
 
 def baseline(group_ids):

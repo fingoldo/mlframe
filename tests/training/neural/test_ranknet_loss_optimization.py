@@ -14,9 +14,9 @@ Bench numbers (D: 2026-05-20, CPU torch):
 
 from __future__ import annotations
 
-import time
 
 import pytest
+from tests._perf_paired import assert_paired_speedup
 
 torch = pytest.importorskip("torch")
 
@@ -110,16 +110,23 @@ def test_biz_value_speedup_at_n256():
         for i in range(8):
             _ = fn(scores_list[i % 8], rels_list[i % 8])
 
-    def _bench(fn):
-        """Bench."""
-        t0 = time.perf_counter()
-        for i in range(n_calls):
-            _ = fn(scores_list[i % 8], rels_list[i % 8])
-        return time.perf_counter() - t0
+    def _call_all(fn):
+        """Helper: one arm -- ``n_calls`` losses over the shared score/relevance fixtures."""
 
-    t_old = _bench(_ranknet_reference_dense)
-    t_new = _bench(ranknet_pairwise_loss)
-    speedup = t_old / t_new
-    assert (
-        speedup >= 1.05
-    ), f"expected >=1.05x speedup at N={n_docs}; got {speedup:.2f}x (old={t_old * 1000:.1f}ms, new={t_new * 1000:.1f}ms over {n_calls} calls)"
+        def _run():
+            """Run."""
+            for i in range(n_calls):
+                fn(scores_list[i % 8], rels_list[i % 8])
+
+        return _run
+
+    # 1.05x is inside the noise of a single back-to-back pair of sub-second timings, which is exactly the
+    # floor this shape exists for: the majority-of-paired-wins gate carries the signal the ratio cannot.
+    assert_paired_speedup(
+        _call_all(_ranknet_reference_dense),
+        _call_all(ranknet_pairwise_loss),
+        base_ratio=1.05,
+        n_trials=5,
+        warmup=False,  # both arms are warmed above
+        what=f"the optimised ranknet pairwise loss at N={n_docs}",
+    )

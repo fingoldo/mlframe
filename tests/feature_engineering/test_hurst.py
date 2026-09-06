@@ -118,7 +118,9 @@ from mlframe.feature_engineering.hurst import (
 def _ref_dfa_alpha(x):
     """Helper: Ref dfa alpha."""
     n = x.size
-    if n < 20:
+    # Production's minimum window, not the pre-fix 20: this reference is only meaningful where it agrees
+    # with production about which inputs it refuses at all.
+    if n < 50:
         return np.nan
     mu = x.mean()
     y = np.empty(n)
@@ -248,6 +250,21 @@ def test_dfa_arange_hoist_bit_identical_to_prehoist(seed):
     # once-vs-per-segment accumulation schedule may reorder FMA/reassoc by a single ULP -- a
     # reduction-order delta (~1e-15), far below anything that could move a feature decision.
     assert _new_dfa_alpha2(x) == pytest.approx(_ref_dfa_alpha2(x), rel=1e-12, abs=1e-12)
+
+
+@pytest.mark.parametrize("n", [19, 20, 30, 49, 50, 60])
+def test_dfa_alpha_short_window_guard_agrees_with_the_reference(n):
+    """The guard itself, at the boundary: the reference had kept `n < 20` while production moved to 50.
+
+    Only n=2000 was ever compared, so between 20 and 49 the reference returned a number where production
+    returns NaN and nothing noticed.
+    """
+    rng = np.random.default_rng(n)
+    x = np.cumsum(rng.standard_normal(n)).astype(np.float64)
+    got, ref = _new_dfa_alpha(x), _ref_dfa_alpha(x)
+    assert np.isnan(got) == np.isnan(ref), f"n={n}: production {got!r} vs reference {ref!r} disagree on refusing the window"
+    if n < 50:
+        assert np.isnan(got), f"a {n}-sample window is below production's DFA minimum but returned {got!r}"
 
 
 @pytest.mark.parametrize("seed", [0, 1, 7, 42])

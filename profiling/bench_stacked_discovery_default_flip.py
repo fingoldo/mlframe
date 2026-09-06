@@ -101,7 +101,7 @@ def _holdout_rmse(disc, df, train_idx, holdout_idx):
 
 
 def main() -> int:
-    from mlframe.training.composite_discovery import CompositeTargetDiscovery
+    from mlframe.training.composite.discovery import CompositeTargetDiscovery
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
     df, y = _build_residual_of_residual_problem(n=4000, seed=17)

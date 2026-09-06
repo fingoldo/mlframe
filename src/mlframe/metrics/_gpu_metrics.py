@@ -26,6 +26,7 @@ ImportError when missing and callers fall back to CPU (see
 N=100k the CPU/numba path wins (kernel-launch and host->device transfer
 dominate sub-ms workloads).
 """
+
 from __future__ import annotations
 
 import logging
@@ -103,15 +104,24 @@ def is_gpu_metrics_available() -> bool:
         """Run the actual cupy device-count + NVRTC compile check on a daemon thread so a driver hang can be bounded by a join timeout from the caller."""
         try:
             import cupy as cp
+
             if cp.cuda.runtime.getDeviceCount() < 1:
                 result["available"] = False
                 return
             # NVRTC compile probe - mirrors _utils.is_gpu_available().
             _ = cp.asarray([1.0], dtype=cp.float32).sum().item()
             result["available"] = True
-        except Exception as e:  # nosec B110 - best-effort/optional path, no module logger
-            logger.debug("cupy GPU availability probe failed: %s", e)
+        except ImportError as e:
+            # cupy genuinely absent: a fact about the install, so caching it for the process is correct.
+            logger.debug("cupy not importable, GPU metrics unavailable: %s", e)
             result["available"] = False
+        except Exception as e:  # nosec B110 - best-effort/optional path
+            # Anything else is not a fact about the machine: a concurrent process holding the device, a CUDA
+            # OOM at probe time, a WDDM TDR reset, a driver hiccup. Latching on the first of those cost the
+            # whole run -- this module's own header measures the CPU path at ~32s of a ~55s suite wall -- and
+            # said so only at debug. Report it, and leave the cache unset so the next call re-probes.
+            logger.warning("cupy GPU availability probe failed transiently (%s: %s); will re-probe rather than disabling GPU metrics for the process", type(e).__name__, e)
+            result["transient"] = True
 
     probe_thread = threading.Thread(target=_probe, daemon=True)
     probe_thread.start()
@@ -122,8 +132,23 @@ def is_gpu_metrics_available() -> bool:
         logger.debug("cupy GPU availability probe hung past %.0fs; treating GPU as unavailable", _GPU_PROBE_TIMEOUT_S)
         _GPU_AVAILABLE = False
         return False
+    if result.get("transient"):
+        # Deliberately NOT cached: re-probing costs one fast raise, while a wrong latch costs the run.
+        return False
     _GPU_AVAILABLE = bool(result.get("available", False))
     return _GPU_AVAILABLE
+
+
+def reset_gpu_metrics_probe() -> None:
+    """Clear the cached GPU-availability flags so the next call re-probes.
+
+    Mirrors ``feature_engineering.transformer._utils.reset_gpu_probe``. Production callers should not need
+    it -- the per-process cache is intentional for a genuine absence -- but a test that monkeypatches cupy,
+    or a caller that has just resolved a device problem, has no other way back.
+    """
+    global _GPU_AVAILABLE, _NUMBA_CUDA_AVAILABLE
+    _GPU_AVAILABLE = None
+    _NUMBA_CUDA_AVAILABLE = None
 
 
 def _is_numba_cuda_available() -> bool:
@@ -133,11 +158,24 @@ def _is_numba_cuda_available() -> bool:
         return _NUMBA_CUDA_AVAILABLE
     try:
         from numba import cuda
+
         if cuda.is_available():
             _NUMBA_CUDA_AVAILABLE = True
             return True
-    except Exception as e:  # nosec B110 - best-effort/optional path, no module logger
-        logger.debug("numba.cuda availability probe failed: %s", e)
+    except ImportError as e:
+        # numba genuinely absent: a fact about the install, so caching it for the process is correct.
+        logger.debug("numba not importable, numba.cuda metrics kernels unavailable: %s", e)
+        _NUMBA_CUDA_AVAILABLE = False
+        return False
+    except Exception as e:  # nosec B110 - best-effort/optional path
+        # `cuda.is_available()` initialises a CUDA context, which faults for reasons that are moments rather
+        # than facts: another process holding the device, a driver reset, an NVRTC hiccup. Caching the first
+        # one puts every later metrics call in this process on the CPU kernels, with a debug line as the only
+        # trace. Left uncached so the next call re-probes -- the same line already drawn for the cupy probe
+        # in this module and for its siblings in _core_auc_brier and transformer/_utils.
+        logger.warning("numba.cuda availability probe failed transiently (%s: %s); will re-probe rather than pinning metrics to the CPU kernels", type(e).__name__, e)
+        return False
+    # `cuda.is_available()` returned False without raising: a genuine, stable 'no visible device' answer.
     _NUMBA_CUDA_AVAILABLE = False
     return False
 
@@ -146,11 +184,10 @@ def _require_cupy():
     """Lazy cupy import; raise ImportError with install hint if missing."""
     try:
         import cupy as cp
+
         return cp
     except ImportError as e:
-        raise ImportError(
-            "GPU metrics require cupy. Install for your CUDA version, e.g. " "`pip install cupy-cuda12x` (CUDA 12) or `cupy-cuda11x` (CUDA 11)."
-        ) from e
+        raise ImportError("GPU metrics require cupy. Install for your CUDA version, e.g. " "`pip install cupy-cuda12x` (CUDA 12) or `cupy-cuda11x` (CUDA 11).") from e
 
 
 # Cached cupy ReductionKernel for fused (y-p)**2 sum-per-col, avoids materialising
@@ -208,8 +245,12 @@ def gpu_multiple_rmse_scores(actual, predicted):
     Backend selection (auto):
       - ``numba.cuda`` kernel when available: fused (subtract, square,
         atomic-add) in one pass; per-block partials finalised by cupy.sum.
-        Tiny fp jitter (~1e-15) from non-deterministic atomic-add accumulation
-        order.
+        NOT RUN-TO-RUN REPRODUCIBLE: ``cuda.atomic.add`` orders the within-block-row
+        accumulation nondeterministically, so the same call on the same data returns a
+        slightly different value each time (~1e-15). The CPU path IS reproducible, so a
+        metric logged from this backend cannot be reproduced exactly by re-running it,
+        and an exact-equality comparison against a stored value will fail. If that
+        matters, accumulate into shared memory per block and do one atomic per block.
       - ``cupy.ReductionKernel`` fallback: fuses subtract+square+reduce into
         one kernel pass, avoiding the ``(N, M)`` fp64 intermediate. Bit-
         equivalent to numpy.
@@ -233,6 +274,7 @@ def gpu_multiple_rmse_scores(actual, predicted):
 
     if can_use_numba:
         from numba import cuda
+
         kernel = _get_numba_rmse_kernel()
         # ``BLOCK_N`` was hardcoded at 256 (Ampere-tuned default; wrong on
         # Pascal at 128 and Hopper at 512+). Per
@@ -242,9 +284,12 @@ def gpu_multiple_rmse_scores(actual, predicted):
         # exists for the live HW yet.
         try:
             from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+
             _cache = KernelTuningCache.load_or_create()
             _choice = _cache.lookup(
-                "rmse_partial_sum", n_samples=int(N), n_cols=int(M),
+                "rmse_partial_sum",
+                n_samples=int(N),
+                n_cols=int(M),
             )
             BLOCK_N = int(_choice["block_n"]) if _choice and "block_n" in _choice else 256
         except Exception as e:
@@ -256,7 +301,8 @@ def gpu_multiple_rmse_scores(actual, predicted):
             cuda.as_cuda_array(actual),
             cuda.as_cuda_array(predicted),
             cuda.as_cuda_array(partial),
-            N, M,
+            N,
+            M,
         )
         return cp.sqrt(cp.sum(partial, axis=0) / N)
 
@@ -310,10 +356,12 @@ def gpu_multiple_roc_auc_scores(actual, predicted):
         col = predicted[:, j]
         col_sorted = col[order[:, j]]
         # ``is_new[i]`` True iff position i starts a new run of equal values.
-        is_new = cp.concatenate([
-            cp.array([True]),
-            col_sorted[1:] != col_sorted[:-1],
-        ])
+        is_new = cp.concatenate(
+            [
+                cp.array([True]),
+                col_sorted[1:] != col_sorted[:-1],
+            ]
+        )
         run_id = cp.cumsum(is_new) - 1
         run_starts = cp.where(is_new)[0]
         run_ends = cp.concatenate([run_starts[1:], cp.array([N])])
@@ -379,17 +427,21 @@ def gpu_multiple_pr_auc_scores(actual, predicted):
         recall = cumtps / total_pos
         # Threshold boundaries: i is a boundary iff i == N-1 OR
         # col_sorted[i] != col_sorted[i+1].
-        is_boundary = cp.concatenate([
-            col_sorted[:-1] != col_sorted[1:],
-            cp.array([True]),
-        ])
+        is_boundary = cp.concatenate(
+            [
+                col_sorted[:-1] != col_sorted[1:],
+                cp.array([True]),
+            ]
+        )
         recall_b = recall[is_boundary]
         precision_b = precision[is_boundary]
         # delta_recall[0] anchors at recall=0 (matches sklearn AP definition).
-        delta_recall = cp.concatenate([
-            cp.array([recall_b[0]]),
-            recall_b[1:] - recall_b[:-1],
-        ])
+        delta_recall = cp.concatenate(
+            [
+                cp.array([recall_b[0]]),
+                recall_b[1:] - recall_b[:-1],
+            ]
+        )
         aps[j] = cp.sum(delta_recall * precision_b)
     return aps
 
@@ -428,15 +480,23 @@ def compute_batch_rmse(
     yp = _normalize_scores_2d(np.asarray(y_pred))
     N = yp.shape[0]
 
+    # Both backends accumulate in float64 and return the CALLER's dtype. They used to disagree in both:
+    # the GPU upcast and returned float64 while the CPU reduced in the input's own dtype and returned
+    # float32, so the same public call changed a caller's downstream container dtype depending on whether
+    # a device happened to be available, and the two values sat 1.33e-08 apart on 2M float32 rows.
+    # Widening only the ACCUMULATOR costs no copy of the (N, M) operands: `np.mean(dtype=...)` widens the
+    # reduction, and the GPU path already upcast internally.
+    _out_dtype = np.result_type(yt.dtype, yp.dtype)
     use_gpu = _resolve_backend(force_backend, N, yp.shape[1], "batch_rmse")
     if use_gpu:
         import cupy as cp  # lazy
+
         out = gpu_multiple_rmse_scores(yt, yp)
-        return np.asarray(cp.asnumpy(out))
+        return np.asarray(cp.asnumpy(out)).astype(_out_dtype, copy=False)
     # CPU reference
     if yt.ndim == 1:
         yt = yt[:, np.newaxis]
-    return np.asarray(np.sqrt(np.mean((yt - yp) ** 2.0, axis=0)))
+    return np.asarray(np.sqrt(np.mean((yt - yp) ** 2.0, axis=0, dtype=np.float64))).astype(_out_dtype, copy=False)
 
 
 def compute_batch_aucs(
@@ -462,6 +522,7 @@ def compute_batch_aucs(
     use_gpu = _resolve_backend(force_backend, N, M, "batch_aucs")
     if use_gpu:
         import cupy as cp  # lazy
+
         roc = cp.asnumpy(gpu_multiple_roc_auc_scores(yt, ys))
         pr = cp.asnumpy(gpu_multiple_pr_auc_scores(yt, ys))
         return roc, pr
@@ -469,6 +530,7 @@ def compute_batch_aucs(
     # ``fast_aucs`` lives in ``core`` and is imported lazily here to
     # sidestep the core <-> _gpu_metrics circular dependency.
     from .core import fast_aucs as _fast_aucs
+
     roc = np.empty(M, dtype=np.float64)
     pr = np.empty(M, dtype=np.float64)
     for j in range(M):
@@ -531,6 +593,7 @@ def _run_batch_metric_sweep(metric: str) -> list:
             yt = y_true[:, np.newaxis] if y_true.ndim == 1 else y_true
             return np.sqrt(np.mean((yt - y_pred) ** 2.0, axis=0))
         from .core import fast_aucs as _fast_aucs
+
         m = y_pred.shape[1]
         roc = np.empty(m, dtype=np.float64)
         for j in range(m):
@@ -539,23 +602,30 @@ def _run_batch_metric_sweep(metric: str) -> list:
 
     variants = {"cpu": _cpu}
     if is_gpu_metrics_available():
+
         def _gpu(y_true, y_pred):
             """GPU counterpart of ``_cpu``; for the AUC metric it also pays the full ROC+PR compute cost (mirroring real usage) while still returning only ROC for the equivalence check."""
             import cupy as cp
+
             if metric == "rmse":
                 return cp.asnumpy(gpu_multiple_rmse_scores(y_true, y_pred))
             roc = cp.asnumpy(gpu_multiple_roc_auc_scores(y_true, y_pred))
             gpu_multiple_pr_auc_scores(y_true, y_pred)  # full roc+pr cost, return roc for equiv
             return roc
+
         variants["gpu"] = _gpu
 
-    return list(sweep_backend_grid(
-        variants,
-        {"n_samples": _BATCH_METRIC_SWEEP_N, "n_targets": _BATCH_METRIC_SWEEP_M},
-        _make_batch_metric_inputs,
-        reference="cpu",
-        repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6,
-    ))
+    return list(
+        sweep_backend_grid(
+            variants,
+            {"n_samples": _BATCH_METRIC_SWEEP_N, "n_targets": _BATCH_METRIC_SWEEP_M},
+            _make_batch_metric_inputs,
+            reference="cpu",
+            repeats=3,
+            equiv_rtol=1e-6,
+            equiv_atol=1e-6,
+        )
+    )
 
 
 def _batch_metric_fallback_choice(n_samples: int, n_targets: int) -> str:

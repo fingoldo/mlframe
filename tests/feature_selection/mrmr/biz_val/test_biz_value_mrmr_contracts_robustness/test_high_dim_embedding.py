@@ -273,21 +273,17 @@ def _sparse_default_fit(seed: int):
 
 
 class TestEmbeddingLikeP200Scales:
-    """3 informative dims hidden in 200 columns. The selector must
-    finish in under 60 s AND surface at least one real signal AND
-    keep ``support_`` small (<= 10 of 200) -- the noise cloud must not
-    pile up just because every dim is a clean Gaussian.
+    """3 informative dims hidden in 200 columns.
+
+    The selector must surface at least one real signal AND keep ``support_`` small (<= 10 of 200) -- the
+    noise cloud must not pile up just because every dim is a clean Gaussian. The wall-time half of this
+    contract lives in ``test_the_fit_does_not_blow_up_super_linearly_with_width``, as a ratio.
     """
 
     @pytest.mark.parametrize("seed", SEEDS)
-    def test_p200_walltime_and_signal(self, seed):
-        """Default-config p=200 fit: under 60s, non-empty, bounded, recovers a signal column."""
-        X, _y, sel, elapsed = _p200_fit(seed)
-        assert elapsed < 60.0, (
-            f"p=200 fit took {elapsed:.2f}s, budget 60s; seed={seed}. "
-            f"Super-linear blow-up at embedding scale silently breaks every "
-            f"embedding-backed model in prod."
-        )
+    def test_p200_support_is_bounded_and_recovers_a_signal(self, seed):
+        """Default-config p=200 fit: non-empty, bounded to <=10 of 200, and a real signal survives."""
+        X, _y, sel, _elapsed = _p200_fit(seed)
         names = _support_names(sel, list(X.columns))
         assert len(names) >= 1, f"empty support_ on embedding-like p=200; seed={seed}. min_features_fallback=1 default should prevent this."
         # Noise filtering: support stays small (<=10 of 200)
@@ -300,14 +296,13 @@ class TestEmbeddingLikeP200Scales:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_p200_5_signals(self, seed):
-        """Same wall-time + recovery contract with 5 informative dims
-        of varying strength. Catches a regression where the bottom
-        weakest signal (coef=1.0) gets crowded out by noise.
+        """Same recovery contract with 5 informative dims of varying strength.
+
+        Catches a regression where the bottom weakest signal (coef=1.0) gets crowded out by noise.
         """
         X, y = _build_embedding_like(seed, p=200, n_signal=5)
         sel = _make_mrmr(random_seed=seed)
-        elapsed = _fit_quiet(sel, X, y)
-        assert elapsed < 60.0, f"p=200 / n_signal=5 fit took {elapsed:.2f}s, budget 60s; seed={seed}"
+        _fit_quiet(sel, X, y)
         names = _support_names(sel, list(X.columns))
         signals_kept = [c for c in names if c.startswith("sig_")]
         assert len(signals_kept) >= 1, f"no signal columns recovered with 5 real signals in p=200; seed={seed}, support={names[:15]}"
@@ -335,9 +330,9 @@ class TestTfIdfSparseHandled:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_sparse_does_not_crash(self, seed):
-        """Default-config TF-IDF-like sparse fit completes under the 30s budget."""
-        _X, _y, _sel, elapsed = _sparse_default_fit(seed)
-        assert elapsed < 30.0, f"sparse p=100 fit took {elapsed:.2f}s, budget 30s; seed={seed}"
+        """Default-config TF-IDF-like sparse fit runs to completion and produces a fitted selector."""
+        _X, _y, sel, _elapsed = _sparse_default_fit(seed)
+        assert getattr(sel, "support_", None) is not None, "the sparse fit returned an unfitted selector"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_sparse_recovers_at_least_one_token(self, seed):
@@ -427,10 +422,9 @@ class TestP500WideMatrixScales:
     """
 
     @pytest.mark.parametrize("seed", (1, 13, 42))
-    def test_p500_walltime_budget(self, seed):
-        """Default-config p=500 fit: under the 300s budget, recovers a signal column."""
-        X, _y, sel, elapsed = _p500_fit(seed)
-        assert elapsed < 300.0, f"p=500 fit took {elapsed:.2f}s, budget 300s; seed={seed}. Embedding-scale wall-time blow-up."
+    def test_p500_recovers_a_signal(self, seed):
+        """Default-config p=500 fit: non-empty support that still contains a real signal column."""
+        X, _y, sel, _elapsed = _p500_fit(seed)
         names = _support_names(sel, list(X.columns))
         assert len(names) >= 1
         # Real signal must survive even at p=500 noise dim count
@@ -472,8 +466,7 @@ class TestEmbeddingCrossTermsDcd:
         """Default (DCD-off) config: support covers both latents, no single-latent monopoly."""
         X, y = _build_embedding_cross_terms(seed, k_per_latent=50)
         sel = _make_mrmr(random_seed=seed)
-        elapsed = _fit_quiet(sel, X, y)
-        assert elapsed < 60.0, f"embedding cross-terms p=100 fit took {elapsed:.2f}s, budget 60s; seed={seed}"
+        _fit_quiet(sel, X, y)
         names = _support_names(sel, list(X.columns))
         e1_picked = sum(1 for c in names if c.startswith("e1_"))
         e2_picked = sum(1 for c in names if c.startswith("e2_"))
@@ -492,8 +485,7 @@ class TestEmbeddingCrossTermsDcd:
         """
         X, y = _build_embedding_cross_terms(seed, k_per_latent=50)
         sel = _make_mrmr(random_seed=seed, use_simple_mode=False)
-        elapsed = _fit_quiet(sel, X, y)
-        assert elapsed < 90.0, f"DCD-on embedding cross-terms fit took {elapsed:.2f}s, budget 90s; seed={seed}"
+        _fit_quiet(sel, X, y)
         names = _support_names(sel, list(X.columns))
         assert 1 <= len(names) <= 25, (
             f"DCD-on support_size={len(names)} outside [1, 25]; "
@@ -539,3 +531,37 @@ class TestHighDimFitTransformRoundTrip:
         # DataFrame path: column names must match support exactly
         if isinstance(out, pd.DataFrame):
             assert list(out.columns) == names, f"transform returned column names != support; seed={seed}. got={list(out.columns)[:10]}, expected={names[:10]}"
+
+
+# ---------------------------------------------------------------------------
+# The blow-up claim, as a scaling ratio rather than as six absolute budgets
+# ---------------------------------------------------------------------------
+
+
+def test_the_fit_does_not_blow_up_super_linearly_with_width():
+    """"No super-linear blow-up at embedding scale" measured as a ratio between two widths.
+
+    Six absolute budgets (60s / 60s / 30s / 300s / 60s / 90s, three seeds each) used to carry this claim.
+    They are full MRMR fits: under xdist they contend with every other worker, under NUMBA_DISABLE_JIT=1
+    they are unrunnable at those numbers, and this file's own docstring already notes that one
+    parametrisation pays the JIT compile the rest amortise -- so the number depended on execution order,
+    which xdist reshuffles. The recovery and support-size assertions those tests carry are the real
+    contract and are untouched; this measures the scaling claim itself, in one process, where host speed
+    cancels.
+    """
+    seed = SEEDS[0]
+
+    def _timed(p: int) -> float:
+        """One default-config fit at width `p`, in seconds."""
+        X, y = _build_embedding_like(seed, p=p, n_signal=3)
+        return _fit_quiet(_make_mrmr(random_seed=seed), X, y)
+
+    _timed(50)  # absorb the JIT compile so it lands on neither measured point
+    t100 = _timed(100)
+    t200 = _timed(200)
+    ratio = t200 / max(t100, 1e-9)
+
+    # Doubling p doubles the column count and quadruples the pair count, so a pair-dominated fit would
+    # sit near 4.0. 3.0 leaves room for the fixed per-fit overhead (which pushes the ratio DOWN at these
+    # sizes) while still tripping on a genuine collapse to a quadratic scan.
+    assert ratio < 3.0, f"the p=100 -> p=200 fit time scaled {ratio:.2f}x ({t100:.2f}s -> {t200:.2f}s); super-linear blow-up at embedding scale"

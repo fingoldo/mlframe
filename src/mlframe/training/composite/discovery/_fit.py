@@ -195,6 +195,9 @@ def fit(
         _phase_ram_report(_ram_state, "resolve_base_candidates_done")
 
     # Pre-discovery base-target leakage guard (config.detect_base_leakage); see _fit_temporal.apply_base_leakage_guard.
+    # Seeded unconditionally so a caller can tell "the guard was inert" from "fit never reached the guard".
+    self._base_leakage_guard_ran_ = False
+    self._leaky_bases_dropped_ = []
     if getattr(self.config, "detect_base_leakage", True) and time_ordering is not None and base_candidates:
         from ._fit_temporal import apply_base_leakage_guard
 

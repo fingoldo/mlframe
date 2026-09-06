@@ -21,7 +21,7 @@ import numpy as np
 sys.path.insert(0, 'src')
 
 from sklearn.metrics import log_loss
-from mlframe.training.dummy_baselines import _vectorized_bootstrap_logloss_samples
+from mlframe.training.baselines._dummy_bootstrap import _vectorized_bootstrap_logloss_samples
 
 rng = np.random.default_rng(0)
 n, K = 1500, 4

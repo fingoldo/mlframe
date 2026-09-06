@@ -26,6 +26,8 @@ import pytest
 
 from mlframe.preprocessing.transforms import prepare_df_for_catboost
 
+from tests.conftest import perf_time_budget
+
 # ---------------------------------------------------------------------------
 # pandas dtype preservation
 # ---------------------------------------------------------------------------
@@ -230,7 +232,7 @@ def test_pandas_text_feature_skips_expensive_astype_rebuild():
     # Budget: comfortable for the skip path (<~0.3s on Python 3.11 + pandas
     # 2.x dev box), tight enough that the astype(str).astype("category")
     # rebuild over 5k categories would breach it easily.
-    assert elapsed < 2.0, f"prepare_df_for_catboost took {elapsed:.2f}s on a 50k text column — the text-feature skip likely regressed"
+    assert elapsed < perf_time_budget(2.0), f"prepare_df_for_catboost took {elapsed:.2f}s on a 50k text column — the text-feature skip likely regressed"
 
 
 def test_pandas_text_feature_dtype_is_not_mutated():
@@ -380,7 +382,7 @@ def test_cat_nan_fill_perf_budget_huge_untrimmed_dict():
     # broken path used to scale O(huge_dict_len) = 100k entries to
     # tens of seconds), so 3.0s preserves the sensor's intent while
     # absorbing legitimate cross-worker variance.
-    assert elapsed < 3.0, (
+    assert elapsed < perf_time_budget(3.0), (
         f"prepare_df_for_catboost took {elapsed:.2f}s on a 100k-entry "
         "untrimmed dict — regression of the 2026-04-19 MemoryError fix "
         "(likely someone restored the astype(str) path)."

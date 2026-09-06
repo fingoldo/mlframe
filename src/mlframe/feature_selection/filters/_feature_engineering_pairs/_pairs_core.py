@@ -6,6 +6,7 @@ This is the irreducible single-function body of the ``_feature_engineering_pairs
 subpackage; the supporting kernels / gates / dispatch live in sibling submodules
 and are re-exported from the package ``__init__``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,25 +31,44 @@ def _abs_corr_finite_njit(a, y, yfin, min_n=8):
     sites); callers replicating a masked ``np.corrcoef`` call site with no such floor (e.g. the ratio/log-ratio FE
     redundancy gate, which rejects on ANY finite overlap corrcoef defines, however small) pass ``min_n=2`` -
     the minimum sample size for which variance - and hence Pearson r - is even defined."""
+    # TWO passes, not one. The single-pass form accumulated raw power sums and recovered the variance by
+    # subtraction (``saa - sa*sa/n``), which is catastrophic cancellation whenever the data carries an offset
+    # large relative to its spread -- an epoch timestamp, a price, a count. Measured on this kernel: at
+    # offset/spread 1e7 a true |r| of 0.300 was reported as 0.767, and on one minute of epoch-second ticks a
+    # true |r| of 0.497 came back as EXACTLY 0.0, because the destroyed variance tripped the near-constant
+    # branch below. That 0.0 means "not redundant, keep" in the dedup gate and "no signal, drop" in the
+    # y-gate, so the wrong answer was silently actionable in both directions.
     n = 0
-    sa = 0.0; sy = 0.0; saa = 0.0; syy = 0.0; say = 0.0
+    sa = 0.0
+    sy = 0.0
     for i in range(a.shape[0]):
         av = a[i]
         if yfin[i] and np.isfinite(av):
-            yv = y[i]
             n += 1
-            sa += av; sy += yv; saa += av * av; syy += yv * yv; say += av * yv
+            sa += av
+            sy += y[i]
     if n < min_n:
         return 0.0
-    va = saa - sa * sa / n
-    vy = syy - sy * sy / n
-    # Match the numpy path's std<=1e-12 degeneracy guard (std^2 = va/n, so SS va <= 1e-24 * n).
+    ma = sa / n
+    my = sy / n
+    va = 0.0
+    vy = 0.0
+    cay = 0.0
+    for i in range(a.shape[0]):
+        av = a[i]
+        if yfin[i] and np.isfinite(av):
+            da = av - ma
+            dy = y[i] - my
+            va += da * da
+            vy += dy * dy
+            cay += da * dy
+    # Same std<=1e-12 degeneracy guard as the numpy path (std^2 = va/n, so SS va <= 1e-24 * n).
     if va <= 1e-24 * n or vy <= 1e-24 * n:
         return 0.0
     denom = (va * vy) ** 0.5
     if denom <= 0.0:
         return 0.0
-    r = (say - sa * sy / n) / denom
+    r = cay / denom
     return -r if r < 0.0 else r
 
 
@@ -63,8 +83,14 @@ def _abs_corr_zerofill_njit(a, b):
     nan_to_num-then-corrcoef semantics must keep that exact statistic - masking those rows out instead would
     silently change which rows influence the veto decision. Returns 0.0 when either side is (near-)constant
     post-zero-fill."""
+    # Two-pass centred, for the same reason as the masked twin above: recovering the variance from raw power
+    # sums by subtraction loses the answer entirely once the data carries an offset large relative to its
+    # spread, and the destroyed variance then trips the near-constant branch and returns a confident 0.0.
     n = a.shape[0]
-    sa = 0.0; sb = 0.0; saa = 0.0; sbb = 0.0; sab = 0.0
+    if n == 0:
+        return 0.0
+    sa = 0.0
+    sb = 0.0
     for i in range(n):
         av = a[i]
         bv = b[i]
@@ -72,28 +98,48 @@ def _abs_corr_zerofill_njit(a, b):
             av = 0.0
         if not np.isfinite(bv):
             bv = 0.0
-        sa += av; sb += bv; saa += av * av; sbb += bv * bv; sab += av * bv
-    if n == 0:
-        return 0.0
-    va = saa - sa * sa / n
-    vb = sbb - sb * sb / n
+        sa += av
+        sb += bv
+    ma = sa / n
+    mb = sb / n
+    va = 0.0
+    vb = 0.0
+    cab = 0.0
+    for i in range(n):
+        av = a[i]
+        bv = b[i]
+        if not np.isfinite(av):
+            av = 0.0
+        if not np.isfinite(bv):
+            bv = 0.0
+        da = av - ma
+        db = bv - mb
+        va += da * da
+        vb += db * db
+        cab += da * db
     if va <= 1e-24 * n or vb <= 1e-24 * n:
         return 0.0
     denom = (va * vb) ** 0.5
     if denom <= 0.0:
         return 0.0
-    r = (sab - sa * sb / n) / denom
+    r = cab / denom
     return -r if r < 0.0 else r
+
 
 from ._pairs_chunks import _FE_CHUNK_MAX_COLS_HARD_CAP, _plan_fe_chunks
 from ._pairs_dispatch import resolve_fe_dispatch_env_gate
 from ._pairs_gates import (
-    _FE_REJECTION_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY, _GATE_MED_UNARY,
-    _PREWARP_SPECS_RESULT_KEY, _PREWARP_UNARY, mi_tie_band,
+    _FE_REJECTION_RESULT_KEY,
+    _GATE_MED_SPECS_RESULT_KEY,
+    _GATE_MED_UNARY,
+    _PREWARP_SPECS_RESULT_KEY,
+    _PREWARP_UNARY,
+    mi_tie_band,
 )
 from ._pairs_materialise import _njit_binary_op_codes
 from ._pairs_score import _score_one_pair
 from ._pairs_setup import _build_operand_table, _fit_prewarp_and_gate_med
+
 
 def _short_fe_name(name, maxlen: int = 30) -> str:
     """Truncate a (possibly long engineered) feature expression for live progress-bar
@@ -147,9 +193,7 @@ def _gpu_gate_env_signature() -> str:
     The per-gate tri-state kill-switches (MLFRAME_FE_GPU_DISCRETIZE / MLFRAME_FE_GPU_BINNING) are read LIVE by
     the uncached gates, so they belong in the key too: without them, flipping the discretize switch mid-process
     is silently defeated by a memo entry computed under the old value."""
-    return "|".join(
-        os.environ.get(name, "") for name in ("MLFRAME_FE_GPU_STRICT", "MLFRAME_DISABLE_GPU", "MLFRAME_FE_GPU_DISCRETIZE", "MLFRAME_FE_GPU_BINNING")
-    )
+    return "|".join(os.environ.get(name, "") for name in ("MLFRAME_FE_GPU_STRICT", "MLFRAME_DISABLE_GPU", "MLFRAME_FE_GPU_DISCRETIZE", "MLFRAME_FE_GPU_BINNING"))
 
 
 def _gpu_gate_cached(kind: str, n_rows: int, n_cands: int, compute) -> bool:
@@ -185,6 +229,7 @@ def _fe_gpu_discretize_enabled_uncached(n_rows: int, n_cands: int) -> bool:
         return False
     try:
         from .._gpu_policy import cuda_available_for_run
+
         if not cuda_available_for_run():
             return False
     except Exception as e:
@@ -196,12 +241,14 @@ def _fe_gpu_discretize_enabled_uncached(n_rows: int, n_cands: int) -> bool:
     # The GPU pair-MI path is bit-identical to the CPU analytic dispatch (verified maxdiff 0) -> selection-equivalent.
     try:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
+
         if fe_gpu_strict_enabled(n=int(n_rows), p=int(n_cands)):
             return True
     except Exception as e:  # nosec B110 - optional dependency import guard
         logger.debug("fe_gpu_strict_enabled() check failed, continuing to the crossover-based decision: %s", e)
     try:  # auto: per-host crossover from kernel_tuning_cache (measurement-backed fallback)
         from .._gpu_resident_fe import fe_gpu_pairs_mi_backend_choice  # type: ignore[attr-defined]  # dynamically re-exported via globals()
+
         return bool(fe_gpu_pairs_mi_backend_choice(int(n_rows), int(n_cands)) == "gpu")
     except Exception as e:
         logger.debug("_fe_gpu_discretize_enabled_uncached: KTC backend-choice lookup failed, defaulting to CPU: %s", e)
@@ -235,6 +282,7 @@ def _fe_gpu_binning_enabled_uncached(n_rows: int, n_cands: int) -> bool:
         return False
     try:
         from .._gpu_policy import cuda_available_for_run
+
         if not cuda_available_for_run():
             return False
     except Exception as e:
@@ -246,12 +294,14 @@ def _fe_gpu_binning_enabled_uncached(n_rows: int, n_cands: int) -> bool:
     # crossover. The GPU binning is bit-identical to the CPU njit binning (verified maxdiff 0) -> selection-equivalent.
     try:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
+
         if fe_gpu_strict_enabled(n=int(n_rows), p=int(n_cands)):
             return True
     except Exception as e:  # nosec B110 - optional dependency import guard
         logger.debug("fe_gpu_strict_enabled() check failed, continuing to the crossover-based decision: %s", e)
     try:  # auto: per-host binning crossover from kernel_tuning_cache (measurement-backed fallback)
         from .._gpu_resident_fe import fe_gpu_binning_backend_choice  # type: ignore[attr-defined]  # dynamically re-exported via globals()
+
         return bool(fe_gpu_binning_backend_choice(int(n_rows), int(n_cands)) == "gpu")
     except Exception as e:
         logger.debug("_fe_gpu_binning_enabled_uncached: KTC binning backend-choice lookup failed, defaulting to CPU: %s", e)
@@ -483,10 +533,24 @@ def check_prospective_fe_pairs(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from ..feature_engineering import _FE_BUFFER_RAM_BUDGET_RATIO, _can_hoist_shared_buffer, _estimate_fe_shared_buffer_bytes, _fe_effective_buffer_budget_bytes, _rebuild_full_survivor_col, discretize_array, discretize_2d_quantile_batch, get_new_feature_name, gpu_compatible_unary_names, logger, mi_direct
+    from ..feature_engineering import (
+        _FE_BUFFER_RAM_BUDGET_RATIO,
+        _can_hoist_shared_buffer,
+        _estimate_fe_shared_buffer_bytes,
+        _fe_effective_buffer_budget_bytes,
+        _rebuild_full_survivor_col,
+        discretize_array,
+        discretize_2d_quantile_batch,
+        get_new_feature_name,
+        gpu_compatible_unary_names,
+        logger,
+        mi_direct,
+    )
+
     # Batched FE-candidate MI + permutation noise-gate (bit-identical to the
     # per-candidate mi_direct on the default outer/n_workers=1 path - see kernel docstring).
     from ..info_theory import batch_mi_with_noise_gate, use_su_normalization
+
     # P-SEAM (matrix-native FE replatform): the SINGLE integration point for the framework-agnostic
     # matrix path. GATED behind MLFRAME_FE_MATRIX_P0 - default OFF, so this is a pure no-op and X is
     # byte-untouched (the legacy pandas path runs unchanged). When enabled, X is routed through the
@@ -494,9 +558,11 @@ def check_prospective_fe_pairs(
     # so the SAME numba/cupy path can serve pandas and polars. The float32 cast is the intended P0
     # behaviour change. Wrapped so the experimental path can never break the production FE pipeline.
     from .._fe_matrix_io import fe_matrix_p0_enabled
+
     if fe_matrix_p0_enabled():
         try:
             from .._fe_matrix_io import from_feature_matrix, to_feature_matrix
+
             X = from_feature_matrix(to_feature_matrix(X))
         except Exception:
             logger.warning("FE matrix P-seam round-trip failed; using X unchanged.", exc_info=True)
@@ -584,9 +650,10 @@ def check_prospective_fe_pairs(
         # validation and would crash anyway on a non-integer class table.
         if verbose:
             logger.info(
-                "check_prospective_fe_pairs: subsample_n=%d active (full_n=%d, %.1f%% sample); "
-                "MI sweep runs on the subsample, survivor columns rebuilt at full n.",
-                int(subsample_n), _full_n_rows, 100.0 * subsample_n / _full_n_rows,
+                "check_prospective_fe_pairs: subsample_n=%d active (full_n=%d, %.1f%% sample); " "MI sweep runs on the subsample, survivor columns rebuilt at full n.",
+                int(subsample_n),
+                _full_n_rows,
+                100.0 * subsample_n / _full_n_rows,
             )
 
     # EXTERNAL-VALIDATION raw-column EXTRACTION MEMO (2026-06-07, LEVER 1).
@@ -651,9 +718,9 @@ def check_prospective_fe_pairs(
                     # pool touch point already enforces, rather than let a raw datetime/object column
                     # reach a numeric ufunc.
                     logger.debug(
-                        "_extval_raw_col: var %r resolved to non-numeric raw column dtype %s; skipping "
-                        "(should have been excluded upstream by _non_numeric_column_indices).",
-                        _var, _raw_dtype,
+                        "_extval_raw_col: var %r resolved to non-numeric raw column dtype %s; skipping " "(should have been excluded upstream by _non_numeric_column_indices).",
+                        _var,
+                        _raw_dtype,
                     )
                     _extval_raw_col_cache[_var] = None
                     return None
@@ -684,9 +751,7 @@ def check_prospective_fe_pairs(
             if _vals is None:
                 try:
                     if isinstance(X, pd.DataFrame):
-                        _vals = _densify_nullable(X[_name]) if isinstance(X[_name].dtype, ExtensionDtype) else (
-                            X[_name].to_numpy() if hasattr(X[_name], "to_numpy") else X[_name].values
-                        )
+                        _vals = _densify_nullable(X[_name]) if isinstance(X[_name].dtype, ExtensionDtype) else (X[_name].to_numpy() if hasattr(X[_name], "to_numpy") else X[_name].values)
                     elif hasattr(X, "columns") and _name in getattr(X, "columns", []):
                         _vals = X[_name].to_numpy()  # polars
                     else:
@@ -830,7 +895,8 @@ def check_prospective_fe_pairs(
                         "MemoryError despite passing the available-RAM check (%.1f GiB available, "
                         "%.0f%% budget); switching to recompute-from-metadata fallback (~1%% extra "
                         "bin_func calls per pair).",
-                        _bb / 2**30, _avail / 2**30 if _avail >= 0 else float("nan"),
+                        _bb / 2**30,
+                        _avail / 2**30 if _avail >= 0 else float("nan"),
                         _FE_BUFFER_RAM_BUDGET_RATIO * 100.0,
                     )
         else:
@@ -841,7 +907,8 @@ def check_prospective_fe_pairs(
                     "fallback path (~1%% extra bin_func calls per pair, identical survivors). To force "
                     "the fast path either free RAM or raise _FE_BUFFER_RAM_BUDGET_RATIO; to bound "
                     "compute, pass subsample_n>0 from the MRMR config.",
-                    _bb / 2**30, _avail / 2**30 if _avail >= 0 else float("nan"),
+                    _bb / 2**30,
+                    _avail / 2**30 if _avail >= 0 else float("nan"),
                     _FE_BUFFER_RAM_BUDGET_RATIO * 100.0,
                     (_avail * _FE_BUFFER_RAM_BUDGET_RATIO) / 2**30 if _avail >= 0 else float("nan"),
                 )
@@ -987,15 +1054,21 @@ def check_prospective_fe_pairs(
         if _idx is not None:
             try:
                 _disc = discretize_array(
-                    arr=transformed_vars[:, _idx], n_bins=quantization_nbins,
-                    method=quantization_method, dtype=quantization_dtype,
+                    arr=transformed_vars[:, _idx],
+                    n_bins=quantization_nbins,
+                    method=quantization_method,
+                    dtype=quantization_dtype,
                 )
                 _m, _ = mi_direct(
                     _disc.reshape(-1, 1),
-                    x=np.array([0], dtype=np.int64), y=None,  # type: ignore[arg-type]  # mi_direct (permutation.py, sibling-owned) accepts this call shape at runtime; its x/y annotation (tuple) is stricter than actual usage
+                    x=np.array([0], dtype=np.int64),  # type: ignore[arg-type]  # same reason as `y` below: the annotation is stricter than the accepted call shape
+                    y=None,  # type: ignore[arg-type]  # mi_direct (permutation.py, sibling-owned) accepts this call shape at runtime; its x/y annotation (tuple) is stricter than actual usage
                     factors_nbins=np.array([quantization_nbins], dtype=np.int64),
-                    classes_y=classes_y, classes_y_safe=classes_y_safe, freqs_y=freqs_y,
-                    min_nonzero_confidence=fe_min_nonzero_confidence, npermutations=fe_npermutations,
+                    classes_y=classes_y,
+                    classes_y_safe=classes_y_safe,
+                    freqs_y=freqs_y,
+                    min_nonzero_confidence=fe_min_nonzero_confidence,
+                    npermutations=fe_npermutations,
                 )
                 _mi_val = float(_m)
             except Exception as _mm_exc:
@@ -1033,8 +1106,10 @@ def check_prospective_fe_pairs(
         if _idx is not None:
             try:
                 _codes = discretize_array(
-                    arr=transformed_vars[:, _idx], n_bins=quantization_nbins,
-                    method=quantization_method, dtype=quantization_dtype,
+                    arr=transformed_vars[:, _idx],
+                    n_bins=quantization_nbins,
+                    method=quantization_method,
+                    dtype=quantization_dtype,
                 )
             except Exception as e:
                 logger.debug("discretizing operand %r failed, caching None: %s", _var, e)
@@ -1110,9 +1185,10 @@ def check_prospective_fe_pairs(
                         _pair_to_chunk[_p] = _ci_chunk
                 if verbose:
                     logger.info(
-                        "check_prospective_fe_pairs: cross-pair chunk batching active "
-                        "(%d pairs -> %d chunks, buffer %d cols, widest chunk %d pairs).",
-                        len(prospective_pairs), len(_fe_chunks), _chunk_buf_width,
+                        "check_prospective_fe_pairs: cross-pair chunk batching active " "(%d pairs -> %d chunks, buffer %d cols, widest chunk %d pairs).",
+                        len(prospective_pairs),
+                        len(_fe_chunks),
+                        _chunk_buf_width,
                         max(len(c) for c in _fe_chunks),
                     )
             except MemoryError:
@@ -1120,8 +1196,9 @@ def check_prospective_fe_pairs(
                 _pair_to_chunk = {}
                 if verbose:
                     logger.warning(
-                        "check_prospective_fe_pairs: cross-pair chunk buffer (%d x %d) raised "
-                        "MemoryError; using per-pair batching.", len(X), _chunk_buf_width,
+                        "check_prospective_fe_pairs: cross-pair chunk buffer (%d x %d) raised " "MemoryError; using per-pair batching.",
+                        len(X),
+                        _chunk_buf_width,
                     )
         else:
             _chunk_global_batch = False
@@ -1140,6 +1217,7 @@ def check_prospective_fe_pairs(
         if _pipe_env:
             try:
                 from .._fe_gpu_strict import fe_gpu_strict_enabled
+
                 _pipe_on = bool(fe_gpu_strict_enabled(n=len(X), p=int(_chunk_buf_width)))
             except Exception as e:
                 logger.debug("fe_gpu_strict_enabled() check failed, defaulting _pipe_on to False: %s", e)
@@ -1148,9 +1226,11 @@ def check_prospective_fe_pairs(
             try:
                 import cupy as _pl_cp
                 from concurrent.futures import ThreadPoolExecutor
+
                 _chunk_buffer2 = np.empty_like(_chunk_buffer)
                 from .._gpu_resident_fe import _resident_operand_table  # type: ignore[attr-defined]  # dynamically re-exported via globals()
-                _resident_operand_table(_pl_cp, transformed_vars)   # pre-warm: both threads then only read
+
+                _resident_operand_table(_pl_cp, transformed_vars)  # pre-warm: both threads then only read
                 _chunk_state["pipeline_buffers"] = [_chunk_buffer, _chunk_buffer2]
                 _chunk_state["pipeline_ex"] = ThreadPoolExecutor(max_workers=1)
                 _chunk_state["pipeline_futures"] = {}
@@ -1163,196 +1243,210 @@ def check_prospective_fe_pairs(
                 if _ex0 is not None:
                     _ex0.shutdown(wait=False)
 
-    # Sweep-wide leader for the live "pair" bar postfix: the best engineered MI found
-    # so far across ALL pairs in this FE step + the feature that produced it. Both are
-    # already computed per pair (``best_mi`` / ``best_config``) - display-only, no extra
-    # MI work. Starts blank so the no-candidate / NaN edge case renders gracefully.
-    _sweep_best_mi = -1.0
-    _sweep_best_name = None
+    # The executor and the double chunk buffer are torn down in a `finally`. They used to be created here
+    # and shut down ~200 lines later at the end of the sweep, with nothing covering the span: any exception
+    # in the pair loop -- a cupy OutOfMemoryError, a kernel launch failure, a KeyboardInterrupt -- skipped the
+    # shutdown. ThreadPoolExecutor registers its worker with threading._register_atexit, so the thread
+    # survived to interpreter exit, and a still-pending future kept the shared buffers alive with it: at a
+    # 2M-row chunk over 40 operands that is 640 MB per buffer, 1.28 GB for the pair, retained for the rest
+    # of the process.
+    try:
 
-    # PER-CALL HOISTS (env-var gate + op-code table + MI tie-band): all three are invariant across
-    # the WHOLE pair loop below (the env var never changes mid-call, the op-code table depends only
-    # on ``binary_transformations``, and the tie-band depends only on quantization_nbins/classes_y/
-    # freqs_y) - computing them once here instead of once per pair (or, for the op-code table, once
-    # per tied-leader inside the emit tail) avoids millions of redundant env reads / dict rebuilds /
-    # float divisions over a wide fit with no behaviour change (every downstream site consumed the
-    # exact same values before this hoist). ``_op_code_arr_all`` is the UNGATED table (feeds the
-    # external-validation njit materialise in the emit tail, which was never gated by the GPU-
-    # materialise escape hatch); ``_op_code_arr`` additionally applies that gate (feeds the per-pair /
-    # per-chunk GPU-fused materialise attempt, which WAS gated) - both derive from one table build.
-    _gpu_mat_on = os.environ.get("MLFRAME_FE_GPU_MATERIALISE", "1").strip().lower() not in ("0", "false", "no", "off")
-    _op_code_arr_all = _njit_binary_op_codes(binary_transformations)
-    _op_code_arr = _op_code_arr_all if _gpu_mat_on else None
-    _mi_band = mi_tie_band(int(quantization_nbins), len(classes_y), int(np.asarray(freqs_y).shape[0]))
-    # Same rationale, for the noise-gate dispatcher's own CUDA-opt-out / resident-gate env reads (it runs
-    # once per pair AND once per chunk AND once per ext-val tied-leader-set - see resolve_fe_dispatch_env_gate).
-    _fe_env_gate = resolve_fe_dispatch_env_gate()
+        # Sweep-wide leader for the live "pair" bar postfix: the best engineered MI found
+        # so far across ALL pairs in this FE step + the feature that produced it. Both are
+        # already computed per pair (``best_mi`` / ``best_config``) - display-only, no extra
+        # MI work. Starts blank so the no-candidate / NaN edge case renders gracefully.
+        _sweep_best_mi = -1.0
+        _sweep_best_name = None
 
-    # For every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM). Record best pairs.
-    for (
-        raw_vars_pair,
-        pair_mi,
-    ), _uplift in (
-        pair_pbar := tqdmu(prospective_pairs.items(), desc="pair", leave=False, disable=not verbose)
-    ):  # better to start considering form the most prospective pairs with highest mis ratio!
+        # PER-CALL HOISTS (env-var gate + op-code table + MI tie-band): all three are invariant across
+        # the WHOLE pair loop below (the env var never changes mid-call, the op-code table depends only
+        # on ``binary_transformations``, and the tie-band depends only on quantization_nbins/classes_y/
+        # freqs_y) - computing them once here instead of once per pair (or, for the op-code table, once
+        # per tied-leader inside the emit tail) avoids millions of redundant env reads / dict rebuilds /
+        # float divisions over a wide fit with no behaviour change (every downstream site consumed the
+        # exact same values before this hoist). ``_op_code_arr_all`` is the UNGATED table (feeds the
+        # external-validation njit materialise in the emit tail, which was never gated by the GPU-
+        # materialise escape hatch); ``_op_code_arr`` additionally applies that gate (feeds the per-pair /
+        # per-chunk GPU-fused materialise attempt, which WAS gated) - both derive from one table build.
+        _gpu_mat_on = os.environ.get("MLFRAME_FE_GPU_MATERIALISE", "1").strip().lower() not in ("0", "false", "no", "off")
+        _op_code_arr_all = _njit_binary_op_codes(binary_transformations)
+        _op_code_arr = _op_code_arr_all if _gpu_mat_on else None
+        _mi_band = mi_tie_band(int(quantization_nbins), len(classes_y), int(np.asarray(freqs_y).shape[0]))
+        # Same rationale, for the noise-gate dispatcher's own CUDA-opt-out / resident-gate env reads (it runs
+        # once per pair AND once per chunk AND once per ext-val tied-leader-set - see resolve_fe_dispatch_env_gate).
+        _fe_env_gate = resolve_fe_dispatch_env_gate()
 
-        _pair_res_entry, best_config, best_mi = _score_one_pair(
-            raw_vars_pair=raw_vars_pair,
-            pair_mi=pair_mi,
-            chunk_state=_chunk_state,
-            rejection_records=_rejection_records,
-            rejection_ledger_out=rejection_ledger_out,
-            X=X,
-            transformed_vars=transformed_vars,
-            vars_transformations=vars_transformations,
-            binary_transformations=binary_transformations,
-            unary_transformations=unary_transformations,
-            pair_combs=pair_combs,
-            final_transformed_vals_shared=final_transformed_vals_shared,
-            _need_recompute_map=_need_recompute_map,
-            _chunk_global_batch=_chunk_global_batch,
-            _chunk_buffer=_chunk_buffer,
-            _pair_to_chunk=_pair_to_chunk,
-            _fe_chunks=_fe_chunks,
-            _pair_valid_combs=_pair_valid_combs,
-            _fe_defer_float=_fe_defer_float,
-            _gpu_mat_on=_gpu_mat_on,
-            _op_code_arr=_op_code_arr,
-            _op_code_arr_all=_op_code_arr_all,
-            _mi_band=_mi_band,
-            _fe_env_gate=_fe_env_gate,
-            classes_y=classes_y,
-            classes_y_safe=classes_y_safe,
-            freqs_y=freqs_y,
-            fe_npermutations=fe_npermutations,
-            fe_min_nonzero_confidence=fe_min_nonzero_confidence,
-            quantization_nbins=quantization_nbins,
-            quantization_method=quantization_method,
-            quantization_dtype=quantization_dtype,
-            num_fs_steps=num_fs_steps,
-            fe_min_engineered_mi_prevalence=fe_min_engineered_mi_prevalence,
-            fe_good_to_best_feature_mi_threshold=fe_good_to_best_feature_mi_threshold,
-            fe_max_external_validation_factors=fe_max_external_validation_factors,
-            numeric_vars_to_consider=numeric_vars_to_consider,
-            fe_max_steps=fe_max_steps,
-            fe_print_best_mis_only=fe_print_best_mis_only,
-            fe_mm_debias_prevalence=fe_mm_debias_prevalence,
-            _prewarp_active=_prewarp_active,
-            prewarp_uplift_threshold=prewarp_uplift_threshold,
-            _PREWARP_UNARY=_PREWARP_UNARY,
-            _corr_y_cont=_corr_y_cont,
-            _corr_y_cont_finite=_corr_y_cont_finite,
-            _NOISE_WRAP_CORR_COLLAPSE_FRAC=_NOISE_WRAP_CORR_COLLAPSE_FRAC,
-            _NOISE_WRAP_MIN_OPERAND_CORR=_NOISE_WRAP_MIN_OPERAND_CORR,
-            fe_multi_emit_max_per_pair=fe_multi_emit_max_per_pair,
-            fe_multi_emit_mi_floor=fe_multi_emit_mi_floor,
-            fe_multi_emit_diversity_corr=fe_multi_emit_diversity_corr,
-            fe_pair_usability_admission_enable=fe_pair_usability_admission_enable,
-            fe_pair_usability_admission_min_corr=fe_pair_usability_admission_min_corr,
-            fe_pair_usability_admission_pairness_margin=fe_pair_usability_admission_pairness_margin,
-            cols=cols,
-            original_cols=original_cols,
-            _use_subsample=_use_subsample,
-            _X_full=_X_full,
-            _full_n_rows=_full_n_rows,
-            _prewarp_spec_by_var=_prewarp_spec_by_var,
-            _gate_med_median_by_var=_gate_med_median_by_var,
-            engineered_operand_values=engineered_operand_values,
-            _rng_extval=_rng_extval,
-            _n_workers=_n_workers,
-            times_spent=times_spent,
-            verbose=verbose,
-            serial_main_thread=serial_main_thread,
-            _extval_raw_col=_extval_raw_col,
-            _safe_abs_corr=_safe_abs_corr,
-            _raw_operand_abs_corr=_raw_operand_abs_corr,
-            _transformed_operand_abs_corr=_transformed_operand_abs_corr,
-            _operand_marginal_mi=_operand_marginal_mi,
-            _operand_discretized=_operand_discretized,
-            batch_mi_with_noise_gate=batch_mi_with_noise_gate,
-            use_su_normalization=use_su_normalization,
-            discretize_array=discretize_array,
-            discretize_2d_quantile_batch=discretize_2d_quantile_batch,
-            mi_direct=mi_direct,
-            get_new_feature_name=get_new_feature_name,
-            _rebuild_full_survivor_col=_rebuild_full_survivor_col,
-            _can_hoist_shared_buffer=_can_hoist_shared_buffer,
-            _fe_gpu_discretize_enabled=_fe_gpu_discretize_enabled,
-        )
-        if _pair_res_entry is not None:
-            res[raw_vars_pair] = _pair_res_entry
-        elif best_config is None:
-            # A pair that produced NO candidate at all leaves no trace otherwise: the rejection ledger only
-            # records candidates that were built and then failed a gate, so a pair whose operator search
-            # emits nothing is invisible in the fitted object and can only be found by instrumenting the
-            # search by hand. That is the exact shape behind the open FE-recovery findings in this audit -
-            # the (c,d) and (x0,x1) pairs each carry the signal, are eligible, and never appear anywhere.
-            try:
-                _barren = {
-                    "gate": "pair_candidate_generation",
-                    "candidate": f"({cols[raw_vars_pair[0]]},{cols[raw_vars_pair[1]]})",
-                    "operands": tuple(cols[i] for i in raw_vars_pair),
-                    "operator": "",
-                    "observed": float(pair_mi) if pair_mi is not None else float("nan"),
-                    "threshold": float("nan"),
-                    "reason": "no candidate produced for this pair",
-                }
-                _rejection_records.append(_barren)
-                if rejection_ledger_out is not None:
-                    rejection_ledger_out.append(_barren)
-            except Exception as e:  # nosec B110 - instrumentation must never break the FE search
-                logger.debug("barren-pair ledger record failed: %s", e)
+        # For every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM). Record best pairs.
+        for (
+            raw_vars_pair,
+            pair_mi,
+        ), _uplift in (
+            pair_pbar := tqdmu(prospective_pairs.items(), desc="pair", leave=False, disable=not verbose)
+        ):  # better to start considering form the most prospective pairs with highest mis ratio!
 
-        # Live progress: surface the best engineered feature found so far in this sweep
-        # (its MI with y) plus the pair just evaluated, on the "pair" bar. ``best_mi`` /
-        # ``best_config`` are already computed for this pair - no extra MI compute. Robust
-        # to the no-config / NaN edge cases (we only adopt a finite, improving best_mi).
-        if verbose:
-            try:
-                _bm = float(best_mi)
-                if best_config is not None and np.isfinite(_bm) and _bm > _sweep_best_mi:
-                    _sweep_best_mi = _bm
-                    _sweep_best_name = get_new_feature_name(fe_tuple=best_config, cols_names=cols)
-                _cur_pair = f"{cols[raw_vars_pair[0]]},{cols[raw_vars_pair[1]]}"
-                _pf = {"pair": _short_fe_name(_cur_pair, 22)}
-                if _sweep_best_name is not None:
-                    _pf["best"] = f"{_short_fe_name(_sweep_best_name)}={_sweep_best_mi:.4f}"
-                pair_pbar.set_postfix(_pf, refresh=False)
-            except (TypeError, ValueError, IndexError):
-                pass
+            _pair_res_entry, best_config, best_mi = _score_one_pair(
+                raw_vars_pair=raw_vars_pair,
+                pair_mi=pair_mi,
+                chunk_state=_chunk_state,
+                rejection_records=_rejection_records,
+                rejection_ledger_out=rejection_ledger_out,
+                X=X,
+                transformed_vars=transformed_vars,
+                vars_transformations=vars_transformations,
+                binary_transformations=binary_transformations,
+                unary_transformations=unary_transformations,
+                pair_combs=pair_combs,
+                final_transformed_vals_shared=final_transformed_vals_shared,
+                _need_recompute_map=_need_recompute_map,
+                _chunk_global_batch=_chunk_global_batch,
+                _chunk_buffer=_chunk_buffer,
+                _pair_to_chunk=_pair_to_chunk,
+                _fe_chunks=_fe_chunks,
+                _pair_valid_combs=_pair_valid_combs,
+                _fe_defer_float=_fe_defer_float,
+                _gpu_mat_on=_gpu_mat_on,
+                _op_code_arr=_op_code_arr,
+                _op_code_arr_all=_op_code_arr_all,
+                _mi_band=_mi_band,
+                _fe_env_gate=_fe_env_gate,
+                classes_y=classes_y,
+                classes_y_safe=classes_y_safe,
+                freqs_y=freqs_y,
+                fe_npermutations=fe_npermutations,
+                fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+                quantization_nbins=quantization_nbins,
+                quantization_method=quantization_method,
+                quantization_dtype=quantization_dtype,
+                num_fs_steps=num_fs_steps,
+                fe_min_engineered_mi_prevalence=fe_min_engineered_mi_prevalence,
+                fe_good_to_best_feature_mi_threshold=fe_good_to_best_feature_mi_threshold,
+                fe_max_external_validation_factors=fe_max_external_validation_factors,
+                numeric_vars_to_consider=numeric_vars_to_consider,
+                fe_max_steps=fe_max_steps,
+                fe_print_best_mis_only=fe_print_best_mis_only,
+                fe_mm_debias_prevalence=fe_mm_debias_prevalence,
+                _prewarp_active=_prewarp_active,
+                prewarp_uplift_threshold=prewarp_uplift_threshold,
+                _PREWARP_UNARY=_PREWARP_UNARY,
+                _corr_y_cont=_corr_y_cont,
+                _corr_y_cont_finite=_corr_y_cont_finite,
+                _NOISE_WRAP_CORR_COLLAPSE_FRAC=_NOISE_WRAP_CORR_COLLAPSE_FRAC,
+                _NOISE_WRAP_MIN_OPERAND_CORR=_NOISE_WRAP_MIN_OPERAND_CORR,
+                fe_multi_emit_max_per_pair=fe_multi_emit_max_per_pair,
+                fe_multi_emit_mi_floor=fe_multi_emit_mi_floor,
+                fe_multi_emit_diversity_corr=fe_multi_emit_diversity_corr,
+                fe_pair_usability_admission_enable=fe_pair_usability_admission_enable,
+                fe_pair_usability_admission_min_corr=fe_pair_usability_admission_min_corr,
+                fe_pair_usability_admission_pairness_margin=fe_pair_usability_admission_pairness_margin,
+                cols=cols,
+                original_cols=original_cols,
+                _use_subsample=_use_subsample,
+                _X_full=_X_full,
+                _full_n_rows=_full_n_rows,
+                _prewarp_spec_by_var=_prewarp_spec_by_var,
+                _gate_med_median_by_var=_gate_med_median_by_var,
+                engineered_operand_values=engineered_operand_values,
+                _rng_extval=_rng_extval,
+                _n_workers=_n_workers,
+                times_spent=times_spent,
+                verbose=verbose,
+                serial_main_thread=serial_main_thread,
+                _extval_raw_col=_extval_raw_col,
+                _safe_abs_corr=_safe_abs_corr,
+                _raw_operand_abs_corr=_raw_operand_abs_corr,
+                _transformed_operand_abs_corr=_transformed_operand_abs_corr,
+                _operand_marginal_mi=_operand_marginal_mi,
+                _operand_discretized=_operand_discretized,
+                batch_mi_with_noise_gate=batch_mi_with_noise_gate,
+                use_su_normalization=use_su_normalization,
+                discretize_array=discretize_array,
+                discretize_2d_quantile_batch=discretize_2d_quantile_batch,
+                mi_direct=mi_direct,
+                get_new_feature_name=get_new_feature_name,
+                _rebuild_full_survivor_col=_rebuild_full_survivor_col,
+                _can_hoist_shared_buffer=_can_hoist_shared_buffer,
+                _fe_gpu_discretize_enabled=_fe_gpu_discretize_enabled,
+            )
+            if _pair_res_entry is not None:
+                res[raw_vars_pair] = _pair_res_entry
+            elif best_config is None:
+                # A pair that produced NO candidate at all leaves no trace otherwise: the rejection ledger only
+                # records candidates that were built and then failed a gate, so a pair whose operator search
+                # emits nothing is invisible in the fitted object and can only be found by instrumenting the
+                # search by hand. That is the exact shape behind the open FE-recovery findings in this audit -
+                # the (c,d) and (x0,x1) pairs each carry the signal, are eligible, and never appear anywhere.
+                try:
+                    _barren = {
+                        "gate": "pair_candidate_generation",
+                        "candidate": f"({cols[raw_vars_pair[0]]},{cols[raw_vars_pair[1]]})",
+                        "operands": tuple(cols[i] for i in raw_vars_pair),
+                        "operator": "",
+                        "observed": float(pair_mi) if pair_mi is not None else float("nan"),
+                        "threshold": float("nan"),
+                        "reason": "no candidate produced for this pair",
+                    }
+                    _rejection_records.append(_barren)
+                    if rejection_ledger_out is not None:
+                        rejection_ledger_out.append(_barren)
+                except Exception as e:  # nosec B110 - instrumentation must never break the FE search
+                    logger.debug("barren-pair ledger record failed: %s", e)
 
-    # Surface the fitted per-operand pre-warp specs (keyed by cols-space var
-    # index) so the caller (``_mrmr_fe_step``) can persist them in each survivor
-    # recipe for leak-safe replay. Only the non-None specs that were actually
-    # fitted are exported. We populate BOTH the optional ``prewarp_specs_out``
-    # side-channel (works for the in-process serial path) AND a reserved key in
-    # the returned ``res`` (survives the loky-parallel path where the side
-    # channel dict cannot be mutated cross-process; the caller merges per-chunk
-    # results). The reserved key is a private 3-tuple that can never collide with
-    # a real ``raw_vars_pair`` (which is always length 2).
-    _fitted_specs = {_v: _s for _v, _s in _prewarp_spec_by_var.items() if _s is not None}
-    if _fitted_specs:
-        if prewarp_specs_out is not None:
-            prewarp_specs_out.update(_fitted_specs)
-        res[_PREWARP_SPECS_RESULT_KEY] = _fitted_specs
+            # Live progress: surface the best engineered feature found so far in this sweep
+            # (its MI with y) plus the pair just evaluated, on the "pair" bar. ``best_mi`` /
+            # ``best_config`` are already computed for this pair - no extra MI compute. Robust
+            # to the no-config / NaN edge cases (we only adopt a finite, improving best_mi).
+            if verbose:
+                try:
+                    _bm = float(best_mi)
+                    if best_config is not None and np.isfinite(_bm) and _bm > _sweep_best_mi:
+                        _sweep_best_mi = _bm
+                        _sweep_best_name = get_new_feature_name(fe_tuple=best_config, cols_names=cols)
+                    _cur_pair = f"{cols[raw_vars_pair[0]]},{cols[raw_vars_pair[1]]}"
+                    _pf = {"pair": _short_fe_name(_cur_pair, 22)}
+                    if _sweep_best_name is not None:
+                        _pf["best"] = f"{_short_fe_name(_sweep_best_name)}={_sweep_best_mi:.4f}"
+                    pair_pbar.set_postfix(_pf, refresh=False)
+                except (TypeError, ValueError, IndexError):
+                    pass
 
-    # Same dual-channel export for the fitted per-operand TRAIN medians so the
-    # caller can persist them in each survivor recipe for leak-safe replay. The
-    # value is a single float per cols-space var index.
-    _fitted_medians = {_v: float(_m) for _v, _m in _gate_med_median_by_var.items()}
-    if _fitted_medians:
-        if gate_med_specs_out is not None:
-            gate_med_specs_out.update(_fitted_medians)
-        res[_GATE_MED_SPECS_RESULT_KEY] = _fitted_medians
+        # Surface the fitted per-operand pre-warp specs (keyed by cols-space var
+        # index) so the caller (``_mrmr_fe_step``) can persist them in each survivor
+        # recipe for leak-safe replay. Only the non-None specs that were actually
+        # fitted are exported. We populate BOTH the optional ``prewarp_specs_out``
+        # side-channel (works for the in-process serial path) AND a reserved key in
+        # the returned ``res`` (survives the loky-parallel path where the side
+        # channel dict cannot be mutated cross-process; the caller merges per-chunk
+        # results). The reserved key is a private 3-tuple that can never collide with
+        # a real ``raw_vars_pair`` (which is always length 2).
+        _fitted_specs = {_v: _s for _v, _s in _prewarp_spec_by_var.items() if _s is not None}
+        if _fitted_specs:
+            if prewarp_specs_out is not None:
+                prewarp_specs_out.update(_fitted_specs)
+            res[_PREWARP_SPECS_RESULT_KEY] = _fitted_specs
 
-    # REJECTION LEDGER export via the reserved result key (survives the loky-parallel path).
-    if _rejection_records:
-        res[_FE_REJECTION_RESULT_KEY] = _rejection_records
+        # Same dual-channel export for the fitted per-operand TRAIN medians so the
+        # caller can persist them in each survivor recipe for leak-safe replay. The
+        # value is a single float per cols-space var index.
+        _fitted_medians = {_v: float(_m) for _v, _m in _gate_med_median_by_var.items()}
+        if _fitted_medians:
+            if gate_med_specs_out is not None:
+                gate_med_specs_out.update(_fitted_medians)
+            res[_GATE_MED_SPECS_RESULT_KEY] = _fitted_medians
 
-    # Tear down the chunk-pipeline executor (all futures resolved by the pair loop; an unconsumed prefetch
-    # - e.g. an early exit - is awaited by shutdown so the worker never outlives the shared buffers).
-    _pl_ex = _chunk_state.pop("pipeline_ex", None)
-    if _pl_ex is not None:
-        _pl_ex.shutdown(wait=True)
+        # REJECTION LEDGER export via the reserved result key (survives the loky-parallel path).
+        if _rejection_records:
+            res[_FE_REJECTION_RESULT_KEY] = _rejection_records
+
+        # Tear down the chunk-pipeline executor (all futures resolved by the pair loop; an unconsumed prefetch
+        # - e.g. an early exit - is awaited by shutdown so the worker never outlives the shared buffers).
+    finally:
+        # All futures are resolved by the pair loop in the normal case; an unconsumed prefetch -- an early
+        # exit, or an exception -- is awaited here so the worker never outlives the buffers it holds.
+        _pl_ex = _chunk_state.pop("pipeline_ex", None)
+        if _pl_ex is not None:
+            _pl_ex.shutdown(wait=True)
+        _chunk_state.pop("pipeline_buffers", None)
+        _chunk_state.pop("pipeline_futures", None)
 
     return res

@@ -28,19 +28,11 @@ def _old_enum(candidate_idxs_arr, nbins, max_combined):
     return np.asarray(pairs_a_list, dtype=np.int64), np.asarray(pairs_b_list, dtype=np.int64)
 
 
-def _new_enum(candidate_idxs_arr, nbins, max_combined):
-    """New enum."""
-    n_cand = len(candidate_idxs_arr)
-    if n_cand >= 2:
-        ii, jj = np.triu_indices(n_cand, k=1)
-        i_arr = np.asarray(candidate_idxs_arr, dtype=np.int64)[ii]
-        j_arr = np.asarray(candidate_idxs_arr, dtype=np.int64)[jj]
-        nbins_i64 = np.asarray(nbins, dtype=np.int64)
-        nb_prod = nbins_i64[i_arr] * nbins_i64[j_arr]
-        keep = (nb_prod <= int(max_combined)) & (nb_prod < 2**31)
-        return i_arr[keep], j_arr[keep]
-    return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64)
-
+# The production enumeration itself, not a copy of it. This file used to define `_new_enum` as a hand-copy
+# of the inline block in `_cat_interactions_step` and import nothing from the package, so two local copies
+# were compared to each other and production never ran: dropping the `< 2**31` mask or the int64 cast left
+# both tests here green while a 46341x46341 pair was admitted and overflowed downstream int32 arithmetic.
+from mlframe.feature_selection.filters._cat_interactions_step import enumerate_candidate_pairs as _new_enum
 
 def test_pair_enum_matches_reference_across_random_configs():
     """Pair enum matches reference across random configs."""

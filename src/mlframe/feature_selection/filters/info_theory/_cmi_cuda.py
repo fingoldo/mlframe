@@ -775,6 +775,18 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
     the hot path - the fallback is the documented bootstrap heuristic only). VRAM guard: the joint
     buffer is ``p * joint_size * 4`` bytes; reject if it would exceed a conservative slice.
     """
+    # The project-wide opt-out is checked FIRST, before every other gate including STRICT mode. STRICT's
+    # `return True` below sits above the tuning-cache path, and that path is the only one that consulted
+    # `cmi_use_cuda` -- whose own comment says 'The global GPU opt-out outranks both the tuning cache and
+    # STRICT mode'. With STRICT on, MLFRAME_DISABLE_GPU=1 was therefore ignored here while every other call
+    # site in the package honoured it.
+    try:
+        from mlframe.feature_selection.filters._gpu_policy import gpu_globally_disabled
+
+        if gpu_globally_disabled():
+            return False
+    except Exception as e:  # nosec B110 - the policy module is optional; absence must not force GPU ON
+        logger.debug("gpu_globally_disabled() unavailable in _should_use_cuda: %s", e)
     if _CMI_GPU_FAILED:  # context poisoned by a prior launch fault -> never re-attempt the GPU this process.
         return False
     if not cupy_available():

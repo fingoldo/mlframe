@@ -14,7 +14,6 @@ being numerically identical to the per-k single calls.
 
 from __future__ import annotations
 
-import time
 
 import numpy as np
 import pandas as pd
@@ -22,6 +21,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 
 from mlframe.feature_engineering import compute_cross_sectional_neighbor_features
+from tests._perf_paired import assert_paired_speedup
 
 
 def _make_snapshot_cluster_dataset(n_snapshots: int, rows_per_snap: int, n_clusters: int, seed: int):
@@ -149,23 +149,17 @@ def test_biz_val_cross_sectional_neighbor_features_multi_k_faster_than_per_k_cal
     compute_cross_sectional_neighbor_features(df, "snap", feature_cols, k_values=k_values)
     compute_cross_sectional_neighbor_features(df, "snap", feature_cols, k=max(k_values))
 
-    def _time_multi() -> float:
-        """Helper: Time multi."""
-        t0 = time.perf_counter()
-        compute_cross_sectional_neighbor_features(df, "snap", feature_cols, k_values=k_values)
-        return time.perf_counter() - t0
-
-    def _time_per_k() -> float:
-        """Helper: Time per k."""
-        t0 = time.perf_counter()
+    def _per_k():
+        """Helper: one call per k value, the arm the shared search must beat."""
         for kv in k_values:
             compute_cross_sectional_neighbor_features(df, "snap", feature_cols, k=kv)
-        return time.perf_counter() - t0
 
-    t_multi = min(_time_multi() for _ in range(3))
-    t_per_k = min(_time_per_k() for _ in range(3))
-
-    speedup = t_per_k / t_multi
-    assert (
-        speedup > 1.5
-    ), f"expected multi-k shared-search to beat {len(k_values)} separate per-k calls by >1.5x, got {speedup:.2f}x (multi={t_multi * 1000:.1f}ms, per_k={t_per_k * 1000:.1f}ms)"
+    # Interleaved rather than best-of-3-each: taking each arm's own minimum over separate passes still
+    # compares two DIFFERENT stretches of machine time, so a load spike sitting on one pass survives the min.
+    assert_paired_speedup(
+        _per_k,
+        lambda: compute_cross_sectional_neighbor_features(df, "snap", feature_cols, k_values=k_values),
+        base_ratio=1.5,
+        n_trials=3,
+        what=f"the multi-k shared search against {len(k_values)} separate per-k calls",
+    )

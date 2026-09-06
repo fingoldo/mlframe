@@ -112,9 +112,16 @@ def _contingency_svd_row_coords(M: np.ndarray, n_eff: int, normalize: str) -> np
         r = P.sum(axis=1, keepdims=True)
         c = P.sum(axis=0, keepdims=True)
         expected = r @ c
-        S = (P - expected) / np.sqrt(expected + 1e-12)
+        # Masked, not padded. `expected` is a product of two marginal PROBABILITIES, so it is quadratically
+        # small for a rare-by-rare pair: two categories each at 1e-6 of the rows give 1e-12, the same order as
+        # the pad, which then shrinks the standardised residual -- precisely the large-residual rare cell
+        # correspondence analysis exists to surface. A zero here means an empty row or column, where `P` is
+        # zero too and the residual is genuinely zero, so the mask says that instead of approximating it.
+        S = np.divide(P - expected, np.sqrt(expected), out=np.zeros_like(P), where=expected > 0.0)
         U, s, _Vt = np.linalg.svd(S, full_matrices=False)
-        row_coords = (U[:, :n_eff] * s[:n_eff]) / np.sqrt(r + 1e-12)
+        # Same reasoning on the row masses: a zero row mass is an unused category, whose coordinates are zero.
+        _scaled = U[:, :n_eff] * s[:n_eff]
+        row_coords = np.divide(_scaled, np.sqrt(r), out=np.zeros_like(_scaled), where=r > 0.0)
         return np.ascontiguousarray(row_coords, dtype=np.float64)
     if normalize == "raw":
         U, _s, _Vt = np.linalg.svd(M, full_matrices=False)

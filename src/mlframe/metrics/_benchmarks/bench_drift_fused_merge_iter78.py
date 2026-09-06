@@ -19,6 +19,15 @@ from mlframe.metrics._drift import wasserstein_1d, ks_distribution_distance
 
 def _old_w1(a, b):
     a = np.asarray(a, np.float64); b = np.asarray(b, np.float64)
+    # Production filters non-finite values and returns nan on an empty side (_drift.py). Without the same
+    # two steps here the identity assertion in main() guards nothing on the non-finite path -- and the two
+    # sides genuinely disagree there: on a=[1,2,nan,4], b=[1,2,3,4] the unfiltered form gives nan for W1 and
+    # 0.25 for KS against production's 0.3333333333333333 and 0.16666666666666663.
+    if a.size == 0 or b.size == 0:
+        return float("nan")
+    a = a[np.isfinite(a)]; b = b[np.isfinite(b)]
+    if a.size == 0 or b.size == 0:
+        return float("nan")
     all_values = np.concatenate((a, b)); all_values.sort(kind="quicksort")
     deltas = np.diff(all_values)
     cdf_a = np.searchsorted(np.sort(a), all_values[:-1], side="right") / a.size
@@ -28,6 +37,15 @@ def _old_w1(a, b):
 
 def _old_ks(a, b):
     a = np.asarray(a, np.float64); b = np.asarray(b, np.float64)
+    # Production filters non-finite values and returns nan on an empty side (_drift.py). Without the same
+    # two steps here the identity assertion in main() guards nothing on the non-finite path -- and the two
+    # sides genuinely disagree there: on a=[1,2,nan,4], b=[1,2,3,4] the unfiltered form gives nan for W1 and
+    # 0.25 for KS against production's 0.3333333333333333 and 0.16666666666666663.
+    if a.size == 0 or b.size == 0:
+        return float("nan")
+    a = a[np.isfinite(a)]; b = b[np.isfinite(b)]
+    if a.size == 0 or b.size == 0:
+        return float("nan")
     a_s = np.sort(a); b_s = np.sort(b)
     all_values = np.concatenate((a_s, b_s)); all_values.sort()
     cdf_a = np.searchsorted(a_s, all_values, side="right") / a_s.size
@@ -37,6 +55,15 @@ def _old_ks(a, b):
 
 def main():
     rng = np.random.default_rng(0)
+
+    # The non-finite path the identity assertion below could not reach while the frozen copies lacked
+    # production's filter. Checked once, at a small size, before the timing shapes.
+    nan_a = np.array([1.0, 2.0, np.nan, 4.0]); nan_b = np.array([1.0, 2.0, 3.0, 4.0])
+    for name, new_f, old_f in (("W1", wasserstein_1d, _old_w1), ("KS", ks_distribution_distance, _old_ks)):
+        got, ref = new_f(nan_a, nan_b), old_f(nan_a, nan_b)
+        assert abs(got - ref) < 1e-10, f"{name} diverges on non-finite input: {got} vs {ref}"  # nosec B101 - internal invariant check in src/mlframe/metrics/_benchmarks, not reachable with untrusted input
+    print(f"non-finite identity OK: W1={wasserstein_1d(nan_a, nan_b):.12g} KS={ks_distribution_distance(nan_a, nan_b):.12g}")
+
     for n in (50000, 200000, 1000000):
         a = rng.random(n); b = rng.random(n) + 0.1
         wasserstein_1d(a, b); ks_distribution_distance(a, b)

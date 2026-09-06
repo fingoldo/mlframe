@@ -47,6 +47,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from tests.conftest import perf_time_budget
+
 warnings.filterwarnings("ignore")
 
 
@@ -214,7 +216,7 @@ class TestLayer55_CompositeAllOnViaPartialFit:
         fit_elapsed = time.perf_counter() - t0
 
         # C2: 60s wall-clock budget on n=2000 composite all-on.
-        assert fit_elapsed <= 60.0, f"composite all-on partial_fit must finish <= 60s; got {fit_elapsed:.2f}s"
+        assert fit_elapsed <= perf_time_budget(60.0), f"composite all-on partial_fit must finish <= 60s; got {fit_elapsed:.2f}s"
 
         # C3: L54 fe_provenance_ DataFrame must be populated and carry
         # BOTH raw and engineered rows under the all-on configuration.

@@ -49,21 +49,16 @@ _N_STRATA = 5
 _K_NEIGHBOURS = 8
 
 
-def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, Xall: np.ndarray, task: str, seed: int) -> np.ndarray:
-    """Fit LGB baseline on (Xt, y_t), return predictions on Xall. Shape (n_all,)."""
-    try:
-        import lightgbm as lgb
-    except ImportError as exc:
-        raise ImportError("y_quintile_baseline_knn requires lightgbm") from exc
+def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int) -> np.ndarray:
+    """Out-of-fold baseline predictions on Xt; see ``_baseline_oof.fit_baseline_predict_oof``.
 
-    if task == "binary":
-        m = lgb.LGBMClassifier(n_estimators=100, max_depth=5, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
-        m.fit(Xt, y_t.astype(np.int32))
-        return np.asarray(m.predict_proba(Xall))[:, 1].astype(np.float32)
-    else:
-        m = lgb.LGBMRegressor(n_estimators=100, max_depth=5, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
-        m.fit(Xt, y_t)
-        return np.asarray(m.predict(Xall)).astype(np.float32)
+    The previous form took a separate ``Xall`` to predict on, but its one call site passed the train matrix
+    itself -- so the model was fit and predicted on the same rows, and the quintile strata below were drawn
+    on predictions shrunk toward ``y_t`` by construction. The parameter is gone with the leak.
+    """
+    from ._baseline_oof import fit_baseline_predict_oof
+
+    return fit_baseline_predict_oof(Xt, y_t, task, seed, n_estimators=100, max_depth=5, caller="y_quintile_baseline_knn")
 
 
 def _knn_pred_stats(X_stratum: np.ndarray, pred_stratum: np.ndarray, X_query: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
@@ -117,7 +112,7 @@ def compute_y_quintile_baseline_knn_features(
             Xt_s = Xt
             Xq_s = Xq
 
-        pred_train = _fit_baseline_predict(Xt_s, y_t, Xt_s, task=task, seed=fold_seed)
+        pred_train = _fit_baseline_predict(Xt_s, y_t, task=task, seed=fold_seed)
 
         if task == "binary":
             # No epsilon shift: the >=lo & <hi (all bands) / >=lo & <=hi (last band) masking scheme

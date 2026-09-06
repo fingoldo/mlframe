@@ -24,6 +24,8 @@ from mlframe.training.pipeline import fit_and_transform_pipeline
 from mlframe.training.configs import PreprocessingBackendConfig, TargetTypes
 from .shared import SimpleFeaturesAndTargetsExtractor
 
+from tests.conftest import perf_time_budget
+
 # Deterministic RNG (single seed per module).
 _W53_RNG = __import__("numpy").random.default_rng(0)
 
@@ -210,7 +212,7 @@ class TestPerformance:
         elapsed = time.time() - start
 
         # Should complete quickly (< 5 seconds)
-        assert elapsed < 5.0, f"Pipeline transform took {elapsed:.1f}s"
+        assert elapsed < perf_time_budget(5.0), f"Pipeline transform took {elapsed:.1f}s"
         assert len(train_transformed) == len(train_df)
 
     def test_model_save_load_performance(self, sample_regression_data, temp_data_dir, common_init_params, tmp_path):
@@ -245,8 +247,8 @@ class TestPerformance:
         load_time = time.time() - start
 
         # Both should complete quickly (< 5 seconds each)
-        assert save_time < 5.0, f"Save took {save_time:.1f}s"
-        assert load_time < 5.0, f"Load took {load_time:.1f}s"
+        assert save_time < perf_time_budget(5.0), f"Save took {save_time:.1f}s"
+        assert load_time < perf_time_budget(5.0), f"Load took {load_time:.1f}s"
 
     def test_multiple_models_performance(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test training multiple model types performance."""
@@ -560,6 +562,8 @@ class TestFileIOStress:
 
     def test_large_model_save_load(self, tmp_path):
         """Test saving/loading large model objects."""
+        # Seeded: the wall budgets below only mean something if the WORKLOAD is the same run to run.
+        np.random.seed(4242)
         tmpdir = str(tmp_path)
         # Create large nested structure
         large_data = {
@@ -585,6 +589,8 @@ class TestFileIOStress:
 
     def test_repeated_save_operations(self, tmp_path):
         """Test repeated save operations don't cause issues."""
+        # Seeded: the wall budgets below only mean something if the WORKLOAD is the same run to run.
+        np.random.seed(4243)
         tmpdir = str(tmp_path)
         data = {"key": np.random.randn(100)}
 
@@ -605,6 +611,8 @@ class TestFileIOStress:
 
     def test_save_load_different_compressions(self, tmp_path):
         """Test save/load with different compression levels."""
+        # Seeded: the wall budgets below only mean something if the WORKLOAD is the same run to run.
+        np.random.seed(4244)
         tmpdir = str(tmp_path)
         data = {"data": np.random.randn(500, 100)}
 

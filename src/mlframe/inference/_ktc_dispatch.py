@@ -8,6 +8,10 @@ box, 2026-07-03, n_labels=10-20, 3-5 rules):
     n=100,000:   njit_parallel wins (8.38ms vs gpu 9.73ms      vs njit_single 47.6ms)
     n=1,000,000: cupy wins          (12.29ms vs njit_par 45.2ms vs njit_single ~290ms)
 
+Those figures were taken with the cupy input already on the device and the njit inputs re-copied per
+iteration, neither of which matches the production call. They are kept as a record of the kernels' own cost;
+the tuner now measures both sides in the shape `apply_logical_constraints` actually calls them.
+
 GPU launch overhead dominates at small n (many tiny per-rule kernel launches), but wins decisively at large n
 once the row count amortises it. No backend dominates uniformly, so the choice routes through the tuning
 cache exactly as ``calibration.ensembling`` does.
@@ -27,7 +31,9 @@ logger = logging.getLogger(__name__)
 
 _ENV_KEY = "MLFRAME_LOGICAL_CONSTRAINTS_BACKEND"
 _VALID_BACKENDS = ("njit_single", "njit_parallel", "cupy")
-_KERNEL_NAME = "inference_apply_logical_constraints"
+# Bumped when the tuner's measured workload changed: entries persisted before cupy was timed with its
+# H2D/D2H transfers, and the njit side with a per-iteration copy, are not comparable with the ones after.
+_KERNEL_NAME = "inference_apply_logical_constraints_v2"
 
 
 def _make_tuner(n: int, n_labels: int, n_rules: int) -> Callable[[], list[dict]]:
@@ -44,25 +50,31 @@ def _make_tuner(n: int, n_labels: int, n_rules: int) -> Callable[[], list[dict]]
 
         timings: dict[str, float] = {}
         if _NUMBA_AVAILABLE:
-            timings["njit_single"] = measure_backend(lambda: _apply_njit(preds.copy(), rules_arr))
-            timings["njit_parallel"] = measure_backend(lambda: _apply_njit_parallel(preds.copy(), rules_arr))
+            # The njit kernels swap in place, so a second call on their own output measures a converged no-op --
+            # which is why these lambdas used to pass `preds.copy()`. But production calls `_apply_njit(out, ...)`
+            # on a buffer it already owns and pays no copy, so timing the copy handed the CPU side a per-iteration
+            # allocation it never makes. The restore now happens in the untimed `setup` instead.
+            buf = np.empty_like(preds)
+            timings["njit_single"] = measure_backend(lambda: _apply_njit(buf, rules_arr), setup=lambda: np.copyto(buf, preds))
+            timings["njit_parallel"] = measure_backend(lambda: _apply_njit_parallel(buf, rules_arr), setup=lambda: np.copyto(buf, preds))
         try:
             import cupy as cp
 
-            preds_gpu = cp.asarray(preds)
-            rules_gpu = cp.asarray(rules_arr)
-
             def _gpu_call() -> object:
-                """Apply the rule set on the GPU-resident arrays and synchronize before returning the result."""
-                out = preds_gpu.copy()
-                for r in range(rules_gpu.shape[0]):
+                """Run one end-to-end constraint apply, host array in and host array out."""
+                # Production's `_apply_cupy` takes a HOST array: it pays cp.asarray on entry and cp.asnumpy on
+                # exit every call. Hoisting those out measured a GPU-resident workload that call site never runs,
+                # and the persisted crossover then over-selected cupy. cp.asnumpy is a blocking copy, so it
+                # synchronises the stream itself. `cp.asarray` also gives each iteration its own fresh device
+                # buffer, so the in-place mutation needs no separate reset.
+                out = cp.asarray(preds)
+                for r in range(rules_arr.shape[0]):
                     c, p = int(rules_arr[r, 0]), int(rules_arr[r, 1])
                     violates = out[:, c] > out[:, p]
                     tmp = out[violates, c].copy()
                     out[violates, c] = out[violates, p]
                     out[violates, p] = tmp
-                cp.cuda.Stream.null.synchronize()
-                return out
+                return cp.asnumpy(out)
 
             timings["cupy"] = measure_backend(_gpu_call)
         except Exception as exc:

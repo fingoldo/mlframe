@@ -224,13 +224,13 @@ def _fe_stage_cascade_mid_a(
                 _gq_nums = [c for c in _gq_nums if c in X.columns] or None  # type: ignore[assignment]
                 _gq_raw = set(_raw_input_cols_pre_fe)
                 if _gq_groups is None or _gq_nums is None:
+                    from .._grouped_coerce_shared import auto_detect_group_cols as _gq_detect_groups_impl
                     from .._grouped_quantile_fe import (
-                        _auto_detect_group_cols as _gq_detect_groups,
                         _auto_detect_num_cols as _gq_detect_nums,
                     )
                     _gq_raw_view = X[[c for c in X.columns if c in _gq_raw]]
                     if _gq_groups is None:
-                        _gq_groups = _gq_detect_groups(_gq_raw_view) or None
+                        _gq_groups = _gq_detect_groups_impl(_gq_raw_view, caller="grouped_quantile") or None
                     if _gq_nums is None:
                         _gq_det_groups = _gq_groups or []
                         _gq_nums = _gq_detect_nums(_gq_raw_view, _gq_det_groups) or None

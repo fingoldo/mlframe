@@ -74,15 +74,22 @@ def _reference_cpi(model, X, y, n_repeats, random_state):
         Xj = X_arr[:, j]
         Xnotj = np.delete(X_arr, j, axis=1)
         if Xnotj.shape[1] == 0:
+            # Mirrors production's E11 wrapper: a scorer that raises on the permuted X records NaN rather
+            # than aborting the whole per-fold computation, and the mean ignores those. This branch used to
+            # keep the pre-E11 shape (bare np.mean, no try/except) and was never compared against production
+            # -- the identity test runs at p=30, so `Xnotj.shape[1] == 0` is unreachable from it.
             score_losses = []
             orig_col = X_arr[:, j].copy()
             try:
                 for _ in range(n_repeats):
                     X_perm[:, j] = rng.permutation(orig_col)
-                    score_losses.append(baseline - float(model.score(X_perm, y)))
+                    try:
+                        score_losses.append(baseline - float(model.score(X_perm, y)))
+                    except Exception:
+                        score_losses.append(np.nan)
             finally:
                 X_perm[:, j] = orig_col
-            importances[j] = float(np.mean(score_losses))
+            importances[j] = float(np.nanmean(score_losses)) if any(not np.isnan(s) for s in score_losses) else 0.0
             continue
         tree = (DecisionTreeClassifier if _is_discrete_v2(Xj) else DecisionTreeRegressor)(max_depth=None, min_samples_leaf=10, random_state=random_state)
         try:
@@ -123,13 +130,53 @@ def test_importances_bit_identical_to_np_delete_reference():
     assert np.array_equal(ref, got), f"max|diff|={np.max(np.abs(ref - got))}"
 
 
-def test_single_feature_path_runs():
-    """Single feature path runs."""
+def test_single_feature_path_is_bit_identical_to_the_reference():
+    """p=1 reaches the no-conditioning-set branch, which the p=30 identity test above cannot.
+
+    That branch was frozen in the reference at its pre-E11 shape and compared against nothing, so it was
+    free to drift further unobserved. Running the same identity assertion at p=1 is what closes it.
+    """
     from sklearn.linear_model import Ridge
 
     rng = np.random.default_rng(1)
     X = rng.standard_normal((200, 1))
     y = X[:, 0] + rng.standard_normal(200) * 0.1
     model = Ridge().fit(X, y)
-    imp = _conditional_permutation_importance(model, X, y, n_repeats=2, random_state=0)
-    assert imp.shape == (1,)
+
+    ref = _reference_cpi(model, X, y, n_repeats=2, random_state=0)
+    got = _conditional_permutation_importance(model, X, y, n_repeats=2, random_state=0)
+    assert got.shape == (1,)
+    assert np.array_equal(ref, got), f"single-feature branch diverged: reference {ref} vs production {got}"
+
+
+def test_a_failing_scorer_records_nan_rather_than_aborting_the_single_feature_branch():
+    """The E11 behaviour itself, on the branch that had no coverage.
+
+    A scorer that raises on the permuted X must leave the fold's importances computable -- NaN signals the
+    failure to the consumer -- instead of propagating out and losing every other feature's result too.
+    """
+    from sklearn.linear_model import Ridge
+
+    rng = np.random.default_rng(1)
+    X = rng.standard_normal((200, 1))
+    y = X[:, 0] + rng.standard_normal(200) * 0.1
+    model = Ridge().fit(X, y)
+
+    calls = {"n": 0}
+    real_score = model.score
+
+    def _score_that_fails_once_permuted(X_in, y_in):
+        """Succeed for the baseline call, then raise for every permuted one."""
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return real_score(X_in, y_in)
+        raise RuntimeError("synthetic scorer failure on permuted X")
+
+    model.score = _score_that_fails_once_permuted
+    try:
+        imp = _conditional_permutation_importance(model, X, y, n_repeats=2, random_state=0)
+    finally:
+        model.score = real_score
+
+    assert imp.shape == (1,), "the failing scorer aborted the computation instead of recording NaN"
+    assert imp[0] == 0.0, f"every repeat failed, so the branch's documented fallback is 0.0; got {imp[0]}"

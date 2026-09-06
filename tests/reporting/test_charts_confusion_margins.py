@@ -7,10 +7,7 @@ matplotlib + plotly render smoke, a biz_value imbalance + majority-over-predicti
 
 from __future__ import annotations
 
-import cProfile
-import io
 import os
-import pstats
 import time
 
 import numpy as np
@@ -237,27 +234,64 @@ class TestBizValue:
 # ----------------------------------------------------------------------------
 
 
-def test_cprofile_confusion_margins_bounded_at_1e6():
-    """At n=1e6 / K=10 the builder is bounded: margins are row/col sums of the K x K matrix on top of the single
-    bincount tally CONFUSION already pays. Asserts the panel build (excluding the one-time argmax in the composer)
-    stays well under a generous wall budget and that no per-class Python loop dominates."""
-    n, K = 1_000_000, 10
+def test_the_margins_cost_no_extra_full_n_pass(monkeypatch):
+    """The panel's claim is that both margins are row/col sums of the K x K matrix, not new passes over n.
+
+    That is a call-count question, and this asks it directly: exactly one `np.bincount` over the n-length
+    code array (the tally CONFUSION already pays), and the margins equal what a separate bincount of y_true
+    and y_pred would have produced. The previous form asserted `elapsed < 5.0` around a cProfile-enabled
+    region -- a number tied to one host, inflated by a profiler whose overhead tracks call count, and just
+    as green if a per-class Python loop were added on a box fast enough to absorb it.
+    """
+    from mlframe.reporting.charts import _multiclass_confusion as mc
+
+    n, K = 200_000, 10
     rng = np.random.default_rng(11)
     y = rng.integers(0, K, size=n)
     proba = rng.dirichlet([1.0] * K, size=n)
 
-    # Warm + correctness on the full path once.
-    compose_multiclass_figure(y, proba, list(range(K)), panels_template="CONFUSION_MARGINS")
+    real_bincount = np.bincount
+    full_n_calls = []
 
-    pr = cProfile.Profile()
-    t0 = time.perf_counter()
-    pr.enable()
-    for _ in range(3):
-        compose_multiclass_figure(y, proba, list(range(K)), panels_template="CONFUSION_MARGINS")
-    pr.disable()
-    elapsed = (time.perf_counter() - t0) / 3.0
+    def _counting_bincount(arr, *args, **kwargs):
+        """Record every bincount whose input is as long as the dataset."""
+        arr = np.asarray(arr)
+        if arr.size >= n:
+            full_n_calls.append(arr.size)
+        return real_bincount(arr, *args, **kwargs)
 
-    s = io.StringIO()
-    pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats(15)
-    # Generous CI-safe ceiling; the work is dominated by the unavoidable argmax + single bincount over n.
-    assert elapsed < 5.0, f"CONFUSION_MARGINS build at n=1e6/K=10 took {elapsed:.3f}s (expected << 5s)"
+    monkeypatch.setattr(mc.np, "bincount", _counting_bincount)
+    spec = mc._confusion_margins_panel(y, proba, list(range(K)))
+
+    assert len(full_n_calls) == 1, f"the margins cost {len(full_n_calls)} full-n bincount passes, not the single shared tally: {full_n_calls}"
+
+    y_pred = np.asarray(proba).argmax(axis=1)
+    assert np.array_equal(np.asarray(spec.row_margin), real_bincount(y, minlength=K)), "the true-class margin is not the bincount of y_true"
+    assert np.array_equal(np.asarray(spec.col_margin), real_bincount(y_pred, minlength=K)), "the predicted-class margin is not the bincount of y_pred"
+
+
+def test_the_margins_stay_linear_in_n():
+    """The other half of the claim: adding rows costs a pass, not a pass per class.
+
+    A per-doubling ratio is dimensionless, so it says the same thing on any host, unlike a wall budget.
+    """
+    K = 10
+
+    def _timed(n: int) -> float:
+        """Best of three builds at row count `n`, in seconds."""
+        rng = np.random.default_rng(11)
+        y = rng.integers(0, K, size=n)
+        proba = rng.dirichlet([1.0] * K, size=n)
+        compose_multiclass_figure(y, proba, list(range(K)), panels_template="CONFUSION_MARGINS")  # warm
+        best = float("inf")
+        for _ in range(3):
+            t0 = time.perf_counter()
+            compose_multiclass_figure(y, proba, list(range(K)), panels_template="CONFUSION_MARGINS")
+            best = min(best, time.perf_counter() - t0)
+        return best
+
+    sizes = (125_000, 250_000, 500_000, 1_000_000)
+    times = [_timed(n) for n in sizes]
+    ratios = [times[i + 1] / max(times[i], 1e-9) for i in range(len(times) - 1)]
+    median_ratio = sorted(ratios)[len(ratios) // 2]
+    assert median_ratio < 3.0, f"the CONFUSION_MARGINS build scales at {median_ratio:.2f}x per doubling of n (ratios {ratios}, times {times}); linear is 2.0"

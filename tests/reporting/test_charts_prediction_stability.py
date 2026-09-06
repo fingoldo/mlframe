@@ -6,9 +6,6 @@ member disagreement MUST be higher in the hard region AND track actual error) + 
 
 from __future__ import annotations
 
-import cProfile
-import io
-import pstats
 import time
 
 import numpy as np
@@ -255,28 +252,48 @@ def test_biz_val_uncertainty_calibration_curve_monotone_increasing():
 # ----------------------------------------------------------------------------
 
 
-def test_cprofile_compute_bounded_at_1e6():
-    """compute_prediction_stability at n=1e6, M=10 stays O(n*M) and well under a generous wall budget."""
+def _stability_time(n: int, m: int) -> float:
+    """Best of three `compute_prediction_stability` + calibration passes at shape (n, m), in seconds."""
     rng = np.random.default_rng(0)
-    preds = rng.normal(size=(1_000_000, 10))
-    yt = rng.normal(size=1_000_000)
+    preds = rng.normal(size=(n, m))
+    yt = rng.normal(size=n)
 
-    pr = cProfile.Profile()
-    t0 = time.perf_counter()
-    pr.enable()
-    res = compute_prediction_stability(preds)
-    abs_err = np.abs(yt - res.ensemble_mean)
-    _uncertainty_calibration(res.spread_std, abs_err, nbins=DEFAULT_CALIB_BINS)
-    pr.disable()
-    elapsed = time.perf_counter() - t0
+    def _once() -> None:
+        """One full pass, matching what the chart path actually runs."""
+        res = compute_prediction_stability(preds)
+        _uncertainty_calibration(res.spread_std, np.abs(yt - res.ensemble_mean), nbins=DEFAULT_CALIB_BINS)
 
-    s = io.StringIO()
-    pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats(12)
-    # nanpercentile over (1e6, 10) is the dominant cost; budget is generous to absorb CI contention.
-    # 5.0->8.0 (2026-08-22): measured 6.59s on a run with BOTH ci.yml's full matrix and
-    # numba-coverage-nightly running concurrently against the same account (see this session's other
-    # timeout widenings for the same exceptional-contention cause).
-    assert elapsed < 8.0, f"compute at 1e6x10 took {elapsed:.2f}s\n{s.getvalue()}"
+    _once()  # warm
+    best = float("inf")
+    for _ in range(3):
+        t0 = time.perf_counter()
+        _once()
+        best = min(best, time.perf_counter() - t0)
+    return best
+
+
+def test_compute_stays_linear_in_n():
+    """The claim is O(n*M); this measures the n half of it as a per-doubling ratio.
+
+    The previous form asserted `elapsed < 8.0` around a cProfile-enabled region at one fixed shape. That
+    number had already been ratcheted 5.0 -> 8.0 purely because of concurrent CI load, which is the tell
+    that it was measuring the host rather than the code. A ratio is dimensionless and says the same thing
+    everywhere.
+    """
+    sizes = (125_000, 250_000, 500_000, 1_000_000)
+    times = [_stability_time(n, 10) for n in sizes]
+    ratios = [times[i + 1] / max(times[i], 1e-9) for i in range(len(times) - 1)]
+    median_ratio = sorted(ratios)[len(ratios) // 2]
+    assert median_ratio < 3.0, f"compute_prediction_stability scales at {median_ratio:.2f}x per doubling of n (ratios {ratios}, times {times}); linear is 2.0"
+
+
+def test_compute_stays_linear_in_the_member_count():
+    """The M half: cost per added ensemble member must stay flat, not grow with M."""
+    members = (5, 10, 20, 40)
+    times = [_stability_time(200_000, m) for m in members]
+    ratios = [times[i + 1] / max(times[i], 1e-9) for i in range(len(times) - 1)]
+    median_ratio = sorted(ratios)[len(ratios) // 2]
+    assert median_ratio < 3.0, f"compute_prediction_stability scales at {median_ratio:.2f}x per doubling of M (ratios {ratios}, times {times}); linear is 2.0"
 
 
 def test_spearman_njit_path_bit_identical_to_numpy_reference(monkeypatch):

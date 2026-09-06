@@ -676,9 +676,9 @@ class TestDefaultDisabledByteIdentical:
         X, y = _build_count_signal(seed=1)
         m = _make_mrmr(fe_ntop_features=3)
         m.fit(X, y)
-        assert getattr(m, "count_encoding_features_", []) == []
-        assert getattr(m, "frequency_encoding_features_", []) == []
-        assert getattr(m, "cat_num_interaction_features_", []) == []
+        assert m.count_encoding_features_ == []
+        assert m.frequency_encoding_features_ == []
+        assert m.cat_num_interaction_features_ == []
 
     def test_transform_unchanged_when_disabled(self):
         """With all three master switches OFF, transform output is

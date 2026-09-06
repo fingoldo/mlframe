@@ -28,6 +28,7 @@ import numpy as np
 
 from mlframe.calibration.policy import DEFAULT_ECE_NBINS, _ece_score_numba_serial
 from mlframe.metrics import NUMBA_NJIT_PARAMS, fast_roc_auc_unstable
+
 # _fast_brier_score_loss_seq / _fast_log_loss_binary_seq are the njit-compiled sequential kernels
 # specifically needed for calls from INSIDE this module's own @numba.njit(parallel=True) bootstrap
 # kernel -- the public fast_brier_score_loss/fast_log_loss_binary dispatchers pick seq vs. parallel
@@ -169,32 +170,46 @@ def _bootstrap_batch_auc_brier_ll_ece_grouped(
     return auc_out, brier_out, ll_out, ece_out
 
 
-def _generate_resample_idxs(
+def _iter_resample_idx_chunks(
     rng: np.random.Generator,
     n_bootstrap: int,
     n: int,
     stratify: "np.ndarray | None",
-) -> np.ndarray:
-    """Materialise the ``(n_bootstrap, n)`` index matrix with the EXACT same RNG call order as
-    ``bootstrap_metrics``'s serial resample loop, so the resulting resamples -- and every metric's
-    CI -- are bit-identical to that path for the same ``random_state``."""
-    idxs = np.empty((n_bootstrap, n), dtype=np.int64)
+    chunk_size: int,
+):
+    """Yield ``(lo, hi, idxs_chunk)`` with the EXACT same RNG call order as ``bootstrap_metrics``'s serial
+    resample loop, so the resamples -- and every metric's CI -- stay bit-identical for a given
+    ``random_state``.
+
+    Chunked because the whole ``(n_bootstrap, n)`` matrix never had to exist: the only consumer already
+    walks it in ``chunk_size`` blocks. At the 1000 resamples this module is called with, an int64 matrix is
+    8 GB at n=1M and 56 GB at the 7M rows this package's own predict guards cite as production -- while the
+    live working set is one block. Rows are still drawn in ascending order, one full row per iteration, so
+    the RNG stream is untouched and this is not an approximation.
+    """
     if stratify is None:
-        for i in range(n_bootstrap):
-            idxs[i] = rng.integers(0, n, size=n, dtype=np.int64)
-        return idxs
+        for lo in range(0, n_bootstrap, chunk_size):
+            hi = min(lo + chunk_size, n_bootstrap)
+            chunk = np.empty((hi - lo, n), dtype=np.int64)
+            for i in range(hi - lo):
+                chunk[i] = rng.integers(0, n, size=n, dtype=np.int64)
+            yield lo, hi, chunk
+        return
     groups = {int(c): np.flatnonzero(stratify == c) for c in np.unique(stratify)}
     groups_list = list(groups.values())
     class_sizes = np.array([g.shape[0] for g in groups_list], dtype=np.int64)
     class_offsets = np.empty(class_sizes.shape[0] + 1, dtype=np.int64)
     class_offsets[0] = 0
     class_offsets[1:] = np.cumsum(class_sizes)
-    for i in range(n_bootstrap):
-        for c in range(class_sizes.shape[0]):
-            sz = int(class_sizes[c])
-            rand = rng.integers(0, sz, size=sz, dtype=np.int64)
-            idxs[i, class_offsets[c] : class_offsets[c + 1]] = groups_list[c][rand]
-    return idxs
+    for lo in range(0, n_bootstrap, chunk_size):
+        hi = min(lo + chunk_size, n_bootstrap)
+        chunk = np.empty((hi - lo, n), dtype=np.int64)
+        for i in range(hi - lo):
+            for c in range(class_sizes.shape[0]):
+                sz = int(class_sizes[c])
+                rand = rng.integers(0, sz, size=sz, dtype=np.int64)
+                chunk[i, class_offsets[c] : class_offsets[c + 1]] = groups_list[c][rand]
+        yield lo, hi, chunk
 
 
 def bootstrap_auc_brier_ll_ece_batch(
@@ -241,7 +256,7 @@ def bootstrap_auc_brier_ll_ece_batch(
     p_f64 = np.ascontiguousarray(p_pos, dtype=np.float64)
 
     rng = np.random.default_rng(random_state)
-    idxs = _generate_resample_idxs(rng, n_bootstrap, n, stratify)
+    idx_chunks = _iter_resample_idx_chunks(rng, n_bootstrap, n, stratify, chunk_size)
 
     auc_samples = np.empty(n_bootstrap, dtype=np.float64)
     brier_samples = np.empty(n_bootstrap, dtype=np.float64)
@@ -251,9 +266,8 @@ def bootstrap_auc_brier_ll_ece_batch(
         base_rank = np.empty(n, dtype=np.int64)
         base_rank[asc_order] = np.arange(n, dtype=np.int64)
         y_by_rank = np.ascontiguousarray(y_true[asc_order].astype(np.int64))
-        for lo in range(0, n_bootstrap, chunk_size):
-            hi = min(lo + chunk_size, n_bootstrap)
-            auc_c, brier_c, ll_c, ece_c = _bootstrap_batch_auc_brier_ll_ece(idxs[lo:hi], y_f64, p_f64, base_rank, y_by_rank, n, n_bins)
+        for lo, hi, idx_chunk in idx_chunks:
+            auc_c, brier_c, ll_c, ece_c = _bootstrap_batch_auc_brier_ll_ece(idx_chunk, y_f64, p_f64, base_rank, y_by_rank, n, n_bins)
             auc_samples[lo:hi] = auc_c
             brier_samples[lo:hi] = brier_c
             ll_samples[lo:hi] = ll_c
@@ -270,9 +284,8 @@ def bootstrap_auc_brier_ll_ece_batch(
         group_of_base = np.empty(n, dtype=np.int64)
         group_of_base[asc_order] = group_by_rank
         y_base = np.ascontiguousarray(y_true.astype(np.int64))
-        for lo in range(0, n_bootstrap, chunk_size):
-            hi = min(lo + chunk_size, n_bootstrap)
-            auc_c, brier_c, ll_c, ece_c = _bootstrap_batch_auc_brier_ll_ece_grouped(idxs[lo:hi], y_f64, p_f64, group_of_base, y_base, ngroups, n_bins)
+        for lo, hi, idx_chunk in idx_chunks:
+            auc_c, brier_c, ll_c, ece_c = _bootstrap_batch_auc_brier_ll_ece_grouped(idx_chunk, y_f64, p_f64, group_of_base, y_base, ngroups, n_bins)
             auc_samples[lo:hi] = auc_c
             brier_samples[lo:hi] = brier_c
             ll_samples[lo:hi] = ll_c
@@ -300,7 +313,10 @@ def bootstrap_auc_brier_ll_ece_batch(
             # surviving-sample CI is most likely biased and worth surfacing.
             logger.warning(
                 "bootstrap_auc_brier_ll_ece_batch: %d/%d resamples failed for %r; CI computed over %d surviving samples may be biased.",
-                n_failed, n_bootstrap, name, finite.shape[0],
+                n_failed,
+                n_bootstrap,
+                name,
+                finite.shape[0],
             )
         jackknife = None
         if method == "bca":
@@ -325,7 +341,9 @@ def bootstrap_auc_brier_ll_ece_batch(
                 # (n<3, non-binary labels, non-finite total).
                 jackknife = _jackknife_ece(y_true, p_pos, n_bins=n_bins)
                 if jackknife is None:
-                    jackknife = _jackknife_metric(y_true, p_pos, lambda yy, pp: float(_ece_score_numba_serial(np.ascontiguousarray(yy, dtype=np.float64), np.ascontiguousarray(pp, dtype=np.float64), n_bins)))
+                    jackknife = _jackknife_metric(
+                        y_true, p_pos, lambda yy, pp: float(_ece_score_numba_serial(np.ascontiguousarray(yy, dtype=np.float64), np.ascontiguousarray(pp, dtype=np.float64), n_bins))
+                    )
         lo_ci, hi_ci = _ci_from_samples(finite, points[name], alpha, method, jackknife)
         results[name] = {"point": points[name], "lo": lo_ci, "hi": hi_ci, "samples": finite}
     return results

@@ -30,6 +30,7 @@ not deleted (REJECTED != DELETED): a datacenter GPU box flips it on by setting `
 from __future__ import annotations
 
 import logging
+import time
 import math
 import os
 from typing import Any, cast
@@ -47,7 +48,22 @@ logger = logging.getLogger(__name__)
 # kernel_tuning_cache has no per-HW region; never hardcoded into the route when the cache is present.
 _DEFAULT_GPU_MIN_SUBSETS = 250_000
 
-_fallback_logged = False
+# The GPU fallback warning is rate-limited by TIME rather than latched to once per process. Latching it meant
+# a run that lost the device AFTER the first fallback emitted nothing further, so the log understated how long
+# the CPU kernel had been carrying the fit. The dispatch itself was never cached -- ``gpu_available()`` is
+# consulted on every call -- so this only ever affected what an operator could see.
+_FALLBACK_LOG_INTERVAL_S = 300.0
+_last_fallback_log_ts = 0.0
+
+
+def _should_log_fallback() -> bool:
+    """True at most once per ``_FALLBACK_LOG_INTERVAL_S``, so a persistent fallback keeps saying so."""
+    global _last_fallback_log_ts
+    now = time.monotonic()
+    if now - _last_fallback_log_ts < _FALLBACK_LOG_INTERVAL_S:
+        return False
+    _last_fallback_log_ts = now
+    return True
 
 
 @njit(cache=True)
@@ -197,7 +213,6 @@ def brute_force_top_n_dispatch(
     The CPU default is deliberate: this kernel is the cheapest pipeline stage and the local GPU host
     native-segfaults importing cupy under contention, so a measured-real GPU win (see bench) stays
     opt-in until a stable host tunes its own crossover into the cache. Bit-identical across backends."""
-    global _fallback_logged
     backend = (force_backend or "").lower()
     n_features = phi.shape[1]
     n_sub = _total_subsets(n_features, min_card, max_card)
@@ -213,12 +228,10 @@ def brute_force_top_n_dispatch(
 
             if backend == "gpu" or gpu_available():
                 return brute_force_top_n_gpu(phi, base, y, classification=classification, metric=metric, min_card=min_card, max_card=max_card, top_n=top_n)
-            if not _fallback_logged:
+            if _should_log_fallback():
                 logger.warning("ShapProxiedFS subset-rank: GPU requested but no CUDA device; using CPU kernel.")
-                _fallback_logged = True
         except Exception as exc:  # cupy missing / OOM / kernel compile failure -> CPU, never fail the fit
-            if not _fallback_logged:
+            if _should_log_fallback():
                 logger.warning("ShapProxiedFS subset-rank: GPU backend unavailable (%s); using CPU kernel.", exc)
-                _fallback_logged = True
 
     return brute_force_top_n(phi, base, y, classification=classification, metric=metric, min_card=min_card, max_card=max_card, top_n=top_n, parallel=parallel)

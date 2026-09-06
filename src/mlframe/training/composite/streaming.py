@@ -104,8 +104,12 @@ def _detect_change_point(
     """
     n = int(y.size)
     no_break = {
-        "found": False, "cp_index": -1, "f_stat": float("nan"),
-        "sse_full": float("nan"), "sse_split": float("nan"), "n_post": n,
+        "found": False,
+        "cp_index": -1,
+        "f_stat": float("nan"),
+        "sse_full": float("nan"),
+        "sse_split": float("nan"),
+        "n_post": n,
     }
     if n < 2 * min_segment_n + 1:
         return no_break
@@ -120,11 +124,24 @@ def _detect_change_point(
     # equivalent to the per-segment _ols_alpha_beta_sse (same sufficient
     # statistics) up to FP rounding in the cumulative reduction.
     # _ols_alpha_beta_sse is retained for sse_full + as the tested reference.
-    cb = np.concatenate(([0.0], np.cumsum(base)))  # prefix sum base
-    cy = np.concatenate(([0.0], np.cumsum(y)))  # prefix sum y
-    cbb = np.concatenate(([0.0], np.cumsum(base * base)))  # prefix sum base^2
-    cby = np.concatenate(([0.0], np.cumsum(base * y)))  # prefix sum base*y
-    cyy = np.concatenate(([0.0], np.cumsum(y * y)))  # prefix sum y^2
+    # CENTRE once before the prefix sums. Each segment's OLS carries its own intercept, so subtracting a
+    # constant from base and y leaves every residual -- and therefore every segment SSE -- unchanged; what it
+    # removes is the offset that made the sufficient statistics uncomputable. The shipped form differenced
+    # prefix sums of RAW products and then recovered the variance by subtraction again, cancelling twice.
+    # Measured on a planted slope break, against the offset-free truth of 0.985561: at offset 1e7 the raw
+    # form returned 100.0 (101x), and on epoch-second data it returned EXACTLY 0.0 -- which takes the
+    # `best_sse <= 0.0` early return, so a genuine break is reported as `found=False`, indistinguishable
+    # from a stationary buffer. Centred, both regimes return 0.985561 exactly.
+    #
+    # This also restores consistency with `sse_full` above: `_ols_alpha_beta_sse` already centres, and
+    # `f_stat` divides one by the other, so only one side of that ratio was being computed stably.
+    _bc = base - float(np.mean(base))
+    _yc = y - float(np.mean(y))
+    cb = np.concatenate(([0.0], np.cumsum(_bc)))  # prefix sum base (centred)
+    cy = np.concatenate(([0.0], np.cumsum(_yc)))  # prefix sum y (centred)
+    cbb = np.concatenate(([0.0], np.cumsum(_bc * _bc)))  # prefix sum base^2
+    cby = np.concatenate(([0.0], np.cumsum(_bc * _yc)))  # prefix sum base*y
+    cyy = np.concatenate(([0.0], np.cumsum(_yc * _yc)))  # prefix sum y^2
     ks = np.arange(min_segment_n, n - min_segment_n + 1, dtype=np.int64)
 
     def _seg_sse(m, sb, sy, sbb, sby, syy):
@@ -143,8 +160,12 @@ def _detect_change_point(
     sse_l = _seg_sse(m_l, cb[ks], cy[ks], cbb[ks], cby[ks], cyy[ks])
     m_r = n - ks
     sse_r = _seg_sse(
-        m_r, cb[n] - cb[ks], cy[n] - cy[ks], cbb[n] - cbb[ks],
-        cby[n] - cby[ks], cyy[n] - cyy[ks],
+        m_r,
+        cb[n] - cb[ks],
+        cy[n] - cy[ks],
+        cbb[n] - cbb[ks],
+        cby[n] - cby[ks],
+        cyy[n] - cyy[ks],
     )
     sse_split_all = sse_l + sse_r
     best_i = int(np.argmin(sse_split_all))
@@ -159,13 +180,19 @@ def _detect_change_point(
     f_stat = ((sse_full - best_sse) / q) / (best_sse / dof_resid)
     if f_stat <= f_threshold:
         return {
-            "found": False, "cp_index": -1, "f_stat": float(f_stat),
-            "sse_full": float(sse_full), "sse_split": float(best_sse),
+            "found": False,
+            "cp_index": -1,
+            "f_stat": float(f_stat),
+            "sse_full": float(sse_full),
+            "sse_split": float(best_sse),
             "n_post": n,
         }
     return {
-        "found": True, "cp_index": int(best_k), "f_stat": float(f_stat),
-        "sse_full": float(sse_full), "sse_split": float(best_sse),
+        "found": True,
+        "cp_index": int(best_k),
+        "f_stat": float(f_stat),
+        "sse_full": float(sse_full),
+        "sse_split": float(best_sse),
         "n_post": int(n - best_k),
     }
 
@@ -228,18 +255,28 @@ def streaming_alpha_check_and_refit(
     """
     # Lazy-import composite-internal helper to break the import cycle.
     from . import _linear_residual_fit
+
     y_f = np.asarray(y_buffer, dtype=np.float64).reshape(-1)
     base_f = np.asarray(base_buffer, dtype=np.float64).reshape(-1)
 
     def _too_small() -> tuple[float, float, dict[str, Any]]:
         """No-refit early return when the streaming buffer is below the minimum-fit size: keeps the current (alpha, beta) and reports diagnostics with NaN stats and ``reason="buffer_too_small"``."""
-        return current_alpha, current_beta, {
-            "refit": False, "z_score": float("nan"),
-            "z_alpha": float("nan"), "z_beta": float("nan"),
-            "alpha_buffer": float("nan"), "beta_buffer": float("nan"),
-            "change_point": -1, "cp_f_stat": float("nan"), "n_fit": 0,
-            "reason": "buffer_too_small",
-        }
+        return (
+            current_alpha,
+            current_beta,
+            {
+                "refit": False,
+                "z_score": float("nan"),
+                "z_alpha": float("nan"),
+                "z_beta": float("nan"),
+                "alpha_buffer": float("nan"),
+                "beta_buffer": float("nan"),
+                "change_point": -1,
+                "cp_f_stat": float("nan"),
+                "n_fit": 0,
+                "reason": "buffer_too_small",
+            },
+        )
 
     if y_f.size < min_buffer_n:
         return _too_small()
@@ -254,14 +291,19 @@ def streaming_alpha_check_and_refit(
     # buffer blends them. Restrict the refit window to the live (post-change)
     # segment when a significant single break is detected.
     cp_info: dict[str, Any] = {
-        "found": False, "cp_index": -1, "f_stat": float("nan"), "n_post": int(y_clean.size),
+        "found": False,
+        "cp_index": -1,
+        "f_stat": float("nan"),
+        "n_post": int(y_clean.size),
     }
     fit_y = y_clean
     fit_base = base_clean
     if detect_change_point:
         cp_info = _detect_change_point(
-            y_clean, base_clean,
-            min_segment_n=cp_min_segment_n, f_threshold=cp_f_threshold,
+            y_clean,
+            base_clean,
+            min_segment_n=cp_min_segment_n,
+            f_threshold=cp_f_threshold,
         )
         if cp_info["found"] and cp_info["n_post"] >= 2:
             cp = int(cp_info["cp_index"])
@@ -276,15 +318,22 @@ def streaming_alpha_check_and_refit(
     base_std = float(np.std(fit_base))
     base_mean = float(np.mean(fit_base))
     if base_std < 1e-12:
-        return current_alpha, current_beta, {
-            "refit": False, "z_score": float("nan"),
-            "z_alpha": float("nan"), "z_beta": float("nan"),
-            "alpha_buffer": alpha_buf, "beta_buffer": beta_buf,
-            "change_point": int(cp_info["cp_index"]) if cp_info["found"] else -1,
-            "cp_f_stat": float(cp_info["f_stat"]),
-            "n_fit": n_fit,
-            "reason": "degenerate_buffer",
-        }
+        return (
+            current_alpha,
+            current_beta,
+            {
+                "refit": False,
+                "z_score": float("nan"),
+                "z_alpha": float("nan"),
+                "z_beta": float("nan"),
+                "alpha_buffer": alpha_buf,
+                "beta_buffer": beta_buf,
+                "change_point": int(cp_info["cp_index"]) if cp_info["found"] else -1,
+                "cp_f_stat": float(cp_info["f_stat"]),
+                "n_fit": n_fit,
+                "reason": "degenerate_buffer",
+            },
+        )
 
     # Residual-based OLS standard errors. sigma_resid = sqrt(SSE / (n-2)) is the
     # residual scale of the fit window. The slope SE is the classic
@@ -311,17 +360,35 @@ def streaming_alpha_check_and_refit(
         # Distinguish a pure level-shift (only the intercept moved) so callers
         # / monitoring can see that the slope was stable but the level drifted.
         reason = "drift_detected" if z_alpha > z_threshold else "drift_detected_level"
-        return alpha_buf, beta_buf, {
-            "refit": True, "z_score": float(z),
-            "z_alpha": float(z_alpha), "z_beta": float(z_beta),
-            "alpha_buffer": alpha_buf, "beta_buffer": beta_buf,
-            "change_point": cp_used, "cp_f_stat": cp_f, "n_fit": n_fit,
-            "reason": reason,
-        }
-    return current_alpha, current_beta, {
-        "refit": False, "z_score": float(z),
-        "z_alpha": float(z_alpha), "z_beta": float(z_beta),
-        "alpha_buffer": alpha_buf, "beta_buffer": beta_buf,
-        "change_point": cp_used, "cp_f_stat": cp_f, "n_fit": n_fit,
-        "reason": "no_drift",
-    }
+        return (
+            alpha_buf,
+            beta_buf,
+            {
+                "refit": True,
+                "z_score": float(z),
+                "z_alpha": float(z_alpha),
+                "z_beta": float(z_beta),
+                "alpha_buffer": alpha_buf,
+                "beta_buffer": beta_buf,
+                "change_point": cp_used,
+                "cp_f_stat": cp_f,
+                "n_fit": n_fit,
+                "reason": reason,
+            },
+        )
+    return (
+        current_alpha,
+        current_beta,
+        {
+            "refit": False,
+            "z_score": float(z),
+            "z_alpha": float(z_alpha),
+            "z_beta": float(z_beta),
+            "alpha_buffer": alpha_buf,
+            "beta_buffer": beta_buf,
+            "change_point": cp_used,
+            "cp_f_stat": cp_f,
+            "n_fit": n_fit,
+            "reason": "no_drift",
+        },
+    )

@@ -512,7 +512,17 @@ def local_density_features(
     dist_iqr = q75 - q25
     # d-dim ball volume up to constant: density = k / r^d (drop the
     # pi/Gamma constant; it's the same for every row -> meaningless to ML).
-    local_density = float(k) / (dist_to_kth**d + 1e-12)
+    # The denominator is clamped, not padded. An additive `+ 1e-12` is an ABSOLUTE floor under a quantity whose
+    # scale is arbitrary: r^d falls off geometrically in d, so at d=8 and r=0.01 the true 1e17 came back as
+    # 9.999e12 -- every dense row saturating onto the same value and the feature losing all variation exactly
+    # where it carries the most signal. Clamping to the smallest positive normal instead engages only once r^d
+    # has genuinely underflowed (duplicate points, or coordinates that were non-finite and got mapped to the
+    # origin above), and leaves every representable denominator untouched. Such a row's density is unbounded in
+    # this model, so it saturates at the largest finite double rather than becoming an `inf` that no downstream
+    # estimator accepts -- still the largest value in the column, which is what it should be.
+    _finfo = np.finfo(np.float64)
+    _rd = np.asarray(dist_to_kth, dtype=np.float64) ** d
+    local_density = np.minimum(float(k) / np.maximum(_rd, _finfo.tiny), _finfo.max)
     return {
         "dist_to_kth": dist_to_kth,
         "dist_median": dist_median,
@@ -573,8 +583,19 @@ def inverse_distance_weighted_aggregate(
     else:
         compact_indices = indices[:, :k]
         compact_dist = distances[:, :k]
-    weights = 1.0 / (compact_dist**power + 1e-12)
-    w_sum = weights.sum(axis=1, keepdims=True) + 1e-12
+    # No additive epsilon on the denominator. `d**power` falls off geometrically, so a fixed 1e-12 stops
+    # being negligible at entirely ordinary distances -- at power=4 it already dominates by d=1e-3 -- and it
+    # does so UNEVENLY across a row, which is what corrupts inverse-distance weighting: near neighbours whose
+    # d**power sits below the pad all collapse onto the same weight while farther ones keep theirs.
+    # Dividing by the row's own nearest distance first is exact (the common row factor cancels in the
+    # normalisation below), lands every weight in (0, 1], and cannot overflow.
+    _dmin = compact_dist.min(axis=1, keepdims=True)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        weights = np.divide(_dmin, compact_dist, out=np.zeros_like(compact_dist), where=compact_dist > 0.0) ** power
+    # A row containing a coincident reference point: the limit of 1/d^p puts all the mass on that point.
+    weights = np.where(_dmin == 0.0, (compact_dist == 0.0).astype(np.float64), weights)
+    # Strictly positive by construction -- every row has at least one weight equal to 1 -- so no pad is needed.
+    w_sum = weights.sum(axis=1, keepdims=True)
     weights_norm = weights / w_sum
     label_arr = labels[compact_indices]
     idw = (label_arr * weights_norm).sum(axis=1)
@@ -582,7 +603,12 @@ def inverse_distance_weighted_aggregate(
     # nearest), compare to the nearest's label.
     if k >= 2:
         loo_w = weights[:, 1:]
-        loo_sum = loo_w.sum(axis=1, keepdims=True) + 1e-12
+        # The slice can be all-zero only when the nearest neighbour was the sole coincident point; fall back
+        # to a uniform vote there rather than padding, which would otherwise divide by zero.
+        loo_sum = loo_w.sum(axis=1, keepdims=True)
+        _degenerate = loo_sum <= 0.0
+        loo_w = np.where(_degenerate, 1.0, loo_w)
+        loo_sum = np.where(_degenerate, float(loo_w.shape[1]), loo_sum)
         loo_pred = (label_arr[:, 1:] * (loo_w / loo_sum)).sum(axis=1)
         loo_residual = label_arr[:, 0] - loo_pred
     else:

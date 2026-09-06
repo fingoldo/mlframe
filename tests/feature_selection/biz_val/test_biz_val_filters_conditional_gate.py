@@ -185,7 +185,7 @@ class TestMRMRIntegration:
         X, y = _argmax_target(42, n=2000)
         m = MRMR(fe_row_argmax_enable=False, max_runtime_mins=0.5)
         m.fit(X, pd.Series(y, name="y"))
-        assert list(getattr(m, "row_argmax_features_", []) or []) == []
+        assert list(m.row_argmax_features_) == []
         out = m.transform(X.iloc[:300])
         assert not any(str(c).startswith("argmax_") for c in out.columns)
 
@@ -219,7 +219,7 @@ class TestMRMRIntegration:
         X, y = _gate_target(42, n=2000)
         m = MRMR(fe_conditional_gate_enable=False, max_runtime_mins=0.5)
         m.fit(X, pd.Series(y, name="y"))
-        assert list(getattr(m, "conditional_gate_features_", []) or []) == []
+        assert list(m.conditional_gate_features_) == []
         out = m.transform(X.iloc[:300])
         assert not any(str(c).startswith("gate_") for c in out.columns)
 
@@ -323,7 +323,7 @@ class TestMRMRIntegration:
         assert bool(m.fe_conditional_gate_enable) is True
         m.fit(X, pd.Series(y, name="y"))
         assert (
-            list(getattr(m, "conditional_gate_features_", []) or []) == []
+            list(m.conditional_gate_features_) == []
         ), "conditional-gate FE must emit nothing on a single-driver smooth regression target (specificity on binned y, no regime structure)."
 
     def test_clone_preserves_params(self):
@@ -540,10 +540,10 @@ class TestArgmaxAndGateTargetTypeRobustness:
         assert bool(m.fe_row_argmax_enable) is True
         t0 = time.time()
         m.fit(df, y)
-        assert time.time() - t0 < 300.0, f"row-argmax fit on {kind} exceeded 300s wall (hang-class bug)"  # hang-detector, not a perf budget; raised 30->300 (2026-08-16) after a full-matrix CI run under heavy shared-runner contention blew 30s on a fit that finishes in ~9-16s locally
         assert (
-            list(getattr(m, "row_argmax_features_", []) or []) == []
-        ), f"row-argmax FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
+            time.time() - t0 < 300.0
+        ), f"row-argmax fit on {kind} exceeded 300s wall (hang-class bug)"  # hang-detector, not a perf budget; raised 30->300 (2026-08-16) after a full-matrix CI run under heavy shared-runner contention blew 30s on a fit that finishes in ~9-16s locally
+        assert list(m.row_argmax_features_) == [], f"row-argmax FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
 
     @pytest.mark.parametrize("kind", ["multilabel", "multitarget"])
     def test_row_argmax_skipped_on_2d_target_no_crash_or_hang(self, kind):
@@ -554,10 +554,10 @@ class TestArgmaxAndGateTargetTypeRobustness:
         m = self._mrmr(fe_row_argmax_enable=True, fe_conditional_gate_enable=False)
         t0 = time.time()
         m.fit(df, y)
-        assert time.time() - t0 < 300.0, f"row-argmax fit on {kind} exceeded 300s wall (hang-class bug)"  # hang-detector, not a perf budget; raised 30->300 (2026-08-16) after a full-matrix CI run under heavy shared-runner contention blew 30s on a fit that finishes in ~9-16s locally
         assert (
-            list(getattr(m, "row_argmax_features_", []) or []) == []
-        ), f"row-argmax FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
+            time.time() - t0 < 300.0
+        ), f"row-argmax fit on {kind} exceeded 300s wall (hang-class bug)"  # hang-detector, not a perf budget; raised 30->300 (2026-08-16) after a full-matrix CI run under heavy shared-runner contention blew 30s on a fit that finishes in ~9-16s locally
+        assert list(m.row_argmax_features_) == [], f"row-argmax FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
 
     @pytest.mark.parametrize("kind", ["quantile", "count"])
     def test_conditional_gate_specific_on_smooth_continuous_target_no_crash_or_hang(self, kind):
@@ -569,10 +569,10 @@ class TestArgmaxAndGateTargetTypeRobustness:
         assert bool(m.fe_conditional_gate_enable) is True
         t0 = time.time()
         m.fit(df, y)
-        assert time.time() - t0 < 300.0, f"conditional-gate fit on {kind} exceeded 300s wall (hang-class bug)"  # hang-detector, not a perf budget; raised 30->300 (2026-08-16), same CI-contention class as the row-argmax budget above
         assert (
-            list(getattr(m, "conditional_gate_features_", []) or []) == []
-        ), f"conditional-gate FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
+            time.time() - t0 < 300.0
+        ), f"conditional-gate fit on {kind} exceeded 300s wall (hang-class bug)"  # hang-detector, not a perf budget; raised 30->300 (2026-08-16), same CI-contention class as the row-argmax budget above
+        assert list(m.conditional_gate_features_) == [], f"conditional-gate FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
 
     @pytest.mark.parametrize("kind", ["multilabel", "multitarget"])
     def test_conditional_gate_skipped_on_2d_target_no_crash_or_hang(self, kind):
@@ -583,10 +583,10 @@ class TestArgmaxAndGateTargetTypeRobustness:
         m = self._mrmr(fe_row_argmax_enable=False, fe_conditional_gate_enable=True)
         t0 = time.time()
         m.fit(df, y)
-        assert time.time() - t0 < 300.0, f"conditional-gate fit on {kind} exceeded 300s wall (hang-class bug)"  # hang-detector, not a perf budget; raised 30->300 (2026-08-16), same CI-contention class as the row-argmax budget above
         assert (
-            list(getattr(m, "conditional_gate_features_", []) or []) == []
-        ), f"conditional-gate FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
+            time.time() - t0 < 300.0
+        ), f"conditional-gate fit on {kind} exceeded 300s wall (hang-class bug)"  # hang-detector, not a perf budget; raised 30->300 (2026-08-16), same CI-contention class as the row-argmax budget above
+        assert list(m.conditional_gate_features_) == [], f"conditional-gate FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
 
     def test_row_argmax_detects_on_argmax_regression_target(self):
         """Continuous-1D y driven by which of 3 cols is the row-max (y = 5*argmax + noise) DETECTS + emits the argmax feature on binned y."""

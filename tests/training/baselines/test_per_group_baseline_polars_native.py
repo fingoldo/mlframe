@@ -12,11 +12,11 @@ then picks the appropriate branch by input type. This is the same dispatch contr
 
 from __future__ import annotations
 
-import time
 from unittest.mock import patch
 
 import numpy as np
 import pytest
+from tests._perf_paired import assert_paired_speedup
 
 pl = pytest.importorskip("polars")
 
@@ -112,20 +112,13 @@ def test_biz_val_per_group_baseline_polars_faster_than_pandas_at_1m_rows():
     _per_group_predict(train_pl, val_pl, test_pl, y, "g", "regression")
     _per_group_predict(train_pd, val_pd, test_pd, y, "g", "regression")
 
-    n_runs = 3
-    pl_times = []
-    pd_times = []
-    for _ in range(n_runs):
-        t0 = time.perf_counter()
-        _per_group_predict(train_pl, val_pl, test_pl, y, "g", "regression")
-        pl_times.append(time.perf_counter() - t0)
-        t0 = time.perf_counter()
-        _per_group_predict(train_pd, val_pd, test_pd, y, "g", "regression")
-        pd_times.append(time.perf_counter() - t0)
-    pl_med = float(np.median(pl_times))
-    pd_med = float(np.median(pd_times))
-    speedup = pd_med / pl_med
-    print(f"\n[biz_val] per_group_baseline n=1M: polars={pl_med * 1000:.1f}ms pandas={pd_med * 1000:.1f}ms speedup={speedup:.2f}x")
-    assert (
-        speedup >= 1.7
-    ), f"polars-native should be >=1.7x faster than pandas at n=1M; got {speedup:.2f}x (polars={pl_med * 1000:.1f}ms pandas={pd_med * 1000:.1f}ms)"
+    # The rounds were already interleaved; what was missing is the paired verdict -- taking each arm's own
+    # median and dividing throws away the pairing that made interleaving worth doing.
+    assert_paired_speedup(
+        lambda: _per_group_predict(train_pd, val_pd, test_pd, y, "g", "regression"),
+        lambda: _per_group_predict(train_pl, val_pl, test_pl, y, "g", "regression"),
+        base_ratio=1.7,
+        n_trials=3,
+        warmup=False,  # both arms are warmed above
+        what="the polars-native per-group baseline against pandas at n=1M",
+    )

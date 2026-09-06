@@ -19,6 +19,8 @@ from mlframe.training.feature_drift_report import (
     compute_categorical_drift_psi,
 )
 
+from tests.conftest import perf_time_budget
+
 
 def _make_df(n: int, rng: np.random.Generator, with_array: bool) -> pd.DataFrame:
     """Make df."""
@@ -90,5 +92,5 @@ def test_perf_sentinel_array_column_no_hang():
     t0 = time.perf_counter()
     res = compute_categorical_drift_psi(train, val, None)
     elapsed = time.perf_counter() - t0
-    assert elapsed < 1.0, f"drift PSI on array column took {elapsed:.2f}s (expected <1s; pre-fix would hash array cells)"
+    assert elapsed < perf_time_budget(1.0), f"drift PSI on array column took {elapsed:.2f}s (expected <1s; pre-fix would hash array cells)"
     assert "emb" not in res["per_feature"]

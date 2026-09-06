@@ -46,14 +46,14 @@ def _pow2_bucket(x: int) -> int:
 
 
 def _available_ram_bytes() -> Optional[int]:
-    """Available RAM in bytes via psutil, or None if psutil is missing or the probe fails."""
-    try:
-        import psutil
+    """Available RAM in bytes via psutil, or None if psutil is missing or the probe fails.
 
-        return int(psutil.virtual_memory().available)
-    except Exception as e:  # ImportError or psutil runtime failure -> caller falls through.
-        logger.debug("_available_ram_bytes: psutil unavailable/failed, auto-size drops the RAM term: %s", e)
-        return None
+    Shares the probe with ``mlframe.system._ram_probe``; the None sentinel stays local because this
+    module's auto-size drops the RAM term on None, while the filters twin treats -1 as 'no cap'.
+    """
+    from mlframe.system._ram_probe import available_ram_bytes
+
+    return available_ram_bytes(caller="shap-proxy univariate prefilter auto-size")
 
 
 def resolve_batch_size(

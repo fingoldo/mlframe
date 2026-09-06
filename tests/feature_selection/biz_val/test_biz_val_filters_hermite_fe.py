@@ -27,6 +27,7 @@ import numpy as np
 import pytest
 
 from tests.conftest import running_under_xdist, is_fast_mode
+from tests._perf_paired import assert_paired_speedup
 
 warnings.filterwarnings("ignore")
 
@@ -139,24 +140,21 @@ def test_biz_cma_es_at_least_2x_faster_than_optuna():
     # Warmup numba JIT
     _ = optimise_hermite_pair(x_a, x_b, y, n_trials=5, max_degree=2, optimizer="cma")
 
-    t0 = time.perf_counter()
-    optimise_hermite_pair(
-        x_a, x_b, y, n_trials=40, max_degree=4, basis="hermite", optimizer="optuna", use_trivial_baseline=False, baseline_uplift_threshold=0.0
+    # Two back-to-back ~1.5s timings, one each: a single stall on the CMA arm takes the ratio below the floor,
+    # which is how this went red on a box that had been benchmarking all session (1.4x). Paired interleaved
+    # rounds instead, so the load that hits one arm hits the other microseconds later, and the xdist relaxation
+    # comes from perf_speedup_floor rather than from dropping the assertion entirely.
+    assert_paired_speedup(
+        lambda: optimise_hermite_pair(
+            x_a, x_b, y, n_trials=40, max_degree=4, basis="hermite", optimizer="optuna", use_trivial_baseline=False, baseline_uplift_threshold=0.0
+        ),
+        lambda: optimise_hermite_pair(
+            x_a, x_b, y, n_trials=40, max_degree=4, basis="hermite", optimizer="cma", use_trivial_baseline=False, baseline_uplift_threshold=0.0
+        ),
+        base_ratio=2.0,
+        n_trials=3,
+        what="CMA-ES with canonical warm-start against Optuna TPE on XOR",
     )
-    t_optuna = time.perf_counter() - t0
-
-    t0 = time.perf_counter()
-    optimise_hermite_pair(x_a, x_b, y, n_trials=40, max_degree=4, basis="hermite", optimizer="cma", use_trivial_baseline=False, baseline_uplift_threshold=0.0)
-    t_cma = time.perf_counter() - t0
-
-    speedup = t_optuna / t_cma
-    if running_under_xdist():
-        # Under the full ``-n`` run the two sequential timings see wildly different neighbour load and the ratio can
-        # compress below 1x (a single starved CMA arm inverts it); assert only that both arms completed. The 2x
-        # biz_value charter floor stays live standalone (CI / dev), the canonical place wall-clock is measurable.
-        assert t_optuna > 0 and t_cma > 0
-        return
-    assert speedup >= 2.0, f"CMA-ES must be >=2.0x faster than Optuna TPE (standalone ~5-30x); got {speedup:.1f}x ({t_optuna:.2f}s vs {t_cma:.2f}s)"
 
 
 def test_biz_cma_es_finds_xor_optimum():
@@ -191,29 +189,26 @@ def test_biz_plugin_mi_50x_faster_than_ksg_with_same_optimum():
     # Warmup
     _ = optimise_hermite_pair(x_a, x_b, y, n_trials=5, max_degree=2, mi_estimator="plugin", optimizer="cma")
 
-    t0 = time.perf_counter()
-    res_ksg = optimise_hermite_pair(
-        x_a, x_b, y, n_trials=40, max_degree=4, basis="hermite", mi_estimator="ksg", optimizer="cma", use_trivial_baseline=False, baseline_uplift_threshold=0.0
+    res_ksg, res_plugin = assert_paired_speedup(
+        lambda: optimise_hermite_pair(
+            x_a, x_b, y, n_trials=40, max_degree=4, basis="hermite", mi_estimator="ksg", optimizer="cma", use_trivial_baseline=False, baseline_uplift_threshold=0.0
+        ),
+        lambda: optimise_hermite_pair(
+            x_a,
+            x_b,
+            y,
+            n_trials=40,
+            max_degree=4,
+            basis="hermite",
+            mi_estimator="plugin",
+            optimizer="cma",
+            use_trivial_baseline=False,
+            baseline_uplift_threshold=0.0,
+        ),
+        base_ratio=1.5,
+        n_trials=3,
+        what="the plug-in MI estimator against KSG",
     )
-    t_ksg = time.perf_counter() - t0
-
-    t0 = time.perf_counter()
-    res_plugin = optimise_hermite_pair(
-        x_a,
-        x_b,
-        y,
-        n_trials=40,
-        max_degree=4,
-        basis="hermite",
-        mi_estimator="plugin",
-        optimizer="cma",
-        use_trivial_baseline=False,
-        baseline_uplift_threshold=0.0,
-    )
-    t_plugin = time.perf_counter() - t0
-
-    speedup = t_ksg / t_plugin
-    assert speedup >= 1.5, f"plug-in must be >=1.5x faster than KSG; got {speedup:.2f}x ({t_ksg:.2f}s vs {t_plugin:.2f}s)"
     # Both must find a non-trivial XOR-equivalent optimum (high MI,
     # degree=2). Bin-func may differ between estimators because the
     # full 6-bf zoo (add/sub/mul/div/atan2/logabs) has multiple equally

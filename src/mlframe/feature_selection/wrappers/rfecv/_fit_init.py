@@ -29,18 +29,18 @@ _HASH_CHUNK_BYTES = 64 * 1024 * 1024
 def _stream_hash_array(h, arr: np.ndarray) -> None:
     """Feed ``arr`` into blake2b ``h`` in C-contiguous row-major order, one row-chunk at a time.
 
-    Bit-identical to ``h.update(np.ascontiguousarray(arr).tobytes())`` but never materialises the whole
-    buffer as one extra bytes copy: ``arr_c[i:j].tobytes()`` concatenated over contiguous row slices equals
-    ``arr_c.tobytes()`` for a C-contiguous array. Peak extra RAM is ~one chunk, not the whole frame.
+    Bit-identical to ``h.update(np.ascontiguousarray(arr).data)`` but never materialises the whole
+    buffer as one extra bytes copy: ``np.ascontiguousarray(arr_c[i:j]).data`` concatenated over contiguous row slices equals
+    ``np.ascontiguousarray(arr_c).data`` for a C-contiguous array. Peak extra RAM is ~one chunk, not the whole frame.
     """
     arr_c = np.ascontiguousarray(arr)
     if arr_c.ndim == 0 or arr_c.shape[0] == 0:
-        h.update(arr_c.tobytes())
+        h.update(np.ascontiguousarray(arr_c).data)
         return
     row_bytes = arr_c.dtype.itemsize * int(np.prod(arr_c.shape[1:], dtype=np.int64))
     rows_per_chunk = max(1, _HASH_CHUNK_BYTES // row_bytes) if row_bytes else arr_c.shape[0]
     for i in range(0, arr_c.shape[0], rows_per_chunk):
-        h.update(arr_c[i : i + rows_per_chunk].tobytes())
+        h.update(np.ascontiguousarray(arr_c[i : i + rows_per_chunk]).data)
 
 
 def _current_params_signature(self) -> object:
@@ -317,14 +317,14 @@ def _init_fit_state(
         columns_key = ("__ndarray__", int(X.shape[1]))
     try:
         _y_arr = np.ascontiguousarray(y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y))
-        _y_hash = hashlib.blake2b(_y_arr.tobytes(), digest_size=16).hexdigest()
+        _y_hash = hashlib.blake2b(np.ascontiguousarray(_y_arr).data, digest_size=16).hexdigest()
     except (TypeError, ValueError):
         # Object-dtype y or otherwise non-bytes-castable; fall back to a stringified per-element hash that still discriminates content.
         _y_hash = hashlib.blake2b(
             ",".join(map(str, np.asarray(y).ravel().tolist())).encode("utf-8"),
             digest_size=16,
         ).hexdigest()
-    # Full-content X hash to disambiguate the skip-retrain signature. Strided / sampled X fingerprints collided on heavily-reshuffled X whose sampled rows incidentally matched (e.g. stratified rebalance preserving boundaries); a full blake2b over X.tobytes() rules this out for ~50ms on a 1M x 100 frame - well under a single RFECV iter cost. Object-dtype frames fall back to str-cast hashing because tobytes is non-deterministic for object arrays. Symmetric with the X-content hash now folded into the MRMR _FIT_CACHE key.
+    # Full-content X hash to disambiguate the skip-retrain signature. Strided / sampled X fingerprints collided on heavily-reshuffled X whose sampled rows incidentally matched (e.g. stratified rebalance preserving boundaries); a full blake2b over np.ascontiguousarray(X).data rules this out for ~50ms on a 1M x 100 frame - well under a single RFECV iter cost. Object-dtype frames fall back to str-cast hashing because tobytes is non-deterministic for object arrays. Symmetric with the X-content hash now folded into the MRMR _FIT_CACHE key.
     try:
         _n = int(X.shape[0])
         if _n > 0:

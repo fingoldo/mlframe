@@ -9,6 +9,7 @@ section this fans out from and the ``(selected_vars, cols, data, nbins)`` thread
 from __future__ import annotations
 
 import logging
+import warnings
 import os
 
 import numpy as np
@@ -79,14 +80,16 @@ def _friend_graph_and_redundancy_passes_group1(
                     if verbose:
                         logger.info(
                             "MRMR friend-graph pruned %d suspected-sink feature(s): %s",
-                            len(_fg.pruned), _fg.pruned,
+                            len(_fg.pruned),
+                            _fg.pruned,
                         )
                     selected_vars = _pruned
             self.friend_graph_ = _fg
         except Exception as _fg_exc:
             logger.warning(
                 "MRMR friend-graph post-analysis failed (%s: %s); continuing without it.",
-                type(_fg_exc).__name__, _fg_exc,
+                type(_fg_exc).__name__,
+                _fg_exc,
             )
 
     # Clustered-feature aggregation, replace mode: drop the aggregated cluster MEMBERS from
@@ -112,6 +115,7 @@ def _friend_graph_and_redundancy_passes_group1(
     if len(selected_vars) and getattr(self, "_gate_col_src_vars_", None):
         try:
             import re as _re_sg
+
             _gmap_sg = dict(self._gate_col_src_vars_)
             _tok_sg = _re_sg.compile(r"(?<![A-Za-z0-9_])([a-z](?:[a-z]?\d+)?)(?![A-Za-z0-9_])")
             _sel_names_sg = [cols[v] for v in selected_vars]
@@ -139,8 +143,9 @@ def _friend_graph_and_redundancy_passes_group1(
                 selected_vars = [v for v in selected_vars if cols[v] not in _drop_sg]
                 if getattr(self, "verbose", 0):
                     logger.info(
-                        "MRMR FE fast-search: pruned %d standalone cross-group gate column(s) covered by "
-                        "clean engineered survivors: %s", len(_drop_sg), sorted(_drop_sg),
+                        "MRMR FE fast-search: pruned %d standalone cross-group gate column(s) covered by " "clean engineered survivors: %s",
+                        len(_drop_sg),
+                        sorted(_drop_sg),
                     )
         except Exception as _sg_exc:
             logger.warning("MRMR fast-search standalone-gate prune skipped (%s); continuing.", type(_sg_exc).__name__)
@@ -171,7 +176,21 @@ def _friend_graph_and_redundancy_passes_group1(
 
             _raw_set_syn = set(self.feature_names_in_)
             _cand_syn = [i for i, _nm in enumerate(cols) if _nm in _raw_set_syn]
-            if 2 <= len(_cand_syn) <= 60:
+            # The candidate-count bound below says nothing about frame BYTES, and this call materialises the
+            # whole fit frame. Every `fe_to_pandas` in the sibling cascade is size-gated for exactly that
+            # reason; this one was not, so a 32 GB polars frame became a 64 GB peak on a screen that is an
+            # optional enrichment. Skip it above the eager-materialise ceiling rather than whole-copy.
+            from ..._fe_frame_ops import fe_polars_exceeds
+
+            if 2 <= len(_cand_syn) <= 60 and fe_polars_exceeds(X):
+                warnings.warn(
+                    "MRMR: the synergy-combo screen needs the full frame as pandas, and X is a large polars frame "
+                    "(> ~2 GiB); the screen is skipped rather than paying a whole-frame to_pandas copy. Pass pandas, "
+                    "or materialise a subset, if you need it.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+            elif 2 <= len(_cand_syn) <= 60:
                 _yc_syn = np.asarray(classes_y).astype(np.int64).ravel()
                 _X_pd_syn = fe_to_pandas(X)
                 _order_syn = int(_iac_max_order if _iac_max_order is not None else 3)
@@ -189,7 +208,9 @@ def _friend_graph_and_redundancy_passes_group1(
                 _code_cols_syn = {i: _quantile_bin(_X_pd_syn[cols[i]].to_numpy(dtype=np.float64), _nbins_syn).astype(np.int64) for i in _cand_syn}
                 _iac_min_order = getattr(self, "interactions_min_order", None)
                 _combos_syn = detect_synergy_combos(
-                    _code_cols_syn, _yc_syn, _cand_syn,
+                    _code_cols_syn,
+                    _yc_syn,
+                    _cand_syn,
                     max_order=_order_syn,
                     min_order=max(2, int(_iac_min_order if _iac_min_order is not None else 2)),
                     min_rows_per_cell=_mrpc_syn,
@@ -205,9 +226,9 @@ def _friend_graph_and_redundancy_passes_group1(
                     selected_vars = list(selected_vars) + _seed_syn
                     if verbose:
                         logger.info(
-                            "MRMR n-way synergy seeding: added %d raw operand(s) of synergy combo(s) the "
-                            "greedy could not assemble (joint MI >> sum of marginals): %s",
-                            len(_seed_syn), [cols[i] for i in _seed_syn],
+                            "MRMR n-way synergy seeding: added %d raw operand(s) of synergy combo(s) the " "greedy could not assemble (joint MI >> sum of marginals): %s",
+                            len(_seed_syn),
+                            [cols[i] for i in _seed_syn],
                         )
         except Exception as _syn_exc:
             logger.warning("MRMR n-way synergy seeding failed: %s; keeping support.", _syn_exc)
@@ -224,6 +245,7 @@ def _friend_graph_and_redundancy_passes_group1(
     _prefe_raw = getattr(self, "_prefe_screened_raw_", None)
     if _prefe_raw and len(selected_vars):
         from ..._confirm_predictor import _extract_single_raw_parent
+
         _raw_names_set = set(self.feature_names_in_)
         _cur_names = set(np.asarray(cols)[np.asarray(selected_vars, dtype=np.intp)])
         # Raw parents already represented by a SOLE-parent engineered survivor:
@@ -260,6 +282,7 @@ def _friend_graph_and_redundancy_passes_group1(
         # protection was built and validated for) and for raws NOT consumed by any
         # surviving engineered feature (the originally-intended absorbed-by-unrelated case).
         from ..._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _RR_TOK_SPLIT
+
         # Map each raw-operand name -> list of surviving ENGINEERED survivor column indices that consume it.
         _eng_operands_of: dict = {}  # raw_name -> list[engineered survivor col idx]
         for _v in selected_vars:
@@ -335,9 +358,16 @@ def _friend_graph_and_redundancy_passes_group1(
                 return True
             try:
                 _sig = _mi_direct_rr(
-                    data, x=np.array([int(_idx)], dtype=np.int64), y=target_indices,  # type: ignore[arg-type]
-                    factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
-                    return_null_mean=True, parallelism="none", dtype=_rr_q_dtype, prefer_gpu=False,
+                    data,
+                    x=np.array([int(_idx)], dtype=np.int64),  # type: ignore[arg-type]  # the annotation (tuple) is stricter than the accepted call shape
+                    y=target_indices,
+                    factors_nbins=nbins,
+                    npermutations=32,
+                    min_nonzero_confidence=0.0,
+                    return_null_mean=True,
+                    parallelism="none",
+                    dtype=_rr_q_dtype,
+                    prefer_gpu=False,
                 )
                 return float(_sig[3]) < _rr_signif_alpha
             except Exception as e:
@@ -397,26 +427,24 @@ def _friend_graph_and_redundancy_passes_group1(
             _sv_set.add(_idx)
         if _dropped_insignificant and verbose:
             logger.info(
-                "MRMR raw-retention: withheld %d screening-flagged raw feature(s) that "
-                "sit WITHIN their permutation null (p>=%.2f -- genuine-screen noise, not "
-                "re-added): %s",
-                len(_dropped_insignificant), _rr_signif_alpha, _dropped_insignificant,
+                "MRMR raw-retention: withheld %d screening-flagged raw feature(s) that " "sit WITHIN their permutation null (p>=%.2f -- genuine-screen noise, not " "re-added): %s",
+                len(_dropped_insignificant),
+                _rr_signif_alpha,
+                _dropped_insignificant,
             )
         if _readd:
             selected_vars = list(selected_vars) + _readd
             if verbose:
                 logger.info(
-                    "MRMR raw-retention: re-added %d screening-confirmed raw feature(s) "
-                    "dropped by the post-FE re-selection (carry conditional signal beyond "
-                    "their engineered children): %s",
-                    len(_readd), [cols[i] for i in _readd],
+                    "MRMR raw-retention: re-added %d screening-confirmed raw feature(s) " "dropped by the post-FE re-selection (carry conditional signal beyond " "their engineered children): %s",
+                    len(_readd),
+                    [cols[i] for i in _readd],
                 )
         if _dropped_redundant and verbose:
             logger.info(
-                "MRMR raw-retention: kept %d raw feature(s) DROPPED -- fully captured by a "
-                "surviving engineered child (conditional MI given the engineered set below "
-                "the relevance floor): %s",
-                len(_dropped_redundant), _dropped_redundant,
+                "MRMR raw-retention: kept %d raw feature(s) DROPPED -- fully captured by a " "surviving engineered child (conditional MI given the engineered set below " "the relevance floor): %s",
+                len(_dropped_redundant),
+                _dropped_redundant,
             )
 
     # ADAPTIVE-FOURIER PROTECTION: re-add held-out-validated
@@ -477,10 +505,9 @@ def _friend_graph_and_redundancy_passes_group1(
             selected_vars = list(selected_vars) + _readd_miss
             if verbose:
                 logger.info(
-                    "MRMR missingness-indicator protection: re-added %d clean "
-                    "is_missing__ indicator(s) the screen dropped in favour of "
-                    "the redundant raw NaN-bin source: %s",
-                    len(_readd_miss), [cols[i] for i in _readd_miss],
+                    "MRMR missingness-indicator protection: re-added %d clean " "is_missing__ indicator(s) the screen dropped in favour of " "the redundant raw NaN-bin source: %s",
+                    len(_readd_miss),
+                    [cols[i] for i in _readd_miss],
                 )
 
     # HINGE / CHANGE-POINT DEFERRED MATERIALISATION: the hinge stage

@@ -33,6 +33,7 @@ enrichment loops call to decide whether to ``break`` and return whatever they en
 from __future__ import annotations
 
 import threading
+from contextlib import contextmanager
 from timeit import default_timer as timer
 
 _state = threading.local()
@@ -48,6 +49,26 @@ def clear_fe_deadline() -> None:
     """Explicitly reset the thread-local deadline to unset (equivalent to ``set_fe_deadline(None)``); called from the ``finally`` in MRMR.fit so a budget never leaks into the next fit on the same thread."""
     _state.deadline = None
 
+
+@contextmanager
+def fe_deadline_scope(deadline: float | None):
+    """Publish ``deadline`` for the duration of the block, then restore whatever was set before.
+
+    For code that re-publishes the deadline across a boundary the thread-local cannot cross -- a loky worker
+    is the case this exists for. loky REUSES its worker processes across ``Parallel(...)`` invocations, so a
+    deadline written in a worker and never cleared outlives the call: once that absolute timestamp elapses,
+    every ``fe_deadline_passed()`` consumer in that worker returns True for the rest of its life, silently
+    truncating enrichment loops in later fits that were given no budget at all. The main-thread ``finally``
+    in ``MRMR.fit`` cannot reach a worker process.
+
+    Restores rather than clears, so a nested publisher cannot wipe an outer one's budget.
+    """
+    previous = getattr(_state, "deadline", None)
+    _state.deadline = deadline
+    try:
+        yield
+    finally:
+        _state.deadline = previous
 
 def fe_deadline_passed() -> bool:
     """True iff a deadline is set AND the monotonic clock is past it. False when no deadline is set (the common,
@@ -65,4 +86,4 @@ def fe_budget_active() -> bool:
     return getattr(_state, "deadline", None) is not None
 
 
-__all__ = ["set_fe_deadline", "clear_fe_deadline", "fe_deadline_passed", "fe_budget_active"]
+__all__ = ["set_fe_deadline", "clear_fe_deadline", "fe_deadline_scope", "fe_deadline_passed", "fe_budget_active"]

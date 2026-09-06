@@ -281,9 +281,15 @@ class TestSklearnParity:
         assert n_out >= 1, f"{name}: selector emitted zero columns into the Pipeline"
         clf = pipe.named_steps["clf"]
         assert getattr(clf, "n_features_in_", n_out) == n_out, f"{name}: downstream estimator saw {clf.n_features_in_} features but selector emitted {n_out}"
-        # get_feature_names_out (when present) must agree with transform width,
-        # i.e. the names that propagate downstream match the emitted columns.
-        if callable(getattr(fs, "get_feature_names_out", None)):
+        # get_feature_names_out must agree with transform width, i.e. the names that propagate downstream match
+        # the emitted columns. Assert the method EXISTS rather than branching on it: a selector that loses it
+        # (a refactor off SelectorMixin, a __getattr__ change) would otherwise leave this contract silently
+        # unchecked instead of failing. Same declared-exempt set as test_get_feature_names_out_matches_transform_cols.
+        has_gfno = callable(getattr(fs, "get_feature_names_out", None))
+        if name in self._GFNO_EXEMPT:
+            assert not has_gfno, f"{name} is listed in _GFNO_EXEMPT but now DOES expose get_feature_names_out -- remove it from the exempt set"
+        else:
+            assert has_gfno, f"{name}: selector lost get_feature_names_out inside a Pipeline and is not in {sorted(self._GFNO_EXEMPT)}"
             names = fs.get_feature_names_out()
             assert len(names) == n_out, f"{name}: get_feature_names_out len {len(names)} != transform cols {n_out}"
 

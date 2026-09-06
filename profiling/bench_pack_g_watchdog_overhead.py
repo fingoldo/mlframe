@@ -41,8 +41,8 @@ class _OLSInner(BaseEstimator, RegressorMixin):
 def _build_problem(n: int = 200_000, n_composites: int = 2, n_models: int = 5):
     """Synthetic linear residual problem with multiple composites and models
     in the dict so the watchdog has many (entry, split) pairs to check."""
-    from mlframe.training.composite_estimator import CompositeTargetEstimator
-    from mlframe.training.composite_transforms import get_transform
+    from mlframe.training.composite.estimator._estimator import CompositeTargetEstimator
+    from mlframe.training.composite.transforms.naming import get_transform
 
     rng = np.random.default_rng(2026)
     base = rng.normal(100.0, 20.0, n)

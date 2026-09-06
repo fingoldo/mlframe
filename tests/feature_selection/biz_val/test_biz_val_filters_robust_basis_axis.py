@@ -61,7 +61,7 @@ def test_biz_val_robust_axis_fourier_inlier_spread_not_collapsed():
     """On a 5%-spike column the legacy Fourier axis collapses the 95% inlier mass into a ~0.0005-wide sliver of the [0, 1]
     axis (one bin); the robust axis spreads it across ~0.156. Measured spread ratio ~312x; floor 50x. This is the ROOT
     mechanism behind both the MI inflation and the shift-fragility -- if it regresses, the bulk re-collapses."""
-    spread_ratios = []
+    legacy_spreads, robust_spreads = [], []
     for seed in range(8):
         rng = np.random.default_rng(seed)
         base = rng.standard_normal(_N)
@@ -77,12 +77,23 @@ def test_biz_val_robust_axis_fourier_inlier_spread_not_collapsed():
         z_r = (cont[mask] - lo_r) / max(sp_r, 1e-12)
         robust_spread = float(np.std(z_r))
 
-        spread_ratios.append(robust_spread / max(legacy_spread, 1e-12))
+        legacy_spreads.append(legacy_spread)
+        robust_spreads.append(robust_spread)
     os.environ.pop("MLFRAME_ROBUST_AXIS", None)
-    median_ratio = float(np.median(spread_ratios))
-    assert median_ratio >= 50.0, (
-        f"robust Fourier axis must spread the inlier mass >=50x wider than the collapsed legacy axis (measured ~312x); "
-        f"got median {median_ratio:.1f}x -- the gate is off or the robust span is broken."
+    med_legacy = float(np.median(legacy_spreads))
+    med_robust = float(np.median(robust_spreads))
+    # Two statements about two quantities, rather than one quotient by an almost-zero. The old
+    # `robust / max(legacy, 1e-12) >= 50` divides a normal number by a near-collapsed one, so its
+    # magnitude is set by exactly how close to zero the legacy spread lands -- a float-precision-sensitive
+    # quantity whose accumulation order differs between the numba and numpy paths. Measured on this
+    # fixture: legacy 0.000500, robust 0.156 (the ratio of 312x the docstring cites).
+    assert med_legacy < 0.005, (
+        f"the legacy axis no longer collapses the inlier mass (median spread {med_legacy:.6g}, expected a "
+        "sliver near 0.0005); this test's premise -- that there is a collapse to fix -- is gone"
+    )
+    assert 0.05 <= med_robust <= 0.5, (
+        f"the robust axis spread the inlier mass to {med_robust:.6g}, outside the sane band for a [0, 1] axis "
+        "(measured 0.156); the gate is off or the robust span is broken"
     )
 
 

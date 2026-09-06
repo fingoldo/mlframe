@@ -20,6 +20,8 @@ import logging
 import numpy as np
 import pytest
 
+from tests.conftest import perf_time_budget
+
 torch = pytest.importorskip("torch")
 pytest.importorskip("lightning")
 
@@ -243,7 +245,7 @@ def test_m_neu_08_ranks_within_group_scales_to_100k_queries() -> None:
     elapsed = time.perf_counter() - t0
     assert ranks.shape == (n_groups * group_size,)
     # Vectorised path: budget 5s for CI variability; pre-fix Python loop blew >30s.
-    assert elapsed < 5.0, f"_ranks_within_group too slow: {elapsed:.2f}s"
+    assert elapsed < perf_time_budget(5.0), f"_ranks_within_group too slow: {elapsed:.2f}s"
 
 
 # ---------------------------------------------------------------------------

@@ -136,6 +136,10 @@ class CompositeTargetDiscovery:
     _tiny_rerank_scores: dict[str, float]
     _auto_chains_diag: list
     _alpha_drift_flags: dict[str, dict[str, float]]
+    # Base-leakage guard outcome. Both are seeded before the guard's call site, so "the guard ran and
+    # dropped nothing" stays distinguishable from "fit never reached the guard"; see ``_fit_temporal.py``.
+    _leaky_bases_dropped_: list
+    _base_leakage_guard_ran_: bool
     train_idx_: np.ndarray
     val_idx_: np.ndarray | None
     test_idx_: np.ndarray | None

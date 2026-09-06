@@ -27,6 +27,8 @@ import polars as pl
 
 from mlframe.training.trainer import run_confidence_analysis
 
+from tests.conftest import perf_time_budget
+
 # ---------------------------------------------------------------------------
 # Bug 1: pl.Utf8 / pl.List / pl.Array / pl.Struct columns leak into CB Pool
 # ---------------------------------------------------------------------------
@@ -300,7 +302,7 @@ def test_confidence_analysis_completes_within_time_budget():
     )
     elapsed = time.perf_counter() - t0
     assert result is not None
-    assert elapsed < 30.0, f"confidence_analysis took {elapsed:.1f}s on 200x5 — iteration cap default may have been removed."
+    assert elapsed < perf_time_budget(30.0), f"confidence_analysis took {elapsed:.1f}s on 200x5 — iteration cap default may have been removed."
 
 
 def test_confidence_analysis_accepts_iterations_synonym():

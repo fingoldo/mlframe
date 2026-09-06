@@ -474,7 +474,7 @@ class TestDefaultDisabledByteIdentical:
         # No quadruplet columns (3 stars) surfaced in feature_names_in_.
         quad_names = [n for n in names if str(n).count("*") == 3]
         assert not quad_names, f"seed={seed}: default fe_hybrid_orth_quadruplet_enable=False should NOT inject quadruplet columns; got {quad_names}"
-        assert list(getattr(m, "hybrid_orth_features_", []) or []) == [], f"seed={seed}: hybrid_orth_features_ should be empty when all hybrid flags are off"
+        assert list(m.hybrid_orth_features_) == [], f"seed={seed}: hybrid_orth_features_ should be empty when all hybrid flags are off"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_enable_quadruplet_appends_engineered(self, seed):

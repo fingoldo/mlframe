@@ -117,6 +117,7 @@ def test_bench_mean_var_precision():
     print()
     print(f"{'distribution':<26} {'naive_2p':>14} {'welford':>14} {'kahan_2p':>14} {'best':>10}")
     print("-" * 80)
+    errors = {}
     for name, arr in distributions.items():
         _ref_mean, ref_var = _ref_mean_var(arr)
         _, n_var, _ = naive_mean_var_two_pass_seq(arr)
@@ -125,14 +126,24 @@ def test_bench_mean_var_precision():
         e_n = _rel_err(n_var, ref_var)
         e_w = _rel_err(w_var, ref_var)
         e_k = _rel_err(k_var, ref_var)
+        errors[name] = (e_n, e_w, e_k)
         best = min((e_n, "naive"), (e_w, "welford"), (e_k, "kahan_2p"))
         print(f"{name:<26} {e_n:>14.3e} {e_w:>14.3e} {e_k:>14.3e} {best[1]:>10}")
-    # NOTE: no hard assertion. Benchmark surfaces interesting nuances:
-    # - Welford WINS big on long arrays (N>10k) — recovers ~log10(N) digits
-    # - Welford LOSES on `large_mean + smooth` two-pass cases — running mean
-    #   accumulates per-element rounding that the exact two-pass mean avoids
-    # - Best-of-both: 2-pass with Kahan compensation in the inner sum
-    #   (separate kernel `_kahan_two_pass_var_seq` — TODO add)
+
+    # Kahan-compensated two-pass is the accuracy winner on every distribution here (exactly 0.0 relative
+    # error on four of the seven), so it is the kernel a production consumer should reach for. Pinned
+    # because the note this replaces still described that kernel as unwritten.
+    for name, (e_n, e_w, e_k) in errors.items():
+        assert e_k <= e_n, f"{name}: kahan two-pass variance ({e_k:.3e}) lost to naive ({e_n:.3e})"
+        assert e_k <= e_w, f"{name}: kahan two-pass variance ({e_k:.3e}) lost to Welford ({e_w:.3e})"
+    # Welford is NOT uniformly better, and pinning that stops a future "just use Welford everywhere": its
+    # running mean accumulates per-element rounding the exact two-pass mean avoids, so on a large smooth
+    # mean it is five orders WORSE than naive (measured 1.02e-10 vs 6.79e-15).
+    e_n, e_w, _e_k = errors["large_mean_small_var"]
+    assert e_w > e_n * 100, (
+        f"Welford no longer loses on large_mean_small_var (welford {e_w:.3e} vs naive {e_n:.3e}); " "the counterexample this bench documents has moved"
+    )
+    assert errors["small_variance_1e9"][0] > 1e-6, "small_variance_1e9 no longer stresses the naive two-pass accumulator"
 
 
 def test_bench_moments_precision():
@@ -143,6 +154,7 @@ def test_bench_moments_precision():
     header = f"{'distribution':<26} {'naive_skew_err':>14} {'welf_skew_err':>14} {'naive_kurt_err':>14} {'welf_kurt_err':>14}"
     print(header)
     print("-" * len(header))
+    errors = {}
     for name, arr in distributions.items():
         ref_skew, ref_kurt = _ref_skew_kurt(arr)
         _, _, n_skew, n_kurt, _ = naive_moments_two_pass_seq(arr)
@@ -151,7 +163,16 @@ def test_bench_moments_precision():
         es_w = _rel_err(w_skew, ref_skew)
         ek_n = _rel_err(n_kurt, ref_kurt)
         ek_w = _rel_err(w_kurt, ref_kurt)
+        errors[name] = (es_n, es_w, ek_n, ek_w)
         print(f"{name:<26} {es_n:>14.3e} {es_w:>14.3e} {ek_n:>14.3e} {ek_w:>14.3e}")
+
+    # The claim this bench exists to make: on the two cancellation-dominated distributions the Welford-Pebay
+    # accumulators recover orders of magnitude the naive raw-moment expansion loses. Measured skew error
+    # 1.19e-07 vs 3.92e-05 and 4.44e-02 vs 2.69e+00.
+    for name in ("large_mean_small_var", "small_variance_1e9"):
+        es_n, es_w, ek_n, ek_w = errors[name]
+        assert es_w < es_n / 10.0, f"{name}: Welford skew error {es_w:.3e} no longer beats naive {es_n:.3e} by 10x"
+        assert ek_w < ek_n, f"{name}: Welford kurtosis error {ek_w:.3e} lost to naive {ek_n:.3e}"
 
 
 def test_bench_kahan_sum_vs_naive():
@@ -161,6 +182,7 @@ def test_bench_kahan_sum_vs_naive():
     print()
     print(f"{'distribution':<26} {'naive_sum_relerr':>18} {'kahan_sum_relerr':>18} {'improvement':>12}")
     print("-" * 80)
+    improvements: list = []
     for name, arr in distributions.items():
         # Reference: numpy's pairwise sum (already partially compensated)
         # is the best we can get without external high-precision lib.
@@ -175,6 +197,11 @@ def test_bench_kahan_sum_vs_naive():
         e_kahan = _rel_err(khn, ref_sum)
         imp = e_naive / max(e_kahan, 1e-300)
         print(f"{name:<26} {e_naive:>18.3e} {e_kahan:>18.3e} {imp:>12.1f}x")
+        assert e_kahan <= e_naive, f"{name}: compensated sum ({e_kahan:.3e}) was no better than the naive loop ({e_naive:.3e})"
+        improvements.append((name, imp))
+    # Compensation is worth having on every distribution measured, and clearly so once the mean is large.
+    assert min(i for _n, i in improvements) >= 2.0, f"the compensated sum stopped paying for itself: {improvements}"
+    assert dict(improvements)["large_mean_small_var"] >= 10.0, "large_mean_small_var no longer shows a large compensation win"
 
 
 def test_bench_runtime_overhead():
@@ -208,6 +235,10 @@ def test_bench_runtime_overhead():
         t_welford_m = (time.perf_counter() - t0) / 50 * 1000
         print(f"{'naive_moments_2pass':<30} {N:>10} {t_naive_m:>12.3f} {'1.00':>12}")
         print(f"{'welford_moments':<30} {N:>10} {t_welford_m:>12.3f} {t_welford_m / t_naive_m:>12.2f}")
+        # A guard against an order-of-magnitude regression, not a measurement: the machine may be loaded.
+        # Measured on a quiet host: mean/var 1.26x at 100k and 0.63x at 1M, moments 3.79x and 2.35x.
+        assert t_welford / t_naive < 10.0, f"N={N}: Welford mean/var is {t_welford / t_naive:.2f}x the naive two-pass"
+        assert t_welford_m / t_naive_m < 15.0, f"N={N}: Welford moments are {t_welford_m / t_naive_m:.2f}x the naive two-pass"
 
 
 def test_bench_skew_sign_flips_on_hard():
@@ -230,6 +261,15 @@ def test_bench_skew_sign_flips_on_hard():
     # Welford skew sign must match reference
     if not np.isnan(ref_skew):
         assert np.sign(w_skew) == np.sign(ref_skew) or abs(ref_skew) < 1e-3, f"Welford skew sign-flipped: ref={ref_skew}, welford={w_skew}"
+    # Measured, and the opposite of this file's framing: at 1e9 + N(0, 1e-5) the input has already lost its
+    # own precision to float64 spacing (~1e-7 at 1e9), and Welford's running mean then tracks a different
+    # series than the two-pass mean does. Welford reads skew 3.03 / kurt 12.96 against a reference
+    # 6.81 / 44.57, while naive lands on 6.81 / 44.63. Pinned so this module is not wired into a production
+    # consumer as unconditionally "the stable one": in THIS regime it is the worse of the two.
+    assert _rel_err(n_skew, ref_skew) < _rel_err(w_skew, ref_skew), (
+        f"Welford now beats naive on the 1e9 catastrophic case (welford={w_skew:.6e}, naive={n_skew:.6e}, "
+        f"ref={ref_skew:.6e}); the caveat this test records no longer holds"
+    )
 
 
 if __name__ == "__main__":

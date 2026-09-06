@@ -449,6 +449,20 @@ from ._gpu_batched import (  # noqa: F401
 _PERM_READBACK_CHUNK = 32
 
 
+# Fan-out crossover for the batched permutation kernel. NAMED rather than inline because the two branches
+# differ in RESULT, not only in speed: the batched path checks ``nfailed >= max_failed`` at BATCH
+# granularity, so up to ``_PERM_FANOUT_BATCH_SIZE - 1`` extra permutations run before the short-circuit,
+# which moves ``confidence = 1 - nfailed/(_i+1)`` and can change whether ``original_mi`` is zeroed. A caller
+# at exactly ``npermutations = _PERM_FANOUT_MIN_PERMUTATIONS`` with a tight ``max_failed`` therefore sees a
+# different confidence than the same call one permutation below it.
+#
+# Deliberately NOT routed through kernel_tuning_cache, unlike the block-size lookups elsewhere in this file:
+# a per-host tuned crossover would make the RESULT host-dependent, which is a different and worse property
+# than a host-dependent runtime. Changing these is a behaviour change and needs the confidence contract
+# re-checked, not just a re-benchmark.
+_PERM_FANOUT_MIN_PERMUTATIONS = 32
+_PERM_FANOUT_BATCH_SIZE = 64
+
 def mi_direct_gpu(
     factors_data,
     x: tuple,
@@ -513,7 +527,7 @@ def mi_direct_gpu(
     # provided state we'd silently bypass) AND we have enough
     # permutations to amortise the batch-generation overhead.
     if (
-        npermutations >= 32
+        npermutations >= _PERM_FANOUT_MIN_PERMUTATIONS
         and classes_y_safe is None
         and freqs_y_safe is None
         and not return_null_mean  # the batched path does not accumulate the null mean; keep the per-iter loop
@@ -524,7 +538,7 @@ def mi_direct_gpu(
             y=y,
             factors_nbins=factors_nbins,
             npermutations=npermutations,
-            batch_size=64,
+            batch_size=_PERM_FANOUT_BATCH_SIZE,
             dtype=dtype,
             classes_y=classes_y,
             freqs_y=freqs_y,
@@ -580,9 +594,18 @@ def mi_direct_gpu(
         assert _GPU_POOL.joint_counts is not None and _GPU_POOL.totals is not None
 
         # classes_y_safe override path (caller passed cached GPU arrays).
+        # The permutation loop below shuffles this buffer IN PLACE and cumulatively. When the caller supplied
+        # it (the pre-warmed-device-buffer path in evaluation.py / _confirm_predictor.py) that left their
+        # cached array permanently permuted relative to classes_x. Harmless for the null itself -- a
+        # composition of random permutations is still a random permutation, and original_mi is computed from
+        # the HOST classes_y -- but any future consumer reading that shared buffer as the TRUE label vector
+        # would silently get scrambled labels. Shuffle a scratch copy instead, so the caller's buffer is
+        # exactly as they left it.
         if classes_y_safe is None:
             classes_y_safe = _GPU_POOL.classes_y[:n]
             classes_y_safe[:] = cp.asarray(classes_y, dtype=cp.int32)
+        else:
+            classes_y_safe = classes_y_safe.copy()
         if freqs_y_safe is None:
             freqs_y_safe = _GPU_POOL.freqs_y[:nbins_y]
             freqs_y_safe[:] = cp.asarray(freqs_y)

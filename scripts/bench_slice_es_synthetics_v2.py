@@ -26,9 +26,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import lightgbm as lgb
 from scipy.stats import wilcoxon
 
-from mlframe.training._callbacks import LightGBMCallback
+from mlframe.training.callbacks._callbacks import LightGBMCallback
 from mlframe.training._data_helpers import _setup_eval_set
-from mlframe.training._slice_helpers import build_slice_eval_sets
+from mlframe.training.slicing._slice_helpers import build_slice_eval_sets
 
 
 def _gen_overfit(seed: int, n_train: int, n_val: int, n_test: int, d: int,

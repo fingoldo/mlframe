@@ -425,18 +425,14 @@ class TestPairwiseModularTargetTypeRobustness:
         """Continuous-1D SMOOTH/noise target: now eligible (binned), MUST stay specific -- 0 spurious modular column + no hang/crash."""
         df, y = self._xy(kind)
         m = self._fit(df, y)
-        assert (
-            list(getattr(m, "pairwise_modular_features_", []) or []) == []
-        ), f"pairwise-modular FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
+        assert list(m.pairwise_modular_features_) == [], f"pairwise-modular FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
 
     @pytest.mark.parametrize("kind", ["multilabel", "multitarget"])
     def test_pairwise_modular_skipped_on_2d_target_no_crash_or_hang(self, kind):
         """2D y stays SKIPPED (binning a label matrix is out of scope); no hang/crash, no engineered column."""
         df, y = self._xy(kind)
         m = self._fit(df, y)
-        assert (
-            list(getattr(m, "pairwise_modular_features_", []) or []) == []
-        ), f"pairwise-modular FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
+        assert list(m.pairwise_modular_features_) == [], f"pairwise-modular FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
 
     def test_pairwise_modular_detects_on_modular_regression_target(self):
         """Continuous-1D y with TRUE modular structure (y = scale*(a mod 7) + noise) DETECTS + emits the residue feature on the binned y."""

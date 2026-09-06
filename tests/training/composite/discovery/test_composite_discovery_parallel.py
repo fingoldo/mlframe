@@ -54,6 +54,7 @@ def _run(*, n_jobs: int, transforms: list[str]):
     df_with_y = df.copy()
     df_with_y["y"] = y
     cfg = CompositeTargetDiscoveryConfig(
+        enabled=True,  # defaults to False: without it `fit` is a no-op and every comparison below is empty-vs-empty
         transforms=transforms,
         mi_nbins=8,
         mi_estimator="bin",
@@ -93,16 +94,22 @@ class TestParallelDiscoveryEquivalence:
         # Same kept specs (same names, same order after the sort by mi_gain).
         ser_names = [s.name for s in serial.specs_]
         par_names = [s.name for s in parallel.specs_]
+        # Without this the comparison below is [] == [], which is what it was: `enabled` defaults to False, so
+        # `fit` returned immediately and every discovery object in this file carried an empty specs_.
+        assert ser_names, "discovery kept no specs, so the serial/parallel comparison has nothing to compare"
         assert ser_names == par_names, f"parallel path diverged from serial:\n  serial:   {ser_names}\n  parallel: {par_names}"
 
         # Per-spec mi_gain / mi_t / mi_y must match bit-for-bit (deterministic
         # numpy ops, same input). Pre-binning is deterministic; bootstrap is off.
+        # `equal_nan`: auto-chain specs are built with mi_y/mi_t set to NaN deliberately (_opt_in_steps.py
+        # carries the chain candidate's mi_gain but never computes a standalone MI for them), so NaN on both
+        # sides is agreement. Without it these comparisons report a divergence for every chain spec.
         for ser_spec, par_spec in zip(serial.specs_, parallel.specs_):
             assert np.isclose(
-                ser_spec.mi_gain, par_spec.mi_gain, atol=1e-12
+                ser_spec.mi_gain, par_spec.mi_gain, atol=1e-12, equal_nan=True
             ), f"mi_gain diverged for '{ser_spec.name}': serial={ser_spec.mi_gain}, parallel={par_spec.mi_gain}"
-            assert np.isclose(ser_spec.mi_t, par_spec.mi_t, atol=1e-12)
-            assert np.isclose(ser_spec.mi_y, par_spec.mi_y, atol=1e-12)
+            assert np.isclose(ser_spec.mi_t, par_spec.mi_t, atol=1e-12, equal_nan=True), f"mi_t diverged for '{ser_spec.name}': serial={ser_spec.mi_t}, parallel={par_spec.mi_t}"
+            assert np.isclose(ser_spec.mi_y, par_spec.mi_y, atol=1e-12, equal_nan=True), f"mi_y diverged for '{ser_spec.name}': serial={ser_spec.mi_y}, parallel={par_spec.mi_y}"
 
 
 class TestParallelDiscoveryBizValue:
@@ -169,6 +176,7 @@ def _run_rerank(*, n_jobs: int, seed_repeats: int = 1):
     df_with_y = df.copy()
     df_with_y["y"] = y
     cfg = CompositeTargetDiscoveryConfig(
+        enabled=True,  # defaults to False: without it `fit` is a no-op and every comparison below is empty-vs-empty
         transforms=["linear_residual", "diff", "ratio", "logratio"],
         mi_nbins=8,
         mi_estimator="bin",
@@ -238,6 +246,9 @@ class TestParallelRerankEquivalence:
 
         ser_per_seed = getattr(serial, "_wilcoxon_per_seed_composite", {})
         par_per_seed = getattr(parallel, "_wilcoxon_per_seed_composite", {})
+        # Two empty dicts have equal key sets and iterate zero times, so this is the assertion that gives the
+        # rest of the test a subject. The attribute is populated only for families the rerank actually scored.
+        assert ser_per_seed, "no per-seed Wilcoxon arrays were produced, so serial and parallel were never compared"
         assert set(ser_per_seed) == set(par_per_seed), "Wilcoxon per-seed key set diverged between serial and parallel"
         for key, ser_arr in ser_per_seed.items():
             par_arr = par_per_seed[key]

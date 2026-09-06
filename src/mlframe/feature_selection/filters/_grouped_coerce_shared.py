@@ -94,3 +94,31 @@ def coerce_X_for_grouped(X: "pd.DataFrame | Any", group_col: str, num_col: str, 
     if isinstance(X, np.ndarray) and X.dtype.names is not None:
         return pd.DataFrame({group_col: X[group_col], num_col: X[num_col]})
     raise TypeError(f"recipe '{recipe_name}': cannot extract {group_col!r}/{num_col!r} from X of type {type(X).__name__}")
+
+def auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 4, caller: str = 'grouped FE') -> list:
+    """Pick up to ``max_cols`` candidate grouping columns, preferring the shared detector.
+
+    Falls back to a plain low/medium-cardinality non-float scan when ``detect_group_column_candidates``
+    cannot be imported. ``caller`` only labels the debug line -- it was the sole difference between the
+    three module-local copies this replaces, which is exactly the shape that drifts on the next fix.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+    try:
+        from ...training.composite import detect_group_column_candidates
+
+        cands = detect_group_column_candidates(X)
+        return [name for name, _info in cands[:max_cols]]
+    except Exception as _e:
+        logger.debug("%s auto-detect: detector import failed (%s); using fallback cardinality scan.", caller, _e)
+        out: list = []
+        n = len(X)
+        for c in X.columns:
+            col = X[c]
+            if pd.api.types.is_float_dtype(col):
+                continue
+            nun = int(col.nunique(dropna=True))
+            if 3 <= nun <= min(500, max(3, n // 2)):
+                out.append(str(c))
+        return out[:max_cols]

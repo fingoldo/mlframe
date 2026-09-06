@@ -28,6 +28,11 @@ from mlframe.feature_selection.filters import _cat_confirm_permutation as _ccp
 from mlframe.feature_selection.filters._cat_confirm_permutation import _confirm_pairs_via_permutation
 from mlframe.feature_selection.filters.info_theory._class_encoding import merge_vars
 
+# Interaction information per pair, chosen so the permutation null is neither always nor never exceeded.
+# At the previous 0.0005 every permutation exceeded it, so p == 1.0 and every confidence was exactly 0.0 --
+# the bit-identity comparison below then read 0.0 == 0.0 and held for any implementation at all.
+II_NONDEGENERATE = 0.005
+
 
 def _make_data(n=3000, n_cols=5, n_y=3, seed=11):
     """Make data."""
@@ -54,11 +59,20 @@ def _reference_confidence(
 ):
     """Pre-fix replica: single-column merge_vars re-derived fresh per pair (no cache)."""
     from mlframe.feature_selection.filters._cat_confirm_permutation import (
+        _count_nfailed_joint_indep_prange,
         _count_nfailed_joint_indep_serial,
+        _perm_kernel_backend_choice,
+    )
+
+    # Production picks serial vs prange per host through this helper; hardcoding one of them here made the
+    # reference drift from what it claims to mirror the moment the tuned choice on a host was the other one.
+    _kernel = (
+        _count_nfailed_joint_indep_serial
+        if _perm_kernel_backend_choice(factors_data.shape[0], cfg.full_npermutations) == "cpu_serial"
+        else _count_nfailed_joint_indep_prange
     )
 
     n_perms = cfg.full_npermutations
-    factors_data.shape[0]
     confidence_dict = {}
     for j, k in enumerate(selected_idx):
         i = int(pairs_a[k])
@@ -85,7 +99,7 @@ def _reference_confidence(
             factors_nbins=nbins,
             dtype=dtype,
         )
-        n_failed = _count_nfailed_joint_indep_serial(
+        n_failed = _kernel(
             cls_pair,
             fq_pair,
             cls_x1,
@@ -125,7 +139,7 @@ def test_single_merge_cache_reduces_merge_vars_call_count(monkeypatch):
     )
     pairs, pairs_a, pairs_b = _star_pairs(n_cols=5)
     selected_idx = np.arange(len(pairs))
-    ii_arr = np.full(len(pairs), 0.0005, dtype=np.float64)
+    ii_arr = np.full(len(pairs), II_NONDEGENERATE, dtype=np.float64)
 
     calls: list = []
     real_merge_vars = _ccp.merge_vars
@@ -180,7 +194,7 @@ def test_single_merge_cache_bit_identical_to_uncached_reference(n_perms):
     )
     pairs, pairs_a, pairs_b = _star_pairs(n_cols=5)
     selected_idx = np.arange(len(pairs))
-    ii_arr = np.full(len(pairs), 0.0005, dtype=np.float64)
+    ii_arr = np.full(len(pairs), II_NONDEGENERATE, dtype=np.float64)
 
     cfg = CatFEConfig(full_npermutations=n_perms, permutation_null="joint_independence", fwer_correction="none")
 
@@ -212,5 +226,7 @@ def test_single_merge_cache_bit_identical_to_uncached_reference(n_perms):
     )
 
     assert set(conf) == set(ref)
+    values = list(ref.values())
+    assert all(0.0 < v < 1.0 for v in values), f"the fixture saturated the permutation null; confidences {values} make the comparison below vacuous"
     for key in ref:
         assert conf[key] == ref[key], f"single-merge cache changed confidence for {key}: {conf[key]!r} != reference {ref[key]!r}"

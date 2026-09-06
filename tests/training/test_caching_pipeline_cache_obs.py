@@ -7,7 +7,6 @@ overhead per get/set is microsecond-scale (negligible).
 
 from __future__ import annotations
 
-import time
 
 import pandas as pd
 
@@ -55,14 +54,34 @@ def test_pipeline_cache_size_bytes_grows_when_keys_added():
     assert grown > base
 
 
-def test_pipeline_cache_observability_overhead_is_negligible():
-    """Counters + verbose=False guard must add < ~1us per call."""
+def test_pipeline_cache_observability_costs_nothing_when_quiet(monkeypatch):
+    """The counters must still move with ``verbose=False``, and the log formatting must not run.
+
+    That is what the per-call budget stood in for. 10us per call is a claim about the host: the nightly
+    coverage job traces every line and a contended worker multiplies per-call Python overhead severalfold,
+    on entirely correct code -- while an unguarded ``logger.info`` could still slip under the budget on a
+    fast box with logging disabled, which is the regression it names.
+    """
+    from mlframe.training.strategies import pipeline_cache as pc
+
     cache = PipelineCache(verbose=False)
     cache.set("k", None, None, None)
-    n = 50_000
-    t0 = time.perf_counter()
-    for _ in range(n):
+
+    logged = []
+    monkeypatch.setattr(pc.logger, "info", lambda *a, **k: logged.append(1))
+
+    hits_before, misses_before = cache.n_hits, cache.n_misses
+    for _ in range(50):
         cache.get("k")
-    elapsed = time.perf_counter() - t0
-    # Per-call overhead well under 10us is enough headroom for slow CI boxes.
-    assert (elapsed / n) < 1e-5, f"PipelineCache.get overhead too high: {elapsed / n:.3e}s/call"
+    for _ in range(10):
+        cache.get("absent")
+
+    assert not logged, f"a quiet cache emitted {len(logged)} log lines; the verbose guard is not in front of the formatting"
+    assert cache.n_hits - hits_before == 50, f"the hit counter moved by {cache.n_hits - hits_before}, not 50"
+    assert cache.n_misses - misses_before == 10, f"the miss counter moved by {cache.n_misses - misses_before}, not 10"
+
+    # And the guard must be a guard, not a removal: a verbose cache still reports.
+    loud = PipelineCache(verbose=True)
+    loud.set("k", None, None, None)
+    loud.get("k")
+    assert logged, "a verbose cache emitted nothing; the observability this test is named for is gone"

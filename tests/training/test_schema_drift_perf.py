@@ -17,14 +17,13 @@ from __future__ import annotations
 
 import io
 import logging
-import time
 
 import polars as pl
 
 from mlframe.training.pipeline import _warn_on_schema_drift
 
 
-def test_schema_drift_dtype_compare_under_100ms():
+def test_schema_drift_compares_dtypes_by_string_not_natively(caplog):
     """100 _warn_on_schema_drift calls on a 4-col schema must stay
     under 100ms (i.e. ~1ms each). Pre-fix: ~270ms per call ->
     27000ms for 100 calls. The ceiling at 100ms catches reintroduction
@@ -48,18 +47,47 @@ def test_schema_drift_dtype_compare_under_100ms():
     )
     train_schema = dict(train.schema)
 
-    t0 = time.perf_counter()
-    for _ in range(100):
-        _warn_on_schema_drift(train_schema, val, "val")
-    elapsed_ms = (time.perf_counter() - t0) * 1000
+    # The fix compares dtypes by ``str()`` rather than natively, because a native ``!=`` on some dtype
+    # values dispatched into pandas' ``Index.__eq__`` / ``Series.equals`` machinery (~270ms per call). That
+    # is a question about which comparison runs, so ask it directly: a tripwire dtype whose ``__eq__`` /
+    # ``__ne__`` record being called, but whose ``str()`` matches the real dtype so no drift is reported.
+    # A 100ms budget for 100 calls is 1ms each, which the nightly coverage job's line tracing inflates on
+    # correct code, and which the slow path could still slip under on a frame with fewer columns.
+    comparisons = []
 
-    assert elapsed_ms < 100.0, (
-        f"_warn_on_schema_drift x100 took {elapsed_ms:.1f}ms; expected "
-        f"<100ms. Slow path regression -- check whether dtype comparison "
-        f"is dispatching to pandas Series.equals via Index.__eq__. The "
-        f"fix uses str(dtype) compare which is microseconds; native "
-        f"dtype != was hitting ~270ms per call."
-    )
+    class _DtypeTripwire:
+        """Stands in for a dtype whose native comparison is expensive."""
+
+        def __init__(self, real):
+            """Remember what this dtype renders as."""
+            self._real = real
+
+        def __eq__(self, other):
+            """Record a native comparison."""
+            comparisons.append("eq")
+            return str(self._real) == str(other)
+
+        def __ne__(self, other):
+            """Record a native comparison."""
+            comparisons.append("ne")
+            return str(self._real) != str(other)
+
+        def __hash__(self):
+            """Keep the object usable as a dict value in a set-based caller."""
+            return hash(str(self._real))
+
+        def __str__(self):
+            """Render exactly as the real dtype, so no drift is reported."""
+            return str(self._real)
+
+    tripwired = {col: _DtypeTripwire(dtype) for col, dtype in train_schema.items()}
+
+    with caplog.at_level(logging.WARNING):
+        for _ in range(100):
+            _warn_on_schema_drift(tripwired, val, "val")
+
+    assert not comparisons, f"the dtype check made {len(comparisons)} native comparisons; it is not comparing via str() and can dispatch into pandas' Index.__eq__ machinery"
+    assert not [r for r in caplog.records if "dtype" in r.getMessage()], "the tripwire dtypes were reported as drift, so this test is not exercising the equal-dtype path it means to"
 
 
 def test_schema_drift_silent_on_identical():

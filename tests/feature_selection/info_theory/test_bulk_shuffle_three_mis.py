@@ -22,7 +22,6 @@ This test pins:
 
 from __future__ import annotations
 
-import time
 
 import numpy as np
 import pytest
@@ -31,6 +30,7 @@ from mlframe.feature_selection.filters.cat_interactions import (
     _bulk_shuffle_and_compute_three_mis,
     _shuffle_and_compute_three_mis,
 )
+from tests._perf_paired import assert_paired_speedup
 
 
 def _build_inputs(n: int = 50_000):
@@ -217,44 +217,14 @@ def test_biz_value_bulk_faster_than_serial():
         np.int32,
     )
 
-    iters = 10
-
-    t0 = time.perf_counter()
-    for _ in range(iters):
+    def _serial():
+        """Helper: the per-permutation serial arm the bulk prange kernel must beat."""
         for _ in range(n_perms):
             cy_local = cy.copy()
-            _shuffle_and_compute_three_mis(
-                cp_,
-                fp_,
-                cx1,
-                fx1,
-                cx2,
-                fx2,
-                cy_local,
-                fy,
-                np.uint64(0xC0FFEE),
-                np.int32,
-            )
-    t_serial = time.perf_counter() - t0
+            _shuffle_and_compute_three_mis(cp_, fp_, cx1, fx1, cx2, fx2, cy_local, fy, np.uint64(0xC0FFEE), np.int32)
 
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        _bulk_shuffle_and_compute_three_mis(
-            cp_,
-            fp_,
-            cx1,
-            fx1,
-            cx2,
-            fx2,
-            cy,
-            fy,
-            n_perms,
-            np.uint64(0xC0FFEE),
-            np.int32,
-        )
-    t_bulk = time.perf_counter() - t0
+    def _bulk():
+        """Helper: one bulk prange call covering all ``n_perms`` permutations."""
+        _bulk_shuffle_and_compute_three_mis(cp_, fp_, cx1, fx1, cx2, fx2, cy, fy, n_perms, np.uint64(0xC0FFEE), np.int32)
 
-    speedup = t_serial / t_bulk
-    assert (
-        speedup >= 2.0
-    ), f"bulk parallel-prange not delivering: speedup={speedup:.2f}x (serial={t_serial * 1000 / iters:.2f}ms, bulk={t_bulk * 1000 / iters:.2f}ms)"
+    assert_paired_speedup(_serial, _bulk, base_ratio=2.0, n_trials=5, what="the bulk parallel-prange kernel")

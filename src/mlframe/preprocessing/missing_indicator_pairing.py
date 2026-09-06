@@ -70,6 +70,14 @@ def fit_missing_indicator_imputation(
             )
         logger.debug("fit_missing_indicator_imputation: excluding group_col %r from the imputed columns.", group_col)
         cols = [c for c in cols if c != group_col]
+        if not cols:
+            # Everything the caller asked to impute was the grouping key itself, so the fit loop below would
+            # do no work and return an identity state -- a silent no-op where the caller expected imputation.
+            raise ValueError(
+                f"fit_missing_indicator_imputation: after excluding group_col={group_col!r} there are no columns left "
+                "to impute. The grouping key cannot be imputed by the same call that groups by it -- impute it "
+                "separately first, or pass other columns."
+            )
     group_by = df.groupby(group_col, dropna=False) if group_col is not None else None
 
     columns_state: Dict[str, Dict[str, Any]] = {}

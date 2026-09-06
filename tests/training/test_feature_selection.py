@@ -18,6 +18,8 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from catboost import CatBoostClassifier, CatBoostRegressor
 from .shared import SimpleFeaturesAndTargetsExtractor
 
+from tests.conftest import perf_time_budget
+
 # Deterministic RNG (single seed per module).
 _W53_RNG = __import__("numpy").random.default_rng(0)
 
@@ -738,7 +740,7 @@ class TestFeatureSelectionEdgeCases:
         elapsed = time.time() - start
 
         # Should finish within reasonable time (allowing some overhead)
-        assert elapsed < 60  # 1 minute max including overhead
+        assert elapsed < perf_time_budget(60)  # 1 minute max including overhead
 
 
 # ================================================================================================

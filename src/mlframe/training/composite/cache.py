@@ -168,15 +168,19 @@ def _row_order_fingerprint(df: Any, n_edge: int = 8) -> str:
             # the prior whole-frame scan silently undid the data_signature
             # gather optimisation (multi-second + multi-GB per cache lookup).
             head_hashes = df.slice(0, n_take).hash_rows().to_numpy()
-            payload = np.ascontiguousarray(head_hashes).tobytes()
+            # Fed incrementally rather than concatenated: the byte sequence hashed is the same, and a buffer
+            # read cannot be joined with `+` the way a bytes copy could.
+            _h = hashlib.blake2b(digest_size=8)
+            _h.update(np.ascontiguousarray(head_hashes).data)
             # Tail slice: only add a distinct tail when the frame is wider than the prefix,
             # else head already covers every row and a tail slice would re-hash the same rows
             # (the head-only digest stays unchanged for small frames -- bounded duplication).
             if height > n_take:
                 n_tail = min(height - n_take, _ROW_ORDER_PREFIX_ROWS)
                 tail_hashes = df.slice(height - n_tail, n_tail).hash_rows().to_numpy()
-                payload += b"|" + np.ascontiguousarray(tail_hashes).tobytes()
-            return hashlib.blake2b(payload, digest_size=8).hexdigest()
+                _h.update(b"|")
+                _h.update(np.ascontiguousarray(tail_hashes).data)
+            return _h.hexdigest()
         elif isinstance(df, pd.DataFrame):
             n_take = min(len(df), n_edge)
             if n_take == 0:
@@ -411,7 +415,7 @@ def data_signature(
                             h.update(f"intmin={int(mn)};intmax={int(mx)};null={nc}".encode())
                     # Sample bytes via gather (O(sample_n) materialisation only).
                     sampled = df.get_column(c).gather(sample_idx).to_numpy()
-                    h.update(np.ascontiguousarray(sampled).tobytes())
+                    h.update(np.ascontiguousarray(sampled).data)
     elif isinstance(df, pd.DataFrame):
         # Pandas: no equivalent of polars lazy-frame multi-column aggregate without materialising
         # the column, so we still call ``df[c].to_numpy()`` once per column. We at least avoid the
@@ -433,7 +437,7 @@ def data_signature(
                 # discovery cache never hits on real frames. Hash the content.
                 h.update("\x00".join(map(str, sampled.tolist())).encode("utf-8"))
             else:
-                h.update(np.ascontiguousarray(sampled).tobytes())
+                h.update(np.ascontiguousarray(sampled).data)
     else:
         raise TypeError(f"data_signature: unsupported df type {type(df).__name__}")
     return h.hexdigest()
@@ -583,7 +587,7 @@ def prebin_matrix_signature(feature_matrix: np.ndarray, nbins: int) -> str:
     h.update(b"|shape=")
     h.update(str(arr.shape).encode("utf-8"))
     h.update(b"|data=")
-    h.update(arr.tobytes())
+    h.update(np.ascontiguousarray(arr).data)
     return h.hexdigest()
 
 

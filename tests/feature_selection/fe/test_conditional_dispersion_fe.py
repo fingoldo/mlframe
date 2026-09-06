@@ -344,7 +344,7 @@ class TestConditionalDispersionDoesNotPerturbCanonical:
         fs_off.fit(df.copy(), pd.Series(y, name="y"))
 
         # The dispersion stage admits NO column on the (homoscedastic-in-x) fixture.
-        assert list(getattr(fs_on, "conditional_dispersion_features_", []) or []) == [], "dispersion crowded the canonical fixture (should self-limit to 0)"
+        assert list(fs_on.conditional_dispersion_features_) == [], "dispersion crowded the canonical fixture (should self-limit to 0)"
         eng_on = sorted(n for n in fs_on.get_feature_names_out() if n not in RAW)
         eng_off = sorted(n for n in fs_off.get_feature_names_out() if n not in RAW)
         assert eng_on == eng_off, f"dispersion DEFAULT-ON perturbed the engineered set:\n  ON ={eng_on}\n  OFF={eng_off}"
@@ -400,36 +400,47 @@ class TestConditionalDispersionMRMRIntegration:
 # ===========================================================================
 # CPROFILE perf guard
 # ===========================================================================
-def test_cprofile_hotspot_within_budget():
-    """cProfile the dispersion generation on the n=4000 fixture; assert the
-    wall time stays within a generous budget (O(n^2) regression guard). Prints
-    the top hotspots for the perf log."""
+def test_generation_does_not_scale_quadratically_in_n():
+    """The O(n^2) regression guard, measured as a scaling exponent rather than as a wall-clock budget.
+
+    The previous form timed five repetitions with `cProfile.Profile()` enabled around the timed region and
+    asserted `wall < 12.0`. cProfile's overhead is a function of call count, which moves with the Python
+    minor version, with library versions, and by orders of magnitude under NUMBA_DISABLE_JIT=1 -- so the
+    number measured was not the code's wall, and 12s was a property of one host. A per-doubling ratio is
+    dimensionless: host speed cancels, and it is what "not quadratic" actually means.
+    """
     import cProfile
     import io
     import pstats
 
-    X, _y, _sd = _hetero_fixture(seed=0, n=4000)
-    rng = np.random.default_rng(5)
-    for k in range(4):
-        X[f"g{k}"] = rng.standard_normal(len(X))
+    def _timed(n: int) -> float:
+        """Best of three runs of one generation pass at row count `n`, in seconds."""
+        X, _y, _sd = _hetero_fixture(seed=0, n=n)
+        rng = np.random.default_rng(5)
+        for k in range(4):
+            X[f"g{k}"] = rng.standard_normal(len(X))
+        cols = list(X.columns)
+        generate_conditional_dispersion_features(X, cols, n_bins=10, kinds=("absz", "z2"))  # warm
+        best = float("inf")
+        for _ in range(3):
+            t0 = time.perf_counter()
+            generate_conditional_dispersion_features(X, cols, n_bins=10, kinds=("absz", "z2"))
+            best = min(best, time.perf_counter() - t0)
+        return best
 
-    def _run():
-        """Call generate_conditional_dispersion_features 5 times in a row on the shared fixture, for a repeat-call timing/stability probe."""
-        for _ in range(5):
-            generate_conditional_dispersion_features(
-                X,
-                list(X.columns),
-                n_bins=10,
-                kinds=("absz", "z2"),
-            )
+    sizes = (2_000, 4_000, 8_000, 16_000)
+    times = [_timed(n) for n in sizes]
+    ratios = [times[i + 1] / max(times[i], 1e-9) for i in range(len(times) - 1)]
+    median_ratio = sorted(ratios)[len(ratios) // 2]
 
-    pr = cProfile.Profile()
-    t0 = time.perf_counter()
-    pr.enable()
-    _run()
-    pr.disable()
-    wall = time.perf_counter() - t0
-    s = io.StringIO()
-    pstats.Stats(pr, stream=s).sort_stats("tottime").print_stats(8)
-    # 5 reps over a 6-col O(p^2)=30-pair fixture at n=4000; generous 12s budget.
-    assert wall < 12.0, f"dispersion generation too slow: {wall:.2f}s (>12s)\n{s.getvalue()}"
+    # Linear in n is 2.0 per doubling, quadratic is 4.0. 3.0 leaves room for the constant-cost floor at the
+    # small sizes (which pushes the ratio DOWN) and for scheduler noise, while still tripping on a genuine
+    # collapse to a per-pair O(n^2) scan.
+    if median_ratio >= 3.0:
+        pr = cProfile.Profile()
+        pr.enable()
+        _timed(8_000)
+        pr.disable()
+        buf = io.StringIO()
+        pstats.Stats(pr, stream=buf).sort_stats("tottime").print_stats(8)
+        raise AssertionError(f"conditional-dispersion generation scales at {median_ratio:.2f}x per doubling of n (ratios {ratios}, times {times})\n{buf.getvalue()}")

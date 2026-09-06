@@ -152,7 +152,10 @@ def cmi_permutation_stop(x_cand: np.ndarray, y: np.ndarray,
     # itself one draw under the null, so a Monte-Carlo permutation p-value can never be exactly 0. Naive
     # ``mean(null >= observed)`` can return 0 and overstate significance.
     n_exceed = int(np.count_nonzero(null_dist >= observed))
-    p_value = (1.0 + n_exceed) / (int(n_permutations) + 1.0)
+    # Through the canonical helper so `MLFRAME_MRMR_ADDONE_PVALUE` reaches this site too.
+    from .permutation import _perm_pvalue
+
+    p_value = _perm_pvalue(n_exceed, int(n_permutations))
     return p_value < alpha, float(observed), p_value
 
 

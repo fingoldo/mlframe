@@ -23,6 +23,7 @@ single MI or R^2 metric cannot.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import threading
 
@@ -52,9 +53,19 @@ def _baseline_cv_key(X_base: np.ndarray, y: np.ndarray, *, classification: bool,
     """Content-hash cache key for the ``X_base``-only CV baseline, or ``None`` when the
     inputs cannot be hashed cheaply (falls back to always recomputing - never crashes)."""
     try:
+        # `h.update(a.data)` consumes the buffer; `.tobytes()` first materialises a full copy of it, and this key is
+        # rebuilt for EVERY engineered sibling, so the copies are paid per candidate against the whole X_base.
+        # blake2b rather than `hash(bytes)` because a 64-bit truncation that collides returns the WRONG cached
+        # baseline silently; the dtype is part of the key because same-shape float32 and int32 buffers are the same
+        # bytes and would otherwise share an entry.
+        h = hashlib.blake2b(digest_size=16)
+        h.update(np.ascontiguousarray(X_base).data)
+        h.update(b"|y|")
+        h.update(np.ascontiguousarray(y).data)
         return (
-            X_base.shape, hash(X_base.tobytes()),
-            y.shape, hash(y.tobytes()),
+            X_base.shape, X_base.dtype.str,
+            y.shape, y.dtype.str,
+            h.digest(),
             bool(classification), int(n_splits), int(seed),
         )
     except Exception as e:

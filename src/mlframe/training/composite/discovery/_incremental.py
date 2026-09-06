@@ -184,13 +184,14 @@ def _rescore_spec_gain(
 
 
 def _frame_columns(df: Any) -> Any:
-    """Column-name set for a pandas / polars frame (cheap, no materialisation)."""
-    cols = getattr(df, "columns", None)
-    if cols is None:
-        return set()
-    # polars ``.columns`` is a list; pandas ``.columns`` is an Index -- both
-    # iterate to the column names. ``set`` makes the membership test O(1).
-    return set(cols)
+    """Column-name SET for a pandas / polars frame -- this caller does membership tests and wants them O(1).
+
+    Deliberately not the shared helper's list return: the set is the point here, which is why the three
+    copies of this name were never interchangeable.
+    """
+    from .._frame_columns import frame_columns
+
+    return set(frame_columns(df))
 
 
 def incremental_discovery_check(

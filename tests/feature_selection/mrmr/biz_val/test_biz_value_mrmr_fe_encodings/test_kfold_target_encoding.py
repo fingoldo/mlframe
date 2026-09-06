@@ -447,7 +447,7 @@ class TestDefaultDisabledByteIdentical:
         m = _make_mrmr(fe_ntop_features=3, fe_kfold_te_enable=False)
         m.fit(X, y)
         # Master OFF -> kfold_te_features_ stays empty.
-        assert getattr(m, "kfold_te_features_", []) == []
+        assert m.kfold_te_features_ == []
 
     def test_transform_unchanged_when_disabled(self):
         """With ``fe_kfold_te_enable=False`` (pinned OFF here; the constructor default is now True), transform output is bit-identical to a fresh instance with

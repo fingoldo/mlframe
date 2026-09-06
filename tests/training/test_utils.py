@@ -28,6 +28,8 @@ from mlframe.training.io import (
     load_mlframe_model,
 )
 
+from tests.conftest import perf_time_budget
+
 # ================================================================================================
 # Save/Load Model Tests
 # ================================================================================================
@@ -546,7 +548,7 @@ class TestPolarsSliceDictionaryDiffers:
         elapsed = time.perf_counter() - t0
 
         assert out.shape == (500_000, 1)
-        assert elapsed < 5.0, f"polars→pandas on 500k × 1 Categorical with 500k uniques took {elapsed:.1f}s — dict-rebuild path likely regressed"
+        assert elapsed < perf_time_budget(5.0), f"polars→pandas on 500k × 1 Categorical with 500k uniques took {elapsed:.1f}s — dict-rebuild path likely regressed"
 
     def test_empty_polars_dataframe(self):
         """Edge case: empty DF with typed column must round-trip without error."""
@@ -1029,7 +1031,12 @@ class TestHypothesisSaveLoad:
             max_size=5,
         )
     )
-    @settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
+    # deadline=None: each example writes and reads a real zstd file in a TemporaryDirectory, so the
+    # per-example time is dominated by filesystem I/O and is not a property of the code under test.
+    # Hypothesis's 200ms default tripped at 232ms purely from concurrent load on the box, and the
+    # retry it then performs reported the result as FlakyFailure rather than as the timing artefact it
+    # is. The property being asserted here is round-trip equality, which has no time component.
+    @settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow], deadline=None)
     def test_roundtrip_preserves_dict(self, model_data):
         """Property: save then load should return identical dict."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1048,7 +1055,7 @@ class TestHypothesisSaveLoad:
             max_size=100,
         )
     )
-    @settings(max_examples=20)
+    @settings(max_examples=20, deadline=None)  # same filesystem-I/O-per-example reasoning as above
     def test_roundtrip_preserves_numpy_array(self, float_list):
         """Property: numpy arrays should be preserved after save/load."""
         arr = np.array(float_list)

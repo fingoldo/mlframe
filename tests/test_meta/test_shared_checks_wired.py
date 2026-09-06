@@ -108,6 +108,67 @@ def test_dev_requirements_git_dependencies_are_pinned_or_first_party():
     assert_all_git_dependencies_pinned(req, allow_unpinned_url_prefixes=_FIRST_PARTY_GIT_PREFIXES)
 
 
+def test_every_from_import_resolves():
+    """A `from X import Y` naming something X does not define is invisible until that code loads.
+
+    At module scope it is an ImportError at COLLECTION, and pytest-split collects the whole tree in every
+    shard -- one removed helper took 39 of 40 shards red here. Inside a function it waits for the branch: a
+    `from ..linear_model import LinearRegression` in the `if self.regressor is None:` arm of
+    `ESTransformedTargetRegressor.fit` broke the DOCUMENTED DEFAULT while every test passing an explicit
+    regressor stayed green, and `mlframe.linear_model` never existed at all.
+
+    Static resolution -- the target is parsed, never imported -- so this costs no side effects and covers
+    modules whose imports are expensive or hardware-dependent.
+    """
+    from py_ci_shared.unresolved_imports import assert_all_from_imports_resolve
+
+    assert_all_from_imports_resolve(
+        # scripts/, profiling/ and benchmarks/ are scanned too. They sit outside `testpaths`, so nothing
+        # collects them and CI stays green while they rot: a package reorganisation left 9 dead module paths
+        # across 23 import sites there, and every one of those reproducibility benchmarks was silently
+        # unrunnable -- anyone returning to re-measure a perf claim got a ModuleNotFoundError, not a number.
+        scan_roots=[REPO_ROOT / "src", REPO_ROOT / "tests", REPO_ROOT / "scripts", REPO_ROOT / "profiling", REPO_ROOT / "benchmarks"],
+        package_roots=[REPO_ROOT / "src"],
+        resolvable_prefixes=("mlframe",),
+        allowlist=(),
+    )
+
+
+def test_no_epsilon_padded_power_denominators():
+    """`a / (b + 1e-12)` is safe while b's scale sits near 1, and unsafe the moment b is a power.
+
+    A power falls off geometrically, so a fixed pad stops being negligible at ordinary inputs and starts
+    deciding the result -- with nothing raising. Both instances this caught lived in spatial.py and passed
+    their own suites, whose fixtures used coordinates of order 1 where the pad genuinely is negligible:
+    `k / (r**d + 1e-12)` returned 9.999e12 for a true 1e17 at d=8, r=0.01, and `1.0 / (dist**power + 1e-12)`
+    turned inverse-distance weights into [0.282, 0.282, 0.266, 0.170] where the true weights were
+    [0.940, 0.059, 0.0015, 0.0001] -- an almost unweighted average.
+
+    `_benchmarks` is excluded: a frozen bench copy is meant to keep the shape it was frozen with, which is
+    the whole point of comparing against it.
+    """
+    from py_ci_shared.epsilon_padded_denominators import assert_no_epsilon_padded_power_denominators
+
+    assert_no_epsilon_padded_power_denominators(
+        [REPO_ROOT / "src"],
+        exclude=("_benchmarks", "_cpx36_baseline"),
+    )
+
+def test_no_hash_is_fed_by_an_array_copy():
+    """`h.update(a.tobytes())` allocates a second copy of the whole array purely to be hashed.
+
+    `h.update(np.ascontiguousarray(a).data)` hands the hash the existing buffer and produces the identical
+    digest. The sites this replaced hashed whole training frames -- a KeyBank fingerprint over X_train, a
+    collinearity cache key over the feature matrix, an RFECV signature over X and y -- on data this package
+    sizes in the tens of gigabytes, with the copy paid on every cache lookup.
+
+    Sites where the rewrite does not apply are not reported: `hash()` and dict keys need a hashable object
+    and a memoryview is not one, and a `+`-joined payload has to be restructured rather than substituted.
+    """
+    from py_ci_shared.hash_fed_by_array_copy import assert_no_hash_fed_by_array_copy
+
+    assert_no_hash_fed_by_array_copy([REPO_ROOT / "src"], exclude=("_benchmarks", "_cpx36_baseline"))
+
 def test_repo_hygiene():
     """No tracked generated files, and no numeric CI gate that passes when its own input broke.
 

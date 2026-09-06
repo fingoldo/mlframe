@@ -41,7 +41,7 @@ at fit time, so ``transform`` is leakage-free by construction.
 """
 from __future__ import annotations
 
-from ._grouped_coerce_shared import coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols
+from ._grouped_coerce_shared import auto_detect_group_cols, coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols
 
 import logging
 from typing import Optional, Sequence
@@ -90,39 +90,18 @@ def engineered_name_grouped_ratio(num_col: str, group_col: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _agg_func_for_stat(stat: str):
-    """Return a pandas-groupby-compatible aggregator for ``stat``.
+def _agg_func_for_stat(stat: str) -> str:
+    """Pandas groupby-agg name for ``stat``; this module's set does NOT include ``count``."""
+    from ._agg_stat_helpers import agg_func_for_stat
 
-    ``nunique`` / ``skew`` are named methods; the rest map straight through.
-    All operate NaN-skipping per pandas default, matching the global fallback
-    computed with ``np.nan*`` below.
-    """
-    if stat in ("mean", "std", "min", "max", "median", "skew", "nunique"):
-        return stat
-    raise ValueError(f"grouped_agg: unknown stat {stat!r}; valid: {STAT_NAMES}")
+    return agg_func_for_stat(stat, STAT_NAMES, "grouped_agg")
 
 
 def _global_value_for_stat(x: np.ndarray, stat: str) -> float:
     """Global fallback statistic for unseen groups at replay time."""
-    finite = x[np.isfinite(x)]
-    if finite.size == 0:
-        return 0.0
-    if stat == "mean":
-        return float(np.mean(finite))
-    if stat == "std":
-        s = float(np.std(finite, ddof=1)) if finite.size > 1 else 0.0
-        return s
-    if stat == "min":
-        return float(np.min(finite))
-    if stat == "max":
-        return float(np.max(finite))
-    if stat == "median":
-        return float(np.median(finite))
-    if stat == "nunique":
-        return float(np.unique(finite).size)
-    if stat == "skew":
-        return float(pd.Series(finite).skew()) if finite.size > 2 else 0.0
-    raise ValueError(f"grouped_agg: unknown stat {stat!r}")
+    from ._agg_stat_helpers import global_value_for_stat
+
+    return global_value_for_stat(stat, x, "grouped_agg")
 
 
 def _broadcast_lookup(
@@ -480,34 +459,6 @@ def score_grouped_agg_by_cmi_uplift(
 # ---------------------------------------------------------------------------
 
 
-def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 4) -> list[str]:
-    """Auto-detect group columns via the int-as-cat heuristic. Reuses the
-    composite_auto_detect detector (cardinality 3..500); falls back to a
-    self-contained scan if that import is unavailable.
-    """
-    try:
-        from ...training.composite import (
-            detect_group_column_candidates,
-        )
-        cands = detect_group_column_candidates(X)
-        return [name for name, _info in cands[:max_cols]]
-    except Exception as _e:
-        logger.debug(
-            "grouped_agg auto-detect: detector import failed (%s); using " "fallback cardinality scan.",
-            _e,
-        )
-        out: list[str] = []
-        n = len(X)
-        for c in X.columns:
-            col = X[c]
-            if pd.api.types.is_float_dtype(col):
-                continue
-            nun = int(col.nunique(dropna=True))
-            if 3 <= nun <= min(500, max(3, n // 2)):
-                out.append(str(c))
-        return out[:max_cols]
-
-
 def _filter_num_cols_by_relevance(
     X: pd.DataFrame, y, num_cols: Sequence[str], *, n_bins: int = 10,
     rel_ratio: float = 0.10, abs_floor: float = 0.01,
@@ -571,7 +522,7 @@ def hybrid_grouped_agg_fe(
     if not isinstance(X, pd.DataFrame):
         raise TypeError(f"hybrid_grouped_agg_fe: X must be a pandas DataFrame; got " f"{type(X).__name__}")
     if group_cols is None or len(group_cols) == 0:
-        group_cols = _auto_detect_group_cols(X)
+        group_cols = auto_detect_group_cols(X, caller="grouped_agg")
     else:
         group_cols = [c for c in group_cols if c in X.columns]
     if not group_cols:

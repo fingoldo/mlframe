@@ -15,6 +15,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from tests.conftest import perf_time_budget
+
 _PHASE_HELPERS_PATH = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "training" / "core" / "_phase_helpers.py"
 
 
@@ -93,4 +95,4 @@ def test_S49_shallow_memory_usage_is_fast_and_returns_finite_bytes():
     elapsed = time.perf_counter() - t0
     assert sz > 0
     # Generous ceiling so concurrent-agent paging pressure doesn't trip the test.
-    assert elapsed < 1.0, f"memory_usage(deep=False) took {elapsed:.3f}s; expected <1s on shallow scan"
+    assert elapsed < perf_time_budget(1.0), f"memory_usage(deep=False) took {elapsed:.3f}s; expected <1s on shallow scan"

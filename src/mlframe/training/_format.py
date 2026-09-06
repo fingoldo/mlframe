@@ -17,11 +17,12 @@ Two responsibilities:
    ``XGBRegressor`` / ``LGBMRegressor`` instead of the implementation
    detail.
 
-3. ``short_model_name(name_or_cls)`` -- compose of the two above plus
-   the existing ``CatBoost*``/``XGB*``/``LGBM*`` collapsing used by
-   :func:`mlframe.training.core._short_model_tag`. The single entry
-   point any new code should call when it needs a short, user-facing
-   model name.
+3. :func:`short_model_tag` -- composes the two above with the
+   ``CatBoost*``/``XGB*``/``LGBM*`` collapsing. The single entry point
+   any new code should call when it needs a short, user-facing model
+   name. (This item previously named a ``short_model_name`` function
+   and cited a ``_short_model_tag`` one; neither exists, here or
+   anywhere else in the package.)
 """
 from __future__ import annotations
 

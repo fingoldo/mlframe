@@ -565,6 +565,41 @@ def make_default_estimator(classification: bool, random_state: int = 0, n_estima
     return XGBClassifier(**params, eval_metric="logloss") if classification else XGBRegressor(**params)
 
 
+class _StreamingPhiVariance:
+    """Streaming model-to-model variance of SHAP phi, accumulated by Welford rather than a raw second moment.
+
+    `var = sum(phi^2)/n - mean^2` loses the answer to cancellation whenever the spread is small next to the
+    values themselves, and that is the normal case here: a dominant feature's phi sits at 3-30 in margin space
+    while the spread across `n_models` fits of the SAME data is orders of magnitude smaller. Measured on eight
+    values at phi=10 with a spread of 1e-7, the raw form returns -1.42e-14 -- negative -- against a true
+    4.72e-15, and at phi=1000 it is out by eight orders of magnitude. A `clip(..., 0.0, None)` then turns that
+    into a confident zero: a caller reading 'the models agree exactly' where they merely agree closely.
+
+    Welford's update keeps the deviation, never the square of the value, so nothing large is subtracted from
+    anything large.
+    """
+
+    def __init__(self, shape: tuple) -> None:
+        """Start an empty accumulator for arrays of ``shape``."""
+        self.count = 0
+        self.mean = np.zeros(shape, dtype=np.float64)
+        self.m2 = np.zeros(shape, dtype=np.float64)
+
+    def update(self, phi: np.ndarray) -> None:
+        """Fold one model's phi matrix into the running mean and sum of squared deviations."""
+        self.count += 1
+        delta = phi - self.mean
+        self.mean += delta / self.count
+        self.m2 += delta * (phi - self.mean)
+
+    def variance(self, n_models: int) -> np.ndarray:
+        """Population variance over ``n_models`` fits.
+
+        The clip is a floor against the last bit: m2 is a sum of products of a deviation with a deviation and
+        cannot go negative except by rounding, unlike the difference of two large numbers it replaces.
+        """
+        return np.clip(self.m2 / n_models, 0.0, None)
+
 def compute_shap_matrix(
     model_template,
     X: pd.DataFrame,
@@ -718,8 +753,8 @@ def compute_shap_matrix(
         misses but the per-fold determinants happen to match (e.g. caller mutated something that
         feeds into the outer key without affecting any fold's fit data + seed)."""
         s = np.zeros((X_ex.shape[0], f), dtype=np.float64)
-        sq = np.zeros((X_ex.shape[0], f), dtype=np.float64)
         b = 0.0
+        _phi_var = _StreamingPhiVariance((X_ex.shape[0], f)) if return_variance else None
         for m in range(n_models):
             depth = _JITTER_DEPTHS[m % len(_JITTER_DEPTHS)] if config_jitter else None
             est = None
@@ -746,10 +781,12 @@ def compute_shap_matrix(
                         logger.debug("compute_shap_matrix: per-fold disk cache put failed (%s); skipping", exc)
             pf, bf = _shap_phi_and_base(_unwrap_estimator(est), X_ex, backend=shap_backend)
             s += pf
-            sq += pf * pf
             b += bf
+            if _phi_var is not None:
+                _phi_var.update(pf)
+        # The mean still comes from the plain sum, so it is bit-identical to what this returned before.
         mean = s / n_models
-        var = np.clip(sq / n_models - mean * mean, 0.0, None) if return_variance else None
+        var = _phi_var.variance(n_models) if _phi_var is not None else None
         return mean, b / n_models, var
 
     if not out_of_fold:

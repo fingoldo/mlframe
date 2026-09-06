@@ -12,10 +12,8 @@ change between fits). Mirrors the ``_PROBE_PRECISION_CACHE`` pattern
 (mlp_runtime_defaults.py iter181) and ``_CB_GPU_USABLE_CACHE`` (_cb_pool.py).
 """
 
-import time
 
-
-def test_lightning_external_callbacks_cached_per_group():
+def test_lightning_external_callbacks_cached_per_group(monkeypatch):
     """First call hits Lightning's slow path; second call must be near-instant
     (>=50x faster) and return an equivalent (but freshly-copied) list."""
     # Trigger the mlframe monkey-patch by importing the neural base.
@@ -27,14 +25,24 @@ def test_lightning_external_callbacks_cached_per_group():
     # call once to ensure cache populated, then measure subsequent calls).
     _load_external_callbacks(group)
 
-    # Now measure 10 cached calls.
-    t = time.perf_counter()
+    # The cache exists to stop Lightning re-scanning every installed distribution, and that scan goes
+    # through ``importlib.metadata.entry_points``. Counting those is exact; a 50ms budget for 10 calls is
+    # 5ms each, which the nightly coverage job's line tracing or a contended worker inflates on healthy
+    # code, and which an uninstalled cache could still slip under on a machine with few distributions.
+    import importlib.metadata
+
+    scans = []
+    real_entry_points = importlib.metadata.entry_points
+
+    def _counting_entry_points(*args, **kwargs):
+        """Record each full distribution scan."""
+        scans.append(1)
+        return real_entry_points(*args, **kwargs)
+
+    monkeypatch.setattr(importlib.metadata, "entry_points", _counting_entry_points)
     for _ in range(10):
         _load_external_callbacks(group)
-    elapsed_warm = time.perf_counter() - t
-    # 10 cached calls must complete in well under 50ms (typical ~0ms each;
-    # uncached would be ~1.8s for 10 calls).
-    assert elapsed_warm < 0.05, f"cached 10 calls took {elapsed_warm * 1000:.1f}ms; cache wrapper likely not installed (expected <50ms)"
+    assert not scans, f"10 cached calls triggered {len(scans)} entry-point scans; the cache wrapper is not installed"
 
 
 def test_lightning_external_callbacks_cache_returns_defensive_copy():

@@ -17,6 +17,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import KFold, cross_val_score
 
 from mlframe.training.composite import predicted_group_aggregate_feature
+from tests._perf_paired import assert_paired_speedup
 
 
 def _make_macro_panel_dataset(n_groups: int, n_per_group: int, seed: int):
@@ -118,7 +119,6 @@ def test_biz_val_predicted_group_aggregate_feature_multi_agg_speedup_over_per_ca
     n_groups=1,500/5,000/20,000 was ~2.08x / ~1.96x / ~1.20x; the threshold here (1.15x) sits safely below
     that while still requiring a real win.
     """
-    import time
 
     X, y, group_ids = _make_macro_panel_dataset(n_groups=1_500, n_per_group=20, seed=7)
     aggs = ["mean", "median", "std"]
@@ -139,21 +139,13 @@ def test_biz_val_predicted_group_aggregate_feature_multi_agg_speedup_over_per_ca
     _multi_call()
     _per_stat_calls()
 
-    multi_times = []
-    per_stat_times = []
-    for _ in range(n_reps):
-        t0 = time.process_time()
-        _multi_call()
-        multi_times.append(time.process_time() - t0)
-
-        t0 = time.process_time()
-        _per_stat_calls()
-        per_stat_times.append(time.process_time() - t0)
-
-    multi_median_s = float(np.median(multi_times))
-    per_stat_median_s = float(np.median(per_stat_times))
-    speedup = per_stat_median_s / multi_median_s
-    assert speedup > 1.15, (
-        f"expected the shared-fit multi-agg call to beat {len(aggs)} separate per-statistic calls by >1.15x "
-        f"(interleaved median of {n_reps}, process_time), got {speedup:.2f}x (multi={multi_median_s * 1000:.1f}ms, per-stat={per_stat_median_s * 1000:.1f}ms)"
+    # process_time already discounts preemption; the paired verdict adds what the per-arm medians dropped --
+    # whether the shared-fit call actually won each ROUND, not merely on aggregate.
+    assert_paired_speedup(
+        _per_stat_calls,
+        _multi_call,
+        base_ratio=1.15,
+        n_trials=n_reps,
+        warmup=False,  # both arms are warmed above
+        what=f"the shared-fit multi-agg call against {len(aggs)} separate per-statistic calls",
     )

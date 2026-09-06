@@ -1,4 +1,4 @@
-"""``RFECV.fit`` carved out of ``mlframe.feature_selection.wrappers._rfecv``.
+"""``RFECV.fit``, carved out into the ``mlframe.feature_selection.wrappers.rfecv`` package.
 
 Holds only the main fit method. Bound onto the ``RFECV`` class at the
 parent's module bottom so ``rfecv.fit(...)`` call sites work unchanged.

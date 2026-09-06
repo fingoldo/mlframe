@@ -32,6 +32,8 @@ pytest.importorskip("sklearn")
 
 from mlframe.feature_engineering.transformer.local_curvature import (
     compute_local_curvature_features,
+    hessian_from_quad_coefs,
+    quad_design_matrix,
 )
 
 
@@ -57,18 +59,15 @@ def _old_construction(dx: np.ndarray, quad_coefs: np.ndarray, k: int, d: int):
 
 
 def _new_construction(dx, quad_coefs, k, d):
-    """The vectorized construction now used inside compute_local_curvature_features."""
+    """Production's construction, called rather than re-typed.
+
+    This used to be a second local copy, so the comparison below was copy-versus-copy and a revert inside
+    `compute_local_curvature_features` left it green.
+    """
     iu, ju = np.triu_indices(d)
     diag_mask = iu == ju
-    ones_col = np.ones((k, 1), dtype=np.float32)
-    A_lin = np.concatenate([ones_col, dx], axis=1)
-    quad = dx[:, iu] * dx[:, ju]
-    A_quad = np.concatenate([A_lin, quad], axis=1)
-    H = np.zeros((d, d), dtype=np.float32)
-    H[iu, ju] = quad_coefs
-    H[ju, iu] = quad_coefs
-    H[iu[diag_mask], ju[diag_mask]] = 2.0 * quad_coefs[diag_mask]
-    return A_quad, H
+    A_lin = np.concatenate([np.ones((k, 1), dtype=np.float32), dx], axis=1)
+    return quad_design_matrix(A_lin, dx, iu, ju), hessian_from_quad_coefs(quad_coefs, iu, ju, diag_mask, d)
 
 
 @pytest.mark.parametrize("d,k", [(5, 40), (8, 40), (12, 40)])

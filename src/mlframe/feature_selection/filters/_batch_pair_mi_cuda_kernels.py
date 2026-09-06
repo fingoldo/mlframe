@@ -384,10 +384,13 @@ def _mi_from_joint_counts_cupy(joint_counts_dev, fx_counts_dev, freqs_y_dev, n_s
     n_classes_y*8`` bytes - 698MB at the wellbore-100k production pair-subchunk shape, 9 subchunks
     -> ~6.3GB total transferred) to the final ``(n_pairs,)`` float64 result alone.
 
-    Bit-identical to :func:`_mi_from_joint_counts`: same ``sum jf*log(jf/(px*py))`` reduction over the
-    SAME (i, j) grid, only reassociated across a different (but still commutative/associative-safe
-    integer-count-derived) summation order - fp reduction order differs at the ~1e-15 ULP level
-    (verified in the accompanying regression test), never a selection-relevant magnitude.
+    Agrees with :func:`_mi_from_joint_counts` to float64 rounding, NOT bit-identically: the same
+    ``sum jf*log(jf/(px*py))`` reduction over the same (i, j) grid, but this one builds the full
+    ``terms`` array and reduces it with a cupy TREE reduction while the CPU twin accumulates
+    ``total += ...`` sequentially. Both are float64, so the gap is last-ULP (~1e-15, verified in the
+    accompanying regression test) and never a selection-relevant magnitude -- but it is not zero, and
+    an exact-equality tie-break downstream (an argmax over per-pair MI, say) inherits it. Do not build
+    on this as bit-parity; if that is ever needed, make the CPU twin reduce pairwise too.
 
     ``fx==0`` and ``freqs_y[j]<=0`` cells are implicitly excluded via a ``cp.where`` mask (mirrors the
     host loop's ``if fx == 0: continue`` / ``if prob_y > 0.0`` guards) rather than skipped by iteration,

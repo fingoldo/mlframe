@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 import multiprocessing
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 
@@ -183,18 +183,10 @@ def gpu_treeshap_available() -> bool:
 
 
 def _block_size() -> int:
-    """Look up a hardware-tuned CUDA block size for this kernel from the shared ``kernel_tuning_cache``, falling back to ``_DEFAULT_BLOCK_SIZE`` when the cache is unavailable or has no entry for this kernel."""
-    try:
-        from mlframe.feature_selection.filters import get_kernel_tuning_cache
+    """Hardware-tuned CUDA block size for the TreeSHAP kernel, or ``_DEFAULT_BLOCK_SIZE`` on a tuning-cache miss."""
+    from ._gpu_block_size import block_size_from_tuning_cache
 
-        ktc = get_kernel_tuning_cache()
-        if ktc is not None:
-            entry = cast(Any, ktc).lookup("shap_proxy_treeshap")
-            if isinstance(entry, dict) and entry.get("gpu_block_size"):
-                return int(entry["gpu_block_size"])
-    except (ImportError, KeyError, ValueError, TypeError) as exc:
-        logger.debug("GPU block-size tuning-cache lookup failed, using default: %s", exc)
-    return _DEFAULT_BLOCK_SIZE
+    return block_size_from_tuning_cache("shap_proxy_treeshap", "gpu_block_size", _DEFAULT_BLOCK_SIZE)
 
 
 def _ensure_kernel():

@@ -65,7 +65,7 @@ def _target_signature(target_codes: np.ndarray) -> str:
     target codes invalidates the whole cache whenever Y changes, which is the only sound reuse predicate.
     """
     arr = np.ascontiguousarray(np.asarray(target_codes, dtype=np.int64))
-    return hashlib.blake2b(arr.tobytes(), digest_size=16).hexdigest()
+    return hashlib.blake2b(np.ascontiguousarray(arr).data, digest_size=16).hexdigest()
 
 
 def _kl_divergence(p: np.ndarray, q: np.ndarray, eps: float = 1e-9) -> float:

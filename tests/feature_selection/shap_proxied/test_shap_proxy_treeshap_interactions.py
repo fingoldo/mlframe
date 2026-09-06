@@ -12,11 +12,11 @@ a routing test (``compute_interaction_tensor`` picks the numba path on supported
 
 from __future__ import annotations
 
-import time
 
 import numpy as np
 import pandas as pd
 import pytest
+from tests._perf_paired import assert_paired_speedup
 
 pytest.importorskip("shap")
 pytest.importorskip("xgboost")
@@ -182,21 +182,23 @@ def test_biz_val_interaction_kernel_faster_than_shap():
     ens = extract_ensemble(model)
 
     interaction_tensor_numba(ens, X.values[:16])  # JIT warmup (excluded from timing)
-    t0 = time.perf_counter()
-    Phi_n, _phi, _base = interaction_tensor_numba(ens, X.values)
-    t_numba = time.perf_counter() - t0
-
     Phi_ref, _ = _shap_interaction_reference(model, X)  # warms shap setup
-    t0 = time.perf_counter()
-    import shap
 
-    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as spe
+    def _shap_arm():
+        """Helper: the upstream shap interaction-values arm."""
+        import shap
 
-    with spe._maybe_patch_shap_xgb_base_score():
-        ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
-        _ = ex.shap_interaction_values(X)
-    t_shap = time.perf_counter() - t0
+        from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as spe
 
-    speedup = t_shap / max(t_numba, 1e-9)
+        with spe._maybe_patch_shap_xgb_base_score():
+            ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
+            return ex.shap_interaction_values(X)
+
+    _, (Phi_n, _phi, _base) = assert_paired_speedup(
+        _shap_arm,
+        lambda: interaction_tensor_numba(ens, X.values),
+        base_ratio=1.15,
+        n_trials=3,
+        what=f"the numba interaction-tensor kernel on {X.shape[1]} features",
+    )
     np.testing.assert_allclose(Phi_n, Phi_ref, rtol=1e-4, atol=1e-4)
-    assert speedup >= 1.15, f"expected >=1.15x speedup on {X.shape[1]} features, got {speedup:.2f}x (numba {t_numba:.3f}s vs shap {t_shap:.3f}s)"

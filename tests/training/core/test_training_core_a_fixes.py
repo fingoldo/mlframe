@@ -19,6 +19,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import perf_time_budget
+
 # ---------------------------------------------------------------------------
 # F1: MTR cross-target ensemble honest-OOF NNLS weighting silently dropped sample_weight
 # ---------------------------------------------------------------------------
@@ -307,7 +309,7 @@ def test_pr3_measured_speedup_at_scale():
     t0 = time.perf_counter()
     tune_decision_threshold(y, p, metric="f1")
     elapsed = time.perf_counter() - t0
-    assert elapsed < 5.0  # was ~14s pre-fix at this scale (linear extrapolation from the bench numbers)
+    assert elapsed < perf_time_budget(5.0)  # was ~14s pre-fix at this scale (linear extrapolation from the bench numbers)
 
 
 # ---------------------------------------------------------------------------

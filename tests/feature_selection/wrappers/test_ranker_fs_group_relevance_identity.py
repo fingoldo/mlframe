@@ -156,16 +156,21 @@ def test_group_features_mi_njit_matches_per_column():
 
 
 def test_group_aware_mrmr_incremental_redundancy_matches_mean_reference():
-    # The greedy loop maintains red_sum incrementally instead of np.mean([red[i,s] for s in selected]) per
-    # candidate. Assert the selected feature list is identical to a mean-based reference greedy on the same
-    # relevance/redundancy (same summation order -> bit-identical redundancy -> identical argmax selection).
-    """Group aware mrmr incremental redundancy matches mean reference."""
+    """The shipped greedy loop must select what a mean-based reference greedy selects.
+
+    This used to define a reference greedy, an incremental greedy and a vectorised greedy locally and assert
+    the three against each other, importing none of them. The shipped loop was never called, so changing
+    `scores[best_i] <= 0.0` to `< 0.0`, dropping the below-floor mask, or dividing by `ns + 1` left it green
+    while production selected differently. Only the reference stays local now; the other side is production.
+    """
     import numpy as np
 
+    from mlframe.training.ranking._ranker_fs import greedy_select_indices
+
     def _ref_greedy(rel, red, eff_floor, cap, w=1.0):
-        """Ref greedy."""
+        """Recompute the redundancy mean per candidate per iteration, the form the vectorisation replaced."""
         eligible = np.where(rel > eff_floor)[0]
-        if eligible.size == 0:
+        if eligible.size == 0 or cap <= 0:
             return []
         selected = [int(eligible[np.argmax(rel[eligible])])]
         remaining = [i for i in range(len(rel)) if i != selected[0]]
@@ -174,75 +179,81 @@ def test_group_aware_mrmr_incremental_redundancy_matches_mean_reference():
             for i in remaining:
                 if rel[i] <= eff_floor:
                     continue
-                redundancy = float(np.mean([red[i, s] for s in selected]))
-                score = rel[i] - w * redundancy
+                score = rel[i] - w * float(np.mean([red[i, s] for s in selected]))
                 if score > best_score:
-                    best_score, best_i = score, i
+                    best_i, best_score = i, score
             if best_i is None or best_score <= 0.0:
                 break
             selected.append(best_i)
             remaining.remove(best_i)
         return selected
 
-    def _inc_greedy(rel, red, eff_floor, cap, w=1.0):
-        """Inc greedy."""
-        eligible = np.where(rel > eff_floor)[0]
-        if eligible.size == 0:
-            return []
-        selected = [int(eligible[np.argmax(rel[eligible])])]
-        remaining = [i for i in range(len(rel)) if i != selected[0]]
-        red_sum = red[:, selected[0]].astype(np.float64, copy=True)
-        while remaining and len(selected) < cap:
-            ns = len(selected)
-            best_i, best_score = None, -np.inf
-            for i in remaining:
-                if rel[i] <= eff_floor:
-                    continue
-                score = rel[i] - w * (red_sum[i] / ns)
-                if score > best_score:
-                    best_score, best_i = score, i
-            if best_i is None or best_score <= 0.0:
-                break
-            selected.append(best_i)
-            remaining.remove(best_i)
-            red_sum += red[:, best_i]
-        return selected
-
-    def _vec_greedy(rel, red, eff_floor, cap, w=1.0):
-        # Mirror of the shipped vectorised greedy loop: score all remaining candidates in one
-        # rel - w*(red_sum/ns) pass + np.argmax (below-floor / selected masked to -inf).
-        """Vec greedy."""
-        eligible = np.where(rel > eff_floor)[0]
-        if eligible.size == 0:
-            return []
-        n = len(rel)
-        selected = [int(eligible[np.argmax(rel[eligible])])]
-        below_floor = rel <= eff_floor
-        alive = np.ones(n, dtype=bool)
-        alive[selected[0]] = False
-        red_sum = red[:, selected[0]].astype(np.float64, copy=True)
-        while len(selected) < cap and alive.any():
-            ns = len(selected)
-            scores = rel - w * (red_sum / ns)
-            scores[below_floor] = -np.inf
-            scores[~alive] = -np.inf
-            best_i = int(np.argmax(scores))
-            if scores[best_i] <= 0.0:
-                break
-            selected.append(best_i)
-            alive[best_i] = False
-            red_sum += red[:, best_i]
-        return selected
-
-    rng = np.random.default_rng(3)
-    for _ in range(200):
-        nf = int(rng.integers(4, 40))
-        rel = np.abs(rng.standard_normal(nf))
-        red = np.abs(rng.standard_normal((nf, nf)))
+    rng = np.random.default_rng(0)
+    checked = 0
+    for trial in range(40):
+        n = int(rng.integers(3, 40))
+        rel = rng.random(n)
+        red = rng.random((n, n))
         red = (red + red.T) / 2.0
         np.fill_diagonal(red, 0.0)
-        eff_floor = 0.2 * float(rel.max())
-        cap = int(rng.integers(2, nf))
-        ref = _ref_greedy(rel, red, eff_floor, cap)
-        assert ref == _inc_greedy(rel, red, eff_floor, cap)
-        assert ref == _vec_greedy(rel, red, eff_floor, cap), "vectorised greedy diverges from mean reference"
+        eff_floor = float(rng.uniform(0.0, 0.5))
+        cap = int(rng.integers(1, n + 1))
+        w = float(rng.uniform(0.1, 2.0))
+        got = greedy_select_indices(rel, red, eff_floor, cap, w)
+        expected = _ref_greedy(rel, red, eff_floor, cap, w)
+        assert got == expected, f"trial {trial}: production selected {got} against the reference's {expected}"
+        checked += 1
+        if got:
+            assert len(got) <= cap
+    assert checked == 40
+
+
+def test_the_greedy_loop_respects_an_empty_eligible_set():
+    """No feature clears the floor: the loop must return nothing rather than seed itself with the argmax."""
+    import numpy as np
+
+    from mlframe.training.ranking._ranker_fs import greedy_select_indices
+
+    rel = np.array([0.1, 0.2, 0.05])
+    red = np.zeros((3, 3))
+    assert greedy_select_indices(rel, red, eff_floor=0.5, cap=3, redundancy_weight=1.0) == []
+
+
+def test_a_zero_cap_selects_nothing():
+    """max_features=0 is an explicit request for an empty selection, not a request for one feature."""
+    import numpy as np
+
+    from mlframe.training.ranking._ranker_fs import greedy_select_indices
+
+    rel = np.array([0.9, 0.8])
+    red = np.zeros((2, 2))
+    assert greedy_select_indices(rel, red, eff_floor=0.0, cap=0, redundancy_weight=1.0) == []
+
+
+def test_a_candidate_scoring_exactly_zero_is_not_selected():
+    """The `<= 0.0` boundary, constructed exactly.
+
+    Random fixtures never produce a score of exactly zero, so relaxing the stop to `< 0.0` passed every
+    randomised trial while admitting a candidate whose relevance is entirely explained by its redundancy
+    with what is already selected. The values here make that cancellation exact.
+    """
+    import numpy as np
+
+    from mlframe.training.ranking._ranker_fs import greedy_select_indices
+
+    # Feature 0 is picked first (highest relevance). Feature 1 then scores 0.5 - 1.0 * 0.5 / 1 == 0.0.
+    rel = np.array([0.9, 0.5])
+    red = np.array([[0.0, 0.5], [0.5, 0.0]])
+    selected = greedy_select_indices(rel, red, eff_floor=0.0, cap=2, redundancy_weight=1.0)
+    assert selected == [0], f"a candidate whose relevance is exactly cancelled by its redundancy was selected: {selected}"
+
+
+def test_a_candidate_scoring_just_above_zero_is_selected():
+    """The other side of the same boundary, so the stop is not simply refusing everything."""
+    import numpy as np
+
+    from mlframe.training.ranking._ranker_fs import greedy_select_indices
+
+    rel = np.array([0.9, 0.5])
+    red = np.array([[0.0, 0.4], [0.4, 0.0]])
+    assert greedy_select_indices(rel, red, eff_floor=0.0, cap=2, redundancy_weight=1.0) == [0, 1]

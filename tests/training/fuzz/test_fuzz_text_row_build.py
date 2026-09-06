@@ -30,32 +30,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-_TEXT_VOCAB = [
-    "python",
-    "rust",
-    "golang",
-    "java",
-    "swift",
-    "kotlin",
-    "backend",
-    "frontend",
-    "devops",
-    "mlops",
-    "dataeng",
-    "platform",
-    "cloud",
-    "edge",
-    "realtime",
-    "batch",
-    "stream",
-    "vector",
-    "search",
-    "nlp",
-    "vision",
-    "audio",
-    "robotics",
-    "quantum",
-]
+# Imported, not redeclared. This file used to carry its own 24-word copy of the vocab AND its own copy of the
+# vectorised row builder, so `_new_rows(...) == _old_rows(...)` compared two local copies with each other and
+# stayed green through any change to the real builder -- a reordered word, an added one, or a draw shape of
+# 4 tokens instead of 3.
+from tests.training._fuzz_combo.frame_builder import TEXT_VOCAB as _TEXT_VOCAB, build_text_rows
 
 
 def _old_rows(n: int, seed: int):
@@ -69,18 +48,18 @@ def _old_rows(n: int, seed: int):
 
 
 def _new_rows(n: int, seed: int):
-    """New rows."""
-    rng = np.random.default_rng(seed)
-    vocab_arr = np.asarray(_TEXT_VOCAB)
-    idxs_arr = rng.integers(0, len(_TEXT_VOCAB), size=(n, 3))
-    words = vocab_arr[idxs_arr]
-    return list(map(" ".join, words))
+    """The production builder, called rather than re-typed."""
+    return build_text_rows(np.random.default_rng(seed), n)
 
 
 @pytest.mark.parametrize("n,seed", [(100, 1), (10_000, 42), (50_000, 20260528)])
 def test_vectorised_text_rows_match_old_per_row_build(n, seed):
     """Vectorised text rows match old per row build."""
     assert _new_rows(n, seed) == _old_rows(n, seed)
+    # The vocab is the harness's, not a copy of it: a word added, removed or reordered upstream must reach
+    # the per-row reference above rather than leaving two frozen lists agreeing with each other.
+    assert len(_TEXT_VOCAB) == 24, f"the harness vocab is now {len(_TEXT_VOCAB)} words; the reference draws from whatever it holds, which is the point"
+    assert all(len(row.split()) == 3 for row in _new_rows(32, seed)), "the builder no longer emits three tokens per row"
 
 
 def test_build_frame_for_combo_with_text_col_does_not_oom_at_50k():

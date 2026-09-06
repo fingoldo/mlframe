@@ -315,7 +315,7 @@ class TestDefaultDisabledByteIdentical:
         assert (
             not cross_names
         ), f"seed={seed}: default fe_hybrid_orth_adaptive_arity_enable=False should NOT inject adaptive-arity cross columns; got {cross_names}"
-        assert list(getattr(m, "hybrid_orth_features_", []) or []) == [], f"seed={seed}: hybrid_orth_features_ should be empty when all hybrid flags are off"
+        assert list(m.hybrid_orth_features_) == [], f"seed={seed}: hybrid_orth_features_ should be empty when all hybrid flags are off"
 
     @pytest.mark.parametrize("seed", (1, 7, 13))
     def test_enable_adaptive_arity_appends_engineered(self, seed):

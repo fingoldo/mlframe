@@ -28,16 +28,35 @@ def apply_base_leakage_guard(
     """Drop base candidates that are a same-time near-identity re-encoding of ``y`` (leakage).
 
     Only acts when ``time_ordering`` is given so the lag-probe spares a genuine ``lag(y)`` base; a no-op on
-    non-temporal data (autocorrelation must not be mistaken for a leak). Sets ``discovery._leaky_bases_dropped_``
-    and returns the kept base candidates (unchanged when nothing is dropped).
+    non-temporal data (autocorrelation must not be mistaken for a leak). Returns the kept base candidates
+    (unchanged when nothing is dropped).
+
+    Sets ``discovery._leaky_bases_dropped_`` ALWAYS, empty list included, and
+    ``discovery._base_leakage_guard_ran_`` to whether the scan actually happened -- so "ran and found nothing"
+    stays distinguishable from "never ran". An empty attribute that only appears on a drop cannot tell a caller
+    whether the guard was inert for the right reason or silently skipped.
     """
     from ._leakage import detect_base_target_leakage
 
+    discovery._base_leakage_guard_ran_ = False
     _to_all = np.asarray(time_ordering)
-    _to_train = _to_all[train_idx] if _to_all.shape[0] >= int(np.max(train_idx)) + 1 else None
-    if _to_train is None:
+    _needed = int(np.max(train_idx)) + 1
+    if _to_all.shape[0] < _needed:
+        # The caller asked for this guard (config.detect_base_leakage) and it cannot run: a time_ordering
+        # shorter than the training indices it must be indexed by is a caller-side mismatch, typically an
+        # .iloc[] slice whose ordering was not sliced with it. Returning silently left the guard OFF while
+        # the config said it was on, so same-time re-encodings of y entered discovery as bases with nothing
+        # in the log to explain it.
+        logger.warning(
+            "base-leakage guard SKIPPED: time_ordering has %d rows but the training indices reach %d. "
+            "The guard is configured on but cannot run, so same-time re-encodings of y will not be "
+            "detected -- pass a time_ordering aligned with the frame the training indices refer to.",
+            _to_all.shape[0], _needed,
+        )
         return base_candidates
+    _to_train = _to_all[train_idx]
 
+    discovery._base_leakage_guard_ran_ = True
     kept, dropped = [], []
     for _bcand in base_candidates:
         try:
@@ -51,8 +70,8 @@ def apply_base_leakage_guard(
             dropped.append((_bcand, _leak.get("reason", "")))
         else:
             kept.append(_bcand)
+    discovery._leaky_bases_dropped_ = dropped
     if dropped:
-        discovery._leaky_bases_dropped_ = dropped
         logger.warning(
             "[CompositeTargetDiscovery] dropped %d leaky base(s) (same-time near-identity of y): %s",
             len(dropped),

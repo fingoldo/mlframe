@@ -445,9 +445,7 @@ class TestDefaultDisabledByteIdentical:
         assert not triplet_names, f"seed={seed}: default fe_hybrid_orth_triplet_enable=False should NOT inject triplet columns; got {triplet_names}"
         # ``hybrid_orth_features_`` is the standard list; with both master
         # and triplet OFF it must be empty.
-        assert (
-            list(getattr(m, "hybrid_orth_features_", []) or []) == []
-        ), f"seed={seed}: hybrid_orth_features_ should be empty when both master and triplet flags are off"
+        assert list(m.hybrid_orth_features_) == [], f"seed={seed}: hybrid_orth_features_ should be empty when both master and triplet flags are off"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_enable_triplet_appends_engineered(self, seed):

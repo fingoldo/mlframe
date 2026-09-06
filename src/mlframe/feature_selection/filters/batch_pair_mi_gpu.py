@@ -470,11 +470,31 @@ def dispatch_batch_pair_mi(
                 _result = _try_cuda_row_chunked("forced CUDA backend requested but full upload does not fit VRAM")
                 if _result is not None:
                     return _result
-        elif force_backend == "cupy" and _CUPY_AVAIL and _vram_ok:
-            try:
-                return batch_pair_mi_cupy(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cupy"
-            except Exception as e:
-                logger.warning("batch_pair_mi: forced cupy backend failed (%s: %s) -- falling back to CPU njit", type(e).__name__, e)
+        elif force_backend == "cupy":
+            # Split from the availability/VRAM conditions on purpose. As one `elif ... and _CUPY_AVAIL and
+            # _vram_ok`, a forced-cupy request that could not be honoured matched no branch and fell straight
+            # through to the njit return with NO log at all -- a caller benchmarking or pinning a backend got
+            # the CPU kernel, and only the returned backend_name said so, which many call sites discard. The
+            # forced-CUDA branch above already warns on every downgrade; this one now matches it.
+            if _CUPY_AVAIL and _vram_ok:
+                try:
+                    return batch_pair_mi_cupy(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cupy"
+                except Exception as e:
+                    logger.warning("batch_pair_mi: forced cupy backend failed (%s: %s) -- falling back to CPU njit", type(e).__name__, e)
+            else:
+                logger.warning(
+                    "batch_pair_mi: forced cupy backend requested but not honoured (%s) -- falling back to CPU njit",
+                    "cupy is unavailable" if not _CUPY_AVAIL else "the estimate says the upload does not fit VRAM",
+                )
+        elif force_backend == "cuda":
+            # The forced-CUDA branch above is entered only when _CUDA_AVAIL; without it the request
+            # disappeared just as quietly.
+            logger.warning("batch_pair_mi: forced cuda backend requested but numba.cuda is unavailable -- falling back to CPU njit")
+        else:
+            logger.warning(
+                "batch_pair_mi: force_backend=%r is not one of 'cuda'/'cupy' -- falling back to CPU njit",
+                force_backend,
+            )
         return batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "njit"
 
     # Per-host backend (njit/cuda/cupy) from the kernel_tuning_cache via the shared

@@ -87,7 +87,7 @@ def test_mrmr_embedding_passthrough_opt_out_is_legacy():
             # default-on passthrough fixes; the opt-out is allowed to reproduce it.
             return
         # If the legacy path did not crash, the embedding must NOT have been passthrough-routed.
-        assert getattr(m, "_passthrough_features_", []) == []
+        assert m._passthrough_features_ == []
 
 
 def test_mrmr_no_embedding_columns_is_noop():

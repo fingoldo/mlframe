@@ -76,7 +76,7 @@ def code_path_b_hint_precompute():
     per-target config clone via model_copy. Synthesised here (no
     full suite) by directly calling BaselineDiagnostics + Pydantic
     model_copy in a tight loop."""
-    from mlframe.training.baseline_diagnostics import (
+    from mlframe.training.baselines.diagnostics import (
         BaselineDiagnostics,
     )
     from mlframe.training.configs import (
@@ -129,7 +129,7 @@ def code_path_d_plots():
     """Cost of the 4 new plot helpers on realistic-size inputs."""
     import matplotlib
     matplotlib.use("Agg")
-    from mlframe.training.composite_diagnostics import (
+    from mlframe.training.composite.diagnostics import (
         plot_per_fold_tiny_rmse, plot_per_family_disagreement,
         plot_alpha_stability, plot_predictions_vs_actual,
     )
@@ -208,8 +208,8 @@ if __name__ == "__main__":
     # algorithmic hot spots.
     import lightgbm  # noqa: F401
     from mlframe.training.composite import CompositeTargetDiscovery  # noqa: F401
-    from mlframe.training.composite_diagnostics import plot_predictions_vs_actual  # noqa: F401
-    from mlframe.training.baseline_diagnostics import BaselineDiagnostics  # noqa: F401
+    from mlframe.training.composite.diagnostics import plot_predictions_vs_actual  # noqa: F401
+    from mlframe.training.baselines.diagnostics import BaselineDiagnostics  # noqa: F401
     print("--- WARMUP DONE ---\n")
 
     profile_one("A. Raw-y baseline gate (with gate ON)",

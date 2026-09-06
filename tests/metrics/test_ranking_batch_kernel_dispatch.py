@@ -34,7 +34,12 @@ def _ref_per_group(fname, yt, ys, gids, k):
         "dcg_at_k": lambda s, e: rk._dcg_per_group_kernel(yt[s:e], ys[s:e], k, True),
         "hit_at_k": lambda s, e: rk._hit_at_k_per_group_kernel(yt[s:e], ys[s:e], k),
         "precision_at_k": lambda s, e: rk._precision_at_k_per_group_kernel(yt[s:e], ys[s:e], k),
-        "expected_reciprocal_rank": lambda s, e: rk._err_per_group_kernel(yt[s:e], ys[s:e], k, float(yt.max())),
+        # The ceiling comes from production's own constant, not from this fixture's max. `y_true.max()` was the
+        # old per-call default, which production deliberately replaced -- its docstring says a per-call default
+        # "would re-scale the gain map per split and make train/test ERR incomparable". Reading it back off the
+        # data made the reference agree with either implementation, and only because `integers(0, 5)` happens to
+        # top out at exactly 4.0.
+        "expected_reciprocal_rank": lambda s, e: rk._err_per_group_kernel(yt[s:e], ys[s:e], k, rk._DEFAULT_ERR_MAX_GRADE),
     }[fname]
     order = np.argsort(gids, kind="stable")
     sg = gids[order]
@@ -74,13 +79,18 @@ def test_public_metric_dispatches_whole_batch_kernel_once(fname, kernel_name, mo
 
 @pytest.mark.parametrize("fname,_kernel", _METRICS)
 @pytest.mark.parametrize("seed", [0, 1, 2])
-def test_batch_kernel_bit_identical_to_per_group_reference(fname, _kernel, seed):
-    """Batch kernel bit identical to per group reference."""
+@pytest.mark.parametrize("n_grades", [5, 3], ids=["grades_0_to_4", "grades_0_to_2"])
+def test_batch_kernel_bit_identical_to_per_group_reference(fname, _kernel, seed, n_grades):
+    """Batch kernel bit identical to per group reference.
+
+    The second grade scale is the one that pins ERR's fixed ceiling: on 0..4 the fixture's own max is
+    exactly the production constant, so the two agree no matter which the reference reads.
+    """
     rng = np.random.default_rng(seed)
     n, gp = 4000, 7
     ng = n // gp
     gids = np.repeat(np.arange(ng), gp).astype(np.int64)
-    yt = rng.integers(0, 5, size=len(gids)).astype(np.float64)
+    yt = rng.integers(0, n_grades, size=len(gids)).astype(np.float64)
     ys = np.round(rng.standard_normal(len(gids)), 1)  # ties
     for k in (1, 5, 10):
         got = getattr(rk, fname)(yt, ys, gids, k=k)
@@ -100,6 +110,12 @@ def test_split_by_group_skips_groupid_argsort_when_presorted(fname, _kernel, mon
     gids = np.repeat(np.arange(ng), 7).astype(np.int64)  # strictly sorted
     yt = rng.integers(0, 5, size=len(gids)).astype(np.float64)
     ys = rng.standard_normal(len(gids))
+
+    # Compile every njit kernel on this signature BEFORE the spy is installed. The spy replaces
+    # `numpy.argsort` module-wide, and numba resolves that name at compile time -- so a kernel first
+    # compiled under the patch fails typing with "unsupported NumPy function 'numpy.argsort'" rather than
+    # running. Which kernels were already warm was previously decided by test order.
+    getattr(rk, fname)(yt, ys, gids, k=10)
 
     real_argsort = np.argsort
     seen = {"groupid_sort": 0}

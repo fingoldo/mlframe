@@ -8,13 +8,27 @@ existing prewarm in ``mlframe.metrics.core._prewarm_numba_cache_body``.
 
 Adding the prewarm pays the same 4s upfront at import time but moves it OUT
 of the first-fit hot path. This test verifies the (bool, f64) parallel
-variants are warm AFTER prewarm by asserting they execute in well under the
-fresh-compile time bound.
+variants are warm AFTER prewarm by asserting the signature is already in the dispatcher's compiled table.
 """
 
-import time
-
 import numpy as np
+
+from tests.conftest import skip_under_numba_disabled_jit
+
+
+def _bool_signature_present(fn) -> bool:
+    """Whether numba has already compiled ``fn`` for a boolean first argument.
+
+    ``nopython_signatures`` grows one entry per argument-type combination the dispatcher compiles, so this
+    answers the contract these tests exist for directly. A wall-clock bound cannot: it reads the same on a
+    prewarmed dispatcher and on a box that merely compiles the tiny kernel inside the budget, and it is
+    breached on a healthy build whenever the box is contended.
+    """
+    sigs = getattr(fn, "nopython_signatures", None)
+    if sigs is None:
+        sigs = getattr(fn, "signatures", None)
+    assert sigs is not None, f"{fn!r} is not a numba dispatcher; this check has lost its subject"
+    return any("bool" in str(sig.args[0]) for sig in sigs if getattr(sig, "args", None))
 
 
 def _ensure_prewarmed():
@@ -24,48 +38,47 @@ def _ensure_prewarmed():
     prewarm_numba_cache()
 
 
+@skip_under_numba_disabled_jit
 def test_fast_brier_score_loss_par_bool_dtype_is_warm():
-    """``_fast_brier_score_loss_par`` with (bool, float64) signature MUST be
-    JIT-cached by prewarm. First call after prewarm should be <10ms (warm),
-    NOT 1000s of ms (which would mean compile happened here)."""
+    """``_fast_brier_score_loss_par`` with a (bool, float64) signature MUST be JIT-cached by prewarm.
+
+    Asked of the dispatcher's compiled-signature table rather than of the clock: a 50ms bound was both a
+    false red on a contended box and a false green on any box that compiles the tiny kernel inside it."""
     from mlframe.metrics.core import _fast_brier_score_loss_par
 
     _ensure_prewarmed()
     y_true = np.random.randint(0, 2, 1000).astype(np.bool_)
     y_pred = np.random.random(1000).astype(np.float64)
 
-    t = time.perf_counter()
-    result = _fast_brier_score_loss_par(y_true, y_pred)
-    elapsed_ms = (time.perf_counter() - t) * 1000
+    assert _bool_signature_present(_fast_brier_score_loss_par), (
+        "_fast_brier_score_loss_par has no compiled (bool, float64) signature after prewarm; verify "
+        "_prewarm_numba_cache_body in metrics/core.py includes the bool->f64 path"
+    )
+    n_sigs = len(_fast_brier_score_loss_par.nopython_signatures)
 
+    result = _fast_brier_score_loss_par(y_true, y_pred)
+
+    assert len(_fast_brier_score_loss_par.nopython_signatures) == n_sigs, "the call compiled a fresh signature, so prewarm did not cover it"
     assert np.isfinite(result)
     assert 0.0 <= result <= 1.0
-    # Generous upper bound: post-prewarm calls are typically <1ms; first-cold
-    # JIT compile would be 1500-4000ms. 50ms gives plenty of margin for
-    # cprofile overhead / CI noise without masking a missed prewarm.
-    assert elapsed_ms < 50.0, (
-        f"_fast_brier_score_loss_par(bool, float64) took {elapsed_ms:.1f}ms; "
-        f">50ms suggests the (bool, f64) signature is NOT prewarmed and a "
-        f"fresh JIT compile fired here. Verify prewarm in metrics/core.py "
-        f"_prewarm_numba_cache_body includes the bool->f64 path."
-    )
 
 
+@skip_under_numba_disabled_jit
 def test_fast_log_loss_binary_par_bool_dtype_is_warm():
-    """Same regression for ``_fast_log_loss_binary_par`` -- multilabel
-    per-class loops emit (bool, float64) here too."""
+    """Same regression for ``_fast_log_loss_binary_par``: multilabel per-class loops emit (bool, float64) here too."""
     from mlframe.metrics.core import _fast_log_loss_binary_par
 
     _ensure_prewarmed()
     y_true = np.random.randint(0, 2, 1000).astype(np.bool_)
     y_pred = np.random.random(1000).astype(np.float64)
 
-    t = time.perf_counter()
-    result = _fast_log_loss_binary_par(y_true, y_pred, 1e-15)
-    elapsed_ms = (time.perf_counter() - t) * 1000
+    assert _bool_signature_present(_fast_log_loss_binary_par), "_fast_log_loss_binary_par has no compiled (bool, float64) signature after prewarm"
+    n_sigs = len(_fast_log_loss_binary_par.nopython_signatures)
 
+    result = _fast_log_loss_binary_par(y_true, y_pred, 1e-15)
+
+    assert len(_fast_log_loss_binary_par.nopython_signatures) == n_sigs, "the call compiled a fresh signature, so prewarm did not cover it"
     assert np.isfinite(result)
-    assert elapsed_ms < 50.0, f"_fast_log_loss_binary_par(bool, float64) took {elapsed_ms:.1f}ms; >50ms suggests the (bool, f64) signature is NOT prewarmed."
 
 
 def test_brier_bool_matches_float64_semantics():

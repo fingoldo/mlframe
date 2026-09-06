@@ -19,14 +19,23 @@ from mlframe.training.composite.compare import _paired_bootstrap_ci, compare_mod
 
 
 def _old_monolithic(diff, n_boot, alpha, rng):
-    """Pre-CPX26 reference: single (n_boot, n) draw + gather."""
+    """Pre-CPX26 reference: single (n_boot, n) draw + gather.
+
+    The p-value uses the same ``(count + 1) / (n_boot + 1)`` form as production. This reference exists to pin
+    that ROW-CHUNKING the draw changes nothing -- that is the memory fix it guards -- so it has to differ from
+    production in exactly one respect: how the resamples are materialised. It previously kept the older
+    ``count / n_boot`` form, so when production adopted the +1 correction (which stops a saturated p-value
+    reading as exactly 0.0) this test failed on a statistic it was never guarding, and reported it as the
+    chunked draw not being bit-identical.
+    """
     n = diff.shape[0]
     idx = rng.integers(0, n, size=(n_boot, n))
     boot_means = diff[idx].mean(axis=1)
     lo = float(np.quantile(boot_means, alpha / 2.0))
     hi = float(np.quantile(boot_means, 1.0 - alpha / 2.0))
     obs = float(diff.mean())
-    tail = float(np.mean(boot_means <= 0.0)) if obs >= 0 else float(np.mean(boot_means >= 0.0))
+    n_tail = float(np.sum(boot_means <= 0.0)) if obs >= 0 else float(np.sum(boot_means >= 0.0))
+    tail = (n_tail + 1.0) / (n_boot + 1.0)
     return lo, hi, min(1.0, 2.0 * tail)
 
 
@@ -78,6 +87,7 @@ def test_compare_models_end_to_end_bootstrap_unchanged():
 
     class _P:
         """Groups tests covering p."""
+
         def __init__(self, err):
             self.err = err
 

@@ -3,8 +3,15 @@
 Iter 64 mechanism. Orthogonal to residual-band family (iters 60-63): partitions rows by what the
 baseline boosting PREDICTS, not by where it makes mistakes.
 
+Being orthogonal in MECHANISM does not mean opting out of the cluster's baseline convention, and this
+module does not: it takes its baseline from the shared ``_baseline_oof.fit_baseline_predict_oof``, i.e.
+inner-KFold(3) out-of-fold predictions. The distinction matters here for a different reason than in the
+residual-band family. There, in-sample predictions understate the residual because the model was just fit
+on those rows. Here the bands are cut on prediction QUANTILES, so an overfit prediction distribution moves
+the band boundaries themselves -- rows are sorted into bands by a ranking the model partly memorised.
+
 Mechanism:
-1. Fit 50-iter LightGBM baseline → in-sample predictions ŷ (regression) or p̂ (binary).
+1. Fit 50-iter LightGBM baseline → out-of-fold predictions ŷ (regression) or p̂ (binary), inner KFold(3).
 2. Partition rows into 5 quintile bands by ŷ (or p̂):
    - Regression: very-low / low / mid / high / very-high predicted y.
    - Binary: very-low p (confident neg) / low / mid (decision boundary) / high / very-high p (confident pos).
@@ -22,7 +29,7 @@ PREDICTED y. The difference matters in OOF mode: at query time, true y is unknow
 Iter 64 features are honestly inferable at test time without label leak; iter 57's are too (via baseline
 on train fold), but here the baseline-aware partitioning is the explicit design intent.
 
-Leakage discipline: identical to iter 60 — baseline fit on train fold only, in-sample predictions used
+Leakage discipline: identical to iter 60 — baseline fit on train fold only, out-of-fold predictions used
 for band assignment, no label info leaks via centroids.
 
 Cost: same as iter 60 (50-iter LGB + softmax).
@@ -41,27 +48,9 @@ from ._utils import require_seed, validate_numeric_input, softmax
 logger = logging.getLogger(__name__)
 
 
-def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
-    """Fit a small LightGBM baseline (classifier for ``task="binary"``, regressor otherwise) on ``(Xt, y_t)`` and return its in-sample predictions, used to rank training rows into prediction bands."""
-    try:
-        import lightgbm as lgb
-    except ImportError as exc:
-        raise ImportError("prediction_band_attention requires lightgbm") from exc
-    if task == "binary":
-        model = lgb.LGBMClassifier(
-            n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
-            random_state=int(seed), verbose=-1, n_jobs=-1,
-        )
-        model.fit(Xt, y_t.astype(np.int32))
-        preds = np.asarray(model.predict_proba(Xt))[:, 1].astype(np.float32)
-    else:
-        model = lgb.LGBMRegressor(
-            n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
-            random_state=int(seed), verbose=-1, n_jobs=-1,
-        )
-        model.fit(Xt, y_t)
-        preds = np.asarray(model.predict(Xt)).astype(np.float32)
-    return np.asarray(preds)
+# Out-of-fold baseline predictions on Xt. Imported rather than wrapped: a per-module wrapper differing only
+# in one string is still a near-duplicate body, which is the drift this cluster was consolidated to end.
+from ._baseline_oof import fit_baseline_predict_oof as _fit_baseline_predict
 
 
 def compute_prediction_band_attention_features(

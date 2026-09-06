@@ -61,18 +61,25 @@ def test_kill_process_tree_terminates_child_and_grandchild():
 
 
 @pytest.mark.hang_guard
-def test_reap_bounded_returns_false_for_undead_process_within_timeout():
+@pytest.mark.parametrize("bound", [1.0, 3.0])
+def test_reap_bounded_returns_false_for_undead_process_within_timeout(bound):
     """A child that ignores kill (simulated by a long sleep we never kill) must
     NOT block ``_reap_bounded`` past its timeout -- it returns False promptly so
     the driver can orphan + continue rather than wedge waiting for an OS-undead
-    access-violation'd process to reap."""
+    access-violation'd process to reap.
+
+    Both bounds are expressed as multiples of the timeout ARGUMENT rather than as wall-clock constants: a
+    fixed ``elapsed < 5.0`` ceiling cannot tell a 1s bound from a 4s one, so a regression that widened the
+    effective timeout would still pass it. The lower bound is the other half -- the call must actually wait
+    out the timeout it was given, not return early for an unrelated reason and look fast."""
     p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
     try:
         t0 = time.time()
-        alive_reaped = R._reap_bounded(p, 1.0)
+        alive_reaped = R._reap_bounded(p, bound)
         elapsed = time.time() - t0
         assert alive_reaped is False, "still-running process must report not-reaped"
-        assert elapsed < 5.0, f"_reap_bounded blocked {elapsed:.1f}s past its 1s bound"
+        assert elapsed >= bound * 0.9, f"_reap_bounded returned after {elapsed:.2f}s without waiting out its {bound}s bound"
+        assert elapsed < bound * 3, f"_reap_bounded blocked {elapsed:.1f}s, more than 3x its {bound}s bound"
     finally:
         R._kill_process_tree(p.pid)
         R._reap_bounded(p, 10)
@@ -113,14 +120,18 @@ def test_run_one_combo_does_not_wedge_on_child_holding_pipe_open_after_kill(monk
 
     monkeypatch.setattr(R.subprocess, "Popen", fake_popen)
 
+    per_combo_timeout_s = 2
     t0 = time.time()
-    _rc, tail, timed_out = R._run_one_combo(seed=0, short_id="cFAKE", per_combo_timeout_s=2)
+    _rc, tail, timed_out = R._run_one_combo(seed=0, short_id="cFAKE", per_combo_timeout_s=per_combo_timeout_s)
     elapsed = time.time() - t0
 
-    # The whole call must return shortly after the 2s wall-timeout + bounded
-    # reaps (2 + 30 ceiling is only hit if the process won't die; the watchdog
-    # kills at 2s so the parent dies and reap returns fast). Generous ceiling.
-    assert elapsed < 45.0, f"_run_one_combo wedged {elapsed:.1f}s on pipe-holding child"
+    # Bound the call against what actually governs it rather than a flat wall-clock ceiling: the watchdog's
+    # own wall timeout, plus the runner's post-kill budget (the two 10s bounded reaps at run_fuzz_10k.py:374,379
+    # and the 5s drain join at :388). The 30s ceiling at :364 is only reachable if the parent refuses to die,
+    # which the watchdog kill rules out here. A flat 45s would not notice the timeout argument being ignored.
+    post_kill_budget_s = 10 + 10 + 5
+    assert elapsed < per_combo_timeout_s + post_kill_budget_s, f"_run_one_combo wedged {elapsed:.1f}s on pipe-holding child"
+    assert elapsed >= per_combo_timeout_s, f"_run_one_combo returned in {elapsed:.2f}s, before its own {per_combo_timeout_s}s wall timeout could have fired"
     assert timed_out is True, "wall-timeout combo must be flagged timed_out"
     assert "FAKE_CHILD_MARKER" in tail, "drain thread should have captured child output"
 

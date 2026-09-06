@@ -17,7 +17,9 @@ def _signature_payload_versions() -> dict:
     is hashed and not introspectable).
 
     Production hashes via stdlib ``json.dumps(..., sort_keys=True)`` (see
-    ``mlframe.training.utils._compute_config_signature_v1``); we intercept
+    ``mlframe.training.core._phase_composite_discovery_helpers._discovery_config_signature``, which
+    returns a ``ConfigSignatureV1`` -- the "v1" the old prose path had turned into a function name);
+    we intercept
     that call to snapshot the payload without pulling stdlib ``json`` into
     the test file (repo convention bans stdlib ``json`` imports in tests).
     """

@@ -37,6 +37,13 @@ logger = logging.getLogger(__name__)
 _triton_loaded: Optional[bool] = None  # tri-state: None=untried, True=ok, False=failed
 
 
+# An unexpected bootstrap failure is re-probed a bounded number of times rather than latched on the first one;
+# see the handler at the bottom of ``ensure_triton_loaded`` for why. Bounded so a genuinely broken install
+# does not pay the WinDLL hunt on every call for the life of the process.
+_MAX_BOOTSTRAP_RETRIES = 3
+_bootstrap_retries = 0
+
+
 def ensure_triton_loaded() -> bool:
     """Idempotently preload libtriton.pyd on Windows. Returns True if
     Triton is now importable (or was already importable on the host
@@ -100,9 +107,24 @@ def ensure_triton_loaded() -> bool:
         )
         return False
     except Exception as _bootstrap_err:
+        # NOT latched. "No candidate .pyd found" above is the genuinely permanent verdict and stays cached;
+        # anything reaching HERE is unexpected -- a file lock on libtriton.pyd from a concurrent install, a
+        # transient OSError walking a network-mounted site-packages -- and pinning every Triton-dependent
+        # neural path to its eager fallback for the rest of the process on one momentary fault is the same
+        # shape as the documented `_select_mi_backend` regression. Leaving the cache unset lets the next
+        # call re-probe; the bootstrap is cheap and only runs until it succeeds once.
+        global _bootstrap_retries
+        if _bootstrap_retries < _MAX_BOOTSTRAP_RETRIES:
+            _bootstrap_retries += 1
+            logger.warning(
+                "F-42: Triton bootstrap raised unexpectedly (%s); will re-probe on the next call (attempt %d of %d).",
+                _bootstrap_err, _bootstrap_retries, _MAX_BOOTSTRAP_RETRIES,
+            )
+            return False
         _triton_loaded = False
         logger.warning(
-            "F-42: Triton bootstrap raised unexpectedly (%s); " "Triton paths disabled.",
+            "F-42: Triton bootstrap raised unexpectedly %d times (%s); giving up for this process and using " "eager / non-Triton fallbacks.",
+            _bootstrap_retries,
             _bootstrap_err,
         )
         return False

@@ -62,6 +62,32 @@ def test_fit_transform_fold_rankgauss_uses_train_only_fit_values():
     assert probe_test[0] > 2.0  # clipped to the extreme rank -> a large positive Gaussian quantile
 
 
+def _pure_noise_score_ceiling(*, with_gaps: bool, n_draws: int = 8) -> float:
+    """The upper end of the empirical null: the highest score any independent pure-noise column reaches.
+
+    A fixed ``[0.3, 0.7]`` band used to stand in for this. Measured over 20 draws, the real null spans
+    0.431-0.575 without gaps and 0.450-0.575 with them, so a leak would have to inflate a noise column by
+    more than 0.12 AUC before that band noticed -- and this file's own comment concedes a mild leak stays
+    inside it. Deriving the ceiling from the same construction makes the bound roughly four times tighter
+    and, unlike a literal, it moves with the fixture.
+
+    One-sided on purpose: a leak lets a fold see its own test rows' statistics, which inflates the score.
+    A noise column scoring LOW is just noise.
+    """
+    from mlframe.preprocessing.auto_transform_select import select_column_transforms
+
+    highest = 0.0
+    for draw in range(n_draws):
+        rng = np.random.default_rng(9000 + draw)
+        n = 400
+        col = rng.normal(0, 1, n)
+        if with_gaps:
+            col[rng.random(n) < 0.15] = np.nan
+        result = select_column_transforms(pd.DataFrame({"noise": col}), rng.integers(0, 2, n), task="classification", n_splits=4, random_state=0)
+        highest = max(highest, max(result["noise"]["all_scores"].values()))
+    return highest
+
+
 def test_select_column_transforms_scaler_scores_are_not_leaked():
     """End-to-end: a pure-noise column must not score artificially strong under any transform."""
     # End-to-end: on a column that is PURE NOISE (independent of y), no transform should look
@@ -77,8 +103,18 @@ def test_select_column_transforms_scaler_scores_are_not_leaked():
     y = rng.integers(0, 2, n)
 
     result = select_column_transforms(df, y, task="classification", n_splits=4, random_state=0)
-    for score in result["noise"]["all_scores"].values():
-        assert 0.3 <= score <= 0.7, f"a pure-noise column scored {score}, suggesting a CV leak inflated it"
+    ceiling = _pure_noise_score_ceiling(with_gaps=False)
+    assert ceiling < 0.7, f"the empirical null already reaches {ceiling:.3f}; a noise column is scoring high on its own and this test cannot separate that from a leak"
+    for name, score in result["noise"]["all_scores"].items():
+        assert score <= ceiling, f"a pure-noise column scored {score:.4f} under {name}, above the {ceiling:.4f} ceiling of {8} independent noise draws -- a CV leak inflated it"
+
+    # Sensitivity: the score must actually respond to signal, or the bound above holds for a statistic
+    # that is pinned near 0.5 whatever happens.
+    rng2 = np.random.default_rng(11)
+    signal = rng2.normal(0, 1, n)
+    y_signal = (signal + rng2.normal(0, 0.3, n) > 0).astype(int)
+    informative = select_column_transforms(pd.DataFrame({"signal": signal}), y_signal, task="classification", n_splits=4, random_state=0)
+    assert max(informative["signal"]["all_scores"].values()) > ceiling, "a genuinely informative column did not out-score the pure-noise null; the score is not measuring anything"
 
 
 def test_the_missing_value_fill_is_also_fold_local():
@@ -102,5 +138,6 @@ def test_the_missing_value_fill_is_also_fold_local():
 
     result = select_column_transforms(df, y, task="classification", n_splits=4, random_state=0)
     assert result["noise_with_gaps"]["all_scores"], "the non-finite branch must still produce scores"
+    ceiling = _pure_noise_score_ceiling(with_gaps=True)
     for name, score in result["noise_with_gaps"]["all_scores"].items():
-        assert 0.3 <= score <= 0.7, f"pure-noise column with gaps scored {score} under {name}, suggesting a leak"
+        assert score <= ceiling, f"pure-noise column with gaps scored {score:.4f} under {name}, above the {ceiling:.4f} ceiling of 8 independent gapped noise draws -- the imputation is leaking"

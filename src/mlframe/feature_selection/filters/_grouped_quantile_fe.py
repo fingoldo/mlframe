@@ -42,7 +42,7 @@ Leakage safety (CRITICAL)
 """
 from __future__ import annotations
 
-from ._grouped_coerce_shared import coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols, broadcast_lookup as _broadcast_lookup
+from ._grouped_coerce_shared import auto_detect_group_cols, coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols, broadcast_lookup as _broadcast_lookup
 
 import logging
 from typing import Optional, Sequence
@@ -613,29 +613,6 @@ def score_grouped_quantile_by_mi_uplift(
 # ---------------------------------------------------------------------------
 
 
-def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 4) -> list[str]:
-    """Pick up to ``max_cols`` candidate grouping columns via the shared composite-target group-column detector, falling back to a low/mid-cardinality non-float scan when that detector is unavailable."""
-    try:
-        from ...training.composite import detect_group_column_candidates
-        cands = detect_group_column_candidates(X)
-        return [name for name, _info in cands[:max_cols]]
-    except Exception as _e:
-        logger.debug(
-            "grouped_quantile auto-detect: detector import failed (%s); using " "fallback cardinality scan.",
-            _e,
-        )
-        out: list[str] = []
-        n = len(X)
-        for c in X.columns:
-            col = X[c]
-            if pd.api.types.is_float_dtype(col):
-                continue
-            nun = int(col.nunique(dropna=True))
-            if 3 <= nun <= min(500, max(3, n // 2)):
-                out.append(str(c))
-        return out[:max_cols]
-
-
 # ---------------------------------------------------------------------------
 # End-to-end pipeline with MI uplift gate
 # ---------------------------------------------------------------------------
@@ -673,7 +650,7 @@ def hybrid_grouped_quantile_fe(
     if not isinstance(X, pd.DataFrame):
         raise TypeError(f"hybrid_grouped_quantile_fe: X must be a pandas DataFrame; got " f"{type(X).__name__}")
     if group_cols is None or len(group_cols) == 0:
-        group_cols = _auto_detect_group_cols(X)
+        group_cols = auto_detect_group_cols(X, caller="grouped_quantile")
     else:
         group_cols = [c for c in group_cols if c in X.columns]
     if not group_cols:

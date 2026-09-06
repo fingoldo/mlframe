@@ -19,6 +19,7 @@ from mlframe.metrics._core_auc_brier import (
     fast_roc_auc_unstable,
     make_bootstrap_auc_resampler,
 )
+from tests.conftest import perf_speedup_floor
 
 
 def _ref(y_true, y_score, idx):
@@ -113,7 +114,9 @@ def test_perf_sentinel_presort_beats_argsort():
     new = time.process_time() - t1
 
     speedup = old / new
-    assert speedup >= 1.2, f"presort resampler not faster: {speedup:.2f}x (old={old * 1e3:.1f}ms new={new * 1e3:.1f}ms)"
+    # process_time already removes the dominant contention term (preemption is not charged to this process),
+    # so the floor only needs the residual xdist relaxation rather than the full paired-trial shape.
+    assert speedup >= perf_speedup_floor(1.2), f"presort resampler not faster: {speedup:.2f}x (old={old * 1e3:.1f}ms new={new * 1e3:.1f}ms)"
 
 
 def test_fused_kernel_bit_identical_to_exact_on_tie_free():
@@ -218,7 +221,7 @@ def test_perf_sentinel_fused_beats_prior_resampler():
         resampler(idx)
     new = time.process_time() - t1
     speedup = old / new
-    assert speedup >= 1.3, f"fused resampler not faster: {speedup:.2f}x (old={old * 1e3:.1f}ms new={new * 1e3:.1f}ms)"
+    assert speedup >= perf_speedup_floor(1.3), f"fused resampler not faster: {speedup:.2f}x (old={old * 1e3:.1f}ms new={new * 1e3:.1f}ms)"
 
 
 def test_batch_parallel_bit_identical_to_serial_per_resample_loop():

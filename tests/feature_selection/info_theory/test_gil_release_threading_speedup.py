@@ -150,15 +150,37 @@ def test_shuffle_arr_lcg_thread_safety_under_concurrent_nogil_execution():
 
 
 @skip_under_numba_disabled_jit
+def test_the_mi_kernel_still_releases_the_gil():
+    """The fix was ``nogil=True`` on the kernel joblib's threading backend dispatches through, and numba
+    records that on the dispatcher, so it can be read rather than inferred.
+
+    A `speedup > 1.2` at `n_jobs=4` used to stand in for it. On a 2-vCPU runner four threads cannot deliver
+    1.2x whether or not the GIL is released, which is a deterministic false red; on a many-core box the
+    ratio can clear the bar through other effects with the flag gone.
+    """
+    from mlframe.feature_selection.filters.info_theory import compute_mi_from_classes
+
+    target = getattr(compute_mi_from_classes, "py_func", None)
+    dispatcher = compute_mi_from_classes if target is not None else None
+    assert dispatcher is not None, "compute_mi_from_classes is not a numba dispatcher; this check has lost its subject"
+    options = getattr(dispatcher, "targetoptions", None)
+    assert options is not None, "the dispatcher exposes no targetoptions; this check has lost its subject"
+    assert options.get("nogil") is True, f"compute_mi_from_classes no longer sets nogil=True (targetoptions={options}); joblib's threading backend will serialise on the GIL again"
+
+
+@skip_under_numba_disabled_jit
 @pytest.mark.slow
 def test_threading_backend_delivers_real_speedup_not_regression():
-    """Coarse regression sensor for the fix itself: joblib backend='threading' dispatch through
-    compute_mi_from_classes must show SOME real multi-thread speedup, not the pre-fix 0.84-0.94x
-    (worse-than-serial) pattern. Loose bound (>1.2x at 4 workers) -- this pins the fix direction, not a
-    tight performance contract.
+    """Paired-trial companion to the flag check above: threading must not be SLOWER than serial.
 
-    Skipped under NUMBA_DISABLE_JIT=1: a wall-clock speedup-ratio assertion, meaningless once
-    compute_mi_from_classes isn't compiled (nogil never applies, threading buys nothing).
+    The pre-fix pattern was 0.84-0.94x, i.e. worse than serial, and that direction survives on any core
+    count -- unlike the 1.2x floor this replaces, which needed at least two free cores to be reachable at
+    all. Trials are interleaved so a scheduling stall lands on both arms, and the verdict is the median of
+    paired ratios plus a majority of paired wins, the shape
+    ``test_shap_proxy_cluster_su_bitmap.py`` already uses.
+
+    Skipped under NUMBA_DISABLE_JIT=1: meaningless once compute_mi_from_classes isn't compiled (nogil
+    never applies, threading buys nothing).
     """
     rng = np.random.default_rng(1)
     n = 30000
@@ -176,25 +198,26 @@ def test_threading_backend_delivers_real_speedup_not_regression():
 
     work()  # warmup JIT
 
-    n_tasks, n_repeats = 8, 6
-    t0 = time.perf_counter()
-    for _ in range(n_repeats):
-        for _ in range(n_tasks):
-            work()
-    t_serial = (time.perf_counter() - t0) / n_repeats
-
+    n_tasks, n_trials = 8, 7
     pool = Parallel(n_jobs=4, backend="threading")
     pool(delayed(work)() for _ in range(n_tasks))  # warmup pool
-    t0 = time.perf_counter()
-    for _ in range(n_repeats):
-        pool(delayed(work)() for _ in range(n_tasks))
-    t_parallel = (time.perf_counter() - t0) / n_repeats
 
-    speedup = t_serial / t_parallel
-    assert speedup > 1.2, (
-        f"threading backend speedup regressed to {speedup:.2f}x (serial={t_serial * 1000:.1f}ms, "
-        f"threaded={t_parallel * 1000:.1f}ms) -- check nogil=True is still set on compute_mi_from_classes"
-    )
+    ratios = []
+    for _ in range(n_trials):
+        t0 = time.perf_counter()
+        for _ in range(n_tasks):
+            work()
+        t_serial = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
+        pool(delayed(work)() for _ in range(n_tasks))
+        t_parallel = time.perf_counter() - t0
+        ratios.append(t_serial / max(t_parallel, 1e-9))
+
+    median_ratio = sorted(ratios)[len(ratios) // 2]
+    wins = sum(1 for r in ratios if r >= 1.0)
+    assert median_ratio >= 1.0, f"threaded dispatch is slower than serial (median {median_ratio:.2f}x, ratios {[round(r, 2) for r in ratios]}) -- the pre-fix GIL-serialised pattern"
+    assert wins > n_trials // 2, f"threaded dispatch lost {n_trials - wins} of {n_trials} paired trials (ratios {[round(r, 2) for r in ratios]})"
 
 
 if __name__ == "__main__":

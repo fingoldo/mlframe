@@ -51,48 +51,9 @@ from ._utils import require_seed, validate_numeric_input, softmax
 logger = logging.getLogger(__name__)
 
 
-def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
-    """Fit a small LightGBM via an inner KFold(3) and return its OUT-OF-FOLD predictions on Xt.
-
-    Used solely to compute residuals for adaptive band partitioning — NOT a downstream model. An in-sample
-    prediction is close to y_t almost by construction (the model was just fit on these exact rows), which
-    systematically understates "fitting difficulty" and biases which rows land in the hard (Q5) band; see
-    the module docstring's leakage-discipline note. Matches every later sibling's
-    ``_fit_baseline_predict``/``_fit_3baselines_oof`` pattern in this cluster. Falls back to a single
-    in-sample fit when there are too few rows for a 3-fold inner split.
-    """
-    try:
-        import lightgbm as lgb
-    except ImportError as exc:
-        raise ImportError("residual_band_attention requires lightgbm") from exc
-
-    def _fit_predict(X_fit: np.ndarray, y_fit: np.ndarray, X_pred: np.ndarray, rs: int) -> np.ndarray:
-        """Fit a shallow LightGBM baseline on (X_fit, y_fit), return its predictions on X_pred."""
-        if task == "binary":
-            model = lgb.LGBMClassifier(
-                n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
-                random_state=int(rs), verbose=-1, n_jobs=-1,
-            )
-            model.fit(X_fit, y_fit.astype(np.int32))
-            return np.asarray(model.predict_proba(X_pred))[:, 1].astype(np.float32)
-        model = lgb.LGBMRegressor(
-            n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.1,
-            random_state=int(rs), verbose=-1, n_jobs=-1,
-        )
-        model.fit(X_fit, y_fit)
-        return np.asarray(model.predict(X_pred)).astype(np.float32)
-
-    n = Xt.shape[0]
-    if n < 3:
-        return _fit_predict(Xt, y_t, Xt, seed)
-
-    from sklearn.model_selection import KFold
-
-    preds = np.zeros(n, dtype=np.float32)
-    inner_splitter = KFold(n_splits=3, shuffle=True, random_state=int(seed) + 11)
-    for inner_idx, (in_tr, in_val) in enumerate(inner_splitter.split(Xt)):
-        preds[in_val] = _fit_predict(Xt[in_tr], y_t[in_tr], Xt[in_val], int(seed) + 7 + inner_idx)
-    return preds
+# Out-of-fold baseline predictions on Xt. This module's own copy was verified bit-identical to the shared
+# implementation on both task branches before being replaced by this import.
+from ._baseline_oof import fit_baseline_predict_oof as _fit_baseline_predict
 
 
 def compute_residual_band_attention_features(

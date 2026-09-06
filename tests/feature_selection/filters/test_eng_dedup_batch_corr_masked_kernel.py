@@ -128,88 +128,19 @@ def _old_dedup(X, eng_cols_appended, mig_set, eng_mi):
     return eng_keep, eng_drop
 
 
-def _new_dedup(X, eng_cols_appended, mig_set, eng_mi):
-    """Mirrors the current ``_fit_impl_core.py`` masked-buffer integration."""
-    eng_keep, eng_drop, eng_arrs, eng_ranks = [], set(), {}, {}
-    fully_finite: dict = {}
-    n = len(X)
-    rank_buf = np.empty((len(eng_cols_appended), n), dtype=np.float64)
-    row_of: dict = {}
-    next_row = 0
-    for c in eng_cols_appended:
-        if c in eng_drop:
-            continue
-        arr_c = np.asarray(X[c].to_numpy(), dtype=np.float64)
-        fin_c = np.isfinite(arr_c)
-        fully_finite[c] = bool(fin_c.all())
-        if not fin_c.any() or arr_c[fin_c].std() <= 1e-12:
-            eng_keep.append(c)
-            eng_arrs[c] = arr_c
-            continue
-        ranks_c = pd.Series(arr_c).rank(method="average").to_numpy()
-        eng_ranks[c] = ranks_c
-        colliding = []
-        fast_set = set()
-        if fully_finite[c] and arr_c.shape[0] >= 8 and next_row > 0:
-            active = np.zeros(next_row, dtype=np.bool_)
-            row_to_kc = {}
-            for kc in eng_keep:
-                r = row_of.get(kc)
-                if r is not None:
-                    active[r] = True
-                    row_to_kc[r] = kc
-            if active.any():
-                corrs = one_vs_many_abs_corr_masked(ranks_c, rank_buf[:next_row], active)
-                for r, kc in row_to_kc.items():
-                    fast_set.add(kc)
-                    if corrs[r] >= 0.99:
-                        colliding.append(kc)
-        for kc in eng_keep:
-            if kc in fast_set:
-                continue
-            arr_k = eng_arrs[kc]
-            mask = fin_c & np.isfinite(arr_k)
-            if mask.sum() < 8:
-                continue
-            a, b = arr_c[mask], arr_k[mask]
-            if a.std() <= 1e-12 or b.std() <= 1e-12:
-                continue
-            if bool(mask.all()):
-                ra, rb = ranks_c, eng_ranks.get(kc)
-                if rb is None:
-                    rb = pd.Series(arr_k).rank(method="average").to_numpy()
-                    eng_ranks[kc] = rb
-            else:
-                ra = pd.Series(a).rank(method="average").to_numpy()
-                rb = pd.Series(b).rank(method="average").to_numpy()
-            if ra.std() <= 1e-12 or rb.std() <= 1e-12:
-                continue
-            rho = abs(float(np.corrcoef(ra, rb)[0, 1]))
-            if np.isfinite(rho) and rho >= 0.99:
-                colliding.append(kc)
-        if colliding:
-            loses = any(not _eng_dedup_prefer(c, kc, mig_set, eng_mi) for kc in colliding)
-            if loses:
-                eng_drop.add(c)
-            else:
-                for kc in colliding:
-                    eng_drop.add(kc)
-                    eng_keep.remove(kc)
-                    eng_arrs.pop(kc, None)
-                eng_keep.append(c)
-                eng_arrs[c] = arr_c
-                if fully_finite[c]:
-                    rank_buf[next_row] = ranks_c
-                    row_of[c] = next_row
-                    next_row += 1
-        else:
-            eng_keep.append(c)
-            eng_arrs[c] = arr_c
-            if fully_finite[c]:
-                rank_buf[next_row] = ranks_c
-                row_of[c] = next_row
-                next_row += 1
-    return eng_keep, eng_drop
+def _new_dedup(X, eng_cols_appended, mig_set, eng_mi, adaptive_fourier_keep=frozenset()):
+    """Call the production scan.
+
+    This used to be a local re-implementation of the ``_fit_impl_core`` block. It had already drifted: it
+    lacked the adaptive-Fourier force-keep and the duplicate-column-label collapse, so the comparison below
+    pinned the batched kernel against a policy production no longer runs.
+    """
+    from mlframe.feature_selection.filters._mrmr_fit_impl._eng_dedup_scan import scan_engineered_duplicates
+
+    keep, drop, _arrs, _ranks = scan_engineered_duplicates(
+        X, eng_cols_appended, set(adaptive_fourier_keep), lambda cand, kept: _eng_dedup_prefer(cand, kept, mig_set, eng_mi)
+    )
+    return keep, drop
 
 
 def _make_scenario(seed, n=2000, k=30, nan_frac=0.0):
@@ -250,3 +181,35 @@ def test_eng_dedup_algorithm_matches_reference_across_random_configs():
             assert set(keep_old) == set(keep_new), f"seed={seed} nan_frac={nan_frac}"
             assert drop_old == drop_new, f"seed={seed} nan_frac={nan_frac}"
     assert n_checks == 45
+
+
+def test_an_adaptive_fourier_column_is_force_kept_but_still_deduped_against():
+    """The branch the local copy lacked: a force-kept column never drops, and later twins collide with it."""
+    from mlframe.feature_selection.filters._mrmr_fit_impl._eng_dedup_scan import scan_engineered_duplicates
+
+    rng = np.random.default_rng(3)
+    base = rng.normal(size=500)
+    df = pd.DataFrame({"f_fourier": base, "twin": base * 2.0 + 1.0, "other": rng.normal(size=500)})
+    names = ["f_fourier", "twin", "other"]
+
+    keep, drop, arrs, _ = scan_engineered_duplicates(df, names, {"f_fourier"}, lambda cand, kept: False)
+    assert "f_fourier" in keep and "f_fourier" not in drop
+    assert "f_fourier" in arrs, "a force-kept column must still record its array, or later twins cannot collide with it"
+    assert "twin" in drop, "a monotone twin of the force-kept column was not deduped against it"
+
+    # Without the force-keep the same column is an ordinary candidate and the first-appended policy applies.
+    keep_plain, drop_plain, _, _ = scan_engineered_duplicates(df, names, set(), lambda cand, kept: False)
+    assert "twin" in drop_plain and "f_fourier" in keep_plain
+
+
+def test_duplicate_column_labels_collapse_to_the_first_rather_than_crashing():
+    """`X[c]` returns a DataFrame under duplicate labels; the scan must take column 0, not rank a frame."""
+    from mlframe.feature_selection.filters._mrmr_fit_impl._eng_dedup_scan import scan_engineered_duplicates
+
+    rng = np.random.default_rng(4)
+    a = rng.normal(size=400)
+    df = pd.DataFrame(np.column_stack([a, a * 3.0, rng.normal(size=400)]), columns=["dup", "dup", "other"])
+
+    keep, drop, _, _ = scan_engineered_duplicates(df, ["dup", "other"], set(), lambda cand, kept: False)
+    assert set(keep) | drop == {"dup", "other"}
+    assert "dup" in keep

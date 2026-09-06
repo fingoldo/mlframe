@@ -17,6 +17,7 @@ not surface a clean post-fit test metric in returned metadata).
 from mlframe.training import OutlierDetectionConfig, OutputConfig
 
 
+import logging
 import os
 import time
 import numpy as np
@@ -150,6 +151,19 @@ def _n_trees_trained(models_path, mlframe_model):
     if est is None:
         return None
     if mlframe_model == "cb":
+        # ``tree_count_`` is TRUNCATED to best_iteration when use_best_model=True, whether or not ES was
+        # active, so it cannot tell the no-ES run from the ES one. The eval history is not truncated: it
+        # carries one entry per boosting iteration actually TRAINED, which is the discrete quantity early
+        # stopping actually changes.
+        try:
+            evals = est.get_evals_result()
+            for split in ("learn", "validation", "validation_0"):
+                curves = evals.get(split) or {}
+                for series in curves.values():
+                    if series:
+                        return len(series)
+        except Exception as exc:
+            logging.getLogger(__name__).debug("CatBoost eval history unavailable (%s); falling back to tree_count_", exc)
         return int(getattr(est, "tree_count_", 0)) or None
     if mlframe_model == "xgb":
         try:
@@ -367,11 +381,18 @@ def test_early_stopping_saves_time_without_auroc_loss(tmp_path, common_init_para
     # reduction is a large wall-time win. Asserting the tree count fails loudly on a real ES regression
     # (callback not firing, early_stopping_rounds=None not disabling ES) without flaking on timer jitter.
     if mlframe_model == "cb":
-        # CatBoost's use_best_model=True truncates the STORED model to best_iteration regardless of
-        # whether ES was active, so tree_count_ cannot distinguish the no-ES from the ES run. CB's
-        # per-tree cost is high enough that the forced 2000-tree fit genuinely dominates the suite, so
-        # here the wall-time speedup is the robust signal (measured +22-30% across seeds on this box).
-        assert speedup_pct >= 15.0, f"CB early stopping did not save >=15% wall-time vs the forced 2000-tree no-ES baseline. {msg}"
+        # The saving early stopping delivers is a count of boosting iterations skipped -- discrete, and the
+        # same on every host. Expressing it as a percentage of wall time re-introduced host dependence for
+        # nothing, and was a false red under contention. ``tree_count_`` is truncated by use_best_model, so
+        # the count comes from the untruncated eval history (see ``_tree_count``).
+        assert trees_a is not None and trees_b is not None, f"could not read CatBoost iteration counts. {msg}"
+        assert trees_b < trees_a, (
+            f"CB early stopping trained {trees_b} boosting iterations against the forced no-ES baseline's " f"{trees_a}; it saved nothing. {msg}"
+        )
+        assert trees_b <= trees_a * 0.85, (
+            f"CB early stopping cut only {100.0 * (1.0 - trees_b / trees_a):.1f}% of the boosting iterations "
+            f"(measured 22-30% of wall-time on this box, which this count is the mechanism behind). {msg}"
+        )
     else:
         # lgb / xgb keep every trained tree, so the boosting-round count is the deterministic ES signal.
         assert trees_a is not None and trees_b is not None, f"could not read tree counts. {msg}"

@@ -512,6 +512,11 @@ def evaluate_candidate(
                         npermutations=_bnp,
                         dtype=dtype,
                         return_null_mean=True,
+                        # Forwarded exactly as both CPU branches below do. Without it `mi_direct_gpu` seeds its
+                        # CuPy permutation Generator from OS entropy, so `null_mean` -- which is subtracted from
+                        # the score that drives selection -- moves run to run and the selected feature set is
+                        # non-deterministic on a CUDA host with `random_seed` pinned.
+                        base_seed=_baseline_seed,
                     )
                 except Exception as _gpu_exc:
                     logger.warning(

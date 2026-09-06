@@ -229,15 +229,37 @@ class TestCBTrainPoolCacheKeyUsesHelper:
         import mlframe.training.cb._cb_pool_build as mod
 
         src = Path(mod.__file__).read_text(encoding="utf-8")
-        # The cache-key construction site must not re-introduce id().
-        # The historical commentary still mentions ``id(train_df)`` as
-        # the broken pattern; locate the actual key= line.
         assert "compute_signature" in src, "_cb_pool_build.py no longer uses compute_signature for the train Pool cache key -- regression vs 2026-05-23 fix."
-        # Find the line that BUILDS the key (the assignment), not the
-        # docstring comments above it.
-        key_assign_lines = [ln for ln in src.splitlines() if ln.lstrip().startswith("key = ")]
-        for ln in key_assign_lines:
-            assert "id(train_df)" not in ln, f"_cb_pool_build train Pool cache key still uses id(train_df): {ln.strip()!r}"
+        args = _key_call_arguments(mod, "_cb_pool_build train Pool")
+        for arg in args:
+            assert "id(" not in arg, f"_cb_pool_build train Pool cache key is built from an object address: {arg!r}"
+
+
+def _key_call_arguments(module, subject: str) -> list[str]:
+    """Every argument source of a ``key = compute_signature(...)`` assignment in ``module``.
+
+    The previous form of this check collected physical lines starting with ``key = `` and asserted the
+    forbidden token was absent from each. Both real assignments span several lines, so the only line it ever
+    matched was ``key = compute_signature(`` -- which by construction carries no arguments at all, and the
+    assertion was true for that reason rather than for the intended one. Re-introducing ``id(train_df)`` on a
+    continuation line left both tests green. Walking the call node reads the arguments wherever they sit.
+    """
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    args: list[str] = []
+    found = False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "key" for t in node.targets):
+            continue
+        found = True
+        for a in list(node.value.args) + [kw.value for kw in node.value.keywords]:
+            args.append(ast.unparse(a))
+    assert found, f"{subject}: no `key = <call>(...)` assignment found; this check has lost its subject"
+    return args
 
 
 class TestCBValPoolCacheKeyUsesHelper:
@@ -251,10 +273,22 @@ class TestCBValPoolCacheKeyUsesHelper:
 
         src = Path(mod.__file__).read_text(encoding="utf-8")
         assert "compute_signature" in src, "_cb_pool.py no longer uses compute_signature for val Pool cache key -- regression vs 2026-05-23 fix."
-        # No "key = (id(val_df), ...)" assignment.
-        key_assign_lines = [ln for ln in src.splitlines() if ln.lstrip().startswith("key = ")]
-        for ln in key_assign_lines:
-            assert "id(val_df)" not in ln, f"_cb_pool val Pool cache key still uses id(val_df): {ln.strip()!r}"
+        args = _key_call_arguments(mod, "_cb_pool val Pool")
+        for arg in args:
+            assert "id(" not in arg, f"_cb_pool val Pool cache key is built from an object address: {arg!r}"
+
+    def test_the_signature_is_the_same_for_equal_frames_at_different_addresses(self) -> None:
+        """What the id() ban is FOR: two equal frames must address one cached Pool, and unequal ones must not."""
+        from mlframe.training._dataset_cache_fingerprint import compute_signature
+
+        a = pd.DataFrame({"x": [1.0, 2.0, 3.0], "c": ["p", "q", "r"]})
+        b = pd.DataFrame({"x": [1.0, 2.0, 3.0], "c": ["p", "q", "r"]})
+        assert id(a) != id(b)
+        assert compute_signature(a, extra=((), (), ())) == compute_signature(b, extra=((), (), ()))
+
+        c = b.copy()
+        c.loc[0, "x"] = 99.0
+        assert compute_signature(a, extra=((), (), ())) != compute_signature(c, extra=((), (), ()))
 
 
 # ----------------------------------------------------------------------

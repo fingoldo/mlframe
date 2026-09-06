@@ -172,8 +172,15 @@ def test_unary_spec_iter_transform_applies_without_base(synthetic_df):
     # Force the unary to survive the eps gate so it lands in specs_.
     disc = _run_disc(df, feats, train_idx, eps_mi_gain=-1e9, top_k_after_mi=50)
     unary_specs = [s for s in disc.specs_ if s.transform_name in _UNARY_TRANSFORMS]
-    if not unary_specs:
-        pytest.skip("no unary spec survived to specs_ on this fixture")
+    # An assertion, not a skip. Every assertion below sits inside a `for s in unary_specs` loop, so an empty
+    # list is already a silent pass; skipping on top of it just made the silence explicit. The fixture forces
+    # survival with eps_mi_gain=-1e9 and top_k_after_mi=50, so an empty list means something stopped unary
+    # transforms reaching specs_ -- a new gate, a rename in _UNARY_TRANSFORMS, a screening reorder -- which is
+    # exactly when this regression test should speak rather than retire itself.
+    assert unary_specs, (
+        f"no unary spec reached specs_ despite eps_mi_gain=-1e9 and top_k_after_mi=50, so the empty-base_column "
+        f"contract went unchecked; kept transforms were {sorted({s.transform_name for s in disc.specs_})}"
+    )
     for s in unary_specs:
         assert s.base_column == "", f"kept unary spec {s.name!r} has non-empty base_column {s.base_column!r}"
     # iter_transform must not raise on the empty base_column.

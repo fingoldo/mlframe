@@ -14,7 +14,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 warnings.filterwarnings("ignore")
 
@@ -128,10 +127,17 @@ def test_biz_val_composite_discovery_returns_valid_spec_schema_on_linear_target(
     (transform_name, base_column, fitted_params, mi_gain, etc.).
     Catches regressions in the spec serialisation path."""
     df = _linear_residual_target(n=2500, seed=42)
-    disc = _run_discovery(df, _make_config())
+    # The gate is opened for this test only. What is under test is the SHAPE of a serialised spec, not the
+    # gain threshold -- `_make_config`'s own docstring says so -- and the MI gains this fixture now produces
+    # are all negative (measured: linear_residual -0.0015, diff -0.0045), so at any non-negative eps discovery
+    # keeps nothing and the schema goes unchecked. The sibling tests in this file are the ones that pin which
+    # transform wins and whether the gain semantics hold.
+    disc = _run_discovery(df, _make_config(eps_mi_gain=-1.0))
     specs = disc.export_specs()
-    if not specs:
-        pytest.skip("discovery rejected all candidates -- gain semantics; covered by other tests")
+    # An assertion, not a skip: every check below reads `specs[0]`, so an empty list retires the schema
+    # contract entirely. If discovery stops producing specs on a fixture built to produce them, the
+    # serialisation path this test guards is exactly what nobody is checking any more.
+    assert specs, "discovery returned no specs on the linear-residual fixture, so the spec schema went unchecked"
     spec = specs[0]
     expected_keys = {"name", "target_col", "transform_name", "base_column", "fitted_params", "mi_gain"}
     missing = expected_keys - set(spec.keys())

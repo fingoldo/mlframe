@@ -119,6 +119,7 @@ class TestAMislabelledBasisIsAnnounced:
     def test_the_except_is_narrowed(self):
         """A bug inside `basis_route_by_moments` must propagate, not be laundered into a default."""
         handlers = [h for h in _handlers(self.PATH) if any(isinstance(n, ast.Return) and getattr(n.value, "value", None) == "hermite" for n in ast.walk(h))]
+        assert handlers, "the basis-routing fallback was not found; this test needs updating"
         for h in handlers:
             assert h.type is not None, "the basis-routing fallback catches bare Exception"
             names = [n.id for n in ast.walk(h.type) if isinstance(n, ast.Name)]

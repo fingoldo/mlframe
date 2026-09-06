@@ -117,6 +117,86 @@ def test_combo_count_matches_ground_truth_when_bin1_edges_exceed_100():
     assert not np.array_equal(old_result, ground_truth), "the old base=100 encoding must diverge from ground truth on this straddling data (else the fixture doesn't exercise the bug)"
 
 
+def test_combo_base_is_derived_from_the_edge_count_at_the_production_site(monkeypatch):
+    """FE_TRANSFORMER_B-4 asserted through `compute_mdl_binning_pairwise_features`, not a local copy.
+
+    Every other test in this file compares local re-implementations: `_old_combo` vs `_new_combo`, and an
+    inline duplicate of the module's combo encoding vs a Counter. None reads `combo_base` from the module,
+    so reverting `mdl_binning_pairwise.py` to a hardcoded `combo_base = 100` leaves all of them green while
+    production silently sums the counts of colliding (bin0, bin1) pairs.
+
+    The collision cannot currently be reached through the real binner: `_mdl_bin_edges` performs a SINGLE
+    top-level Fayyad-Irani split (its own docstring says `_split` "is only ever invoked once"), so it
+    returns at most one edge whatever `max_bins` says, bin1 indices stay in [0, 1], and a base of 100 is
+    accidentally safe. That makes the fix a guard against a future or caller-supplied binner rather than a
+    live bug -- and it is exactly why the guard needs a test that does not depend on the current binner's
+    conservatism. The edge list is stubbed here to the >100 edges the fix is written for, and the assertion
+    runs against production's own combo output.
+    """
+    pytest.importorskip("sklearn")
+
+    from collections import Counter
+
+    import mlframe.feature_engineering.transformer.mdl_binning_pairwise as mdl
+
+    rng = np.random.default_rng(11)
+    n_train, n_query, d = 3000, 400, 3
+    X_train = rng.standard_normal((n_train, d)).astype(np.float32)
+    y_train = (X_train[:, 0] + 0.5 * X_train[:, 1] + 0.1 * rng.standard_normal(n_train)).astype(np.float32)
+    X_query = rng.standard_normal((n_query, d)).astype(np.float32)
+
+    # 150 edges on every feature: bin1 indices then span [0, 150], straddling the old hardcoded base.
+    fine_edges = np.quantile(X_train[:, 1], np.linspace(0.005, 0.995, 150)).tolist()
+    monkeypatch.setattr(mdl, "_mdl_bin_edges", lambda x, y_class, n_classes, max_bins=8, min_size=20: list(fine_edges))
+
+    df = mdl.compute_mdl_binning_pairwise_features(X_train, y_train, X_query, None, seed=0, task="regression", standardize=False)
+    combo_col = [c for c in df.columns if "combo_count" in c]
+    assert combo_col, f"no combo-count column in {list(df.columns)}"
+    emitted = df[combo_col[0]].to_numpy()
+
+    # Ground truth over (bin0, bin1) PAIRS -- no combo code, so no encoding collision is possible.
+    train_bins = np.column_stack([np.digitize(X_train[:, i], fine_edges) for i in (0, 1)])
+    query_bins = np.column_stack([np.digitize(X_query[:, i], fine_edges) for i in (0, 1)])
+    truth = Counter(map(tuple, train_bins.tolist()))
+    ground_truth = np.array([truth.get((int(b0), int(b1)), 0) for b0, b1 in query_bins], dtype=np.float32)
+
+    np.testing.assert_array_equal(emitted, ground_truth)
+
+    # ...and a hardcoded base of 100 must genuinely disagree on this data, or the fixture does not straddle
+    # it and this test would pass against the reverted production code too.
+    old_train = train_bins[:, 0] * 100 + train_bins[:, 1]
+    old_query = query_bins[:, 0] * 100 + query_bins[:, 1]
+    old_uniq, old_counts = np.unique(old_train, return_counts=True)
+    old_pos = np.clip(np.searchsorted(old_uniq, old_query), 0, old_uniq.shape[0] - 1)
+    old_result = np.where(old_uniq[old_pos] == old_query, old_counts[old_pos], 0).astype(np.float32)
+    assert not np.array_equal(old_result, ground_truth), "base=100 agrees with ground truth here; the fixture does not exercise the collision"
+
+
+def test_the_mdl_binner_emits_a_single_split_today(monkeypatch):
+    """Records why the collision above has to be reached with a stubbed edge list.
+
+    `_mdl_bin_edges` is a single top-level split, so `max_bins`/`max_bins_per_feat` cannot raise the edge
+    count past one and bin indices stay in [0, 1]. If that ever becomes recursive, the hardcoded-base
+    collision becomes reachable for real and this test should start failing -- which is the signal to
+    exercise the case above through the genuine binner rather than a stub.
+    """
+    from mlframe.feature_engineering.transformer.mdl_binning_pairwise import _mdl_bin_edges
+
+    rng = np.random.default_rng(5)
+    n = 20_000
+    x = rng.standard_normal(n)
+    y = 3.0 * x + 0.01 * rng.standard_normal(n)
+    qs = np.quantile(y, [0.2, 0.4, 0.6, 0.8])
+    y_class = np.digitize(y, qs).astype(np.int32)
+
+    edges = _mdl_bin_edges(x, y_class, 5, max_bins=160)
+    assert len(edges) <= 1, (
+        f"_mdl_bin_edges now returns {len(edges)} edges on a strongly monotone target; it has become "
+        "recursive, so the combo-base collision is reachable through the real binner and the test above "
+        "should drive it without stubbing"
+    )
+
+
 def test_full_feature_function_runs_and_deterministic():
     """Full feature function runs and deterministic."""
     pytest.importorskip("sklearn")

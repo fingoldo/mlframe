@@ -17,6 +17,52 @@ MRMR_FE_ORDER_COL = "mrmr_fe_order"
 MRMR_FE_LAG_VAL_COL = "mrmr_fe_lval"
 
 
+# Module scope so the fuzz-harness tests can import the vocab and the row builder rather than keeping
+# their own copies. A test that duplicates both compares its copies with each other and stays green
+# through any change to the real ones.
+TEXT_VOCAB = [
+    "python",
+    "rust",
+    "golang",
+    "java",
+    "swift",
+    "kotlin",
+    "backend",
+    "frontend",
+    "devops",
+    "mlops",
+    "dataeng",
+    "platform",
+    "cloud",
+    "edge",
+    "realtime",
+    "batch",
+    "stream",
+    "vector",
+    "search",
+    "nlp",
+    "vision",
+    "audio",
+    "robotics",
+    "quantum",
+]
+
+
+def build_text_rows(rng, n: int, vocab=None) -> list:
+    """``n`` rows of three space-joined tokens drawn from ``vocab``, vectorised.
+
+    The naive per-row loop builds n separate Python lists of 3 ints plus n ``" ".join`` calls; indexing a
+    str-array gives the same per-cell strings without ever allocating the idx-list, and ``map`` builds the
+    joined strings as a streaming iterator the list constructor materialises in one shot.
+    """
+    import numpy as np  # local, matching this module's deliberately deferred numpy import
+
+    vocab = TEXT_VOCAB if vocab is None else vocab
+    vocab_arr = np.asarray(vocab)
+    idxs_arr = rng.integers(0, len(vocab), size=(n, 3))
+    return list(map(" ".join, vocab_arr[idxs_arr]))
+
+
 def build_frame_for_combo(combo: FuzzCombo):
     """Build a pd / pl DataFrame matching the combo's input spec.
 
@@ -236,32 +282,7 @@ def build_frame_for_combo(combo: FuzzCombo):
     # so an unroutable text column is never produced. Surfaced by fuzz
     # (2 cb+non-cb combos with auto-detect off).
     want_text = _eff_text_col_count > 0 and "cb" in combo.models and combo.auto_detect_cats
-    text_vocab = [
-        "python",
-        "rust",
-        "golang",
-        "java",
-        "swift",
-        "kotlin",
-        "backend",
-        "frontend",
-        "devops",
-        "mlops",
-        "dataeng",
-        "platform",
-        "cloud",
-        "edge",
-        "realtime",
-        "batch",
-        "stream",
-        "vector",
-        "search",
-        "nlp",
-        "vision",
-        "audio",
-        "robotics",
-        "quantum",
-    ]
+    text_vocab = TEXT_VOCAB
     text_cols: dict[str, list] = {}
     if want_text:
         # Vectorised token-row build. The naive per-row loop builds n separate
@@ -273,11 +294,8 @@ def build_frame_for_combo(combo: FuzzCombo):
         # Python-int idx-list, and the ``map(" ".join, words)`` builds the joined
         # strings as a streaming iterator the list constructor materialises in
         # one shot.
-        vocab_arr = np.asarray(text_vocab)
         for i in range(_eff_text_col_count):
-            idxs_arr = rng.integers(0, len(text_vocab), size=(n, 3))
-            words = vocab_arr[idxs_arr]  # (n, 3) np.str_ — single buffer
-            text_cols[f"text_{i}"] = list(map(" ".join, words))
+            text_cols[f"text_{i}"] = build_text_rows(rng, n, text_vocab)
 
     # Embedding columns: only Polars inputs support detection via
     # ``pl.List(pl.Float32)``; pandas has no robust native analog the

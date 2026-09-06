@@ -32,7 +32,6 @@ Contracts pinned (real numbers, never xfail):
 
 from __future__ import annotations
 
-import time
 import warnings
 from itertools import combinations
 
@@ -46,6 +45,27 @@ warnings.filterwarnings("ignore")
 # ---------------------------------------------------------------------------
 # Naive (BEFORE) reference scorers -- recompute per-column quantities per pair
 # ---------------------------------------------------------------------------
+
+
+def _count_plug_in_mi_calls(monkeypatch) -> list:
+    """Count every ``_plug_in_mi`` evaluation, whoever calls it.
+
+    Both the naive reference and the production scorer resolve the kernel from ``_adaptive_nbins`` at call
+    time, so patching it there covers both arms. The hoisting these tests exist for is a call-count
+    property -- O(p) marginals instead of O(p^2) -- which is what makes it worth doing at all.
+    """
+    from mlframe.feature_selection.filters import _adaptive_nbins
+
+    real = _adaptive_nbins._plug_in_mi
+    calls: list = []
+
+    def _counting(*args, **kwargs):
+        """Record one MI evaluation."""
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(_adaptive_nbins, "_plug_in_mi", _counting)
+    return calls
 
 
 def _naive_pair_ii(X, y, cat_cols, n_bins: int = 10):
@@ -116,8 +136,8 @@ def _warm_numba():
 
 class TestPairScoringSpeedup:
     """Groups tests covering TestPairScoringSpeedup."""
-    def test_cached_at_least_1p5x_faster_at_p30(self):
-        """Cached at least 1p5x faster at p30."""
+    def test_the_marginal_hoisting_cuts_the_mi_evaluation_count(self, monkeypatch):
+        """The hoisting evaluates each marginal once instead of once per pair; that is a call count, not a wall time."""
         from mlframe.feature_selection.filters._cat_pair_fe import (
             score_cat_pairs_by_interaction_information,
         )
@@ -126,23 +146,21 @@ class TestPairScoringSpeedup:
         cat_cols = list(X.columns)
         _warm_numba()
 
-        n_iter = 3
-        t0 = time.perf_counter()
-        for _ in range(n_iter):
-            _naive_pair_ii(X, y, cat_cols)
-        t_naive = (time.perf_counter() - t0) / n_iter
+        calls = _count_plug_in_mi_calls(monkeypatch)
+        _naive_pair_ii(X, y, cat_cols)
+        naive_mi_calls = len(calls)
 
-        t0 = time.perf_counter()
-        for _ in range(n_iter):
-            score_cat_pairs_by_interaction_information(X, y, cat_cols)
-        t_cached = (time.perf_counter() - t0) / n_iter
+        calls.clear()
+        score_cat_pairs_by_interaction_information(X, y, cat_cols)
+        cached_mi_calls = len(calls)
 
-        speedup = t_naive / max(t_cached, 1e-9)
-        assert speedup >= 1.5, (
-            f"cached II pair scorer only {speedup:.2f}x faster than naive "
-            f"per-pair recompute (naive {t_naive * 1000:.1f} ms, cached "
-            f"{t_cached * 1000:.1f} ms at p=30 n=5000); expected >= 1.5x. The "
-            f"O(p^2)->O(p) marginal/code hoisting is not delivering the win."
+        n_pairs = len(cat_cols) * (len(cat_cols) - 1) // 2
+        # The naive shape evaluates both marginals inside the per-pair loop: 3 per pair. The hoisted one
+        # evaluates each marginal once and then one joint per pair: p + n_pairs.
+        assert naive_mi_calls == 3 * n_pairs, f"the naive reference made {naive_mi_calls} MI calls for {n_pairs} pairs, not 3 per pair; it no longer represents the pre-hoist shape"
+        assert cached_mi_calls <= len(cat_cols) + n_pairs, (
+            f"the cached scorer made {cached_mi_calls} MI calls for {len(cat_cols)} columns and {n_pairs} pairs; "
+            f"the O(p^2) -> O(p) marginal hoisting is not in effect (naive makes {naive_mi_calls})"
         )
 
 
@@ -301,8 +319,8 @@ def _naive_triple_beam_ii3(X, y, cat_cols, evaluated_triples, n_bins: int = 10):
 
 class TestTripleScoringSpeedup:
     """Groups tests covering TestTripleScoringSpeedup."""
-    def test_cached_triple_at_least_1p5x_faster(self):
-        """Cached triple at least 1p5x faster."""
+    def test_the_frozenset_cache_cuts_the_mi_evaluation_count(self, monkeypatch):
+        """The frozenset mi_cache reuses sub-joints across the beam; counted rather than timed."""
         from mlframe.feature_selection.filters._cat_triple_fe import (
             score_cat_triples_by_interaction_information,
         )
@@ -334,27 +352,22 @@ class TestTripleScoringSpeedup:
         )
         evaluated = [(str(r["cat_a"]), str(r["cat_b"]), str(r["cat_c"])) for _, r in sc.iterrows()]
 
-        n_iter = 3
-        t0 = time.perf_counter()
-        for _ in range(n_iter):
-            _naive_triple_beam_ii3(X, y, cat_cols, evaluated)
-        t_naive = (time.perf_counter() - t0) / n_iter
+        calls = _count_plug_in_mi_calls(monkeypatch)
+        _naive_triple_beam_ii3(X, y, cat_cols, evaluated)
+        naive_mi_calls = len(calls)
+        assert naive_mi_calls > 0, "the naive reference made no MI evaluations; the counter is not wired to the kernel both arms use"
 
-        t0 = time.perf_counter()
-        for _ in range(n_iter):
-            score_cat_triples_by_interaction_information(
-                X,
-                y,
-                cat_cols,
-                beam_width=3,
-                top_k_pairs=3,
-            )
-        t_cached = (time.perf_counter() - t0) / n_iter
+        calls.clear()
+        score_cat_triples_by_interaction_information(
+            X,
+            y,
+            cat_cols,
+            beam_width=3,
+            top_k_pairs=3,
+        )
+        cached_mi_calls = len(calls)
 
-        speedup = t_naive / max(t_cached, 1e-9)
-        assert speedup >= 1.5, (
-            f"cached triple II3 scorer only {speedup:.2f}x faster than naive "
-            f"per-term recompute (naive {t_naive * 1000:.1f} ms, cached "
-            f"{t_cached * 1000:.1f} ms); expected >= 1.5x. The frozenset mi_cache "
-            f"is not delivering the sub-joint reuse win."
+        assert cached_mi_calls < naive_mi_calls, (
+            f"the cached triple II3 scorer made {cached_mi_calls} MI evaluations against the naive "
+            f"reference's {naive_mi_calls}; the frozenset mi_cache is not delivering the sub-joint reuse"
         )

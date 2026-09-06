@@ -80,7 +80,8 @@ def _keep_mask_cache_key(fm: np.ndarray, thr: float):
     if nbytes == 0 or nbytes > _KEEP_MASK_HASH_MAX_BYTES:
         return None
     h = hashlib.blake2b(digest_size=16)
-    h.update(fm.tobytes())
+    # `h.update(a.data)` consumes the buffer directly; `.tobytes()` first materialises a full copy of it. The digest is identical either way, so this is peak memory only -- the same idiom, and the same reason, as `_joblib_safe._fit_constant_key`.
+    h.update(np.ascontiguousarray(fm).data)
     return (fm.shape, fm.dtype.str, float(thr), h.digest())
 
 # Numba JIT wins the O(B^2) pair walk only once both the column count and the

@@ -97,7 +97,7 @@ class TestMRMRIdentityCache:
         assert hasattr(m, "support_")
         assert not str(getattr(m, "signature", "")).startswith("_mrmr_identity_shortcut")
 
-    def test_identity_skip_short_circuits_second_call(self) -> None:
+    def test_identity_skip_short_circuits_second_call(self, monkeypatch) -> None:
         """When prior fit was identity AND ``mrmr_skip_when_prior_was_identity=True``, the second fit on the SAME X with a different y returns identity output in O(microseconds), not O(seconds).
 
         Note: requires ``mrmr_identity_cache_include_y=False`` to test the
@@ -124,8 +124,6 @@ class TestMRMRIdentityCache:
         fp = _mrmr_compute_x_fingerprint(X)
         _MRMR_IDENTITY_FP_CACHE[fp] = True
 
-        from time import perf_counter
-
         m = MRMR(
             verbose=0,
             mrmr_skip_when_prior_was_identity=True,
@@ -136,12 +134,20 @@ class TestMRMRIdentityCache:
             # the pure X-fingerprint short-circuit performance path, which the 0.0 threshold selects.
             mrmr_identity_cache_ycorr_threshold=0.0,
         )
-        t0 = perf_counter()
-        m.fit(X, y2)
-        elapsed = perf_counter() - t0
+        # The shortcut exists to skip ``_fit_impl`` entirely, so assert it is never entered rather than
+        # timing the call. A 0.5s budget is a claim about the host: the nightly coverage job traces every
+        # line, and a contended worker multiplies per-call overhead severalfold, on code that is correct.
+        entered = []
+        real_fit_impl = type(m)._fit_impl
 
-        # The shortcut path must complete in ms, not seconds (a real fit on 500 rows is ~1s).
-        assert elapsed < 0.5, f"short-circuit took {elapsed:.3f}s -- too slow"
+        def _spy(self, *args, **kwargs):
+            """Record that the full fit pipeline was entered."""
+            entered.append(1)
+            return real_fit_impl(self, *args, **kwargs)
+
+        monkeypatch.setattr(type(m), "_fit_impl", _spy)
+        m.fit(X, y2)
+        assert not entered, "the identity short-circuit did not fire: the full _fit_impl pipeline ran"
         # Identity output: all input columns selected, no engineered features.
         assert len(m.support_) == X.shape[1]
         assert m._engineered_features_ == []

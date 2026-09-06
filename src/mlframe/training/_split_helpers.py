@@ -150,10 +150,16 @@ def _stratified_split_3way(
         # (37.6s -> 0.74s), selection-equivalent per-fold/per-label stratification quality (not
         # bit-identical tie-breaking -- see _iterative_stratification_njit.py's module docstring).
         # cProfile found the pure-Python reference costing 35% of a 2M-row multilabel fit's wall time.
+        from mlframe.utils.rng_scope import numba_rng_scope
+
         from ._iterative_stratification_njit import _iterative_stratification_njit
 
         y_i8 = np.ascontiguousarray(y[perm], dtype=np.int8)
-        folds = _iterative_stratification_njit(y_i8, r, seed_int)
+        # The kernel calls ``np.random.seed`` in njit scope, which sets NUMBA's per-thread global stream
+        # (not numpy's) with no way to snapshot it. Without this scope every later njit kernel on this
+        # thread inherits wherever the splitter's draws left it -- the hazard screen.py already documents.
+        with numba_rng_scope(seed_int):
+            folds = _iterative_stratification_njit(y_i8, r, seed_int)
     except Exception as _njit_exc:
         # Zero logging here previously meant a GENUINE njit-kernel bug (not just "numba/the
         # optional module absent") silently fell back to the ~50x slower pure-Python iterstrat

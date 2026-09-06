@@ -132,10 +132,29 @@ def _gpu_argsort_available() -> bool:
         try:
             import cupy as cp
             _GPU_ARGSORT_AVAILABLE = cp.cuda.runtime.getDeviceCount() > 0
-        except Exception as e:
-            logger.debug("cupy device-count probe failed: %s", e)
+        except ImportError as e:
+            # cupy genuinely absent: a fact about the install, so caching it for the process is correct.
+            logger.debug("cupy not importable, metrics GPU argsort unavailable: %s", e)
             _GPU_ARGSORT_AVAILABLE = False
+        except Exception as e:
+            # Anything else is a moment, not a fact: another process holding the card, a driver reset, a fault
+            # raised out of getDeviceCount under contention. Caching it gives back this file's own measured
+            # ~10% end-to-end win at 200k for the rest of the process, with a debug line as the only trace.
+            # Left uncached so the next call re-probes; one extra failed probe is far cheaper than that.
+            logger.warning("cupy device-count probe failed transiently (%s: %s); will re-probe rather than pinning metrics to the CPU argsort", type(e).__name__, e)
+            return False
     return _GPU_ARGSORT_AVAILABLE
+
+
+def reset_gpu_argsort_probe() -> None:
+    """Clear the cached probe result so the next call re-probes.
+
+    Mirrors ``metrics._gpu_metrics.reset_gpu_metrics_probe``. A genuine absence is meant to stay cached, so
+    production callers should not need this; a test that stubs cupy, or a caller that has just resolved a
+    device problem, has no other way back.
+    """
+    global _GPU_ARGSORT_AVAILABLE
+    _GPU_ARGSORT_AVAILABLE = None
 
 
 def _argsort_desc_for_metrics(y_score: np.ndarray) -> np.ndarray:
