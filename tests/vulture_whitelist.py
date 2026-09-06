@@ -102,3 +102,23 @@ subfolders_on
 # --- tests/feature_selection/filters/test_fe_gpu_vram_cushion_no_reprobe.py: ``without_cupy`` is a pytest
 # fixture, requested by name in each test signature. vulture sees the parameter as an unused local. ---
 without_cupy
+
+# --- tests/feature_selection/test_addone_pvalue_knob_reaches_every_site.py: ``plain_rate`` and ``add_one``
+# are pytest fixtures, requested by name in each test signature. vulture sees an unused parameter. ---
+plain_rate
+add_one
+
+# --- tests/training/neural/test_triton_bootstrap_reprobes_after_a_transient_fault.py: ``on_windows`` is a
+# pytest fixture, requested by name in each test signature. ---
+on_windows
+
+# --- tests/feature_selection/regression/test_regression_mrmr_audit_2026_07_22.py: the monkeypatched lambda
+# stands in for ``auto_detect_group_cols(X, max_cols, caller)`` and must keep that signature, so both
+# parameters exist to be accepted and ignored. ---
+max_cols
+caller
+
+# --- tests/models/test_per_member_backend_cache_key.py: ``_flaky`` stands in for the real tuning-cache
+# lookup and must accept its full argument list; only ``calls`` matters to the assertion. ---
+elements_per_member
+autotune
