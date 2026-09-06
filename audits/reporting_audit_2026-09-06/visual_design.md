@@ -212,6 +212,14 @@ matplotlib's raw-values fallback filters `np.isfinite` and, when nothing survive
 and draws an empty panel with no note.
 *Fix:* filter and emit the same note in the plotly branch.
 
+**RESOLVED.** The plotly raw-values branch now filters `np.isfinite` and draws the same "no finite values"
+note. Rendering it exposed a second, worse defect the audit had not named: a subplot cell holding no trace
+at all is never laid out by plotly, so the annotation anchored to its axes was drawn on the NEIGHBOURING
+panel -- "no finite values" written across a perfectly good histogram. Fixed by adding an empty scatter to
+the cell, which forces the axes to exist and gives the reader the same framed-but-empty panel matplotlib
+draws. `tests/reporting/test_histogram_all_nonfinite_notice.py` (5 tests, verified failing pre-fix with the
+real signature: no notice, and the finite column binned 5 values instead of 3).
+
 ### VIS-15 — P3 — `renderers/plotly.py:550` vs `renderers/matplotlib.py:395-408`
 **A log-scaled histogram gets readable tick values on matplotlib and one labelled decade on plotly.**
 matplotlib installs `LogLocator(subs=(1.0, 2.0, 5.0), numticks=8)` + `LogFormatterSciNotation` for
@@ -234,6 +242,14 @@ comment claims "11 matches matplotlib's panel titles" — it does not.
 *Fix:* move the four typography constants (suptitle/panel-title/caption size, caption wrap budget) into
 `_shared_helpers.py` and import them into both renderers, the way `truncate_bar_label` and
 `_HEATMAP_MAX_TICKS` already are.
+
+**RESOLVED.** `PANEL_TITLE_FONTSIZE = 10`, `SUPTITLE_WRAP_CHARS = 90`, `CAPTION_FONTSIZE = 7` and
+`CAPTION_WRAP_CHARS = 110` now live in `_shared_helpers.py`; both renderers bind their private names to
+those objects. Plotly additionally drew its caption at a hardcoded 9pt (wrapped against 10) and folded it
+against the narrower suptitle budget -- both now read the shared constants, so the measurement and the
+drawn glyphs finally agree. `tests/reporting/test_typography_is_shared.py` (4 tests; three fail pre-fix
+with the real signature -- panel title 10 vs 11, the identity check, and "wrapped against 10pt but drawn
+at 9pt"). Rendered both backends side by side: single-line caption, same relative weight, no overlap.
 
 ### VIS-17 — P3 — `renderers/matplotlib.py:449-452` vs `renderers/_plotly_heatmap.py:252-269`
 **PSI threshold contours are labelled on matplotlib and unlabelled on plotly.**

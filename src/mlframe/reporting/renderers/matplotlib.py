@@ -22,8 +22,9 @@ from mlframe.reporting.spec import (
 
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
     _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, heatmap_value_to_index,
+    CAPTION_FONTSIZE, CAPTION_WRAP_CHARS, PANEL_TITLE_FONTSIZE, SUPTITLE_WRAP_CHARS,
     _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
-    _TITLE_REF_WIDTH_IN, histogram_bar_extent, network_label_indices, low_evidence_mask, panel_title_wrap_chars, select_per_point, ticks_that_fit, truncate_bar_label,
+    _TITLE_REF_WIDTH_IN, histogram_bar_extent, network_label_indices, low_evidence_mask, panel_title_wrap_chars, rotated_tick_pitch_in, select_per_point, ticks_that_fit, truncate_bar_label,
     wrap_annotation_text, wrap_text_to_width, wrap_title_lines,
 )
 
@@ -32,7 +33,10 @@ logger = logging.getLogger(__name__)
 
 # Panel-title font cap so a verbose diagnostic title can't dwarf the panel. The chars-per-line budget is
 # width-scaled and shared with the plotly renderer (``_shared_helpers.panel_title_wrap_chars``).
-_TITLE_FONTSIZE = 10
+_TITLE_FONTSIZE = PANEL_TITLE_FONTSIZE
+# Heatmap / violin tick labels, and the size the tick-spacing budget is computed at -- one value so the two
+# cannot drift into a budget that assumes smaller glyphs than the ones drawn.
+_HEATMAP_TICK_FONTSIZE = 8
 
 
 def _bar_colors(colors, values):
@@ -156,10 +160,10 @@ def _set_panel_title(ax, title) -> None:
 
 # Wrap budgets, mirroring the plotly renderer: ~90 chars for the full-figure suptitle, ~110 for the
 # wider caption band beneath it.
-_SUPTITLE_WRAP_CHARS = 90
-_CAPTION_WRAP_CHARS = 110
+_SUPTITLE_WRAP_CHARS = SUPTITLE_WRAP_CHARS
+_CAPTION_WRAP_CHARS = CAPTION_WRAP_CHARS
 # Caption point size, shared by the renderer and the width measurement that wraps it.
-_CAPTION_FONTSIZE = 7
+_CAPTION_FONTSIZE = CAPTION_FONTSIZE
 # A point within this fraction of an axis edge gets its inline label flipped to the other side, so the text
 # stays inside the panel instead of being clipped mid-word.
 _EDGE_LABEL_FLIP_FRACTION = 0.08
@@ -507,21 +511,24 @@ class MatplotlibRenderer:
         # grows its figure with the feature count (40 rows over ~14 inches) and then named 8 of them, so the
         # height it bought went to unlabelled rows. Labels are truncated as well, which the bar branches have
         # always done and this one never did -- a generated feature name runs off the left edge otherwise.
-        try:
-            _pos = ax.get_position()
-            _fig_w, _fig_h = (float(v) for v in ax.figure.get_size_inches())
-            _w_in: Optional[float] = float(_pos.width) * _fig_w
-            _h_in: Optional[float] = float(_pos.height) * _fig_h
-        except Exception:
-            logger.debug("could not measure heatmap axes for tick budgeting; falling back to the fixed cap", exc_info=True)
-            _w_in = _h_in = None
-        # A rotated x label consumes horizontal room roughly like a stacked one consumes vertical room.
-        _xt = _thin_tick_positions(len(p.col_labels), ticks_that_fit(_w_in, len(p.col_labels)))
-        ax.set_xticks(_xt)
-        ax.set_xticklabels([truncate_bar_label(p.col_labels[i]) for i in _xt], rotation=45, ha="right", fontsize=8)
-        _yt = _thin_tick_positions(len(p.row_labels), ticks_that_fit(_h_in, len(p.row_labels)))
-        ax.set_yticks(_yt)
-        ax.set_yticklabels([truncate_bar_label(p.row_labels[i]) for i in _yt], fontsize=8)
+        # Deferred until after the colorbar, which shrinks the axes it is attached to: budgeting against the
+        # pre-colorbar width bought a fifth more labels than the axes ends up able to hold.
+        def _apply_tick_budget() -> None:
+            """Set both axes' ticks to what the axes can hold, measured at its post-colorbar size."""
+            try:
+                _pos = ax.get_position()
+                _fig_w, _fig_h = (float(v) for v in ax.figure.get_size_inches())
+                _w_in: Optional[float] = float(_pos.width) * _fig_w
+                _h_in: Optional[float] = float(_pos.height) * _fig_h
+            except Exception:
+                logger.debug("could not measure heatmap axes for tick budgeting; falling back to the fixed cap", exc_info=True)
+                _w_in = _h_in = None
+            _xt = _thin_tick_positions(len(p.col_labels), ticks_that_fit(_w_in, len(p.col_labels), pitch_in=rotated_tick_pitch_in(_HEATMAP_TICK_FONTSIZE, 45)))
+            ax.set_xticks(_xt)
+            ax.set_xticklabels([truncate_bar_label(p.col_labels[i]) for i in _xt], rotation=45, ha="right", fontsize=_HEATMAP_TICK_FONTSIZE)
+            _yt = _thin_tick_positions(len(p.row_labels), ticks_that_fit(_h_in, len(p.row_labels), pitch_in=rotated_tick_pitch_in(_HEATMAP_TICK_FONTSIZE, 0)))
+            ax.set_yticks(_yt)
+            ax.set_yticklabels([truncate_bar_label(p.row_labels[i]) for i in _yt], fontsize=_HEATMAP_TICK_FONTSIZE)
         rng = _finite_range(p.matrix)
         if p.cell_text is not None and rng is not None and p.matrix.size <= _HEATMAP_CELL_TEXT_MAX:
             from mlframe.reporting.colors import auto_text_colors_batch
@@ -597,6 +604,7 @@ class MatplotlibRenderer:
         cbar = fig.colorbar(im, ax=ax)
         if p.colorbar_label:
             cbar.set_label(p.colorbar_label)
+        _apply_tick_budget()
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         _set_panel_title(ax, p.title)
@@ -902,9 +910,9 @@ class MatplotlibRenderer:
         except Exception:
             logger.debug("could not measure violin panel width for label thinning", exc_info=True)
             _panel_w = None
-        _keep = _thin_tick_positions(len(labels), ticks_that_fit(_panel_w, len(labels)))
+        _keep = _thin_tick_positions(len(labels), ticks_that_fit(_panel_w, len(labels), pitch_in=rotated_tick_pitch_in(_HEATMAP_TICK_FONTSIZE, 30)))
         ax.set_xticks([i + 1 for i in _keep])
-        ax.set_xticklabels([truncate_bar_label(labels[i], _VIOLIN_LABEL_MAXLEN, keep_tail=6) for i in _keep], rotation=30, ha="right", fontsize=8)
+        ax.set_xticklabels([truncate_bar_label(labels[i], _VIOLIN_LABEL_MAXLEN, keep_tail=6) for i in _keep], rotation=30, ha="right", fontsize=_HEATMAP_TICK_FONTSIZE)
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         _set_panel_title(ax, _violin_title)

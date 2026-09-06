@@ -89,11 +89,20 @@ def test_ndcg_dist_title_carries_ci():
 
 
 def test_ndcg_by_qsize_title_and_bins_carry_ci():
-    """Ndcg by qsize title and bins carry ci."""
+    """Every bin still carries its interval -- as an error bar, not as text glued into the tick label.
+
+    The per-bin CI used to be appended to the CATEGORY name ("4-7 CI[0.97, 0.98]"), which made the x axis a
+    wall of numbers and put a statistic where the reader expects an identifier. It is drawn as an error bar
+    now, with the full wording on hover, so what this pins is that the interval is still THERE.
+    """
     rels, scores, gids = _synth_ltr()
     panel = _ndcg_by_qsize_panel(rels, scores, gids, shared={})
     assert "overall 95% CI" in panel.title
-    assert any("CI[" in c for c in panel.categories)
+    assert not any("CI[" in c for c in panel.categories), f"the CI is back in the tick labels: {panel.categories}"
+    lo_err, hi_err = panel.value_err  # asymmetric: distance below and above each bar
+    assert len(lo_err) == len(hi_err) == len(panel.categories), "not every bin carries an error bar"
+    assert (np.asarray(lo_err) > 0).all() and (np.asarray(hi_err) > 0).all(), "the error bars are all zero, so no interval is drawn"
+    assert all("95% CI" in h for h in panel.hovertext), f"the interval is not readable anywhere: {panel.hovertext}"
 
 
 # ----------------------------------------------------------------------------

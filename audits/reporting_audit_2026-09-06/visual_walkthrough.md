@@ -89,3 +89,36 @@ collide, error bars are present, ordering is by effect size.
 
 `category_discriminability` prints `Category discriminability` as the suptitle and again as the first
 line of the panel title.
+
+---
+
+## Regressions this wave introduced, found by running the whole reporting suite
+
+Three tests were red after the earlier batches. All three were my own regressions, not stale assertions
+that could simply be relaxed.
+
+**The width-aware heatmap tick budget overshot.** Replacing the flat eight-tick cap with
+`ticks_that_fit` fixed the drift heatmap that named 8 of 40 rows, but budgeted a -45-degree axis at the
+same pitch as a stacked one. Rendered, a 7-inch density heatmap carried thirty `8.77e+03` labels lying on
+top of each other -- the exact defect this wave exists to remove. Rotated labels are parallel lines, so
+they clear each other only when the gap measured PERPENDICULAR to their own direction is a line height,
+which makes the pitch along the axis grow as `1 / sin(theta)`: `rotated_tick_pitch_in`.
+
+Two more measurement bugs surfaced behind it, both the same shape -- budgeting against a layout that did
+not exist yet:
+
+* matplotlib measured the axes BEFORE `fig.colorbar` shrank it, buying a fifth more labels than the axis
+  ends up holding. The budget is now applied after the colorbar.
+* plotly multiplied the subplot domain by the raw figure width. A domain is a fraction of the plot region
+  (margins already removed) and the colorbar sits inside that region too; worse, the margins were still
+  plotly's defaults while panels were being drawn. `apply_heatmap_tick_budget` is now called from
+  `render()` after the final `update_layout`.
+
+Both backends now satisfy the pitch contract on their own measured extent, verified by rendering each to
+PNG. Counts still differ between backends (16 vs 22 on a 7x5 figure) because the plotly panel really is
+wider -- pinning equality would pin one engine's margins into the other's test.
+
+**The LTR per-bin CI moved out of the tick labels.** `test_ndcg_by_qsize_title_and_bins_carry_ci` asserted
+`"CI["` appears in `panel.categories`, which is where the interval used to be glued. It is an error bar
+plus hovertext now. Reframed to the real contract: the CI must still be THERE (non-zero error bars on
+every bin, wording on hover) and must NOT be back in the tick labels.

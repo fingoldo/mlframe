@@ -7,6 +7,7 @@ implementation lives here so the two backends can't drift.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 from typing import Any, Callable, Optional, Tuple
 
@@ -99,9 +100,24 @@ def truncate_bar_label(label: Any, maxlen: int = _BAR_LABEL_MAXLEN, keep_tail: i
 # Vertical room one horizontal tick label needs, in inches, at the 8pt the heatmap axes use: the glyph height
 # plus the leading a reader needs to tell two rows apart.
 _TICK_LABEL_PITCH_IN = 0.18
+# Line height as a multiple of the point size, including the gap that keeps two stacked labels apart.
+_TICK_LABEL_LEADING = 1.7
 
 
-def ticks_that_fit(extent_in: Optional[float], n: int, *, floor: int = _HEATMAP_MAX_TICKS) -> int:
+def rotated_tick_pitch_in(fontsize: float, rotation_deg: float) -> float:
+    """Spacing along the axis that keeps ROTATED tick labels from touching.
+
+    Rotated labels are parallel lines, so two of them clear each other only when the gap MEASURED
+    PERPENDICULAR to their own direction is a full line height -- which makes the spacing needed along the
+    axis grow as ``1 / sin(theta)``. Budgeting a rotated axis at the unrotated line height instead put
+    thirty ``8.77e+03``-style labels under a seven-inch heatmap, each one overlapping its neighbour.
+    """
+    line_h_in = float(fontsize) * _TICK_LABEL_LEADING / 72.0
+    theta = math.radians(min(abs(float(rotation_deg)), 90.0))
+    return line_h_in / math.sin(theta) if theta > 0.0 else line_h_in
+
+
+def ticks_that_fit(extent_in: Optional[float], n: int, *, floor: int = _HEATMAP_MAX_TICKS, pitch_in: float = _TICK_LABEL_PITCH_IN) -> int:
     """How many tick labels fit along an axis ``extent_in`` inches long, never fewer than ``floor``.
 
     A fixed cap is wrong in both directions. A drift heatmap deliberately GROWS its figure with the feature
@@ -109,10 +125,13 @@ def ticks_that_fit(extent_in: Optional[float], n: int, *, floor: int = _HEATMAP_
     the reader unable to tell which feature a row is. A small panel, meanwhile, cannot hold 8 rotated names.
     Deriving the count from the axis's real extent tracks both, and the floor keeps the old behaviour whenever
     the extent is unknown or tiny.
+
+    ``pitch_in`` defaults to one stacked line height, which is what a vertical axis of horizontal labels
+    needs. A rotated axis needs more room per label: pass ``rotated_tick_pitch_in(...)``.
     """
     if not extent_in or extent_in <= 0:
         return floor
-    return max(floor, min(n, int(extent_in / _TICK_LABEL_PITCH_IN)))
+    return max(floor, min(n, int(extent_in / max(pitch_in, 1e-3))))
 
 
 def _thin_tick_positions(n: int, max_ticks: int = _HEATMAP_MAX_TICKS):
@@ -218,6 +237,15 @@ def _per_series_flags(flag, n: int):
 # panel width, so a wide figure folded its title into a narrow ragged column using a fraction of the space.
 _PANEL_TITLE_WRAP_CHARS = 46
 _TITLE_REF_WIDTH_IN = 6.0
+
+# Typography both renderers draw with. Sizes used to be declared per backend and had drifted -- captions at
+# 7pt on one and 9pt on the other, panel titles at 10 vs 11 -- so one FigureSpec read as two documents. A
+# wrap budget must also be measured at the size actually drawn: plotly wrapped its caption against 10pt and
+# rendered it at 9, and reused the narrower SUPTITLE budget for the wider caption band.
+PANEL_TITLE_FONTSIZE = 10
+SUPTITLE_WRAP_CHARS = 90
+CAPTION_FONTSIZE = 7
+CAPTION_WRAP_CHARS = 110
 
 
 # Per-fontsize character-advance tables. One table serves every string at that size, so the font is touched

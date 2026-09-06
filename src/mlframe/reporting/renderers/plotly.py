@@ -45,6 +45,7 @@ from ._plotly_interactivity import apply_interactivity, html_config
 from ._plotly_color import _rgba, _mpl_to_plotly_cmap
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
     _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, PX_PER_INCH,
+    CAPTION_FONTSIZE, CAPTION_WRAP_CHARS, PANEL_TITLE_FONTSIZE, SUPTITLE_WRAP_CHARS,
     _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
     histogram_bar_extent, low_evidence_mask, panel_title_wrap_chars, select_per_point, truncate_bar_label, wrap_annotation_text,
     wrap_text_to_width, wrap_title_lines,
@@ -68,12 +69,12 @@ def _go():
 
 
 # Text-wrap budgets mirror the matplotlib renderer (~90 chars/line for the full-width suptitle, ~46 for one panel); plotly annotations need ``<br>`` (not ``\n``). Wrappers live inline because strict file-ownership scopes this fix to plotly.py.
-_SUPTITLE_WRAP_CHARS = 90
-# Caption point size, shared with the width measurement that wraps it (matches the matplotlib twin).
-_CAPTION_FONTSIZE = 10
+_SUPTITLE_WRAP_CHARS = SUPTITLE_WRAP_CHARS
+# Caption point size, shared with the width measurement that wraps it AND with the matplotlib twin.
+_CAPTION_FONTSIZE = CAPTION_FONTSIZE
 # Subplot-title font. plotly's own default (16) overflows horizontally into the adjacent subplot at a
-# typical 3-column figsize; 11 matches matplotlib's panel titles.
-_PANEL_TITLE_FONTSIZE = 11
+# typical 3-column figsize.
+_PANEL_TITLE_FONTSIZE = PANEL_TITLE_FONTSIZE
 # One definition in ._shared_helpers: the heatmap tick budget converts a plotly pixel extent back to inches
 # and has to agree with whatever this renderer sized the figure at.
 _PX_PER_INCH = PX_PER_INCH
@@ -357,11 +358,11 @@ class PlotlyRenderer:
         # never overlaps the axes or the below-figure legend.
         n_caption_lines = 0
         if spec.caption:
-            wrapped_caption = _wrap_text_to_figure(spec.caption, fontsize=_CAPTION_FONTSIZE, width_in=spec.figsize[0], fallback_chars=_SUPTITLE_WRAP_CHARS)
+            wrapped_caption = _wrap_text_to_figure(spec.caption, fontsize=_CAPTION_FONTSIZE, width_in=spec.figsize[0], fallback_chars=CAPTION_WRAP_CHARS)
             n_caption_lines = wrapped_caption.count("<br>") + 1
             fig.add_annotation(
                 text=wrapped_caption, xref="paper", yref="paper", x=0.5, y=0, xanchor="center", yanchor="top",
-                yshift=-((90 if static_legend else 30) + 8), showarrow=False, font=dict(size=9, color="#595959"),
+                yshift=-((90 if static_legend else 30) + 8), showarrow=False, font=dict(size=_CAPTION_FONTSIZE, color="#595959"),
             )
         bottom_margin = (90 if static_legend else 50) + n_caption_lines * 16
 
@@ -402,6 +403,14 @@ class PlotlyRenderer:
                 # TRACK across instead of running one very tall single file down the side.
                 orientation="h" if _ncol > 1 else "v",
             ))
+        # Heatmap ticks are budgeted against the axes' real extent, and the margins that decide that extent
+        # are only final here -- while the panels were being drawn they were still plotly's defaults.
+        from ._plotly_heatmap import apply_heatmap_tick_budget
+
+        for _r, _row in enumerate(spec.panels, start=1):
+            for _c, _panel in enumerate(_row, start=1):
+                if isinstance(_panel, HeatmapPanelSpec):
+                    apply_heatmap_tick_budget(fig, _panel, _r, _c)
         apply_interactivity(fig, spec, static_legend=static_legend)
         return fig
 
@@ -529,14 +538,26 @@ class PlotlyRenderer:
             if len(bin_centers) > 0:
                 overlay_x_lo, overlay_x_hi = histogram_bar_extent(bin_centers, width)
         else:
-            fig.add_trace(
-                go.Histogram(x=np.asarray(p.values),
-                             nbinsx=p.bins,
-                             histnorm="probability density" if p.density else "",
-                             marker=dict(color=p.color, line=dict(color="white", width=0.4)),
-                             opacity=0.6, showlegend=False),
-                row=row, col=col,
-            )
+            # Matplotlib's twin drops non-finite values before binning and says so when nothing survives;
+            # go.Histogram silently renders an empty framed panel instead, which reads as "no data at all".
+            raw_vals = np.asarray(p.values, dtype=float).ravel()
+            raw_vals = raw_vals[np.isfinite(raw_vals)]
+            if raw_vals.size:
+                fig.add_trace(
+                    go.Histogram(x=raw_vals,
+                                 nbinsx=p.bins,
+                                 histnorm="probability density" if p.density else "",
+                                 marker=dict(color=p.color, line=dict(color="white", width=0.4)),
+                                 opacity=0.6, showlegend=False),
+                    row=row, col=col,
+                )
+            else:
+                # A subplot cell holding no trace at all is never laid out, and an annotation anchored to its
+                # (undrawn) axes silently lands on a neighbouring panel. One empty scatter forces the cell to
+                # exist, which also gives the reader the same framed-but-empty axes matplotlib draws.
+                fig.add_trace(go.Scatter(x=[], y=[], mode="markers", showlegend=False, hoverinfo="skip"), row=row, col=col)
+                fig.add_annotation(text="no finite values", x=0.5, y=0.5, xref="x domain", yref="y domain",
+                                   showarrow=False, font=dict(size=9), row=row, col=col)
 
         if p.overlay_normal is not None:
             mu, sigma = p.overlay_normal

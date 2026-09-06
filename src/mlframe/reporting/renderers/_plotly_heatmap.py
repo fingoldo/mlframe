@@ -25,11 +25,16 @@ from mlframe.reporting.spec import ConfusionMarginsPanelSpec, HeatmapPanelSpec
 
 from mlframe.reporting.colors import CONFUSION_COL_MARGIN, CONFUSION_ROW_MARGIN, TREND_LINE, resolve_heatmap_cmap
 from ._plotly_color import _mpl_to_plotly_cmap
-from ._shared_helpers import _HEATMAP_CELL_TEXT_MAX, PX_PER_INCH, _finite_range, _thin_tick_positions, ticks_that_fit, truncate_bar_label
+from ._shared_helpers import _HEATMAP_CELL_TEXT_MAX, PX_PER_INCH, _finite_range, _thin_tick_positions, rotated_tick_pitch_in, ticks_that_fit, truncate_bar_label
 
 # Share of the subplot cell each marginal strip takes, and the gap between a strip and the grid it annotates.
 _MARGIN_STRIP_FRAC = 0.18
 _MARGIN_STRIP_GAP = 0.02
+
+
+# The colorbar and its tick labels eat this much of the plot region's width, so the tick budget must not
+# count it as room for axis labels.
+_COLORBAR_ALLOWANCE_PX = 110
 
 
 def _cell_domains(fig, row: int, col: int):
@@ -345,26 +350,45 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
                         row=row, col=col,
                     )
 
-    # A density heatmap has ~80 cell labels per axis; one tick each overlaps into soup. The budget comes from the
-    # subplot's real extent rather than a fixed cap, matching the matplotlib twin: a drift heatmap that grows its
-    # figure with the feature count otherwise names 8 of 40 rows and wastes the height it just bought. Labels are
-    # truncated here too, which this branch never did and both bar branches always have.
-    _dom = _cell_domains(fig, row, col)
-    _w_px, _h_px = fig.layout.width, fig.layout.height
-    _w_in = _h_in = None
-    if _dom is not None and _w_px and _h_px:
-        (_x0, _x1), (_y0, _y1), _, _ = _dom
-        _w_in = (float(_x1) - float(_x0)) * float(_w_px) / PX_PER_INCH
-        _h_in = (float(_y1) - float(_y0)) * float(_h_px) / PX_PER_INCH
-    _xt = _thin_tick_positions(len(p.col_labels), ticks_that_fit(_w_in, len(p.col_labels)))
-    _yt = _thin_tick_positions(len(p.row_labels), ticks_that_fit(_h_in, len(p.row_labels)))
-    fig.update_xaxes(title_text=p.xlabel, row=row, col=col, tickangle=-45, tickmode="array",
-                     tickvals=[p.col_labels[i] for i in _xt], ticktext=[truncate_bar_label(p.col_labels[i]) for i in _xt])
+    apply_heatmap_tick_budget(fig, p, row, col)
+    fig.update_xaxes(title_text=p.xlabel, row=row, col=col)
     # Row order must match matplotlib, which switches to origin="lower" for a density panel carrying
     # `trend_xy` (it reads bottom-up, row 0 = lowest value) and keeps the top-down matrix order otherwise.
     # Reversing unconditionally rendered the pred-vs-actual density heatmap VERTICALLY MIRRORED between the
     # two backends -- the same figure, with the trend running the opposite way.
     _reversed = p.trend_xy is None
     _y_kw = {"autorange": "reversed"} if _reversed else {}
-    fig.update_yaxes(title_text=p.ylabel, row=row, col=col, tickmode="array", tickvals=[p.row_labels[i] for i in _yt],
-                     ticktext=[truncate_bar_label(p.row_labels[i]) for i in _yt], **_y_kw)
+    fig.update_yaxes(title_text=p.ylabel, row=row, col=col, **_y_kw)
+
+
+def apply_heatmap_tick_budget(fig, p, row: int, col: int) -> None:
+    """Thin one heatmap's tick labels to what its axes can actually hold.
+
+    A density heatmap has ~80 cell labels per axis; one tick each overlaps into soup. The budget comes from
+    the subplot's real extent rather than a fixed cap, matching the matplotlib twin: a drift heatmap that
+    grows its figure with the feature count otherwise names 8 of 40 rows and wastes the height it just
+    bought. Labels are truncated here too, which this branch never did and both bar branches always have.
+
+    Called AFTER the figure's final ``update_layout``: the margins are still plotly's defaults while panels
+    are being drawn, so budgeting during the draw measures an axis that does not exist yet.
+    """
+    _dom = _cell_domains(fig, row, col)
+    _w_px, _h_px = fig.layout.width, fig.layout.height
+    _w_in = _h_in = None
+    if _dom is not None and _w_px and _h_px:
+        (_x0, _x1), (_y0, _y1), _, _ = _dom
+        # A domain is a fraction of the PLOT REGION, not of the figure, and the colorbar plus its tick labels
+        # sit inside that region as well. Multiplying the domain by the raw figure width claimed a fifth more
+        # room than the axis has, which is how this backend kept 26 labels where matplotlib kept 16.
+        _m = fig.layout.margin
+        _plot_w_px = max(float(_w_px) - float(_m.l or 0) - float(_m.r or 0) - _COLORBAR_ALLOWANCE_PX, 1.0)
+        _plot_h_px = max(float(_h_px) - float(_m.t or 0) - float(_m.b or 0), 1.0)
+        _w_in = (float(_x1) - float(_x0)) * _plot_w_px / PX_PER_INCH
+        _h_in = (float(_y1) - float(_y0)) * _plot_h_px / PX_PER_INCH
+    # The x labels are drawn at -45 degrees on this backend too, so they need the same widened pitch.
+    _xt = _thin_tick_positions(len(p.col_labels), ticks_that_fit(_w_in, len(p.col_labels), pitch_in=rotated_tick_pitch_in(8, 45)))
+    _yt = _thin_tick_positions(len(p.row_labels), ticks_that_fit(_h_in, len(p.row_labels), pitch_in=rotated_tick_pitch_in(8, 0)))
+    fig.update_xaxes(
+        row=row, col=col, tickangle=-45, tickmode="array", tickvals=[p.col_labels[i] for i in _xt], ticktext=[truncate_bar_label(p.col_labels[i]) for i in _xt]
+    )
+    fig.update_yaxes(row=row, col=col, tickmode="array", tickvals=[p.row_labels[i] for i in _yt], ticktext=[truncate_bar_label(p.row_labels[i]) for i in _yt])
