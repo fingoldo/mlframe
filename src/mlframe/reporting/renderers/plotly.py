@@ -78,6 +78,10 @@ _PANEL_TITLE_FONTSIZE = 11
 # and has to agree with whatever this renderer sized the figure at.
 _PX_PER_INCH = PX_PER_INCH
 # Past this many bar categories thin x-tick labels to ~20 evenly-spaced (matches matplotlib); truncate labels over _BAR_XTICK_MAXLEN chars so long feature names don't crowd.
+# Labels stamped just above a panel (vspan regimes, vline change points) all share one y, so neighbours
+# overprint. Staggering across a few rows separates them without arrows or a de-collision solver.
+_STACKED_LABEL_ROWS = 2
+_STACKED_LABEL_SHIFT_PX = 11
 _VIOLIN_LABEL_MAXLEN = 20  # matches the matplotlib twin; a 30-deg rotated label projects most of its length
 _BAR_XTICK_THIN_THRESHOLD = 25
 _BAR_XTICK_KEEP = 20
@@ -752,7 +756,7 @@ class PlotlyRenderer:
                 row=row, col=col, **sec_kw,
             )
 
-        for span in p.vspans or ():
+        for _vspan_i, span in enumerate(p.vspans or ()):
             vx0, vx1, vcolor, valpha = span[0], span[1], span[2], span[3]
             vlabel = span[4] if len(span) > 4 else ""
             fig.add_vrect(x0=vx0, x1=vx1, fillcolor=_rgba(vcolor, valpha), line_width=0, layer="below", row=row, col=col)
@@ -766,13 +770,17 @@ class PlotlyRenderer:
                                name=vlabel, showlegend=True),
                     row=row, col=col,
                 )
+                # Staggered by index. Every vspan label used to be stamped at the same y just above the panel,
+                # so two adjacent regimes -- which is what a regime chart is FOR -- printed on top of each
+                # other. Alternating rows keeps neighbours apart; the colour still ties each label to its band.
                 fig.add_annotation(x=vx0, y=1.0, yref="y domain", yanchor="bottom", xanchor="left",
+                                   yshift=_STACKED_LABEL_SHIFT_PX * (_vspan_i % _STACKED_LABEL_ROWS),
                                    text=vlabel, showarrow=False, font=dict(size=8, color=vcolor),
                                    row=row, col=col)
-        for vx, vcolor, vlabel in p.vlines or ():
+        for _vline_i, (vx, vcolor, vlabel) in enumerate(p.vlines or ()):
             # add_vline does arithmetic on x that raises on a datetime axis; a line-shape with the x in data coords
             # and y spanning the panel's y-domain works on numeric AND datetime axes alike.
-            self._add_vline_datetime_safe(fig, vx, vcolor, vlabel, row, col)
+            self._add_vline_datetime_safe(fig, vx, vcolor, vlabel, row, col, label_row=_vline_i % _STACKED_LABEL_ROWS)
 
         for mx, my, mlabel, mcolor, msym in p.point_markers or ():
             fig.add_trace(
@@ -812,7 +820,7 @@ class PlotlyRenderer:
             return True
         return False
 
-    def _add_vline_datetime_safe(self, fig, vx, vcolor, vlabel, row: int, col: int) -> None:
+    def _add_vline_datetime_safe(self, fig, vx, vcolor, vlabel, row: int, col: int, label_row: int = 0) -> None:
         """Vertical reference line that works on numeric AND datetime x-axes.
 
         ``fig.add_vline`` computes ``x1 - x0`` internally, which raises ``TypeError`` on datetime x. For datetime
@@ -825,9 +833,15 @@ class PlotlyRenderer:
                 type="line", x0=x_coord, x1=x_coord, y0=0, y1=1, yref="y domain", xref="x", line=dict(color=vcolor, dash="dot", width=1.2), row=row, col=col
             )
             if vlabel:
-                fig.add_annotation(x=x_coord, y=1, yref="y domain", yanchor="bottom", text=vlabel, showarrow=False, font=dict(size=9), row=row, col=col)
+                # ``label_row`` staggers labels of neighbouring vlines, which otherwise share one y and overprint.
+                fig.add_annotation(x=x_coord, y=1, yref="y domain", yanchor="bottom", text=vlabel, showarrow=False,
+                                   yshift=_STACKED_LABEL_SHIFT_PX * int(label_row), font=dict(size=9), row=row, col=col)
         else:
-            fig.add_vline(x=vx, line=dict(color=vcolor, dash="dot", width=1.2), annotation_text=vlabel or None, annotation_position="top", row=row, col=col)
+            # ``annotation_yshift`` staggers this label against its neighbours: the datetime branch above does
+            # the same, and without it two change points a few pixels apart print on top of each other.
+            fig.add_vline(x=vx, line=dict(color=vcolor, dash="dot", width=1.2), annotation_text=vlabel or None,
+                          annotation_position="top", annotation_yshift=_STACKED_LABEL_SHIFT_PX * int(label_row),
+                          row=row, col=col)
 
     def _violin(self, fig, p: ViolinPanelSpec, row: int, col: int) -> None:
         """Render one ``go.Violin`` trace per group in ``p.groups`` (tab10 color cycle for cross-backend parity with matplotlib), with an optional inner box overlay.

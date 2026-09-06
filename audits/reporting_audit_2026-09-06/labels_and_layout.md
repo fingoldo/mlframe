@@ -268,6 +268,17 @@ left alone rather than quietly redefined here.
 Pinned by ``tests/reporting/test_heatmap_tick_budget.py``; three of its five tests fail with the budget
 reverted to the fixed cap.
 
+**LBL-12 FIXED.** The ``point_markers`` half was already gone (the duplicated caption beside each marker
+was removed earlier). The remaining half -- every vspan label and every vline label stamped at the same
+``y=1, yanchor="bottom"`` -- now staggers across two rows by index, so adjacent regimes and change points a
+few pixels apart no longer print on top of each other. Two rows rather than one per label on purpose: an
+unbounded stagger walks the labels off the top of the figure as the count grows, and a test asserts the
+number of distinct rows stays bounded.
+
+Worth noting how the incomplete first attempt was caught: after the fix, vspan labels staggered and vline
+labels did not. There are TWO vline paths -- a datetime-safe shape and plotly's own ``add_vline`` -- and
+only the first had been changed. Both are covered by their own test now.
+
 **LBL-15 FIXED on plotly only, and that asymmetry is the point.** A plotly colorbar title renders
 HORIZONTALLY above a 12 px bar pinned to the right edge of its subplot under a fixed 40 px right margin, so
 the 55-character label ``error_analysis`` already passes ran off the figure; it is wrapped now, with a test
