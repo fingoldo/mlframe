@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import math
 import multiprocessing
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 
@@ -94,18 +94,10 @@ def _ensure_kernel():
 
 
 def _block_size() -> int:
-    """Look up a hardware-tuned CUDA block size for the subset-loss kernel from the shared kernel_tuning_cache, falling back to ``_DEFAULT_BLOCK_SIZE`` on any lookup failure."""
-    try:
-        from mlframe.feature_selection.filters import get_kernel_tuning_cache
+    """Hardware-tuned CUDA block size for the subset-loss kernel, or ``_DEFAULT_BLOCK_SIZE`` on a tuning-cache miss."""
+    from ._gpu_block_size import block_size_from_tuning_cache
 
-        ktc = get_kernel_tuning_cache()
-        if ktc is not None:
-            entry = cast(Any, ktc).lookup("shap_proxy_subset_loss")  # may be absent -> fall through
-            if isinstance(entry, dict) and entry.get("block_size"):
-                return int(entry["block_size"])
-    except (ImportError, KeyError, ValueError, TypeError) as exc:
-        logger.debug("GPU subset-loss block-size tuning-cache lookup failed, using default: %s", exc)
-    return _DEFAULT_BLOCK_SIZE
+    return block_size_from_tuning_cache("shap_proxy_subset_loss", "block_size", _DEFAULT_BLOCK_SIZE)
 
 
 def brute_force_top_n_gpu(

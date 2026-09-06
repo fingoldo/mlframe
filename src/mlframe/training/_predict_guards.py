@@ -171,25 +171,16 @@ def _cb_val_pool_cache_lookup(X: Any, method: str) -> Any | None:
 def _recover_cb_feature_names(model: Any) -> tuple[list[str], list[str]]:
     """Extract (cat_features, text_features) from a fitted CatBoost model.
 
-    At predict time the original Python-side lists aren't available;
-    CatBoost exposes them via ``_get_cat_feature_indices`` /
-    ``_get_text_feature_indices`` + ``feature_names_``.
+    At predict time the original Python-side lists aren't available; CatBoost exposes them via
+    ``_get_cat_feature_indices`` / ``_get_text_feature_indices`` + ``feature_names_``. Returns ``([], [])``
+    on any failure -- callers degrade gracefully (missing names -> less specific prep path, not a crash).
 
-    Returns ``([], [])`` on any failure — callers degrade gracefully
-    (missing names → less specific prep path, not a crash).
+    Delegates to the CatBoost module's implementation. This was a second copy of the same body, already
+    drifted in its log message, and a fix to the introspection would have reached only one of them.
     """
-    try:
-        feat_names = list(getattr(model, "feature_names_", []) or [])
-        cat_idx: list = getattr(model, "_get_cat_feature_indices", lambda: [])() or []
-        text_idx: list = getattr(model, "_get_text_feature_indices", lambda: [])() or []
-        if not feat_names:
-            return [], []
-        cat_feat = [feat_names[i] for i in cat_idx if 0 <= i < len(feat_names)]
-        text_feat = [feat_names[i] for i in text_idx if 0 <= i < len(feat_names)]
-        return cat_feat, text_feat
-    except Exception as exc:
-        logger.debug("_recover_cb_feature_names: model introspection failed, no feature names recovered: %s", exc)
-        return [], []
+    from .cb._cb_pool import _recover_cb_feature_names as _recover
+
+    return _recover(model)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

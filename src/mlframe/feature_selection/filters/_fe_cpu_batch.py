@@ -24,13 +24,15 @@ logger = logging.getLogger(__name__)
 
 
 def _available_ram_bytes() -> int:
-    """Host available RAM in bytes, or -1 when psutil is absent (callers treat -1 as 'no cap')."""
-    try:
-        import psutil
-        return int(psutil.virtual_memory().available)
-    except Exception as e:
-        logger.debug("_available_ram_bytes: psutil unavailable or failed, treating as no cap (-1): %s", e)
-        return -1
+    """Host available RAM in bytes, or -1 when psutil is absent (callers here treat -1 as 'no cap').
+
+    The probe is shared (``mlframe.system._ram_probe``); only the sentinel is local, because this module's
+    callers branch on -1 while the shap-proxy twin branches on None.
+    """
+    from mlframe.system._ram_probe import available_ram_bytes
+
+    got = available_ram_bytes(caller="_fe_cpu_batch column chunking")
+    return -1 if got is None else got
 
 
 def _cpu_col_chunk(n: int, n_cols: int, *, n_workers: int = 1) -> int:

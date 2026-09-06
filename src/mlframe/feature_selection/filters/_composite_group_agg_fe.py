@@ -150,33 +150,16 @@ def build_composite_keys(X: pd.DataFrame, group_cols: Sequence[str]) -> np.ndarr
 
 def _global_value_for_stat(x: np.ndarray, stat: str) -> float:
     """Global fallback statistic for unseen composite cells at replay time."""
-    finite = x[np.isfinite(x)]
-    if finite.size == 0:
-        return 0.0
-    if stat == "mean":
-        return float(np.mean(finite))
-    if stat == "std":
-        return float(np.std(finite, ddof=1)) if finite.size > 1 else 0.0
-    if stat == "min":
-        return float(np.min(finite))
-    if stat == "max":
-        return float(np.max(finite))
-    if stat == "median":
-        return float(np.median(finite))
-    if stat == "nunique":
-        return float(np.unique(finite).size)
-    if stat == "count":
-        return float(finite.size)
-    if stat == "skew":
-        return float(pd.Series(finite).skew()) if finite.size > 2 else 0.0
-    raise ValueError(f"composite_group_agg: unknown stat {stat!r}")
+    from ._agg_stat_helpers import global_value_for_stat
+
+    return global_value_for_stat(stat, x, "composite_group_agg")
 
 
-def _agg_func_for_stat(stat: str):
-    """Validate ``stat`` and return it unchanged as the pandas ``groupby.agg`` function name (all supported stats are native pandas agg names)."""
-    if stat in ("mean", "std", "min", "max", "median", "skew", "nunique", "count"):
-        return stat
-    raise ValueError(f"composite_group_agg: unknown stat {stat!r}; valid: {_VALID_STATS}")
+def _agg_func_for_stat(stat: str) -> str:
+    """Pandas groupby-agg name for ``stat``; this module's set includes ``count``."""
+    from ._agg_stat_helpers import agg_func_for_stat
+
+    return agg_func_for_stat(stat, _VALID_STATS, "composite_group_agg")
 
 
 def _unique_inverse(keys: np.ndarray):

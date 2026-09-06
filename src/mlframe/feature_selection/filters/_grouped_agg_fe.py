@@ -90,39 +90,18 @@ def engineered_name_grouped_ratio(num_col: str, group_col: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _agg_func_for_stat(stat: str):
-    """Return a pandas-groupby-compatible aggregator for ``stat``.
+def _agg_func_for_stat(stat: str) -> str:
+    """Pandas groupby-agg name for ``stat``; this module's set does NOT include ``count``."""
+    from ._agg_stat_helpers import agg_func_for_stat
 
-    ``nunique`` / ``skew`` are named methods; the rest map straight through.
-    All operate NaN-skipping per pandas default, matching the global fallback
-    computed with ``np.nan*`` below.
-    """
-    if stat in ("mean", "std", "min", "max", "median", "skew", "nunique"):
-        return stat
-    raise ValueError(f"grouped_agg: unknown stat {stat!r}; valid: {STAT_NAMES}")
+    return agg_func_for_stat(stat, STAT_NAMES, "grouped_agg")
 
 
 def _global_value_for_stat(x: np.ndarray, stat: str) -> float:
     """Global fallback statistic for unseen groups at replay time."""
-    finite = x[np.isfinite(x)]
-    if finite.size == 0:
-        return 0.0
-    if stat == "mean":
-        return float(np.mean(finite))
-    if stat == "std":
-        s = float(np.std(finite, ddof=1)) if finite.size > 1 else 0.0
-        return s
-    if stat == "min":
-        return float(np.min(finite))
-    if stat == "max":
-        return float(np.max(finite))
-    if stat == "median":
-        return float(np.median(finite))
-    if stat == "nunique":
-        return float(np.unique(finite).size)
-    if stat == "skew":
-        return float(pd.Series(finite).skew()) if finite.size > 2 else 0.0
-    raise ValueError(f"grouped_agg: unknown stat {stat!r}")
+    from ._agg_stat_helpers import global_value_for_stat
+
+    return global_value_for_stat(stat, x, "grouped_agg")
 
 
 def _broadcast_lookup(

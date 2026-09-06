@@ -262,11 +262,10 @@ def suggest_discovery_config(
 
 
 def _frame_columns(df: Any) -> List[str]:
-    """Column names for a polars or pandas frame."""
-    cols = getattr(df, "columns", None)
-    if cols is None:
-        return []
-    return list(cols)
+    """Column names for a polars or pandas frame (shared helper)."""
+    from ._frame_columns import frame_columns
+
+    return frame_columns(df)
 
 
 def _detect_time_on_sample(

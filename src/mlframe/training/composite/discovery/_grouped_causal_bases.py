@@ -227,9 +227,10 @@ def _is_polars(df: Any) -> bool:
 
 
 def _frame_columns(df: Any) -> list[str]:
-    """Returns ``df.columns`` as a plain list, or ``[]`` for frame-like objects that expose no ``columns`` attribute."""
-    cols = getattr(df, "columns", None)
-    return list(cols) if cols is not None else []
+    """Returns ``df.columns`` as a plain list, or ``[]`` for frame-like objects that expose no ``columns``."""
+    from .._frame_columns import frame_columns
+
+    return frame_columns(df)
 
 
 def _attach_columns(df: Any, cols: Mapping[str, np.ndarray]) -> Any:

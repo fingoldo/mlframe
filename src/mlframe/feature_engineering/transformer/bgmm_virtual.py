@@ -36,7 +36,6 @@ References:
 from __future__ import annotations
 
 import logging
-import warnings
 from typing import Any, Literal, Optional
 
 import numpy as np
@@ -49,36 +48,11 @@ logger = logging.getLogger(__name__)
 _K_SCALES = (1, 3, 5, 10)
 
 
-def _fit_bgmm_and_sample(
-    X_minority: np.ndarray,
-    n_synthetic: int,
-    n_components: int,
-    seed: int,
-) -> np.ndarray:
-    """Fit BayesianGaussianMixture on minority X and sample n_synthetic virtuals from the posterior."""
-    from sklearn.mixture import BayesianGaussianMixture
-    n_min = X_minority.shape[0]
-    if n_min < n_components + 1:
-        # Fall back: replicate real minority rows (no synthesis possible).
-        return np.asarray(X_minority[np.random.default_rng(seed).integers(0, n_min, size=n_synthetic)].copy().astype(np.float32))
-    bgm = BayesianGaussianMixture(
-        n_components=n_components,
-        covariance_type="full",
-        max_iter=200,
-        random_state=seed,
-        reg_covar=1e-4,
-        weight_concentration_prior_type="dirichlet_process",
-    )
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        try:
-            bgm.fit(X_minority)
-            samples, _ = bgm.sample(n_synthetic)
-        except Exception as exc:
-            logger.info("bgmm_virtual: BGM fit failed (%s); falling back to bootstrap.", exc)
-            rng = np.random.default_rng(seed)
-            samples = X_minority[rng.integers(0, n_min, size=n_synthetic)]
-    return np.asarray(samples.astype(np.float32))
+def _fit_bgmm_and_sample(X_minority: np.ndarray, n_synthetic: int, n_components: int, seed: int) -> np.ndarray:
+    """Fit BayesianGaussianMixture and sample virtuals (shared implementation)."""
+    from ._bgmm_sample import fit_bgmm_and_sample
+
+    return fit_bgmm_and_sample(X_minority, n_synthetic, n_components, seed, caller="bgmm_virtual")
 
 
 def compute_bgmm_virtual_features(

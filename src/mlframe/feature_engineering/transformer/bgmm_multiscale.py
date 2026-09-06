@@ -22,7 +22,6 @@ Cost: ~3 × iter-41 cost = ~3-6 sec per fold for 3 scales.
 from __future__ import annotations
 
 import logging
-import warnings
 from typing import Any, Literal, Optional, Tuple
 
 import numpy as np
@@ -37,29 +36,10 @@ _COMPONENT_COUNTS_DEFAULT = (3, 5, 8)
 
 
 def _fit_bgmm_and_sample(X_minority: np.ndarray, n_synthetic: int, n_components: int, seed: int) -> np.ndarray:
-    """Same as iter 41 helper — fit BayesianGaussianMixture and sample virtuals."""
-    from sklearn.mixture import BayesianGaussianMixture
-    n_min = X_minority.shape[0]
-    if n_min < n_components + 1:
-        return np.asarray(X_minority[np.random.default_rng(seed).integers(0, n_min, size=n_synthetic)].copy().astype(np.float32))
-    bgm = BayesianGaussianMixture(
-        n_components=n_components,
-        covariance_type="full",
-        max_iter=200,
-        random_state=seed,
-        reg_covar=1e-4,
-        weight_concentration_prior_type="dirichlet_process",
-    )
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        try:
-            bgm.fit(X_minority)
-            samples, _ = bgm.sample(n_synthetic)
-        except Exception as exc:
-            logger.info("bgmm_multiscale: BGM fit failed at K=%d (%s); falling back to bootstrap.", n_components, exc)
-            rng = np.random.default_rng(seed)
-            samples = X_minority[rng.integers(0, n_min, size=n_synthetic)]
-    return np.asarray(samples.astype(np.float32))
+    """Fit BayesianGaussianMixture and sample virtuals (shared implementation)."""
+    from ._bgmm_sample import fit_bgmm_and_sample
+
+    return fit_bgmm_and_sample(X_minority, n_synthetic, n_components, seed, caller="bgmm_multiscale")
 
 
 def compute_bgmm_multiscale_features(
