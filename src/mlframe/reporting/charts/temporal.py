@@ -221,6 +221,9 @@ def _target_acf_panel(y: np.ndarray, *, nlags: int = MAX_ACF_LAGS) -> PanelSpec:
         ylabel="Autocorrelation",
         colors=("steelblue",),
         hline=(band, "red", f"+-1.96/sqrt(n) = {band:.3f}"),
+        # Both bounds: the title counts lags with |acf| > band, so a negative lag is judged against a line the
+        # reader could not see when only the positive bound was drawn.
+        hline_symmetric=True,
     )
 
 
@@ -247,6 +250,9 @@ def _target_pacf_panel(y: np.ndarray, *, nlags: int = MAX_ACF_LAGS) -> PanelSpec
         ylabel="Partial autocorrelation",
         colors=("seagreen",),
         hline=(band, "red", f"+-1.96/sqrt(n) = {band:.3f}"),
+        # Both bounds: the title counts lags with |acf| > band, so a negative lag is judged against a line the
+        # reader could not see when only the positive bound was drawn.
+        hline_symmetric=True,
     )
 
 

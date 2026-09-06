@@ -377,3 +377,37 @@ draws. The plotly branch had them the other way round, so the HTML report labell
 the WoE panel's x axis carried "feature=level". Pinned by
 ``tests/reporting/test_horizontal_bar_axis_titles.py``, which asserts the two backends agree rather than
 just checking plotly in isolation; all four tests fail with the swap restored.
+
+**VIS-06 NOT CONFIRMED -- colour is not the only channel here, and the render is what settles it.** The
+finding reads the traffic-light constants and concludes the verdict is encoded in colour alone. Rendering
+the model card shows the verdict written in TEXT three times on the same figure: in the suptitle
+("Model card -- lightgbm_dart_v2 (holdout) -- MISCALIBRATED"), in the header panel ("[AMBER] MISCALIBRATED"
+plus the reason), and again in the caption ("VERDICT: ROC_AUC=0.802; ECE=0.275 (>= 0.15) drops it from
+green"). ``fairness_calibration`` likewise puts "[green]" / "[amber]" / "[red]" in its panel title, and its
+per-bar colours encode the GROUP, not the verdict. Adding hatches or symbols would be redundant noise on a
+figure that already states the verdict in words. Recorded as not confirmed rather than fixed; if a future
+panel encodes a verdict in fill alone, that panel is the finding.
+
+## Found by rendering, not in the audit list (parent, 2026-09-06)
+
+**CARD-01 [P1] the "mini gain" panel was crushed to a sliver.** ``col_width_ratios`` applies to the WHOLE
+grid -- there is no per-row spanning -- and the model card collapsed its third column to 0.0001 to widen a
+header whose own row leaves that cell empty. The row below puts a mini panel there, so "mini gain" rendered
+narrower than its own legend on every model card this repo produces. Ratios are now (1.3, 1.3, 1.0): the
+header keeps more width than a third, and the third mini panel keeps a panel's worth. Pinned by
+``tests/reporting/test_model_card_layout.py`` as a GENERAL invariant -- a column occupied in any row must
+keep at least 5% of the width -- so the next builder reaching for the same trick fails here instead of
+shipping it.
+
+**CARD-02 [P3] a stray hash printed in the card header.** ``f"{model_name}  # --  {split}"`` put a lone
+"#" on the figure with nothing to its right; same class as the mangled escape in VIS-03, markup debris
+shown to the user. Removed at both call sites.
+
+**VIS-10 FIXED.** ``BarPanelSpec`` gained ``hline_symmetric``; when set, both renderers draw ``-hline[0]``
+as well and annotate only the first, so the band is two lines and ONE legend entry rather than the same
+threshold listed twice. The ACF and PACF panels set it, which is what their label ("+-1.96/sqrt(n)") and
+their title (which counts ``|acf| > band``) were already claiming. Verified on an AR(1) with a NEGATIVE
+coefficient, where the structure sits at about -0.6 and every informative lag previously had no reference
+to be judged against. Pinned by ``tests/reporting/test_acf_symmetric_band.py``, which includes a guard that
+the fixture really does have lags below the lower bound -- without it the test would pass on any series and
+prove nothing; three of its six tests fail with the flag turned off.

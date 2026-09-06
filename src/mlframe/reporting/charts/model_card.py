@@ -186,7 +186,7 @@ def _header_panel(model_name: str, split: str, verdict: ModelCardVerdict, metric
     # A DUMMY tag on the verdict line makes a baseline card visually distinct from a real model's card at a glance
     # (the two are otherwise near-identical), so operators don't confuse the reference floor for a trained model.
     tag = "[DUMMY] " if _is_dummy_name(model_name) else ""
-    lines = [f"{model_name}  # --  {split}", "", f"{tag}{dot} {verdict.label}", verdict.reason, ""]
+    lines = [f"{model_name}  --  {split}", "", f"{tag}{dot} {verdict.label}", verdict.reason, ""]
     lines.extend(f"{name:<10s} {val}" for name, val in metric_fmt)
     title = "MODEL CARD (DUMMY BASELINE)" if _is_dummy_name(model_name) else "MODEL CARD"
     return AnnotationPanelSpec(text="\n".join(lines), title=title, fontsize=11)
@@ -320,7 +320,7 @@ def _mini_pred_vs_actual(yt: np.ndarray, yp: np.ndarray) -> PanelSpec:
 
 def _degenerate_card(model_name: str, split: str, text: str, figsize: Tuple[float, float]) -> FigureSpec:
     """Single-panel fallback card that honestly reports why metrics could not be computed (e.g. single-class / no finite pairs), instead of drawing a misleading chart."""
-    ann = AnnotationPanelSpec(text=f"{model_name}  # --  {split}\n\n{text}", title="MODEL CARD", fontsize=11)
+    ann = AnnotationPanelSpec(text=f"{model_name}  --  {split}\n\n{text}", title="MODEL CARD", fontsize=11)
     return FigureSpec(suptitle="", panels=((ann,),), figsize=figsize)
 
 
@@ -403,10 +403,13 @@ def compose_model_card_figure(
         header = _header_panel(model_name, split, verdict, metric_fmt)
         bar = _headline_bar(bar_fmt, verdict.color)
         minis = [_mini_roc(sort), _mini_score_dist(sort, yt, ys), _mini_gain(sort)]
-        # The top row's third cell is permanently empty, so give the two occupied cells its width rather than
-        # leaving a third of the figure blank while the header squeezes its text into one column.
+        # The top row's third cell is empty and the bottom row's is a mini panel, but ``col_width_ratios``
+        # applies to the WHOLE grid -- there is no per-row spanning. Collapsing the third column to ~0 to
+        # widen the header therefore crushed "mini gain" into an unreadable sliver, legend wider than the
+        # panel. The top two cells stay wider than the third, which keeps the header's text out of a single
+        # narrow column, without taking the third mini panel's width away from it.
         grid = ((header, bar, None), tuple(minis))
-        col_ratios = (1.5, 1.5, 0.0001)
+        col_ratios = (1.3, 1.3, 1.0)
         return FigureSpec(
             suptitle=f"Model card -- {'[DUMMY] ' if _is_dummy_name(model_name) else ''}{model_name} ({split}) -- {verdict.label}",
             panels=grid, figsize=figsize, row_height_ratios=(1.2, 1.0), col_width_ratios=col_ratios,
@@ -446,10 +449,13 @@ def compose_model_card_figure(
         header = _header_panel(model_name, split, verdict, metric_fmt)
         bar = _headline_bar(bar_fmt, verdict.color)
         minis = [_mini_resid_vs_pred(yt, yp), _mini_resid_hist(yt, yp), _mini_pred_vs_actual(yt, yp)]
-        # The top row's third cell is permanently empty, so give the two occupied cells its width rather than
-        # leaving a third of the figure blank while the header squeezes its text into one column.
+        # The top row's third cell is empty and the bottom row's is a mini panel, but ``col_width_ratios``
+        # applies to the WHOLE grid -- there is no per-row spanning. Collapsing the third column to ~0 to
+        # widen the header therefore crushed "mini gain" into an unreadable sliver, legend wider than the
+        # panel. The top two cells stay wider than the third, which keeps the header's text out of a single
+        # narrow column, without taking the third mini panel's width away from it.
         grid = ((header, bar, None), tuple(minis))
-        col_ratios = (1.5, 1.5, 0.0001)
+        col_ratios = (1.3, 1.3, 1.0)
         return FigureSpec(
             suptitle=f"Model card -- {'[DUMMY] ' if _is_dummy_name(model_name) else ''}{model_name} ({split}) -- {verdict.label}",
             panels=grid, figsize=figsize, row_height_ratios=(1.2, 1.0), col_width_ratios=col_ratios,

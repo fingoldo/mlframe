@@ -699,10 +699,15 @@ class MatplotlibRenderer:
         # horizontal bars (value axis is x), axhline for vertical bars (value axis is y).
         if p.hline is not None:
             hval, hcolor, hlabel = p.hline
-            if horizontal:
-                ax.axvline(hval, color=hcolor, linestyle="--", linewidth=1.3, label=hlabel or None)
-            else:
-                ax.axhline(hval, color=hcolor, linestyle="--", linewidth=1.3, label=hlabel or None)
+            # A symmetric band is two lines and ONE legend entry: the mirrored line passes label=None so the
+            # key does not list the same threshold twice.
+            values = (hval, -hval) if p.hline_symmetric else (hval,)
+            for _i, _v in enumerate(values):
+                _lbl = (hlabel or None) if _i == 0 else None
+                if horizontal:
+                    ax.axvline(_v, color=hcolor, linestyle="--", linewidth=1.3, label=_lbl)
+                else:
+                    ax.axhline(_v, color=hcolor, linestyle="--", linewidth=1.3, label=_lbl)
             if hlabel:
                 _place_legend(ax)
 

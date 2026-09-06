@@ -617,11 +617,16 @@ class PlotlyRenderer:
         # hline for vertical bars (value axis is y).
         if p.hline is not None:
             hval, hcolor, hlabel = p.hline
-            line_kw = dict(line=dict(color=hcolor, dash="dash", width=1.3), annotation_text=hlabel or None, annotation_position="top right", row=row, col=col)
-            if horizontal:
-                fig.add_vline(x=hval, **line_kw)
-            else:
-                fig.add_hline(y=hval, **line_kw)
+            # Mirrors the matplotlib twin: a symmetric band draws both bounds and annotates only the first, so
+            # the reader sees the threshold on the side their data actually falls on.
+            for _i, _v in enumerate((hval, -hval) if p.hline_symmetric else (hval,)):
+                line_kw = dict(line=dict(color=hcolor, dash="dash", width=1.3),
+                               annotation_text=(hlabel or None) if _i == 0 else None,
+                               annotation_position="top right", row=row, col=col)
+                if horizontal:
+                    fig.add_vline(x=_v, **line_kw)
+                else:
+                    fig.add_hline(y=_v, **line_kw)
 
         if horizontal:
             if any(len(str(c)) > _BAR_XTICK_MAXLEN for c in cats):  # truncate long feature-name labels on the y-axis so they don't crowd the panel

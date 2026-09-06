@@ -281,6 +281,11 @@ class BarPanelSpec:
     # Reference line across the value axis (e.g. global metric on a per-segment bar): (value, color, label).
     # Drawn horizontally for vertical bars / vertically for horizontal bars (always perpendicular to the bars).
     hline: Optional[Tuple[float, str, str]] = None
+    # Draw ``-hline[0]`` as well, as one band rather than one line. A two-sided threshold (an ACF Bartlett
+    # band, a symmetric tolerance) drawn on one side only leaves the other half of the panel with no
+    # reference, while the label and the title both talk about "+-": the negative lags of an ACF were being
+    # counted as significant in the title against a bound the reader could not see.
+    hline_symmetric: bool = False
     # Per-point / per-bar tooltip text (plotly only -- matplotlib has no hover layer). This is where a builder
     # attaches the DENOMINATOR behind an aggregate: without it a rate computed from 3 rows renders identically to
     # one from 300k, and the count is usually already in hand at the point the bar is built.
