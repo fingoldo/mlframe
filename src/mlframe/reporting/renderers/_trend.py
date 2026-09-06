@@ -8,7 +8,9 @@ points -- exactly the residual structure these overlays are meant to expose agai
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+import threading
+import weakref
+from typing import Dict, Optional, Tuple, Union
 
 import numpy as np
 
@@ -26,11 +28,70 @@ import numpy as np
 _TREND_FIT_CAP = 3_000
 
 
+# The default ``plot_outputs`` renders BOTH backends from the same frozen FigureSpec, so every trend panel
+# was fitted twice from the identical arrays for the identical answer -- 0.24 s and 0.25 s of the two
+# renders of one regression figure, and ~1.6 s per figure before ``_TREND_FIT_CAP`` was cut.
+#
+# Keyed on array IDENTITY rather than content: hashing two 2M-row arrays to avoid a 0.25 s fit would cost
+# more than the fit. Identity alone is not safe on its own -- a freed array's id is reused -- so each entry
+# holds WEAK references and a hit is confirmed by checking they still resolve to these very arrays. Weak,
+# not strong, because pinning a 2M-row cloud to keep a cache entry warm is the trade this package's memory
+# rules exist to prevent. Guarded because ``render_and_save`` renders the two backends concurrently.
+_FIT_CACHE_MAX = 8
+_FIT_CACHE: Dict[tuple, tuple] = {}
+_FIT_CACHE_LOCK = threading.Lock()
+
+
+_Endpoints = Optional[Tuple[Tuple[float, float], Tuple[float, float]]]
+
+
+def _cached_fit(x: np.ndarray, y: np.ndarray, method: str) -> Union[_Endpoints, "_Miss"]:
+    """The memoised endpoints for these exact arrays, or ``_MISS``."""
+    key = (id(x), id(y), method)
+    with _FIT_CACHE_LOCK:
+        entry = _FIT_CACHE.get(key)
+    if entry is None:
+        return _MISS
+    x_ref, y_ref, result = entry
+    return result if (x_ref() is x and y_ref() is y) else _MISS
+
+
+def _store_fit(x: np.ndarray, y: np.ndarray, method: str, result: _Endpoints) -> None:
+    """Remember ``result`` for these arrays, dropping the oldest entry once the cache is full."""
+    try:
+        entry = (weakref.ref(x), weakref.ref(y), result)
+    except TypeError:
+        return  # not weak-referenceable (a plain memoryview / subclass without __weakref__): skip the cache
+    with _FIT_CACHE_LOCK:
+        if len(_FIT_CACHE) >= _FIT_CACHE_MAX:
+            _FIT_CACHE.pop(next(iter(_FIT_CACHE)), None)
+        _FIT_CACHE[(id(x), id(y), method)] = entry
+
+
+class _Miss:
+    """Sentinel distinguishing "not cached" from a cached ``None`` (an undefined fit is worth remembering too)."""
+
+
+_MISS = _Miss()
+
+
 def robust_fit_endpoints(x: np.ndarray, y: np.ndarray, method: str) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
     """Fit a robust line ``y ~ x`` and return ((x_lo, y_lo), (x_hi, y_hi)) at the x extremes.
 
     Returns ``None`` when the fit is undefined (fewer than 2 finite points, or all x identical).
+
+    Memoised on the identity of the input arrays: the same FigureSpec is rendered by both backends.
     """
+    cached = _cached_fit(x, y, method)
+    if not isinstance(cached, _Miss):
+        return cached
+    result = _fit_endpoints_uncached(x, y, method)
+    _store_fit(x, y, method, result)
+    return result
+
+
+def _fit_endpoints_uncached(x: np.ndarray, y: np.ndarray, method: str) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
+    """The fit itself, with no memoisation -- the body ``robust_fit_endpoints`` wraps."""
     x = np.asarray(x, dtype=float).ravel()
     y = np.asarray(y, dtype=float).ravel()
     if x.shape != y.shape or x.size < 2:

@@ -375,3 +375,21 @@ Validation: across 12 seeds with three planted discriminating features, the rank
 many of them as the tree does on every seed. sklearn remains the fallback, and the median-split surrogate
 the fallback below that. `tests/reporting/test_split_gain_ranking.py` (12 tests; the runner-up floor and the
 relative-threshold semantics verified failing pre-fix).
+
+**PERF-06 RESOLVED, memoised rather than threaded through the spec.** Carrying the endpoints on the panel
+spec (the finding's other option) means every builder that sets `trend_line` has to fit before it can build
+the spec, which moves a renderer concern into nine chart modules. Memoising the pure function keeps the
+seam where it is.
+
+Keyed on array IDENTITY, not content: hashing two 2M-row arrays to avoid a 0.25 s fit would cost more than
+the fit. Identity alone is unsound -- a freed array's id is reused, and a wrong hit would draw one panel's
+trend line across another panel's data -- so each entry holds WEAK references and every hit is confirmed
+against them. Weak rather than strong so a cache entry can never pin a 2M-row cloud, which is what this
+package's memory rules exist to prevent; the dict is bounded at 8 entries and guarded, because
+`render_and_save` renders the two backends concurrently.
+
+MEASURED, paired and interleaved, median of four: the second backend's render of a shared spec
+**0.309 s -> 0.082 s (3.75x)**, i.e. **0.227 s of CPU saved per trend panel** -- in line with the 0.24-0.25 s
+the finding measured. `tests/reporting/test_trend_fit_memoised.py` (6 tests). Both halves probed
+separately: removing the memoisation fails three of them, and removing the weak-reference confirmation
+fails the stale-entry test on its own.
