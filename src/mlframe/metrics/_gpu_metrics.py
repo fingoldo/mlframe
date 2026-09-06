@@ -245,8 +245,12 @@ def gpu_multiple_rmse_scores(actual, predicted):
     Backend selection (auto):
       - ``numba.cuda`` kernel when available: fused (subtract, square,
         atomic-add) in one pass; per-block partials finalised by cupy.sum.
-        Tiny fp jitter (~1e-15) from non-deterministic atomic-add accumulation
-        order.
+        NOT RUN-TO-RUN REPRODUCIBLE: ``cuda.atomic.add`` orders the within-block-row
+        accumulation nondeterministically, so the same call on the same data returns a
+        slightly different value each time (~1e-15). The CPU path IS reproducible, so a
+        metric logged from this backend cannot be reproduced exactly by re-running it,
+        and an exact-equality comparison against a stored value will fail. If that
+        matters, accumulate into shared memory per block and do one atomic per block.
       - ``cupy.ReductionKernel`` fallback: fuses subtract+square+reduce into
         one kernel pass, avoiding the ``(N, M)`` fp64 intermediate. Bit-
         equivalent to numpy.

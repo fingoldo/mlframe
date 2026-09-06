@@ -208,7 +208,20 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
     # is left populated for provenance/audit only; it is replay-irrelevant because
     # the downstream MRMR fit discretises the fit-time column for its OWN MI matrix
     # via ``_mrmr_fe_step`` (a separate code path, unaffected by this choice).
-    return np.asarray(out)
+    out_arr = np.asarray(out)
+    # Match the precision the GPU replay would have produced. The device path materialises in float32 under
+    # MLFRAME_FE_VRAM_F32 and float64 otherwise; this numpy path is also the fallback taken on ANY cupy
+    # runtime failure, so without this cast a transient GPU fault PART-WAY THROUGH one transform() call
+    # changed the dtype -- and therefore the VALUES -- of every engineered column produced after it, within
+    # that single call. The columns a caller gets back should not depend on when the device happened to fail.
+    try:
+        from ._recipe_unary_binary_gpu import _vram_f32
+
+        if _vram_f32() and out_arr.dtype == np.float64:
+            out_arr = out_arr.astype(np.float32)
+    except Exception as _dtype_exc:  # pragma: no cover - the GPU module is optional
+        logger.debug("could not align the numpy replay dtype with the GPU path: %r", _dtype_exc)
+    return out_arr
 
 
 def build_unary_binary_recipe(
