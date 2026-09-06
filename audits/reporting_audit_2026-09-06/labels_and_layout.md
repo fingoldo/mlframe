@@ -361,3 +361,32 @@ Three existing tests pinned the retired flat cap and are reframed to the measure
 relaxed: two count assertions become "no more labels than the axis can hold", and the structural one that
 checked `_bar` reads the two named constants now checks it uses the shared budget helpers and has not
 re-inlined 20/25. The constants themselves are deleted rather than left dangling.
+
+**LBL-07 and LBL-11 RESOLVED together, because they are one defect.** Both renderers already capped how
+MANY point labels they drew and neither compared two labels to each other, so wherever the points are
+close the surviving labels print on top of one another: 25 node names stacked into a black mark on a
+collapsed spectral layout, and the low-probability corner of a reliability diagram. One shared picker
+(`non_colliding_label_indices`) walks the candidates in priority order and keeps a label only when its box
+clears every box already kept -- fewer labels on a crowded panel, all of them on a sparse one. Wired into
+the network labels and the inline scatter labels on both backends. Rendered before and after: the smudge
+becomes three legible node names, and the reliability diagram keeps two of twelve crammed bins plus every
+well-separated one.
+
+Two more defects the render exposed, neither in the audit:
+
+* `spectral_embedding_panel` gave every node the same size, so the "label the biggest nodes" cap was
+  choosing an arbitrary handful of indices. Nodes are sized by DEGREE now, which both carries the
+  connectivity and makes the surviving labels the hubs.
+* The spectral embedding passes a constant edge-weight vector, and both backends drew a colour scale over
+  it -- matplotlib with an offset exponent ("1e-9+1") that reads as a real range. A scale with one value on
+  it encodes nothing; both skip it now.
+
+**LBL-10 NOT REPRODUCED, with the measurements.** The claim is that the free-text panel wraps against a
+pre-layout rectangle that constrained layout later SHRINKS, so the text overflows. Measured on the
+reproducer shape the finding names (heatmap plus colorbar beside an `AnnotationPanelSpec`, constrained
+layout forced on by a suptitle and caption): pre-layout 3.52in, gridspec fraction 3.52in, post-layout
+4.38in. The panel GROWS, and the wrapped text (3.0in) fits with room to spare. The gridspec-fraction fix
+the finding suggests is a no-op here -- `get_window_extent()` before draw already returns exactly that
+rectangle. The real effect is the opposite one and much milder: the text under-uses the panel by about
+20%. Left as it is, with the measurement recorded at the call site, rather than shipping a change that
+demonstrably changes nothing.

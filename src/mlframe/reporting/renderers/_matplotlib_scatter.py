@@ -15,9 +15,20 @@ import numpy as np
 from mlframe.reporting.colors import PERFECT_FIT_LINE, OVERLAY_LINE, TREND_LINE
 from mlframe.reporting.spec import ScatterPanelSpec
 
-from ._shared_helpers import _SCATTER_MAX_POINTS, low_evidence_mask, select_per_point
+from ._shared_helpers import _SCATTER_MAX_POINTS, low_evidence_mask, non_colliding_label_indices, select_per_point
 
 logger = logging.getLogger(__name__)
+
+def _axes_size_in(ax) -> tuple:
+    """``(width, height)`` of the axes in inches, falling back to a typical panel when unmeasurable."""
+    try:
+        _pos = ax.get_position()
+        _fw, _fh = (float(v) for v in ax.figure.get_size_inches())
+        return (float(_pos.width) * _fw, float(_pos.height) * _fh)
+    except Exception:
+        logger.debug("could not measure the scatter axes for inline-label de-collision", exc_info=True)
+        return (6.0, 4.0)
+
 
 def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
     """Render a scatter panel: subsamples above ``_SCATTER_MAX_POINTS`` (preserving extremes, rasterized), then layers optional error bars, highlighted worst-K points, trend line, overlay band/line, y=x reference and inline labels/colorbar/legend on top."""
@@ -187,7 +198,18 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
         _yspan = _raw_yspan if _raw_yspan != 0 else 1.0
         from matplotlib import patheffects as _pe
 
+        # Nothing compared two labels to each other, so on a 20-bin reliability diagram the low-probability
+        # bins crowd into one corner and their numbers overprint. The halo makes that read as a smudge
+        # rather than a clip, which is why it looked minor and was in fact unreadable. Keep the labels whose
+        # boxes clear each other; a point that loses its label keeps its marker.
+        _ax_w_in, _ax_h_in = _axes_size_in(ax)
+        _keep_inline = set(non_colliding_label_indices(
+            [lx for lx, _, _ in p.inline_labels], [ly for _, ly, _ in p.inline_labels], [t for _, _, t in p.inline_labels],
+            fontsize=8, x_span=abs(_xspan), y_span=abs(_yspan), width_in=_ax_w_in, height_in=_ax_h_in,
+        ))
         for _i, (lx, ly, txt) in enumerate(p.inline_labels):
+            if _i not in _keep_inline:
+                continue
             _ha = "left" if (lx - _xlo) / _xspan < _EDGE_LABEL_FLIP_FRACTION else "right"
             _va = "top" if (_yhi - ly) / _yspan < _EDGE_LABEL_FLIP_FRACTION else "bottom"
             _colour = _lab_colors[_i] if _i < len(_lab_colors) else "black"

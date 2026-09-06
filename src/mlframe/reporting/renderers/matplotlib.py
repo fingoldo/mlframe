@@ -24,7 +24,7 @@ from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported f
     _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, heatmap_value_to_index,
     CAPTION_FONTSIZE, CAPTION_WRAP_CHARS, PANEL_TITLE_FONTSIZE, SUPTITLE_WRAP_CHARS,
     _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
-    _TITLE_REF_WIDTH_IN, histogram_bar_extent, label_width_pitch_in, network_label_indices, low_evidence_mask, panel_title_wrap_chars,
+    _TITLE_REF_WIDTH_IN, histogram_bar_extent, label_width_pitch_in, network_label_indices, low_evidence_mask, non_colliding_label_indices, panel_title_wrap_chars,
     rotated_tick_pitch_in, select_per_point, ticks_that_fit, truncate_bar_label,
     wrap_annotation_text, wrap_text_to_width, wrap_title_lines,
 )
@@ -406,6 +406,10 @@ class MatplotlibRenderer:
         """Render a free-text panel (no axes/data): centered text wrapped to the panel's own width, no ticks/spines."""
         # Wrap here rather than via matplotlib's `wrap=True`, which measures against the FIGURE box and never breaks
         # long tokens -- see wrap_annotation_text for the measured numbers.
+        # Measured BEFORE constrained layout runs, which is a known conservatism rather than the overflow
+        # it looks like: measured on a heatmap-plus-colorbar sibling, the cell this panel ends up in is
+        # WIDER after layout (4.38in) than the rectangle wrapped against (3.52in), so the text under-uses
+        # the panel and never spills out of it. Rewrapping in a draw callback would recover that width.
         bbox = ax.get_window_extent()
         _dpi = float(ax.figure.dpi)
         panel_w_in = float(bbox.width) / (_dpi if _dpi > 0 else 100.0)
@@ -984,20 +988,39 @@ class MatplotlibRenderer:
                                                 alpha=0.6, shrinkA=8, shrinkB=8),
                                 zorder=2)
 
-            sm = ScalarMappable(norm=norm, cmap=cmap)
-            sm.set_array([])
-            cbar = fig.colorbar(sm, ax=ax)
-            if p.colorbar_label:
-                cbar.set_label(p.colorbar_label)
+            # A colorbar over edge weights that are all the same encodes nothing, and matplotlib renders the
+            # degenerate range with an offset exponent ("1e-9+1") that reads as a real scale. The spectral
+            # embedding passes a constant weight vector, so it drew exactly that beside every figure.
+            if wmax > wmin:
+                sm = ScalarMappable(norm=norm, cmap=cmap)
+                sm.set_array([])
+                cbar = fig.colorbar(sm, ax=ax)
+                if p.colorbar_label:
+                    cbar.set_label(p.colorbar_label)
 
         ax.scatter(nx_pos[:, 0], nx_pos[:, 1], s=np.asarray(p.node_size, dtype=float), c=list(p.node_color), edgecolors="black", linewidths=0.5, zorder=3)
         # Only the biggest nodes are named, and the names are truncated. Every node used to be labelled at
         # full length, centred on its own marker, so a friend graph rendered its names as a single illegible
         # mat over the middle of the panel. The unlabelled nodes keep their marker, their size and their
         # colour -- the graph still shows them, it just does not try to name all 200.
-        for _i in network_label_indices(p.node_size):
-            _x, _y = nx_pos[_i]
-            ax.annotate(truncate_bar_label(p.node_label[_i], _NETWORK_LABEL_MAXLEN), (_x, _y), fontsize=7, ha="center", va="center", zorder=4)
+        # Capping the COUNT is not the same as keeping them readable: a spectral embedding whose nodes
+        # collapse into one region printed its surviving names on top of each other as a black smudge. Of
+        # the biggest nodes, keep the ones whose label boxes actually clear each other.
+        _cand = network_label_indices(p.node_size)
+        _texts = [truncate_bar_label(p.node_label[_i], _NETWORK_LABEL_MAXLEN) for _i in _cand]
+        _x_lo, _x_hi = float(np.min(nx_pos[:, 0])), float(np.max(nx_pos[:, 0]))
+        _y_lo, _y_hi = float(np.min(nx_pos[:, 1])), float(np.max(nx_pos[:, 1]))
+        _sizes = np.asarray(p.node_size, dtype=float).ravel()
+        _keep_lbl = non_colliding_label_indices(
+            nx_pos[_cand, 0], nx_pos[_cand, 1], _texts, fontsize=7,
+            x_span=max(_x_hi - _x_lo, 1e-9), y_span=max(_y_hi - _y_lo, 1e-9),
+            width_in=_measured_axis_in(ax, horizontal=False) or _TITLE_REF_WIDTH_IN,
+            height_in=_measured_axis_in(ax, horizontal=True) or _TITLE_REF_WIDTH_IN,
+            priority=[_sizes[_i] for _i in _cand] if _sizes.size == len(p.node_label) else None,
+        )
+        for _j in _keep_lbl:
+            _x, _y = nx_pos[_cand[_j]]
+            ax.annotate(_texts[_j], (_x, _y), fontsize=7, ha="center", va="center", zorder=4)
 
         if p.node_legend:
             handles = [Line2D([0], [0], marker="o", color="w", markerfacecolor=col, markersize=8, label=lbl) for lbl, col in p.node_legend]

@@ -117,6 +117,51 @@ def rotated_tick_pitch_in(fontsize: float, rotation_deg: float) -> float:
     return line_h_in / math.sin(theta) if theta > 0.0 else line_h_in
 
 
+def non_colliding_label_indices(
+    xs: Any, ys: Any, texts: Any, *,
+    fontsize: float,
+    x_span: float, y_span: float,
+    width_in: float, height_in: float,
+    priority: Any = None,
+) -> list:
+    """Which of a set of point labels can be drawn without any two of them overlapping.
+
+    Capping the COUNT of labels is not the same as making them readable: on a graph whose nodes collapse
+    into one region, the surviving labels land on top of each other and print as a smudge. This walks the
+    labels in ``priority`` order (highest first, then input order) and keeps one only when its box clears
+    every box already kept, so what is drawn is always legible -- fewer labels on a crowded panel, all of
+    them on a sparse one.
+
+    Boxes are measured in DATA units, from the panel's own extent, so the same call works for either
+    backend and for any axis scale the caller has already resolved.
+    """
+    xs_a = np.asarray(xs, dtype=float).ravel()
+    ys_a = np.asarray(ys, dtype=float).ravel()
+    labels = [str(t) for t in texts]
+    n = min(xs_a.size, ys_a.size, len(labels))
+    if n == 0 or width_in <= 0 or height_in <= 0 or not np.isfinite(x_span) or not np.isfinite(y_span) or x_span <= 0 or y_span <= 0:
+        return list(range(n))
+    x_per_in, y_per_in = x_span / width_in, y_span / height_in
+    half_h = (fontsize * _TICK_LABEL_LEADING / 72.0) * y_per_in / 2.0
+    order = list(range(n))
+    if priority is not None:
+        prio = np.asarray(priority, dtype=float).ravel()
+        if prio.size >= n:
+            order = sorted(order, key=lambda i: (-float(prio[i]), i))
+    kept: list = []
+    boxes: list = []
+    for i in order:
+        if not (np.isfinite(xs_a[i]) and np.isfinite(ys_a[i])):
+            continue
+        half_w = (_measured_text_width_pt(labels[i], fontsize) / 72.0) * x_per_in / 2.0
+        box = (xs_a[i] - half_w, xs_a[i] + half_w, ys_a[i] - half_h, ys_a[i] + half_h)
+        if any(box[0] < b[1] and b[0] < box[1] and box[2] < b[3] and b[2] < box[3] for b in boxes):
+            continue
+        boxes.append(box)
+        kept.append(i)
+    return sorted(kept)
+
+
 def label_width_pitch_in(labels: Any, fontsize: float) -> float:
     """Spacing an axis of UNROTATED, side-by-side tick labels needs: the widest label plus a gutter.
 

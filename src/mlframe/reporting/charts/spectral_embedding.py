@@ -122,7 +122,11 @@ def spectral_embedding_panel(n_nodes: int, edges, *, node_color=None, node_size=
     deg = np.bincount(np.concatenate([edge_src, edge_dst]), minlength=n_nodes)
     colors = _resolve_node_colors(node_color, n_nodes)
     if node_size is None:
-        sizes = np.full(n_nodes, 120.0, dtype=np.float64)
+        # By DEGREE, not a flat 120. Both renderers cap node labels to the largest few, so with every size
+        # identical the tie-break picked an arbitrary handful of node indices to name -- on a graph of any
+        # size the labelled nodes were the uninformative ones. Sizing by degree makes the picture carry the
+        # connectivity and makes the surviving labels the hubs, which are the nodes worth naming.
+        sizes = 60.0 + 120.0 * (deg / max(int(deg.max()), 1))
     else:
         sizes = np.full(n_nodes, float(node_size), dtype=np.float64) if np.isscalar(node_size) else np.asarray(node_size, dtype=np.float64)  # type: ignore[arg-type]  # np.isscalar guards this to a real scalar; node_size's param type stays broad
     return NetworkPanelSpec(

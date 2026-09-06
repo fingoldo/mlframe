@@ -16,7 +16,7 @@ from mlframe.reporting.colors import OVERLAY_LINE, PERFECT_FIT_LINE, TREND_LINE
 from mlframe.reporting.spec import ScatterPanelSpec
 
 from ._plotly_color import _axis_ref, _mpl_to_plotly_cmap, _rgba
-from ._shared_helpers import _SCATTER_MAX_POINTS, low_evidence_mask, select_per_point
+from ._shared_helpers import _SCATTER_MAX_POINTS, PX_PER_INCH, low_evidence_mask, non_colliding_label_indices, select_per_point
 
 logger = logging.getLogger(__name__)
 
@@ -123,18 +123,29 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
             backing = "rgba(0,0,0,0.55)" if str(colour).lower() == "white" else "rgba(255,255,255,0.75)"
             return {"bgcolor": backing, "borderpad": 1}
 
-        _lx, _ly, _ltext = _labels[0]
-        fig.add_annotation(x=_lx, y=_ly, text=str(_ltext), showarrow=False, font=_lab_font(0), row=row, col=col, **_anchors(_lx, _ly), **_halo(0))
-        if len(_labels) > 1:
-            _ref = fig.layout.annotations[-1]
-            _rest = tuple(
-                go.layout.Annotation(
-                    x=lx, y=ly, text=str(txt), showarrow=False, font=_lab_font(_i + 1),
-                    xref=_ref.xref, yref=_ref.yref, **_anchors(lx, ly), **_halo(_i + 1),
+        # MUTUAL DE-COLLISION, the third protection neither backend had. Anchor flipping keeps a label off
+        # the axis; it does nothing about two labels landing on each other, which is what happens when the
+        # low-probability bins of a reliability diagram crowd into one corner. Keep the ones whose boxes
+        # clear each other -- a point that loses its label keeps its marker.
+        _keep = non_colliding_label_indices(
+            _xs, _ys, [str(t) for _, _, t in _labels], fontsize=8,
+            x_span=_xspan, y_span=_yspan,
+            width_in=float(fig.layout.width or 600) / PX_PER_INCH, height_in=float(fig.layout.height or 400) / PX_PER_INCH,
+        )
+        if _keep:
+            _first = _keep[0]
+            _lx, _ly, _ltext = _labels[_first]
+            fig.add_annotation(x=_lx, y=_ly, text=str(_ltext), showarrow=False, font=_lab_font(_first), row=row, col=col, **_anchors(_lx, _ly), **_halo(_first))
+            if len(_keep) > 1:
+                _ref = fig.layout.annotations[-1]
+                _rest = tuple(
+                    go.layout.Annotation(
+                        x=_labels[_i][0], y=_labels[_i][1], text=str(_labels[_i][2]), showarrow=False, font=_lab_font(_i),
+                        xref=_ref.xref, yref=_ref.yref, **_anchors(_labels[_i][0], _labels[_i][1]), **_halo(_i),
+                    )
+                    for _i in _keep[1:]
                 )
-                for _i, (lx, ly, txt) in enumerate(_labels[1:])
-            )
-            fig.layout.annotations = fig.layout.annotations + _rest
+                fig.layout.annotations = fig.layout.annotations + _rest
 
     # Per-point error bars (e.g. Wilson CIs on reliability bins). CI panels carry n=bin-count points (no
     # downsample reorder), so the error arrays align with x/y as-passed; only attach when not downsampled.
