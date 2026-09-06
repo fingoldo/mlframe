@@ -31,6 +31,9 @@ _CB_POOL_CACHE_MAX_BYTES_DEFAULT: int = 8 * 1024 * 1024 * 1024  # 8 GiB
 # in different modules -- can share one helper without either owning the other's bookkeeping.
 _CACHE_SIZES: dict[str, dict[Any, int]] = {}
 
+# Types already reported as unmeasurable, so the warning fires once per type rather than per insert.
+_UNMEASURABLE_TYPES_SEEN: set[str] = set()
+
 
 def cb_pool_cache_max_bytes() -> int:
     """Aggregate byte ceiling for one Pool cache (env-overridable via ``MLFRAME_CB_POOL_CACHE_MAX_BYTES``)."""
@@ -48,11 +51,27 @@ def estimate_pool_bytes(pool: Any) -> int:
     A quantised Pool stores one byte per (row, feature) cell plus border tables, so rows x columns is the
     right order of magnitude. Returning 0 for anything that does not answer ``num_row``/``num_col`` keeps a
     Pool-like object the caller passed in cacheable rather than silently refusing it.
+
+    That zero is deliberately non-neutral in the direction that RELAXES the ceiling -- an unmeasurable Pool
+    is admitted as free, so enough of them would blow a budget that exists to bound exactly this. The
+    substitution is therefore audible: the first unmeasurable type is reported at warning level, and later
+    ones of the same type at debug, so a cache silently filling with uncounted objects cannot look identical
+    to a cache holding nothing.
     """
     try:
         return int(pool.num_row()) * int(pool.num_col())
     except Exception as exc:
-        logger.debug("estimate_pool_bytes: %s does not report its shape (%s); not counting it.", type(pool).__name__, exc)
+        kind = type(pool).__name__
+        if kind in _UNMEASURABLE_TYPES_SEEN:
+            logger.debug("estimate_pool_bytes: %s does not report its shape (%s); not counting it.", kind, exc)
+        else:
+            _UNMEASURABLE_TYPES_SEEN.add(kind)
+            logger.warning(
+                "estimate_pool_bytes: %s does not report its shape (%s); it is cached but counted as zero bytes, "
+                "so the aggregate ceiling does not bound it.",
+                kind,
+                exc,
+            )
         return 0
 
 

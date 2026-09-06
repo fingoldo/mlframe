@@ -38,6 +38,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from ._cell_store import JsonlCellStore
+from ._manifest import build_manifest, load_manifest, write_manifest
 from ._leaderboard import NULL_ARM
 from ._matched_k import SELF_CHOSEN_K, Ranking, cut_at_k, k_grid_for_bed, ranking_from_arm_result
 from ._panel import PANEL_MEMBERS, assert_wrapper_estimator_differs, base_rate_scores, fit_and_score_panel, normalized_skill
@@ -61,21 +62,21 @@ HOLDOUT_FRACTION = 0.4
 ScenarioGen = Callable[[int], Tuple[pd.DataFrame, np.ndarray, Dict[str, Any]]]
 
 
-def compute_auc_mean(aucs: dict) -> "float | None":
-    """Mean of the non-None AUC values in ``aucs``, or ``None`` if every model failed.
+def compute_auc_mean(aucs: Dict[str, Optional[float]]) -> Optional[float]:
+    """Return the mean of the panel's non-``None`` AUCs, or ``None`` when every model failed.
 
-    Gates on "any value is not None", not on ``any(aucs.values())`` -- the latter is truthy-gated, so a
-    legitimate AUC of exactly 0.0 (one model succeeded with a worse-than-random score while the others failed
-    to None) makes every value falsy and silently drops the real result as None.
+    The gate is "any value is not None", never ``any(aucs.values())``. A model that legitimately scores
+    exactly 0.0 -- a systematically inverted classifier, rare but real -- is falsy, so the truthy form
+    reports ``None`` for a cell that produced a genuine result and drops the only surviving measurement.
 
-    Restored after a refactor removed it: the module it lived in was reorganised while its regression test
-    kept importing it, which made the test module unimportable. That is a COLLECTION error, and pytest-split
-    collects the whole tree in every shard, so one missing name failed all 39 of them rather than the one
-    shard that owns the test.
+    Restored after a refactor removed it while its regression test kept importing it. That is a COLLECTION
+    error, and pytest-split collects the whole tree in every shard, so one missing name failed all of them
+    rather than the single shard that owns the test.
     """
-    if not any(v is not None for v in aucs.values()):
+    present = [value for value in aucs.values() if value is not None]
+    if not present:
         return None
-    return round(float(np.mean([v for v in aucs.values() if v is not None])), 4)
+    return round(float(np.mean(present)), 4)
 
 
 def _declared_target_size(truth: Dict[str, Any], n_features: int) -> Optional[int]:
@@ -156,6 +157,40 @@ def _selection_sets(ranking: Ranking, target_size: Optional[int], n_features: in
     return sets, mode
 
 
+# A selection wider than this is not stored column by column: the analyses that read selections (stability
+# across seeds, support recovery) are about narrow sets, and a 5000-name list per cell would dominate the
+# results file without answering a question anyone asks of it.
+MAX_STORED_SELECTION = 500
+
+
+def _selection_payload(selection_sets: Dict[str, Optional[List[str]]], constant_selection: bool) -> Dict[str, Any]:
+    """Return the per-`K` selections in a form worth storing, marking what was deliberately not stored."""
+    out: Dict[str, Any] = {}
+    for label, cols in selection_sets.items():
+        if cols is None:
+            out[label] = {"status": "no_ranking"}
+        elif constant_selection:
+            # The null hypothesis selects every column at every label; naming them adds nothing.
+            out[label] = {"status": "all_features", "n": len(cols)}
+        elif len(cols) > MAX_STORED_SELECTION:
+            out[label] = {"status": "omitted_too_large", "n": len(cols)}
+        else:
+            out[label] = {"status": "ok", "columns": list(cols)}
+    return out
+
+
+def _declared_relevant(truth: Dict[str, Any]) -> Optional[List[str]]:
+    """Return the scenario's declared relevant columns, or `None` when the bed declares no truth.
+
+    A real bed has no ground truth, and `None` says so; an empty list would claim the truth is "nothing
+    is relevant", which is a different and false statement.
+    """
+    relevant = truth.get("relevant")
+    base = truth.get("base")
+    names = {str(c) for c in (relevant or [])} | {str(c) for c in (base or [])}
+    return sorted(names) if names else None
+
+
 def run_cell(
     spec: CellSpec,
     factory: Callable[[], Any],
@@ -183,6 +218,12 @@ def run_cell(
         ranking = ranking_from_arm_result(arm, feature_names)
         record["score_kind"] = ranking.score_kind
         record["ranking_coverage"] = round(ranking.coverage, 4)
+        # The arm's own internal optimum, kept so the winner's-curse column can compare it against the
+        # honest holdout. An arm that reports none records None: unknown is not zero optimism.
+        selection_score = getattr(arm, "selection_score", None)
+        record["selection_score"] = None if selection_score is None else float(selection_score)
+        metric = getattr(arm, "selection_metric", None)
+        record["selection_metric"] = None if metric is None else str(metric)
         record["n_selected_self"] = len(ranking.selected)
 
         base_rate = base_rate_scores(y_train, y_test)
@@ -208,11 +249,18 @@ def run_cell(
             block = fit_and_score_panel(x_train, y_train, x_test, y_test, cols)
             block["n_features"] = len(cols)
             block["skill"] = {member: normalized_skill(metrics["brier"], base_rate["brier"]) for member, metrics in block["models"].items() if "brier" in metrics}
+            block["auc_mean"] = compute_auc_mean({member: metrics.get("roc_auc") for member, metrics in block["models"].items()})
             total_fits += int(block.pop("n_model_fits", 0))
             block.pop("base_rate", None)
             scores[label] = block
 
         record["scores"] = scores
+        # Selections are persisted, not just their sizes: stability across seeds and support recovery
+        # against the declared truth are both properties of WHICH columns were chosen, and neither can be
+        # recovered from a count afterwards. A selection too wide to be worth storing is marked as omitted
+        # rather than dropped, so an analysis can tell "not stored" from "nothing selected".
+        record["selected"] = _selection_payload(selection_sets, spec.arm == NULL_ARM)
+        record["truth_relevant"] = _declared_relevant(truth)
         record["n_model_fits"] = total_fits if arm_fits_known else None
         record["n_model_fits_panel_only"] = not arm_fits_known
         record["status"] = "ok"
@@ -273,6 +321,7 @@ def run_grid(
     # this flag makes explicit instead of deciding it for the caller.
     done = store.completed_keys({"ok"} if retry_failed else None) if resume else set()
     executed = 0
+    manifest_written = False
 
     for scenario_name, gen in scenarios:
         for dataset_seed in dataset_seeds:
@@ -284,6 +333,23 @@ def run_grid(
             cell_roster = dict(roster) if roster is not None else build_arm_roster(int(x_all.shape[1]), random_state=int(dataset_seed))
             if NULL_ARM not in cell_roster:
                 raise ValueError(f"the roster must contain the null hypothesis {NULL_ARM!r} on every cell")
+            if not manifest_written:
+                # Written once, on the first roster, and never rewritten: a resumed run that re-declared
+                # itself would declare exactly the seeds it ended up running, which is the opposite of a
+                # declaration. An existing manifest is left alone for the same reason.
+                manifest_written = True
+                if load_manifest(results_path) is None:
+                    write_manifest(
+                        results_path,
+                        build_manifest(
+                            results_path=results_path,
+                            scenarios=[name for name, _ in scenarios],
+                            arms=sorted(cell_roster),
+                            dataset_seeds=dataset_seeds,
+                            cv_seeds=cv_seeds,
+                            protocol_version=PROTOCOL_VERSION,
+                        ),
+                    )
             for arm_name, factory in cell_roster.items():
                 for cv_seed in cv_seeds:
                     spec = CellSpec(

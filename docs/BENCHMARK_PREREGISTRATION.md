@@ -68,6 +68,31 @@ Residue worth keeping regardless of the stop decision:
 - On madelon at k50, k100 and k200 the outright winner is `variance-sort` -- ranking by marginal variance, with no target involved -- ahead of every information-theoretic and wrapper arm. At k20 it is third (+0.0562), still ahead of MRMR. On a synthetic bed this document treats that as a broken bed; on a real one it is a statement about madelon and about the arms, and it stands.
 - `random-<k>` at matched cardinality beats `all-features` on madelon under logistic (+0.0171, p=0.001), which is why every skill number here is read against that control and not against the null alone.
 
+## 2b. POST-HOC: the synthetic control point (measured 2026-09-06)
+
+Section 2a recorded that the kill criterion fired. It could not say whether that verdict was about real
+data or about the downstream model, because a real bed has no ground truth and therefore no way to show
+that selection COULD have helped. The control run answers exactly that and nothing more: the same sixteen
+arms, the same protocol, the same panel, on nine adversarial beds whose informative columns are
+constructed. 3 029 cells, 20 seeds per (arm, bed). Full write-up:
+[`BENCHMARK_SYNTH_CONTROL.md`](BENCHMARK_SYNTH_CONTROL.md).
+
+**Result.** With lightgbm, some arm beats the null on 5 of 9 beds at 1k and 2k, and on 7 of 9 at 5k; with
+logistic, on 8 of 9 at 1k. So a gradient-boosted tree does benefit from selection when the truth is
+sparse and known. The Phase 0 verdict is about the DATA, not about the model, and the kill criterion
+stands as a statement about real beds rather than about feature selection in general.
+
+**The qualification, which points the other way.** The gains measured here are +0.0032 to +0.0171 AUC.
+The real leg's minimum detectable effect at R = 20 is 0.013 on the median contrast and 0.031 on the p90
+one (section 6a), so all but the largest of these sit inside the real leg's blind spot. The two legs are
+consistent with "real gains of this size exist and were invisible" as well as with "no real gains". The
+control rules out one explanation -- that a strong model cannot use selection -- and establishes nothing
+about the other.
+
+**The beds where nothing pays were built so nothing would**: the three parity beds and the private-delta
+cluster, each of which declared the arms it expects to defeat before the run. A predicted failure is a
+result; the report distinguishes it from an unexplained one.
+
 ## 3. Primary outcome and null hypothesis
 
 - **Null hypothesis: `all-features`.** Not a baseline line on a chart — the thing every arm must beat.
@@ -141,6 +166,27 @@ single `P(rope)` number is a point on that curve, not a substitute for it.
   by grepping the test tree for literals in that range.
 - `MANIFEST.json` records `n_seeds_declared`. A run containing cells beyond it is flagged in the report as
   optional stopping.
+
+## 6a. POST-HOC: was R = 20 enough? (measured 2026-09-05)
+
+Section 6 recorded `R = 20` as a declared floor and stated that the pilot was still worth running
+afterwards to answer whether 20 is ENOUGH. It was run, off the confirmatory run's own 2 240 cells rather
+than off a fresh 40-cell pilot, which is strictly more information. Full tables:
+[`BENCHMARK_POWER.md`](BENCHMARK_POWER.md), regenerable from
+`mlframe.feature_selection._benchmarks.fs_hybrid._power`.
+
+Measured `tau` (sd of the per-`dataset_seed` paired difference against `all-features`, lightgbm, k10):
+median 0.0205, p90 0.0477. At `R = 20` the minimum detectable effect is therefore **0.013 AUC** on the
+median contrast and **0.031 AUC** on the p90 contrast.
+
+This qualifies section 2a rather than changing it. The kill criterion fired, and it stays fired; what the
+power analysis fixes is the size of the claim it licenses. The confirmatory run establishes that no arm
+delivered a gain LARGER THAN roughly one to three AUC points over `all-features`. It does not establish
+that no arm delivered a gain: detecting a true 0.005 AUC improvement would need 134 seeds at the median
+contrast and 715 at the p90 one, between seven and thirty-six times the executed design.
+
+Recorded here because it cuts against the conclusion the run reached, and section 2a would otherwise read
+as a stronger negative than the design can support.
 
 ## 7. Control arms — permanent members of every leaderboard
 

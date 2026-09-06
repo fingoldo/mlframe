@@ -16,6 +16,8 @@ from typing import Any, Callable
 
 import numpy as np
 
+from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import resolve_effective_min_features
+
 logger = logging.getLogger(__name__)
 
 
@@ -152,7 +154,7 @@ def augment_candidates_with_interactions(
         Phi, ibase = compute_interaction_tensor(model_template, X_proxy_kept, y_search, classification=self.classification, rng=self._rng)
         icands = interaction_top_n(
             Phi, ibase, y_phi, classification=self.classification, metric=self.metric,
-            min_card=self.min_features, max_card=self.max_features, top_n=self.top_n,
+            min_card=resolve_effective_min_features(self.min_features, int(phi.shape[1])), max_card=self.max_features, top_n=self.top_n,
             exhaustive_max=self.max_interaction_features)
         merged = {tuple(sorted(c)): lo for lo, c in candidates}
         for lo, c in icands:
@@ -182,7 +184,7 @@ def augment_candidates_with_interactions(
                 Phi_ip, _ibase = compute_interaction_tensor(model_template, X_proxy_kept, y_search, classification=self.classification, rng=self._rng)
                 icands = interaction_proxy_top_n(
                     phi, Phi_ip, base, y_phi, classification=self.classification, metric=self.metric,
-                    min_card=self.min_features, max_card=self.max_features, top_n=self.top_n,
+                    min_card=resolve_effective_min_features(self.min_features, int(phi.shape[1])), max_card=self.max_features, top_n=self.top_n,
                     interaction_top_k=int(self.interaction_proxy_top_k),
                     candidate_subsets=[c for _l, c in candidates])
                 merged = {tuple(sorted(c)): lo for lo, c in candidates}
@@ -226,7 +228,7 @@ def augment_candidates_with_interactions(
                 icands_sparse, prod_to_operands = sparse_interaction_candidates(
                     model_template, X_proxy_kept, y_search, usable_pairs,
                     classification=self.classification, metric=self.metric,
-                    min_card=self.min_features, max_card=self.max_features,
+                    min_card=resolve_effective_min_features(self.min_features, int(phi.shape[1])), max_card=self.max_features,
                     top_n=self.top_n,
                     rng=np.random.default_rng(int(self.random_state) + 7919))
                 # Expand augmented-index candidates back into phi-column space: a product index is
@@ -294,7 +296,7 @@ def augment_candidates_with_interactions(
                 try:
                     fcands, finfo = faith_interaction_top_n(
                         phi, base, y_phi, classification=self.classification, metric=self.metric,
-                        candidate_pairs=candidate_pairs, min_card=self.min_features, max_card=self.max_features,
+                        candidate_pairs=candidate_pairs, min_card=resolve_effective_min_features(self.min_features, int(phi.shape[1])), max_card=self.max_features,
                         top_n=self.top_n, n_coalitions=int(self.faith_n_coalitions),
                         rng=np.random.default_rng(int(self.random_state) + 104729),
                     )

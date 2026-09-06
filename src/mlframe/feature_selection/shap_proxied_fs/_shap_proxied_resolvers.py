@@ -300,3 +300,76 @@ def _apply_min_selected_ratio(candidates, n_proxy_cols: int, min_selected_ratio:
         filtered = [(lo, c) for lo, c in candidates if len(c) / n_proxy_cols >= min_selected_ratio]
         return filtered or candidates
     return candidates
+
+
+class ShapProxiedNoCandidatesError(RuntimeError):
+    """Raised when the subset search legitimately produced no candidate subset.
+
+    Subclasses ``RuntimeError`` so existing ``except RuntimeError`` callers keep working, but gives a
+    caller a way to tell "this selector found nothing it was allowed to return" apart from "this
+    selector crashed" - every other failure inside ``fit`` still surfaces as its own exception type.
+    """
+
+
+def resolve_effective_min_features(min_features: int, n_proxy_cols: int) -> int:
+    """Clamp the user's ``min_features`` to the proxy-column width the search actually enumerates over.
+
+    ``min_features`` is expressed in ORIGINAL feature space, but the search runs in PROXY space:
+    correlated-feature clustering collapses members into units and the importance prescreen narrows
+    further, so ``n_proxy_cols`` can be far smaller than the input width (on hill-valley the whole
+    100-column frame collapses to a SINGLE unit). Left unclamped, ``min_card=3`` over a 1-column proxy
+    makes every enumerated cardinality illegal and the search returns nothing - an unsatisfiable
+    constraint, not an honest "no signal". Clamping keeps the floor meaningful whenever the proxy is
+    wide enough and degrades to "at least one unit" when it is not.
+
+    Args:
+        min_features: The user-requested minimum subset cardinality.
+        n_proxy_cols: Number of proxy (unit / prescreened) columns the search enumerates over.
+
+    Returns:
+        The minimum cardinality to hand the optimizer: ``min_features`` when it fits, else the proxy
+        width (never below 1, and never below 0 for a degenerate empty proxy).
+    """
+    n_cols = int(n_proxy_cols)
+    if n_cols <= 0:
+        return 0
+    return int(max(1, min(int(min_features), n_cols)))
+
+
+def unit_importance_to_feature_map(importance, unit_to_members, working_cols, feature_names) -> dict:
+    """Expand a per-proxy-unit mean-|SHAP| vector into a ``{original feature name: float}`` map.
+
+    The selector's internal importance vector lives in PROXY space: one entry per unit, where a unit is
+    either a single working column or a correlated-feature cluster. This maps each unit's value onto the
+    ORIGINAL feature names behind it (clustering members share the unit's value - that IS the number the
+    subset search ranked them by, since the search can only accept or reject a whole unit). Features the
+    prefilter dropped before the SHAP pass are simply ABSENT: no SHAP value was ever computed for them
+    and inventing a zero would be a claim the attribution never made.
+
+    Args:
+        importance: Per-unit nonnegative importance (mean |phi| over rows), length == number of units.
+        unit_to_members: Sequence indexed by unit id giving that unit's WORKING column indices, or None
+            when no clustering ran (then unit i is working column i).
+        working_cols: Array mapping working column index -> original column index.
+        feature_names: The selector's ``feature_names_in_`` in original column order.
+
+    Returns:
+        Mapping from original feature name to the unit-level mean |SHAP| the search ranked it by.
+    """
+    imp = np.asarray(importance, dtype=np.float64).ravel()
+    wcols = np.asarray(working_cols, dtype=np.int64).ravel()
+    names = list(feature_names)
+    out: dict = {}
+    for unit_id in range(imp.shape[0]):
+        members: tuple[int, ...]
+        if unit_to_members is None:
+            members = (unit_id,)
+        else:
+            members = tuple(int(m) for m in unit_to_members[unit_id])
+        value = float(imp[unit_id])
+        for member in members:
+            if 0 <= int(member) < wcols.shape[0]:
+                orig = int(wcols[int(member)])
+                if 0 <= orig < len(names):
+                    out[str(names[orig])] = value
+    return out

@@ -141,8 +141,7 @@ def _reliability_block(records: Sequence[Dict[str, Any]]) -> List[str]:
     lines = ["", "=" * 100, "RELIABILITY (a crashed cell is NOT missing at random) + INTENTION-TO-TREAT", "=" * 100]
     for row in reliability_table(records):
         lines.append(
-            f"  {row['arm']:<28} [{row['scenario']}] completed={row['reliability']:.3f} "
-            f"({row['n_ok']}/{row['n_cells']})  statuses={row['by_status']}"
+            f"  {row['arm']:<28} [{row['scenario']}] completed={row['reliability']:.3f} " f"({row['n_ok']}/{row['n_cells']})  statuses={row['by_status']}"
         )
 
     lines.append("")
@@ -228,9 +227,38 @@ def _cost_block(records: Sequence[Dict[str, Any]]) -> List[str]:
     return lines
 
 
+def _declaration_block(records: Sequence[Dict[str, Any]]) -> List[str]:
+    """Render how the run compares with what its manifest declared before it started."""
+    from ._manifest import check_run_against_manifest, load_manifest
+
+    path = os.environ.get("FS_HYBRID_RESULTS", RESULTS_PATH)
+    notes = check_run_against_manifest(load_manifest(path), records)
+    if not notes:
+        return ["declaration: run matches its manifest on seeds, arms, scenarios, pre-registration and environment"]
+    return ["", "DECLARATION NOTES:", *[f"  - {note}" for note in notes]]
+
+
+def _pooled_block(records: Sequence[Dict[str, Any]], models: Sequence[str], k_labels: Sequence[str]) -> List[str]:
+    """Render the hierarchical pooled-effect block, on normalized skill, for the first matched K.
+
+    One K rather than all of them: the pooled fit answers "how large is this arm's advantage across beds and
+    does it depend on the bed", and repeating it per K turns a summary into another leaderboard. The first
+    matched label is the tightest budget, where selection has to earn its place most clearly.
+    """
+    from ._bayes import hierarchical_report
+
+    if not k_labels:
+        return []
+    out: List[str] = ["", "=" * 100, "POOLED ADVANTAGE (hierarchical, normalized skill)", "=" * 100]
+    for model in models:
+        out += hierarchical_report(records, model=model, k_label=k_labels[0]).splitlines()
+    return out
+
+
 def format_report(records: Sequence[Dict[str, Any]], models: Sequence[str] = PANEL_MEMBERS) -> str:
     """Build the full text report for a set of cell records."""
     lines: List[str] = [DISCLAIMER, "", f"null hypothesis: {NULL_ARM}", f"cells: {len(records)}"]
+    lines += _declaration_block(records)
     k_labels = matched_k_labels_present(records)
     matched = leaderboard(records, models=models, k_labels=k_labels)
     lines += _headline_block(matched)
@@ -244,19 +272,50 @@ def format_report(records: Sequence[Dict[str, Any]], models: Sequence[str] = PAN
     # declares `score_kind='none'` and so has NO matched-K row at all, making `self` the only K at which
     # the vs-random column can be computed. Omitting it would leave the whole column empty.
     lines += _control_adjusted_block(records, models=models, k_labels=[*k_labels, SELF_CHOSEN_K])
+    lines += _pooled_block(records, models=models, k_labels=k_labels)
+    if k_labels:
+        from ._stability import recovery_table, stability_table
+
+        lines += ["", "=" * 100, "WHAT THE ARM CHOSE (independent of how it scored)", "=" * 100]
+        lines += stability_table(records, k_label=k_labels[0])
+        lines += recovery_table(records, k_label=k_labels[0])
     lines += _interaction_block(matched + self_k)
     lines += _reliability_block(records)
     lines += _cost_block(records)
+    if k_labels:
+        from ._pareto import pareto_table
+
+        lines += pareto_table(records, models=models, k_label=k_labels[0])
+    from ._winners_curse import optimism_table
+
+    lines += optimism_table(records, model=models[0] if models else "lightgbm")
     return "\n".join(lines)
 
 
 def main() -> None:
-    """Print the report for the default results file."""
+    """Print the report for the default results file, optionally with the arms blinded.
+
+    `FS_HYBRID_BLIND=<salt>` relabels every arm before the report is built and writes the mapping beside the
+    results. The point is to read the tables before knowing which row is one's own method: any explanation
+    found while blind applies to whichever arm it turns out to be. Reveal with `_blinding.unblind_text` once
+    the report is committed.
+    """
     path = os.environ.get("FS_HYBRID_RESULTS", RESULTS_PATH)
     records = JsonlCellStore(path).load()
     if not records:
         print(f"no records at {path}")
         return
+
+    salt = os.environ.get("FS_HYBRID_BLIND", "").strip()
+    if salt:
+        from ._blinding import apply_blinding, blind_labels, write_mapping
+
+        mapping = blind_labels({str(record.get("arm", "")) for record in records}, salt=salt)
+        mapping_path = write_mapping(path, mapping)
+        records = apply_blinding(records, mapping)
+        print(f"BLINDED: arm names replaced; mapping written to {mapping_path}")
+        print()
+
     print(format_report(records))
 
 
