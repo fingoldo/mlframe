@@ -191,10 +191,15 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
     _xname = p.xlabel or "x"
     _yname = p.ylabel or "y"
     _hover_extra = "<br>%{text}" if p.cell_hovertext is not None else ""
+    # The arrays go to plotly as ndarrays, NOT via ``.tolist()``. A nested Python list makes plotly validate the
+    # grid element by element, which is the whole cost of building the trace: 344 ms vs 2.9 ms at 300x300 and
+    # 1.40 s vs 6.1 ms at 600x600 on this host (117x / 230x, warm, best-of-3), for a byte-identical ``to_json``.
+    # ``_plotly_scatter.py`` already states this rule for its own traces; the heatmap was the site that did not
+    # follow it. ``cell_hovertext`` is object-dtype and pays the same validation, so it stays an ndarray too.
     fig.add_trace(
-        go.Heatmap(z=p.matrix.tolist(),
+        go.Heatmap(z=p.matrix,
                    x=list(p.col_labels), y=list(p.row_labels),
-                   text=p.cell_hovertext.tolist() if p.cell_hovertext is not None else None,
+                   text=p.cell_hovertext if p.cell_hovertext is not None else None,
                    # ``<extra></extra>`` suppresses the trace-name box ("trace 804").
                    hovertemplate=(f"{_xname}: %{{x}}<br>{_yname}: %{{y}}<br>{_zname}: %{{z:.4g}}" f"{_hover_extra}<extra></extra>"),
                    colorscale=_mpl_to_plotly_cmap(cmap_name),
@@ -260,7 +265,7 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
                 if not (lo < level < hi):  # contour only exists when the level is crossed
                     continue
                 fig.add_trace(
-                    go.Contour(z=mat.tolist(), x=list(p.col_labels), y=list(p.row_labels),
+                    go.Contour(z=mat, x=list(p.col_labels), y=list(p.row_labels),
                                contours=dict(start=level, end=level, size=1,
                                              coloring="none", showlabels=False),
                                line=dict(color=color, width=1.6, dash=_dash),

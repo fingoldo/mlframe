@@ -20,6 +20,8 @@ from typing import Any, List, Optional, Sequence
 
 import numpy as np
 
+from mlframe.reporting.charts._categorical_codes import ordinal_codes
+
 from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, PanelSpec, ScatterPanelSpec
 
 # Bounded scatter cap: matplotlib per-point primitives scale poorly past ~5k points and the Fisher ratio has converged
@@ -165,10 +167,10 @@ def _pull_feature(X: Any, feat: Any) -> np.ndarray:
     else:
         arr = np.asarray(X)[:, feat]
     if arr.dtype.kind in "OUS" or arr.dtype.kind == "b":
-        if arr.dtype.kind == "O" and any(isinstance(v, (list, tuple, np.ndarray)) for v in arr):
+        codes = ordinal_codes(arr)
+        if codes is None:
             return np.full(len(arr), np.nan, dtype=np.float64)
-        _, codes = np.unique(arr.astype(str), return_inverse=True)
-        return codes.astype(np.float64)
+        return codes
     return np.ascontiguousarray(arr, dtype=np.float64)
 
 

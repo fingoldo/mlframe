@@ -760,10 +760,13 @@ class PlotlyRenderer:
 
         for mx, my, mlabel, mcolor, msym in p.point_markers or ():
             fig.add_trace(
-                go.Scatter(x=[mx], y=[my], mode="markers+text",
+                # Marker only, with the label on the legend entry and the hover -- not printed beside the point as
+                # well. Carrying it in both places captioned every operating point twice, and the printed copy
+                # overhung the panel exactly as it did on the matplotlib twin.
+                go.Scatter(x=[mx], y=[my], mode="markers",
                            marker=dict(color=mcolor, size=13, symbol=_marker_symbol(msym),
                                        line=dict(color="black", width=0.6)),
-                           text=[mlabel or ""], textposition="bottom right", textfont=dict(size=8),
+                           hovertext=[mlabel or ""], hoverinfo="text" if mlabel else "skip",
                            name=mlabel or None, showlegend=bool(mlabel)),
                 row=row, col=col,
             )

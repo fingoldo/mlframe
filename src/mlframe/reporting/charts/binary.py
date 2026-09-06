@@ -49,6 +49,7 @@ from mlframe.metrics import trapezoid
 from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels, parse_panel_template,
 )
+from mlframe.reporting.charts._ap_bootstrap import _ap_chunk_kernel, jit_is_active as ap_jit_is_active
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, FigureSpec, HistogramPanelSpec, LinePanelSpec, PanelSpec,
 )
@@ -266,22 +267,30 @@ def bootstrap_ap_ci(
     # order, so the interval is unchanged.
     boot_ap = np.empty(n_boot, dtype=np.float64)
     pos_desc = yt_desc.astype(np.float64)
-    idx_chunk: np.ndarray = np.empty((0, 0), dtype=np.int64)
-    for b in range(n_boot):
-        if b % _AP_BOOTSTRAP_IDX_CHUNK == 0:
-            idx_chunk = rng.integers(0, m, size=(min(_AP_BOOTSTRAP_IDX_CHUNK, n_boot - b), m))
-        # Multiplicity of each fixed-rank row in resample b (a row can be drawn 0..k times); scatter-add to its rank.
-        mult = np.bincount(idx_chunk[b % _AP_BOOTSTRAP_IDX_CHUNK], minlength=m).astype(np.float64)
-        tp = np.cumsum(mult * pos_desc)
-        total = np.cumsum(mult)
-        n_pos = tp[-1]
-        if n_pos <= 0:
-            boot_ap[b] = float("nan")
+    # Resamples are independent, so each CHUNK of draws goes through one parallel njit call instead of a Python
+    # loop that re-enters the interpreter per resample while holding the GIL (see ``_ap_bootstrap``). The draw
+    # itself stays here and stays chunked, so the generator is consumed in the same order and a seed still
+    # reproduces its interval. Falls back to the per-resample numpy form when the JIT is off, where the kernel's
+    # explicit loops would be far slower than the vectorised path they replace.
+    use_kernel = ap_jit_is_active()
+    for b0 in range(0, n_boot, _AP_BOOTSTRAP_IDX_CHUNK):
+        idx_chunk = rng.integers(0, m, size=(min(_AP_BOOTSTRAP_IDX_CHUNK, n_boot - b0), m))
+        if use_kernel:
+            _ap_chunk_kernel(idx_chunk, pos_desc, boot_ap[b0 : b0 + idx_chunk.shape[0]])
             continue
-        # AP = sum (R_i - R_{i-1}) * P_i; the recall step is the resampled positive mass at rank i, so AP collapses to
-        # the precision-weighted positive multiplicity / n_pos -- avoids a per-resample concat + diff.
-        precision = tp / np.maximum(total, 1.0)
-        boot_ap[b] = np.dot(mult * pos_desc, precision) / n_pos
+        for b in range(idx_chunk.shape[0]):
+            # Multiplicity of each fixed-rank row in this resample (a row can be drawn 0..k times); scatter-add to its rank.
+            mult = np.bincount(idx_chunk[b], minlength=m).astype(np.float64)
+            tp = np.cumsum(mult * pos_desc)
+            total = np.cumsum(mult)
+            n_pos = tp[-1]
+            if n_pos <= 0:
+                boot_ap[b0 + b] = float("nan")
+                continue
+            # AP = sum (R_i - R_{i-1}) * P_i; the recall step is the resampled positive mass at rank i, so AP collapses to
+            # the precision-weighted positive multiplicity / n_pos -- avoids a per-resample concat + diff.
+            precision = tp / np.maximum(total, 1.0)
+            boot_ap[b0 + b] = np.dot(mult * pos_desc, precision) / n_pos
     boot_ap = boot_ap[~np.isnan(boot_ap)]
     if boot_ap.size == 0:
         return full_ap, float("nan"), float("nan")
@@ -732,11 +741,15 @@ def compose_binary_figure(
     n_cols = max_cols if grid else 0
     # RUX-21 class: a constant score column still produces real-looking panels (KS 1.000, AUC 0.500) with nothing
     # saying the score never varies -- the one fact that explains every number on the figure.
-    n_unique = int(np.unique(ys).size) if ys.size else 0
+    # "single distinct value" via min==max: two O(n) reductions rather than np.unique's O(n log n) sort, which is
+    # the whole cost of a question with a yes/no answer -- 154 ms against 7.2 ms at n=2M on this host (21x), 13.9
+    # against 0.77 at 200k. The sibling idiom and its rationale are at ``calibration.py``'s bootstrap loop. NaNs
+    # cannot make this fire spuriously: any NaN present makes both reductions NaN and the comparison False.
+    is_constant = bool(ys.size) and bool(ys.min() == ys.max())
     degenerate_note = (
         f"  |  WARNING: the score has a single distinct value ({ys[0]:.6g}) over {ys.size:,} rows, so every "
         "ranking metric here is the degenerate no-ordering case, not a measurement of this model."
-        if n_unique == 1 else ""
+        if is_constant else ""
     )
     return FigureSpec(
         suptitle=suptitle + degenerate_note,

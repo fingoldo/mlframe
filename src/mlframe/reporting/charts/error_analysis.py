@@ -32,6 +32,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from mlframe.reporting.charts._categorical_codes import ordinal_codes
+
 logger = logging.getLogger(__name__)
 
 from ._error_analysis_shared import DEFAULT_TAIL_FRACTION, _is_frame, _pull_columns_at_rows, _resolve_feature_names, _row_count  # noqa: F401
@@ -113,10 +115,10 @@ def _resolve_feature_matrix(
             col = X[c]
             arr = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
             if arr.dtype.kind in "OUS" or arr.dtype.kind == "b":
-                if arr.dtype.kind == "O" and any(isinstance(v, (list, tuple, np.ndarray)) for v in arr):
-                    continue
-                _, codes = np.unique(arr.astype(str), return_inverse=True)
-                mats.append(codes.astype(np.float64))
+                codes = ordinal_codes(arr)
+                if codes is None:
+                    continue  # list / tuple / array cells: no ordering a chart can use
+                mats.append(codes)
             else:
                 mats.append(arr.astype(np.float64))
             names.append(name)
