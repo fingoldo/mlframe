@@ -23,7 +23,7 @@ from mlframe.reporting.renderers._shared_helpers import heatmap_value_to_index
 
 from mlframe.reporting.spec import ConfusionMarginsPanelSpec, HeatmapPanelSpec
 
-from mlframe.reporting.colors import TREND_LINE
+from mlframe.reporting.colors import CONFUSION_COL_MARGIN, CONFUSION_ROW_MARGIN, TREND_LINE, resolve_heatmap_cmap
 from ._plotly_color import _mpl_to_plotly_cmap
 from ._shared_helpers import _HEATMAP_CELL_TEXT_MAX, PX_PER_INCH, _finite_range, _thin_tick_positions, ticks_that_fit, truncate_bar_label
 
@@ -119,7 +119,7 @@ def _confusion_margins(self, fig, p: ConfusionMarginsPanelSpec, row: int, col: i
         domain=(float(y0), grid_y1), anchor=rx.replace("axis", ""), matches=heat_y, showticklabels=False, showgrid=False,
     )
     fig.add_trace(go.Bar(
-        x=row_margin, y=bar_row_labels, orientation="h", marker=dict(color=TREND_LINE), showlegend=False,
+        x=row_margin, y=bar_row_labels, orientation="h", marker=dict(color=CONFUSION_ROW_MARGIN), showlegend=False,
         hovertemplate="%{y}<br>" + str(p.row_margin_label) + "=%{x}<extra></extra>",
         xaxis=rx.replace("axis", ""), yaxis=ry.replace("axis", ""),
     ))
@@ -135,7 +135,7 @@ def _confusion_margins(self, fig, p: ConfusionMarginsPanelSpec, row: int, col: i
         showgrid=False, zeroline=False,
     )
     fig.add_trace(go.Bar(
-        x=bar_col_labels, y=col_margin, marker=dict(color=TREND_LINE), showlegend=False,
+        x=bar_col_labels, y=col_margin, marker=dict(color=CONFUSION_COL_MARGIN), showlegend=False,
         hovertemplate="%{x}<br>" + str(p.col_margin_label) + "=%{y}<extra></extra>",
         xaxis=tx.replace("axis", ""), yaxis=ty.replace("axis", ""),
     ))
@@ -199,7 +199,6 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
     from .plotly import _go
 
     go = _go()
-    from mlframe.reporting.colors import resolve_heatmap_cmap
     cmap_name = resolve_heatmap_cmap(p.colormap)
 
     # Name the axes and the value in the tooltip instead of accepting plotly's default

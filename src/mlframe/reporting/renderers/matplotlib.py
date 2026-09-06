@@ -27,7 +27,7 @@ from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported f
     wrap_annotation_text, wrap_text_to_width, wrap_title_lines,
 )
 
-from mlframe.reporting.colors import TREND_LINE, resolve_heatmap_cmap
+from mlframe.reporting.colors import CONFUSION_COL_MARGIN, CONFUSION_ROW_MARGIN, TREND_LINE, resolve_heatmap_cmap
 logger = logging.getLogger(__name__)
 
 # Panel-title font cap so a verbose diagnostic title can't dwarf the panel. The chars-per-line budget is
@@ -641,13 +641,13 @@ class MatplotlibRenderer:
 
         pos = np.arange(K)
         # Top bar: predicted-class volume, aligned to the heatmap columns (shared x, ticks hidden -- the heatmap owns them).
-        ax_top.bar(pos, np.asarray(p.col_margin, dtype=float), color="#4c72b0", width=0.8)
+        ax_top.bar(pos, np.asarray(p.col_margin, dtype=float), color=CONFUSION_COL_MARGIN, width=0.8)
         ax_top.set_xlim(-0.5, K - 0.5)
         ax_top.set_xticks([])
         ax_top.tick_params(axis="y", labelsize=7)
         ax_top.set_ylabel(p.col_margin_label, fontsize=7)
         # Right bar: per-true-class support, aligned to the heatmap rows (imshow y runs top->bottom, so invert).
-        ax_right.barh(pos, np.asarray(p.row_margin, dtype=float), color="#55a868", height=0.8)
+        ax_right.barh(pos, np.asarray(p.row_margin, dtype=float), color=CONFUSION_ROW_MARGIN, height=0.8)
         ax_right.set_ylim(-0.5, K - 0.5)
         ax_right.invert_yaxis()
         ax_right.set_yticks([])

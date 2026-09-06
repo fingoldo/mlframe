@@ -433,3 +433,13 @@ being encoded; the finding's concern (a reader hunting for a meaning that is not
 title and caption saying what the length means, not by inventing a colour channel.
 
 Pinned by ``tests/reporting/test_model_card_headline_bar.py``.
+
+**VIS-11 FIXED.** ``CONFUSION_COL_MARGIN`` / ``CONFUSION_ROW_MARGIN`` are named in ``colors.py`` -- the
+module that exists to stop exactly this drift -- and both renderers read them from there. matplotlib had
+blue and green as literals; plotly painted BOTH strips with ``TREND_LINE``, whose documented job is the
+robust-fit overlay line, so one confusion matrix came out blue-and-green as a PNG and two identical oranges
+as HTML, with the orange also colliding with the trend line's meaning elsewhere in the same report.
+Measured on rendered figures afterwards: both backends now emit ``#4c72b0`` and ``#55a868``. Pinned by
+``tests/reporting/test_confusion_margin_colours.py``, which checks the two strips differ, that neither
+borrows the trend-line colour, and that the backends agree; two of four fail with the plotly fills put
+back on TREND_LINE.
