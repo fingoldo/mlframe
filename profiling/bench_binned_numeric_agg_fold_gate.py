@@ -7,6 +7,27 @@ whether a fold's training split has any finite rows -- an O(n) scan repeated onc
 computed for the per-fold moment call, O(n/n_folds)) and a cached finite-count, replacing the
 O(n) scan with an O(n/n_folds) one. Validates bit-identical output (pure refactor, same
 skip decisions) and measures the real wall-clock win at 2M rows with several group/agg columns.
+
+The reference arm below tracks production's CURRENT moment path (``_per_cell_moments_stable``, computing
+each fold's train moments on its own rows) and differs from it in the fold gate ALONE. It originally
+mirrored the older raw-power-sum form and its ``train = full - test`` additivity shortcut, which was
+removed for being catastrophically unstable on large-offset columns -- centred moments are not additive
+across row subsets, so that arm would have been benching a numerically different computation rather than
+the gate, and its bit-identity check would have compared two different algorithms.
+
+RECORDED (this host, quiet box, paired interleaved rounds, ``old / new`` per round):
+
+* 500k rows / 8 group x 8 agg cols -- 1.042x, 1.122x, 1.070x; paired median **1.090x**
+* 2M rows / 16 x 16 -- 0.946x, 0.982x, 1.025x; paired median **0.982x**
+
+Both sizes bit-identical (worst abs diff 0.0), which is the check that the two arms really differ in the
+gate alone. So the gate is worth a few percent at 500k and is a wash at 2M -- NOT the win the original
+2M-scale claim recorded, and the removal of the raw-moment additivity shortcut is the likely reason: each
+fold's train moments are now computed over its own ~n rows instead of derived from the full-data sums, so
+the fold loop is dominated by that pass and the O(n) boolean AND the gate removes is one cheap traversal
+among several expensive ones. That is inference from the shape of the change rather than a separate
+profile. The gate stays in production either way: it is strictly less work and never measured slower
+outside noise.
 """
 
 import time
@@ -17,8 +38,8 @@ import pandas as pd
 from mlframe.feature_selection.filters._binned_numeric_agg_fe import (
     SUPPORTED_STATS,
     _derive_cell_stats,
-    _global_stat,
-    _raw_moments,
+    _global_stats_all,
+    _per_cell_moments_stable,
     engineered_name_binned_agg,
     fit_binned_numeric_agg,
     quantile_edges,
@@ -27,7 +48,11 @@ from mlframe.feature_selection.filters._binned_numeric_agg_fe import (
 
 
 def _fit_binned_numeric_agg_old(X, y, *, group_num_cols, agg_num_cols, stats=SUPPORTED_STATS, nbins_base=10, n_folds=5, random_state=0, pairs=None, recipe_only=False):
-    """Pre-fix reference: full-array ``(fold_ids != f) & finite`` + ``.any()`` gate, materialised every (gcol, acol, fold)."""
+    """Pre-fix reference: full-array ``(fold_ids != f) & finite`` + ``.any()`` gate, materialised every (gcol, acol, fold).
+
+    Identical to production apart from that gate, so the timing difference and the bit-identity check both
+    attribute to the gate alone.
+    """
     n = len(X)
     rng = np.random.default_rng(int(random_state))
     fold_ids = np.empty(n, dtype=np.int64)
@@ -64,24 +89,28 @@ def _fit_binned_numeric_agg_old(X, y, *, group_num_cols, agg_num_cols, stats=SUP
             _gk = (acol, tuple(kept_stats))
             globals_ = _globals_cache.get(_gk)
             if globals_ is None:
-                globals_ = {s: _global_stat(av[finite], s) for s in kept_stats}
+                globals_ = _global_stats_all(av[finite], kept_stats)
                 _globals_cache[_gk] = globals_
-            full_cnt, full_s1, full_s2, full_s3, full_s4 = _raw_moments(codes[finite], av[finite], n_cells)
+            full_cnt, full_mean, full_cm2, full_cm3, full_cm4 = _per_cell_moments_stable(codes[finite], av[finite], n_cells)
             if not recipe_only:
                 oof = {s: np.full(n, globals_[s], dtype=np.float64) for s in kept_stats}
+                finite_idx = np.where(finite)[0]
+                fold_of_finite = fold_ids[finite_idx]
                 for f in range(int(n_folds)):
+                    # THE ARM UNDER TEST: the old O(n) full-array AND + .any(), materialised once per
+                    # (gcol, acol, fold). Everything below it matches production line for line.
                     tr = _fold_ne[f] & finite
                     if not tr.any():
                         continue
                     test = _fold_test[f]
                     ct = _ct_by_fold[f]
-                    test_fin = test[finite[test]]
-                    t_cnt, t_s1, t_s2, t_s3, t_s4 = _raw_moments(codes[test_fin], av[test_fin], n_cells)
-                    per = _derive_cell_stats(full_cnt - t_cnt, full_s1 - t_s1, full_s2 - t_s2, full_s3 - t_s3, full_s4 - t_s4, kept_stats)
+                    train_fin_idx = finite_idx[fold_of_finite != f]
+                    t_cnt, t_mean, t_cm2, t_cm3, t_cm4 = _per_cell_moments_stable(codes[train_fin_idx], av[train_fin_idx], n_cells)
+                    per = _derive_cell_stats(t_cnt, t_mean, t_cm2, t_cm3, t_cm4, kept_stats)
                     for s in kept_stats:
                         vals = per[s][ct]
                         oof[s][test] = np.where(np.isfinite(vals), vals, globals_[s])
-            full = _derive_cell_stats(full_cnt, full_s1, full_s2, full_s3, full_s4, kept_stats)
+            full = _derive_cell_stats(full_cnt, full_mean, full_cm2, full_cm3, full_cm4, kept_stats)
             for s in kept_stats:
                 name = engineered_name_binned_agg(acol, gcol, s)
                 if not recipe_only:

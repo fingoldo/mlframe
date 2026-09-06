@@ -16,7 +16,6 @@ wrapper ``_setup_su_kernel_inputs``. Locks:
 from __future__ import annotations
 
 import math
-import time
 
 import numpy as np
 import pytest
@@ -29,6 +28,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import (
     _setup_su_kernel_inputs,
     cluster_correlated_features_su,
 )
+from tests._perf_paired import assert_paired_speedup
 
 
 def _quantile_bin(col: np.ndarray, n_bins: int) -> np.ndarray:
@@ -161,21 +161,19 @@ def test_fused_setup_speedup_at_width_1500():
     # Warmup numba kernel (first call triggers JIT compile).
     _ = _setup_su_kernel_inputs(arrays[:4], None)
 
-    # New fused-setup timing
-    t0 = time.perf_counter()
-    fused = _setup_su_kernel_inputs(arrays, nbins_hints=None)
-    t_new = time.perf_counter() - t0
+    def _two_pass():
+        """Helper: the old marginal-then-pack reference arm."""
+        marginals = [_column_marginal(a) for a in arrays]
+        return _pack_bins_for_kernel(arrays, marginals)
+
+    old, fused = assert_paired_speedup(
+        _two_pass,
+        lambda: _setup_su_kernel_inputs(arrays, nbins_hints=None),
+        base_ratio=1.15,
+        what="the fused SU setup against the two-pass reference",
+    )
     assert fused is not None
-
-    # Old two-pass reference timing
-    t0 = time.perf_counter()
-    marginals = [_column_marginal(a) for a in arrays]
-    old = _pack_bins_for_kernel(arrays, marginals)
-    t_old = time.perf_counter() - t0
     assert old is not None
-
-    speedup = t_old / max(t_new, 1e-9)
-    assert speedup >= 1.15, f"fused setup did not beat two-pass by >=15%: new={t_new * 1000:.2f}ms, old={t_old * 1000:.2f}ms, speedup={speedup:.2f}x"
 
 
 def test_compute_marginals_packed_handles_padded_constant_column():

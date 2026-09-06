@@ -34,6 +34,7 @@ import pytest
 import torch
 
 from mlframe.training.neural.data import TorchDataset
+from tests._perf_paired import assert_paired_speedup
 
 # ---------------------------------------------------------------------------
 # Correctness: eager conversion
@@ -354,30 +355,25 @@ class TestEagerVsLazyPerformance:
 
         # Wave 22 eager: convert once, index per batch.
         feat_tensor = torch.from_numpy(features_arr.copy()).to(torch.float32)
-        # Warm
-        for i in range(5):
-            _ = feat_tensor[i * bs : (i + 1) * bs]
-        t0 = time.perf_counter()
-        for i in range(n_batches):
-            _ = feat_tensor[i * bs : (i + 1) * bs]
-        t_eager = time.perf_counter() - t0
 
-        # Pre-Wave-22 lazy: per-batch iloc + to_numpy + from_numpy + to(dtype).
-        for i in range(5):
-            _ = torch.from_numpy(features_df.iloc[i * bs : (i + 1) * bs, :].to_numpy()).to(torch.float32)
-        t0 = time.perf_counter()
-        for i in range(n_batches):
-            _ = torch.from_numpy(features_df.iloc[i * bs : (i + 1) * bs, :].to_numpy()).to(torch.float32)
-        t_lazy = time.perf_counter() - t0
+        def _eager():
+            """Helper: index the pre-converted tensor per batch."""
+            for i in range(n_batches):
+                _ = feat_tensor[i * bs : (i + 1) * bs]
 
-        # The eager path should be at least 3x faster on pandas. Real
-        # measurements show 10-20x; threshold conservatively at 3x for CI.
-        speedup = t_lazy / t_eager
-        assert speedup >= 3.0, (
-            f"Wave 22 perf claim regression: eager={t_eager * 1000:.1f}ms "
-            f"legacy={t_lazy * 1000:.1f}ms speedup={speedup:.1f}x "
-            f"(expected >= 3x). On pandas input the legacy per-batch "
-            f"iloc+to_numpy was the dominant cost; eager path saves it."
+        def _lazy():
+            """Helper: the pre-Wave-22 arm -- per-batch iloc + to_numpy + from_numpy + to(dtype)."""
+            for i in range(n_batches):
+                _ = torch.from_numpy(features_df.iloc[i * bs : (i + 1) * bs, :].to_numpy()).to(torch.float32)
+
+        # Real measurements show 10-20x; 3x is the conservative CI target. Paired trials so a scheduling
+        # stall landing on one arm cannot invert the verdict on its own.
+        assert_paired_speedup(
+            _lazy,
+            _eager,
+            base_ratio=3.0,
+            n_trials=5,
+            what="the eager pre-converted tensor path against the legacy per-batch iloc+to_numpy",
         )
 
     def test_eager_per_batch_under_microsecond_threshold(self):

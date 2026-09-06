@@ -17,9 +17,9 @@ This test pins:
 
 from __future__ import annotations
 
-import time
 
 import pytest
+from tests._perf_paired import assert_paired_speedup
 
 torch = pytest.importorskip("torch")
 
@@ -156,17 +156,21 @@ def test_biz_value_dot_faster_than_broadcast() -> None:
         _weighted_loss_broadcast(loss, sw)
         _weighted_loss_dot(loss, sw)
 
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        _weighted_loss_broadcast(loss, sw)
-    t_broadcast = time.perf_counter() - t0
+    def _repeat(fn):
+        """Helper: one arm -- ``iters`` calls of ``fn`` on the shared tensors."""
 
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        _weighted_loss_dot(loss, sw)
-    t_dot = time.perf_counter() - t0
+        def _run():
+            """Run."""
+            for _ in range(iters):
+                fn(loss, sw)
 
-    speedup = t_broadcast / t_dot
-    assert (
-        speedup >= 1.3
-    ), f"torch.dot fast path is not delivering: speedup={speedup:.2f}x (broadcast={t_broadcast * 1e6 / iters:.2f}us, dot={t_dot * 1e6 / iters:.2f}us)"
+        return _run
+
+    assert_paired_speedup(
+        _repeat(_weighted_loss_broadcast),
+        _repeat(_weighted_loss_dot),
+        base_ratio=1.3,
+        n_trials=5,
+        warmup=False,  # both arms are warmed above
+        what="the torch.dot weighted-loss fast path at N=4096",
+    )

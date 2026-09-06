@@ -26,7 +26,6 @@ Test purpose:
 
 from __future__ import annotations
 
-import time
 
 import numpy as np
 import pytest
@@ -36,6 +35,7 @@ from mlframe.training.composite.discovery.screening import (
     _mi_pair_bin,
     _mi_per_feature_y_fixed,
 )
+from tests._perf_paired import assert_paired_speedup
 
 
 def _build_inputs(n: int, k: int, *, seed: int = 0):
@@ -111,20 +111,14 @@ def test_y_fixed_speedup_gate() -> None:
     _ = _naive_loop(x, y, nbins=nbins)
     _ = _mi_per_feature_y_fixed(x, y, nbins=nbins)
 
-    # Median of 3 runs each.
-    def _time(fn):
-        """Time."""
-        t = []
-        for _ in range(3):
-            s = time.perf_counter()
-            fn()
-            t.append(time.perf_counter() - s)
-        return sorted(t)[1]
-
-    naive_ms = _time(lambda: _naive_loop(x, y, nbins=nbins)) * 1000
-    hoisted_ms = _time(lambda: _mi_per_feature_y_fixed(x, y, nbins=nbins)) * 1000
-    speedup = naive_ms / max(hoisted_ms, 1e-9)
-    # Soft gate -- the helper has to materially beat the naive baseline.
-    # If a future change accidentally reintroduces per-call y-quantile,
-    # the speedup collapses to ~1.0x and this sensor fails.
-    assert speedup >= 1.2, f"expected >=1.2x speedup; got naive={naive_ms:.1f}ms hoisted={hoisted_ms:.1f}ms speedup={speedup:.2f}x"
+    # Interleaved paired trials: a per-arm median over separate passes still compares two different
+    # stretches of machine time. If a future change reintroduces the per-call y-quantile, the ratio
+    # collapses to ~1.0x and the candidate stops winning rounds -- both gates trip together.
+    assert_paired_speedup(
+        lambda: _naive_loop(x, y, nbins=nbins),
+        lambda: _mi_per_feature_y_fixed(x, y, nbins=nbins),
+        base_ratio=1.2,
+        n_trials=3,
+        warmup=False,  # both arms are warmed above
+        what="the hoisted y-prebin helper against the naive per-feature loop",
+    )

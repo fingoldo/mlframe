@@ -18,13 +18,13 @@ This test pins:
 
 from __future__ import annotations
 
-import time
 
 import numpy as np
 import pytest
 
 torch = pytest.importorskip("torch")
 from mlframe.training.neural.ranker import _RankerDataset, _ranker_passthrough_collate
+from tests._perf_paired import assert_paired_speedup
 
 
 def test_getitem_vs_getitems_equivalence():
@@ -113,18 +113,11 @@ def test_biz_value_batched_path_faster_than_per_row():
         per_row(batches)
         batched(batches)
 
-    iters = 100
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        per_row(batches)
-    t_per = time.perf_counter() - t0
-
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        batched(batches)
-    t_bat = time.perf_counter() - t0
-
-    speedup = t_per / t_bat
-    assert (
-        speedup >= 2.0
-    ), f"batched __getitems__+passthrough not delivering: speedup={speedup:.2f}x (per_row={t_per * 1000 / iters:.2f}ms, batched={t_bat * 1000 / iters:.2f}ms)"
+    assert_paired_speedup(
+        lambda: per_row(batches),
+        lambda: batched(batches),
+        base_ratio=2.0,
+        n_trials=5,
+        warmup=False,  # both arms are warmed above
+        what="batched __getitems__ + passthrough collate against the per-row path",
+    )

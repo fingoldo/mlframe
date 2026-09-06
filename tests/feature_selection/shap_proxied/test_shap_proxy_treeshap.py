@@ -10,11 +10,11 @@ dispatcher routing test (auto picks the custom path on wide xgboost, ``shap`` on
 
 from __future__ import annotations
 
-import time
 
 import numpy as np
 import pandas as pd
 import pytest
+from tests._perf_paired import assert_paired_speedup
 
 pytest.importorskip("shap")
 pytest.importorskip("xgboost")
@@ -201,22 +201,24 @@ def test_biz_val_treeshap_faster_than_shap_on_wide_data():
     ens = extract_ensemble(model)
 
     treeshap_phi_base_numba(ens, X.values[:16])  # JIT warmup (excluded from timing)
-    t0 = time.perf_counter()
-    phi_n, _ = treeshap_phi_base_numba(ens, X.values)
-    t_numba = time.perf_counter() - t0
-
     phi_ref, _ = _shap_reference(model, X)  # also warms shap's first-call setup
-    t0 = time.perf_counter()
-    import shap
 
-    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as spe
+    def _shap_arm():
+        """Helper: the upstream shap TreeExplainer arm."""
+        import shap
 
-    with spe._maybe_patch_shap_xgb_base_score():
-        ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
-        _ = ex.shap_values(X, check_additivity=False)
-    t_shap = time.perf_counter() - t0
+        from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as spe
 
-    speedup = t_shap / max(t_numba, 1e-9)
+        with spe._maybe_patch_shap_xgb_base_score():
+            ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
+            return ex.shap_values(X, check_additivity=False)
+
+    _, (phi_n, _) = assert_paired_speedup(
+        _shap_arm,
+        lambda: treeshap_phi_base_numba(ens, X.values),
+        base_ratio=1.3,
+        n_trials=3,
+        what="the numba TreeSHAP kernel on 2000 features",
+    )
     # Correctness still holds at scale.
     np.testing.assert_allclose(phi_n, phi_ref, rtol=1e-4, atol=1e-4)
-    assert speedup >= 1.3, f"expected >=1.3x speedup on 2000 features, got {speedup:.2f}x (numba {t_numba:.3f}s vs shap {t_shap:.3f}s)"

@@ -10,11 +10,11 @@ case while producing bit-identical per-column results (when ``noise_std == 0.0``
 
 from __future__ import annotations
 
-import time
 
 import numpy as np
 
 from mlframe.training.feature_handling.ordered_target_encoder import ordered_target_encode, ordered_target_encode_batch
+from tests._perf_paired import assert_paired_speedup
 
 
 def _make_columns(n_rows: int, n_cols: int, n_cats: int, seed: int):
@@ -35,21 +35,17 @@ def test_biz_val_ordered_target_encode_batch_speeds_up_many_shared_columns():
     ordered_target_encode(next(iter(columns.values())), y, order=order, smoothing=1.0)
     ordered_target_encode_batch({k: v for k, v in list(columns.items())[:2]}, y, order=order, smoothing=1.0)
 
-    t0 = time.perf_counter()
-    separate = {name: ordered_target_encode(cats, y, order=order, smoothing=1.0) for name, cats in columns.items()}
-    separate_wall = time.perf_counter() - t0
-
-    t0 = time.perf_counter()
-    batched = ordered_target_encode_batch(columns, y, order=order, smoothing=1.0)
-    batched_wall = time.perf_counter() - t0
+    separate, batched = assert_paired_speedup(
+        lambda: {name: ordered_target_encode(cats, y, order=order, smoothing=1.0) for name, cats in columns.items()},
+        lambda: ordered_target_encode_batch(columns, y, order=order, smoothing=1.0),
+        base_ratio=1.15,
+        n_trials=3,
+        warmup=False,  # both arms are warmed above
+        what=f"ordered_target_encode_batch against {n_cols} separate calls on shared-order columns",
+    )
 
     for name in columns:
         np.testing.assert_array_equal(separate[name], batched[name])
-
-    speedup = separate_wall / batched_wall
-    assert (
-        speedup >= 1.15
-    ), f"expected ordered_target_encode_batch to beat N separate calls by >=15% on {n_cols} shared-order columns, got speedup={speedup:.3f} (separate={separate_wall * 1000:.1f}ms batched={batched_wall * 1000:.1f}ms)"
 
 
 def test_ordered_target_encode_batch_matches_separate_calls_exactly():

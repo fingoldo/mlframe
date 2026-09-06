@@ -130,13 +130,7 @@ def test_every_from_import_resolves():
         scan_roots=[REPO_ROOT / "src", REPO_ROOT / "tests", REPO_ROOT / "scripts", REPO_ROOT / "profiling", REPO_ROOT / "benchmarks"],
         package_roots=[REPO_ROOT / "src"],
         resolvable_prefixes=("mlframe",),
-        allowlist=(
-            # `_raw_moments` was REMOVED, not renamed: this bench measures a fold gate built on the
-            # additivity of raw power sums (train = full - test), and centred moments -- which replaced them
-            # for numerical correctness -- are not additive across row subsets. Repointing it would change
-            # what it measures, so it needs a decision rather than an import fix. Tracked as BENCH-01.
-            "bench_binned_numeric_agg_fold_gate.py",
-        ),
+        allowlist=(),
     )
 
 
