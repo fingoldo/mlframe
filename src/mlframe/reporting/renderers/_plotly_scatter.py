@@ -168,7 +168,12 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
             return {}
         return dict(hovertext=[str(v) for v in arr], hoverinfo="text")
 
-    if weak.any() and (~weak).any():
+    # ``weak.any()`` alone, deliberately: the old guard also required at least one STRONG point, so a panel
+    # where EVERY bin rests on too little data fell through to the confident branch and rendered
+    # pixel-identical to one built on 300k-row bins -- the confidence signal vanished at the exact moment it
+    # mattered most, taking the "too few rows to read" legend entry with it. With the strong subset empty the
+    # trace below is simply empty, which both backends skip cleanly.
+    if weak.any():
         strong = ~weak
         fig.add_trace(
             trace_cls(x=x[strong], y=y[strong], mode="markers", marker=_sel_marker(strong),
@@ -260,14 +265,26 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
             row=row,
             col=col,
         )
-        y_range = list(p.ylim) if p.ylim is not None else [lo, hi]
-        x_range = list(p.xlim) if p.xlim is not None else [lo, hi]
         if p.equal_aspect:
             # Square the panel so y=x is 45deg; probability-vs-probability (calibration) skips this so the panel
             # fills its cell width and aligns with the population histogram below.
             fig.update_yaxes(scaleanchor=_axis_ref(fig, row, col), scaleratio=1.0, row=row, col=col)
-        fig.update_yaxes(range=y_range, row=row, col=col)
-        fig.update_xaxes(range=x_range, row=row, col=col)
+        # The data-hull window goes with ``equal_aspect``, matching the matplotlib twin, which applies lo..hi
+        # only in that branch and lets the non-square case (calibration) autoscale on purpose. Applying it
+        # unconditionally windowed the reliability scatter exactly to its data -- points flush against the
+        # frame, no margin -- while the PNG of the same spec kept matplotlib's 5% padding, so the same gap
+        # looked large in one backend and small in the other. Explicit xlim/ylim still win, below.
+        if p.equal_aspect:
+            fig.update_yaxes(range=list(p.ylim) if p.ylim is not None else [lo, hi], row=row, col=col)
+            fig.update_xaxes(range=list(p.xlim) if p.xlim is not None else [lo, hi], row=row, col=col)
+        else:
+            # Autoscaled, but an EXPLICIT limit from the builder still wins -- the matplotlib twin applies
+            # xlim/ylim after its own branch for the same reason. Without this the non-square perfect-fit
+            # panel silently ignored a limit the caller asked for.
+            if p.xlim is not None:
+                fig.update_xaxes(range=list(p.xlim), row=row, col=col)
+            if p.ylim is not None:
+                fig.update_yaxes(range=list(p.ylim), row=row, col=col)
     else:
         if p.equal_aspect:
             fig.update_yaxes(scaleanchor=_axis_ref(fig, row, col), scaleratio=1.0, row=row, col=col)

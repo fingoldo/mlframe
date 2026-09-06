@@ -61,6 +61,9 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
             arr = np.asarray(err)
             return arr[:, mask] if arr.ndim == 2 else arr[mask]
 
+        # Same reasoning as the marker branch below: requiring a STRONG point too meant an all-low-evidence
+        # panel drew ordinary solid error bars, so the muted dotted treatment vanished alongside the hollow
+        # markers. The inner ``strong.any()`` already handles the empty subset.
         if weak.any():
             strong = ~weak
             if strong.any():
@@ -85,7 +88,12 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
             kw["vmax"] = p.color_vmax
     elif p.point_color is not None:
         kw["color"] = p.point_color
-    if weak.any() and (~weak).any():
+    # ``weak.any()`` alone, deliberately: the old guard also required at least one STRONG point, so a panel
+    # where EVERY bin rests on too little data fell through to the confident branch and rendered
+    # pixel-identical to one built on 300k-row bins -- the confidence signal vanished at the exact moment it
+    # mattered most, taking the "too few rows to read" legend entry with it. With the strong subset empty the
+    # trace below is simply empty, which both backends skip cleanly.
+    if weak.any():
         # Two calls so the weak points can be hollow: matplotlib takes ``facecolors`` per call, not per point,
         # and the colorbar is built from the FILLED call so it still describes the observations.
         strong = ~weak

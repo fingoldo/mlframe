@@ -460,3 +460,25 @@ every ordinary chart -- the 6-group default, where no colour repeats and nothing
 switches only past the wrap, where colour has genuinely stopped identifying a group. Verified at 13
 subgroups: the three repeated colours come back with distinct styles, and a separate test pins that a
 4-group chart keeps its markers.
+
+**VIS-09 FIXED, and the probe found a second instance the finding did not mention.** Dropping the
+``(~weak).any()`` half of the guard restores the hollow markers and the "too few rows to read" legend entry
+on a panel where EVERY bin is low-evidence -- previously it rendered pixel-identical to a 300k-row-per-bin
+panel. Verified side by side in a rendered PNG.
+
+The finding names one guard. matplotlib has TWO: one for the markers and one for the ERROR BARS. Fixing
+only the first would have produced hollow markers beside ordinary solid grey error bars -- half the
+confidence signal restored, half still missing -- and that was caught because the probe patched the wrong
+line and the matplotlib assertion kept passing. The error-bar branch already contained its own
+``strong.any()`` check, so the empty subset was always handled. Both are fixed and both are pinned.
+
+**VIS-08 FIXED.** The plotly data-hull window is gated on ``equal_aspect``, matching matplotlib, which
+applies ``lo..hi`` only in the square branch and lets the non-square calibration panel autoscale on
+purpose. Checked across all three cases against matplotlib's own limits: calibration autoscales on both,
+the square branch produces identical numbers, and an explicit limit wins.
+
+That last case was a hole in the FIX rather than in the original code: gating the window left explicit
+``xlim``/``ylim`` unapplied on the autoscaled branch, so a builder's own limit silently became a no-op.
+Found by comparing the three cases against matplotlib rather than only the one the finding describes.
+
+Both pinned by ``tests/reporting/test_scatter_backend_parity.py``.
