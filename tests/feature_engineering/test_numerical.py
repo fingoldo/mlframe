@@ -768,9 +768,13 @@ class TestFusedNuniqueModesQuantilesFastPath:
     (all-NaN collapsed to a single unique).
     """
 
-    def _reference_via_unique_path(self, arr, q):
-        # Reproduces the exact pre-fix unique-based computation for the integer/exact slots.
-        """Helper: Reference via unique path."""
+    def _reference_via_unique_path(self, arr, q=None):
+        """The pre-fix unique-based nunique, which the fast path must stay exactly equal to.
+
+        Called by the identity test below rather than left defined-and-unused: a reference nothing invokes
+        drifts silently and is then trusted by whoever reads it next, which is the whole bug class this
+        audit round is about.
+        """
         vals, _counts = np.unique(arr, return_counts=True)
         return len(vals)
 
@@ -804,9 +808,8 @@ class TestFusedNuniqueModesQuantilesFastPath:
             arr[::7] = arr[1]
             if seed == 5:
                 arr = np.round(arr, 1)  # heavy ties
-            vals, _counts = np.unique(arr, return_counts=True)
             res = np.asarray(fn(arr, quantile_method="median_unbiased"), dtype=np.float64)
-            assert res[0] == len(vals)  # nunique exact
+            assert res[0] == self._reference_via_unique_path(arr)  # nunique exact, via the frozen reference
             ref_q = np.nanquantile(arr, np.asarray(default_quantiles), method="median_unbiased")
             assert np.max(np.abs(res[5:10] - ref_q)) < 1e-12  # quantiles within ULP
 

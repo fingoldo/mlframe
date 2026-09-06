@@ -29,7 +29,12 @@ def _old_reference(X_minority, X_full, y_binary_full, n_synthetic, k_smote, k_gl
         return X_minority.copy() if n_min > 0 else np.zeros((0, X_minority.shape[1] if n_min > 0 else 1), dtype=np.float32)
     from sklearn.neighbors import NearestNeighbors
 
-    nn_full = NearestNeighbors(n_neighbors=k_global + 1).fit(X_full)
+    # Capped, as production is (the FE_TRANSFORMER_A-4 fix): sklearn raises "Expected n_neighbors <=
+    # n_samples" once k_global + 1 exceeds the full set. Every existing parametrisation builds
+    # n_full = nrows * 3, so the cap never mattered and an uncapped reference could not be told apart --
+    # until a small-full-set case is added, where the reference would fail for a reason unrelated to the
+    # vectorisation this test pins.
+    nn_full = NearestNeighbors(n_neighbors=min(k_global + 1, X_full.shape[0])).fit(X_full)
     _d_full, ids_full = nn_full.kneighbors(X_minority)
     neg_fraction = (y_binary_full[ids_full[:, 1:]] <= 0.5).mean(axis=1)
     weights = neg_fraction + 1e-6
@@ -63,12 +68,20 @@ def _make(nrows, d, seed, n_full=None):
 
 @pytest.mark.parametrize("seed", [0, 1, 7])
 @pytest.mark.parametrize(
-    "nrows,d,k_smote,k_global,n_syn",
-    [(500, 30, 5, 10, 5000), (50, 8, 5, 10, 400), (3, 4, 5, 5, 20), (200, 12, 10, 15, 2000)],
+    "nrows,d,k_smote,k_global,n_syn,n_full",
+    [
+        (500, 30, 5, 10, 5000, None),
+        (50, 8, 5, 10, 400, None),
+        (3, 4, 5, 5, 20, None),
+        (200, 12, 10, 15, 2000, None),
+        # k_global + 1 (11) exceeds the full set (5): the case the cap exists for, and the one every
+        # existing parametrisation avoided by construction.
+        (3, 4, 5, 10, 20, 5),
+    ],
 )
-def test_adasyn_synthesize_bit_identical_to_row_loop(seed, nrows, d, k_smote, k_global, n_syn):
+def test_adasyn_synthesize_bit_identical_to_row_loop(seed, nrows, d, k_smote, k_global, n_syn, n_full):
     """Adasyn synthesize bit identical to row loop."""
-    X_min, X_full, y_full = _make(nrows, d, seed)
+    X_min, X_full, y_full = _make(nrows, d, seed, n_full=n_full)
     expected = _old_reference(X_min, X_full, y_full, n_syn, k_smote, k_global, seed)
     got = _adasyn_synthesize(X_min, X_full, y_full, n_syn, k_smote, k_global, seed)
     assert got.shape == expected.shape
