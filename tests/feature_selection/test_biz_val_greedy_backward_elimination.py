@@ -97,13 +97,19 @@ def test_greedy_backward_elimination_matches_fresh_per_call_kfold_reference():
         remaining = list(X.columns)
         current_score = _reference_score(estimator, X[remaining], y_arr, n_splits, scoring)
         while len(remaining) > min_features:
-            best_candidate, best_score = None, current_score
+            # Two variables, as production has: an argmax scan over candidates, then ONE acceptance check
+            # against the current set. The pre-fix form seeded the bar from ``current_score`` and raised it
+            # on each accepted candidate, so with ``tol > 0`` the column dropped was whichever cleared the
+            # bar first rather than the argmax -- order-dependent, and the exact thing production was fixed
+            # to stop doing. Freezing that form here meant a revert to it kept this test green.
+            best_candidate = None
+            best_score = -np.inf
             for col in remaining:
                 candidate_cols = [c for c in remaining if c != col]
                 score = _reference_score(estimator, X[candidate_cols], y_arr, n_splits, scoring)
-                if score > best_score + tol:
+                if score > best_score:
                     best_score, best_candidate = score, col
-            if best_candidate is None:
+            if best_candidate is None or best_score <= current_score + tol:
                 break
             remaining.remove(best_candidate)
             current_score = best_score
@@ -113,3 +119,24 @@ def test_greedy_backward_elimination_matches_fresh_per_call_kfold_reference():
     reference = _reference_greedy_backward_elimination(Ridge(alpha=0.1), X, y, r2_score, n_splits=4)
     actual = greedy_backward_elimination(Ridge(alpha=0.1), X, y, scoring=r2_score, cv=KFold(n_splits=4, shuffle=True, random_state=0), min_features=1)
     assert actual == reference, f"hoisted-fold-precompute changed the selection: {actual} != {reference}"
+
+    # tol == 0.0 is the ONE value at which the coupled-bar and two-variable forms coincide, so the loop above
+    # cannot see the fix at all. Exercise a real tol, under a column permutation: the coupled form drops
+    # whichever candidate cleared the rising bar first, which depends on the order columns are visited in,
+    # while production always drops the argmax and so is permutation-invariant.
+    for tol in (0.001, 0.01):
+        base_cols = list(X.columns)
+        permuted = list(reversed(base_cols))
+        ref_tol = _reference_greedy_backward_elimination(Ridge(alpha=0.1), X, y, r2_score, n_splits=4, tol=tol)
+        act_tol = greedy_backward_elimination(
+            Ridge(alpha=0.1), X, y, scoring=r2_score, cv=KFold(n_splits=4, shuffle=True, random_state=0), min_features=1, tol=tol
+        )
+        assert set(act_tol) == set(ref_tol), f"tol={tol}: production {sorted(act_tol)} != two-variable reference {sorted(ref_tol)}"
+
+        act_perm = greedy_backward_elimination(
+            Ridge(alpha=0.1), X[permuted], y, scoring=r2_score, cv=KFold(n_splits=4, shuffle=True, random_state=0), min_features=1, tol=tol
+        )
+        assert set(act_perm) == set(act_tol), (
+            f"tol={tol}: permuting the column order changed the selection ({sorted(act_perm)} vs {sorted(act_tol)}); "
+            "the acceptance bar is coupled to the running maximum again"
+        )
