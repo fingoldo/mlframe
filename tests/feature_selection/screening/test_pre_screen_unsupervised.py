@@ -137,6 +137,43 @@ def _reference_drops_via_isna(df):
     for c in df.columns:
         s = df[c]
         if isinstance(s.dtype, pd.SparseDtype):
+            # Production grew a sparse-aware null count and a closed-form sparse population variance that
+            # CAN drop a sparse column; this reference used to `continue` past them, freezing the shape from
+            # before that existed. The fixture had no sparse column, so the branch added specifically to stop
+            # NaN-filled TF-IDF passthrough columns being screened out had no reference coverage at all --
+            # and on a constant sparse column the two disagreed, with production being the correct one.
+            sp = s.values
+            sp_vals = np.asarray(sp.sp_values, dtype=np.float64) if sp.sp_values.dtype.kind == "f" else np.asarray(sp.sp_values)
+            fill_value = sp.fill_value
+            fill_is_nan = isinstance(fill_value, float) and np.isnan(fill_value)
+            n_stored = int(np.asarray(sp.sp_values).size)
+            stored_nan = int(np.isnan(sp_vals).sum()) if sp_vals.dtype.kind == "f" else 0
+            null_count = ((n - n_stored) if fill_is_nan else 0) + stored_nan
+            if null_count > null_cutoff:
+                drops.add(c)
+                continue
+            if not pd.api.types.is_numeric_dtype(sp.dtype.subtype):
+                continue
+            # Closed-form population variance over stored cells PLUS the implicit fill cells, centred.
+            finite_sp = sp_vals[~np.isnan(sp_vals)] if sp_vals.dtype.kind == "f" else sp_vals.astype(np.float64)
+            fill_f = float(fill_value) if not fill_is_nan else float("nan")
+            n_fill_cells = n - n_stored
+            n_fill_valid = 0 if fill_is_nan else n_fill_cells
+            n_valid = int(finite_sp.size) + n_fill_valid
+            if n_valid <= 1:
+                var_val = 0.0
+            else:
+                sum_valid = float(finite_sp.sum())
+                if n_fill_valid:
+                    sum_valid += n_fill_valid * fill_f
+                mean_valid = sum_valid / n_valid
+                dev = finite_sp - mean_valid
+                sumsq = float(np.dot(dev, dev))
+                if n_fill_valid:
+                    sumsq += n_fill_valid * (fill_f - mean_valid) ** 2
+                var_val = sumsq / n_valid
+            if var_val <= var_cutoff:
+                drops.add(c)
             continue
         if int(s.isna().sum()) > null_cutoff:
             drops.add(c)
@@ -171,6 +208,13 @@ def test_fast_null_count_matches_isna_across_dtypes():
             "bool_col": rng.random(n) < 0.5,
             "object_with_none": rng.choice(["a", "b", None], n),
             "datetime_with_nat": pd.to_datetime(rng.choice([None, "2021-01-01"], n)),
+            # Sparse columns, the shape with no reference coverage before. Constant-sparse must DROP
+            # (zero variance); rare-nonzero must SURVIVE (the false-zero the closed-form branch exists to
+            # prevent -- variance over stored values alone reads 0.0); NaN-filled must survive on variance
+            # rather than being poisoned into a drop by a nan fill term.
+            "sparse_constant": pd.arrays.SparseArray(np.full(n, 7.0), fill_value=7.0),
+            "sparse_rare_nonzero": pd.arrays.SparseArray(np.where(np.arange(n) < 3, 1.0, 0.0), fill_value=0.0),
+            "sparse_nan_filled": pd.arrays.SparseArray(np.where(np.arange(n) < 50, np.arange(n, dtype=np.float64), np.nan), fill_value=np.nan),
         }
     )
     df["nullable_int"] = pd.array(rng.choice([1, 2, pd.NA], n), dtype="Int64")
@@ -185,3 +229,14 @@ def test_fast_null_count_matches_isna_across_dtypes():
     assert "float_high_null" in fast
     assert "float_clean" not in fast
     assert "int64_col" not in fast
+    # The sparse outcomes, pinned individually. Agreement between `fast` and the reference alone would also
+    # hold if both were wrong in the same way, and both are now written from the same understanding.
+    assert "sparse_constant" in fast, "a sparse column with a single repeated value has zero variance and must be dropped"
+    assert "sparse_rare_nonzero" not in fast, (
+        "a sparse column with three 1.0s among 1997 fill zeros carries real signal; variance over the STORED "
+        "values alone reads 0.0, which is the false drop the closed-form population variance exists to prevent"
+    )
+    assert "sparse_nan_filled" not in fast, (
+        "a NaN-filled sparse column with 50 distinct stored values must survive on variance; a fill term of "
+        "0 * nan would poison the variance to nan and drop it -- the TF-IDF passthrough case"
+    )
