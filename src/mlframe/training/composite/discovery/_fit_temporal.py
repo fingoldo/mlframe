@@ -28,11 +28,17 @@ def apply_base_leakage_guard(
     """Drop base candidates that are a same-time near-identity re-encoding of ``y`` (leakage).
 
     Only acts when ``time_ordering`` is given so the lag-probe spares a genuine ``lag(y)`` base; a no-op on
-    non-temporal data (autocorrelation must not be mistaken for a leak). Sets ``discovery._leaky_bases_dropped_``
-    and returns the kept base candidates (unchanged when nothing is dropped).
+    non-temporal data (autocorrelation must not be mistaken for a leak). Returns the kept base candidates
+    (unchanged when nothing is dropped).
+
+    Sets ``discovery._leaky_bases_dropped_`` ALWAYS, empty list included, and
+    ``discovery._base_leakage_guard_ran_`` to whether the scan actually happened -- so "ran and found nothing"
+    stays distinguishable from "never ran". An empty attribute that only appears on a drop cannot tell a caller
+    whether the guard was inert for the right reason or silently skipped.
     """
     from ._leakage import detect_base_target_leakage
 
+    discovery._base_leakage_guard_ran_ = False
     _to_all = np.asarray(time_ordering)
     _needed = int(np.max(train_idx)) + 1
     if _to_all.shape[0] < _needed:
@@ -50,6 +56,7 @@ def apply_base_leakage_guard(
         return base_candidates
     _to_train = _to_all[train_idx]
 
+    discovery._base_leakage_guard_ran_ = True
     kept, dropped = [], []
     for _bcand in base_candidates:
         try:
@@ -63,8 +70,8 @@ def apply_base_leakage_guard(
             dropped.append((_bcand, _leak.get("reason", "")))
         else:
             kept.append(_bcand)
+    discovery._leaky_bases_dropped_ = dropped
     if dropped:
-        discovery._leaky_bases_dropped_ = dropped
         logger.warning(
             "[CompositeTargetDiscovery] dropped %d leaky base(s) (same-time near-identity of y): %s",
             len(dropped),

@@ -344,7 +344,7 @@ class TestConditionalDispersionDoesNotPerturbCanonical:
         fs_off.fit(df.copy(), pd.Series(y, name="y"))
 
         # The dispersion stage admits NO column on the (homoscedastic-in-x) fixture.
-        assert list(getattr(fs_on, "conditional_dispersion_features_", []) or []) == [], "dispersion crowded the canonical fixture (should self-limit to 0)"
+        assert list(fs_on.conditional_dispersion_features_) == [], "dispersion crowded the canonical fixture (should self-limit to 0)"
         eng_on = sorted(n for n in fs_on.get_feature_names_out() if n not in RAW)
         eng_off = sorted(n for n in fs_off.get_feature_names_out() if n not in RAW)
         assert eng_on == eng_off, f"dispersion DEFAULT-ON perturbed the engineered set:\n  ON ={eng_on}\n  OFF={eng_off}"

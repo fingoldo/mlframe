@@ -488,9 +488,9 @@ class TestDefaultDisabledByteIdentical:
         ):
             assert bool(getattr(m, flag, False)) is False, f"{flag} must default to False."
         m.fit(X, pd.Series(y, name="y"))
-        assert list(getattr(m, "rare_category_features_", []) or []) == []
-        assert list(getattr(m, "conditional_residual_features_", []) or []) == []
-        assert list(getattr(m, "rankgauss_features_", []) or []) == []
+        assert list(m.rare_category_features_) == []
+        assert list(m.conditional_residual_features_) == []
+        assert list(m.rankgauss_features_) == []
 
     def test_mrmr_rare_category_enabled_adds_columns(self):
         # The is_rare / freq_band columns ARE materialised and compete for
