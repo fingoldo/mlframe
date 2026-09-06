@@ -148,26 +148,57 @@ class TestDispatcherIntegration:
 
 
 class TestParallelReductionRegression:
-    """Regression sensor for the single-thread-serial-reduction bug: an early version of this kernel
-    computed the whole (max_joint, n_classes_y) MI reduction on ONE thread per block (``if tid==0``),
-    measured ~6x slower than the parallelized (atomicAdd-per-thread) version at equal total work.
-    A tight wall-clock ceiling well above the parallel version's real cost but well below the serial
-    version's catches a regression back to the serial form without being a flaky microbenchmark."""
+    """Regression sensor for the single-thread-serial-reduction bug.
 
-    def test_reduction_is_parallelized_not_serial(self):
-        """A warm shared-fused-kernel call completes well under the serial-reduction regression ceiling."""
+    An early version of this kernel computed the whole (max_joint, n_classes_y) MI reduction on ONE thread
+    per block (``if tid==0``), measured ~6x slower than the parallelized atomicAdd-per-thread version at
+    equal total work. The sensor used to be ``elapsed < 2.0`` at one shape, anchored in its own comment to
+    "the reference host" -- false-red on a slower or shared GPU (this repo runs concurrent worktree
+    sessions against one device) and false-green on a faster one, where even the serial form fits inside
+    the ceiling.
+
+    What actually separates the two forms is how cost grows with the number of joint CELLS: the serial
+    version walks all of them on one thread, the parallel version spreads them across the block. So this
+    holds the histogram phase fixed (same n_samples, same pair count) and grows only the cell grid.
+    """
+
+    def test_reduction_cost_grows_sub_linearly_in_the_cell_count(self):
+        """Quadrupling the joint-cell count must not quadruple the kernel's time.
+
+        A ratio between two launches on the same device in the same process, so hardware cancels.
+        """
         import time
 
-        factors_data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(50000, 20, 5000, 20, (15, 22), 10)
-        # warm (JIT/NVRTC compile + first launch)
-        batch_pair_mi_cuda_shared_fused(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
-        t0 = time.perf_counter()
-        batch_pair_mi_cuda_shared_fused(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
-        elapsed = time.perf_counter() - t0
-        # Parallel version measured ~0.1-0.5s at this shape on the reference host; serial measured ~3s+
-        # at a comparable shape. 2.0s leaves generous margin for slower hardware while still catching a
-        # regression back to single-thread reduction.
-        assert elapsed < 2.0, f"shared-fused kernel took {elapsed:.2f}s -- possible regression to a serial (non-parallelized) reduction"
+        def _timed(nbins_range) -> float:
+            """Best of three warm launches at a fixed n_samples and pair count, in seconds."""
+            args = _build_pair_inputs(50000, 20, 2000, 20, nbins_range, 10)
+            factors_data, nbins, classes_y, freqs_y, pair_a, pair_b = args
+            batch_pair_mi_cuda_shared_fused(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)  # warm
+            best = float("inf")
+            for _ in range(3):
+                t0 = time.perf_counter()
+                batch_pair_mi_cuda_shared_fused(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
+                best = min(best, time.perf_counter() - t0)
+            return best
+
+        # nbins in [4, 5] gives ~16-25 joint cells per pair; [15, 22] gives ~225-484, i.e. roughly 16x the
+        # reduction work for identical histogram work.
+        small = _timed((4, 5))
+        large = _timed((15, 22))
+        ratio = large / max(small, 1e-9)
+
+        # A serial reduction pays the full ~16x on one thread. A parallel one spreads it across 128
+        # threads, so the growth is dominated by the unchanged histogram phase. 8.0 sits well between the
+        # two without being tuned to any particular device.
+        assert ratio < 8.0, f"the kernel slowed {ratio:.2f}x for ~16x more joint cells ({small * 1000:.1f}ms -> {large * 1000:.1f}ms); the reduction looks serial again"
+
+    def test_the_kernel_is_launched_with_a_full_block_of_threads(self):
+        """A parallel reduction needs threads to spread across; one thread per block cannot be parallel."""
+        import inspect
+
+        sig = inspect.signature(batch_pair_mi_cuda_shared_fused)
+        threads = sig.parameters["threads_per_block"].default
+        assert threads > 1, f"the kernel defaults to {threads} thread(s) per block, so its reduction cannot be parallel"
 
 
 class TestCupyResidentUploadRegression:

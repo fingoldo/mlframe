@@ -17,7 +17,6 @@ These tests pin the full contract:
 
 from __future__ import annotations
 
-import time
 
 import numpy as np
 import pytest
@@ -126,33 +125,42 @@ def test_lru_eviction_caps_entry_count():
     assert len(cache) == 2  # only the 2 most-recent survive
 
 
-def test_biz_val_prebin_cache_second_call_faster():
-    """biz_value: cache hit on a re-prebin is materially faster than recomputing the binning.
+def test_biz_val_a_repeat_prebin_is_served_from_the_cache():
+    """biz_value: a re-prebin of the same matrix is served from the cache instead of re-binning.
 
-    Floor 3x (conservative). The cache returns the stored codes in O(hash) vs the recompute's
-    O(n*F*log n) per-column quantile + searchsorted. Use a matrix large enough that the binning
-    dominates the signature hash so the win is unambiguous.
+    A cache hit is a discrete event, and the cache counts them, so this asserts the count rather than a
+    3x wall-clock floor. The floor was a false red under xdist contention (a single scheduling stall
+    landing on the cached arm inverts a two-arm ratio) and said nothing about WHY a call was fast.
     """
-    get_prebin_cache().clear()
+    cache = get_prebin_cache()
+    cache.clear()
     x = _make_matrix(n=80_000, f=40, seed=3)
     nbins = 32
 
-    # Cold: compute + store (warm-up the signature path once so we time steady-state).
-    _prebin_feature_columns_cached(x, nbins=nbins)
+    # Cold: compute + store. `clear()` empties the store without resetting the counters, and one prebin
+    # consults the cache once per column group, so every check below is a delta rather than a total.
+    hits_before, misses_before = cache.hits, cache.misses
+    first = _prebin_feature_columns_cached(x, nbins=nbins)
+    cold_misses = cache.misses - misses_before
+    assert cold_misses >= 1, f"the first prebin of a cleared cache produced {cold_misses} misses"
+    assert cache.hits == hits_before, f"the first prebin of a cleared cache hit {cache.hits - hits_before} times"
 
-    # Recompute cost (force-fresh path: full binning every call).
-    t0 = time.perf_counter()
+    hits_before, misses_before = cache.hits, cache.misses
     for _ in range(5):
-        _prebin_feature_columns_cached(x, nbins=nbins, use_cache=False)
-    t_recompute = (time.perf_counter() - t0) / 5
+        again = _prebin_feature_columns_cached(x, nbins=nbins, use_cache=True)
+    assert cache.hits - hits_before == 5 * cold_misses, f"5 repeat prebins produced {cache.hits - hits_before} cache hits, expected {5 * cold_misses}"
+    assert cache.misses == misses_before, f"a repeat prebin of an unchanged matrix missed the cache ({cache.misses - misses_before} times)"
+    np.testing.assert_array_equal(again, first)
 
-    # Cache-hit cost (signature hash + dict lookup only).
-    t0 = time.perf_counter()
-    for _ in range(5):
-        _prebin_feature_columns_cached(x, nbins=nbins, use_cache=True)
-    t_cached = (time.perf_counter() - t0) / 5
+    # The opt-out must genuinely bypass the cache rather than quietly serving the stored codes.
+    hits_before, misses_before = cache.hits, cache.misses
+    fresh = _prebin_feature_columns_cached(x, nbins=nbins, use_cache=False)
+    assert (cache.hits, cache.misses) == (hits_before, misses_before), "use_cache=False still touched the cache counters"
+    np.testing.assert_array_equal(fresh, first)
 
-    speedup = t_recompute / max(t_cached, 1e-9)
-    assert (
-        speedup >= 3.0
-    ), f"prebin cache hit should be >=3x faster than recompute; recompute={t_recompute * 1e3:.2f}ms cached={t_cached * 1e3:.2f}ms speedup={speedup:.1f}x"
+    # A different matrix must miss, or the signature is not discriminating and every hit above is suspect.
+    other = _make_matrix(n=80_000, f=40, seed=4)
+    hits_before, misses_before = cache.hits, cache.misses
+    _prebin_feature_columns_cached(other, nbins=nbins, use_cache=True)
+    assert cache.misses > misses_before, "a different matrix hit the cache; the signature does not discriminate"
+    assert cache.hits == hits_before, f"a different matrix produced {cache.hits - hits_before} cache hits"

@@ -52,9 +52,14 @@ def _preserve_global_numpy_rng_state(seed: int | None):
     # Capture entropy-derived restoration seeds for numba +
     # cupy too - those exposed no portable get_state and were not previously
     # restored on exit, leaving the caller's downstream numba/cupy stream shifted.
-    import os as _os, struct as _struct
-    _numba_restore_seed = _struct.unpack("<Q", _os.urandom(8))[0]
-    _cp_restore_seed = _struct.unpack("<Q", _os.urandom(8))[0]
+    # Masked to 63 bits: numba types its seed argument as int64, so a full 64-bit draw raises OverflowError
+    # about half the time. Because this restore is best-effort (it must not mask whatever the block itself
+    # did), that exception went to a debug log and the stream stayed exactly where the block left it -- this
+    # scope silently doing nothing on roughly half its calls.
+    from mlframe.utils.rng_scope import _fresh_seed
+
+    _numba_restore_seed = _fresh_seed()
+    _cp_restore_seed = _fresh_seed()
     _cp_module = None
     try:
         if seed is not None:

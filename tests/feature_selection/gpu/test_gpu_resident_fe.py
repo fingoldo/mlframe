@@ -93,13 +93,23 @@ def test_gpu_resident_matches_cpu():
 
 
 def test_gpu_resident_chunked_matches_cpu():
-    """Force MULTIPLE VRAM K-chunks (n=100k -> k_chunk < 384) and assert the concatenated chunked MI
-    still matches the CPU path -- the chunk boundary must not corrupt per-candidate MI."""
+    """Force MULTIPLE VRAM K-chunks and assert the concatenated chunked MI still matches the CPU path.
+
+    The precondition is stated against an explicit ``free_bytes`` rather than against the live device: the
+    resolver derives the chunk size from whatever VRAM happens to be free at that moment, so a literal
+    ``< 384`` failed on a large-VRAM card, or simply on a run where no sibling worktree session held a
+    context -- a false red on entirely correct code, and one that would have silently stopped exercising
+    the chunk boundary anyway.
+    """
     _require_gpu()
     from mlframe.feature_selection.filters._gpu_resident_fe import _gpu_k_chunk, gpu_resident_pair_candidate_mi
 
     a, b, y_codes = _ab_target(n=100_000)
-    assert _gpu_k_chunk(100_000) < 384, "test needs >1 chunk to be meaningful"
+    # 64 MiB of budget at the f64 MI path's per-column footprint leaves room for far fewer than the full
+    # candidate set, so the chunked path is entered on any device.
+    forced_chunk = _gpu_k_chunk(100_000, free_bytes=64 * 1024 * 1024)
+    assert forced_chunk >= 1, f"the resolver returned {forced_chunk} columns per chunk"
+    assert _gpu_k_chunk(100_000, free_bytes=64 * 1024 * 1024, max_cols=forced_chunk * 4) == forced_chunk, "the chunk size is not bounded by the VRAM budget, so this test cannot force more than one chunk"
     cpu_names, cpu_mi = cpu_pair_candidate_mi(a, b, y_codes)
     gpu_names, gpu_mi = gpu_resident_pair_candidate_mi(a, b, y_codes)
     assert gpu_names == cpu_names

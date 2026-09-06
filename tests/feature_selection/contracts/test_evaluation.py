@@ -533,9 +533,13 @@ def test_biz_evaluate_xor_synergy_beats_marginal(xor_factors):
 
 
 @pytest.mark.fast
-def test_biz_cache_hit_speedup(xor_factors):
-    """A second evaluate_candidate call on the same X should hit cached_MIs and skip the CPU mi_direct path, giving a measurable speedup.
-    Floor at 2x because numba JIT warm-up + permutation budget (baseline_npermutations=0 here) keep absolute timings tiny and noisy.
+def test_biz_a_second_evaluation_reads_the_cache_instead_of_recomputing(xor_factors):
+    """A second evaluate_candidate call on the same X must read cached_MIs rather than re-running mi_direct.
+
+    Proved by poisoning the cached entry between the two calls: if the second call recomputed, it would
+    ignore the poison and return the true gain. A 2x wall-clock floor stood in for this, on timings the
+    test's own docstring calls "tiny and noisy" -- one scheduling stall on the hot arm inverts it, and it
+    is silent about WHY a call was fast.
     """
     factors_data, factors_nbins, factors_names = xor_factors
 
@@ -544,22 +548,19 @@ def test_biz_cache_hit_speedup(xor_factors):
     # Warm up numba once before timing so JIT compile doesn't dominate the cold call.
     evaluate_candidate(**_make_eval_kwargs(factors_data, factors_nbins, factors_names, X=(2,)))
 
-    t0 = time.perf_counter()
-    evaluate_candidate(**kwargs)
-    cold = time.perf_counter() - t0
-    assert (0,) in kwargs["cached_MIs"]
+    first_gain, _ = evaluate_candidate(**kwargs)
+    assert (0,) in kwargs["cached_MIs"], "the first call did not populate cached_MIs, so there is no cache to hit"
 
-    # Second call: same kwargs dict, so cached_MIs already has (0,) populated.
-    t1 = time.perf_counter()
-    evaluate_candidate(**kwargs)
-    hot = time.perf_counter() - t1
+    # Second call: same kwargs dict, so cached_MIs already has (0,) populated. Poison that entry -- a call
+    # that recomputes ignores it, a call that reads the cache cannot.
+    true_mi = kwargs["cached_MIs"][(0,)]
+    kwargs["cached_MIs"][(0,)] = type(true_mi)(float(true_mi) + 10.0) if not hasattr(true_mi, "__len__") else true_mi
+    poisoned = kwargs["cached_MIs"][(0,)]
+    assert float(poisoned) != float(true_mi), "the cached entry could not be poisoned, so this test cannot distinguish a hit from a recompute"
 
-    # Guard against zero-division on absurdly fast hot path.
-    assert hot >= 0.0
-    if cold <= 0.0:
-        pytest.skip("cold path too fast to measure reliably")
-    speedup = cold / max(hot, 1e-9)
-    assert speedup >= 2.0, f"expected >= 2x cache speedup, got cold={cold:.6f}s hot={hot:.6f}s ratio={speedup:.2f}"
+    second_gain, _ = evaluate_candidate(**kwargs)
+    assert second_gain != first_gain, f"the second call returned the same gain ({second_gain}) despite a poisoned cache entry; it recomputed instead of reading cached_MIs"
+    assert kwargs["cached_MIs"][(0,)] == poisoned, "the second call overwrote the cached entry, so it recomputed"
 
 
 # ================================================================================================

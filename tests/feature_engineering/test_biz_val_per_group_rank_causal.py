@@ -60,8 +60,57 @@ def test_biz_val_per_group_rank_causal_avoids_future_leakage():
     # Thresholds set 5-15% below/above the measured values against the closest real baseline
     # (the same rank computation, causal omitted).
     assert auc_plain >= 0.92
-    assert 0.65 <= auc_causal <= 0.90
+    assert auc_causal >= 0.65, f"the causal rank carries no usable signal at all (AUC={auc_causal:.3f})"
+    # The paired gap is the leakage guard, not an absolute ceiling on auc_causal. The old `<= 0.90` sat
+    # 0.02 below the plain arm's own 0.92 floor, so a small change to tie handling in per_group_rank
+    # tripped it on correct code; and it was derived from one seed. The no-leak property itself is pinned
+    # exactly in test_a_later_row_cannot_change_an_earlier_rows_causal_rank below, with no fit involved.
     assert auc_plain - auc_causal >= 0.08
+
+
+def test_a_later_row_cannot_change_an_earlier_rows_causal_rank():
+    """The causal property, stated exactly: a row's rank depends only on rows strictly before it.
+
+    This is what the AUC band was circling. Mutating a LATER row inside the same group must leave every
+    earlier row's causal rank untouched -- and must change the mutated row's own, or the mutation was not
+    material and the invariance holds for nothing.
+    """
+    groups, values, _label = _make_drifting_panel(n_groups=6, group_size=25, seed=3)
+    baseline = per_group_rank(values, groups, method="average", pct=True, causal=True)
+
+    for victim in (10, 24, 37, 60):
+        mutated = values.copy()
+        mutated[victim] = values[victim] + 1_000.0
+        after = per_group_rank(mutated, groups, method="average", pct=True, causal=True)
+
+        same_group = groups == groups[victim]
+        earlier = same_group & (np.arange(values.size) < victim)
+        assert earlier.any(), f"row {victim} is the first of its group; pick a victim with rows before it"
+        np.testing.assert_array_equal(
+            after[earlier], baseline[earlier],
+            err_msg=f"mutating row {victim} changed the causal rank of rows BEFORE it -- the rank is looking ahead",
+        )
+        # Everything outside the group is untouched too.
+        np.testing.assert_array_equal(after[~same_group], baseline[~same_group], err_msg="the mutation leaked across group boundaries")
+
+
+def test_the_plain_rank_does_look_ahead():
+    """The contrast: without `causal`, a later row DOES move an earlier row's rank.
+
+    Without this, the invariance above would also hold for a rank that had stopped being computed at all.
+    """
+    groups, values, _label = _make_drifting_panel(n_groups=6, group_size=25, seed=3)
+    baseline = per_group_rank(values, groups, method="average", pct=True)
+
+    mutated = values.copy()
+    mutated[24] = values[24] + 1_000.0
+    after = per_group_rank(mutated, groups, method="average", pct=True)
+
+    same_group = groups == groups[24]
+    earlier = same_group & (np.arange(values.size) < 24)
+    assert not np.array_equal(after[earlier], baseline[earlier]), (
+        "the plain rank did not react to a later row either, so the causal invariance test above is not " "distinguishing causal from plain"
+    )
 
 
 def test_biz_val_per_group_rank_causal_first_row_semantics():

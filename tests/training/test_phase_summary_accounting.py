@@ -61,8 +61,17 @@ class TestTheSuiteClock:
         assert registry_elapsed() > 0.03
 
     def test_a_later_reset_restarts_the_clock(self):
-        """Each suite gets its own denominator; a leftover clock would understate every share."""
+        """Each suite gets its own denominator; a leftover clock would understate every share.
+
+        Stated as an ordering rather than as `< 0.03`: the restart property is that the clock goes
+        backwards across the reset, and asserting instead that under 30ms passes between two adjacent
+        statements is a claim about the scheduler. Windows' default timer granularity alone is ~15.6ms,
+        and one preemption on a contended box clears 30ms.
+        """
         reset_phase_registry()
         time.sleep(0.03)
+        before = registry_elapsed()
         reset_phase_registry()
-        assert registry_elapsed() < 0.03
+        after = registry_elapsed()
+        assert after < before, f"the clock did not restart: {after:.4f}s after the reset against {before:.4f}s before it"
+        assert before >= 0.03, f"the pre-reset clock read {before:.4f}s after a 30ms sleep, so it is not running at all"

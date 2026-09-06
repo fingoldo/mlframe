@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,12 @@ _LOAD_LOCK = threading.Lock()
 # all momentary, and latching costs the whole process its per-host measured thresholds.
 _MAX_INIT_ATTEMPTS = 3
 _INIT_ATTEMPTS = 0
+# ...and the budget counts CONSECUTIVE failures within a window, not failures over the process's whole life.
+# Without the window, three unrelated momentary faults spread across a long-lived service -- three concurrent
+# rewrites of the tuning JSON over several hours, say -- exhaust a budget sized for one persistent breakage and
+# latch the fallback permanently, which is the very outcome the retry exists to avoid.
+_INIT_ATTEMPT_COOLDOWN_S = 300.0
+_LAST_INIT_FAILURE_TS = 0.0
 
 # Path to the repo-committed, anonymized DEFAULT tunings JSON (produced by
 # ``mlframe.feature_selection._benchmarks.gen_default_tuning``). It ships inside
@@ -117,7 +124,17 @@ def get_kernel_tuning_cache() -> Optional[Any]:
                 # lookup in the package -- 268 dispatch sites -- to hardcoded defaults for the rest of the
                 # process, at `debug` level, so a run silently lost its per-host measured thresholds with
                 # nothing to explain it. Same failure shape as the documented `_select_mi_backend` regression.
-                global _INIT_ATTEMPTS
+                global _INIT_ATTEMPTS, _LAST_INIT_FAILURE_TS
+                _now = time.monotonic()
+                if _LAST_INIT_FAILURE_TS and (_now - _LAST_INIT_FAILURE_TS) > _INIT_ATTEMPT_COOLDOWN_S:
+                    # The previous failure is old enough that this one is a fresh incident, not a continuation.
+                    logger.debug(
+                        "KernelTuningCache init failed again %.0fs after the previous failure (> %.0fs cooldown); "
+                        "treating it as a new incident and restarting the retry budget.",
+                        _now - _LAST_INIT_FAILURE_TS, _INIT_ATTEMPT_COOLDOWN_S,
+                    )
+                    _INIT_ATTEMPTS = 0
+                _LAST_INIT_FAILURE_TS = _now
                 _INIT_ATTEMPTS += 1
                 if _INIT_ATTEMPTS >= _MAX_INIT_ATTEMPTS:
                     logger.warning(
@@ -137,10 +154,11 @@ def get_kernel_tuning_cache() -> Optional[Any]:
 
 def _reset_for_tests() -> None:
     """Test-only: clear the singleton so tests with mocked pyutilz can reset state."""
-    global _CACHE_SINGLETON, _DEFAULTS_REGISTERED, _INIT_ATTEMPTS
+    global _CACHE_SINGLETON, _DEFAULTS_REGISTERED, _INIT_ATTEMPTS, _LAST_INIT_FAILURE_TS
     with _LOAD_LOCK:
         _CACHE_SINGLETON = None
         _INIT_ATTEMPTS = 0  # otherwise a test that exercised the retry path leaves the next one pre-exhausted
+        _LAST_INIT_FAILURE_TS = 0.0
     with _DEFAULTS_LOCK:
         _DEFAULTS_REGISTERED = False
 

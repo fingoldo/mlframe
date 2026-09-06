@@ -93,7 +93,10 @@ def test_brute_force_n_chunks_bit_identical_to_default():
 
     kw = dict(classification=True, metric="brier", max_card=8, top_n=12)
     default = brute_force_top_n(phi, base, y, parallel=True, **kw)
-    assert _resolve_brute_force_n_chunks() >= 8
+    # The resolver derives the chunk count from the core count, so a literal floor of 8 is a false red on a
+    # 2-vCPU runner. The contract is the loop below: whatever the default resolves to, forcing any chunk
+    # count must give bit-identical results.
+    assert _resolve_brute_force_n_chunks() >= 1, "the hardware-aware default resolved to a non-positive chunk count"
     for nc in (8, 16, 32, 64):
         forced = brute_force_top_n(phi, base, y, parallel=True, n_chunks=nc, **kw)
         assert forced == default, f"n_chunks={nc} diverged from the HW-aware default (must be bit-identical)"

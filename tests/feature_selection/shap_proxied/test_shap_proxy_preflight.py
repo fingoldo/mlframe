@@ -307,15 +307,44 @@ def test_preflight_deep_depth3_xor_guard_invariant():
 
 
 @pytest.mark.slow
-def test_biz_val_preflight_under_25s_at_width_1000_iter27():
-    """Iter27 wide-regime gate: preflight at width=1000 / n_rows=5000 must complete under 25s. The
-    cap-the-ranker depth cut (deep max_depth 4 -> 3) drops the parallel wall from ~17.8s (iter26
-    baseline) to ~12s on the dev box; slower CI / network-storage / hosts under contention have been
-    measured at ~20s wall-clock (2026-05-29 S: drive on a different box showed 20.5s). The 25s budget
-    pins the cut while leaving slack for that variance; if this trips, check the ``deep`` estimator's
-    max_depth in ``dataset_diagnostics`` is 3 -- a real regression would push the wall well past 30s.
+def _captured_booster_kwarg(monkeypatch, name: str) -> list:
+    """Record `name` from every XGB estimator the preflight probe constructs.
+
+    Returns the (initially empty) list the spies append to, so the caller can run the preflight and then
+    read what was actually asked for. Spying the constructor answers "is the cap in effect" exactly, which
+    a wall-clock budget can only guess at from the outside.
     """
-    import time
+    import xgboost
+
+    # `dataset_diagnostics` imports the estimators inside the function body, so the name to replace is the
+    # one on the xgboost module itself, not a module-level alias in the preflight module.
+    seen: list = []
+    for cls_name in ("XGBClassifier", "XGBRegressor"):
+        real = getattr(xgboost, cls_name)
+
+        def _spy(*args, _real=real, **kwargs):
+            """Record the kwarg, then build the real estimator."""
+            if name in kwargs:
+                seen.append(kwargs[name])
+            return _real(*args, **kwargs)
+
+        monkeypatch.setattr(xgboost, cls_name, _spy)
+    return seen
+
+
+def _captured_booster_depths(monkeypatch) -> list:
+    """The `max_depth` of every XGB estimator the preflight probe constructs."""
+    return _captured_booster_kwarg(monkeypatch, "max_depth")
+
+
+def test_the_deep_ranker_is_capped_at_depth_three(monkeypatch):
+    """The iter27 cap-the-ranker cut, asserted on the booster rather than on the clock.
+
+    The previous form asserted `elapsed < 25.0` and its own failure message named the real property
+    ("check deep booster max_depth is 3"). xgboost's training time moves with thread count, OpenMP build
+    and CPU, so that budget was false-red on a 2-vCPU runner with the cap correctly applied and false-green
+    on a large box with it removed. The constructor kwargs are exact and free.
+    """
     from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -328,13 +357,11 @@ def test_biz_val_preflight_under_25s_at_width_1000_iter27():
         task="binary",
         seed=0,
     )
-    # Warmup to absorb xgboost / joblib pool init.
-    ShapProxiedFS.preflight(X, y, classification=True, random_state=0)
-    t0 = time.time()
+    depths = _captured_booster_depths(monkeypatch)
     rep = ShapProxiedFS.preflight(X, y, classification=True, random_state=0)
-    elapsed = time.time() - t0
+
     assert rep["recommendation"] in ("run", "caution"), rep
-    assert elapsed < 25.0, f"preflight at width=1000 took {elapsed:.1f}s, exceeds 25s budget; check deep booster max_depth is 3 (iter27 cap-the-ranker)."
+    assert sorted(depths) == [1, 3], f"the preflight probe built boosters at depths {sorted(depths)}; the ranking pair must be depth-1 (stump) and depth-3 (deep)"
 
 
 def test_preflight_parallel_booster_byte_identical_across_calls():
@@ -386,15 +413,16 @@ def test_preflight_parallel_booster_byte_identical_across_calls():
 
 
 @pytest.mark.slow
-def test_biz_val_preflight_under_30s_at_width_1000():
-    """Live-test regime (2026-05-28): preflight at width=1000 / n_rows=5000 must complete under 30s.
+def test_the_booster_tree_cap_is_in_effect(monkeypatch):
+    """The iter25 cheap-check cap, asserted on the boosters rather than on the clock.
 
-    Pre-iter25 the gate took 77s on the user's machine vs the 86s full fit it was supposed to gate
-    cheaply; iter25 caps the booster CV calls (n_estimators=150 -> 100, max_rows=5000 -> 2000) which
-    restores the cheap-check semantics. The 30s gate is conservative: typical worktree measurement
-    is 20-22s; budget headroom accounts for slower CI machines.
+    Pre-iter25 the gate took 77s on the user's machine against the 86s full fit it was supposed to gate
+    cheaply; iter25 capped the booster CV calls (n_estimators 150 -> 100, max_rows 5000 -> 2000). The
+    previous form asserted `elapsed < 30.0` and its own failure message named the real property ("check
+    booster cap (n_estimators) is in effect"). xgboost training time moves with thread count, OpenMP build
+    and CPU, so that budget was false-red on a small runner with the cap applied and false-green on a
+    large one without it.
     """
-    import time
     from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -407,10 +435,11 @@ def test_biz_val_preflight_under_30s_at_width_1000():
         task="binary",
         seed=0,
     )
-    t0 = time.time()
+    trees = _captured_booster_kwarg(monkeypatch, "n_estimators")
     rep = ShapProxiedFS.preflight(X, y, classification=True, random_state=0)
-    elapsed = time.time() - t0
+
     # Recommendation should still be "run" on this favourable wide regime (high SNR, low informative
     # density relative to noise but additive signal dominates).
     assert rep["recommendation"] in ("run", "caution"), rep
-    assert elapsed < 30.0, f"preflight at width=1000 took {elapsed:.1f}s, exceeds 30s budget; check booster cap (n_estimators) is in effect."
+    assert trees, "no booster was constructed, so the cap this test names was never exercised"
+    assert set(trees) == {100}, f"the preflight probe built boosters with n_estimators {sorted(set(trees))}; the iter25 ranking cap is 100"

@@ -24,6 +24,8 @@ import warnings
 
 import pytest
 
+from tests.conftest import perf_time_budget
+
 
 @pytest.mark.timeout(900)
 def test_kaleido_persistent_failure_falls_back_to_oneshot(tmp_path):
@@ -76,9 +78,10 @@ def test_kaleido_persistent_failure_falls_back_to_oneshot(tmp_path):
     # cold disk cache the Chromium re-spawn is ~30-40s; warmer is
     # ~12-15s. Tolerate up to 90s so test isn't flaky on a busy CI
     # box (the assertion is "did not HANG", not "was fast").
-    assert elapsed < 90.0, (
+    hang_budget = perf_time_budget(90.0)
+    assert elapsed < hang_budget, (
         f"PlotlyRenderer.save took {elapsed:.1f}s after a kaleido "
-        f"failure; expected oneshot fallback (<90s) -- this looks "
+        f"failure (budget {hang_budget:.0f}s); expected the oneshot fallback -- this looks "
         f"like the deadlock-on-error regression we fixed."
     )
     # 3. File has non-trivial size -- it's a real PNG, not 0-byte stub.
@@ -122,22 +125,23 @@ def test_kaleido_recovery_restores_persistent_path(tmp_path):
     finally:
         kaleido.write_fig_sync = orig
 
-    # Subsequent call -- should hit restarted persistent server, fast.
-    t0 = time.perf_counter()
+    # Subsequent call -- should hit the restarted persistent server, not the oneshot fallback. The module
+    # counts oneshot calls, so ask it: a 15s bound was being asked to separate a cold Chromium restart
+    # (~8s, the pass case) from a oneshot save (~13s, the fail case), which it cannot do on a machine even
+    # 1.5x slower than the one those numbers came from -- a false green for the exact regression its own
+    # message names, and a false red on a cold-disk CI box.
+    from mlframe.reporting.renderers._kaleido import get_kaleido_oneshot_stats, reset_kaleido_oneshot_stats
+
+    reset_kaleido_oneshot_stats()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         r.save(fig, os.path.join(td, "recovered.png"), "png")
-    elapsed = time.perf_counter() - t0
+    oneshot_calls, _oneshot_seconds = get_kaleido_oneshot_stats()
     # Cleanup for downstream tests
     _restart_kaleido_server()
 
     assert os.path.exists(os.path.join(td, "recovered.png"))
-    # Persistent path should be ~0.1-1s for warm-restart;
-    # cold-restart of Chromium is ~8s; oneshot is ~13s. Tolerate
-    # the cold-restart range.
-    assert elapsed < 15.0, (
-        f"After recovery, save took {elapsed:.1f}s. Expected "
-        f"persistent-server warm reuse (<2s) or cold restart (<10s). "
-        f"Suggests stuck on oneshot fallback even after server "
-        f"recovery."
+    assert oneshot_calls == 0, (
+        f"After recovery, the save made {oneshot_calls} oneshot call(s); it is still stuck on the oneshot "
+        f"fallback instead of reusing the restarted persistent server."
     )

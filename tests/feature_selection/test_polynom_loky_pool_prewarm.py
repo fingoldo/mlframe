@@ -29,7 +29,6 @@ correctly between the two call sites and exceeds the joblib default.
 from __future__ import annotations
 
 import threading
-import time
 
 import numpy as np
 import pytest
@@ -84,13 +83,21 @@ def test_prewarm_failure_is_swallowed_not_raised(monkeypatch):
 
 
 @pytest.mark.slow
-def test_prewarm_speeds_up_a_real_run_polynom_pair_fe_call():
-    """End-to-end contract: pre-warming via this function measurably speeds up the REAL dispatch.
+def test_prewarm_makes_the_real_dispatch_reuse_the_existing_workers():
+    """End-to-end contract: the REAL dispatch runs on the pre-warmed pool rather than spawning a new one.
 
-    Matches the isolated A/B this fix was designed around (cold ~26-28s, warm <5s on real (79237,
-    544)-shaped data) -- uses a smaller shape here to keep CI time bounded while still crossing the
+    That reuse is what the ``get_reusable_executor`` reuse-key match buys, and it is a statement about
+    process identity, so this asserts it on the worker PIDs. The previous form asserted
+    ``warm_elapsed < 15.0`` against a stated ~26-28s cold baseline -- both arms are process-spawn dominated,
+    and spawn cost differs several-fold between Windows and Linux, so that number was false-green on a box
+    where even a cold dispatch fits inside it (the prewarm could be deleted and the test would pass) and
+    false-red on a loaded box where a warm one does not.
+
+    Uses a smaller shape than the original A/B (79237, 544) to keep CI time bounded while still crossing the
     ``_PARALLEL_PAIR_THRESHOLD=16`` loky-dispatch gate in ``run_polynom_pair_fe``.
     """
+    from joblib.externals.loky import reusable_executor as loky_reuse
+
     import mlframe.feature_selection.filters.polynom_pair_fe as ppfe
 
     n, ncols = 20_000, 32
@@ -102,8 +109,7 @@ def test_prewarm_speeds_up_a_real_run_polynom_pair_fe_call():
     prospective_pairs = {(i, i + 1): 1.0 for i in range(16)}
 
     def _run():
-        """Time one run_polynom_pair_fe call on the shared 16-pair fixture, for prewarm-vs-cold timing comparison."""
-        t0 = time.perf_counter()
+        """One run_polynom_pair_fe call on the shared 16-pair fixture."""
         ppfe.run_polynom_pair_fe(
             X=X,
             is_polars_input=False,
@@ -135,15 +141,41 @@ def test_prewarm_speeds_up_a_real_run_polynom_pair_fe_call():
             n_jobs=16,
             verbose=0,
         )
-        return time.perf_counter() - t0
+
+    def _pool_state():
+        """The live reusable executor and the PIDs of its workers, or (None, set()) if there is no pool.
+
+        Read off loky's own module global rather than off the process tree: this test process has other
+        children (the resource tracker, and whatever the import chain started), so a process-tree snapshot
+        is non-empty whether or not a pool exists -- which is how an earlier version of this test passed
+        with the prewarm neutered.
+        """
+        ex = loky_reuse._executor
+        if ex is None:
+            return None, set()
+        return ex, set(getattr(ex, "_processes", {}))
+
+    # Start from no pool. Another test in this file may have left one, and a leftover pool would let this
+    # test pass with the prewarm removed entirely -- it would find that pool and see it reused.
+    if loky_reuse._executor is not None:
+        loky_reuse._executor.shutdown(kill_workers=True)
+        loky_reuse._executor = None
+    assert loky_reuse._executor is None, "could not clear the existing loky pool; this test cannot tell reuse from leftovers"
 
     thread = maybe_prewarm_polynom_loky_pool(fe_smart_polynom_iters=1, n_jobs=16)
     assert thread is not None
     thread.join(timeout=120)  # ensure the pool is fully warm before the real call, like the tens-of-seconds
     # of categorization + GPU pair-MI screening give it in production
 
-    warm_elapsed = _run()
-    assert warm_elapsed < 15.0, f"expected a warm-pool dispatch well under the ~26-28s cold baseline, got {warm_elapsed:.1f}s"
+    warm_executor, warmed = _pool_state()
+    assert warm_executor is not None, "the prewarm left no loky pool behind, so there is nothing for the dispatch to reuse"
+    assert warmed, f"the pre-warmed executor holds no workers ({warm_executor!r})"
+
+    _run()
+
+    after_executor, after = _pool_state()
+    assert after_executor is warm_executor, "the real dispatch built a NEW executor instead of reusing the pre-warmed one; the get_reusable_executor reuse-key no longer matches"
+    assert not (after - warmed), f"the dispatch spawned {len(after - warmed)} new workers in the reused executor (pre-warmed {len(warmed)})"
 
 
 def test_idle_worker_timeout_exceeds_joblib_default_and_is_shared_with_real_dispatch(monkeypatch):

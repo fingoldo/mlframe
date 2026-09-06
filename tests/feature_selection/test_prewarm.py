@@ -11,10 +11,26 @@ pattern: when a new dispatcher path is added in production but NOT in the prewar
 
 from __future__ import annotations
 
-import time
 
 import numpy as np
 import pytest
+
+from tests.conftest import skip_under_numba_disabled_jit
+
+
+def _compiled_signature_count(fn) -> int:
+    """How many signatures numba has compiled for ``fn``.
+
+    ``nopython_signatures`` is the list an njit dispatcher grows one entry per argument-type combination it
+    compiles; ``signatures`` is the same thing on older numba. A dispatcher that has never compiled anything
+    reports zero, so this distinguishes "prewarm covered it" from "the call was fast anyway", which no timer
+    can do.
+    """
+    sigs = getattr(fn, "nopython_signatures", None)
+    if sigs is None:
+        sigs = getattr(fn, "signatures", None)
+    assert sigs is not None, f"{fn!r} is not a numba dispatcher; this check has lost its subject"
+    return len(sigs)
 
 
 # Module-scoped fixture: prewarm exactly once per test session for the coverage / biz-value tests that need a warmed dispatcher graph.
@@ -68,11 +84,11 @@ class TestPrewarmSmoke:
         from mlframe.feature_selection.filters._prewarm import prewarm_fs_numba_cache
 
         prewarm_fs_numba_cache(verbose=False)
-        t0 = time.perf_counter()
-        prewarm_fs_numba_cache(verbose=False)
-        elapsed = time.perf_counter() - t0
-        # Idempotent call should be far faster than the initial compile budget (~60s). Generous 30s upper bound to avoid CI flakiness.
-        assert elapsed < 30.0, f"second prewarm took {elapsed:.2f}s -- cache not effective"
+        # A 30s bound was standing in for "the second call did not re-run the sweep". That is a host-speed
+        # reading of a structural question, and it passes on a machine slow enough to compile inside it too.
+        # `test_regression_module_level_guard_short_circuits_second_call` below answers the same question by
+        # counting the sweep's own RNG draws, so all this call has to establish is that it does not raise.
+        assert prewarm_fs_numba_cache(verbose=False) is None
 
     def test_verbose_flag_accepts_true(self):
         """verbose=True emits a log line and does not raise."""
@@ -254,6 +270,7 @@ class TestPrewarmCoverage:
 # ----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
+@skip_under_numba_disabled_jit
 class TestPrewarmBizValue:
     """Quantitative win: a representative downstream ``@njit`` call must be measurably faster after prewarm than the first (cold) call would have been."""
 
@@ -270,20 +287,20 @@ class TestPrewarmBizValue:
         fx = np.bincount(cx, minlength=8).astype(np.float64) / n
         fy = np.bincount(cy, minlength=4).astype(np.float64) / n
 
-        # Warm call must be sub-100ms -- if prewarm did its job the dispatcher is cached, the actual numeric work on 1000 rows is microseconds, and we have a
-        # solid 100x margin over the cold-compile floor (~3s) which is what the assertion is really gating.
-        t0 = time.perf_counter()
-        mi1 = compute_mi_from_classes(classes_x=cx, freqs_x=fx, classes_y=cy, freqs_y=fy, dtype=np.int32)
-        warm_elapsed = time.perf_counter() - t0
+        # The property is whether prewarm already compiled this signature, and numba answers that directly.
+        # A wall-clock bound cannot: it reads the same on a prewarmed dispatcher and on a machine merely fast
+        # enough to compile inside the budget, and it is breached on a healthy build under NUMBA_DISABLE_JIT=1.
+        before = _compiled_signature_count(compute_mi_from_classes)
+        assert before > 0, "prewarm left compute_mi_from_classes with no compiled signature at all"
 
-        # Second call -- pure cache hit, must be at most as slow as the first warm call (allow 2x slack for timer noise on tiny calls).
-        t0 = time.perf_counter()
+        mi1 = compute_mi_from_classes(classes_x=cx, freqs_x=fx, classes_y=cy, freqs_y=fy, dtype=np.int32)
+        after_first = _compiled_signature_count(compute_mi_from_classes)
+        assert after_first == before, (
+            f"the first post-prewarm call compiled a new signature ({before} -> {after_first}); prewarm does not " "cover this dispatcher signature"
+        )
+
         mi2 = compute_mi_from_classes(classes_x=cx, freqs_x=fx, classes_y=cy, freqs_y=fy, dtype=np.int32)
-        second_elapsed = time.perf_counter() - t0
+        assert _compiled_signature_count(compute_mi_from_classes) == before, "a repeat call compiled a new signature"
 
         assert np.isfinite(mi1) and np.isfinite(mi2)
         assert mi1 == mi2, "deterministic kernel must produce identical output on identical input"
-        # Warm call well under the cold-compile floor. Generous bound (0.5s) to absorb CI jitter; the real cold-compile is ~3-5s on the same machine.
-        assert warm_elapsed < 0.5, f"first post-prewarm call took {warm_elapsed:.3f}s -- prewarm did not cover this dispatcher signature"
-        # Second call must be at least as fast as warm (in expectation). With tiny-call timer noise we just require it stays under the same envelope.
-        assert second_elapsed < 0.5, f"cached call took {second_elapsed:.3f}s -- unexpected"

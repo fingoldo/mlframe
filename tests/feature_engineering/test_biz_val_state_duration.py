@@ -17,6 +17,7 @@ driven outcomes (permanent, non-reactivating cancellation) that duration alone i
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from scipy.stats import spearmanr
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
@@ -200,7 +201,19 @@ def test_biz_val_activation_count_beats_duration_alone_on_churn_recidivism_targe
     proba_combined = model_combined.predict_proba(X_duration_plus_count[test_idx])[:, 1]
     auc_combined = roc_auc_score(y[test_idx], proba_combined)
 
-    assert auc_duration_only < 0.55, f"duration-only AUC should sit near chance (constant feature), got {auc_duration_only:.3f}"
+    # The comment above states the real claim: the feature is constant, so the model degenerates to the class
+    # prior. Both halves of that are exact, and asserting them is what actually catches the regression --
+    # `< 0.55` on a quantity that is analytically 0.5 has ~0.05 of slack, so a feature that stopped being
+    # constant could reach 0.54 and still pass.
+    assert np.unique(cancellation_duration).size == 1, (
+        f"cancellation_duration is no longer constant ({np.unique(cancellation_duration).size} distinct values); "
+        "the premise of this arm is gone and the near-chance AUC below no longer means what it says"
+    )
+    assert np.allclose(proba_duration_only, proba_duration_only[0]), (
+        "a constant feature must give every row the same predicted probability (the class prior); "
+        f"got a spread of {proba_duration_only.max() - proba_duration_only.min():.3e}"
+    )
+    assert auc_duration_only == pytest.approx(0.5, abs=1e-9), f"a degenerate constant-feature model must score exactly chance, got {auc_duration_only:.6f}"
     assert auc_combined > 0.75, f"adding activation_count should give strong separation, got AUC={auc_combined:.3f}"
     assert auc_combined > auc_duration_only + 0.20, (
         f"activation_count should add material predictive signal beyond duration alone: "

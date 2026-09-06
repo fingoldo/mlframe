@@ -404,15 +404,22 @@ def test_default_on_canonical_recovery_not_perturbed():
 # --------------------------------------------------------------------------- #
 #                                 cPROFILE                                     #
 # --------------------------------------------------------------------------- #
-def test_cprofile_wavelet_stage_hotspot(capsys):
-    """cProfile the generate+hybrid wavelet stage; assert it completes well under
-    a wall-clock budget on a representative frame (n=4000, p=8). The stage hotspot
-    is the per-candidate-leg binned-MI in scale-selection; the held-out MAD floor
-    + max_legs cap bound the leg count so the stage stays cheap."""
+def test_the_leg_caps_bound_what_the_stage_emits(capsys):
+    """The stage stays cheap because the held-out MAD floor and the ``max_legs`` cap bound the leg count.
+
+    That count is the contract, and it is what this test now asserts. The previous form timed
+    ``hybrid_wavelet_fe_with_recipes`` with `cProfile.Profile()` enabled around the timed region and
+    asserted `elapsed < 5.0` -- a number anchored to one host, inflated by a profiler whose overhead scales
+    with call count (and so with the Python version and with NUMBA_DISABLE_JIT=1), and equally green if the
+    caps were removed on a box fast enough to absorb the extra legs. The profile is still printed, from
+    outside any assertion, because it is genuinely useful in the perf log.
+    """
     import cProfile
     import io
     import pstats
     import time
+
+    from mlframe.feature_selection.filters._wavelet_basis_fe import _WAVELET_MAX_LEGS
     from mlframe.feature_selection.filters._wavelet_basis_fe_recipes import (
         hybrid_wavelet_fe_with_recipes,
     )
@@ -424,19 +431,30 @@ def test_cprofile_wavelet_stage_hotspot(capsys):
     for i in range(7):
         cols[f"n{i}"] = rng.normal(0, 1, N)
     X = pd.DataFrame(cols)
+
     pr = cProfile.Profile()
     t0 = time.perf_counter()
     pr.enable()
-    hybrid_wavelet_fe_with_recipes(X, y)
+    _X_aug, appended, recipes, _scores = hybrid_wavelet_fe_with_recipes(X, y)
     pr.disable()
     elapsed = time.perf_counter() - t0
-    s = io.StringIO()
-    pstats.Stats(pr, stream=s).sort_stats("tottime").print_stats(12)
+    buf = io.StringIO()
+    pstats.Stats(pr, stream=buf).sort_stats("tottime").print_stats(12)
     with capsys.disabled():
-        print(f"\n[wavelet cProfile] p=8 n={N} wall={elapsed * 1000:.1f} ms")
-        print(s.getvalue()[:1400])
-    # Generous budget; the stage is a handful of binned-MI passes per column.
-    assert elapsed < 5.0, f"wavelet stage took {elapsed:.2f}s (>5s budget)"
+        print(f"\n[wavelet cProfile] p=8 n={N} wall={elapsed * 1000:.1f} ms, {len(appended)} legs emitted")
+        print(buf.getvalue()[:1400])
+
+    per_source: dict = {}
+    for recipe in recipes:
+        src = tuple(getattr(recipe, "src_names", None) or ())
+        per_source[src] = per_source.get(src, 0) + 1
+    assert per_source, "the stage emitted no recipes at all; the fixture no longer reaches the wavelet path"
+    worst = max(per_source.values())
+    assert worst <= _WAVELET_MAX_LEGS, f"a source column emitted {worst} legs, past the max_legs cap of {_WAVELET_MAX_LEGS}: {per_source}"
+    assert len(appended) == len(recipes), f"{len(appended)} columns were appended for {len(recipes)} recipes; the two must correspond"
+    # Seven of the eight columns are pure noise: the held-out MAD floor is what keeps them silent, and
+    # without it the emitted count would approach 8 * max_legs rather than staying near the one real column.
+    assert len(recipes) <= 2 * _WAVELET_MAX_LEGS, f"{len(recipes)} legs emitted from one informative column plus seven noise columns; the held-out floor is not holding"
 
 
 def _binned_mi_legacy_reference(feat, y, nbins=10):
