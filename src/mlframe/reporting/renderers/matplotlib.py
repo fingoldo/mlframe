@@ -24,7 +24,8 @@ from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported f
     _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, heatmap_value_to_index,
     CAPTION_FONTSIZE, CAPTION_WRAP_CHARS, PANEL_TITLE_FONTSIZE, SUPTITLE_WRAP_CHARS,
     _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
-    _TITLE_REF_WIDTH_IN, histogram_bar_extent, network_label_indices, low_evidence_mask, panel_title_wrap_chars, rotated_tick_pitch_in, select_per_point, ticks_that_fit, truncate_bar_label,
+    _TITLE_REF_WIDTH_IN, histogram_bar_extent, label_width_pitch_in, network_label_indices, low_evidence_mask, panel_title_wrap_chars,
+    rotated_tick_pitch_in, select_per_point, ticks_that_fit, truncate_bar_label,
     wrap_annotation_text, wrap_text_to_width, wrap_title_lines,
 )
 
@@ -37,6 +38,17 @@ _TITLE_FONTSIZE = PANEL_TITLE_FONTSIZE
 # Heatmap / violin tick labels, and the size the tick-spacing budget is computed at -- one value so the two
 # cannot drift into a budget that assumes smaller glyphs than the ones drawn.
 _HEATMAP_TICK_FONTSIZE = 8
+
+
+def _measured_axis_in(ax, *, horizontal: bool) -> Optional[float]:
+    """Length in inches of the axis the category labels run along, or ``None`` when it cannot be measured."""
+    try:
+        _pos = ax.get_position()
+        _fig_w, _fig_h = (float(v) for v in ax.figure.get_size_inches())
+        return float(_pos.height) * _fig_h if horizontal else float(_pos.width) * _fig_w
+    except Exception:
+        logger.debug("could not measure the category axis for tick budgeting; falling back to the fixed cap", exc_info=True)
+        return None
 
 
 def _bar_colors(colors, values):
@@ -167,10 +179,9 @@ _CAPTION_FONTSIZE = CAPTION_FONTSIZE
 # A point within this fraction of an axis edge gets its inline label flipped to the other side, so the text
 # stays inside the panel instead of being clipped mid-word.
 _EDGE_LABEL_FLIP_FRACTION = 0.08
-# Bar-category label policy, matching the plotly renderer: past this many categories show ~_BAR_TICK_KEEP
-# evenly-spaced labels, and cap any single label so a long generated feature name cannot run off the axis.
-_BAR_TICK_THIN_THRESHOLD = 25
-_BAR_TICK_KEEP = 20
+# Bar-category labels are budgeted from the axis's MEASURED length (``ticks_that_fit`` plus the pitch one
+# label needs), not from a flat "past 25 categories keep 20" -- that cancelled out the height the
+# slice-finder builders buy per bar.
 # _BAR_LABEL_MAXLEN / truncate_bar_label come from ._shared_helpers (one definition, both backends).
 
 
@@ -724,16 +735,16 @@ class MatplotlibRenderer:
             # Thin AND truncate, as the vertical branch below and both plotly orientations do. A 200-category horizontal feature-importance chart otherwise smears its
             # y axis into an unreadable band of overlapping text, and a long generated feature name runs off
             # the left edge. The bars stay 1-per-category; only the LABELS are subsampled.
+            # Against the axis's MEASURED length, not the category count. The count-based "past 25, keep 20"
+            # cancelled out the height a builder deliberately bought: slice_finder and
+            # category_discriminability both grow the figure 0.5in per bar, so at top_k=40 the axis had room
+            # for every label and the renderer still hid twenty of them, leaving twenty unidentifiable bars.
             n_cat = len(p.categories)
             _cats = [truncate_bar_label(c, keep_tail=p.label_keep_tail) for c in p.categories]
-            if n_cat > _BAR_TICK_THIN_THRESHOLD:
-                step = int(np.ceil(n_cat / _BAR_TICK_KEEP))
-                sel = np.arange(0, n_cat, step)
-                ax.set_yticks(pos[sel])
-                ax.set_yticklabels([_cats[i] for i in sel], fontsize=8)
-            else:
-                ax.set_yticks(pos)
-                ax.set_yticklabels(_cats, fontsize=8)
+            _keep = _thin_tick_positions(n_cat, ticks_that_fit(_measured_axis_in(ax, horizontal=True), n_cat,
+                                                               pitch_in=rotated_tick_pitch_in(_HEATMAP_TICK_FONTSIZE, 0)))
+            ax.set_yticks(pos[np.asarray(_keep)])
+            ax.set_yticklabels([_cats[i] for i in _keep], fontsize=_HEATMAP_TICK_FONTSIZE)
             ax.invert_yaxis()  # first category on top -> worst-first ranking reads top-down
             _pad_sparse_category_axis(ax, len(p.categories), horizontal=True)
         else:
@@ -747,18 +758,26 @@ class MatplotlibRenderer:
             # ones now rather than 25 and 20 written out again, so the same numbers stop living in four places.
             n_cat = len(p.categories)
             _cats_v = [truncate_bar_label(c, keep_tail=p.label_keep_tail) for c in p.categories]
-            if n_cat > _BAR_TICK_THIN_THRESHOLD:
-                step = int(np.ceil(n_cat / _BAR_TICK_KEEP))
-                sel = np.arange(0, n_cat, step)
-                ax.set_xticks(pos[sel])
-                ax.set_xticklabels(
-                    [_cats_v[i] for i in sel],
-                    rotation=p.xtick_rotation or 0,
-                    ha="right" if p.xtick_rotation else "center", fontsize=8,
-                )
-            else:
-                ax.set_xticks(pos)
-                ax.set_xticklabels(_cats_v, rotation=p.xtick_rotation, ha="right" if p.xtick_rotation else "center", fontsize=8)
+            # Unrotated labels on a horizontal axis sit end to end, so what has to fit is the widest one's
+            # WIDTH; rotated ones are parallel lines and clear each other at a line height perpendicular to
+            # themselves. Either way the budget comes from the axis's measured length, not the count.
+            _axis_in = _measured_axis_in(ax, horizontal=False)
+            _rotation = float(p.xtick_rotation or 0.0)
+            if not _rotation:
+                _flat = label_width_pitch_in(_cats_v, _HEATMAP_TICK_FONTSIZE)
+                # Rotating buys labels: upright ones sit end to end and need the widest label's WIDTH, while
+                # 45-degree ones are parallel lines clearing at a line height. Only take the rotation when
+                # upright genuinely does not fit, which is also what the plotly twin does.
+                if ticks_that_fit(_axis_in, n_cat, pitch_in=_flat) < n_cat:
+                    _rotation = 45.0
+            _pitch = rotated_tick_pitch_in(_HEATMAP_TICK_FONTSIZE, _rotation) if _rotation else label_width_pitch_in(_cats_v, _HEATMAP_TICK_FONTSIZE)
+            _keep_v = _thin_tick_positions(n_cat, ticks_that_fit(_axis_in, n_cat, pitch_in=_pitch))
+            ax.set_xticks(pos[np.asarray(_keep_v)])
+            ax.set_xticklabels(
+                [_cats_v[i] for i in _keep_v],
+                rotation=_rotation,
+                ha="right" if _rotation else "center", fontsize=_HEATMAP_TICK_FONTSIZE,
+            )
             _pad_sparse_category_axis(ax, len(p.categories), horizontal=False)
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)

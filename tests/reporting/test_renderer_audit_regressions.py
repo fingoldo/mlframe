@@ -120,9 +120,13 @@ class TestTickThinningMatchesAcrossBackends:
         """A 200-category horizontal FI chart smeared its y axis; plotly already capped labels."""
         cats = tuple(f"a_very_long_generated_feature_name_number_{i}" * 2 for i in range(200))
         panel = BarPanelSpec(categories=cats, values=np.arange(200.0), orientation="horizontal", title="FI")
-        ax = MatplotlibRenderer().render(FigureSpec(panels=((panel,),), figsize=(8.0, 10.0))).get_axes()[0]
+        fig = MatplotlibRenderer().render(FigureSpec(panels=((panel,),), figsize=(8.0, 10.0)))
+        ax = fig.get_axes()[0]
         drawn = [t.get_text() for t in ax.get_yticklabels()]
-        assert len(drawn) <= mpl_mod._BAR_TICK_KEEP + 1
+        # Budgeted against the axis's real length rather than a flat cap, so the bound is what one label
+        # needs: 200 names cannot fit in ten inches however generously they are spaced.
+        axis_in = float(ax.get_position().height) * float(fig.get_size_inches()[1])
+        assert len(drawn) <= axis_in / shared.rotated_tick_pitch_in(8, 0), f"{len(drawn)} labels drawn on a {axis_in:.1f}in axis"
         assert max(len(s) for s in drawn) <= shared._BAR_LABEL_MAXLEN + 2  # +2 for the ellipsis, as plotly
 
 

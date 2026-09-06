@@ -117,6 +117,16 @@ def rotated_tick_pitch_in(fontsize: float, rotation_deg: float) -> float:
     return line_h_in / math.sin(theta) if theta > 0.0 else line_h_in
 
 
+def label_width_pitch_in(labels: Any, fontsize: float) -> float:
+    """Spacing an axis of UNROTATED, side-by-side tick labels needs: the widest label plus a gutter.
+
+    The rotated and stacked cases clear each other at a line HEIGHT; an unrotated horizontal axis does not
+    -- two labels there sit end to end, so what has to fit is the widest one's width.
+    """
+    widest = max((_measured_text_width_pt(str(lab), fontsize) for lab in labels), default=0.0)
+    return widest / 72.0 + 0.08
+
+
 def ticks_that_fit(extent_in: Optional[float], n: int, *, floor: int = _HEATMAP_MAX_TICKS, pitch_in: float = _TICK_LABEL_PITCH_IN) -> int:
     """How many tick labels fit along an axis ``extent_in`` inches long, never fewer than ``floor``.
 

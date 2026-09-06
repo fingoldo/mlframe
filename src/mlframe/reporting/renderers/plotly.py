@@ -14,7 +14,6 @@ Save formats:
 from __future__ import annotations
 
 import logging
-import math
 import os
 from typing import Any, ClassVar, List, Optional
 
@@ -46,7 +45,7 @@ from ._plotly_color import _rgba, _mpl_to_plotly_cmap
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
     _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, PX_PER_INCH,
     CAPTION_FONTSIZE, CAPTION_WRAP_CHARS, PANEL_TITLE_FONTSIZE, SUPTITLE_WRAP_CHARS,
-    _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks, rotated_tick_pitch_in, ticks_that_fit,
+    _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks, label_width_pitch_in, plotly_axis_suffix, rotated_tick_pitch_in, ticks_that_fit,
     histogram_bar_extent, low_evidence_mask, panel_title_wrap_chars, select_per_point, truncate_bar_label, wrap_annotation_text,
     wrap_text_to_width, wrap_title_lines,
 )
@@ -87,8 +86,9 @@ _PX_PER_INCH = PX_PER_INCH
 _STACKED_LABEL_ROWS = 2
 _STACKED_LABEL_SHIFT_PX = 11
 _VIOLIN_LABEL_MAXLEN = 20  # matches the matplotlib twin; a 30-deg rotated label projects most of its length
+# Past this many categories the vertical branch switches to explicit, rotated tick text; how many of
+# them survive is then decided by ``_bar_tick_budget`` from the axis's real length.
 _BAR_XTICK_THIN_THRESHOLD = 25
-_BAR_XTICK_KEEP = 20
 # 60, not 24: the matplotlib renderer truncates nothing at all and stays readable at the same figsize
 # because both backends already rotate these labels -- so a 24-char cap only made the plotly twin LESS
 # informative than its matplotlib counterpart, turning e.g. "job_posted_at_day_of_year_cos" into
@@ -429,6 +429,8 @@ class PlotlyRenderer:
             for _c, _panel in enumerate(_row, start=1):
                 if isinstance(_panel, HeatmapPanelSpec):
                     apply_heatmap_tick_budget(fig, _panel, _r, _c)
+                elif isinstance(_panel, BarPanelSpec):
+                    self._bar_tick_budget(fig, _panel, _r, _c)
                 elif isinstance(_panel, ViolinPanelSpec):
                     _kept = [(np.asarray(g, dtype=float), lab) for g, lab in zip(_panel.groups, _panel.group_labels)]
                     self._violin_tick_budget(fig, [(g[np.isfinite(g)], lab) for g, lab in _kept if g[np.isfinite(g)].size > 0], _r, _c)
@@ -688,14 +690,9 @@ class PlotlyRenderer:
             # branch -- only the horizontal one was left out. A 200-row feature-importance chart had a clean
             # 20-label axis in the PNG and an unreadable band of overlapping text in the HTML, from one spec.
             # The bars stay one per category; only the labels subsample.
-            _n_cat = len(cats)
-            if _n_cat > _BAR_XTICK_THIN_THRESHOLD:
-                _step = math.ceil(_n_cat / _BAR_XTICK_KEEP)
-                _sel = list(range(0, _n_cat, _step))
-                fig.update_yaxes(tickmode="array", tickvals=[cats[i] for i in _sel],
-                                 ticktext=[_truncate_label(cats[i], keep_tail=p.label_keep_tail) for i in _sel], row=row, col=col)
-            elif any(len(str(c)) > _BAR_XTICK_MAXLEN for c in cats):  # truncate long feature-name labels on the y-axis so they don't crowd the panel
-                fig.update_yaxes(tickmode="array", tickvals=cats, ticktext=[_truncate_label(c, keep_tail=p.label_keep_tail) for c in cats], row=row, col=col)
+            # Truncation here; the SUBSAMPLING runs after the layout is final (``_bar_tick_budget``), because
+            # the axis length it has to fit into is not known while panels are being drawn.
+            fig.update_yaxes(tickmode="array", tickvals=list(cats), ticktext=[_truncate_label(c, keep_tail=p.label_keep_tail) for c in cats], row=row, col=col)
             fig.update_yaxes(autorange="reversed", row=row, col=col)
             # ``xlabel`` names the VALUE and ``ylabel`` the CATEGORY, whatever the orientation -- that is what
             # every horizontal-bar builder in charts/ passes ("ECE (lower = better calibrated)" / "subgroup",
@@ -710,11 +707,9 @@ class PlotlyRenderer:
             tickangle = -p.xtick_rotation if p.xtick_rotation else 0
             needs_trunc = any(len(str(c)) > _BAR_XTICK_MAXLEN for c in cats)
             if n_cat > _BAR_XTICK_THIN_THRESHOLD:
-                step = math.ceil(n_cat / _BAR_XTICK_KEEP)
-                sel = list(range(0, n_cat, step))
                 fig.update_xaxes(tickmode="array",
-                                 tickvals=[cats[i] for i in sel],
-                                 ticktext=[_truncate_label(cats[i], keep_tail=p.label_keep_tail) for i in sel],
+                                 tickvals=list(cats),
+                                 ticktext=[_truncate_label(c, keep_tail=p.label_keep_tail) for c in cats],
                                  tickangle=tickangle if p.xtick_rotation else -45,
                                  row=row, col=col, title_text=p.xlabel, showgrid=False)
             elif needs_trunc:
@@ -965,6 +960,40 @@ class PlotlyRenderer:
         fig.update_xaxes(title_text=p.xlabel, row=row, col=col, tickangle=-30)
         fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
         self._violin_tick_budget(fig, drawable, row, col)
+
+    def _bar_tick_budget(self, fig, p: BarPanelSpec, row: int, col: int) -> None:
+        """Subsample the bar category labels to what the axis can hold, as the matplotlib twin does.
+
+        A flat "past 25 categories keep 20" cancelled out the size a builder deliberately bought:
+        slice_finder and category_discriminability both grow the figure half an inch per bar, so a 40-bar
+        chart had room for every label and twenty of them were dropped anyway.
+        """
+        from ._plotly_heatmap import _cell_domains
+
+        _horizontal = getattr(p, "orientation", "vertical") == "horizontal"
+        _axis = fig.layout[("yaxis" if _horizontal else "xaxis") + plotly_axis_suffix(fig, row, col, len(fig._grid_ref[0]) if fig._grid_ref else 1)]
+        _text = list(_axis.ticktext or ())
+        if not _text:
+            return
+        _dom = _cell_domains(fig, row, col)
+        _extent_in = None
+        if _dom is not None and fig.layout.width and fig.layout.height:
+            (_x0, _x1), (_y0, _y1), _, _ = _dom
+            _m = fig.layout.margin
+            if _horizontal:
+                _extent_in = (float(_y1) - float(_y0)) * max(float(fig.layout.height) - float(_m.t or 0) - float(_m.b or 0), 1.0) / _PX_PER_INCH
+            else:
+                _extent_in = (float(_x1) - float(_x0)) * max(float(fig.layout.width) - float(_m.l or 0) - float(_m.r or 0), 1.0) / _PX_PER_INCH
+        if _horizontal:
+            _pitch = rotated_tick_pitch_in(9, 0)
+        else:
+            _rot = float(_axis.tickangle or 0)
+            _pitch = rotated_tick_pitch_in(9, _rot) if _rot else label_width_pitch_in(_text, 9)
+        _keep = _thin_tick_positions(len(_text), ticks_that_fit(_extent_in, len(_text), pitch_in=_pitch))
+        if len(_keep) < len(_text):
+            _vals = list(_axis.tickvals or ())
+            _axis.tickvals = [_vals[i] for i in _keep] if _vals else None
+            _axis.ticktext = [_text[i] for i in _keep]
 
     def _violin_tick_budget(self, fig, drawable, row: int, col: int) -> None:
         """Thin the violin category labels to what the panel can hold, as the matplotlib twin does.

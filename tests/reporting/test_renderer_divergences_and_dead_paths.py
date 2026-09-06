@@ -247,22 +247,24 @@ class TestTheBarLabelIsTruncatedOnBothOrientations:
             assert labels[1] == "short", f"{orientation}: a short label must be left alone, got {labels[1]!r}"
             assert len(labels[0]) < len(long_name), f"{orientation}: the long label was not truncated ({len(labels[0])} chars)"
 
-    def test_the_thinning_constants_are_not_written_out_again(self):
-        """25 and 20 lived in four places across two backends; both branches must read the shared names.
+    def test_the_thinning_policy_is_not_written_out_again(self):
+        """The label budget must come from the shared helpers, not from numbers re-typed in the branch.
 
-        Structural by necessity: "this literal is not written out a second time" has no behavioural signature,
-        because a re-inlined 25 renders identically right up until someone changes one copy. Asserted on the
-        parsed function rather than its text, so reformatting and renamed locals do not move it.
+        Structural by necessity: "this policy is not reimplemented here" has no behavioural signature,
+        because an inlined copy renders identically right up until someone changes one of them. The old
+        flat cap (25 categories, keep 20) has been replaced by a measured budget, and that budget is what
+        must not be re-derived locally. Asserted on the parsed function rather than its text, so
+        reformatting and renamed locals do not move it.
         """
         from mlframe.reporting.renderers import matplotlib as _mpl_renderer
         from tests._source_ast import function_ast, loaded_names, numeric_literals
 
         bar = function_ast(_mpl_renderer, "MatplotlibRenderer._bar")
         names = loaded_names(bar)
-        assert "_BAR_TICK_THIN_THRESHOLD" in names, "the tick-thinning threshold is not read from the shared constant"
-        assert "_BAR_TICK_KEEP" in names, "the tick-keep count is not read from the shared constant"
+        for helper in ("ticks_that_fit", "_thin_tick_positions", "rotated_tick_pitch_in", "label_width_pitch_in"):
+            assert helper in names, f"_bar does not use the shared {helper}; the label budget is being decided some other way"
         inlined = {v for v in numeric_literals(bar) if v in (20, 25)}
-        assert not inlined, f"a thinning constant is inlined again in _bar: {sorted(inlined)}"
+        assert not inlined, f"the retired flat cap is back in _bar: {sorted(inlined)}"
 
 
 class TestFalsyValuedSpecFieldsAreHonoured:

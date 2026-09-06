@@ -341,3 +341,23 @@ its unknown-name fallback (Viridis, with a WARN) -- right by accident, and it wo
 the moment the default changed. Both branches resolve the sentinel now. Found while rendering the panel for
 LBL-01, not by reading the spec; pinned by ``tests/reporting/test_network_labels_and_colormap.py``, whose
 render tests fail against the raw subscript.
+
+## Dispositions, second pass (parent, 2026-09-07)
+
+**LBL-04 RESOLVED** (in an earlier commit of this wave). Both orientations now thin on both backends.
+
+**LBL-06 RESOLVED.** The flat "past 25 categories keep 20" is gone from all four bar branches; every one
+budgets from the category axis's MEASURED length against the pitch one label actually needs. Two pitches,
+because the geometry differs: unrotated labels on a horizontal axis sit end to end and need the widest
+label's WIDTH (`label_width_pitch_in`), while stacked or rotated ones clear each other at a line height
+perpendicular to themselves (`rotated_tick_pitch_in`). A 40-bar chart on the builders' own 0.5in-per-bar
+figure now names all 40; a 60-bar chart on a 4-inch axis still thins.
+
+Rendering it turned up a second, smaller thing worth fixing: matplotlib left upright x labels upright and
+simply dropped more of them, where plotly rotated to -45 and kept more. Rotating buys labels, so matplotlib
+now rotates too -- but only once upright genuinely does not fit, so short axes are left alone.
+
+Three existing tests pinned the retired flat cap and are reframed to the measured contract rather than
+relaxed: two count assertions become "no more labels than the axis can hold", and the structural one that
+checked `_bar` reads the two named constants now checks it uses the shared budget helpers and has not
+re-inlined 20/25. The constants themselves are deleted rather than left dangling.
