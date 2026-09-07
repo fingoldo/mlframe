@@ -271,10 +271,10 @@ def _mini_gain(sort: _ScoreSort) -> PanelSpec:
     """Decimated cumulative-gain curve sparkline; a text annotation when there are no positives to capture."""
     if sort.n_pos == 0:
         return AnnotationPanelSpec(text="gain n/a\n(no positives)", title="mini gain")
-    pop = np.arange(1, sort.n + 1, dtype=np.float64) / sort.n
-    gain = sort.cum_tp.astype(np.float64) / sort.n_pos
-    pop = np.concatenate(([0.0], pop))
-    gain = np.concatenate(([0.0], gain))
+    # Same distinct-score sampling as the full gain panel; see ``gain_curve_points``.
+    from .binary import gain_curve_points
+
+    pop, gain = gain_curve_points(sort)
     x_thin, (gain_thin,) = _decimate(pop, gain, cap=_MINI_VERTEX_CAP)
     return LinePanelSpec(
         x=x_thin, y=(gain_thin, x_thin.copy()), series_labels=("model", "baseline"),

@@ -61,6 +61,44 @@ def _needs_layout_engine(spec) -> bool:
     return False
 
 
+def _annotation_panel_width_in(ax) -> float:
+    """Width in inches the free-text panel currently has, from its live extent."""
+    dpi = float(ax.figure.dpi)
+    return float(ax.get_window_extent().width) / (dpi if dpi > 0 else 100.0)
+
+
+def _rewrap_annotation_after_layout(ax, text_artist, panel) -> None:
+    """Re-wrap the panel's text once the layout engine has settled the cell it actually occupies.
+
+    Constrained layout does not compute final axes geometry until draw time, so the wrap at build time is
+    measured against the pre-layout rectangle. That is conservative rather than wrong -- the panel ends up
+    WIDER, not narrower -- but it leaves about a fifth of the cell unused on a figure whose siblings give
+    width back. Rewrapping on the first draw recovers it.
+
+    Guarded against re-entry: the rewrap changes the artist, which would schedule another draw, which would
+    rewrap again. The callback disconnects itself before touching anything.
+    """
+    figure = ax.figure
+    state = {"cid": None}
+
+    def _on_draw(_event) -> None:
+        """Rewrap once, then unsubscribe so the redraw this triggers cannot re-enter."""
+        if state["cid"] is not None:
+            figure.canvas.mpl_disconnect(state["cid"])
+            state["cid"] = None
+        try:
+            rewrapped = wrap_annotation_text(panel.text, _annotation_panel_width_in(ax), panel.fontsize)
+            if rewrapped != text_artist.get_text():
+                text_artist.set_text(rewrapped)
+        except Exception:
+            logger.debug("could not rewrap the annotation panel after layout; the build-time wrap stands", exc_info=True)
+
+    try:
+        state["cid"] = figure.canvas.mpl_connect("draw_event", _on_draw)
+    except Exception:
+        logger.debug("no canvas to hook the annotation rewrap onto; the build-time wrap stands", exc_info=True)
+
+
 def _measured_axis_in(ax, *, horizontal: bool) -> Optional[float]:
     """Length in inches of the axis the category labels run along, or ``None`` when it cannot be measured."""
     try:
@@ -435,16 +473,18 @@ class MatplotlibRenderer:
         """Render a free-text panel (no axes/data): centered text wrapped to the panel's own width, no ticks/spines."""
         # Wrap here rather than via matplotlib's `wrap=True`, which measures against the FIGURE box and never breaks
         # long tokens -- see wrap_annotation_text for the measured numbers.
-        # Measured BEFORE constrained layout runs, which is a known conservatism rather than the overflow
-        # it looks like: measured on a heatmap-plus-colorbar sibling, the cell this panel ends up in is
-        # WIDER after layout (4.38in) than the rectangle wrapped against (3.52in), so the text under-uses
-        # the panel and never spills out of it. Rewrapping in a draw callback would recover that width.
-        bbox = ax.get_window_extent()
-        _dpi = float(ax.figure.dpi)
-        panel_w_in = float(bbox.width) / (_dpi if _dpi > 0 else 100.0)
-        text = wrap_annotation_text(p.text, panel_w_in, p.fontsize)
+        #
+        # Wrapped twice on purpose. The width available at THIS point is the pre-layout one, and constrained
+        # layout has not run: measured on a heatmap-plus-colorbar sibling the cell this panel ends up in is
+        # 4.38in against the 3.52in wrapped against, so a single pass here leaves a fifth of the panel
+        # unused. The first pass makes the figure drawable at all; the callback below rewraps against the
+        # width the panel actually got, and does so once -- re-entering on its own draw would recurse.
         family = "monospace" if getattr(p, "monospace", False) else None
-        ax.text(0.5, 0.5, text, ha="center", va="center", fontsize=p.fontsize, transform=ax.transAxes, family=family)
+        text_artist = ax.text(
+            0.5, 0.5, wrap_annotation_text(p.text, _annotation_panel_width_in(ax), p.fontsize),
+            ha="center", va="center", fontsize=p.fontsize, transform=ax.transAxes, family=family,
+        )
+        _rewrap_annotation_after_layout(ax, text_artist, p)
         _set_panel_title(ax, p.title)
         ax.set_xticks([])
         ax.set_yticks([])

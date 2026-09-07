@@ -508,10 +508,29 @@ change the value. Stability is load-bearing for those two.
 Bench saved as `src/mlframe/reporting/_benchmarks/bench_score_sort_tie_gate.py`, with a `bench-attempt-rejected` note at the call
 site, so re-opening it starts from the measurement rather than from the idea.
 
-**Separate observation, NOT acted on:** a cumulative-gain curve stepping through a tied run presents an
+**Separate observation, since ACTED ON:** a cumulative-gain curve stepping through a tied run presents an
 arbitrary within-run order as though it were a real ranking. That is a correctness question about what the
-curve means on quantised scores, not a performance one, and it wants its own decision rather than a change
+curve means on quantised scores, not a performance one, and it wanted its own decision rather than a change
 smuggled in under a sort optimisation.
+
+**RESOLVED, separately from PERF-09.** Measured first, on a 20k-row column of 2-dp tree scores: 19,899 of
+the 20,000 curve points sat inside a tied run, and merely reshuffling the tied rows moved the drawn curve
+by up to 0.25% of all positives captured. At the run ENDS the two orderings agreed to 0.00e+00.
+
+`gain_curve_points` (`charts/binary.py`) now samples the curve at DISTINCT scores and lets the polyline
+join them, which is what ROC/PR already do through `distinct_threshold_counts`. The straight segment across
+a tied group is not a smoothing: it IS the expected capture under a random ordering of that group, the only
+reading the model's own output supports. Both drawing sites go through it -- the full gain panel and
+`model_card._mini_gain`. On the measurement fixture the curve dropped from 20,001 vertices to 102 and
+became bit-identical under a tie reshuffle.
+
+This does NOT reopen PERF-09: the interior-index read is gone from the gain curve, but the AP label
+sequence (`binary.py:250`) still reads `cum_tp` inside a run, so the stable sort stays load-bearing and
+the quicksort gate stays rejected on its own measured 1.6x regression.
+
+Pinned by `tests/reporting/test_gain_curve_ties.py` (6 tests). One of them reconstructs the pre-fix
+per-rank formula and asserts it DOES move under the reshuffle, so the defect stays pinned permanently
+rather than by a temporary revert. Verified by rendering the gain panel to PNG and reading it.
 
 **PERF-07 RESOLVED, memoised rather than threaded through the builders.** The finding suggests computing
 the prep once and passing the densified `(mat, names)` into both builders as an optional pre-resolved
