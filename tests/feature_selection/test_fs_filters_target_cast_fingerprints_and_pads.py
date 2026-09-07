@@ -379,7 +379,14 @@ def test_the_polynom_deadline_is_passed_explicitly_into_the_workers():
         params = {a.arg for a in defs[fn_name].args.args} | {a.arg for a in defs[fn_name].args.kwonlyargs}
         assert "fe_deadline" in params, f"{fn_name} no longer accepts fe_deadline, so it cannot be forwarded across the boundary"
 
-    assert "set_fe_deadline" in called_names(module_ast(polynom_pair_fe)), "the worker no longer re-establishes the deadline in its own thread, so the check is unreachable again"
+    # The CONTRACT is that the worker re-publishes the deadline into its own execution context; which API
+    # does that is not the contract. `set_fe_deadline` was the original, and `fe_deadline_scope` replaced it
+    # (c42d20437) precisely because loky REUSES worker processes: a bare set leaks the budget into later
+    # fits that were given none, where the scope restores on exit. Accept either, and fail only if the
+    # worker re-publishes nothing at all -- which is what makes the check unreachable again.
+    _republishers = {"set_fe_deadline", "fe_deadline_scope"}
+    _called = set(called_names(module_ast(polynom_pair_fe)))
+    assert _republishers & _called, f"the worker re-establishes the deadline by none of {sorted(_republishers)}, so the check is unreachable again"
 
 
 def test_the_target_encoding_moment_divisions_are_guarded():
