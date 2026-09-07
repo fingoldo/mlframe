@@ -27,6 +27,8 @@ subsampled with extremes preserved; curves stay under a few thousand vertices.
 from __future__ import annotations
 
 import logging
+import threading
+import weakref
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -92,6 +94,17 @@ def _per_row_error(
 _EMPTY_COLUMN: np.ndarray = np.empty(0, dtype=np.float64)
 
 
+_MATRIX_CACHE_MAX = 2
+_MATRIX_CACHE: dict = {}
+_MATRIX_LOCK = threading.Lock()
+
+
+def clear_feature_matrix_cache() -> None:
+    """Drop every memoised densify. For tests, and for a caller that wants the frame released immediately."""
+    with _MATRIX_LOCK:
+        _MATRIX_CACHE.clear()
+
+
 def _resolve_feature_matrix(
     X: Any,
     feature_names: Optional[Sequence[str]],
@@ -106,6 +119,39 @@ def _resolve_feature_matrix(
     sequence" trying to broadcast the list into a fixed-width string array -- so those columns are dropped
     (a single embedding vector isn't a meaningful scalar split feature anyway).
     """
+    # Memoised on the frame's IDENTITY. The dispatch hands the SAME sub-frame to the weak-segment and
+    # slice-finder builders one after the other, and each densified it independently -- 0.29 s on
+    # 100k x 200 all-numeric, 2.55 s with twenty object columns. Hashing a frame that may be 100 GB to avoid
+    # that would be far worse than the densify. Identity alone is unsound because a freed object's id is
+    # reused, so the entry holds a WEAK reference and the hit is confirmed against it; weak, not strong, so
+    # a cache entry can never pin the caller's frame.
+    _key = (id(X), tuple(feature_names) if feature_names is not None else None)
+    with _MATRIX_LOCK:
+        _entry = _MATRIX_CACHE.get(_key)
+    if _entry is not None:
+        _ref, _cached = _entry
+        if _ref() is X:
+            _mat, _names = _cached
+            return _mat, list(_names)
+    _result = _resolve_feature_matrix_uncached(X, feature_names)
+    _weak_x = None
+    try:
+        _weak_x = weakref.ref(X)
+    except TypeError:
+        pass  # not weak-referenceable (a bare ndarray): skip the cache rather than risk a stale hit
+    if _weak_x is not None:
+        with _MATRIX_LOCK:
+            if len(_MATRIX_CACHE) >= _MATRIX_CACHE_MAX:
+                _MATRIX_CACHE.pop(next(iter(_MATRIX_CACHE)), None)
+            _MATRIX_CACHE[_key] = (_weak_x, _result)
+    return _result
+
+
+def _resolve_feature_matrix_uncached(
+    X: Any,
+    feature_names: Optional[Sequence[str]],
+) -> Tuple[np.ndarray, List[str]]:
+    """The densify itself, with no memoisation -- the body ``_resolve_feature_matrix`` wraps."""
     if hasattr(X, "columns") and hasattr(X, "__getitem__") and not isinstance(X, np.ndarray):
         cols = list(X.columns)
         all_names = list(feature_names) if feature_names is not None else [str(c) for c in cols]

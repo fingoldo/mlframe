@@ -168,6 +168,32 @@ def _bounded_sample_idx(n: int, loss: np.ndarray, seed: int = 0) -> np.ndarray:
     )
 
 
+def _prepared_error_inputs(df: Any, yt: np.ndarray, yp: np.ndarray, task: str, seed: int, n: int, feature_names: Optional[Sequence[str]]):
+    """``(loss, sample_idx, sub_df, names)`` for the error diagnostics, computed once per (frame, target, seed).
+
+    Both entry points draw the same bounded worst-error-preserving sample from the same per-row error, cap
+    the same columns and gather the same rows. Returning the SAME sub-frame OBJECT to both is what lets the
+    builders' own densify cache spare the second resolve.
+    """
+    from ._diagnostics_prep import shared_error_prep
+
+    def _build():
+        """The preparation itself, run only on a cache miss."""
+        from mlframe.reporting.charts.error_analysis import _per_row_error
+
+        loss = _per_row_error(yt, yp, task=task)
+        loss_finite = np.where(np.isfinite(loss), loss, -np.inf)
+        sample_idx = _bounded_sample_idx(n, loss_finite, seed=seed)
+        # Cap COLUMNS first, then subset rows. Doing it the other way materialised DIAG_ROW_CAP rows x ALL
+        # columns before throwing most of them away -- on a 5,000-row cap against a 500-column frame that is
+        # a ~25x wider intermediate than the diagnostic ever reads. Column selection is a view/projection,
+        # so narrowing first makes the row gather proportional to what is actually used.
+        _capped_df, names = _select_feature_columns(df, feature_names, DIAG_MAX_FEATURES)
+        return loss, sample_idx, _subset_rows(_capped_df, sample_idx), names
+
+    return shared_error_prep(df, yt, yp, task, seed, _build)
+
+
 def render_split_error_diagnostics(
     *,
     df: Any,
@@ -206,25 +232,16 @@ def render_split_error_diagnostics(
     yt, yp = yt[:n], yp[:n]
 
     from mlframe.reporting.charts.error_analysis import (
-        _per_row_error,
         error_bias_per_feature,
         segments_bar,
         weak_segment_heatmap,
         worst_k_table,
     )
 
-    loss = _per_row_error(yt, yp, task=task)
-    loss_finite = np.where(np.isfinite(loss), loss, -np.inf)
-
-    # Worst-K table on the FULL arrays so the highlight indices map onto the caller's data (no frame densify needed --
-    # only the K worst rows pull feature values). Surface the table in the caller's metrics dict.
-    sample_idx = _bounded_sample_idx(n, loss_finite, seed=seed)
-    # Cap COLUMNS first, then subset rows. Doing it the other way materialised DIAG_ROW_CAP rows x ALL
-    # columns before throwing most of them away -- on a 5,000-row cap against a 500-column frame that is a
-    # ~25x wider intermediate than the diagnostic ever reads. Column selection is a view/projection, so
-    # narrowing first makes the row gather proportional to what is actually used.
-    _capped_df, names = _select_feature_columns(df, feature_names, DIAG_MAX_FEATURES)
-    sub_df = _subset_rows(_capped_df, sample_idx)
+    # Shared with the slice-finder diagnostic, which a report runs on the same frame, targets and seed
+    # immediately afterwards and which prepared all of this a second time -- including the densify inside
+    # its builder, 0.29 s on 100k x 200 all-numeric and 2.55 s with twenty object columns.
+    loss, sample_idx, sub_df, names = _prepared_error_inputs(df, yt, yp, task, seed, n, feature_names)
     if timestamps is None:
         ts_arg = None
     elif n <= DIAG_ROW_CAP:
@@ -681,15 +698,11 @@ def render_slice_finder_diagnostic(
         return False
     yt, yp = yt[:n], yp[:n]
 
-    from mlframe.reporting.charts.error_analysis import _per_row_error
     from mlframe.reporting.charts.slice_finder import find_weak_slices
 
-    loss = _per_row_error(yt, yp, task=task)
-    loss_finite = np.where(np.isfinite(loss), loss, -np.inf)
-    idx = _bounded_sample_idx(n, loss_finite, seed=seed)
-    # Column cap before the row gather -- see the identical note in the split-error path above.
-    _capped_df, names = _select_feature_columns(df, feature_names, DIAG_MAX_FEATURES)
-    sub_df = _subset_rows(_capped_df, idx)
+    # Same prepared inputs the split-error diagnostic used, reused rather than rebuilt -- see
+    # ``_prepared_error_inputs``.
+    _, idx, sub_df, names = _prepared_error_inputs(df, yt, yp, task, seed, n, feature_names)
     try:
         res = find_weak_slices(
             sub_df, yt[idx], yp[idx], task=task, feature_names=names, seed=seed,

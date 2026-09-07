@@ -512,3 +512,25 @@ site, so re-opening it starts from the measurement rather than from the idea.
 arbitrary within-run order as though it were a real ranking. That is a correctness question about what the
 curve means on quantised scores, not a performance one, and it wants its own decision rather than a change
 smuggled in under a sort optimisation.
+
+**PERF-07 RESOLVED, memoised rather than threaded through the builders.** The finding suggests computing
+the prep once and passing the densified `(mat, names)` into both builders as an optional pre-resolved
+argument. That adds a parameter to two public builder signatures for a caching concern; memoising the two
+pure steps keeps the seam where it is and needs no signature change.
+
+Two caches, both keyed on object IDENTITY -- hashing a frame that may be 100 GB to avoid a 2.5 s densify
+would cost far more than the densify:
+
+* `_diagnostics_prep.shared_error_prep` memoises `(loss, sample_idx, sub_df, names)` on
+  `(df, y_true, y_pred, task, seed)`, so the second entry point gets back the SAME sub-frame object.
+* `_resolve_feature_matrix` memoises the densify on that frame's identity, which is what the first cache
+  makes possible: measured **0.417 s -> 0.00001 s** on 100k x 200 with twenty object columns.
+
+Both hold WEAK references and confirm every hit against them. A freed object's id is reused, and an
+unconfirmed hit would hand one report's frame to another report's diagnostic. Weak rather than strong so a
+cache entry can never pin the caller's frame, which is what this package's memory rules exist to prevent;
+both caches are bounded and both expose an explicit clear.
+
+`tests/reporting/test_shared_error_prep.py` (9 tests). Each property probed on its own: trusting the id
+alone fails the stale-entry and different-frame tests, and holding strong references fails the pinning
+tests.
