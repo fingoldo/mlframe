@@ -114,6 +114,12 @@ class _ScoreSort:
     __slots__ = ("_dtc", "_run_end", "cum_fp", "cum_tp", "n", "n_neg", "n_pos", "scores_desc")
 
     def __init__(self, y_true: np.ndarray, y_score: np.ndarray):
+        # bench-attempt-rejected: quicksort plus an O(n) tie check on the sorted array, re-sorting stably
+        # only when ties exist. 2.28x on continuous scores and 0.61x -- a 1.6x REGRESSION -- on quantised
+        # tree-model scores, which is the input this package sees most. The stability is also load-bearing
+        # beyond the tie check: the cumulative-gain curve and the AP label sequence read cum_tp at INTERIOR
+        # indices of a tied run, where the within-run order changes the value. See
+        # reporting/_benchmarks/bench_score_sort_tie_gate.py.
         order = np.argsort(y_score, kind="stable")[::-1]
         self.scores_desc = y_score[order]
         y_desc = y_true[order].astype(np.int64)

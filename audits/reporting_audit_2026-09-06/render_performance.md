@@ -489,3 +489,26 @@ apply to it.
 
 `tests/reporting/test_label_grouping.py` (9 tests). Both halves probed: removing the narrowing fails the
 radix-key test, and restoring the masks fails the paired comparison against them.
+
+**PERF-10 REJECTED, with the bench kept.** The finding files it as "a lead, not a recommendation", and
+measuring it confirms why. On this host at n=2M, stable-vs-gated: continuous scores **589.9 -> 259.0 ms
+(2.28x)**, tree-quantised 3-dp scores **372.6 -> 613.1 ms (0.61x, a 1.6x REGRESSION)**. The gate pays for
+both sorts whenever ties exist, and quantised tree-model scores are exactly the input this package serves
+most.
+
+There is no cheap safe-condition to gate on either: detecting ties without sorting is the same cost as the
+sort, and detecting them on a subsample would be probabilistic on a choice that changes the drawn curves.
+
+Also worth recording, because it rules out the "quicksort is unconditionally safe" reading: ROC/PR/AP go
+through `distinct_threshold_counts`, which reads `cum_tp` only at RUN ENDS and is therefore order-invariant
+within a tied run -- but the cumulative-gain curve (`binary.py:576`, `model_card.py:275`) and the AP label
+sequence (`binary.py:250`) read `cum_tp` at INTERIOR indices of a run, where the within-run order does
+change the value. Stability is load-bearing for those two.
+
+Bench saved as `src/mlframe/reporting/_benchmarks/bench_score_sort_tie_gate.py`, with a `bench-attempt-rejected` note at the call
+site, so re-opening it starts from the measurement rather than from the idea.
+
+**Separate observation, NOT acted on:** a cumulative-gain curve stepping through a tied run presents an
+arbitrary within-run order as though it were a real ranking. That is a correctness question about what the
+curve means on quantised scores, not a performance one, and it wants its own decision rather than a change
+smuggled in under a sort optimisation.
