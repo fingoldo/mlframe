@@ -17,6 +17,8 @@ assumed.
 from __future__ import annotations
 
 
+from typing import Any
+
 import numpy as np
 
 from mlframe.reporting.renderers._shared_helpers import heatmap_value_to_index
@@ -161,7 +163,10 @@ def _wrap_colorbar_title(label) -> str:
     text = str(label)
     if len(text) <= _COLORBAR_TITLE_WRAP:
         return text
-    return "<br>".join(textwrap.wrap(text, _COLORBAR_TITLE_WRAP) or [text])
+    # ``wrap`` returns [] for a whitespace-only title, and joining [] would erase it silently; an empty
+    # result is the only case that falls back, not any falsy caller value.
+    wrapped = textwrap.wrap(text, _COLORBAR_TITLE_WRAP)
+    return "<br>".join(wrapped if wrapped else [text])
 
 
 def _colorbar_placement(fig, row: int, col: int, label) -> dict:
@@ -247,7 +252,8 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
     # Skip per-cell text on an empty / all-non-finite matrix (nanmin raises / poisons the color scale) or a
     # huge grid where the per-annotation O(cells) plotly layout copy stalls and the text is unreadable soup anyway.
     rng = _finite_range(p.matrix)
-    if p.cell_text is not None and rng is not None and p.matrix.size <= _HEATMAP_CELL_TEXT_MAX:
+    drew_cell_text = p.cell_text is not None and rng is not None and p.matrix.size <= _HEATMAP_CELL_TEXT_MAX
+    if drew_cell_text and p.cell_text is not None and rng is not None:
         from mlframe.reporting.colors import auto_text_colors_batch
         mat = p.matrix
         vmin, vmax = rng
@@ -312,10 +318,14 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
                                # plotly can only write the LEVEL on a contour, never arbitrary text, so the
                                # triage wording rides in the trace name (legend + hover) while the inline
                                # label carries the number. Both beat the anonymous squiggle this drew before.
+                               # The inline label follows the contour, so on a grid that also carries per-cell
+                               # numbers it runs across them. The cell values are the more precise reading, so
+                               # the wording falls back to the legend and hover, which this trace already
+                               # carries. The matplotlib twin suppresses its own clabel in the same case.
                                contours=dict(start=level, end=level, size=1, coloring="none",
-                                             showlabels=True, labelfont=dict(size=7, color=color)),
+                                             showlabels=not drew_cell_text, labelfont=dict(size=7, color=color)),
                                line=dict(color=color, width=1.6, dash=_dash),
-                               name=_label or f"{level:g}", showlegend=bool(_label),
+                               name=_label if _label else f"{level:g}", showlegend=bool(_label),
                                showscale=False, hovertemplate=(f"{_label}<extra></extra>" if _label else "skip")),
                     row=row, col=col,
                 )
@@ -373,7 +383,7 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
     fig.update_yaxes(title_text=p.ylabel, row=row, col=col, **_y_kw)
 
 
-def apply_heatmap_tick_budget(fig, p, row: int, col: int) -> None:
+def apply_heatmap_tick_budget(fig: Any, p: HeatmapPanelSpec, row: int, col: int) -> None:
     """Thin one heatmap's tick labels to what its axes can actually hold.
 
     A density heatmap has ~80 cell labels per axis; one tick each overlaps into soup. The budget comes from

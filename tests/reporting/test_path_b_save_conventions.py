@@ -27,14 +27,29 @@ def _figure() -> Figure:
     return fig
 
 
-def test_the_path_b_pad_matches_the_renderer():
-    """One number, one definition: the renderer's savefig is the reference."""
-    from mlframe.reporting.renderers import matplotlib as renderer_mod
+def test_the_path_b_pad_matches_the_renderer(tmp_path: Path):
+    """One number, one definition: what the renderer actually passes to savefig is the reference.
 
-    source = inspect.getsource(renderer_mod.MatplotlibRenderer.save)
-    assert (
-        f"pad_inches={_SAVE_PAD_INCHES}" in source
-    ), f"the renderer no longer saves with pad_inches={_SAVE_PAD_INCHES}; the Path-B saver is now the odd one out"
+    Read off the call rather than out of the source text: a source-text assertion passes for an
+    implementation that computes the right-looking literal and then saves with something else, and breaks on
+    a harmless reformat.
+    """
+    from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
+
+    seen = {}
+    fig = _figure()
+    real_savefig = fig.savefig
+
+    def _spy(*args, **kwargs):
+        """Record the kwargs the renderer saves with, then save for real."""
+        seen.update(kwargs)
+        return real_savefig(*args, **kwargs)
+
+    fig.savefig = _spy  # type: ignore[method-assign]
+    MatplotlibRenderer().save(fig, str(tmp_path / "fig.png"), "png")
+    assert seen.get("pad_inches") == _SAVE_PAD_INCHES, (
+        f"the renderer saved with pad_inches={seen.get('pad_inches')!r}, not {_SAVE_PAD_INCHES}; " "the Path-B saver is now the odd one out"
+    )
 
 
 def test_a_saved_figure_honours_the_requested_dpi(tmp_path: Path):

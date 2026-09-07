@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import math
 import threading
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 import numpy as np
 
@@ -42,7 +42,7 @@ PX_PER_INCH = 100
 _NETWORK_MAX_LABELS = 25
 
 
-def network_label_indices(node_size, max_labels: int = _NETWORK_MAX_LABELS):
+def network_label_indices(node_size: np.ndarray, max_labels: int = _NETWORK_MAX_LABELS) -> List[int]:
     """Indices of the nodes worth labelling: the ``max_labels`` largest, in drawing order."""
     sizes = np.asarray(node_size, dtype=float).ravel()
     if sizes.size <= max_labels:

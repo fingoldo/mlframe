@@ -144,7 +144,14 @@ def test_model_factories_infer_callsite_returns_marker_on_failure(caplog, monkey
 
 
 def test_predict_guards_recover_feature_names_logs_on_failure(caplog):
-    """`_recover_cb_feature_names` in `_predict_guards` must log when model introspection fails."""
+    """`_recover_cb_feature_names` must log when model introspection fails, rather than swallow it.
+
+    ``_predict_guards`` held a second, already-drifted copy of this body and now delegates to the CatBoost
+    module's one. The contract is unchanged -- a failed introspection must be announced, not silently
+    degraded to "no cat/text features" -- but it is the delegate's logger that emits, so that is where the
+    record has to be looked for. Asserted on ``recovery failed`` rather than the old copy's exact sentence,
+    which is the part the dedup legitimately changed.
+    """
     from mlframe.training._predict_guards import _recover_cb_feature_names
 
     class _RaisingModel:
@@ -155,10 +162,12 @@ def test_predict_guards_recover_feature_names_logs_on_failure(caplog):
             """Always raises ``RuntimeError('boom')`` on access."""
             raise RuntimeError("boom")
 
-    with caplog.at_level(logging.DEBUG, logger="mlframe.training._predict_guards"):
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.cb._cb_pool"):
         out = _recover_cb_feature_names(_RaisingModel())
     assert out == ([], [])
-    assert any("model introspection failed" in rec.message for rec in caplog.records)
+    assert any(
+        "recovery failed" in rec.message for rec in caplog.records
+    ), f"the introspection failure was swallowed; records seen: {[r.message[:70] for r in caplog.records]}"
 
 
 def test_ram_helpers_get_process_rss_mb_returns_float():

@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import threading
 from contextlib import contextmanager
+from typing import Iterator
 from timeit import default_timer as timer
 
 _state = threading.local()
@@ -51,7 +52,7 @@ def clear_fe_deadline() -> None:
 
 
 @contextmanager
-def fe_deadline_scope(deadline: float | None):
+def fe_deadline_scope(deadline: float | None) -> Iterator[None]:
     """Publish ``deadline`` for the duration of the block, then restore whatever was set before.
 
     For code that re-publishes the deadline across a boundary the thread-local cannot cross -- a loky worker

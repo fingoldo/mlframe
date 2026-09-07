@@ -40,7 +40,10 @@ def _persist(frame: Any, plot_file: Optional[str], metadata: dict) -> None:
     root = os.path.splitext(str(plot_file))[0]
     path = f"{root}{TARGETS_PERFORMANCE_SUFFIX}"
     try:
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        # ``dirname`` returns "" for a bare filename, and ``makedirs("")`` raises -- so the empty string is
+        # genuinely "the current directory" here, not a caller value being overwritten by a default.
+        parent = os.path.dirname(path)
+        os.makedirs(parent if parent else ".", exist_ok=True)
         frame.to_csv(path, index=False)
         metadata["targets_performance_path"] = path
         logger.info("targets quality frame written to %s", path)

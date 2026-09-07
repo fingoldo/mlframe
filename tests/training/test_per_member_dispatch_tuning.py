@@ -24,16 +24,30 @@ from mlframe.models.ensembling import per_member_tuning as pmt
 pytestmark = pytest.mark.xdist_group(name="kernel_tuning_default_cache")
 
 
+def _clear_backend_memo() -> None:
+    """Drop the backend verdict memo between cases.
+
+    The memo used to sit on ``_per_member_use_numba`` itself, so clearing it meant calling
+    ``cache_clear`` on that function. It was moved down onto ``_per_member_backend_cached`` to fix a real
+    latching bug -- the env vars are part of the cache key now, so an override stops being frozen by
+    whichever value happened to be set at the first call for a shape. These tests flip exactly those env
+    vars, so they have to clear the memo that actually holds the verdict.
+    """
+    from mlframe.models.ensembling.member_metrics import _per_member_backend_cached
+
+    _per_member_backend_cached.cache_clear()
+
+
 @pytest.fixture(autouse=True)
 def _isolated_cache(tmp_path, monkeypatch):
     """Isolated cache."""
     monkeypatch.setenv("PYUTILZ_KERNEL_CACHE_DIR", str(tmp_path))
     monkeypatch.delenv("MLFRAME_PER_MEMBER_BACKEND", raising=False)
     monkeypatch.setenv("MLFRAME_PER_MEMBER_AUTOTUNE", "1")
-    eb._per_member_use_numba.cache_clear()
+    _clear_backend_memo()
     pmt._AUTOTUNE_ATTEMPTED = False
     yield
-    eb._per_member_use_numba.cache_clear()
+    _clear_backend_memo()
 
 
 def _numpy_ref(arr, med):
@@ -46,10 +60,10 @@ def _numpy_ref(arr, med):
 def test_env_override_forces_backend(monkeypatch):
     """Env override forces backend."""
     monkeypatch.setenv("MLFRAME_PER_MEMBER_BACKEND", "numpy")
-    eb._per_member_use_numba.cache_clear()
+    _clear_backend_memo()
     assert eb._per_member_use_numba(500_000, 8) is False  # would otherwise be numba
     monkeypatch.setenv("MLFRAME_PER_MEMBER_BACKEND", "numba")
-    eb._per_member_use_numba.cache_clear()
+    _clear_backend_memo()
     assert eb._per_member_use_numba(100, 2) is True  # would otherwise be sub-floor numpy
 
 
@@ -57,7 +71,7 @@ def test_fallback_floor(monkeypatch):
     # Autotune off -> measurement-backed fallback: numba above the element floor, numpy below.
     """Fallback floor."""
     monkeypatch.setenv("MLFRAME_PER_MEMBER_AUTOTUNE", "0")
-    eb._per_member_use_numba.cache_clear()
+    _clear_backend_memo()
     below = eb._per_member_use_numba(eb._PER_MEMBER_NUMBA_FLOOR_ELEMENTS - 1, 4)
     above = eb._per_member_use_numba(eb._PER_MEMBER_NUMBA_FLOOR_ELEMENTS + 1, 4)
     assert below is False
@@ -92,7 +106,7 @@ def test_ensure_tuning_populates_cache_and_dispatch_reads_it():
     pmt.ensure_per_member_tuning(force=True, observed_elements=50_000, repeats=5)
     assert KernelTuningCache().has(pmt._PER_MEMBER_KERNEL_NAME)
     # dispatch now reads the persisted region (autotune already ran this process)
-    eb._per_member_use_numba.cache_clear()
+    _clear_backend_memo()
     decision = eb._per_member_use_numba(50_000, 4)
     assert decision in (True, False)  # whatever the live HW measured, it is a valid decision
 
@@ -148,5 +162,5 @@ def test_3d_dispatch_can_select_numba(monkeypatch):
     # ndim is threaded into the decision; forcing numba via env applies to 3-D too.
     """3d dispatch can select numba."""
     monkeypatch.setenv("MLFRAME_PER_MEMBER_BACKEND", "numba")
-    eb._per_member_use_numba.cache_clear()
+    _clear_backend_memo()
     assert eb._per_member_use_numba(60_000, 4, ndim=3) is True

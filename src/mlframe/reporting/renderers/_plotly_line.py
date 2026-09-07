@@ -28,6 +28,21 @@ from ._shared_helpers import _per_series_flags, epoch_ns_ticks, plotly_axis_suff
 
 logger = logging.getLogger(__name__)
 
+#: Plotly's own default figure width. Used only when the layout has not been given one.
+_DEFAULT_FIGURE_WIDTH_PX = 600
+
+
+def _figure_width_px(fig) -> float:
+    """The figure's width in px, falling back to plotly's default only when none is set.
+
+    Explicit ``is None`` rather than ``fig.layout.width or 600``: a caller that legitimately sets width 0
+    would have been silently rewritten to 600, and a zero-width figure is a bug worth surfacing rather than
+    papering over with a default that makes the tick budget lie.
+    """
+    width = fig.layout.width
+    return float(_DEFAULT_FIGURE_WIDTH_PX if width is None else width)
+
+
 def _line(self, fig, p: LinePanelSpec, row: int, col: int) -> None:
     """Render a multi-series line panel: per-series style/color/secondary-y/fill-to-baseline, an optional uncertainty band, vspans/vlines (datetime-safe), and point markers; secondary-y series get their own right-hand axis when any series requests it."""
     # Lazy, matching the heatmap sibling: the parent imports THIS module at its own bottom, so a
@@ -221,7 +236,7 @@ def _line(self, fig, p: LinePanelSpec, row: int, col: int) -> None:
     _n_dates = 6
     if p.x_is_time:
         _cols = len(fig._grid_ref[0]) if getattr(fig, "_grid_ref", None) else 1
-        _panel_w_in = float(fig.layout.width or 600) / _PX_PER_INCH / max(_cols, 1)
+        _panel_w_in = _figure_width_px(fig) / _PX_PER_INCH / max(_cols, 1)
         _n_dates = ticks_that_fit(_panel_w_in, 6, floor=2, pitch_in=rotated_tick_pitch_in(8, 30))
     _tv, _tt = epoch_ns_ticks(_xi(0), n_ticks=_n_dates) if p.x_is_time else (None, None)
     if _tv is not None:
@@ -291,5 +306,5 @@ def _label_rows(self, xs, texts, fig, p) -> list:
         # Nothing measurable on this axis; alternate, which is what this did before it could measure.
         return [i % _STACKED_LABEL_ROWS for i in range(len(xs))]
     _cols = len(fig._grid_ref[0]) if getattr(fig, "_grid_ref", None) else 1
-    _w_in = float(fig.layout.width or 600) / _PX_PER_INCH / max(_cols, 1)
+    _w_in = _figure_width_px(fig) / _PX_PER_INCH / max(_cols, 1)
     return stagger_label_rows(_num_xs, texts, fontsize=8, x_span=_x_span, width_in=_w_in, max_rows=_STACKED_LABEL_ROWS)

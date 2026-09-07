@@ -139,7 +139,7 @@ def _plotlyjs_mode():
     return "cdn"
 
 
-def pd_timestamp(value):
+def pd_timestamp(value: Any) -> Any:
     """``value`` as a pandas Timestamp; the vline shape needs a real datetime, not the raw label."""
     import pandas as pd
 

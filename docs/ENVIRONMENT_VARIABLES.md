@@ -11,6 +11,8 @@ Every environment variable read anywhere in `src/mlframe/` via `os.environ.get(.
 | `CUDA_VISIBLE_DEVICES` | — | [src/mlframe/training/cb/_cb_pool.py](../src/mlframe/training/cb/_cb_pool.py#L601) |
 | `FE_ACCEPT_SKIP_MADELON` | `'0'` | [src/mlframe/feature_selection/_benchmarks/fs_hybrid/round4_fe_accept_bench.py](../src/mlframe/feature_selection/_benchmarks/fs_hybrid/round4_fe_accept_bench.py#L264) |
 | `FS` | `'rfecv'` | [src/mlframe/feature_selection/_benchmarks/fs_hybrid/round4_fs_campaign_profile.py](../src/mlframe/feature_selection/_benchmarks/fs_hybrid/round4_fs_campaign_profile.py#L16) |
+| `FS_HYBRID_BLIND` | `''` | [src/mlframe/feature_selection/_benchmarks/fs_hybrid/analyze.py](../src/mlframe/feature_selection/_benchmarks/fs_hybrid/analyze.py#L309) |
+| `FS_HYBRID_RESULTS` | — | [src/mlframe/feature_selection/_benchmarks/fs_hybrid/analyze.py](../src/mlframe/feature_selection/_benchmarks/fs_hybrid/analyze.py#L234) |
 | `FS_HYBRID_SCENARIOS` | `'default'` | [src/mlframe/feature_selection/_benchmarks/fs_hybrid/run_experiment.py](../src/mlframe/feature_selection/_benchmarks/fs_hybrid/run_experiment.py#L49) |
 | `FULL_P_SWEEP` | — | [src/mlframe/feature_selection/_benchmarks/fs_quality/mrmr_largeN_campaign.py](../src/mlframe/feature_selection/_benchmarks/fs_quality/mrmr_largeN_campaign.py#L280) |
 | `HF_HOME` | — | [src/mlframe/training/feature_handling/hf_provider.py](../src/mlframe/training/feature_handling/hf_provider.py#L84) |
@@ -36,6 +38,7 @@ Every environment variable read anywhere in `src/mlframe/` via `os.environ.get(.
 | `MLFRAME_CALIB_BINNING_PRANGE_THRESHOLD` | `'2000000'` | [src/mlframe/metrics/calibration/_calibration_plot.py](../src/mlframe/metrics/calibration/_calibration_plot.py#L188) |
 | `MLFRAME_CAT_DIAG` | — | [src/mlframe/training/_eval_helpers.py](../src/mlframe/training/_eval_helpers.py#L74) |
 | `MLFRAME_CAT_FE_BENCH_PROD` | — | [src/mlframe/feature_selection/_benchmarks/bench_categorical_fe.py](../src/mlframe/feature_selection/_benchmarks/bench_categorical_fe.py#L136) |
+| `MLFRAME_CB_POOL_CACHE_MAX_BYTES` | — | [src/mlframe/training/cb/_cb_pool_budget.py](../src/mlframe/training/cb/_cb_pool_budget.py#L40) |
 | `MLFRAME_CMI_ANALYTIC_NULL_MIN_N` | `''` | [src/mlframe/feature_selection/filters/_fe_cmi_redundancy_null.py](../src/mlframe/feature_selection/filters/_fe_cmi_redundancy_null.py#L27) |
 | `MLFRAME_CMI_FORDER` | `'1'` | [src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py](../src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py#L89) |
 | `MLFRAME_CMI_FORDER_MAX_MB` | `'4096'` | [src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py](../src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py#L82) |
@@ -245,6 +248,7 @@ Every environment variable read anywhere in `src/mlframe/` via `os.environ.get(.
 | `MLFRAME_XGB_CACHE_DISABLE` | — | [src/mlframe/training/xgb_shim.py](../src/mlframe/training/xgb_shim.py#L200) |
 | `MODE` | `'baseline'` | [src/mlframe/feature_selection/_benchmarks/fs_hybrid/hybrid_opt_baseline.py](../src/mlframe/feature_selection/_benchmarks/fs_hybrid/hybrid_opt_baseline.py#L24) |
 | `MRMR_CAMPAIGN_RAISE` | — | [src/mlframe/feature_selection/_benchmarks/fs_quality/mrmr_largeN_campaign.py](../src/mlframe/feature_selection/_benchmarks/fs_quality/mrmr_largeN_campaign.py#L185) |
+| `NUMBA_DISABLE_JIT` | — | [src/mlframe/reporting/charts/_ap_bootstrap.py](../src/mlframe/reporting/charts/_ap_bootstrap.py#L41) |
 | `PYTHON_JULIACALL_THREADS` | `'?'` | [src/mlframe/training/_benchmarks/bench_pysr_fe.py](../src/mlframe/training/_benchmarks/bench_pysr_fe.py#L185) |
 | `PYUTILZ_KERNEL_CACHE_DIR` | `''` | [src/mlframe/utils/_param_oracle.py](../src/mlframe/utils/_param_oracle.py#L130) |
 | `SCENE_N` | `'700'` | [src/mlframe/feature_selection/_benchmarks/fs_hybrid/round4_fs_campaign_profile.py](../src/mlframe/feature_selection/_benchmarks/fs_hybrid/round4_fs_campaign_profile.py#L17) |
