@@ -12,7 +12,7 @@ functions, and they call back into sibling methods through it.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Dict, Literal, Optional
 
 import numpy as np
 
@@ -30,6 +30,11 @@ from ._shared_helpers import (
 )
 
 logger = logging.getLogger("mlframe.reporting.renderers._matplotlib_heatmap")
+
+
+#: Spec dash names mapped to matplotlib linestyles. Typed as the Literal matplotlib actually accepts so
+#: the value survives a ``.get()`` without mypy losing it -- the runtime value is always one of these.
+_DASH_STYLES: Dict[str, Literal["-", "--", ":", "-."]] = {"solid": "-", "dash": "--", "dot": ":", "dashdot": "-."}
 
 
 def _calmest_corner(matrix: np.ndarray) -> str:
@@ -142,8 +147,7 @@ def _heatmap(self, ax, p: HeatmapPanelSpec, fig) -> None:
                 dash = _entry[2] if len(_entry) > 2 else "solid"
                 label = _entry[3] if len(_entry) > 3 else ""
                 if lo < level < hi:  # contour only exists when the level is crossed
-                    cs = ax.contour(gx, gy, mat, levels=[level], colors=[color], linewidths=1.4,
-                                    linestyles={"solid": "-", "dash": "--", "dot": ":", "dashdot": "-."}.get(dash, "-"))
+                    cs = ax.contour(gx, gy, mat, levels=[level], colors=[color], linewidths=1.4, linestyles=_DASH_STYLES.get(dash, "-"))
                     if label and not drew_cell_text:
                         ax.clabel(cs, fmt={level: label}, fontsize=7)
                     elif label:
@@ -155,10 +159,7 @@ def _heatmap(self, ax, p: HeatmapPanelSpec, fig) -> None:
                         # trace name, so both backends still name the threshold.
                         from matplotlib.lines import Line2D as _CLine
 
-                        contour_legend.append(
-                            _CLine([], [], color=color, linewidth=1.4, label=label,
-                                   linestyle={"solid": "-", "dash": "--", "dot": ":", "dashdot": "-."}.get(dash, "-"))
-                        )
+                        contour_legend.append(_CLine([], [], color=color, linewidth=1.4, label=label, linestyle=_DASH_STYLES.get(dash, "-")))
             if contour_legend:
                 ax.legend(handles=contour_legend, fontsize=6, loc=_calmest_corner(mat), framealpha=0.85)
     if p.trend_line is not None and p.trend_xy is not None:
