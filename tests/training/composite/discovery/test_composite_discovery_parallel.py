@@ -134,7 +134,15 @@ class TestParallelDiscoveryBizValue:
         # Warm up: run once to JIT any numba kernels so the timing is fair.
         _run(n_jobs=1, transforms=transforms)
 
-        # Median of 3 runs to reduce wall-clock noise.
+        # Best-of-N, interleaved, NOT the median: a shared CI runner adds contention spikes, and contention
+        # can only ever ADD time -- so the fastest observation is the best estimate of what the code costs,
+        # while a median lands on whichever sample the noise happened to leave in the middle. Observed
+        # failing run: serial [1.86, 2.05, 15.54] against parallel [3.30, 1.83, 17.12], where a 15-17s stall
+        # hit both arms and the medians then differed by 1.61x while the fastest runs differed by 0.99x.
+        # Interleaving (serial and parallel adjacent in every repetition) keeps a slow patch of the machine
+        # from landing on one arm only. Three repetitions, not more: each pass trains real boosters, and
+        # five put the test over its own timeout locally -- the statistic is what fixes the noise here, not
+        # the sample count. On the failing run's own numbers, the fastest pair differ by 0.99x.
         serial_times = []
         parallel_times = []
         for _ in range(3):
@@ -142,8 +150,8 @@ class TestParallelDiscoveryBizValue:
             _, t_p = _run(n_jobs=4, transforms=transforms)
             serial_times.append(t_s)
             parallel_times.append(t_p)
-        med_serial = float(np.median(serial_times))
-        med_parallel = float(np.median(parallel_times))
+        fastest_serial = min(serial_times)
+        fastest_parallel = min(parallel_times)
 
         # LOWER#14 2026-05-18 round-number justification: the 1.5x slack
         # is derived from measured joblib threading-backend coordination
@@ -156,10 +164,10 @@ class TestParallelDiscoveryBizValue:
         # n_jobs=8 is ~1.05x, NOT 5-10x. The serial _tiny_model_rerank
         # tail dominates total wall time. This test only validates "no
         # regression vs serial"; it is NOT a positive speedup assertion.
-        assert med_parallel <= 1.5 * med_serial, (
+        assert fastest_parallel <= 1.5 * fastest_serial, (
             f"parallel discovery wall-time regressed: "
-            f"median serial={med_serial:.3f}s, median parallel={med_parallel:.3f}s "
-            f"(ratio={med_parallel / max(med_serial, 1e-9):.2f}x); "
+            f"fastest serial={fastest_serial:.3f}s, fastest parallel={fastest_parallel:.3f}s "
+            f"(ratio={fastest_parallel / max(fastest_serial, 1e-9):.2f}x); "
             f"raw serial={serial_times}, raw parallel={parallel_times}"
         )
 

@@ -51,7 +51,20 @@ KNOWN_DUPLICATE_GROUPS = {
     # subsystems behind a helper to save a dict lookup, and the "drift" the scanner sees is each one naming
     # its own registry in its own error message, which is the part that has to differ.
     "get": "DELIBERATE: scenarios.get and feature_selection.registry.get are separate registries sharing only the shape of a dict lookup",
+    # DELIBERATE -- the PEP 562 lazy-facade idiom. Each one has to read ITS OWN module's ``globals()``, which
+    # a shared helper cannot do (``globals()`` inside the helper is the helper's module), and they draw their
+    # lazy names from different places: two import a submodule and list its public attributes, two union a
+    # module-level constant. What is left to share is a single set-union, so a common implementation would
+    # take a callable per caller and read worse than the four lines it replaced.
+    "__dir__": "DELIBERATE: PEP 562 lazy-facade dir(); each must close over its own module globals and its own lazy-name source",
 }
+
+#: Names whose detection depends on the interpreter, so they are reported on some CI shards and not others.
+#: Similarity is computed on ``ast.dump`` output, and that text changes between Python versions: the four
+#: ``__dir__`` facades measure 0.909 on 3.12 (reported, threshold 0.90) and 0.8325 on 3.14 (not reported),
+#: from identical source. An entry here still has to earn its place in KNOWN_DUPLICATE_GROUPS; this set only
+#: stops the staleness check below from calling it archaeology on the interpreters that do not report it.
+INTERPRETER_SENSITIVE = {"__dir__"}
 
 
 def test_no_new_drifted_duplicate_functions():
@@ -78,7 +91,7 @@ def test_the_recorded_groups_still_exist():
     from py_ci_shared.drifted_duplicate_functions import find_drifted_duplicate_functions
 
     reported = {g.name for g in find_drifted_duplicate_functions([REPO_ROOT / "src"], exclude=("_benchmarks", "_cpx36_baseline"))}
-    stale = sorted(set(KNOWN_DUPLICATE_GROUPS) - reported)
+    stale = sorted(set(KNOWN_DUPLICATE_GROUPS) - reported - INTERPRETER_SENSITIVE)
     assert not stale, (
         f"these are no longer reported as near-duplicates: {stale}. Either they were consolidated -- in which "
         "case drop them from KNOWN_DUPLICATE_GROUPS -- or the copies DRIFTED APART far enough to stop matching, "
