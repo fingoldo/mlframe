@@ -436,11 +436,17 @@ def test_generation_does_not_scale_quadratically_in_n():
     # Linear in n is 2.0 per doubling, quadratic is 4.0. 3.0 leaves room for the constant-cost floor at the
     # small sizes (which pushes the ratio DOWN) and for scheduler noise, while still tripping on a genuine
     # collapse to a per-pair O(n^2) scan.
-    if median_ratio >= 3.0:
+    def _where_the_time_went() -> str:
+        """Profile one pass, for the failure message only -- an assert's message is lazy."""
         pr = cProfile.Profile()
         pr.enable()
         _timed(8_000)
         pr.disable()
         buf = io.StringIO()
         pstats.Stats(pr, stream=buf).sort_stats("tottime").print_stats(8)
-        raise AssertionError(f"conditional-dispersion generation scales at {median_ratio:.2f}x per doubling of n (ratios {ratios}, times {times})\n{buf.getvalue()}")
+        return buf.getvalue()
+
+    assert all(t > 0.0 for t in times), f"the timing harness produced no measurable work: {times}"
+    assert median_ratio < 3.0, (
+        f"conditional-dispersion generation scales at {median_ratio:.2f}x per doubling of n " f"(ratios {ratios}, times {times})\n{_where_the_time_went()}"
+    )

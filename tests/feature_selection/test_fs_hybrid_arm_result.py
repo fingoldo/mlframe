@@ -145,7 +145,11 @@ ARMS = [
 def test_arm_obeys_result_contract(_arm_name, factory, tiny_bed):
     """Every arm returns a full-length boolean support and a score consistent with its declared kind."""
     X, y = tiny_bed
-    _check_arm(factory(), X, y)
+    result = _check_arm(factory(), X, y)
+    # ``_check_arm`` carries the full contract; asserting here as well keeps the failure visible in THIS
+    # test rather than only inside a helper, which is what "the body checks nothing" would otherwise mean.
+    assert result.support.shape == (X.shape[1],)
+    assert result.provenance["arm"]
 
 
 def test_all_features_arm_selects_everything(tiny_bed):

@@ -464,7 +464,7 @@ def setup_configuration(
         # is re-exported from _predict_guards via trainer.py:71 and its clear was correct.
         try:
             from mlframe.training.cb import _CB_POOL_CACHE
-            from mlframe.training.cb._cb_pool_budget import reset_cache_bytes
+            from mlframe.training.cb import reset_cache_bytes
             from mlframe.training.trainer import _CB_VAL_POOL_CACHE
             _CB_POOL_CACHE.clear()
             _CB_VAL_POOL_CACHE.clear()

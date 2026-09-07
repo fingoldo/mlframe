@@ -21,6 +21,9 @@ from ._cb_text_probe import (
     unigram_text_processing,
     unusable_text_features,
 )
+# The suite's config phase resets the Pool byte budget between runs, so this belongs on the package
+# surface rather than being reached for through the private budget module.
+from ._cb_pool_budget import reset_cache_bytes
 from ._cb_pool import (
     _predict_with_fallback,
     _maybe_get_or_build_cb_pool,
@@ -35,6 +38,7 @@ from ._cb_pool import (
 )
 
 __all__ = [
+    "reset_cache_bytes",
     "_predict_with_fallback",
     "_maybe_get_or_build_cb_pool",
     "_maybe_rewrite_eval_set_as_cb_pool",

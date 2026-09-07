@@ -106,8 +106,9 @@ def test_the_canonical_name_is_not_shadowed():
     from mlframe.feature_selection import structure_discovery
 
     local = getattr(structure_discovery, "_perm_pvalue", None)
-    if local is not None:
-        params = list(inspect.signature(local).parameters)
-        assert params[:2] == ["nfailed", "nchecked"], (
-            f"structure_discovery._perm_pvalue takes {params}, shadowing the canonical helper with a " "different meaning"
-        )
+    # No local definition is a pass -- nothing shadows the canonical helper then. Written as one
+    # unconditional assertion so the "it vanished entirely" case cannot skip the check instead of failing.
+    params = None if local is None else list(inspect.signature(local).parameters)
+    assert params is None or params[:2] == ["nfailed", "nchecked"], (
+        f"structure_discovery._perm_pvalue takes {params}, shadowing the canonical helper with a different meaning"
+    )

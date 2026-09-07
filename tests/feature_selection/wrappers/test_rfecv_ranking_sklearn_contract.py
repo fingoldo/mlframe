@@ -53,8 +53,10 @@ def test_dropped_features_rank_from_two_upward(fitted_rfecv: RFECV) -> None:
     """Rank 1 is reserved for survivors; anything dropped must be strictly worse, never tied at 1."""
     ranking = np.asarray(fitted_rfecv.ranking_)
     dropped = ranking[~np.asarray(fitted_rfecv.support_, dtype=bool)]
-    if dropped.size:
-        assert dropped.min() >= 2, "a dropped feature must not share rank 1 with the survivors"
+    # The precondition is asserted rather than assumed: a fit that dropped nothing would otherwise leave
+    # this test green while checking nothing, which is the stronger failure of the two.
+    assert dropped.size, "the fixture selected every feature, so there is no dropped rank to check"
+    assert dropped.min() >= 2, "a dropped feature must not share rank 1 with the survivors"
 
 
 def test_consensus_ranking_keeps_the_name_order(fitted_rfecv: RFECV) -> None:

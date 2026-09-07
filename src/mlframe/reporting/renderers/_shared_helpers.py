@@ -409,7 +409,7 @@ def _build_char_advances(fontsize: float, font_manager: Any, ft2font: Any) -> di
     return table
 
 
-def _measured_text_width_pt(text: str, fontsize: float) -> float:
+def measured_text_width_pt(text: str, fontsize: float) -> float:
     """Width of ``text`` in points, measured on the ACTIVE font rather than counted in characters.
 
     A character budget is a guess about the font: proportional faces put ``i`` and ``W`` an order of
@@ -583,3 +583,8 @@ def epoch_ns_ticks(x_values: Any, n_ticks: int = 6) -> tuple[np.ndarray, list[st
     # so a fixed reference zone keeps them stable regardless of the machine rendering the figure.
     ticktext = [_dt.datetime.fromtimestamp(v / 1e9, tz=_dt.timezone.utc).strftime(fmt) for v in tickvals]
     return tickvals, ticktext
+
+
+#: The private spelling this helper shipped under. Kept so the renderer siblings that already import it do
+#: not all have to change in the same commit; ``measured_text_width_pt`` is the name to use.
+_measured_text_width_pt = measured_text_width_pt

@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 from ._error_analysis_shared import DEFAULT_TAIL_FRACTION, _is_frame, _pull_columns_at_rows, _resolve_feature_names, _row_count  # noqa: F401
 from ._error_analysis_shared import DEFAULT_OVERLAY_BINS, _as_float_1d
-from mlframe.reporting.renderers._shared_helpers import _measured_text_width_pt, truncate_bar_label
+from mlframe.reporting.renderers import measured_text_width_pt, truncate_bar_label
 from mlframe.reporting.spec import (
     FIGSIZE_STANDARD,
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
@@ -537,7 +537,7 @@ def segments_bar(
     # letterbox whose fixed height has to absorb 45-degree labels of arbitrary length, and a 40-character
     # group value projects about 2in vertically -- 40% of the figure. Cap the width and grow the height by
     # what the longest label actually projects at 45 degrees.
-    _label_in = max((_measured_text_width_pt(truncate_bar_label(c), 8) for c in cats), default=0.0) / 72.0
+    _label_in = max((measured_text_width_pt(truncate_bar_label(c), 8) for c in cats), default=0.0) / 72.0
     _height = min(max(5.0, 3.2 + _label_in * math.sin(math.radians(45.0))), 12.0)
     return FigureSpec(suptitle="", panels=((bar,),), figsize=(min(max(8.0, len(cats) * 0.5), 16.0), _height), caption=caption)
 

@@ -72,4 +72,9 @@ def test_the_default_handles_both_narrow_and_wide_inputs(shape):
     x = rng.normal(size=shape)
     y = x[:, 0] * 1.5
 
-    ESTransformedTargetRegressor().fit(x, y)
+    model = ESTransformedTargetRegressor().fit(x, y)
+    # "it did not raise" is not the contract: the default branch has to produce usable predictions for both
+    # shapes, and a library that quietly accepts a bad input would make the no-crash reading false.
+    pred = model.predict(x)
+    assert pred.shape[0] == x.shape[0]
+    assert np.all(np.isfinite(pred))

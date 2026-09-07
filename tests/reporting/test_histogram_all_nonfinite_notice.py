@@ -70,15 +70,17 @@ def test_matplotlib_says_the_same_thing():
 @pytest.mark.parametrize("renderer", [MatplotlibRenderer, PlotlyRenderer])
 def test_a_partly_finite_column_still_bins_the_finite_part(renderer):
     """Guard: the filter must drop the non-finite rows, not the whole panel."""
+    import matplotlib.pyplot as plt
+
     spec = _figure([1.0, 2.0, np.nan, 3.0, np.inf])
     fig = renderer().render(spec)
-    if renderer is PlotlyRenderer:
-        assert not any(NOTICE in t for t in _plotly_notes(fig)), "plotly claimed no finite values on a column with three of them"
-        assert len(fig.data) == 1 and len(fig.data[0].x) == 3, f"plotly binned {getattr(fig.data[0], 'x', None)!r} instead of the three finite values"
-    else:
-        import matplotlib.pyplot as plt
-
-        try:
-            assert not any(NOTICE in t.get_text() for t in fig.axes[0].texts)
-        finally:
+    try:
+        # Collected per backend, asserted for both: behind an ``if`` the stronger failure -- a panel that was
+        # never drawn at all -- would skip the check instead of failing it.
+        notes = _plotly_notes(fig) if renderer is PlotlyRenderer else [t.get_text() for t in fig.axes[0].texts]
+        assert not any(NOTICE in t for t in notes), f"{renderer.__name__} claimed no finite values on a column with three of them"
+        if renderer is PlotlyRenderer:
+            assert len(fig.data) == 1 and len(fig.data[0].x) == 3, f"plotly binned {getattr(fig.data[0], 'x', None)!r} instead of the three finite values"
+    finally:
+        if renderer is not PlotlyRenderer:
             plt.close(fig)

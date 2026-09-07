@@ -60,9 +60,12 @@ def test_the_shortened_name_keeps_the_part_that_distinguishes_it():
 
 def test_a_crowded_legend_is_split_into_columns():
     """Fourteen rows at 8pt is taller than most panels; two columns halves that."""
-    for panel in _labelled_panels(_figure()):
-        if len(panel.series_labels) > 10:
-            assert getattr(panel, "legend_ncol", 1) == 2, f"{panel.title!r} has {len(panel.series_labels)} entries in one column"
+    crowded = [p for p in _labelled_panels(_figure()) if len(p.series_labels) > 10]
+    # The precondition is asserted, not assumed: a fixture that stops producing a crowded panel would
+    # otherwise leave this test passing while checking nothing at all.
+    assert crowded, "the fixture no longer builds a panel with more than ten legend entries"
+    for panel in crowded:
+        assert getattr(panel, "legend_ncol", 1) == 2, f"{panel.title!r} has {len(panel.series_labels)} entries in one column"
 
 
 @pytest.mark.parametrize("panels", ["ROC", "PR_CURVES", "CALIB_GRID"])

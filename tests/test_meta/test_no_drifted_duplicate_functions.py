@@ -45,6 +45,12 @@ KNOWN_DUPLICATE_GROUPS = {
     "_agg_func_for_stat": "CONSOLIDATED into filters/_agg_stat_helpers; wrappers pass their own valid-stat set (composite has `count`, grouped does not)",
     "_global_value_for_stat": "CONSOLIDATED into filters/_agg_stat_helpers, alongside _agg_func_for_stat",
     "_frame_columns": "CONSOLIDATED into composite/_frame_columns; the _incremental wrapper wraps the shared list in a set for O(1) membership",
+    # DELIBERATE -- two independent registries (dataset scenarios, feature-selector specs) in different
+    # packages, whose lookup is the same obvious four lines: membership test, KeyError naming what IS
+    # registered, return. They share no data and no caller; consolidating would couple two unrelated
+    # subsystems behind a helper to save a dict lookup, and the "drift" the scanner sees is each one naming
+    # its own registry in its own error message, which is the part that has to differ.
+    "get": "DELIBERATE: scenarios.get and feature_selection.registry.get are separate registries sharing only the shape of a dict lookup",
 }
 
 

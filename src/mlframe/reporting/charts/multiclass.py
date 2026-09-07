@@ -168,7 +168,7 @@ _LEGEND_CLASS_NAME_MAXLEN = 16
 
 def _legend_class_name(name: object) -> str:
     """Class name shortened for a legend entry, keeping the tail that usually distinguishes generated names."""
-    from mlframe.reporting.renderers._shared_helpers import truncate_bar_label
+    from mlframe.reporting.renderers import truncate_bar_label
 
     return truncate_bar_label(name, _LEGEND_CLASS_NAME_MAXLEN, keep_tail=6)
 
