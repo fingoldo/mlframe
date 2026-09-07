@@ -20,6 +20,8 @@ from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from mlframe.reporting.spec import FIGSIZE_BANNER
+
 try:
     import matplotlib.pyplot as plt
 except ImportError:  # plt-using paths are guarded; matplotlib-less envs skip plotting
@@ -67,7 +69,7 @@ def _skipped_interactions(reason: str, plot_file: Optional[str], plot_outputs: O
     paths: List[str] = []
     if plot_file and plt is not None:
         try:
-            fig = plt.figure(figsize=(9.0, 2.2))
+            fig = plt.figure(figsize=FIGSIZE_BANNER)
             fig.text(0.5, 0.5, "SHAP interaction panels not produced:" + chr(10) + reason, ha="center", va="center", fontsize=10, wrap=True)
             paths = _save_figure(fig, _base_for(plot_file, "interaction_skipped"), plot_outputs)
             plt.close(fig)

@@ -367,6 +367,16 @@ a small figure).
 *Fix:* define a small set of named figure sizes in `spec.py` (`WIDE`, `STANDARD`, `SQUARE`,
 `TALL_BAR(n)`) and have builders pick one, rather than each inventing a pair of floats.
 
+**RESOLVED for the ARBITRARY sizes; the computed ones are deliberately left alone.** `spec.py` gains
+`FIGSIZE_BANNER` (9x2.4), `FIGSIZE_WIDE` (8x3), `FIGSIZE_STANDARD` (8x5) and `FIGSIZE_SQUARE` (6x5.5), and
+14 chart modules now pick one instead of inventing a pair of floats -- which is what retires the
+(6,3)/(6,5)/(6,5.5)/(7,4.5)/(7,5)/(8,3)/(8,3.5)/(8,5)/(8,6)/(9,2.2)/(8,2.5) spread the finding lists.
+
+`TALL_BAR(n)` from the suggested set is deliberately NOT added. Sizes that grow with the data -- a bar per
+category, a cell per class, `0.5 * len(cats)` -- are the deliberate kind of variation, and they already
+carry their own arithmetic plus (since LBL-14) their own caps. Wrapping that in a named helper would hide
+the per-chart reasoning without changing any output.
+
 ### VIS-23 — P3 — `charts/temporal.py:222` (`colors=("steelblue",)`) and `charts/temporal.py:248` (`colors=("seagreen",)`)
 **Two panels of the same conceptual chart in different colours for no encoding reason.**
 The target ACF and target PACF bars are the same measurement family, drawn side by side, and differ only

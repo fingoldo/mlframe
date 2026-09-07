@@ -21,7 +21,7 @@ from typing import Any, List, Optional, Tuple
 import numpy as np
 
 from mlframe.reporting.charts._group_codes import group_codes_capped
-from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, HeatmapPanelSpec, PanelSpec
+from mlframe.reporting.spec import FIGSIZE_STANDARD, AnnotationPanelSpec, FigureSpec, HeatmapPanelSpec, PanelSpec
 
 # Default cap on the number of distinct group rows; the rest fold into a single "other" row so a high-cardinality group
 # column (thousands of ids) still yields a readable heatmap rather than an unrenderable wall of rows.
@@ -233,7 +233,7 @@ def compose_class_structure_figure(df: Any, y: np.ndarray, *, group: Any, timest
     return FigureSpec(
         suptitle=suptitle,
         panels=((panel,),),
-        figsize=(7.0, 5.0),
+        figsize=FIGSIZE_STANDARD,
         caption=(
             "Each cell is the positive-class rate (or mean target) for one group within one EQUAL-POPULATION time "
             "bin, so every column holds the same number of rows and the columns are NOT equal in time -- the column "

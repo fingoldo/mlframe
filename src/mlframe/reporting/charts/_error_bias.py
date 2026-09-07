@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 
-from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, LinePanelSpec, PanelSpec
+from mlframe.reporting.spec import FIGSIZE_WIDE, AnnotationPanelSpec, FigureSpec, LinePanelSpec, PanelSpec
 
 from ._error_analysis_shared import (
     DEFAULT_OVERLAY_BINS, DEFAULT_TAIL_FRACTION, _as_float_1d, _pull_columns_at_rows, _resolve_feature_names,
@@ -189,7 +189,7 @@ def error_bias_per_feature(
     if not panels:
         # No usable feature (all-NaN columns, zero features, or none selected); an empty grid would crash the renderer.
         ann = AnnotationPanelSpec(text=f"No usable feature column: every candidate is all-NaN, or none was selected.{missing_note}", title="")
-        return ErrorBiasResult(FigureSpec(suptitle=title + missing_note, panels=((ann,),), figsize=(8.0, 3.0)), group_means, masks)
+        return ErrorBiasResult(FigureSpec(suptitle=title + missing_note, panels=((ann,),), figsize=FIGSIZE_WIDE), group_means, masks)
     grid = pack_panels(panels, max_cols=2)
     n_rows = len(grid)
     worst_line = f"Worst-bias segment overall: {global_worst_text}" if global_worst_text else "Worst-bias segment overall: n/a"

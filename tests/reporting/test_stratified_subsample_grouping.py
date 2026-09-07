@@ -96,17 +96,30 @@ def test_the_subsample_narrows_its_sort_key(monkeypatch):
     assert seen, "the sort key was not narrowed at all; on int64 labels that is slower than the loop this replaced"
 
 
-def test_it_beats_the_per_class_loop_at_a_high_class_count():
-    """The claim, measured against the implementation it replaces rather than against itself."""
-    import time
+def test_it_makes_one_pass_regardless_of_the_class_count():
+    """The property, counted rather than timed.
 
-    y = np.random.default_rng(0).integers(0, 200, 400_000)
-    _stratified_subsample(y, CAP)  # warm
-    _reference(y, CAP)
+    A wall-clock comparison against the per-class loop is not safe in a suite that runs under ``-n 4``:
+    the two implementations contend for the same cores and the comparison flips. What the fix changed is
+    the number of full-length passes -- one grouped sort instead of one mask per class -- and that is
+    observable directly.
+    """
+    import mlframe.reporting.charts.multiclass as mc
 
-    def best(fn):
-        """Best of five, which is what a paired comparison on a shared machine can defend."""
-        return min((lambda t0: (fn(y, CAP), time.perf_counter() - t0)[1])(time.perf_counter()) for _ in range(5))
+    sorts = {"n": 0}
+    real = mc.np.argsort
 
-    new_t, old_t = best(_stratified_subsample), best(_reference)
-    assert new_t < old_t, f"the grouped form is not faster at K=200: {new_t * 1000:.1f}ms vs {old_t * 1000:.1f}ms"
+    def counted(a, **kw):
+        """Count the sorts the subsample performs."""
+        sorts["n"] += 1
+        return real(a, **kw)
+
+    for k in (3, 200):
+        y = np.random.default_rng(0).integers(0, k, 60_000)
+        sorts["n"] = 0
+        mc.np.argsort = counted
+        try:
+            _stratified_subsample(y, CAP)
+        finally:
+            mc.np.argsort = real
+        assert sorts["n"] == 1, f"grouping {k} classes took {sorts['n']} sorts; it must take exactly one whatever the count"

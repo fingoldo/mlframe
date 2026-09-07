@@ -44,6 +44,7 @@ from ._error_analysis_shared import DEFAULT_TAIL_FRACTION, _is_frame, _pull_colu
 from ._error_analysis_shared import DEFAULT_OVERLAY_BINS, _as_float_1d
 from mlframe.reporting.renderers._shared_helpers import _measured_text_width_pt, truncate_bar_label
 from mlframe.reporting.spec import (
+    FIGSIZE_STANDARD,
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
 )
 
@@ -366,7 +367,7 @@ def weak_segment_heatmap(
             title=title,
         )
         return WeakSegmentResult(
-            FigureSpec(panels=((ann,),), figsize=(7.0, 5.0)),
+            FigureSpec(panels=((ann,),), figsize=FIGSIZE_STANDARD),
             (), (np.nan,) * 4 + (float("nan"),), np.zeros((1, 1)), np.zeros((1, 1)),
         )
 
@@ -443,7 +444,7 @@ def weak_segment_heatmap(
     return WeakSegmentResult(
         FigureSpec(
             panels=((heat,),),
-            figsize=(8.0, 6.0),
+            figsize=FIGSIZE_STANDARD,
             caption=(
                 "A shallow tree fitted on PER-ROW error picked the most error-discriminating features; the grid bins "
                 "them into equal-population slices. Colour = mean error (darker = worse); the number printed in each "

@@ -27,6 +27,8 @@ from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from mlframe.reporting.spec import FIGSIZE_BANNER
+
 try:
     import matplotlib.pyplot as plt
 except ImportError:  # plt-using paths are guarded; matplotlib-less envs skip plotting
@@ -192,7 +194,7 @@ def _skip(reason: str) -> ShapPerInstanceResult:
     """
     fig = None
     if plt is not None:
-        fig = plt.figure(figsize=(8.0, 2.5))
+        fig = plt.figure(figsize=FIGSIZE_BANNER)
         fig.text(0.5, 0.5, "Per-instance SHAP not produced:\n" + reason, ha="center", va="center", fontsize=11, wrap=True)
     return ShapPerInstanceResult(fig, [], np.empty(0, dtype=int), np.empty(0), [], skipped=reason)
 

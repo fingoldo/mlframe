@@ -38,7 +38,7 @@ import numpy as np
 from mlframe.reporting.charts.error_analysis import (
     _per_row_error, _resolve_feature_matrix, _top_split_features,
 )
-from mlframe.reporting.spec import BarPanelSpec, FigureSpec
+from mlframe.reporting.spec import FIGSIZE_STANDARD, BarPanelSpec, FigureSpec
 
 logger = logging.getLogger(__name__)
 
@@ -309,7 +309,7 @@ def find_weak_slices(
     if n == 0 or p == 0:
         empty = pd.DataFrame(columns=["features", "bounds", "mean_error", "support", "support_fraction", "error_ratio", "score"])
         bar = BarPanelSpec(categories=("(no data)",), values=np.array([0.0]), title=title + " (no usable data)", orientation="horizontal")
-        return SliceFinderResult(FigureSpec(panels=((bar,),), figsize=(8.0, 5.0)), empty, global_error, ((), "", float("nan"), 0), ())
+        return SliceFinderResult(FigureSpec(panels=((bar,),), figsize=FIGSIZE_STANDARD), empty, global_error, ((), "", float("nan"), 0), ())
 
     codes, all_edges, has_missing = _bin_matrix(mat, nbins, row_mask=row_mask)
     nbins_per = [max(1, all_edges[j].size - 1) + (1 if has_missing[j] else 0) for j in range(p)]
@@ -430,7 +430,7 @@ def find_weak_slices(
                            orientation="horizontal")
         for msg in capped:
             logger.info("slice_finder cap: %s", msg)
-        return SliceFinderResult(FigureSpec(panels=((bar,),), figsize=(8.0, 5.0)), empty, global_error, ((), "", float("nan"), 0), tuple(capped))
+        return SliceFinderResult(FigureSpec(panels=((bar,),), figsize=FIGSIZE_STANDARD), empty, global_error, ((), "", float("nan"), 0), tuple(capped))
 
     # Display order matches the SCORE the candidate pool was built with (degradation x sqrt(support share)), rather
     # than raw mean error: sorting by mean error alone hands the top bar to the thinnest slice that cleared the

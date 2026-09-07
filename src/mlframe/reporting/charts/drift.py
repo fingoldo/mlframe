@@ -42,6 +42,7 @@ from ._drift_shared import (
     ADV_MAX_ROWS_PER_SIDE, ADV_N_ESTIMATORS, ADV_TOP_FEATURES, _frame_columns,
 )
 from mlframe.reporting.spec import (
+    FIGSIZE_WIDE,
     AnnotationPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec, PanelSpec,
 )
 
@@ -245,7 +246,7 @@ def psi_heatmap(
     )
     if matrix.size == 0:
         panel: PanelSpec = AnnotationPanelSpec(text="PSI heatmap: no features / rows", title=title)
-        return FigureSpec(suptitle="", panels=((panel,),), figsize=(8.0, 3.0) if figsize is None else figsize)
+        return FigureSpec(suptitle="", panels=((panel,),), figsize=FIGSIZE_WIDE if figsize is None else figsize)
 
     n_feat, n_buckets = matrix.shape
     n_rows_total = int(np.asarray(timestamps).shape[0])

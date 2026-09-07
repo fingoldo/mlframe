@@ -38,6 +38,8 @@ from typing import Any, List, Optional, Sequence, Tuple
 from mlframe._output_paths import ensure_parent_dir
 import numpy as np
 
+from mlframe.reporting.spec import FIGSIZE_BANNER
+
 try:
     import matplotlib.pyplot as plt
 except ImportError:  # plt-using paths are guarded; matplotlib-less envs skip plotting
@@ -396,7 +398,7 @@ def _write_skip_notice(reason: str, plot_file: Optional[str], plot_outputs: Opti
     if not plot_file or plt is None:
         return []
     try:
-        fig = plt.figure(figsize=(9.0, 2.2))
+        fig = plt.figure(figsize=FIGSIZE_BANNER)
         fig.text(0.5, 0.5, "SHAP panels not produced:\n" + reason, ha="center", va="center", fontsize=10, wrap=True)
         written = _save_figure(fig, plot_file, plot_outputs)
         plt.close(fig)

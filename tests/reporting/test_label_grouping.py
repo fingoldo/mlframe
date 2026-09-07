@@ -8,7 +8,6 @@ numpy radix-sorts narrow integers.
 
 from __future__ import annotations
 
-import time
 
 import numpy as np
 import pytest
@@ -82,14 +81,30 @@ def test_the_codes_are_narrowed_so_the_sort_can_be_a_radix_sort():
     assert seen.get("dtype") == np.int16, f"the sort key was {seen.get('dtype')}, not a radix-sortable narrow int"
 
 
-def test_the_splits_helper_beats_the_masks_it_replaced():
-    """Measured against the implementation it replaces, not against itself."""
-    values, labels = _labelled(n=400_000, k=20)
-    _split_arrays(values, labels)  # warm
-    _masked(values, labels)
+def test_the_splits_helper_makes_one_pass_regardless_of_label_count():
+    """The property, counted rather than timed.
 
-    def best(fn):
-        """Best of three, which is what a paired comparison on a shared machine can defend."""
-        return min((lambda t0: (fn(values, labels), time.perf_counter() - t0)[1])(time.perf_counter()) for _ in range(3))
+    A wall-clock comparison against the masked form fails under ``-n 4``, where the two implementations
+    contend for the same cores -- and a benchmark that needs a quiet machine does not belong in a suite
+    that runs parallel. What the fix actually changed is the number of full-length passes: one grouped
+    sort instead of one boolean mask per label. That is observable directly and is not a timing question.
+    """
+    import mlframe.reporting.charts._grouping as grouping
 
-    assert best(_split_arrays) < best(_masked), "the grouped split is not faster than the per-label masks"
+    sorts = {"n": 0}
+    real = grouping.np.argsort
+
+    def counted(a, **kw):
+        """Count the sorts the grouping performs."""
+        sorts["n"] += 1
+        return real(a, **kw)
+
+    for k in (2, 40):
+        values, labels = _labelled(n=20_000, k=k)
+        sorts["n"] = 0
+        grouping.np.argsort = counted
+        try:
+            _split_arrays(values, labels)
+        finally:
+            grouping.np.argsort = real
+        assert sorts["n"] == 1, f"grouping {k} labels took {sorts['n']} sorts; it must take exactly one whatever the count"

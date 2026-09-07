@@ -18,7 +18,7 @@ from typing import Tuple
 import numpy as np
 
 from mlframe.feature_engineering.fuzzy_features import fuzzy_partition_fit, fuzzy_partition_names, fuzzy_partition_transform
-from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, LinePanelSpec, PanelSpec
+from mlframe.reporting.spec import FIGSIZE_STANDARD, AnnotationPanelSpec, FigureSpec, LinePanelSpec, PanelSpec
 
 # Cap the length-n fit backing so the quantile sort stays bounded on 100+ GB frames; a random subsample leaves the centre
 # quantiles statistically unchanged and never copies the caller's frame (only <=200k floats are pulled).
@@ -82,7 +82,7 @@ def compose_fuzzy_membership_figure(
     return FigureSpec(
         suptitle=suptitle,
         panels=((panel,),),
-        figsize=(7.0, 4.5),
+        figsize=FIGSIZE_STANDARD,
         caption=(
             "Each curve is one fuzzy set's membership function over the feature's range. A triangular (Ruspini) "
             "partition is a partition of unity: at every x the memberships sum to 1, so no mass is lost between "

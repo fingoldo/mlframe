@@ -34,13 +34,38 @@ def _elapsed(spec) -> float:
 
 
 @pytest.mark.parametrize("kind", ["spans", "lines"])
-def test_the_render_cost_is_not_quadratic_in_the_marker_count(kind):
-    """Twenty-five times the bands must not cost hundreds of times the render."""
-    small = _panel(**{f"n_{kind}": 4})
-    large = _panel(**{f"n_{kind}": 100})
-    _elapsed(small)  # warm the renderer's lazy plotly import
-    ratio = _elapsed(large) / _elapsed(small)
-    assert ratio < 25.0, f"100 {kind} cost {ratio:.0f}x the render of 4; the per-item calls are back"
+def test_the_markers_cost_a_constant_number_of_plotly_calls(kind):
+    """The property, counted rather than timed.
+
+    Each per-item ``add_*`` re-validates its whole growing collection, so the defect is the CALL COUNT
+    growing with the marker count. Counting it is deterministic; a wall-clock assertion in a suite that
+    runs under ``-n 4`` measures core contention as much as the renderer.
+    """
+    import plotly.graph_objects as go
+
+    calls = {"n": 0}
+    real_ann, real_rect = go.Figure.add_annotation, go.Figure.add_vrect
+
+    def counted_ann(self, *a, **kw):
+        """Count per-item annotation calls."""
+        calls["n"] += 1
+        return real_ann(self, *a, **kw)
+
+    def counted_rect(self, *a, **kw):
+        """Count per-item vrect calls."""
+        calls["n"] += 1
+        return real_rect(self, *a, **kw)
+
+    counts = {}
+    go.Figure.add_annotation, go.Figure.add_vrect = counted_ann, counted_rect
+    try:
+        for n in (4, 100):
+            calls["n"] = 0
+            PlotlyRenderer().render(_panel(**{f"n_{kind}": n}))
+            counts[n] = calls["n"]
+    finally:
+        go.Figure.add_annotation, go.Figure.add_vrect = real_ann, real_rect
+    assert counts[100] == counts[4], f"{kind}: 100 markers made {counts[100]} per-item calls against {counts[4]} for 4; the loop is back"
 
 
 def test_every_band_is_still_drawn():

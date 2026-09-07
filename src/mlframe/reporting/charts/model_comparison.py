@@ -22,6 +22,7 @@ from mlframe.metrics import trapezoid
 from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels
 from mlframe.reporting.charts.binary import _ScoreSort, _decimate, _finite_binary
 from mlframe.reporting.spec import (
+    FIGSIZE_WIDE,
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec, PanelSpec,
 )
 
@@ -371,7 +372,7 @@ def compose_model_comparison_figure(
     Returns a 2x2 (-> packed) FigureSpec: [curve overlay, leaderboard], [correlation heatmap].
     """
     if not per_model:
-        return FigureSpec(suptitle=suptitle, panels=((AnnotationPanelSpec(text="compose_model_comparison_figure: no models"),),), figsize=(8.0, 3.0))
+        return FigureSpec(suptitle=suptitle, panels=((AnnotationPanelSpec(text="compose_model_comparison_figure: no models"),),), figsize=FIGSIZE_WIDE)
 
     headline, headline_was_inferred = _headline_metric(per_model, metric, task_type)
     if higher_is_better is None:

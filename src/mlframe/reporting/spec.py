@@ -456,6 +456,17 @@ PanelSpec = Union[
 # ----------------------------------------------------------------------------
 
 
+# Named figure sizes, so a builder PICKS a shape instead of inventing a pair of floats. Consecutive charts
+# in one report were jumping between 2.67:1 and 1:1 -- and because the renderers use fixed point sizes,
+# text on a small figure reads relatively larger, so the reader sees the font change from chart to chart
+# too. Values that GROW with the data (a bar per category, a cell per class) are not covered by these and
+# should stay computed; the point is to retire the arbitrary variation, not the deliberate kind.
+FIGSIZE_BANNER = (9.0, 2.4)  #: a single wide strip: one row of numbers, a decile table, a SHAP beeswarm
+FIGSIZE_WIDE = (8.0, 3.0)  #: the default one-panel diagnostic: drift, PDP, model comparison
+FIGSIZE_STANDARD = (8.0, 5.0)  #: a panel that needs vertical room: slice tables, error heatmaps
+FIGSIZE_SQUARE = (6.0, 5.5)  #: an aspect-carrying panel: embeddings, correlation grids, confusion
+
+
 @dataclass(frozen=True)
 class FigureSpec:
     """A grid of panels + optional figure-level suptitle.

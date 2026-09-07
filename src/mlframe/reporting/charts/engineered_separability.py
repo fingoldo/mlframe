@@ -22,7 +22,7 @@ import numpy as np
 
 from mlframe.reporting.charts._categorical_codes import ordinal_codes
 
-from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, PanelSpec, ScatterPanelSpec
+from mlframe.reporting.spec import FIGSIZE_SQUARE, FIGSIZE_WIDE, AnnotationPanelSpec, FigureSpec, PanelSpec, ScatterPanelSpec
 
 # Bounded scatter cap: matplotlib per-point primitives scale poorly past ~5k points and the Fisher ratio has converged
 # on far fewer, so both the plot and the score run on the same seeded subsample.
@@ -256,7 +256,7 @@ def compose_separability_figure(X: Any, y: np.ndarray, features: Optional[Sequen
                         ),
                     ),
                 ),
-                figsize=(6.0, 3.0),
+                figsize=FIGSIZE_WIDE,
             )
         if feature_importances is not None:
             order = np.argsort(np.asarray(feature_importances, dtype=np.float64))[::-1]
@@ -267,7 +267,7 @@ def compose_separability_figure(X: Any, y: np.ndarray, features: Optional[Sequen
     return FigureSpec(
         suptitle=suptitle,
         panels=((panel,),),
-        figsize=(6.0, 5.5),
+        figsize=FIGSIZE_SQUARE,
         caption=(
             "Each point is one row, positioned by two features and coloured by class. Fisher J is the squared "
             "Mahalanobis distance between the class means under the pooled within-class covariance: 0 means the two "
