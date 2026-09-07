@@ -273,3 +273,28 @@ def regenerate_baseline() -> None:
 
     payload = orjson.dumps(dict(sorted(_stale_comment_keys().items())), option=orjson.OPT_INDENT_2).decode("utf-8")
     _STALE_COMMENT_BASELINE.write_text(payload + chr(10), encoding="utf-8")
+
+
+def test_no_inert_patch_targets():
+    """A test that patches an attribute the target module does not have is patching nothing.
+
+    The assignment CREATES the attribute instead of replacing anything the code reads, so the
+    production path runs unpatched while the test's own assertions read back whatever the test just
+    wrote -- and the save/restore leaves the invented attribute on the module for the rest of the
+    process, which is the module-pollution class CLAUDE.md already calls out.
+
+    Four were found when this was first run: two patched
+    `mlframe.training.core.get_pandas_view_of_polars_df` (every real call site imports it lazily from
+    `training.utils` inside a function body, so only the utils patch ever did anything), one reset a
+    `_fallback_logged` latch that had been deliberately replaced by a time-based rate limit, and one
+    reset the RawKernel singleton on the discretization facade rather than on the module that owns
+    the global -- so `k1 is k2` could pass on a kernel an earlier test had already built.
+    """
+    from py_ci_shared import inert_patch_targets
+
+    index = inert_patch_targets.module_index([REPO_ROOT / "src"], package_root=REPO_ROOT / "src")
+    findings = inert_patch_targets.scan(sorted((REPO_ROOT / "tests").rglob("test_*.py")), index)
+
+    assert findings == [], "patched attributes that do not exist on their target module:\n  " + "\n  ".join(
+        f"{f.path.relative_to(REPO_ROOT).as_posix()}:{f.lineno} {f.target}" for f in findings
+    )

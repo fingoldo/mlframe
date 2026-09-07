@@ -80,10 +80,10 @@ class CatboostParamsOptimizer(ParamsOptimizer):
                 None,
                 uniform(0.35 - 0.15, 0.5 + 0.15 - 0.35),
             ],  # If set, defines the border for converting target values to 0 and 1. Depending on the specified value:target_value≤border_value the target is converted to 0; target_value>border_value the target is converted to 1.
-            # "mvs_reg": [
-            #    None,
-            #    loguniform(0.01, 100),
-            # ],  # Affects the weight of the denominator and can be used for balancing between the importance and Bernoulli sampling (setting it to 0 implies importance sampling and to ∞ - Bernoulli). This parameter is supported only for the MVS sampling method (the bootstrap_type parameter must be set to MVS).
+            "mvs_reg": [
+                None,
+                loguniform(0.01, 100),
+            ],  # Affects the weight of the denominator and can be used for balancing between the importance and Bernoulli sampling (setting it to 0 implies importance sampling and to ∞ - Bernoulli). This parameter is supported only for the MVS sampling method, so drop_if_not_rules removes it whenever bootstrap_type is anything else.
             "fold_len_multiplier": [2, loguniform(1.1, 2.9)],
             "diffusion_temperature": [10000, loguniform(1_000, 100_000)],
             "penalties_coefficient": [1, loguniform(1, 3)],
@@ -223,6 +223,7 @@ class CatboostParamsOptimizer(ParamsOptimizer):
                 "fields": ["bagging_temperature"],
             },  # Error: bagging temperature available for bayesian bootstrap only
             {"conditions": [{"grow_policy": "Lossguide"}], "fields": ["max_leaves"]},  # max_leaves option works only with lossguide tree growing
+            {"conditions": [{"bootstrap_type": "MVS"}], "fields": ["mvs_reg"]},  # Error: mvs_reg is supported only for the MVS sampling method
         ]
 
         # No groups in dataset. Please disable sampling or use per object sampling

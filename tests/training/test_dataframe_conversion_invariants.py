@@ -149,7 +149,6 @@ class TestNoDuplicateConversion:
 
     def test_mixed_suite_converts_each_polars_df_at_most_once(self, tmp_path):
         """Mixed suite converts each polars df at most once."""
-        import mlframe.training.core as mf_core
         import mlframe.training.utils as mf_utils
         from mlframe.training.configs import TrainingBehaviorConfig
         from mlframe.training.core import train_mlframe_models_suite
@@ -201,13 +200,13 @@ class TestNoDuplicateConversion:
                 per_input_size[id(df)] = df.shape[0]
             return original(df, *args, **kwargs)
 
-        # Patch BOTH the utils module (covers all lazy
-        # ``from mlframe.training.utils import get_pandas_view_of_polars_df``
-        # sites inside function bodies) AND the core module (which imports
-        # the symbol at top-level, so the utils-module patch alone wouldn't
-        # redirect the ``core.get_pandas_view_of_polars_df(...)`` call site).
+        # Patching the utils module is enough and is the only patch that does anything: every call site
+        # inside core imports the symbol lazily inside a function body
+        # (``from ..utils import get_pandas_view_of_polars_df``), so each call resolves through
+        # ``mlframe.training.utils`` at call time. ``mlframe.training.core`` has no such attribute, so the
+        # second patch this used to make was creating one that nothing read -- and its restore left the
+        # attribute on the package for the rest of the process.
         mf_utils.get_pandas_view_of_polars_df = _tracking
-        mf_core.get_pandas_view_of_polars_df = _tracking
         try:
             fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
             bc = TrainingBehaviorConfig(prefer_gpu_configs=False)
@@ -233,7 +232,6 @@ class TestNoDuplicateConversion:
             )
         finally:
             mf_utils.get_pandas_view_of_polars_df = original
-            mf_core.get_pandas_view_of_polars_df = original
 
         # The 2026-04-23 prod-log regression target: TRAIN must convert at
         # most once. Identify TRAIN as the largest converted polars frame.
