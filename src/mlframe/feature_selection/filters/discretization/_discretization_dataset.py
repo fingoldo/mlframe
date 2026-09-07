@@ -62,6 +62,7 @@ def _discretize_input_dtype():
 # NOTE: deliberately NOT used on the supervised ``nbins_strategy`` path (mdlp/optimal_joint/...), where bins
 # depend on y -> a feature's codes differ per target and sharing would be WRONG. Disable via env if needed.
 from collections import OrderedDict as _OrderedDict
+from mlframe._array_buffer import array_buffer
 
 _NUMERIC_CODE_CACHE: "_OrderedDict[bytes, np.ndarray]" = _OrderedDict()
 # Total bytes of cached column-code arrays to retain (column codes are n_rows*dtype; gate so a 100GB-frame
@@ -123,7 +124,7 @@ def _discretize_2d_array_col_cached(arr, *, n_bins, method, min_ncats, dtype, di
         keys.extend(_xxh3_128(arrT[j]) + _param_tag for j in range(n_cols))
     else:
         for j in range(n_cols):
-            hh = hashlib.blake2b(np.ascontiguousarray(arrT[j]).data, digest_size=16)
+            hh = hashlib.blake2b(array_buffer(arrT[j]), digest_size=16)
             hh.update(_param_tag)
             keys.append(hh.digest())
 

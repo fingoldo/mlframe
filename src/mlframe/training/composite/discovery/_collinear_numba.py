@@ -40,6 +40,7 @@ from collections import OrderedDict
 from typing import Any
 
 import numpy as np
+from mlframe._array_buffer import array_buffer
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,7 @@ def _keep_mask_cache_key(fm: np.ndarray, thr: float):
         return None
     h = hashlib.blake2b(digest_size=16)
     # `h.update(a.data)` consumes the buffer directly; `.tobytes()` first materialises a full copy of it. The digest is identical either way, so this is peak memory only -- the same idiom, and the same reason, as `_joblib_safe._fit_constant_key`.
-    h.update(np.ascontiguousarray(fm).data)
+    h.update(array_buffer(fm))
     return (fm.shape, fm.dtype.str, float(thr), h.digest())
 
 # Numba JIT wins the O(B^2) pair walk only once both the column count and the
