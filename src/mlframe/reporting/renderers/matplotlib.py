@@ -775,7 +775,7 @@ class MatplotlibRenderer:
             _cats = [truncate_bar_label(c, keep_tail=p.label_keep_tail) for c in p.categories]
             _keep = _thin_tick_positions(n_cat, ticks_that_fit(_measured_axis_in(ax, horizontal=True), n_cat,
                                                                pitch_in=rotated_tick_pitch_in(_HEATMAP_TICK_FONTSIZE, 0)))
-            ax.set_yticks(pos[np.asarray(_keep)])
+            ax.set_yticks(pos[np.asarray(_keep, dtype=np.int64)])
             ax.set_yticklabels([_cats[i] for i in _keep], fontsize=_HEATMAP_TICK_FONTSIZE)
             ax.invert_yaxis()  # first category on top -> worst-first ranking reads top-down
             _pad_sparse_category_axis(ax, len(p.categories), horizontal=True)
@@ -804,7 +804,7 @@ class MatplotlibRenderer:
                     _rotation = 45.0
             _pitch = rotated_tick_pitch_in(_HEATMAP_TICK_FONTSIZE, _rotation) if _rotation else label_width_pitch_in(_cats_v, _HEATMAP_TICK_FONTSIZE)
             _keep_v = _thin_tick_positions(n_cat, ticks_that_fit(_axis_in, n_cat, pitch_in=_pitch))
-            ax.set_xticks(pos[np.asarray(_keep_v)])
+            ax.set_xticks(pos[np.asarray(_keep_v, dtype=np.int64)])
             ax.set_xticklabels(
                 [_cats_v[i] for i in _keep_v],
                 rotation=_rotation,
