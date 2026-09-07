@@ -298,3 +298,23 @@ def test_no_inert_patch_targets():
     assert findings == [], "patched attributes that do not exist on their target module:\n  " + "\n  ".join(
         f"{f.path.relative_to(REPO_ROOT).as_posix()}:{f.lineno} {f.target}" for f in findings
     )
+
+
+def test_every_database_effect_is_asserted_by_an_importing_test():
+    """A module that commits or executes, whose importing tests never look at that call.
+
+    Zero here, so this is a gate rather than a ratchet and `accepted` is empty on purpose. It is
+    wired now because the count being zero is the cheap moment: the same check found fifty-five in a
+    sibling repo, and closing those turned up a resume cache that could serve an empty response as a
+    model's answer and a readiness probe that answered 200 without reaching the database.
+
+    The population assertion is not decoration. On a src layout the scan resolved no modules at all
+    until recently, so the check passed having measured nothing -- green for the one reason a gate
+    must never be green. A count is the cheapest way to notice that.
+    """
+    from py_ci_shared.effect_assertion_parity import assert_effects_are_asserted, build_import_map
+
+    import_map = build_import_map(REPO_ROOT)
+    assert len(import_map) > 1000, f"only {len(import_map)} modules resolved -- the scan lost its subject and this gate would pass vacuously"
+
+    assert_effects_are_asserted(REPO_ROOT, import_map, ())
