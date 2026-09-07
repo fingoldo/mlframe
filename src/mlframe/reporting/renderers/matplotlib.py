@@ -38,6 +38,9 @@ _TITLE_FONTSIZE = PANEL_TITLE_FONTSIZE
 # Heatmap / violin tick labels, and the size the tick-spacing budget is computed at -- one value so the two
 # cannot drift into a budget that assumes smaller glyphs than the ones drawn.
 _HEATMAP_TICK_FONTSIZE = 8
+# Directed-edge arrowhead ceiling, shared with the plotly renderer so one spec draws the same arrows on
+# both backends. Imported from the sibling that owns it rather than restated.
+from ._plotly_network import _NETWORK_MAX_ARROWS
 
 
 def _needs_layout_engine(spec) -> bool:
@@ -999,13 +1002,21 @@ class MatplotlibRenderer:
             lc = LineCollection(segments, linewidths=lws.tolist(), colors=cmap(norm(weights)), alpha=0.8, zorder=1)
             ax.add_collection(lc)
 
-            # Arrows for directed edges. Drawn per-edge (annotate has no batch
-            # form); the friend-graph max_nodes guard keeps edge counts modest.
+            # Arrows for directed edges, under the SAME ceiling the plotly twin applies. The old comment
+            # leaned on "the friend-graph max_nodes guard keeps edge counts modest", which is a property of
+            # one caller rather than of the renderer -- and the two backends then disagreed about what the
+            # figure shows: past 500 directed edges plotly drew no arrowheads and matplotlib drew all of
+            # them, from one spec. (``Axes.annotate`` appends in O(1), unlike plotly's, so this bounds an
+            # unbounded constant rather than a complexity class.)
             directed = p.edge_directed
             if np.isscalar(directed):
                 directed = np.full(e_src.shape, bool(directed))
             else:
                 directed = np.asarray(directed, dtype=bool)
+            if int(directed.sum()) > _NETWORK_MAX_ARROWS:
+                logger.debug("network panel has %d directed edges; arrowheads skipped past the %d cap, matching the plotly renderer",
+                             int(directed.sum()), _NETWORK_MAX_ARROWS)
+                directed = np.zeros_like(directed)
             for a, b, d in zip(e_src, e_dst, directed):
                 if d:
                     ax.annotate("", xy=tuple(nx_pos[b]), xytext=tuple(nx_pos[a]),

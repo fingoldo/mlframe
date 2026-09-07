@@ -438,3 +438,36 @@ ascending order `flatnonzero` did, so the draws are the same rows, not merely an
 `tests/reporting/test_stratified_subsample_grouping.py` (12 tests). Note the first version of the timing
 test did NOT catch the un-narrowed key -- at moderate n an int64 argsort still looks fine -- so the
 mechanism is pinned directly by a spy on `_narrowed`, which does fail against the finding's literal fix.
+
+**PERF-12 RESOLVED, and it is NOT latent -- the "no measurable cost today" reading is wrong.** The finding
+reasons from today's callers passing one or two bands. A regime chart is precisely the thing that grows
+with the data, so the scaling was measured rather than assumed, on one line panel:
+
+| vspans | per-item | batched |
+|--------|----------|---------|
+| 2      | 82.0 ms  | 38.7 ms |
+| 20     | 736.9 ms | 110.7 ms|
+| 100    | **14.3 s** | 206.6 ms |
+| 300    | **150.8 s** | 601.0 ms |
+
+Super-quadratic, because `add_vrect`, `add_trace` and `add_annotation` each re-validate their own growing
+collection and all three run per item. Batched: **69x at 100 bands, 251x at 300**, and linear. The vline
+path got the same treatment, and the 33 lines of `_add_vline_datetime_safe` / `_vline_label` it superseded
+are deleted rather than left dangling. The hand-built shapes are asserted equal to what `add_vrect`
+produces, field for field.
+
+Rendering it caught a defect the tests did not: the band labels still stacked UPWARD and printed across the
+subplot title ("recovery" over "regimes and change points") -- the same collision already fixed on the
+vline path. Both hang downward inside the plot area now.
+
+**Verification note.** The datetime version of this chart cannot be checked through kaleido on this host:
+plotly 5.24.1 with kaleido 1.3.0 silently exports NOTHING for any figure carrying a shape or annotation on
+a datetime axis -- no error, no file. Reproduced with bare plotly and no project code (`add_vrect` on a
+datetime axis fails, the same call on a numeric axis succeeds), so it is a version mismatch rather than
+anything about these figures. The numeric-axis equivalent was rendered and inspected instead, and the
+datetime path is covered structurally by the tests.
+
+**PERF-13 RESOLVED.** matplotlib drew every directed-edge arrowhead while plotly capped at
+`_NETWORK_MAX_ARROWS = 500`, so past that count one spec produced two different figures. Both honour the
+same ceiling, imported from the sibling that owns it rather than restated. Verified at 50 directed edges
+(50 arrows on each backend) and at 800 (none on either).

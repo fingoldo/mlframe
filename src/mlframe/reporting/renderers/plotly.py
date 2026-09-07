@@ -139,6 +139,13 @@ def _plotlyjs_mode():
     return "cdn"
 
 
+def pd_timestamp(value):
+    """``value`` as a pandas Timestamp; the vline shape needs a real datetime, not the raw label."""
+    import pandas as pd
+
+    return pd.Timestamp(value)
+
+
 def _marker_symbol(msym: str) -> str:
     """Map a matplotlib marker token to a plotly symbol, warning ONCE per unmapped token.
 
@@ -819,45 +826,87 @@ class PlotlyRenderer:
             [(sp[4] if len(sp) > 4 else "") for sp in (p.vspans or ())],
             fig, p,
         )
+        # Batched. Every one of ``add_vrect`` / ``add_trace`` / ``add_annotation`` re-validates its whole
+        # growing collection per call, so a per-item loop is super-quadratic over the three of them
+        # together: measured on this panel, 2 spans 82 ms, 20 spans 737 ms, 100 spans 14.3 s and 300 spans
+        # 150.8 s. The audit called this latent because today's callers pass one or two bands; a regime
+        # chart is exactly the thing that grows with the data, and 100 regimes is not an exotic input.
+        _suffix = plotly_axis_suffix(fig, row, col, len(fig._grid_ref[0]) if getattr(fig, "_grid_ref", None) else 1)
+        _xref, _yref = f"x{_suffix}", f"y{_suffix}"
+        _span_shapes = []
+        _span_traces = []
+        _span_annotations = []
         for _vspan_i, span in enumerate(p.vspans or ()):
             vx0, vx1, vcolor, valpha = span[0], span[1], span[2], span[3]
             vlabel = span[4] if len(span) > 4 else ""
-            fig.add_vrect(x0=vx0, x1=vx1, fillcolor=_rgba(vcolor, valpha), line_width=0, layer="below", row=row, col=col)
+            _span_shapes.append(
+                go.layout.Shape(type="rect", xref=_xref, yref=f"{_yref} domain", x0=vx0, x1=vx1, y0=0, y1=1,
+                                fillcolor=_rgba(vcolor, valpha), line=dict(width=0), layer="below")
+            )
             if vlabel:
                 # No native per-vrect legend in plotly; the invisible scatter proxy carries the label INTO the
                 # legend, and the annotation carries it onto the band itself -- which is the only one that survives
                 # on a multi-panel interactive figure, where the legend is off (hover identifies the series).
-                fig.add_trace(
+                _span_traces.append(
                     go.Scatter(x=[None], y=[None], mode="markers",
                                marker=dict(size=8, color=_rgba(vcolor, max(valpha, 0.3)), symbol="square"),
-                               name=vlabel, showlegend=True),
-                    row=row, col=col,
+                               name=vlabel, showlegend=True)
                 )
-                # Staggered by index. Every vspan label used to be stamped at the same y just above the panel,
-                # so two adjacent regimes -- which is what a regime chart is FOR -- printed on top of each
-                # other. Alternating rows keeps neighbours apart; the colour still ties each label to its band.
-                fig.add_annotation(x=vx0, y=1.0, yref="y domain", yanchor="bottom", xanchor="left",
-                                   yshift=_STACKED_LABEL_SHIFT_PX * _vspan_rows[_vspan_i],
-                                   text=vlabel, showarrow=False, font=dict(size=8, color=vcolor),
-                                   row=row, col=col)
+                # Staggered by measured overlap: every vspan label used to be stamped at the same y just
+                # above the panel, so two adjacent regimes -- which is what a regime chart is FOR -- printed
+                # on top of each other. The colour still ties each label to its band. Hanging DOWNWARD from
+                # the top of the plot area, like the vline labels below and for the same reason: stacked
+                # upward, the top row lands in the subplot title's strip and prints over it -- seen in the
+                # render, with "recovery" written across "regimes and change points".
+                _span_annotations.append(
+                    go.layout.Annotation(x=vx0, y=1.0, xref=_xref, yref=f"{_yref} domain", yanchor="top", xanchor="left",
+                                         xshift=3, yshift=-3 - _STACKED_LABEL_SHIFT_PX * _vspan_rows[_vspan_i],
+                                         text=vlabel, showarrow=False, font=dict(size=8, color=vcolor))
+                )
+        if _span_shapes:
+            fig.layout.shapes = tuple(fig.layout.shapes) + tuple(_span_shapes)
+        if _span_traces:
+            fig.add_traces(_span_traces, rows=[row] * len(_span_traces), cols=[col] * len(_span_traces))
+        if _span_annotations:
+            fig.layout.annotations = tuple(fig.layout.annotations) + tuple(_span_annotations)
+        # Same batching as the bands above. ``add_vline`` also does arithmetic on x that raises on a datetime
+        # axis, so the line is a shape with x in data coords and y spanning the panel's y-domain, which works
+        # on numeric AND datetime axes alike.
         _vline_rows = self._label_rows([v[0] for v in (p.vlines or ())], [v[2] for v in (p.vlines or ())], fig, p)
+        _line_shapes = []
+        _line_annotations = []
         for _vline_i, (vx, vcolor, vlabel) in enumerate(p.vlines or ()):
-            # add_vline does arithmetic on x that raises on a datetime axis; a line-shape with the x in data coords
-            # and y spanning the panel's y-domain works on numeric AND datetime axes alike.
-            self._add_vline_datetime_safe(fig, vx, vcolor, vlabel, row, col, label_row=_vline_rows[_vline_i])
-
-        for mx, my, mlabel, mcolor, msym in p.point_markers or ():
-            fig.add_trace(
-                # Marker only, with the label on the legend entry and the hover -- not printed beside the point as
-                # well. Carrying it in both places captioned every operating point twice, and the printed copy
-                # overhung the panel exactly as it did on the matplotlib twin.
-                go.Scatter(x=[mx], y=[my], mode="markers",
-                           marker=dict(color=mcolor, size=13, symbol=_marker_symbol(msym),
-                                       line=dict(color="black", width=0.6)),
-                           hovertext=[mlabel or ""], hoverinfo="text" if mlabel else "skip",
-                           name=mlabel or None, showlegend=bool(mlabel)),
-                row=row, col=col,
+            _x = pd_timestamp(vx) if self._is_datetime_like(vx) else vx
+            _line_shapes.append(
+                go.layout.Shape(type="line", x0=_x, x1=_x, y0=0, y1=1, xref=_xref, yref=f"{_yref} domain", line=dict(color=vcolor, dash="dot", width=1.2))
             )
+            if vlabel:
+                # Hangs DOWNWARD from the top of the plot area: stacking upward put the first row in the same
+                # strip as the subplot title, so clearing the labels of each other collided them with it.
+                _line_annotations.append(
+                    go.layout.Annotation(x=_x, y=1.0, xref=_xref, yref=f"{_yref} domain", yanchor="top",
+                                         xanchor="left", xshift=3,
+                                         yshift=-3 - _STACKED_LABEL_SHIFT_PX * int(_vline_rows[_vline_i]),
+                                         text=vlabel, showarrow=False, font=dict(size=9, color=vcolor))
+                )
+        if _line_shapes:
+            fig.layout.shapes = tuple(fig.layout.shapes) + tuple(_line_shapes)
+        if _line_annotations:
+            fig.layout.annotations = tuple(fig.layout.annotations) + tuple(_line_annotations)
+
+        _marker_traces = [
+            # Marker only, with the label on the legend entry and the hover -- not printed beside the point as
+            # well. Carrying it in both places captioned every operating point twice, and the printed copy
+            # overhung the panel exactly as it did on the matplotlib twin.
+            go.Scatter(x=[mx], y=[my], mode="markers",
+                       marker=dict(color=mcolor, size=13, symbol=_marker_symbol(msym),
+                                   line=dict(color="black", width=0.6)),
+                       hovertext=[mlabel or ""], hoverinfo="text" if mlabel else "skip",
+                       name=mlabel or None, showlegend=bool(mlabel))
+            for mx, my, mlabel, mcolor, msym in p.point_markers or ()
+        ]
+        if _marker_traces:
+            fig.add_traces(_marker_traces, rows=[row] * len(_marker_traces), cols=[col] * len(_marker_traces))
 
         # ``x_is_time`` with a NUMERIC x means epoch nanoseconds; rotating the labels (all this used to do)
         # leaves them reading "1.62e18". ``epoch_ns_ticks`` no-ops on an already-datetime axis.
@@ -936,38 +985,6 @@ class PlotlyRenderer:
         _cols = len(fig._grid_ref[0]) if getattr(fig, "_grid_ref", None) else 1
         _w_in = float(fig.layout.width or 600) / _PX_PER_INCH / max(_cols, 1)
         return stagger_label_rows(_num_xs, texts, fontsize=8, x_span=_x_span, width_in=_w_in, max_rows=_STACKED_LABEL_ROWS)
-
-    def _add_vline_datetime_safe(self, fig, vx, vcolor, vlabel, row: int, col: int, label_row: int = 0) -> None:
-        """Vertical reference line that works on numeric AND datetime x-axes.
-
-        ``fig.add_vline`` computes ``x1 - x0`` internally, which raises ``TypeError`` on datetime x. For datetime
-        markers we instead add a line shape with the x in data coords and y spanning the subplot's y-domain (the
-        temporal change-point markers that previously fell back to vspans now render as true vlines)."""
-        if self._is_datetime_like(vx):
-            import pandas as pd
-            x_coord = pd.Timestamp(vx)
-            fig.add_shape(
-                type="line", x0=x_coord, x1=x_coord, y0=0, y1=1, yref="y domain", xref="x", line=dict(color=vcolor, dash="dot", width=1.2), row=row, col=col
-            )
-            if vlabel:
-                self._vline_label(fig, x_coord, vlabel, vcolor, row, col, label_row)
-        else:
-            fig.add_vline(x=vx, line=dict(color=vcolor, dash="dot", width=1.2), row=row, col=col)
-            if vlabel:
-                self._vline_label(fig, vx, vlabel, vcolor, row, col, label_row)
-
-    @staticmethod
-    def _vline_label(fig, x_coord, text, colour, row: int, col: int, label_row: int) -> None:
-        """Name a vertical marker at its own x, stacked clear of its neighbours and inside the plot area.
-
-        ``label_row`` staggers labels of neighbouring vlines, which otherwise share one y and overprint. The
-        stack hangs DOWNWARD from the top of the plot area rather than upward from it: stacking upward put
-        the first row in the same strip as the subplot title, so fixing the labels' collision with each
-        other created a collision with the title instead -- visible in the rendered PNG.
-        """
-        fig.add_annotation(x=x_coord, y=1.0, yref="y domain", yanchor="top", xanchor="left", xshift=3,
-                           yshift=-3 - _STACKED_LABEL_SHIFT_PX * int(label_row), text=text, showarrow=False,
-                           font=dict(size=9, color=colour), row=row, col=col)
 
     def _violin(self, fig, p: ViolinPanelSpec, row: int, col: int) -> None:
         """Render one ``go.Violin`` trace per group in ``p.groups`` (tab10 color cycle for cross-backend parity with matplotlib), with an optional inner box overlay.
