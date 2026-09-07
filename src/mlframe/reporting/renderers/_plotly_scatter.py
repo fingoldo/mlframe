@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import Optional
 
 import numpy as np
 
@@ -19,6 +20,17 @@ from ._plotly_color import _axis_ref, _mpl_to_plotly_cmap, _rgba
 from ._shared_helpers import _SCATTER_MAX_POINTS, PX_PER_INCH, low_evidence_mask, non_colliding_label_indices, select_per_point
 
 logger = logging.getLogger(__name__)
+
+
+# Figure size to assume when the layout has not been sized yet. Only a MISSING size falls back: a width of
+# 0 is a caller error rather than an unset field, and silently rewriting it to 600 would hide it.
+_FALLBACK_FIGURE_W_PX = 600.0
+_FALLBACK_FIGURE_H_PX = 400.0
+
+
+def _figure_extent_in(px: Optional[float], fallback_px: float) -> float:
+    """A figure extent in inches, falling back only when the layout carries no size at all."""
+    return (fallback_px if px is None else float(px)) / PX_PER_INCH
 
 
 def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
@@ -103,9 +115,11 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
         _xlo, _xhi = min(_xs), max(_xs)
         _ylo, _yhi = min(_ys), max(_ys)
         # A zero span is a collapsed axis, not a missing measurement; 1.0 keeps the ratio finite so every
-        # label lands on the "not near an edge" side instead of dividing by zero.
-        _xspan = (_xhi - _xlo) or 1.0
-        _yspan = (_yhi - _ylo) or 1.0
+        # label lands on the "not near an edge" side instead of dividing by zero. Written as an explicit
+        # comparison rather than ``span or 1.0`` so it reads as the degenerate-axis guard it is.
+        _raw_xspan, _raw_yspan = _xhi - _xlo, _yhi - _ylo
+        _xspan = 1.0 if _raw_xspan == 0 else _raw_xspan
+        _yspan = 1.0 if _raw_yspan == 0 else _raw_yspan
 
         def _anchors(lx: float, ly: float) -> dict:
             """Anchor a label away from whichever panel edge it sits against."""
@@ -130,7 +144,7 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
         _keep = non_colliding_label_indices(
             _xs, _ys, [str(t) for _, _, t in _labels], fontsize=8,
             x_span=_xspan, y_span=_yspan,
-            width_in=float(fig.layout.width or 600) / PX_PER_INCH, height_in=float(fig.layout.height or 400) / PX_PER_INCH,
+            width_in=_figure_extent_in(fig.layout.width, _FALLBACK_FIGURE_W_PX), height_in=_figure_extent_in(fig.layout.height, _FALLBACK_FIGURE_H_PX),
         )
         if _keep:
             _first = _keep[0]

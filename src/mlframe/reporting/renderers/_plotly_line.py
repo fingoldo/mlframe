@@ -24,7 +24,7 @@ from mlframe.reporting.colors import line_color
 
 from ._plotly_color import _rgba
 from ._shared_helpers import PX_PER_INCH as _PX_PER_INCH
-from ._shared_helpers import _per_series_flags, epoch_ns_ticks, plotly_axis_suffix, stagger_label_rows
+from ._shared_helpers import _per_series_flags, epoch_ns_ticks, plotly_axis_suffix, rotated_tick_pitch_in, stagger_label_rows, ticks_that_fit
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +216,14 @@ def _line(self, fig, p: LinePanelSpec, row: int, col: int) -> None:
     if _ylim is not None:
         fig.update_yaxes(range=[float(_ylim[0]), float(_ylim[1])], row=row, col=col, secondary_y=False)
     _xkw: dict = dict(title_text=p.xlabel, row=row, col=col, showgrid=p.grid, tickangle=-30 if p.x_is_time else 0)
-    _tv, _tt = epoch_ns_ticks(_xi(0)) if p.x_is_time else (None, None)
+    # The COUNT comes from the panel's own width, not the helper's fixed six: a -30-degree date label needs
+    # real room, and the fixed count crowds a narrow panel exactly as a fixed cap crowded the heatmap ticks.
+    _n_dates = 6
+    if p.x_is_time:
+        _cols = len(fig._grid_ref[0]) if getattr(fig, "_grid_ref", None) else 1
+        _panel_w_in = float(fig.layout.width or 600) / _PX_PER_INCH / max(_cols, 1)
+        _n_dates = ticks_that_fit(_panel_w_in, 6, floor=2, pitch_in=rotated_tick_pitch_in(8, 30))
+    _tv, _tt = epoch_ns_ticks(_xi(0), n_ticks=_n_dates) if p.x_is_time else (None, None)
     if _tv is not None:
         _xkw.update(tickmode="array", tickvals=_tv, ticktext=_tt)
     fig.update_xaxes(**_xkw)

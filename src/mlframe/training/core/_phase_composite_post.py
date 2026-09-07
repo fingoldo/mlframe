@@ -298,6 +298,12 @@ def run_composite_post_processing(
         dummy_baselines_config=dummy_baselines_config,
     )
 
+    # Every run leaves one comparable quality table behind, so two runs differing only in features or
+    # hyperparameters can be diffed afterwards rather than re-read out of the log.
+    from ._phase_targets_performance import render_targets_performance
+
+    render_targets_performance(models, metadata, plot_file=plot_file)
+
     return models, metadata
 
 

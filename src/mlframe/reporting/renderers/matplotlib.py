@@ -910,8 +910,12 @@ class MatplotlibRenderer:
         if p.ylim is not None:
             ax.set_ylim(*p.ylim)
         if p.x_is_time:
-            # The numeric x carries epoch NANOSECONDS, which read as "1.62e18" unless converted.
-            _tickvals, _ticktext = epoch_ns_ticks(_xi(0))
+            # The numeric x carries epoch NANOSECONDS, which read as "1.62e18" unless converted. The COUNT
+            # comes from the axis rather than the helper's fixed six: a date label rotated 30 degrees needs
+            # real room, and six of them crowd a narrow panel the same way a fixed cap crowded the heatmap.
+            _date_pitch = rotated_tick_pitch_in(_HEATMAP_TICK_FONTSIZE, 30)
+            _n_dates = ticks_that_fit(_measured_axis_in(ax, horizontal=False), 6, floor=2, pitch_in=_date_pitch)
+            _tickvals, _ticktext = epoch_ns_ticks(_xi(0), n_ticks=_n_dates)
             if _tickvals is not None:
                 ax.set_xticks(_tickvals)
                 ax.set_xticklabels(_ticktext)
@@ -1053,11 +1057,16 @@ class MatplotlibRenderer:
         _x_lo, _x_hi = float(np.min(nx_pos[:, 0])), float(np.max(nx_pos[:, 0]))
         _y_lo, _y_hi = float(np.min(nx_pos[:, 1])), float(np.max(nx_pos[:, 1]))
         _sizes = np.asarray(p.node_size, dtype=float).ravel()
+        # Explicit None checks rather than ``measured or REF``: a measured extent of exactly 0 is a
+        # degenerate axes, not a failed measurement, and the two deserve different treatment for different
+        # reasons -- the same trap the panel-title width budget documents a few hundred lines up.
+        _panel_w = _measured_axis_in(ax, horizontal=False)
+        _panel_h = _measured_axis_in(ax, horizontal=True)
         _keep_lbl = non_colliding_label_indices(
             nx_pos[_cand, 0], nx_pos[_cand, 1], _texts, fontsize=7,
             x_span=max(_x_hi - _x_lo, 1e-9), y_span=max(_y_hi - _y_lo, 1e-9),
-            width_in=_measured_axis_in(ax, horizontal=False) or _TITLE_REF_WIDTH_IN,
-            height_in=_measured_axis_in(ax, horizontal=True) or _TITLE_REF_WIDTH_IN,
+            width_in=_TITLE_REF_WIDTH_IN if _panel_w is None else _panel_w,
+            height_in=_TITLE_REF_WIDTH_IN if _panel_h is None else _panel_h,
             priority=[_sizes[_i] for _i in _cand] if _sizes.size == len(p.node_label) else None,
         )
         for _j in _keep_lbl:
