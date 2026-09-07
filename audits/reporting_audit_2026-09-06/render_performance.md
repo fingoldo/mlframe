@@ -471,3 +471,21 @@ datetime path is covered structurally by the tests.
 `_NETWORK_MAX_ARROWS = 500`, so past that count one spec produced two different figures. Both honour the
 same ceiling, imported from the sibling that owns it rather than restated. Verified at 50 directed edges
 (50 arrows on each backend) and at 800 (none on either).
+
+**PERF-15 RESOLVED, and it repeats PERF-09's lesson exactly.** The finding proposes "single `argsort` +
+`bincount` grouping, same shape as the PERF-09 fix" -- and taken literally that is SLOWER than the masks it
+replaces, because these labels are STRINGS: at 2M rows and 4 splits, argsort-grouped **1219 ms** against
+masked **711 ms**. Factorising to small integer codes before sorting is what makes it a win, for the same
+reason narrowing the class labels did in PERF-09 -- numpy radix-sorts narrow integers.
+
+MEASURED on `_split_arrays`, best of three at 2M rows: k=4 **1091.8 -> 453.3 ms (2.41x)**, k=20
+**3011.3 -> 784.8 ms (3.84x)**, identical groups and identical first-appearance label order (which the
+splits panel labels its groups by, so sorting them would relabel the chart).
+
+Extracted as `charts/_grouping.py` rather than repeated, and wired into `_split_arrays` and the LTR
+query-size bins. `charts/ltr.py:385`'s discrete-grade loop is left alone: its masks are built from
+`(y >= lo) & (y <= hi)` interval predicates, not equality against a label, so the same helper does not
+apply to it.
+
+`tests/reporting/test_label_grouping.py` (9 tests). Both halves probed: removing the narrowing fails the
+radix-key test, and restoring the masks fails the paired comparison against them.
