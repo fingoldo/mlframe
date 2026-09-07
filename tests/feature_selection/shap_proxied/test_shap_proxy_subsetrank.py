@@ -84,7 +84,14 @@ def test_dispatch_defaults_to_cpu_and_matches_incremental():
 
 def test_dispatch_falls_back_to_cpu_on_gpu_failure(monkeypatch):
     """When the GPU backend raises (cupy missing / OOM), the dispatcher must return the CPU result,
-    never propagate -- the no-crash contract for the contended host."""
+    never propagate -- the no-crash contract for the contended host.
+
+    This used to reset a `_fallback_logged` latch first, to "exercise the warning path". That latch was
+    deliberately replaced by a time-based rate limit (see `_shap_proxy_subsetrank`'s own comment on why
+    latching once per process was wrong), so the reset only created a stray module attribute and the
+    claim about the warning path had stopped being true. What this test pins is the fallback RESULT,
+    which is the contract that matters here.
+    """
     import mlframe.feature_selection.shap_proxied_fs._shap_proxy_gpu as G
 
     def _boom(*a, **k):
@@ -93,7 +100,6 @@ def test_dispatch_falls_back_to_cpu_on_gpu_failure(monkeypatch):
 
     monkeypatch.setattr(G, "gpu_available", lambda: True)
     monkeypatch.setattr(G, "brute_force_top_n_gpu", _boom)
-    SR._fallback_logged = False  # reset the log-once latch so the warning path is exercised
 
     rng = np.random.default_rng(5)
     phi = rng.standard_normal((300, 9))
