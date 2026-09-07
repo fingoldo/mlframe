@@ -126,8 +126,10 @@ Two corrections to the finding, both measured:
 * **The predicted 3.3x is not what it delivers -- 1.27x to 1.47x at 1M x 200 across repeated runs.** The estimate assumed the exact pass
   runs on `max_features` columns; it runs on `PSI_SCREEN_OVERSAMPLE * max_features` (120 of 200 here),
   because a screen that forwards exactly what it draws cannot recover a feature it under-ranked. The win
-  therefore scales with `ncols / (oversample * max_features)` and is small until a frame is much wider than
-  200 columns -- on the 500-column frames the finding cites it is worth substantially more.
+  therefore scales with `ncols / (oversample * max_features)`, which was measured rather than left as a
+  claim (400k rows, `max_features=40`): ratio 1.00 -> 0.96x, 1.67 -> 1.18x, 2.92 -> 1.62x, 4.17 -> 1.68x,
+  6.67 -> 2.08x. An earlier draft of this note said the 500-column frames the finding cites would be worth
+  "substantially more"; they are worth **1.68x**, and only an 800-column frame reaches 2x.
 * **Below a real reduction the screen was a net LOSS** (0.69-0.87x at 200k rows against a 100k sample): it
   still gathers a sample per column and then pays the exact pass anyway. It now requires the frame to be
   `PSI_SCREEN_MIN_REDUCTION` (4x) the sample before it engages at all.
@@ -150,8 +152,8 @@ with a `bench-attempt-rejected` note at the call site.
 All wall-clock figures here were taken on a machine that was busy with other work, paired and interleaved
 (median of 3 alternating trials) to cancel drift. The isolated microbenchmarks and the selection-equivalence
 and bit-identity results are unaffected by load; the end-to-end ratios outside the 1M x 200 case sat within
-+/-7%, which on that box is noise rather than a reading. Bench saved as
-`src/mlframe/reporting/_benchmarks/bench_psi_screen.py`; pinned by
++/-7%, which on that box is noise rather than a reading. Benches saved as
+`src/mlframe/reporting/_benchmarks/bench_psi_screen.py` and `bench_psi_bin_counts.py`; pinned by
 `tests/reporting/test_psi_feature_screen.py` (12 tests).
 
 ## PERF-05 — P2 — `charts/slice_finder.py:394-400` — Python append loop over every candidate cell, for a 7-row chart

@@ -74,3 +74,60 @@ def test_plotly_suppresses_its_inline_label_on_the_same_grids(rows, cols, inline
     for tr in contours:
         assert bool(tr.contours.showlabels) is inline_expected
         assert tr.name in LABELS, f"the threshold lost its name entirely: {tr.name!r}"
+
+
+def test_the_contour_legend_avoids_the_cells_a_reader_came_for():
+    """Moving the label into a legend only helps if the legend is not itself over the interesting cells.
+
+    A drift heatmap sorts rows by peak PSI and columns by time, so a fixed "lower right" legend lands on the
+    worst feature's latest, largest numbers. Seen directly: it covered the two biggest cells of the two
+    worst rows. The legend now goes to the quadrant with the least extreme values.
+    """
+    from mlframe.reporting.renderers._matplotlib_heatmap import _calmest_corner
+
+    rows, cols = 12, 10
+    ramp = np.zeros((rows, cols))
+    for i in range(rows):
+        ramp[i, :] = np.linspace(0.0, 1.0 + i, cols)  # calm upper-left, hot lower-right
+    assert _calmest_corner(ramp) == "upper left"
+    assert _calmest_corner(ramp[:, ::-1]) == "upper right"
+    assert _calmest_corner(ramp[::-1, :]) == "lower left"
+    assert _calmest_corner(ramp[::-1, ::-1]) == "lower right"
+
+
+def test_an_all_nan_quadrant_is_the_calmest_place_of_all():
+    """A blank corner is the best possible home for the legend, and nanmean over it must not blow up."""
+    from mlframe.reporting.renderers._matplotlib_heatmap import _calmest_corner
+
+    mat = np.ones((8, 8))
+    mat[:4, :4] = np.nan
+    assert _calmest_corner(mat) == "upper left"
+
+
+def test_the_rendered_legend_lands_in_the_calm_corner():
+    """End to end: the placement helper must actually reach the drawn legend, not just exist."""
+    rows, cols = 12, 10
+    mat = np.zeros((rows, cols))
+    for i in range(rows):
+        mat[i, :] = np.linspace(0.0, 1.0 + i, cols)
+    panel = HeatmapPanelSpec(
+        matrix=mat,
+        row_labels=tuple(f"f{i}" for i in range(rows)),
+        col_labels=tuple(f"t{j}" for j in range(cols)),
+        title="drift",
+        cell_text=mat,
+        text_format=".2f",
+        threshold_contours=CONTOURS,
+    )
+    fig = MatplotlibRenderer().render(FigureSpec(panels=((panel,),), figsize=(8.0, 6.0)))
+    try:
+        fig.canvas.draw()
+        axes = next(a for a in fig.axes if a.images)
+        legend = axes.get_legend()
+        assert legend is not None, "the contour legend was not drawn at all"
+        # Legend centre in axes coordinates: the calm corner here is upper left.
+        box = legend.get_window_extent().transformed(axes.transAxes.inverted())
+        cx, cy = (box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2
+        assert cx < 0.5 and cy > 0.5, f"the legend sits at ({cx:.2f}, {cy:.2f}) in axes coords, not the calm upper-left"
+    finally:
+        plt.close(fig)

@@ -631,8 +631,17 @@ contour -- so on a grid whose drift ramps left to right the label runs diagonall
 lands on top of their numbers. Seen directly in a 25x10 render: "significant 0.25" written over the 0.00 and
 1.08 cells of the late-drift block.
 
-**OPEN, with a concrete next action.** Not fixed here: it belongs to the contour overlay rather than to
-PERF-04's screening path, and the fix is a choice between suppressing the inline label in favour of the
-colorbar's existing threshold markers, or placing it in the margin. Next action: suppress the inline contour
-label when the panel also draws per-cell text (the two are competing for the same pixels, and the cell text
-is the more precise reading), and pin it with a render test that counts label-over-cell-text collisions.
+**RESOLVED, in both backends.** The inline label is suppressed when the panel also draws per-cell text --
+the two compete for the same pixels and the cell values are the more precise reading. matplotlib moves the
+wording to a legend; plotly drops `showlabels` and keeps the trace name, which it already carried in the
+legend and hover, so neither backend loses the threshold's name.
+
+That fix then had a tail worth recording, found the same way (by looking at the render). A legend pinned to
+"lower right" is pinned to exactly where a drift heatmap puts its worst numbers: rows are ordered by peak
+PSI and columns by time, so on a grid that drifts everywhere it covered the two largest cells of the two
+worst rows. The legend now goes to the quadrant with the least extreme values -- it cannot avoid covering
+something on a grid that is interesting everywhere, but it can avoid covering the part a reader came for.
+An all-NaN quadrant sorts as calmest, which is the right answer: a blank corner is the best home for it.
+
+Pinned by `tests/reporting/test_heatmap_contour_labels.py` (10 tests); the placement test and the two
+suppression tests were verified failing pre-fix.

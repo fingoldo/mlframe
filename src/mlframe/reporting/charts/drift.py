@@ -103,13 +103,25 @@ def _binned_proportions(values: np.ndarray, edges: np.ndarray) -> np.ndarray:
     nbins = len(edges) - 1
     if finite.size == 0:
         return np.zeros(nbins, dtype=np.float64)
-    # bench-attempt-rejected: replacing this with ``np.searchsorted(edges, finite) + np.bincount``. A cProfile
-    # of the whole chart shows ``ndarray.sort`` at 40% of its runtime, which is numpy sorting each slice
-    # inside ``histogram`` because quantile edges are never uniform -- so skipping the sort looked free. It is
-    # not: a per-element binary search over ~10 edges is branchy and cache-hostile, and measured 3x SLOWER
-    # (1M rows: 20.9 ms here against 61.6 ms; 100k: 2.1 ms against 5.0 ms). Counts were verified identical
-    # first, so the reject is on speed alone. See reporting/_benchmarks/bench_psi_screen.py.
-    counts = np.histogram(finite, bins=edges)[0].astype(np.float64)
+    # NOT ``np.histogram``: with non-uniform bins -- and quantile edges never are uniform -- numpy sorts the
+    # whole slice before counting, and that sort was 40% of this chart's entire runtime. One vectorised
+    # comparison pass per edge counts the same rows without ordering them, and there are only ~10 edges:
+    # measured 2.0x at 10k rows, 4.0x at 100k, 1.7x at 1M, counts identical.
+    #
+    # bench-attempt-rejected, same profile finding: ``searchsorted`` + ``bincount`` (3x SLOWER at 1M --
+    # 61.6 ms against 20.9 ms -- a per-element binary search is branchy and cache-hostile), and a
+    # ``njit(parallel=True)`` row scan (competitive at 100k, 24.6 ms against 19.6 ms at 1M). Both produced
+    # identical counts; both were rejected on speed. See reporting/_benchmarks/bench_psi_bin_counts.py.
+    #
+    # ``cum[i]`` is the number of values strictly below ``edges[i]``, so differencing gives the half-open
+    # bins ``[e_i, e_i+1)`` that ``histogram`` uses. Its LAST bin is closed, which matters only for a finite
+    # top edge -- ``_quantile_edges`` always hands back +inf, but this helper stays correct without it.
+    cum = np.empty(edges.size, dtype=np.int64)
+    for i in range(edges.size):
+        cum[i] = np.count_nonzero(finite < edges[i])
+    counts = np.diff(cum).astype(np.float64)
+    if np.isfinite(edges[-1]):
+        counts[-1] += float(np.count_nonzero(finite == edges[-1]))
     total = counts.sum()
     if total <= 0:
         return np.zeros(nbins, dtype=np.float64)

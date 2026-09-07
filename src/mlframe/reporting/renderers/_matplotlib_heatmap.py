@@ -32,6 +32,32 @@ from ._shared_helpers import (
 logger = logging.getLogger("mlframe.reporting.renderers._matplotlib_heatmap")
 
 
+def _calmest_corner(matrix: np.ndarray) -> str:
+    """The legend ``loc`` whose quadrant carries the least extreme values.
+
+    A fixed corner covers whatever happens to be there, and on a drift heatmap the rows are ordered by peak
+    PSI and the columns by time -- so "lower right" is exactly where the worst feature's latest, largest
+    numbers live. Seen directly: the legend sat on the two biggest cells of the two worst rows.
+
+    Ranking quadrants by mean magnitude puts it over the calmest one instead. It cannot avoid covering
+    something on a grid that is interesting everywhere, but it can avoid covering the part a reader came
+    for. All-NaN quadrants sort as calm, which is right: a blank corner is the best possible place for it.
+    """
+    quadrants = {
+        "upper left": np.s_[: matrix.shape[0] // 2, : matrix.shape[1] // 2],
+        "upper right": np.s_[: matrix.shape[0] // 2, matrix.shape[1] // 2 :],
+        "lower left": np.s_[matrix.shape[0] // 2 :, : matrix.shape[1] // 2],
+        "lower right": np.s_[matrix.shape[0] // 2 :, matrix.shape[1] // 2 :],
+    }
+    best, best_score = "lower right", np.inf
+    for loc, sl in quadrants.items():
+        block = np.abs(np.asarray(matrix, dtype=float)[sl])
+        score = -1.0 if block.size == 0 or not np.isfinite(block).any() else float(np.nanmean(block))
+        if score < best_score:
+            best, best_score = loc, score
+    return best
+
+
 def _heatmap(self, ax, p: HeatmapPanelSpec, fig) -> None:
     """Render a matrix heatmap: cell text (auto-flipped color by luminance) when the grid is small enough, iso-value threshold contours, and an optional trend/y=x line mapped from value-space into bin-index space via the panel's own binning range."""
     # Imported at call time, not at module scope: ``matplotlib.py`` binds these two functions onto its
@@ -134,7 +160,7 @@ def _heatmap(self, ax, p: HeatmapPanelSpec, fig) -> None:
                                    linestyle={"solid": "-", "dash": "--", "dot": ":", "dashdot": "-."}.get(dash, "-"))
                         )
             if contour_legend:
-                ax.legend(handles=contour_legend, fontsize=6, loc="lower right", framealpha=0.85)
+                ax.legend(handles=contour_legend, fontsize=6, loc=_calmest_corner(mat), framealpha=0.85)
     if p.trend_line is not None and p.trend_xy is not None:
         from mlframe.reporting.renderers._trend import robust_fit_endpoints
         # The imshow axes live in BIN-INDEX space (0..nbins-1); robust_fit_endpoints + the y=x
