@@ -24,7 +24,8 @@ from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported f
     _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, heatmap_value_to_index,
     CAPTION_FONTSIZE, CAPTION_WRAP_CHARS, PANEL_TITLE_FONTSIZE, SUPTITLE_WRAP_CHARS,
     _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
-    _TITLE_REF_WIDTH_IN, histogram_bar_extent, label_width_pitch_in, network_label_indices, low_evidence_mask, non_colliding_label_indices, panel_title_wrap_chars,
+    _TITLE_REF_WIDTH_IN, histogram_bar_extent, label_width_pitch_in, log_axis_dropped_note, network_label_indices, low_evidence_mask, non_colliding_label_indices,
+    panel_title_wrap_chars,
     rotated_tick_pitch_in, select_per_point, ticks_that_fit, truncate_bar_label,
     wrap_annotation_text, wrap_text_to_width, wrap_title_lines,
 )
@@ -513,6 +514,11 @@ class MatplotlibRenderer:
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         _set_panel_title(ax, p.title)
+        # An empty bin is not drawn small on a log axis, it is not drawn at all, and nothing said so: a
+        # 30-bin histogram of a tight cluster plus one far outlier silently loses 24 of its bars.
+        _log_note = log_axis_dropped_note([patch.get_height() for patch in ax.patches], p.yscale)
+        if _log_note:
+            ax.text(0.99, 0.99, _log_note, ha="right", va="top", transform=ax.transAxes, fontsize=7, color="0.35")
         ax.set_yscale(p.yscale)
         if p.yscale == "linear":
             # A short panel gets matplotlib's sparsest tick set -- two or three labels for the whole axis, which

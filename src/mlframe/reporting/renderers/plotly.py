@@ -45,7 +45,7 @@ from ._plotly_color import _mpl_to_plotly_cmap
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
     _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, PX_PER_INCH,
     CAPTION_FONTSIZE, CAPTION_WRAP_CHARS, PANEL_TITLE_FONTSIZE, SUPTITLE_WRAP_CHARS,
-    _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks, label_width_pitch_in, plotly_axis_suffix, rotated_tick_pitch_in, stagger_label_rows, ticks_that_fit,
+    _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks, label_width_pitch_in, log_axis_dropped_note, plotly_axis_suffix, rotated_tick_pitch_in, stagger_label_rows, ticks_that_fit,
     histogram_bar_extent, low_evidence_mask, panel_title_wrap_chars, select_per_point, truncate_bar_label, wrap_annotation_text,
     wrap_text_to_width, wrap_title_lines,
 )
@@ -617,7 +617,29 @@ class PlotlyRenderer:
         if p.xlim is not None:
             fig.update_xaxes(range=list(p.xlim), row=row, col=col)
         fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid)
-        fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid, type="log" if p.yscale == "log" else "linear")
+        # Tick DENSITY, not just the scale type. The matplotlib twin installs a LogLocator with the 2/5
+        # subdivisions (or a MaxNLocator on a linear axis) because the stock locators label one decade on a
+        # histogram spanning a decade and a bit -- an axis carrying a scale name and no readable values.
+        # Setting only ``type="log"`` here left this backend with exactly that.
+        # "D2" is plotly's own name for the 1/2/5 subdivisions within each decade -- the same set the
+        # matplotlib LogLocator asks for with subs=(1, 2, 5).
+        # Same notice the matplotlib twin draws: an empty bin vanishes entirely on a log axis. The counts
+        # have to be computed here rather than read back off the trace, because ``go.Histogram`` bins
+        # internally and carries no y values at all.
+        _log_counts: Any = ()
+        if p.yscale == "log":
+            if heights is not None:
+                _log_counts = np.asarray(heights, dtype=float)
+            else:
+                _raw = np.asarray(p.values, dtype=float).ravel()
+                _raw = _raw[np.isfinite(_raw)]
+                _log_counts = np.histogram(_raw, bins=p.bins)[0] if _raw.size else ()
+        _log_note = log_axis_dropped_note(_log_counts, p.yscale)
+        if _log_note:
+            fig.add_annotation(x=1.0, y=1.0, xref="x domain", yref="y domain", xanchor="right", yanchor="top",
+                               text=_log_note, showarrow=False, font=dict(size=7, color="#595959"), row=row, col=col)
+        _scale_kw = dict(type="log", dtick="D2", tickformat=".3~g") if p.yscale == "log" else dict(type="linear", nticks=6)
+        fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid, **_scale_kw)
 
     # ``_confusion_margins`` / ``_colorbar_placement`` / ``_heatmap`` live in ``._plotly_heatmap`` and are
     # bound onto this class at the bottom of the module. Carved out to keep this file under the house

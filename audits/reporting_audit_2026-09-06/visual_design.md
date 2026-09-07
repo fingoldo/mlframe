@@ -230,6 +230,25 @@ whose counts include 0; matplotlib drops those bars silently.
 *Fix:* mirror the tick config via `dtick`/`tickformat`, and warn (or clamp) when a log axis is requested
 over data containing non-positive values.
 
+**RESOLVED, both halves -- and the second one is not latent.** Plotly's log axis now asks for `dtick="D2"`,
+which is that library's own name for the 1/2/5 subdivisions the matplotlib `LogLocator` requests with
+`subs=(1, 2, 5)`, plus `tickformat=".3~g"`; the linear branch asks for `nticks=6` against matplotlib's
+`MaxNLocator(nbins=6)`. Rendered, the axis goes from one labelled decade to nine readable values.
+
+The related note turned out to be the bigger half. `log(0)` is undefined, so an empty bin is not drawn
+small on a log axis -- it is not drawn AT ALL, and neither backend said so. Measured on a tight cluster
+plus one far outlier: **24 of 30 bars vanish**, and the reader sees six with nothing indicating the gaps
+between them are empty rather than unplotted. Both backends now carry
+"log scale: 24 of 30 bins are empty and cannot be drawn". Clamping was the other option the finding offers
+and is worse: it would invent a floor value the data does not have.
+
+The plotly count has to be computed rather than read back off the trace, because `go.Histogram` bins
+internally and carries no y values at all -- the first version of the notice silently produced nothing on
+that backend for exactly that reason, which the two-backend test caught.
+
+`tests/reporting/test_log_scale_histogram.py` (9 tests), including a guard that the fixture really does
+lose 24 bars. Four fail against the pre-fix renderers.
+
 ### VIS-16 — P3 — `renderers/matplotlib.py:83` (`_CAPTION_FONTSIZE = 7`) vs `renderers/plotly.py:69` (`_CAPTION_FONTSIZE = 10`, rendered at `font=dict(size=9)` on line 396)
 **The "how to read" caption is three different sizes.**
 matplotlib wraps and renders at 7pt in colour `"0.35"`. Plotly *wraps* against 10pt but *renders* at 9pt

@@ -193,6 +193,23 @@ def stagger_label_rows(xs: Any, texts: Any, *, fontsize: float, x_span: float, w
     return rows
 
 
+def log_axis_dropped_note(heights: Any, yscale: str) -> Optional[str]:
+    """A note naming how many bars a log axis cannot show, or ``None`` when it can show them all.
+
+    ``log(0)`` is undefined, so an empty bin on a log-scaled histogram is not drawn small -- it is not drawn
+    at all, and neither backend says so. On a long-tailed column that is most of the axis: a 30-bin
+    histogram of a tight cluster plus one far outlier loses 24 bars, and the reader sees six with nothing
+    indicating the gaps between them are empty rather than unplotted.
+    """
+    if yscale != "log":
+        return None
+    counts = np.asarray(heights, dtype=float).ravel()
+    dropped = int(np.count_nonzero(~(counts > 0)))
+    if dropped == 0:
+        return None
+    return f"log scale: {dropped} of {counts.size} bins are empty and cannot be drawn"
+
+
 def label_width_pitch_in(labels: Any, fontsize: float) -> float:
     """Spacing an axis of UNROTATED, side-by-side tick labels needs: the widest label plus a gutter.
 
