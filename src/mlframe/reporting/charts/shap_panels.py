@@ -406,7 +406,11 @@ def _write_skip_notice(reason: str, plot_file: Optional[str], plot_outputs: Opti
         return []
 
 
-def _save_figure(fig: Any, base: str, plot_outputs: Optional[str]) -> List[str]:
+# Matches ``renderers/matplotlib.py``'s savefig, so a Path-B image is cropped like a FigureSpec one.
+_SAVE_PAD_INCHES = 0.15
+
+
+def _save_figure(fig: Any, base: str, plot_outputs: Optional[str], dpi: Optional[int] = None) -> List[str]:
     """Save ``fig`` to ``base`` honouring the format(s) in ``plot_outputs`` (matplotlib raster/vector only).
 
     ``plot_outputs`` is the project plot-output DSL (e.g. ``"matplotlib[png]"``); shap panels are
@@ -422,7 +426,10 @@ def _save_figure(fig: Any, base: str, plot_outputs: Optional[str]) -> List[str]:
     for fmt in formats:
         path = f"{root}.{fmt}"
         try:
-            fig.savefig(ensure_parent_dir(path), bbox_inches="tight")
+            # Same crop and pixel density the FigureSpec renderer uses (``renderers/matplotlib.py``). These
+            # images sit beside its output in one report, and a different pad or DPI shows up as a visibly
+            # different text weight and a tighter crop on otherwise identical-looking charts.
+            fig.savefig(ensure_parent_dir(path), bbox_inches="tight", pad_inches=_SAVE_PAD_INCHES, **({"dpi": dpi} if dpi else {}))
             written.append(path)
         except Exception as save_err:
             log_throttle(logger, "shap_panel_savefig_failed", logging.WARNING, "SHAP panel savefig failed for %s: %s", path, save_err)
@@ -539,6 +546,7 @@ def shap_summary_and_dependence(
     kernel_background: int = KERNEL_BACKGROUND,
     kernel_max_rows: int = KERNEL_MAX_ROWS,
     seed: int = 0,
+    plot_dpi: Optional[int] = None,
 ) -> ShapPanelsResult:
     """Beeswarm + top-K dependence plots off ONE explainer / ONE SHAP-value computation.
 
@@ -671,7 +679,7 @@ def shap_summary_and_dependence(
         beeswarm.set_size_inches(9.0, max(4.0, 0.5 * min(len(names), max(int(top_k), 1)) + 2.0))
         figures.append(beeswarm)
         if plot_file:
-            paths.extend(_save_figure(beeswarm, _base_for(plot_file, "shap_beeswarm"), plot_outputs))
+            paths.extend(_save_figure(beeswarm, _base_for(plot_file, "shap_beeswarm"), plot_outputs, plot_dpi))
 
         # Dependence panels GROUPED into grid figure(s) (>= DEPENDENCE_GRID_COLS per row) instead of one stacked
         # figure per feature, each panel auto-annotated with its monotone direction / impact / smooth-vs-step verdict.
@@ -679,7 +687,7 @@ def shap_summary_and_dependence(
         for fig_rank, dep_fig in enumerate(_dependence_grid_figs(shap_mat, vals_sample, cols, names, top_names)):
             figures.append(dep_fig)
             if plot_file:
-                paths.extend(_save_figure(dep_fig, _base_for(plot_file, f"shap_dependence_grid{fig_rank}"), plot_outputs))
+                paths.extend(_save_figure(dep_fig, _base_for(plot_file, f"shap_dependence_grid{fig_rank}"), plot_outputs, plot_dpi))
     finally:
         # Close EVERY figure shap opened (not just the ones we tracked) so a mid-flow error never leaks.
         leaked = [plt.figure(num) for num in plt.get_fignums() if num not in figs_before]

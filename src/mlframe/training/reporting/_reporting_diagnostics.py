@@ -236,6 +236,7 @@ def _render_post_fit_diagnostics(
     target_type,
     plot_file,
     plot_outputs,
+    plot_dpi=None,
     metrics,
     reporting_config,
     model_name=None,
@@ -478,7 +479,7 @@ def _render_post_fit_diagnostics(
     if getattr(cfg, "shap_panels", True) and model is not None and df is not None and not _collapsed:
         _budget.run("shap", lambda: render_shap_diagnostic(
                 model=model, df=df, feature_names=names, plot_outputs=plot_outputs, base_path=plot_file,
-                metrics_dict=metrics, max_rows=getattr(cfg, "shap_max_rows", 20000),
+                metrics_dict=metrics, max_rows=getattr(cfg, "shap_max_rows", 20000), plot_dpi=plot_dpi,
                 top_k=getattr(cfg, "shap_top_k", 6), allow_kernel=getattr(cfg, "shap_allow_kernel", False),
         ))
 

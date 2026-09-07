@@ -322,6 +322,21 @@ width in HTML), and are cropped tighter at the edges.
 *Fix:* thread the resolved DPI and pad into `_save_figure` for all Path-B charts, or migrate them onto
 `FigureSpec`.
 
+**RESOLVED, the first way.** All five Path-B charts the finding lists route through ONE `_save_figure`
+(`shap_panels.py`, imported by `shap_interactions` and `shap_per_instance`), so the crop fix lands in a
+single place: `pad_inches=0.15`, matching `renderers/matplotlib.py`. `confusion_matrix_plot` and
+`_binary_decile_table` only CONSTRUCT figures -- they do not save -- so the DPI reaches them through the
+same saver.
+
+The DPI needed four hops, not the one this reads like: `_reporting.py` already had `plot_dpi`, but
+`_render_post_fit_diagnostics`, `render_shap_diagnostic` and `shap_summary_and_dependence` all had to
+accept and forward it before `_save_figure` could use it. Stopping at the crop would have left a parameter
+nothing passes, which is not a fix.
+
+`tests/reporting/test_path_b_save_conventions.py` (5 tests). One reads the pad back out of the RENDERER's
+source, so the two cannot drift apart again silently, and one asserts every hop of the chain carries
+`plot_dpi`. The pre-fix saver fails the DPI test.
+
 ### VIS-22 — P3 — `charts/error_analysis.py:246,257`, `charts/interaction_strength.py:80`, `charts/class_structure_heatmap.py:236`, `charts/spectral_embedding.py:164`, `charts/fuzzy_membership.py:85`, `charts/drift.py:248`, `charts/engineered_separability.py:246,257`
 **Default figure sizes vary widely across charts that appear in the same report.**
 Observed defaults: `(6.0, 3.0)`, `(6.0, 5.0)`, `(6.0, 5.5)`, `(7.0, 4.5)`, `(7.0, 5.0)`, `(7.0, 6.0)`,

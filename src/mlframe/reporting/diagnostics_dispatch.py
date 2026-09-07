@@ -847,6 +847,7 @@ def render_shap_diagnostic(
     top_k: int = 6,
     allow_kernel: bool = False,
     seed: int = 0,
+    plot_dpi: Optional[int] = None,
 ) -> bool:
     """SHAP beeswarm + top-K dependence. Default-ON for TREE models; non-tree uses the slow KernelExplainer only when
     ``allow_kernel`` is set. Uses shap's matplotlib-savefig path (not render_and_save -- these are figures, not specs).
@@ -868,7 +869,7 @@ def render_shap_diagnostic(
         res = shap_summary_and_dependence(
             model, df, feature_names=list(feature_names) if feature_names else None,
             max_rows=max_rows, top_k=top_k, plot_file=_png_path(base_path + "_shap"),
-            plot_outputs=plot_outputs, allow_kernel=allow_kernel, seed=seed,
+            plot_outputs=plot_outputs, allow_kernel=allow_kernel, seed=seed, plot_dpi=plot_dpi,
         )
         ok = bool(res.paths) and res.skipped is None
         _record(charts, "shap_panels", ok)

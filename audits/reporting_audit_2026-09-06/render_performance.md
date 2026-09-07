@@ -534,3 +534,22 @@ both caches are bounded and both expose an explicit clear.
 `tests/reporting/test_shared_error_prep.py` (9 tests). Each property probed on its own: trusting the id
 alone fails the stale-entry and different-frame tests, and holding strong references fails the pinning
 tests.
+
+**PERF-18 REJECTED: the batched quantile does not reproduce as a win here.** The finding measures
+`np.quantile(X, qs, axis=0)` at 1.53 s against 2.03 s per-column (1.3x). On this host at the same
+100k x 200 x 16-bin shape, over five runs: per-column **median 2112.7 ms**, batched **median 2286.2 ms** --
+**0.92x, a regression**. Edges are identical either way, so this is purely a timing question and the answer
+came out the other way round. `_bin_matrix` as a whole is 3.03 s on that shape, so the quantile is about
+two thirds of it and there is real money here, just not down this road.
+
+The alternative that IS fast is sampling the rows the edges are estimated from -- the same trick that made
+the PERF-02 ranker worth shipping -- at **469.5 ms (3.6x)**. It is not taken, and the reason is not effort:
+these edges are not internal. They become the printed slice bounds ("feature [lo..hi]") in the weak-slice
+table, and a strided sample moves them by up to **1.64** on standard-normal data, because the outermost
+edges are the column's min and max and a subsample simply does not contain them. A slice whose stated
+bounds are wrong by that much misreports which rows it holds. The ranker could sample precisely because
+its edges are internal and only the column ORDER it produces is reported.
+
+The finding's own note -- "worth doing mainly if PERF-02's shared-binning fix makes this matrix the input
+to two consumers" -- also no longer applies: PERF-02 was resolved with a separate, cheaper ranker rather
+than by sharing this matrix, so there is no second consumer to amortise against.

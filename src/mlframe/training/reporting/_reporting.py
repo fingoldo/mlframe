@@ -655,7 +655,7 @@ def report_model_perf(
     with phase("render_post_fit_diagnostics"):
         _render_post_fit_diagnostics(
             targets=targets, model=model, df=df, columns=columns, preds=preds, probs=probs,
-            target_type=target_type, plot_file=plot_file, plot_outputs=plot_outputs,
+            target_type=target_type, plot_file=plot_file, plot_outputs=plot_outputs, plot_dpi=plot_dpi,
             metrics=metrics, reporting_config=reporting_config, model_name=model_name,
             report_title=report_title,
         )
