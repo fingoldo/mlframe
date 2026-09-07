@@ -125,6 +125,14 @@ def hash_array_summary(arr: np.ndarray, n_summary_rows: int = _DEFAULT_SUMMARY_R
     # Empty array: shape+dtype is the whole identity.
     if arr.size == 0:
         return str(h.hexdigest())
+    # Object arrays hold POINTERS, not values. Their buffer is PyObject* addresses, which differ in
+    # every process, so a key built from it can never hit -- the entry is written under one address
+    # layout and looked up under another. Hash the element values instead, and feed the whole array
+    # rather than head/tail: there is no numeric reduction below for this dtype, so head/tail would
+    # be the only content-bearing input and every middle-row difference would collide.
+    if arr.dtype.kind == "O":
+        h.update(repr(arr.tolist()).encode("utf-8", "backslashreplace"))
+        return str(h.hexdigest())
     # Head / tail row bytes. ndim==0 cannot be sliced; hash the raw bytes.
     if arr.ndim == 0:
         h.update(array_buffer(arr))

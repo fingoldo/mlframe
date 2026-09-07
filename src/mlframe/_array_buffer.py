@@ -37,4 +37,14 @@ def array_buffer(arr: np.ndarray) -> memoryview:
     wider frame, an F-ordered block) is made contiguous first, which is the copy `tobytes()` would
     have made anyway -- the saving is on the contiguous case, which is the common one.
     """
-    return np.ascontiguousarray(arr).view(np.uint8).data
+    contiguous = np.ascontiguousarray(arr)
+    if contiguous.dtype.kind == "O":
+        # numpy's own message here is "Cannot change data-type for array of references", which says
+        # nothing about why hashing this array is the mistake. An object array's buffer is PyObject*
+        # ADDRESSES: they differ in every process, so a cache key built from them can never hit.
+        raise TypeError(
+            "array_buffer() got an object-dtype array. Its buffer is PyObject* addresses, which differ "
+            "across processes, so a key built from it never matches. Hash the element VALUES instead "
+            "(see hash_array_summary's object branch)."
+        )
+    return contiguous.view(np.uint8).data
