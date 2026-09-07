@@ -353,10 +353,22 @@ def data_signature(
                 else:
                     non_numeric_cols.append(c)
             # Non-numeric: one single ``select`` for min / max / null_count across all of them.
+            #
+            # Duration has no String cast in polars (`casting from Duration('ns') to String not
+            # supported`), so a frame carrying one raised here rather than producing a signature --
+            # and this is the cache KEY, so it took the whole discovery path down. Its physical
+            # representation is Int64 and orders identically, so min/max are unchanged by going
+            # through it. Datetime and Date cast to String directly and are left alone.
+            def _as_text(col: str):
+                """*col* as a String expression, routing Duration through its physical Int64."""
+                if isinstance(df.schema[col], pl.Duration):
+                    return pl.col(col).cast(pl.Int64).cast(pl.Utf8)
+                return pl.col(col).cast(pl.Utf8)
+
             if non_numeric_cols:
                 _stats_row = df.select(
-                    [pl.col(c).cast(pl.Utf8).min().alias(f"_mn_{c}") for c in non_numeric_cols]
-                    + [pl.col(c).cast(pl.Utf8).max().alias(f"_mx_{c}") for c in non_numeric_cols]
+                    [_as_text(c).min().alias(f"_mn_{c}") for c in non_numeric_cols]
+                    + [_as_text(c).max().alias(f"_mx_{c}") for c in non_numeric_cols]
                     + [pl.col(c).null_count().alias(f"_nc_{c}") for c in non_numeric_cols]
                 ).row(0)
                 n = len(non_numeric_cols)
@@ -373,7 +385,12 @@ def data_signature(
                     # ``.tobytes()`` is PyObject* addresses -> non-deterministic across
                     # processes (and re-materialised strings within one) -> the cache
                     # NEVER hits on real string/datetime/categorical frames.
-                    sampled = df.get_column(c).gather(sample_idx).cast(pl.Utf8).to_list()
+                    # Same Duration detour as the stats select above: no String cast exists, so go
+                    # through the physical Int64 rather than raising on the cache key.
+                    _sampled_col = df.get_column(c).gather(sample_idx)
+                    if isinstance(df.schema[c], pl.Duration):
+                        _sampled_col = _sampled_col.cast(pl.Int64)
+                    sampled = _sampled_col.cast(pl.Utf8).to_list()
                     h.update("\x00".join("\x01" if v is None else v for v in sampled).encode("utf-8"))
             # Numeric branch: compute min / max / null in one polars expression for ALL numeric
             # columns at once (one Arrow batch), then route the per-column stats through the
