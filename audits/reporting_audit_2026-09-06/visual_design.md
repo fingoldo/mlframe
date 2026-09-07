@@ -622,3 +622,17 @@ neighbour's axis furniture. Seen directly in a two-heatmap render: "feature" wri
 `_NEIGHBOUR_AXIS_PX` (60) over the figure width -- and applies only when a multi-column figure actually
 draws a colorbar, so single-column layouts keep their full width.
 `tests/reporting/test_backend_grid_and_contour_parity.py` (8 tests, every one verified failing pre-fix).
+
+### VIS-28 -- found by rendering PERF-04's chart, not in the audit list
+
+**The PSI heatmap's threshold contour label is drawn across the cell values it sits on.**
+The 0.10 / 0.25 triage contours are overlaid on the grid, and their inline labels are rotated to follow the
+contour -- so on a grid whose drift ramps left to right the label runs diagonally through several cells and
+lands on top of their numbers. Seen directly in a 25x10 render: "significant 0.25" written over the 0.00 and
+1.08 cells of the late-drift block.
+
+**OPEN, with a concrete next action.** Not fixed here: it belongs to the contour overlay rather than to
+PERF-04's screening path, and the fix is a choice between suppressing the inline label in favour of the
+colorbar's existing threshold markers, or placing it in the margin. Next action: suppress the inline contour
+label when the panel also draws per-cell text (the two are competing for the same pixels, and the cell text
+is the more precise reading), and pin it with a render test that counts label-over-cell-text collisions.

@@ -109,6 +109,51 @@ afterwards keeps `max_features=40` by peak (`:210`). The chart draws `40 * n_buc
   (3.3x), and the ratio improves linearly with column count. Secondary: the per-column body is
   independent, so the exact pass parallelises over columns.
 
+**PERF-04 RESOLVED, and the estimate does not survive measurement.** The two-pass screen is in:
+`compute_psi_matrix` ranks every column on a stratified row sample (`screen_rows`, default 100k, 0 disables)
+and forwards `PSI_SCREEN_OVERSAMPLE * max_features` candidates to the exact pass. Every DRAWN cell is still
+computed on all rows -- the screen only chooses which features to spend the exact pass on.
+
+Selection equivalence is the bar a screen has to clear, and it clears it: across four drift shapes (broad
+ramp, last-bucket-only, one-bucket spike, variance-only) at 200k and 1M rows the drawn feature SET is
+identical to the exact ranking and the drawn matrix is identical to `0.00e+00`. The sample is stratified
+over the time buckets rather than taken off the front, because a head sample of a time-sorted frame is all
+baseline, where nothing has drifted yet -- the last-bucket and spike shapes exist to catch exactly that, and
+both are pinned as tests.
+
+Two corrections to the finding, both measured:
+
+* **The predicted 3.3x is not what it delivers -- 1.27x at 1M x 200.** The estimate assumed the exact pass
+  runs on `max_features` columns; it runs on `PSI_SCREEN_OVERSAMPLE * max_features` (120 of 200 here),
+  because a screen that forwards exactly what it draws cannot recover a feature it under-ranked. The win
+  therefore scales with `ncols / (oversample * max_features)` and is small until a frame is much wider than
+  200 columns -- on the 500-column frames the finding cites it is worth substantially more.
+* **Below a real reduction the screen was a net LOSS** (0.69-0.87x at 200k rows against a 100k sample): it
+  still gathers a sample per column and then pays the exact pass anyway. It now requires the frame to be
+  `PSI_SCREEN_MIN_REDUCTION` (4x) the sample before it engages at all.
+
+**Separate win found while profiling this, unrelated to the screen.** Every column is read as `col[order]`
+and then reduced to one histogram per bucket -- and a histogram does not care in what order it saw its rows,
+only which bucket each row lands in. Sorting the indices INSIDE each bucket turns that per-column gather
+from a random walk into a near-sequential read: 21.4 ms to 17.0 ms on a strided 1M column, with every output
+value bit-identical (verified against the pre-change code across NaN, constant and degenerate-baseline
+columns at four frame shapes).
+
+**Rejected, with numbers, so a re-attempt starts from the measurement.** A cProfile of the chart shows
+`ndarray.sort` at 40% of its runtime, which is numpy sorting each slice inside `np.histogram` because
+quantile edges are never uniform -- so replacing it with `searchsorted` + `bincount` looked free. Counts are
+identical (verified over 400 adversarial trials: on-edge values, +/-inf, all-NaN, constant, heavy ties,
+large-offset), but it is **3x SLOWER** (1M rows: 20.9 ms against 61.6 ms; 100k: 2.1 ms against 5.0 ms) -- a
+per-element binary search over ~10 edges is branchy and cache-hostile next to a well-optimised sort. Reverted
+with a `bench-attempt-rejected` note at the call site.
+
+All wall-clock figures here were taken on a machine that was busy with other work, paired and interleaved
+(median of 3 alternating trials) to cancel drift. The isolated microbenchmarks and the selection-equivalence
+and bit-identity results are unaffected by load; the end-to-end ratios outside the 1M x 200 case sat within
++/-7%, which on that box is noise rather than a reading. Bench saved as
+`src/mlframe/reporting/_benchmarks/bench_psi_screen.py`; pinned by
+`tests/reporting/test_psi_feature_screen.py` (12 tests).
+
 ## PERF-05 — P2 — `charts/slice_finder.py:394-400` — Python append loop over every candidate cell, for a 7-row chart
 
 After the vectorised decode, a `for ci, cid in enumerate(cell_ids)` loop appends five Python

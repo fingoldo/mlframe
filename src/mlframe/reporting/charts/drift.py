@@ -61,6 +61,20 @@ PSI_EPS: float = 1e-4
 # multiclass heatmaps apply the same ceiling.
 _HEATMAP_CELL_TEXT_MAX: int = 400
 
+# Rows the feature screen ranks on before the exact pass. Every column used to pay a full per-bucket histogram
+# sweep over all rows, and then all but ``max_features`` of those rows were thrown away unseen: measured at
+# 1M x 200 that was 18.6 s to draw a 40x10 grid. Above this many rows the ranking is taken on a bounded
+# stratified sample instead, and only the survivors are recomputed exactly.
+PSI_SCREEN_ROWS: int = 100_000
+
+# Candidates the screen forwards to the exact pass, as a multiple of ``max_features``. The screen only has to
+# get the top set roughly right -- the exact pass re-ranks within what it forwards -- so a feature the sample
+# under-ranks by a few places is still recovered, while a 3x forward still discards most of the work.
+PSI_SCREEN_OVERSAMPLE: int = 3
+
+# The frame must be at least this many times the screen sample before screening is worth it at all.
+PSI_SCREEN_MIN_REDUCTION: int = 4
+
 
 def _quantile_edges(baseline: np.ndarray, nbins: int) -> np.ndarray:
     """Equal-frequency bin edges from the baseline distribution.
@@ -89,6 +103,12 @@ def _binned_proportions(values: np.ndarray, edges: np.ndarray) -> np.ndarray:
     nbins = len(edges) - 1
     if finite.size == 0:
         return np.zeros(nbins, dtype=np.float64)
+    # bench-attempt-rejected: replacing this with ``np.searchsorted(edges, finite) + np.bincount``. A cProfile
+    # of the whole chart shows ``ndarray.sort`` at 40% of its runtime, which is numpy sorting each slice
+    # inside ``histogram`` because quantile edges are never uniform -- so skipping the sort looked free. It is
+    # not: a per-element binary search over ~10 edges is branchy and cache-hostile, and measured 3x SLOWER
+    # (1M rows: 20.9 ms here against 61.6 ms; 100k: 2.1 ms against 5.0 ms). Counts were verified identical
+    # first, so the reject is on speed alone. See reporting/_benchmarks/bench_psi_screen.py.
     counts = np.histogram(finite, bins=edges)[0].astype(np.float64)
     total = counts.sum()
     if total <= 0:
@@ -118,6 +138,77 @@ def _psi_verdict(matrix, noise_floor: float, row_labels) -> str:
     return f" -- {drifting} of {real.size} features drift past {bar:.2f}; worst is {worst}"
 
 
+def _as_float_column(col: Any) -> Optional[np.ndarray]:
+    """The column as float64, or ``None`` when it is not an ordered numeric column at all.
+
+    PSI here is quantile-binned, which only means anything for an ordered numeric column. A string /
+    categorical column used to reach ``np.asarray(..., dtype=float64)`` and take the whole diagnostic down
+    with "could not convert string to float: 'FIXED'" -- one unusable column costing every other column its
+    chart. Categorical drift has its own report (categorical PSI over level frequencies).
+    """
+    try:
+        return np.asarray(col, dtype=np.float64)
+    except (TypeError, ValueError):
+        return None
+
+
+def _psi_row(col_by_bucket: np.ndarray, bucket_bounds: np.ndarray, n_buckets: int, base_vals: np.ndarray, nbins: int) -> np.ndarray:
+    """PSI per time bucket for one column already laid out in bucket order.
+
+    ``col_by_bucket`` must be the column permuted so that bucket ``b`` occupies
+    ``[bucket_bounds[b], bucket_bounds[b + 1])`` -- one contiguous sweep instead of a full-n boolean mask and
+    copy per bucket.
+    """
+    per_bucket = np.empty(n_buckets, dtype=np.float64)
+    edges = _quantile_edges(base_vals, nbins)
+    if edges.size < 3:
+        # A baseline with fewer than two distinct finite values has no distribution to compare against: every
+        # later value falls in the single [-inf, +inf] bin and PSI is identically 0. Reporting 0 there said
+        # "stable" about a feature that was constant during the baseline and exploded afterwards -- the exact
+        # case this chart exists to catch. NaN renders blank, which is the honest answer.
+        per_bucket[:] = np.nan
+        return per_bucket
+    base_props = _binned_proportions(base_vals, edges)
+    for b in range(n_buckets):
+        block = col_by_bucket[bucket_bounds[b] : bucket_bounds[b + 1]]
+        per_bucket[b] = _psi_one(base_props, _binned_proportions(block, edges))
+    return per_bucket
+
+
+def _peak_psi(per_bucket: np.ndarray) -> float:
+    """Worst bucket for a feature; 0.0 when nothing in the row is computable (the ranking treats it as calm)."""
+    return float(np.nanmax(per_bucket)) if per_bucket.size and np.isfinite(per_bucket).any() else 0.0
+
+
+def _stratified_screen_rows(order: np.ndarray, bucket_bounds: np.ndarray, n_buckets: int, screen_rows: int):
+    """Row positions spread proportionally over every time bucket, or ``None`` when the frame is small enough.
+
+    Taking the first ``screen_rows`` of a time-sorted frame would show the screen only the earliest period --
+    where, by construction, there is no drift to rank on. Sampling evenly WITHIN each bucket keeps the draw
+    deterministic (a random screen would make the drawn feature set differ run to run on the same data) and
+    spreads it over the bucket's own span rather than its leading edge.
+
+    Returns the positions already grouped by bucket, so the caller reads bucket ``b`` as a contiguous slice.
+    """
+    n = int(order.shape[0])
+    # Below a real reduction the screen is pure overhead: it still gathers a sample per column and then pays
+    # the exact pass anyway. Measured at 200k rows against a 100k screen it was a net LOSS, so require the
+    # sample to be a small fraction of the frame rather than merely smaller than it.
+    if screen_rows <= 0 or n < screen_rows * PSI_SCREEN_MIN_REDUCTION:
+        return None, None
+    taken = []
+    for b in range(n_buckets):
+        block = order[bucket_bounds[b] : bucket_bounds[b + 1]]
+        if block.size == 0:
+            taken.append(block)
+            continue
+        k = max(1, round(block.size * screen_rows / n))
+        picked = block if k >= block.size else block[np.linspace(0, block.size - 1, k).astype(np.int64)]
+        taken.append(np.sort(picked))
+    sizes = np.array([t.size for t in taken], dtype=np.int64)
+    return np.concatenate(taken), np.concatenate(([0], np.cumsum(sizes)))
+
+
 def compute_psi_matrix(
     feature_frame: Any,
     timestamps: np.ndarray,
@@ -127,6 +218,7 @@ def compute_psi_matrix(
     n_time_buckets: int = 10,
     nbins: int = PSI_DEFAULT_BINS,
     max_features: int = 40,
+    screen_rows: int = PSI_SCREEN_ROWS,
 ) -> Tuple[np.ndarray, Tuple[str, ...], Tuple[str, ...]]:
     """PSI per feature (rows) per time bucket (cols) vs a baseline distribution.
 
@@ -139,6 +231,11 @@ def compute_psi_matrix(
     Aggregate-first: each (feature, bucket) cell is one ``np.histogram`` over that bucket's column slice against the
     baseline's quantile edges -- O(n) per feature, no per-row python. Features are ranked by peak PSI and the top
     ``max_features`` kept so a 500-column frame yields a readable heatmap.
+
+    On a frame wide enough for the ranking to discard most of its own work, that ranking is taken on a bounded
+    stratified row sample (``screen_rows``, 0 disables) and only ``PSI_SCREEN_OVERSAMPLE * max_features``
+    candidates reach the exact pass. Every DRAWN cell is still computed on all rows; the screen chooses which
+    features to spend the exact pass on.
 
     Returns ``(matrix[n_feat, n_buckets], row_labels, col_labels)``.
     """
@@ -153,7 +250,13 @@ def compute_psi_matrix(
     bucket_bounds = np.linspace(0, n, n_buckets + 1).astype(np.int64)
     bucket_of = np.empty(n, dtype=np.int64)
     for b in range(n_buckets):
-        bucket_of[order[bucket_bounds[b] : bucket_bounds[b + 1]]] = b
+        block = order[bucket_bounds[b] : bucket_bounds[b + 1]]
+        bucket_of[block] = b
+        # Every column is read as ``col[order]`` and then reduced to one histogram per bucket, and a histogram
+        # does not care in what order it saw its rows -- only WHICH bucket a row lands in. Sorting inside each
+        # bucket therefore leaves every output value untouched while turning the per-column gather from a
+        # random walk into a near-sequential read, which on a strided frame column is most of its cost.
+        block.sort()
 
     if baseline_mask is None:
         base_sel = bucket_of == 0
@@ -162,41 +265,48 @@ def compute_psi_matrix(
         if base_sel.shape[0] != n:
             raise ValueError("baseline_mask length must equal the number of rows")
 
+    numeric: List[Tuple[str, np.ndarray]] = []
+    skipped: List[str] = []
+    for _name, col in zip(names, cols):
+        as_float = _as_float_column(col)
+        if as_float is None:
+            skipped.append(_name)
+        else:
+            numeric.append((_name, as_float))
+
+    # Two-pass on a wide frame: rank every column on a bounded stratified row sample, then recompute only the
+    # candidates that could plausibly be drawn. Every DRAWN cell is still computed on all rows -- the screen
+    # chooses which features to spend the exact pass on, nothing more.
+    candidates = numeric
+    screen_used = 0
+    if len(numeric) > max_features * PSI_SCREEN_OVERSAMPLE:
+        sub_rows, sub_bounds = _stratified_screen_rows(order, bucket_bounds, n_buckets, int(screen_rows))
+        if sub_rows is not None and sub_bounds is not None:
+            sub_base = base_sel[sub_rows]
+            screened = []
+            for i, (_, c) in enumerate(numeric):
+                sub = c[sub_rows]  # gathered once: the screen row and its baseline slice read the same sample
+                screened.append((_peak_psi(_psi_row(sub, sub_bounds, n_buckets, sub[sub_base], nbins)), i))
+            screened.sort(key=lambda pair: pair[0], reverse=True)
+            keep_idx = sorted(i for _, i in screened[: max_features * PSI_SCREEN_OVERSAMPLE])
+            candidates = [numeric[i] for i in keep_idx]
+            screen_used = int(sub_rows.shape[0])
+
     rows: List[np.ndarray] = []
     peak: List[float] = []
     kept_names: List[str] = []
-    skipped: List[str] = []
-    for _name, col in zip(names, cols):
-        # PSI here is quantile-binned, which only means anything for an ordered numeric column. A string /
-        # categorical column used to reach ``np.asarray(..., dtype=float64)`` and take the whole diagnostic
-        # down with "could not convert string to float: 'FIXED'" -- one unusable column costing every other
-        # column its chart. Categorical drift has its own report (categorical PSI over level frequencies);
-        # here such a column is skipped and named.
-        try:
-            col = np.asarray(col, dtype=np.float64)
-        except (TypeError, ValueError):
-            skipped.append(_name)
-            continue
-        base_vals = col[base_sel]
-        edges = _quantile_edges(base_vals, nbins)
-        per_bucket = np.empty(n_buckets, dtype=np.float64)
-        if edges.size < 3:
-            # A baseline with fewer than two distinct finite values has no distribution to compare against: every
-            # later value falls in the single [-inf, +inf] bin and PSI is identically 0. Reporting 0 there said
-            # "stable" about a feature that was constant during the baseline and exploded afterwards -- the exact
-            # case this chart exists to catch. NaN renders blank, which is the honest answer.
-            per_bucket[:] = np.nan
-        else:
-            base_props = _binned_proportions(base_vals, edges)
-            # One contiguous sweep over the time-sorted column instead of a full-n boolean mask + copy per bucket:
-            # the `order` permutation and `bucket_bounds` above already describe every bucket as a slice.
-            col_sorted = col[order]
-            for b in range(n_buckets):
-                block = col_sorted[bucket_bounds[b] : bucket_bounds[b + 1]]
-                per_bucket[b] = _psi_one(base_props, _binned_proportions(block, edges))
+    for _name, col in candidates:
+        # One contiguous sweep over the time-sorted column instead of a full-n boolean mask + copy per bucket:
+        # the `order` permutation and `bucket_bounds` above already describe every bucket as a slice.
+        per_bucket = _psi_row(col[order], bucket_bounds, n_buckets, col[base_sel], nbins)
         rows.append(per_bucket)
         kept_names.append(_name)
-        peak.append(float(np.nanmax(per_bucket)) if per_bucket.size and np.isfinite(per_bucket).any() else 0.0)
+        peak.append(_peak_psi(per_bucket))
+    if screen_used:
+        logger.info(
+            "psi_heatmap: %d of %d numeric columns ranked on a %s-row stratified screen; the %d survivors were "
+            "recomputed on all %s rows.", len(candidates), len(numeric), f"{screen_used:,}", len(candidates), f"{n:,}",
+        )
 
     matrix = np.vstack(rows) if rows else np.zeros((0, n_buckets), dtype=np.float64)
     if skipped:
