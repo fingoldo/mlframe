@@ -22,6 +22,7 @@ from typing import Any, Optional
 import numpy as np
 
 from mlframe.utils.safe_pickle import safe_dump, safe_load
+from mlframe._array_buffer import array_buffer
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ def _key_bank_fingerprint(
     h = hashlib.sha256()
     h.update(b"X_train|")
     # `h.update(a.data)` consumes the buffer directly; `.tobytes()` first materialises a full copy of it. The digest is identical either way, so this is peak memory only -- the same idiom, and the same reason, as `_joblib_safe._fit_constant_key`.
-    h.update(np.ascontiguousarray(X_train).data)
+    h.update(array_buffer(X_train))
     h.update(b"|dtype|")
     h.update(str(X_train.dtype).encode())
     h.update(b"|shape|")

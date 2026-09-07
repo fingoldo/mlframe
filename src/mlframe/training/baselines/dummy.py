@@ -234,7 +234,7 @@ def _baseline_inputs_hash(
         else:
             try:
                 a = np.ascontiguousarray(_to_1d_numpy(arr) if hasattr(arr, "__len__") else np.array([arr]))
-                h.update(np.ascontiguousarray(a).data)
+                h.update(array_buffer(a))
             except Exception as e:
                 logger.debug("array-to-bytes hashing failed, falling back to repr(): %s", e)
                 h.update(repr(arr).encode())
@@ -778,6 +778,7 @@ from ._dummy_summary_format import (
     format_suite_end_summary,
     format_unified_target_verdict_table,
 )
+from mlframe._array_buffer import array_buffer
 
 __all__ = [
     "compute_dummy_baselines",

@@ -157,10 +157,16 @@ def test_no_epsilon_padded_power_denominators():
 def test_no_hash_is_fed_by_an_array_copy():
     """`h.update(a.tobytes())` allocates a second copy of the whole array purely to be hashed.
 
-    `h.update(np.ascontiguousarray(a).data)` hands the hash the existing buffer and produces the identical
+    `mlframe._array_buffer.array_buffer(a)` hands the hash the existing buffer and produces the identical
     digest. The sites this replaced hashed whole training frames -- a KeyBank fingerprint over X_train, a
     collinearity cache key over the feature matrix, an RFECV signature over X and y -- on data this package
     sizes in the tens of gigabytes, with the copy paid on every cache lookup.
+
+    The rewrite originally landed as `np.ascontiguousarray(a).data`, spelled out at each site, and that form
+    RAISES on datetime64 and timedelta64: they have no buffer-protocol format. `data_signature` crashed on any
+    pandas frame carrying a datetime column until the sites were routed through the leaf helper instead. See
+    tests/test_meta/test_array_buffer_is_the_one_way_to_feed_a_hash.py, which also gates the form from
+    reappearing.
 
     Sites where the rewrite does not apply are not reported: `hash()` and dict keys need a hashable object
     and a memoryview is not one, and a `+`-joined payload has to be restructured rather than substituted.
