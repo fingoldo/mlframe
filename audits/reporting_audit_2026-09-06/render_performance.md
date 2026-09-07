@@ -123,7 +123,7 @@ both are pinned as tests.
 
 Two corrections to the finding, both measured:
 
-* **The predicted 3.3x is not what it delivers -- 1.27x at 1M x 200.** The estimate assumed the exact pass
+* **The predicted 3.3x is not what it delivers -- 1.27x to 1.47x at 1M x 200 across repeated runs.** The estimate assumed the exact pass
   runs on `max_features` columns; it runs on `PSI_SCREEN_OVERSAMPLE * max_features` (120 of 200 here),
   because a screen that forwards exactly what it draws cannot recover a feature it under-ranked. The win
   therefore scales with `ncols / (oversample * max_features)` and is small until a frame is much wider than
@@ -511,6 +511,22 @@ a datetime axis -- no error, no file. Reproduced with bare plotly and no project
 datetime axis fails, the same call on a numeric axis succeeds), so it is a version mismatch rather than
 anything about these figures. The numeric-axis equivalent was rendered and inspected instead, and the
 datetime path is covered structurally by the tests.
+
+**Correction, measured later in the same wave.** That note is right about bare plotly and wrong about this
+package. kaleido 1.3.0 does refuse to serve plotly 5.24.1 -- it disables `fig.write_image` and says so at
+import -- but `reporting/renderers/_kaleido.py` already carries a recovery ladder for exactly this
+(persistent server under a hard timeout, then a restart plus an isolated oneshot, then
+`kaleido.calc_fig_sync` with a manual byte write, then interactive HTML). Driven through
+`write_image_via_kaleido`, a datetime-axis figure exports a real ~20 KB PNG plain, with `add_vrect`, and
+with `add_annotation`. So the datetime chart CAN be rendered and inspected on this host, and nothing needs
+pinning: `pyproject.toml` deliberately holds plotly below 6 (plotly >= 6 moved FigureWidget behind
+anywidget, which degrades the live training-progress widget), and the pip environment is shared with other
+worktrees, so a downgrade mid-session would break other running sessions.
+
+The contract now pinned by `tests/reporting/test_kaleido_recovery.py` is the FILE rather than the absence
+of a raise -- across all three decorations -- because the failure mode this note originally described is a
+rung returning quietly having written nothing, which a caller checking only for an exception reads as
+success.
 
 **PERF-13 RESOLVED.** matplotlib drew every directed-edge arrowhead while plotly capped at
 `_NETWORK_MAX_ARROWS = 500`, so past that count one spec produced two different figures. Both honour the
