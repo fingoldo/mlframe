@@ -60,6 +60,11 @@ jobs:
   # Two such bugs were caught on 2026-09-08 by version legs alone -- tomllib missing below 3.11 (only
   # 3.9/3.10 saw it) and an ast.dump similarity that differs between 3.12 and 3.14 -- and under this
   # cadence both would have surfaced in the Sunday run instead of on the push.
+  #
+  # Linux is not left entirely unwatched between sweeps: ``test-heavy-serial`` below still runs
+  # test_core.py across every supported version on every push, so a Linux-only import break or a
+  # version-specific regression in that file still fails the commit that caused it. That is 20 short
+  # jobs rather than 50 long ones, which is why it does not reintroduce the queue problem.
   matrix-setup:
     name: Choose the matrix for this event
     runs-on: ubuntu-latest
@@ -369,6 +374,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Deliberately still every supported version on Linux, and deliberately NOT reduced with the
+        # main matrix above. test_core.py is the file that recurrently OOM-killed the runner, so it is
+        # run serially and separately; keeping its full version spread on every push is what leaves
+        # Linux with real per-commit protection while the main matrix is pointed at macOS. It is 20
+        # short jobs, not 50 long ones, so it does not reintroduce the queue problem.
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
         group: [1, 2, 3, 4]
     steps:
