@@ -1,0 +1,139 @@
+name: deep-nightly
+
+# The DEPTH run. ci.yml answers "does it work everywhere" -- three OSes on one Python version per push,
+# one filtered pass. This answers a different question: "does the exhaustive variant space still hold".
+#
+# Three things ci.yml never runs, and until this workflow existed nothing else did either:
+#
+#   * `slow`-marked tests           deselected on every push by `-m "not slow ..."`
+#   * fuzz combos                   deselected unless --run-fuzz is passed
+#   * the full parametric sweeps    collapsed by MLFRAME_FAST=1, which makes fast_subset() return one
+#                                   representative value per code path (48 test files, 182 call sites)
+#
+# Measured 2026-09-08: the push matrix runs 33151 of 35355 collectable tests. The ~2200 it does not are
+# what this workflow is for. GPU stays out -- GitHub-hosted runners have none, and gpu-matrix.yml covers
+# it on a self-hosted box.
+#
+# ONE OS and ONE Python version on purpose. Depth and breadth are separate questions, and multiplying
+# them is what makes a matrix unaffordable: folding these three categories into the weekly three-OS,
+# six-version sweep would multiply 180 jobs by a much slower suite. A slow test or a fuzz combo fails on
+# its logic, not on its platform, and the platform axis is already covered per push.
+
+on:
+  schedule:
+    # 01:40 UTC, nightly. Off the hour because GitHub queues scheduled workflows account-wide and
+    # everyone's cron sits on :00; ahead of numba-coverage's 03:00 so the two do not contend for the
+    # concurrency ceiling.
+    - cron: "40 1 * * *"
+  workflow_dispatch:
+    inputs:
+      run:
+        description: "Actually run (set false to skip a manual dispatch without disabling the cron)"
+        type: boolean
+        default: true
+
+concurrency:
+  # Per event type: a manual dispatch should not cancel the nightly, and vice versa.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deep:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run }}
+    name: deep suite (shard ${{ matrix.group }}/20)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    # Near the 360-minute hosted ceiling. Every one of the three additions makes the suite slower than
+    # the push matrix: slow tests are slow by definition, fuzz combos enumerate, and the full sweeps
+    # multiply every parametrised case back out. Headroom, not a budget -- a shard that needs it should
+    # finish and report real failures rather than being truncated.
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        # 20 shards, twice ci.yml's 10, because this pass is doing considerably more work per shard.
+        group: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20"]
+    env:
+      PYTHONUNBUFFERED: "1"
+      # NOT setting MLFRAME_FAST is the point of this workflow -- fast_subset() then returns the full
+      # value list instead of one representative, which is most of what the push matrix skips.
+      NUMBA_CACHE_DIR: ${{ github.workspace }}/.numba-cache
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          # The same version ci.yml runs on a push. Depth varies the TEST SET, not the interpreter;
+          # the interpreter axis belongs to ci.yml's weekly sweep.
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@71957762ddd99200a66e3312a8ef9293b4c5d939  # v1.4.0
+        with:
+          pyutilz-ref: ec016b15e76e5582ba1a083c02b33029663c2296  # pragma: allowlist secret -- git commit SHA, not a secret
+
+      - name: Install mlframe with all runtime extras + dev tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[all,dev]"
+
+      - name: Restore numba JIT cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.numba-cache
+          key: numba-deep-${{ runner.os }}-py3.12-${{ hashFiles('src/**/*.py') }}
+          restore-keys: |
+            numba-deep-${{ runner.os }}-py3.12-
+
+      - name: Show installed versions
+        run: |
+          python -c "import mlframe; print('mlframe', mlframe.__version__)"
+          python -c "import os; print('MLFRAME_FAST =', os.environ.get('MLFRAME_FAST') or '(unset -- full sweeps)')"
+
+      - name: Run the deep suite
+        env:
+          SHARD_GROUP: ${{ matrix.group }}
+        run: |
+          # --run-fuzz enables the fuzz-combo tests the conftest deselects by default.
+          # -m keeps `slow` IN and only drops what this runner physically cannot do.
+          # --durations-path: its own file. Timings here are nothing like ci.yml's -- the same node ID
+          # can take 100x longer with its full sweep restored -- so sharing .test_durations would
+          # misbalance both suites.
+          #
+          # There is deliberately no merge-and-commit job yet, unlike ci.yml's. Until one exists the
+          # shards are split by FILE COUNT, which is correct but badly balanced, and a heavy shard may
+          # need most of the 340 minutes. The per-shard artifacts below are what a merge job would
+          # consume; wiring one up is worth doing once this run is green and its real timings are known,
+          # rather than guessing a balance for a suite nobody has yet run to completion.
+          pytest \
+            -m "not gpu and not multigpu" \
+            --run-fuzz \
+            --splits 20 --group "$SHARD_GROUP" \
+            --durations-path=.test_durations_deep \
+            --store-durations \
+            -n auto \
+            --dist=loadgroup \
+            --no-cov \
+            -p no:randomly \
+            --timeout=1800 \
+            -ra
+
+      - name: Upload this shard's durations
+        if: success() || failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: deep-durations-${{ matrix.group }}
+          path: .test_durations_deep
+          retention-days: 7
+          include-hidden-files: true
+          if-no-files-found: ignore
