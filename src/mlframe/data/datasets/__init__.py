@@ -24,6 +24,7 @@ from mlframe.data.datasets._showcase import showcase_pycaret_datasets
 # advertised without a resolvable home -- a test asserts the two agree.
 _LAZY_HOME: Dict[str, str] = {
     "CausalGraph": "_scm",
+    "CopulaSpec": "spec",
     "Ceiling": "ground_truth",
     "CeilingTarget": "spec",
     "DatasetSpec": "spec",
@@ -50,6 +51,7 @@ _LAZY_HOME: Dict[str, str] = {
     "derive_roles": "_scm",
     "exact_ceiling": "_oracle",
     "generate": "generator",
+    "sample_copula": "_copula",
     "reference_mi": "_oracle",
     "scenario_names": "scenarios",
     "resolve_knob": "spec",
@@ -90,6 +92,7 @@ def __dir__() -> Tuple[str, ...]:
 # and mlframe.data star-imports this package, so an implicit surface would silently shadow mlframe.data.synthetic.
 __all__ = [
     "CausalGraph",
+    "CopulaSpec",
     "Ceiling",
     "CeilingTarget",
     "DatasetSpec",
@@ -116,6 +119,7 @@ __all__ = [
     "derive_roles",
     "exact_ceiling",
     "generate",
+    "sample_copula",
     "reference_mi",
     "scenario_names",
     "resolve_knob",

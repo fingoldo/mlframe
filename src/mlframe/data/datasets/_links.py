@@ -31,7 +31,7 @@ from mlframe.data.datasets.spec import GateSpec, LinkSpec, Prior, resolve_knob
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["gate_mask", "parity_term", "additive_score", "interaction_score", "link_score", "apply_heteroscedasticity"]
+__all__ = ["gate_mask", "parity_term", "tail_gate_term", "additive_score", "interaction_score", "link_score", "apply_heteroscedasticity"]
 
 
 def gate_mask(gate: GateSpec, columns: Mapping[str, np.ndarray]) -> np.ndarray:
@@ -90,18 +90,33 @@ def additive_score(coefficients: Mapping[str, float], columns: Mapping[str, np.n
     return score
 
 
+def tail_gate_term(operands: Sequence[np.ndarray], quantile: float) -> np.ndarray:
+    """Return 1 where EVERY operand exceeds its own quantile, else 0.
+
+    The signal then lives in the joint upper tail and nowhere else, which is the case a Gaussian copula
+    cannot produce and an equal-mass binned estimator cannot see: at ten bins the whole joint tail is one
+    cell of the joint histogram.
+    """
+    fires = np.ones(operands[0].shape[0], dtype=bool)
+    for values in operands:
+        fires &= values >= float(np.quantile(values, quantile))
+    return fires.astype(np.float64)
+
+
 def interaction_score(
     kind: str,
     interactions: Sequence[Sequence[str]],
     weights: Sequence[float],
     columns: Mapping[str, np.ndarray],
     n: int,
+    tail_quantile: float = 0.9,
 ) -> np.ndarray:
     """Return the contribution of the interaction terms under one link kind.
 
-    Under ``parity`` the term is the sign parity of its operands; under every other kind it is their
-    product. The distinction is deliberate and is the difference between a bed that tests synergy blindness
-    and one that only looks like it does.
+    Under ``parity`` the term is the sign parity of its operands; under ``tail_gate`` it fires only where
+    every operand is in its own upper tail; under every other kind it is their product. The distinctions are
+    deliberate and are the difference between a bed that tests synergy blindness, one that tests tail
+    blindness, and one that only looks like it does either.
     """
     score = np.zeros(n, dtype=np.float64)
     effective = list(weights) if weights else [1.0] * len(interactions)
@@ -111,7 +126,12 @@ def interaction_score(
             if name not in columns:
                 raise KeyError(f"interaction term references unknown column {name!r}")
             operands.append(columns[name])
-        contribution = parity_term(operands) if kind == "parity" else np.prod(np.vstack(operands), axis=0)
+        if kind == "parity":
+            contribution = parity_term(operands)
+        elif kind == "tail_gate":
+            contribution = tail_gate_term(operands, tail_quantile)
+        else:
+            contribution = np.prod(np.vstack(operands), axis=0)
         score = score + float(weight) * contribution
     return score
 
@@ -141,7 +161,7 @@ def link_score(
     """
     score = additive_score(link.coefficients, columns, n)
     if link.interactions:
-        score = score + interaction_score(link.kind, link.interactions, link.interaction_weights, columns, n)
+        score = score + interaction_score(link.kind, link.interactions, link.interaction_weights, columns, n, tail_quantile=link.tail_quantile)
     if link.kind == "polynomial":
         score = score + np.square(score) * 0.25
     if link.kind == "threshold":
