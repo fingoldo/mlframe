@@ -76,17 +76,28 @@ class TestRefusals:
 class TestTailGateTerm:
     """The link term that puts the signal in the joint tail."""
 
-    def test_it_fires_only_where_every_operand_is_in_its_tail(self) -> None:
-        """One operand in its tail is not a joint tail, and treating it as one destroys the bed."""
-        a = np.array([0.0, 1.0, 0.0, 1.0])
-        b = np.array([0.0, 0.0, 1.0, 1.0])
-        assert tail_gate_term([a, b], quantile=0.5).tolist() == [0.0, 0.0, 0.0, 1.0]
+    def test_it_fires_where_the_operands_share_a_tail_in_either_direction(self) -> None:
+        """Both-high and both-low fire; one of each does not. Symmetry is what removes the marginal channel."""
+        a = np.array([-2.0, 2.0, -2.0, 2.0])
+        b = np.array([-2.0, -2.0, 2.0, 2.0])
+        assert tail_gate_term([a, b], quantile=0.75).tolist() == [1.0, 0.0, 0.0, 1.0]
 
-    def test_the_gate_region_is_small_by_construction(self) -> None:
-        """Two independent columns at the 0.8 quantile leave about 4% of rows, not 20%."""
+    def test_the_gate_leaves_no_linear_marginal_signal(self) -> None:
+        """The whole reason for the symmetric form: an upper-only gate left each column at +0.51 correlation.
+
+        Being high must be no more predictive than being low, or a univariate filter recovers the pair from
+        the marginal alone and the bed stops testing anything joint.
+        """
+        rng = np.random.default_rng(0)
+        columns = [rng.normal(size=40_000), rng.normal(size=40_000)]
+        gate = tail_gate_term(columns, 0.8)
+        assert abs(float(np.corrcoef(columns[0], gate)[0, 1])) < 0.05
+
+    def test_the_gate_region_stays_small(self) -> None:
+        """Two independent columns at the 0.8 quantile share a tail on about 8% of rows, not 40%."""
         rng = np.random.default_rng(0)
         columns = [rng.normal(size=20_000), rng.normal(size=20_000)]
-        assert 0.02 < tail_gate_term(columns, 0.8).mean() < 0.06
+        assert 0.05 < tail_gate_term(columns, 0.8).mean() < 0.12
 
 
 class TestTailBeds:
@@ -94,7 +105,7 @@ class TestTailBeds:
 
     def _beds(self) -> tuple:
         """Generate both tail beds at their declared sizes."""
-        return generate(get_scenario("tail_dependence_t4").build(seed=0)), generate(get_scenario("tail_control_gaussian").build(seed=0))
+        return generate(get_scenario("joint_tail_t4").build(seed=0)), generate(get_scenario("joint_tail_gaussian_control").build(seed=0))
 
     def test_the_pair_shares_a_correlation_and_differs_in_the_tail(self) -> None:
         """Only then does a failure on one and not the other identify tails as the cause."""
@@ -117,3 +128,9 @@ class TestTailBeds:
         student, _gaussian = self._beds()
         assert student.calibration["requested"] is None
         assert 0.5 < student.calibration["bayes_auc"] < 0.8
+
+    def test_neither_bed_leaves_a_marginal_shortcut(self) -> None:
+        """A univariate filter must not be able to recover the pair without ever looking at the joint."""
+        for dataset in self._beds():
+            correlation = abs(float(np.corrcoef(dataset.frame["t0"].to_numpy(), dataset.truth.true_prob)[0, 1]))
+            assert correlation < 0.06, correlation

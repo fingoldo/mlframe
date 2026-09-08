@@ -1,5 +1,27 @@
 {
   "scenarios": {
+    "joint_tail_gaussian_control": {
+      "expected_to_break": [
+        "lars-order",
+        "variance-sort",
+        "skb-f"
+      ],
+      "family": "tails",
+      "primary_target_set": "markov_blanket",
+      "purpose": "same correlation and gate, no tail dependence: isolates a tail failure from a gate failure",
+      "spec_hash": "6cc4744bbb9653f553a101f2af75d302"
+    },
+    "joint_tail_t4": {
+      "expected_to_break": [
+        "lars-order",
+        "select-fdr",
+        "skb-f"
+      ],
+      "family": "tails",
+      "primary_target_set": "markov_blanket",
+      "purpose": "the signal fires only where both columns share a tail, so no linear marginal statistic sees it",
+      "spec_hash": "fbb162dba6421f9dfc8969b457a68880"
+    },
     "latent_replicates_private_delta": {
       "expected_to_break": [
         "mrmr",
@@ -92,27 +114,6 @@
       "primary_target_set": "markov_blanket",
       "purpose": "importance splits across identical copies, so each looks weaker than the direction is",
       "spec_hash": "9a7d5dad246d3b00e741a2a409c7fad6"
-    },
-    "tail_control_gaussian": {
-      "expected_to_break": [
-        "variance-sort",
-        "skb-mi"
-      ],
-      "family": "tails",
-      "primary_target_set": "markov_blanket",
-      "purpose": "same correlation and gate, no tail dependence: isolates a tail failure from a gate failure",
-      "spec_hash": "428d3ea15ab6b066d364e8b351fcb653"
-    },
-    "tail_dependence_t4": {
-      "expected_to_break": [
-        "skb-mi",
-        "univariate-mi",
-        "mrmr"
-      ],
-      "family": "tails",
-      "primary_target_set": "markov_blanket",
-      "purpose": "the dependence lives in the joint tail, which one cell of an equal-mass histogram cannot resolve",
-      "spec_hash": "281c42ec26c6c457b9cf2ba12f1421aa"
     },
     "xor3": {
       "expected_to_break": [

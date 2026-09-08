@@ -142,17 +142,17 @@ SCENARIOS: Tuple[Scenario, ...] = (
         purpose="separates finding nothing from confidently finding the wrong thing",
     ),
     Scenario(
-        name="tail_dependence_t4",
+        name="joint_tail_t4",
         family="tails",
         builder=tail_dependence_spec,
-        expected_to_break=("skb-mi", "univariate-mi", "mrmr"),
-        purpose="the dependence lives in the joint tail, which one cell of an equal-mass histogram cannot resolve",
+        expected_to_break=("lars-order", "select-fdr", "skb-f"),
+        purpose="the signal fires only where both columns share a tail, so no linear marginal statistic sees it",
     ),
     Scenario(
-        name="tail_control_gaussian",
+        name="joint_tail_gaussian_control",
         family="tails",
         builder=gaussian_tail_control_spec,
-        expected_to_break=("variance-sort", "skb-mi"),
+        expected_to_break=("lars-order", "variance-sort", "skb-f"),
         purpose="same correlation and gate, no tail dependence: isolates a tail failure from a gate failure",
     ),
     Scenario(

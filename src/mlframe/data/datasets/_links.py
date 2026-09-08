@@ -91,16 +91,27 @@ def additive_score(coefficients: Mapping[str, float], columns: Mapping[str, np.n
 
 
 def tail_gate_term(operands: Sequence[np.ndarray], quantile: float) -> np.ndarray:
-    """Return 1 where EVERY operand exceeds its own quantile, else 0.
+    """Return 1 where every operand sits in the SAME tail -- all upper or all lower -- else 0.
 
-    The signal then lives in the joint upper tail and nowhere else, which is the case a Gaussian copula
-    cannot produce and an equal-mass binned estimator cannot see: at ten bins the whole joint tail is one
-    cell of the joint histogram.
+    Symmetric on purpose, and the first version of this was not. Firing only on the joint UPPER tail makes
+    each operand marginally informative: being high is necessary for the gate, so a column's own upper decile
+    carries a much elevated rate and a plain correlation finds it immediately (measured: +0.51). That bed
+    claimed to isolate joint-tail structure and instead handed every univariate filter a strong marginal
+    signal.
+
+    Requiring both tails cancels the marginal effect by construction -- being extreme in either direction is
+    equally uninformative on its own (measured: +0.01) -- so what remains is genuinely joint. It does NOT
+    make the columns invisible to a binned estimator: with ten equal-mass bins a column still carries about a
+    third of the gate's own mutual information, because the extreme bins are enriched even after the
+    directions cancel. Attenuated, not blind, and the bed is described that way.
     """
-    fires = np.ones(operands[0].shape[0], dtype=bool)
+    upper = np.ones(operands[0].shape[0], dtype=bool)
+    lower = np.ones(operands[0].shape[0], dtype=bool)
     for values in operands:
-        fires &= values >= float(np.quantile(values, quantile))
-    return fires.astype(np.float64)
+        upper &= values >= float(np.quantile(values, quantile))
+        lower &= values <= float(np.quantile(values, 1.0 - quantile))
+    fires: np.ndarray = (upper | lower).astype(np.float64)
+    return fires
 
 
 def interaction_score(
