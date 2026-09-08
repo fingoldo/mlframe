@@ -34,10 +34,15 @@ from typing import Dict, List, Optional, Set, Tuple
 #: Directories that are not production code, so a fan-out inside them cannot reach a user.
 SKIP_DIRS = frozenset({"_benchmarks", "legacy", "benchmarks", "profiling", "__pycache__"})
 
-#: How many call hops to follow. The motivating crash was four deep (``per_feature_edges`` ->
-#: ``edges_fayyad_irani`` -> ``mdlp_bin_edges`` -> ``_mdlp_recurse_validated_bfs`` -> the kernel), so a
-#: shallower walk would have reported nothing at all.
-MAX_DEPTH = 4
+#: How many call hops to follow.
+#:
+#: Started at 4, which was what the first crash needed (``per_feature_edges`` -> ``edges_fayyad_irani`` ->
+#: ``mdlp_bin_edges`` -> ``_mdlp_recurse_validated_bfs`` -> kernel). CI then found a fifth-hop path this
+#: missed entirely -- ``check_prospective_fe_pairs`` -> ``_fit_prewarp_and_gate_med`` ->
+#: ``_prewarp_generalises`` -> ``build_basis_matrix`` -> ``fit_pair_prewarp_als`` -> kernel -- so a depth
+#: tuned to the last known bug is a depth that finds only the last known bug. 6 covers every path seen so
+#: far with room above it; raise it rather than trimming a path that reaches a kernel.
+MAX_DEPTH = 6
 
 
 def _is_parallel_kernel(node: ast.AST) -> bool:

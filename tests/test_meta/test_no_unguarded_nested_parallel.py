@@ -13,7 +13,9 @@ The rule: a module that BOTH starts a thread pool AND can REACH a prange kernel 
 by calling one directly -- has to import ``mlframe._numba_parallel_guard``. Transitively matters, and is
 the whole reason this file is not two lines shorter: the crash that motivated it ran
 ``per_feature_edges`` -> ``edges_fayyad_irani`` -> ``mdlp_bin_edges`` -> ``_mdlp_recurse_validated_bfs``
--> the kernel, four hops from the pool, and a same-module check sees none of that.
+-> the kernel, four hops from the pool, and a same-module check sees none of that. The walk goes six deep
+rather than four: CI found a fifth-hop path after the first round of guarding, so a depth chosen to reach
+the last known bug reaches only the last known bug.
 
 Whether the guard is held at exactly the right call is not something a static check can decide, so this
 asserts that the author was made to think about it, and the allowlist records the modules where the answer
@@ -79,7 +81,7 @@ def _guards(path) -> bool:
     return "_numba_parallel_guard" in path.read_text(encoding="utf-8")
 
 
-def _reaches_kernel(path, fname, kernels, calls, where, depth=4, seen=None):
+def _reaches_kernel(path, fname, kernels, calls, where, depth=6, seen=None):
     """The first UNGUARDED prange kernel reachable from this function within ``depth`` hops, or None.
 
     A path stops being a finding as soon as it passes through a module that takes the guard: guarding at a

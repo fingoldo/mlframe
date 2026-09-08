@@ -38,6 +38,8 @@ from typing import Any
 
 import numpy as np
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+
 try:
     import numba as _numba
     _HAS_NUMBA = True
@@ -210,11 +212,13 @@ def shrink_base(
         b2c = np.ascontiguousarray(b2, dtype=np.float64)
         base_eff2 = b2c.copy()
         d_row = np.empty(n, dtype=np.float64)
-        _shrink_base_kernel(
-            b2c, np.ascontiguousarray(lo, dtype=np.float64),
-            np.ascontiguousarray(hi, dtype=np.float64),
-            np.ascontiguousarray(iqr, dtype=np.float64), base_eff2, d_row,
-        )
+        # Reachable from the FE pair sweep's threaded pipeline; see mlframe._numba_parallel_guard.
+        with parallel_kernel_entry():
+            _shrink_base_kernel(
+                b2c, np.ascontiguousarray(lo, dtype=np.float64),
+                np.ascontiguousarray(hi, dtype=np.float64),
+                np.ascontiguousarray(iqr, dtype=np.float64), base_eff2, d_row,
+            )
     else:
         base_eff2, d_row = _shrink_base_numpy(b2, lo, hi, iqr)
     base_eff = base_eff2 if base_arr.ndim == 2 else base_eff2.reshape(-1)

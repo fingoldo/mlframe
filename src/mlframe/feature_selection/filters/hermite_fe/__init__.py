@@ -36,6 +36,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, cast
 
 import numpy as np
+
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from numpy.polynomial.hermite_e import hermeval  # probabilist's Hermite
 from numpy.polynomial.legendre import legval
 from numpy.polynomial.chebyshev import chebval
@@ -345,6 +347,17 @@ _NJIT_PAR_FUNCS = {
     "chebyshev": _chebval_njit_parallel, "laguerre": _lagval_njit_parallel,
 }
 
+
+def _polyeval_njit_par(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
+    """Run the prange basis evaluator with only one thread inside it.
+
+    Reached from the FE pair sweep's threaded chunk pipeline via ``fit_pair_prewarp_als`` ->
+    ``build_basis_matrix``. Two threads inside one prange region aborts the process on macOS -- this path
+    accounted for the aborts that survived the first round of guarding. See mlframe._numba_parallel_guard.
+    """
+    with parallel_kernel_entry():
+        return np.asarray(_NJIT_PAR_FUNCS[basis](x, c))
+
 import os as _os
 from ._hermite_oracle import (
     _CUDA_THRESHOLD,
@@ -418,16 +431,16 @@ def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
                 _warn_polyeval_cuda_fallback_once(_cuda_exc)
         # every device failed - fall through to the CPU njit / njit_par path.
     if forced == "njit_par":
-        return np.asarray(_NJIT_PAR_FUNCS[basis](x, c))
+        return _polyeval_njit_par(basis, x, c)
     # CPU njit/njit_par crossover: oracle-driven when enabled, else the legacy
     # hardcoded/kernel_tuning_cache threshold.
     if forced == "" and _polyeval_oracle_enabled():
         if _polyeval_oracle_pick_cpu_backend(n) == "njit_par":
-            return np.asarray(_NJIT_PAR_FUNCS[basis](x, c))
+            return _polyeval_njit_par(basis, x, c)
         return np.asarray(_NJIT_FUNCS[basis](x, c))
     if n < _par_threshold:
         return np.asarray(_NJIT_FUNCS[basis](x, c))
-    return np.asarray(_NJIT_PAR_FUNCS[basis](x, c))
+    return _polyeval_njit_par(basis, x, c)
 
 
 # Polynomial basis registry. Each entry maps a name to (eval_func, preprocess_func, expected_input_distribution_doc).
