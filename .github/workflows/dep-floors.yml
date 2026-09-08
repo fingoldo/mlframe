@@ -1,0 +1,83 @@
+name: dependency floors
+
+# Every dependency floor in pyproject.toml (`numpy>=...`, `scikit-learn>=...`, the hand-written CVE floors
+# with PYSEC/GHSA identifiers in their comments) is a claim that mlframe works with that version. Nothing
+# tested that claim: every CI install resolves the NEWEST compatible release, so a floor that no longer
+# installs, no longer imports, or dropped an API mlframe still calls is invisible until a user with an
+# older environment hits it. `uv pip install --resolution=lowest-direct` resolves each DIRECT dependency to
+# its declared floor while letting transitive ones float, which is exactly what the floors assert.
+#
+# Weekly rather than per-push: floors move only when someone edits pyproject.toml, and a full lowest
+# resolution can drag in old wheels that need building from source.
+#
+# Non-blocking by design (`continue-on-error`), for now. Some floors are known-optimistic and this job
+# exists first to measure how many; turning it blocking is the follow-up once the count is zero.
+
+on:
+  schedule:
+    # Monday 05:23 UTC. Off the hour: GitHub queues scheduled workflows account-wide.
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+  pull_request:
+    branches: [master]
+    # Only when the declared dependency set itself changes -- that is the only edit that can move a floor.
+    paths:
+      - "pyproject.toml"
+      - ".github/workflows/dep-floors.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dep-floors-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lowest-direct:
+    name: install + smoke at declared floors
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          # The oldest supported interpreter, since that is where the oldest dependency releases still have
+          # wheels; a floor that only resolves on 3.12 is not really a floor.
+          python-version: "3.9"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Resolve every direct dependency to its floor
+        run: |
+          uv pip install --system --resolution=lowest-direct "pyutilz[system,pandas,polars,database] @ git+https://github.com/fingoldo/pyutilz.git@ec016b15e76e5582ba1a083c02b33029663c2296"
+          uv pip install --system --resolution=lowest-direct -e ".[dev]"
+          uv pip list
+
+      - name: Import smoke
+        run: |
+          python -c "import mlframe; print('mlframe', mlframe.__version__)"
+          python -c "from mlframe.metrics.core import *; from mlframe.training import train_and_evaluate_model; from mlframe.calibration.quality import *; print('import OK')"
+
+      # A representative slice rather than the full suite: the question here is "do the floors work at all",
+      # not "is the suite green on old versions", and the latter would cost hours weekly.
+      - name: Fast test subset
+        env:
+          MLFRAME_FAST: "1"
+          PYTHONUNBUFFERED: "1"
+        run: |
+          pytest tests/metrics tests/calibration \
+            -m "not slow and not gpu and not multigpu" \
+            -n auto \
+            --no-cov \
+            -p no:randomly \
+            --timeout=900 \
+            --timeout-method=signal \
+            --durations=200

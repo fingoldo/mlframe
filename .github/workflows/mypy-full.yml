@@ -14,9 +14,9 @@ name: MyPy
 
 on:
   push:
-    branches: [master, main]
+    branches: [master]
   pull_request:
-    branches: [master, main]
+    branches: [master]
   workflow_dispatch:
 
 concurrency:
@@ -27,7 +27,7 @@ jobs:
   mypy-full:
     permissions:
       contents: read
-    uses: fingoldo/py-ci-shared/.github/workflows/mypy-full.yml@v1
+    uses: fingoldo/py-ci-shared/.github/workflows/mypy-full.yml@915217a4a8cdecc60b67c2c6c8dfe81de2f8a91c  # v1
     with:
       package-name: mlframe
       mypy-version: "2.1.0"

@@ -2,9 +2,19 @@ name: CI
 
 on:
   push:
-    branches: [master, main]
+    branches: [master]
+    # A docs-only push otherwise spends 30 shards plus the heavy-serial legs out of a ~20-concurrent-job
+    # budget shared across every repo on this account, and this repo pushes directly to master constantly.
+    # Deliberately NOT mirrored onto pull_request: master's branch protection requires the check "CI
+    # required checks", and a required check that never runs leaves a PR permanently pending rather than
+    # skipped -- a docs-only PR would become unmergeable. Only the push leg is safe to skip.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "audits/**"
+      - "LICENSE"
   pull_request:
-    branches: [master, main]
+    branches: [master]
   schedule:
     # Sunday 03:17 UTC. The weekly run is the one that sweeps every OS and every Python version; a
     # push only exercises the representative leg. Off the hour on purpose -- GitHub queues scheduled
@@ -281,6 +291,14 @@ jobs:
           # template-injection audit flags. Read as $SHARD_SPLITS / $SHARD_GROUP they stay data.
           SHARD_SPLITS: ${{ matrix.splits || '10' }}
           SHARD_GROUP: ${{ matrix.group }}
+          # pytest-timeout's default `thread` method cannot interrupt a test blocked inside a native call:
+          # it reports the timeout while the underlying thread keeps running, so the worker hangs until the
+          # job cap kills the whole shard and its real results are never reported -- the mechanism the long
+          # note above names as the likely cause of the repeated cap incidents. `signal` (SIGALRM, POSIX
+          # only, hence the per-OS value) raises inside the worker instead and can preempt those native
+          # calls that return to the interpreter.
+          TIMEOUT_METHOD: ${{ runner.os == 'Windows' && 'thread' || 'signal' }}
+          JUNIT_XML: junit-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.group }}.xml
         run: |
           # --dist=loadgroup: plain `-n auto` defaults to `--dist=load`, which does NOT honor
           # `@pytest.mark.xdist_group(...)` -- every group pin in the suite (GPU tests, the
@@ -313,6 +331,8 @@ jobs:
             --cov-report=term-missing \
             -p no:randomly \
             --timeout=900 \
+            --timeout-method="$TIMEOUT_METHOD" \
+            --junitxml="$JUNIT_XML" \
             --durations=200 \
             --store-durations \
             --show-progress
@@ -322,8 +342,7 @@ jobs:
       # default path), so each shard's local copy is [repo's checked-out durations] UNION [this
       # shard's own fresh subset]. Uploaded per-shard so merge-test-durations (below) can fold
       # every shard's fresh slice back into one file and commit it -- keeping pytest-split's
-      # balancing data current on every push instead of relying solely on the separate weekly
-      # update-test-durations.yml full-suite run. `if: always()` so a shard that failed or hit
+      # balancing data current on every push. `if: always()` so a shard that failed or hit
       # its timeout still contributes whatever durations it collected before that point.
       # `include-hidden-files: true` (2026-08-15): `.test_durations` is a dotfile -- actions/upload-artifact's
       # glob EXCLUDES hidden files by default, so despite pytest-split's own log confirming it wrote the file
@@ -332,6 +351,16 @@ jobs:
       # workflow was written -- root cause of `.test_durations` staying `{}` (seeded empty 2026-07-18) through
       # every subsequent "chore: refresh .test_durations" commit: merge-test-durations always downloaded 0
       # real shard artifacts to merge.
+      # Thirty shard jobs with no machine-readable result anywhere meant diagnosing a red push was N log
+      # dives through a 35k-test suite. The report-tests job below folds these into one table.
+      - name: Upload shard JUnit report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: junit-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.group }}
+          path: junit-*.xml
+          include-hidden-files: false
+
       - name: Upload shard test durations
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -453,14 +482,16 @@ jobs:
             -n 1 \
             -p no:randomly \
             --timeout=900 \
+            --timeout-method=signal \
+            --junitxml=junit-heavy-serial-${{ matrix.group }}.xml \
             --durations=200 \
             --no-cov \
             --show-progress
 
   # Folds every shard's freshly-measured `.test_durations` slice (uploaded above) back into one
-  # file and commits it to master, so pytest-split's shard balancing stays current on every
-  # push instead of drifting stale between the separate weekly full-suite update-test-durations.yml
-  # run. Root cause this replaces: `.test_durations` was seeded empty 2026-07-18 and never
+  # file and commits it to master, so pytest-split's shard balancing stays current on every push. This
+  # is the only path that maintains the file; the separate weekly full-suite update-test-durations.yml
+  # it superseded was deleted 2026-09-08, never having reached its commit step once. Root cause: `.test_durations` was seeded empty 2026-07-18 and never
   # successfully repopulated since, so pytest-split silently fell back to file-count balancing --
   # one shard (observed: py3.10/py3.12 group 3) collecting a disproportionate share of the
   # heaviest biz_val/MRMR fits and running 30-40+ min longer than its siblings on every run, with
@@ -469,6 +500,12 @@ jobs:
   # both wrong (branch doesn't own this data) and blocked by the read-only token PRs get anyway.
   merge-test-durations:
     name: Merge + commit .test_durations
+    # Shared with numba-coverage.yml's commit job: both push .test_durations-family files to master, and
+    # serialising them removes the interleaving that the rebase-and-retry below would otherwise have to
+    # absorb. Never cancel-in-progress -- a cancelled push loses the run's measurements entirely.
+    concurrency:
+      group: test-durations-commit
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     needs: test
     if: always() && github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -482,7 +519,11 @@ jobs:
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
-          pattern: test-durations-*
+          # One platform only. Shard timings differ substantially between Linux, Windows and macOS, and
+          # the merge below is last-write-wins per node id, so mixing them makes the balancing file a
+          # non-reproducible blend of whichever OS happened to upload last. Balance on the platform the
+          # coverage leg already treats as canonical; the other two still run every shard.
+          pattern: test-durations-${{ env.COVERAGE_OS }}-*
           path: .test_durations_shards
           merge-multiple: false
 
@@ -493,9 +534,9 @@ jobs:
           import pathlib
 
           merged = {}
-          # Sorted for deterministic merge order (last-write-wins on a nodeid two different
-          # python-version matrix legs both happened to freshly measure this run -- either
-          # value is a valid balancing input, determinism just keeps output diffs reviewable).
+          # Sorted for deterministic merge order. Last-write-wins on a node id measured by more than one
+          # matrix leg; with the download narrowed to a single OS the remaining axis is python version,
+          # where either value is a valid balancing input and determinism just keeps diffs reviewable.
           for f in sorted(pathlib.Path(".test_durations_shards").glob("*/.test_durations")):
               try:
                   merged.update(json.loads(f.read_text()))
@@ -505,7 +546,12 @@ jobs:
           print(f"[merge-test-durations] merged {len(merged)} entries")
           PY
 
+      # Uploads happen on `if: always()` so a red run's timings are still inspectable, but committing
+      # them is different: a run where most shards were cancelled at the job cap yields a merged file
+      # built from partial data, and since the merge is dict.update that lands a strictly worse balancing
+      # file than its parent. Commit only from a run where every shard actually finished.
       - name: Commit updated .test_durations
+        if: needs.test.result == 'success'
         env:
           REF_NAME: ${{ github.ref_name }}
         run: |
@@ -517,7 +563,17 @@ jobs:
           fi
           git add .test_durations
           git commit -m "chore: refresh .test_durations (post-CI shard rebalance)"
-          git push origin HEAD:"$REF_NAME"
+          # This repo pushes often enough that master routinely moves between this job's checkout and its
+          # push. Without a rebase that is a non-fast-forward rejection and a red job over a chore commit.
+          for attempt in 1 2 3; do
+            if git push origin HEAD:"$REF_NAME"; then
+              exit 0
+            fi
+            echo "push rejected (attempt $attempt), rebasing onto $REF_NAME"
+            git pull --rebase --autostash origin "$REF_NAME"
+          done
+          echo "could not land .test_durations after 3 attempts"
+          exit 1
 
   # Blocking gate + advisory bundle, both extracted to fingoldo/py-ci-shared reusable workflows
   # (2026-07-09) since their logic is identical across mlframe/pyutilz -- see
@@ -531,13 +587,13 @@ jobs:
   # be redundant, not safer.
   ruff-blocking:
     name: Ruff (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@v1
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@915217a4a8cdecc60b67c2c6c8dfe81de2f8a91c  # v1
     with:
       ignore: "C901"
 
   lint-blocking:
     name: lint + security (blocking, triaged clean)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@v1
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@915217a4a8cdecc60b67c2c6c8dfe81de2f8a91c  # v1
     with:
       source-path: src/mlframe
       codespell-paths: src/mlframe
@@ -556,7 +612,7 @@ jobs:
 
   lint-advisory:
     name: lint (advisory)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@v1
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@915217a4a8cdecc60b67c2c6c8dfe81de2f8a91c  # v1
     with:
       source-path: src/mlframe
       run-import-linter: true
@@ -571,20 +627,20 @@ jobs:
   # reusable workflows (py-ci-shared v1.1.0+) point them at tests/ instead of the whole repo.
   tests-ruff-blocking:
     name: Ruff tests/ (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@v1
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@915217a4a8cdecc60b67c2c6c8dfe81de2f8a91c  # v1
     with:
       check-path: tests
       ignore: "C901"
 
   tests-black-filtered:
     name: Black tests/ (filtered, blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@v1
+    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@915217a4a8cdecc60b67c2c6c8dfe81de2f8a91c  # v1
     with:
       check-path: tests
 
   tests-lint-blocking:
     name: lint + security tests/ (blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@v1
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@915217a4a8cdecc60b67c2c6c8dfe81de2f8a91c  # v1
     with:
       source-path: tests
       codespell-paths: tests
@@ -634,9 +690,29 @@ jobs:
           /tmp/smoke/bin/pip install --upgrade pip
           /tmp/smoke/bin/pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git@ec016b15e76e5582ba1a083c02b33029663c2296"
           /tmp/smoke/bin/pip install dist/*.whl
-          # Assert the PEP 561 py.typed marker actually shipped in the wheel so a
-          # package-data regression (dropping typing support) fails the build.
-          python -c "import zipfile, glob, sys; w = glob.glob('dist/*.whl')[0]; names = zipfile.ZipFile(w).namelist(); sys.exit('py.typed missing from wheel' if 'mlframe/py.typed' not in names else 0)"
+          # Assert every path declared in [tool.setuptools.package-data] actually shipped. py.typed drops
+          # typing support; default_kernel_tuning.json and the infonet configs are read at runtime, and
+          # include-package-data = false makes losing any of them completely silent.
+          python - <<'PY'
+          import glob
+          import sys
+          import zipfile
+
+          names = set(zipfile.ZipFile(glob.glob("dist/*.whl")[0]).namelist())
+          required = [
+              "mlframe/py.typed",
+              "mlframe/feature_selection/filters/default_kernel_tuning.json",
+          ]
+          missing = [r for r in required if r not in names]
+          if not any(
+              n.startswith("mlframe/feature_selection/filters/_vendored/infonet/configs/") and n.endswith(".yaml")
+              for n in names
+          ):
+              missing.append("mlframe/feature_selection/filters/_vendored/infonet/configs/*.yaml")
+          if missing:
+              sys.exit("package-data missing from wheel: " + ", ".join(missing))
+          print("package-data OK")
+          PY
           /tmp/smoke/bin/python -c "import mlframe; print('mlframe', mlframe.__version__, 'at', mlframe.__file__)"
           /tmp/smoke/bin/python -c "from mlframe.metrics.core import *; from mlframe.training import train_and_evaluate_model; from mlframe.models.ensembling import *; from mlframe.calibration.quality import *; print('smoke OK')"
 
@@ -654,6 +730,137 @@ jobs:
   # rather than being skipped (a skipped required check blocks merge same as a failed one, but with
   # no clear reason in the PR UI). lint-advisory is intentionally excluded -- it's advisory by design
   # (see lint-advisory.yml), never a merge gate.
+  # One readable table instead of opening thirty shard logs. Never gates anything (it is deliberately
+  # absent from ci-required's needs): its only job is to make a red push diagnosable at a glance.
+  report-tests:
+    name: Test failure summary
+    runs-on: ubuntu-latest
+    needs: test
+    if: always()
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          pattern: junit-*
+          path: junit
+          merge-multiple: false
+
+      - name: Render summary
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import xml.etree.ElementTree as ET
+
+          rows = []
+          failures = []
+          for f in sorted(pathlib.Path("junit").rglob("*.xml")):
+              try:
+                  root = ET.parse(f).getroot()
+              except ET.ParseError:
+                  rows.append((f.parent.name, "unparseable", "", "", ""))
+                  continue
+              suites = root.iter("testsuite") if root.tag == "testsuites" else [root]
+              tot = fail = err = skip = 0
+              for su in suites:
+                  tot += int(su.get("tests", 0))
+                  fail += int(su.get("failures", 0))
+                  err += int(su.get("errors", 0))
+                  skip += int(su.get("skipped", 0))
+              rows.append((f.parent.name, tot, fail, err, skip))
+              for case in root.iter("testcase"):
+                  for kind in ("failure", "error"):
+                      bad = case.find(kind)
+                      if bad is not None:
+                          nodeid = f"{case.get('classname', '')}::{case.get('name', '')}"
+                          failures.append((f.parent.name, kind, nodeid, (bad.get("message") or "").strip()))
+
+          out = []
+          if not rows:
+              out.append("No JUnit reports were uploaded -- every shard died before pytest wrote one.")
+          else:
+              out.append("| shard | tests | failures | errors | skipped |")
+              out.append("|---|---:|---:|---:|---:|")
+              for r in rows:
+                  out.append("| " + " | ".join(str(x) for x in r) + " |")
+              out.append("")
+              out.append(f"**{len(failures)} failing test(s)** across {len(rows)} shard report(s).")
+          if failures:
+              out.append("")
+              out.append("| shard | kind | test | message |")
+              out.append("|---|---|---|---|")
+              for shard, kind, nodeid, msg in failures[:200]:
+                  msg = msg.replace("|", "\\|").splitlines()[0][:160] if msg else ""
+                  out.append(f"| {shard} | {kind} | `{nodeid}` | {msg} |")
+              if len(failures) > 200:
+                  out.append("")
+                  out.append(f"...and {len(failures) - 200} more; see the shard logs.")
+
+          text = "\n".join(out)
+          print(text)
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as fh:
+                  fh.write("## Test results\n\n" + text + "\n")
+          PY
+
+  # The suite runs on three platforms but the wheel was only ever installed on one, so a package-data or
+  # path-handling regression could only be caught by a user. The wheel itself is pure Python and identical
+  # across platforms, so it is built once above and only the install is matrixed here.
+  install-smoke:
+    name: install wheel on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    needs: build
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: dist
+          path: dist
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: ${{ env.REPRESENTATIVE_PYTHON }}
+
+      - name: Install wheel + smoke import
+        run: |
+          python -m venv smoke
+          # A venv puts its interpreter in Scripts/ on Windows and bin/ everywhere else; the workflow runs
+          # bash on all three runners, so only this one path segment has to vary.
+          if [ "$RUNNER_OS" = "Windows" ]; then BIN=smoke/Scripts; else BIN=smoke/bin; fi
+          "$BIN/python" -m pip install --upgrade pip
+          "$BIN/pip" install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git@ec016b15e76e5582ba1a083c02b33029663c2296"
+          "$BIN/pip" install dist/*.whl
+          "$BIN/python" -c "import mlframe; print('mlframe', mlframe.__version__, 'at', mlframe.__file__)"
+          "$BIN/python" -c "from mlframe.metrics.core import *; from mlframe.training import train_and_evaluate_model; from mlframe.models.ensembling import *; from mlframe.calibration.quality import *; print('smoke OK')"
+
+      # In-repo mypy sees the source tree; a downstream user sees only the wheel plus py.typed. A public
+      # signature annotated with a name that is not exported, or that only resolves under TYPE_CHECKING,
+      # type-checks here and breaks every consumer. Advisory: it depends on stub availability in a bare
+      # env, which is not this repo's to guarantee.
+      - name: Type-check the public surface from a consumer position
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: |
+          BIN=smoke/bin
+          "$BIN/pip" install "mypy==2.1.0"
+          cat > consumer.py <<'PY'
+          import mlframe
+          from mlframe.calibration.quality import *  # noqa: F403
+          from mlframe.metrics.core import *  # noqa: F403
+          from mlframe.models.ensembling import *  # noqa: F403
+          from mlframe.training import train_and_evaluate_model
+
+          print(mlframe.__version__, train_and_evaluate_model)
+          PY
+          "$BIN/python" -m mypy --ignore-missing-imports consumer.py
+
   ci-required:
     name: CI required checks
     if: always()
@@ -662,7 +869,7 @@ jobs:
     # matrix-setup is in this list deliberately. Everything below it is `needs:`-dependent on it, so if it
     # fails every test job SKIPS -- and a skip is not a failure, so without it here this gate reported
     # green having run zero tests. That is the worst possible outcome for a required check.
-    needs: [matrix-setup, test, test-heavy-serial, ruff-blocking, lint-blocking, tests-ruff-blocking, tests-black-filtered, tests-lint-blocking, build]
+    needs: [matrix-setup, test, test-heavy-serial, ruff-blocking, lint-blocking, tests-ruff-blocking, tests-black-filtered, tests-lint-blocking, build, install-smoke]
     steps:
       - name: Check all required jobs succeeded
         env:

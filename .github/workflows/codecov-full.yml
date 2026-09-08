@@ -43,6 +43,12 @@ permissions:
   contents: read
   actions: read
 
+# A daily cron and a workflow_run chain off numba-coverage-nightly can overlap, and both jobs run the same
+# `coverage combine` and upload to the same `combined` flag. The later run is the one with fresher inputs.
+concurrency:
+  group: codecov-full
+  cancel-in-progress: true
+
 jobs:
   merge-and-upload:
     name: Merge ci.yml + numba-coverage.yml + deep-nightly raw coverage, upload combined flag

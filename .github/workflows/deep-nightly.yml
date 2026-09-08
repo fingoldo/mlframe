@@ -75,13 +75,17 @@ jobs:
           # The same version ci.yml runs on a push. Depth varies the TEST SET, not the interpreter;
           # the interpreter axis belongs to ci.yml's weekly sweep.
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
 
       # install-pyutilz below runs `uv pip install`, so uv has to exist first. Missing this step is what
       # made the very first deep run die at exit 127 before a single test ran.
       - name: Set up uv
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        with:
+          # 20 shards a night each resolving a several-hundred-package, multi-GB graph from cold is the
+          # single largest avoidable spend in this workflow. setup-python's `cache: pip` used to sit here
+          # instead and cached nothing, because every install in this job goes through uv.
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
 
       # Installs pyutilz AND this project in one uv call, exactly as ci.yml does -- the extras are what
       # the action installs, so leaving them empty asks it to install nothing.
