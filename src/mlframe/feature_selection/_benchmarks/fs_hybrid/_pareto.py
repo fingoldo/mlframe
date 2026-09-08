@@ -46,11 +46,19 @@ class ParetoPoint:
 
 
 def _mean_cost(records: Sequence[Dict[str, Any]], arm: str, scenario: str) -> Optional[float]:
-    """Return the mean measured `n_model_fits` for one (arm, scenario), or ``None`` when unmeasured."""
+    """Return the mean fits the ARM itself spent on one (arm, scenario), or ``None`` when unmeasured.
+
+    The arm's own fits, not the cell total. Every arm pays the same downstream panel, so a total puts a free
+    filter and an expensive one within a few fits of each other and the axis stops separating them. Records
+    written before the split carry only the total; those fall back to it, and the fallback is visible in the
+    numbers rather than silent, because a filter then reads the panel's cost instead of zero.
+    """
     values = [
-        float(record["n_model_fits"])
+        float(record["n_model_fits_arm"] if record.get("n_model_fits_arm") is not None else record["n_model_fits"])
         for record in records
-        if record.get("arm") == arm and record.get("scenario") == scenario and record.get("n_model_fits") is not None
+        if record.get("arm") == arm
+        and record.get("scenario") == scenario
+        and (record.get("n_model_fits_arm") is not None or record.get("n_model_fits") is not None)
     ]
     return float(np.mean(values)) if values else None
 
@@ -125,8 +133,9 @@ def pareto_table(records: Sequence[Dict[str, Any]], models: Sequence[str], k_lab
     lines = [
         "",
         "=" * 100,
-        f"COST vs QUALITY -- Pareto frontier at {k_label} (cost = mean n_model_fits, quality = paired delta vs the null)",
+        f"COST vs QUALITY -- Pareto frontier at {k_label} (cost = mean model fits spent BY THE ARM, quality = paired delta vs the null)",
         "=" * 100,
+        "  Cost is the fits the ARM spent; the downstream panel is paid identically by every arm and is excluded.",
         "  An arm is dominated when another is at least as good and no more expensive; the witness is named.",
         "  An arm with no measured cost is UNPRICED, never free, and can never dominate another.",
     ]
