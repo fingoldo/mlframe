@@ -53,6 +53,7 @@ def build_scm_bed(name: str, seed: int, n_samples: Optional[int] = None) -> Tupl
         The frame, the labels, and the truth dictionary the runner and the analysis layer read.
     """
     from mlframe.data.datasets import scenarios
+    from mlframe.data.datasets._rng import stream_for
     from mlframe.data.datasets.generator import generate
 
     scenario = scenarios.get(name)
@@ -61,8 +62,17 @@ def build_scm_bed(name: str, seed: int, n_samples: Optional[int] = None) -> Tupl
         spec = spec.model_copy(update={"n_samples": int(n_samples)})
     dataset = generate(spec)
 
+    # Column ORDER is shuffled per seed before the frame reaches an arm. The generator keeps declaration
+    # order on purpose -- truth is addressed by name, and a stable order is easier to read -- but every SCM
+    # bed declares its informative columns first, so position alone would identify the answer key. An arm
+    # that ties its whole ranking then inherits that order through the cut and scores a perfect recovery it
+    # never earned, which is exactly what RFECV's parity result turned out to be before this.
+    order = list(dataset.frame.columns)
+    stream_for(seed, spec.name, "bed_column_order").shuffle(order)
+    frame = dataset.frame[order]
+
     blanket = list(dataset.truth.primary_target_set().members)
-    columns = [str(column) for column in dataset.frame.columns]
+    columns = [str(column) for column in frame.columns]
     noise = [column for column in columns if column not in set(blanket)]
 
     ceiling = dataset.calibration.get("bayes_auc")
@@ -82,7 +92,7 @@ def build_scm_bed(name: str, seed: int, n_samples: Optional[int] = None) -> Tupl
         # that resized the bed afterwards would leave the hash intact while changing what was measured.
         "n_samples": int(spec.n_samples),
     }
-    return dataset.frame, np.asarray(dataset.target), truth
+    return frame, np.asarray(dataset.target), truth
 
 
 def scm_bed_scenarios(include_null: bool = False, n_samples: Optional[int] = None) -> List[Tuple[str, Callable[[int], Any]]]:

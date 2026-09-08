@@ -68,6 +68,9 @@ class Ranking:
     selected: Tuple[str, ...]
     # Fraction of the feature space the ranking actually covers; below 1.0 a deep cut is truncated.
     coverage: float
+    # Size of the largest set of columns the arm scored EQUALLY. A ranking whose largest tie group spans the
+    # cut is a coin flip at that K, however confident the ordering looks once it has been written down.
+    largest_tie_group: int = 0
 
     def is_rankable(self) -> bool:
         """True when the arm supplies an order that can be cut at an arbitrary `K`."""
@@ -84,11 +87,39 @@ def _names_from_support(support: Any, feature_names: Sequence[str]) -> List[str]
     return [feature_names[int(i)] for i in arr]
 
 
-def ranking_from_arm_result(result: Any, feature_names: Sequence[str]) -> Ranking:
+def _order_with_random_tie_break(scores: np.ndarray, seed: Optional[int]) -> List[int]:
+    """Return column indices best-first, with equally scored columns permuted rather than left in file order.
+
+    A stable sort is the wrong default here even though it is the safe one everywhere else: it makes column
+    order the tie-break, and column order is a property of whoever wrote the spec, not of the arm.
+    """
+    rng = np.random.default_rng(0 if seed is None else int(seed))
+    jitter = rng.permutation(scores.shape[0])
+    # Sort by score first, then by the permutation: a lexsort with the score as the last key.
+    return [int(i) for i in np.lexsort((jitter, -scores))]
+
+
+def _largest_tie_group(scores: np.ndarray) -> int:
+    """Return the size of the largest set of columns sharing one score."""
+    if scores.size == 0:
+        return 0
+    _values, counts = np.unique(scores, return_counts=True)
+    return int(counts.max())
+
+
+def ranking_from_arm_result(result: Any, feature_names: Sequence[str], tie_break_seed: Optional[int] = None) -> Ranking:
     """Build a `Ranking` from an `ArmResult` (or any object exposing the same attribute contract).
 
     Accepts a legacy fs_hybrid adapter too (one exposing only `raw_selected_`), which is treated as
     `score_kind="none"`: a selected set with no internal order.
+
+    ``tie_break_seed`` decides how columns the arm scored EQUALLY are ordered. This is not a detail. An
+    ordinal arm can tie every survivor at rank 1 -- this repository's RFECV does exactly that -- and a
+    stable sort then falls back to column order. On a generated bed whose informative columns are declared
+    first, cutting that ranking at K returns precisely the answer key, and the arm scores a perfect recovery
+    it did not earn. Ties are therefore permuted with a seeded generator, which is what "the arm expressed no
+    preference" actually means, and the realised tie structure is reported on the ranking so a caller can
+    tell a genuine ranking from a coin flip.
     """
     names = list(feature_names)
     support = getattr(result, "support", None)
@@ -99,6 +130,7 @@ def ranking_from_arm_result(result: Any, feature_names: Sequence[str]) -> Rankin
     selected = _names_from_support(support, names)
     kind = str(getattr(result, "score_kind", "none"))
     order: List[str] = []
+    largest_tie = 0
 
     if kind in ("continuous", "ordinal"):
         score = getattr(result, "score", None)
@@ -110,8 +142,9 @@ def ranking_from_arm_result(result: Any, feature_names: Sequence[str]) -> Rankin
         if vals.shape[0] != len(names):
             raise ValueError(f"score length {vals.shape[0]} != n_features {len(names)}")
         finite = np.where(np.isfinite(vals), vals, -np.inf)
-        # Stable sort on the negated score keeps original column order as the tie-break.
-        order = [names[i] for i in np.argsort(-finite, kind="stable")]
+        order_index = _order_with_random_tie_break(finite, tie_break_seed)
+        order = [names[i] for i in order_index]
+        largest_tie = _largest_tie_group(finite)
     elif kind == "selection_order":
         prefix = getattr(result, "ranked_prefix", None)
         if prefix is None:
@@ -119,7 +152,7 @@ def ranking_from_arm_result(result: Any, feature_names: Sequence[str]) -> Rankin
         order = [names[int(i)] for i in prefix]
 
     coverage = len(order) / len(names) if names else 0.0
-    return Ranking(order=tuple(order), score_kind=kind, selected=tuple(selected), coverage=coverage)
+    return Ranking(order=tuple(order), score_kind=kind, selected=tuple(selected), coverage=coverage, largest_tie_group=largest_tie)
 
 
 # Absolute K grid for beds with no declared target set, fixed by docs/BENCHMARK_PREREGISTRATION.md section 3a.

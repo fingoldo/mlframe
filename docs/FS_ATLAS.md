@@ -12,12 +12,23 @@ Three legs, one protocol, one roster of sixteen arms, `all-features` as the null
 | adversarial (`phase0_synth_control`) | 9 hand-written beds | 3 029 | is the real verdict about the data or the model |
 | SCM (`scm_beds`) | 8 generated beds | 2 560 | what a method RECOVERS when the answer key comes from the graph |
 
-> **Correction in flight (2026-09-08).** The SCM leg's adapter overrode every bed's declared row count
-> with a uniform 4 000, so `linear_gaussian_lowdim_n200` -- the bed that exists to be 200 rows, where a
-> t-statistic beats a binned mutual-information estimate -- ran at twenty times its design size, and the
-> other seven ran below theirs. The registry hash did not catch it: the spec never changed, the adapter
-> resized the bed afterwards. The adapter is fixed, the leg is being re-run at each bed's declared size,
-> and the SCM rows below will be restated from that run. The real and adversarial legs are unaffected.
+> **Two corrections in flight (2026-09-08), both affecting the SCM rows only.**
+>
+> **The parity result was an artefact and is withdrawn.** This document claimed `rfecv` recovered the
+> three-way parity answer key perfectly on all twenty seeds. An ablation run to explain that result found
+> it selected ALL 33 columns, so its recovery at the matched cut came from somewhere else: its ranking
+> ties every survivor at rank one, the harness broke ties with a stable sort, and a stable sort falls back
+> to column order -- which on a generated bed whose informative columns are declared first IS the answer
+> key. Ties are now permuted with a per-cell seed, and the SCM beds shuffle their column order per seed,
+> so position carries no information. Any claim below resting on RFECV's parity recovery is void until
+> the re-run lands.
+>
+> **Bed sizes were overridden.** The adapter replaced each bed's declared row count with a uniform 4 000,
+> so `linear_gaussian_lowdim_n200` -- the bed that exists to be 200 rows -- ran at twenty times its design
+> size. Fixed; the size now travels with the bed and the registry hash could not have caught it, because
+> the spec was never edited.
+
+The real and adversarial legs are unaffected by both.
 
 ## The first-order finding: the downstream model decides more than the selector does
 
@@ -57,12 +68,15 @@ from a narrow bed** -- it was already ignoring them.
 
 ## Four separations clean enough to act on
 
-**A subset wrapper finds parity; nothing else does.** On the SCM 3-way parity bed, `rfecv` recovers the
-answer key **perfectly and identically on all 20 seeds** (precision, recall, F1 = 1.000; stability index
-1.000). Every other arm is at chance: 0.067 to 0.217, with a stability index of ~0.00-0.05, meaning each
-seed hands back a different arbitrary triple. This is the theoretical prediction -- operands with zero
-marginal association are invisible to any ranking built one column at a time -- and it is the sharpest
-separation anywhere in this benchmark.
+**~~A subset wrapper finds parity; nothing else does.~~ WITHDRAWN.** This read as the sharpest separation
+in the benchmark: `rfecv` recovering the parity answer key perfectly on all twenty seeds while every other
+arm sat at chance. An ablation designed to explain it -- swap the inner estimator, hold everything else --
+found the cause was neither the search nor the estimator. RFECV selected all 33 columns and tied them at
+rank one; the harness broke that tie with a stable sort, and a stable sort inherits column order, which on
+these beds is the answer key. The perfect recall and the perfect stability were the same artefact seen
+twice. Ties are now randomised per cell and the beds shuffle their columns; what the arms do on parity
+will be restated from the re-run, and the honest current answer is that this benchmark has not yet shown
+any method solving three-way parity.
 
 **Marginal filters cannot reach a Markov blanket through a collider.** On `mb_spouse_collider`, every
 marginal filter recovers exactly two of the three blanket members: `univariate-mi` 0.700, `skb-f` and

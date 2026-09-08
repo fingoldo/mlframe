@@ -215,9 +215,13 @@ def run_cell(
         record["wall_time_s"] = round(wall_s, 3)
         record["process_time_s"] = round(proc_s, 3)
 
-        ranking = ranking_from_arm_result(arm, feature_names)
+        # Tie-breaking is seeded per cell rather than left to column order: an arm that ties every
+        # survivor would otherwise inherit the spec's column order, which on a generated bed is the
+        # answer key itself.
+        ranking = ranking_from_arm_result(arm, feature_names, tie_break_seed=spec.dataset_seed * 1000 + spec.cv_seed)
         record["score_kind"] = ranking.score_kind
         record["ranking_coverage"] = round(ranking.coverage, 4)
+        record["largest_tie_group"] = int(ranking.largest_tie_group)
         # The arm's own internal optimum, kept so the winner's-curse column can compare it against the
         # honest holdout. An arm that reports none records None: unknown is not zero optimism.
         selection_score = getattr(arm, "selection_score", None)
