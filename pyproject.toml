@@ -469,10 +469,15 @@ dev = [
     # Shared CI/lint tooling (black_filtered_apply / format_warn / bandit_warn / vulture_warn),
     # consumed by .pre-commit-config.yaml's `language: system` local hooks. Not yet on PyPI --
     # install from GitHub, mirroring the existing pyutilz dependency pattern.
-    # X_SECURITY_API_PACKAGING-5 fix (mrmr_audit_2026-07-22): pinned to a specific commit SHA rather
-    # than the floating default branch (see the matching pyutilz note above for the rationale). Bump
-    # deliberately (with a CHANGELOG entry) when a new py-ci-shared feature is actually needed.
-    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git",
+    # X_SECURITY_API_PACKAGING-5 (mrmr_audit_2026-07-22) asked for a pin rather than the floating
+    # default branch. The SHA that note describes was NOT here -- the entry had drifted back to the
+    # bare default branch, so the comment was describing a pin the line did not carry.
+    # 2026-09-08: moved onto `@v1`, the MOVING major-version tag, which is the form the CI workflows
+    # already use (`ruff-blocking.yml@v1`) and the tag py-ci-shared documents as "always points at
+    # the latest v1.x release". That is weaker than a SHA -- a moving tag can be repointed -- and
+    # stronger than the default branch, which is whatever was merged last. Choose deliberately if
+    # this ever needs to be reproducible to the commit.
+    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@v1",
 ]
 
 [project.scripts]
