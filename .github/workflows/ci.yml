@@ -76,6 +76,9 @@ jobs:
     outputs:
       matrix: ${{ steps.build.outputs.matrix }}
       full: ${{ steps.build.outputs.full }}
+      # Exported so test-heavy-serial runs the same single version a push uses, instead of naming one by
+      # hand and drifting from it.
+      representative_python: ${{ env.REPRESENTATIVE_PYTHON }}
     steps:
       - name: Build the job list
         id: build
@@ -387,17 +390,21 @@ jobs:
   # own 3.14 rows).
   test-heavy-serial:
     name: pytest ${{ matrix.python-version }} on ubuntu-latest (test_core.py, serial, group ${{ matrix.group }}/4)
+    needs: matrix-setup
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        # Deliberately still every supported version, and deliberately NOT reduced with the main matrix
-        # above. test_core.py is the file that recurrently OOM-killed the runner, so it is run serially
-        # and separately; keeping its full version spread is what leaves the VERSION axis some per-commit
-        # coverage while the main matrix holds the version fixed and varies the platform instead. Linux
-        # only, because the OOM behaviour it guards is what this runner does, and it is 20 short jobs.
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        # One version on a push, the same one the main matrix uses -- a push varies the PLATFORM and
+        # holds the version fixed, and that applies here too. This job ran the full 3.9-3.13 spread until
+        # 2026-09-08, which put four extra Python versions on every push for one file.
+        #
+        # test_core.py still gets its own job rather than joining the sharded matrix: it is the file that
+        # recurrently OOM-killed the runner, so it runs serially, alone, on Linux.
+        #
+        # The weekly sweep is where the version axis is covered, for this file along with everything else.
+        python-version: ["${{ needs.matrix-setup.outputs.representative_python }}"]
         group: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -599,7 +606,8 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.11"
+          # The same single version everything else on a push uses, rather than a second one named here.
+          python-version: ${{ env.REPRESENTATIVE_PYTHON }}
 
       - name: Set up uv
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
