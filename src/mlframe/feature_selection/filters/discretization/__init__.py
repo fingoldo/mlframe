@@ -722,7 +722,9 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: typ
                     _kths_set.add(int(_l))
                     _kths_set.add(int(_l) + 1)
             _kths = np.array(sorted(_kths_set), dtype=np.int64)
-            _quantile_edges_2d_njit(np.ascontiguousarray(arr2d), quantiles, _kths, edges)
+            # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
+            with parallel_kernel_entry():
+                _quantile_edges_2d_njit(np.ascontiguousarray(arr2d), quantiles, _kths, edges)
     out: np.ndarray = np.empty((n_rows, n_cols), dtype=dtype)
     # njit per-column searchsorted (bit-identical to the numpy loop, incl. NaN
     # -> rightmost bin; see ``_searchsorted_2d_right_njit``). ``edges`` is float64 from
@@ -760,7 +762,9 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: typ
         # knows it is on the main-thread/no-joblib branch (threaded down from _mrmr_fe_step's
         # ``len(X) < 50000`` dispatch); the joblib path keeps the serial kernel (parallel=False).
         if parallel:
-            _searchsorted_2d_right_njit_parallel(edges_inner, arr_c, out)
+            # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
+            with parallel_kernel_entry():
+                _searchsorted_2d_right_njit_parallel(edges_inner, arr_c, out)
         else:
             _searchsorted_2d_right_njit(edges_inner, arr_c, out)
     return out

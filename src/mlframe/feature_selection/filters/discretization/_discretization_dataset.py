@@ -15,6 +15,8 @@ import threading
 from typing import Any, Callable, Optional, Sequence, Set
 
 import numpy as np
+
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
@@ -388,7 +390,9 @@ def categorize_dataset(
         # ``arr`` passed at its NATIVE dtype (float32 or float64): the kernel promotes per-element against
         # the float64 edges, byte-identical to pre-upcasting the whole column (see the kernel's own
         # docstring) - avoids an (n_rows, n_cols) float64 copy on top of the input buffer.
-        _searchsorted_2d_right_njit_parallel(edges_padded, arr, _codes)
+        # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
+        with parallel_kernel_entry():
+            _searchsorted_2d_right_njit_parallel(edges_padded, arr, _codes)
         data[:, :] = _codes.astype(dtype)
     else:
         # Unsupervised numeric path: each column binned independently of others AND of the target, so per-column

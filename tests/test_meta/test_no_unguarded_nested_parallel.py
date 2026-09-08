@@ -24,7 +24,6 @@ was "this one cannot race" along with why.
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
 import pytest
@@ -41,100 +40,37 @@ _ALLOWLIST = {
 }
 
 
-def _is_parallel_kernel(node: ast.AST) -> bool:
-    """True for a function decorated ``@njit(..., parallel=True)``."""
-    return isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(
-        isinstance(d, ast.Call) and any(k.arg == "parallel" and isinstance(k.value, ast.Constant) and k.value.value is True for k in d.keywords)
-        for d in node.decorator_list
-    )
-
-
-def _modules():
-    """Every production module, parsed."""
-    for path in sorted(SRC.rglob("*.py")):
-        if _SKIP_DIRS & set(path.parts):
-            continue
-        try:
-            yield path, ast.parse(path.read_text(encoding="utf-8"))
-        except (SyntaxError, UnicodeDecodeError):
-            continue
-
-
-def _call_graph():
-    """``(parallel kernel names, function -> names it calls, function -> defining modules)``."""
-    kernels, calls, where = set(), {}, {}
-    for path, tree in _modules():
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            where.setdefault(node.name, []).append(path)
-            if _is_parallel_kernel(node):
-                kernels.add(node.name)
-            calls[(path, node.name)] = {getattr(c.func, "id", None) or getattr(c.func, "attr", None) for c in ast.walk(node) if isinstance(c, ast.Call)} - {
-                None
-            }
-    return kernels, calls, where
-
-
-def _guards(path) -> bool:
-    """Does this module take the guard? Checked per MODULE on the path, not only at the pool."""
-    return "_numba_parallel_guard" in path.read_text(encoding="utf-8")
-
-
-def _reaches_kernel(path, fname, kernels, calls, where, depth=6, seen=None):
-    """The first UNGUARDED prange kernel reachable from this function within ``depth`` hops, or None.
-
-    A path stops being a finding as soon as it passes through a module that takes the guard: guarding at a
-    shared dispatcher covers every caller, which is better than making each caller guard separately, and a
-    check that only looked at the pool's own module would push authors the other way.
-    """
-    seen = seen if seen is not None else set()
-    if (path, fname) in seen or depth == 0 or _guards(path):
-        return None
-    seen.add((path, fname))
-    for callee in calls.get((path, fname), ()):
-        if callee in kernels:
-            return callee
-        for other in where.get(callee, ())[:2]:  # a name defined in many modules is not a useful edge
-            found = _reaches_kernel(other, callee, kernels, calls, where, depth - 1, seen)
-            if found:
-                return found
-    return None
-
-
 @pytest.fixture(scope="module")
-def call_graph():
-    """Parsed once: the scan walks every production module."""
-    return _call_graph()
+def package():
+    """The parsed call graph, built by the scanner this gate shares its logic with.
+
+    Imported rather than reimplemented: the walk has to know about dispatch tables, guarded modules and how
+    deep to go, and two copies of that would drift. The first version of this file DID carry its own copy,
+    and the copies disagreed within a day -- the scanner learned to follow ``{"name": kernel}`` lookup
+    tables after CI found a crash through one, and this gate would still have been blind to it.
+    """
+    from mlframe._nested_parallel_scan import Package
+
+    return Package(SRC)
 
 
-def test_a_module_that_threads_into_a_prange_kernel_takes_the_guard(call_graph):
+def test_a_module_that_threads_into_a_prange_kernel_takes_the_guard(package):
     """Starting a pool whose workers can enter a prange kernel is what aborts the process on macOS."""
-    kernels, calls, where = call_graph
     offenders = []
-    for path, tree in _modules():
-        pool_fns = [
-            n.name
-            for n in ast.walk(tree)
-            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and any(isinstance(c, ast.Call) and (getattr(c.func, "id", None) or getattr(c.func, "attr", None)) == "ThreadPoolExecutor" for c in ast.walk(n))
-        ]
-        if not pool_fns:
-            continue
+    for path, fname in package.pools:
         rel = path.relative_to(SRC).as_posix()
-        if rel in _ALLOWLIST or "_numba_parallel_guard" in path.read_text(encoding="utf-8"):
+        if rel in _ALLOWLIST:
             continue
-        for fn in pool_fns:
-            kernel = _reaches_kernel(path, fn, kernels, calls, where)
-            if kernel:
-                offenders.append(f"{rel}::{fn} -> {kernel}")
-                break
+        for kernel, trail in sorted(package.reachable_kernels(path, fname).items()):
+            offenders.append(f"{rel}::{fname} -> {kernel}  ({trail})")
 
     assert not offenders, (
-        f"{offenders} start a thread pool and call a numba parallel=True kernel without importing "
-        "mlframe._numba_parallel_guard. Two threads inside one prange region aborts the process on macOS. "
-        "Hold parallel_kernel_entry() around the kernel call, or add the module to _ALLOWLIST with the "
-        "reason it cannot race."
+        "these start a thread pool and can reach an unguarded numba parallel=True kernel:\n  "
+        + "\n  ".join(offenders)
+        + "\n\nTwo threads inside one prange region aborts the process on macOS. Hold "
+        "parallel_kernel_entry() around the kernel call -- preferably at a shared dispatcher, which covers "
+        "every caller -- or add the module to _ALLOWLIST with the reason it cannot race. "
+        "`python -m mlframe._nested_parallel_scan` prints these paths outside pytest."
     )
 
 

@@ -53,10 +53,54 @@ def _is_parallel_kernel(node: ast.AST) -> bool:
     )
 
 
+def _guarded_call_nodes(node: ast.AST) -> Set[int]:
+    """``id()`` of every Call lexically inside a ``with parallel_kernel_entry():`` block."""
+    guarded: Set[int] = set()
+    for with_node in ast.walk(node):
+        if not isinstance(with_node, (ast.With, ast.AsyncWith)):
+            continue
+        holds = any(
+            isinstance(item.context_expr, ast.Call)
+            and (getattr(item.context_expr.func, "id", None) or getattr(item.context_expr.func, "attr", None)) == "parallel_kernel_entry"
+            for item in with_node.items
+        )
+        if holds:
+            guarded.update(id(c) for c in ast.walk(with_node) if isinstance(c, ast.Call))
+    return guarded
+
+
 def _called_names(node: ast.AST) -> Set[str]:
-    """Every name called inside a function body, attribute calls included."""
-    out = {getattr(c.func, "id", None) or getattr(c.func, "attr", None) for c in ast.walk(node) if isinstance(c, ast.Call)}
+    """Every name called inside a function body that is NOT already under the guard.
+
+    Per CALL, not per module. Marking a whole module safe because one of its functions takes the guard is
+    what let a real crash through: ``_hermite_prewarp`` guards its fourier replay, and the walk then
+    treated ``fit_pair_prewarp_als`` in the same file as covered when it was not.
+    """
+    guarded = _guarded_call_nodes(node)
+    out = {getattr(c.func, "id", None) or getattr(c.func, "attr", None) for c in ast.walk(node) if isinstance(c, ast.Call) and id(c) not in guarded}
     return {n for n in out if n}
+
+
+def _dispatch_tables(tree: ast.AST) -> Dict[str, Set[str]]:
+    """``{dict name: the function names it holds}`` for module-level ``{"a": fn_a, ...}`` literals.
+
+    A kernel reached through a lookup table is invisible to a plain call-graph walk: the call site reads
+    ``builder(x)``, and ``builder`` came out of a dict. That is not a corner case here --
+    ``_BASIS_BUILDERS`` maps four basis names to four ``parallel=True`` builders, and
+    ``build_basis_matrix`` calls whichever one it looked up. The first version of this scan missed it, and
+    CI found the crash instead.
+    """
+    tables: Dict[str, Set[str]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Dict):
+            continue
+        names = {v.id for v in node.value.values if isinstance(v, ast.Name)}
+        if not names:
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                tables.setdefault(target.id, set()).update(names)
+    return tables
 
 
 class Package:
@@ -67,7 +111,6 @@ class Package:
         self.kernels: Set[str] = set()
         self.calls: Dict[Tuple[Path, str], Set[str]] = {}
         self.where: Dict[str, List[Path]] = {}
-        self.guarded: Set[Path] = set()
         self.pools: List[Tuple[Path, str]] = []
         for path in sorted(root.rglob("*.py")):
             if SKIP_DIRS & set(path.parts):
@@ -77,25 +120,43 @@ class Package:
                 tree = ast.parse(text)
             except (SyntaxError, UnicodeDecodeError):
                 continue
-            if "_numba_parallel_guard" in text:
-                self.guarded.add(path)
+            tables = _dispatch_tables(tree)
             for node in ast.walk(tree):
                 if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     continue
                 self.where.setdefault(node.name, []).append(path)
-                self.calls[(path, node.name)] = _called_names(node)
+                edges = _called_names(node)
+                # A function that touches a dispatch table can call anything in it, so treat every entry
+                # as an edge. Referencing the table is enough -- the lookup and the call are usually two
+                # statements apart, and tracking the variable between them buys nothing here.
+                # A dispatch-table edge is added from a bare REFERENCE to the table, because the lookup
+                # and the call are usually separate statements. That bypasses the per-call guard check,
+                # so a function that guards its dispatched call (``with ...: builder(x)``) would still be
+                # reported for every member. If the function guards anything at all, take that as guarding
+                # the dispatch too -- an over-approximation, but the alternative reports four false paths
+                # for every guarded table.
+                if not _guarded_call_nodes(node):
+                    referenced = {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
+                    for table, members in tables.items():
+                        if table in referenced:
+                            edges |= members
+                self.calls[(path, node.name)] = edges
                 if _is_parallel_kernel(node):
                     self.kernels.add(node.name)
                 if "ThreadPoolExecutor" in _called_names(node):
                     self.pools.append((path, node.name))
 
     def reachable_kernels(self, path: Path, fname: str) -> Dict[str, str]:
-        """``{kernel name: the call path that reaches it}`` for everything unguarded below this function."""
+        """``{kernel name: the call path that reaches it}`` for every UNGUARDED kernel below this function.
+
+        A kernel call wrapped in ``with parallel_kernel_entry():`` is not reported, and neither is anything
+        below it -- holding the guard around a call covers everything that call goes on to do.
+        """
         found: Dict[str, str] = {}
 
         def walk(p: Path, f: str, depth: int, seen: Set[Tuple[Path, str]], trail: Tuple[str, ...]) -> None:
             """Depth-first over the call graph, stopping at guarded modules."""
-            if (p, f) in seen or depth == 0 or p in self.guarded:
+            if (p, f) in seen or depth == 0:
                 return
             seen.add((p, f))
             for callee in self.calls.get((p, f), ()):

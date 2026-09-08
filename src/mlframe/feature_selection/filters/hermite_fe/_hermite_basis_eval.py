@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+
 try:
     from numba import njit, prange
 except ImportError:  # pragma: no cover
@@ -407,4 +409,8 @@ def build_basis_matrix(basis: str, z: np.ndarray, max_degree: int) -> np.ndarray
             f"build_basis_matrix: basis {basis!r} not in " f"{sorted(_BASIS_BUILDERS)}; factory-based bases must use " f"the per-call eval_func path."
         )
     z_c = np.ascontiguousarray(z, dtype=np.float64)
-    return np.asarray(builder(z_c, int(max_degree)))
+    # Every builder in _BASIS_BUILDERS is itself a parallel=True kernel, and this is reached from the FE
+    # pair sweep's threaded path (fit_pair_prewarp_als). Two threads inside one prange region aborts the
+    # process on macOS; see mlframe._numba_parallel_guard.
+    with parallel_kernel_entry():
+        return np.asarray(builder(z_c, int(max_degree)))

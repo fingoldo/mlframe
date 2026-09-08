@@ -39,6 +39,8 @@ import os
 
 import numba
 import numpy as np
+
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from numba import prange
 
 
@@ -607,7 +609,9 @@ def pooled_pair_permutation_null_joint_mi_floor(
     for k in range(K):
         rng.shuffle(y_perm)  # SAME sequential in-place shuffles as the per-shuffle loop -> identical permutations
         y_perms[k] = y_perm
-    all_mis = batch_pair_mi_perm_batched(factors_data, pa, pb, nb, y_perms, fy)  # (K, n_pairs)
+    # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
+    with parallel_kernel_entry():
+        all_mis = batch_pair_mi_perm_batched(factors_data, pa, pb, nb, y_perms, fy)  # (K, n_pairs)
     maxes = np.empty(K, dtype=np.float64)
     for k in range(K):
         mis = all_mis[k]
