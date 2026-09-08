@@ -10,7 +10,7 @@ Three legs, one protocol, one roster of sixteen arms, `all-features` as the null
 |---|---|---|---|
 | real (`phase0_confirm`) | 7 OpenML beds | 2 240 | does selection pay on data nobody generated |
 | adversarial (`phase0_synth_control`) | 9 hand-written beds | 3 029 | is the real verdict about the data or the model |
-| SCM (`scm_beds`) | 8 generated beds | 2 560 | what a method RECOVERS when the answer key comes from the graph |
+| SCM (`scm_beds`) | 10 generated beds | 3 840 | what a method RECOVERS when the answer key comes from the graph |
 
 ## The first-order finding: the downstream model decides more than the selector does
 
@@ -59,6 +59,37 @@ artefact of this benchmark's own harness: the arm tied every column, the cut res
 sort, a stable sort preserves input order, and the beds declared their informative columns first. Ties are
 now randomised per cell and the beds shuffle their columns; the recovery fell from 1.000 to 0.050, which is
 chance. **An arm's apparent success is worth auditing hardest when it is the result you were hoping for.**
+
+## Non-monotone structure: binned MI wins, linear statistics are at chance
+
+The joint-tail beds fire only where both columns sit in the SAME tail, upper or lower. That is a
+non-monotone dependence with no linear marginal component at all (correlation +0.01), and it splits the
+roster in two, cleanly, on both the t-copula bed and its Gaussian control:
+
+| arm | recovery of the 2-column answer key | downstream cost of missing it |
+|---|---|---|
+| `ace`, `boruta`, `boruta-shap`, `knockoffs`, `mrmr`, `sfm-lgbm`, `skb-mi`, `univariate-mi` | 1.000 | -0.006 |
+| `rfecv` | 0.125 | -0.191 |
+| `select-fdr`, `skb-f` | 0.100 | -0.201 |
+| `lars-order` | 0.075 | -0.203 |
+| `variance-sort` (control) | 0.050 | -0.212 |
+
+Missing this structure costs 0.20 AUC against `all-features`; finding it costs 0.006. That is a factor of
+thirty-four between the two halves of the table, and it is the largest separation in the suite that is not
+an artefact.
+
+The line falls between MONOTONE and NON-MONOTONE statistics, not between binned and continuous ones. An
+F-test, a LARS path and an FDR filter built on an F-test are all at chance, because a symmetric
+double-tail signal has no linear component for them to see. Every mutual-information arm recovers it
+perfectly -- which is what binning is FOR.
+
+This document previously predicted the opposite. The hypothesis was that an equal-mass binned estimator
+would be blind here because one histogram cell swallows a joint tail; measured, binned MI is the half of
+the roster that succeeds. The prediction was pre-registered, scored, and failed.
+
+The two copula families made no difference to any arm: the t bed and its Gaussian control separate the
+roster identically. So this bed pair demonstrates non-monotonicity, not tail dependence, and the tail
+claim remains unsupported by anything in this suite.
 
 ## Three separations clean enough to act on
 
@@ -117,7 +148,7 @@ against what happened:
 | leg | predictions held |
 |---|---|
 | adversarial | 18 of 29 (62%) |
-| SCM | 16 of 31 (52%) |
+| SCM | 23 of 42 (55%) |
 
 Roughly half, which is the useful answer. A suite whose predictions always held would be tuned to its
 author's beliefs rather than measuring anything; one whose predictions never held would not be measuring
@@ -152,5 +183,6 @@ On these beds, cost buys nothing.
   the counts are not.
 * **That the arms are configured optimally.** Each is driven bare with an explicit budget. A tuned RFECV or
   a differently parameterised MRMR would land elsewhere, and the pre-registration says so.
-* **Anything about tail dependence.** The two copula beds were registered after this leg ran and are
-  computing now; nothing here speaks to them.
+* **Anything about tail dependence.** The copula beds separate the roster by monotonicity, and the t-copula
+  bed and its Gaussian control produce identical splits -- so nothing here distinguishes tail dependence from
+  any other non-monotone structure. A bed that isolates it is still missing.
