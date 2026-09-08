@@ -93,6 +93,27 @@ about the other.
 cluster, each of which declared the arms it expects to defeat before the run. A predicted failure is a
 result; the report distinguishes it from an unexplained one.
 
+## 2c. POST-HOC: the SCM leg, and a withdrawn result (measured 2026-09-09)
+
+A third leg ran the same roster on eight beds whose answer key is derived from the graph that generated
+them: 2 560 cells, 20 seeds per (arm, bed), no failures. It sharpens 2b rather than contradicting it.
+With logistic downstream some arm beats the null on 7 of 8 beds at the tightest cut; with lightgbm, on 1
+of 8 and then none. The verdict about the DATA stands, and the model-dependence is stronger than the
+adversarial leg suggested.
+
+**A result is withdrawn.** An earlier reading of this leg reported `rfecv` recovering a three-way parity
+answer key perfectly on all twenty seeds. It was an artefact of the harness: the arm tied every column,
+the matched-K cut resolved ties with a stable sort, and a stable sort preserves the input order, which on
+a generated bed whose informative columns are declared first IS the answer key. Ties are now randomised
+per cell and the beds shuffle their columns; the recovery fell to 0.050, chance. Under the corrected
+harness **no arm in the roster solves parity**, and `rfecv`'s pooled advantage on these beds is -0.098
+with P(> 0) = 0.003 -- the opposite sign from what was claimed.
+
+Two mis-specifications were found and fixed in the same pass and both are recorded here rather than in a
+commit message alone: the adapter overrode each bed's declared row count with a uniform 4 000, and the
+registry lock could not catch it because the lock hashes the SPEC while the adapter resized the bed
+afterwards. The realised size now travels with the bed.
+
 ## 3. Primary outcome and null hypothesis
 
 - **Null hypothesis: `all-features`.** Not a baseline line on a chart — the thing every arm must beat.
