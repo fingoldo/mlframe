@@ -5,17 +5,21 @@ Waves 6 + 10 the project's monolith-split policy is enforced: no file should
 exceed the 1k LOC ceiling. Future PRs that re-introduce a >1k file are flagged
 in CI so the splitting work doesn't drift back.
 
-The exempt list is empty by design; any added entry must come with a
-justification in the PR description (e.g. ``feature_engineering/wavelet_dwt.py``
-WIP). If a hot file legitimately needs the budget raised, prefer carving it via
-the sibling re-export pattern (see mlframe/CLAUDE.md "Monolith split").
+Any entry in the exempt set must come with a justification in the PR description, and the goal is to
+drain the set. If a hot file legitimately needs the budget raised, prefer carving it via the sibling
+re-export pattern (see mlframe/CLAUDE.md "Monolith split").
+
+Two companion assertions keep the set honest, because an exemption is otherwise write-only: every exempt
+path must still resolve to a real file, and every exempt file must still be over budget. Without them a
+renamed or successfully-carved file leaves a dead exemption behind, and a NEW file later created at that
+exact path inherits it silently.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
+from ._scan_guard import assert_scanned_enough
 
 LOC_LIMIT = 1000
 
@@ -158,7 +162,7 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # materialise/operand-table/host-fast-path block -> _gpu_resident_materialise.py; parent now <1k)
     # (de-exempted: _fe_batched_mi carved -- batched CMI count/entropy kernel infra -> _fe_batched_mi_cmi.py;
     # parent now <1k, sibling <1k, parent re-exports all public names.)
-    "src/mlframe/feature_selection/filters/_gpu_resident_basis.py",
+    # (de-exempted 2026-09-08: _gpu_resident_basis is at 868 LOC and no longer needs the budget.)
     "src/mlframe/feature_selection/filters/_gpu_resident_fe.py",
     "src/mlframe/feature_selection/filters/_mi_greedy_cmi_fe.py",
     "src/mlframe/feature_selection/filters/discretization/__init__.py",
@@ -171,11 +175,7 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # cross return/finally boundaries and change semantics (same class as _fit_impl_core / _pairs_core).
     # Drain the next self-contained compute-and-assign block when one surfaces.
     "src/mlframe/training/_trainer_train_and_evaluate.py",
-    # FIXME(carve-wave-next): training/composite/transforms/nonlinear.py -- the residual-transform registry
-    # (quantile / monotonic / EWMA / frac-diff fit+forward+inverse families) plus a module-top ``if _HAS_NUMBA:``
-    # conditional kernel block the transforms reference. Tightly coupled (the transform functions close over the
-    # conditionally-defined kernels); a clean carve must move the kernel block + its consumers together. Pending.
-    "src/mlframe/training/composite/transforms/nonlinear.py",
+    # (de-exempted 2026-09-08: transforms/nonlinear.py is at 624 LOC and no longer needs the budget.)
     # FIXME(carve-wave-next): filters/_mrmr_fe_step/_step_core.py -- the residual body of
     # ``_run_fe_step_impl`` after the operand-pool / pair-MI-floor / pair-rank / candidate-scoring
     # stages were already carved to _step_pool.py / _step_pairmi.py / _step_pairs_rank.py /
@@ -206,20 +206,27 @@ def _src_root() -> Path:
 def _scan_src_for_oversize() -> list[tuple[str, int]]:
     """(relpath, line-count) for every non-exempt src/mlframe file exceeding LOC_LIMIT, largest first."""
     root = _src_root()
-    if not root.is_dir():
-        pytest.skip(f"src tree not found at {root}; running from installed wheel?")
+    assert root.is_dir(), f"src tree not found at {root}; this gate cannot run and must not report green"
     over: list[tuple[str, int]] = []
+    scanned = 0
     for path in root.rglob("*.py"):
         try:
             n = sum(1 for _ in path.open("r", encoding="utf-8"))
         except OSError:
             continue
+        scanned += 1
         rel = path.relative_to(root.parent.parent).as_posix()  # "src/mlframe/..."
         if rel in LOC_BUDGET_EXEMPT:
             continue
         if n > LOC_LIMIT:
             over.append((rel, n))
+    assert_scanned_enough(scanned, "src/mlframe")
     return sorted(over, key=lambda t: -t[1])
+
+
+def _repo_root() -> Path:
+    """Repo root, resolved relative to this test file."""
+    return Path(__file__).resolve().parents[2]
 
 
 def test_no_mlframe_file_exceeds_1k_loc():
@@ -232,3 +239,31 @@ def test_no_mlframe_file_exceeds_1k_loc():
             f"Carve via sibling re-export pattern (CLAUDE.md: 'Monolith split'). "
             f"Oversized files:\n" + "\n".join(lines)
         )
+
+
+def test_every_loc_budget_exemption_still_points_at_a_real_file():
+    """An exempt path that no longer exists is a dead exemption a future file can silently inherit."""
+    root = _repo_root()
+    missing = sorted(rel for rel in LOC_BUDGET_EXEMPT if not (root / rel).is_file())
+    assert not missing, (
+        f"{len(missing)} LOC_BUDGET_EXEMPT entr(ies) no longer resolve to a file -- the file was renamed, "
+        f"deleted, or carved. Remove them from the set, otherwise a new file created at that exact path "
+        f"inherits the exemption:\n" + "\n".join(f"  {p}" for p in missing)
+    )
+
+
+def test_no_loc_budget_exemption_has_been_drained_silently():
+    """An exempt file that now fits the budget must leave the set, or the set stops meaning anything."""
+    root = _repo_root()
+    drained = []
+    for rel in sorted(LOC_BUDGET_EXEMPT):
+        path = root / rel
+        if not path.is_file():
+            continue  # covered by the test above
+        n = sum(1 for _ in path.open("r", encoding="utf-8"))
+        if n <= LOC_LIMIT:
+            drained.append((rel, n))
+    assert not drained, (
+        f"{len(drained)} LOC_BUDGET_EXEMPT entr(ies) are now within the {LOC_LIMIT} LOC budget. The carve "
+        f"worked -- remove them from the set so the file is gated like every other:\n" + "\n".join(f"  {n:5d} LOC  {p}" for p, n in drained)
+    )

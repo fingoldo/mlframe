@@ -410,8 +410,8 @@ def build_target_sets(
     blanket_caveats: Tuple[str, ...] = ()
     if latent_members:
         blanket_caveats = (
-            f"blanket contains unobserved node(s) {list(latent_members)}; no arm can name them, so the "
-            "observed key is achievable but the achievable ceiling is below the complete-data ceiling",
+            (f"blanket contains unobserved node(s) {list(latent_members)}; no arm can name them, so the "
+            "observed key is achievable but the achievable ceiling is below the complete-data ceiling"),
         )
 
     minimal_classes = _collapse_redundant(blanket, redundancy_groups)

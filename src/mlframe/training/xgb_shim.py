@@ -82,9 +82,9 @@ try:
     _XGB_AVAILABLE = True
 except ImportError:
     _XGB_AVAILABLE = False
-    xgb = None  # type: ignore
-    XGBClassifier = object  # type: ignore
-    XGBRegressor = object  # type: ignore
+    xgb = None  # type: ignore[assignment]
+    XGBClassifier = object  # type: ignore[assignment, misc]
+    XGBRegressor = object  # type: ignore[assignment, misc]
 
 
 def _align_eval_categoricals(X_train, X_val):

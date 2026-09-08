@@ -187,8 +187,8 @@ def main() -> int:
         "# bench_pysr_fe results",
         "",
         f"Synthetic ground truth: `y = 3*sin(x1) + log(|x2|+1) - 0.5*x3^2 + N(0,0.3)`; n_train=5000, n_holdout=1000, 8 features (5 noise).",
-        f"Host: {os.cpu_count()} cores, JULIA_NUM_THREADS={os.environ.get('JULIA_NUM_THREADS', '?')}, "
-        f"PYTHON_JULIACALL_THREADS={os.environ.get('PYTHON_JULIACALL_THREADS', '?')}.",
+        (f"Host: {os.cpu_count()} cores, JULIA_NUM_THREADS={os.environ.get('JULIA_NUM_THREADS', '?')}, "
+        f"PYTHON_JULIACALL_THREADS={os.environ.get('PYTHON_JULIACALL_THREADS', '?')}."),
         f"Run UTC: {datetime.now(timezone.utc).isoformat(timespec='seconds')}.",
         "",
         "| label | wall (s) | holdout RMSE | form score (0-3) | best equation (truncated) |",

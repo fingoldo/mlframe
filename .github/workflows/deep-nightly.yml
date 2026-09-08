@@ -41,6 +41,64 @@ permissions:
   contents: read
 
 jobs:
+  # For a numerics library, RuntimeWarning is the silent-correctness channel: "invalid value encountered in
+  # divide", "overflow encountered in exp", "Mean of empty slice", "Degrees of freedom <= 0". The function
+  # returns NaN or inf, a downstream nanmax or comparison absorbs it, and the only symptom is a slightly
+  # worse feature ranking. pytest's filterwarnings errors on exactly one thing (DeprecationWarning from
+  # mlframe) and ignores the rest, and no AST gate can see this -- it is a runtime property. The codebase is
+  # already positioned for the gate: the ~144 np.errstate sites are the places that legitimately expect
+  # these warnings.
+  #
+  # Non-blocking, because the size of the failure set is not yet known for the whole tree. It was measured
+  # on tests/metrics + tests/calibration + tests/evaluation (1592 tests, 2026-09-08): zero failures. This
+  # job exists to produce the same number for the parts that measurement did not reach -- the feature
+  # engineering and selection trees, where the kernels that emit these warnings actually live. Once it
+  # reads zero, move the filter into pyproject's filterwarnings and delete this job.
+  runtime-warnings:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run }}
+    name: RuntimeWarning census (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@71957762ddd99200a66e3312a8ef9293b4c5d939  # v1.4.0
+        with:
+          pyutilz-extras: "system,pandas,polars,database"
+          project-extras: ".[all,dev]"
+          pyutilz-ref: ec016b15e76e5582ba1a083c02b33029663c2296  # pragma: allowlist secret -- git commit SHA, not a secret
+
+      - name: Run the per-push set with RuntimeWarning as an error
+        env:
+          PYTHONUNBUFFERED: "1"
+          MLFRAME_FAST: "1"
+        run: |
+          # The per-push selection, not the deep one: this job is sizing a warning class, and pairing a new
+          # filter with the slow/fuzz set would make an unrelated deep failure look like a warning finding.
+          pytest -m "not slow and not gpu and not multigpu" \
+            --ignore=tests/training/test_core.py \
+            -n auto \
+            --dist=loadgroup \
+            --no-cov \
+            -p no:randomly \
+            --timeout=900 \
+            --timeout-method=signal \
+            --durations=200 \
+            -W "error::RuntimeWarning:mlframe"
+
   deep:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.run }}
     name: deep suite (shard ${{ matrix.group }}/20)

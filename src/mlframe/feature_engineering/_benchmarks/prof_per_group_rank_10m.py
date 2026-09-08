@@ -5,8 +5,8 @@ import sys
 import types
 
 sys.modules["cupy"] = types.ModuleType("cupy")
-import scipy.stats  # noqa
-import numba  # noqa
+import scipy.stats  # noqa: F401
+import numba  # noqa: F401
 import cProfile, pstats, io, time
 from typing import Any, Optional
 

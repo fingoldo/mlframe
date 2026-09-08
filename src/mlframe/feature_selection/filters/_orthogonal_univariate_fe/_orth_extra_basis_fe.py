@@ -602,7 +602,7 @@ def _detect_fourier_freqs_for_col(
     try:
         from .._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled as _fourier_resident_flag_on
     except ImportError:
-        _fourier_resident_flag_on = None  # type: ignore
+        _fourier_resident_flag_on = None  # type: ignore[assignment]
     if _fourier_resident_flag_on is not None and _fourier_resident_flag_on():
         # Import stays broad-guarded (cupy/twin may be absent); the CALL is narrowed to genuine
         # device/linalg faults so a real twin logic/shape bug (ValueError/KeyError/IndexError)

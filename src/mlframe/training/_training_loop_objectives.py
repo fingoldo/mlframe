@@ -13,7 +13,7 @@ import numpy as np
 try:
     import polars as pl
 except ImportError:
-    pl = None  # type: ignore
+    pl = None  # type: ignore[assignment]
 
 
 # Refit helpers + their module-level constants moved to sibling

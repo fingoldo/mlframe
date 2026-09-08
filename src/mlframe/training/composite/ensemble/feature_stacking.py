@@ -80,7 +80,7 @@ def composite_predictions_as_feature(
         import polars as pl
         _is_polars = isinstance(df, pl.DataFrame)
     except ImportError:
-        pl = None  # type: ignore
+        pl = None  # type: ignore[assignment]
         _is_polars = False
     if _is_polars:
         return df.with_columns(pl.Series(name=column_name, values=preds))
@@ -180,7 +180,7 @@ def composite_oof_predictions(
         import polars as pl
         _HAS_POLARS = True
     except ImportError:
-        pl = None  # type: ignore
+        pl = None  # type: ignore[assignment]
         _HAS_POLARS = False
     for train_idx, val_idx in kf.split(indices, y_arr, groups_arr):
         # Subset X for the fold. Polars / pandas handled separately to avoid silent materialisation.

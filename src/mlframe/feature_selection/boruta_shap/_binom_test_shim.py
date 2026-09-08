@@ -14,4 +14,4 @@ try:
         return _binomtest(int(x), n=int(n), p=p, alternative=alternative).pvalue
 
 except ImportError:  # SciPy < 1.7 fallback
-    from scipy.stats import binom_test  # type: ignore  # noqa: F401 -- re-exported module-level name
+    from scipy.stats import binom_test  # type: ignore[no-redef]  # noqa: F401 -- re-exported module-level name

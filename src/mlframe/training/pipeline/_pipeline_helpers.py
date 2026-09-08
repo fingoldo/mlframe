@@ -24,7 +24,7 @@ from sklearn.utils.validation import check_is_fitted
 try:
     import polars as pl
 except ImportError:
-    pl = None  # type: ignore
+    pl = None  # type: ignore[assignment]
 
 from sklearn.pipeline import Pipeline
 

@@ -424,7 +424,6 @@ def _save_figure(fig: Any, base: str, plot_outputs: Optional[str], dpi: Optional
     root, ext = os.path.splitext(base)
     if ext:  # explicit extension on base path wins, regardless of the DSL
         formats = [ext.lstrip(".").lower()]
-        root = root
     for fmt in formats:
         path = f"{root}.{fmt}"
         try:

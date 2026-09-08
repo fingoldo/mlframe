@@ -54,18 +54,18 @@ def _build_recommendation(
     if init_score_sufficient:
         return (
             "unlikely_to_help",
-            f"init_score baseline matches raw within "
+            (f"init_score baseline matches raw within "
             f"{cfg.init_score_optimal_threshold_pct:.2f}pct "
             f"(delta={init_score_baseline.delta_vs_raw_pct:+.2f}%); "
-            "native residual learning already captures the dominant signal",
+            "native residual learning already captures the dominant signal"),
         )
 
     if max_dom >= cfg.marginal_threshold_pct:
         return (
             "marginal",
-            f"top ablation delta%={max_dom:.2f} in " f"[{cfg.marginal_threshold_pct:.2f}, {cfg.high_potential_min_dominance_pct:.2f})",
+            (f"top ablation delta%={max_dom:.2f} in " f"[{cfg.marginal_threshold_pct:.2f}, {cfg.high_potential_min_dominance_pct:.2f})"),
         )
     return (
         "unlikely_to_help",
-        f"top ablation delta%={max_dom:.2f} < {cfg.marginal_threshold_pct:.2f} " "(no dominant features)",
+        (f"top ablation delta%={max_dom:.2f} < {cfg.marginal_threshold_pct:.2f} " "(no dominant features)"),
     )

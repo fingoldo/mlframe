@@ -20,7 +20,7 @@ try:
     import polars as pl
     _HAS_POLARS = True
 except ImportError:  # pragma: no cover
-    pl = None  # type: ignore
+    pl = None  # type: ignore[assignment]
     _HAS_POLARS = False
 
 from mlframe.utils.log_throttle import log_throttle

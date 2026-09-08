@@ -30,3 +30,23 @@ Run from the repository root. The script re-runs each meta-test in
 - `_docstring_baseline.json` - missing-docstring allow-list
 - `_logger_lazy_baseline.json` - non-lazy logger format strings
 - `_mutable_defaults_baseline.json` - mutable default-argument sites
+- `_audit_metadata_baseline.json` - audit/phase metadata leaking into code comments
+- `_cache_mutation_lock_baseline.json` - cache mutations performed without holding the module lock
+- `_code_audit_tests_baseline.json` - the shared code-audit scanners run over `tests/` instead of `src/`
+- `_fe_budget_conflict_baseline.json` - conflicting FE budget declarations
+- `_fe_noop_copy_baseline.json` - FE copies that cannot change their input
+- `_module_env_mutation_baseline.json` - module-level `os.environ` writes
+- `_module_level_logging_disable_baseline.json` - module-level `logging.disable` calls
+- `_nondiscriminating_assert_baseline.json` - assertions whose body cannot fail for the reason claimed
+- `_numba_config_env_mutation_baseline.json` - numba config env writes with no restore
+- `_orth_fe_recipes_no_freeze_baseline.json` - orthogonal-FE recipes missing a freeze step
+- `_readme_env_var_baseline.json` - env vars in the source that README does not document
+- `_readonly_to_numpy_mutation_baseline.json` - writes through a read-only `to_numpy()` view
+- `_single_shot_timing_baseline.json` - assertions on a single un-repeated timing measurement
+- `_source_proxy_baseline.json` - tests asserting on source text rather than behaviour
+- `_stale_comment_baseline.json` - comments describing code that no longer exists
+- `_stale_not_wired_docstring_baseline.json` - "not wired" docstrings on things that now are
+- `_tick_isinstance_baseline.json` - `isinstance` checks on matplotlib tick/offset objects
+- `_uncalled_functions_baseline.json` - module-level functions with no production call site
+- `_unlocked_module_cache_baseline.json` - module-level caches mutated without a lock
+- `_unprotected_treeexplainer_baseline.json` - `shap.TreeExplainer` calls with no guard

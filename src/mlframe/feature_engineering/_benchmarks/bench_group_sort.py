@@ -2,8 +2,8 @@
 Proves bit-identical sort_idx/starts/ends and the speedup at 10M."""
 import sys
 sys.modules['cupy'] = None
-import scipy.stats  # noqa
-import numba  # noqa
+import scipy.stats  # noqa: F401
+import numba  # noqa: F401
 import time
 import numpy as np
 

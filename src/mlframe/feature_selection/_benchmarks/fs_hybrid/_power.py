@@ -166,9 +166,9 @@ def _quantile_block(taus: Sequence[float], declared_r: int, effects: Sequence[fl
     arr = np.asarray([t for t in taus if np.isfinite(t)], dtype=np.float64)
     lines = [
         "",
-        f"Observed tau over {arr.size} (scenario, arm) contrasts: "
+        (f"Observed tau over {arr.size} (scenario, arm) contrasts: "
         f"median {np.median(arr):.5f}, p75 {np.quantile(arr, 0.75):.5f}, p90 {np.quantile(arr, 0.90):.5f}, "
-        f"max {arr.max():.5f}",
+        f"max {arr.max():.5f}"),
         "",
         "| planning tau | " + " | ".join(f"R for d={d:g}" for d in effects) + f" | detectable at R={declared_r} |",
         "|---|" + "---|" * (len(effects) + 1),

@@ -22,7 +22,7 @@ from . import _is_polars_df
 try:
     import polars as pl
 except ImportError:  # pragma: no cover - polars optional
-    pl = None  # type: ignore
+    pl = None  # type: ignore[assignment]
 
 
 def _subset_rows(X: Any, mask: np.ndarray) -> Any:

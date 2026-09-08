@@ -34,7 +34,11 @@ _REFRESH_FLAGS = [
     "--refresh-orth-fe-recipes-no-freeze-baseline",
     "--refresh-resource-handle-baseline",
     "--refresh-source-proxy-baseline",
+    "--refresh-readonly-to-numpy-mutation-baseline",
+    "--refresh-single-shot-timing-baseline",
     "--refresh-stale-not-wired-docstring-baseline",
+    "--refresh-tick-isinstance-baseline",
+    "--refresh-unprotected-treeexplainer-baseline",
     "--refresh-unlocked-module-cache-baseline",
     "--refresh-verbose-gated-except-baseline",
 ]

@@ -325,8 +325,8 @@ def write_results(df):
 
     lines = ["# Broad real-data FS validation (round-4)\n",
              "Honest 60/40 stratified split; downstream held-out AUC (lgbm / logit / knn) + mean.",
-             "Strategies: all (no selection) | mrmr_fe (incumbent) | hybrid (3 shipped hybrid wins) | "
-             "mrmr_tree (MRMRTreeRescued rescue win).\n"]
+             ("Strategies: all (no selection) | mrmr_fe (incumbent) | hybrid (3 shipped hybrid wins) | "
+             "mrmr_tree (MRMRTreeRescued rescue win).\n")]
 
     # full table
     lines.append("## Full dataset x strategy table\n")

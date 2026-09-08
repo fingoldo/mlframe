@@ -27,7 +27,7 @@ try:
     import polars as pl
     _HAS_POLARS = True
 except ImportError:
-    pl = None  # type: ignore
+    pl = None  # type: ignore[assignment]
     _HAS_POLARS = False
 
 # Parent helpers needed by CompositeTargetEstimator's methods. The parent's

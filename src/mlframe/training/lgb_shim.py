@@ -82,11 +82,11 @@ try:
     _LGB_AVAILABLE = True
 except ImportError:
     _LGB_AVAILABLE = False
-    lgb = None  # type: ignore
-    LGBMClassifier = object  # type: ignore
-    LGBMRegressor = object  # type: ignore
+    lgb = None  # type: ignore[assignment]
+    LGBMClassifier = object  # type: ignore[assignment, misc]
+    LGBMRegressor = object  # type: ignore[assignment, misc]
     _LGBMLabelEncoder = None
-    _EvalFunctionWrapper = None  # type: ignore
+    _EvalFunctionWrapper = None  # type: ignore[assignment, misc]
 
 
 try:
@@ -94,7 +94,7 @@ try:
     _PL_AVAILABLE = True
 except ImportError:
     _PL_AVAILABLE = False
-    pl = None  # type: ignore
+    pl = None  # type: ignore[assignment]
 
 
 from collections import OrderedDict as _OrderedDict

@@ -244,11 +244,11 @@ def suggest_configs(fp: DataFingerprint) -> Tuple[SearchConfig, FIConfig, Robust
 def explain_suggestion(fp: DataFingerprint) -> str:
     """Human-readable trace of why each knob was picked. For ``auto_tune_decision_``."""
     lines = [
-        f"DataFingerprint: n={fp.n_rows}, p={fp.n_features}, p/n={fp.p_n_ratio:.3f}, "
+        (f"DataFingerprint: n={fp.n_rows}, p={fp.n_features}, p/n={fp.p_n_ratio:.3f}, "
         f"target={fp.target_type}, imbalance={fp.target_imbalance:.3f}, "
         f"max|corr|={fp.max_abs_corr_to_y:.3f}, mean|corr|={fp.mean_abs_corr_to_y:.3f}, "
         f"frac_numeric={fp.frac_numeric:.2f}, frac_high_card={fp.frac_high_card:.2f}, "
-        f"frac_constant={fp.frac_constant:.2f}, has_nan={fp.has_nan}",
+        f"frac_constant={fp.frac_constant:.2f}, has_nan={fp.has_nan}"),
     ]
     rules: list = []
     if fp.n_features < 10:

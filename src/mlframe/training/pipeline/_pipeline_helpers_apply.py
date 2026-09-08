@@ -25,7 +25,7 @@ from ..utils import maybe_clean_ram_adaptive as _maybe_clean_ram
 try:
     import polars as pl
 except ImportError:
-    pl = None  # type: ignore
+    pl = None  # type: ignore[assignment]
 
 
 from ..utils import log_ram_usage

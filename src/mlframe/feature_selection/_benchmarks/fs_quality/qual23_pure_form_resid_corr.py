@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 import os, sys, time
 os.environ.setdefault("MLFRAME_SKIP_NUMBA_PREWARM", "1"); os.environ.setdefault("CUDA_VISIBLE_DEVICES", ""); os.environ.setdefault("NUMBA_DISABLE_CUDA", "1")
-import scipy.stats, numba  # noqa
+import scipy.stats, numba  # noqa: F401
 sys.modules.setdefault("cupy", None)
 import numpy as np, pandas as pd
 from sklearn.linear_model import LinearRegression

@@ -82,7 +82,7 @@ def subsample_preserving_extremes(
     sample_size: int,
     extreme_values: Optional[np.ndarray] = None,
     k_extremes: int = 10,
-    rng: Union[None, int, np.random.Generator] = None,
+    rng: Union[int, np.random.Generator, None] = None,
 ) -> np.ndarray:
     """Indices for a uniform random subsample that ALWAYS retains the extreme points.
 

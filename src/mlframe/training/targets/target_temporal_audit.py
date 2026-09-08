@@ -556,9 +556,9 @@ from ._target_temporal_plot import plot_target_over_time  # noqa: F401
 def format_temporal_audit_report(result: TemporalAuditResult) -> str:
     """Compact text rendering for log output."""
     lines = [
-        f"target_temporal_audit: {result.target_name} ({result.target_type}, "
+        (f"target_temporal_audit: {result.target_name} ({result.target_type}, "
         f"{result.granularity}-binned, {len(result.bins)} bins, "
-        f"{len(result.segments)} segments)",
+        f"{len(result.segments)} segments)"),
     ]
     lines.extend(
         f"  segment {s['start_label']}..{s['end_label']} " f"({s['n_bins']} bins, n_obs={s['n_obs']:_}): " f"mean_rate={s['mean_rate']:.3f}"

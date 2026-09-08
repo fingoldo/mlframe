@@ -455,8 +455,18 @@ dev = [
                                     # CPU tests silently skipped in CI, leaving dtw.py at a genuine 0% coverage despite the
                                     # test file existing and passing locally. No manylinux wheel for 3.9 at the pinned floor
                                     # (2.4.0) -- gated the same way black is, above; importorskip already handles the 3.9 leg.
-    "mypy>=1.0",
+    "mypy==2.1.0",                # pinned exact, matching mypy-full.yml's `mypy-version` input. A whole-project
+                                  # zero-error gate on an open range drifts the same way the ruff pin above
+                                  # exists to prevent: 1.x to 2.x moved defaults and the error set.
     "bandit>=1.7",
+    # The five below are invoked by BLOCKING `language: system` hooks in .pre-commit-config.yaml and were
+    # declared nowhere, so `pip install -e ".[all,dev]"` did not produce a working hook set. Pinned exact
+    # for the same reason ruff and black are: each one gates.
+    "codespell==2.4.2",           # prose typos; `python -m codespell_lib`
+    "deptry==0.25.1",             # declared-vs-imported dependency drift; `python -m deptry`
+    "interrogate==1.7.0",         # docstring coverage; `python -m interrogate`
+    "vulture==2.16",              # dead-code scan; `python -m vulture`
+    "yamllint==1.38.0",           # workflow YAML style; `python -m yamllint`
     "pre-commit>=3.3",
     "pip-audit>=2.7",             # known-CVE scan of installed/declared deps; run via `python -m pip_audit --local` (or `-r pyproject.toml` for the declared-only, non-transitive set)
     "import-linter>=2.0",         # architectural-boundary contracts (see [tool.importlinter]); run via `lint-imports`
@@ -821,6 +831,7 @@ DEP002 = [
     "pytest-randomly", "pytest-instafail", "pytest-progress", "pytest-split", "pytest-rerunfailures", "coverage", "freezegun",
     "ruff", "black", "mypy", "bandit", "pre-commit", "pip-audit",
     "import-linter", "pydoclint", "semgrep",  # invoked as `lint-imports`/`pydoclint`/`semgrep` CLI commands, never imported
+    "codespell", "deptry", "interrogate", "vulture", "yamllint",  # invoked by pre-commit hooks as `python -m ...`, never imported
     "pillow", "setuptools", "tornado", "aiohttp", "cryptography", "starlette",
     "py-ci-shared",  # invoked as `python -m py_ci_shared.*` CLI/pre-commit-hook commands, never `import py_ci_shared`
 ]
@@ -945,6 +956,14 @@ extend-select = [
               # category stays off: PD011 (.values, 115 hits) / PD013 (.stack) / PD003/PD009/PD010/PD101
               # are stylistic-only on this codebase (no correctness delta found in a spot-check), not
               # worth the mass-rewrite diff/review risk right now.
+    "PGH",    # blanket `# type: ignore` / `# noqa`. A code-less silencer suppresses EVERY future error on
+              # that line, which defeats mypy's own warn_unused_ignores ratchet and hides the next, unrelated
+              # error at the same site. Enabled 2026-09-08: all 46 findings closed -- the type-ignore codes
+              # were measured by running mypy over an identical checkout with every blanket ignore stripped,
+              # not guessed, and the _benchmarks trees are exempt below because mypy does not check them.
+    "PLW0127",  # self-assigning-variable: a dead statement where a real operation was intended. Two findings,
+                # both dead rather than wrong (see models/ensembling/predict.py's shape-restore branch).
+    "PLE2515",  # invalid-character-zero-width-space: an invisible character inside a string literal.
 ]
 # SIM/RET/TRY (2026-07-18 architecture review suggestion) evaluated and NOT enabled this pass:
 # `ruff check --select SIM,RET,TRY` surfaces 3803 findings, 69% of them TRY003 (raise-vanilla-args)
@@ -972,7 +991,7 @@ extend-ignore = [
 [tool.ruff.lint.mccabe]
 # Raised 2026-07-09 after triage: threshold=20 flagged 246 functions (median complexity in this
 # codebase is 30 -- half the codebase would be "too complex" at 20, pure noise). threshold=40 keeps
-# 70 findings, including the genuinely pathological outliers (_fit_impl at 1227, materialise_and_
+# 92 findings, including the genuinely pathological outliers (_fit_impl at 1227, materialise_and_
 # finalise_fe_candidates at 141, _score_one_pair at 117) without flagging routine 20-40 dispatch/
 # config functions that are complex by the nature of a config-driven ML pipeline, not by neglect.
 # NOT shared via ruff-base.toml -- this is mlframe's own measured number (pyutilz's is 20).
@@ -988,6 +1007,9 @@ max-complexity = 40
 # declaration needed.
 
 [tool.ruff.lint.per-file-ignores]
+# PGH003 wants every `type: ignore` to name its error code. mypy does not check the _benchmarks
+# trees, so there is no reported code to name there and a blanket ignore hides nothing.
+"**/_benchmarks/**" = ["PGH003"]
 "__init__.py" = ["F401", "F403"]
 # Tutorial notebooks: print() is the intended interactive display, not a lint issue.
 "docs/**/*.ipynb" = ["T201"]
