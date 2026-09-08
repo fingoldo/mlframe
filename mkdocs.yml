@@ -65,6 +65,7 @@ not_in_nav: |
   /BENCHMARK_PREREGISTRATION.md
   /BENCHMARK_POWER.md
   /BENCHMARK_SYNTH_CONTROL.md
+  /FS_ATLAS.md
 
 nav:
   - Home: README.md
