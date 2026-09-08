@@ -14,6 +14,10 @@ from __future__ import annotations
 from mlframe.reporting.renderers._render_timings import (
     chart_timings_snapshot, format_chart_timings, record_chart_render, reset_chart_timings,
 )
+# Text metrics shared with ``reporting.charts``: a chart that sizes a panel has to measure labels the same
+# way the renderer that draws them does, so these are part of this package's public surface rather than an
+# internal detail charts reach into.
+from mlframe.reporting.renderers._shared_helpers import measured_text_width_pt, truncate_bar_label
 from mlframe.reporting.renderers.base import Renderer, get_renderer
 from mlframe.reporting.renderers.save import (
     get_render_failure_stats, render_and_save, reset_render_failure_stats,
@@ -21,6 +25,8 @@ from mlframe.reporting.renderers.save import (
 
 __all__ = [
     "Renderer",
+    "measured_text_width_pt",
+    "truncate_bar_label",
     "get_renderer",
     "render_and_save",
     "get_render_failure_stats",

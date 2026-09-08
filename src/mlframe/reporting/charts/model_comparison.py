@@ -22,6 +22,7 @@ from mlframe.metrics import trapezoid
 from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels
 from mlframe.reporting.charts.binary import _ScoreSort, _decimate, _finite_binary
 from mlframe.reporting.spec import (
+    FIGSIZE_WIDE,
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec, PanelSpec,
 )
 
@@ -323,6 +324,16 @@ def _corr_heatmap_panel(per_model: Mapping[str, Mapping[str, Any]], subsample: i
         col_labels=tuple(names),
         title="Between-model prediction correlation (Spearman)",
         colormap="RdBu_r",
+        # Spearman rho lives in [-1, 1] and RdBu_r's white midpoint means "no rank agreement", so the scale is
+        # pinned to that range rather than to the observed one. Left to autoscale, a matrix of genuinely weak
+        # positive correlations (0.20-0.25 off-diagonal, 1.00 on it) put white at ~0.6 and painted every
+        # off-diagonal cell deep blue -- read as strong ANTI-correlation, the opposite of what the data says.
+        color_vmin=-1.0,
+        color_vmax=1.0,
+        # Spearman rho lives in [-1, 1] and RdBu_r's white midpoint means "no rank agreement", so the scale is
+        # pinned to that range rather than to the observed one. Left to autoscale, a matrix of genuinely weak
+        # positive correlations (0.20-0.25 off-diagonal, 1.00 on it) put white at ~0.6 and painted every
+        # off-diagonal cell deep blue -- read as strong ANTI-correlation, the opposite of what the data says.
         cell_text=corr,
         text_format=".2f",
         colorbar_label="Spearman rho",
@@ -361,7 +372,7 @@ def compose_model_comparison_figure(
     Returns a 2x2 (-> packed) FigureSpec: [curve overlay, leaderboard], [correlation heatmap].
     """
     if not per_model:
-        return FigureSpec(suptitle=suptitle, panels=((AnnotationPanelSpec(text="compose_model_comparison_figure: no models"),),), figsize=(8.0, 3.0))
+        return FigureSpec(suptitle=suptitle, panels=((AnnotationPanelSpec(text="compose_model_comparison_figure: no models"),),), figsize=FIGSIZE_WIDE)
 
     headline, headline_was_inferred = _headline_metric(per_model, metric, task_type)
     if higher_is_better is None:

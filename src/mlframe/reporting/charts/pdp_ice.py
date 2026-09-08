@@ -39,6 +39,7 @@ from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels
 from mlframe.reporting.charts._coerce_shared import coerce_float_2d as _coerce_float_2d
 from mlframe.reporting.charts._catboost_guards import catboost_pool_rebuild_risk
 from mlframe.reporting.spec import (
+    FIGSIZE_WIDE,
     AnnotationPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec, PanelSpec,
 )
 
@@ -670,7 +671,7 @@ def compose_pdp_figure(
     template); each panel is one ``pdp_panel`` call.
     """
     if not features:
-        return FigureSpec(suptitle=suptitle, panels=((AnnotationPanelSpec(text="compose_pdp_figure: no features"),),), figsize=(8.0, 3.0))
+        return FigureSpec(suptitle=suptitle, panels=((AnnotationPanelSpec(text="compose_pdp_figure: no features"),),), figsize=FIGSIZE_WIDE)
     panels: List[PanelSpec] = [pdp_panel(model, X, f, grid=grid, sample=sample, ice=ice, centered=centered, seed=seed) for f in features]
     # Auto-conclusion in the suptitle: a feature whose PDP mean barely moves has ~no marginal effect on
     # the prediction (the model isn't using it on average -- e.g. the two flat panels the operator

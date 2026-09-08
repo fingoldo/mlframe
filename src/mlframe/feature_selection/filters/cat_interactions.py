@@ -65,7 +65,7 @@ def _target_signature(target_codes: np.ndarray) -> str:
     target codes invalidates the whole cache whenever Y changes, which is the only sound reuse predicate.
     """
     arr = np.ascontiguousarray(np.asarray(target_codes, dtype=np.int64))
-    return hashlib.blake2b(np.ascontiguousarray(arr).data, digest_size=16).hexdigest()
+    return hashlib.blake2b(array_buffer(arr), digest_size=16).hexdigest()
 
 
 def _kl_divergence(p: np.ndarray, q: np.ndarray, eps: float = 1e-9) -> float:
@@ -419,3 +419,4 @@ from ._cat_kway_materialize import (  # noqa: F401
 # prior cat_interactions split).
 # ----------------------------------------------------------------------
 from ._cat_interactions_step import run_cat_interaction_step  # noqa: F401
+from mlframe._array_buffer import array_buffer

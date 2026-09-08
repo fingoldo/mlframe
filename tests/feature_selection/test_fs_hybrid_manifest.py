@@ -8,7 +8,7 @@ Each of those has a test that fails if the check is removed.
 
 from __future__ import annotations
 
-import json
+import orjson
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -160,5 +160,5 @@ class TestContent:
         results = str(tmp_path / "cells.jsonl")
         write_manifest(results, _manifest(tmp_path, [0]))
         text = Path(manifest_path_for(results)).read_text(encoding="utf-8")
-        keys = list(json.loads(text))
+        keys = list(orjson.loads(text))
         assert keys == sorted(keys)

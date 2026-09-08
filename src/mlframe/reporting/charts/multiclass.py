@@ -85,6 +85,19 @@ def _select_overlay_classes(yt_pos: np.ndarray, proba: np.ndarray, top_n: int) -
     return np.sort(chosen)
 
 
+def _narrowed(values: np.ndarray) -> np.ndarray:
+    """``values`` in the smallest integer dtype that holds them exactly, for a radix-sortable argsort key."""
+    arr = np.asarray(values)
+    if arr.dtype.kind not in "iu" or arr.size == 0:
+        return arr
+    lo, hi = int(arr.min()), int(arr.max())
+    for dtype in (np.int16, np.int32):
+        info = np.iinfo(dtype)
+        if info.min <= lo and hi <= info.max:
+            return arr.astype(dtype, copy=False)
+    return arr
+
+
 def _stratified_subsample(y_pos: np.ndarray, cap: int, seed: int = 0) -> np.ndarray:
     """Indices of a class-stratified subsample of size ~``cap`` (all rows if n <= cap).
 
@@ -98,10 +111,22 @@ def _stratified_subsample(y_pos: np.ndarray, cap: int, seed: int = 0) -> np.ndar
     rng = np.random.default_rng(seed)
     frac = cap / n
     out: List[np.ndarray] = []
-    for c in np.unique(y_pos):
-        idx_c = np.flatnonzero(y_pos == c)
-        take = max(1, round(len(idx_c) * frac))
-        take = min(take, len(idx_c))
+    # One stable argsort gives every class its own CONTIGUOUS block of row indices, in ascending class order
+    # and ascending index order within a class -- which is exactly what ``flatnonzero(y_pos == c)`` returned
+    # per class, so the RNG sees identical inputs in identical order and draws the identical sample. The old
+    # form made one full-length pass per class: 0.13 s at K=10 and 1.44 s at K=200, on 2M rows.
+    #
+    # The NARROWED dtype is what makes this a win rather than a wash. Class labels are small non-negative
+    # codes, and numpy radix-sorts narrow integers: at 2M rows a stable argsort costs 1.36 s on int64 and
+    # 0.038 s on int16, so sorting the int64 labels directly was SLOWER than the per-class loop it replaces
+    # at every K measured. The cast is exact -- it only happens when the value range fits -- so the ordering,
+    # and therefore the drawn sample, is unchanged.
+    order = np.argsort(_narrowed(y_pos), kind="stable")
+    classes, starts = np.unique(y_pos[order], return_index=True)
+    bounds = np.append(starts, len(order))
+    for k in range(len(classes)):
+        idx_c = order[bounds[k] : bounds[k + 1]]
+        take = min(max(1, round(len(idx_c) * frac)), len(idx_c))
         out.append(rng.choice(idx_c, size=take, replace=False))
     return np.sort(np.concatenate(out)).astype(np.int64)
 
@@ -128,6 +153,29 @@ def _pr_f1_panel(y_true, y_proba, classes, *, y_pred=None) -> BarPanelSpec:
         xlabel="Class",
         ylabel="Score",
     )
+
+
+# A per-class overlay legend is one row per class plus the reference series, each carrying the class name AND
+# its metric with a CI -- at 12 real class names that is 14 rows of ~45 characters, a box wide enough to
+# cover the region where the curves separate.
+#
+# The width is attacked at the source, by shortening the class name, rather than by pushing the legend out of
+# the axes: measured on a 12-class figure, moving these three legends outside shrank every panel to about a
+# third of its row and made the curves themselves small. The renderer still promotes a legend it measures as
+# genuinely unfittable (see ``_place_legend``); this just stops the entries being needlessly long.
+_LEGEND_CLASS_NAME_MAXLEN = 16
+
+
+def _legend_class_name(name: object) -> str:
+    """Class name shortened for a legend entry, keeping the tail that usually distinguishes generated names."""
+    from mlframe.reporting.renderers import truncate_bar_label
+
+    return truncate_bar_label(name, _LEGEND_CLASS_NAME_MAXLEN, keep_tail=6)
+
+
+def _overlay_legend_kwargs(n_series: int) -> dict:
+    """Legend options for a per-class overlay; two columns once the stack is taller than most panels."""
+    return {"legend_ncol": 2} if n_series > 10 else {}
 
 
 def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: bool = True, class_subset=None) -> LinePanelSpec:
@@ -174,14 +222,14 @@ def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: 
         # roc_curve rejects non-finite scores; a single class or an all-NaN proba column has no defined curve.
         if bin_y.sum() == 0 or bin_y.sum() == len(bin_y) or not np.isfinite(col).any():
             interpolated.append(np.full_like(x_grid, np.nan))
-            labels.append(f"{classes[k]} (n/a)")
+            labels.append(f"{_legend_class_name(classes[k])} (n/a)")
             colors.append(_class_color(k))
             continue
         finite = np.isfinite(col)
         bin_y, col = bin_y[finite], col[finite]
         if bin_y.sum() == 0 or bin_y.sum() == len(bin_y):
             interpolated.append(np.full_like(x_grid, np.nan))
-            labels.append(f"{classes[k]} (n/a)")
+            labels.append(f"{_legend_class_name(classes[k])} (n/a)")
             colors.append(_class_color(k))
             continue
         fpr, tpr, _ = fast_roc_curve(bin_y, col)
@@ -194,9 +242,9 @@ def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: 
             # DeLong CI from the same stratified subsample (the displayed AUC's data); closed-form, no extra sort cost
             # beyond two midrank argsorts the panel would not otherwise pay.
             _, lo, hi = delong_auc_ci(bin_y, col)
-            labels.append(f"{classes[k]} (AUC={roc_auc:.3f} [{lo:.3f}, {hi:.3f}])")
+            labels.append(f"{_legend_class_name(classes[k])} (AUC={roc_auc:.3f} [{lo:.3f}, {hi:.3f}])")
         else:
-            labels.append(f"{classes[k]} (AUC={roc_auc:.3f})")
+            labels.append(f"{_legend_class_name(classes[k])} (AUC={roc_auc:.3f})")
     chance = x_grid.copy()
     series = [chance, *interpolated]
     series_labels = ["chance", *labels]
@@ -224,6 +272,7 @@ def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: 
         ylabel="True Positive Rate",
         line_styles=tuple(styles),
         colors=tuple(line_colors),
+        **_overlay_legend_kwargs(len(series_labels)),
     )
 
 
@@ -266,7 +315,7 @@ def _pr_curves_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_s
         # No positives, or an all-NaN proba column -> no defined PR curve (sklearn rejects non-finite scores).
         if bin_full == 0 or not finite.any() or int(bin_y[finite].sum()) == 0:
             interpolated.append(np.full_like(x_grid, np.nan))
-            labels.append(f"{classes[k]} (n/a)")
+            labels.append(f"{_legend_class_name(classes[k])} (n/a)")
             baselines.append(np.full_like(x_grid, np.nan))
             baseline_labels.append("")
             continue  # no curve, so no baseline to label either
@@ -277,14 +326,14 @@ def _pr_curves_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_s
         curve = np.interp(x_grid, recall[order], precision[order])
         interpolated.append(curve)
         valid_curves.append(curve)
-        labels.append(f"{classes[k]} (AP={ap:.3f})")
+        labels.append(f"{_legend_class_name(classes[k])} (AP={ap:.3f})")
         # No-skill precision baseline must use the SAME population the AP was computed on (the finite stratified
         # subsample), otherwise AP-vs-baseline compares inconsistent prevalences.
         prevalence = float(int(bin_yf.sum())) / max(1, bin_yf.size)
         baselines.append(np.full_like(x_grid, prevalence))
         # An empty label put K unexplained dotted lines on the panel. Each one is the no-skill precision for ONE
         # class -- its prevalence -- so it has to name the class and the number it draws.
-        baseline_labels.append(f"{classes[k]} no-skill ({prevalence:.3f})")
+        baseline_labels.append(f"{_legend_class_name(classes[k])} no-skill ({prevalence:.3f})")
     n_drawn = len(draw_idx)
     series = list(interpolated)
     series_labels = list(labels)
@@ -312,6 +361,7 @@ def _pr_curves_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_s
         ylabel="Precision",
         line_styles=tuple(styles),
         colors=tuple(line_colors),
+        **_overlay_legend_kwargs(len(series_labels)),
     )
 
 
@@ -362,7 +412,7 @@ def _calib_grid_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_
         series.append(observed)
         pooled_sums += sums
         pooled_counts += counts
-        labels.append(str(classes[k]))
+        labels.append(_legend_class_name(classes[k]))
         colors.append(_class_color(k))
     diag = x_grid.copy()
     all_series = [diag, *series]
@@ -391,6 +441,7 @@ def _calib_grid_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_
         ylabel="Observed P(y=k | bin)",
         line_styles=tuple(styles),
         colors=tuple(all_colors),
+        **_overlay_legend_kwargs(len(all_labels)),
     )
 
 
@@ -432,7 +483,7 @@ def _prob_dist_panel(y_true, y_proba, classes, *, y_pred=None, sub=None) -> Pane
             continue  # drop empty class rather than planting a fake [0.0] violin
         mask = yt_s == k
         groups.append(subsample_for_density(proba_s[mask, k], seed=k))
-        labels.append(f"{classes[k]} (n={int(full_counts[k])})")
+        labels.append(f"{_legend_class_name(classes[k])} (n={int(full_counts[k])})")
     if not groups:
         return AnnotationPanelSpec(
             text="P(y=true_class): no true-class samples\n(every y_true was excluded)",

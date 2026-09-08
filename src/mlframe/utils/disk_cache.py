@@ -58,6 +58,7 @@ from typing import Any, Optional, Union
 import numpy as np
 
 from mlframe.utils.safe_pickle import PickleVerificationError, safe_load, write_sidecar
+from mlframe._array_buffer import array_buffer
 
 logger = logging.getLogger(__name__)
 
@@ -124,14 +125,22 @@ def hash_array_summary(arr: np.ndarray, n_summary_rows: int = _DEFAULT_SUMMARY_R
     # Empty array: shape+dtype is the whole identity.
     if arr.size == 0:
         return str(h.hexdigest())
+    # Object arrays hold POINTERS, not values. Their buffer is PyObject* addresses, which differ in
+    # every process, so a key built from it can never hit -- the entry is written under one address
+    # layout and looked up under another. Hash the element values instead, and feed the whole array
+    # rather than head/tail: there is no numeric reduction below for this dtype, so head/tail would
+    # be the only content-bearing input and every middle-row difference would collide.
+    if arr.dtype.kind == "O":
+        h.update(repr(arr.tolist()).encode("utf-8", "backslashreplace"))
+        return str(h.hexdigest())
     # Head / tail row bytes. ndim==0 cannot be sliced; hash the raw bytes.
     if arr.ndim == 0:
-        h.update(np.ascontiguousarray(arr).data)
+        h.update(array_buffer(arr))
     else:
         head_n = min(n_summary_rows, arr.shape[0])
         tail_n = min(n_summary_rows, arr.shape[0])
-        h.update(np.ascontiguousarray(arr[:head_n]).data)
-        h.update(np.ascontiguousarray(arr[-tail_n:]).data)
+        h.update(array_buffer(arr[:head_n]))
+        h.update(array_buffer(arr[-tail_n:]))
     # Per-column statistics. For numeric dtypes use sum/min/max; for non-numeric
     # (object/string) fall back to a representative-bytes hash of each column.
     if arr.ndim >= 2 and np.issubdtype(arr.dtype, np.number):
@@ -141,16 +150,16 @@ def hash_array_summary(arr: np.ndarray, n_summary_rows: int = _DEFAULT_SUMMARY_R
         col_sum = np.asarray(arr.sum(axis=col_axis, dtype=np.float64)).ravel()
         col_min = np.asarray(arr.min(axis=col_axis)).astype(np.float64, copy=False).ravel()
         col_max = np.asarray(arr.max(axis=col_axis)).astype(np.float64, copy=False).ravel()
-        h.update(np.ascontiguousarray(col_sum).data)
-        h.update(np.ascontiguousarray(col_min).data)
-        h.update(np.ascontiguousarray(col_max).data)
+        h.update(array_buffer(col_sum))
+        h.update(array_buffer(col_min))
+        h.update(array_buffer(col_max))
     elif arr.ndim == 1 and np.issubdtype(arr.dtype, np.number):
         # 1-D numeric: a single sum/min/max triplet.
         triplet = np.array(
             [float(arr.sum(dtype=np.float64)), float(arr.min()), float(arr.max())],
             dtype=np.float64,
         )
-        h.update(np.ascontiguousarray(triplet).data)
+        h.update(array_buffer(triplet))
     return str(h.hexdigest())
 
 

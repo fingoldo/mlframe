@@ -38,7 +38,7 @@ import numpy as np
 from mlframe.reporting.charts.error_analysis import (
     _per_row_error, _resolve_feature_matrix, _top_split_features,
 )
-from mlframe.reporting.spec import BarPanelSpec, FigureSpec
+from mlframe.reporting.spec import FIGSIZE_STANDARD, BarPanelSpec, FigureSpec
 
 logger = logging.getLogger(__name__)
 
@@ -309,7 +309,7 @@ def find_weak_slices(
     if n == 0 or p == 0:
         empty = pd.DataFrame(columns=["features", "bounds", "mean_error", "support", "support_fraction", "error_ratio", "score"])
         bar = BarPanelSpec(categories=("(no data)",), values=np.array([0.0]), title=title + " (no usable data)", orientation="horizontal")
-        return SliceFinderResult(FigureSpec(panels=((bar,),), figsize=(8.0, 5.0)), empty, global_error, ((), "", float("nan"), 0), ())
+        return SliceFinderResult(FigureSpec(panels=((bar,),), figsize=FIGSIZE_STANDARD), empty, global_error, ((), "", float("nan"), 0), ())
 
     codes, all_edges, has_missing = _bin_matrix(mat, nbins, row_mask=row_mask)
     nbins_per = [max(1, all_edges[j].size - 1) + (1 if has_missing[j] else 0) for j in range(p)]
@@ -360,11 +360,17 @@ def find_weak_slices(
     # here -- the expensive human-readable ``bounds`` / ``features`` labels (thousands of ``_bin_label`` calls + f-string
     # formatting + " & ".join) are deferred to AFTER the top_k selection below, so labels are built for only the ~top_k
     # displayed rows instead of every candidate cell across all combos (the caller discards all but top_k).
-    rec_combo: List[Tuple[int, ...]] = []
-    rec_bins: List[Tuple[int, ...]] = []
-    rec_mean: List[float] = []
-    rec_support: List[int] = []
-    rec_score: List[float] = []
+    # Accumulated per COMBO, not per candidate cell. A cell only ever becomes a table row if it lands in the
+    # displayed top_k -- a handful of rows out of a candidate pool that runs to hundreds of thousands of cells --
+    # so materialising five Python objects per cell built a list nothing reads. The per-combo blocks keep the
+    # numpy arrays the kernel already produced, and the combo/bin identity of row ``i`` is recovered on demand
+    # from the block offsets (see ``_combo_of`` / ``_bins_of`` below), which only the displayed rows ask for.
+    rec_blocks: List[Tuple[Tuple[int, ...], np.ndarray]] = []
+    rec_offsets: List[int] = []
+    mean_parts: List[np.ndarray] = []
+    support_parts: List[np.ndarray] = []
+    score_parts: List[np.ndarray] = []
+    _n_rows = 0
     for combo in combos:
         _cached = _pair_agg.get(combo)
         if _cached is not None:
@@ -391,15 +397,32 @@ def find_weak_slices(
             sk = int(strides[k])
             decoded[:, k] = rem // sk
             rem %= sk
-        decoded_rows = decoded.tolist()
-        for ci, cid in enumerate(cell_ids):
-            rec_combo.append(combo)
-            rec_bins.append(tuple(decoded_rows[ci]))
-            rec_mean.append(float(means[cid]))
-            rec_support.append(int(counts[cid]))
-            rec_score.append(float(scores[cid]))
+        rec_offsets.append(_n_rows)
+        rec_blocks.append((combo, decoded))
+        mean_parts.append(means[cell_ids])
+        support_parts.append(counts[cell_ids])
+        score_parts.append(scores[cell_ids])
+        _n_rows += int(cell_ids.size)
 
-    if not rec_score:
+    rec_score = np.concatenate(score_parts) if score_parts else np.empty(0, dtype=np.float64)
+    rec_mean = np.concatenate(mean_parts) if mean_parts else np.empty(0, dtype=np.float64)
+    rec_support = np.concatenate(support_parts) if support_parts else np.empty(0, dtype=np.int64)
+    _offsets = np.asarray(rec_offsets, dtype=np.int64)
+
+    def _block_of(i: int) -> Tuple[Tuple[int, ...], np.ndarray]:
+        """The (combo, decoded-bins) block that candidate row ``i`` came from."""
+        return rec_blocks[int(np.searchsorted(_offsets, i, side="right")) - 1]
+
+    def _combo_of(i: int) -> Tuple[int, ...]:
+        """Feature indices of candidate row ``i``."""
+        return _block_of(i)[0]
+
+    def _bins_of(i: int) -> np.ndarray:
+        """Per-feature bin indices of candidate row ``i``."""
+        blk_start = int(_offsets[int(np.searchsorted(_offsets, i, side="right")) - 1])
+        return np.asarray(_block_of(i)[1][i - blk_start])
+
+    if rec_score.size == 0:
         empty = pd.DataFrame(columns=["features", "bounds", "mean_error", "support",
                                        "support_fraction", "error_ratio", "score"])
         bar = BarPanelSpec(categories=("(no weak slice)",), values=np.array([0.0]),
@@ -407,15 +430,15 @@ def find_weak_slices(
                            orientation="horizontal")
         for msg in capped:
             logger.info("slice_finder cap: %s", msg)
-        return SliceFinderResult(FigureSpec(panels=((bar,),), figsize=(8.0, 5.0)), empty, global_error, ((), "", float("nan"), 0), tuple(capped))
+        return SliceFinderResult(FigureSpec(panels=((bar,),), figsize=FIGSIZE_STANDARD), empty, global_error, ((), "", float("nan"), 0), tuple(capped))
 
     # Display order matches the SCORE the candidate pool was built with (degradation x sqrt(support share)), rather
     # than raw mean error: sorting by mean error alone hands the top bar to the thinnest slice that cleared the
     # support floor, which is the opposite of what a reader should look at first.
-    order = np.argsort(np.asarray(rec_score), kind="stable")[::-1][:top_k]
+    order = np.argsort(rec_score, kind="stable")[::-1][:top_k]
     # Per-slice 95% interval on the mean error, from that slice's own rows. Only the DISPLAYED slices are measured
     # (top_k of them), so this is a handful of masked reductions, not a pass over every candidate.
-    n_candidates = len(rec_score)
+    n_candidates = int(rec_score.size)
     # Sidak: a per-slice level of 1 - (1 - 0.05)**(1/m) gives a 95% SIMULTANEOUS family, so an interval that
     # excludes the global error means the slice survives the multiple comparison rather than merely being the
     # luckiest of m draws. Slightly tighter than Bonferroni for the same guarantee.
@@ -425,8 +448,9 @@ def find_weak_slices(
     ci_hi: List[float] = []
     for i in order:
         mask = np.ones(err.shape[0], dtype=bool)
-        for k, feat in enumerate(rec_combo[i]):
-            mask &= codes[:, feat] == rec_bins[i][k]
+        _bins_i = _bins_of(i)
+        for k, feat in enumerate(_combo_of(i)):
+            mask &= codes[:, feat] == _bins_i[k]
         vals_i = err[mask]
         if vals_i.size > 1:
             se = float(np.std(vals_i, ddof=1) / np.sqrt(vals_i.size))
@@ -438,12 +462,12 @@ def find_weak_slices(
     # Build the expensive bounds / features labels ONLY for the displayed top_k rows (see the deferral note above).
     def _features_for(i: int) -> Tuple[str, ...]:
         """Feature names for candidate row ``i``'s combo -- built only for the displayed top-k rows (see the deferral note above)."""
-        return tuple(names[f] for f in rec_combo[i])
+        return tuple(names[f] for f in _combo_of(i))
 
     def _bounds_for(i: int) -> str:
         """Human-readable ``"feature [lo..hi] & feature2 [lo..hi]"`` bound string for candidate row ``i`` -- built only for the displayed top-k rows."""
-        combo_i = rec_combo[i]
-        bins_i = rec_bins[i]
+        combo_i = _combo_of(i)
+        bins_i = _bins_of(i)
         return " & ".join(f"{names[combo_i[k]]} {_bin_label(all_edges[combo_i[k]], int(bins_i[k]))}" for k in range(len(combo_i)))
 
     rec_features = {i: _features_for(i) for i in order}
@@ -451,13 +475,13 @@ def find_weak_slices(
     table = pd.DataFrame({
         "features": [rec_features[i] for i in order],
         "bounds": [rec_bounds[i] for i in order],
-        "mean_error": [rec_mean[i] for i in order],
-        "support": [rec_support[i] for i in order],
-        "support_fraction": [rec_support[i] / n for i in order],
-        "error_ratio": [rec_mean[i] / global_error if global_error > 0 else float("inf") for i in order],
+        "mean_error": [float(rec_mean[i]) for i in order],
+        "support": [int(rec_support[i]) for i in order],
+        "support_fraction": [int(rec_support[i]) / n for i in order],
+        "error_ratio": [float(rec_mean[i]) / global_error if global_error > 0 else float("inf") for i in order],
         "error_ratio_lo": [lo / global_error if global_error > 0 else float("nan") for lo in ci_lo],
         "error_ratio_hi": [hi / global_error if global_error > 0 else float("nan") for hi in ci_hi],
-        "score": [rec_score[i] for i in order],
+        "score": [float(rec_score[i]) for i in order],
     })
     table.index = np.arange(1, len(order) + 1)
     table.index.name = "rank"
@@ -466,7 +490,12 @@ def find_weak_slices(
         logger.info("slice_finder cap: %s", msg)
 
     # Horizontal bars, worst on top: bar length = mean error, annotated label carries the support fraction + ratio.
-    cats = tuple(f"{table['bounds'].iloc[i]}  (n={int(table['support'].iloc[i]):_}, {table['error_ratio'].iloc[i]:.2g}x)" for i in range(len(table)))
+    # Read the three columns out once instead of re-resolving each Series and doing a positional lookup per
+    # row: the same per-element DataFrame access in a loop this module avoids everywhere else.
+    cats = tuple(
+        f"{bound}  (n={int(support):_}, {ratio:.2g}x)"
+        for bound, support, ratio in zip(table["bounds"].to_numpy(), table["support"].to_numpy(), table["error_ratio"].to_numpy())
+    )
     vals = table["mean_error"].to_numpy()
     err_lo = np.clip(vals - np.asarray(ci_lo, dtype=np.float64), 0.0, None)
     err_hi = np.clip(np.asarray(ci_hi, dtype=np.float64) - vals, 0.0, None)
@@ -487,6 +516,9 @@ def find_weak_slices(
         xlabel="Slice mean error",
         ylabel="slice",
         orientation="horizontal",
+        # The title tells the reader the label carries "(n=..., ratio)"; a head-preserving cut deletes exactly
+        # that on a two-feature slice, whose bounds string alone runs past the cap.
+        label_keep_tail=20,
         colors=("crimson",),
         value_err=(err_lo, err_hi),
         hline=(global_error, "black", f"global = {global_error:.3g}"),

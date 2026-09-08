@@ -17,19 +17,30 @@ assumed.
 from __future__ import annotations
 
 
+from typing import Any
+
 import numpy as np
 
 from mlframe.reporting.renderers._shared_helpers import heatmap_value_to_index
 
 from mlframe.reporting.spec import ConfusionMarginsPanelSpec, HeatmapPanelSpec
 
-from mlframe.reporting.colors import TREND_LINE
+from mlframe.reporting.colors import CONFUSION_COL_MARGIN, CONFUSION_ROW_MARGIN, TREND_LINE, resolve_heatmap_cmap
 from ._plotly_color import _mpl_to_plotly_cmap
-from ._shared_helpers import _HEATMAP_CELL_TEXT_MAX, _finite_range, _thin_tick_positions
+from ._shared_helpers import _HEATMAP_CELL_TEXT_MAX, PX_PER_INCH, _finite_range, _thin_tick_positions, rotated_tick_pitch_in, ticks_that_fit, truncate_bar_label
 
 # Share of the subplot cell each marginal strip takes, and the gap between a strip and the grid it annotates.
 _MARGIN_STRIP_FRAC = 0.18
 _MARGIN_STRIP_GAP = 0.02
+
+
+# The colorbar and its tick labels eat this much of the plot region's width, so the tick budget must not
+# count it as room for axis labels.
+_COLORBAR_ALLOWANCE_PX = 110
+# What must fit between a colorbar's anchor and the next column: the 12 px bar plus its tick labels. The
+# neighbour's own y-axis title and ticks need room on top of this, which is why the column gap adds to it.
+_COLORBAR_GUTTER_PX = 95
+_NEIGHBOUR_AXIS_PX = 60
 
 
 def _cell_domains(fig, row: int, col: int):
@@ -119,7 +130,7 @@ def _confusion_margins(self, fig, p: ConfusionMarginsPanelSpec, row: int, col: i
         domain=(float(y0), grid_y1), anchor=rx.replace("axis", ""), matches=heat_y, showticklabels=False, showgrid=False,
     )
     fig.add_trace(go.Bar(
-        x=row_margin, y=bar_row_labels, orientation="h", marker=dict(color=TREND_LINE), showlegend=False,
+        x=row_margin, y=bar_row_labels, orientation="h", marker=dict(color=CONFUSION_ROW_MARGIN), showlegend=False,
         hovertemplate="%{y}<br>" + str(p.row_margin_label) + "=%{x}<extra></extra>",
         xaxis=rx.replace("axis", ""), yaxis=ry.replace("axis", ""),
     ))
@@ -135,10 +146,28 @@ def _confusion_margins(self, fig, p: ConfusionMarginsPanelSpec, row: int, col: i
         showgrid=False, zeroline=False,
     )
     fig.add_trace(go.Bar(
-        x=bar_col_labels, y=col_margin, marker=dict(color=TREND_LINE), showlegend=False,
+        x=bar_col_labels, y=col_margin, marker=dict(color=CONFUSION_COL_MARGIN), showlegend=False,
         hovertemplate="%{x}<br>" + str(p.col_margin_label) + "=%{y}<extra></extra>",
         xaxis=tx.replace("axis", ""), yaxis=ty.replace("axis", ""),
     ))
+
+# Characters per line of a wrapped colorbar title. The bar is 12 px wide with a small gutter beside it, so the
+# title's own width is what has to be bounded; this is the width at which it stops reaching past the margin.
+_COLORBAR_TITLE_WRAP = 22
+
+
+def _wrap_colorbar_title(label) -> str:
+    """Break a colorbar label into ``<br>``-separated lines short enough to sit above a 12 px bar."""
+    import textwrap
+
+    text = str(label)
+    if len(text) <= _COLORBAR_TITLE_WRAP:
+        return text
+    # ``wrap`` returns [] for a whitespace-only title, and joining [] would erase it silently; an empty
+    # result is the only case that falls back, not any falsy caller value.
+    wrapped = textwrap.wrap(text, _COLORBAR_TITLE_WRAP)
+    return "<br>".join(wrapped if wrapped else [text])
+
 
 def _colorbar_placement(fig, row: int, col: int, label) -> dict:
     """Pin a heatmap's colorbar beside ITS OWN subplot instead of plotly's default paper position.
@@ -148,7 +177,12 @@ def _colorbar_placement(fig, row: int, col: int, label) -> dict:
     them sits next to the panel it describes. Reading the subplot's own domain and anchoring the bar to
     its right edge keeps each bar with its heatmap regardless of the grid shape.
     """
-    placement: dict = {"title": label} if label else {}
+    # A colorbar title renders HORIZONTALLY above the bar in plotly, and the bar sits at the right edge of the
+    # plot area under a fixed 40 px right margin -- so a label the codebase actually passes
+    # ("mean error (darker = worse); cell number = rows in cell", 55 chars) simply ran off the figure. Wrapping
+    # it keeps it inside; the matplotlib twin needs no equivalent because its title is drawn vertically along
+    # the bar, where the available room is the panel HEIGHT.
+    placement: dict = {"title": _wrap_colorbar_title(label)} if label else {}
     grid = getattr(fig, "_grid_ref", None)
     if not grid:
         return placement
@@ -179,7 +213,6 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
     from .plotly import _go
 
     go = _go()
-    from mlframe.reporting.colors import resolve_heatmap_cmap
     cmap_name = resolve_heatmap_cmap(p.colormap)
 
     # Name the axes and the value in the tooltip instead of accepting plotly's default
@@ -191,13 +224,22 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
     _xname = p.xlabel or "x"
     _yname = p.ylabel or "y"
     _hover_extra = "<br>%{text}" if p.cell_hovertext is not None else ""
+    # The arrays go to plotly as ndarrays, NOT via ``.tolist()``. A nested Python list makes plotly validate the
+    # grid element by element, which is the whole cost of building the trace: 344 ms vs 2.9 ms at 300x300 and
+    # 1.40 s vs 6.1 ms at 600x600 on this host (117x / 230x, warm, best-of-3), for a byte-identical ``to_json``.
+    # ``_plotly_scatter.py`` already states this rule for its own traces; the heatmap was the site that did not
+    # follow it. ``cell_hovertext`` is object-dtype and pays the same validation, so it stays an ndarray too.
     fig.add_trace(
-        go.Heatmap(z=p.matrix.tolist(),
+        go.Heatmap(z=p.matrix,
                    x=list(p.col_labels), y=list(p.row_labels),
-                   text=p.cell_hovertext.tolist() if p.cell_hovertext is not None else None,
+                   text=p.cell_hovertext if p.cell_hovertext is not None else None,
                    # ``<extra></extra>`` suppresses the trace-name box ("trace 804").
                    hovertemplate=(f"{_xname}: %{{x}}<br>{_yname}: %{{y}}<br>{_zname}: %{{z:.4g}}" f"{_hover_extra}<extra></extra>"),
                    colorscale=_mpl_to_plotly_cmap(cmap_name),
+                   # Mirrors the matplotlib twin's vmin/vmax: an unanchored diverging scale puts its midpoint
+                   # colour wherever the data lands, which reads as a sign the values do not have.
+                   **({"zmin": p.color_vmin} if p.color_vmin is not None else {}),
+                   **({"zmax": p.color_vmax} if p.color_vmax is not None else {}),
                    colorbar=self._colorbar_placement(fig, row, col, p.colorbar_label),
                    showscale=True),
         row=row, col=col,
@@ -210,10 +252,18 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
     # Skip per-cell text on an empty / all-non-finite matrix (nanmin raises / poisons the color scale) or a
     # huge grid where the per-annotation O(cells) plotly layout copy stalls and the text is unreadable soup anyway.
     rng = _finite_range(p.matrix)
-    if p.cell_text is not None and rng is not None and p.matrix.size <= _HEATMAP_CELL_TEXT_MAX:
+    drew_cell_text = p.cell_text is not None and rng is not None and p.matrix.size <= _HEATMAP_CELL_TEXT_MAX
+    if drew_cell_text and p.cell_text is not None and rng is not None:
         from mlframe.reporting.colors import auto_text_colors_batch
         mat = p.matrix
         vmin, vmax = rng
+        # Same scale the cells were drawn with, when the builder pinned it (see the matplotlib twin): the text
+        # colour samples the colormap at the cell's position, so reading a different range than the image puts
+        # white labels on a pale fill.
+        if p.color_vmin is not None:
+            vmin = float(p.color_vmin)
+        if p.color_vmax is not None:
+            vmax = float(p.color_vmax)
         # One vectorized colormap sample for the whole grid instead of one matplotlib call per cell
         # (bit-identical to the per-cell auto_text_color -- verified in bench_auto_text_colors_batch.py).
         text_colors = auto_text_colors_batch(np.where(np.isfinite(mat), mat, vmin), cmap_name, vmin=vmin, vmax=vmax)
@@ -257,14 +307,26 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
             for _entry in p.threshold_contours:
                 level, color = _entry[0], _entry[1]
                 _dash = _entry[2] if len(_entry) > 2 else "solid"
+                # The 4th element is the triage name ("moderate 0.1"); matplotlib draws it with clabel and
+                # this branch used to discard it, leaving the drift heatmap's two thresholds as anonymous
+                # squiggles in the HTML while the PNG named them.
+                _label = _entry[3] if len(_entry) > 3 else ""
                 if not (lo < level < hi):  # contour only exists when the level is crossed
                     continue
                 fig.add_trace(
-                    go.Contour(z=mat.tolist(), x=list(p.col_labels), y=list(p.row_labels),
-                               contours=dict(start=level, end=level, size=1,
-                                             coloring="none", showlabels=False),
+                    go.Contour(z=mat, x=list(p.col_labels), y=list(p.row_labels),
+                               # plotly can only write the LEVEL on a contour, never arbitrary text, so the
+                               # triage wording rides in the trace name (legend + hover) while the inline
+                               # label carries the number. Both beat the anonymous squiggle this drew before.
+                               # The inline label follows the contour, so on a grid that also carries per-cell
+                               # numbers it runs across them. The cell values are the more precise reading, so
+                               # the wording falls back to the legend and hover, which this trace already
+                               # carries. The matplotlib twin suppresses its own clabel in the same case.
+                               contours=dict(start=level, end=level, size=1, coloring="none",
+                                             showlabels=not drew_cell_text, labelfont=dict(size=7, color=color)),
                                line=dict(color=color, width=1.6, dash=_dash),
-                               showscale=False, hoverinfo="skip"),
+                               name=_label if _label else f"{level:g}", showlegend=bool(_label),
+                               showscale=False, hovertemplate=(f"{_label}<extra></extra>" if _label else "skip")),
                     row=row, col=col,
                 )
     if p.trend_line is not None and p.trend_xy is not None:
@@ -310,15 +372,45 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
                         row=row, col=col,
                     )
 
-    # A density heatmap has ~80 cell labels per axis; one tick each overlaps into soup. Thin to <= _HEATMAP_MAX_TICKS
-    # evenly-spaced category ticks (the full grid is still drawn).
-    _xt = _thin_tick_positions(len(p.col_labels))
-    _yt = _thin_tick_positions(len(p.row_labels))
-    fig.update_xaxes(title_text=p.xlabel, row=row, col=col, tickangle=-45, tickmode="array", tickvals=[p.col_labels[i] for i in _xt])
+    apply_heatmap_tick_budget(fig, p, row, col)
+    fig.update_xaxes(title_text=p.xlabel, row=row, col=col)
     # Row order must match matplotlib, which switches to origin="lower" for a density panel carrying
     # `trend_xy` (it reads bottom-up, row 0 = lowest value) and keeps the top-down matrix order otherwise.
     # Reversing unconditionally rendered the pred-vs-actual density heatmap VERTICALLY MIRRORED between the
     # two backends -- the same figure, with the trend running the opposite way.
     _reversed = p.trend_xy is None
     _y_kw = {"autorange": "reversed"} if _reversed else {}
-    fig.update_yaxes(title_text=p.ylabel, row=row, col=col, tickmode="array", tickvals=[p.row_labels[i] for i in _yt], **_y_kw)
+    fig.update_yaxes(title_text=p.ylabel, row=row, col=col, **_y_kw)
+
+
+def apply_heatmap_tick_budget(fig: Any, p: HeatmapPanelSpec, row: int, col: int) -> None:
+    """Thin one heatmap's tick labels to what its axes can actually hold.
+
+    A density heatmap has ~80 cell labels per axis; one tick each overlaps into soup. The budget comes from
+    the subplot's real extent rather than a fixed cap, matching the matplotlib twin: a drift heatmap that
+    grows its figure with the feature count otherwise names 8 of 40 rows and wastes the height it just
+    bought. Labels are truncated here too, which this branch never did and both bar branches always have.
+
+    Called AFTER the figure's final ``update_layout``: the margins are still plotly's defaults while panels
+    are being drawn, so budgeting during the draw measures an axis that does not exist yet.
+    """
+    _dom = _cell_domains(fig, row, col)
+    _w_px, _h_px = fig.layout.width, fig.layout.height
+    _w_in = _h_in = None
+    if _dom is not None and _w_px and _h_px:
+        (_x0, _x1), (_y0, _y1), _, _ = _dom
+        # A domain is a fraction of the PLOT REGION, not of the figure, and the colorbar plus its tick labels
+        # sit inside that region as well. Multiplying the domain by the raw figure width claimed a fifth more
+        # room than the axis has, which is how this backend kept 26 labels where matplotlib kept 16.
+        _m = fig.layout.margin
+        _plot_w_px = max(float(_w_px) - float(_m.l or 0) - float(_m.r or 0) - _COLORBAR_ALLOWANCE_PX, 1.0)
+        _plot_h_px = max(float(_h_px) - float(_m.t or 0) - float(_m.b or 0), 1.0)
+        _w_in = (float(_x1) - float(_x0)) * _plot_w_px / PX_PER_INCH
+        _h_in = (float(_y1) - float(_y0)) * _plot_h_px / PX_PER_INCH
+    # The x labels are drawn at -45 degrees on this backend too, so they need the same widened pitch.
+    _xt = _thin_tick_positions(len(p.col_labels), ticks_that_fit(_w_in, len(p.col_labels), pitch_in=rotated_tick_pitch_in(8, 45)))
+    _yt = _thin_tick_positions(len(p.row_labels), ticks_that_fit(_h_in, len(p.row_labels), pitch_in=rotated_tick_pitch_in(8, 0)))
+    fig.update_xaxes(
+        row=row, col=col, tickangle=-45, tickmode="array", tickvals=[p.col_labels[i] for i in _xt], ticktext=[truncate_bar_label(p.col_labels[i]) for i in _xt]
+    )
+    fig.update_yaxes(row=row, col=col, tickmode="array", tickvals=[p.row_labels[i] for i in _yt], ticktext=[truncate_bar_label(p.row_labels[i]) for i in _yt])

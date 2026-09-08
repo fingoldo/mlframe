@@ -109,20 +109,51 @@ def test_f2_quantile_crossing_panel_ignores_nan_row():
 
 
 def test_f3_top_split_features_logs_warning_on_fit_failure(caplog):
-    """F3 top split features logs warning on fit failure."""
+    """Falling back to the weaker ranking must be announced, not silent.
+
+    The trigger changed with the ranker. This used to inject an ``inf`` so ``DecisionTreeRegressor.fit``
+    would raise; the split-gain ranker that replaced the tree filters non-finite values per column and
+    simply ranks, so an inf no longer causes a fallback at all -- which is an improvement, not a
+    regression. What still has to hold is the contract this test was written for: when the primary ranker
+    produces NO usable ranking, the degraded surrogate must say so. A constant error column is that case --
+    no split of any feature separates anything, so every gain is zero.
+    """
     import logging
 
     from mlframe.reporting.charts.error_analysis import _top_split_features
 
     rng = np.random.default_rng(0)
     mat = rng.normal(size=(50, 3))
-    mat[0, 0] = np.inf  # DecisionTreeRegressor.fit raises ValueError on Inf even in modern sklearn
-    err = rng.normal(size=50)
+    err = np.full(50, 2.5)  # nothing to separate: every candidate split has zero gain
 
     with caplog.at_level(logging.WARNING, logger="mlframe.reporting.charts.error_analysis"):
         out = _top_split_features(mat, err, ["a", "b", "c"], max_depth=3, n_features=2, seed=0)
-    assert out  # surrogate fallback still returns a ranking
-    assert any("weak-segment tree fit failed" in rec.message for rec in caplog.records), "F3 REGRESSION: fallback must log a warning, not fail silently"
+    assert out is not None  # a ranking (possibly the positional fallback) still comes back
+    assert any(
+        "falling back to a weaker" in rec.message for rec in caplog.records
+    ), f"the degraded ranking was taken silently; warnings seen: {[r.message[:60] for r in caplog.records]}"
+
+
+def test_an_infinite_feature_value_no_longer_degrades_the_ranking(caplog):
+    """The behaviour change the test above documents, pinned so it is not lost by accident.
+
+    The tree raised on a non-finite cell and the whole ranking dropped to the median-split surrogate. The
+    split-gain ranker masks non-finite values per column, so one bad cell costs that column's bad rows
+    rather than every column's ranking.
+    """
+    import logging
+
+    from mlframe.reporting.charts.error_analysis import _top_split_features
+
+    rng = np.random.default_rng(0)
+    mat = rng.normal(size=(400, 3))
+    mat[0, 0] = np.inf
+    err = rng.normal(size=400) + (mat[:, 1] > 0.5) * 3.0  # column 1 is the real separator
+
+    with caplog.at_level(logging.WARNING, logger="mlframe.reporting.charts.error_analysis"):
+        out = _top_split_features(mat, err, ["a", "b", "c"], max_depth=3, n_features=1, seed=0)
+    assert out == [1], f"the planted separator was not found: {out}"
+    assert not [r for r in caplog.records if "falling back" in r.message], "one infinite cell still degraded the whole ranking"
 
 
 def test_reporting_b5_surrogate_ranking_survives_nan_column_via_fallback():

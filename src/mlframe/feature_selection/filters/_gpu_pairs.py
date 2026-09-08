@@ -26,8 +26,8 @@ _SHARED_MEM_SET_LOCK = threading.Lock()
 
 def joint_mi_from_flat_counts(
     joint_counts_host: np.ndarray,
-    joint_offsets,
-    pair_merged_sizes,
+    joint_offsets: np.ndarray,
+    pair_merged_sizes: np.ndarray,
     nbins_y: int,
     n_pairs: int,
     n_total: float,

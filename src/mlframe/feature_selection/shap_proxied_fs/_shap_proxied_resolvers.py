@@ -7,6 +7,8 @@ boundaries without code changes. No back-import to the selector parent.
 
 from __future__ import annotations
 
+from typing import Optional, Sequence, Union
+
 import numpy as np
 
 _EXACT_OPTIMIZERS = {"bruteforce", "bruteforce_gpu"}
@@ -336,7 +338,12 @@ def resolve_effective_min_features(min_features: int, n_proxy_cols: int) -> int:
     return int(max(1, min(int(min_features), n_cols)))
 
 
-def unit_importance_to_feature_map(importance, unit_to_members, working_cols, feature_names) -> dict:
+def unit_importance_to_feature_map(
+    importance: np.ndarray,
+    unit_to_members: Optional[Sequence[Sequence[int]]],
+    working_cols: np.ndarray,
+    feature_names: Union[Sequence[str], np.ndarray],
+) -> dict:
     """Expand a per-proxy-unit mean-|SHAP| vector into a ``{original feature name: float}`` map.
 
     The selector's internal importance vector lives in PROXY space: one entry per unit, where a unit is

@@ -370,7 +370,7 @@ def group_aware_relevance(cols: list, arr: np.ndarray, y: np.ndarray, groups: np
     return out
 
 
-def greedy_select_indices(rel, red, eff_floor: float, cap: int, redundancy_weight: float) -> list:
+def greedy_select_indices(rel: np.ndarray, red: np.ndarray, eff_floor: float, cap: int, redundancy_weight: float) -> list:
     """The mRMR greedy loop: pick the strongest eligible feature, then repeatedly the best relevance-minus-
     redundancy candidate until the cap or until no candidate scores above zero.
 

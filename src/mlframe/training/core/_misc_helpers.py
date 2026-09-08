@@ -632,9 +632,10 @@ def _prep_polars_df(_df, strategy, cat_features, category_map):
     _train_one_target, so referencing _prep_polars_df from there would form an import cycle."""
     if _df is None:
         return None
-    if category_map is not None:
-        return strategy.prepare_polars_dataframe(_df, cat_features, category_map=category_map)
-    return strategy.prepare_polars_dataframe(_df, cat_features)
+    # Passed unconditionally now that the base declares it: the two-arity branch existed only because a
+    # strategy inheriting the base implementation raised TypeError on the keyword, which made the call site
+    # responsible for knowing which concrete strategy it held.
+    return strategy.prepare_polars_dataframe(_df, cat_features, category_map=category_map)
 
 
 _CTX_STRICT = os.environ.get("MLFRAME_CTX_STRICT", "").strip().lower() in ("1", "true", "yes", "on")

@@ -157,10 +157,16 @@ def test_no_epsilon_padded_power_denominators():
 def test_no_hash_is_fed_by_an_array_copy():
     """`h.update(a.tobytes())` allocates a second copy of the whole array purely to be hashed.
 
-    `h.update(np.ascontiguousarray(a).data)` hands the hash the existing buffer and produces the identical
+    `mlframe._array_buffer.array_buffer(a)` hands the hash the existing buffer and produces the identical
     digest. The sites this replaced hashed whole training frames -- a KeyBank fingerprint over X_train, a
     collinearity cache key over the feature matrix, an RFECV signature over X and y -- on data this package
     sizes in the tens of gigabytes, with the copy paid on every cache lookup.
+
+    The rewrite originally landed as `np.ascontiguousarray(a).data`, spelled out at each site, and that form
+    RAISES on datetime64 and timedelta64: they have no buffer-protocol format. `data_signature` crashed on any
+    pandas frame carrying a datetime column until the sites were routed through the leaf helper instead. See
+    tests/test_meta/test_array_buffer_is_the_one_way_to_feed_a_hash.py, which also gates the form from
+    reappearing.
 
     Sites where the rewrite does not apply are not reported: `hash()` and dict keys need a hashable object
     and a memoryview is not one, and a `+`-joined payload has to be restructured rather than substituted.
@@ -267,3 +273,48 @@ def regenerate_baseline() -> None:
 
     payload = orjson.dumps(dict(sorted(_stale_comment_keys().items())), option=orjson.OPT_INDENT_2).decode("utf-8")
     _STALE_COMMENT_BASELINE.write_text(payload + chr(10), encoding="utf-8")
+
+
+def test_no_inert_patch_targets():
+    """A test that patches an attribute the target module does not have is patching nothing.
+
+    The assignment CREATES the attribute instead of replacing anything the code reads, so the
+    production path runs unpatched while the test's own assertions read back whatever the test just
+    wrote -- and the save/restore leaves the invented attribute on the module for the rest of the
+    process, which is the module-pollution class CLAUDE.md already calls out.
+
+    Four were found when this was first run: two patched
+    `mlframe.training.core.get_pandas_view_of_polars_df` (every real call site imports it lazily from
+    `training.utils` inside a function body, so only the utils patch ever did anything), one reset a
+    `_fallback_logged` latch that had been deliberately replaced by a time-based rate limit, and one
+    reset the RawKernel singleton on the discretization facade rather than on the module that owns
+    the global -- so `k1 is k2` could pass on a kernel an earlier test had already built.
+    """
+    from py_ci_shared import inert_patch_targets
+
+    index = inert_patch_targets.module_index([REPO_ROOT / "src"], package_root=REPO_ROOT / "src")
+    findings = inert_patch_targets.scan(sorted((REPO_ROOT / "tests").rglob("test_*.py")), index)
+
+    assert findings == [], "patched attributes that do not exist on their target module:\n  " + "\n  ".join(
+        f"{f.path.relative_to(REPO_ROOT).as_posix()}:{f.lineno} {f.target}" for f in findings
+    )
+
+
+def test_every_database_effect_is_asserted_by_an_importing_test():
+    """A module that commits or executes, whose importing tests never look at that call.
+
+    Zero here, so this is a gate rather than a ratchet and `accepted` is empty on purpose. It is
+    wired now because the count being zero is the cheap moment: the same check found fifty-five in a
+    sibling repo, and closing those turned up a resume cache that could serve an empty response as a
+    model's answer and a readiness probe that answered 200 without reaching the database.
+
+    The population assertion is not decoration. On a src layout the scan resolved no modules at all
+    until recently, so the check passed having measured nothing -- green for the one reason a gate
+    must never be green. A count is the cheapest way to notice that.
+    """
+    from py_ci_shared.effect_assertion_parity import assert_effects_are_asserted, build_import_map
+
+    import_map = build_import_map(REPO_ROOT)
+    assert len(import_map) > 1000, f"only {len(import_map)} modules resolved -- the scan lost its subject and this gate would pass vacuously"
+
+    assert_effects_are_asserted(REPO_ROOT, import_map, ())

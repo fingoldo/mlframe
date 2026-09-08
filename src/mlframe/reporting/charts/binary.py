@@ -49,6 +49,7 @@ from mlframe.metrics import trapezoid
 from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels, parse_panel_template,
 )
+from mlframe.reporting.charts._ap_bootstrap import _ap_chunk_kernel, jit_is_active as ap_jit_is_active
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, FigureSpec, HistogramPanelSpec, LinePanelSpec, PanelSpec,
 )
@@ -113,6 +114,12 @@ class _ScoreSort:
     __slots__ = ("_dtc", "_run_end", "cum_fp", "cum_tp", "n", "n_neg", "n_pos", "scores_desc")
 
     def __init__(self, y_true: np.ndarray, y_score: np.ndarray):
+        # bench-attempt-rejected: quicksort plus an O(n) tie check on the sorted array, re-sorting stably
+        # only when ties exist. 2.28x on continuous scores and 0.61x -- a 1.6x REGRESSION -- on quantised
+        # tree-model scores, which is the input this package sees most. The stability is also load-bearing
+        # beyond the tie check: the cumulative-gain curve and the AP label sequence read cum_tp at INTERIOR
+        # indices of a tied run, where the within-run order changes the value. See
+        # reporting/_benchmarks/bench_score_sort_tie_gate.py.
         order = np.argsort(y_score, kind="stable")[::-1]
         self.scores_desc = y_score[order]
         y_desc = y_true[order].astype(np.int64)
@@ -266,22 +273,30 @@ def bootstrap_ap_ci(
     # order, so the interval is unchanged.
     boot_ap = np.empty(n_boot, dtype=np.float64)
     pos_desc = yt_desc.astype(np.float64)
-    idx_chunk: np.ndarray = np.empty((0, 0), dtype=np.int64)
-    for b in range(n_boot):
-        if b % _AP_BOOTSTRAP_IDX_CHUNK == 0:
-            idx_chunk = rng.integers(0, m, size=(min(_AP_BOOTSTRAP_IDX_CHUNK, n_boot - b), m))
-        # Multiplicity of each fixed-rank row in resample b (a row can be drawn 0..k times); scatter-add to its rank.
-        mult = np.bincount(idx_chunk[b % _AP_BOOTSTRAP_IDX_CHUNK], minlength=m).astype(np.float64)
-        tp = np.cumsum(mult * pos_desc)
-        total = np.cumsum(mult)
-        n_pos = tp[-1]
-        if n_pos <= 0:
-            boot_ap[b] = float("nan")
+    # Resamples are independent, so each CHUNK of draws goes through one parallel njit call instead of a Python
+    # loop that re-enters the interpreter per resample while holding the GIL (see ``_ap_bootstrap``). The draw
+    # itself stays here and stays chunked, so the generator is consumed in the same order and a seed still
+    # reproduces its interval. Falls back to the per-resample numpy form when the JIT is off, where the kernel's
+    # explicit loops would be far slower than the vectorised path they replace.
+    use_kernel = ap_jit_is_active()
+    for b0 in range(0, n_boot, _AP_BOOTSTRAP_IDX_CHUNK):
+        idx_chunk = rng.integers(0, m, size=(min(_AP_BOOTSTRAP_IDX_CHUNK, n_boot - b0), m))
+        if use_kernel:
+            _ap_chunk_kernel(idx_chunk, pos_desc, boot_ap[b0 : b0 + idx_chunk.shape[0]])
             continue
-        # AP = sum (R_i - R_{i-1}) * P_i; the recall step is the resampled positive mass at rank i, so AP collapses to
-        # the precision-weighted positive multiplicity / n_pos -- avoids a per-resample concat + diff.
-        precision = tp / np.maximum(total, 1.0)
-        boot_ap[b] = np.dot(mult * pos_desc, precision) / n_pos
+        for b in range(idx_chunk.shape[0]):
+            # Multiplicity of each fixed-rank row in this resample (a row can be drawn 0..k times); scatter-add to its rank.
+            mult = np.bincount(idx_chunk[b], minlength=m).astype(np.float64)
+            tp = np.cumsum(mult * pos_desc)
+            total = np.cumsum(mult)
+            n_pos = tp[-1]
+            if n_pos <= 0:
+                boot_ap[b0 + b] = float("nan")
+                continue
+            # AP = sum (R_i - R_{i-1}) * P_i; the recall step is the resampled positive mass at rank i, so AP collapses to
+            # the precision-weighted positive multiplicity / n_pos -- avoids a per-resample concat + diff.
+            precision = tp / np.maximum(total, 1.0)
+            boot_ap[b0 + b] = np.dot(mult * pos_desc, precision) / n_pos
     boot_ap = boot_ap[~np.isnan(boot_ap)]
     if boot_ap.size == 0:
         return full_ap, float("nan"), float("nan")
@@ -555,6 +570,26 @@ def _threshold_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, thresh
     )
 
 
+def gain_curve_points(sort: "_ScoreSort") -> tuple:
+    """``(population_fraction, positives_captured)`` sampled at DISTINCT scores, starting at the origin.
+
+    A cumulative-gain curve read off every rank steps through tied scores in whatever order the sort
+    happened to produce -- and a model cannot rank rows it scored identically, so those steps assert a
+    ranking that does not exist. Measured on a 20k-row column of 2-dp tree scores: 19,899 of 20,000 curve
+    points sit inside a tied run, and merely re-shuffling the ties moves the drawn curve by up to 0.25% of
+    all positives captured. At the run ENDS the two orderings agree exactly.
+
+    Sampling at run ends and letting the polyline join them is not a smoothing: the straight segment across
+    a tied group IS the expected capture under a random ordering of it, which is the only honest reading.
+    It is also how ROC/PR already treat ties here, through ``distinct_threshold_counts``.
+    """
+    run_end = sort._run_end
+    ranks = np.flatnonzero(run_end) + 1
+    pop_frac = np.concatenate(([0.0], ranks.astype(np.float64) / sort.n))
+    gain = np.concatenate(([0.0], sort.cum_tp[run_end].astype(np.float64) / sort.n_pos))
+    return pop_frac, gain
+
+
 def _gain_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: float, cost_ratio=None) -> PanelSpec:
     """Cumulative-gain curve: fraction of positives captured vs fraction of population (score-sorted).
 
@@ -563,11 +598,9 @@ def _gain_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: 
     """
     if sort.n_pos == 0:
         return AnnotationPanelSpec(text="Gain undefined\n(no positive samples)", title="Cumulative gain")
-    pop_frac = np.arange(1, sort.n + 1, dtype=np.float64) / sort.n
-    gain = sort.cum_tp.astype(np.float64) / sort.n_pos
-    # Prepend (0, 0) so the curve starts at the origin like the canonical gains chart.
-    pop_frac = np.concatenate(([0.0], pop_frac))
-    gain = np.concatenate(([0.0], gain))
+    # Sampled at distinct scores, starting at the origin like the canonical gains chart -- see
+    # ``gain_curve_points`` for why stepping through tied ranks asserts a ranking the model cannot make.
+    pop_frac, gain = gain_curve_points(sort)
     x_thin, (gain_thin,) = _decimate(pop_frac, gain)
     diag = x_thin.copy()
     return LinePanelSpec(
@@ -606,7 +639,7 @@ def _pit_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: f
     # caller's own stream: a test generating scores from default_rng(0) and a panel drawing from default_rng(0)
     # get u == p exactly, the randomisation cancels, and the KS jumps back to the 0.25 this fix exists to remove.
     # Hashing the scores keeps the figure reproducible for a given dataset while making that collision impossible.
-    _digest = hashlib.blake2b(np.ascontiguousarray(p).data, digest_size=8).digest()
+    _digest = hashlib.blake2b(array_buffer(p), digest_size=8).digest()
     u = np.random.default_rng(int.from_bytes(_digest, "little")).random(p.shape[0])
     pit = np.where(yt == 1, (1.0 - p) + u * p, u * (1.0 - p))
     pit = np.clip(pit, 0.0, 1.0)
@@ -732,11 +765,15 @@ def compose_binary_figure(
     n_cols = max_cols if grid else 0
     # RUX-21 class: a constant score column still produces real-looking panels (KS 1.000, AUC 0.500) with nothing
     # saying the score never varies -- the one fact that explains every number on the figure.
-    n_unique = int(np.unique(ys).size) if ys.size else 0
+    # "single distinct value" via min==max: two O(n) reductions rather than np.unique's O(n log n) sort, which is
+    # the whole cost of a question with a yes/no answer -- 154 ms against 7.2 ms at n=2M on this host (21x), 13.9
+    # against 0.77 at 200k. The sibling idiom and its rationale are at ``calibration.py``'s bootstrap loop. NaNs
+    # cannot make this fire spuriously: any NaN present makes both reductions NaN and the comparison False.
+    is_constant = bool(ys.size) and bool(ys.min() == ys.max())
     degenerate_note = (
         f"  |  WARNING: the score has a single distinct value ({ys[0]:.6g}) over {ys.size:,} rows, so every "
         "ranking metric here is the degenerate no-ordering case, not a measurement of this model."
-        if n_unique == 1 else ""
+        if is_constant else ""
     )
     return FigureSpec(
         suptitle=suptitle + degenerate_note,
@@ -754,6 +791,7 @@ def compose_binary_figure(
 # to its own module because it is the one builder here that bypasses the spec layer, not because callers should
 # start importing it from somewhere else. Imported at the BOTTOM because the sibling imports _finite_binary back.
 from ._binary_decile_table import binary_decile_table, binary_decile_table_figure
+from mlframe._array_buffer import array_buffer
 
 __all__ = [
     "ALLOWED_BINARY_PANEL_TOKENS",

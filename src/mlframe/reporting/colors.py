@@ -159,6 +159,16 @@ FRIEND_GRAPH_NODE_COLORS = {
 }
 FRIEND_GRAPH_EDGE_CMAP = "plasma"
 
+# Confusion-matrix marginal strips. Two colours, because the strips answer two DIFFERENT questions -- how
+# many rows each true class has, and how much volume the model sent to each predicted class -- and a reader
+# comparing them has to be able to tell which strip is which. They live here rather than as literals in a
+# renderer because the two backends had drifted apart on exactly this: matplotlib painted blue and green
+# while plotly painted both strips with TREND_LINE, a constant whose documented job is the robust-fit
+# overlay line. The same confusion matrix came out blue-and-green as a PNG and two identical oranges as
+# HTML, with the orange colliding with the trend line's meaning elsewhere in the same report.
+CONFUSION_COL_MARGIN = "#4c72b0"  # top strip: predicted-class volume
+CONFUSION_ROW_MARGIN = "#55a868"  # right strip: true-class support
+
 
 def friend_graph_node_color(klass: str) -> str:
     """Resolve a friend-graph node class ('green'/'red'/'yellow') to a hex color.

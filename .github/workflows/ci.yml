@@ -5,7 +5,17 @@ on:
     branches: [master, main]
   pull_request:
     branches: [master, main]
+  schedule:
+    # Sunday 03:17 UTC. The weekly run is the one that sweeps every OS and every Python version; a
+    # push only exercises the representative leg. Off the hour on purpose -- GitHub queues scheduled
+    # workflows account-wide, and everyone's cron sits on :00.
+    - cron: "17 3 * * 0"
   workflow_dispatch:
+    inputs:
+      full_matrix:
+        description: "Run the full three-OS, all-version sweep instead of the representative leg"
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -22,10 +32,101 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # The single leg a push actually runs, and therefore the only one that can publish coverage. Defined
+  # here once: the matrix generator reads both values from the environment and the coverage steps compare
+  # against them, so changing the leg in one place cannot leave the other pointing at something no push
+  # runs -- which is how the coverage upload silently stopped the last time this gate named a version by
+  # hand.
+  #
+  # macOS is the per-push leg as of 2026-09-08, deliberately and temporarily. Linux is in good shape and
+  # Windows has had hands on it; macOS has never had a green run of this suite, so it is the platform
+  # where a push-cadence signal buys the most. The cost is named rather than hidden: Linux regressions
+  # now surface in the Sunday sweep instead of on the commit that caused them. Move this back to
+  # ubuntu-latest once macOS is green -- that is the whole point of pointing it here.
+  REPRESENTATIVE_OS: "macos-latest"
+  REPRESENTATIVE_PYTHON: "3.12"
+
 jobs:
+  # The matrix is chosen by EVENT, not hard-coded, so one job definition serves both cadences.
+  #
+  # A push gets the representative leg only: Linux on one Python version, still sharded 10 ways. That is
+  # 10 jobs instead of 50, which is what makes the blocking signal arrive in a reasonable time -- the
+  # account's ~20 concurrent-job ceiling is shared across every repo, and a 50-job push matrix spent hours
+  # queued (measured 2026-09-07: 30 of 86 jobs done after two hours).
+  #
+  # The weekly sweep is where every OS and every supported Python version run. What that trades away is
+  # worth naming: version-specific breaks are then found up to a week after the commit that caused them.
+  # Two such bugs were caught on 2026-09-08 by version legs alone -- tomllib missing below 3.11 (only
+  # 3.9/3.10 saw it) and an ast.dump similarity that differs between 3.12 and 3.14 -- and under this
+  # cadence both would have surfaced in the Sunday run instead of on the push.
+  #
+  # Linux is not left entirely unwatched between sweeps: ``test-heavy-serial`` below still runs
+  # test_core.py across every supported version on every push, so a Linux-only import break or a
+  # version-specific regression in that file still fails the commit that caused it. That is 20 short
+  # jobs rather than 50 long ones, which is why it does not reintroduce the queue problem.
+  matrix-setup:
+    name: Choose the matrix for this event
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.build.outputs.matrix }}
+      full: ${{ steps.build.outputs.full }}
+    steps:
+      - name: Build the job list
+        id: build
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          FORCE_FULL: ${{ inputs.full_matrix }}
+          REPRESENTATIVE_PYTHON: ${{ env.REPRESENTATIVE_PYTHON }}
+          REPRESENTATIVE_OS: ${{ env.REPRESENTATIVE_OS }}
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+
+          full = os.environ["EVENT_NAME"] == "schedule" or os.environ.get("FORCE_FULL") == "true"
+
+          # Sharded 10 ways on every leg: an unsharded run of this suite does not finish inside the cap on
+          # a 2-vCPU runner (the unsharded 3.14 leg timed out on effectively every push before 2026-08-18).
+          GROUPS = [str(i) for i in range(1, 11)]
+          # Mid-band, and the version whose wheels are most reliably published for macOS and Windows
+          # alike. Read from the environment so the coverage gates below cannot name a different one.
+          REPRESENTATIVE = os.environ["REPRESENTATIVE_PYTHON"]
+          ALL_VERSIONS = ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+
+          if full:
+              legs = [
+                  {"os": os_name, "python-version": v, "splits": "10", "group": g,
+                   # 3.14 and the non-Linux platforms stay non-blocking: cp314 wheels are still landing,
+                   # and mlframe has never had a green run on Windows or macOS, so the first sweeps are a
+                   # survey rather than a gate. Drop the flag per-platform once one passes.
+                   "experimental": v == "3.14" or os_name != "ubuntu-latest"}
+                  for os_name in ("ubuntu-latest", "windows-latest", "macos-latest")
+                  for v in ALL_VERSIONS
+                  for g in GROUPS
+              ]
+          else:
+              # Blocking on purpose. A non-blocking leg on a platform nobody has made green yet is a leg
+              # nobody looks at; this one is meant to be looked at until it stops being red.
+              legs = [
+                  {"os": os.environ["REPRESENTATIVE_OS"], "python-version": REPRESENTATIVE,
+                   "splits": "10", "group": g, "experimental": False}
+                  for g in GROUPS
+              ]
+
+          print("matrix=" + json.dumps({"include": legs}))
+          print("full=" + ("true" if full else "false"))
+          PY
+
   test:
     name: pytest ${{ matrix.python-version }} on ${{ matrix.os }} (shard ${{ matrix.group }}/${{ matrix.splits || '10' }})
     runs-on: ${{ matrix.os }}
+    # bash on every OS (it ships on the Windows runners too): every ``run:`` block below is POSIX
+    # shell, and a Windows leg would otherwise default to pwsh and parse them differently.
+    defaults:
+      run:
+        shell: bash
     env:
       # Persist numba's on-disk JIT cache across runs AND shards (see the cache step below). Without it numba
       # recompiles the ~430 cache=True kernels cold on every shard of every run; measured locally, ~80% of a
@@ -77,46 +178,12 @@ jobs:
     # red while the ecosystem finishes catching up. The core stack (numpy /
     # numba / polars / sklearn / pyarrow / pydantic) already ships cp314 wheels.
     continue-on-error: ${{ matrix.experimental || false }}
+    needs: matrix-setup
     strategy:
       fail-fast: false
-      matrix:
-        # Linux rows 3.9-3.13 are required (blocking). The [all] extra installs
-        # on 3.13 thanks to the tool.uv `ortools>=9.12` override (see pyproject).
-        # Each (os, python) is sharded 10 ways via pytest-split so even a cold
-        # shard (numba JIT not yet cached) finishes inside the cap; once
-        # the numba cache is warm each shard is far faster.
-        os: [ubuntu-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
-        group: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
-        include:
-          # Python 3.14 stays non-blocking (experimental): the optbinning->ortools
-          # blocker is gone (override above), but the heavy [all] stack (torch /
-          # numba / ...) does not yet reliably ship cp314 wheels.
-          # Sharded 10 ways (2026-08-18), same as the required 3.9-3.13 legs: it was originally left
-          # unsharded (splits=1, single job for the WHOLE suite) so "a partial shard never masks a
-          # 3.14-specific break" -- but an unsharded run does ~10x the work of one shard on the same
-          # 360m cap / 2-vCPU runner that the required legs need full sharding just to fit inside, so
-          # it timed out on effectively every push and reported NO real pass/fail signal at all (worse
-          # than a partial one). Sharding it the same way the required legs already proved out gives 10
-          # real per-shard results instead of one perpetual timeout.
-          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "1" }
-          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "2" }
-          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "3" }
-          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "4" }
-          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "5" }
-          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "6" }
-          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "7" }
-          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "8" }
-          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "9" }
-          - { os: ubuntu-latest, python-version: "3.14", experimental: true, splits: "10", group: "10" }
-          # Windows/macOS legs dropped 2026-07-09: GitHub Actions bills macOS at 10x and Windows
-          # at 2x the free Linux-minute allowance, and this repo's sharded matrix made them
-          # the dominant cost (2,123 macOS-min + 5,675 Windows-min in a single day = ~23K Linux-
-          # minute equivalent) -- enough to exhaust the account's monthly free Actions minutes and
-          # leave every workflow, in every repo sharing the account, stuck queued. Linux-only
-          # coverage remains the blocking gate; re-add a single non-sharded representative leg per
-          # OS (not the full sharded matrix) if platform-specific regressions start slipping through.
-
+      # Built by matrix-setup from the triggering event: the representative Linux leg on a push, every
+      # OS and version on the weekly sweep. See that job for why the two cadences differ.
+      matrix: ${{ fromJSON(needs.matrix-setup.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -133,6 +200,18 @@ jobs:
       # (py3.13/3.14) and, where it does resolve, the install alone burns ~25 min
       # of the 90-min job budget so install+test overruns the cap. uv's resolver
       # has no depth ceiling and installs in parallel (~10x faster), fixing both.
+      # LightGBM's macOS wheel links against @rpath/libomp.dylib and does not bundle it, so importing
+      # lightgbm raises OSError until the OpenMP runtime is on disk. Nothing in the Python dependency
+      # graph can supply it -- it is a system library, and the macOS images do not ship one. Measured on
+      # mlframe's first macOS run (2026-09-08): 375 test files failed to COLLECT, every one of them on
+      # this single dlopen, with no actual test failures behind it.
+      #
+      # Homebrew's prefix (/opt/homebrew/opt/libomp/lib) is already one of the paths the dylib searches,
+      # so installing it is the whole fix -- no DYLD_LIBRARY_PATH needed.
+      - name: Install the OpenMP runtime LightGBM needs (macOS only)
+        if: runner.os == 'macOS'
+        run: brew install libomp
+
       - name: Set up uv
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
         with:
@@ -187,6 +266,12 @@ jobs:
           # covering the flag-off (exhaustive) path either. Fast mode still exercises every code path,
           # just with 1 representative value instead of N.
           MLFRAME_FAST: "1"
+          # Passed as environment variables rather than interpolated into the script text. They come
+          # from matrix-setup's OUTPUT now, not from a literal matrix block, and a ${{ }} expansion of
+          # a job output is substituted into the shell source before it runs -- which is what zizmor's
+          # template-injection audit flags. Read as $SHARD_SPLITS / $SHARD_GROUP they stay data.
+          SHARD_SPLITS: ${{ matrix.splits || '10' }}
+          SHARD_GROUP: ${{ matrix.group }}
         run: |
           # --dist=loadgroup: plain `-n auto` defaults to `--dist=load`, which does NOT honor
           # `@pytest.mark.xdist_group(...)` -- every group pin in the suite (GPU tests, the
@@ -210,7 +295,7 @@ jobs:
           # that pressure entirely, without slowing the other ~99% of the suite that never showed
           # this failure mode.
           pytest -m "not slow and not gpu and not multigpu" \
-            --splits ${{ matrix.splits || '10' }} --group ${{ matrix.group }} \
+            --splits "$SHARD_SPLITS" --group "$SHARD_GROUP" \
             --ignore=tests/training/test_core.py \
             -n auto \
             --dist=loadgroup \
@@ -254,7 +339,7 @@ jobs:
         # meta-test) otherwise skips this step by GitHub Actions' default "only if prior steps succeeded"
         # rule, so codecov never sees that shard's coverage.xml and the merged report stays incomplete --
         # observed as the badge never updating despite runs completing.
-        if: matrix.python-version == '3.11' && (success() || failure())
+        if: matrix.python-version == env.REPRESENTATIVE_PYTHON && matrix.os == env.REPRESENTATIVE_OS && (success() || failure())
         with:
           files: ./coverage.xml
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -267,7 +352,7 @@ jobs:
       # added together). `.coverage` is a dotfile -- same upload-artifact hidden-file gotcha as
       # `.test_durations` above.
       - name: Upload raw coverage data (for the cross-workflow merged report)
-        if: matrix.python-version == '3.11' && (success() || failure())
+        if: matrix.python-version == env.REPRESENTATIVE_PYTHON && matrix.os == env.REPRESENTATIVE_OS && (success() || failure())
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: raw-coverage-ci-${{ matrix.group }}
@@ -301,6 +386,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Deliberately still every supported version on Linux, and deliberately NOT reduced with the
+        # main matrix above. test_core.py is the file that recurrently OOM-killed the runner, so it is
+        # run serially and separately; keeping its full version spread on every push is what leaves
+        # Linux with real per-commit protection while the main matrix is pointed at macOS. It is 20
+        # short jobs, not 50 long ones, so it does not reintroduce the queue problem.
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
         group: [1, 2, 3, 4]
     steps:

@@ -14,7 +14,6 @@ Save formats:
 from __future__ import annotations
 
 import logging
-import math
 import os
 from typing import Any, ClassVar, List, Optional
 
@@ -42,15 +41,16 @@ from ._kaleido import (
     write_image_via_kaleido,
 )
 from ._plotly_interactivity import apply_interactivity, html_config
-from ._plotly_color import _rgba, _mpl_to_plotly_cmap
+from ._plotly_color import _mpl_to_plotly_cmap
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
-    _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS,
-    _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
+    _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, PX_PER_INCH,
+    CAPTION_FONTSIZE, CAPTION_WRAP_CHARS, PANEL_TITLE_FONTSIZE, SUPTITLE_WRAP_CHARS,
+    _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks, label_width_pitch_in, log_axis_dropped_note, plotly_axis_suffix, rotated_tick_pitch_in, stagger_label_rows, ticks_that_fit,
     histogram_bar_extent, low_evidence_mask, panel_title_wrap_chars, select_per_point, truncate_bar_label, wrap_annotation_text,
     wrap_text_to_width, wrap_title_lines,
 )
 
-from mlframe.reporting.colors import NORMAL_OVERLAY
+from mlframe.reporting.colors import BAR_PRIMARY, NORMAL_OVERLAY
 logger = logging.getLogger(__name__)
 
 # plotly is an optional, heavy dependency: keep the import lazy (deferred off module load) but declare it
@@ -68,18 +68,30 @@ def _go():
 
 
 # Text-wrap budgets mirror the matplotlib renderer (~90 chars/line for the full-width suptitle, ~46 for one panel); plotly annotations need ``<br>`` (not ``\n``). Wrappers live inline because strict file-ownership scopes this fix to plotly.py.
-_SUPTITLE_WRAP_CHARS = 90
-# Caption point size, shared with the width measurement that wraps it (matches the matplotlib twin).
-_CAPTION_FONTSIZE = 10
+_SUPTITLE_WRAP_CHARS = SUPTITLE_WRAP_CHARS
+# Caption point size, shared with the width measurement that wraps it AND with the matplotlib twin.
+_CAPTION_FONTSIZE = CAPTION_FONTSIZE
 # Subplot-title font. plotly's own default (16) overflows horizontally into the adjacent subplot at a
-# typical 3-column figsize; 11 matches matplotlib's panel titles.
-_PANEL_TITLE_FONTSIZE = 11
-# matplotlib's default figure dpi; ``FigureSpec.figsize`` is in matplotlib inches, so both backends must
-# use the same px-per-inch or the same spec yields two differently-sized figures.
-_PX_PER_INCH = 100
+# typical 3-column figsize.
+_PANEL_TITLE_FONTSIZE = PANEL_TITLE_FONTSIZE
+# matplotlib's default gridline (#b0b0b0) at the alpha=0.3 every panel draws it with, flattened against the
+# white panel background so plotly's opaque gridlines read at the same weight.
+_GRID_COLOR = "#e7e7e7"
+# One definition in ._shared_helpers: the heatmap tick budget converts a plotly pixel extent back to inches
+# and has to agree with whatever this renderer sized the figure at.
+_PX_PER_INCH = PX_PER_INCH
 # Past this many bar categories thin x-tick labels to ~20 evenly-spaced (matches matplotlib); truncate labels over _BAR_XTICK_MAXLEN chars so long feature names don't crowd.
+# Labels stamped just above a panel (vspan regimes, vline change points) all share one y, so neighbours
+# overprint. Staggering across a few rows separates them without arrows or a de-collision solver.
+# How many rows a stack of marker labels may use. Three, not two: a threshold sweep routinely carries three
+# operating points within a percent of each other, and two rows put the first and third back on top of one
+# another.
+_STACKED_LABEL_ROWS = 3
+_STACKED_LABEL_SHIFT_PX = 11
+_VIOLIN_LABEL_MAXLEN = 20  # matches the matplotlib twin; a 30-deg rotated label projects most of its length
+# Past this many categories the vertical branch switches to explicit, rotated tick text; how many of
+# them survive is then decided by ``_bar_tick_budget`` from the axis's real length.
 _BAR_XTICK_THIN_THRESHOLD = 25
-_BAR_XTICK_KEEP = 20
 # 60, not 24: the matplotlib renderer truncates nothing at all and stays readable at the same figsize
 # because both backends already rotate these labels -- so a 24-char cap only made the plotly twin LESS
 # informative than its matplotlib counterpart, turning e.g. "job_posted_at_day_of_year_cos" into
@@ -125,6 +137,13 @@ def _plotlyjs_mode():
     if mode == "directory":
         return "directory"  # one shared plotly.min.js beside the reports; smallest total for a whole run
     return "cdn"
+
+
+def pd_timestamp(value: Any) -> Any:
+    """``value`` as a pandas Timestamp; the vline shape needs a real datetime, not the raw label."""
+    import pandas as pd
+
+    return pd.Timestamp(value)
 
 
 def _marker_symbol(msym: str) -> str:
@@ -238,6 +257,12 @@ class PlotlyRenderer:
     _colorbar_placement: ClassVar[Any]
     # Bound at the bottom of this module from ``._plotly_scatter``, same as the two families above.
     _scatter: ClassVar[Any]
+    # Carved into ._plotly_line and bound at the bottom of this module, like the families above.
+    _line: ClassVar[Any]
+    _label_rows: ClassVar[Any]
+    _is_datetime_like: ClassVar[Any]
+    _as_numeric_axis: ClassVar[Any]
+    _panel_x_span: ClassVar[Any]
 
     def render(self, spec: FigureSpec, *, static_legend: bool = False) -> Any:
         """Build a plotly figure from the spec.
@@ -296,13 +321,23 @@ class PlotlyRenderer:
         # with the tallest title in ANY row.
         _max_title_lines = max((t.count("<br>") + 1) for t in subplot_titles if t) if any(subplot_titles) else 1
 
+        # A colorbar is pinned just outside its own subplot's right edge, and its TICK LABELS stick out further
+        # still -- straight into the next column's y-axis title. The gap has to hold the bar, its labels and the
+        # neighbour's axis furniture, which the default 0.08 does not on a multi-column figure.
+        _has_colorbar = any(isinstance(pn, HeatmapPanelSpec) for rw in spec.panels for pn in rw if pn is not None)
+        _hspace = 0.08
+        if _has_colorbar and cols > 1:
+            from ._plotly_heatmap import _COLORBAR_GUTTER_PX, _NEIGHBOUR_AXIS_PX
+
+            _hspace = max(_hspace, (_COLORBAR_GUTTER_PX + _NEIGHBOUR_AXIS_PX) / (spec.figsize[0] * _PX_PER_INCH))
+
         subplots_kwargs = dict(
             rows=rows, cols=cols,
             specs=sub_specs,
             subplot_titles=subplot_titles,
             shared_xaxes=spec.sharex,
             shared_yaxes=spec.sharey,
-            horizontal_spacing=0.08,
+            horizontal_spacing=_hspace,
             # Roomier vertical gap so a row's subplot-title annotation (stamped just above the subplot domain) clears the data/xticks of the row above and wrapped multi-line titles don't overlap the row beneath; capped at plotly's 1/(rows-1) ceiling.
             vertical_spacing=(min(0.16 + 0.03 * max(_max_title_lines - 1, 0), 0.9 / max(rows - 1, 1)) if rows > 1 else 0.16),
         )
@@ -314,6 +349,11 @@ class PlotlyRenderer:
             subplots_kwargs["column_widths"] = [c / total for c in spec.col_width_ratios]
 
         fig = make_subplots(**subplots_kwargs)
+        # Panels are drawn before ``update_layout`` sets width/height below, so a panel that needs to know how
+        # much room it has (the heatmap's tick budget) cannot read it off the figure yet. Stamp the requested
+        # size on the figure now, in the same px-per-inch the final layout uses, so the two agree.
+        fig.layout.width = int(spec.figsize[0] * _PX_PER_INCH)
+        fig.layout.height = int(spec.figsize[1] * _PX_PER_INCH)
 
         for ann in fig.layout.annotations:
             ann.font = dict(size=_PANEL_TITLE_FONTSIZE)
@@ -347,11 +387,11 @@ class PlotlyRenderer:
         # never overlaps the axes or the below-figure legend.
         n_caption_lines = 0
         if spec.caption:
-            wrapped_caption = _wrap_text_to_figure(spec.caption, fontsize=_CAPTION_FONTSIZE, width_in=spec.figsize[0], fallback_chars=_SUPTITLE_WRAP_CHARS)
+            wrapped_caption = _wrap_text_to_figure(spec.caption, fontsize=_CAPTION_FONTSIZE, width_in=spec.figsize[0], fallback_chars=CAPTION_WRAP_CHARS)
             n_caption_lines = wrapped_caption.count("<br>") + 1
             fig.add_annotation(
                 text=wrapped_caption, xref="paper", yref="paper", x=0.5, y=0, xanchor="center", yanchor="top",
-                yshift=-((90 if static_legend else 30) + 8), showarrow=False, font=dict(size=9, color="#595959"),
+                yshift=-((90 if static_legend else 30) + 8), showarrow=False, font=dict(size=_CAPTION_FONTSIZE, color="#595959"),
             )
         bottom_margin = (90 if static_legend else 50) + n_caption_lines * 16
 
@@ -392,6 +432,24 @@ class PlotlyRenderer:
                 # TRACK across instead of running one very tall single file down the side.
                 orientation="h" if _ncol > 1 else "v",
             ))
+        # Plotly's cartesian gridlines are drawn at full strength; matplotlib's are alpha=0.3 over the same
+        # data, so the two backends printed the same chart at two visual densities. Pin the weight here, once,
+        # rather than on every axis call.
+        fig.update_xaxes(gridcolor=_GRID_COLOR, gridwidth=1)
+        fig.update_yaxes(gridcolor=_GRID_COLOR, gridwidth=1)
+        # Heatmap ticks are budgeted against the axes' real extent, and the margins that decide that extent
+        # are only final here -- while the panels were being drawn they were still plotly's defaults.
+        from ._plotly_heatmap import apply_heatmap_tick_budget
+
+        for _r, _row in enumerate(spec.panels, start=1):
+            for _c, _panel in enumerate(_row, start=1):
+                if isinstance(_panel, HeatmapPanelSpec):
+                    apply_heatmap_tick_budget(fig, _panel, _r, _c)
+                elif isinstance(_panel, BarPanelSpec):
+                    self._bar_tick_budget(fig, _panel, _r, _c)
+                elif isinstance(_panel, ViolinPanelSpec):
+                    _kept = [(np.asarray(g, dtype=float), lab) for g, lab in zip(_panel.groups, _panel.group_labels)]
+                    self._violin_tick_budget(fig, [(g[np.isfinite(g)], lab) for g, lab in _kept if g[np.isfinite(g)].size > 0], _r, _c)
         apply_interactivity(fig, spec, static_legend=static_legend)
         return fig
 
@@ -519,14 +577,26 @@ class PlotlyRenderer:
             if len(bin_centers) > 0:
                 overlay_x_lo, overlay_x_hi = histogram_bar_extent(bin_centers, width)
         else:
-            fig.add_trace(
-                go.Histogram(x=np.asarray(p.values),
-                             nbinsx=p.bins,
-                             histnorm="probability density" if p.density else "",
-                             marker=dict(color=p.color, line=dict(color="white", width=0.4)),
-                             opacity=0.6, showlegend=False),
-                row=row, col=col,
-            )
+            # Matplotlib's twin drops non-finite values before binning and says so when nothing survives;
+            # go.Histogram silently renders an empty framed panel instead, which reads as "no data at all".
+            raw_vals = np.asarray(p.values, dtype=float).ravel()
+            raw_vals = raw_vals[np.isfinite(raw_vals)]
+            if raw_vals.size:
+                fig.add_trace(
+                    go.Histogram(x=raw_vals,
+                                 nbinsx=p.bins,
+                                 histnorm="probability density" if p.density else "",
+                                 marker=dict(color=p.color, line=dict(color="white", width=0.4)),
+                                 opacity=0.6, showlegend=False),
+                    row=row, col=col,
+                )
+            else:
+                # A subplot cell holding no trace at all is never laid out, and an annotation anchored to its
+                # (undrawn) axes silently lands on a neighbouring panel. One empty scatter forces the cell to
+                # exist, which also gives the reader the same framed-but-empty axes matplotlib draws.
+                fig.add_trace(go.Scatter(x=[], y=[], mode="markers", showlegend=False, hoverinfo="skip"), row=row, col=col)
+                fig.add_annotation(text="no finite values", x=0.5, y=0.5, xref="x domain", yref="y domain",
+                                   showarrow=False, font=dict(size=9), row=row, col=col)
 
         if p.overlay_normal is not None:
             mu, sigma = p.overlay_normal
@@ -547,7 +617,29 @@ class PlotlyRenderer:
         if p.xlim is not None:
             fig.update_xaxes(range=list(p.xlim), row=row, col=col)
         fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid)
-        fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid, type="log" if p.yscale == "log" else "linear")
+        # Tick DENSITY, not just the scale type. The matplotlib twin installs a LogLocator with the 2/5
+        # subdivisions (or a MaxNLocator on a linear axis) because the stock locators label one decade on a
+        # histogram spanning a decade and a bit -- an axis carrying a scale name and no readable values.
+        # Setting only ``type="log"`` here left this backend with exactly that.
+        # "D2" is plotly's own name for the 1/2/5 subdivisions within each decade -- the same set the
+        # matplotlib LogLocator asks for with subs=(1, 2, 5).
+        # Same notice the matplotlib twin draws: an empty bin vanishes entirely on a log axis. The counts
+        # have to be computed here rather than read back off the trace, because ``go.Histogram`` bins
+        # internally and carries no y values at all.
+        _log_counts: Any = ()
+        if p.yscale == "log":
+            if heights is not None:
+                _log_counts = np.asarray(heights, dtype=float)
+            else:
+                _raw = np.asarray(p.values, dtype=float).ravel()
+                _raw = _raw[np.isfinite(_raw)]
+                _log_counts = np.histogram(_raw, bins=p.bins)[0] if _raw.size else ()
+        _log_note = log_axis_dropped_note(_log_counts, p.yscale)
+        if _log_note:
+            fig.add_annotation(x=1.0, y=1.0, xref="x domain", yref="y domain", xanchor="right", yanchor="top",
+                               text=_log_note, showarrow=False, font=dict(size=7, color="#595959"), row=row, col=col)
+        _scale_kw = dict(type="log", dtick="D2", tickformat=".3~g") if p.yscale == "log" else dict(type="linear", nticks=6)
+        fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid, **_scale_kw)
 
     # ``_confusion_margins`` / ``_colorbar_placement`` / ``_heatmap`` live in ``._plotly_heatmap`` and are
     # bound onto this class at the bottom of the module. Carved out to keep this file under the house
@@ -605,210 +697,67 @@ class PlotlyRenderer:
         else:
             # A colours tuple as long as ``values`` is PER-BAR, not per-series: plotly's marker.color accepts an
             # array. Reading ``colors[0]`` painted every bar the colour of the first one.
-            _bar_color = list(p.colors) if (p.colors and len(p.colors) == len(p.values) and len(p.colors) > 1) else (p.colors[0] if p.colors else "steelblue")
+            _bar_color = list(p.colors) if (p.colors and len(p.colors) == len(p.values) and len(p.colors) > 1) else (p.colors[0] if p.colors else BAR_PRIMARY)
             _add_bar(p.values, _bar_color, "", False, p.hatches[0] if p.hatches else "", p.value_err)
 
         # Reference line perpendicular to the bars (global metric). vline for horizontal bars (value axis is x),
         # hline for vertical bars (value axis is y).
         if p.hline is not None:
             hval, hcolor, hlabel = p.hline
-            line_kw = dict(line=dict(color=hcolor, dash="dash", width=1.3), annotation_text=hlabel or None, annotation_position="top right", row=row, col=col)
-            if horizontal:
-                fig.add_vline(x=hval, **line_kw)
-            else:
-                fig.add_hline(y=hval, **line_kw)
+            # Mirrors the matplotlib twin: a symmetric band draws both bounds and annotates only the first, so
+            # the reader sees the threshold on the side their data actually falls on.
+            for _i, _v in enumerate((hval, -hval) if p.hline_symmetric else (hval,)):
+                # A vline's label belongs at the line it names. "top right" pinned it to the panel corner,
+                # metres from the vertical reference on a horizontal bar chart and usually on top of the
+                # longest bar; matplotlib puts it in a legend that loc="best" moves out of the way. The
+                # label is placed by hand rather than through ``annotation_position`` because every "top"
+                # variant that library offers sits in the same strip as the subplot title, which is the
+                # collision this fix exists to avoid -- it has to hang INSIDE the plot area.
+                _label_here = (hlabel or None) if _i == 0 else None
+                line_kw = dict(line=dict(color=hcolor, dash="dash", width=1.3), row=row, col=col)
+                if horizontal:
+                    fig.add_vline(x=_v, **line_kw)
+                    if _label_here:
+                        fig.add_annotation(x=_v, y=1.0, yref="y domain", yanchor="top", xanchor="left", xshift=3, yshift=-3,
+                                           text=_label_here, showarrow=False, font=dict(size=9, color=hcolor), row=row, col=col)
+                else:
+                    fig.add_hline(y=_v, annotation_text=_label_here, annotation_position="top right", annotation_font=dict(size=9, color=hcolor), **line_kw)
 
         if horizontal:
-            if any(len(str(c)) > _BAR_XTICK_MAXLEN for c in cats):  # truncate long feature-name labels on the y-axis so they don't crowd the panel
-                fig.update_yaxes(tickmode="array", tickvals=cats, ticktext=[_truncate_label(c) for c in cats], row=row, col=col)
+            # THINNED as well as truncated, matching the matplotlib twin and this renderer's own VERTICAL
+            # branch -- only the horizontal one was left out. A 200-row feature-importance chart had a clean
+            # 20-label axis in the PNG and an unreadable band of overlapping text in the HTML, from one spec.
+            # The bars stay one per category; only the labels subsample.
+            # Truncation here; the SUBSAMPLING runs after the layout is final (``_bar_tick_budget``), because
+            # the axis length it has to fit into is not known while panels are being drawn.
+            fig.update_yaxes(tickmode="array", tickvals=list(cats), ticktext=[_truncate_label(c, keep_tail=p.label_keep_tail) for c in cats], row=row, col=col)
             fig.update_yaxes(autorange="reversed", row=row, col=col)
-            fig.update_xaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
-            fig.update_yaxes(title_text=p.xlabel, row=row, col=col)
+            # ``xlabel`` names the VALUE and ``ylabel`` the CATEGORY, whatever the orientation -- that is what
+            # every horizontal-bar builder in charts/ passes ("ECE (lower = better calibrated)" / "subgroup",
+            # "quality (higher is better)" / "metric") and what the matplotlib twin draws. Swapping them here
+            # put "subgroup", "model" and "metric" along the value axis of six chart types in the HTML report
+            # while the PNG of the same spec read correctly.
+            fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid)
+            fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=False)
         else:
             n_cat = len(cats)
             # Rotate + truncate long category labels; thin to ~20 evenly-spaced past 25 categories (matching matplotlib) so they don't smear.
             tickangle = -p.xtick_rotation if p.xtick_rotation else 0
             needs_trunc = any(len(str(c)) > _BAR_XTICK_MAXLEN for c in cats)
             if n_cat > _BAR_XTICK_THIN_THRESHOLD:
-                step = math.ceil(n_cat / _BAR_XTICK_KEEP)
-                sel = list(range(0, n_cat, step))
                 fig.update_xaxes(tickmode="array",
-                                 tickvals=[cats[i] for i in sel],
-                                 ticktext=[_truncate_label(cats[i]) for i in sel],
+                                 tickvals=list(cats),
+                                 ticktext=[_truncate_label(c, keep_tail=p.label_keep_tail) for c in cats],
                                  tickangle=tickangle if p.xtick_rotation else -45,
-                                 row=row, col=col, title_text=p.xlabel)
+                                 row=row, col=col, title_text=p.xlabel, showgrid=False)
             elif needs_trunc:
                 fig.update_xaxes(tickmode="array", tickvals=cats,
-                                 ticktext=[_truncate_label(c) for c in cats],
+                                 ticktext=[_truncate_label(c, keep_tail=p.label_keep_tail) for c in cats],
                                  tickangle=tickangle if p.xtick_rotation else -30,
-                                 row=row, col=col, title_text=p.xlabel)
+                                 row=row, col=col, title_text=p.xlabel, showgrid=False)
             else:
-                fig.update_xaxes(title_text=p.xlabel, row=row, col=col, tickangle=tickangle)
+                fig.update_xaxes(title_text=p.xlabel, row=row, col=col, tickangle=tickangle, showgrid=False)
             fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
-
-    def _line(self, fig, p: LinePanelSpec, row: int, col: int) -> None:
-        """Render a multi-series line panel: per-series style/color/secondary-y/fill-to-baseline, an optional uncertainty band, vspans/vlines (datetime-safe), and point markers; secondary-y series get their own right-hand axis when any series requests it."""
-        go = _go()
-        from mlframe.reporting.colors import line_color
-
-        ys = p.y if isinstance(p.y, tuple) else (p.y,)
-        xs_per_series = isinstance(p.x, tuple)
-        labels = p.series_labels if p.series_labels is not None else (None,) * len(ys)
-        styles = p.line_styles if p.line_styles is not None else ("-",) * len(ys)
-        cols = p.colors if p.colors is not None else tuple(line_color(i) for i in range(len(ys)))
-        sec = _per_series_flags(p.secondary_y, len(ys))
-        fills = _per_series_flags(p.fill_to_baseline, len(ys))
-        has_secondary = any(sec)
-        # matplotlib linestyle tokens -> plotly dash; "markers" / "lines+markers" select the trace mode.
-        _STYLE_MAP = {"-": "solid", "--": "dash", ":": "dot", "-.": "dashdot"}
-
-        def _xi(i):
-            """Return the x-values for series ``i``: per-series ``p.x[i]`` when the spec carries a tuple of x-arrays, else the single shared ``p.x``."""
-            v = p.x[i] if xs_per_series else p.x
-            return np.asarray(v) if isinstance(v, np.ndarray) else v
-
-        if p.band is not None:
-            x0 = _xi(0)
-            lower, upper = np.asarray(p.band[0]), np.asarray(p.band[1])
-            band_color = p.band_color if p.band_color is not None else cols[0]
-            fig.add_trace(
-                go.Scatter(x=np.concatenate([x0, x0[::-1]]),
-                           y=np.concatenate([upper, lower[::-1]]),
-                           fill="toself", fillcolor=_rgba(band_color, 0.2),
-                           line=dict(width=0), hoverinfo="skip",
-                           name=p.band_label if p.band_label is not None else "band", showlegend=bool(p.band_label)),
-                row=row, col=col,
-            )
-
-        for i, y in enumerate(ys):
-            token = styles[i % len(styles)]  # nosec B105 - not a credential -- config/format token label or sentinel string constant
-            if token == "markers":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                mode, dash = "markers", "solid"  # nosec B105 - not a credential -- config/format token label or sentinel string constant
-            elif token == "lines+markers":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                mode, dash = "lines+markers", "solid"
-            else:
-                mode, dash = "lines", _STYLE_MAP.get(token, "solid")
-            yv = np.asarray(y) if isinstance(y, np.ndarray) else y
-            # Area fill under the curve down to the panel baseline. plotly has no "fill to an arbitrary y", and
-            # "tonexty" fills to the PREVIOUS TRACE -- so with a non-zero baseline it shaded the gap to whatever
-            # series happened to precede this one, a region that encodes nothing, while matplotlib shaded the gap
-            # to `fill_baseline`. Lay down an invisible constant-baseline trace first so "tonexty" has the right
-            # thing to fill against and both backends shade the same region.
-            trace_kw = {}
-            if fills[i]:
-                if p.fill_baseline == 0.0:
-                    trace_kw["fill"] = "tozeroy"
-                else:
-                    _bx = _xi(i)
-                    fig.add_trace(
-                        go.Scatter(
-                            x=_bx,
-                            y=np.full(len(_bx), float(p.fill_baseline)),
-                            mode="lines",
-                            line=dict(width=0),
-                            hoverinfo="skip",
-                            showlegend=False,
-                        ),
-                        row=row, col=col, **({"secondary_y": sec[i]} if has_secondary else {}),
-                    )
-                    trace_kw["fill"] = "tonexty"
-                trace_kw["fillcolor"] = _rgba(cols[i % len(cols)], 0.2)
-                if p.step_fill:
-                    # matplotlib's step="post" steps the FILL EDGE and leaves the line straight; "hv" here stepped
-                    # the line too, so the same spec drew a staircase on one backend and a polyline on the other.
-                    # The fill edge is the shared meaning, so the line stays straight and the fill is stepped by
-                    # emitting the baseline boundary as a step trace.
-                    trace_kw.setdefault("line_shape", "linear")
-            sec_kw = {"secondary_y": sec[i]} if has_secondary else {}
-            fig.add_trace(
-                go.Scatter(x=_xi(i), y=yv,
-                           mode=mode,
-                           line=dict(color=cols[i % len(cols)], dash=dash),
-                           marker=dict(color=cols[i % len(cols)], size=5),
-                           name=labels[i] if i < len(labels) else None,
-                           # Per-series, not any(labels) applied identically to every trace: the latter set
-                           # showlegend=True on an UNLABELED series whenever ANY other series in the same
-                           # panel had a label, rendering a blank/"undefined" legend row for it. matplotlib
-                           # doesn't have this problem (ax.get_legend_handles_labels() omits unlabeled
-                           # artists automatically).
-                           showlegend=bool(labels[i]) if i < len(labels) else False,
-                           **trace_kw),
-                row=row, col=col, **sec_kw,
-            )
-
-        for span in p.vspans or ():
-            vx0, vx1, vcolor, valpha = span[0], span[1], span[2], span[3]
-            vlabel = span[4] if len(span) > 4 else ""
-            fig.add_vrect(x0=vx0, x1=vx1, fillcolor=_rgba(vcolor, valpha), line_width=0, layer="below", row=row, col=col)
-            if vlabel:
-                # No native per-vrect legend in plotly; the invisible scatter proxy carries the label INTO the
-                # legend, and the annotation carries it onto the band itself -- which is the only one that survives
-                # on a multi-panel interactive figure, where the legend is off (hover identifies the series).
-                fig.add_trace(
-                    go.Scatter(x=[None], y=[None], mode="markers",
-                               marker=dict(size=8, color=_rgba(vcolor, max(valpha, 0.3)), symbol="square"),
-                               name=vlabel, showlegend=True),
-                    row=row, col=col,
-                )
-                fig.add_annotation(x=vx0, y=1.0, yref="y domain", yanchor="bottom", xanchor="left",
-                                   text=vlabel, showarrow=False, font=dict(size=8, color=vcolor),
-                                   row=row, col=col)
-        for vx, vcolor, vlabel in p.vlines or ():
-            # add_vline does arithmetic on x that raises on a datetime axis; a line-shape with the x in data coords
-            # and y spanning the panel's y-domain works on numeric AND datetime axes alike.
-            self._add_vline_datetime_safe(fig, vx, vcolor, vlabel, row, col)
-
-        for mx, my, mlabel, mcolor, msym in p.point_markers or ():
-            fig.add_trace(
-                go.Scatter(x=[mx], y=[my], mode="markers+text",
-                           marker=dict(color=mcolor, size=13, symbol=_marker_symbol(msym),
-                                       line=dict(color="black", width=0.6)),
-                           text=[mlabel or ""], textposition="bottom right", textfont=dict(size=8),
-                           name=mlabel or None, showlegend=bool(mlabel)),
-                row=row, col=col,
-            )
-
-        # ``x_is_time`` with a NUMERIC x means epoch nanoseconds; rotating the labels (all this used to do)
-        # leaves them reading "1.62e18". ``epoch_ns_ticks`` no-ops on an already-datetime axis.
-        # See the matplotlib twin: builders set ylim deliberately and no line-panel path honoured it.
-        _ylim = getattr(p, "ylim", None)
-        if _ylim is not None:
-            fig.update_yaxes(range=[float(_ylim[0]), float(_ylim[1])], row=row, col=col, secondary_y=False)
-        _xkw: dict = dict(title_text=p.xlabel, row=row, col=col, showgrid=p.grid, tickangle=-30 if p.x_is_time else 0)
-        _tv, _tt = epoch_ns_ticks(_xi(0)) if p.x_is_time else (None, None)
-        if _tv is not None:
-            _xkw.update(tickmode="array", tickvals=_tv, ticktext=_tt)
-        fig.update_xaxes(**_xkw)
-        fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid, secondary_y=False)
-        if has_secondary:
-            fig.update_yaxes(title_text=p.secondary_ylabel, row=row, col=col, secondary_y=True, showgrid=False)
-
-    @staticmethod
-    def _is_datetime_like(v) -> bool:
-        """True if ``v`` is a ``numpy.datetime64`` or a stdlib ``datetime``/``date``; gates the datetime-safe vline path since ``fig.add_vline`` raises ``TypeError`` on datetime x."""
-        import datetime as _dt
-        if isinstance(v, (np.datetime64,)):
-            return True
-        if isinstance(v, (_dt.datetime, _dt.date)):
-            return True
-        return False
-
-    def _add_vline_datetime_safe(self, fig, vx, vcolor, vlabel, row: int, col: int) -> None:
-        """Vertical reference line that works on numeric AND datetime x-axes.
-
-        ``fig.add_vline`` computes ``x1 - x0`` internally, which raises ``TypeError`` on datetime x. For datetime
-        markers we instead add a line shape with the x in data coords and y spanning the subplot's y-domain (the
-        temporal change-point markers that previously fell back to vspans now render as true vlines)."""
-        if self._is_datetime_like(vx):
-            import pandas as pd
-            x_coord = pd.Timestamp(vx)
-            fig.add_shape(
-                type="line", x0=x_coord, x1=x_coord, y0=0, y1=1, yref="y domain", xref="x", line=dict(color=vcolor, dash="dot", width=1.2), row=row, col=col
-            )
-            if vlabel:
-                fig.add_annotation(x=x_coord, y=1, yref="y domain", yanchor="bottom", text=vlabel, showarrow=False, font=dict(size=9), row=row, col=col)
-        else:
-            fig.add_vline(x=vx, line=dict(color=vcolor, dash="dot", width=1.2), annotation_text=vlabel or None, annotation_position="top", row=row, col=col)
 
     def _violin(self, fig, p: ViolinPanelSpec, row: int, col: int) -> None:
         """Render one ``go.Violin`` trace per group in ``p.groups`` (tab10 color cycle for cross-backend parity with matplotlib), with an optional inner box overlay.
@@ -833,15 +782,33 @@ class PlotlyRenderer:
             color = line_color(i)
             fig.add_trace(
                 go.Violin(
-                    y=group, name=label, box_visible=p.show_box, meanline_visible=False, line_color=color, fillcolor=color, opacity=0.6, showlegend=False
+                    # The trace NAME is the category label on the x axis, so it is truncated here the same way
+                    # and to the same length as the matplotlib twin -- 20 rotated 30-char class names overlap
+                    # into a staircase on either backend. The full name stays on the hover.
+                    y=group, name=_truncate_label(label, _VIOLIN_LABEL_MAXLEN, keep_tail=6), box_visible=False,
+                    meanline_visible=False, line_color=color, fillcolor=color, opacity=0.6, showlegend=False,
+                    hovertext=str(label), hoverinfo="y+text",
                 ),
                 row=row,
                 col=col,
             )
         if p.show_box:
-            # 5th/95th percentile whiskers, as matplotlib's `whis=(5, 95)` draws, rather than plotly's default
-            # 1.5x IQR fences -- the two mark different quantities.
-            fig.update_traces(box=dict(visible=True), quartilemethod="linear", selector=dict(type="violin"), row=row, col=col)
+            # matplotlib overlays a real boxplot with `whis=(5, 95)`. `box_visible` plus `quartilemethod`
+            # does NOT reproduce that: quartilemethod only picks how the quartiles are COMPUTED, and
+            # go.Violin's inner box always whiskers to the data range -- so the same group showed a visibly
+            # longer whisker in the HTML than in the PNG. Draw the box explicitly with the fences named.
+            for group, label in drawable:
+                _q1, _med, _q3 = (float(v) for v in np.percentile(group, (25, 50, 75)))
+                _lo, _hi = (float(v) for v in np.percentile(group, (5, 95)))
+                fig.add_trace(
+                    go.Box(
+                        x=[_truncate_label(label, _VIOLIN_LABEL_MAXLEN, keep_tail=6)],
+                        q1=[_q1], median=[_med], q3=[_q3], lowerfence=[_lo], upperfence=[_hi],
+                        boxpoints=False, width=0.12, showlegend=False, hoverinfo="skip",
+                        line=dict(color="black", width=0.9), fillcolor="rgba(0,0,0,0)",
+                    ),
+                    row=row, col=col,
+                )
         if empty:
             # A violin that silently vanishes reads as "this group has no spread", which is a different statement
             # from "this group has no data". matplotlib names the dropped groups in the panel title; plotly's
@@ -853,6 +820,64 @@ class PlotlyRenderer:
             )
         fig.update_xaxes(title_text=p.xlabel, row=row, col=col, tickangle=-30)
         fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
+        self._violin_tick_budget(fig, drawable, row, col)
+
+    def _bar_tick_budget(self, fig, p: BarPanelSpec, row: int, col: int) -> None:
+        """Subsample the bar category labels to what the axis can hold, as the matplotlib twin does.
+
+        A flat "past 25 categories keep 20" cancelled out the size a builder deliberately bought:
+        slice_finder and category_discriminability both grow the figure half an inch per bar, so a 40-bar
+        chart had room for every label and twenty of them were dropped anyway.
+        """
+        from ._plotly_heatmap import _cell_domains
+
+        _horizontal = getattr(p, "orientation", "vertical") == "horizontal"
+        _axis = fig.layout[("yaxis" if _horizontal else "xaxis") + plotly_axis_suffix(fig, row, col, len(fig._grid_ref[0]) if fig._grid_ref else 1)]
+        _text = list(_axis.ticktext or ())
+        if not _text:
+            return
+        _dom = _cell_domains(fig, row, col)
+        _extent_in = None
+        if _dom is not None and fig.layout.width and fig.layout.height:
+            (_x0, _x1), (_y0, _y1), _, _ = _dom
+            _m = fig.layout.margin
+            if _horizontal:
+                _extent_in = (float(_y1) - float(_y0)) * max(float(fig.layout.height) - float(_m.t or 0) - float(_m.b or 0), 1.0) / _PX_PER_INCH
+            else:
+                _extent_in = (float(_x1) - float(_x0)) * max(float(fig.layout.width) - float(_m.l or 0) - float(_m.r or 0), 1.0) / _PX_PER_INCH
+        if _horizontal:
+            _pitch = rotated_tick_pitch_in(9, 0)
+        else:
+            _rot = float(_axis.tickangle or 0)
+            _pitch = rotated_tick_pitch_in(9, _rot) if _rot else label_width_pitch_in(_text, 9)
+        _keep = _thin_tick_positions(len(_text), ticks_that_fit(_extent_in, len(_text), pitch_in=_pitch))
+        if len(_keep) < len(_text):
+            _vals = list(_axis.tickvals or ())
+            _axis.tickvals = [_vals[i] for i in _keep] if _vals else None
+            _axis.ticktext = [_text[i] for i in _keep]
+
+    def _violin_tick_budget(self, fig, drawable, row: int, col: int) -> None:
+        """Thin the violin category labels to what the panel can hold, as the matplotlib twin does.
+
+        Only matplotlib thinned them, so the same 20-class panel showed 18 labels in the PNG and all 20 --
+        overlapping at -30 degrees -- in the HTML. Every violin still draws; only the labels subsample.
+        """
+        _names = [_truncate_label(lab, _VIOLIN_LABEL_MAXLEN, keep_tail=6) for _, lab in drawable]
+        if not _names:
+            return
+        # Local import: the heatmap family is carved into a sibling that is bound onto this class at the
+        # BOTTOM of this module, so a top-level import here would depend on that ordering.
+        from ._plotly_heatmap import _cell_domains
+
+        _dom = _cell_domains(fig, row, col)
+        _w_px = fig.layout.width
+        _w_in = None
+        if _dom is not None and _w_px:
+            (_x0, _x1), _, _, _ = _dom
+            _m = fig.layout.margin
+            _w_in = (float(_x1) - float(_x0)) * max(float(_w_px) - float(_m.l or 0) - float(_m.r or 0), 1.0) / _PX_PER_INCH
+        _keep = _thin_tick_positions(len(_names), ticks_that_fit(_w_in, len(_names), pitch_in=rotated_tick_pitch_in(8, 30)))
+        fig.update_xaxes(row=row, col=col, tickmode="array", tickvals=[_names[i] for i in _keep], ticktext=[_names[i] for i in _keep])
 
 
 __all__ = ["PlotlyRenderer"]
@@ -868,6 +893,23 @@ PlotlyRenderer._network = _network_impl
 # Same pattern for the heatmap family (``_heatmap`` / ``_confusion_margins`` / ``_colorbar_placement``),
 # carved out for the same LOC reason. ``_colorbar_placement`` is a staticmethod on the class, so it is
 # wrapped back into one -- binding the bare function would silently pass ``self`` as ``fig``.
+# Same pattern for the line family, carved out for the same LOC reason. ``_line`` and the marker-label
+# helpers it needs are bound back onto the class; the staticmethods are re-wrapped, since binding the bare
+# function would silently pass ``self`` as the first argument.
+from ._plotly_line import (
+    _as_numeric_axis as _as_numeric_axis_impl,
+    _is_datetime_like as _is_datetime_like_impl,
+    _label_rows as _label_rows_impl,
+    _line as _line_impl,
+    _panel_x_span as _panel_x_span_impl,
+)
+
+PlotlyRenderer._line = _line_impl
+PlotlyRenderer._label_rows = _label_rows_impl
+PlotlyRenderer._is_datetime_like = staticmethod(_is_datetime_like_impl)
+PlotlyRenderer._as_numeric_axis = staticmethod(_as_numeric_axis_impl)
+PlotlyRenderer._panel_x_span = classmethod(_panel_x_span_impl)
+
 from ._plotly_heatmap import (
     _colorbar_placement as _colorbar_placement_impl,
     _confusion_margins as _confusion_margins_impl,

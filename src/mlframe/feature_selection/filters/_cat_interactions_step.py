@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import Tuple
 
 import numpy as np
 
@@ -75,7 +76,7 @@ def _quantile_bin_with_edges(raw: np.ndarray, n_bins: int) -> tuple:
 # ============================================================================
 
 
-def enumerate_candidate_pairs(candidate_idxs_arr, nbins, max_combined):
+def enumerate_candidate_pairs(candidate_idxs_arr: np.ndarray, nbins: np.ndarray, max_combined: int) -> Tuple[np.ndarray, np.ndarray]:
     """Every unordered candidate pair whose combined cardinality clears the budget, in nested-loop order.
 
     Module-level so a test can execute THIS code rather than a copy of it. The identity test that guards

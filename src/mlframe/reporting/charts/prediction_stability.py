@@ -29,6 +29,7 @@ from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels
 from mlframe.reporting.charts._sampling import prebin_histogram, subsample_for_density
 from mlframe.reporting.charts._rank_stats import spearman
 from mlframe.reporting.spec import (
+    FIGSIZE_WIDE,
     AnnotationPanelSpec, FigureSpec, HistogramPanelSpec, LinePanelSpec, PanelSpec, ScatterPanelSpec,
 )
 
@@ -253,7 +254,7 @@ def compose_prediction_stability_figure(
             "No per-row spread is defined for a single member.",
             title="",
         )
-        return FigureSpec(suptitle=suptitle, panels=((ann,),), figsize=(8.0, 3.5))
+        return FigureSpec(suptitle=suptitle, panels=((ann,),), figsize=FIGSIZE_WIDE)
 
     panels = [
         _spread_histogram_panel(res.spread_std, bins=spread_bins),

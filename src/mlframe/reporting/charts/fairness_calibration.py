@@ -23,6 +23,7 @@ import numpy as np
 from mlframe.reporting.charts._calibration_chart_shared import is_single_class, null_ece_scale, reliability_points
 from mlframe.reporting.charts._group_codes import group_codes_capped
 from mlframe.reporting.spec import AnnotationPanelSpec, BarPanelSpec, FigureSpec, LinePanelSpec, PanelSpec
+from mlframe.reporting.colors import LINE_PALETTE, line_color, line_style
 
 # Below this many finite rows OR with a single class present a group's reliability curve / ECE is meaningless noise;
 # annotate the group and skip its curve (mirrors the iter-1 degenerate-input guard style).
@@ -31,10 +32,10 @@ _MIN_GROUP_ROWS: int = 30
 _GAP_GREEN: float = 0.05
 _GAP_RED: float = 0.10
 # Distinct colours cycled across group curves / bars.
-_GROUP_COLORS: Tuple[str, ...] = (
-    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
-    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
-)
+# The palette is ``colors.LINE_PALETTE``, not a copy of it. This module (and calibration_by_feature) each
+# held a byte-identical private tuple, so repainting the shared palette silently left these two charts on
+# the old one -- the exact drift ``colors.py`` exists to prevent.
+_PALETTE_SIZE: int = len(LINE_PALETTE)
 _OTHER_LABEL: str = "other"
 
 
@@ -135,11 +136,15 @@ def compose_fairness_calibration_figure(
             skipped.append(f"{label} (degenerate)")
             continue
         fp, ft, ece = pts
-        color = _GROUP_COLORS[gi % len(_GROUP_COLORS)]
+        color = line_color(gi)
+        # Markers normally identify a point-sparse reliability curve, but once the palette WRAPS two groups
+        # share a colour and two solid marker lines are indistinguishable -- the legend names them, the chart
+        # does not. Past the wrap the dash pattern takes over as the distinguishing channel.
+        style = "lines+markers" if gi < _PALETTE_SIZE else line_style(gi)
         curve_x.append(fp)
         curve_y.append(ft)
         curve_labels.append(f"{label} (n={gn:,})")
-        curve_styles.append("lines+markers")
+        curve_styles.append(style)
         curve_colors.append(color)
         bar_labels.append(label)
         bar_eces.append(float(ece))

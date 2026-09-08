@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import re
 from abc import ABC, abstractmethod
-from typing import Optional, List, Any, FrozenSet, TYPE_CHECKING
+from typing import Optional, Dict, List, Any, FrozenSet, TYPE_CHECKING
 from sklearn.pipeline import Pipeline
 
 from mlframe.utils.log_throttle import log_throttle
@@ -487,13 +487,19 @@ class ModelPipelineStrategy(ABC):
         """
         return {}
 
-    def get_classif_objective_kwargs(self, target_type, n_classes: int) -> dict:
+    def get_classif_objective_kwargs(self, target_type, n_classes: int, multilabel_config=None) -> dict:
         """Per-strategy classifier kwargs for the target type.
 
         Default implementation delegates to the freestanding
         ``helpers._classif_objective_kwargs`` dispatcher. Strategies can
         override to customise (e.g. force a specific eval_metric on
         multilabel).
+
+        ``multilabel_config`` is accepted and ignored here. Three subclasses declare it and this base does
+        not, so a caller holding a ``ModelPipelineStrategy`` had to know which concrete strategy it had
+        before it could pass it -- and passing it to one that inherits this implementation is a TypeError.
+        The strategies that can act on it override this method; for the rest the answer genuinely does not
+        depend on it.
         """
         from ..helpers import _classif_objective_kwargs
 
@@ -534,7 +540,12 @@ class ModelPipelineStrategy(ABC):
         """
         return (self.supports_text_features, self.supports_embedding_features)
 
-    def prepare_polars_dataframe(self, df: "pl.DataFrame", cat_features: List[str]) -> "pl.DataFrame":
+    def prepare_polars_dataframe(
+        self,
+        df: "pl.DataFrame",
+        cat_features: List[str],
+        category_map: Optional[Dict[str, "pl.Enum"]] = None,
+    ) -> "pl.DataFrame":
         """Prepare a Polars DataFrame for models that support native Polars input.
 
         Called in the Polars fastpath before training. Override in subclasses
@@ -543,6 +554,11 @@ class ModelPipelineStrategy(ABC):
 
         Default implementation returns the DataFrame unchanged (suitable for
         CatBoost which handles all dtypes natively).
+
+        ``category_map`` is accepted and ignored here for the same reason it is declared on the HGB and XGB
+        overrides: without it on the base, the caller has to branch on whether a map exists before choosing
+        which arity to call, and any strategy inheriting this implementation raises TypeError on the call
+        the other two accept. A strategy that leaves dtypes alone has nothing to map.
         """
         return df
 

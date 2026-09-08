@@ -313,13 +313,17 @@ class TestNDCGByQSizePanel:
         from mlframe.metrics.ranking import _per_query_ndcg_kernel as _k
 
         n_valid = int(np.sum(~np.isnan(_k(st, ss, gs, 10))))
-        # Each category label carries "(n=<count>, CI[lo,hi])"; the count is the token right after "n=" up to the
-        # comma, and the per-bin counts sum to n_valid queries.
+        # The per-bin support rides the HOVER text, not the tick label: as a label it made every category ~24
+        # chars, which at this panel's rotation ran out of the panel and printed over the panel below. The
+        # contract the count carries is unchanged and still checked here -- every valid query lands in exactly
+        # one size bin, so the per-bin supports sum to the number of queries with a defined NDCG.
+        assert panel.hovertext is not None, "the per-bin support is gone entirely; it must live on the hover text"
+        assert len(panel.hovertext) == len(panel.categories), "one hover entry per bar, or the counts below belong to the wrong bins"
         total = 0
-        for cat in panel.categories:
-            n_str = cat.split("n=")[1].split(",")[0].rstrip(")").replace("_", "")
+        for hover in panel.hovertext:
+            n_str = hover.split("n=")[1].split()[0].replace("_", "")
             total += int(n_str)
-        assert total == n_valid
+        assert total == n_valid, f"per-bin supports sum to {total}, but {n_valid} queries have a defined NDCG"
 
     def test_small_groups_inflate_relative_to_large(self):
         """On a synthetic where tiny groups rank near-perfectly and large groups

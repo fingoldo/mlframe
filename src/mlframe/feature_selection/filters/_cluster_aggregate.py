@@ -23,7 +23,7 @@ Design notes:
 from __future__ import annotations
 
 import logging
-from typing import Sequence
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -445,7 +445,7 @@ def _discover_clusters(
 # ---------------------------------------------------------------------------
 
 
-def compact_stack_mi(target_block: np.ndarray, binned: np.ndarray, n_t: int, compact_nbins: np.ndarray, *, dtype) -> float:
+def compact_stack_mi(target_block: np.ndarray, binned: np.ndarray, n_t: int, compact_nbins: np.ndarray, *, dtype: Any) -> float:
     """MI between a binned aggregate and the target block, scored on a compact (n, |target|+1) stack.
 
     ``mi`` reads ONLY the x column (the binned aggregate) and the y columns (the target) through

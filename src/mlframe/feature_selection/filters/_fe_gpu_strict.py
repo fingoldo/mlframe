@@ -197,6 +197,9 @@ def _cuda_usable() -> bool:
                 # process at debug level. Retry inside THIS call rather than leaving the answer unresolved:
                 # a probe that says False now and True on the next call produces a mixed state, where one
                 # code path uploads to the device and another routes the same arrays into a CPU njit kernel.
+                # Logged here as well as inside the retry: this handler must not read as silent, and a reader
+                # tracing a device fault should see it at the point it was caught, not only one frame down.
+                logger.debug("numba.cuda probe raised %s: %s; delegating to the bounded retry", type(e2).__name__, e2)
                 _CUDA_USABLE_CACHE = _retry_cuda_available(e2)
     return _CUDA_USABLE_CACHE
 

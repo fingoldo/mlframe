@@ -169,6 +169,14 @@ class HeatmapPanelSpec:
     cell_text: Optional[np.ndarray] = None
     text_format: str = ".2f"
     colorbar_label: Optional[str] = None
+    # Explicit colour-scale bounds, same meaning and same names as the scatter spec's. A DIVERGING colormap
+    # (RdBu_r and friends) reads its midpoint colour as "zero"; with the bounds left to autoscale, that midpoint
+    # lands wherever the data happens to sit. A Spearman matrix of 0.20-1.00 therefore rendered every
+    # off-diagonal cell deep blue -- the colour a reader takes for a strong NEGATIVE correlation -- when the
+    # true values were weak POSITIVE ones. Any builder using a diverging map should pin the bounds symmetrically
+    # about the value its midpoint is meant to mean.
+    color_vmin: Optional[float] = None
+    color_vmax: Optional[float] = None
     # Contour overlays at named matrix levels (e.g. PSI 0.10 / 0.25 triage lines on a drift heatmap):
     # (value, color) or (value, color, dash, label). Two levels separated by colour alone are indistinguishable
     # under protanopia, which is why the dash is part of the field rather than a renderer default.
@@ -273,6 +281,15 @@ class BarPanelSpec:
     # Reference line across the value axis (e.g. global metric on a per-segment bar): (value, color, label).
     # Drawn horizontally for vertical bars / vertically for horizontal bars (always perpendicular to the bars).
     hline: Optional[Tuple[float, str, str]] = None
+    # Draw ``-hline[0]`` as well, as one band rather than one line. A two-sided threshold (an ACF Bartlett
+    # band, a symmetric tolerance) drawn on one side only leaves the other half of the panel with no
+    # reference, while the label and the title both talk about "+-": the negative lags of an ACF were being
+    # counted as significant in the title against a bound the reader could not see.
+    hline_symmetric: bool = False
+    # Characters of the category label that must survive truncation, counted from the END. Builders that
+    # append a payload their own title refers to ("... (n=12_345, 2.31x)") set this, so the cap takes the
+    # middle of a long name rather than the annotation the reader was told to read.
+    label_keep_tail: int = 0
     # Per-point / per-bar tooltip text (plotly only -- matplotlib has no hover layer). This is where a builder
     # attaches the DENOMINATOR behind an aggregate: without it a rate computed from 3 rows renders identically to
     # one from 300k, and the count is usually already in hand at the point the bar is built.
@@ -437,6 +454,17 @@ PanelSpec = Union[
 # ----------------------------------------------------------------------------
 # Top-level figure spec
 # ----------------------------------------------------------------------------
+
+
+# Named figure sizes, so a builder PICKS a shape instead of inventing a pair of floats. Consecutive charts
+# in one report were jumping between 2.67:1 and 1:1 -- and because the renderers use fixed point sizes,
+# text on a small figure reads relatively larger, so the reader sees the font change from chart to chart
+# too. Values that GROW with the data (a bar per category, a cell per class) are not covered by these and
+# should stay computed; the point is to retire the arbitrary variation, not the deliberate kind.
+FIGSIZE_BANNER = (9.0, 2.4)  #: a single wide strip: one row of numbers, a decile table, a SHAP beeswarm
+FIGSIZE_WIDE = (8.0, 3.0)  #: the default one-panel diagnostic: drift, PDP, model comparison
+FIGSIZE_STANDARD = (8.0, 5.0)  #: a panel that needs vertical room: slice tables, error heatmaps
+FIGSIZE_SQUARE = (6.0, 5.5)  #: an aspect-carrying panel: embeddings, correlation grids, confusion
 
 
 @dataclass(frozen=True)

@@ -186,7 +186,7 @@ def _header_panel(model_name: str, split: str, verdict: ModelCardVerdict, metric
     # A DUMMY tag on the verdict line makes a baseline card visually distinct from a real model's card at a glance
     # (the two are otherwise near-identical), so operators don't confuse the reference floor for a trained model.
     tag = "[DUMMY] " if _is_dummy_name(model_name) else ""
-    lines = [f"{model_name}  # --  {split}", "", f"{tag}{dot} {verdict.label}", verdict.reason, ""]
+    lines = [f"{model_name}  --  {split}", "", f"{tag}{dot} {verdict.label}", verdict.reason, ""]
     lines.extend(f"{name:<10s} {val}" for name, val in metric_fmt)
     title = "MODEL CARD (DUMMY BASELINE)" if _is_dummy_name(model_name) else "MODEL CARD"
     return AnnotationPanelSpec(text="\n".join(lines), title=title, fontsize=11)
@@ -201,19 +201,34 @@ def _headline_bar(metric_fmt: List[Tuple[str, float, bool]], verdict_color: str)
     cats: List[str] = []
     vals: List[float] = []
     for name, raw, higher in metric_fmt:
-        cats.append(name)
+        # The RAW value rides the category label. The bar length is a rescaled "quality" -- an error metric is
+        # shown as 1 - metric so a long bar always reads as good -- which makes the lengths comparable but the
+        # NUMBERS unreadable: a reader cannot tell a 1-Brier of 0.76 from a Brier of 0.24 by looking, and those
+        # are the same measurement. Naming the raw value next to the bar costs nothing and removes the guess.
+        # Name the metric the raw value BELONGS to. ``metric_fmt`` calls an inverted entry "1-ECE" because
+        # that is what the bar LENGTH shows, but the number beside it is the ECE itself -- printing
+        # "1-ECE 0.275" next to a bar of length 0.725 states something false. The bar stays inverted (long =
+        # good, which is the whole point of the panel) and the label names ECE, as the title explains.
+        cats.append(f"{name.removeprefix('1-')}  {raw:.3f}")
         q = raw if higher else (1.0 - raw)
         vals.append(float(np.clip(q, 0.0, 1.0)))
     color = _verdict_color_hex(verdict_color)
     return BarPanelSpec(
         categories=tuple(cats),
         values=np.asarray(vals, dtype=np.float64),
-        title="Headline quality (longer = better, [0,1])",
+        title="Headline quality (longer = better, [0,1]; raw value beside each name)",
         xlabel="quality (higher is better)",
         ylabel="metric",
         orientation="horizontal",
         colors=(color,) * len(cats),
-        hline=(0.5, "gray", "midpoint"),
+        # No shared reference line. 0.5 is chance for ROC_AUC and for KS, and means nothing at all for a
+        # rescaled 1 - Brier or 1 - ECE, so ONE line across all of them invited a comparison that is not
+        # defined: a 0.5 AUC bar (pure chance) sat level with a 1-Brier of 0.5 (catastrophic) and with the
+        # reference itself, implying the three were commensurate. The raw values in the labels are what the
+        # reader should judge each metric by, against its own baseline.
+        #
+        # Bar ORDER is deliberately the caller's, not sorted by value: a model card is read against other
+        # model cards, and a per-card ordering would put the same metric in a different row on each one.
     )
 
 
@@ -256,10 +271,10 @@ def _mini_gain(sort: _ScoreSort) -> PanelSpec:
     """Decimated cumulative-gain curve sparkline; a text annotation when there are no positives to capture."""
     if sort.n_pos == 0:
         return AnnotationPanelSpec(text="gain n/a\n(no positives)", title="mini gain")
-    pop = np.arange(1, sort.n + 1, dtype=np.float64) / sort.n
-    gain = sort.cum_tp.astype(np.float64) / sort.n_pos
-    pop = np.concatenate(([0.0], pop))
-    gain = np.concatenate(([0.0], gain))
+    # Same distinct-score sampling as the full gain panel; see ``gain_curve_points``.
+    from .binary import gain_curve_points
+
+    pop, gain = gain_curve_points(sort)
     x_thin, (gain_thin,) = _decimate(pop, gain, cap=_MINI_VERTEX_CAP)
     return LinePanelSpec(
         x=x_thin, y=(gain_thin, x_thin.copy()), series_labels=("model", "baseline"),
@@ -320,7 +335,7 @@ def _mini_pred_vs_actual(yt: np.ndarray, yp: np.ndarray) -> PanelSpec:
 
 def _degenerate_card(model_name: str, split: str, text: str, figsize: Tuple[float, float]) -> FigureSpec:
     """Single-panel fallback card that honestly reports why metrics could not be computed (e.g. single-class / no finite pairs), instead of drawing a misleading chart."""
-    ann = AnnotationPanelSpec(text=f"{model_name}  # --  {split}\n\n{text}", title="MODEL CARD", fontsize=11)
+    ann = AnnotationPanelSpec(text=f"{model_name}  --  {split}\n\n{text}", title="MODEL CARD", fontsize=11)
     return FigureSpec(suptitle="", panels=((ann,),), figsize=figsize)
 
 
@@ -403,19 +418,25 @@ def compose_model_card_figure(
         header = _header_panel(model_name, split, verdict, metric_fmt)
         bar = _headline_bar(bar_fmt, verdict.color)
         minis = [_mini_roc(sort), _mini_score_dist(sort, yt, ys), _mini_gain(sort)]
-        # The top row's third cell is permanently empty, so give the two occupied cells its width rather than
-        # leaving a third of the figure blank while the header squeezes its text into one column.
+        # The top row's third cell is empty and the bottom row's is a mini panel, but ``col_width_ratios``
+        # applies to the WHOLE grid -- there is no per-row spanning. Collapsing the third column to ~0 to
+        # widen the header therefore crushed "mini gain" into an unreadable sliver, legend wider than the
+        # panel. The top two cells stay wider than the third, which keeps the header's text out of a single
+        # narrow column, without taking the third mini panel's width away from it.
         grid = ((header, bar, None), tuple(minis))
-        col_ratios = (1.5, 1.5, 0.0001)
+        col_ratios = (1.3, 1.3, 1.0)
         return FigureSpec(
             suptitle=f"Model card -- {'[DUMMY] ' if _is_dummy_name(model_name) else ''}{model_name} ({split}) -- {verdict.label}",
             panels=grid, figsize=figsize, row_height_ratios=(1.2, 1.0), col_width_ratios=col_ratios,
             caption=(
                 "Every headline bar is rescaled so LONGER = BETTER on [0, 1]: higher-is-better metrics are shown "
                 "directly and error metrics as 1 - metric, which is what makes otherwise incomparable quantities "
-                "readable side by side. The grey line at 0.5 is the midpoint of that scale, not a pass mark -- for "
-                "ROC_AUC 0.5 does mean no discrimination, but for a rescaled error metric it means nothing in "
-                "particular. The mini panels below carry the distributional detail the single bars cannot. "
+                "readable side by side -- but only the LENGTHS are comparable, so each bar names its own raw "
+                "value. There is no shared reference line: 0.5 is chance for ROC_AUC and for KS and means "
+                "nothing for a rescaled error metric, so one line across all of them would invite a comparison "
+                "that is not defined. Judge each metric against its own baseline, using the raw value beside "
+                "its name. The bars keep a fixed order so two cards can be read against each other. The mini "
+                "panels below carry the distributional detail the single bars cannot. "
                 f"VERDICT: {verdict.reason}"
             ),
         )
@@ -446,19 +467,25 @@ def compose_model_card_figure(
         header = _header_panel(model_name, split, verdict, metric_fmt)
         bar = _headline_bar(bar_fmt, verdict.color)
         minis = [_mini_resid_vs_pred(yt, yp), _mini_resid_hist(yt, yp), _mini_pred_vs_actual(yt, yp)]
-        # The top row's third cell is permanently empty, so give the two occupied cells its width rather than
-        # leaving a third of the figure blank while the header squeezes its text into one column.
+        # The top row's third cell is empty and the bottom row's is a mini panel, but ``col_width_ratios``
+        # applies to the WHOLE grid -- there is no per-row spanning. Collapsing the third column to ~0 to
+        # widen the header therefore crushed "mini gain" into an unreadable sliver, legend wider than the
+        # panel. The top two cells stay wider than the third, which keeps the header's text out of a single
+        # narrow column, without taking the third mini panel's width away from it.
         grid = ((header, bar, None), tuple(minis))
-        col_ratios = (1.5, 1.5, 0.0001)
+        col_ratios = (1.3, 1.3, 1.0)
         return FigureSpec(
             suptitle=f"Model card -- {'[DUMMY] ' if _is_dummy_name(model_name) else ''}{model_name} ({split}) -- {verdict.label}",
             panels=grid, figsize=figsize, row_height_ratios=(1.2, 1.0), col_width_ratios=col_ratios,
             caption=(
                 "Every headline bar is rescaled so LONGER = BETTER on [0, 1]: higher-is-better metrics are shown "
                 "directly and error metrics as 1 - metric, which is what makes otherwise incomparable quantities "
-                "readable side by side. The grey line at 0.5 is the midpoint of that scale, not a pass mark -- for "
-                "ROC_AUC 0.5 does mean no discrimination, but for a rescaled error metric it means nothing in "
-                "particular. The mini panels below carry the distributional detail the single bars cannot. "
+                "readable side by side -- but only the LENGTHS are comparable, so each bar names its own raw "
+                "value. There is no shared reference line: 0.5 is chance for ROC_AUC and for KS and means "
+                "nothing for a rescaled error metric, so one line across all of them would invite a comparison "
+                "that is not defined. Judge each metric against its own baseline, using the raw value beside "
+                "its name. The bars keep a fixed order so two cards can be read against each other. The mini "
+                "panels below carry the distributional detail the single bars cannot. "
                 f"VERDICT: {verdict.reason}"
             ),
         )

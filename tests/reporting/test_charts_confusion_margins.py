@@ -7,7 +7,6 @@ matplotlib + plotly render smoke, a biz_value imbalance + majority-over-predicti
 
 from __future__ import annotations
 
-import os
 import time
 
 import numpy as np
@@ -16,8 +15,6 @@ import pytest
 from mlframe.reporting.charts.multiclass import compose_multiclass_figure
 from mlframe.reporting.renderers.base import get_renderer
 from mlframe.reporting.spec import AnnotationPanelSpec, ConfusionMarginsPanelSpec
-
-os.environ.setdefault("MPLBACKEND", "Agg")
 
 
 def _imbalanced(n: int, K: int, prevalence, majority_bias: float, seed: int = 0):

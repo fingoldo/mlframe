@@ -26,6 +26,7 @@ from mlframe.reporting.charts._calibration_chart_shared import is_single_class, 
 from mlframe.metrics.calibration import compute_ece_debiased
 from mlframe.reporting.charts._calibration_chart_shared import null_ece_scale
 from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, LinePanelSpec, PanelSpec
+from mlframe.reporting.colors import line_color
 
 # Below this many finite rows OR with a single class present a feature-bin's reliability curve / ECE is meaningless
 # noise; annotate the bin and skip its curve (mirrors the fairness-calibration degenerate-input guard style).
@@ -37,10 +38,8 @@ _HET_RED: float = 0.10
 # Subsample cap per feature-bin before the njit reliability pass: the curve is read on n_prob_bins points, so a
 # uniform subsample of this size is visually identical while bounding the binning cost at n>=1e6.
 _BIN_SUBSAMPLE_CAP: int = 200_000
-_BIN_COLORS: Tuple[str, ...] = (
-    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
-    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
-)
+# ``colors.LINE_PALETTE`` rather than a private copy of it: a byte-identical local tuple means a repaint of
+# the shared palette never reaches this chart. See the same note in fairness_calibration.
 
 
 # The two private aliases that used to sit here added no behaviour -- dead indirection left by an earlier
@@ -144,7 +143,7 @@ def _per_bin_ece(
         ece = float(compute_ece_debiased(by.astype(np.float64), bs, n_prob_bins))
         records.append({
             "label": label, "center": center, "n": bn,
-            "fp": fp, "ft": ft, "ece": float(ece), "color": _BIN_COLORS[bi % len(_BIN_COLORS)],
+            "fp": fp, "ft": ft, "ece": float(ece), "color": line_color(bi),
         })
     return records, skipped
 

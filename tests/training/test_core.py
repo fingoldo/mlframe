@@ -4466,10 +4466,10 @@ class TestTextAndEmbeddingFeatures:
 
         original_prepare = CatBoostStrategy.prepare_polars_dataframe
 
-        def _spy_prepare(self, df, cat_features):
-            """Spy prepare."""
+        def _spy_prepare(self, df, cat_features, category_map=None):
+            """Spy prepare; mirrors the strategy signature, which now carries ``category_map`` on the base."""
             prepare_calls.append(True)
-            return original_prepare(self, df, cat_features)
+            return original_prepare(self, df, cat_features, category_map=category_map)
 
         monkeypatch.setattr(CatBoostStrategy, "prepare_polars_dataframe", _spy_prepare)
 

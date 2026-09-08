@@ -12,7 +12,7 @@ from typing import Any, Sequence, Union
 
 import numpy as np
 
-from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, HeatmapPanelSpec, PanelSpec
+from mlframe.reporting.spec import FIGSIZE_SQUARE, AnnotationPanelSpec, FigureSpec, HeatmapPanelSpec, PanelSpec
 
 # H-statistic is O(F^2) 2-D PDP surfaces; cap the feature count so the panel stays bounded on wide frames.
 DEFAULT_MAX_INTERACTION_FEATURES: int = 8
@@ -77,7 +77,7 @@ def compose_interaction_strength_figure(
     return FigureSpec(
         suptitle=suptitle,
         panels=((panel,),),
-        figsize=(6.0, 5.0),
+        figsize=FIGSIZE_SQUARE,
         caption=(
             "Friedman-Popescu H per feature pair: the share of the pair's JOINT effect on the model that is NOT "
             "explained by simply adding their separate effects. 0 means purely additive, so an explicit interaction "

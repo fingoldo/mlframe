@@ -7,8 +7,9 @@ implementation lives here so the two backends can't drift.
 from __future__ import annotations
 
 import logging
+import math
 import threading
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 import numpy as np
 
@@ -30,6 +31,24 @@ _HEATMAP_CELL_TEXT_MAX = 400
 # Cap for ONE bar-category label. Both backends rotate these labels already, so the cap is a safety valve
 # against a pathological generated name (a 200-char column) blowing out the axis, not routine shortening.
 _BAR_LABEL_MAXLEN = 60
+# matplotlib's default figure dpi. ``FigureSpec.figsize`` is in matplotlib inches, so both backends must use
+# the same px-per-inch or one spec yields two differently-sized figures -- and anything that converts a plotly
+# pixel extent back to inches (the heatmap tick budget) has to use the same number.
+PX_PER_INCH = 100
+# How many node labels a network panel may print. Edges are already capped; the LABELS never were, so a
+# friend graph at its default 200 nodes printed 200 names of ~35 chars over each other in the middle of the
+# panel -- at 120 nodes it is already an unreadable mat. The kept names are the biggest nodes, because
+# node_size carries the importance the graph is drawn to show; the rest keep their marker and their hover.
+_NETWORK_MAX_LABELS = 25
+
+
+def network_label_indices(node_size: np.ndarray, max_labels: int = _NETWORK_MAX_LABELS) -> List[int]:
+    """Indices of the nodes worth labelling: the ``max_labels`` largest, in drawing order."""
+    sizes = np.asarray(node_size, dtype=float).ravel()
+    if sizes.size <= max_labels:
+        return list(range(sizes.size))
+    keep = np.argpartition(sizes, sizes.size - max_labels)[sizes.size - max_labels :]
+    return sorted(int(i) for i in keep)
 
 
 def plotly_axis_suffix(fig: Any, row: int, col: int, n_cols: int) -> str:
@@ -54,15 +73,168 @@ def plotly_axis_suffix(fig: Any, row: int, col: int, n_cols: int) -> str:
         return "" if idx == 1 else str(idx)
 
 
-def truncate_bar_label(label: Any, maxlen: int = _BAR_LABEL_MAXLEN) -> str:
-    """Shorten one bar-category label to ``maxlen`` chars, ellipsis-suffixed.
+def truncate_bar_label(label: Any, maxlen: int = _BAR_LABEL_MAXLEN, keep_tail: int = 0) -> str:
+    """Shorten one bar-category label to ``maxlen`` chars.
+
+    ``keep_tail`` > 0 switches to a MIDDLE ellipsis, preserving that many trailing characters: for a label
+    whose builder appended a payload the panel title refers to, cutting the tail throws away the part the
+    reader was told to look for.
 
     Single definition on purpose: both renderers need byte-identical label text or the same spec yields two
     differently-labelled charts, and two copies of a truncation rule is exactly the drift this module exists
     to prevent (see the shared threshold constants above).
     """
     s = str(label)
-    return s if len(s) <= maxlen else s[: maxlen - 1] + "..."
+    if len(s) <= maxlen:
+        return s
+    if keep_tail > 0:
+        # Middle ellipsis. Some builders append the payload their own panel title promises the label carries
+        # -- slice_finder's "(n=12_345, 2.31x)", category_discriminability's "(n=248, p=0.35)" -- and a
+        # head-preserving cut deletes exactly that, leaving the chart documenting a field it does not render.
+        # Keeping both ends costs the middle of a long generated name, which is the least identifying part.
+        head = max(1, maxlen - keep_tail - 3)
+        return s[:head] + "..." + s[-keep_tail:]
+    return s[: maxlen - 1] + "..."
+
+
+# Vertical room one horizontal tick label needs, in inches, at the 8pt the heatmap axes use: the glyph height
+# plus the leading a reader needs to tell two rows apart.
+_TICK_LABEL_PITCH_IN = 0.18
+# Line height as a multiple of the point size, including the gap that keeps two stacked labels apart.
+_TICK_LABEL_LEADING = 1.7
+
+
+def rotated_tick_pitch_in(fontsize: float, rotation_deg: float) -> float:
+    """Spacing along the axis that keeps ROTATED tick labels from touching.
+
+    Rotated labels are parallel lines, so two of them clear each other only when the gap MEASURED
+    PERPENDICULAR to their own direction is a full line height -- which makes the spacing needed along the
+    axis grow as ``1 / sin(theta)``. Budgeting a rotated axis at the unrotated line height instead put
+    thirty ``8.77e+03``-style labels under a seven-inch heatmap, each one overlapping its neighbour.
+    """
+    line_h_in = float(fontsize) * _TICK_LABEL_LEADING / 72.0
+    theta = math.radians(min(abs(float(rotation_deg)), 90.0))
+    return line_h_in / math.sin(theta) if theta > 0.0 else line_h_in
+
+
+def non_colliding_label_indices(
+    xs: Any, ys: Any, texts: Any, *,
+    fontsize: float,
+    x_span: float, y_span: float,
+    width_in: float, height_in: float,
+    priority: Any = None,
+) -> list:
+    """Which of a set of point labels can be drawn without any two of them overlapping.
+
+    Capping the COUNT of labels is not the same as making them readable: on a graph whose nodes collapse
+    into one region, the surviving labels land on top of each other and print as a smudge. This walks the
+    labels in ``priority`` order (highest first, then input order) and keeps one only when its box clears
+    every box already kept, so what is drawn is always legible -- fewer labels on a crowded panel, all of
+    them on a sparse one.
+
+    Boxes are measured in DATA units, from the panel's own extent, so the same call works for either
+    backend and for any axis scale the caller has already resolved.
+    """
+    xs_a = np.asarray(xs, dtype=float).ravel()
+    ys_a = np.asarray(ys, dtype=float).ravel()
+    labels = [str(t) for t in texts]
+    n = min(xs_a.size, ys_a.size, len(labels))
+    if n == 0 or width_in <= 0 or height_in <= 0 or not np.isfinite(x_span) or not np.isfinite(y_span) or x_span <= 0 or y_span <= 0:
+        return list(range(n))
+    x_per_in, y_per_in = x_span / width_in, y_span / height_in
+    half_h = (fontsize * _TICK_LABEL_LEADING / 72.0) * y_per_in / 2.0
+    order = list(range(n))
+    if priority is not None:
+        prio = np.asarray(priority, dtype=float).ravel()
+        if prio.size >= n:
+            order = sorted(order, key=lambda i: (-float(prio[i]), i))
+    kept: list = []
+    boxes: list = []
+    for i in order:
+        if not (np.isfinite(xs_a[i]) and np.isfinite(ys_a[i])):
+            continue
+        half_w = (_measured_text_width_pt(labels[i], fontsize) / 72.0) * x_per_in / 2.0
+        box = (xs_a[i] - half_w, xs_a[i] + half_w, ys_a[i] - half_h, ys_a[i] + half_h)
+        if any(box[0] < b[1] and b[0] < box[1] and box[2] < b[3] and b[2] < box[3] for b in boxes):
+            continue
+        boxes.append(box)
+        kept.append(i)
+    return sorted(kept)
+
+
+def stagger_label_rows(xs: Any, texts: Any, *, fontsize: float, x_span: float, width_in: float, max_rows: int = 3) -> list:
+    """Which stacked row each label should sit in so that no two on the same row touch.
+
+    Alternating by INDEX keeps a pair of neighbours apart and does nothing for three change points a few
+    pixels apart -- rows 0, 1, 0 puts the first and third back on top of each other. Walking the labels in
+    x order and giving each the lowest row whose current occupant it clears handles any number of them,
+    and falls back to the alternating behaviour once ``max_rows`` is exhausted.
+    """
+    xs_a = np.asarray(xs, dtype=float).ravel()
+    labels = [str(t) for t in texts]
+    n = min(xs_a.size, len(labels))
+    rows = [0] * n
+    if n == 0 or width_in <= 0 or not np.isfinite(x_span) or x_span <= 0:
+        return rows
+    x_per_in = x_span / width_in
+    right_edge = [-np.inf] * max(int(max_rows), 1)
+    for i in sorted(range(n), key=lambda k: xs_a[k]):
+        if not np.isfinite(xs_a[i]):
+            continue
+        width = (_measured_text_width_pt(labels[i], fontsize) / 72.0) * x_per_in
+        for r, edge in enumerate(right_edge):
+            if xs_a[i] >= edge:
+                rows[i] = r
+                right_edge[r] = xs_a[i] + width
+                break
+        else:
+            rows[i] = i % len(right_edge)
+            right_edge[rows[i]] = xs_a[i] + width
+    return rows
+
+
+def log_axis_dropped_note(heights: Any, yscale: str) -> Optional[str]:
+    """A note naming how many bars a log axis cannot show, or ``None`` when it can show them all.
+
+    ``log(0)`` is undefined, so an empty bin on a log-scaled histogram is not drawn small -- it is not drawn
+    at all, and neither backend says so. On a long-tailed column that is most of the axis: a 30-bin
+    histogram of a tight cluster plus one far outlier loses 24 bars, and the reader sees six with nothing
+    indicating the gaps between them are empty rather than unplotted.
+    """
+    if yscale != "log":
+        return None
+    counts = np.asarray(heights, dtype=float).ravel()
+    dropped = int(np.count_nonzero(~(counts > 0)))
+    if dropped == 0:
+        return None
+    return f"log scale: {dropped} of {counts.size} bins are empty and cannot be drawn"
+
+
+def label_width_pitch_in(labels: Any, fontsize: float) -> float:
+    """Spacing an axis of UNROTATED, side-by-side tick labels needs: the widest label plus a gutter.
+
+    The rotated and stacked cases clear each other at a line HEIGHT; an unrotated horizontal axis does not
+    -- two labels there sit end to end, so what has to fit is the widest one's width.
+    """
+    widest = max((_measured_text_width_pt(str(lab), fontsize) for lab in labels), default=0.0)
+    return widest / 72.0 + 0.08
+
+
+def ticks_that_fit(extent_in: Optional[float], n: int, *, floor: int = _HEATMAP_MAX_TICKS, pitch_in: float = _TICK_LABEL_PITCH_IN) -> int:
+    """How many tick labels fit along an axis ``extent_in`` inches long, never fewer than ``floor``.
+
+    A fixed cap is wrong in both directions. A drift heatmap deliberately GROWS its figure with the feature
+    count -- 40 rows over 14 inches -- and then named 8 of them, wasting the height it just bought and leaving
+    the reader unable to tell which feature a row is. A small panel, meanwhile, cannot hold 8 rotated names.
+    Deriving the count from the axis's real extent tracks both, and the floor keeps the old behaviour whenever
+    the extent is unknown or tiny.
+
+    ``pitch_in`` defaults to one stacked line height, which is what a vertical axis of horizontal labels
+    needs. A rotated axis needs more room per label: pass ``rotated_tick_pitch_in(...)``.
+    """
+    if not extent_in or extent_in <= 0:
+        return floor
+    return max(floor, min(n, int(extent_in / max(pitch_in, 1e-3))))
 
 
 def _thin_tick_positions(n: int, max_ticks: int = _HEATMAP_MAX_TICKS):
@@ -169,6 +341,15 @@ def _per_series_flags(flag, n: int):
 _PANEL_TITLE_WRAP_CHARS = 46
 _TITLE_REF_WIDTH_IN = 6.0
 
+# Typography both renderers draw with. Sizes used to be declared per backend and had drifted -- captions at
+# 7pt on one and 9pt on the other, panel titles at 10 vs 11 -- so one FigureSpec read as two documents. A
+# wrap budget must also be measured at the size actually drawn: plotly wrapped its caption against 10pt and
+# rendered it at 9, and reused the narrower SUPTITLE budget for the wider caption band.
+PANEL_TITLE_FONTSIZE = 10
+SUPTITLE_WRAP_CHARS = 90
+CAPTION_FONTSIZE = 7
+CAPTION_WRAP_CHARS = 110
+
 
 # Per-fontsize character-advance tables. One table serves every string at that size, so the font is touched
 # once per size per process rather than once per line. Guarded because ``render_and_save`` renders its backends
@@ -228,7 +409,7 @@ def _build_char_advances(fontsize: float, font_manager: Any, ft2font: Any) -> di
     return table
 
 
-def _measured_text_width_pt(text: str, fontsize: float) -> float:
+def measured_text_width_pt(text: str, fontsize: float) -> float:
     """Width of ``text`` in points, measured on the ACTIVE font rather than counted in characters.
 
     A character budget is a guess about the font: proportional faces put ``i`` and ``W`` an order of
@@ -402,3 +583,8 @@ def epoch_ns_ticks(x_values: Any, n_ticks: int = 6) -> tuple[np.ndarray, list[st
     # so a fixed reference zone keeps them stable regardless of the machine rendering the figure.
     ticktext = [_dt.datetime.fromtimestamp(v / 1e9, tz=_dt.timezone.utc).strftime(fmt) for v in tickvals]
     return tickvals, ticktext
+
+
+#: The private spelling this helper shipped under. Kept so the renderer siblings that already import it do
+#: not all have to change in the same commit; ``measured_text_width_pt`` is the name to use.
+_measured_text_width_pt = measured_text_width_pt

@@ -145,3 +145,37 @@ def test_kaleido_recovery_restores_persistent_path(tmp_path):
         f"After recovery, the save made {oneshot_calls} oneshot call(s); it is still stuck on the oneshot "
         f"fallback instead of reusing the restarted persistent server."
     )
+
+
+@pytest.mark.timeout(900)
+@pytest.mark.parametrize("decoration", ["plain", "vrect", "annotation"])
+def test_a_datetime_axis_figure_exports_a_real_file_under_a_kaleido_version_mismatch(tmp_path, decoration):
+    """The installed pair (plotly 5.x, kaleido 1.x) disables ``fig.write_image`` outright.
+
+    Bare ``fig.write_image`` on a datetime axis carrying a shape or an annotation can then fail SILENTLY --
+    no exception and no file -- so a caller that only checks for an exception believes it exported a chart it
+    did not. The recovery ladder in ``_kaleido.py`` is what makes that survivable, and the contract worth
+    pinning is the FILE, not the absence of a raise: a rung that returns quietly having written nothing must
+    not read as success. Pinned across the decorations because the shape/annotation-on-a-datetime-axis case
+    is the one that breaks the native path while the plain figure still works.
+    """
+    pytest.importorskip("kaleido")
+    import numpy as np
+    import plotly.graph_objects as go
+
+    from mlframe.reporting.renderers._kaleido import write_image_via_kaleido
+
+    x = np.array(np.arange("2024-01-01", "2024-02-10", dtype="datetime64[D]"))
+    fig = go.Figure(go.Scatter(x=x, y=np.arange(len(x), dtype=float)))
+    if decoration == "vrect":
+        fig.add_vrect(x0=x[5], x1=x[9], fillcolor="red", opacity=0.2)
+    elif decoration == "annotation":
+        fig.add_annotation(x=x[5], y=1.0, text="marker")
+
+    path = str(tmp_path / f"dt_{decoration}.png")
+    write_image_via_kaleido(fig, path, "png")
+
+    # The ladder's last rung deliberately writes interactive HTML instead, which is still a real export.
+    produced = [p for p in (path, os.path.splitext(path)[0] + ".html") if os.path.exists(p)]
+    assert produced, f"{decoration}: kaleido reported no error and produced no file at all"
+    assert os.path.getsize(produced[0]) > 1000, f"{decoration}: wrote a {os.path.getsize(produced[0])}-byte stub"

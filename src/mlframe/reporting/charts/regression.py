@@ -169,18 +169,27 @@ def _append_missing_worst_k(s_pred, s_true, yp_finite, yt_finite, wk_finite):
     # A worst-K row the extremes-preserving subsample already kept must not be appended again: it would be drawn
     # twice and inflate the plotted count past the "showing N of M" caption. Match on the (pred, true) pair, which
     # is what the panel actually plots.
-    present = set(zip(s_pred.tolist(), s_true.tolist()))
-    fresh = [i for i in range(wk_finite.size) if (wk_pred[i], wk_true[i]) not in present]
+    # One lexicographic search rather than a Python set over the whole plotted subsample plus a full
+    # (pred, true) scan per already-present worst-K row: the membership test and the index of the match are
+    # the same lookup, so they are done together.
     base = len(s_pred)
-    if fresh:
-        s_pred = np.concatenate([s_pred, wk_pred[fresh]])
-        s_true = np.concatenate([s_true, wk_true[fresh]])
-    already = [
-        int(np.flatnonzero((s_pred[:base] == wk_pred[i]) & (s_true[:base] == wk_true[i]))[0])
-        for i in range(wk_finite.size)
-        if (wk_pred[i], wk_true[i]) in present
-    ]
-    highlight = np.concatenate([np.array(already, dtype=np.int64), np.arange(base, base + len(fresh), dtype=np.int64)])
+    order = np.lexsort((s_true, s_pred))
+    sorted_pred, sorted_true = s_pred[order], s_true[order]
+    slot = np.searchsorted(sorted_pred, wk_pred, side="left")
+    slot_hi = np.searchsorted(sorted_pred, wk_pred, side="right")
+    found = np.full(wk_finite.size, -1, dtype=np.int64)
+    for i in range(wk_finite.size):
+        window = slice(slot[i], slot_hi[i])
+        if window.stop > window.start:
+            hit = np.flatnonzero(sorted_true[window] == wk_true[i])
+            if hit.size:
+                found[i] = order[window.start + hit[0]]
+    is_fresh = found < 0
+    fresh_idx = np.flatnonzero(is_fresh)
+    if fresh_idx.size:
+        s_pred = np.concatenate([s_pred, wk_pred[fresh_idx]])
+        s_true = np.concatenate([s_true, wk_true[fresh_idx]])
+    highlight = np.concatenate([found[~is_fresh], np.arange(base, base + fresh_idx.size, dtype=np.int64)])
     return s_pred, s_true, highlight
 
 

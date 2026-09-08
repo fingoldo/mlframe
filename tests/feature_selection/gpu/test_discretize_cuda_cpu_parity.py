@@ -84,7 +84,11 @@ def test_discretize_quantile_rawkernel_built_once_across_calls():
     calls; (2) the singleton getter returns the IDENTICAL kernel object both times."""
     import cupy as cp
 
-    from mlframe.feature_selection.filters import discretization as disc_mod
+    # The reset has to land on the module that OWNS the singleton. The facade re-exports the getter but
+    # not the cache variable, so assigning it there created a facade attribute nothing reads and left the
+    # real cache populated -- after which `k1 is k2` passed on a kernel some earlier test had already
+    # built, and the RawKernel counter below saw zero constructions because nothing was ever rebuilt.
+    from mlframe.feature_selection.filters.discretization import _discretization_cuda as disc_mod
 
     disc_mod._searchsorted_right_2d_cuda = None  # force a fresh build for this test, regardless of import order
     k1 = disc_mod._get_searchsorted_right_2d_kernel()

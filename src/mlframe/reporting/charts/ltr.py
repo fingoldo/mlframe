@@ -193,7 +193,7 @@ def _ndcg_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) 
     mean, lo, hi = bootstrap_ndcg_ci(per_q)
     return ViolinPanelSpec(
         groups=(per_q,),
-        group_labels=(f"all queries (n={per_q.size})",),
+        group_labels=(f"n={per_q.size:_}",),  # short: one rotated tick under a violin overprinted the axis title below
         title=f"Per-query NDCG@10 (mean={mean:.3f}, 95% CI [{lo:.3f}, {hi:.3f}])",
         xlabel="query population",
         ylabel="NDCG@10 (higher is better)",
@@ -220,22 +220,38 @@ def _ndcg_by_qsize_panel(y_true, y_score, group_ids, shared: Optional[dict] = No
     bin_idx = np.floor(np.log2(sizes_v)).astype(np.int64)  # size 1 -> bin 0, 2-3 -> 1, 4-7 -> 2, ...
     categories: List[str] = []
     means: List[float] = []
-    for b in np.unique(bin_idx):
-        m = bin_idx == b
+    err_lo: List[float] = []
+    err_hi: List[float] = []
+    hover: List[str] = []
+    # Grouped once rather than one full-length mask per bin. Bins run to ~log2(max query size), so this is a
+    # handful of extra passes rather than dozens, but it is the same O(n * groups)-for-an-O(n)-answer idiom
+    # the split and multiclass paths carry, and it moves with them.
+    from ._grouping import group_indices_by_label
+
+    _order, _bounds, _bins = group_indices_by_label(bin_idx)
+    for _i, b in enumerate(sorted(_bins.tolist())):
+        _j = int(np.flatnonzero(_bins == b)[0])
+        rows = _order[_bounds[_j] : _bounds[_j + 1]]
         lo_sz, hi_sz = int(2**b), int(2 ** (b + 1)) - 1
         label = f"{lo_sz}" if lo_sz == hi_sz else f"{lo_sz}-{hi_sz}"
         # Per-bin bootstrap-over-queries 95% CI: a wide bracket on a sparse bin flags its mean is not yet pinned down.
-        bmean, blo, bhi = bootstrap_ndcg_ci(vals_v[m])
-        categories.append(f"{label} (n={int(m.sum()):_}, CI[{blo:.2f},{bhi:.2f}])")
+        # It rides the error bars rather than the tick label: as text it made every category ~24 chars, which at
+        # xtick_rotation ran out of the panel and printed over the panel below. An interval is a visual channel.
+        bmean, blo, bhi = bootstrap_ndcg_ci(vals_v[rows])
+        categories.append(label)
         means.append(bmean)
+        err_lo.append(max(0.0, bmean - blo))
+        err_hi.append(max(0.0, bhi - bmean))
+        hover.append(f"{label} docs/query: n={rows.size:_} queries, mean={bmean:.3f}, 95% CI [{blo:.3f}, {bhi:.3f}]")
     _omean, olo, ohi = bootstrap_ndcg_ci(vals_v)
     return BarPanelSpec(
         categories=tuple(categories),
         values=np.asarray(means),
         title=f"Mean NDCG@10 by query size (small groups inflate NDCG; overall 95% CI [{olo:.3f}, {ohi:.3f}])",
-        xlabel="Query size (docs per query, log2 bins)",
+        xlabel="Query size (docs per query, log2 bins); bars carry the per-bin 95% CI",
         ylabel="Mean NDCG@10 (higher is better)",
-        xtick_rotation=30.0,
+        value_err=(np.asarray(err_lo), np.asarray(err_hi)),
+        hovertext=tuple(hover),
     )
 
 

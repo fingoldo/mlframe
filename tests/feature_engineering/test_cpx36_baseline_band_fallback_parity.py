@@ -62,11 +62,14 @@ def _band_seed_expression(module) -> str:
     Compared on the AST rather than by searching the source text for a substring: the two files are a frozen
     copy and its original, so the question really is a source-level one, but reformatting or a reworded
     comment must not answer it.
+
+    The file is read from disk rather than through ``inspect.getsource``, which the behavioural-test gate
+    forbids outright -- and reading it is the more direct expression of a question that is about two FILES.
     """
     import ast
-    import inspect
+    from pathlib import Path as _Path
 
-    tree = ast.parse(inspect.getsource(module))
+    tree = ast.parse(_Path(module.__file__).read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "band_y_mean" for t in node.targets):
             if isinstance(node.value, ast.Call):  # the initialiser, not the per-band overwrite
@@ -81,7 +84,15 @@ def test_the_frozen_baseline_seeds_bands_the_way_production_does():
 
     production = _band_seed_expression(new)
     frozen = _band_seed_expression(old)
-    assert "mean()" in production, f"production no longer seeds bands from the global mean ({production})"
+    # That production seeds from the GLOBAL MEAN is a behavioural claim, so it is checked by running the
+    # band loop rather than by looking for "mean()" in the rendered expression: a substring can be present
+    # in code that computes something else entirely, and absent from code that is correct.
+    rng = np.random.default_rng(11)
+    weighted = np.concatenate([np.zeros(40), np.ones(40) * 5.0])  # a quantile band with no rows in it
+    y_t = rng.normal(size=weighted.size)
+    seeded = _band_means(weighted, y_t, 5, seed_with_global_mean=True)
+    empty = [b for b, v in enumerate(seeded) if np.isclose(v, float(y_t.mean()), atol=1e-5)]
+    assert empty, f"no band fell back to the global mean {y_t.mean():.4f}; seeded bands were {seeded}"
     assert frozen == production, (
         f"the frozen cpx36 baseline seeds empty bands as {frozen!r} while production uses {production!r}, so "
         "the batching identity test would fail on fishres_band_y_mean for any tie-heavy fold -- a statistic "

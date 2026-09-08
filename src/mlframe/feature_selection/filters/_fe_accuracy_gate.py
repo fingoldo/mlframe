@@ -28,6 +28,7 @@ import logging
 import threading
 
 import numpy as np
+from mlframe._array_buffer import array_buffer
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +60,9 @@ def _baseline_cv_key(X_base: np.ndarray, y: np.ndarray, *, classification: bool,
         # baseline silently; the dtype is part of the key because same-shape float32 and int32 buffers are the same
         # bytes and would otherwise share an entry.
         h = hashlib.blake2b(digest_size=16)
-        h.update(np.ascontiguousarray(X_base).data)
+        h.update(array_buffer(X_base))
         h.update(b"|y|")
-        h.update(np.ascontiguousarray(y).data)
+        h.update(array_buffer(y))
         return (
             X_base.shape, X_base.dtype.str,
             y.shape, y.dtype.str,

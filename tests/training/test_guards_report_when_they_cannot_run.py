@@ -21,6 +21,16 @@ import pandas as pd
 import pytest
 
 
+class _Discovery:
+    """Stand-in for the discovery object the single production caller passes as ``self``.
+
+    ``None`` was passed here originally, which the guard cannot accept: it records
+    ``_base_leakage_guard_ran_`` on the discovery object BEFORE the early return, precisely so "ran and
+    found nothing" stays distinguishable from "never ran". Passing ``None`` asserted against a contract the
+    only caller never exercises, and setting an attribute on it raises.
+    """
+
+
 def test_base_leakage_guard_warns_when_the_time_ordering_is_too_short(caplog):
     """The guard is configured on and cannot run; that must reach the log."""
     from mlframe.training.composite.discovery._fit_temporal import apply_base_leakage_guard
@@ -32,10 +42,12 @@ def test_base_leakage_guard_warns_when_the_time_ordering_is_too_short(caplog):
     train_idx = np.arange(n)
     short_ordering = np.arange(n // 2)  # half as long as the training indices reach
 
+    discovery = _Discovery()
     with caplog.at_level(logging.WARNING):
-        kept = apply_base_leakage_guard(None, df, ["b0", "b1"], train_idx, y_train, short_ordering)
+        kept = apply_base_leakage_guard(discovery, df, ["b0", "b1"], train_idx, y_train, short_ordering)
 
     assert kept == ["b0", "b1"], "a guard that cannot run must still return the candidates untouched"
+    assert discovery._base_leakage_guard_ran_ is False, "the skip has to be readable off the discovery object, not only from the log"
     assert any(
         "base-leakage guard SKIPPED" in r.getMessage() for r in caplog.records
     ), f"the guard skipped silently; warnings seen: {[r.getMessage()[:70] for r in caplog.records]}"
@@ -53,10 +65,12 @@ def test_base_leakage_guard_stays_quiet_when_it_can_run(caplog):
     y_train = rng.normal(size=n)
     train_idx = np.arange(n)
 
+    discovery = _Discovery()
     with caplog.at_level(logging.WARNING):
-        apply_base_leakage_guard(None, df, ["b0"], train_idx, y_train, np.arange(n))
+        apply_base_leakage_guard(discovery, df, ["b0"], train_idx, y_train, np.arange(n))
 
     assert not [r for r in caplog.records if "SKIPPED" in r.getMessage()], "the guard reported a skip on an ordering it could index"
+    assert discovery._base_leakage_guard_ran_ is True, "the guard ran, so it must say so rather than leaving the flag at its pre-scan default"
 
 
 def test_missing_indicator_fit_rejects_a_column_list_that_is_only_the_group_key():

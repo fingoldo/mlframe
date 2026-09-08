@@ -27,16 +27,24 @@ subsampled with extremes preserved; curves stay under a few thousand vertices.
 from __future__ import annotations
 
 import logging
+import threading
+import weakref
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+import math
+
 import numpy as np
+
+from mlframe.reporting.charts._categorical_codes import ordinal_codes
 
 logger = logging.getLogger(__name__)
 
 from ._error_analysis_shared import DEFAULT_TAIL_FRACTION, _is_frame, _pull_columns_at_rows, _resolve_feature_names, _row_count  # noqa: F401
 from ._error_analysis_shared import DEFAULT_OVERLAY_BINS, _as_float_1d
+from mlframe.reporting.renderers import measured_text_width_pt, truncate_bar_label
 from mlframe.reporting.spec import (
+    FIGSIZE_STANDARD,
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
 )
 
@@ -83,6 +91,21 @@ def _per_row_error(
     return np.asarray((yt != yp).astype(np.float64))
 
 
+# Released columns are replaced with this rather than ``None`` so the list stays homogeneous for mypy.
+_EMPTY_COLUMN: np.ndarray = np.empty(0, dtype=np.float64)
+
+
+_MATRIX_CACHE_MAX = 2
+_MATRIX_CACHE: dict = {}
+_MATRIX_LOCK = threading.Lock()
+
+
+def clear_feature_matrix_cache() -> None:
+    """Drop every memoised densify. For tests, and for a caller that wants the frame released immediately."""
+    with _MATRIX_LOCK:
+        _MATRIX_CACHE.clear()
+
+
 def _resolve_feature_matrix(
     X: Any,
     feature_names: Optional[Sequence[str]],
@@ -90,12 +113,46 @@ def _resolve_feature_matrix(
     """Coerce ``X`` (pandas / polars / ndarray) to a 2-D float matrix + name list without a full frame copy.
 
     Columns are pulled one at a time (narrow ndarray views), never via a whole-frame ``to_pandas`` / ``to_numpy``
-    on a 100+ GB carrier. Non-numeric columns are label-encoded to integer codes so the tree can still split on them.
+    on a 100+ GB carrier, and are written straight into one preallocated plane so the gathered columns and the
+    result never both exist in full. Non-numeric columns are label-encoded to integer codes so the tree can still split on them.
     Object-dtype columns holding non-scalar elements (e.g. list-valued embedding columns surfaced as pandas
     object dtype) can't be stringified by ``astype(str)`` -- numpy raises "setting an array element with a
     sequence" trying to broadcast the list into a fixed-width string array -- so those columns are dropped
     (a single embedding vector isn't a meaningful scalar split feature anyway).
     """
+    # Memoised on the frame's IDENTITY. The dispatch hands the SAME sub-frame to the weak-segment and
+    # slice-finder builders one after the other, and each densified it independently -- 0.29 s on
+    # 100k x 200 all-numeric, 2.55 s with twenty object columns. Hashing a frame that may be 100 GB to avoid
+    # that would be far worse than the densify. Identity alone is unsound because a freed object's id is
+    # reused, so the entry holds a WEAK reference and the hit is confirmed against it; weak, not strong, so
+    # a cache entry can never pin the caller's frame.
+    _key = (id(X), tuple(feature_names) if feature_names is not None else None)
+    with _MATRIX_LOCK:
+        _entry = _MATRIX_CACHE.get(_key)
+    if _entry is not None:
+        _ref, _cached = _entry
+        if _ref() is X:
+            _mat, _names = _cached
+            return _mat, list(_names)
+    _result = _resolve_feature_matrix_uncached(X, feature_names)
+    _weak_x = None
+    try:
+        _weak_x = weakref.ref(X)
+    except TypeError:
+        pass  # not weak-referenceable (a bare ndarray): skip the cache rather than risk a stale hit
+    if _weak_x is not None:
+        with _MATRIX_LOCK:
+            if len(_MATRIX_CACHE) >= _MATRIX_CACHE_MAX:
+                _MATRIX_CACHE.pop(next(iter(_MATRIX_CACHE)), None)
+            _MATRIX_CACHE[_key] = (_weak_x, _result)
+    return _result
+
+
+def _resolve_feature_matrix_uncached(
+    X: Any,
+    feature_names: Optional[Sequence[str]],
+) -> Tuple[np.ndarray, List[str]]:
+    """The densify itself, with no memoisation -- the body ``_resolve_feature_matrix`` wraps."""
     if hasattr(X, "columns") and hasattr(X, "__getitem__") and not isinstance(X, np.ndarray):
         cols = list(X.columns)
         all_names = list(feature_names) if feature_names is not None else [str(c) for c in cols]
@@ -107,20 +164,29 @@ def _resolve_feature_matrix(
                 f"_resolve_feature_matrix: feature_names has {len(all_names)} entries but X has {len(cols)} columns; "
                 "they must correspond one-to-one, otherwise columns are silently dropped from the diagnostics."
             )
-        mats: List[np.ndarray] = []
+        # Filled column by column into ONE preallocated plane rather than collected into a list and
+        # ``column_stack``ed: that call materialises a second dense copy of everything already gathered and
+        # holds the list alive beside it, so peak memory was ~2x the result -- against a docstring promising
+        # no full-frame copy. F-order because every consumer of this matrix reads it by column.
+        columns: List[np.ndarray] = []
         names: List[str] = []
         for c, name in zip(cols, all_names):
             col = X[c]
             arr = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
             if arr.dtype.kind in "OUS" or arr.dtype.kind == "b":
-                if arr.dtype.kind == "O" and any(isinstance(v, (list, tuple, np.ndarray)) for v in arr):
-                    continue
-                _, codes = np.unique(arr.astype(str), return_inverse=True)
-                mats.append(codes.astype(np.float64))
+                codes = ordinal_codes(arr)
+                if codes is None:
+                    continue  # list / tuple / array cells: no ordering a chart can use
+                columns.append(codes)
             else:
-                mats.append(arr.astype(np.float64))
+                columns.append(arr)
             names.append(name)
-        mat = np.column_stack(mats) if mats else np.empty((len(X), 0), dtype=np.float64)
+        mat = np.empty((len(X), len(columns)), dtype=np.float64, order="F")
+        for j, arr in enumerate(columns):
+            # Assigning into the plane converts to float64 in place; the source column is dropped straight
+            # afterwards so the gathered set is never fully materialised alongside the result.
+            mat[:, j] = arr
+            columns[j] = _EMPTY_COLUMN
         return mat, names
     mat = np.asarray(X, dtype=np.float64)
     if mat.ndim == 1:
@@ -177,12 +243,12 @@ def _top_split_features(
     seed: int,
     fit_cap: int = DEFAULT_TREE_FIT_CAP,
 ) -> List[int]:
-    """Fit a shallow regression tree on the per-row error and rank features by impurity-importance.
+    """Rank features by how sharply a single split on them separates high per-row error from low.
 
-    The tree finds where the error concentrates (its splits ARE the weak-segment boundaries); we then take the
-    ``n_features`` most-used columns. The fit is capped at ``fit_cap`` rows (subsample preserving the largest-error
-    points so the weak region is never sampled away) -- ranking the splits does not need all of a 1M+ row set, and
-    the cell statistics downstream still use every row. Falls back to error-variance ranking when sklearn is missing.
+    A column whose split concentrates the error IS a weak-segment boundary; we take the ``n_features`` best.
+    The ranking is capped at ``fit_cap`` rows (subsampled preserving the largest-error points so the weak
+    region is never sampled away) -- ranking does not need all of a 1M+ row set, and the cell statistics
+    downstream still use every row. Falls back to an sklearn tree, then to a median-split surrogate.
     """
     n_cols = mat.shape[1]
     if n_cols == 0:
@@ -194,17 +260,33 @@ def _top_split_features(
         fit_mat, fit_err = mat[idx], err[idx]
     else:
         fit_mat, fit_err = mat, err
+    # A depth-1 split-gain histogram, not an exact tree. The tree was fitted only to RANK the columns, and
+    # sklearn's exact splitter sorts every feature at every node to do it: on the capped input this dispatch
+    # already feeds it (100k x 200) the fit was 8.70 s of a 9.22 s chart. Measured on that shape the binned
+    # ranker is 4.2x, and across 12 seeds with three planted discriminating features it recovers at least as
+    # many of them as the tree does on every seed. sklearn stays as the fallback the except branch below
+    # always contemplated.
+    imp = np.zeros(n_cols, dtype=np.float64)
     try:
-        from sklearn.tree import DecisionTreeRegressor
+        from mlframe.reporting.charts._split_gain_ranking import split_gain_per_feature
 
-        tree = DecisionTreeRegressor(max_depth=max_depth, random_state=seed)
-        tree.fit(fit_mat, fit_err)
-        imp = np.asarray(tree.feature_importances_, dtype=np.float64)
+        imp = split_gain_per_feature(fit_mat, fit_err)
     except (ValueError, ImportError) as e:
+        logger.warning("[reporting.charts] split-gain ranking failed (%s: %s); falling back to the sklearn tree.", type(e).__name__, e)
+        try:
+            from sklearn.tree import DecisionTreeRegressor
+
+            tree = DecisionTreeRegressor(max_depth=max_depth, random_state=seed)
+            tree.fit(fit_mat, fit_err)
+            imp = np.asarray(tree.feature_importances_, dtype=np.float64)
+        except (ValueError, ImportError):
+            imp = np.zeros(n_cols, dtype=np.float64)
+    if not np.any(imp > 0):
         logger.warning(
-            "[reporting.charts] weak-segment tree fit failed (%s: %s); falling back to a weaker single-feature " "median-split surrogate ranking.",
-            type(e).__name__,
-            e,
+            "[reporting.charts] no column yields a positive split gain over %d rows x %d features; falling back to a "
+            "weaker single-feature median-split surrogate ranking.",
+            fit_mat.shape[0],
+            n_cols,
         )
         # Surrogate ranking: a feature whose high/low halves differ most in mean error is the most error-discriminating.
         imp = np.zeros(n_cols, dtype=np.float64)
@@ -224,8 +306,9 @@ def _top_split_features(
                 imp[j] = abs(float(hi.mean()) - float(lo.mean()))
     if not np.any(imp > 0):
         return list(range(min(n_features, n_cols)))
-    order = np.argsort(imp)[::-1]
-    return [int(j) for j in order[:n_features] if imp[j] > 0]
+    from mlframe.reporting.charts._split_gain_ranking import top_by_gain
+
+    return top_by_gain(imp, n_features)
 
 
 def _bin_edges(values: np.ndarray, nbins: int) -> np.ndarray:
@@ -284,7 +367,7 @@ def weak_segment_heatmap(
             title=title,
         )
         return WeakSegmentResult(
-            FigureSpec(panels=((ann,),), figsize=(7.0, 5.0)),
+            FigureSpec(panels=((ann,),), figsize=FIGSIZE_STANDARD),
             (), (np.nan,) * 4 + (float("nan"),), np.zeros((1, 1)), np.zeros((1, 1)),
         )
 
@@ -361,7 +444,7 @@ def weak_segment_heatmap(
     return WeakSegmentResult(
         FigureSpec(
             panels=((heat,),),
-            figsize=(8.0, 6.0),
+            figsize=FIGSIZE_STANDARD,
             caption=(
                 "A shallow tree fitted on PER-ROW error picked the most error-discriminating features; the grid bins "
                 "them into equal-population slices. Colour = mean error (darker = worse); the number printed in each "
@@ -408,9 +491,18 @@ def segments_bar(
     groups = df[group_col].astype(str).to_numpy()
     metric = df[metric_col].to_numpy().astype(np.float64)
     count_col = next((c for c in cols if str(c).lower() in ("count", "n", "size", "support")), None)
+
+    # numpy sorts NaN to the END ascending, so reversing for a higher-is-worse metric put every group with an
+    # unmeasurable metric FIRST -- the worst-first chart led with blank slots that keep their tick label, and
+    # the title read "worst segment <name> is nan x the global". A missing measurement is not the worst
+    # result. Dropped here rather than after the sort so the weighted global reference is finite too.
+    _finite = np.isfinite(metric)
+    _n_dropped = int((~_finite).sum())
+    groups, metric = groups[_finite], metric[_finite]
+
     if global_value is None:
         if count_col is not None:
-            w = df[count_col].to_numpy().astype(np.float64)
+            w = df[count_col].to_numpy().astype(np.float64)[_finite]
             global_value = float(np.average(metric, weights=w)) if w.sum() > 0 else float(np.nanmean(metric))
         else:
             global_value = float(np.nanmean(metric))
@@ -439,7 +531,15 @@ def segments_bar(
         "point estimates with NO uncertainty attached, so a short bar over a small subgroup may be sample size "
         "rather than a real weakness -- read each bar together with its group size before acting on it."
     )
-    return FigureSpec(suptitle="", panels=((bar,),), figsize=(max(8.0, len(cats) * 0.5), 5.0), caption=caption)
+    if _n_dropped:
+        caption += f" {_n_dropped} subgroup(s) had no finite {metric_name} and are not shown."
+    # The width used to grow without bound while the height stayed at 5in: at 30 groups that is a 15x5
+    # letterbox whose fixed height has to absorb 45-degree labels of arbitrary length, and a 40-character
+    # group value projects about 2in vertically -- 40% of the figure. Cap the width and grow the height by
+    # what the longest label actually projects at 45 degrees.
+    _label_in = max((measured_text_width_pt(truncate_bar_label(c), 8) for c in cats), default=0.0) / 72.0
+    _height = min(max(5.0, 3.2 + _label_in * math.sin(math.radians(45.0))), 12.0)
+    return FigureSpec(suptitle="", panels=((bar,),), figsize=(min(max(8.0, len(cats) * 0.5), 16.0), _height), caption=caption)
 
 
 @dataclass(frozen=True)

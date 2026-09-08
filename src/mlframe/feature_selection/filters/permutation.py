@@ -167,7 +167,7 @@ def _perm_pvalue(nfailed: int, nchecked: int, full_budget: Optional[int] = None)
     return nfailed / float(denom)
 
 
-def perm_pvalues(nfailed, nchecked: int):
+def perm_pvalues(nfailed: np.ndarray, nchecked: int) -> np.ndarray:
     """Vectorised twin of :func:`_perm_pvalue` for an array of exceedance counts at one budget.
 
     Exists so a call site that scores many features at once honours ``MLFRAME_MRMR_ADDONE_PVALUE`` too.

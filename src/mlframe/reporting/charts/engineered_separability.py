@@ -20,7 +20,9 @@ from typing import Any, List, Optional, Sequence
 
 import numpy as np
 
-from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, PanelSpec, ScatterPanelSpec
+from mlframe.reporting.charts._categorical_codes import ordinal_codes
+
+from mlframe.reporting.spec import FIGSIZE_SQUARE, FIGSIZE_WIDE, AnnotationPanelSpec, FigureSpec, PanelSpec, ScatterPanelSpec
 
 # Bounded scatter cap: matplotlib per-point primitives scale poorly past ~5k points and the Fisher ratio has converged
 # on far fewer, so both the plot and the score run on the same seeded subsample.
@@ -165,10 +167,10 @@ def _pull_feature(X: Any, feat: Any) -> np.ndarray:
     else:
         arr = np.asarray(X)[:, feat]
     if arr.dtype.kind in "OUS" or arr.dtype.kind == "b":
-        if arr.dtype.kind == "O" and any(isinstance(v, (list, tuple, np.ndarray)) for v in arr):
+        codes = ordinal_codes(arr)
+        if codes is None:
             return np.full(len(arr), np.nan, dtype=np.float64)
-        _, codes = np.unique(arr.astype(str), return_inverse=True)
-        return codes.astype(np.float64)
+        return codes
     return np.ascontiguousarray(arr, dtype=np.float64)
 
 
@@ -206,11 +208,22 @@ def separability_panel(X: Any, y: np.ndarray, features: Sequence[Any], *, sample
         idx = np.sort(rng.choice(n, size=sample, replace=False))
         z0, z1, yv = z0[idx], z1[idx], yv[idx]
     score = separability_score(np.column_stack([z0, z1]), yv)
+    # The class vector is remapped to CONTIGUOUS codes and drawn through a qualitative colormap pinned to
+    # whole-number bounds. It used to go straight into "coolwarm", a DIVERGING continuous scale, which says
+    # the classes are extremes of one quantity: the middle class of a 3-class problem landed on the pale
+    # midpoint and was nearly invisible against the panel, and the colorbar carried ticks at 0.5 and 1.5 --
+    # values no row can take. tab10 gives each class its own flat colour, and pinning the bounds to
+    # ``-0.5 .. n_classes - 0.5`` keeps class k in the middle of band k rather than wherever the data
+    # happens to span, so two runs with different class counts do not recolour the same class.
+    _classes, _codes = np.unique(np.asarray(yv), return_inverse=True)
+    _n_classes = max(1, int(_classes.size))
     return ScatterPanelSpec(
         x=z0,
         y=z1,
-        point_color=yv,
-        colormap="coolwarm",
+        point_color=_codes.astype(np.float64),
+        colormap="tab10",
+        color_vmin=-0.5,
+        color_vmax=_n_classes - 0.5,
         title=(
             f"Separability: {f0} vs {f1}\nFisher J={score:.2f} -> best achievable AUC ~{_implied_auc(score):.2f} "
             f"under a Gaussian model ({_separability_verdict(score)})"
@@ -218,7 +231,7 @@ def separability_panel(X: Any, y: np.ndarray, features: Sequence[Any], *, sample
         xlabel=str(f0),
         ylabel=str(f1),
         point_alpha=0.4,
-        colorbar_label="class",
+        colorbar_label=f"class ({_n_classes} values)",
         equal_aspect=False,
     )
 
@@ -243,7 +256,7 @@ def compose_separability_figure(X: Any, y: np.ndarray, features: Optional[Sequen
                         ),
                     ),
                 ),
-                figsize=(6.0, 3.0),
+                figsize=FIGSIZE_WIDE,
             )
         if feature_importances is not None:
             order = np.argsort(np.asarray(feature_importances, dtype=np.float64))[::-1]
@@ -254,7 +267,7 @@ def compose_separability_figure(X: Any, y: np.ndarray, features: Optional[Sequen
     return FigureSpec(
         suptitle=suptitle,
         panels=((panel,),),
-        figsize=(6.0, 5.5),
+        figsize=FIGSIZE_SQUARE,
         caption=(
             "Each point is one row, positioned by two features and coloured by class. Fisher J is the squared "
             "Mahalanobis distance between the class means under the pooled within-class covariance: 0 means the two "
