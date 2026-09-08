@@ -78,14 +78,18 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
+      # install-pyutilz below runs `uv pip install`, so uv has to exist first. Missing this step is what
+      # made the very first deep run die at exit 127 before a single test ran.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+
+      # Installs pyutilz AND this project in one uv call, exactly as ci.yml does -- the extras are what
+      # the action installs, so leaving them empty asks it to install nothing.
       - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@71957762ddd99200a66e3312a8ef9293b4c5d939  # v1.4.0
         with:
+          pyutilz-extras: "system,pandas,polars,database"
+          project-extras: ".[all,dev]"
           pyutilz-ref: ec016b15e76e5582ba1a083c02b33029663c2296  # pragma: allowlist secret -- git commit SHA, not a secret
-
-      - name: Install mlframe with all runtime extras + dev tooling
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[all,dev]"
 
       - name: Restore numba JIT cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
