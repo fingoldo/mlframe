@@ -472,12 +472,12 @@ dev = [
     # X_SECURITY_API_PACKAGING-5 (mrmr_audit_2026-07-22) asked for a pin rather than the floating
     # default branch. The SHA that note describes was NOT here -- the entry had drifted back to the
     # bare default branch, so the comment was describing a pin the line did not carry.
-    # 2026-09-08: moved onto `@v1`, the MOVING major-version tag, which is the form the CI workflows
-    # already use (`ruff-blocking.yml@v1`) and the tag py-ci-shared documents as "always points at
-    # the latest v1.x release". That is weaker than a SHA -- a moving tag can be repointed -- and
-    # stronger than the default branch, which is whatever was merged last. Choose deliberately if
-    # this ever needs to be reproducible to the commit.
-    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@v1",
+    # 2026-09-08: pinned to the SHA that `v1` points at. A moving tag was tried first and was
+    # wrong: `test_shared_checks_wired` enforces a full 40-character SHA, on the ground the
+    # 2026-07-21 audit gave -- a tag can be repointed, so a fresh install can silently resolve to a
+    # commit nothing was tested against. Bump this deliberately, with a CHANGELOG entry, when a new
+    # py-ci-shared feature is actually needed.
+    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@915217a4a8cdecc60b67c2c6c8dfe81de2f8a91c",
 ]
 
 [project.scripts]
