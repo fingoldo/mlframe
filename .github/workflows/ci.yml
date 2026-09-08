@@ -147,6 +147,12 @@ jobs:
       run:
         shell: bash
     env:
+      # [tool.uv.sources] points pyutilz at git, while this job installs it from a local clone. uv sees
+      # two different URLs for one package and refuses: "Requirements contain conflicting URLs for
+      # package `pyutilz`". The source exists so `uv lock` can resolve a package that is not on PyPI;
+      # here the clone is the intended input, so the table is ignored. Never set this on the lockfile
+      # job -- that one needs the source to resolve at all.
+      UV_NO_SOURCES: "1"
       # Persist numba's on-disk JIT cache across runs AND shards (see the cache step below). Without it numba
       # recompiles the ~430 cache=True kernels cold on every shard of every run; measured locally, ~80% of a
       # feature_selection test file's cold time is first-call compilation (64.6s cold -> 11.9s warm), which is
@@ -431,6 +437,13 @@ jobs:
   # is excluded from the python-version axis (experimental leg, same reasoning as the main matrix's
   # own 3.14 rows).
   test-heavy-serial:
+    env:
+      # [tool.uv.sources] points pyutilz at git, while this job installs it from a local clone. uv sees
+      # two different URLs for one package and refuses: "Requirements contain conflicting URLs for
+      # package `pyutilz`". The source exists so `uv lock` can resolve a package that is not on PyPI;
+      # here the clone is the intended input, so the table is ignored. Never set this on the lockfile
+      # job -- that one needs the source to resolve at all.
+      UV_NO_SOURCES: "1"
     name: pytest ${{ matrix.python-version }} on ubuntu-latest (test_core.py, serial, group ${{ matrix.group }}/4)
     needs: matrix-setup
     runs-on: ubuntu-latest

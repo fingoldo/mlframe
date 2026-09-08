@@ -90,6 +90,13 @@ jobs:
           python -m pip_audit -r locked-audit.txt --no-deps --progress-spinner off
 
   lowest-direct:
+    env:
+      # [tool.uv.sources] points pyutilz at git, while this job installs it from a local clone. uv sees
+      # two different URLs for one package and refuses: "Requirements contain conflicting URLs for
+      # package `pyutilz`". The source exists so `uv lock` can resolve a package that is not on PyPI;
+      # here the clone is the intended input, so the table is ignored. Never set this on the lockfile
+      # job -- that one needs the source to resolve at all.
+      UV_NO_SOURCES: "1"
     name: install + smoke at declared floors
     runs-on: ubuntu-latest
     timeout-minutes: 45

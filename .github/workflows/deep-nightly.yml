@@ -55,6 +55,13 @@ jobs:
   # engineering and selection trees, where the kernels that emit these warnings actually live. Once it
   # reads zero, move the filter into pyproject's filterwarnings and delete this job.
   runtime-warnings:
+    env:
+      # [tool.uv.sources] points pyutilz at git, while this job installs it from a local clone. uv sees
+      # two different URLs for one package and refuses: "Requirements contain conflicting URLs for
+      # package `pyutilz`". The source exists so `uv lock` can resolve a package that is not on PyPI;
+      # here the clone is the intended input, so the table is ignored. Never set this on the lockfile
+      # job -- that one needs the source to resolve at all.
+      UV_NO_SOURCES: "1"
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.run }}
     name: RuntimeWarning census (advisory)
     runs-on: ubuntu-latest
@@ -125,6 +132,9 @@ jobs:
         # 20 shards, twice ci.yml's 10, because this pass is doing considerably more work per shard.
         group: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20"]
     env:
+      # [tool.uv.sources] points pyutilz at git, while this job installs it from a local clone; without
+      # this uv refuses on conflicting URLs for the same package. See the note in ci.yml's test job.
+      UV_NO_SOURCES: "1"
       PYTHONUNBUFFERED: "1"
       # NOT setting MLFRAME_FAST is the point of this workflow -- fast_subset() then returns the full
       # value list instead of one representative, which is most of what the push matrix skips.

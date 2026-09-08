@@ -35,4 +35,7 @@ jobs:
       install-command: |
         git clone https://github.com/fingoldo/pyutilz.git
         git -C pyutilz checkout ec016b15e76e5582ba1a083c02b33029663c2296  # see X_CICD_DEPENDENCIES-1 for why this is pinned -- narrowed code_audit scanners + the private-assertion-helper fix
-        uv pip install --system "./pyutilz[system,pandas,polars,database]" -e ".[all,dev,gpu]"
+        # UV_NO_SOURCES: [tool.uv.sources] points pyutilz at git and this line installs it from the
+        # clone above; without it uv refuses on conflicting URLs for the same package. A reusable
+        # workflow call cannot carry `env:`, so it is set on the command.
+        UV_NO_SOURCES=1 uv pip install --system "./pyutilz[system,pandas,polars,database]" -e ".[all,dev,gpu]"
