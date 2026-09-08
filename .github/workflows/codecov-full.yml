@@ -45,7 +45,7 @@ permissions:
 
 jobs:
   merge-and-upload:
-    name: Merge ci.yml + numba-coverage.yml raw coverage, upload combined flag
+    name: Merge ci.yml + numba-coverage.yml + deep-nightly raw coverage, upload combined flag
     runs-on: ubuntu-latest
     # workflow_run fires on EVERY completion of numba-coverage-nightly regardless of outcome --
     # only chain off a genuinely green run that itself came from an already-vetted trigger
@@ -151,6 +151,47 @@ jobs:
           else
             echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
           fi
+
+      # deep-nightly is the third contributor, and the one whose lines the other two structurally cannot
+      # reach: slow tests, fuzz combos and the parametric variants MLFRAME_FAST collapses. Its absence is
+      # why the "full" badge was not actually full.
+      #
+      # Optional on purpose -- it runs nightly, not per push, so a fresh master commit legitimately has no
+      # deep run behind it yet. A missing deep artifact set degrades this job to the previous two-way
+      # merge instead of failing it; a REQUIRED third input would turn "the nightly has not run since your
+      # commit" into a red check that says nothing about the code.
+      - name: Find the latest completed deep-nightly run on master with real data
+        id: find_deep_run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          run_id=""
+          for candidate in $(gh run list --repo "${{ github.repository }}" --workflow deep-nightly.yml --branch master               --status completed --limit 5 --json databaseId --jq '.[].databaseId'); do
+            count=$(gh api "repos/${{ github.repository }}/actions/runs/$candidate/artifacts"               --jq '[.artifacts[] | select(.name | startswith("raw-coverage-deep-"))] | length') || count=""
+            if [ -z "$count" ]; then
+              echo "Could not read artifacts for run $candidate (API query failed) -- not the same as zero artifacts"
+              continue
+            fi
+            if [ "$count" -gt 0 ]; then
+              run_id="$candidate"
+              echo "Using deep run $run_id ($count raw-coverage-deep-* artifact(s))"
+              break
+            fi
+          done
+          if [ -z "$run_id" ]; then
+            echo "No deep-nightly run with raw coverage yet -- merging ci + numba only this time."
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Download deep-nightly's raw shard data
+        if: steps.find_deep_run.outputs.run_id != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          pattern: raw-coverage-deep-*
+          path: raw-coverage
+          merge-multiple: false
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ steps.find_deep_run.outputs.run_id }}
 
       - name: Download ci.yml's raw shard data
         if: steps.find_ci_run.outputs.run_id != ''

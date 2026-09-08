@@ -123,10 +123,37 @@ jobs:
             --store-durations \
             -n auto \
             --dist=loadgroup \
-            --no-cov \
+            --cov=src/mlframe \
+            --cov-report=xml \
             -p no:randomly \
             --timeout=1800 \
             -ra
+
+      # This run reaches lines nothing else does -- slow tests, fuzz combos and the parametric variants
+      # MLFRAME_FAST collapses away -- so its coverage is the part the other two workflows structurally
+      # cannot contribute. Uploaded twice, for two different questions:
+      #
+      #   the `deep` flag     what depth alone covers, readable on its own
+      #   the raw .coverage   merged by codecov-full.yml into the `combined` flag, which is the only
+      #                       honest whole-project number: a line counts as covered if ANY run executed
+      #                       it, and adding two flags' percentages double-counts instead of unioning.
+      - name: Upload coverage to Codecov (deep flag)
+        if: success() || failure()
+        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@f50288e5a6f5b7f972efb60f948ce6184c8e9e70  # v1.3.4
+        with:
+          files: ./coverage.xml
+          flags: deep
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload raw coverage data (for the cross-workflow merged report)
+        if: success() || failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: raw-coverage-deep-${{ matrix.group }}
+          path: .coverage
+          retention-days: 3
+          include-hidden-files: true
+          if-no-files-found: ignore
 
       - name: Upload this shard's durations
         if: success() || failure()
