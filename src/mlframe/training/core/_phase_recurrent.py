@@ -32,7 +32,6 @@ from sklearn.base import clone
 
 from ..configs import TargetTypes
 from ..utils import log_phase
-from ..trainer import _configure_recurrent_params
 from ._misc_helpers import _compute_neural_max_time
 from mlframe.utils.log_throttle import log_throttle
 
@@ -456,6 +455,14 @@ def train_recurrent_models(
         log_phase("PHASE 5: Recurrent Model Training")
 
     use_regression = TargetTypes.REGRESSION in target_by_type
+
+    # Imported here rather than at module scope to break an import cycle: `mlframe.training.trainer`
+    # imports `_trainer_train_and_evaluate`, which imports `_calib_oof_outputs`, which imports
+    # `training.core`, whose `__init__` reaches this module -- back into a `trainer` that is still
+    # halfway through executing. At module scope that made `import mlframe.training.trainer`, and the
+    # public `from mlframe.training import train_and_evaluate_model` with it, raise ImportError on a
+    # fresh interpreter. By call time `trainer` is fully initialised, so the name resolves.
+    from ..trainer import _configure_recurrent_params
 
     recurrent_params = _configure_recurrent_params(
         recurrent_models=recurrent_models,
