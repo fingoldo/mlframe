@@ -1105,6 +1105,15 @@ max-complexity = 40
 # MyPy
 # ---------------------------------------------------------------------------
 [tool.mypy]
+# Comparisons between non-overlapping types are always False -- `if dtype == "float64"` against an
+# np.dtype, `if mode == SomeEnum.X` where mode is a str, a Literal compared to a value outside its own
+# set. No AST gate in tests/test_meta can see that class, and the failure is silent: the branch simply
+# never runs. Enabled 2026-09-08 after measuring the cost on the whole project -- exactly one finding, a
+# redundant `mode != "mean"` in _cv_aggregation.py that an early return already guaranteed.
+#
+# warn_unreachable stays OFF on purpose: this codebase's optional-dependency `try/except ImportError`
+# gates and version-guarded branches are precisely what it over-reports on.
+strict_equality = true
 # The project's minimum RUNTIME support is still 3.9 (see [project] requires-python);
 # this is only the syntax-checking target mypy 2.x type-checks against, and mypy 2.x
 # dropped 3.9 support for that setting (raises "Python 3.9 is not supported" otherwise).

@@ -53,6 +53,14 @@ _REVIEWED_ADVISORY_STEPS: set[str] = {
     # first run would red the weekly schedule on pre-existing debt rather than on a regression. Flip it
     # once the count is zero.
     "install + smoke at declared floors",
+    # Three of these hooks are auto-fixers whose failure mode on a fresh checkout is "I rewrote your
+    # files", and nobody has measured how many files that touches. The job exists to close the gap that
+    # detect-secrets and shellcheck were enforced only on a machine with hooks installed -- bypassed by
+    # --no-verify and by any fork PR. Flip it off once a run reads clean.
+    "hooks with no CI counterpart",
+    # The declared CVE floors are behind by several advisories and the fixes are sitting in open dependabot
+    # PRs, so this reports known debt, not a regression. Flip it off once that backlog is merged.
+    "known CVEs in the locked graph (advisory)",
 }
 
 # pyutilz and py-ci-shared are first-party upstreams owned by this repo's own maintainer, so the supply-chain

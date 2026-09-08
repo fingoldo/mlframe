@@ -33,6 +33,62 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # A CVE floor like `aiohttp>=3.14.1` or `tornado>=6.5.7` is a hand-written claim, with the advisory id in
+  # a comment beside it, that this version is the first safe one. Nothing re-checks those claims: they were
+  # true when written and go stale in silence. pip-audit already exists in the dev extra and runs in the
+  # advisory bundle over the INSTALLED environment, which is a developer's machine rather than what the
+  # project declares. This audits the locked graph instead -- the exact set uv.lock pins, which is what a
+  # `uv sync --frozen` actually installs.
+  #
+  # Three things about the invocation are load-bearing, all learned by getting them wrong first:
+  #   * `--extra all --extra dev`, because a bare `uv export` emits only the base group. That run reported
+  #     42 packages and zero advisories, which reads as good news and is an artefact of the wrong scope.
+  #   * `--no-deps`, because the export is already fully pinned and resolving it again is both pointless
+  #     and fragile.
+  #
+  # The export is universal -- one file carrying every environment's pins behind PEP 508 markers -- and pip
+  # evaluates those markers for the interpreter it runs on. That is why this job must stay on ubuntu with
+  # the representative Python: audited on a different interpreter, the same file selects pins that have no
+  # wheel there and the run dies on a resolution error rather than on a finding. (uv 0.11 has no
+  # --python-platform on `export`, so the runner itself is the targeting.)
+  #
+  # Advisory. The current count is not zero -- there are open dependabot PRs carrying exactly these fixes
+  # (aiohttp #27 has been open since August) -- so blocking now would red the schedule on known debt rather
+  # than on a regression. Flip `continue-on-error` off once the backlog is merged and a run reads clean.
+  audit:
+    name: known CVEs in the locked graph (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Export the locked graph for this runner
+        run: |
+          uv export --frozen --no-hashes --extra all --extra dev --no-emit-project \
+            --format requirements-txt > locked.txt
+          # pyutilz resolves from git and has no advisory feed to check against; it is first-party and
+          # tracked by its own repository's CI.
+          grep -v '^pyutilz @' locked.txt > locked-audit.txt
+          wc -l < locked-audit.txt
+
+      - name: pip-audit the locked graph
+        run: |
+          python -m pip install --disable-pip-version-check "pip-audit>=2.7"
+          python -m pip_audit -r locked-audit.txt --no-deps --progress-spinner off
+
   lowest-direct:
     name: install + smoke at declared floors
     runs-on: ubuntu-latest
