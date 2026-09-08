@@ -43,7 +43,7 @@ that are imported unconditionally at module load time -- see `pyproject.toml`'s
 `[project.dependencies]` for the exact list. Heavier stacks ship as optional extras:
 
 ```bash
-pip install mlframe[all,dev]                     # full install (recommended)
+pip install -e "./mlframe[all,dev]"              # full install (recommended)
 
 pip install -e "./mlframe[boosting]"             # catboost + lightgbm + xgboost
 pip install -e "./mlframe[calibration]"          # shap + venn-abers + netcal + betacal + pycalib

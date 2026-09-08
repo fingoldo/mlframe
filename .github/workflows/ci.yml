@@ -336,7 +336,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: test-durations-${{ matrix.python-version }}-${{ matrix.group }}
+          # The OS belongs in the name. A push runs three platforms on ONE Python version, so without it
+          # all three shard-N jobs ask for the same artifact name, and upload-artifact rejects a duplicate
+          # as a non-retryable conflict -- two of every three jobs would fail on a step that has nothing to
+          # do with their tests. It also keeps macOS timings from overwriting Linux ones in the file that
+          # balances all three platforms.
+          name: test-durations-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.group }}
           path: .test_durations
           retention-days: 3
           include-hidden-files: true
@@ -654,15 +659,19 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [test, test-heavy-serial, ruff-blocking, lint-blocking, tests-ruff-blocking, tests-black-filtered, tests-lint-blocking, build]
+    # matrix-setup is in this list deliberately. Everything below it is `needs:`-dependent on it, so if it
+    # fails every test job SKIPS -- and a skip is not a failure, so without it here this gate reported
+    # green having run zero tests. That is the worst possible outcome for a required check.
+    needs: [matrix-setup, test, test-heavy-serial, ruff-blocking, lint-blocking, tests-ruff-blocking, tests-black-filtered, tests-lint-blocking, build]
     steps:
       - name: Check all required jobs succeeded
         env:
           NEEDS_JSON: ${{ toJson(needs) }}
-          ANY_FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+          # 'skipped' counts too, for the same reason: a required job that never ran has not passed.
+          ANY_BAD: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
         run: |
           echo "$NEEDS_JSON"
-          if [[ "$ANY_FAILED" == "true" ]]; then
-            echo "One or more required jobs failed or were cancelled."
+          if [[ "$ANY_BAD" == "true" ]]; then
+            echo "One or more required jobs failed, was cancelled, or never ran."
             exit 1
           fi
