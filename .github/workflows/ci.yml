@@ -39,21 +39,25 @@ env:
   # runs -- which is how the coverage upload silently stopped the last time this gate named a version by
   # hand.
   #
-  # macOS is the per-push leg as of 2026-09-08, deliberately and temporarily. Linux is in good shape and
-  # Windows has had hands on it; macOS has never had a green run of this suite, so it is the platform
-  # where a push-cadence signal buys the most. The cost is named rather than hidden: Linux regressions
-  # now surface in the Sunday sweep instead of on the commit that caused them. Move this back to
-  # ubuntu-latest once macOS is green -- that is the whole point of pointing it here.
-  REPRESENTATIVE_OS: "macos-latest"
+  # A push runs all three OSes on ONE Python version. The version is what is held fixed, not the platform:
+  # a user on Windows or macOS is failed by a platform bug on any version, while a version bug is caught by
+  # the Sunday sweep. Thirty jobs per push rather than the 180 a full cross product would take.
+  #
+  # COVERAGE_OS names the single leg allowed to publish coverage. Three legs uploading the same lines would
+  # not improve the report, and Linux is where this project's codecov history and its numba-coverage
+  # companion workflow already live.
+  COVERAGE_OS: "ubuntu-latest"
   REPRESENTATIVE_PYTHON: "3.12"
 
 jobs:
   # The matrix is chosen by EVENT, not hard-coded, so one job definition serves both cadences.
   #
-  # A push gets the representative leg only: Linux on one Python version, still sharded 10 ways. That is
-  # 10 jobs instead of 50, which is what makes the blocking signal arrive in a reasonable time -- the
-  # account's ~20 concurrent-job ceiling is shared across every repo, and a 50-job push matrix spent hours
-  # queued (measured 2026-09-07: 30 of 86 jobs done after two hours).
+  # A push gets every OS on ONE Python version, each still sharded 10 ways: 30 jobs instead of the 180 a
+  # full cross product would take. The platform is what a push protects and the version is what it holds
+  # fixed, because a Windows or macOS user is failed by a platform bug on any version, while a
+  # version-specific bug is caught by the Sunday sweep. The ceiling this is sized against is concurrency,
+  # not minutes -- ~20 concurrent jobs shared across every repo on the account, and the old 50-job push
+  # matrix spent hours queued (measured 2026-09-07: 30 of 86 jobs done after two hours).
   #
   # The weekly sweep is where every OS and every supported Python version run. What that trades away is
   # worth naming: version-specific breaks are then found up to a week after the commit that caused them.
@@ -61,10 +65,10 @@ jobs:
   # 3.9/3.10 saw it) and an ast.dump similarity that differs between 3.12 and 3.14 -- and under this
   # cadence both would have surfaced in the Sunday run instead of on the push.
   #
-  # Linux is not left entirely unwatched between sweeps: ``test-heavy-serial`` below still runs
-  # test_core.py across every supported version on every push, so a Linux-only import break or a
-  # version-specific regression in that file still fails the commit that caused it. That is 20 short
-  # jobs rather than 50 long ones, which is why it does not reintroduce the queue problem.
+  # The version axis is not left entirely unwatched between sweeps: ``test-heavy-serial`` below still runs
+  # test_core.py across every supported version on every push, so a version-specific regression in that
+  # file still fails the commit that caused it. That is 20 short jobs, which is why it does not
+  # reintroduce the queue problem.
   matrix-setup:
     name: Choose the matrix for this event
     runs-on: ubuntu-latest
@@ -80,7 +84,6 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           FORCE_FULL: ${{ inputs.full_matrix }}
           REPRESENTATIVE_PYTHON: ${{ env.REPRESENTATIVE_PYTHON }}
-          REPRESENTATIVE_OS: ${{ env.REPRESENTATIVE_OS }}
         run: |
           python - <<'PY' >> "$GITHUB_OUTPUT"
           import json, os
@@ -107,11 +110,14 @@ jobs:
                   for g in GROUPS
               ]
           else:
-              # Blocking on purpose. A non-blocking leg on a platform nobody has made green yet is a leg
-              # nobody looks at; this one is meant to be looked at until it stops being red.
+              # All three platforms, one version. Blocking on purpose, including the two that have never
+              # been green: a non-blocking leg on a platform nobody has made green is a leg nobody looks
+              # at. Expect red until Windows and macOS are driven green -- that is the signal working, not
+              # the signal broken.
               legs = [
-                  {"os": os.environ["REPRESENTATIVE_OS"], "python-version": REPRESENTATIVE,
-                   "splits": "10", "group": g, "experimental": False}
+                  {"os": os_name, "python-version": REPRESENTATIVE, "splits": "10",
+                   "group": g, "experimental": False}
+                  for os_name in ("ubuntu-latest", "windows-latest", "macos-latest")
                   for g in GROUPS
               ]
 
@@ -339,7 +345,7 @@ jobs:
         # meta-test) otherwise skips this step by GitHub Actions' default "only if prior steps succeeded"
         # rule, so codecov never sees that shard's coverage.xml and the merged report stays incomplete --
         # observed as the badge never updating despite runs completing.
-        if: matrix.python-version == env.REPRESENTATIVE_PYTHON && matrix.os == env.REPRESENTATIVE_OS && (success() || failure())
+        if: matrix.python-version == env.REPRESENTATIVE_PYTHON && matrix.os == env.COVERAGE_OS && (success() || failure())
         with:
           files: ./coverage.xml
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -352,7 +358,7 @@ jobs:
       # added together). `.coverage` is a dotfile -- same upload-artifact hidden-file gotcha as
       # `.test_durations` above.
       - name: Upload raw coverage data (for the cross-workflow merged report)
-        if: matrix.python-version == env.REPRESENTATIVE_PYTHON && matrix.os == env.REPRESENTATIVE_OS && (success() || failure())
+        if: matrix.python-version == env.REPRESENTATIVE_PYTHON && matrix.os == env.COVERAGE_OS && (success() || failure())
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: raw-coverage-ci-${{ matrix.group }}
@@ -386,11 +392,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Deliberately still every supported version on Linux, and deliberately NOT reduced with the
-        # main matrix above. test_core.py is the file that recurrently OOM-killed the runner, so it is
-        # run serially and separately; keeping its full version spread on every push is what leaves
-        # Linux with real per-commit protection while the main matrix is pointed at macOS. It is 20
-        # short jobs, not 50 long ones, so it does not reintroduce the queue problem.
+        # Deliberately still every supported version, and deliberately NOT reduced with the main matrix
+        # above. test_core.py is the file that recurrently OOM-killed the runner, so it is run serially
+        # and separately; keeping its full version spread is what leaves the VERSION axis some per-commit
+        # coverage while the main matrix holds the version fixed and varies the platform instead. Linux
+        # only, because the OOM behaviour it guards is what this runner does, and it is 20 short jobs.
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
         group: [1, 2, 3, 4]
     steps:
