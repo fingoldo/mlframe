@@ -14,6 +14,8 @@ import logging
 
 import numpy as np
 from numba import njit, prange
+
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 
 logger = logging.getLogger(__name__)
@@ -467,7 +469,11 @@ def apply_operand_prewarp(x: np.ndarray, spec: dict) -> np.ndarray:
             axis = (xf - float(pp["lo"])) / max(float(pp["span"]), 1e-12)
         coef = np.asarray(spec["coef"], dtype=np.float64).reshape(-1)
         freqs = np.asarray(pp["freqs"], dtype=np.float64).reshape(-1)
-        return np.asarray(_fourier_adaptive_prewarp_njit(np.ascontiguousarray(axis), coef, freqs), dtype=np.float64)
+        # Guarded: this replay is reached from inside the FE pair sweep's chunk pipeline, where a producer
+        # thread runs while the main thread scores. Two threads inside one prange region aborts the process
+        # on macOS -- see mlframe._numba_parallel_guard. Sole call site, so one guard covers every caller.
+        with parallel_kernel_entry():
+            return np.asarray(_fourier_adaptive_prewarp_njit(np.ascontiguousarray(axis), coef, freqs), dtype=np.float64)
     from . import _POLY_BASES
     bi = _POLY_BASES[basis]
     xf = np.ascontiguousarray(np.asarray(x, dtype=np.float64))

@@ -27,6 +27,7 @@ deeper material in the docs root.
 See also [`docs/examples/composite_targets.md`](examples/composite_targets.md) for the tiered composite-target recipes.
 
 ## Internal / research notes
+- [NESTED_PARALLEL.md](NESTED_PARALLEL.md) - why two threads must never enter one numba parallel kernel, and how to find the places they can.
 
 Design audits, literature surveys, and forward-looking roadmaps. These are
 working notes (some items have since shipped — each doc carries a status note

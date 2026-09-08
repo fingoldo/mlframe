@@ -21,6 +21,8 @@ import numpy as np
 from joblib import Parallel
 from numba import njit, prange
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+
 from ._internals import NMAX_NONPARALLEL_ITERS
 
 # Typed uint64 zero used as the default ``base_seed`` for the njit permutation kernels. Built once as a
@@ -810,19 +812,23 @@ def mi_direct(
         if original_mi > 0 and npermutations > 0:
             _null_nperms = max(int(npermutations), _NULL_MEAN_MIN_PERMS)
             _cy = classes_y_safe if classes_y_safe is not None else classes_y
-            nfailed, n_checked, sum_perm_mi = parallel_mi_prange_with_null(
-                classes_x=classes_x,
-                freqs_x=freqs_x,
-                classes_y=_cy,
-                freqs_y=freqs_y,
-                npermutations=_null_nperms,
-                original_mi=original_mi,
-                base_seed=np.uint64(base_seed),
-                dtype=dtype,
-                use_su=_use_su,
-                use_mm=(use_mi_miller_madow() and not _use_su),  # N-F1: null uses the SAME estimator as original_mi
-                use_cs=(use_mi_chao_shen() and not _use_su),
-            )
+            # Reached from the FE pair sweep's threaded chunk pipeline, where a producer thread runs
+            # while the main thread scores. Two threads inside one prange region aborts the process on
+            # macOS; see mlframe._numba_parallel_guard.
+            with parallel_kernel_entry():
+                nfailed, n_checked, sum_perm_mi = parallel_mi_prange_with_null(
+                    classes_x=classes_x,
+                    freqs_x=freqs_x,
+                    classes_y=_cy,
+                    freqs_y=freqs_y,
+                    npermutations=_null_nperms,
+                    original_mi=original_mi,
+                    base_seed=np.uint64(base_seed),
+                    dtype=dtype,
+                    use_su=_use_su,
+                    use_mm=(use_mi_miller_madow() and not _use_su),  # N-F1: null uses the SAME estimator as original_mi
+                    use_cs=(use_mi_chao_shen() and not _use_su),
+                )
             if n_checked > 0:
                 null_mean = sum_perm_mi / float(n_checked)
                 # The rejection gate uses the RAW exceedance rate (legacy unanimous-rejection semantics on the screen's tiny budget), while the surfaced p_value / confidence use

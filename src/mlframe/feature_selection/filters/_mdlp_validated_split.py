@@ -90,6 +90,8 @@ import numpy as np
 import numba
 from numba import njit
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+
 logger = logging.getLogger(__name__)
 
 from ._analytic_mi_null import analytic_mi_null, analytic_null_applicable
@@ -456,9 +458,11 @@ def _mdlp_recurse_validated_bfs(
                 node_gains[i] = gain_i
                 n_classes_arr[i] = _nc_i
                 base_seeds[i] = seed_i
-            accepts = _mdlp_permutation_batch_njit(
-                x_padded, y_padded, node_sizes, node_gains, n_classes_arr, min_split_size, n_permutations, base_seeds, _batch_alpha,
-            )
+            # One thread at a time inside the prange region; see mlframe._numba_parallel_guard.
+            with parallel_kernel_entry():
+                accepts = _mdlp_permutation_batch_njit(
+                    x_padded, y_padded, node_sizes, node_gains, n_classes_arr, min_split_size, n_permutations, base_seeds, _batch_alpha,
+                )
             for i, (_x_i, _y_i, _nc_i, _gain_i, _seed_i, _accept_fn, _a) in enumerate(pending_permutation):
                 if accepts[i]:
                     _accept_fn()

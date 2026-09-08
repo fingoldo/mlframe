@@ -23,6 +23,8 @@ import numpy as np
 import pandas as pd
 from numba import njit, prange
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+
 
 # Sklearn / astropy removed from categorize_1d_array hot path.
 # Pure-numpy + numba kernels are ~10x faster than KBinsDiscretizer / OrdinalEncoder
@@ -599,7 +601,13 @@ def discretize_array(
         if arr.shape[0] >= _UNIFORM_PAR_THRESHOLD:
             if min_value is None or max_value is None:
                 min_value, max_value = arrayMinMax(arr)
-            return np.asarray(discretize_uniform_parallel(arr, n_bins, float(min_value), float(max_value), dtype=dtype))
+            # Guarded because this dispatcher is reached from inside thread pools -- the FE pair sweep's
+            # double-buffered chunk pipeline runs a producer thread while the main thread scores, and both
+            # paths land here. Two threads inside one prange region aborts the process on macOS; see
+            # mlframe._numba_parallel_guard. One call site for the whole package, so guarding it here
+            # covers every caller rather than each of them separately.
+            with parallel_kernel_entry():
+                return np.asarray(discretize_uniform_parallel(arr, n_bins, float(min_value), float(max_value), dtype=dtype))
         return np.asarray(discretize_uniform(arr=arr, n_bins=n_bins, min_value=min_value, max_value=max_value, dtype=dtype))
     # quantile path - raw numpy.
     # nanpercentile so NaN-bearing columns don't collapse to a

@@ -11,6 +11,13 @@ history.
 
 ## [Unreleased]
 
+### Fixed
+- Two Python threads could enter one numba `parallel=True` kernel at once, which aborts the process on
+  macOS (92 crashed CI workers, `Fatal Python error: Aborted`). Entry is now serialised through
+  `mlframe._numba_parallel_guard`, the binning kernels are compiled on one thread before the column
+  fan-out starts, and `python -m mlframe._nested_parallel_scan` lists any remaining paths. See
+  [docs/NESTED_PARALLEL.md](docs/NESTED_PARALLEL.md).
+
 ### Added
 
 - `docs/FS_ATLAS.md`: which feature-selection method to reach for in which regime, from three legs and 7 829 cells. The first-order finding is that the downstream model decides more than the selector does (a linear model gains on 16 of 17 synthetic beds, a gradient-boosted tree on 7, and on real beds neither at any K the design could resolve). Four separations are clean enough to act on, the sharpest being that a subset wrapper recovers a 3-way parity perfectly and identically on all 20 seeds while every other arm is at chance and unstable.

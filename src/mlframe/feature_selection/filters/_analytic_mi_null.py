@@ -34,6 +34,8 @@ import numpy as np
 import numba
 from numba import njit
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+
 try:  # scipy is a hard mlframe dep, but keep the import defensive so an env without it degrades.
     from scipy.special import gammaincc as _gammaincc  # chi2.sf(x, df) == gammaincc(df/2, x/2), ~20x cheaper per call
     # ``_chi2`` is consumed ONLY for the inverse-CDF FLOOR (``_chi2.ppf(quantile, df)``) in the
@@ -269,7 +271,9 @@ def analytic_batch_noise_gate(
     # ``bx_per_col`` may be PRECOMPUTED by the caller (the device-resident FE pair-MI path counts occupied bins ON
     # device from the resident codes, so the (n,K) code matrix never crosses the bus just to run this host njit).
     if bx_per_col is None:
-        bx_per_col = _occupied_bins_per_col(np.ascontiguousarray(disc_2d), numba.get_num_threads())
+        # Reached from the FE pair sweep's threaded pipeline; see mlframe._numba_parallel_guard.
+        with parallel_kernel_entry():
+            bx_per_col = _occupied_bins_per_col(np.ascontiguousarray(disc_2d), numba.get_num_threads())
     else:
         bx_per_col = np.asarray(bx_per_col, dtype=np.int64)
     # VECTORISED: the per-column loop below previously called scipy ``chi2.sf`` ONCE per

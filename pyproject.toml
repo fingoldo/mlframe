@@ -1000,6 +1000,9 @@ max-complexity = 40
 "src/mlframe/**/_profile_*.py" = ["B023", "T201"]
 "src/mlframe/**/_smoke_*.py" = ["T201"]
 "src/mlframe/**/_*_showcase.py" = ["T201"]
+# Same family: a scan whose whole output is a list of call paths for a human to act on. Routing it
+# through logging would put the findings behind a level nobody sets when running it by hand.
+"src/mlframe/**/_*_scan.py" = ["T201"]
 # Standalone bench/profile scripts: print() to stdout is the interface (progress/results
 # output read by a human running the script directly), not something that should route
 # through logging. B023 loop-closures are the same "time/print this iteration now, never
