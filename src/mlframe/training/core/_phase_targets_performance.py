@@ -71,8 +71,12 @@ def render_targets_performance(
         if frame.empty or len(frame) <= 1:
             # Only the aggregate row, or not even that: nothing was trained that carries metrics, and an
             # empty table in the log reads as a failure rather than as "there was nothing to show".
+            #
+            # The key is NOT written in that case. A caller that ran no targets gets its metadata back
+            # exactly as it passed it in -- which several callers rely on, and one contract test asserts
+            # outright -- and "the key is absent" reads the same as "there was nothing to report" without
+            # putting an empty frame in front of anyone.
             logger.debug("targets performance frame is empty for split %r; nothing to render", chosen)
-            metadata["targets_performance"] = frame
             return
 
         metadata["targets_performance"] = frame

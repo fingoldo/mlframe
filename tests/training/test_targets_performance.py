@@ -236,3 +236,17 @@ def test_the_suite_phase_never_raises_on_a_malformed_run():
     metadata: dict = {}
     render_targets_performance({"regression": {"a": [object()]}}, metadata)
     assert "targets_performance" in metadata, "the phase bailed without leaving anything behind"
+
+
+def test_a_run_with_nothing_to_report_leaves_the_metadata_untouched():
+    """A diagnostic phase must not mutate the caller's metadata when it has nothing to say.
+
+    ``run_composite_post_processing`` promises to return its inputs unchanged when no targets were trained,
+    and a contract test asserts that outright. Writing an empty frame under ``targets_performance`` broke
+    that promise on every Python version at once -- the key is only worth adding when there is a row in it.
+    """
+    from mlframe.training.core._phase_targets_performance import render_targets_performance
+
+    metadata: dict = {"composite_target_specs": {}}
+    render_targets_performance({}, metadata)
+    assert metadata == {"composite_target_specs": {}}, f"the phase added {set(metadata) - {'composite_target_specs'}}"
