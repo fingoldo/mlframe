@@ -81,6 +81,14 @@ jobs:
           project-extras: ".[all,dev]"
           pyutilz-ref: ec016b15e76e5582ba1a083c02b33029663c2296  # pragma: allowlist secret -- git commit SHA, not a secret
 
+      - name: Install contributor tooling not declarable in [dev]
+        run: |
+          # py-ci-shared is a git checkout, so it cannot live in [dev] without putting a PEP 440 direct
+          # reference into the built distribution's metadata (see requirements-dev.txt). It is still needed
+          # here: tests/test_meta/conftest.py imports py_ci_shared at collection time, so without it every
+          # shard that collects tests/test_meta errors out before running anything.
+          uv pip install --system -r requirements-dev.txt
+
       - name: Run the per-push set with RuntimeWarning as an error
         env:
           PYTHONUNBUFFERED: "1"
@@ -152,6 +160,14 @@ jobs:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
           pyutilz-ref: ec016b15e76e5582ba1a083c02b33029663c2296  # pragma: allowlist secret -- git commit SHA, not a secret
+
+      - name: Install contributor tooling not declarable in [dev]
+        run: |
+          # py-ci-shared is a git checkout, so it cannot live in [dev] without putting a PEP 440 direct
+          # reference into the built distribution's metadata (see requirements-dev.txt). It is still needed
+          # here: tests/test_meta/conftest.py imports py_ci_shared at collection time, so without it every
+          # shard that collects tests/test_meta errors out before running anything.
+          uv pip install --system -r requirements-dev.txt
 
       - name: Restore numba JIT cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0

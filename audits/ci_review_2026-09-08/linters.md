@@ -439,6 +439,13 @@ Ranked by how little would be lost.
 
 ---
 
+> **Correction added 2026-09-08.** This review, like the other two, read only this repository. The sibling
+> repos carry directly relevant, already-paid-for experience: `pyutilz` keeps a `requirements-dev.txt`
+> specifically because a git dependency in project metadata makes the distribution unuploadable, and
+> neither sibling has a lockfile, so mlframe is the first. Reading them would also have caught that
+> mlframe's own `[dev]` extra carries exactly the direct reference `pyutilz` documents as forbidden --
+> found instead by reading the built wheel's METADATA during the lockfile work. Recorded as X3.
+
 ## What I could NOT check
 
 - **I did not run the test suite, whole-project mypy, or the full pre-commit set** (instructed not to; the

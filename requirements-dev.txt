@@ -1,15 +1,35 @@
-# DEVELOPMENT convenience file — NOT the minimal runtime install.
-# It pulls the ENTIRE non-GPU graph plus dev tooling (~several GB: torch, mlflow,
-# pysr+julia, ...). For a lightweight install pick focused extras instead.
+# Contributor tooling that cannot be declared in pyproject.toml's [dev] extra.
 #
-# Dependencies are declared in pyproject.toml — that is the single source of truth.
+# Dependencies are declared in pyproject.toml -- that is still the single source of truth. This file
+# carries only what project metadata cannot legally hold.
 #
-# Install the package with the extras you need instead of using this file:
+# py-ci-shared is consumed as a git checkout (it is not published to PyPI). A PEP 440 direct reference
+# ("name @ git+https://...") in project metadata makes the built distribution unuploadable -- PyPI answers
+# `400 ... Can't have direct dependency`, and `twine check` passes it silently, so nothing in CI reports it.
+# It therefore must stay out of [project.optional-dependencies] entirely. This mirrors pyutilz, which hit
+# the same wall and keeps the same file for the same reason. It lived in the [dev] extra until 2026-09-08,
+# when reading the built wheel's METADATA during the lockfile work showed the direct reference sitting
+# there verbatim.
 #
-#   pip install -e ".[all,dev]"      # everything (non-GPU) + dev tooling
-#   pip install -e ".[boosting]"     # a focused subset
+# Install:
 #
-# See pyproject.toml [project.optional-dependencies] for the full list of extras.
-# pyutilz is a sibling first-party lib; until it is on PyPI, install it from source:
-#   pip install -e ../pyutilz
--e .[all,dev]
+#   pip install -e ".[all,dev]" -r requirements-dev.txt    # everything (non-GPU) + dev tooling
+#   pip install -e ".[boosting]" -r requirements-dev.txt   # a focused subset
+#
+# The file used to carry a bare `-e .[all,dev]` line as a development convenience. That is gone: CI now
+# installs this file on its own, for py-ci-shared alone, and a `-e .[all,dev]` here would make every one of
+# those steps re-resolve the whole several-GB graph. Name the extras you want on the command line instead,
+# as above. See pyproject.toml [project.optional-dependencies] for the full list.
+#
+# pyutilz is a sibling first-party lib and is NOT in this file: uv resolves it through
+# [tool.uv.sources], with the exact commit recorded in uv.lock. Plain-pip users still install it from
+# source first:  pip install -e ../pyutilz
+#
+# What py-ci-shared provides: the `python -m py_ci_shared.*` commands used by .pre-commit-config.yaml's
+# local hooks (black_filtered_apply, format_warn, bandit_warn, vulture_warn, code_audit_meta,
+# readme_env_var_parity) and the modules tests/test_meta/ imports at collection time. The SHA is pinned
+# rather than a tag: test_shared_checks_wired enforces a full 40-character SHA, on the ground the
+# 2026-07-21 audit gave -- a tag can be repointed, so a fresh install can silently resolve to a commit
+# nothing was tested against. Bump it deliberately, with a CHANGELOG entry, when a new py-ci-shared
+# feature is actually needed.
+py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@915217a4a8cdecc60b67c2c6c8dfe81de2f8a91c

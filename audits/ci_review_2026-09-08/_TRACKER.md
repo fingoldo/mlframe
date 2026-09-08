@@ -52,7 +52,7 @@ recorded here as row **X1** and raised directly.
 
 | # | Finding | Disposition | Notes |
 |---|---|---|---|
-| G1 | No lockfile / no pinned resolution | **FUTURE** | The agent calls this the best red-noise-per-hour return and that is probably right, but a universal `uv.lock` has to satisfy 3 OSes x Python 3.9–3.14 x ~150 deps including CUDA-build-specific extras, and a bad lock turns the whole matrix red rather than one job. Doing it needs its own change with the matrix as its acceptance test. **Next action:** generate `uv lock` locally, run `uv sync --frozen` on all six versions before proposing it. G2 (below, shipped) is the cheap half of the same concern. |
+| G1 | No lockfile / no pinned resolution | **RESOLVED** | `uv.lock` committed, 594 packages over Python 3.9.2-3.14. Every blocker it hit was a real defect in the declared metadata, not an artefact of locking — four of them, itemised in Round 2 below. Gated by a new `lockfile` CI job (`uv lock --check` plus an actual `uv sync --frozen`), and dependabot moved from the `pip` ecosystem to `uv` so a bumped dependency and its lock arrive in one PR. |
 | G2 | No lowest-supported-version resolution job | **RESOLVED** `191466f53` | New `dep-floors.yml`: weekly + on `pyproject.toml` PRs, `--resolution=lowest-direct` on Python 3.9, install + import smoke + a scoped test slice. Non-blocking until the failure count is known. |
 | G3 | No aggregated test-failure report | **RESOLVED** `191466f53` | Every shard writes JUnit XML; a non-gating `report-tests` job renders one table into the run summary. The renderer was run against a synthetic report first. |
 | G4 | Build/install smoke is Linux-only | **RESOLVED** `191466f53` | New `install-smoke` job installs the built wheel on all three platforms and gates. |
@@ -68,7 +68,7 @@ recorded here as row **X1** and raised directly.
 | W2 | `cache: pip` on setup-python while installing with uv | **RESOLVED** `191466f53` | Dropped from `deep-nightly`; kept in `numba-coverage`, where the installs really are pip. |
 | W3 | No `paths-ignore`: a README edit runs 30 shards | **RESOLVED (push only)** `191466f53` | Applied to `push`, deliberately **not** to `pull_request`. The agent justified it with "this repo has no required checks" — it has three, so a required check that never runs leaves a docs-only PR permanently pending and unmergeable. Push is where the spend is anyway. |
 | W4 | `update-test-durations.yml` is superseded and cannot finish | **RESOLVED** `191466f53` | Deleted. Its own header records the supersession; `.test_durations` has 30 131 entries, all from the ci.yml path. |
-| W5 | Four near-identical pyutilz install stanzas | **PARTIAL / FUTURE** | The hosted-ubuntu copies could move to the composite action, but the remaining call sites are GPU self-hosted and CUDA-matrix jobs whose install differs in ways the action does not model, so converting only the easy two leaves the drift risk the finding is about. **Next action:** extend `install-pyutilz` to cover the CUDA cases, then convert all of them in one change. The pinned SHA is currently identical in all seven (verified). |
+| W5 | Four near-identical pyutilz install stanzas | **SUPERSEDED by G1** | Originally dispositioned as "extend `install-pyutilz` to cover the CUDA cases, then convert all of them" — which was wrong, and the user caught it. The seven hand-synced SHA copies exist because there was no lock; adding machinery to keep copies in step treats the symptom. With `uv.lock` the resolved commit is recorded once, machine-side. **Next action:** move the CI installs to `uv sync --frozen` and retire the `pyutilz-ref` inputs entirely. See M1. |
 | W6 | `codecov-full.yml` has no `concurrency` group | **RESOLVED** `191466f53` | Added, `cancel-in-progress: true`. |
 
 ### Tools table
@@ -188,4 +188,112 @@ recorded here as row **X1** and raised directly.
 | # | Item | Status |
 |---|---|---|
 | X2 | `test_scalar_njit_nan_precheck_actually_parallelizes` spawns `python -c` without handing it the tree under test, so the subprocess imports whatever mlframe is installed. In a worktree that fails outright (`ModuleNotFoundError`); where an installed copy exists it would silently assert against code the suite is not testing. Found while measuring L2.1. | **RESOLVED.** The subprocess now gets `PYTHONPATH` derived from the `mlframe.__file__` this process imported. Verified failing before, passing after. |
-| X1 | The distribution name `mlframe` on PyPI belongs to an unrelated 2020 project (Sam Stoltenberg, `github.com/skelouse/mlframe`, last release 0.1.15 on 2020-12-18). `release.yml`'s Trusted Publishing upload can never succeed under it, and `pypi/v/mlframe` would render a stranger's version. `pyutilz` is separately unpublished (404). | **RAISED — needs an owner decision.** Nothing in CI to fix. The README now states the situation rather than "not published yet". P4-a is deferred behind this. |
+| X4 | `calibration.html`, a rendered plotly document, was tracked at the repository root. It is a test artifact: some reporting test renders to a bare filename rather than `tmp_path`, so it lands in the working directory, looks like an ordinary untracked change, and gets swept in by `git add -A`. **It reached master in commit `bd8e212f4` of this very round -- my own commit, about linter configuration.** Noticed only because a later run under a different plotly version rewrote it and the diff surfaced again. | **PARTIALLY RESOLVED.** Removed from the index, `.gitignore` now excludes root-level chart artifacts, and `test_no_chart_artifacts_in_repo_root.py` gates all three halves: none tracked, the ignore patterns still present, and a standing skip naming the file if a stray render is sitting there. **Next action:** find the test that renders without `tmp_path` -- roughly sixty reporting tests do not use the fixture, and grep for the filename finds no producer, so it needs a run with a watched working directory rather than a search. |
+| X1 | The distribution name `mlframe` on PyPI belongs to an unrelated 2020 project (Sam Stoltenberg, `github.com/skelouse/mlframe`, last release 0.1.15 on 2020-12-18). `release.yml`'s Trusted Publishing upload can never succeed under it, and `pypi/v/mlframe` would render a stranger's version. `pyutilz` is separately unpublished (404). | **DEFERRED by the owner (2026-09-08).** Nothing in CI to fix. The README now states the situation rather than "not published yet". P4-a is deferred behind this. |
+
+---
+
+## Round 2 — what the agents missed, found by acting on G1
+
+Recorded separately because these are gaps in the **review**, not in the repo. Both come from the same
+root: all three agents read only this repository. The sibling repos `pyutilz` and `py-ci-shared` carry
+already-paid-for experience with exactly the problems G1 touches, and none of it reached the reports.
+
+### M1 — W5 and G1 are the same finding, and the tracker repeated the mistake
+
+Agent 1 filed **W5** (the pinned pyutilz SHA is hand-copied into seven call sites, "keeping seven copies in
+sync by hand is exactly the drift the action was extracted to prevent") and **G1** (no lockfile) as
+unrelated rows. They are one problem seen twice: the hand-copied SHA exists *because* there is no lock. A
+lockfile records the resolved commit machine-side, so the SHA leaves `pyproject.toml` and the workflows
+entirely, and `uv lock --upgrade-package pyutilz` becomes the whole update procedure.
+
+My tracker propagated the error: W5's disposition was "extend `install-pyutilz` to cover the CUDA cases,
+then convert all of them" — treating the symptom, adding machinery to keep copies in sync rather than
+removing the copies. **Corrected:** W5's real fix is G1, and W5's next action is now "retire the
+`pyutilz-ref` inputs once CI installs from the lock", not "extend the composite action".
+
+The user caught this, and was right to: the SHA-in-`pyproject.toml` was never an agent recommendation. It
+is this repo's own convention, recorded in the dependency comment, adopted after an unpinned same-day
+pyutilz commit silently changed a shared helper's default and broke `MRMR.fit`. That incident is an
+argument FOR a lock, not for hand-pinning: with no lock, every install took whatever `master` was at that
+moment. The lock is the fix; the hand-written SHA was the stopgap for not having one.
+
+### M2 — the constraint that decides HOW this can be done was already written down next door
+
+`pyutilz/requirements-dev.txt` documents, from experience:
+
+> A PEP 440 direct reference (`name @ git+https://...`) in project metadata makes the built distribution
+> unuploadable -- PyPI answers `400 ... Can't have direct dependency`, and `twine check` passes it
+> silently -- so it must stay out of `[project.optional-dependencies]` entirely.
+
+No agent looked, so no report mentioned it, and it is the binding constraint on any "just add the git URL"
+approach. Two consequences, both acted on:
+
+- **It does not block the chosen design.** `[tool.uv.sources]` is uv configuration, not project metadata.
+  Verified rather than assumed: built the wheel and read its `METADATA` -- `Requires-Dist: pyutilz>=1.0.0`,
+  a plain specifier, no direct reference. The source is stripped from the distribution.
+- **It exposed a live defect in this repo** -- see X3.
+
+### X3 — `py-ci-shared` is a direct reference inside `[project.optional-dependencies].dev`
+
+**MEASURED**, by reading the built wheel's `METADATA`:
+
+```
+Requires-Dist: py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@915217a4... ; extra == "dev"
+```
+
+This is precisely the shape `pyutilz` documents as making a distribution unuploadable, and `twine check`
+(which `release.yml` runs, `ci.yml` too) passes it silently -- so nothing in CI would ever report it. It is
+a second, independent blocker on publishing, unrelated to the name being taken (X1).
+
+**Disposition: RESOLVED** -- moved to `requirements-dev.txt`, mirroring `pyutilz`'s own fix for the same
+problem, with the install sites updated to pass `-r requirements-dev.txt`.
+
+### M3 — a universal lock over a version RANGE silently resolves to the oldest-supported release
+
+Not a review miss, a finding from doing the work, recorded because it is the trap anyone repeating this
+will hit. With `environments` given as one expression spanning 3.9-3.14, uv minimises forking and prefers a
+version valid across the whole span: `torch` resolved to **2.0.1**, the last release with cp39 wheels, for
+3.10 through 3.14 as well. `uv lock` reported success; `uv sync` then failed on 3.13 with "no wheel for the
+current platform". One entry per minor version makes each fork take the newest release that version
+supports. A lock that resolves is not a lock that installs -- sync it before trusting it.
+
+### G1 — no lockfile / no pinned resolution
+
+**Disposition changed from FUTURE to RESOLVED.**
+
+`uv.lock` is committed: 595 packages, resolved for Python 3.9.2-3.14 across the three CI platforms.
+Everything below was found by the lock refusing to resolve, and each is a real defect in the declared
+metadata rather than an artefact of locking:
+
+| What refused to resolve | Why it is a real defect | Fix |
+|---|---|---|
+| `pyutilz>=1.0.0` | Not on PyPI at all, so no registry resolver can satisfy it -- the reason this project had no lock | `[tool.uv.sources]`, branch `master`, exact commit recorded in `uv.lock` |
+| `deptry==0.25.1`, `mypy==2.1.0`, `yamllint==1.38.0` | All three require >=3.10 while the project supports 3.9; pins added earlier in this round, uninstallable on the 3.9 leg | `; python_version >= '3.10'`, gated like `black` already was |
+| `cryptography>=48.0.1` (via `[mlflow]`) | Declares `>3.9.0,<3.9.1 \| >3.9.1` -- it refuses exactly 3.9.0 and 3.9.1, which `requires-python = ">=3.9"` includes | Lock universe starts at 3.9.2; `requires-python` untouched, so pip on a real 3.9.0 is unaffected |
+| `cupy-cuda11x` in `[gpu-cuda11]` / `[transformer_gpu_cuda11]` | The extras' own comments say "there is NO cuda11x wheel for Python 3.13+", but the dependency lines carried no marker: the metadata claimed support the prose denied | `; python_version < '3.13'` on both |
+
+### The pyutilz commit the lock records
+
+Locking by branch moved pyutilz from the hand-pinned `ec016b15` to branch HEAD `3a04d38d`, **33 commits
+ahead**. That is a behaviour change, not a packaging one, and this repo has been broken by exactly that
+before (the njit-contract incident). It was validated rather than assumed: 2017 tests from
+`tests/metrics`, `tests/calibration` and `tests/feature_selection/filters` -- the surface that exercises
+the njit contract -- run inside the locked environment against the new commit. **2009 passed, 13 skipped,
+0 failed.**
+
+### What the repo's own gates caught in this work
+
+Worth recording because it is the gates doing their job on my changes, not on someone else's:
+
+* `test_no_undeclared_continue_on_error` failed on all three `continue-on-error` steps added earlier this
+  round (consumer-position mypy, the RuntimeWarning census, dep-floors). It requires each to be named in
+  an allowlist with an argument for why it must never block. All three are now declared with that
+  argument, and two carry the condition under which they stop being advisory.
+* `test_f4_dependabot_pip_ecosystem_reenabled` failed on the pip -> uv switch. Re-framed to the invariant
+  it actually protects -- this repo keeps an automated security-patch signal at all -- rather than to the
+  literal string `pip`, since `dependency-review` only inspects new deps in an incoming diff and
+  `pip-audit` is advisory and opens nothing.
+
+**Next action:** wire the CI test installs to `uv sync --frozen` rather than resolving fresh, then retire
+the `pyutilz-ref` inputs that W5 counted.

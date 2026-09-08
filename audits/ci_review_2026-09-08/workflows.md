@@ -183,6 +183,15 @@ files disagree about it.
 
 ### G1. No lockfile / no pinned resolution anywhere - the largest reliability gap
 
+> **Correction added 2026-09-08 while implementing this.** G1 and W5 below are the same finding, filed
+> twice. The seven hand-synced pyutilz SHAs W5 counts exist *because* there is no lock; a lockfile records
+> the resolved commit machine-side and removes them, so W5's "keep the copies in sync" fix treats the
+> symptom. Also unexamined by this review: the sibling repos. `pyutilz/requirements-dev.txt` already
+> documents that a PEP 440 direct reference in project metadata makes a distribution unuploadable while
+> `twine check` stays silent -- the binding constraint on how a git dependency may be declared here, and
+> the thing that turned out to be live in mlframe's own `[dev]` extra. See `_TRACKER.md`, Round 2.
+
+
 **READ**: every install is an unpinned resolve (`uv pip install "./pyutilz[...]" -e ".[all,dev]"`).
 Only `pyutilz` is pinned (a git SHA, consistently, in all 7 call sites). For a ~150-dep,
 35k-test suite this means any upstream release can turn the matrix red with no local change,

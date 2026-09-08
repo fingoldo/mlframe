@@ -54,6 +54,11 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: ['--maxkb=2048']
+        # uv.lock is ~3 MB and machine-generated: it pins 594 packages with per-marker forks and their
+        # wheel hashes, so its size is a property of the dependency graph, not of anyone's judgement.
+        # Excluded by name rather than by raising the ceiling, so the 2 MB limit keeps protecting every
+        # other path from an accidentally-committed artifact.
+        exclude: '^uv\.lock$'
       - id: mixed-line-ending
         args: ['--fix=lf']
         # CRLF-vs-LF is already a live, repo-documented incident class (this repo's own

@@ -155,9 +155,51 @@ dependencies = [
     "numpy<2.0; python_version < '3.10'",
 ]
 
+# Where uv resolves pyutilz from. It is not on PyPI, so `pyutilz>=1.0.0` in [project.dependencies] is
+# unresolvable for any registry-based resolver -- which is why this project had no lockfile at all: `uv
+# lock` failed outright on it. pip ignores [tool.uv.sources], so plain-pip users are unaffected and still
+# install pyutilz from GitHub first, as the dependency comment above instructs.
+#
+# Deliberately a BRANCH, not a commit. The exact commit is recorded in uv.lock, which is what makes a build
+# reproducible; putting a SHA here as well would mean hand-editing pyproject.toml to move it, in step with
+# the copies in the CI workflows. With the branch here, bumping pyutilz is one command --
+# `uv lock --upgrade-package pyutilz` -- and the diff to review is the locked commit in uv.lock.
+#
+# This is not a return to floating resolution. The incident recorded in the pyutilz dependency comment
+# above (a same-day commit silently flipped a shared helper's default and broke MRMR.fit for every caller)
+# happened because there was no lock: every install took whatever master was at that moment. The lock is
+# the fix; the SHA in pyproject was the stopgap for not having one.
+[tool.uv.sources]
+pyutilz = { git = "https://github.com/fingoldo/pyutilz.git", branch = "master" }
+
 # uv-specific resolver overrides. Honored by `uv pip install` (verified with
 # uv 0.11) as well as `uv lock`/`uv sync`.
 [tool.uv]
+# Bound the universal resolution to the interpreters this project actually supports. requires-python stays
+# open at >=3.9 so pip never refuses to install on a newer interpreter, but a universal lock with no upper
+# bound must also solve for 3.15+, where none of the C-extension stack has wheels yet -- and an unsolvable
+# hypothetical split fails the whole lock. The upper bound here matches the Programming Language ::
+# classifiers; raise it when 3.15 is added to the CI matrix.
+#
+# The lower bound excludes 3.9.0 and 3.9.1 specifically. cryptography (pulled by the [mlflow] extra, with a
+# CVE floor of >=48.0.1) declares `>3.9.0,<3.9.1 | >3.9.1` -- it refuses exactly those two patch releases,
+# so a universal lock over all of >=3.9 has an unsolvable split. Nobody runs them: setup-python "3.9"
+# resolves to the newest 3.9.x. This is the lock's universe only; requires-python is untouched, so pip on a
+# genuine 3.9.0 still installs everything except that extra.
+#
+# One entry PER MINOR VERSION, not a single range. uv minimises forking, so a range expressed as one
+# environment makes it prefer a version valid across the whole span: with 3.9 in that span it resolved
+# torch to 2.0.1 -- the last release with cp39 wheels -- for 3.10 through 3.14 as well, and `uv sync` then
+# failed outright on 3.13 because 2.0.1 has no cp313 wheel. Split per version, each fork picks the newest
+# release that version actually supports.
+environments = [
+    "python_full_version >= '3.9.2' and python_full_version < '3.10'",
+    "python_full_version >= '3.10' and python_full_version < '3.11'",
+    "python_full_version >= '3.11' and python_full_version < '3.12'",
+    "python_full_version >= '3.12' and python_full_version < '3.13'",
+    "python_full_version >= '3.13' and python_full_version < '3.14'",
+    "python_full_version >= '3.14' and python_full_version < '3.15'",
+]
 # optbinning 0.21.0 (latest) conservatively pins ortools>=9.4,<9.12, but ortools
 # ships cp313/cp314 wheels only from 9.12+ — so the unpatched cap makes the [all]
 # extra uninstallable on Python 3.13/3.14. optbinning is pure-Python and its
@@ -368,8 +410,11 @@ gpu = [
 ]
 gpu-cuda12 = ["mlframe[gpu]"]
 gpu-cuda11 = [
-    "cupy-cuda11x>=12.0,<14.0",
-    "nvidia-cuda-nvcc-cu11>=11.8.89",
+    # The <3.13 marker states in metadata what the note above states in prose: cupy ships cuda11x wheels
+    # only through the 13.x line, which stops at cp312. Without it the declared extra claims support it
+    # does not have, and any universal resolution over the supported matrix fails on 3.13/3.14.
+    "cupy-cuda11x>=12.0,<14.0; python_version < '3.13'",
+    "nvidia-cuda-nvcc-cu11>=11.8.89; python_version < '3.13'",
     "gpu-info>=0.1",
 ]
 
@@ -396,7 +441,7 @@ transformer_gpu = [
 ]
 # CUDA-11 variant (Python <=3.12 only -- no cuda11x wheel for cupy 14 / Python 3.13+).
 transformer_gpu_cuda11 = [
-    "cupy-cuda11x>=12.0,<14.0",
+    "cupy-cuda11x>=12.0,<14.0; python_version < '3.13'",
 ]
 transformer_full = [
     "mlframe[transformer_ann,transformer_gpu]",
@@ -455,7 +500,9 @@ dev = [
                                     # CPU tests silently skipped in CI, leaving dtw.py at a genuine 0% coverage despite the
                                     # test file existing and passing locally. No manylinux wheel for 3.9 at the pinned floor
                                     # (2.4.0) -- gated the same way black is, above; importorskip already handles the 3.9 leg.
-    "mypy==2.1.0",                # pinned exact, matching mypy-full.yml's `mypy-version` input. A whole-project
+    "mypy==2.1.0 ; python_version >= '3.10'",  # pinned exact, matching mypy-full.yml's `mypy-version` input. Gated
+                                  # like black and deptry: 2.1.0 requires >=3.10, and the type gate runs on the
+                                  # representative interpreter, never on the 3.9 leg. A whole-project
                                   # zero-error gate on an open range drifts the same way the ruff pin above
                                   # exists to prevent: 1.x to 2.x moved defaults and the error set.
     "bandit>=1.7",
@@ -463,10 +510,13 @@ dev = [
     # declared nowhere, so `pip install -e ".[all,dev]"` did not produce a working hook set. Pinned exact
     # for the same reason ruff and black are: each one gates.
     "codespell==2.4.2",           # prose typos; `python -m codespell_lib`
-    "deptry==0.25.1",             # declared-vs-imported dependency drift; `python -m deptry`
+    "deptry==0.25.1 ; python_version >= '3.10'",  # declared-vs-imported dependency drift; `python -m deptry`.
+                                  # Gated like black above: 0.25.1 requires >=3.10, and no 3.9-compatible line is
+                                  # worth carrying for a hook that runs on the representative interpreter anyway.
     "interrogate==1.7.0",         # docstring coverage; `python -m interrogate`
     "vulture==2.16",              # dead-code scan; `python -m vulture`
-    "yamllint==1.38.0",           # workflow YAML style; `python -m yamllint`
+    "yamllint==1.38.0 ; python_version >= '3.10'",  # workflow YAML style; `python -m yamllint`. 1.38.0 needs
+                                  # >=3.10; like black/deptry/mypy this hook runs on the representative interpreter.
     "pre-commit>=3.3",
     "pip-audit>=2.7",             # known-CVE scan of installed/declared deps; run via `python -m pip_audit --local` (or `-r pyproject.toml` for the declared-only, non-transitive set)
     "import-linter>=2.0",         # architectural-boundary contracts (see [tool.importlinter]); run via `lint-imports`
@@ -476,18 +526,11 @@ dev = [
     # and training/evaluation.py (for display_html / rich-shell detection).
     # Required so test collection of the modules that import them succeeds.
     "ipython>=8.0",
-    # Shared CI/lint tooling (black_filtered_apply / format_warn / bandit_warn / vulture_warn),
-    # consumed by .pre-commit-config.yaml's `language: system` local hooks. Not yet on PyPI --
-    # install from GitHub, mirroring the existing pyutilz dependency pattern.
-    # X_SECURITY_API_PACKAGING-5 (mrmr_audit_2026-07-22) asked for a pin rather than the floating
-    # default branch. The SHA that note describes was NOT here -- the entry had drifted back to the
-    # bare default branch, so the comment was describing a pin the line did not carry.
-    # 2026-09-08: pinned to the SHA that `v1` points at. A moving tag was tried first and was
-    # wrong: `test_shared_checks_wired` enforces a full 40-character SHA, on the ground the
-    # 2026-07-21 audit gave -- a tag can be repointed, so a fresh install can silently resolve to a
-    # commit nothing was tested against. Bump this deliberately, with a CHANGELOG entry, when a new
-    # py-ci-shared feature is actually needed.
-    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@915217a4a8cdecc60b67c2c6c8dfe81de2f8a91c",
+    # py-ci-shared is NOT declared here. It is a git checkout, and a PEP 440 direct reference in project
+    # metadata makes the built distribution unuploadable to PyPI while `twine check` passes it silently --
+    # verified by reading this project's own wheel METADATA on 2026-09-08, where it sat verbatim. It lives
+    # in requirements-dev.txt instead, which is the same place and for the same reason pyutilz keeps it.
+    #   pip install -e ".[all,dev]" -r requirements-dev.txt
 ]
 
 [project.scripts]

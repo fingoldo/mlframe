@@ -235,3 +235,10 @@ audit/**/*_commitmsg.txt
 # local checksummed OpenML dataset cache for the fs_hybrid real-data bench (fill via _realdata_cache.fill_cache)
 .cache/realdata/
 *.npz
+
+# Chart artifacts a test wrote into the repo root instead of tmp_path. calibration.html reached master
+# this way on 2026-09-08, swept in by `git add -A`; test_no_chart_artifacts_in_repo_root.py now blocks it.
+/*.html
+/*.png
+/*.svg
+/*.pdf

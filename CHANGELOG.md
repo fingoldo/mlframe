@@ -13,6 +13,17 @@ history.
 
 ### Added
 
+- **Locked dependency graph (`uv.lock`).** 594 packages pinned across Python 3.9.2-3.14 on Linux, Windows
+  and macOS, so an upstream release can no longer turn the matrix red with no local change and any run is
+  reproducible after the fact. `pyutilz` resolves through `[tool.uv.sources]` by branch, with the exact
+  commit recorded in the lock -- bump it with `uv lock --upgrade-package pyutilz` rather than by editing a
+  SHA in `pyproject.toml`. A new `lockfile` CI job runs `uv lock --check` and an actual `uv sync --frozen`,
+  because a lock that resolves is not necessarily a lock that installs. Dependabot moves from the `pip`
+  ecosystem to `uv` so a dependency bump and its lock arrive in one PR.
+- `requirements-dev.txt` now carries contributor tooling that project metadata cannot legally hold, and no
+  longer a bare `-e .[all,dev]` convenience line. Install with
+  `pip install -e ".[all,dev]" -r requirements-dev.txt`.
+
 - `docs/FS_ATLAS.md`: which feature-selection method to reach for in which regime, from three legs and 7 829 cells. The first-order finding is that the downstream model decides more than the selector does (a linear model gains on 16 of 17 synthetic beds, a gradient-boosted tree on 7, and on real beds neither at any K the design could resolve). Four separations are clean enough to act on, the sharpest being that a subset wrapper recovers a 3-way parity perfectly and identically on all 20 seeds while every other arm is at chance and unstable.
 - Benchmark charts, built as specs through this repository's own renderer so both backends and every configured format come for free: signed bars with paired intervals against the null, a cost-versus-quality frontier, and the posterior CDF of the pooled effect so a reader applies their own region of practical equivalence. Colours are validated rather than chosen -- the four-series order deliberately avoids tab10's orange/green pair, which is 0.7 apart under protanopia when adjacent and therefore invisible to a red-green colourblind reader.
 - The synthetic control leg finished (3 029 cells, 20 seeds per arm-bed) and settles what the Phase 0 kill criterion was about: with the same lightgbm downstream that could not use selection on the real beds, some arm beats the null on 5 of 9 synthetic beds at the tightest K and 7 of 9 at the widest. The verdict is about the data, not the model. The gains are 0.003-0.017 AUC, which mostly sits inside the real leg's own blind spot, so the control rules out one explanation without establishing its opposite. Written up in `docs/BENCHMARK_SYNTH_CONTROL.md` and recorded in the pre-registration.
@@ -69,6 +80,15 @@ history.
 - MRMR GPU-resident FE (`MLFRAME_FE_GPU_STRICT`) now has an AUTO size-gated default: on fits at/above `MLFRAME_FE_GPU_STRICT_AUTO_MIN_N` rows (default 100 000, the production regime) with a usable CUDA device, STRICT engages automatically (~2.5x faster FE and measured selection-equivalent to the CPU path at that scale). Below the threshold, or with no GPU, the exact CPU path runs unchanged (byte-identical legacy). Set `MLFRAME_FE_GPU_STRICT=0` to pin the CPU path at any n, or `=1` to force STRICT. The small-n divergence that keeps STRICT gated below the threshold is finite-sample MI-estimation variance (features with near-tied relevance), which fades as n grows — verified converged across scenarios by ~50k; the 100k default sits comfortably above that.
 
 ### Fixed
+
+- `py-ci-shared` was a PEP 440 direct reference inside the `[dev]` extra, so it appeared verbatim in the
+  built wheel's metadata. That makes a distribution unuploadable to PyPI (`400 Can't have direct
+  dependency`) while `twine check` passes it silently, so nothing in CI reported it. Moved to
+  `requirements-dev.txt`.
+- The `[gpu-cuda11]` and `[transformer_gpu_cuda11]` extras claimed Python 3.13+ support their own comments
+  denied: `cupy-cuda11x` ships no wheels there. Both now carry `; python_version < '3.13'`.
+- The `deptry`, `mypy` and `yamllint` dev pins were not installable on Python 3.9; gated to `>=3.10` like
+  `black` already was.
 
 - Two Python threads could enter one numba `parallel=True` kernel at once, which aborts the process on
   macOS (92 crashed CI workers, `Fatal Python error: Aborted`). Entry is now serialised through

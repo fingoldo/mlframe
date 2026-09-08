@@ -36,7 +36,24 @@ PROSE_FILES = ("README.md", "CONTRIBUTING.md", "CHANGELOG.md", "TESTING.md")
 # Deliberately empty: a `continue-on-error: true` inside a BLOCKING workflow turns a gate into a green no-op,
 # and this repo keeps its advisory lint bundle in separate warn-only hooks rather than inside blocking jobs.
 # An empty allowlist means any such step has to be justified here rather than appearing silently.
-_REVIEWED_ADVISORY_STEPS: set[str] = set()
+_REVIEWED_ADVISORY_STEPS: set[str] = {
+    # Depends on stub availability in a bare environment holding only the wheel and py.typed, which is not
+    # this repo's to guarantee: a missing third-party stub is a fact about that package, not a defect here.
+    # It exists to surface a public signature annotated with a name that is not exported -- which
+    # type-checks in-repo and breaks every consumer -- so its output is worth reading and its verdict is
+    # not worth gating on.
+    "Type-check the public surface from a consumer position",
+    # Sizing a warning class, not enforcing one. The RuntimeWarning filter was measured clean on
+    # tests/metrics + tests/calibration + tests/evaluation (1592 tests); this job produces the same number
+    # for the feature-engineering and feature-selection trees, where the kernels that emit those warnings
+    # live. It becomes blocking by moving the filter into pyproject's filterwarnings once it reads zero,
+    # at which point this job and this entry both go away.
+    "RuntimeWarning census (advisory)",
+    # Several dependency floors are known-optimistic and nobody has measured how many. Blocking on the
+    # first run would red the weekly schedule on pre-existing debt rather than on a regression. Flip it
+    # once the count is zero.
+    "install + smoke at declared floors",
+}
 
 # pyutilz and py-ci-shared are first-party upstreams owned by this repo's own maintainer, so the supply-chain
 # threat a commit-SHA pin defends against does not apply -- whoever could move those refs could push here
