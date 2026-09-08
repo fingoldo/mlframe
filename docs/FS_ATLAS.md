@@ -12,6 +12,13 @@ Three legs, one protocol, one roster of sixteen arms, `all-features` as the null
 | adversarial (`phase0_synth_control`) | 9 hand-written beds | 3 029 | is the real verdict about the data or the model |
 | SCM (`scm_beds`) | 8 generated beds | 2 560 | what a method RECOVERS when the answer key comes from the graph |
 
+> **Correction in flight (2026-09-08).** The SCM leg's adapter overrode every bed's declared row count
+> with a uniform 4 000, so `linear_gaussian_lowdim_n200` -- the bed that exists to be 200 rows, where a
+> t-statistic beats a binned mutual-information estimate -- ran at twenty times its design size, and the
+> other seven ran below theirs. The registry hash did not catch it: the spec never changed, the adapter
+> resized the bed afterwards. The adapter is fixed, the leg is being re-run at each bed's declared size,
+> and the SCM rows below will be restated from that run. The real and adversarial legs are unaffected.
+
 ## The first-order finding: the downstream model decides more than the selector does
 
 Across the two synthetic legs -- seventeen bed instances, three K settings each -- the pattern is not about
