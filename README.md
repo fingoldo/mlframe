@@ -1,13 +1,18 @@
 # mlframe
 
-[![CI](https://github.com/fingoldo/mlframe/workflows/CI/badge.svg)](https://github.com/fingoldo/mlframe/actions/workflows/ci.yml)
-[![MyPy](https://github.com/fingoldo/mlframe/actions/workflows/mypy-full.yml/badge.svg)](https://github.com/fingoldo/mlframe/actions/workflows/mypy-full.yml)
-[![Black](https://github.com/fingoldo/mlframe/workflows/Black/badge.svg)](https://github.com/fingoldo/mlframe/actions/workflows/black-filtered.yml)
-[![sklearn-matrix](https://github.com/fingoldo/mlframe/workflows/sklearn-matrix/badge.svg)](https://github.com/fingoldo/mlframe/actions/workflows/sklearn-matrix-ci.yml)
-[![codecov](https://codecov.io/gh/fingoldo/mlframe/branch/master/graph/badge.svg)](https://codecov.io/gh/fingoldo/mlframe)
-[![codecov-numba](https://img.shields.io/codecov/c/github/fingoldo/mlframe/master?flag=numba-disabled&label=codecov-numba)](https://codecov.io/gh/fingoldo/mlframe/flags)
-[![codecov-full](https://img.shields.io/codecov/c/github/fingoldo/mlframe/master?flag=combined&label=codecov-full)](https://codecov.io/gh/fingoldo/mlframe/flags)
-[![codecov-deep](https://img.shields.io/codecov/c/github/fingoldo/mlframe/master?flag=deep&label=codecov-deep)](https://codecov.io/gh/fingoldo/mlframe/flags)
+Train, calibrate, ensemble and diagnose a dozen tabular model families on one dataset, from one function
+call.
+
+[![CI](https://github.com/fingoldo/mlframe/actions/workflows/ci.yml/badge.svg?branch=master&event=push)](https://github.com/fingoldo/mlframe/actions/workflows/ci.yml?query=branch%3Amaster)
+[![MyPy](https://github.com/fingoldo/mlframe/actions/workflows/mypy-full.yml/badge.svg?branch=master&event=push)](https://github.com/fingoldo/mlframe/actions/workflows/mypy-full.yml?query=branch%3Amaster)
+[![Black](https://github.com/fingoldo/mlframe/actions/workflows/black-filtered.yml/badge.svg?branch=master&event=push)](https://github.com/fingoldo/mlframe/actions/workflows/black-filtered.yml?query=branch%3Amaster)
+[![CodeQL](https://github.com/fingoldo/mlframe/actions/workflows/codeql.yml/badge.svg?branch=master&event=push)](https://github.com/fingoldo/mlframe/actions/workflows/codeql.yml?query=branch%3Amaster)
+[![sklearn 1.6-1.8](https://github.com/fingoldo/mlframe/actions/workflows/sklearn-matrix-ci.yml/badge.svg?branch=master)](https://github.com/fingoldo/mlframe/actions/workflows/sklearn-matrix-ci.yml?query=branch%3Amaster)
+[![coverage](https://img.shields.io/codecov/c/github/fingoldo/mlframe/master?label=coverage)](https://codecov.io/gh/fingoldo/mlframe)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
+[![Python 3.9-3.14](https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://github.com/fingoldo/mlframe)
+[![types: py.typed](https://img.shields.io/badge/types-py.typed-blue.svg)](https://peps.python.org/pep-0561/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-mkdocs-blue.svg)](https://fingoldo.github.io/mlframe/)
 
@@ -18,16 +23,80 @@ and PyTorch Lightning models on one dataset. It handles polars and pandas frames
 mixed dtypes, text features, ranking and quantile targets, and composite-target
 stacking through a uniform API.
 
-The changelog lives in [CHANGELOG.md](CHANGELOG.md). Full guide index, including
-baseline diagnostics, honest-diagnostics, calibration policy, composite-target
-config reference, and error-decoding guides: [docs/README.md](docs/README.md).
+## Contents
+
+- [Why mlframe](#why-mlframe)
+- [Quickstart](#quickstart)
+- [Installation](#installation)
+- [Documentation](#documentation)
+- [Modules](#modules)
+- [Quick examples](#quick-examples)
+- [Suite-level composite feature engineering](#suite-level-composite-feature-engineering-opt-in)
+- [Also worth knowing about](#also-worth-knowing-about)
+- [Visualization & Diagnostics](#visualization--diagnostics)
+- [Caching strategy](#caching-strategy)
+- [Design notes](#design-notes)
+- [Roadmap](#roadmap)
+- [Testing](#testing)
+- [Environment variables](#environment-variables)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Why mlframe
+
+- **One entry point across six model families.** scikit-learn, CatBoost, LightGBM, XGBoost,
+  HistGradientBoosting and PyTorch Lightning are trained, evaluated and compared through the same call
+  rather than six adapters you write yourself.
+- **polars-native, with no pandas round-trip** on the models that accept Arrow directly. Frames are
+  converted once at the suite boundary, never silently on a hot path.
+- **Calibration is chosen out-of-fold, with a bootstrap-CI tiebreak.** The method is selected on honest
+  estimates rather than on the split that drove early stopping.
+- **Diagnostics are on by default**, with the charts to match: reliability curves, drift/PSI panels, SHAP
+  panels and model comparisons, rendered through matplotlib or plotly.
+- **scikit-learn 1.6 through 1.8 are tested in CI**, on Linux, Windows and macOS, across Python 3.9 to
+  3.14.
+
+## Quickstart
+
+```python
+import numpy as np, pandas as pd
+from mlframe.training.core import train_mlframe_models_suite
+from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
+
+rng = np.random.default_rng(0)
+df = pd.DataFrame({"x1": rng.normal(size=500), "x2": rng.normal(size=500)})
+df["y"] = df["x1"] * 2 - df["x2"] + rng.normal(scale=0.1, size=500)
+
+models, metadata = train_mlframe_models_suite(
+    df=df,
+    target_name="y",
+    model_name="exp_quickstart",
+    features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(regression_targets=["y"]),
+    mlframe_models=["lgb"],
+)
+
+print(metadata["baseline_diagnostics"]["regression"]["y"])
+```
+
+`models` is keyed by target type, then target name; each entry exposes the fitted model alongside the
+calibration choice and honest out-of-sample diagnostics that `metadata` records. See
+[Quick examples](#quick-examples) for prediction, ranking, quantile and composite-target variants.
+
+## Documentation
+
+- **Guide site**: <https://fingoldo.github.io/mlframe/>
+- **Guide index** (baseline and honest diagnostics, calibration policy, composite-target config
+  reference, error decoding): [docs/README.md](docs/README.md)
+- **Chart gallery**: [docs/gallery/index.md](docs/gallery/index.md)
+- **Changelog**: [CHANGELOG.md](CHANGELOG.md)
 
 ## Installation
 
 `mlframe` depends on [`pyutilz`](https://github.com/fingoldo/pyutilz), a sibling
 utility library (parallel execution, pandas/polars helpers, hardware
-introspection). Neither package is published to PyPI yet, so install both from
-source — **`pyutilz` first**, then `mlframe`:
+introspection). Neither package is on PyPI — `pyutilz` is unpublished, and the
+name `mlframe` there belongs to an unrelated 2020 project by another author — so
+install both from source, **`pyutilz` first**, then `mlframe`:
 
 ```bash
 git clone https://github.com/fingoldo/pyutilz.git
@@ -696,6 +765,26 @@ pytest --cov=src/mlframe --cov-report=html
 
 Markers: `slow`, `integration`, `gpu`, `multigpu`, `benchmark`, `windows_only`,
 `linux_only`, `fast`.
+
+### Coverage
+
+Four different runs measure coverage, and they overlap on most of the codebase, so they must never be
+added together. The header badge shows the first one.
+
+[![per-push coverage](https://img.shields.io/codecov/c/github/fingoldo/mlframe/master?label=coverage%3A%20per-push)](https://codecov.io/gh/fingoldo/mlframe)
+[![no-JIT coverage](https://img.shields.io/codecov/c/github/fingoldo/mlframe/master?flag=numba-disabled&label=coverage%3A%20numba%20off)](https://codecov.io/gh/fingoldo/mlframe/flags)
+[![combined coverage](https://img.shields.io/codecov/c/github/fingoldo/mlframe/master?flag=combined&label=coverage%3A%20combined)](https://codecov.io/gh/fingoldo/mlframe/flags)
+[![deep coverage](https://img.shields.io/codecov/c/github/fingoldo/mlframe/master?flag=deep&label=coverage%3A%20deep%20nightly)](https://codecov.io/gh/fingoldo/mlframe/flags)
+
+- **per-push** -- the sharded run on every push to master (`ci.yml`), with `slow`, `gpu` and `multigpu`
+  deselected, fuzz combos off, and `MLFRAME_FAST=1` collapsing each parametric sweep to one
+  representative case per code path.
+- **numba off** -- the nightly run under `NUMBA_DISABLE_JIT=1` (`numba-coverage.yml`). `@njit` bodies
+  never reach coverage.py's trace hook, so this is the only run that can see inside them.
+- **combined** -- the two above unioned via `coverage combine`, not summed (`codecov-full.yml`).
+- **deep nightly** -- the nightly run of everything the per-push leg leaves out (`deep-nightly.yml`):
+  `slow` included, `--run-fuzz` on, and `MLFRAME_FAST` deliberately unset so the full sweeps run. Only
+  `gpu` and `multigpu` stay deselected; free runners have no GPU.
 
 ## Environment variables
 

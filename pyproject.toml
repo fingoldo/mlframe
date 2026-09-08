@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mlframe"
 dynamic = ["version"]
-description = "Production-grade machine learning framework for tabular data: training pipelines, feature engineering & selection, ensembling, calibration, ranking, and quantile regression."
+description = "One-call training, calibration, ensembling and diagnostics for tabular ML across sklearn, CatBoost, LightGBM, XGBoost and PyTorch."
 authors = [{name = "Anatoly Alexeev", email = "fingoldo@gmail.com"}]
 license = "MIT"
 license-files = ["LICENSE"]

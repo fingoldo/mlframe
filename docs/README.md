@@ -27,14 +27,15 @@ deeper material in the docs root.
 See also [`docs/examples/composite_targets.md`](examples/composite_targets.md) for the tiered composite-target recipes.
 
 ## Internal / research notes
-- [NESTED_PARALLEL.md](NESTED_PARALLEL.md) - why two threads must never enter one numba parallel kernel, and how to find the places they can.
 
-Design audits, literature surveys, and forward-looking roadmaps. These are
-working notes (some items have since shipped — each doc carries a status note
-where relevant), not user API documentation.
+<details>
+<summary>Design audits, literature surveys and roadmaps (working notes, not user API documentation)</summary>
+
+Some items have since shipped; each doc carries a status note where relevant.
 
 | File | Topic |
 |---|---|
+| [`NESTED_PARALLEL.md`](NESTED_PARALLEL.md) | Why two threads must never enter one numba `parallel=True` kernel, and the scanner that finds the places they can |
 | [`BENCHMARK_PREREGISTRATION.md`](BENCHMARK_PREREGISTRATION.md) | Binding pre-registration for the FS/FE/HPO benchmark — kill criterion, null hypothesis, ROPE, reserved seed ranges, control arms, and the falsifiable hypothesis table |
 | [`MRMR_RESEARCH.md`](MRMR_RESEARCH.md) | MRMR / feature-selection literature survey + FS competition matrix; most proposals shipped, 4 open estimator ideas |
 | [`FE_MRMR_IDEAS_BACKLOG.md`](FE_MRMR_IDEAS_BACKLOG.md) | FE gate/operator backlog status note — shipped / rejected / 3 open items |
@@ -43,3 +44,5 @@ where relevant), not user API documentation.
 | [`NUMERICAL_STABILITY_REPORT.md`](NUMERICAL_STABILITY_REPORT.md) | Catastrophic-cancellation audit + benchmark of the numba moment kernels |
 | [`WAVE5_GPU_ROADMAP.md`](WAVE5_GPU_ROADMAP.md) | GPU-acceleration roadmap notes |
 | [`SHAP_PROXIED_FS_GAME_THEORY.md`](SHAP_PROXIED_FS_GAME_THEORY.md) | `ShapProxiedFS` game-theory extensions (gt_01-gt_09) research verdict |
+
+</details>
