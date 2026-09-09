@@ -13,20 +13,26 @@ MODE="${1:?usage: macos_lgb_crash_repro.sh <lldb|env-mitigation>}"
 TEST_ID="tests/training/test_biz_val_training_core.py::test_biz_val_training_suite_classification_completes"
 
 if [ "$MODE" = "lldb" ]; then
-  # lldb ships with Xcode command line tools, already present on GitHub's macOS runners. Running the
-  # whole pytest invocation under it and asking for every thread's backtrace on crash is the only way
-  # to see past the point a Python-level traceback (faulthandler's, in the logs already collected)
-  # goes dark: a segfault inside native code (numba's JIT output, LightGBM's C++, or their shared
-  # OpenMP runtime) has no Python frame to report in the first place.
+  # First attempt used a bare `run` and stopped at the wrong place: lldb halts on every `exec` event,
+  # and `python -m pytest` re-execs through its console-script wrapper before reaching the test at all,
+  # so `thread backtrace all` fired at dyld's startup stop instead of the crash -- the log showed only
+  # `dyld_start`. Fixed two ways: invoke python directly (`python -c "import pytest; ..."`, one process,
+  # one exec) rather than through the pytest wrapper, and `continue` past any stop that is not the fatal
+  # signal instead of assuming the first `run` is the last stop needed.
   cat > /tmp/lldb_commands.txt <<'LLDB_EOF'
 run
-thread backtrace all
+continue
+continue
+continue
+continue
+continue
 bt all
+register read
 quit
 LLDB_EOF
   echo "=== running under lldb ==="
   lldb --batch -s /tmp/lldb_commands.txt -- \
-    python -m pytest "$TEST_ID" --no-cov -p no:randomly -p no:anyio -s --timeout=300 --timeout-method=thread
+    python -c "import pytest, sys; sys.exit(pytest.main(['$TEST_ID', '--no-cov', '-p', 'no:randomly', '-p', 'no:anyio', '-s', '--timeout=300', '--timeout-method=thread']))"
   exit 0
 fi
 
