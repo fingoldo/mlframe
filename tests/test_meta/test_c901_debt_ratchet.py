@@ -11,7 +11,7 @@ number here is a measurement, not a target -- lower it whenever the debt drains.
 
 from __future__ import annotations
 
-import json
+import orjson
 import re
 import subprocess  # nosec B404 - runs the repo's own pinned ruff on the repo's own source, no external input
 import sys
@@ -38,8 +38,8 @@ def _c901_findings() -> list[str]:
     if proc.returncode not in (0, 1):
         pytest.skip(f"ruff unavailable or failed to run ({proc.returncode}): {proc.stderr.strip()[:200]}")
     try:
-        findings = json.loads(proc.stdout or "[]")
-    except json.JSONDecodeError:  # pragma: no cover - only on a ruff output-format change
+        findings = orjson.loads(proc.stdout or "[]")
+    except orjson.JSONDecodeError:  # pragma: no cover - only on a ruff output-format change
         pytest.skip("could not parse ruff JSON output")
     return [f"{Path(f['filename']).as_posix()}:{f['location']['row']}" for f in findings]
 

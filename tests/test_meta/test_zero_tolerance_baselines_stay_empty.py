@@ -14,12 +14,18 @@ nine there is no such tension: the set is empty, the correct size is zero, and i
 
 from __future__ import annotations
 
-import json
+import orjson
 from pathlib import Path
 
 import pytest
 
+from ._scan_guard import assert_scanned_enough
+
 META_DIR = Path(__file__).resolve().parent
+
+# There are 27 baseline files today. The floor is well under that: it separates "the directory was not
+# found" from "the directory was scanned", which is the only thing this guard is for.
+_MIN_BASELINES = 15
 
 # Measured empty on 2026-09-08. Each is a gate whose violation class the codebase has fully drained; the
 # point of the list is that draining is the only acceptable way for one to leave it.
@@ -40,7 +46,7 @@ def _load(name: str):
     """Parse a baseline file, failing loudly rather than skipping if it is gone."""
     path = META_DIR / name
     assert path.is_file(), f"{name} no longer exists; if the gate was retired, remove it from this list too"
-    return json.loads(path.read_text(encoding="utf-8"))
+    return orjson.loads(path.read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize("name", ZERO_TOLERANCE_BASELINES)
@@ -59,12 +65,16 @@ def test_zero_tolerance_baseline_is_still_empty(name: str):
 def test_list_covers_every_currently_empty_baseline():
     """A baseline that drains to zero should join the list, or the protection never grows."""
     empty_now = set()
+    scanned = 0
     for path in META_DIR.glob("_*baseline*.json"):
         try:
-            if len(json.loads(path.read_text(encoding="utf-8"))) == 0:
-                empty_now.add(path.name)
-        except (json.JSONDecodeError, OSError):
+            payload = orjson.loads(path.read_text(encoding="utf-8"))
+        except (orjson.JSONDecodeError, OSError):
             continue
+        scanned += 1
+        if len(payload) == 0:
+            empty_now.add(path.name)
+    assert_scanned_enough(scanned, "tests/test_meta baseline files", minimum=_MIN_BASELINES)
     assert empty_now, "no empty baselines found at all; this gate cannot run and must not report green"
     unlisted = sorted(empty_now - set(ZERO_TOLERANCE_BASELINES))
     assert not unlisted, (

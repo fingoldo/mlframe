@@ -59,15 +59,30 @@ def test_gitignore_keeps_root_chart_artifacts_out_of_git_add():
     assert not missing, "`.gitignore` no longer excludes root-level chart artifacts, so a stray render is stageable again: " + ", ".join(missing)
 
 
-def test_no_untracked_chart_artifact_is_sitting_in_the_root_right_now():
-    """A stray render present but ignored still means some test is writing to the working directory."""
+def test_any_stray_chart_artifact_in_the_root_is_at_least_unstageable():
+    """A stray render is tolerable only while git refuses to stage it.
+
+    Some reporting test still writes into the working directory (see _TRACKER.md X4, the writer is not yet
+    found), so the root may legitimately hold one of these between runs. What must never be true again is
+    that such a file is stageable -- that is what put calibration.html into master via `git add -A`.
+    """
     stray = sorted(p.name for p in REPO_ROOT.iterdir() if p.is_file() and p.suffix.lower() in ARTIFACT_SUFFIXES)
-    if stray:
-        pytest.skip(
-            "chart artifact(s) in the repo root from a test rendering without tmp_path "
-            f"(ignored by .gitignore, so harmless to the index): {', '.join(stray)}. "
-            "See _TRACKER.md X4 -- this skip is the standing reminder that the writer is still unfound."
-        )
+    if not stray:
+        return
+    proc = subprocess.run(  # nosec B603 - fixed argv, no shell
+        ["git", "check-ignore", "--", *stray],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
+    ignored = set(proc.stdout.split())
+    stageable = sorted(n for n in stray if n not in ignored)
+    assert not stageable, (
+        f"{len(stageable)} chart artifact(s) sit in the repo root and git would stage them: "
+        + ", ".join(stageable)
+        + ". They come from a test rendering to a bare filename instead of tmp_path; until that test is "
+        "found, .gitignore is what keeps them out of a commit."
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover - convenience for a manual check

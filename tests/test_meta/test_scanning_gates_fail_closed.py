@@ -15,6 +15,7 @@ by adding the guard and deleting the name.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -86,12 +87,36 @@ _GUARD_PATTERNS = (
 )
 
 
+def _calls_glob(tree: ast.AST) -> bool:
+    """Whether this module actually CALLS glob/rglob, rather than merely mentioning it.
+
+    An AST walk rather than a substring search: `"glob(" in text` is the source-text-proxy pattern the
+    repo gates against, and it also matches the word inside a docstring or a comment, which is how a gate
+    that scans nothing ends up on the list of gates that do.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+            if name in {"glob", "rglob", "iglob"}:
+                return True
+            # os.walk only. Bare `walk` would match ast.walk, which every AST gate in this directory calls
+            # and which touches no filesystem at all -- including it reported three gates as scanners that
+            # scan nothing.
+            if name == "walk" and isinstance(func, ast.Attribute) and getattr(func.value, "id", None) == "os":
+                return True
+    return False
+
+
 def _scanning_gates() -> set[str]:
     """Meta-test modules that glob a tree."""
     found = set()
     for p in META_DIR.glob("test_*.py"):
-        text = p.read_text(encoding="utf-8")
-        if "rglob(" in text or "glob(" in text:
+        try:
+            tree = ast.parse(p.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        if _calls_glob(tree):
             found.add(p.name)
     assert found, f"no scanning gates found in {META_DIR}; this gate cannot run and must not report green"
     return found

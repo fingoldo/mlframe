@@ -32,4 +32,9 @@
 # 2026-07-21 audit gave -- a tag can be repointed, so a fresh install can silently resolve to a commit
 # nothing was tested against. Bump it deliberately, with a CHANGELOG entry, when a new py-ci-shared
 # feature is actually needed.
-py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@915217a4a8cdecc60b67c2c6c8dfe81de2f8a91c
+# Bumped 2026-09-09 from 915217a: the test-quality gate names twelve code_audit checks, and three of
+# them (deleted_attribute_read_unconditionally, sleep_then_assert, wall_clock_assertion) only exist
+# from e1453da onward. The baseline was generated against that version too, so pinning older made the
+# gate fail with `unknown check` instead of with a finding. Bump the baseline in the same commit as
+# any future bump here -- a new scanner upstream is a new set of findings downstream.
+py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@e1453da62700b29f9fca1490ea3d5dc3d2d1ac50
