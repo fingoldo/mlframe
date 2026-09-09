@@ -49,6 +49,22 @@ name: macOS abort probe
 # the subject is their interaction -- the duplicate-OpenMP-runtime problem, which has a known shape and a
 # known set of remedies.
 #
+# ROUND 5b (dispatch 34319381472) found the actual fault: `lldb`'s corrected trace shows
+# `EXC_BAD_ACCESS` INSIDE `libomp.dylib`'s own `__kmp_suspend_initialize_thread`, reached through
+# LightGBM's `Dataset` construction (`LGBM_DatasetCreateFromMat -> ConstructFromSampleData ->
+# __kmpc_fork_call -> ... -> GreedyFindBin`, crashing in libomp's worker-thread-suspend bookkeeping, not
+# in LightGBM's own code). `env-mitigation`'s rewrite supports this from the other side: a bare LightGBM
+# fit at n_jobs=os.cpu_count(), 50 repeats, no mlframe, no numba -- 50/50 clean. The libomp installed
+# here and in ci.yml's real leg, both via unpinned `brew install libomp`, resolved to 23.1.0 -- Homebrew's
+# current stable, a very recent LLVM line.
+#
+# ROUND 6, `pinned-libomp`, tests the leading fix candidate: an older, longer-soaked libomp build.
+# Homebrew's formula API serves only the current version, so getting an older one means pointing
+# `brew install` at an old commit's formula file directly (it resolves and fetches that exact bottle by
+# the SHA256 baked into the file) rather than a plain `brew install libomp@<version>`, which does not
+# exist for this formula. Runs the exact same test set as `serial`, so libomp's version is the only
+# variable between the two legs.
+#
 # workflow_dispatch only: it exists to be asked a question, and a scheduled probe nobody reads is the
 # thing this repo's own review criticised elsewhere.
 
@@ -102,6 +118,10 @@ jobs:
           - { mode: native-stack, runner: macos-15-intel }
           - { mode: lldb, runner: macos-latest }
           - { mode: env-mitigation, runner: macos-latest }
+          # ROUND 6: does an older, longer-soaked libomp avoid the crash? Runs the exact same test set as
+          # `serial` -- the leg that reproduced cleanly in every round so far -- so the only variable
+          # between this leg and `serial` above is which libomp got installed.
+          - { mode: pinned-libomp, runner: macos-latest }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -112,9 +132,24 @@ jobs:
         with:
           python-version: "3.12"
 
-      # LightGBM's macOS wheel links against libomp and will not import without it. Same step ci.yml runs.
+      # LightGBM's macOS wheel links against libomp and will not import without it. Same step ci.yml runs
+      # -- except for the `pinned-libomp` leg, which tests round 5b's finding: the crash is a fault
+      # INSIDE libomp itself (EXC_BAD_ACCESS in __kmp_suspend_initialize_thread, reached through
+      # LightGBM's Dataset construction), and both this probe and ci.yml install libomp unpinned, which
+      # resolved to 23.1.0 -- Homebrew's current stable, a very recent LLVM line. Homebrew's formula API
+      # serves only the current version, so there is no `libomp@<version>` the way there is for
+      # `python@3.12`; installing an older release means pointing `brew install` at an old commit's
+      # formula file directly, which resolves and fetches that exact bottle by the SHA256 baked into it.
+      # 22.1.8 (2026-06-16) is three months more soaked than 23.1.0 (2026-08-29) as of this dispatch.
       - name: Install the OpenMP runtime LightGBM needs
-        run: brew install libomp
+        run: |
+          if [ "$MODE" = "pinned-libomp" ]; then
+            brew install https://raw.githubusercontent.com/Homebrew/homebrew-core/ddbdc91ebe/Formula/lib/libomp.rb
+          else
+            brew install libomp
+          fi
+        env:
+          MODE: ${{ matrix.mode }}
 
       - name: Set up uv
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
@@ -168,7 +203,7 @@ jobs:
             done
             exit 0
           fi
-          if [ "$MODE" = "serial" ]; then
+          if [ "$MODE" = "serial" ] || [ "$MODE" = "pinned-libomp" ]; then
             DIST=""
           else
             DIST="-n auto --dist=loadgroup"
