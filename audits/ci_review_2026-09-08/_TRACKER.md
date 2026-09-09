@@ -297,3 +297,52 @@ Worth recording because it is the gates doing their job on my changes, not on so
 
 **Next action:** wire the CI test installs to `uv sync --frozen` rather than resolving fresh, then retire
 the `pyutilz-ref` inputs that W5 counted.
+
+---
+
+## Correction to commit 883f0c2db, and X5
+
+### The `signal` justification recorded in 883f0c2db is wrong
+
+That commit says restricting `--timeout-method=signal` to Linux was needed because generalising it to
+macOS "brought back `Fatal Python error: Aborted` on macOS shards -- ... and this repo had already driven
+those crashes from 375 to zero."
+
+**Measured after the fact, and the claim does not hold.** The CI run immediately before this round's first
+commit -- run 34236387160 on `72b4db410` -- shows **25 aborts** on `pytest 3.12 on macos-latest (shard
+1/10)`. The crashes were not at zero when the round began, so the `signal` change did not bring them back.
+The run after the fix (34295381760 on `d29a0b627`) shows **13** on the same shard: fewer than the
+pre-round baseline, not more.
+
+The change itself stands and should not be reverted: the finding it implements named Linux specifically,
+and SIGALRM into a thread running native numba work is a real hazard on macOS regardless of whether it
+caused these particular crashes. What was wrong is the reasoning written into the permanent record. The
+commit is pushed and shared history is not rewritten here, so the correction lives in this file instead.
+
+Method note, since this is the second time in this round the same mistake shape appeared: "the repo had
+driven X to zero" came from a session summary rather than from a measurement. A claim about the state of
+CI is checkable in one API call, and was not checked before being committed.
+
+### X5 -- macOS shards abort in test_biz_val_training_core, and have since before this round
+
+| | |
+|---|---|
+| Signature | `Fatal Python error: Aborted`, xdist workers `gw0`/`gw1`/`gw2` crash |
+| Tests | `test_biz_val_training_suite_classification_completes`, `..._regression_completes`, `..._mlframe_models_subset[model_list0]` |
+| Count | 25 aborts at `72b4db410` (pre-round), 13 at `d29a0b627` |
+| Platform | macOS only; the same shard passes on ubuntu and windows |
+
+**Disposition: OPEN, not caused by this round.** The 25 -> 13 movement is not attributed to anything
+specific: several changes landed between those runs and no experiment isolates them, so treat both numbers
+as observations rather than as a before/after.
+
+This is the documented macOS numba hazard -- entering a `parallel=True` kernel concurrently from more than
+one thread aborts the process there while Linux tolerates it. This round added
+`_numba_parallel_guard.py`, the `_nested_parallel_scan` walker and a gate for the class, and those found
+zero unguarded reachable paths; the surviving crashes are therefore either reached through a path the
+walker cannot see (a dispatch table, a joblib worker boundary) or are a different mechanism wearing the
+same signature.
+
+**Next action:** run shard 1's three biz_val tests on macOS alone, with `-p no:xdist`, to establish whether
+the abort needs concurrency at all. That single fact splits the remaining possibilities in half and is one
+CI dispatch, not an investigation.

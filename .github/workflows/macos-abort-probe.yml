@@ -1,0 +1,103 @@
+name: macOS abort probe
+
+# One experiment, not a suite. `pytest 3.12 on macos-latest (shard 1/10)` has been aborting for longer
+# than the 2026-09-08 review round -- 25 `Fatal Python error: Aborted` at 72b4db410, 13 at d29a0b627 --
+# always in the same three biz_val tests of the training core, and never on ubuntu or windows with the
+# same code. See audits/ci_review_2026-09-08/_TRACKER.md, X5.
+#
+# The documented cause of this signature in this repo is the numba hazard: entering a `parallel=True`
+# kernel concurrently from more than one thread aborts the process on macOS while Linux tolerates it.
+# The guard and the call-graph scanner added in that round report zero unguarded reachable paths, so
+# either the path is one the walker cannot see (a dispatch table, a joblib worker boundary) or the
+# signature has a different mechanism behind it.
+#
+# The question this answers, and the only one: does the abort need concurrency at all? The serial leg
+# runs the same three tests with xdist off and nothing else changed. If it aborts, concurrency is not the
+# mechanism and the whole guard/scanner line of inquiry is the wrong tree. If it passes, the mechanism is
+# concurrency and the next step is to find which kernel, not whether.
+#
+# workflow_dispatch only: it exists to be asked a question, and a scheduled probe nobody reads is the
+# thing this repo's own review criticised elsewhere.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Ref to probe (defaults to the branch this is dispatched on)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-abort-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: three biz_val tests on macOS (${{ matrix.mode }})
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      # The clone is the intended pyutilz source here, as in every other install site; only the lockfile
+      # job wants [tool.uv.sources]. See the note in ci.yml's test job.
+      UV_NO_SOURCES: "1"
+      PYTHONUNBUFFERED: "1"
+      MLFRAME_FAST: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        # serial is the experiment; xdist is the control, reproducing what the shard does today. Without
+        # the control a green serial leg proves nothing -- it could just mean the abort stopped happening.
+        mode: [serial, xdist]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # LightGBM's macOS wheel links against libomp and will not import without it. Same step ci.yml runs.
+      - name: Install the OpenMP runtime LightGBM needs
+        run: brew install libomp
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@71957762ddd99200a66e3312a8ef9293b4c5d939  # v1.4.0
+        with:
+          pyutilz-extras: "system,pandas,polars,database"
+          project-extras: ".[all,dev]"
+          pyutilz-ref: ec016b15e76e5582ba1a083c02b33029663c2296  # pragma: allowlist secret -- git commit SHA, not a secret
+
+      - name: Run the three aborting tests
+        env:
+          # Read as $MODE rather than spliced into the script text: this repo passes every matrix value
+          # through the environment so zizmor's template-injection audit has nothing to flag.
+          MODE: ${{ matrix.mode }}
+        run: |
+          # -p no:randomly for a reproducible order; --timeout-method=thread because macOS is where signal
+          # is unsafe. Everything else matches the shard that aborts.
+          if [ "$MODE" = "serial" ]; then
+            DIST=""
+          else
+            DIST="-n auto --dist=loadgroup"
+          fi
+          # shellcheck disable=SC2086
+          pytest tests/training/test_biz_val_training_core.py \
+            -m "not slow and not gpu and not multigpu" \
+            $DIST \
+            --no-cov \
+            -p no:randomly \
+            -p no:anyio \
+            --timeout=900 \
+            --timeout-method=thread \
+            --durations=200 \
+            -s
