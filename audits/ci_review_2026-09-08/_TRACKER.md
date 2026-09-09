@@ -477,3 +477,50 @@ trustworthy. One concrete cause is visible without explaining the whole discrepa
 `reachable_kernels` follows only `self.where[callee][:2]` -- two definitions of a name out of however many
 exist -- so the walk is incomplete by construction and its blind spot moves when files are added.
 **Next action:** drop the `[:2]` truncation, measure the scan cost without it, and only then trust a zero.
+
+### X5, round 4 results (partial): the native stack is clean on ARM64, Intel could not even install
+
+Probe run 34317667601.
+
+**`native-stack` on `macos-latest` (arm64): every check passes.** numpy, scipy, sklearn-with-OpenMP,
+numba serial, numba `parallel=True`, lightgbm, catboost, xgboost, torch, joblib-threading, and the
+combined import of all of them together -- all OK, no crash. **3 copies of libomp/libiomp are loaded into
+the one process at once**, and nothing crashes from that alone. This narrows the earlier hypothesis: a
+duplicate-OpenMP-runtime import is not, by itself, fatal on this runner. Whatever crashes the real test
+suite needs more than importing the stack -- concurrent load, a specific fit shape, or pytest/xdist's own
+process model.
+
+**`native-stack` on `macos-15-intel` (x86_64): failed before running anything.** `uv` could not build
+`llvmlite==0.49.0` from source -- no prebuilt wheel for this platform/version, and the runner has no LLVM
+for CMake's `find_package` to find. This is an installation gap in the probe, not a finding about the
+crash: the Intel leg never got far enough to test the hypothesis it was dispatched to test.
+
+**`serial` on `macos-15-intel`: did not run either.** Same installation failure -- `llvmlite==0.49.0`
+has no macOS x86_64 wheel at all (checked directly against PyPI's file listing: 0.49.0 and 0.48.0 both
+publish `macosx_..._arm64` wheels only, no `x86_64`, no `universal2`). This is not a probe misconfiguration
+to fix and retry: **the current numba/llvmlite pin cannot be installed on an Intel Mac at all**, so the
+architecture question this round asked has no answer through this route. Getting one would mean pinning
+numba/llvmlite down to the last release with an x86_64 wheel, which is a separate, real decision (an older
+numba across the whole test matrix) and not part of this probe.
+
+**`one-by-one` on `macos-latest`: decisive.** `--collect-only` succeeds (5 tests collected, no crash --
+rules out import/collection as the trigger). Then each of the three tests, in its own interpreter, with no
+sibling process at all: **all three crash**, every one with `Fatal Python error: Segmentation fault`,
+every one after `collected 1 item` (so inside the test body, not at collection). All three call
+`train_mlframe_models_suite(..., mlframe_models=["lgb"], ...)` with a small (400-row) real LightGBM fit.
+This is now a concrete, single-test repro rather than "the shard crashes somewhere."
+
+**`serial` and `xdist` on `macos-latest`: reproduce round 1 exactly** -- segfault with no xdist, 3
+segfaults + `OMP: Error #179: pthread_mutex_init failed` twice with it. Not a one-off: same signatures on
+a second, independent run.
+
+### X5, round 4 conclusion
+
+The architecture question is unanswered because the current numba pin cannot even install on Intel macOS
+-- not because Apple Silicon was cleared. What round 4 DID settle: the native stack survives import and
+basic use on ARM64 completely cleanly (11/11 libraries, 3 simultaneous libomp copies, no crash), so the
+crash is not "this environment cannot run this stack at all" -- it needs the specific path
+`train_mlframe_models_suite` takes with LightGBM. **Next action:** reproduce
+`test_biz_val_training_suite_classification_completes` locally or in a minimal script (the suite call plus
+its inputs, no pytest) with `faulthandler`/`lldb` attached, since the pytest traceback stops at
+`threading.py` frames -- a Python-level trace cannot see further into what is a native crash.
