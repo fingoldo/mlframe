@@ -24,6 +24,16 @@ name: macOS abort probe
 # ROUND 2, `one-by-one`, narrows within that file: each test id in its own interpreter, `--collect-only`
 # first, so a crash names itself and a crash BEFORE any test runs is distinguishable from one inside it.
 #
+# ROUND 5, `lldb` and `env-mitigation`, exist because round 4's one-by-one leg named a concrete repro:
+# each of the three tests segfaults ALONE, no sibling process, always after `collected 1 item` (inside
+# the test body). All three call train_mlframe_models_suite(..., mlframe_models=["lgb"], ...) on a small
+# real LightGBM fit. A Python-level traceback (faulthandler's, already collected) stops at threading.py
+# frames -- it cannot see into a native crash. `lldb` runs the same pytest invocation under Xcode's
+# debugger (already on the runner) and asks for every thread's native backtrace on crash. `env-mitigation`
+# tests the duplicate-OpenMP-runtime hypothesis directly, on the real failing test rather than in
+# isolation: KMP_DUPLICATE_LIB_OK (Intel's own escape hatch for exactly this failure shape), OMP_NUM_THREADS=1,
+# and NUMBA_NUM_THREADS=1, each alone and combined.
+#
 # ROUND 3, `native-stack`, exists because rounds 1 and 2 were both scoped too narrowly. Checking the other
 # failing macOS shards in run 34297709357 showed the crash is not about these three tests at all:
 #   shard 1  aborts               tests/training/test_biz_val_training_core.py
@@ -90,6 +100,8 @@ jobs:
           - { mode: native-stack, runner: macos-latest }
           - { mode: serial, runner: macos-15-intel }
           - { mode: native-stack, runner: macos-15-intel }
+          - { mode: lldb, runner: macos-latest }
+          - { mode: env-mitigation, runner: macos-latest }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -133,6 +145,10 @@ jobs:
           # is unsafe. Everything else matches the shard that aborts.
           if [ "$MODE" = "native-stack" ]; then
             bash scripts/macos_native_stack_probe.sh
+            exit 0
+          fi
+          if [ "$MODE" = "lldb" ] || [ "$MODE" = "env-mitigation" ]; then
+            bash scripts/macos_lgb_crash_repro.sh "$MODE"
             exit 0
           fi
           if [ "$MODE" = "one-by-one" ]; then
