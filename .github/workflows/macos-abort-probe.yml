@@ -144,7 +144,14 @@ jobs:
       - name: Install the OpenMP runtime LightGBM needs
         run: |
           if [ "$MODE" = "pinned-libomp" ]; then
-            brew install https://raw.githubusercontent.com/Homebrew/homebrew-core/ddbdc91ebe/Formula/lib/libomp.rb
+            # First attempt passed the raw.githubusercontent.com URL straight to `brew install` and it
+            # was rejected outright: "No available formula or cask with the name
+            # <URL, lowercased>" -- newer Homebrew does not accept a formula URL as an install target the
+            # way older docs describe. Downloading the file first and pointing `brew install` at the
+            # local path is the form that is still documented and supported.
+            curl -fsSL -o /tmp/libomp-22.1.8.rb \
+              https://raw.githubusercontent.com/Homebrew/homebrew-core/ddbdc91ebe/Formula/lib/libomp.rb
+            brew install /tmp/libomp-22.1.8.rb
           else
             brew install libomp
           fi
