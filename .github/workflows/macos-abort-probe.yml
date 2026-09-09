@@ -144,14 +144,17 @@ jobs:
       - name: Install the OpenMP runtime LightGBM needs
         run: |
           if [ "$MODE" = "pinned-libomp" ]; then
-            # First attempt passed the raw.githubusercontent.com URL straight to `brew install` and it
-            # was rejected outright: "No available formula or cask with the name
-            # <URL, lowercased>" -- newer Homebrew does not accept a formula URL as an install target the
-            # way older docs describe. Downloading the file first and pointing `brew install` at the
-            # local path is the form that is still documented and supported.
-            curl -fsSL -o /tmp/libomp-22.1.8.rb \
+            # Round 6 first attempt: `brew install <raw.githubusercontent.com URL>` -- rejected, newer
+            # Homebrew does not accept a formula URL as the install target.
+            # Round 7 attempt: download the .rb file locally, `brew install <local path>` -- also
+            # rejected: "Homebrew requires formulae to be in a tap." An untapped formula file, even
+            # local, is no longer installable at all -- it must live inside a tap directory.
+            # Fix: make a local tap (`brew tap-new`) and place the formula inside it, which is the
+            # documented way to install a formula version Homebrew's own API no longer serves.
+            brew tap-new local/libomp-pin
+            curl -fsSL -o "$(brew --repository local/libomp-pin)/Formula/libomp.rb" \
               https://raw.githubusercontent.com/Homebrew/homebrew-core/ddbdc91ebe/Formula/lib/libomp.rb
-            brew install /tmp/libomp-22.1.8.rb
+            brew install local/libomp-pin/libomp
           else
             brew install libomp
           fi
