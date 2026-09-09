@@ -524,3 +524,39 @@ crash is not "this environment cannot run this stack at all" -- it needs the spe
 `test_biz_val_training_suite_classification_completes` locally or in a minimal script (the suite call plus
 its inputs, no pytest) with `faulthandler`/`lldb` attached, since the pytest traceback stops at
 `threading.py` frames -- a Python-level trace cannot see further into what is a native crash.
+
+### X5, round 5 results
+
+**`lldb` (first attempt, dispatch 34318603163): a real defect in the probe, not a finding.** The captured
+trace showed only `dyld_start` -- lldb stops on every `exec` event, and `python -m pytest` re-execs
+through its console-script entry point before reaching the test, so `thread backtrace all` fired at that
+startup stop rather than at the crash. Fixed (commit 04e750f14): invoke python directly
+(`python -c "import pytest; sys.exit(pytest.main([...]))"`, one process, one exec) and `continue` past
+non-fatal stops. Not yet re-dispatched.
+
+**`env-mitigation` (first attempt): all five variants crashed identically.** `KMP_DUPLICATE_LIB_OK=TRUE`,
+`OMP_NUM_THREADS=1`, both together, and `NUMBA_NUM_THREADS=1` -- every one, same
+`Fatal Python error: Segmentation fault`, same exit 139. The leg reported as a job "success" only because
+each variant's failure was individually caught with `|| echo`; the job's own exit code does not reflect
+that every variant crashed. **Real finding underneath, though**: one of the traces, for the first time,
+showed a Python frame inside the crashing thread itself rather than only `threading.py` in background
+threads --
+
+    lightgbm/basic.py:2301 in __init_from_np2d
+    lightgbm/basic.py:2170 in _lazy_init
+    lightgbm/basic.py:3758 in __init__
+
+`__init_from_np2d` calls `_LIB.LGBM_DatasetCreateFromMat` via ctypes -- LightGBM's C++ entry point for
+building a `Dataset`, which OpenMP-parallelises its own histogram binning using LightGBM's OWN
+`num_threads` setting, not the process's `OMP_NUM_THREADS` env var. That is why the env-var mitigations
+could not have worked: none of them reach the parameter that actually controls this. And
+`src/mlframe/training/lgb_shim.py:561-563` explicitly sets `self.n_jobs = os.cpu_count()` before every
+fit (to skip LightGBM's slow core-count probe), so every LightGBM fit in this codebase is multi-threaded
+by construction, on every platform -- this is not incidental to the test, it is how the shim always
+behaves.
+
+**Round 5b, dispatched:** three checks against bare LightGBM, no mlframe involved at all, to settle
+whether `n_jobs > 1` on this exact library on this exact runner is sufficient by itself: a single fit at
+`n_jobs=1`, a single fit at `n_jobs=os.cpu_count()`, and 50 repeated fits at `n_jobs=os.cpu_count()`
+(single-fit runs would not settle instability -- round 1's serial leg died on the very first collected
+test, other legs ran further first, so the crash is not obviously 100%-reproducing on every call).

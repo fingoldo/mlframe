@@ -37,33 +37,63 @@ LLDB_EOF
 fi
 
 if [ "$MODE" = "env-mitigation" ]; then
-  # Tests the duplicate-OpenMP-runtime hypothesis directly rather than in isolation: numba's threading
-  # layer, LightGBM's own OpenMP, and anything sklearn pulls in can each initialise their own copy of
-  # libomp/libiomp in one process, and macOS's pthread_mutex_init failing (seen under xdist in earlier
-  # rounds) is that failure's textbook shape. Forcing everything to one thread, and telling Apple's
-  # dyld-level runtime to tolerate a duplicate rather than abort on it, isolates whether the crash is
-  # the multi-runtime interaction or something else entirely.
+  # Round 5's first pass tried OS-level OpenMP env vars (KMP_DUPLICATE_LIB_OK, OMP_NUM_THREADS,
+  # NUMBA_NUM_THREADS) against the full pytest suite call -- all five variants crashed identically,
+  # every one inside lightgbm/basic.py's __init_from_np2d, which calls LGBM_DatasetCreateFromMat, a
+  # C++ function that OpenMP-parallelises its own histogram binning using LightGBM's OWN num_threads
+  # setting, not the process's OMP_NUM_THREADS env var. And lgb_shim.py explicitly sets
+  # `self.n_jobs = os.cpu_count()` before fit specifically to skip LightGBM's slow core-count probe --
+  # so every LightGBM fit in this codebase runs multi-threaded by construction, on every platform, and
+  # the env vars this leg tried first could never have reached the thread count that matters.
   #
-  # Each variant is a separate process so a crash in one does not stop the sweep or explain away the
-  # next; `|| true` keeps that true even if `set -e` were added later.
-  echo "=== baseline (no mitigation, expected to crash) ==="
-  python -m pytest "$TEST_ID" --no-cov -p no:randomly -p no:anyio -s --timeout=300 --timeout-method=thread || echo "baseline: crashed as expected (exit $?)"
+  # This pass tests the parameter that actually controls it, isolated from the rest of the suite: a
+  # bare LightGBM fit (no mlframe) at n_jobs=1, then the real failing test with n_jobs forced to 1 via
+  # LGBM_FORCE_N_JOBS (read below) to see whether serialising just this one library's threads is
+  # sufficient, without touching numba/sklearn/joblib at all.
+  echo "=== bare LightGBM fit, n_jobs=1, no mlframe involved at all ==="
+  python -c "
+import numpy as np
+import lightgbm as lgb
+rng = np.random.default_rng(42)
+X = rng.random((400, 8)).astype(np.float64)
+y = (X[:, 0] > 0.5).astype(int)
+m = lgb.LGBMClassifier(n_estimators=50, n_jobs=1, verbose=-1)
+m.fit(X, y)
+print('bare lightgbm n_jobs=1: fit ok, pred sum =', int(m.predict(X).sum()))
+" && echo "bare-lgb-n_jobs=1: PASSED" || echo "bare-lgb-n_jobs=1: CRASHED (exit $?)"
 
-  echo "=== KMP_DUPLICATE_LIB_OK=TRUE (Intel's own escape hatch for exactly this class of crash) ==="
-  KMP_DUPLICATE_LIB_OK=TRUE python -m pytest "$TEST_ID" --no-cov -p no:randomly -p no:anyio -s --timeout=300 --timeout-method=thread \
-    && echo "KMP_DUPLICATE_LIB_OK=TRUE: PASSED" || echo "KMP_DUPLICATE_LIB_OK=TRUE: still crashed (exit $?)"
+  echo "=== bare LightGBM fit, n_jobs=os.cpu_count() (what lgb_shim.py actually sets) ==="
+  python -c "
+import os
+import numpy as np
+import lightgbm as lgb
+rng = np.random.default_rng(42)
+X = rng.random((400, 8)).astype(np.float64)
+y = (X[:, 0] > 0.5).astype(int)
+m = lgb.LGBMClassifier(n_estimators=50, n_jobs=os.cpu_count(), verbose=-1)
+m.fit(X, y)
+print('bare lightgbm n_jobs=cpu_count: fit ok, pred sum =', int(m.predict(X).sum()))
+" && echo "bare-lgb-n_jobs=cpu_count: PASSED" || echo "bare-lgb-n_jobs=cpu_count: CRASHED (exit $?)"
 
-  echo "=== OMP_NUM_THREADS=1 (removes OpenMP's own internal parallelism, not just duplication) ==="
-  OMP_NUM_THREADS=1 python -m pytest "$TEST_ID" --no-cov -p no:randomly -p no:anyio -s --timeout=300 --timeout-method=thread \
-    && echo "OMP_NUM_THREADS=1: PASSED" || echo "OMP_NUM_THREADS=1: still crashed (exit $?)"
-
-  echo "=== both together ==="
-  KMP_DUPLICATE_LIB_OK=TRUE OMP_NUM_THREADS=1 python -m pytest "$TEST_ID" --no-cov -p no:randomly -p no:anyio -s --timeout=300 --timeout-method=thread \
-    && echo "both: PASSED" || echo "both: still crashed (exit $?)"
-
-  echo "=== NUMBA_NUM_THREADS=1 (numba's own thread pool, independent of OMP_NUM_THREADS) ==="
-  NUMBA_NUM_THREADS=1 python -m pytest "$TEST_ID" --no-cov -p no:randomly -p no:anyio -s --timeout=300 --timeout-method=thread \
-    && echo "NUMBA_NUM_THREADS=1: PASSED" || echo "NUMBA_NUM_THREADS=1: still crashed (exit $?)"
+  echo "=== bare LightGBM fit, n_jobs=os.cpu_count(), 50 REPEATS (single-fit runs may just get lucky) ==="
+  # A single bare fit passing would not settle whether n_jobs alone is the trigger -- the real test
+  # crashes on some but not all invocations across CI history (round 1's serial leg died on the very
+  # first collected item; other legs ran further before crashing), so this needs enough tries to see a
+  # failure if the multi-threaded path is unstable rather than deterministic.
+  python -c "
+import os
+import numpy as np
+import lightgbm as lgb
+rng = np.random.default_rng(0)
+fails = 0
+for i in range(50):
+    X = rng.random((400, 8)).astype(np.float64)
+    y = (X[:, 0] > 0.5).astype(int)
+    m = lgb.LGBMClassifier(n_estimators=50, n_jobs=os.cpu_count(), verbose=-1)
+    m.fit(X, y)
+    m.predict(X)
+print(f'{50} repeated bare-lightgbm n_jobs=cpu_count fits completed with no crash')
+"  && echo "repeated-bare-lgb: PASSED (50/50, no crash)" || echo "repeated-bare-lgb: CRASHED (exit $?)"
 
   exit 0
 fi
