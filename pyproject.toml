@@ -343,7 +343,7 @@ viz = [
     "ipywidgets>=8.0",
     # Not imported directly; floors hvplot -> bokeh's transitive tornado resolution above the
     # patched version for GHSA-pw6j-qg29-8w7f.
-    "tornado>=6.5.7",
+    "tornado>=6.5.8",  # GHSA-wwv5-g3v4-889x / GHSA-8423-8fgw-73vq / CVE-2026-82397; open at 6.5.7
 ]
 
 # Experiment tracking.
@@ -354,7 +354,7 @@ mlflow = [
     # starlette, pulled via mlflow-skinny (PYSEC-2026-248/249).
     # Both patched releases require Python >=3.10, so on 3.9 these float only as far as 3.13.5 /
     # 0.49.3 and the advisories above stay OPEN there -- same tradeoff as pillow in [project.dependencies].
-    "aiohttp>=3.14.1; python_version >= '3.10'",
+    "aiohttp>=3.14.3; python_version >= '3.10'",  # PYSEC-2026-3545/3546/3547; measured open at 3.14.1
     "aiohttp>=3.13.5; python_version < '3.10'",
     "cryptography>=48.0.1,<49",  # mlflow itself caps cryptography<49
     "starlette>=1.3.1; python_version >= '3.10'",
@@ -364,7 +364,7 @@ mlflow = [
 # Database and storage backends.
 db = [
     "sqlalchemy>=2.0",
-    "psycopg2-binary>=2.9",
+    "psycopg2-binary>=2.9.12",
     "pymongo>=4.5",
     "duckdb>=0.9",
     "zstandard>=0.21",

@@ -7807,7 +7807,7 @@ viz = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiohttp", marker = "python_full_version >= '3.10' and extra == 'mlflow'", specifier = ">=3.14.1" },
+    { name = "aiohttp", marker = "python_full_version >= '3.10' and extra == 'mlflow'", specifier = ">=3.14.3" },
     { name = "aiohttp", marker = "python_full_version < '3.10' and extra == 'mlflow'", specifier = ">=3.13.5" },
     { name = "altair", marker = "extra == 'viz'", specifier = ">=5.0" },
     { name = "antropy", specifier = ">=0.1.4" },
@@ -7883,7 +7883,7 @@ requires-dist = [
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.3" },
     { name = "properscoring", marker = "extra == 'calibration'", specifier = ">=0.1" },
     { name = "psutil", specifier = ">=5.9" },
-    { name = "psycopg2-binary", marker = "extra == 'db'", specifier = ">=2.9" },
+    { name = "psycopg2-binary", marker = "extra == 'db'", specifier = ">=2.9.12" },
     { name = "pyarrow", marker = "python_full_version < '3.10'", specifier = ">=14.0.0" },
     { name = "pyarrow", marker = "python_full_version >= '3.10'", specifier = ">=25.0.0" },
     { name = "pycalib", marker = "extra == 'calibration'", specifier = ">=0.1.0.dev0" },
@@ -7922,7 +7922,7 @@ requires-dist = [
     { name = "starlette", marker = "python_full_version < '3.10' and extra == 'mlflow'", specifier = ">=0.49.3" },
     { name = "statsmodels", marker = "extra == 'stats'", specifier = ">=0.14" },
     { name = "torch", marker = "extra == 'neural'", specifier = ">=2.0" },
-    { name = "tornado", marker = "extra == 'viz'", specifier = ">=6.5.7" },
+    { name = "tornado", marker = "extra == 'viz'", specifier = ">=6.5.8" },
     { name = "tqdm", specifier = ">=4.65" },
     { name = "transformers", marker = "extra == 'neural'", specifier = ">=4.30" },
     { name = "umap-learn", marker = "extra == 'unsupervised'", specifier = ">=0.5" },
