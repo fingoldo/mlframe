@@ -38,6 +38,19 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
+def _configure_recurrent_params(*args, **kwargs):
+    """Thin forwarder to ``training.trainer._configure_recurrent_params``, imported at call time.
+
+    At module scope that import closed a cycle: ``trainer`` imports ``_trainer_train_and_evaluate``, which
+    imports ``_calib_oof_outputs``, which imports ``training.core`` -- whose ``__init__`` reaches this
+    module, back into a ``trainer`` still halfway through executing. Deferring it to call time breaks the
+    cycle while keeping the name a module attribute, which is what ``test_core_coverage`` patches.
+    """
+    from ..trainer import _configure_recurrent_params as _impl
+
+    return _impl(*args, **kwargs)
+
+
 def _coerce_to_numpy(arr):
     """Tolerate Series / polars Series / numpy / list / None at array boundaries."""
     if arr is None:
@@ -455,14 +468,6 @@ def train_recurrent_models(
         log_phase("PHASE 5: Recurrent Model Training")
 
     use_regression = TargetTypes.REGRESSION in target_by_type
-
-    # Imported here rather than at module scope to break an import cycle: `mlframe.training.trainer`
-    # imports `_trainer_train_and_evaluate`, which imports `_calib_oof_outputs`, which imports
-    # `training.core`, whose `__init__` reaches this module -- back into a `trainer` that is still
-    # halfway through executing. At module scope that made `import mlframe.training.trainer`, and the
-    # public `from mlframe.training import train_and_evaluate_model` with it, raise ImportError on a
-    # fresh interpreter. By call time `trainer` is fully initialised, so the name resolves.
-    from ..trainer import _configure_recurrent_params
 
     recurrent_params = _configure_recurrent_params(
         recurrent_models=recurrent_models,

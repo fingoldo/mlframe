@@ -311,7 +311,11 @@ jobs:
           # note above names as the likely cause of the repeated cap incidents. `signal` (SIGALRM, POSIX
           # only, hence the per-OS value) raises inside the worker instead and can preempt those native
           # calls that return to the interpreter.
-          TIMEOUT_METHOD: ${{ runner.os == 'Windows' && 'thread' || 'signal' }}
+          # Linux ONLY, not all of POSIX. The finding this implements named Linux specifically; extending
+          # it to macOS brought back the `Fatal Python error: Aborted` crashes that this repo had already
+          # driven to zero -- SIGALRM delivered into a thread doing native numba/multiprocessing work
+          # aborts the process there rather than raising. Windows has no SIGALRM at all.
+          TIMEOUT_METHOD: ${{ runner.os == 'Linux' && 'signal' || 'thread' }}
           JUNIT_XML: junit-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.group }}.xml
         run: |
           # --dist=loadgroup: plain `-n auto` defaults to `--dist=load`, which does NOT honor
@@ -628,7 +632,10 @@ jobs:
       deptry-install-command: |
         git clone https://github.com/fingoldo/pyutilz.git
         git -C pyutilz checkout ec016b15e76e5582ba1a083c02b33029663c2296  # see X_CICD_DEPENDENCIES-1 for why this is pinned -- narrowed code_audit scanners + the private-assertion-helper fix
-        uv pip install --system "./pyutilz[system,pandas,polars,database]" -e ".[all,dev]"
+        # UV_NO_SOURCES: [tool.uv.sources] points pyutilz at git while this line installs it from the
+        # clone above; uv refuses on conflicting URLs for one package. A reusable-workflow call cannot
+        # carry `env:`, so it goes on the command. Same reason as mypy-full.yml.
+        UV_NO_SOURCES=1 uv pip install --system "./pyutilz[system,pandas,polars,database]" -e ".[all,dev]"
       run-zizmor: true
 
   lint-advisory:
