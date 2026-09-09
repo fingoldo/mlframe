@@ -346,3 +346,134 @@ same signature.
 **Next action:** run shard 1's three biz_val tests on macOS alone, with `-p no:xdist`, to establish whether
 the abort needs concurrency at all. That single fact splits the remaining possibilities in half and is one
 CI dispatch, not an investigation.
+
+### X5, round 1 result: the crash does not need concurrency, and there are probably two of them
+
+Probe run 34297712463, two legs over the same three tests, nothing varied but xdist.
+
+| Leg | Result |
+|---|---|
+| serial (no xdist) | `Fatal Python error: Segmentation fault`, exit 139. **Zero** aborts, **zero** OpenMP errors. Dies immediately after `collected 5 items`, before the first test reports. |
+| xdist (control) | 3 segfaults, plus `OMP: Error #179: Function pthread_mutex_init failed` twice -- a line the serial leg never emits. |
+
+**This closes the question the round asked.** A single pytest process, no xdist, crashes the same way. So
+the hypothesis this round invested in -- concurrent entry into a `parallel=True` numba kernel from separate
+xdist workers -- does not explain the crash that matters. `_numba_parallel_guard.py`, the
+`_nested_parallel_scan` walker and their gate remain worth having: they close a real class, and the class
+is real regardless. They simply are not what is killing these shards, and the earlier framing that treated
+"macOS aborts" and "nested parallel entry" as the same subject was wrong.
+
+**It also suggests two distinct failures rather than one.** The segfault reproduces without concurrency;
+the OpenMP error appears only when several processes each bring up a runtime, which reads as resource
+exhaustion rather than as the same fault. Treating them as one cause is the mistake this round already
+made once.
+
+### X5, and the framing was too narrow again
+
+Checked which tests the OTHER failing macOS shards die on, in run 34297709357:
+
+| Shard | Signature | Tests |
+|---|---|---|
+| 1 | aborts | `test_biz_val_training_core.py` -- three training biz_val tests |
+| 2 | 2 segfaults, 0 aborts | `test_biz_val_weak_family_adversarial.py` -- feature selection |
+| 8 | 3 aborts + 3 segfaults | `test_composite_lazy_prebin_memory.py`, `test_composite_streaming_update.py` -- composite cache |
+
+**Unrelated modules, mixed signatures.** This is not three biz_val tests, and scoping the probe to one file
+was the same too-narrow framing as treating the crash as the nested-parallel class. The runner is
+`Image: macos-26-arm64` -- `macos-latest` is macOS 26 on Apple Silicon, and the whole native stack
+(numba/llvmlite, catboost, lightgbm against libomp, sklearn's OpenMP) is running there.
+
+So the subject is the platform, not any test. That is worth stating plainly because it changes what a fix
+would even look like: pinning a runner image, pinning a native dependency, or accepting macOS as
+non-blocking until the stack settles are all platform decisions, and none of them is findable by reading
+mlframe's own code.
+
+**Round 2, rewritten before dispatch:** the `one-by-one` leg keeps its value -- knowing whether the crash
+predates the first test still splits the possibilities -- but the next probe after it should not be about
+these tests at all. It should import the heavy native stack on macOS and run one trivial fit per library,
+with nothing of mlframe's involved, to find which library is unstable on ARM64. If none of them crashes
+alone, the subject is their combination, which is the classic duplicate-OpenMP-runtime problem and has a
+known shape.
+
+**Not fixed here, and not fixable in a commit:** whether mlframe blocks its own CI on a platform whose
+native stack is currently this unstable is the owner's call, not a defect to close. Recorded so the choice
+is made deliberately rather than by leaving two shards permanently red.
+
+### X5, round 4: test the architecture directly
+
+The comparison that looked available was not. On `72b4db410`, the run before this round, **nine of ten**
+macOS shards were cancelled and exactly one finished -- and it failed. So "1 red then, 6 red now" compares
+one completed shard against six; the honest statement is that **every macOS shard that has finished, in
+either run, is red**, while ubuntu and windows are clean on the same commit.
+
+That is still the strongest evidence available for a platform cause, and it does not depend on reading a
+single log: one codebase, three platforms, one of them failing across unrelated modules.
+
+`macos-latest` is now `macos-26-arm64`. The probe gains two legs on `macos-15-intel` -- the same serial
+run and the same native-stack sweep, on x86_64. The outcome is decisive either way:
+
+* Intel passes -> the subject is the Apple Silicon migration, and the remedy is a runner label, not a
+  change to mlframe.
+* Intel crashes too -> the architecture is exonerated and something else in the macOS environment is at
+  fault, which redirects the search rather than ending it.
+
+Each leg now prints `uname -m` and the CPU brand, so a result can never be attributed to the wrong
+architecture -- the mistake this entry was itself about.
+
+### X5, corrected again: "the platform is broken" was wrong, and the user said so
+
+The owner pushed back -- macOS had been nearly green the day before -- and the pushback was right. Job
+status is not test status. Looking inside the shards of run 34297709357:
+
+| Shard | Tests |
+|---|---|
+| macos 2 | **157 passed**, 1 failed |
+| macos 4 | **1352 passed**, 4 failed |
+| macos 9 | **396 passed**, 2 failed |
+| windows 7 | **4166 passed**, 3 failed |
+
+A job goes red on one crashed xdist worker regardless of how much passed around it. Calling this "полный
+отказ платформы" was wrong and alarmist: the failure is a handful of specific tests, not a platform.
+
+That is the fourth time in this round the same mistake shape appeared -- taking a number without checking
+what it counts. The others: "the repo drove aborts to zero" (from a summary, not a measurement), "1 red
+then vs 6 now" (comparing against a run whose other nine shards were cancelled), and "zero FAILED lines"
+(a grep artifact). The correction each time cost one command.
+
+### The nested-parallel gate found a live path, and disagrees with itself across machines
+
+`test_no_unguarded_nested_parallel` failed on Windows CI with a real finding:
+
+    _pairs_core.py::check_prospective_fe_pairs -> _build_shuffle_matrix
+      (_batch_mi_with_noise_gate_gpu -> batch_mi_with_noise_gate_cuda_resident -> _resident_y_all_device)
+
+Verified from the source: `check_prospective_fe_pairs` runs a thread pool, `_build_shuffle_matrix` is
+`@njit(parallel=True)`, and the call chain exists. **Fixed** -- `parallel_kernel_entry()` is now held
+around both `_build_shuffle_matrix` call sites in `batch_mi_noise_gate_gpu.py`, at the kernel rather than
+at the dispatcher so the serialisation covers the kernel call and not the surrounding GPU work.
+
+This also revives the hypothesis the previous entry declared dead. `test_concurrent_real_fits_no_exception_and_bounded_cache`
+-- a test explicitly about concurrent fits -- is among the crashing tests on macOS. The serial segfault
+found in probe round 1 is real and needs no concurrency, but it is not the only mechanism, and writing off
+the guard/scanner line was premature.
+
+**Open, and a defect in this round's own work.** Sharpened by one more data point: Windows CI reports the
+path, **Ubuntu CI does not**, and neither does this machine -- all three on the identical tree. So it is
+not "my machine versus CI"; it is platform-dependent inside the walk itself.
+
+A path-sorting explanation was proposed for that and then **measured and rejected**: `self.where[name]`
+comes from `sorted(root.rglob("*.py"))`, and sorting `WindowsPath` orders on backslashes while `PosixPath`
+orders on forward slashes -- but across all 153 names with more than two definitions, the first pair is
+identical under both orderings. So sort order is not the mechanism, and the cause of the platform
+difference is still unknown.
+
+The `[:2]` truncation remains a real defect on its own terms -- the walk follows two definitions of a name
+out of however many exist, so it is incomplete by construction and its blind spot moves as files are
+added -- but it has not been shown to be what makes the verdict differ per platform.
+
+The scanner reports 0 unguarded paths on this machine and 1 on CI, from an identical tree. A blocking gate that answers differently on two machines cannot be
+trusted in either direction, and the "0 unguarded paths" this round reported as a result was never
+trustworthy. One concrete cause is visible without explaining the whole discrepancy:
+`reachable_kernels` follows only `self.where[callee][:2]` -- two definitions of a name out of however many
+exist -- so the walk is incomplete by construction and its blind spot moves when files are added.
+**Next action:** drop the `[:2]` truncation, measure the scan cost without it, and only then trust a zero.

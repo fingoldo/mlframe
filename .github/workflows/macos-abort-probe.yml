@@ -11,10 +11,33 @@ name: macOS abort probe
 # either the path is one the walker cannot see (a dispatch table, a joblib worker boundary) or the
 # signature has a different mechanism behind it.
 #
-# The question this answers, and the only one: does the abort need concurrency at all? The serial leg
-# runs the same three tests with xdist off and nothing else changed. If it aborts, concurrency is not the
-# mechanism and the whole guard/scanner line of inquiry is the wrong tree. If it passes, the mechanism is
-# concurrency and the next step is to find which kernel, not whether.
+# ROUND 1 (run 34297712463) asked: does the crash need concurrency at all? Answer: no.
+#   * serial leg -- `Fatal Python error: Segmentation fault`, exit 139, ZERO aborts, ZERO OpenMP errors.
+#     It dies immediately after `collected 5 items`, before the first test reports anything.
+#   * xdist leg  -- three segfaults PLUS `OMP: Error #179: Function pthread_mutex_init failed`, twice,
+#     which the serial leg never emits.
+# So there appear to be two failures, not one: a segfault that needs no concurrency, and an OpenMP
+# resource failure that only appears when several processes bring up their own runtimes. The
+# numba-parallel-guard hypothesis -- concurrent entry into a `parallel=True` kernel from separate xdist
+# workers -- does not explain the first, which is the one that matters.
+#
+# ROUND 2, `one-by-one`, narrows within that file: each test id in its own interpreter, `--collect-only`
+# first, so a crash names itself and a crash BEFORE any test runs is distinguishable from one inside it.
+#
+# ROUND 3, `native-stack`, exists because rounds 1 and 2 were both scoped too narrowly. Checking the other
+# failing macOS shards in run 34297709357 showed the crash is not about these three tests at all:
+#   shard 1  aborts               tests/training/test_biz_val_training_core.py
+#   shard 2  2 segfaults          tests/feature_selection/biz_val/test_biz_val_weak_family_adversarial.py
+#   shard 8  3 aborts, 3 segfaults tests/training/composite/cache/test_composite_*.py
+# Unrelated modules, mixed signatures, one platform: `Image: macos-26-arm64` -- macos-latest is macOS 26 on
+# Apple Silicon, and the whole native stack (numba/llvmlite, catboost, lightgbm on libomp, sklearn's
+# OpenMP) runs there.
+#
+# So round 3 asks a question about the platform rather than about mlframe: which native library is
+# unstable on this runner? Each one is imported and exercised in ITS OWN process, with no mlframe code
+# involved, so a crash names the library. If every library survives alone but the combined import crashes,
+# the subject is their interaction -- the duplicate-OpenMP-runtime problem, which has a known shape and a
+# known set of remedies.
 #
 # workflow_dispatch only: it exists to be asked a question, and a scheduled probe nobody reads is the
 # thing this repo's own review criticised elsewhere.
@@ -36,8 +59,8 @@ concurrency:
 
 jobs:
   probe:
-    name: three biz_val tests on macOS (${{ matrix.mode }})
-    runs-on: macos-latest
+    name: ${{ matrix.mode }} on ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     env:
       # The clone is the intended pyutilz source here, as in every other install site; only the lockfile
@@ -48,9 +71,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # serial is the experiment; xdist is the control, reproducing what the shard does today. Without
-        # the control a green serial leg proves nothing -- it could just mean the abort stopped happening.
-        mode: [serial, xdist]
+        # Explicit combinations rather than a cross-product: only two legs need to run on both
+        # architectures, and the rest would double the spend for nothing.
+        #
+        # ROUND 4 is the `macos-15-intel` pair. `macos-latest` became macOS 26 on Apple Silicon, and every
+        # macOS shard that finishes is red while ubuntu and windows are clean on the same commit. If the
+        # same code passes on the Intel image, the subject is the architecture -- and the remedy is pinning
+        # a runner label, not changing mlframe. If Intel crashes too, the architecture is exonerated and
+        # something else about the macOS environment is at fault.
+        #
+        # serial is round 1's experiment and xdist its control; both are kept so a re-dispatch reproduces
+        # the earlier result rather than trusting this file's summary of it. one-by-one is round 2,
+        # native-stack round 3.
+        include:
+          - { mode: serial, runner: macos-latest }
+          - { mode: xdist, runner: macos-latest }
+          - { mode: one-by-one, runner: macos-latest }
+          - { mode: native-stack, runner: macos-latest }
+          - { mode: serial, runner: macos-15-intel }
+          - { mode: native-stack, runner: macos-15-intel }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -77,6 +116,13 @@ jobs:
           project-extras: ".[all,dev]"
           pyutilz-ref: ec016b15e76e5582ba1a083c02b33029663c2296  # pragma: allowlist secret -- git commit SHA, not a secret
 
+      - name: Report the architecture this leg is on
+        run: |
+          echo "runner label: ${{ matrix.runner }}"
+          uname -m
+          sysctl -n machdep.cpu.brand_string 2>/dev/null || true
+          python -c "import platform; print('python', platform.python_version(), platform.machine())"
+
       - name: Run the three aborting tests
         env:
           # Read as $MODE rather than spliced into the script text: this repo passes every matrix value
@@ -85,6 +131,27 @@ jobs:
         run: |
           # -p no:randomly for a reproducible order; --timeout-method=thread because macOS is where signal
           # is unsafe. Everything else matches the shard that aborts.
+          if [ "$MODE" = "native-stack" ]; then
+            bash scripts/macos_native_stack_probe.sh
+            exit 0
+          fi
+          if [ "$MODE" = "one-by-one" ]; then
+            # Each id in its own interpreter. `|| true` per test on purpose: a segfault must not stop the
+            # loop, because the point is to learn which of the three crash, not just that one does.
+            # Collection alone runs first: if THAT segfaults, nothing about the tests themselves is
+            # implicated and the subject is import or session setup.
+            echo "=== collect-only ==="
+            pytest tests/training/test_biz_val_training_core.py --collect-only -q --no-cov -p no:randomly -p no:anyio || echo "EXIT=$? (collect-only)"
+            for t in test_biz_val_training_suite_classification_completes \
+                     test_biz_val_training_suite_regression_completes \
+                     "test_biz_val_training_suite_mlframe_models_subset[model_list0]"; do
+              echo "=== $t ==="
+              pytest "tests/training/test_biz_val_training_core.py::$t" \
+                --no-cov -p no:randomly -p no:anyio --timeout=900 --timeout-method=thread -s \
+                || echo "EXIT=$? for $t"
+            done
+            exit 0
+          fi
           if [ "$MODE" = "serial" ]; then
             DIST=""
           else
