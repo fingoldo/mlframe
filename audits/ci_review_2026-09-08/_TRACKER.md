@@ -653,3 +653,66 @@ The three round-6/7/8 Homebrew syntax fixes are committed (`dbe088f40`, `50b3708
 in the probe even though the pin itself didn't help -- they're the only working documented recipe for
 installing a specific historical Homebrew bottle version at all, reusable for any future version-pin
 experiment on this or another dependency.
+
+### X5, round 9 (dispatch `34361218930`): `n_jobs=1` mitigation shipped, REJECTED
+
+Owner's explicit instruction after the libomp-pin rejection was to go after the code-level mitigation next.
+Shipped (`120609841`): `lgb_default_n_jobs()` in `lgb_shim.py`, forcing LightGBM to `n_jobs=1` on darwin by
+default (env-var escape hatch `MLFRAME_LGB_MACOS_ALLOW_MULTITHREAD=1`), wired into every LightGBM
+construction site in the package (the dataset-reuse shim's own `fit()`, the central `LGB_GENERAL_PARAMS`
+config used by `train_mlframe_models_suite`, and the three explicit `n_jobs=-1` sites in
+`_trainer_configure.py`'s gated_outlier/bagging/composite estimators). Verified locally first: 5 new unit
+tests pinning the resolution logic, the full existing 18-test `lgb_shim` suite, and the full 3486-test
+`tests/training/composite/` suite all green; mypy clean.
+
+**Re-dispatched the probe to confirm on real CI -- the crash still reproduces with `n_jobs=1` confirmed in
+effect.** The `one-by-one` leg (each of the three known-crashing tests run alone, in its own pytest
+process) segfaulted on all three, individually, with `n_jobs=1` active:
+
+    === test_biz_val_training_suite_classification_completes ===
+    Fatal Python error: Segmentation fault
+    EXIT=139 for test_biz_val_training_suite_classification_completes
+    === test_biz_val_training_suite_regression_completes ===
+    OMP: Error #179: Function pthread_mutex_init failed:
+    EXIT=139 for test_biz_val_training_suite_regression_completes
+    === test_biz_val_training_suite_mlframe_models_subset[model_list0] ===
+    Fatal Python error: Segmentation fault
+    OMP: Error #179: Function pthread_mutex_init failed:
+    EXIT=139 for test_biz_val_training_suite_mlframe_models_subset[model_list0]
+
+The `serial` leg (macos-latest, arm64) crashed identically to every prior round, same
+`Fatal Python error: Segmentation fault` in the same test file. The `macos-15-intel` `serial` leg failed too,
+but for an unrelated, pre-existing reason (`llvmlite` 0.49.0 has no prebuilt wheel for Intel macOS and its
+sdist build fails -- nothing to do with this investigation).
+
+**New signal: `OMP: Error #179: Function pthread_mutex_init failed`.** This did not appear in any prior
+round's logs. It surfaced twice, both AFTER at least one prior segfault in the same `one-by-one` job (the
+regression test crashed second, after the classification test's segfault; the third test's log shows both
+a segfault AND this OMP error). This is consistent with process-level corruption carrying over from an
+earlier crash within the same job's shell loop -- each `pytest` invocation in `one-by-one` is a fresh
+process, so it is NOT simply "prior Python state in the same interpreter," but the three invocations run
+back-to-back on the same macOS runner and the mutex-init failure appearing only after a prior segfault (not
+on the very first invocation) suggests OS-level pthread/libomp resource exhaustion or corruption left behind
+by the crash, not a fresh independent fault.
+
+**Conclusion: `n_jobs=1` (LightGBM's own declared thread count) does not control the code path that
+crashes.** Round 5b's `bt all` showed the fault in `__kmp_suspend_initialize_thread` during
+`DatasetLoader::ConstructFromSampleData`'s `__kmpc_fork_call` -- LightGBM's Dataset/bin-construction sampling
+phase is a known case (documented in LightGBM's own issue tracker for other platforms) where thread count is
+NOT always fully gated by the `num_threads` config at every internal call site; some early sampling paths can
+still consult `omp_get_max_threads()` / the process-wide OpenMP default rather than the just-set config value.
+Sklearn-level `n_jobs=1` on the estimator is therefore an insufficient lever -- it constrains the trained
+booster's own parallelism, not necessarily the Dataset construction phase where round 5b's crash lives.
+
+**Next lead, more direct: set `OMP_NUM_THREADS=1` (and/or `KMP_DUPLICATE_LIB_OK=TRUE`) as an actual OS
+environment variable for the process, not just LightGBM's own `num_threads` param** -- this affects the
+libomp runtime's own defaults at every call site, including whichever sampling path ignores LightGBM's
+config. Round 5's `env-mitigation` leg tried `OMP_NUM_THREADS` before, but only against a bare, isolated
+LightGBM fit (which never crashed even without this env var) -- it was never tried against the actual
+failing full-suite test, so this combination is still untested. `lgb_default_n_jobs()`'s macOS branch should
+additionally set `os.environ.setdefault("OMP_NUM_THREADS", "1")` (setdefault so an explicit user override
+still wins) the first time it resolves on darwin, and the probe should re-dispatch once that's in place.
+
+The `n_jobs=1` code change itself is not reverted -- it is still a correct, harmless constraint on LightGBM's
+own declared parallelism (and may still matter in combination with the `OMP_NUM_THREADS` env var below) --
+but it is REJECTED as a complete fix on its own.

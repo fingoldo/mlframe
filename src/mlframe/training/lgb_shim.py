@@ -91,6 +91,16 @@ _MACOS_LGB_FORCE_SERIAL = _sys.platform == "darwin" and _os.environ.get("MLFRAME
     "on",
 )
 
+if _MACOS_LGB_FORCE_SERIAL:
+    # LightGBM's own ``num_threads``/``n_jobs`` config does not gate every internal call site
+    # (round 9, audits/ci_review_2026-09-08/_TRACKER.md, X5: the crash still reproduced with the
+    # estimator's own n_jobs=1). The real fix is the OS env var set at ``import mlframe`` time
+    # (mlframe/__init__.py's ``_autoconfigure_macos_omp_threads``, which runs before this module
+    # can even be reached -- Python always executes the parent package's __init__ first). These
+    # setdefault calls are pure belt-and-suspenders for the same two vars, harmless if already set.
+    _os.environ.setdefault("OMP_NUM_THREADS", "1")
+    _os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
 
 def lgb_default_n_jobs(requested: int | None) -> int:
     """Resolve the ``n_jobs`` LightGBM should actually run with.
