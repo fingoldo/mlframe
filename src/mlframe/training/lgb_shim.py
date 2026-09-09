@@ -67,11 +67,46 @@ process).
 from __future__ import annotations
 
 import logging
+import os as _os
+import sys as _sys
 from typing import Any
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+# macOS-only: LightGBM's Dataset construction opens an OpenMP parallel region
+# (via __kmpc_fork_call) whose thread-pool initialisation crashes inside
+# libomp.dylib itself (EXC_BAD_ACCESS in __kmp_suspend_initialize_thread) --
+# confirmed a fault in libomp, not in LightGBM's or mlframe's own code, and
+# confirmed NOT specific to any one libomp version (both 22.1.8 and 23.1.0
+# reproduce it; see audits/ci_review_2026-09-08/_TRACKER.md, X5). No known
+# libomp fix exists, so LightGBM is forced single-threaded on this platform
+# by default -- serial init never opens the parallel region that crashes.
+# Escape hatch for a host/libomp build that doesn't hit this fault.
+_MACOS_LGB_FORCE_SERIAL = _sys.platform == "darwin" and _os.environ.get("MLFRAME_LGB_MACOS_ALLOW_MULTITHREAD", "0").strip().lower() not in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
+
+def lgb_default_n_jobs(requested: int | None) -> int:
+    """Resolve the ``n_jobs`` LightGBM should actually run with.
+
+    Every LGBMClassifier/LGBMRegressor construction site in this package
+    (the dataset-reuse shim here, and the plain-lightgbm sites in
+    ``_helpers_training_configs.py`` / ``_trainer_configure.py``) must route
+    its ``n_jobs`` through this function rather than passing ``-1`` or
+    ``os.cpu_count()`` straight through, so the macOS libomp mitigation
+    above applies everywhere LightGBM is constructed, not just here.
+    """
+    if _MACOS_LGB_FORCE_SERIAL:
+        return 1
+    if requested is None or requested == -1:
+        return _os.cpu_count() or 1
+    return requested
 
 
 try:
@@ -559,8 +594,7 @@ class _DatasetReuseMixin:
         # is None; setting it here to os.cpu_count() short-circuits the
         # subprocess. Honour an explicit user choice if already set.
         if getattr(self, "n_jobs", None) is None:
-            import os as _os
-            self.n_jobs = _os.cpu_count() or 1
+            self.n_jobs = lgb_default_n_jobs(None)
         params: dict = self._process_params("fit")  # type: ignore[attr-defined]  # provided by the LGBMModel sklearn base this mixin is combined with
         # Same shape as xgb_shim --
         # pre-fix `or 100` silently rewrote n_estimators=0 to 100. lightgbm
