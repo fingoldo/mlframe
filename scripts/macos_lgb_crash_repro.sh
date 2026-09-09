@@ -75,6 +75,39 @@ m.fit(X, y)
 print('bare lightgbm n_jobs=cpu_count: fit ok, pred sum =', int(m.predict(X).sum()))
 " && echo "bare-lgb-n_jobs=cpu_count: PASSED" || echo "bare-lgb-n_jobs=cpu_count: CRASHED (exit $?)"
 
+  echo "=== numba parallel=True kernel warmed up, THEN a bare LightGBM fit, same process ==="
+  # Round 5b's first pass showed a bare LightGBM fit -- no mlframe, no numba -- survives 50/50 repeats at
+  # full thread count. So the crash needs more than LightGBM alone. train_mlframe_models_suite pulls in
+  # mlframe.training, which imports feature-selection/feature-engineering modules carrying hundreds of
+  # @njit(parallel=True) kernels at MODULE level (import time compiles nothing, but numba's threading
+  # layer and thread pool initialise on first parallel dispatch) -- this checks whether LightGBM's C++
+  # thread pool crashes specifically when it starts AFTER numba's own has already claimed OpenMP/TBB
+  # resources in the same process, isolated from the rest of the suite's data plumbing.
+  python -c "
+import numpy as np
+import numba
+from numba import njit, prange
+
+@njit(parallel=True)
+def warm(a):
+    t = 0.0
+    for i in prange(a.size):
+        t += a[i]
+    return t
+
+r = warm(np.ones(200000))
+print('numba parallel kernel warmed:', numba.__version__, r)
+
+import lightgbm as lgb
+rng = np.random.default_rng(42)
+X = rng.random((400, 8)).astype(np.float64)
+y = (X[:, 0] > 0.5).astype(int)
+import os
+m = lgb.LGBMClassifier(n_estimators=50, n_jobs=os.cpu_count(), verbose=-1)
+m.fit(X, y)
+print('lightgbm fit AFTER numba warmup: ok, pred sum =', int(m.predict(X).sum()))
+" && echo "numba-then-lightgbm: PASSED" || echo "numba-then-lightgbm: CRASHED (exit $?)"
+
   echo "=== bare LightGBM fit, n_jobs=os.cpu_count(), 50 REPEATS (single-fit runs may just get lucky) ==="
   # A single bare fit passing would not settle whether n_jobs alone is the trigger -- the real test
   # crashes on some but not all invocations across CI history (round 1's serial leg died on the very

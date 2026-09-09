@@ -560,3 +560,49 @@ whether `n_jobs > 1` on this exact library on this exact runner is sufficient by
 `n_jobs=1`, a single fit at `n_jobs=os.cpu_count()`, and 50 repeated fits at `n_jobs=os.cpu_count()`
 (single-fit runs would not settle instability -- round 1's serial leg died on the very first collected
 test, other legs ran further first, so the crash is not obviously 100%-reproducing on every call).
+
+### X5, ROOT CAUSE FOUND (round 5b, dispatch 34319381472)
+
+**`lldb`, with the fixed script, captured the actual crash this time**, not `dyld_start`:
+
+    thread #19/#20, stop reason = EXC_BAD_ACCESS (code=1, address=0x580)
+      frame #0: libomp.dylib`__kmp_suspend_initialize_thread + 32
+
+Full call chain from Python down (`bt all` on the main thread at the same stop):
+
+    Python (ctypes) -> LGBM_DatasetCreateFromMat -> LGBM_DatasetCreateFromMats
+      -> LightGBM::DatasetLoader::ConstructFromSampleData
+        -> __kmpc_fork_call / __kmp_fork_call  (LightGBM opens an OpenMP parallel region)
+          -> __kmp_invoke_task_func -> __kmp_invoke_microtask
+            -> BinMapper::FindBin -> FindBinWithZeroAsOneBin -> GreedyFindBin
+              [CRASH in libomp.dylib itself, initialising a suspended worker thread]
+
+This is **libomp's own thread-pool-initialisation code faulting**, not LightGBM's and not mlframe's. The
+`env-mitigation` results support the same conclusion from the other direction: a bare LightGBM fit at
+`n_jobs=os.cpu_count()`, 50 repeats, no mlframe, no numba -- 50/50 clean, no crash. So a single LightGBM
+fit under load is not sufficient by itself either; something about the process state (thread count
+already elevated, a specific `libomp` version, or genuine flakiness in that version's suspend path) is
+also load-bearing, and this repo's own `ci.yml` and this probe both install `libomp` via a bare
+`brew install libomp` with **no version pin**. The version pulled in this run:
+
+    Pouring libomp--23.1.0.arm64_tahoe.bottle.tar.gz
+
+23.1.0 is a very recent LLVM line (23.x was not yet a stable LLVM release series as of this repo's last
+audit), on `arm64_tahoe` (macOS 26). A version-pinned, older, longer-soaked `libomp` is now the leading,
+concrete, testable fix candidate -- not a code change to mlframe or to LightGBM's call site, a build
+dependency pin.
+
+**Next action, refined after checking:** Homebrew's formula API only serves the CURRENT stable version
+(23.1.0, same as what crashed) -- there is no `libomp@<version>` versioned formula the way there is for
+e.g. `python@3.12`. Pinning an older `libomp` means either (a) checking out an older commit of
+`homebrew-core`'s `libomp.rb` and building/installing from that specific revision, which is slow (a
+from-source build) but exact, or (b) installing `libomp` from conda-forge instead of Homebrew, since
+conda-forge keeps every past version installable by exact number and mlframe's CI already uses `uv`
+alongside real package managers elsewhere. (b) is very likely the faster path to a testable pin. This is
+an infrastructure decision (which package channel a CI dependency comes from) and is left for the owner
+rather than switched unilaterally; both `ci.yml`'s real leg and this probe currently share the same
+unpinned `brew install libomp` call site, so the fix (once chosen) is one line, applied twice. If the pinned version does not crash across enough
+repeats, this is closed as a `libomp` bug worked around by pinning, filed upstream if a matching LLVM
+issue is not already open. `KMP_DUPLICATE_LIB_OK` / `OMP_NUM_THREADS` env vars, tried earlier this round,
+were never going to help -- they gate LightGBM's own OpenMP entry point, not a fault inside libomp's
+internal thread-suspend bookkeeping.
