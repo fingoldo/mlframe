@@ -606,3 +606,50 @@ repeats, this is closed as a `libomp` bug worked around by pinning, filed upstre
 issue is not already open. `KMP_DUPLICATE_LIB_OK` / `OMP_NUM_THREADS` env vars, tried earlier this round,
 were never going to help -- they gate LightGBM's own OpenMP entry point, not a fault inside libomp's
 internal thread-suspend bookkeeping.
+
+### X5, round 6-8: `pinned-libomp` leg -- the Homebrew-pin hypothesis is REJECTED
+
+Owner's explicit instruction was to test the Homebrew pin first, before conda-forge. Getting a version-
+pinned `libomp` installed via Homebrew (which serves only the current-stable formula, no
+`libomp@<version>`) took three attempts, each rejected by a different, newer Homebrew restriction than
+the docs describe:
+
+- Round 6 (dispatch `34320517526`): `brew install <raw.githubusercontent.com URL to an old libomp.rb>`
+  -- rejected outright, `No available formula or cask with the name "<URL, lowercased>"`. Modern Homebrew
+  does not accept a formula URL as the install target.
+- Round 7 (dispatch `34322735114`): download the `.rb` file to a local path first, `brew install
+  <local path>` -- also rejected, `Homebrew requires formulae to be in a tap`. An untapped formula file
+  is not installable at all anymore, tapped or not, local or remote.
+- Round 8 (dispatch `34323769162`): `brew tap-new local/libomp-pin`, copy the formula file into that
+  tap's `Formula/` directory, `brew install local/libomp-pin/libomp` -- this is the form that actually
+  works. Log confirms: `Bottle Manifest libomp (22.1.8)` ... `Pouring libomp--22.1.8.arm64_tahoe.bottle.tar.gz`
+  ... `/opt/homebrew/Cellar/libomp/22.1.8: 11 files, 1.8MB`.
+
+**With libomp 22.1.8 (2026-06-16, three months more soaked than the 23.1.0 that crashed in round 5b)
+correctly installed, the SAME test still crashed with the SAME signature**:
+
+    Fatal Python error: Segmentation fault
+    Thread 0x0000000171977000 (most recent call first):
+      File ".../threading.py", line 359 in wait
+      File ".../threading.py", line 655
+
+collected 5 items, crashed at ~80s in (07:28:14 collect, 07:29:35 fault) -- same shape as round 5b's
+`EXC_BAD_ACCESS` in `__kmp_suspend_initialize_thread`, same test file
+(`test_biz_val_training_core.py`), same `serial`-equivalent single-worker mode.
+
+**Conclusion: the crash is NOT specific to libomp 23.1.0.** Pinning to an older, longer-soaked build does
+not help -- this rules out the leading fix candidate from round 5b's writeup above. Either the bug is
+present across a wider range of `libomp` versions than assumed (both 22.1.8 and 23.1.0 crash), or the
+true trigger is something else entirely that a version pin cannot touch (a genuine race in
+LightGBM's/OpenMP's thread-pool init that any recent `libomp` build hits under this exact process state).
+conda-forge is very unlikely to fare differently for the same reason -- it would still be shipping a
+comparably recent LLVM-derived `libomp` build, not a fundamentally different implementation. **conda-forge
+is downgraded from "leading candidate" to "not expected to help, low priority to still try."** Next real
+lead: a code-level mitigation (force `n_jobs=1` for LightGBM specifically on this platform, or find
+whatever process state -- thread count, prior OpenMP activity -- actually triggers the fault and avoid
+it), not a dependency-channel swap.
+
+The three round-6/7/8 Homebrew syntax fixes are committed (`dbe088f40`, `50b3708ac`) and are worth keeping
+in the probe even though the pin itself didn't help -- they're the only working documented recipe for
+installing a specific historical Homebrew bottle version at all, reusable for any future version-pin
+experiment on this or another dependency.
