@@ -264,6 +264,7 @@ def test_biz_val_training_suite_mlframe_models_subset(tmp_path, model_list):
 # ---------------------------------------------------------------------------
 
 
+@_MACOS_LGB_LIBOMP_CRASH_SKIP
 def test_biz_val_training_suite_metadata_dict_schema(tmp_path):
     """Suite must return ``metadata`` as a dict on success. Catches
     regressions in the suite-level metadata aggregation path."""
