@@ -482,7 +482,7 @@ dev = [
     "coverage>=7.2",
     "hypothesis>=6.80",
     "freezegun>=1.2",             # frozen-time fixtures in tests/perf and tests/training calibration suites
-    "ruff==0.16.1",               # pinned exact, matching .pre-commit-config.yaml's ruff-pre-commit rev AND
+    "ruff==0.16.6",               # pinned exact, matching .pre-commit-config.yaml's ruff-pre-commit rev AND
                                     # CI's `uvx ruff==0.16.1` (py-ci-shared's ruff-blocking.yml) -- an open range
                                     # here is exactly how the prior v0.8.6 pre-commit-vs-CI drift went unnoticed
                                     # (2026-07-18); this exact stale-pin-drift class recurred once already (this
@@ -500,7 +500,7 @@ dev = [
                                     # CPU tests silently skipped in CI, leaving dtw.py at a genuine 0% coverage despite the
                                     # test file existing and passing locally. No manylinux wheel for 3.9 at the pinned floor
                                     # (2.4.0) -- gated the same way black is, above; importorskip already handles the 3.9 leg.
-    "mypy==2.1.0 ; python_version >= '3.10'",  # pinned exact, matching mypy-full.yml's `mypy-version` input. Gated
+    "mypy==2.3.1 ; python_version >= '3.10'",  # pinned exact, matching mypy-full.yml's `mypy-version` input. Gated
                                   # like black and deptry: 2.1.0 requires >=3.10, and the type gate runs on the
                                   # representative interpreter, never on the 3.9 leg. A whole-project
                                   # zero-error gate on an open range drifts the same way the ruff pin above
@@ -509,7 +509,7 @@ dev = [
     # The five below are invoked by BLOCKING `language: system` hooks in .pre-commit-config.yaml and were
     # declared nowhere, so `pip install -e ".[all,dev]"` did not produce a working hook set. Pinned exact
     # for the same reason ruff and black are: each one gates.
-    "codespell==2.4.2",           # prose typos; `python -m codespell_lib`
+    "codespell==2.4.3",           # prose typos; `python -m codespell_lib`
     "deptry==0.25.1 ; python_version >= '3.10'",  # declared-vs-imported dependency drift; `python -m deptry`.
                                   # Gated like black above: 0.25.1 requires >=3.10, and no 3.9-compatible line is
                                   # worth carrying for a hook that runs on the representative interpreter anyway.
