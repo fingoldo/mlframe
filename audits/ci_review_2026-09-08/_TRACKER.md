@@ -829,3 +829,36 @@ no further lever available from application code.
 
 Surfaced to the owner rather than picking one unilaterally -- this crosses from "mlframe code fix" into
 "accept an upstream limitation and choose how to route around it," which is the owner's call.
+
+### X5, round 12: owner chose option 2 (skip) -- per-test scoping massively undercounted the real exposure
+
+Shipped (`4d82ba2b9`): `skipif` on the three originally-found tests, citing the upstream bug. Re-dispatched
+CI: `one-by-one` on `macos-latest` still failed, on a FOURTH test in the same file
+(`test_biz_val_training_suite_metadata_dict_schema`) that fits `mlframe_models=["lgb"]` and was simply
+missed when scoping the original three. Fixed (`5c1464b56`) the same way.
+
+Re-dispatched CI again: shard 1 (the real per-push matrix, not the diagnostic probe) failed AGAIN, this
+time on `test_suite_api_ergonomics.py::test_default_extractor_regression_matches_explicit` -- a
+COMPLETELY DIFFERENT FILE, also fitting `mlframe_models=["lgb"]`. A repo-wide grep at this point
+(`grep -rln 'mlframe_models=\[.*"lgb"'  tests/`) found the pattern in **39 test files**, not three or four
+-- enumerating them one CI round at a time does not converge, and each round costs a multi-hour macOS
+runner queue.
+
+**Owner's direction: stop scoping at the test level, intercept at the crash's own choke point instead.**
+Every LightGBM fit path -- sklearn's `.fit()`, raw `lgb.train()`, and mlframe's own `lgb_shim.py` -- passes
+through exactly one call before training starts: `Booster.__init__` calls `train_set.construct()`
+(verified by reading `lightgbm.basic.Booster.__init__`'s own source, not assumed). `tests/conftest.py`'s
+new `_install_macos_lgb_crash_skip()` (wired into the existing `pytest_configure` hook) monkeypatches
+`lightgbm.basic.Dataset.construct` on darwin to raise `pytest.skip(...)` instead of letting the real call
+through -- `pytest.skip()` raises `_pytest.outcomes.Skipped`, a `BaseException` (not `Exception`)
+specifically so a broad `except Exception:` anywhere in the intervening mlframe call frames cannot swallow
+it before it reaches pytest's runner. This covers every test that reaches real LightGBM training on macOS,
+present or future, without needing another round of "which test crashes next."
+
+Verified with a real fit, not just a synthetic call to `.construct()`: `test_macos_lgb_conftest_skip.py`
+simulates `sys.platform == "darwin"`, installs the patch, and asserts a genuine
+`LGBMClassifier(...).fit(X, y)` raises `Skipped` -- plus that the patch is a true no-op on linux/win32 (a
+real fit completes normally) and honours the `MLFRAME_TESTS_ALLOW_MACOS_LGB_FIT=1` opt-out. The four
+original per-test `skipif` markers are left in place (harmless, now redundant, but they document which
+concrete instances first motivated the fix). Re-dispatching CI to confirm the conftest-level fix actually
+reaches the remaining 35+ files without a fifth round of test-by-test whack-a-mole.
