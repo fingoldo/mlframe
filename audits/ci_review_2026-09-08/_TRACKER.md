@@ -716,3 +716,55 @@ still wins) the first time it resolves on darwin, and the probe should re-dispat
 The `n_jobs=1` code change itself is not reverted -- it is still a correct, harmless constraint on LightGBM's
 own declared parallelism (and may still matter in combination with the `OMP_NUM_THREADS` env var below) --
 but it is REJECTED as a complete fix on its own.
+
+### X5, round 10 (dispatch `34388816137`): `OMP_NUM_THREADS=1` env var shipped, ALSO REJECTED
+
+Shipped (`2ae6693a0`): `mlframe/__init__.py` now runs `_autoconfigure_macos_omp_threads()`
+unconditionally at `import mlframe` time (darwin-only), `os.environ.setdefault("OMP_NUM_THREADS", "1")` +
+`KMP_DUPLICATE_LIB_OK=TRUE`, deliberately placed at the very top of the package's `__init__.py` so it runs
+before any submodule -- including `lgb_shim.py` -- can be reached (Python always executes a parent
+package's `__init__` before a submodule import). Verified locally: 4 new unit tests, mypy clean, no
+regression in `test_cuda_autoconfig.py`/`test_colorama_reinit_patch.py`.
+
+**Re-dispatched, and the `lldb` leg's live backtrace shows the IDENTICAL fault to round 5b, byte-for-byte**:
+
+    * thread #19, stop reason = EXC_BAD_ACCESS (code=1, address=0x580)
+      frame #0: 0x0000000103f9366c libomp.dylib`__kmp_suspend_initialize_thread + 32
+    * thread #20, stop reason = EXC_BAD_ACCESS (code=1, address=0x580)
+      frame #0: 0x0000000103f9366c libomp.dylib`__kmp_suspend_initialize_thread + 32
+
+**Two threads hit the exact same instruction concurrently** -- if the OpenMP team had genuinely been
+constrained to 1 thread by either lever, only one thread could ever reach this call. Both `n_jobs=1`
+(estimator-level) and `OMP_NUM_THREADS=1` (process-level, confirmed set before any submodule import) were
+active for this dispatch, and the crash is unchanged. The `serial` leg on `macos-latest` crashed identically
+(same test file, same `Fatal Python error: Segmentation fault`), and `pinned-libomp` (which now also
+carries both mitigations) failed too.
+
+**Conclusion: neither of the two most direct thread-count levers actually reaches the code path that
+crashes.** This means the Dataset-construction sampling phase's thread-team size (round 5b's
+`ConstructFromSampleData` -> `__kmpc_fork_call` chain) is being determined by something neither
+LightGBM's own config nor the process `OMP_NUM_THREADS` env var controls at the point this call fires --
+plausibly a `#pragma omp parallel num_threads(N)` explicit clause inside LightGBM's own C++ that computes
+`N` from `omp_get_max_threads()` BEFORE either lever's effect is visible to it (e.g. if some earlier
+library in the same process -- sklearn's `_openmp_helpers`, numpy's BLAS backend, or numba's own thread
+pool -- has already called `omp_set_num_threads()` with a value greater than 1, which per the OpenMP spec
+overrides the env-var default for the rest of the process, and no amount of setting `OMP_NUM_THREADS`
+afterward can undo that already-programmatic call).
+
+**This closes out the two most direct code-level mitigations mlframe can apply without deeper native
+instrumentation.** Two options remain, both a level below what a Python-side config or env var can reach:
+
+1. Instrument WHICH library call, precisely, first sets a process-wide OpenMP thread count above 1 (e.g. an
+   `lldb` breakpoint on `omp_set_num_threads`/`__kmp_get_hier_str`, or `KMP_SETTINGS=1` env var to have
+   libomp itself log its resolved settings to stderr at first parallel-region entry) -- this would name the
+   actual culprit library/call site precisely enough to either avoid it or override it downstream, rather
+   than guessing at levers.
+2. Route LightGBM's Dataset construction through `n_estimators=0`-then-native-`train()`-style avoidance of
+   the specific sampling code path if one exists, or as a harder fallback, skip/xfail the three affected
+   tests on macOS CI specifically with an explicit upstream-bug citation (this would be a genuine
+   `xfail`-for-third-party-platform-limitation case per this repo's own fuzz/skip convention -- not a
+   band-aid over an mlframe bug -- but has not been proposed to the owner yet and should not be applied
+   without that discussion, since it reduces macOS test coverage rather than fixing the crash).
+
+Owner has not yet been asked which of these two to pursue -- surfaced directly rather than guessing a third
+blind mitigation attempt after two straight rejections.

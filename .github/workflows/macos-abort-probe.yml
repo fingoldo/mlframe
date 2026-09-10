@@ -63,7 +63,23 @@ name: macOS abort probe
 # `brew install` at an old commit's formula file directly (it resolves and fetches that exact bottle by
 # the SHA256 baked into the file) rather than a plain `brew install libomp@<version>`, which does not
 # exist for this formula. Runs the exact same test set as `serial`, so libomp's version is the only
-# variable between the two legs.
+# variable between the two legs. ROUND 8 (after two Homebrew-syntax fixes) found it installs cleanly but
+# does NOT avoid the crash -- ruled out as the fix.
+#
+# ROUND 9 shipped `n_jobs=1` for LightGBM on darwin (mlframe.training.lgb_shim.lgb_default_n_jobs) --
+# re-dispatching this SAME probe showed the crash reproduces identically even with n_jobs=1 confirmed
+# active. ROUND 10 shipped `OMP_NUM_THREADS=1` as a real OS env var, set at `import mlframe` time (before
+# any submodule, including lgb_shim, can even be reached) -- re-dispatching again showed the SAME crash,
+# and `lldb`'s backtrace caught TWO threads concurrently inside the identical
+# `__kmp_suspend_initialize_thread` frame, proving the OpenMP team was never actually constrained to 1 by
+# either lever. Something in the process sets a thread count above 1 before either lever's effect is
+# visible to LightGBM's Dataset-construction sampling phase.
+#
+# ROUND 11, `kmp-settings`, stops guessing at more levers and asks libomp directly what it resolved:
+# `KMP_SETTINGS=1` makes libomp's own runtime log every ICV (thread count, affinity, the works) to stderr
+# the first time ANY parallel region opens in the process -- this names whichever value actually won,
+# and (from the ordering of these lines relative to mlframe's own log output) roughly where in the import
+# chain it was decided, without needing an lldb breakpoint on omp_set_num_threads.
 #
 # workflow_dispatch only: it exists to be asked a question, and a scheduled probe nobody reads is the
 # thing this repo's own review criticised elsewhere.
@@ -122,6 +138,8 @@ jobs:
           # `serial` -- the leg that reproduced cleanly in every round so far -- so the only variable
           # between this leg and `serial` above is which libomp got installed.
           - { mode: pinned-libomp, runner: macos-latest }
+          # ROUND 11: instrument libomp itself rather than guess a third Python-side lever.
+          - { mode: kmp-settings, runner: macos-latest }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -188,6 +206,10 @@ jobs:
         run: |
           # -p no:randomly for a reproducible order; --timeout-method=thread because macOS is where signal
           # is unsafe. Everything else matches the shard that aborts.
+          if [ "$MODE" = "kmp-settings" ]; then
+            bash scripts/macos_lgb_kmp_settings_probe.sh
+            exit 0
+          fi
           if [ "$MODE" = "native-stack" ]; then
             bash scripts/macos_native_stack_probe.sh
             exit 0
