@@ -29,10 +29,12 @@ FLAG_EXEMPT: dict[str, str] = {
     "_numba_config_env_mutation_baseline.json": "--refresh-numba-config-env-baseline",
     # Refreshed by the batch entry point instead of a per-gate flag.
     "_stale_comment_baseline.json": "python tests/test_meta/regen_baselines.py",
-    # No automated route yet: both scanners baseline but neither exposes a refresh, so a drained entry has
-    # to be removed by hand. Tracked in audits/ci_review_2026-09-08/_TRACKER.md (L1.13).
-    "_code_audit_tests_baseline.json": "hand-edited; no refresh route yet",
-    "_uncalled_functions_baseline.json": "hand-edited; no refresh route yet",
+    # Shares the src-level scanner's flag rather than a file-derived one: `assert_no_new_code_audit_findings`
+    # gates both `_code_audit_baseline.json` (src/) and this file (tests/) through the SAME
+    # `--refresh-code-audit-baseline` option, so the file-name-derived `--refresh-code-audit-tests-baseline`
+    # this gate would otherwise look for was never going to exist. See audits/ci_review_2026-09-08/_TRACKER.md
+    # (L1.13b).
+    "_code_audit_tests_baseline.json": "--refresh-code-audit-baseline",
 }
 
 

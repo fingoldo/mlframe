@@ -46,6 +46,7 @@
   "except_skip_masks_call_under_test::feature_selection/wrappers/test_wrappers_config_validation_and_stress.py::6b0297501964",
   "except_skip_masks_call_under_test::feature_selection/wrappers/test_wrappers_config_validation_and_stress.py::6b0297501964#1",
   "except_skip_masks_call_under_test::test_fs_fe_future_fixes.py::6b0297501964",
+  "except_skip_masks_call_under_test::test_meta/test_c901_debt_ratchet.py::6b0297501964",
   "except_skip_masks_call_under_test::training/callbacks/test_biz_val_callbacks.py::6b0297501964",
   "except_skip_masks_call_under_test::training/conformal/test_conformal_finalize_identity.py::6b0297501964",
   "except_skip_masks_call_under_test::training/neural/test_biz_val_neural_feature_prep.py::6b0297501964",

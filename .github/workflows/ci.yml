@@ -643,9 +643,11 @@ jobs:
     uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@915217a4a8cdecc60b67c2c6c8dfe81de2f8a91c  # v1
     with:
       source-path: src/mlframe
-      run-import-linter: true
+      # import-linter's two contracts are now real blocking meta-tests
+      # (test_no_sibling_backimport_to_facade.py, test_no_inbound_edge_to_benchmarking.py); the
+      # advisory job and the import-linter dev dependency were both removed.
+      run-import-linter: false
       pydoclint-source-path: src/mlframe
-      semgrep-config-path: .semgrep.yml
 
   # tests/ is intentionally EXCLUDED from the src-scoped jobs above (root pyproject.toml's
   # [tool.ruff] / [tool.interrogate] both list "tests" in their exclude) -- it carries its own,

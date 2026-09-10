@@ -62,3 +62,7 @@ def pytest_addoption(parser):
     from py_ci_shared.readme_env_var_parity import register_refresh_option as register_readme_env_var_refresh_option
 
     register_readme_env_var_refresh_option(parser)  # --refresh-readme-env-var-baseline, shared with every other consumer
+
+    from py_ci_shared.uncalled_functions import register_refresh_option as register_uncalled_functions_refresh_option
+
+    register_uncalled_functions_refresh_option(parser)  # --refresh-uncalled-functions-baseline, shared with every other consumer

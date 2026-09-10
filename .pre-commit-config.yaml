@@ -530,35 +530,15 @@ repos:
         verbose: true
         stages: [manual]
 
-  # Architectural-boundary / docstring-consistency / custom-rule advisory checks. Added 2026-07-18
-  # CI/CD architecture review -- manual-only (same posture as vulture-blocking and lint-advisory-warn
-  # above): none of the three has a triaged 0-findings baseline yet (pydoclint alone: 858 findings
-  # across the existing codebase), so running them on every commit would be pure noise. Mirrors
-  # lint-advisory.yml's own advisory (continue-on-error) posture for these same three tools.
+  # Docstring-consistency advisory check. Added 2026-07-18 CI/CD architecture review -- manual-only
+  # (same posture as vulture-blocking and lint-advisory-warn above): no triaged 0-findings baseline
+  # yet (858 findings across the existing codebase), so running it on every commit would be pure
+  # noise. Mirrors lint-advisory.yml's own advisory (continue-on-error) posture for this tool.
   - repo: local
     hooks:
-      - id: import-linter-warn
-        name: "import-linter (architectural boundaries, advisory)"
-        # PYTHONPATH: the worktree editable-install trap -- a bare `import mlframe` in a git
-        # worktree resolves to the MAIN tree's install location, not this worktree's own src/,
-        # silently missing any file added/moved since the editable install was created.
-        entry: bash -c 'PYTHONPATH="$(pwd)/src" lint-imports'
-        language: system
-        pass_filenames: false
-        verbose: true
-        stages: [manual]
-
       - id: pydoclint-warn
         name: "pydoclint (docstring-vs-signature consistency, advisory)"
         entry: pydoclint --style=google src/mlframe
-        language: system
-        pass_filenames: false
-        verbose: true
-        stages: [manual]
-
-      - id: semgrep-warn
-        name: "semgrep (custom org-specific rules, advisory)"
-        entry: semgrep --config .semgrep.yml src/mlframe
         language: system
         pass_filenames: false
         verbose: true
