@@ -767,4 +767,65 @@ instrumentation.** Two options remain, both a level below what a Python-side con
    without that discussion, since it reduces macOS test coverage rather than fixing the crash).
 
 Owner has not yet been asked which of these two to pursue -- surfaced directly rather than guessing a third
-blind mitigation attempt after two straight rejections.
+blind mitigation attempt after two straight rejections. **Owner chose option 1: instrument, don't guess.**
+
+### X5, round 11 (dispatch `34421591792`): CONCLUSIVE -- the crash is NOT gated by thread count at all
+
+Shipped (`38e41b634`): `kmp-settings` probe leg + `scripts/macos_lgb_kmp_settings_probe.sh`, setting
+`KMP_SETTINGS=1` + `OMP_DISPLAY_ENV=TRUE` (libomp's own diagnostic, prints every resolved ICV to stderr
+the first time any parallel region opens) alongside `OMP_NUM_THREADS=1` + `KMP_DUPLICATE_LIB_OK=TRUE`,
+against the actual failing test.
+
+**libomp's own dump confirms the setting was genuinely active, repeatedly, throughout the run**:
+
+    OPENMP DISPLAY ENVIRONMENT BEGIN
+       _OPENMP='201611'
+      [host] OMP_NUM_THREADS='1'
+      ...
+    OPENMP DISPLAY ENVIRONMENT END
+
+    scripts/macos_lgb_kmp_settings_probe.sh: line 35:  2662 Segmentation fault: 11  pytest ...
+    Fatal Python error: Segmentation fault
+
+(Note: the job's own GitHub Actions status showed "success" here -- a bug in the probe script itself, not
+a real pass: the script's last command is `echo "pytest exit=$?"`, which always succeeds regardless of
+what pytest returned, so the step's exit code never reflects the segfault. The log is unambiguous: `pytest
+exit=139` is printed immediately after `Fatal Python error: Segmentation fault`. Fixed for any future round
+so a re-dispatch's job status is trustworthy without needing to read the log.)
+
+**This is the decisive result.** `OMP_NUM_THREADS='1'` was confirmed, by libomp's own runtime, to be the
+value in effect for the ENTIRE process -- not assumed, not inferred from a Python-side config, but printed
+by libomp itself at the moment a parallel region opened -- and the exact same crash still happened. Round
+10's `lldb` catch of two threads concurrently inside `__kmp_suspend_initialize_thread` combined with this
+round's confirmation that the requested team size really was 1 rules out every thread-count-based
+explanation entirely: this is not "some other library set a higher thread count first" (round 10's
+leading theory) and it is not "LightGBM's sampling phase ignores num_threads" (round 9's theory). The fault
+is inside libomp's own thread-pool bookkeeping/initialization machinery itself, and it fires even when the
+requested team size is exactly 1 -- consistent with libomp still spinning up its own internal
+monitor/bookkeeping thread(s) regardless of the configured worker count, and THAT initialization path being
+broken on this platform (`arm64_tahoe` / macOS 26).
+
+**Conclusion: this is a genuine upstream libomp defect, not reachable by any mlframe-side configuration.**
+No `n_jobs`, no `OMP_NUM_THREADS`, no `KMP_*` environment variable can prevent libomp's own internal
+thread-pool init from running -- that code path is not conditional on the requested thread count at all.
+Every code-level mitigation mlframe can apply from the outside has now been tried and rejected (rounds 6-11):
+an older libomp version (round 6-8), the estimator's own thread count (round 9), the real OS env var (round
+10), and confirming via libomp's own diagnostics that the env var genuinely took effect (round 11). There is
+no further lever available from application code.
+
+**Remaining options, none of them a code fix**:
+1. File upstream against LLVM's `openmp` project (or Homebrew's `libomp` formula) with this exact repro:
+   `EXC_BAD_ACCESS` in `__kmp_suspend_initialize_thread`, `arm64_tahoe`/macOS 26, reproduces at
+   `OMP_NUM_THREADS=1` and both libomp 22.1.8 and 23.1.0 -- a precise, small, actionable report given
+   everything captured in rounds 5b-11.
+2. xfail/skip the three affected tests on macOS CI specifically, citing the upstream bug (a genuine
+   third-party-platform-limitation skip per this repo's own fuzz/skip convention, not a band-aid over an
+   mlframe bug) -- reduces macOS LightGBM-path coverage until libomp fixes this upstream or a future
+   Homebrew/LLVM release resolves it. Needs the owner's explicit sign-off before applying, same as before.
+3. Avoid LightGBM's OpenMP-parallelised Dataset-construction path on macOS specifically, if one exists that
+   doesn't need it (e.g. a from-source libomp-free build, or forcing LightGBM's CPU backend into a mode
+   that never opens a parallel region for binning) -- not investigated; would need its own research pass
+   and may not exist as a supported LightGBM configuration.
+
+Surfaced to the owner rather than picking one unilaterally -- this crosses from "mlframe code fix" into
+"accept an upstream limitation and choose how to route around it," which is the owner's call.

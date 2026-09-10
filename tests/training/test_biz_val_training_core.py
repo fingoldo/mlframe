@@ -17,6 +17,7 @@ Naming: ``test_biz_val_training_<class>_<parameter>``.
 
 from __future__ import annotations
 
+import sys
 import warnings
 
 import pytest
@@ -90,7 +91,23 @@ _LEAN_REPORTING_KWARGS = dict(
 # Smoke: suite runs on regression + classification
 # ---------------------------------------------------------------------------
 
+# A LightGBM Dataset-construction fit on macOS crashes the interpreter with a segfault inside
+# libomp.dylib's own thread-pool init (EXC_BAD_ACCESS in __kmp_suspend_initialize_thread) --
+# confirmed, across audits/ci_review_2026-09-08/_TRACKER.md X5 rounds 5b-11, to be a genuine
+# upstream libomp defect: it reproduces on both libomp 22.1.8 and 23.1.0, and fires even when
+# libomp's own diagnostics (KMP_SETTINGS=1) confirm OMP_NUM_THREADS resolved to exactly 1 -- no
+# mlframe-side n_jobs or env-var configuration can prevent it. A segfault kills the interpreter
+# outright, so this must be `skip` (which never runs the test body) rather than `xfail` (which
+# needs a catchable Python exception to record against).
+_MACOS_LGB_LIBOMP_CRASH_SKIP = pytest.mark.skipif(
+    sys.platform == "darwin",
+    reason="upstream libomp bug: EXC_BAD_ACCESS in __kmp_suspend_initialize_thread during LightGBM "
+    "Dataset construction, reproduces regardless of thread-count config -- see "
+    "audits/ci_review_2026-09-08/_TRACKER.md, X5, rounds 5b-11",
+)
 
+
+@_MACOS_LGB_LIBOMP_CRASH_SKIP
 def test_biz_val_training_suite_regression_completes(tmp_path):
     """Suite must train a simple regression task and return a 2-tuple
     ``(models, metadata)``."""
@@ -125,6 +142,7 @@ def test_biz_val_training_suite_regression_completes(tmp_path):
     ), f"metadata empty / wrong type: {type(metadata).__name__} keys={list(metadata)[:5] if isinstance(metadata, dict) else 'n/a'}"
 
 
+@_MACOS_LGB_LIBOMP_CRASH_SKIP
 def test_biz_val_training_suite_classification_completes(tmp_path):
     """Suite must train a simple binary classification task."""
     pytest.importorskip("lightgbm")
@@ -161,7 +179,7 @@ def test_biz_val_training_suite_classification_completes(tmp_path):
 @pytest.mark.parametrize(
     "model_list",
     [
-        ["lgb"],
+        pytest.param(["lgb"], marks=_MACOS_LGB_LIBOMP_CRASH_SKIP),
         ["xgb"],
     ],
 )

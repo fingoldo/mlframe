@@ -33,4 +33,6 @@ print('bare lightgbm fit ok')
 
 echo "=== now the real failing test, same env, libomp's settings dump for the actual crash path ==="
 pytest "$TEST_ID" --no-cov -p no:randomly -p no:anyio --timeout=300 --timeout-method=thread -s 2>&1
-echo "pytest exit=$?"
+_pytest_exit=$?
+echo "pytest exit=$_pytest_exit"
+exit "$_pytest_exit"
