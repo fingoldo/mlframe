@@ -20,6 +20,10 @@ history.
   SHA in `pyproject.toml`. A new `lockfile` CI job runs `uv lock --check` and an actual `uv sync --frozen`,
   because a lock that resolves is not necessarily a lock that installs. Dependabot moves from the `pip`
   ecosystem to `uv` so a dependency bump and its lock arrive in one PR.
+- A `pinned-tool-versions` pre-commit hook fails when the ruff version CI runs (defined once in py-ci-shared,
+  v1.4.2), the `ruff==` pin, the `ruff-pre-commit` revs and the interpreter's ruff disagree. The pin and the revs
+  said 0.16.1 while the shared ruff-blocking workflow still ran 0.15.22; it now runs 0.16.1 too, so a local pass
+  and CI check the same rule set. `requirements-dev.txt` moves py-ci-shared to v1.4.2 for it.
 - `requirements-dev.txt` now carries contributor tooling that project metadata cannot legally hold, and no
   longer a bare `-e .[all,dev]` convenience line. Install with
   `pip install -e ".[all,dev]" -r requirements-dev.txt`.

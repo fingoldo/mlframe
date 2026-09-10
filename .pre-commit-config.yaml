@@ -85,6 +85,20 @@ repos:
         args: ['--baseline', '.secrets.baseline']
         exclude: '\.secrets\.baseline$'
 
+  # The ruff version exists in four places: CI's (py-ci-shared's tool_versions.RUFF_VERSION, read by the
+  # ruff-blocking.yml this repo calls), the ruff== pin in pyproject.toml, the ruff-pre-commit revs below,
+  # and the interpreter's own ruff. They drifted: the pin and the revs said 0.16.1 while CI still ran
+  # 0.15.22, with a comment claiming otherwise. This fails when any of them disagree, naming both versions.
+  - repo: local
+    hooks:
+      - id: pinned-tool-versions
+        name: "pinned tool versions (ruff) match py-ci-shared"
+        entry: python -m py_ci_shared.pinned_tool_versions
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
   # Ordering (2026-07-18 architecture review): these two blocking gates are the fastest AND most
   # likely to catch a plain typo (a syntax slip, an undefined name, a misspelled word in an assert
   # message) -- moved ahead of the multi-second-to-minute actionlint/shellcheck/black-filtered/

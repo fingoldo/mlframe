@@ -37,4 +37,7 @@
 # from e1453da onward. The baseline was generated against that version too, so pinning older made the
 # gate fail with `unknown check` instead of with a finding. Bump the baseline in the same commit as
 # any future bump here -- a new scanner upstream is a new set of findings downstream.
-py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@e1453da62700b29f9fca1490ea3d5dc3d2d1ac50
+# Bumped 2026-09-10 from e1453da to v1.4.2: the pinned-tool-versions pre-commit hook calls
+# py_ci_shared.pinned_tool_versions, which checks this repo's ruff pin, its ruff-pre-commit revs and the
+# interpreter's ruff against py_ci_shared.tool_versions.RUFF_VERSION -- the version CI actually runs.
+py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git@845334a2e8afba37881d8ff5b1df4811fa18ef87
