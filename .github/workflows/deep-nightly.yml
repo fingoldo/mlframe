@@ -77,7 +77,7 @@ jobs:
           python-version: "3.12"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
@@ -155,7 +155,7 @@ jobs:
       # install-pyutilz below runs `uv pip install`, so uv has to exist first. Missing this step is what
       # made the very first deep run die at exit 127 before a single test ran.
       - name: Set up uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           # 20 shards a night each resolving a several-hundred-package, multi-GB graph from cold is the
           # single largest avoidable spend in this workflow. setup-python's `cache: pip` used to sit here
@@ -231,7 +231,7 @@ jobs:
       #                       it, and adding two flags' percentages double-counts instead of unioning.
       - name: Upload coverage to Codecov (deep flag)
         if: success() || failure()
-        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@f50288e5a6f5b7f972efb60f948ce6184c8e9e70  # v1.3.4
+        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@7b47386c5a4c49cbc819e80cd851cd98f6de9a14  # v1.3.6
         with:
           files: ./coverage.xml
           flags: deep
