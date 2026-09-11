@@ -36,6 +36,22 @@ class TestBedShape:
         assert base & noise == set()
         assert base | noise == {str(column) for column in frame.columns}
 
+    def test_a_bed_keeps_the_size_it_declares(self) -> None:
+        """A bed named for its row count exists to BE that size, and a uniform grid must not resize it.
+
+        `linear_gaussian_lowdim_n200` is the small-sample case where a t-statistic beats a binned
+        mutual-information estimate. An adapter that overrode its 200 rows with a grid-wide default left the
+        registry hash intact -- the spec never changed -- while the leg measured a different bed entirely.
+        """
+        frame, _labels, truth = build_scm_bed("linear_gaussian_lowdim_n200", seed=0)
+        assert len(frame) == 200
+        assert truth["n_samples"] == 200
+
+    def test_an_explicit_size_still_overrides(self) -> None:
+        """The uniform grid stays available; it just stops being what happens by default."""
+        frame, _labels, truth = build_scm_bed("linear_gaussian_lowdim_n200", seed=0, n_samples=600)
+        assert len(frame) == 600 and truth["n_samples"] == 600
+
     def test_null_beds_are_excluded_by_default(self) -> None:
         """With no relevant column, 'did any arm beat all-features' has no meaning on a null bed."""
         default = {name for name, _ in scm_bed_scenarios()}

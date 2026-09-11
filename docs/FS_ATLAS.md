@@ -10,118 +10,179 @@ Three legs, one protocol, one roster of sixteen arms, `all-features` as the null
 |---|---|---|---|
 | real (`phase0_confirm`) | 7 OpenML beds | 2 240 | does selection pay on data nobody generated |
 | adversarial (`phase0_synth_control`) | 9 hand-written beds | 3 029 | is the real verdict about the data or the model |
-| SCM (`scm_beds`) | 8 generated beds | 2 560 | what a method RECOVERS when the answer key comes from the graph |
+| SCM (`scm_beds`) | 10 generated beds | 3 840 | what a method RECOVERS when the answer key comes from the graph |
 
 ## The first-order finding: the downstream model decides more than the selector does
 
-Across the two synthetic legs -- seventeen bed instances, three K settings each -- the pattern is not about
-which selector you choose:
-
 | downstream | beds where some arm beats the null | |
 |---|---|---|
-| logistic | 16 of 17 | fails only on the two parity beds a linear model cannot use anyway |
-| lightgbm | 7 of 17 | and on the real beds, none of 7 at any K |
+| logistic | 15 of 17 synthetic beds | fails only on the two parity beds a linear model cannot use anyway |
+| lightgbm | 5 of 17 synthetic beds | and on the real beds, none of 7 at any K |
 
-A linear model gains from selection almost everywhere. A gradient-boosted tree gains on some beds and not
-on others, and on real data it gained nowhere the design could see. If you are choosing where to spend
-effort, the downstream model is the bigger lever.
+On the eight SCM beds the split is starker still: with logistic, some arm beats the null on 7 of 8 at the
+tightest cut and 8 of 8 at the widest; with lightgbm, on 1 of 8 and then none at all. A linear model gains
+from selection almost everywhere. A gradient-boosted tree gains only where the bed is hard in a specific
+way, and on clean generated beds essentially never.
+
+If you are choosing where to spend effort, the downstream model is the bigger lever than the selector.
 
 ## Where a gradient-boosted tree does gain
 
-Sorting the seventeen bed instances by whether lightgbm gained separates them cleanly by *what makes the
-bed hard*, not by width alone:
+Sorting the bed instances by whether lightgbm gained separates them by *what makes the bed hard*, not by
+width:
 
 | bed | p | truth | lgbm gained | why, as far as these beds show |
 |---|---|---|---|---|
-| `probe_flood_p1000` | 1000 | 8 | yes (3/3 K) | overwhelming noise: 992 probes drown 8 signals |
+| `probe_flood_p1000` | 1000 | 8 | yes (3/3 K) | overwhelming noise: 992 probes against 8 signals |
 | `fdr_under_budget` | 200 | 20 | yes (3/3) | many weak signals under a budget |
 | `compensable_pair` | 33 | 2 | yes (3/3) | the pair compensates, so neither column is individually attractive |
 | `group_additive` | 50 | 10 | yes (3/3) | a group that only sums to something |
-| `xor3`, `xor3_plus_decoy` (SCM) | 33-34 | 3-4 | yes (3/3) | parity becomes learnable once the probes are removed |
-| `linear_k5_p50` | 50 | 5 | no (0/3) | a tree already ignores 45 clean probes at n=4000 |
+| `linear_k5_p50` | 50 | 5 | no (0/3) | a tree already ignores 45 clean probes |
 | `mb_spouse_collider` | 33 | 3 | no (0/3) | same |
 | `mediator_chain_with_proxy` | 33 | 1 | no (0/3) | same |
-| `latent_replicates_private_delta` | 26-33 | 3-6 | no (0/3) | collapsing the cluster destroys what drives the target |
-| `redundant_exact_k5` | 35 | 1 | mostly no (1/3) | a tree costs nothing for keeping four redundant copies |
+| `redundant_exact_k5` | 35 | 1 | no (0/3) | a tree pays nothing for keeping four redundant copies |
+| `xor3`, `xor3_plus_decoy` | 33-34 | 3-4 | no (0-1/3) | nothing hands it the operands: see the next section |
 
-The rule these beds support: **a tree gains when the signal is hard to see one column at a time, or when
-noise columns outnumber signal ones by two orders of magnitude. It does not gain by removing clean probes
-from a narrow bed** -- it was already ignoring them.
+The rule these beds support: **a tree gains when noise columns outnumber signal ones by two orders of
+magnitude, or when the signal is hard to see one column at a time. It does not gain by having clean probes
+removed from a narrow bed** -- it was already ignoring them.
 
-## Four separations clean enough to act on
+## Nobody in this roster solves parity
 
-**A subset wrapper finds parity; nothing else does.** On the SCM 3-way parity bed, `rfecv` recovers the
-answer key **perfectly and identically on all 20 seeds** (precision, recall, F1 = 1.000; stability index
-1.000). Every other arm is at chance: 0.067 to 0.217, with a stability index of ~0.00-0.05, meaning each
-seed hands back a different arbitrary triple. This is the theoretical prediction -- operands with zero
-marginal association are invisible to any ranking built one column at a time -- and it is the sharpest
-separation anywhere in this benchmark.
+On the three-way parity bed every arm recovers the answer key at chance: 0.05 to 0.22 against a base rate of
+0.09, with the unsupervised `variance-sort` control among the highest by luck. Not one of the thirteen
+scored arms does better than the arm that never looks at the target.
 
-**Marginal filters cannot reach a Markov blanket through a collider.** On `mb_spouse_collider`, every
-marginal filter recovers exactly two of the three blanket members: `univariate-mi` 0.700, `skb-f` and
-`select-fdr` 0.683, `skb-mi` and `knockoffs` 0.667. The missing one is always the spouse, which is
-independent of the target until the collider is conditioned on. `ace`, `boruta`, `boruta-shap`,
-`lars-order`, `rfecv` and `sfm-lgbm` all reach 1.000. Reach for a multivariate method when a variable's
-relevance is conditional.
+That is a negative result, and it is the honest one. An earlier version of this document reported the
+opposite -- a wrapper recovering the parity operands perfectly on all twenty seeds -- and that claim was an
+artefact of this benchmark's own harness: the arm tied every column, the cut resolved ties with a stable
+sort, a stable sort preserves input order, and the beds declared their informative columns first. Ties are
+now randomised per cell and the beds shuffle their columns; the recovery fell from 1.000 to 0.050, which is
+chance. **An arm's apparent success is worth auditing hardest when it is the result you were hoping for.**
+
+## Non-monotone structure: binned MI wins, linear statistics are at chance
+
+The joint-tail beds fire only where both columns sit in the SAME tail, upper or lower. That is a
+non-monotone dependence with no linear marginal component at all (correlation +0.01), and it splits the
+roster in two, cleanly, on both the t-copula bed and its Gaussian control:
+
+| arm | recovery of the 2-column answer key | downstream cost of missing it |
+|---|---|---|
+| `ace`, `boruta`, `boruta-shap`, `knockoffs`, `mrmr`, `sfm-lgbm`, `skb-mi`, `univariate-mi` | 1.000 | -0.006 |
+| `rfecv` | 0.125 | -0.191 |
+| `select-fdr`, `skb-f` | 0.100 | -0.201 |
+| `lars-order` | 0.075 | -0.203 |
+| `variance-sort` (control) | 0.050 | -0.212 |
+
+Missing this structure costs 0.20 AUC against `all-features`; finding it costs 0.006. That is a factor of
+thirty-four between the two halves of the table, and it is the largest separation in the suite that is not
+an artefact.
+
+The line falls between MONOTONE and NON-MONOTONE statistics, not between binned and continuous ones. An
+F-test, a LARS path and an FDR filter built on an F-test are all at chance, because a symmetric
+double-tail signal has no linear component for them to see. Every mutual-information arm recovers it
+perfectly -- which is what binning is FOR.
+
+This document previously predicted the opposite. The hypothesis was that an equal-mass binned estimator
+would be blind here because one histogram cell swallows a joint tail; measured, binned MI is the half of
+the roster that succeeds. The prediction was pre-registered, scored, and failed.
+
+The two copula families made no difference to any arm: the t bed and its Gaussian control separate the
+roster identically. So this bed pair demonstrates non-monotonicity, not tail dependence, and the tail
+claim remains unsupported by anything in this suite.
+
+## Three separations clean enough to act on
+
+**Marginal filters cannot reach a Markov blanket through a collider.** On `mb_spouse_collider` the
+multivariate arms -- `ace`, `boruta`, `boruta-shap`, `lars-order`, `sfm-lgbm` -- recover the blanket
+perfectly (1.000). Every marginal filter stalls at two of the three members: `univariate-mi` 0.700, `skb-f`
+and `select-fdr` 0.683, `skb-mi` and `knockoffs` 0.667. The one they miss is always the spouse, which is
+independent of the target until the collider is conditioned on. Reach for a multivariate method when a
+variable's relevance is conditional.
+
+`rfecv` is the cautionary row in that table at 0.567 -- below every marginal filter, on a bed where being
+multivariate is supposed to be the advantage.
 
 **Binned mutual information fails on compensable structure.** On `compensable_pair`, `skb-mi` recovers
-0.150 of a two-column truth and costs the downstream model 0.277 AUC -- worse than the variance-sort
-tripwire on the same bed. It is not a case of failing to find the columns; it actively selects worse ones.
+0.150 of a two-column truth and costs the downstream model 0.277 AUC -- worse than the tripwire control. It
+does not merely fail to find the columns; it actively selects worse ones.
 
-**MRMR buys purity with coverage, consistently.** `fdr_under_budget`: precision 0.898, recall 0.670, where
-`lars-order` takes 0.857 on both. `mb_spouse_collider`: precision 0.983, recall 0.667. That is the trade
-its design makes, and it is visible only because recovery is reported as two numbers rather than one.
+**MRMR buys purity with coverage, consistently.** `mb_spouse_collider`: precision 0.983 against recall
+0.667. `fdr_under_budget`: 0.898 against 0.670, where `lars-order` takes 0.857 on both. That is the trade
+its design makes, visible only because recovery is reported as two numbers rather than one.
 
 ## The pooled picture, and why "wins" overstates it
 
-On the SCM leg with logistic downstream, the hierarchical fit over the eight beds (normalized skill, so a
-fixed region of practical equivalence means the same thing on every bed):
+SCM leg, logistic downstream, hierarchical fit over the eight beds on normalized skill (so one region of
+practical equivalence means the same thing on every bed):
 
 | arm | pooled advantage | P(> 0) | P(inside the 1%-of-skill ROPE) | between-bed spread |
 |---|---|---|---|---|
-| `rfecv` | +0.0099 | 1.000 | 0.513 | 0.0031 |
-| `ace` | +0.0091 | 1.000 | 0.883 | 0.0015 |
-| `boruta-shap` | +0.0091 | 1.000 | 0.910 | 0.0013 |
+| `boruta-shap` | +0.0091 | 1.000 | 0.867 | 0.0017 |
+| `ace` | +0.0090 | 1.000 | 0.892 | 0.0015 |
 | `lars-order` | +0.0090 | 1.000 | 0.904 | 0.0015 |
-| `sfm-lgbm` | +0.0085 | 0.999 | 0.815 | 0.0040 |
+| `sfm-lgbm` | +0.0089 | 1.000 | 0.774 | 0.0037 |
+| `boruta` | +0.0036 | 0.798 | 0.916 | 0.0113 |
 | `univariate-mi` | -0.0125 | 0.280 | 0.290 | 0.0607 |
 | `select-fdr`, `skb-f` | -0.0147 | 0.267 | 0.262 | 0.0663 |
 | `mrmr` | -0.0166 | 0.255 | 0.231 | 0.0715 |
-| `knockoffs` | -0.0328 | 0.128 | 0.129 | 0.0798 |
+| `knockoffs` | -0.0321 | 0.129 | 0.137 | 0.0786 |
 | `skb-mi` | -0.0364 | 0.081 | 0.103 | 0.0698 |
+| `rfecv` | -0.0977 | 0.003 | 0.004 | 0.0777 |
 | `variance-sort` | -0.1923 | 0.003 | 0.001 | 0.1496 |
 
-Two things to read here, and the second is the more important. The top five are positive with a posterior
-probability of essentially one -- but four of them also sit inside the pre-registered region of practical
-equivalence with probability 0.8 or better, which says the gain is **real and small**. And the arms with
-negative pooled effects have a between-bed spread five to fifty times larger than the winners': they are
-not uniformly bad, they are bed-dependent, which is exactly what this atlas exists to map.
+Two readings, and the second matters more. The top four are positive with posterior probability
+indistinguishable from one -- and each also sits INSIDE the pre-registered region of practical equivalence
+with probability 0.77 to 0.92, which says the gain is **real and small**. Meanwhile the negative arms carry
+a between-bed spread five to fifty times the winners': they are not uniformly bad, they are bed-dependent,
+which is what an atlas exists to map.
+
+`rfecv` at -0.098 with P(> 0) = 0.003 is the corrected version of what this document once called its best
+result.
+
+## The pre-registration, scored
+
+Each bed declares before the run which arms it expects to defeat, and those predictions are now checked
+against what happened:
+
+| leg | predictions held |
+|---|---|
+| adversarial | 18 of 29 (62%) |
+| SCM | 23 of 42 (55%) |
+
+Roughly half, which is the useful answer. A suite whose predictions always held would be tuned to its
+author's beliefs rather than measuring anything; one whose predictions never held would not be measuring
+what it thinks it is. The misses are named in the report: `mrmr` paid on beds built to defeat it, and
+`boruta` gained 0.127 AUC on the thousand-column probe flood that named it.
 
 ## Cost
 
-Per cell, on the SCM leg, in model fits (the deterministic axis) with wall-clock as advisory:
+Per cell, SCM leg, model fits spent by the arm itself -- the downstream panel is paid identically by every
+arm and is excluded -- with wall-clock as advisory:
 
-| arm | fits | wall (s) |
+| arm | fits by the arm | wall (s) |
 |---|---|---|
-| `skb-f`, `lars-order`, `select-fdr`, `mrmr`, `skb-mi` | 8 (i.e. the panel alone; the selector itself is free) | 0.005-2.1 |
-| `ace` | 17 | 7.7 |
-| `boruta` | 28 | 8.8 |
-| `rfecv` | 46 | 52 |
-| `boruta-shap` | 54 | 9.6 |
-| `shap-proxied` | 84 | 93 |
-| `knockoffs` | 7 | 86 |
+| `skb-f`, `lars-order`, `select-fdr`, `mrmr`, `skb-mi` | 0 (no model fit at all) | 0.005-2.1 |
+| `ace` | ~9 | 7.7 |
+| `boruta` | ~20 | 8.8 |
+| `rfecv` | ~38 | 52 |
+| `boruta-shap` | ~46 | 9.6 |
+| `shap-proxied` | ~76 | 93 |
 
-`rfecv` is the only arm that solved parity, and it costs roughly six times the fits and three thousand
-times the wall-clock of a univariate filter. On a bed where a filter suffices, that is a poor trade; on a
-bed with interaction structure, nothing cheaper worked at all.
+The four arms with a real pooled advantage span the whole cost range: `lars-order` fits no model at all and
+`ace` costs nine, while `rfecv` at thirty-eight fits and fifty seconds is the worst arm in the pooled table.
+On these beds, cost buys nothing.
 
 ## What this does NOT establish
 
 * **That selection does not pay on real data.** The real leg's minimum detectable effect at 20 seeds is
   0.013 AUC on the median contrast and 0.031 on the p90 one ([`BENCHMARK_POWER.md`](BENCHMARK_POWER.md)).
   Most gains measured on synthetic beds are smaller than that, so the real leg could not have seen them.
-* **That these counts generalise.** Seventeen hand-picked bed instances, mostly at one sample size, with
-  one downstream panel of two models. The separations in the section above are structural and are the part
-  most likely to transfer; the counts are not.
+* **That these counts generalise.** Seventeen hand-picked bed instances, mostly at one sample size, one
+  downstream panel of two models. The separations are structural and are the part most likely to transfer;
+  the counts are not.
 * **That the arms are configured optimally.** Each is driven bare with an explicit budget. A tuned RFECV or
-  a differently-parameterised MRMR would land elsewhere, and the pre-registration says so.
+  a differently parameterised MRMR would land elsewhere, and the pre-registration says so.
+* **Anything about tail dependence.** The copula beds separate the roster by monotonicity, and the t-copula
+  bed and its Gaussian control produce identical splits -- so nothing here distinguishes tail dependence from
+  any other non-monotone structure. A bed that isolates it is still missing.

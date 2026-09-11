@@ -286,6 +286,10 @@ def format_report(records: Sequence[Dict[str, Any]], models: Sequence[str] = PAN
         from ._pareto import pareto_table
 
         lines += pareto_table(records, models=models, k_label=k_labels[0])
+    from ._forecast import forecast_table
+
+    if k_labels:
+        lines += forecast_table(records, model=models[0] if models else "lightgbm", k_label=k_labels[0])
     from ._winners_curse import optimism_table
 
     lines += optimism_table(records, model=models[0] if models else "lightgbm")

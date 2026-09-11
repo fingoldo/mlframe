@@ -152,10 +152,37 @@ def test_redundancy_group_distinguishes_exact_from_noisy():
     assert private.rank == 2 and not private.exact
 
 
-@pytest.mark.parametrize("accessor,args", [("ceiling", ("auc",)), ("mi_reference", ())])
-def test_expensive_truth_is_lazy_and_not_computed_in_the_constructor(accessor, args):
-    """Statistical truth sits behind accessors declared now and implemented by the oracle changeset."""
-    truth = _truth()
-    assert truth._memo == {}
-    with pytest.raises(NotImplementedError):
-        getattr(truth, accessor)(*args)
+def test_expensive_truth_is_not_computed_in_the_constructor():
+    """Statistical truth sits behind accessors, so building a record stays cheap."""
+    assert _truth()._memo == {}
+
+
+def test_the_ceiling_refuses_a_record_that_carries_no_law():
+    """The oracle computes it from `true_prob`; without one there is nothing to compute it FROM.
+
+    This used to assert `NotImplementedError` -- the accessor was a declared stub. Now that the oracle
+    exists, the contract worth pinning is the refusal: a ceiling estimated from labels is a sample statistic
+    wearing the name of an achievable bound, and returning one would be worse than raising.
+    """
+    with pytest.raises(ValueError, match="no true_prob"):
+        _truth().ceiling("auc")
+
+
+def test_the_ceiling_is_computed_and_memoised_when_the_law_is_present():
+    """With a law attached the accessor answers, and answers once."""
+    probability = np.linspace(0.05, 0.95, 200)
+    truth = _truth(true_prob=probability)
+    ceiling = truth.ceiling("brier")
+    assert ceiling.value == pytest.approx(float(np.mean(probability * (1 - probability))))
+    assert truth.ceiling("brier") is ceiling
+    assert truth._memo
+
+
+def test_reference_mi_needs_the_columns_it_is_about():
+    """A truth record holds the law and the structure, not the data; the frame is passed in deliberately."""
+    truth = _truth(true_prob=np.linspace(0.1, 0.9, 100))
+    rng = np.random.default_rng(0)
+    columns = {"x1": rng.normal(size=100)}
+    labels = (rng.random(100) < 0.5).astype(int)
+    bundle = truth.mi_reference(columns, labels)
+    assert set(bundle) == {"x1"} and bundle["x1"].estimates

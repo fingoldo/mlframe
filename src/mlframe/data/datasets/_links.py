@@ -31,7 +31,7 @@ from mlframe.data.datasets.spec import GateSpec, LinkSpec, Prior, resolve_knob
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["gate_mask", "parity_term", "additive_score", "interaction_score", "link_score", "apply_heteroscedasticity"]
+__all__ = ["gate_mask", "parity_term", "tail_gate_term", "additive_score", "interaction_score", "link_score", "apply_heteroscedasticity"]
 
 
 def gate_mask(gate: GateSpec, columns: Mapping[str, np.ndarray]) -> np.ndarray:
@@ -90,18 +90,44 @@ def additive_score(coefficients: Mapping[str, float], columns: Mapping[str, np.n
     return score
 
 
+def tail_gate_term(operands: Sequence[np.ndarray], quantile: float) -> np.ndarray:
+    """Return 1 where every operand sits in the SAME tail -- all upper or all lower -- else 0.
+
+    Symmetric on purpose, and the first version of this was not. Firing only on the joint UPPER tail makes
+    each operand marginally informative: being high is necessary for the gate, so a column's own upper decile
+    carries a much elevated rate and a plain correlation finds it immediately (measured: +0.51). That bed
+    claimed to isolate joint-tail structure and instead handed every univariate filter a strong marginal
+    signal.
+
+    Requiring both tails cancels the marginal effect by construction -- being extreme in either direction is
+    equally uninformative on its own (measured: +0.01) -- so what remains is genuinely joint. It does NOT
+    make the columns invisible to a binned estimator: with ten equal-mass bins a column still carries about a
+    third of the gate's own mutual information, because the extreme bins are enriched even after the
+    directions cancel. Attenuated, not blind, and the bed is described that way.
+    """
+    upper = np.ones(operands[0].shape[0], dtype=bool)
+    lower = np.ones(operands[0].shape[0], dtype=bool)
+    for values in operands:
+        upper &= values >= float(np.quantile(values, quantile))
+        lower &= values <= float(np.quantile(values, 1.0 - quantile))
+    fires: np.ndarray = (upper | lower).astype(np.float64)
+    return fires
+
+
 def interaction_score(
     kind: str,
     interactions: Sequence[Sequence[str]],
     weights: Sequence[float],
     columns: Mapping[str, np.ndarray],
     n: int,
+    tail_quantile: float = 0.9,
 ) -> np.ndarray:
     """Return the contribution of the interaction terms under one link kind.
 
-    Under ``parity`` the term is the sign parity of its operands; under every other kind it is their
-    product. The distinction is deliberate and is the difference between a bed that tests synergy blindness
-    and one that only looks like it does.
+    Under ``parity`` the term is the sign parity of its operands; under ``tail_gate`` it fires only where
+    every operand is in its own upper tail; under every other kind it is their product. The distinctions are
+    deliberate and are the difference between a bed that tests synergy blindness, one that tests tail
+    blindness, and one that only looks like it does either.
     """
     score = np.zeros(n, dtype=np.float64)
     effective = list(weights) if weights else [1.0] * len(interactions)
@@ -111,7 +137,12 @@ def interaction_score(
             if name not in columns:
                 raise KeyError(f"interaction term references unknown column {name!r}")
             operands.append(columns[name])
-        contribution = parity_term(operands) if kind == "parity" else np.prod(np.vstack(operands), axis=0)
+        if kind == "parity":
+            contribution = parity_term(operands)
+        elif kind == "tail_gate":
+            contribution = tail_gate_term(operands, tail_quantile)
+        else:
+            contribution = np.prod(np.vstack(operands), axis=0)
         score = score + float(weight) * contribution
     return score
 
@@ -141,7 +172,7 @@ def link_score(
     """
     score = additive_score(link.coefficients, columns, n)
     if link.interactions:
-        score = score + interaction_score(link.kind, link.interactions, link.interaction_weights, columns, n)
+        score = score + interaction_score(link.kind, link.interactions, link.interaction_weights, columns, n, tail_quantile=link.tail_quantile)
     if link.kind == "polynomial":
         score = score + np.square(score) * 0.25
     if link.kind == "threshold":

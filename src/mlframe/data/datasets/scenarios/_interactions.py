@@ -18,16 +18,10 @@ distinguishable, and what a marginal method does is visible: it takes the decoy 
 
 from __future__ import annotations
 
-from typing import Tuple
-
+from mlframe.data.datasets.scenarios._common import probes
 from mlframe.data.datasets.spec import CeilingTarget, DatasetSpec, EdgeSpec, FeatureSpec, LinkSpec, TargetSpec
 
 __all__ = ["parity_spec", "parity_plus_decoy_spec"]
-
-
-def _probes(count: int) -> Tuple[FeatureSpec, ...]:
-    """Return independent probe columns."""
-    return tuple(FeatureSpec(name=f"n{i:03d}") for i in range(count))
 
 
 def parity_spec(order: int = 3, n_noise: int = 30, n_samples: int = 6000, ceiling: float = 0.85, seed: int = 0) -> DatasetSpec:
@@ -48,7 +42,7 @@ def parity_spec(order: int = 3, n_noise: int = 30, n_samples: int = 6000, ceilin
         name=f"xor{order}",
         n_samples=n_samples,
         root_seed=seed,
-        features=(*(FeatureSpec(name=name) for name in operands), *_probes(n_noise)),
+        features=(*(FeatureSpec(name=name) for name in operands), *probes(n_noise)),
         targets=(
             TargetSpec(
                 name="y",
@@ -74,7 +68,7 @@ def parity_plus_decoy_spec(order: int = 3, n_noise: int = 30, n_samples: int = 6
         name=f"xor{order}_plus_marginal_decoy",
         n_samples=n_samples,
         root_seed=seed,
-        features=(*(FeatureSpec(name=name) for name in operands), FeatureSpec(name="decoy"), *_probes(n_noise)),
+        features=(*(FeatureSpec(name=name) for name in operands), FeatureSpec(name="decoy"), *probes(n_noise)),
         targets=(
             TargetSpec(
                 name="y",

@@ -215,9 +215,13 @@ def run_cell(
         record["wall_time_s"] = round(wall_s, 3)
         record["process_time_s"] = round(proc_s, 3)
 
-        ranking = ranking_from_arm_result(arm, feature_names)
+        # Tie-breaking is seeded per cell rather than left to column order: an arm that ties every
+        # survivor would otherwise inherit the spec's column order, which on a generated bed is the
+        # answer key itself.
+        ranking = ranking_from_arm_result(arm, feature_names, tie_break_seed=spec.dataset_seed * 1000 + spec.cv_seed)
         record["score_kind"] = ranking.score_kind
         record["ranking_coverage"] = round(ranking.coverage, 4)
+        record["largest_tie_group"] = int(ranking.largest_tie_group)
         # The arm's own internal optimum, kept so the winner's-curse column can compare it against the
         # honest holdout. An arm that reports none records None: unknown is not zero optimism.
         selection_score = getattr(arm, "selection_score", None)
@@ -261,8 +265,17 @@ def run_cell(
         # rather than dropped, so an analysis can tell "not stored" from "nothing selected".
         record["selected"] = _selection_payload(selection_sets, spec.arm == NULL_ARM)
         record["truth_relevant"] = _declared_relevant(truth)
+        # The bed's pre-run prediction about which arms it defeats, carried into the results so the
+        # report can score the forecast without a second source that could disagree with the run.
+        record["expected_to_break"] = sorted(str(arm) for arm in (truth.get("expected_to_break") or ()))
         record["n_model_fits"] = total_fits if arm_fits_known else None
         record["n_model_fits_panel_only"] = not arm_fits_known
+        # Split, because the total is the same for every arm up to its own contribution: the downstream
+        # panel is paid identically by all of them, so a total makes a free filter and a costly one look
+        # alike (both read 8 on a two-model panel) and the cost axis stops discriminating.
+        own_fits = int(arm_fits) if arm_fits is not None else 0
+        record["n_model_fits_arm"] = own_fits if arm_fits_known else None
+        record["n_model_fits_panel"] = total_fits - own_fits
         record["status"] = "ok"
     except BaseException as exc:  # a crashed cell is data, not an absence -- record and continue
         record["status"] = classify_exception(exc)

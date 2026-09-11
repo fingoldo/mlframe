@@ -67,7 +67,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, cast
 
 import numpy as np
 
@@ -332,16 +332,23 @@ class GroundTruth:
             The computed :class:`Ceiling`, memoised per metric.
 
         Raises:
-            NotImplementedError: Always, for now. The oracle that computes it is a later changeset; the
-                accessor and its memo slot are declared here so that adding the implementation does not
-                change this class's shape or its callers.
+            ValueError: If the record carries no ``true_prob``, which means the data was not produced by
+                this package's generator and no law is known -- an estimate off the labels would be a
+                different quantity wearing the same name.
         """
-        raise NotImplementedError(
-            f"Bayes ceiling for metric={metric!r} is computed by the oracle changeset; "
-            "GroundTruth declares the accessor so callers and the memo slot are already in place"
-        )
+        key = f"ceiling::{metric}"
+        if key not in self._memo:
+            if self.true_prob is None:
+                raise ValueError(
+                    f"no true_prob on this ground truth, so the {metric!r} ceiling is unknown; a value estimated "
+                    "from the labels is a sample statistic, not the achievable ceiling"
+                )
+            from mlframe.data.datasets._oracle import exact_ceiling
 
-    def mi_reference(self) -> Dict[str, MIBundle]:
+            self._memo[key] = exact_ceiling(self.true_prob, metric=metric)
+        return cast(Ceiling, self._memo[key])
+
+    def mi_reference(self, columns: Dict[str, np.ndarray], labels: np.ndarray) -> Dict[str, MIBundle]:
         """Return the per-column reference mutual information (lazy; expensive; memoised).
 
         Deliberately NOT named ``true_mi``: binning a huge sample is a biased, variable estimate. The
@@ -350,13 +357,18 @@ class GroundTruth:
         estimators, and treats their spread as the error bar. The estimator family must be disjoint from
         every scored arm's MI backend.
 
-        Returns:
-            Column name to :class:`MIBundle`, memoised.
+        Args:
+            columns: Realised feature columns. Required, because a truth record holds the law and the
+                structure but not the data -- passing the frame here keeps it that way rather than making
+                every truth record carry a copy of its dataset.
+            labels: Realised labels.
 
-        Raises:
-            NotImplementedError: Always, for now - implemented by the oracle changeset.
+        Returns:
+            Column name to :class:`MIBundle`, memoised on the column set it was computed for.
         """
-        raise NotImplementedError(
-            "reference MI is computed by the oracle changeset; GroundTruth declares the accessor so the "
-            "estimator-disjointness assertion has a single place to live"
-        )
+        key = f"mi::{','.join(sorted(columns))}"
+        if key not in self._memo:
+            from mlframe.data.datasets._oracle import reference_mi
+
+            self._memo[key] = reference_mi(columns, labels, true_prob=self.true_prob)
+        return cast(Dict[str, MIBundle], self._memo[key])

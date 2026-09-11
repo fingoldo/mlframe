@@ -30,6 +30,7 @@ from ._interactions import parity_plus_decoy_spec, parity_spec
 from ._linear import linear_lowdim_spec, linear_spec
 from ._null import null_spec
 from ._redundant import exact_redundancy_spec, private_delta_spec
+from ._tails import gaussian_tail_control_spec, tail_dependence_spec
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +140,20 @@ SCENARIOS: Tuple[Scenario, ...] = (
         defaults={"order": 3},
         expected_to_break=("mrmr", "univariate-mi", "skb-f", "skb-mi", "boruta"),
         purpose="separates finding nothing from confidently finding the wrong thing",
+    ),
+    Scenario(
+        name="joint_tail_t4",
+        family="tails",
+        builder=tail_dependence_spec,
+        expected_to_break=("lars-order", "select-fdr", "skb-f"),
+        purpose="the signal fires only where both columns share a tail, so no linear marginal statistic sees it",
+    ),
+    Scenario(
+        name="joint_tail_gaussian_control",
+        family="tails",
+        builder=gaussian_tail_control_spec,
+        expected_to_break=("lars-order", "variance-sort", "skb-f"),
+        purpose="same correlation and gate, no tail dependence: isolates a tail failure from a gate failure",
     ),
     Scenario(
         name="mb_spouse_collider",

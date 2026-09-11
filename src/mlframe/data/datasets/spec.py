@@ -235,6 +235,24 @@ class FeatureSpec(_DatasetSubSpec):
         return self
 
 
+class CopulaSpec(_DatasetSubSpec):
+    """A dependence structure imposed on a group of columns, separate from their marginals.
+
+    Correlation and tail dependence are different properties and only a copula separates them. A Cholesky
+    factor -- the usual way to make correlated synthetic columns -- is a Gaussian copula, which has zero tail
+    dependence at every correlation below one: conditional on one column being extreme, the chance the other
+    is extreme too vanishes as the threshold moves out. Declaring the family explicitly makes that a choice
+    rather than an accident, and makes the alternative expressible.
+    """
+
+    columns: Tuple[str, ...] = Field(min_length=2)
+    family: Literal["gaussian", "t", "clayton"] = "gaussian"
+    rho: Knob = 0.7
+    df: Knob = 4.0
+    theta: Knob = 2.0
+    margin: Literal["normal", "uniform"] = "normal"
+
+
 class LatentSpec(_DatasetSubSpec):
     """An unobserved variable plus the observed reflections drawn from it.
 
@@ -277,13 +295,17 @@ class LinkSpec(_DatasetSubSpec):
     to a target ceiling rather than by choosing coefficients.
     """
 
-    kind: Literal["linear", "logistic", "parity", "threshold", "polynomial"] = "logistic"
+    kind: Literal["linear", "logistic", "parity", "threshold", "polynomial", "tail_gate"] = "logistic"
     coefficients: Dict[str, float] = Field(default_factory=dict)
     interactions: Tuple[Tuple[str, ...], ...] = ()
     interaction_weights: Tuple[float, ...] = ()
     intercept: float = 0.0
     scale: Knob = 1.0
     region: Optional[GateSpec] = None
+    # For ``kind="tail_gate"``: the per-column quantile every operand of a term must exceed for the term to
+    # fire. The signal then lives in the JOINT tail, which is where a Gaussian copula has none and an
+    # equal-mass binned estimator has one cell.
+    tail_quantile: float = Field(default=0.9, gt=0.0, lt=1.0)
 
     @model_validator(mode="after")
     def _check_interactions(self) -> "LinkSpec":
@@ -444,6 +466,7 @@ class DatasetSpec(_DatasetSubSpec):
     n_samples: int = Field(ge=1)
     root_seed: int = Field(default=0, ge=0)
     features: Tuple[FeatureSpec, ...] = ()
+    copulas: Tuple[CopulaSpec, ...] = ()
     latents: Tuple[LatentSpec, ...] = ()
     targets: Tuple[TargetSpec, ...] = ()
     edges: Tuple[EdgeSpec, ...] = ()

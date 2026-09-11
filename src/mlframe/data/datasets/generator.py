@@ -32,7 +32,7 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from mlframe.data.datasets._columns import draw_features
+from mlframe.data.datasets._columns import draw_features, standardize
 from mlframe.data.datasets._derived import derived_order, realize_derived
 from mlframe.data.datasets._latent import realize_latents
 from mlframe.data.datasets._links import apply_heteroscedasticity, link_score
@@ -83,6 +83,41 @@ def _assemble_frame(spec: DatasetSpec, columns: Dict[str, np.ndarray]) -> pd.Dat
     return pd.DataFrame(data, columns=list(spec.feature_names()))
 
 
+def _realize_copulas(spec: DatasetSpec, columns: Dict[str, np.ndarray], scales: Dict[str, float]) -> None:
+    """Overwrite each declared copula group's columns with jointly dependent draws, in place.
+
+    Runs after the marginal layer and before anything reads the columns: a copula decides the DEPENDENCE
+    among a group, and the group's own marginal draws are what it replaces. Margins are re-imposed here
+    rather than inherited, because the point of a copula is that dependence and margin are separable and a
+    bed that mixes them tests the margin while claiming to test the joint.
+    """
+    from mlframe.data.datasets._copula import sample_copula
+
+    for group in spec.copulas:
+        stream = stream_for(spec.root_seed, spec.name, "copula", ",".join(group.columns))
+        knobs = stream_for(spec.root_seed, spec.name, "copula_knobs", ",".join(group.columns))
+        uniforms = sample_copula(
+            stream,
+            int(spec.n_samples),
+            len(group.columns),
+            family=group.family,
+            rho=resolve_knob(group.rho, knobs),
+            df=resolve_knob(group.df, knobs),
+            theta=resolve_knob(group.theta, knobs),
+        )
+        for index, name in enumerate(group.columns):
+            column = uniforms[:, index]
+            if group.margin == "normal":
+                from scipy import stats
+
+                # Clipped away from the open interval's ends: an exact 0 or 1 uniform maps to an infinity,
+                # and one infinite cell would dominate every scale computed downstream.
+                column = np.asarray(stats.norm.ppf(np.clip(column, 1e-9, 1 - 1e-9)), dtype=np.float64)
+            scaled, scale = standardize(column)
+            columns[name] = scaled
+            scales[name] = scale
+
+
 def _variance_drivers(target: TargetSpec) -> Dict[str, float]:
     """Return the heteroscedasticity drivers a target declares, if any.
 
@@ -118,6 +153,9 @@ def generate(spec: DatasetSpec, target_name: Optional[str] = None) -> GeneratedD
 
     n = int(spec.n_samples)
     columns, scales = draw_features(spec.features, n, spec.root_seed, spec.name)
+    # Copula groups replace their members' independent draws before anything else reads them: the group's
+    # dependence structure is the declaration, and the marginal layer only supplied placeholders for it.
+    _realize_copulas(spec, columns, scales)
     latent_columns, factors, latent_scales, redundancy_groups = realize_latents(spec.latents, n, spec.root_seed, spec.name)
     columns.update(latent_columns)
     scales.update(latent_scales)
