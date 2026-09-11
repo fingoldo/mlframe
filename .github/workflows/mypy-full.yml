@@ -13,8 +13,9 @@ name: MyPy
 # per-repo choice, never a hardcoded default).
 
 on:
-  push:
-    branches: [master]
+  # TEMPORARY (audits/ci_review_2026-09-08/_TRACKER.md, X5): push trigger disabled while iterating
+  # on the macOS libomp/LightGBM crash fix -- ci.yml itself is macos-only for the same reason.
+  # Restore the push block once macOS is confirmed stable across a few consecutive pushes.
   pull_request:
     branches: [master]
   workflow_dispatch:
