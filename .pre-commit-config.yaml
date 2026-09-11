@@ -40,6 +40,17 @@ default_language_version:
   python: python3
 
 repos:
+  # First, ahead of every ruff hook below: the blocking ruff hooks are `language: system`, so they run whatever ruff this
+  # interpreter has. This fails when that ruff, the pyproject pin and the version py-ci-shared's CI workflows run disagree.
+  - repo: local
+    hooks:
+      - id: pinned-tool-versions
+        name: "pinned tool versions (ruff) match py-ci-shared"
+        entry: python -m py_ci_shared.pinned_tool_versions
+        language: system
+        pass_filenames: false
+        always_run: true
+
   # Standard pre-commit.com baseline -- absent until 2026-07-18's architecture review, near-zero
   # cost (well under a second combined) and catches a class of bug the rest of this file's
   # Python-specific tooling structurally can't: a committed merge-conflict marker, an
