@@ -7,6 +7,10 @@ orphaning that hookimpl -- pluggy's next ``check_pending()`` then raises ``Plugi
 and pytest aborts with an INTERNALERROR before a single test runs. ``tests/conftest.py``'s
 ``pytest_configure`` works around this by unregistering pytest-progress's hookimpls whenever the
 xdist plugin isn't registered.
+
+The crash happens while plugins are configured, before collection finishes, so collecting this file
+is enough to reach it. The probe used to be a throwaway test file written into this directory and
+deleted afterwards; under ``-n 4`` a directory scan running beside it met the file half-way.
 """
 
 from __future__ import annotations
@@ -24,20 +28,18 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_no_xdist_flag_does_not_crash_with_plugin_validation_error():
-    """A trivial run under ``-p no:xdist`` must collect and pass, not crash at collection."""
-    probe = Path(__file__).resolve().parent / "_probe_no_xdist_flag.py"
-    probe.write_text("def test_trivial():\n    assert True\n")
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "pytest", str(probe), "-p", "no:xdist", "--no-cov", "-q"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-    finally:
-        probe.unlink(missing_ok=True)
+    """Collecting under ``-p no:xdist`` must succeed, not crash at plugin validation."""
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", str(Path(__file__).resolve()), "-p", "no:xdist", "--no-cov"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        # Collecting even one file imports the whole conftest: 93 s measured on a loaded machine. The regression
+        # itself crashes at plugin validation and exits at once, so the timeout only has to catch a hang.
+        timeout=600,
+    )
     combined = result.stdout + result.stderr
     assert "PluginValidationError" not in combined, combined
     assert "INTERNALERROR" not in combined, combined
     assert result.returncode == 0, combined
+    assert "test_no_xdist_flag_does_not_crash_with_plugin_validation_error" in result.stdout, combined
